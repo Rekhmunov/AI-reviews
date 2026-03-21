@@ -416,7 +416,31 @@ async function loadProfile() {
   document.getElementById("profileCurrentPassword").value = "";
   document.getElementById("profileNewPassword").value = "";
   document.getElementById("profileNewPasswordRepeat").value = "";
+  setPasswordFieldsVisible(false);
   document.getElementById("profileInfo").textContent = "";
+}
+
+function setPasswordFieldsVisible(visible) {
+  const fields = document.getElementById("profilePasswordFields");
+  const toggleLink = document.getElementById("profilePasswordToggle");
+  if (!fields || !toggleLink) return;
+  if (visible) {
+    fields.classList.remove("hidden");
+    toggleLink.textContent = "Скрыть смену пароля";
+    return;
+  }
+  fields.classList.add("hidden");
+  toggleLink.textContent = "Изменить пароль";
+  document.getElementById("profileCurrentPassword").value = "";
+  document.getElementById("profileNewPassword").value = "";
+  document.getElementById("profileNewPasswordRepeat").value = "";
+}
+
+function togglePasswordFields(event) {
+  if (event) event.preventDefault();
+  const fields = document.getElementById("profilePasswordFields");
+  const isHidden = fields?.classList.contains("hidden") ?? true;
+  setPasswordFieldsVisible(isHidden);
 }
 
 async function saveProfile() {
@@ -452,6 +476,7 @@ document.addEventListener("DOMContentLoaded", () => {
     showSettingsTab("sources");
   }
   onSourceMarketplaceChange();
+  setPasswordFieldsVisible(false);
   document.getElementById("ruleCategory")?.addEventListener("change", syncRuleFormFromStore);
   document.getElementById("tplCategory")?.addEventListener("change", syncTemplateFormFromStore);
   loadReviews();

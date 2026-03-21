@@ -562,6 +562,20 @@ tbody tr:hover {
   display: inline-block;
 }
 
+.profile-password-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.profile-password-toggle:hover {
+  color: var(--primary-strong);
+  text-decoration: none;
+}
+
 @media (max-width: 900px) {
   .layout {
     grid-template-columns: 1fr;

@@ -230,6 +230,16 @@
             <input id="profileEmail" type="email" placeholder="Email" />
           </div>
           <div class="row">
+            <a
+              id="profilePasswordToggle"
+              class="profile-password-toggle"
+              href="#"
+              onclick="togglePasswordFields(event)"
+            >
+              Изменить пароль
+            </a>
+          </div>
+          <div id="profilePasswordFields" class="row hidden">
             <input id="profileCurrentPassword" type="password" placeholder="Текущий пароль" />
             <input id="profileNewPassword" type="password" placeholder="Новый пароль" />
             <input id="profileNewPasswordRepeat" type="password" placeholder="Повторите новый пароль" />
