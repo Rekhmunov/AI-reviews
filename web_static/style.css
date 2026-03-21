@@ -248,6 +248,10 @@ a:hover {
   gap: 14px;
 }
 
+.main > section.hidden {
+  display: none;
+}
+
 .panel {
   background: var(--surface);
   padding: 18px;
