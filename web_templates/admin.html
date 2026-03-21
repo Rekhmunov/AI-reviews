@@ -32,6 +32,15 @@
         <input id="brandName" type="text" size="30" placeholder="Название бренда (по умолчанию VarFabric)" />
       </div>
       <div class="row">
+        <h4 class="no-margin">Маршрутизация групп отзывов</h4>
+      </div>
+      <div class="row">
+        <table>
+          <thead><tr><th>Группа отзывов</th><th>Кто обрабатывает</th></tr></thead>
+          <tbody id="groupProcessorsTbody"></tbody>
+        </table>
+      </div>
+      <div class="row">
         <label><input id="useSyncStartDate" class="small-check" type="checkbox" /> Загружать отзывы с указанной даты</label>
         <input id="syncStartDate" type="date" />
       </div>

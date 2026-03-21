@@ -37,6 +37,12 @@ const detailKeyLabels = {
   marketplace: "маркетплейс",
 };
 const categoryLabels = {
+  positive: "Позитив",
+  product_dissatisfaction: "Недовольство товаром",
+  delivery_problems: "Проблемы при доставке",
+  wrong_size: "Неправильный размер",
+  tagged_reviews: "Отзывы с тегами",
+  textless_ratings: "Оценки без текста",
   negative_delivery: "Негатив: доставка",
   negative_product: "Негатив: товар",
   negative_other: "Негатив: прочее",
@@ -52,6 +58,18 @@ const conversationStatusLabels = {
   open: "открыт",
   waiting: "ожидает",
   closed: "закрыт",
+};
+const groupTitles = {
+  positive: "Позитив",
+  product_dissatisfaction: "Недовольство товаром",
+  delivery_problems: "Проблемы при доставке",
+  wrong_size: "Неправильный размер",
+  tagged_reviews: "Отзывы с тегами",
+  textless_ratings: "Оценки без текста",
+};
+const processorLabels = {
+  yandex: "Яндекс",
+  program: "Программа",
 };
 
 function labelFromMap(map, value) {
@@ -86,6 +104,27 @@ function buildRoleOptions(selectedRole) {
     .join("");
 }
 
+function renderGroupProcessors(modes) {
+  const tbody = document.getElementById("groupProcessorsTbody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+  const entries = Object.entries(groupTitles);
+  for (const [groupId, title] of entries) {
+    const selectedMode = String((modes || {})[groupId] || (groupId === "tagged_reviews" || groupId === "textless_ratings" ? "program" : "yandex"));
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${esc(title)}</td>
+      <td>
+        <select data-group-id="${esc(groupId)}" class="group-processor-select">
+          <option value="yandex" ${selectedMode === "yandex" ? "selected" : ""}>${esc(processorLabels.yandex)}</option>
+          <option value="program" ${selectedMode === "program" ? "selected" : ""}>${esc(processorLabels.program)}</option>
+        </select>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
 async function loadAiSettings() {
   const res = await fetch("/api/admin/ai-settings");
   const data = await res.json();
@@ -98,6 +137,7 @@ async function loadAiSettings() {
   document.getElementById("folderId").value = data.yandex_folder_id || "";
   document.getElementById("modelUri").value = data.yandex_model_uri || "";
   document.getElementById("brandName").value = data.brand_name || "VarFabric";
+  renderGroupProcessors(data.group_processors || {});
   document.getElementById("useSyncStartDate").checked = Boolean(data.use_sync_start_date);
   document.getElementById("syncStartDate").value = data.sync_start_date || "";
   syncDateToggle();
@@ -116,12 +156,21 @@ function syncDateToggle() {
 }
 
 async function saveAiSettings() {
+  const groupProcessors = {};
+  document.querySelectorAll(".group-processor-select").forEach((element) => {
+    const groupId = String(element.getAttribute("data-group-id") || "").trim();
+    const mode = String(element.value || "").trim().toLowerCase();
+    if (!groupId) return;
+    if (!["yandex", "program"].includes(mode)) return;
+    groupProcessors[groupId] = mode;
+  });
   const payload = {
     provider: document.getElementById("provider").value,
     yandex_api_key: document.getElementById("apiKey").value.trim() || null,
     yandex_folder_id: document.getElementById("folderId").value.trim() || null,
     yandex_model_uri: document.getElementById("modelUri").value.trim() || null,
     brand_name: document.getElementById("brandName").value.trim() || "VarFabric",
+    group_processors: groupProcessors,
     use_sync_start_date: Boolean(document.getElementById("useSyncStartDate").checked),
     sync_start_date: document.getElementById("syncStartDate").value || null,
   };

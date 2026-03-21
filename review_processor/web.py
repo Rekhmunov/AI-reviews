@@ -246,6 +246,7 @@ class AISettingsRequest(BaseModel):
     yandex_folder_id: str | None = None
     yandex_model_uri: str | None = None
     brand_name: str | None = Field(default=None, max_length=200)
+    group_processors: dict[str, str] | None = None
     use_sync_start_date: bool = False
     sync_start_date: str | None = None
 
@@ -1166,6 +1167,7 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
             yandex_folder_id=(payload.yandex_folder_id or "").strip() or None,
             yandex_model_uri=(payload.yandex_model_uri or "").strip() or None,
             brand_name=(payload.brand_name or "").strip() or "VarFabric",
+            group_processors=payload.group_processors,
             use_sync_start_date=bool(payload.use_sync_start_date),
             sync_start_date=sync_start_date,
         )

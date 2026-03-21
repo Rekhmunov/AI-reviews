@@ -37,6 +37,12 @@ const recommendationsState = {
 let syncInProgress = false;
 
 const categoryLabels = {
+  positive: "Позитив",
+  product_dissatisfaction: "Недовольство товаром",
+  delivery_problems: "Проблемы при доставке",
+  wrong_size: "Неправильный размер",
+  tagged_reviews: "Отзывы с тегами",
+  textless_ratings: "Оценки без текста",
   negative_delivery: "Негатив: доставка",
   negative_product: "Негатив: товар",
   negative_other: "Негатив: прочее",

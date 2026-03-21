@@ -493,6 +493,15 @@ class MockMarketplaceClient:
 
 
 class ReviewAutomationService:
+    GROUP_PROCESSING_DEFAULTS: dict[str, str] = {
+        "positive": "yandex",
+        "product_dissatisfaction": "yandex",
+        "delivery_problems": "yandex",
+        "wrong_size": "yandex",
+        "tagged_reviews": "program",
+        "textless_ratings": "program",
+    }
+
     def __init__(self, repository: ReviewRepository, processor: ReviewProcessor | None = None) -> None:
         self.repository = repository
         self.processor = processor or ReviewProcessor()
@@ -1222,6 +1231,15 @@ class ReviewAutomationService:
     @staticmethod
     def _resolve_template_group_id(*, category: str, review: ReviewInput, sentiment: str) -> str | None:
         normalized = category.strip().lower()
+        if normalized in {
+            "positive",
+            "product_dissatisfaction",
+            "delivery_problems",
+            "wrong_size",
+            "tagged_reviews",
+            "textless_ratings",
+        }:
+            return normalized
         text = (review.text or "").strip().lower()
         tags = ReviewAutomationService._extract_review_tags(review)
         has_text = bool(text)
@@ -1332,17 +1350,38 @@ class ReviewAutomationService:
         has_text = bool((review.text or "").strip())
         has_tags = bool(self._extract_review_tags(review))
         has_media = self._review_has_media(review)
+        group_processors = self._resolve_group_processors(settings)
 
         # Локально классифицируем только кейсы, которые можно определить гарантированно:
         # без текста (и отдельно без текста с тегами).
         if not has_text:
             if has_tags:
-                return "neutral_other"
-            return "neutral_other"
+                return "tagged_reviews"
+            return "textless_ratings"
 
         # Если есть текст или фото, категория должна приходить от Яндекс-модели.
         # При недоступности или некорректном ответе синхронизация отзыва считается ошибкой.
-        classified = self._classify_with_yandex(review, settings=settings, strict=True)
+        yandex_groups = [group_id for group_id, mode in group_processors.items() if mode == "yandex"]
+        program_groups = [group_id for group_id, mode in group_processors.items() if mode == "program"]
+        if not yandex_groups:
+            classified = self._classify_with_program_groups(
+                review=review,
+                processed=processed,
+                allowed_groups=program_groups,
+            )
+            if classified:
+                return classified
+            raise MarketplaceSyncError(
+                "classification",
+                "Не удалось классифицировать отзыв встроенными правилами программы.",
+                details={"scope": "classification", "has_media": has_media},
+            )
+        classified = self._classify_with_yandex(
+            review,
+            settings=settings,
+            strict=True,
+            allowed_groups=yandex_groups,
+        )
         if classified:
             return classified
         raise MarketplaceSyncError(
@@ -1352,21 +1391,36 @@ class ReviewAutomationService:
         )
 
     @staticmethod
-    def _normalize_category(text: str) -> str | None:
-        categories = {
-            "negative_delivery",
-            "negative_product",
-            "negative_other",
-            "positive_quality",
-            "positive_product",
-            "neutral_other",
+    def _normalize_category(text: str, *, allowed_groups: list[str] | None = None) -> str | None:
+        allowed = {str(item).strip().lower() for item in (allowed_groups or []) if str(item).strip()}
+        if not allowed:
+            allowed = {
+                "positive",
+                "product_dissatisfaction",
+                "delivery_problems",
+                "wrong_size",
+                "tagged_reviews",
+                "textless_ratings",
+            }
+        aliases = {
+            "negative_delivery": "delivery_problems",
+            "negative_product": "product_dissatisfaction",
+            "negative_other": "product_dissatisfaction",
+            "positive_quality": "positive",
+            "positive_product": "positive",
+            "neutral_other": "product_dissatisfaction",
         }
         cleaned = text.strip().lower().replace(" ", "_").replace("-", "_")
-        if cleaned in categories:
+        if cleaned in allowed:
             return cleaned
-        for category in categories:
-            if category in cleaned:
-                return category
+        if cleaned in aliases and aliases[cleaned] in allowed:
+            return aliases[cleaned]
+        for alias, mapped in aliases.items():
+            if alias in cleaned and mapped in allowed:
+                return mapped
+        for group_id in allowed:
+            if group_id in cleaned:
+                return group_id
         return None
 
     def _classify_with_yandex(
@@ -1375,6 +1429,7 @@ class ReviewAutomationService:
         *,
         settings: dict[str, object],
         strict: bool = False,
+        allowed_groups: list[str] | None = None,
     ) -> str | None:
         api_key = str(settings.get("yandex_api_key") or "")
         folder_id = str(settings.get("yandex_folder_id") or "")
@@ -1390,13 +1445,24 @@ class ReviewAutomationService:
         if not model_uri:
             model_uri = f"gpt://{folder_id}/yandexgpt-lite/latest"
 
+        allowed = [str(item).strip() for item in (allowed_groups or list(self.GROUP_PROCESSING_DEFAULTS.keys())) if str(item).strip()]
+        if not allowed:
+            if strict:
+                raise MarketplaceSyncError(
+                    "yandex",
+                    "Не заданы группы для Яндекс-классификатора.",
+                    details={"scope": "classification"},
+                )
+            return None
+
+        allowed_list = ", ".join(allowed)
+
         prompt = (
-            "Классифицируй отзыв строго одной категорией: "
-            "negative_delivery, negative_product, negative_other, positive_quality, "
-            "positive_product, neutral_other.\n"
+            "Классифицируй отзыв строго одной группой из списка: "
+            f"{allowed_list}.\n"
             f"Отзыв: {review.text}\n"
             f"Оценка: {review.rating if review.rating is not None else 'unknown'}\n"
-            "Ответ верни только названием категории."
+            "Ответ верни только id группы из списка, без комментариев."
         )
 
         body = {
@@ -1434,7 +1500,7 @@ class ReviewAutomationService:
                     message = first.get("message")
                     if isinstance(message, dict):
                         text = str(message.get("text") or "")
-        normalized = self._normalize_category(text)
+        normalized = self._normalize_category(text, allowed_groups=allowed)
         if normalized:
             return normalized
         if strict:
@@ -1444,6 +1510,48 @@ class ReviewAutomationService:
                 details={"scope": "classification", "raw_response": text[:120]},
             )
         return None
+
+    @classmethod
+    def _resolve_group_processors(cls, settings: dict[str, object]) -> dict[str, str]:
+        modes: dict[str, str] = dict(cls.GROUP_PROCESSING_DEFAULTS)
+        raw = settings.get("group_processors")
+        if isinstance(raw, Mapping):
+            for key, value in raw.items():
+                group_id = str(key or "").strip()
+                mode = str(value or "").strip().lower()
+                if not group_id:
+                    continue
+                if mode not in {"yandex", "program"}:
+                    continue
+                modes[group_id] = mode
+        return modes
+
+    def _classify_with_program_groups(
+        self,
+        *,
+        review: ReviewInput,
+        processed: object,
+        allowed_groups: list[str],
+    ) -> str | None:
+        allowed = {str(item).strip() for item in allowed_groups if str(item).strip()}
+        if not allowed:
+            return None
+        text = (review.text or "").lower()
+        size_words = ("размер", "маломер", "большемер", "size", "мерит")
+        delivery_words = ("доставк", "курьер", "пункт выдачи", "пвз")
+        sentiment = str(getattr(processed, "sentiment_label", "")).strip().lower()
+
+        if "wrong_size" in allowed and any(word in text for word in size_words):
+            return "wrong_size"
+        if "delivery_problems" in allowed and any(word in text for word in delivery_words):
+            return "delivery_problems"
+        if sentiment == "positive" and "positive" in allowed:
+            return "positive"
+        if "product_dissatisfaction" in allowed:
+            return "product_dissatisfaction"
+        if "positive" in allowed:
+            return "positive"
+        return next(iter(allowed), None)
 
     @staticmethod
     def _resolve_processing_mode(

@@ -60,15 +60,14 @@ class _PositiveDeliveryClient:
 
 def _fake_yandex_category(review: ReviewInput) -> str:
     text = (review.text or "").lower()
-    if any(word in text for word in ("ужас", "плох", "задерж", "опозд")):
-        if any(word in text for word in ("достав", "курьер", "пвз")):
-            return "negative_delivery"
-        return "negative_product"
-    if "достав" in text:
-        return "positive_quality"
-    if any(word in text for word in ("товар", "качеств")):
-        return "positive_product"
-    return "neutral_other"
+    has_negative = any(word in text for word in ("ужас", "плох", "брак", "некачеств", "слом", "задерж", "опозд"))
+    if any(word in text for word in ("размер", "маломер", "большемер", "мерит")):
+        return "wrong_size"
+    if has_negative and any(word in text for word in ("курьер", "достав", "пвз")):
+        return "delivery_problems"
+    if has_negative:
+        return "product_dissatisfaction"
+    return "positive"
 
 
 class ReviewAutomationServiceTests(unittest.TestCase):
@@ -80,7 +79,7 @@ class ReviewAutomationServiceTests(unittest.TestCase):
         self.repository = ReviewRepository(db_path=self.db_path)
         self.service = ReviewAutomationService(repository=self.repository)
         self.service._classify_with_yandex = mock.Mock(
-            side_effect=lambda review, settings, strict=False: _fake_yandex_category(review)
+            side_effect=lambda review, settings, strict=False, allowed_groups=None: _fake_yandex_category(review)
         )
         self.user = self.repository.create_user(email="owner@example.com", password_hash="hash", role="admin")
 
@@ -96,8 +95,8 @@ class ReviewAutomationServiceTests(unittest.TestCase):
         reviews = self.service.list_reviews(user_id=int(self.user["id"]))
         self.assertEqual(len(reviews), 2)
         categories = {row["category"] for row in reviews}
-        self.assertIn("negative_delivery", categories)
-        self.assertIn("positive_product", categories)
+        self.assertIn("delivery_problems", categories)
+        self.assertIn("positive", categories)
 
     def test_queue_manual_and_manual_reply(self) -> None:
         self.service.sync_reviews(
@@ -106,7 +105,7 @@ class ReviewAutomationServiceTests(unittest.TestCase):
             account_id=None,
             client=_StubClient(),
         )
-        review = self.repository.list_reviews(user_id=int(self.user["id"]), category="negative_delivery", limit=1)[0]
+        review = self.repository.list_reviews(user_id=int(self.user["id"]), category="delivery_problems", limit=1)[0]
 
         queued = self.service.queue_for_manual_processing(user_id=int(self.user["id"]), review_uid=review["review_uid"])
         self.assertTrue(queued)
@@ -127,10 +126,16 @@ class ReviewAutomationServiceTests(unittest.TestCase):
     def test_auto_reply_marks_review(self) -> None:
         self.repository.upsert_template(
             user_id=int(self.user["id"]),
-            category="positive_product",
+            category="positive",
             mode="auto",
             template_text="Спасибо, {author}! Рады, что товар понравился.",
             is_enabled=True,
+        )
+        self.repository.upsert_processing_rule(
+            user_id=int(self.user["id"]),
+            group_id="positive",
+            action_mode="template",
+            auto_send=True,
         )
         self.service.sync_reviews(
             user_id=int(self.user["id"]),
@@ -138,7 +143,7 @@ class ReviewAutomationServiceTests(unittest.TestCase):
             account_id=None,
             client=_StubClient(),
         )
-        positive = self.repository.list_reviews(user_id=int(self.user["id"]), category="positive_product", limit=1)[0]
+        positive = self.repository.list_reviews(user_id=int(self.user["id"]), category="positive", limit=1)[0]
         self.assertEqual(positive["status"], "answered_auto")
         self.assertIn("Спасибо", positive["auto_reply"] or "")
 
@@ -148,10 +153,16 @@ class ReviewAutomationServiceTests(unittest.TestCase):
     def test_manual_template_routes_negative_to_operator(self) -> None:
         self.repository.upsert_template(
             user_id=int(self.user["id"]),
-            category="negative_delivery",
+            category="delivery_problems",
             mode="manual",
             template_text="",
             is_enabled=True,
+        )
+        self.repository.upsert_processing_rule(
+            user_id=int(self.user["id"]),
+            group_id="delivery_problems",
+            action_mode="manual",
+            auto_send=False,
         )
         self.service.sync_reviews(
             user_id=int(self.user["id"]),
@@ -159,7 +170,7 @@ class ReviewAutomationServiceTests(unittest.TestCase):
             account_id=None,
             client=_StubClient(),
         )
-        negative = self.repository.list_reviews(user_id=int(self.user["id"]), category="negative_delivery", limit=1)[0]
+        negative = self.repository.list_reviews(user_id=int(self.user["id"]), category="delivery_problems", limit=1)[0]
         self.assertEqual(negative["status"], "queued_for_operator")
 
     def test_sync_all_accounts_collects_errors_and_logs(self) -> None:
@@ -204,10 +215,16 @@ class ReviewAutomationServiceTests(unittest.TestCase):
         )
         self.repository.upsert_template(
             user_id=int(self.user["id"]),
-            category="positive_product",
+            category="positive",
             mode="auto",
             template_text="%USER%, спасибо за отзыв! Попробуйте %RECO%. С уважением, %BRAND%.",
             is_enabled=True,
+        )
+        self.repository.upsert_processing_rule(
+            user_id=int(self.user["id"]),
+            group_id="positive",
+            action_mode="template",
+            auto_send=True,
         )
         self.service.sync_reviews(
             user_id=int(self.user["id"]),
@@ -215,7 +232,7 @@ class ReviewAutomationServiceTests(unittest.TestCase):
             account_id=None,
             client=_RecoClient(),
         )
-        review = self.repository.list_reviews(user_id=int(self.user["id"]), category="positive_product", limit=1)[0]
+        review = self.repository.list_reviews(user_id=int(self.user["id"]), category="positive", limit=1)[0]
         reply = self.service.generate_auto_reply(user_id=int(self.user["id"]), review_uid=review["review_uid"])
         self.assertNotIn("%USER%", reply)
         self.assertNotIn("%RECO%", reply)
@@ -313,7 +330,7 @@ class ReviewAutomationServiceTests(unittest.TestCase):
         category = self.service._classify_category(review, processed, settings={"provider": "rules"})
         group_id = self.service._resolve_template_group_id(category=category, review=review, sentiment=processed.sentiment_label)
         subgroup = self.service._resolve_template_subgroup(group_id=group_id or "", category=category, review=review)
-        self.assertIn(category, {"neutral_other", "negative_product", "negative_other"})
+        self.assertIn(category, {"wrong_size", "delivery_problems", "product_dissatisfaction", "positive"})
         self.assertEqual(group_id, "wrong_size")
         self.assertEqual(subgroup, "Большемерит/маломерит")
 
