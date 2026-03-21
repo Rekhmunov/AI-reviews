@@ -473,6 +473,14 @@ tbody tr:hover {
   background: rgba(239, 246, 255, 0.62);
 }
 
+tr.review-row-send-error td {
+  background: rgba(254, 242, 242, 0.62);
+}
+
+tr.review-row-send-error:hover td {
+  background: rgba(254, 226, 226, 0.72);
+}
+
 .pill {
   border-radius: 999px;
   padding: 3px 8px;
@@ -716,6 +724,22 @@ tbody tr:hover {
   letter-spacing: 1px;
   font-size: 14px;
   text-shadow: 0 0 8px rgba(251, 191, 36, 0.28);
+}
+
+.send-error-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: flex-end;
+  width: 24px;
+  height: 24px;
+  margin-top: 2px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #b91c1c;
+  background: rgba(254, 226, 226, 0.9);
+  border: 1px solid rgba(248, 113, 113, 0.55);
 }
 
 .switch {

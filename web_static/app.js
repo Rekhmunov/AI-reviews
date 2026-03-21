@@ -630,6 +630,12 @@ async function loadReviews() {
   }
   for (const review of data.items || []) {
     const tr = document.createElement("tr");
+    const sendErrorMessage = String(review.send_error_message || "").trim();
+    const hasSendError = review.status === "queued_for_operator" && Boolean(sendErrorMessage);
+    if (hasSendError) tr.classList.add("review-row-send-error");
+    const sendErrorIcon = hasSendError
+      ? `<span class="send-error-indicator" title="${esc(sendErrorMessage)}">❗</span>`
+      : "";
     tr.innerHTML = `
       <td>${esc(review.source)}</td>
       <td>
@@ -647,6 +653,7 @@ async function loadReviews() {
           <button onclick="autoReply('${esc(review.review_uid)}')">Автоответ</button>
           <button class="secondary" onclick="queueManual('${esc(review.review_uid)}')">Вручную</button>
           <button class="secondary" onclick="manualReply('${esc(review.review_uid)}')">Ответ оператора</button>
+          ${sendErrorIcon}
         </div>
       </td>
     `;

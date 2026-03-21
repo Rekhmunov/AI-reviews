@@ -1194,9 +1194,42 @@ class ReviewRepository:
                 """,
                 tuple([*view_params, safe_page_size, offset]),
             ).fetchall()
+            items = [self._row_to_dict(row) for row in rows]
+            review_uids = [str(item.get("review_uid") or "") for item in items if item.get("review_uid")]
+            error_map: dict[str, str] = {}
+            if review_uids:
+                placeholders = ", ".join("?" for _ in review_uids)
+                action_rows = conn.execute(
+                    f"""
+                    SELECT review_uid, details_json
+                    FROM review_actions
+                    WHERE user_id = ?
+                      AND action_type = 'send_reply_error'
+                      AND review_uid IN ({placeholders})
+                    ORDER BY created_at DESC
+                    """,
+                    tuple([user_id, *review_uids]),
+                ).fetchall()
+                for action_row in action_rows:
+                    uid = str(action_row["review_uid"] or "")
+                    if not uid or uid in error_map:
+                        continue
+                    details_raw = str(action_row["details_json"] or "{}")
+                    try:
+                        details = json.loads(details_raw) if details_raw else {}
+                    except json.JSONDecodeError:
+                        details = {}
+                    reason = str(details.get("error") or "").strip()
+                    if reason:
+                        error_map[uid] = reason
+            for item in items:
+                uid = str(item.get("review_uid") or "")
+                if not uid:
+                    continue
+                item["send_error_message"] = error_map.get(uid)
 
         return {
-            "items": [self._row_to_dict(row) for row in rows],
+            "items": items,
             "total": total,
             "page": safe_page,
             "page_size": safe_page_size,

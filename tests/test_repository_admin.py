@@ -470,6 +470,40 @@ class RepositoryAdminTests(unittest.TestCase):
         picked = self.repository.get_random_recommendation(user_id=self.user_id, source_article="A-1")
         self.assertIn(picked, {"B-1", "B-2"})
 
+    def test_reviews_include_send_error_message(self) -> None:
+        processed = ProcessedReview(
+            review_id="err-1",
+            normalized_text="ok",
+            sentiment_score=0,
+            sentiment_label="neutral",
+            is_spam=False,
+            is_toxic=False,
+            priority="medium",
+            tags=["sentiment:neutral"],
+            recommended_action="queue_for_manual_review",
+        )
+        self.repository.upsert_processed_review(
+            user_id=self.user_id,
+            source="wb",
+            account_id=None,
+            review=ReviewInput(review_id="ext-err-1", text="Тест", rating=4),
+            processed=processed,
+            category="neutral_other",
+            processing_mode="manual",
+            status="queued_for_operator",
+        )
+        review_uid = self.repository.make_review_uid(self.user_id, "wb", None, "ext-err-1")
+        self.repository.log_review_action(
+            user_id=self.user_id,
+            review_uid=review_uid,
+            action_type="send_reply_error",
+            actor="system",
+            details={"error": "Сервис API недоступен"},
+        )
+        page = self.repository.list_reviews_paginated(user_id=self.user_id, page=1, page_size=10)
+        self.assertEqual(page["total"], 1)
+        self.assertEqual(page["items"][0]["send_error_message"], "Сервис API недоступен")
+
 
 if __name__ == "__main__":
     unittest.main()
