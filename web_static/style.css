@@ -693,6 +693,81 @@ tbody tr:hover {
   transform: translateX(20px);
 }
 
+.template-groups-accordion {
+  display: grid;
+  gap: 8px;
+}
+
+.template-group {
+  border: 1px solid rgba(147, 197, 253, 0.35);
+  border-radius: 12px;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.86), rgba(239, 246, 255, 0.78));
+  overflow: hidden;
+}
+
+.template-group summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 11px 12px;
+  font-weight: 700;
+}
+
+.template-group summary::-webkit-details-marker {
+  display: none;
+}
+
+.template-subgroups-list {
+  display: grid;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+
+.template-subgroup-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid rgba(147, 197, 253, 0.35);
+  border-radius: 10px;
+  background: rgba(248, 251, 255, 0.9);
+  color: #1e293b;
+}
+
+.template-subgroup-row:hover {
+  background: rgba(239, 246, 255, 0.95);
+}
+
+.template-count-badge {
+  min-width: 28px;
+  height: 22px;
+  border-radius: 999px;
+  background: linear-gradient(150deg, #2563eb 0%, #1d4ed8 58%, #1e40af 100%);
+  color: #fff;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+}
+
+.template-editor-list {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.template-editor-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.template-editor-input {
+  min-height: 54px;
+  width: 100%;
+}
+
 @media (max-width: 900px) {
   .layout {
     grid-template-columns: 1fr;

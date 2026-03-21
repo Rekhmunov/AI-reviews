@@ -482,8 +482,16 @@ class ReviewAutomationService:
                 auto_reply = None
             elif mode == "auto":
                 status = "answered_auto"
+                group_template = self._pick_group_template_text(
+                    user_id=user_id,
+                    category=category,
+                    review=review,
+                    sentiment=processed.sentiment_label,
+                )
                 auto_reply = self._render_template(
-                    template_text or self._build_auto_reply(
+                    group_template
+                    or template_text
+                    or self._build_auto_reply(
                         {
                             "sentiment_label": processed.sentiment_label,
                             "priority": processed.priority,
@@ -734,7 +742,18 @@ class ReviewAutomationService:
         if review is None:
             raise KeyError("Отзыв не найден")
         template = self.repository.get_template(user_id=user_id, category=str(review.get("category")))
-        text = str(template["template_text"]) if template else self._build_auto_reply(review)
+        group_template = self._pick_group_template_text(
+            user_id=user_id,
+            category=str(review.get("category") or ""),
+            review=ReviewInput(
+                review_id=str(review.get("external_review_id")),
+                text=str(review.get("text")),
+                author=str(review.get("author")) if review.get("author") else None,
+                rating=int(review["rating"]) if review.get("rating") is not None else None,
+            ),
+            sentiment=str(review.get("sentiment_label") or ""),
+        )
+        text = group_template or (str(template["template_text"]) if template else self._build_auto_reply(review))
         reply = self._render_template(
             text,
             review=ReviewInput(
@@ -774,6 +793,42 @@ class ReviewAutomationService:
                 details={"reply": response_text},
             )
         return updated
+
+    def _pick_group_template_text(
+        self,
+        *,
+        user_id: int,
+        category: str,
+        review: ReviewInput,
+        sentiment: str,
+    ) -> str | None:
+        group_id = self._resolve_template_group_id(category=category, review=review, sentiment=sentiment)
+        if not group_id:
+            return None
+        row = self.repository.get_random_template_variant(user_id=user_id, group_id=group_id)
+        if row is None:
+            return None
+        text = str(row.get("template_text") or "").strip()
+        return text or None
+
+    @staticmethod
+    def _resolve_template_group_id(*, category: str, review: ReviewInput, sentiment: str) -> str | None:
+        normalized = category.strip().lower()
+        if normalized in {"positive_quality", "positive_product"}:
+            return "positive"
+        if normalized == "negative_delivery":
+            return "delivery_problems"
+        if normalized in {"neutral_other"}:
+            return "textless_ratings"
+        if normalized in {"negative_product", "negative_other"}:
+            text = (review.text or "").lower()
+            size_words = ("размер", "маломер", "большемер", "size")
+            if any(word in text for word in size_words):
+                return "wrong_size"
+            return "product_dissatisfaction"
+        if sentiment.strip().lower() == "positive":
+            return "positive"
+        return None
 
     def _classify_category(
         self,

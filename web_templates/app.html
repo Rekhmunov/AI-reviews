@@ -219,29 +219,23 @@
 
         <div id="settings-pane-templates" class="hidden">
           <div class="panel">
-            <h4>Шаблоны ответов</h4>
-            <div class="row">
-              <select id="tplCategory">
-                <option value="negative_delivery">Негатив: доставка</option>
-                <option value="negative_product">Негатив: товар</option>
-                <option value="negative_other">Негатив: прочее</option>
-                <option value="positive_quality">Позитив: качество</option>
-                <option value="positive_product">Позитив: товар</option>
-                <option value="neutral_other">Нейтральный: прочее</option>
-              </select>
+            <h4>Шаблоны ответов по группам</h4>
+            <div id="templateGroupsView">
+              <div id="templateGroupsAccordion" class="template-groups-accordion"></div>
             </div>
-            <div class="row">
-              <textarea id="tplText" placeholder="Шаблон ответа. Подстановки: {автор}, {оценка}, {категория}, {тональность}"></textarea>
+            <div id="templateEditorView" class="hidden">
+              <div class="row row-between">
+                <button class="secondary" onclick="closeTemplateEditor()">← Назад к группам</button>
+                <h4 id="templateEditorTitle" class="no-margin"></h4>
+              </div>
+              <div id="templateEditorList" class="template-editor-list"></div>
+              <div class="row">
+                <button class="secondary" onclick="addTemplateEditorRow()">Добавить шаблон</button>
+                <button onclick="saveTemplateSubgroup()">Сохранить изменения</button>
+                <span id="templatesInfo" class="small"></span>
+              </div>
+              <p class="small">Подстановки: {автор}, {оценка}, {категория}, {тональность}, %USER%, %RECO%, %BRAND%</p>
             </div>
-            <button onclick="saveTemplateText()">Сохранить шаблон</button>
-            <div id="templatesInfo" class="small"></div>
-          </div>
-          <div class="panel">
-            <h4>Текущие шаблоны</h4>
-            <table>
-              <thead><tr><th>Категория</th><th>Режим</th><th>Шаблон</th></tr></thead>
-              <tbody id="templatesTbody"></tbody>
-            </table>
           </div>
         </div>
       </section>

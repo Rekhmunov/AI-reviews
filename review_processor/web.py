@@ -28,6 +28,120 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 TEMPLATES_DIR = BASE_DIR / "web_templates"
 STATIC_DIR = BASE_DIR / "web_static"
 
+TEMPLATE_GROUPS: list[dict[str, object]] = [
+    {
+        "id": "positive",
+        "title": "Позитив",
+        "subgroups": [
+            "Вкус",
+            "Материал",
+            "Общий позитив",
+            "Позитив доставка",
+            "Позитив запах",
+            "Позитив конструкция",
+            "Позитив упаковка",
+            "Позитив цвет",
+            "Эффект",
+        ],
+    },
+    {
+        "id": "product_dissatisfaction",
+        "title": "Недовольство товаром",
+        "subgroups": [
+            "Брак и Б/У",
+            "Высокая цена",
+            "Качество",
+            "Негатив запах",
+            "Негатив конструкция",
+            "Негатив цвет",
+            "Не подошел лично мне",
+            "Не соответствует фото",
+            "Не устраивает эффект",
+            "Общий негатив",
+            "Побочные эффекты",
+            "Подделка",
+            "Срок годности",
+            "Текстура, консистенция, материал",
+        ],
+    },
+    {
+        "id": "delivery_problems",
+        "title": "Проблемы при доставке",
+        "subgroups": [
+            "Долгая доставка",
+            "Испорченная упаковка",
+            "Наклейка",
+            "Недостающая упаковка / грязное / поврежденное и сломанное",
+            "Некомплект",
+            "Не тот товар",
+            "Общие доставка",
+        ],
+    },
+    {
+        "id": "wrong_size",
+        "title": "Неправильный размер",
+        "subgroups": [
+            "Альтернативные измерения",
+            "Большемерит/маломерит",
+            "Не подошел размер",
+        ],
+    },
+    {
+        "id": "textless_ratings",
+        "title": "Оценки без текста",
+        "subgroups": [
+            "1-3 звезды",
+            "4 звезды",
+            "5 звезд",
+        ],
+    },
+]
+
+DEFAULT_TEMPLATE_CONTENT: dict[str, list[str]] = {
+    "Вкус": [
+        "%USER%, добрый день. Мы рады, что вы довольны покупкой. Попробуйте еще %%RECO%% — вам точно понравится!",
+        "Добрый день, %USER%! Благодарим за доверие и внимание к вкусу нашего продукта.",
+        "Здравствуйте, %USER%! Спасибо за высокую оценку. Будем ждать вас снова!",
+    ],
+    "Материал": ["Спасибо за отзыв! Рады, что материал вам понравился."],
+    "Общий позитив": ["Благодарим за отличный отзыв и высокую оценку!"],
+    "Позитив доставка": ["Спасибо! Очень рады, что доставка прошла отлично."],
+    "Позитив запах": ["Спасибо за отзыв! Приятно, что аромат вам понравился."],
+    "Позитив конструкция": ["Спасибо! Рады, что конструкция товара вам подошла."],
+    "Позитив упаковка": ["Спасибо! Рады, что упаковка вам понравилась."],
+    "Позитив цвет": ["Спасибо за высокую оценку! Рады, что цвет вам подошел."],
+    "Эффект": ["Спасибо за отзыв! Рады, что вы заметили хороший эффект."],
+    "Брак и Б/У": ["Нам очень жаль, что вы получили товар в таком состоянии. Уже разбираемся."],
+    "Высокая цена": ["Спасибо за обратную связь. Учтем ваш комментарий по стоимости."],
+    "Качество": ["Нам жаль, что качество не оправдало ожиданий. Передали информацию в отдел качества."],
+    "Негатив запах": ["Сожалеем о ситуации. Проверим партию и вернемся с ответом."],
+    "Негатив конструкция": ["Спасибо за сигнал. Мы уже передали информацию в отдел разработки."],
+    "Негатив цвет": ["Сожалеем, что цвет не совпал с ожиданиями. Проверим карточку товара."],
+    "Не подошел лично мне": ["Спасибо за отзыв. Нам жаль, что товар вам не подошел."],
+    "Не соответствует фото": ["Сожалеем о несоответствии. Передали информацию для проверки карточки."],
+    "Не устраивает эффект": ["Спасибо за отзыв. Передали ваше замечание технологам."],
+    "Общий негатив": ["Нам очень жаль, что вы остались недовольны. Уже разбираемся с ситуацией."],
+    "Побочные эффекты": ["Сожалеем о ситуации. Рекомендуем прекратить использование и написать нам в поддержку."],
+    "Подделка": ["Спасибо за сигнал. Мы проведем дополнительную проверку партии."],
+    "Срок годности": ["Спасибо за отзыв. Мы проверим товар и условия хранения."],
+    "Текстура, консистенция, материал": ["Спасибо за обратную связь. Передали замечание в отдел качества."],
+    "Долгая доставка": ["Сожалеем о задержке доставки. Проверим логистику по вашему заказу."],
+    "Испорченная упаковка": ["Нам очень жаль. Передали информацию в логистику и отдел упаковки."],
+    "Наклейка": ["Спасибо за сигнал. Проверим корректность маркировки."],
+    "Недостающая упаковка / грязное / поврежденное и сломанное": [
+        "Сожалеем о состоянии товара. Уже разбираемся и улучшим контроль отгрузки."
+    ],
+    "Некомплект": ["Сожалеем о неполной комплектации. Мы уже передали информацию на склад."],
+    "Не тот товар": ["Нам жаль, что пришел не тот товар. Уже разбираемся с отгрузкой."],
+    "Общие доставка": ["Спасибо за отзыв о доставке. Учтем замечание и исправим процесс."],
+    "Альтернативные измерения": ["Спасибо за отзыв. Дополним информацию по размерам в карточке товара."],
+    "Большемерит/маломерит": ["Сожалеем, что размер не подошел. Передадим замечание по размерной сетке."],
+    "Не подошел размер": ["Спасибо за обратную связь. Учтем это при обновлении размерной таблицы."],
+    "1-3 звезды": ["Спасибо за оценку. Нам важно ваше мнение — мы улучшаем сервис каждый день."],
+    "4 звезды": ["Спасибо за высокую оценку! Будем рады снова видеть вас среди покупателей."],
+    "5 звезд": ["Спасибо за 5 звезд! Очень рады, что вам все понравилось."],
+}
+
 
 class SyncRequest(BaseModel):
     account_id: int | None = Field(default=None, description="Specific marketplace account ID")
@@ -86,6 +200,16 @@ class ProfileUpdateRequest(BaseModel):
 
 class ClearReviewsRequest(BaseModel):
     user_id: int | None = None
+
+
+class TemplateSubgroupSaveRequest(BaseModel):
+    templates: list[str] = Field(default_factory=list)
+
+
+class TemplateVariantCreateRequest(BaseModel):
+    group_id: str = Field(min_length=2, max_length=100)
+    subgroup: str = Field(min_length=1, max_length=255)
+    template_text: str = Field(min_length=1, max_length=4000)
 
 
 ROLE_ADMIN = "admin"
@@ -160,6 +284,40 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
                 sync_stop_event.clear()
             else:
                 sync_state["last_finished_at"] = _now_iso()
+
+    def _template_group_by_id(group_id: str) -> dict[str, object] | None:
+        for item in TEMPLATE_GROUPS:
+            if str(item.get("id")) == group_id:
+                return item
+        return None
+
+    def _validate_subgroup(group_id: str, subgroup: str) -> bool:
+        group = _template_group_by_id(group_id)
+        if group is None:
+            return False
+        subgroups = group.get("subgroups")
+        if not isinstance(subgroups, list):
+            return False
+        return subgroup in subgroups
+
+    def _ensure_default_template_variants(user_id: int) -> None:
+        existing = repository.list_template_variants(user_id=user_id, include_inactive=True)
+        if existing:
+            return
+        for group in TEMPLATE_GROUPS:
+            group_id = str(group.get("id") or "")
+            subgroups = group.get("subgroups")
+            if not group_id or not isinstance(subgroups, list):
+                continue
+            for subgroup in subgroups:
+                name = str(subgroup)
+                defaults = DEFAULT_TEMPLATE_CONTENT.get(name) or [f"Спасибо за отзыв! Категория: {name}."]
+                repository.replace_subgroup_templates(
+                    user_id=user_id,
+                    group_id=group_id,
+                    subgroup=name,
+                    templates=defaults,
+                )
 
     @app.get("/", response_class=HTMLResponse)
     def landing(request: Request) -> HTMLResponse:
@@ -506,6 +664,99 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
         user = _require_settings_access(request)
         items = repository.list_templates(user_id=int(user["id"]))
         return {"items": items, "count": len(items)}
+
+    @app.get("/api/template-groups")
+    def list_template_groups(request: Request) -> dict[str, object]:
+        user = _require_settings_access(request)
+        user_id = int(user["id"])
+        _ensure_default_template_variants(user_id)
+        rows = repository.list_template_variants(user_id=user_id)
+        counts: dict[tuple[str, str], int] = {}
+        for row in rows:
+            key = (str(row.get("group_id") or ""), str(row.get("subgroup") or ""))
+            counts[key] = counts.get(key, 0) + 1
+
+        items: list[dict[str, object]] = []
+        for group in TEMPLATE_GROUPS:
+            group_id = str(group.get("id") or "")
+            title = str(group.get("title") or group_id)
+            subgroups_raw = group.get("subgroups")
+            subgroups: list[dict[str, object]] = []
+            if isinstance(subgroups_raw, list):
+                for name in subgroups_raw:
+                    subgroup_name = str(name)
+                    subgroups.append(
+                        {
+                            "name": subgroup_name,
+                            "count": counts.get((group_id, subgroup_name), 0),
+                        }
+                    )
+            items.append(
+                {
+                    "id": group_id,
+                    "title": title,
+                    "subgroups": subgroups,
+                }
+            )
+        return {"items": items, "count": len(items)}
+
+    @app.get("/api/template-subgroup")
+    def get_template_subgroup(group_id: str, subgroup: str, request: Request) -> dict[str, object]:
+        user = _require_settings_access(request)
+        user_id = int(user["id"])
+        if not _validate_subgroup(group_id, subgroup):
+            raise HTTPException(status_code=404, detail="Группа шаблонов или подгруппа не найдена")
+        _ensure_default_template_variants(user_id)
+        items = repository.list_template_variants(
+            user_id=user_id,
+            group_id=group_id,
+            subgroup=subgroup,
+        )
+        return {"items": items, "count": len(items), "group_id": group_id, "subgroup": subgroup}
+
+    @app.put("/api/template-subgroup")
+    def save_template_subgroup(
+        group_id: str,
+        subgroup: str,
+        payload: TemplateSubgroupSaveRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        user = _require_settings_access(request)
+        if not _validate_subgroup(group_id, subgroup):
+            raise HTTPException(status_code=404, detail="Группа шаблонов или подгруппа не найдена")
+        repository.replace_subgroup_templates(
+            user_id=int(user["id"]),
+            group_id=group_id,
+            subgroup=subgroup,
+            templates=payload.templates,
+        )
+        return {"ok": True, "saved": len([x for x in payload.templates if x and x.strip()])}
+
+    @app.post("/api/template-subgroup/item")
+    def add_template_subgroup_item(payload: TemplateVariantCreateRequest, request: Request) -> dict[str, object]:
+        user = _require_settings_access(request)
+        group_id = payload.group_id.strip()
+        subgroup = payload.subgroup.strip()
+        if not _validate_subgroup(group_id, subgroup):
+            raise HTTPException(status_code=404, detail="Группа шаблонов или подгруппа не найдена")
+        item = repository.add_template_variant(
+            user_id=int(user["id"]),
+            group_id=group_id,
+            subgroup=subgroup,
+            template_text=payload.template_text,
+        )
+        return {"ok": True, "item": item}
+
+    @app.delete("/api/template-subgroup/item/{template_id}")
+    def delete_template_subgroup_item(template_id: int, request: Request) -> dict[str, object]:
+        user = _require_settings_access(request)
+        deleted = repository.delete_template_variant(
+            user_id=int(user["id"]),
+            template_id=template_id,
+        )
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Шаблон не найден")
+        return {"ok": True}
 
     @app.put("/api/templates")
     def upsert_template(request: Request, payload: TemplateUpsertRequest) -> dict[str, object]:

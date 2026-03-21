@@ -12,6 +12,13 @@ const reviewsState = {
   pages: 1,
   bucket: "new",
 };
+const templateGroupsState = {
+  items: [],
+  currentGroupId: null,
+  currentGroupTitle: "",
+  currentSubgroup: "",
+  currentTemplates: [],
+};
 let syncInProgress = false;
 
 const categoryLabels = {
@@ -471,17 +478,11 @@ async function loadTemplates() {
   const data = await res.json();
   for (const key of Object.keys(templateStore)) delete templateStore[key];
 
-  const tbody = document.getElementById("templatesTbody");
   const rulesBody = document.getElementById("rulesTbody");
-  tbody.innerHTML = "";
   if (rulesBody) rulesBody.innerHTML = "";
 
   for (const tpl of data.items || []) {
     templateStore[tpl.category] = tpl;
-
-    const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${esc(labelFromMap(categoryLabels, tpl.category))}</td><td>${esc(labelFromMap(modeLabels, tpl.mode))}</td><td>${esc(tpl.template_text)}</td>`;
-    tbody.appendChild(tr);
 
     if (rulesBody) {
       const row = document.createElement("tr");
@@ -502,7 +503,7 @@ async function loadTemplates() {
     }
   }
   syncRuleFormFromStore();
-  syncTemplateFormFromStore();
+  await loadTemplateGroups();
 }
 
 async function toggleRuleEnabled(category, enabled) {
@@ -564,28 +565,168 @@ async function saveRuleOnly() {
   await loadTemplates();
 }
 
-async function saveTemplateText() {
-  const category = document.getElementById("tplCategory").value;
-  const existingMode = templateStore[category]?.mode || "manual";
-  const isEnabled = Boolean(templateStore[category]?.is_enabled);
+async function loadTemplateGroups() {
+  const res = await fetch("/api/template-groups");
+  const data = await res.json();
+  if (!res.ok) {
+    const info = document.getElementById("templatesInfo");
+    if (info) info.textContent = "Ошибка: " + (data.detail || "не удалось загрузить группы шаблонов");
+    return;
+  }
+  templateGroupsState.items = data.items || [];
+  renderTemplateGroups();
+}
+
+function renderTemplateGroups() {
+  const container = document.getElementById("templateGroupsAccordion");
+  if (!container) return;
+  container.innerHTML = "";
+
+  for (const group of templateGroupsState.items) {
+    const details = document.createElement("details");
+    details.className = "template-group";
+    details.open = true;
+
+    const summary = document.createElement("summary");
+    summary.textContent = String(group.title || "");
+    details.appendChild(summary);
+
+    const content = document.createElement("div");
+    content.className = "template-subgroups-list";
+    for (const subgroup of group.subgroups || []) {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "template-subgroup-row";
+
+      const nameSpan = document.createElement("span");
+      nameSpan.textContent = String(subgroup.name || "");
+      const countSpan = document.createElement("span");
+      countSpan.className = "template-count-badge";
+      countSpan.textContent = String(subgroup.count || 0);
+
+      row.appendChild(nameSpan);
+      row.appendChild(countSpan);
+      row.addEventListener("click", () => {
+        openTemplateSubgroup(String(group.id || ""), String(subgroup.name || ""), String(group.title || ""));
+      });
+      content.appendChild(row);
+    }
+    details.appendChild(content);
+    container.appendChild(details);
+  }
+}
+
+async function openTemplateSubgroup(groupId, subgroup, groupTitle) {
+  const query = new URLSearchParams({ group_id: groupId, subgroup: subgroup });
+  const res = await fetch("/api/template-subgroup?" + query.toString());
+  const data = await res.json();
+  const info = document.getElementById("templatesInfo");
+  if (!res.ok) {
+    if (info) info.textContent = "Ошибка: " + (data.detail || "не удалось загрузить шаблоны");
+    return;
+  }
+
+  templateGroupsState.currentGroupId = groupId;
+  templateGroupsState.currentGroupTitle = groupTitle;
+  templateGroupsState.currentSubgroup = subgroup;
+  templateGroupsState.currentTemplates = (data.items || []).map((item) => ({
+    id: item.id || null,
+    text: String(item.template_text || ""),
+  }));
+
+  document.getElementById("templateGroupsView")?.classList.add("hidden");
+  document.getElementById("templateEditorView")?.classList.remove("hidden");
+  const title = document.getElementById("templateEditorTitle");
+  if (title) title.textContent = `${groupTitle} / ${subgroup}`;
+  if (info) info.textContent = "";
+  renderTemplateEditorRows();
+}
+
+function closeTemplateEditor() {
+  document.getElementById("templateEditorView")?.classList.add("hidden");
+  document.getElementById("templateGroupsView")?.classList.remove("hidden");
+  templateGroupsState.currentGroupId = null;
+  templateGroupsState.currentGroupTitle = "";
+  templateGroupsState.currentSubgroup = "";
+  templateGroupsState.currentTemplates = [];
+}
+
+function renderTemplateEditorRows() {
+  const container = document.getElementById("templateEditorList");
+  if (!container) return;
+  container.innerHTML = "";
+  if (!templateGroupsState.currentTemplates.length) {
+    const empty = document.createElement("div");
+    empty.className = "small";
+    empty.textContent = "В этой подгруппе пока нет шаблонов.";
+    container.appendChild(empty);
+    return;
+  }
+
+  templateGroupsState.currentTemplates.forEach((item, index) => {
+    const row = document.createElement("div");
+    row.className = "template-editor-row";
+
+    const textarea = document.createElement("textarea");
+    textarea.className = "template-editor-input";
+    textarea.value = item.text;
+    textarea.placeholder = "Введите текст шаблона ответа";
+    textarea.addEventListener("input", () => {
+      templateGroupsState.currentTemplates[index].text = textarea.value;
+    });
+
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.className = "icon-btn danger";
+    delBtn.title = "Удалить шаблон";
+    delBtn.textContent = "🗑";
+    delBtn.addEventListener("click", async () => {
+      const itemId = templateGroupsState.currentTemplates[index]?.id;
+      if (itemId) {
+        await fetch(`/api/template-subgroup/item/${itemId}`, { method: "DELETE" });
+      }
+      templateGroupsState.currentTemplates.splice(index, 1);
+      renderTemplateEditorRows();
+    });
+
+    row.appendChild(textarea);
+    row.appendChild(delBtn);
+    container.appendChild(row);
+  });
+}
+
+function addTemplateEditorRow() {
+  templateGroupsState.currentTemplates.push({ id: null, text: "" });
+  renderTemplateEditorRows();
+}
+
+async function saveTemplateSubgroup() {
+  if (!templateGroupsState.currentGroupId || !templateGroupsState.currentSubgroup) return;
   const payload = {
-    category: category,
-    mode: existingMode,
-    template_text: document.getElementById("tplText").value,
-    is_enabled: isEnabled,
+    templates: templateGroupsState.currentTemplates.map((item) => String(item.text || "")),
   };
-  const res = await fetch("/api/templates", {
+  const query = new URLSearchParams({
+    group_id: templateGroupsState.currentGroupId,
+    subgroup: templateGroupsState.currentSubgroup,
+  });
+  const res = await fetch("/api/template-subgroup?" + query.toString(), {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
   const data = await res.json();
+  const info = document.getElementById("templatesInfo");
   if (!res.ok) {
-    document.getElementById("templatesInfo").textContent = "Ошибка: " + (data.detail || "не удалось сохранить");
+    if (info) info.textContent = "Ошибка: " + (data.detail || "не удалось сохранить шаблоны");
     return;
   }
-  document.getElementById("templatesInfo").textContent = "Шаблон сохранен.";
-  await loadTemplates();
+  if (info) info.textContent = "Шаблоны сохранены.";
+  await loadTemplateGroups();
+  await openTemplateSubgroup(
+    templateGroupsState.currentGroupId,
+    templateGroupsState.currentSubgroup,
+    templateGroupsState.currentGroupTitle,
+  );
 }
 
 async function queueManual(reviewId) {

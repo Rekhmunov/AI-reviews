@@ -107,6 +107,21 @@ class ReviewRepository:
             )
             conn.execute(
                 """
+                CREATE TABLE IF NOT EXISTS response_template_variants (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    group_id TEXT NOT NULL,
+                    subgroup TEXT NOT NULL,
+                    template_text TEXT NOT NULL,
+                    is_active INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                )
+                """
+            )
+            conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS review_items (
                     review_uid TEXT PRIMARY KEY,
                     user_id INTEGER NOT NULL,
@@ -184,6 +199,12 @@ class ReviewRepository:
                 """
                 CREATE INDEX IF NOT EXISTS idx_conversation_user_updated
                 ON conversation_items(user_id, updated_at DESC)
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_template_variants_user_group_sub
+                ON response_template_variants(user_id, group_id, subgroup, is_active)
                 """
             )
             self._migrate_schema(conn)
@@ -624,6 +645,121 @@ class ReviewRepository:
                 (user_id, category),
             )
         return result.rowcount > 0
+
+    def list_template_variants(
+        self,
+        *,
+        user_id: int,
+        group_id: str | None = None,
+        subgroup: str | None = None,
+        include_inactive: bool = False,
+    ) -> list[dict[str, Any]]:
+        clauses = ["user_id = ?"]
+        params: list[Any] = [user_id]
+        if group_id:
+            clauses.append("group_id = ?")
+            params.append(group_id)
+        if subgroup:
+            clauses.append("subgroup = ?")
+            params.append(subgroup)
+        if not include_inactive:
+            clauses.append("is_active = 1")
+        query = f"""
+            SELECT *
+            FROM response_template_variants
+            WHERE {' AND '.join(clauses)}
+            ORDER BY subgroup ASC, id ASC
+        """
+        with self._connect() as conn:
+            rows = conn.execute(query, tuple(params)).fetchall()
+        return [self._row_to_dict(row) for row in rows]
+
+    def replace_subgroup_templates(
+        self,
+        *,
+        user_id: int,
+        group_id: str,
+        subgroup: str,
+        templates: list[str],
+    ) -> None:
+        clean = [item.strip() for item in templates if item and item.strip()]
+        now = _utc_now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                DELETE FROM response_template_variants
+                WHERE user_id = ? AND group_id = ? AND subgroup = ?
+                """,
+                (user_id, group_id, subgroup),
+            )
+            for text in clean:
+                conn.execute(
+                    """
+                    INSERT INTO response_template_variants (
+                        user_id, group_id, subgroup, template_text, is_active, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, 1, ?, ?)
+                    """,
+                    (user_id, group_id, subgroup, text, now, now),
+                )
+
+    def add_template_variant(
+        self,
+        *,
+        user_id: int,
+        group_id: str,
+        subgroup: str,
+        template_text: str,
+    ) -> dict[str, Any]:
+        now = _utc_now()
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO response_template_variants (
+                    user_id, group_id, subgroup, template_text, is_active, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, 1, ?, ?)
+                """,
+                (user_id, group_id, subgroup, template_text.strip(), now, now),
+            )
+            row_id = int(cursor.lastrowid)
+            row = conn.execute(
+                "SELECT * FROM response_template_variants WHERE id = ?",
+                (row_id,),
+            ).fetchone()
+        if row is None:
+            raise RuntimeError("Template variant creation failed")
+        return self._row_to_dict(row)
+
+    def delete_template_variant(self, *, user_id: int, template_id: int) -> bool:
+        with self._connect() as conn:
+            result = conn.execute(
+                """
+                DELETE FROM response_template_variants
+                WHERE user_id = ? AND id = ?
+                """,
+                (user_id, template_id),
+            )
+        return result.rowcount > 0
+
+    def get_random_template_variant(
+        self,
+        *,
+        user_id: int,
+        group_id: str,
+    ) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT *
+                FROM response_template_variants
+                WHERE user_id = ? AND group_id = ? AND is_active = 1
+                ORDER BY RANDOM()
+                LIMIT 1
+                """,
+                (user_id, group_id),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_dict(row)
 
     @staticmethod
     def make_review_uid(user_id: int, source: str, account_id: int | None, external_review_id: str) -> str:
