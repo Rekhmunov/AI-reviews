@@ -5,6 +5,8 @@ function esc(value) {
     .replaceAll(">", "&gt;");
 }
 
+const templateStore = {};
+
 function showSection(section) {
   const ids = ["reviews", "conversations", "analytics", "settings"];
   for (const id of ids) {
@@ -15,6 +17,34 @@ function showSection(section) {
   }
   document.getElementById("section-" + section).classList.remove("hidden");
   document.getElementById("nav-" + section).classList.add("active");
+}
+
+function showSettingsTab(tab) {
+  const tabs = ["sources", "rules", "templates"];
+  for (const name of tabs) {
+    const tabBtn = document.getElementById("settings-tab-" + name);
+    const pane = document.getElementById("settings-pane-" + name);
+    if (tabBtn) tabBtn.classList.remove("active");
+    if (pane) pane.classList.add("hidden");
+  }
+  document.getElementById("settings-tab-" + tab).classList.add("active");
+  document.getElementById("settings-pane-" + tab).classList.remove("hidden");
+}
+
+function syncRuleFormFromStore() {
+  const category = document.getElementById("ruleCategory")?.value;
+  if (!category) return;
+  const tpl = templateStore[category];
+  if (tpl && tpl.mode) {
+    document.getElementById("ruleMode").value = tpl.mode;
+  }
+}
+
+function syncTemplateFormFromStore() {
+  const category = document.getElementById("tplCategory")?.value;
+  if (!category) return;
+  const tpl = templateStore[category];
+  document.getElementById("tplText").value = tpl ? (tpl.template_text || "") : "";
 }
 
 async function syncAll() {
@@ -204,19 +234,60 @@ async function toggleAccount(accountId, active) {
 async function loadTemplates() {
   const res = await fetch("/api/templates");
   const data = await res.json();
+  for (const key of Object.keys(templateStore)) delete templateStore[key];
+
   const tbody = document.getElementById("templatesTbody");
+  const rulesBody = document.getElementById("rulesTbody");
   tbody.innerHTML = "";
+  if (rulesBody) rulesBody.innerHTML = "";
+
   for (const tpl of data.items || []) {
+    templateStore[tpl.category] = tpl;
+
     const tr = document.createElement("tr");
     tr.innerHTML = `<td>${esc(tpl.category)}</td><td>${esc(tpl.mode)}</td><td>${esc(tpl.template_text)}</td>`;
     tbody.appendChild(tr);
+
+    if (rulesBody) {
+      const row = document.createElement("tr");
+      row.innerHTML = `<td>${esc(tpl.category)}</td><td>${esc(tpl.mode)}</td>`;
+      rulesBody.appendChild(row);
+    }
   }
+  syncRuleFormFromStore();
+  syncTemplateFormFromStore();
 }
 
-async function saveTemplate() {
+async function saveRuleOnly() {
+  const category = document.getElementById("ruleCategory").value;
+  const mode = document.getElementById("ruleMode").value;
+  const existingTemplate = templateStore[category]?.template_text || "";
+
   const payload = {
-    category: document.getElementById("tplCategory").value,
-    mode: document.getElementById("tplMode").value,
+    category: category,
+    mode: mode,
+    template_text: existingTemplate,
+  };
+  const res = await fetch("/api/templates", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    document.getElementById("rulesInfo").textContent = "Ошибка: " + (data.detail || "save failed");
+    return;
+  }
+  document.getElementById("rulesInfo").textContent = "Правило сохранено.";
+  await loadTemplates();
+}
+
+async function saveTemplateText() {
+  const category = document.getElementById("tplCategory").value;
+  const existingMode = templateStore[category]?.mode || "manual";
+  const payload = {
+    category: category,
+    mode: existingMode,
     template_text: document.getElementById("tplText").value,
   };
   const res = await fetch("/api/templates", {
@@ -269,6 +340,9 @@ async function manualReply(reviewId) {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  showSettingsTab("sources");
+  document.getElementById("ruleCategory")?.addEventListener("change", syncRuleFormFromStore);
+  document.getElementById("tplCategory")?.addEventListener("change", syncTemplateFormFromStore);
   loadReviews();
   loadConversations();
   loadAnalytics();

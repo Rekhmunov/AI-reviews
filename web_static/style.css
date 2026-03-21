@@ -258,3 +258,22 @@ td {
   font-weight: 800;
   margin-bottom: 4px;
 }
+
+.settings-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.settings-tab-btn {
+  background: #ffffff;
+  color: #334155;
+  border: 1px solid #dbe1ea;
+}
+
+.settings-tab-btn.active {
+  background: #eff6ff;
+  color: #2563eb;
+  border-color: #bfdbfe;
+  font-weight: 700;
+}
