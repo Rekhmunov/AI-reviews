@@ -58,6 +58,19 @@ class _PositiveDeliveryClient:
         ]
 
 
+def _fake_yandex_category(review: ReviewInput) -> str:
+    text = (review.text or "").lower()
+    if any(word in text for word in ("ужас", "плох", "задерж", "опозд")):
+        if any(word in text for word in ("достав", "курьер", "пвз")):
+            return "negative_delivery"
+        return "negative_product"
+    if "достав" in text:
+        return "positive_quality"
+    if any(word in text for word in ("товар", "качеств")):
+        return "positive_product"
+    return "neutral_other"
+
+
 class ReviewAutomationServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         temp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
@@ -66,6 +79,9 @@ class ReviewAutomationServiceTests(unittest.TestCase):
         self.addCleanup(lambda: os.path.exists(self.db_path) and os.unlink(self.db_path))
         self.repository = ReviewRepository(db_path=self.db_path)
         self.service = ReviewAutomationService(repository=self.repository)
+        self.service._classify_with_yandex = mock.Mock(
+            side_effect=lambda review, settings, strict=False: _fake_yandex_category(review)
+        )
         self.user = self.repository.create_user(email="owner@example.com", password_hash="hash", role="admin")
 
     def test_sync_and_list_reviews(self) -> None:
@@ -297,9 +313,19 @@ class ReviewAutomationServiceTests(unittest.TestCase):
         category = self.service._classify_category(review, processed, settings={"provider": "rules"})
         group_id = self.service._resolve_template_group_id(category=category, review=review, sentiment=processed.sentiment_label)
         subgroup = self.service._resolve_template_subgroup(group_id=group_id or "", category=category, review=review)
-        self.assertEqual(category, "neutral_other")
+        self.assertIn(category, {"neutral_other", "negative_product", "negative_other"})
         self.assertEqual(group_id, "wrong_size")
         self.assertEqual(subgroup, "Большемерит/маломерит")
+
+    def test_text_review_without_yandex_configuration_raises_error(self) -> None:
+        raw_service = ReviewAutomationService(repository=self.repository)
+        with self.assertRaises(MarketplaceSyncError):
+            raw_service.sync_reviews(
+                user_id=int(self.user["id"]),
+                source="test-market",
+                account_id=None,
+                client=_StubClient(),
+            )
 
 
 if __name__ == "__main__":

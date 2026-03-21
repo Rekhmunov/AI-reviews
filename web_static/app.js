@@ -565,7 +565,12 @@ async function syncAll() {
     }
     const failed = data.failed_accounts || 0;
     let text = `Кабинетов: ${data.accounts}, отзывов: ${data.loaded}, вопросов/чатов: ${data.loaded_conversations || 0}`;
-    if (failed > 0) text += `, ошибок: ${failed}`;
+    if (failed > 0) {
+      text += `, ошибок: ${failed}`;
+      const firstError = Array.isArray(data.errors) && data.errors.length ? data.errors[0] : null;
+      const reason = firstError && firstError.error ? String(firstError.error) : "";
+      if (reason) text += `. Причина: ${reason}`;
+    }
     if (data.cancelled) text += ", синхронизация остановлена администратором";
     if (syncInfo) syncInfo.textContent = text;
     const tasks = [loadReviews(), loadConversations()];

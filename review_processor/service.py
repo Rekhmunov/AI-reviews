@@ -1296,6 +1296,32 @@ class ReviewAutomationService:
                 _push(item)
         return result
 
+    @staticmethod
+    def _review_has_media(review: ReviewInput) -> bool:
+        metadata = review.metadata if isinstance(review.metadata, dict) else {}
+
+        def _has_media(value: object) -> bool:
+            if isinstance(value, str):
+                text = value.strip().lower()
+                if not text:
+                    return False
+                markers = ("http://", "https://", ".jpg", ".jpeg", ".png", ".webp", ".gif", "photo", "image", "картин")
+                return any(marker in text for marker in markers)
+            if isinstance(value, list):
+                return any(_has_media(item) for item in value)
+            if isinstance(value, Mapping):
+                for key, nested in value.items():
+                    key_text = str(key).lower()
+                    if any(marker in key_text for marker in ("photo", "image", "media", "pictures", "gallery", "фото")):
+                        if _has_media(nested):
+                            return True
+                    if _has_media(nested):
+                        return True
+                return False
+            return False
+
+        return _has_media(metadata)
+
     def _classify_category(
         self,
         review: ReviewInput,
@@ -1303,29 +1329,27 @@ class ReviewAutomationService:
         *,
         settings: dict[str, object],
     ) -> str:
-        provider = str(settings.get("provider") or "rules")
-        if provider == "yandex":
-            classified = self._classify_with_yandex(review, settings=settings)
-            if classified:
-                return classified
-        sentiment_label = str(getattr(processed, "sentiment_label", "neutral"))
-        text = review.text.lower()
-        delivery_words = ("доставка", "курьер", "пункт выдачи", "shipment", "delivery")
-        product_words = ("товар", "качество", "брак", "слом", "упаковка", "size", "цвет")
+        has_text = bool((review.text or "").strip())
+        has_tags = bool(self._extract_review_tags(review))
+        has_media = self._review_has_media(review)
 
-        if sentiment_label == "negative":
-            if any(word in text for word in delivery_words):
-                return "negative_delivery"
-            if any(word in text for word in product_words):
-                return "negative_product"
-            return "negative_other"
+        # Локально классифицируем только кейсы, которые можно определить гарантированно:
+        # без текста (и отдельно без текста с тегами).
+        if not has_text:
+            if has_tags:
+                return "neutral_other"
+            return "neutral_other"
 
-        if sentiment_label == "positive":
-            if any(word in text for word in product_words):
-                return "positive_product"
-            return "positive_quality"
-
-        return "neutral_other"
+        # Если есть текст или фото, категория должна приходить от Яндекс-модели.
+        # При недоступности или некорректном ответе синхронизация отзыва считается ошибкой.
+        classified = self._classify_with_yandex(review, settings=settings, strict=True)
+        if classified:
+            return classified
+        raise MarketplaceSyncError(
+            "yandex",
+            "Не удалось определить категорию отзыва через Яндекс. Проверьте настройки и доступность API.",
+            details={"scope": "classification", "has_media": has_media},
+        )
 
     @staticmethod
     def _normalize_category(text: str) -> str | None:
@@ -1345,11 +1369,23 @@ class ReviewAutomationService:
                 return category
         return None
 
-    def _classify_with_yandex(self, review: ReviewInput, *, settings: dict[str, object]) -> str | None:
+    def _classify_with_yandex(
+        self,
+        review: ReviewInput,
+        *,
+        settings: dict[str, object],
+        strict: bool = False,
+    ) -> str | None:
         api_key = str(settings.get("yandex_api_key") or "")
         folder_id = str(settings.get("yandex_folder_id") or "")
         model_uri = str(settings.get("yandex_model_uri") or "")
         if not api_key or not folder_id:
+            if strict:
+                raise MarketplaceSyncError(
+                    "yandex",
+                    "Яндекс-классификатор не настроен: укажите ключ API и идентификатор каталога.",
+                    details={"scope": "classification"},
+                )
             return None
         if not model_uri:
             model_uri = f"gpt://{folder_id}/yandexgpt-lite/latest"
@@ -1379,7 +1415,13 @@ class ReviewAutomationService:
         )
         try:
             payload = _request_json(request=request, timeout=20, source="yandex", retries=1)
-        except MarketplaceSyncError:
+        except MarketplaceSyncError as exc:
+            if strict:
+                raise MarketplaceSyncError(
+                    "yandex",
+                    f"Ошибка запроса к Яндекс-классификатору: {exc}",
+                    details={"scope": "classification"},
+                ) from exc
             return None
 
         text = ""
@@ -1392,7 +1434,16 @@ class ReviewAutomationService:
                     message = first.get("message")
                     if isinstance(message, dict):
                         text = str(message.get("text") or "")
-        return self._normalize_category(text)
+        normalized = self._normalize_category(text)
+        if normalized:
+            return normalized
+        if strict:
+            raise MarketplaceSyncError(
+                "yandex",
+                "Яндекс-классификатор вернул ответ без корректной категории.",
+                details={"scope": "classification", "raw_response": text[:120]},
+            )
+        return None
 
     @staticmethod
     def _resolve_processing_mode(
