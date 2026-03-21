@@ -20,6 +20,8 @@ URL: `/admin` (доступ только для роли `admin`)
 - настройка AI-классификатора:
   - `rules` (встроенные правила),
   - `yandex` (Foundation Models API; API key/folder/model URI).
+- SLA-метрики и мониторинг ручной очереди.
+- журнал действий (синхронизация, автоответы, ручные действия операторов).
 
 Текущая модель доступа:
 
@@ -53,13 +55,33 @@ URL: `/admin` (доступ только для роли `admin`)
    - `manual` -> очередь оператора;
    - `ignore` -> игнор.
 
+### 5) Интеграции WB/OZON
+
+- поддержаны отдельные клиенты для WB и OZON с пагинацией;
+- для OZON используется `client_id + api_key`;
+- для WB используется `api_key`;
+- можно подключать несколько кабинетов каждого маркетплейса.
+
+### 6) Безопасность API-ключей
+
+- ключи API хранятся в БД только в зашифрованном виде;
+- в интерфейсе отображается только маска ключа;
+- для production обязательно задайте переменную окружения:
+
+```bash
+export APP_ENCRYPTION_KEY="<fernet-key>"
+```
+
+Если ключ не задан, используется dev fallback (подходит только для локальной разработки).
+
 ## Структура
 
 - `review_processor/web.py` — FastAPI: лендинг, auth, app, admin, API.
 - `review_processor/repository.py` — SQLite: users/sessions/accounts/templates/reviews/AI settings.
-- `review_processor/service.py` — синхронизация, категоризация, процессы и ответы.
+- `review_processor/service.py` — синхронизация, категоризация, процессы, ответы, WB/OZON клиенты.
 - `review_processor/processor.py` — rule-based анализ отзывов.
 - `review_processor/auth.py` — hash/verify password и токены сессий.
+- `review_processor/security.py` — шифрование/дешифрование секретов.
 - `tests/test_*.py` — unit-тесты.
 
 ## Быстрый старт
@@ -94,6 +116,8 @@ http://localhost:8000
 - `GET/PUT /api/templates`
 - `GET/PUT /api/admin/ai-settings` (admin)
 - `GET /api/admin/users`, `POST /api/admin/users/{id}/role` (admin)
+- `GET /api/admin/metrics` (admin)
+- `GET /api/admin/actions` (admin)
 
 ## Подключение Яндекс ИИ
 

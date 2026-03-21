@@ -9,7 +9,13 @@ from pydantic import BaseModel, Field
 
 from .auth import create_session_token, hash_password, verify_password
 from .repository import ReviewRepository
-from .service import HTTPMarketplaceClient, MockMarketplaceClient, ReviewAutomationService
+from .service import (
+    HTTPMarketplaceClient,
+    MockMarketplaceClient,
+    OzonMarketplaceClient,
+    ReviewAutomationService,
+    WildberriesMarketplaceClient,
+)
 
 CATEGORIES = [
     "negative_delivery",
@@ -36,6 +42,7 @@ class AccountCreateRequest(BaseModel):
     account_name: str = Field(min_length=2, max_length=120)
     api_url: str = Field(min_length=3, max_length=2000)
     api_key: str | None = Field(default=None, max_length=2000)
+    client_id: str | None = Field(default=None, max_length=200)
 
 
 class AccountStatusRequest(BaseModel):
@@ -199,12 +206,28 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
 
         if payload.account_id is None:
             raise HTTPException(status_code=400, detail="account_id is required if all_accounts=false")
-        account = repository.get_marketplace_account(user_id=user_id, account_id=payload.account_id)
+        account = repository.get_marketplace_account(
+            user_id=user_id,
+            account_id=payload.account_id,
+            include_secrets=True,
+        )
         if account is None:
             raise HTTPException(status_code=404, detail="Marketplace account not found")
         marketplace = str(account["marketplace"])
         if marketplace == "mock":
             client = MockMarketplaceClient()
+        elif marketplace == "ozon":
+            extra = account["extra"] if isinstance(account.get("extra"), dict) else {}
+            client = OzonMarketplaceClient(
+                api_url=str(account["api_url"]),
+                client_id=str(extra.get("client_id") or ""),
+                api_key=str(account.get("api_key") or ""),
+            )
+        elif marketplace == "wb":
+            client = WildberriesMarketplaceClient(
+                api_url=str(account["api_url"]),
+                api_key=str(account.get("api_key") or ""),
+            )
         else:
             client = HTTPMarketplaceClient(
                 api_url=str(account["api_url"]),
@@ -230,12 +253,17 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
         marketplace = payload.marketplace.strip().lower()
         if marketplace not in {"wb", "ozon", "mock"}:
             raise HTTPException(status_code=400, detail="marketplace must be one of: wb, ozon, mock")
+        if marketplace in {"wb", "ozon"} and not (payload.api_key or "").strip():
+            raise HTTPException(status_code=400, detail="api_key is required for WB/OZON")
+        if marketplace == "ozon" and not (payload.client_id or "").strip():
+            raise HTTPException(status_code=400, detail="client_id is required for OZON")
         account = repository.create_marketplace_account(
             user_id=int(user["id"]),
             marketplace=marketplace,
             account_name=payload.account_name.strip(),
             api_url=payload.api_url.strip(),
             api_key=(payload.api_key or "").strip() or None,
+            extra={"client_id": (payload.client_id or "").strip()} if payload.client_id else {},
         )
         return {"ok": True, "item": account}
 
@@ -317,7 +345,7 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
             raise HTTPException(status_code=400, detail="provider must be one of: rules, yandex")
         repository.update_ai_settings(
             provider=provider,
-            yandex_api_key=(payload.yandex_api_key or "").strip() or None,
+            yandex_api_key=payload.yandex_api_key.strip() if payload.yandex_api_key is not None else None,
             yandex_folder_id=(payload.yandex_folder_id or "").strip() or None,
             yandex_model_uri=(payload.yandex_model_uri or "").strip() or None,
         )
@@ -345,6 +373,17 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
         if not updated:
             raise HTTPException(status_code=404, detail="User not found")
         return {"ok": True, "by_admin": current_user["email"]}
+
+    @app.get("/api/admin/metrics")
+    def admin_metrics(request: Request) -> dict[str, object]:
+        _require_admin(request)
+        return repository.get_sla_metrics(user_id=None)
+
+    @app.get("/api/admin/actions")
+    def admin_actions(request: Request, limit: int = 100) -> dict[str, object]:
+        _require_admin(request)
+        rows = repository.list_recent_actions(user_id=None, limit=min(max(limit, 1), 500))
+        return {"items": rows, "count": len(rows)}
 
     @app.exception_handler(HTTPException)
     def http_exception_handler(_: Request, exc: HTTPException) -> JSONResponse:
@@ -499,27 +538,27 @@ def build_app_html(user: dict[str, object]) -> str:
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <style>
-    body {{ margin: 0; font-family: Arial, sans-serif; background: #f3f4f6; }}
-    .layout {{ display: grid; grid-template-columns: 260px 1fr; min-height: 100vh; }}
-    .sidebar {{ background: #0f172a; color: #e2e8f0; padding: 16px; }}
-    .brand {{ font-weight: 700; margin-bottom: 10px; }}
-    .meta {{ font-size: 12px; color: #94a3b8; margin-bottom: 14px; line-height: 1.5; }}
-    .navbtn {{ display: block; color: #e2e8f0; text-decoration: none; padding: 9px 10px; border-radius: 8px; margin-bottom: 8px; background: #1e293b; border: 1px solid #334155; }}
-    .main {{ padding: 18px; }}
-    .panel {{ background: #fff; padding: 14px; border-radius: 10px; box-shadow: 0 1px 4px rgba(15,23,42,0.08); margin-bottom: 12px; }}
-    .row {{ display: flex; gap: 8px; flex-wrap: wrap; }}
-    input, select, textarea, button {{ border: 1px solid #d1d5db; border-radius: 7px; padding: 8px; font-size: 14px; }}
-    textarea {{ min-height: 90px; min-width: 320px; }}
-    button {{ background: #2563eb; color: #fff; border-color: #2563eb; cursor: pointer; }}
-    button.secondary {{ background: #fff; color: #2563eb; }}
-    table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
-    th, td {{ text-align: left; border-bottom: 1px solid #eee; padding: 8px; vertical-align: top; }}
-    .pill {{ border-radius: 999px; padding: 3px 8px; font-size: 11px; display: inline-block; }}
-    .high {{ background: #fee2e2; color: #991b1b; }}
-    .medium {{ background: #fef3c7; color: #92400e; }}
-    .low {{ background: #dcfce7; color: #166534; }}
-    .hidden {{ display: none; }}
-    .small {{ color: #6b7280; font-size: 12px; }}
+    body { margin: 0; font-family: Arial, sans-serif; background: #f3f4f6; }
+    .layout { display: grid; grid-template-columns: 260px 1fr; min-height: 100vh; }
+    .sidebar { background: #0f172a; color: #e2e8f0; padding: 16px; }
+    .brand { font-weight: 700; margin-bottom: 10px; }
+    .meta { font-size: 12px; color: #94a3b8; margin-bottom: 14px; line-height: 1.5; }
+    .navbtn { display: block; color: #e2e8f0; text-decoration: none; padding: 9px 10px; border-radius: 8px; margin-bottom: 8px; background: #1e293b; border: 1px solid #334155; }
+    .main { padding: 18px; }
+    .panel { background: #fff; padding: 14px; border-radius: 10px; box-shadow: 0 1px 4px rgba(15,23,42,0.08); margin-bottom: 12px; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; }
+    input, select, textarea, button { border: 1px solid #d1d5db; border-radius: 7px; padding: 8px; font-size: 14px; }
+    textarea { min-height: 90px; min-width: 320px; }
+    button { background: #2563eb; color: #fff; border-color: #2563eb; cursor: pointer; }
+    button.secondary { background: #fff; color: #2563eb; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { text-align: left; border-bottom: 1px solid #eee; padding: 8px; vertical-align: top; }
+    .pill { border-radius: 999px; padding: 3px 8px; font-size: 11px; display: inline-block; }
+    .high { background: #fee2e2; color: #991b1b; }
+    .medium { background: #fef3c7; color: #92400e; }
+    .low { background: #dcfce7; color: #166534; }
+    .hidden { display: none; }
+    .small { color: #6b7280; font-size: 12px; }
   </style>
 </head>
 <body>
@@ -595,6 +634,7 @@ def build_app_html(user: dict[str, object]) -> str:
             </select>
             <input id="accName" type="text" placeholder="Название кабинета" />
             <input id="accApiUrl" type="text" size="40" placeholder="https://.../reviews" />
+            <input id="accClientId" type="text" size="22" placeholder="OZON Client ID (optional)" />
             <input id="accApiKey" type="text" size="35" placeholder="API key (optional)" />
             <button onclick="createAccount()">Сохранить</button>
           </div>
@@ -603,7 +643,7 @@ def build_app_html(user: dict[str, object]) -> str:
         <div class="panel">
           <h3>Подключенные кабинеты</h3>
           <table>
-            <thead><tr><th>ID</th><th>Marketplace</th><th>Name</th><th>API URL</th><th>Active</th><th>Actions</th></tr></thead>
+            <thead><tr><th>ID</th><th>Marketplace</th><th>Name</th><th>API URL</th><th>Client ID</th><th>API key</th><th>Active</th><th>Actions</th></tr></thead>
             <tbody id="accountsTbody"></tbody>
           </table>
         </div>
@@ -724,6 +764,8 @@ def build_app_html(user: dict[str, object]) -> str:
           <td>${esc(account.marketplace)}</td>
           <td>${esc(account.account_name)}</td>
           <td>${esc(account.api_url)}</td>
+          <td>${esc((account.extra || {}).client_id || "-")}</td>
+          <td>${esc(account.api_key_preview || "-")}</td>
           <td>${esc(account.is_active ? "yes" : "no")}</td>
           <td>
             <button class="secondary" onclick="toggleAccount(${account.id}, ${account.is_active ? "false" : "true"})">
@@ -740,6 +782,7 @@ def build_app_html(user: dict[str, object]) -> str:
         marketplace: document.getElementById("accMarketplace").value,
         account_name: document.getElementById("accName").value.trim(),
         api_url: document.getElementById("accApiUrl").value.trim(),
+        client_id: document.getElementById("accClientId").value.trim() || null,
         api_key: document.getElementById("accApiKey").value.trim() || null
       };
       const res = await fetch("/api/accounts", {
@@ -890,6 +933,7 @@ def build_admin_html(user: dict[str, object]) -> str:
         <button onclick="saveAiSettings()">Сохранить</button>
       </div>
       <div id="aiInfo" class="small"></div>
+      <p class="small">Оставьте API key пустым, чтобы не менять текущий ключ. Для очистки укажите пустую строку явно через API.</p>
     </div>
 
     <div class="panel">
@@ -897,6 +941,24 @@ def build_admin_html(user: dict[str, object]) -> str:
       <table>
         <thead><tr><th>ID</th><th>Email</th><th>Role</th><th>Action</th></tr></thead>
         <tbody id="usersTbody"></tbody>
+      </table>
+    </div>
+
+    <div class="panel">
+      <h3>SLA и загрузка поддержки</h3>
+      <div class="row">
+        <div><strong id="mTotal">0</strong><div class="small">Всего отзывов</div></div>
+        <div><strong id="mAvg">0</strong><div class="small">Среднее время ответа (мин)</div></div>
+        <div><strong id="mOverdue">0</strong><div class="small">Просрочено в ручной очереди (>24ч)</div></div>
+      </div>
+      <div id="mStatuses" class="small"></div>
+    </div>
+
+    <div class="panel">
+      <h3>Лента действий</h3>
+      <table>
+        <thead><tr><th>Время</th><th>Пользователь</th><th>Review UID</th><th>Действие</th><th>Детали</th></tr></thead>
+        <tbody id="actionsTbody"></tbody>
       </table>
     </div>
   </div>
@@ -914,9 +976,12 @@ def build_admin_html(user: dict[str, object]) -> str:
         return;
       }}
       document.getElementById("provider").value = data.provider || "rules";
-      document.getElementById("apiKey").value = data.yandex_api_key || "";
+      document.getElementById("apiKey").value = "";
       document.getElementById("folderId").value = data.yandex_folder_id || "";
       document.getElementById("modelUri").value = data.yandex_model_uri || "";
+      document.getElementById("aiInfo").textContent = data.has_yandex_api_key
+        ? ("Текущий API key: " + (data.yandex_api_key_preview || "***"))
+        : "API key пока не задан";
     }}
 
     async function saveAiSettings() {{
@@ -937,6 +1002,7 @@ def build_admin_html(user: dict[str, object]) -> str:
         return;
       }}
       document.getElementById("aiInfo").textContent = "Настройки сохранены";
+      await loadAiSettings();
     }}
 
     async function loadUsers() {{
@@ -974,8 +1040,42 @@ def build_admin_html(user: dict[str, object]) -> str:
       await loadUsers();
     }}
 
+    async function loadMetrics() {{
+      const res = await fetch("/api/admin/metrics");
+      const data = await res.json();
+      if (!res.ok) {{
+        return;
+      }}
+      document.getElementById("mTotal").textContent = String(data.total_reviews || 0);
+      document.getElementById("mAvg").textContent = String(data.avg_first_response_minutes || 0);
+      document.getElementById("mOverdue").textContent = String(data.overdue_manual_queue_24h || 0);
+      const statuses = data.status_counts || {{}};
+      const parts = Object.entries(statuses).map(([k, v]) => `${{k}}: ${{v}}`);
+      document.getElementById("mStatuses").textContent = parts.join(" | ");
+    }}
+
+    async function loadActions() {{
+      const res = await fetch("/api/admin/actions?limit=50");
+      const data = await res.json();
+      const tbody = document.getElementById("actionsTbody");
+      tbody.innerHTML = "";
+      for (const item of data.items || []) {{
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${{esc(item.created_at)}}</td>
+          <td>${{esc(item.actor)}}</td>
+          <td>${{esc(item.review_uid || "-")}}</td>
+          <td>${{esc(item.action_type)}}</td>
+          <td>${{esc(JSON.stringify(item.details || {{}}))}}</td>
+        `;
+        tbody.appendChild(tr);
+      }}
+    }}
+
     loadAiSettings();
     loadUsers();
+    loadMetrics();
+    loadActions();
   </script>
 </body>
 </html>

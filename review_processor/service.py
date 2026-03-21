@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from typing import Protocol
+from urllib.parse import urlencode, urljoin
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -43,6 +44,128 @@ class HTTPMarketplaceClient:
             author=str(item["author"]) if item.get("author") is not None else None,
             rating=int(item["rating"]) if item.get("rating") is not None else None,
             metadata={k: v for k, v in item.items() if k not in {"review_id", "id", "text", "author", "rating"}},
+        )
+
+
+@dataclass(slots=True)
+class OzonMarketplaceClient:
+    api_url: str
+    client_id: str
+    api_key: str
+    page_size: int = 50
+    max_pages: int = 20
+    timeout: int = 20
+
+    def fetch_reviews(self) -> list[ReviewInput]:
+        if not self.client_id or not self.api_key:
+            return []
+
+        last_id: str | None = None
+        page = 0
+        reviews: list[ReviewInput] = []
+
+        while page < self.max_pages:
+            payload: dict[str, object] = {"limit": self.page_size}
+            if last_id:
+                payload["last_id"] = last_id
+            body = self._request_json(path="/v1/review/list", payload=payload)
+            result = body.get("result") if isinstance(body.get("result"), dict) else body
+
+            page_items = _extract_sequence(result, keys=("reviews", "feedbacks", "items"))
+            if not page_items:
+                break
+            reviews.extend(self._to_review(item) for item in page_items)
+
+            next_last_id = _extract_str(result, keys=("last_id", "lastId", "next_last_id", "cursor"))
+            has_next = bool(result.get("has_next") or result.get("hasNext"))
+            page += 1
+            if not has_next and len(page_items) < self.page_size:
+                break
+            if not next_last_id or next_last_id == last_id:
+                break
+            last_id = next_last_id
+
+        return [review for review in reviews if review.review_id]
+
+    def _request_json(self, *, path: str, payload: dict[str, object]) -> dict[str, object]:
+        url = urljoin(self.api_url.rstrip("/") + "/", path.lstrip("/"))
+        request = Request(
+            url,
+            method="POST",
+            headers={
+                "Content-Type": "application/json",
+                "Client-Id": self.client_id,
+                "Api-Key": self.api_key,
+            },
+            data=json.dumps(payload).encode("utf-8"),
+        )
+        with urlopen(request, timeout=self.timeout) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    @staticmethod
+    def _to_review(item: dict[str, object]) -> ReviewInput:
+        text = str(item.get("text") or item.get("comment") or item.get("content") or "")
+        return ReviewInput(
+            review_id=str(item.get("id") or item.get("review_id") or item.get("uuid") or ""),
+            text=text,
+            author=str(item.get("author") or item.get("user_name") or item.get("customer_name") or "")
+            or None,
+            rating=_to_int(item.get("rating") or item.get("score")),
+            metadata={"raw": item, "marketplace": "ozon"},
+        )
+
+
+@dataclass(slots=True)
+class WildberriesMarketplaceClient:
+    api_url: str
+    api_key: str
+    page_size: int = 100
+    max_pages: int = 20
+    timeout: int = 20
+
+    def fetch_reviews(self) -> list[ReviewInput]:
+        if not self.api_key:
+            return []
+
+        skip = 0
+        page = 0
+        reviews: list[ReviewInput] = []
+
+        while page < self.max_pages:
+            payload = self._request_json(skip=skip, take=self.page_size)
+            items = _extract_sequence(payload, keys=("feedbacks", "reviews", "items"))
+            if not items and isinstance(payload.get("data"), dict):
+                items = _extract_sequence(payload["data"], keys=("feedbacks", "reviews", "items"))
+            if not items:
+                break
+            reviews.extend(self._to_review(item) for item in items)
+            if len(items) < self.page_size:
+                break
+            skip += self.page_size
+            page += 1
+
+        return [review for review in reviews if review.review_id]
+
+    def _request_json(self, *, skip: int, take: int) -> dict[str, object]:
+        params = urlencode({"skip": skip, "take": take, "isAnswered": "false"})
+        url = f"{self.api_url}?{params}" if "?" not in self.api_url else f"{self.api_url}&{params}"
+        request = Request(
+            url,
+            method="GET",
+            headers={"Authorization": self.api_key},
+        )
+        with urlopen(request, timeout=self.timeout) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    @staticmethod
+    def _to_review(item: dict[str, object]) -> ReviewInput:
+        text = str(item.get("text") or item.get("pros") or item.get("cons") or "")
+        return ReviewInput(
+            review_id=str(item.get("id") or item.get("feedbackId") or item.get("review_id") or ""),
+            text=text,
+            author=str(item.get("userName") or item.get("author") or "") or None,
+            rating=_to_int(item.get("productValuation") or item.get("rating")),
+            metadata={"raw": item, "marketplace": "wb"},
         )
 
 
@@ -89,7 +212,7 @@ class ReviewAutomationService:
         client: MarketplaceClient,
     ) -> int:
         reviews = client.fetch_reviews()
-        settings = self.repository.get_ai_settings()
+        settings = self.repository.get_ai_settings(include_secrets=True)
         for review in reviews:
             if not review.review_id:
                 continue
@@ -130,11 +253,23 @@ class ReviewAutomationService:
                 status=status,
                 auto_reply=auto_reply,
             )
+            review_uid = self.repository.make_review_uid(user_id, source, account_id, review.review_id)
+            self.repository.log_review_action(
+                user_id=user_id,
+                review_uid=review_uid,
+                action_type="sync_review",
+                actor="system",
+                details={"category": category, "status": status, "source": source},
+            )
         return len(reviews)
 
     def sync_all_accounts(self, *, user_id: int) -> dict[str, int]:
         loaded_total = 0
-        accounts = [item for item in self.repository.list_marketplace_accounts(user_id) if item["is_active"]]
+        accounts = [
+            item
+            for item in self.repository.list_marketplace_accounts(user_id, include_secrets=True)
+            if item["is_active"]
+        ]
         for account in accounts:
             client = self._build_client(account)
             loaded_total += self.sync_reviews(
@@ -150,6 +285,21 @@ class ReviewAutomationService:
         marketplace = str(account.get("marketplace") or "")
         if marketplace == "mock":
             return MockMarketplaceClient()
+        if marketplace == "ozon":
+            extra = account.get("extra") if isinstance(account.get("extra"), dict) else {}
+            client_id = str(extra.get("client_id") or "")
+            api_key = str(account.get("api_key") or "")
+            return OzonMarketplaceClient(
+                api_url=str(account.get("api_url") or ""),
+                client_id=client_id,
+                api_key=api_key,
+            )
+        if marketplace == "wb":
+            api_key = str(account.get("api_key") or "")
+            return WildberriesMarketplaceClient(
+                api_url=str(account.get("api_url") or ""),
+                api_key=api_key,
+            )
         return HTTPMarketplaceClient(
             api_url=str(account.get("api_url") or ""),
             api_key=str(account.get("api_key") or "") or None,
@@ -166,7 +316,16 @@ class ReviewAutomationService:
         return self.repository.list_reviews(user_id=user_id, priority=priority, status=status, category=category)
 
     def queue_for_manual_processing(self, *, user_id: int, review_uid: str) -> bool:
-        return self.repository.mark_manual_queue(user_id=user_id, review_uid=review_uid)
+        updated = self.repository.mark_manual_queue(user_id=user_id, review_uid=review_uid)
+        if updated:
+            self.repository.log_review_action(
+                user_id=user_id,
+                review_uid=review_uid,
+                action_type="queue_manual",
+                actor="operator",
+                details={},
+            )
+        return updated
 
     def generate_auto_reply(self, *, user_id: int, review_uid: str) -> str:
         review = self.repository.get_review(user_id=user_id, review_uid=review_uid)
@@ -188,15 +347,31 @@ class ReviewAutomationService:
         updated = self.repository.mark_auto_replied(user_id=user_id, review_uid=review_uid, response_text=reply)
         if not updated:
             raise KeyError(f"Review {review_uid} not found")
+        self.repository.log_review_action(
+            user_id=user_id,
+            review_uid=review_uid,
+            action_type="auto_reply",
+            actor="system",
+            details={"reply": reply},
+        )
         return reply
 
     def save_manual_reply(self, *, user_id: int, review_uid: str, operator_name: str, response_text: str) -> bool:
-        return self.repository.mark_manual_replied(
+        updated = self.repository.mark_manual_replied(
             user_id=user_id,
             review_uid=review_uid,
             operator_name=operator_name,
             response_text=response_text,
         )
+        if updated:
+            self.repository.log_review_action(
+                user_id=user_id,
+                review_uid=review_uid,
+                action_type="manual_reply",
+                actor=operator_name,
+                details={"reply": response_text},
+            )
+        return updated
 
     def _classify_category(
         self,
@@ -340,3 +515,36 @@ class ReviewAutomationService:
         if sentiment == "positive":
             return "Спасибо за высокую оценку! Очень рады, что вам понравилось."
         return "Спасибо за отзыв! Мы учтем его в дальнейших улучшениях."
+
+
+def _extract_sequence(payload: object, *, keys: tuple[str, ...]) -> list[dict[str, object]]:
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    if not isinstance(payload, dict):
+        return []
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, list):
+            return [item for item in value if isinstance(item, dict)]
+    return []
+
+
+def _extract_str(payload: object, *, keys: tuple[str, ...]) -> str | None:
+    if not isinstance(payload, dict):
+        return None
+    for key in keys:
+        value = payload.get(key)
+        if value is not None:
+            text = str(value).strip()
+            if text:
+                return text
+    return None
+
+
+def _to_int(value: object) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None

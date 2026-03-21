@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .models import ProcessedReview, ReviewInput
+from .security import decrypt_secret, encrypt_secret, mask_secret
 
 
 def _utc_now() -> str:
@@ -62,7 +63,7 @@ class ReviewRepository:
                 CREATE TABLE IF NOT EXISTS ai_settings (
                     id INTEGER PRIMARY KEY CHECK (id = 1),
                     provider TEXT NOT NULL,
-                    yandex_api_key TEXT,
+                    yandex_api_key_encrypted TEXT,
                     yandex_folder_id TEXT,
                     yandex_model_uri TEXT,
                     updated_at TEXT NOT NULL
@@ -71,7 +72,7 @@ class ReviewRepository:
             )
             conn.execute(
                 """
-                INSERT INTO ai_settings (id, provider, yandex_api_key, yandex_folder_id, yandex_model_uri, updated_at)
+                INSERT INTO ai_settings (id, provider, yandex_api_key_encrypted, yandex_folder_id, yandex_model_uri, updated_at)
                 VALUES (1, 'rules', NULL, NULL, NULL, ?)
                 ON CONFLICT(id) DO NOTHING
                 """,
@@ -85,7 +86,8 @@ class ReviewRepository:
                     marketplace TEXT NOT NULL,
                     account_name TEXT NOT NULL,
                     api_url TEXT NOT NULL,
-                    api_key TEXT,
+                    api_key_encrypted TEXT,
+                    extra_json TEXT NOT NULL DEFAULT '{}',
                     is_active INTEGER NOT NULL DEFAULT 1,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
@@ -140,6 +142,79 @@ class ReviewRepository:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS review_actions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    review_uid TEXT,
+                    action_type TEXT NOT NULL,
+                    actor TEXT NOT NULL,
+                    details_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_review_actions_user_created
+                ON review_actions(user_id, created_at DESC)
+                """
+            )
+            self._migrate_schema(conn)
+
+    def _migrate_schema(self, conn: sqlite3.Connection) -> None:
+        # Backward-compatible migrations for already initialized local DBs.
+        ai_columns = self._table_columns(conn, "ai_settings")
+        if "yandex_api_key_encrypted" not in ai_columns:
+            conn.execute("ALTER TABLE ai_settings ADD COLUMN yandex_api_key_encrypted TEXT")
+
+        account_columns = self._table_columns(conn, "marketplace_accounts")
+        if "api_key_encrypted" not in account_columns:
+            conn.execute("ALTER TABLE marketplace_accounts ADD COLUMN api_key_encrypted TEXT")
+        if "extra_json" not in account_columns:
+            conn.execute("ALTER TABLE marketplace_accounts ADD COLUMN extra_json TEXT NOT NULL DEFAULT '{}'")
+
+        if "api_key" in account_columns:
+            rows = conn.execute(
+                """
+                SELECT id, api_key, api_key_encrypted
+                FROM marketplace_accounts
+                WHERE api_key IS NOT NULL AND TRIM(api_key) != ''
+                """
+            ).fetchall()
+            for row in rows:
+                if row["api_key_encrypted"]:
+                    continue
+                encrypted = encrypt_secret(str(row["api_key"]))
+                conn.execute(
+                    """
+                    UPDATE marketplace_accounts
+                    SET api_key_encrypted = ?, api_key = NULL, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (encrypted, _utc_now(), int(row["id"])),
+                )
+
+        if "yandex_api_key" in ai_columns:
+            row = conn.execute(
+                "SELECT id, yandex_api_key, yandex_api_key_encrypted FROM ai_settings WHERE id = 1"
+            ).fetchone()
+            if row is not None and row["yandex_api_key"] and not row["yandex_api_key_encrypted"]:
+                conn.execute(
+                    """
+                    UPDATE ai_settings
+                    SET yandex_api_key_encrypted = ?, yandex_api_key = NULL, updated_at = ?
+                    WHERE id = 1
+                    """,
+                    (encrypt_secret(str(row["yandex_api_key"])), _utc_now()),
+                )
+
+    @staticmethod
+    def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+        rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+        return {str(row["name"]) for row in rows}
 
     @staticmethod
     def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
@@ -154,6 +229,9 @@ class ReviewRepository:
             data["tags"] = json.loads(data.pop("tags_json"))
         if "metadata_json" in data:
             data["metadata"] = json.loads(data.pop("metadata_json"))
+        if "extra_json" in data:
+            raw = data.pop("extra_json")
+            data["extra"] = json.loads(raw) if raw else {}
         return data
 
     def count_users(self) -> int:
@@ -234,12 +312,19 @@ class ReviewRepository:
         with self._connect() as conn:
             conn.execute("DELETE FROM sessions WHERE expires_at < ?", (now_iso,))
 
-    def get_ai_settings(self) -> dict[str, Any]:
+    def get_ai_settings(self, *, include_secrets: bool = False) -> dict[str, Any]:
         with self._connect() as conn:
             row = conn.execute("SELECT * FROM ai_settings WHERE id = 1").fetchone()
         if row is None:
             raise RuntimeError("AI settings row is missing")
-        return self._row_to_dict(row)
+        data = self._row_to_dict(row)
+        encrypted_key = str(data.pop("yandex_api_key_encrypted") or "") if "yandex_api_key_encrypted" in data else ""
+        key_value = decrypt_secret(encrypted_key) if encrypted_key else None
+        data["has_yandex_api_key"] = bool(key_value)
+        data["yandex_api_key_preview"] = mask_secret(key_value)
+        if include_secrets:
+            data["yandex_api_key"] = key_value
+        return data
 
     def update_ai_settings(
         self,
@@ -249,14 +334,20 @@ class ReviewRepository:
         yandex_folder_id: str | None,
         yandex_model_uri: str | None,
     ) -> None:
+        current = self.get_ai_settings(include_secrets=True)
+        if yandex_api_key is None:
+            encrypted_key = encrypt_secret(str(current.get("yandex_api_key") or "")) if current.get("yandex_api_key") else None
+        else:
+            encrypted_key = encrypt_secret(yandex_api_key.strip())
+
         with self._connect() as conn:
             conn.execute(
                 """
                 UPDATE ai_settings
-                SET provider = ?, yandex_api_key = ?, yandex_folder_id = ?, yandex_model_uri = ?, updated_at = ?
+                SET provider = ?, yandex_api_key_encrypted = ?, yandex_folder_id = ?, yandex_model_uri = ?, updated_at = ?
                 WHERE id = 1
                 """,
-                (provider, yandex_api_key, yandex_folder_id, yandex_model_uri, _utc_now()),
+                (provider, encrypted_key, yandex_folder_id, yandex_model_uri, _utc_now()),
             )
 
     def create_marketplace_account(
@@ -267,25 +358,37 @@ class ReviewRepository:
         account_name: str,
         api_url: str,
         api_key: str | None,
+        extra: dict[str, Any] | None = None,
         is_active: bool = True,
     ) -> dict[str, Any]:
         now = _utc_now()
+        encrypted_api_key = encrypt_secret(api_key)
         with self._connect() as conn:
             cursor = conn.execute(
                 """
                 INSERT INTO marketplace_accounts (
-                    user_id, marketplace, account_name, api_url, api_key, is_active, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    user_id, marketplace, account_name, api_url, api_key_encrypted, extra_json, is_active, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (user_id, marketplace, account_name, api_url, api_key, int(is_active), now, now),
+                (
+                    user_id,
+                    marketplace,
+                    account_name,
+                    api_url,
+                    encrypted_api_key,
+                    json.dumps(extra or {}, ensure_ascii=False),
+                    int(is_active),
+                    now,
+                    now,
+                ),
             )
             account_id = int(cursor.lastrowid)
-        account = self.get_marketplace_account(user_id=user_id, account_id=account_id)
+        account = self.get_marketplace_account(user_id=user_id, account_id=account_id, include_secrets=False)
         if account is None:
             raise RuntimeError("Marketplace account creation failed")
         return account
 
-    def list_marketplace_accounts(self, user_id: int) -> list[dict[str, Any]]:
+    def list_marketplace_accounts(self, user_id: int, *, include_secrets: bool = False) -> list[dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(
                 """
@@ -295,9 +398,15 @@ class ReviewRepository:
                 """,
                 (user_id,),
             ).fetchall()
-        return [self._row_to_dict(row) for row in rows]
+        return [self._account_row_to_dict(row, include_secrets=include_secrets) for row in rows]
 
-    def get_marketplace_account(self, *, user_id: int, account_id: int) -> dict[str, Any] | None:
+    def get_marketplace_account(
+        self,
+        *,
+        user_id: int,
+        account_id: int,
+        include_secrets: bool = False,
+    ) -> dict[str, Any] | None:
         with self._connect() as conn:
             row = conn.execute(
                 """
@@ -308,7 +417,17 @@ class ReviewRepository:
             ).fetchone()
         if row is None:
             return None
-        return self._row_to_dict(row)
+        return self._account_row_to_dict(row, include_secrets=include_secrets)
+
+    def _account_row_to_dict(self, row: sqlite3.Row, *, include_secrets: bool) -> dict[str, Any]:
+        data = self._row_to_dict(row)
+        encrypted = str(data.pop("api_key_encrypted") or "") if "api_key_encrypted" in data else ""
+        api_key = decrypt_secret(encrypted) if encrypted else None
+        data["has_api_key"] = bool(api_key)
+        data["api_key_preview"] = mask_secret(api_key)
+        if include_secrets:
+            data["api_key"] = api_key
+        return data
 
     def update_marketplace_account_status(self, *, user_id: int, account_id: int, is_active: bool) -> bool:
         with self._connect() as conn:
@@ -522,6 +641,95 @@ class ReviewRepository:
                 (response_text, operator_name, _utc_now(), user_id, review_uid),
             )
             return result.rowcount > 0
+
+    def log_review_action(
+        self,
+        *,
+        user_id: int,
+        review_uid: str | None,
+        action_type: str,
+        actor: str,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO review_actions (user_id, review_uid, action_type, actor, details_json, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (user_id, review_uid, action_type, actor, json.dumps(details or {}, ensure_ascii=False), _utc_now()),
+            )
+
+    def list_recent_actions(self, *, user_id: int | None = None, limit: int = 100) -> list[dict[str, Any]]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if user_id is not None:
+            clauses.append("user_id = ?")
+            params.append(user_id)
+        query = "SELECT * FROM review_actions"
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+
+        with self._connect() as conn:
+            rows = conn.execute(query, tuple(params)).fetchall()
+        items: list[dict[str, Any]] = []
+        for row in rows:
+            data = self._row_to_dict(row)
+            raw = data.pop("details_json", "{}")
+            data["details"] = json.loads(raw) if raw else {}
+            items.append(data)
+        return items
+
+    def get_sla_metrics(self, *, user_id: int | None = None) -> dict[str, Any]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if user_id is not None:
+            clauses.append("user_id = ?")
+            params.append(user_id)
+
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        where_and = f"{where} AND" if where else "WHERE"
+
+        with self._connect() as conn:
+            total_row = conn.execute(f"SELECT COUNT(*) AS c FROM review_items {where}", tuple(params)).fetchone()
+            statuses = conn.execute(
+                f"""
+                SELECT status, COUNT(*) AS c
+                FROM review_items
+                {where}
+                GROUP BY status
+                """,
+                tuple(params),
+            ).fetchall()
+            avg_row = conn.execute(
+                f"""
+                SELECT AVG((julianday(updated_at) - julianday(created_at)) * 24.0 * 60.0) AS avg_minutes
+                FROM review_items
+                {where_and} status IN ('answered_auto', 'answered_manual')
+                """,
+                tuple(params),
+            ).fetchone()
+            overdue_row = conn.execute(
+                f"""
+                SELECT COUNT(*) AS c
+                FROM review_items
+                {where_and}
+                    status = 'queued_for_operator'
+                    AND (julianday('now') - julianday(updated_at)) * 24.0 > 24
+                """,
+                tuple(params),
+            ).fetchone()
+
+        status_map = {str(row["status"]): int(row["c"]) for row in statuses}
+        avg_minutes = float(avg_row["avg_minutes"]) if avg_row and avg_row["avg_minutes"] is not None else 0.0
+        return {
+            "total_reviews": int(total_row["c"]) if total_row else 0,
+            "status_counts": status_map,
+            "avg_first_response_minutes": round(avg_minutes, 2),
+            "overdue_manual_queue_24h": int(overdue_row["c"]) if overdue_row else 0,
+        }
 
     def raw_fetch(self, query: str, params: tuple[Any, ...] = ()) -> list[Mapping[str, Any]]:
         with self._connect() as conn:
