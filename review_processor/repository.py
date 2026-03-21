@@ -67,6 +67,7 @@ class ReviewRepository:
                     yandex_api_key_encrypted TEXT,
                     yandex_folder_id TEXT,
                     yandex_model_uri TEXT,
+                    brand_name TEXT NOT NULL DEFAULT 'VarFabric',
                     use_sync_start_date INTEGER NOT NULL DEFAULT 0,
                     sync_start_date TEXT,
                     updated_at TEXT NOT NULL
@@ -253,9 +254,9 @@ class ReviewRepository:
                 """
                 INSERT INTO ai_settings (
                     id, provider, yandex_api_key_encrypted, yandex_folder_id, yandex_model_uri,
-                    use_sync_start_date, sync_start_date, updated_at
+                    brand_name, use_sync_start_date, sync_start_date, updated_at
                 )
-                VALUES (1, 'rules', NULL, NULL, NULL, 0, NULL, ?)
+                VALUES (1, 'rules', NULL, NULL, NULL, 'VarFabric', 0, NULL, ?)
                 ON CONFLICT(id) DO NOTHING
                 """,
                 (_utc_now(),),
@@ -274,6 +275,15 @@ class ReviewRepository:
             conn.execute("ALTER TABLE ai_settings ADD COLUMN use_sync_start_date INTEGER NOT NULL DEFAULT 0")
         if "sync_start_date" not in ai_columns:
             conn.execute("ALTER TABLE ai_settings ADD COLUMN sync_start_date TEXT")
+        if "brand_name" not in ai_columns:
+            conn.execute("ALTER TABLE ai_settings ADD COLUMN brand_name TEXT NOT NULL DEFAULT 'VarFabric'")
+        conn.execute(
+            """
+            UPDATE ai_settings
+            SET brand_name = 'VarFabric'
+            WHERE brand_name IS NULL OR TRIM(brand_name) = ''
+            """
+        )
 
         account_columns = self._table_columns(conn, "marketplace_accounts")
         if "api_key_encrypted" not in account_columns:
@@ -470,6 +480,7 @@ class ReviewRepository:
         if row is None:
             raise RuntimeError("AI settings row is missing")
         data = self._row_to_dict(row)
+        data["brand_name"] = str(data.get("brand_name") or "VarFabric").strip() or "VarFabric"
         encrypted_key = str(data.pop("yandex_api_key_encrypted") or "") if "yandex_api_key_encrypted" in data else ""
         key_value = decrypt_secret(encrypted_key) if encrypted_key else None
         data["has_yandex_api_key"] = bool(key_value)
@@ -485,10 +496,14 @@ class ReviewRepository:
         yandex_api_key: str | None,
         yandex_folder_id: str | None,
         yandex_model_uri: str | None,
+        brand_name: str | None = None,
         use_sync_start_date: bool = False,
         sync_start_date: str | None = None,
     ) -> None:
         current = self.get_ai_settings(include_secrets=True)
+        normalized_brand = str(brand_name if brand_name is not None else current.get("brand_name") or "VarFabric").strip()
+        if not normalized_brand:
+            normalized_brand = "VarFabric"
         if yandex_api_key is None:
             encrypted_key = encrypt_secret(str(current.get("yandex_api_key") or "")) if current.get("yandex_api_key") else None
         else:
@@ -499,7 +514,7 @@ class ReviewRepository:
                 """
                 UPDATE ai_settings
                 SET provider = ?, yandex_api_key_encrypted = ?, yandex_folder_id = ?, yandex_model_uri = ?,
-                    use_sync_start_date = ?, sync_start_date = ?, updated_at = ?
+                    brand_name = ?, use_sync_start_date = ?, sync_start_date = ?, updated_at = ?
                 WHERE id = 1
                 """,
                 (
@@ -507,6 +522,7 @@ class ReviewRepository:
                     encrypted_key,
                     yandex_folder_id,
                     yandex_model_uri,
+                    normalized_brand,
                     int(use_sync_start_date),
                     sync_start_date,
                     _utc_now(),

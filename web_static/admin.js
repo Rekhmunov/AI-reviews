@@ -97,12 +97,15 @@ async function loadAiSettings() {
   document.getElementById("apiKey").value = "";
   document.getElementById("folderId").value = data.yandex_folder_id || "";
   document.getElementById("modelUri").value = data.yandex_model_uri || "";
+  document.getElementById("brandName").value = data.brand_name || "VarFabric";
   document.getElementById("useSyncStartDate").checked = Boolean(data.use_sync_start_date);
   document.getElementById("syncStartDate").value = data.sync_start_date || "";
   syncDateToggle();
-  document.getElementById("aiInfo").textContent = data.has_yandex_api_key
+  const keyText = data.has_yandex_api_key
     ? "Текущий ключ доступа: " + (data.yandex_api_key_preview || "***")
     : "Ключ доступа пока не задан";
+  const brandText = `Бренд для %BRAND%: ${data.brand_name || "VarFabric"}`;
+  document.getElementById("aiInfo").textContent = `${keyText}. ${brandText}`;
 }
 
 function syncDateToggle() {
@@ -118,6 +121,7 @@ async function saveAiSettings() {
     yandex_api_key: document.getElementById("apiKey").value.trim() || null,
     yandex_folder_id: document.getElementById("folderId").value.trim() || null,
     yandex_model_uri: document.getElementById("modelUri").value.trim() || null,
+    brand_name: document.getElementById("brandName").value.trim() || "VarFabric",
     use_sync_start_date: Boolean(document.getElementById("useSyncStartDate").checked),
     sync_start_date: document.getElementById("syncStartDate").value || null,
   };

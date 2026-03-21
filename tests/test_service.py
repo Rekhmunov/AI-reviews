@@ -205,7 +205,7 @@ class ReviewAutomationServiceTests(unittest.TestCase):
         self.assertNotIn("%RECO%", reply)
         self.assertNotIn("%BRAND%", reply)
         self.assertIn("R-55", reply)
-        self.assertIn("FEEDPILOT", reply)
+        self.assertIn("VarFabric", reply)
         self.assertFalse(reply.startswith(","))
         self.assertNotIn(",!", reply)
 

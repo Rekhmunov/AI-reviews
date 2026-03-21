@@ -555,6 +555,7 @@ class ReviewAutomationService:
                     review=review,
                     category=category,
                     sentiment=processed.sentiment_label,
+                    default_brand_name=str(settings.get("brand_name") or "VarFabric"),
                 )
                 sent, send_error = self._send_reply_via_client(
                     client=client,
@@ -832,6 +833,8 @@ class ReviewAutomationService:
 
     def apply_processing_rules_to_unprocessed(self, *, user_id: int) -> dict[str, int]:
         rows = self.repository.list_unprocessed_reviews(user_id=user_id)
+        settings = self.repository.get_ai_settings(include_secrets=False)
+        default_brand_name = str(settings.get("brand_name") or "VarFabric")
         updated = 0
         auto_sent = 0
         queued = 0
@@ -899,6 +902,7 @@ class ReviewAutomationService:
                     review=review,
                     category=category,
                     sentiment=sentiment,
+                    default_brand_name=default_brand_name,
                 )
                 sent = self._send_reply_for_saved_review(
                     user_id=user_id,
@@ -1038,6 +1042,7 @@ class ReviewAutomationService:
             sentiment=str(review.get("sentiment_label") or ""),
         )
         text = group_template or (str(template["template_text"]) if template else self._build_auto_reply(review))
+        settings = self.repository.get_ai_settings(include_secrets=False)
         reply = self._render_template(
             text,
             review=ReviewInput(
@@ -1050,6 +1055,7 @@ class ReviewAutomationService:
             user_id=user_id,
             category=str(review.get("category")),
             sentiment=str(review.get("sentiment_label")),
+            default_brand_name=str(settings.get("brand_name") or "VarFabric"),
         )
         sent = self._send_reply_for_saved_review(
             user_id=user_id,
@@ -1407,6 +1413,7 @@ class ReviewAutomationService:
         review: ReviewInput,
         category: str,
         sentiment: str,
+        default_brand_name: str = "VarFabric",
     ) -> str:
         text = template or "Спасибо за отзыв!"
         author_raw = (review.author or "").strip()
@@ -1440,7 +1447,7 @@ class ReviewAutomationService:
         for key, value in context.items():
             text = text.replace(f"{{{key}}}", str(value))
         reco = self._pick_recommendation_for_review(user_id=user_id, review=review)
-        brand = str((review.metadata or {}).get("brand") or "FEEDPILOT").strip() or "FEEDPILOT"
+        brand = str((review.metadata or {}).get("brand") or default_brand_name or "VarFabric").strip() or "VarFabric"
         text = text.replace("%USER%", author_raw)
         text = text.replace("%RECO%", reco)
         text = text.replace("%%RECO%%", reco)

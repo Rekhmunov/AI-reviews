@@ -58,6 +58,17 @@ class RepositoryAdminTests(unittest.TestCase):
 
         secret = self.repository.get_ai_settings(include_secrets=True)
         self.assertEqual(secret["yandex_api_key"], "yandex-secret")
+        self.assertEqual(secret["brand_name"], "VarFabric")
+
+        self.repository.update_ai_settings(
+            provider="rules",
+            yandex_api_key=None,
+            yandex_folder_id=None,
+            yandex_model_uri=None,
+            brand_name="MyBrand",
+        )
+        updated_brand = self.repository.get_ai_settings()
+        self.assertEqual(updated_brand["brand_name"], "MyBrand")
 
         processed = ProcessedReview(
             review_id="1",
