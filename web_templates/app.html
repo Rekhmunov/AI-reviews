@@ -14,8 +14,8 @@
         <div class="meta">user: {{SAFE_EMAIL}}<br/>role: {{SAFE_ROLE}}</div>
         <a id="nav-reviews" class="navbtn active" href="#" onclick="showSection('reviews')">1) Отзывы</a>
         <a id="nav-conversations" class="navbtn" href="#" onclick="showSection('conversations')">2) Вопросы и чаты</a>
-        <a id="nav-analytics" class="navbtn" href="#" onclick="showSection('analytics')">3) Аналитика</a>
-        <a id="nav-settings" class="navbtn" href="#" onclick="showSection('settings')">4) Настройки</a>
+        {{NAV_ANALYTICS}}
+        {{NAV_SETTINGS}}
         {{ADMIN_LINK}}
       </div>
       <div class="sidebar-bottom">
@@ -245,6 +245,12 @@
       </section>
     </main>
   </div>
+  <script>
+    window.APP_PERMISSIONS = {
+      can_view_analytics: {{CAN_VIEW_ANALYTICS}},
+      can_view_settings: {{CAN_VIEW_SETTINGS}}
+    };
+  </script>
   <script src="/static/app.js"></script>
 </body>
 </html>

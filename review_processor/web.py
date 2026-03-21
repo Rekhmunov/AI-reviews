@@ -69,7 +69,7 @@ class AISettingsRequest(BaseModel):
 
 
 class RoleUpdateRequest(BaseModel):
-    role: str = Field(description="user|admin")
+    role: str = Field(description="user|admin|feedback_manager")
 
 
 class ProfileUpdateRequest(BaseModel):
@@ -78,6 +78,14 @@ class ProfileUpdateRequest(BaseModel):
     current_password: str | None = Field(default=None, max_length=255)
     new_password: str | None = Field(default=None, max_length=255)
     new_password_repeat: str | None = Field(default=None, max_length=255)
+
+
+ROLE_ADMIN = "admin"
+ROLE_USER = "user"
+ROLE_FEEDBACK_MANAGER = "feedback_manager"
+ROLE_CAN_ACCESS_ANALYTICS = {ROLE_ADMIN, ROLE_USER}
+ROLE_CAN_ACCESS_SETTINGS = {ROLE_ADMIN, ROLE_USER}
+ROLE_ASSIGNABLE_BY_ADMIN = {ROLE_ADMIN, ROLE_USER, ROLE_FEEDBACK_MANAGER}
 
 
 def create_app(db_path: str = "reviews.db") -> FastAPI:
@@ -111,8 +119,20 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
 
     def _require_admin(request: Request) -> dict[str, object]:
         user = _require_user(request)
-        if user.get("role") != "admin":
+        if user.get("role") != ROLE_ADMIN:
             raise HTTPException(status_code=403, detail="Admin access only")
+        return user
+
+    def _require_analytics_access(request: Request) -> dict[str, object]:
+        user = _require_user(request)
+        if str(user.get("role")) not in ROLE_CAN_ACCESS_ANALYTICS:
+            raise HTTPException(status_code=403, detail="Недостаточно прав для просмотра аналитики")
+        return user
+
+    def _require_settings_access(request: Request) -> dict[str, object]:
+        user = _require_user(request)
+        if str(user.get("role")) not in ROLE_CAN_ACCESS_SETTINGS:
+            raise HTTPException(status_code=403, detail="Недостаточно прав для раздела настроек")
         return user
 
     @app.get("/", response_class=HTMLResponse)
@@ -159,7 +179,7 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
         if repository.get_user_by_email(email) is not None:
             return HTMLResponse(build_register_html(error="Пользователь уже существует"), status_code=409)
 
-        role = "admin" if repository.count_users() == 0 else "user"
+        role = ROLE_ADMIN if repository.count_users() == 0 else ROLE_USER
         user = repository.create_user(email=email, password_hash=hash_password(password), role=role)
         token = _issue_session(int(user["id"]))
         response = RedirectResponse("/app", status_code=302)
@@ -187,7 +207,7 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
         user = _get_current_user(request)
         if user is None:
             return RedirectResponse("/login", status_code=302)
-        if user.get("role") != "admin":
+        if user.get("role") != ROLE_ADMIN:
             return HTMLResponse("<h1>Доступ запрещен</h1><p>Нужны права администратора.</p>", status_code=403)
         return HTMLResponse(build_admin_html(user))
 
@@ -310,7 +330,7 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
 
     @app.get("/api/analytics")
     def user_analytics(request: Request) -> dict[str, object]:
-        user = _require_user(request)
+        user = _require_analytics_access(request)
         return repository.get_user_analytics(user_id=int(user["id"]))
 
     @app.post("/api/sync")
@@ -350,13 +370,13 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
 
     @app.get("/api/accounts")
     def list_accounts(request: Request) -> dict[str, object]:
-        user = _require_user(request)
+        user = _require_settings_access(request)
         items = repository.list_marketplace_accounts(user_id=int(user["id"]))
         return {"items": items, "count": len(items)}
 
     @app.post("/api/accounts")
     def create_account(request: Request, payload: AccountCreateRequest) -> dict[str, object]:
-        user = _require_user(request)
+        user = _require_settings_access(request)
         marketplace = payload.marketplace.strip().lower()
         if marketplace not in {"wb", "ozon", "mock"}:
             raise HTTPException(status_code=400, detail="marketplace must be one of: wb, ozon, mock")
@@ -395,7 +415,7 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
 
     @app.post("/api/accounts/{account_id}/status")
     def update_account_status(account_id: int, request: Request, payload: AccountStatusRequest) -> dict[str, object]:
-        user = _require_user(request)
+        user = _require_settings_access(request)
         updated = repository.update_marketplace_account_status(
             user_id=int(user["id"]),
             account_id=account_id,
@@ -407,13 +427,13 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
 
     @app.get("/api/templates")
     def list_templates(request: Request) -> dict[str, object]:
-        user = _require_user(request)
+        user = _require_settings_access(request)
         items = repository.list_templates(user_id=int(user["id"]))
         return {"items": items, "count": len(items)}
 
     @app.put("/api/templates")
     def upsert_template(request: Request, payload: TemplateUpsertRequest) -> dict[str, object]:
-        user = _require_user(request)
+        user = _require_settings_access(request)
         category = payload.category.strip().lower()
         mode = payload.mode.strip().lower()
         if category not in CATEGORIES:
@@ -487,10 +507,10 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
     def admin_update_user_role(target_user_id: int, payload: RoleUpdateRequest, request: Request) -> dict[str, object]:
         current_user = _require_admin(request)
         role = payload.role.strip().lower()
-        if role not in {"user", "admin"}:
-            raise HTTPException(status_code=400, detail="role must be user or admin")
+        if role not in ROLE_ASSIGNABLE_BY_ADMIN:
+            raise HTTPException(status_code=400, detail="role must be one of: user, feedback_manager, admin")
 
-        if role == "user":
+        if role != ROLE_ADMIN:
             admin_rows = repository.raw_fetch("SELECT id FROM users WHERE role = 'admin'")
             if len(admin_rows) <= 1 and any(int(item["id"]) == target_user_id for item in admin_rows):
                 raise HTTPException(status_code=400, detail="Нельзя снять роль последнего администратора")
@@ -544,14 +564,31 @@ def build_register_html(error: str | None = None) -> str:
 
 def build_app_html(user: dict[str, object]) -> str:
     safe_email = escape(str(user["email"]))
-    safe_role = escape(str(user["role"]))
-    admin_link = '<a class="navbtn" href="/admin">Админ-панель</a>' if user.get("role") == "admin" else ""
+    role = str(user.get("role") or ROLE_USER)
+    safe_role = escape(role)
+    can_view_analytics = role in ROLE_CAN_ACCESS_ANALYTICS
+    can_view_settings = role in ROLE_CAN_ACCESS_SETTINGS
+    admin_link = '<a class="navbtn" href="/admin">Админ-панель</a>' if role == ROLE_ADMIN else ""
+    nav_analytics = (
+        '<a id="nav-analytics" class="navbtn" href="#" onclick="showSection(\'analytics\')">3) Аналитика</a>'
+        if can_view_analytics
+        else ""
+    )
+    nav_settings = (
+        '<a id="nav-settings" class="navbtn" href="#" onclick="showSection(\'settings\')">4) Настройки</a>'
+        if can_view_settings
+        else ""
+    )
     return _render_template(
         "app.html",
         {
             "SAFE_EMAIL": safe_email,
             "SAFE_ROLE": safe_role,
             "ADMIN_LINK": admin_link,
+            "NAV_ANALYTICS": nav_analytics,
+            "NAV_SETTINGS": nav_settings,
+            "CAN_VIEW_ANALYTICS": "true" if can_view_analytics else "false",
+            "CAN_VIEW_SETTINGS": "true" if can_view_settings else "false",
         },
     )
 

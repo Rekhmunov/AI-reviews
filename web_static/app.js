@@ -7,7 +7,32 @@ function esc(value) {
 
 const templateStore = {};
 
+function getPermissions() {
+  const defaults = { can_view_analytics: true, can_view_settings: true };
+  const fromWindow = window.APP_PERMISSIONS || {};
+  return {
+    can_view_analytics: Boolean(
+      fromWindow.can_view_analytics !== undefined
+        ? fromWindow.can_view_analytics
+        : defaults.can_view_analytics,
+    ),
+    can_view_settings: Boolean(
+      fromWindow.can_view_settings !== undefined
+        ? fromWindow.can_view_settings
+        : defaults.can_view_settings,
+    ),
+  };
+}
+
+function canViewSection(section) {
+  const permissions = getPermissions();
+  if (section === "analytics") return permissions.can_view_analytics;
+  if (section === "settings") return permissions.can_view_settings;
+  return true;
+}
+
 function showSection(section) {
+  if (!canViewSection(section)) return;
   const ids = ["reviews", "conversations", "analytics", "settings", "profile"];
   for (const id of ids) {
     const sectionEl = document.getElementById("section-" + id);
@@ -15,8 +40,10 @@ function showSection(section) {
     if (sectionEl) sectionEl.classList.add("hidden");
     if (navEl) navEl.classList.remove("active");
   }
-  document.getElementById("section-" + section).classList.remove("hidden");
-  document.getElementById("nav-" + section).classList.add("active");
+  const targetSection = document.getElementById("section-" + section);
+  const targetNav = document.getElementById("nav-" + section);
+  if (targetSection) targetSection.classList.remove("hidden");
+  if (targetNav) targetNav.classList.add("active");
   if (section === "profile") {
     loadProfile();
   }
@@ -88,7 +115,9 @@ async function syncAll() {
   let text = `Кабинетов: ${data.accounts}, отзывов: ${data.loaded}, вопросов/чатов: ${data.loaded_conversations || 0}`;
   if (failed > 0) text += `, ошибок: ${failed}`;
   document.getElementById("syncInfo").textContent = text;
-  await Promise.all([loadReviews(), loadConversations(), loadAnalytics()]);
+  const tasks = [loadReviews(), loadConversations()];
+  if (canViewSection("analytics")) tasks.push(loadAnalytics());
+  await Promise.all(tasks);
 }
 
 async function loadReviews() {
@@ -413,13 +442,25 @@ async function saveProfile() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-  showSettingsTab("sources");
+  const permissions = getPermissions();
+  if (!permissions.can_view_analytics) {
+    document.getElementById("section-analytics")?.classList.add("hidden");
+  }
+  if (!permissions.can_view_settings) {
+    document.getElementById("section-settings")?.classList.add("hidden");
+  } else {
+    showSettingsTab("sources");
+  }
   onSourceMarketplaceChange();
   document.getElementById("ruleCategory")?.addEventListener("change", syncRuleFormFromStore);
   document.getElementById("tplCategory")?.addEventListener("change", syncTemplateFormFromStore);
   loadReviews();
   loadConversations();
-  loadAnalytics();
-  loadAccounts();
-  loadTemplates();
+  if (permissions.can_view_analytics) {
+    loadAnalytics();
+  }
+  if (permissions.can_view_settings) {
+    loadAccounts();
+    loadTemplates();
+  }
 });

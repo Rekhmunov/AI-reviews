@@ -5,6 +5,22 @@ function esc(value) {
     .replaceAll(">", "&gt;");
 }
 
+const roleLabels = {
+  user: "user",
+  feedback_manager: "менеджер обратной связи",
+  admin: "admin",
+};
+
+function buildRoleOptions(selectedRole) {
+  const availableRoles = ["user", "feedback_manager", "admin"];
+  return availableRoles
+    .map((role) => {
+      const selected = role === selectedRole ? " selected" : "";
+      return `<option value="${role}"${selected}>${esc(roleLabels[role] || role)}</option>`;
+    })
+    .join("");
+}
+
 async function loadAiSettings() {
   const res = await fetch("/api/admin/ai-settings");
   const data = await res.json();
@@ -49,14 +65,16 @@ async function loadUsers() {
   tbody.innerHTML = "";
   for (const user of data.items || []) {
     const tr = document.createElement("tr");
+    const roleSelectId = `role-select-${user.id}`;
     tr.innerHTML = `
       <td>${esc(user.id)}</td>
       <td>${esc(user.email)}</td>
-      <td>${esc(user.role)}</td>
+      <td>${esc(roleLabels[user.role] || user.role)}</td>
       <td>
-        <button onclick="setRole(${user.id}, '${user.role === "admin" ? "user" : "admin"}')">
-          Сделать ${user.role === "admin" ? "user" : "admin"}
-        </button>
+        <select id="${roleSelectId}">
+          ${buildRoleOptions(user.role)}
+        </select>
+        <button onclick="setRole(${user.id}, document.getElementById('${roleSelectId}').value)">Применить</button>
       </td>
     `;
     tbody.appendChild(tr);
