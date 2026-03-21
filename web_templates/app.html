@@ -178,6 +178,7 @@
             <button id="settings-tab-sources" class="settings-tab-btn active" onclick="showSettingsTab('sources')">Источники отзывов</button>
             <button id="settings-tab-rules" class="settings-tab-btn" onclick="showSettingsTab('rules')">Правила обработки</button>
             <button id="settings-tab-templates" class="settings-tab-btn" onclick="showSettingsTab('templates')">Шаблоны</button>
+            <button id="settings-tab-recommendations" class="settings-tab-btn" onclick="showSettingsTab('recommendations')">Рекомендации</button>
           </div>
         </div>
 
@@ -249,6 +250,38 @@
                 <span id="templatesInfo" class="small"></span>
               </div>
               <p class="small">Подстановки: {автор}, {оценка}, {категория}, {тональность}, %USER%, %RECO%, %BRAND%</p>
+            </div>
+          </div>
+        </div>
+
+        <div id="settings-pane-recommendations" class="hidden">
+          <div class="panel">
+            <div class="row row-between">
+              <h4 class="no-margin">База рекомендаций для %RECO%</h4>
+              <div class="row">
+                <button class="secondary" onclick="exportRecommendations()">Экспорт Excel</button>
+                <button class="secondary" onclick="triggerRecommendationsImport()">Импорт Excel</button>
+                <button onclick="saveRecommendations()">Сохранить рекомендации</button>
+              </div>
+            </div>
+            <p class="small">
+              Первый столбец — артикул товара, на который оставили отзыв. Второй столбец — рекомендуемые артикулы через запятую.
+              Для каждого ответа система подставляет в %RECO% один случайный артикул.
+            </p>
+            <input id="recommendationsImportInput" type="file" accept=".xlsx,.xlsm,.xltx,.xltm" class="hidden" onchange="importRecommendationsFile(this)" />
+            <table>
+              <thead>
+                <tr>
+                  <th>Артикул товара</th>
+                  <th>Рекомендуемые артикулы (через запятую)</th>
+                  <th>Действия</th>
+                </tr>
+              </thead>
+              <tbody id="recommendationsTbody"></tbody>
+            </table>
+            <div class="row mt-10">
+              <button class="secondary" onclick="addRecommendationRow()">Добавить строку</button>
+              <span id="recommendationsInfo" class="small"></span>
             </div>
           </div>
         </div>

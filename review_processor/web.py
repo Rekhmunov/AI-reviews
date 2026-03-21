@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from html import escape
+import io
 from pathlib import Path
 import sqlite3
 import threading
 
-from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -273,6 +274,15 @@ class ProcessingRulesApplyRequest(BaseModel):
     rules: list[ProcessingRuleItemRequest] = Field(default_factory=list)
 
 
+class RecommendationRowRequest(BaseModel):
+    source_article: str = Field(default="", max_length=255)
+    targets_csv: str = Field(default="", max_length=4000)
+
+
+class RecommendationsSaveRequest(BaseModel):
+    rows: list[RecommendationRowRequest] = Field(default_factory=list)
+
+
 ROLE_ADMIN = "admin"
 ROLE_USER = "user"
 ROLE_FEEDBACK_MANAGER = "feedback_manager"
@@ -396,6 +406,18 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
                     subgroup=name,
                     templates=defaults,
                 )
+
+    def _parse_recommendation_targets(raw_csv: str) -> list[str]:
+        values = str(raw_csv or "").replace(";", ",").replace("\n", ",").split(",")
+        result: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            article = value.strip()
+            if not article or article in seen:
+                continue
+            seen.add(article)
+            result.append(article)
+        return result
 
     @app.get("/", response_class=HTMLResponse)
     def landing(request: Request) -> HTMLResponse:
@@ -851,6 +873,108 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
         repository.replace_processing_rules(user_id=user_id, rules=normalized_rules)
         stats = service.apply_processing_rules_to_unprocessed(user_id=user_id)
         return {"ok": True, "applied": len(normalized_rules), "updated_reviews": stats}
+
+    @app.get("/api/recommendations")
+    def list_recommendations(request: Request) -> dict[str, object]:
+        user = _require_settings_access(request)
+        items = repository.list_recommendations(user_id=int(user["id"]))
+        return {"items": items, "count": len(items)}
+
+    @app.put("/api/recommendations")
+    def save_recommendations(payload: RecommendationsSaveRequest, request: Request) -> dict[str, object]:
+        user = _require_settings_access(request)
+        normalized_rows: list[dict[str, object]] = []
+        unique_sources: set[str] = set()
+        for row in payload.rows:
+            source_article = row.source_article.strip()
+            targets = _parse_recommendation_targets(row.targets_csv)
+            if not source_article:
+                continue
+            if source_article in unique_sources:
+                continue
+            unique_sources.add(source_article)
+            normalized_rows.append(
+                {
+                    "source_article": source_article,
+                    "target_articles": targets,
+                }
+            )
+        inserted_pairs = repository.replace_all_recommendations(
+            user_id=int(user["id"]),
+            rows=normalized_rows,
+        )
+        return {"ok": True, "sources": len(normalized_rows), "pairs": inserted_pairs}
+
+    @app.post("/api/recommendations/import")
+    async def import_recommendations(request: Request, file: UploadFile = File(...)) -> dict[str, object]:
+        user = _require_settings_access(request)
+        try:
+            from openpyxl import load_workbook
+        except Exception as exc:  # pragma: no cover - protected by dependency
+            raise HTTPException(status_code=500, detail="Библиотека Excel не установлена") from exc
+
+        filename = (file.filename or "").lower()
+        if filename and not filename.endswith((".xlsx", ".xlsm", ".xltx", ".xltm")):
+            raise HTTPException(status_code=400, detail="Поддерживаются только файлы Excel формата .xlsx")
+        content = await file.read()
+        if not content:
+            raise HTTPException(status_code=400, detail="Файл пустой")
+        try:
+            workbook = load_workbook(io.BytesIO(content), data_only=True)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Не удалось прочитать Excel-файл") from exc
+        sheet = workbook.active
+        normalized_rows: list[dict[str, object]] = []
+        unique_sources: set[str] = set()
+        for row in sheet.iter_rows(min_row=2, values_only=True):
+            source_article = str(row[0] or "").strip() if len(row) > 0 else ""
+            targets_csv = str(row[1] or "").strip() if len(row) > 1 else ""
+            targets = _parse_recommendation_targets(targets_csv)
+            if not source_article:
+                continue
+            if source_article in unique_sources:
+                continue
+            unique_sources.add(source_article)
+            normalized_rows.append(
+                {
+                    "source_article": source_article,
+                    "target_articles": targets,
+                }
+            )
+        inserted_pairs = repository.replace_all_recommendations(
+            user_id=int(user["id"]),
+            rows=normalized_rows,
+        )
+        return {"ok": True, "sources": len(normalized_rows), "pairs": inserted_pairs}
+
+    @app.get("/api/recommendations/export")
+    def export_recommendations(request: Request) -> StreamingResponse:
+        try:
+            from openpyxl import Workbook
+        except Exception as exc:  # pragma: no cover - protected by dependency
+            raise HTTPException(status_code=500, detail="Библиотека Excel не установлена") from exc
+        user = _require_settings_access(request)
+        items = repository.list_recommendations(user_id=int(user["id"]))
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "Рекомендации"
+        sheet.append(["Артикул товара", "Рекомендуемые артикулы"])
+        for item in items:
+            sheet.append(
+                [
+                    str(item.get("source_article") or ""),
+                    str(item.get("targets_csv") or ""),
+                ]
+            )
+        output = io.BytesIO()
+        workbook.save(output)
+        output.seek(0)
+        headers = {"Content-Disposition": 'attachment; filename="recommendations.xlsx"'}
+        return StreamingResponse(
+            output,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers=headers,
+        )
 
     @app.get("/api/template-subgroup")
     def get_template_subgroup(group_id: str, subgroup: str, request: Request) -> dict[str, object]:

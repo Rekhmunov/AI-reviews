@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Protocol
@@ -504,6 +505,7 @@ class ReviewAutomationService:
                             "is_spam": processed.is_spam,
                         }
                     ),
+                    user_id=user_id,
                     review=review,
                     category=category,
                     sentiment=processed.sentiment_label,
@@ -772,6 +774,7 @@ class ReviewAutomationService:
                 text=str(row.get("text") or ""),
                 author=str(row.get("author")) if row.get("author") else None,
                 rating=int(row["rating"]) if row.get("rating") is not None else None,
+                metadata=dict(row.get("metadata") or {}) if isinstance(row.get("metadata"), dict) else {},
             )
             group_id = self._resolve_template_group_id(
                 category=category,
@@ -809,6 +812,7 @@ class ReviewAutomationService:
                 )
                 reply = self._render_template(
                     group_template or fallback,
+                    user_id=user_id,
                     review=review,
                     category=category,
                     sentiment=sentiment,
@@ -864,6 +868,7 @@ class ReviewAutomationService:
                 text=str(review.get("text")),
                 author=str(review.get("author")) if review.get("author") else None,
                 rating=int(review["rating"]) if review.get("rating") is not None else None,
+                metadata=dict(review.get("metadata") or {}) if isinstance(review.get("metadata"), dict) else {},
             ),
             sentiment=str(review.get("sentiment_label") or ""),
         )
@@ -875,7 +880,9 @@ class ReviewAutomationService:
                 text=str(review.get("text")),
                 author=str(review.get("author")) if review.get("author") else None,
                 rating=int(review["rating"]) if review.get("rating") is not None else None,
+                metadata=dict(review.get("metadata") or {}) if isinstance(review.get("metadata"), dict) else {},
             ),
+            user_id=user_id,
             category=str(review.get("category")),
             sentiment=str(review.get("sentiment_label")),
         )
@@ -1063,10 +1070,85 @@ class ReviewAutomationService:
         # По умолчанию система не выполняет автообработку, пока правило не включено.
         return "manual", False, ""
 
+    def _pick_recommendation_for_review(self, *, user_id: int | None, review: ReviewInput) -> str:
+        if user_id is None:
+            return ""
+        source_article = self._extract_product_article(review)
+        if not source_article:
+            return ""
+        recommendation = self.repository.get_random_recommendation(
+            user_id=user_id,
+            source_article=source_article,
+        )
+        return str(recommendation or "").strip()
+
     @staticmethod
-    def _render_template(template: str, *, review: ReviewInput, category: str, sentiment: str) -> str:
+    def _extract_product_article(review: ReviewInput) -> str | None:
+        def _find_in_mapping(payload: Mapping[str, object]) -> str | None:
+            keys = (
+                "article",
+                "article_id",
+                "sku",
+                "offer_id",
+                "offerId",
+                "vendor_code",
+                "vendorCode",
+                "nmId",
+                "nm_id",
+                "product_id",
+                "productId",
+                "item_id",
+                "itemId",
+            )
+            for key in keys:
+                if key not in payload:
+                    continue
+                value = str(payload.get(key) or "").strip()
+                if value:
+                    return value
+            return None
+
+        metadata = review.metadata if isinstance(review.metadata, dict) else {}
+        candidates: list[Mapping[str, object]] = []
+        if metadata:
+            candidates.append(metadata)
+        raw = metadata.get("raw")
+        if isinstance(raw, Mapping):
+            candidates.append(raw)
+            nested = raw.get("product")
+            if isinstance(nested, Mapping):
+                candidates.append(nested)
+            nested_item = raw.get("item")
+            if isinstance(nested_item, Mapping):
+                candidates.append(nested_item)
+        for payload in candidates:
+            found = _find_in_mapping(payload)
+            if found:
+                return found
+        return None
+
+    @staticmethod
+    def _cleanup_rendered_text(text: str) -> str:
+        clean = text.strip()
+        clean = re.sub(r"\s+([,.;:!?])", r"\1", clean)
+        clean = re.sub(r"\s{2,}", " ", clean)
+        clean = clean.replace(",!", "!").replace(",?", "?").replace(",.", ".")
+        clean = re.sub(r"^[,.;:!?\-\s]+", "", clean)
+        clean = clean.replace(" ,", ",").replace(" .", ".").replace(" !", "!").replace(" ?", "?")
+        return clean.strip()
+
+    def _render_template(
+        self,
+        template: str,
+        *,
+        user_id: int | None,
+        review: ReviewInput,
+        category: str,
+        sentiment: str,
+    ) -> str:
         text = template or "Спасибо за отзыв!"
-        author = review.author or "клиент"
+        author_raw = (review.author or "").strip()
+        author = author_raw or "клиент"
         rating = review.rating if review.rating is not None else "без оценки"
         category_ru = {
             "negative_delivery": "Негатив: доставка",
@@ -1095,7 +1177,13 @@ class ReviewAutomationService:
         }
         for key, value in context.items():
             text = text.replace(f"{{{key}}}", str(value))
-        return text
+        reco = self._pick_recommendation_for_review(user_id=user_id, review=review)
+        brand = str((review.metadata or {}).get("brand") or "FEEDPILOT").strip() or "FEEDPILOT"
+        text = text.replace("%USER%", author_raw)
+        text = text.replace("%RECO%", reco)
+        text = text.replace("%%RECO%%", reco)
+        text = text.replace("%BRAND%", brand)
+        return self._cleanup_rendered_text(text)
 
     @staticmethod
     def _build_auto_reply(review: dict[str, object]) -> str:

@@ -836,6 +836,10 @@ tbody tr:hover {
   justify-content: space-between;
 }
 
+#recommendationsTbody input[type="text"] {
+  width: 100%;
+}
+
 @media (max-width: 900px) {
   .layout {
     grid-template-columns: 1fr;

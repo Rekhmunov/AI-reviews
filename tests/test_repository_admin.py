@@ -397,6 +397,24 @@ class RepositoryAdminTests(unittest.TestCase):
         )
         self.assertEqual(by_category["items"][0]["category"], "negative_delivery")
 
+    def test_recommendations_storage_and_random_pick(self) -> None:
+        inserted = self.repository.replace_all_recommendations(
+            user_id=self.user_id,
+            rows=[
+                {"source_article": "A-1", "target_articles": ["B-1", "B-2", "B-1"]},
+                {"source_article": "A-2", "target_articles": ["C-1"]},
+            ],
+        )
+        self.assertEqual(inserted, 3)
+
+        listed = self.repository.list_recommendations(user_id=self.user_id)
+        self.assertEqual(len(listed), 2)
+        first = next(item for item in listed if item["source_article"] == "A-1")
+        self.assertEqual(first["target_articles"], ["B-1", "B-2"])
+
+        picked = self.repository.get_random_recommendation(user_id=self.user_id, source_article="A-1")
+        self.assertIn(picked, {"B-1", "B-2"})
+
 
 if __name__ == "__main__":
     unittest.main()

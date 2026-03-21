@@ -31,6 +31,20 @@ class _FailClient:
         raise MarketplaceSyncError("wb", "invalid token")
 
 
+class _RecoClient:
+    def fetch_reviews(self, *args: object, **kwargs: object) -> list[ReviewInput]:
+        _ = args, kwargs
+        return [
+            ReviewInput(
+                review_id="ext-reco-1",
+                text="Отличный товар, все понравилось",
+                author=None,
+                rating=5,
+                metadata={"article": "A-1"},
+            )
+        ]
+
+
 class ReviewAutomationServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         temp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
@@ -153,6 +167,34 @@ class ReviewAutomationServiceTests(unittest.TestCase):
 
         actions = self.repository.list_recent_actions(user_id=int(self.user["id"]), limit=20)
         self.assertTrue(any(item["action_type"] == "sync_error" for item in actions))
+
+    def test_template_placeholders_user_reco_brand(self) -> None:
+        self.repository.replace_all_recommendations(
+            user_id=int(self.user["id"]),
+            rows=[{"source_article": "A-1", "target_articles": ["R-55"]}],
+        )
+        self.repository.upsert_template(
+            user_id=int(self.user["id"]),
+            category="positive_product",
+            mode="auto",
+            template_text="%USER%, спасибо за отзыв! Попробуйте %RECO%. С уважением, %BRAND%.",
+            is_enabled=True,
+        )
+        self.service.sync_reviews(
+            user_id=int(self.user["id"]),
+            source="test-market",
+            account_id=None,
+            client=_RecoClient(),
+        )
+        review = self.repository.list_reviews(user_id=int(self.user["id"]), category="positive_product", limit=1)[0]
+        reply = self.service.generate_auto_reply(user_id=int(self.user["id"]), review_uid=review["review_uid"])
+        self.assertNotIn("%USER%", reply)
+        self.assertNotIn("%RECO%", reply)
+        self.assertNotIn("%BRAND%", reply)
+        self.assertIn("R-55", reply)
+        self.assertIn("FEEDPILOT", reply)
+        self.assertFalse(reply.startswith(","))
+        self.assertNotIn(",!", reply)
 
 
 if __name__ == "__main__":

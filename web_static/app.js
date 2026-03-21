@@ -2,7 +2,9 @@ function esc(value) {
   return String(value || "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
 const templateStore = {};
@@ -24,6 +26,9 @@ const templateGroupsState = {
 };
 const processingRulesState = {
   items: [],
+};
+const recommendationsState = {
+  rows: [],
 };
 let syncInProgress = false;
 
@@ -119,7 +124,7 @@ function showSection(section) {
 }
 
 function showSettingsTab(tab) {
-  const tabs = ["sources", "rules", "templates"];
+  const tabs = ["sources", "rules", "templates", "recommendations"];
   for (const name of tabs) {
     const tabBtn = document.getElementById("settings-tab-" + name);
     const pane = document.getElementById("settings-pane-" + name);
@@ -128,6 +133,9 @@ function showSettingsTab(tab) {
   }
   document.getElementById("settings-tab-" + tab).classList.add("active");
   document.getElementById("settings-pane-" + tab).classList.remove("hidden");
+  if (tab === "recommendations") {
+    loadRecommendations();
+  }
 }
 
 function setReviewBucket(bucket) {
@@ -979,6 +987,117 @@ async function saveTemplateSubgroup() {
   );
 }
 
+function renderRecommendationsRows() {
+  const tbody = document.getElementById("recommendationsTbody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+  if (!recommendationsState.rows.length) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td colspan="3" class="small">Список пуст. Добавьте первую строку.</td>`;
+    tbody.appendChild(tr);
+    return;
+  }
+  recommendationsState.rows.forEach((row, index) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><input type="text" value="${esc(row.source_article || "")}" placeholder="Например, 12345678" data-index="${index}" data-field="source" oninput="onRecommendationInput(this)" /></td>
+      <td><input type="text" value="${esc(row.targets_csv || "")}" placeholder="Например, 87654321, 11223344" data-index="${index}" data-field="targets" oninput="onRecommendationInput(this)" /></td>
+      <td><button class="icon-btn danger" title="Удалить строку" onclick="removeRecommendationRow(${index})">🗑</button></td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function onRecommendationInput(inputElement) {
+  const index = Number(inputElement.getAttribute("data-index") || -1);
+  if (index < 0 || index >= recommendationsState.rows.length) return;
+  const field = String(inputElement.getAttribute("data-field") || "");
+  if (field === "source") {
+    recommendationsState.rows[index].source_article = String(inputElement.value || "");
+  } else if (field === "targets") {
+    recommendationsState.rows[index].targets_csv = String(inputElement.value || "");
+  }
+}
+
+function addRecommendationRow() {
+  recommendationsState.rows.push({ source_article: "", targets_csv: "" });
+  renderRecommendationsRows();
+}
+
+function removeRecommendationRow(index) {
+  if (index < 0 || index >= recommendationsState.rows.length) return;
+  recommendationsState.rows.splice(index, 1);
+  renderRecommendationsRows();
+}
+
+async function loadRecommendations() {
+  const res = await fetch("/api/recommendations");
+  const data = await res.json();
+  const info = document.getElementById("recommendationsInfo");
+  if (!res.ok) {
+    if (info) info.textContent = "Ошибка: " + (data.detail || "не удалось загрузить рекомендации");
+    return;
+  }
+  recommendationsState.rows = (data.items || []).map((item) => ({
+    source_article: String(item.source_article || ""),
+    targets_csv: String(item.targets_csv || ""),
+  }));
+  renderRecommendationsRows();
+  if (info) info.textContent = "";
+}
+
+async function saveRecommendations() {
+  const info = document.getElementById("recommendationsInfo");
+  const payload = {
+    rows: recommendationsState.rows.map((row) => ({
+      source_article: String(row.source_article || "").trim(),
+      targets_csv: String(row.targets_csv || "").trim(),
+    })),
+  };
+  const res = await fetch("/api/recommendations", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    if (info) info.textContent = "Ошибка: " + (data.detail || "не удалось сохранить рекомендации");
+    return;
+  }
+  if (info) info.textContent = `Сохранено связок: ${data.pairs || 0}`;
+  await loadRecommendations();
+}
+
+function triggerRecommendationsImport() {
+  const input = document.getElementById("recommendationsImportInput");
+  if (!input) return;
+  input.value = "";
+  input.click();
+}
+
+async function importRecommendationsFile(inputElement) {
+  const info = document.getElementById("recommendationsInfo");
+  const file = inputElement?.files?.[0];
+  if (!file) return;
+  const formData = new FormData();
+  formData.append("file", file);
+  const res = await fetch("/api/recommendations/import", {
+    method: "POST",
+    body: formData,
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    if (info) info.textContent = "Ошибка: " + (data.detail || "не удалось импортировать Excel");
+    return;
+  }
+  if (info) info.textContent = `Импорт завершен. Источников: ${data.sources || 0}, связок: ${data.pairs || 0}`;
+  await loadRecommendations();
+}
+
+function exportRecommendations() {
+  window.location.href = "/api/recommendations/export";
+}
+
 async function queueManual(reviewId) {
   await fetch(`/api/reviews/${encodeURIComponent(reviewId)}/queue-manual`, { method: "POST" });
   await loadReviews();
@@ -1109,5 +1228,6 @@ document.addEventListener("DOMContentLoaded", () => {
     loadAccounts();
     loadProcessingRules();
     loadTemplates();
+    loadRecommendations();
   }
 });

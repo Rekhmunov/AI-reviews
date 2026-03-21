@@ -136,6 +136,21 @@ class ReviewRepository:
             )
             conn.execute(
                 """
+                CREATE TABLE IF NOT EXISTS product_recommendations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    source_article TEXT NOT NULL,
+                    target_article TEXT NOT NULL,
+                    is_active INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(user_id, source_article, target_article),
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                )
+                """
+            )
+            conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS review_items (
                     review_uid TEXT PRIMARY KEY,
                     user_id INTEGER NOT NULL,
@@ -225,6 +240,12 @@ class ReviewRepository:
                 """
                 CREATE INDEX IF NOT EXISTS idx_processing_rules_user_group
                 ON processing_rules(user_id, group_id)
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_recommendations_user_source
+                ON product_recommendations(user_id, source_article, is_active)
                 """
             )
             self._migrate_schema(conn)
@@ -847,6 +868,84 @@ class ReviewRepository:
                         now,
                     ),
                 )
+
+    def list_recommendations(self, *, user_id: int) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT source_article, target_article
+                FROM product_recommendations
+                WHERE user_id = ? AND is_active = 1
+                ORDER BY source_article ASC, target_article ASC
+                """,
+                (user_id,),
+            ).fetchall()
+        grouped: dict[str, list[str]] = {}
+        for row in rows:
+            source = str(row["source_article"] or "").strip()
+            target = str(row["target_article"] or "").strip()
+            if not source or not target:
+                continue
+            grouped.setdefault(source, []).append(target)
+        items: list[dict[str, Any]] = []
+        for source, targets in grouped.items():
+            items.append(
+                {
+                    "source_article": source,
+                    "target_articles": targets,
+                    "targets_csv": ", ".join(targets),
+                }
+            )
+        return items
+
+    def replace_all_recommendations(self, *, user_id: int, rows: list[dict[str, Any]]) -> int:
+        now = _utc_now()
+        inserted = 0
+        with self._connect() as conn:
+            conn.execute("DELETE FROM product_recommendations WHERE user_id = ?", (user_id,))
+            for row in rows:
+                source_raw = str(row.get("source_article") or "").strip()
+                if not source_raw:
+                    continue
+                targets_raw = row.get("target_articles")
+                if not isinstance(targets_raw, list):
+                    continue
+                seen_targets: set[str] = set()
+                for target_value in targets_raw:
+                    target = str(target_value or "").strip()
+                    if not target or target in seen_targets:
+                        continue
+                    seen_targets.add(target)
+                    conn.execute(
+                        """
+                        INSERT INTO product_recommendations (
+                            user_id, source_article, target_article, is_active, created_at, updated_at
+                        ) VALUES (?, ?, ?, 1, ?, ?)
+                        """,
+                        (user_id, source_raw, target, now, now),
+                    )
+                    inserted += 1
+        return inserted
+
+    def get_random_recommendation(self, *, user_id: int, source_article: str) -> str | None:
+        source = source_article.strip()
+        if not source:
+            return None
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT target_article
+                FROM product_recommendations
+                WHERE user_id = ? AND source_article = ? AND is_active = 1
+                ORDER BY RANDOM()
+                LIMIT 1
+                """,
+                (user_id, source),
+            ).fetchone()
+        if row is None:
+            return None
+        target = str(row["target_article"] or "").strip()
+        return target or None
 
     @staticmethod
     def make_review_uid(user_id: int, source: str, account_id: int | None, external_review_id: str) -> str:
