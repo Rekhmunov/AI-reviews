@@ -74,12 +74,16 @@ class HTTPMarketplaceClient:
 
     @staticmethod
     def _to_review(item: dict[str, object]) -> ReviewInput:
+        review_tags = _extract_review_tags_from_payload(item)
         return ReviewInput(
             review_id=str(item.get("review_id") or item.get("id") or ""),
             text=str(item.get("text") or ""),
             author=str(item["author"]) if item.get("author") is not None else None,
             rating=int(item["rating"]) if item.get("rating") is not None else None,
-            metadata={k: v for k, v in item.items() if k not in {"review_id", "id", "text", "author", "rating"}},
+            metadata={
+                **{k: v for k, v in item.items() if k not in {"review_id", "id", "text", "author", "rating"}},
+                "review_tags": review_tags,
+            },
         )
 
 
@@ -223,13 +227,14 @@ class OzonMarketplaceClient:
     @staticmethod
     def _to_review(item: dict[str, object]) -> ReviewInput:
         text = str(item.get("text") or item.get("comment") or item.get("content") or "")
+        review_tags = _extract_review_tags_from_payload(item)
         return ReviewInput(
             review_id=str(item.get("id") or item.get("review_id") or item.get("uuid") or ""),
             text=text,
             author=str(item.get("author") or item.get("user_name") or item.get("customer_name") or "")
             or None,
             rating=_to_int(item.get("rating") or item.get("score")),
-            metadata={"raw": item, "marketplace": "ozon"},
+            metadata={"raw": item, "marketplace": "ozon", "review_tags": review_tags},
         )
 
     @staticmethod
@@ -398,12 +403,13 @@ class WildberriesMarketplaceClient:
     @staticmethod
     def _to_review(item: dict[str, object]) -> ReviewInput:
         text = str(item.get("text") or item.get("pros") or item.get("cons") or "")
+        review_tags = _extract_review_tags_from_payload(item)
         return ReviewInput(
             review_id=str(item.get("id") or item.get("feedbackId") or item.get("review_id") or ""),
             text=text,
             author=str(item.get("userName") or item.get("author") or "") or None,
             rating=_to_int(item.get("productValuation") or item.get("rating")),
-            metadata={"raw": item, "marketplace": "wb"},
+            metadata={"raw": item, "marketplace": "wb", "review_tags": review_tags},
         )
 
     @staticmethod
@@ -1173,7 +1179,7 @@ class ReviewAutomationService:
                 return "Испорченная упаковка"
             return "Общие доставка"
         if group_id == "wrong_size":
-            if any(word in text for word in ("большемер", "маломер")):
+            if any(word in text for word in ("большемер", "маломер", "мерит")):
                 return "Большемерит/маломерит"
             if any(word in text for word in ("замер", "измер")):
                 return "Альтернативные измерения"
@@ -1185,6 +1191,8 @@ class ReviewAutomationService:
             if rating == 4:
                 return "4 звезды"
             return "5 звезд"
+        if group_id == "tagged_reviews":
+            return "Общие теги"
         if group_id == "product_dissatisfaction":
             if any(word in text for word in ("подделк", "фейк")):
                 return "Подделка"
@@ -1214,21 +1222,79 @@ class ReviewAutomationService:
     @staticmethod
     def _resolve_template_group_id(*, category: str, review: ReviewInput, sentiment: str) -> str | None:
         normalized = category.strip().lower()
+        text = (review.text or "").strip().lower()
+        tags = ReviewAutomationService._extract_review_tags(review)
+        has_text = bool(text)
+        has_tags = bool(tags)
+
+        if not has_text:
+            if has_tags:
+                return "tagged_reviews"
+            return "textless_ratings"
+
+        size_words = ("размер", "маломер", "большемер", "size", "мерит")
+        delivery_words = ("доставк", "курьер", "пункт выдачи", "пвз")
+        product_words = ("товар", "качество", "брак", "слом", "упаковк", "цвет", "белье", "пододеяльник")
+
         if normalized in {"positive_quality", "positive_product"}:
+            if any(word in text for word in size_words):
+                return "wrong_size"
             return "positive"
         if normalized == "negative_delivery":
             return "delivery_problems"
         if normalized in {"neutral_other"}:
-            return "textless_ratings"
-        if normalized in {"negative_product", "negative_other"}:
-            text = (review.text or "").lower()
-            size_words = ("размер", "маломер", "большемер", "size")
             if any(word in text for word in size_words):
                 return "wrong_size"
+            if any(word in text for word in delivery_words):
+                return "delivery_problems"
+            if any(word in text for word in product_words):
+                return "product_dissatisfaction"
+            if sentiment.strip().lower() == "positive":
+                return "positive"
+            return "product_dissatisfaction"
+        if normalized in {"negative_product", "negative_other"}:
+            if any(word in text for word in size_words):
+                return "wrong_size"
+            if any(word in text for word in delivery_words):
+                return "delivery_problems"
             return "product_dissatisfaction"
         if sentiment.strip().lower() == "positive":
+            if any(word in text for word in size_words):
+                return "wrong_size"
             return "positive"
         return None
+
+    @staticmethod
+    def _extract_review_tags(review: ReviewInput) -> list[str]:
+        metadata = review.metadata if isinstance(review.metadata, dict) else {}
+        raw_tags = metadata.get("review_tags")
+        result: list[str] = []
+        seen: set[str] = set()
+
+        def _push(value: object) -> None:
+            text = str(value or "").strip()
+            if not text:
+                return
+            normalized = text.lower()
+            if normalized in seen:
+                return
+            seen.add(normalized)
+            result.append(text)
+
+        if isinstance(raw_tags, list):
+            for item in raw_tags:
+                _push(item)
+        elif isinstance(raw_tags, str):
+            for part in re.split(r"[,\n;/|]+", raw_tags):
+                _push(part)
+
+        # Fallback for unknown provider payload shape.
+        if not result:
+            raw = metadata.get("raw")
+            extracted = _extract_review_tags_from_payload(raw)
+            for item in extracted:
+                _push(item)
+        return result
 
     def _classify_category(
         self,
@@ -1443,6 +1509,7 @@ class ReviewAutomationService:
             "positive": "позитивная",
             "neutral": "нейтральная",
         }.get(sentiment, sentiment)
+        tags_text = ", ".join(self._extract_review_tags(review)) or "без тегов"
         context = {
             "author": author,
             "автор": author,
@@ -1452,6 +1519,8 @@ class ReviewAutomationService:
             "категория": category_ru,
             "sentiment": sentiment,
             "тональность": sentiment_ru,
+            "tags": tags_text,
+            "теги": tags_text,
             "review_id": review.review_id,
             "идентификатор_отзыва": review.review_id,
         }
@@ -1481,6 +1550,77 @@ class ReviewAutomationService:
         if sentiment == "positive":
             return "Спасибо за высокую оценку! Очень рады, что вам понравилось."
         return "Спасибо за отзыв! Мы учтем его в дальнейших улучшениях."
+
+
+def _is_tag_candidate(value: str) -> bool:
+    text = value.strip()
+    if not text:
+        return False
+    if len(text) > 120:
+        return False
+    if text.isdigit():
+        return False
+    return any(char.isalpha() for char in text)
+
+
+def _extract_review_tags_from_payload(payload: object) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+
+    def _push(raw_value: object) -> None:
+        if isinstance(raw_value, str):
+            parts = re.split(r"[,\n;/|]+", raw_value)
+            for part in parts:
+                clean = part.strip()
+                if not _is_tag_candidate(clean):
+                    continue
+                key = clean.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                result.append(clean)
+            return
+        if isinstance(raw_value, (int, float)):
+            return
+        if isinstance(raw_value, list):
+            for item in raw_value:
+                _push(item)
+            return
+        if isinstance(raw_value, Mapping):
+            for key, value in raw_value.items():
+                key_text = str(key).lower()
+                if key_text in {"name", "title", "value", "text", "label", "tag"}:
+                    _push(value)
+                    continue
+                if any(marker in key_text for marker in ("tag", "label", "mark", "pros", "cons", "advantage", "disadvantage")):
+                    _push(value)
+                    continue
+                if isinstance(value, (list, Mapping)):
+                    _push(value)
+
+    if not isinstance(payload, Mapping):
+        return result
+    for candidate_key in (
+        "tags",
+        "tag",
+        "labels",
+        "marks",
+        "pros",
+        "cons",
+        "advantages",
+        "disadvantages",
+        "pluses",
+        "minuses",
+        "qualities",
+        "quality_tags",
+    ):
+        if candidate_key in payload:
+            _push(payload.get(candidate_key))
+    for nested_key in ("raw", "details", "product", "item", "attributes", "options"):
+        nested_value = payload.get(nested_key)
+        if nested_value is not None:
+            _push(nested_value)
+    return result
 
 
 def _extract_sequence(payload: object, *, keys: tuple[str, ...]) -> list[dict[str, object]]:

@@ -88,6 +88,13 @@ TEMPLATE_GROUPS: list[dict[str, object]] = [
         ],
     },
     {
+        "id": "tagged_reviews",
+        "title": "Отзывы с тегами",
+        "subgroups": [
+            "Общие теги",
+        ],
+    },
+    {
         "id": "textless_ratings",
         "title": "Оценки без текста",
         "subgroups": [
@@ -189,6 +196,10 @@ DEFAULT_TEMPLATE_CONTENT: dict[str, list[str]] = {
     "Альтернативные измерения": ["Спасибо за отзыв. Дополним информацию по размерам в карточке товара."],
     "Большемерит/маломерит": ["Сожалеем, что размер не подошел. Передадим замечание по размерной сетке."],
     "Не подошел размер": ["Спасибо за обратную связь. Учтем это при обновлении размерной таблицы."],
+    "Общие теги": [
+        "Спасибо за оценку и выбор тегов {теги}! Нам очень приятно, что вы отметили эти преимущества.",
+        "Благодарим за отзыв с тегами {теги}. Ваши отметки помогают нам становиться лучше!",
+    ],
     "1-3 звезды": ["Спасибо за оценку. Нам важно ваше мнение — мы улучшаем сервис каждый день."],
     "4 звезды": ["Спасибо за высокую оценку! Будем рады снова видеть вас среди покупателей."],
     "5 звезд": ["Спасибо за 5 звезд! Очень рады, что вам все понравилось."],
@@ -375,22 +386,27 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
     def _ensure_default_template_variants(user_id: int) -> None:
         existing = repository.list_template_variants(user_id=user_id, include_inactive=True)
         if existing:
-            positive_defaults = DEFAULT_TEMPLATE_CONTENT.get("Общий позитив") or []
-            subgroup_rows = repository.list_template_variants(
-                user_id=user_id,
-                group_id="positive",
-                subgroup="Общий позитив",
-                include_inactive=True,
-            )
-            existing_texts = {str(row.get("template_text") or "").strip() for row in subgroup_rows}
-            for text in positive_defaults:
-                clean = text.strip()
-                if clean and clean not in existing_texts:
-                    repository.add_template_variant(
+            for group in TEMPLATE_GROUPS:
+                group_id = str(group.get("id") or "")
+                subgroups = group.get("subgroups")
+                if not group_id or not isinstance(subgroups, list):
+                    continue
+                for subgroup in subgroups:
+                    name = str(subgroup)
+                    subgroup_rows = repository.list_template_variants(
                         user_id=user_id,
-                        group_id="positive",
-                        subgroup="Общий позитив",
-                        template_text=clean,
+                        group_id=group_id,
+                        subgroup=name,
+                        include_inactive=True,
+                    )
+                    if subgroup_rows:
+                        continue
+                    defaults = DEFAULT_TEMPLATE_CONTENT.get(name) or [f"Спасибо за отзыв! Категория: {name}."]
+                    repository.replace_subgroup_templates(
+                        user_id=user_id,
+                        group_id=group_id,
+                        subgroup=name,
+                        templates=defaults,
                     )
             return
         for group in TEMPLATE_GROUPS:

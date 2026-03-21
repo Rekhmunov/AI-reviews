@@ -264,6 +264,43 @@ class ReviewAutomationServiceTests(unittest.TestCase):
         self.assertEqual(review["status"], "answered_auto")
         self.assertIn("быструю доставку", str(review.get("auto_reply") or ""))
 
+    def test_textless_without_tags_routes_to_textless_group(self) -> None:
+        review = ReviewInput(review_id="r-empty", text="", rating=5, metadata={})
+        processed = self.service.processor.process(review)
+        category = self.service._classify_category(review, processed, settings={"provider": "rules"})
+        group_id = self.service._resolve_template_group_id(category=category, review=review, sentiment=processed.sentiment_label)
+        subgroup = self.service._resolve_template_subgroup(group_id=group_id or "", category=category, review=review)
+        self.assertEqual(group_id, "textless_ratings")
+        self.assertEqual(subgroup, "5 звезд")
+
+    def test_textless_with_tags_routes_to_tagged_group(self) -> None:
+        review = ReviewInput(
+            review_id="r-tags",
+            text="",
+            rating=4,
+            metadata={"review_tags": ["Быстрая доставка", "Хорошее качество"]},
+        )
+        processed = self.service.processor.process(review)
+        category = self.service._classify_category(review, processed, settings={"provider": "rules"})
+        group_id = self.service._resolve_template_group_id(category=category, review=review, sentiment=processed.sentiment_label)
+        subgroup = self.service._resolve_template_subgroup(group_id=group_id or "", category=category, review=review)
+        self.assertEqual(group_id, "tagged_reviews")
+        self.assertEqual(subgroup, "Общие теги")
+
+    def test_neutral_text_with_size_hint_routes_to_wrong_size(self) -> None:
+        review = ReviewInput(
+            review_id="r-size",
+            text="Классное белье, но плохо застегается молния и мломерит пододеяльник.",
+            rating=4,
+        )
+        processed = self.service.processor.process(review)
+        category = self.service._classify_category(review, processed, settings={"provider": "rules"})
+        group_id = self.service._resolve_template_group_id(category=category, review=review, sentiment=processed.sentiment_label)
+        subgroup = self.service._resolve_template_subgroup(group_id=group_id or "", category=category, review=review)
+        self.assertEqual(category, "neutral_other")
+        self.assertEqual(group_id, "wrong_size")
+        self.assertEqual(subgroup, "Большемерит/маломерит")
+
 
 if __name__ == "__main__":
     unittest.main()
