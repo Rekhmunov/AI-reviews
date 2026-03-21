@@ -787,8 +787,10 @@ class ReviewAutomationService:
         self,
         *,
         user_id: int,
+        source: str | None = None,
         priority: str | None = None,
         status: str | None = None,
+        statuses: list[str] | None = None,
         category: str | None = None,
         date_from: str | None = None,
         date_to: str | None = None,
@@ -796,8 +798,10 @@ class ReviewAutomationService:
     ) -> list[dict[str, object]]:
         return self.repository.list_reviews(
             user_id=user_id,
+            source=source,
             priority=priority,
             status=status,
+            statuses=statuses,
             category=category,
             date_from=date_from,
             date_to=date_to,
@@ -808,8 +812,10 @@ class ReviewAutomationService:
         self,
         *,
         user_id: int,
+        source: str | None = None,
         priority: str | None = None,
         status: str | None = None,
+        statuses: list[str] | None = None,
         category: str | None = None,
         date_from: str | None = None,
         date_to: str | None = None,
@@ -820,8 +826,10 @@ class ReviewAutomationService:
     ) -> dict[str, object]:
         return self.repository.list_reviews_paginated(
             user_id=user_id,
+            source=source,
             priority=priority,
             status=status,
+            statuses=statuses,
             category=category,
             date_from=date_from,
             date_to=date_to,
@@ -830,6 +838,9 @@ class ReviewAutomationService:
             page_size=page_size,
             bucket=bucket,
         )
+
+    def list_review_sources(self, *, user_id: int) -> list[str]:
+        return self.repository.list_review_sources(user_id=user_id)
 
     def apply_processing_rules_to_unprocessed(self, *, user_id: int) -> dict[str, int]:
         rows = self.repository.list_unprocessed_reviews(user_id=user_id)

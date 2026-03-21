@@ -35,46 +35,68 @@
           </div>
         </div>
         <div class="panel">
-          <div class="reviews-buckets">
-            <button id="reviews-tab-new" class="bucket-tab active" onclick="setReviewBucket('new')">Новые отзывы (0)</button>
-            <button id="reviews-tab-processed" class="bucket-tab" onclick="setReviewBucket('processed')">Обработанные отзывы (0)</button>
+          <div class="reviews-top-controls">
+            <div class="reviews-buckets">
+              <button id="reviews-tab-new" class="bucket-tab active" onclick="setReviewBucket('new')">Новые отзывы (0)</button>
+              <button id="reviews-tab-processed" class="bucket-tab" onclick="setReviewBucket('processed')">Обработанные отзывы (0)</button>
+            </div>
+            <div class="reviews-quick-controls">
+              <select id="reviewsSortFilter">
+                <option value="newest">Сначала новые</option>
+                <option value="oldest">Сначала старые</option>
+                <option value="rating_asc">Оценка (сначала низкая)</option>
+                <option value="rating_desc">Оценка (сначала высокая)</option>
+                <option value="category">По темам</option>
+              </select>
+              <button type="button" id="reviewsDateFilterBtn" class="secondary" onclick="toggleReviewsDateFilterPanel()">
+                Период: все даты
+              </button>
+              <button
+                type="button"
+                id="reviewsFiltersBtn"
+                class="secondary reviews-filter-icon-btn"
+                title="Фильтры"
+                onclick="toggleReviewsFiltersPanel()"
+              >
+                ⛃
+              </button>
+            </div>
           </div>
-        </div>
-        <div class="panel">
-          <div class="row reviews-filter-row">
-            <select id="priorityFilter">
-              <option value="">приоритет: все</option>
-              <option value="high">высокий</option>
-              <option value="medium">средний</option>
-              <option value="low">низкий</option>
-            </select>
-            <select id="statusFilter">
-              <option value="">статус: все</option>
-              <option value="queued_for_operator">Ждут обработки</option>
-              <option value="answered_auto">Обработаны авто</option>
-              <option value="answered_manual">Обработаны оператором</option>
-              <option value="ignored">Игнор</option>
-            </select>
-            <select id="categoryFilter">
-              <option value="">категория: все</option>
-              <option value="negative_delivery">Негатив: доставка</option>
-              <option value="negative_product">Негатив: товар</option>
-              <option value="negative_other">Негатив: прочее</option>
-              <option value="positive_quality">Позитив: качество</option>
-              <option value="positive_product">Позитив: товар</option>
-              <option value="neutral_other">Нейтральный: прочее</option>
-            </select>
-            <select id="reviewsSortFilter">
-              <option value="newest">Сначала новые</option>
-              <option value="oldest">Сначала старые</option>
-              <option value="rating_asc">Оценка (сначала низкая)</option>
-              <option value="rating_desc">Оценка (сначала высокая)</option>
-              <option value="category">По темам</option>
-            </select>
-            <button type="button" id="reviewsDateFilterBtn" class="secondary" onclick="toggleReviewsDateFilterPanel()">
-              Период: все даты
-            </button>
-            <button class="secondary" onclick="loadReviews()">Обновить</button>
+          <div id="reviewsFiltersPanel" class="reviews-filters-panel hidden">
+            <div class="row">
+              <select id="sourceFilter">
+                <option value="all">Источник отзывов: Выбрать все</option>
+              </select>
+              <select id="statusFilter">
+                <option value="all">Статус: Выбрать все</option>
+                <option value="waiting_send">Ждет отправки</option>
+                <option value="processed_outside_spix">Обработан вне Спикс</option>
+                <option value="rejected">Отклонен</option>
+                <option value="answered">Отвечен</option>
+                <option value="waiting_processing">Ждет обработки</option>
+                <option value="generating_answer">Генерация ответа</option>
+              </select>
+              <select id="priorityFilter">
+                <option value="">Приоритет: все</option>
+                <option value="high">Высокий</option>
+                <option value="medium">Средний</option>
+                <option value="low">Низкий</option>
+              </select>
+              <select id="categoryFilter">
+                <option value="">Категория: все</option>
+                <option value="negative_delivery">Негатив: доставка</option>
+                <option value="negative_product">Негатив: товар</option>
+                <option value="negative_other">Негатив: прочее</option>
+                <option value="positive_quality">Позитив: качество</option>
+                <option value="positive_product">Позитив: товар</option>
+                <option value="neutral_other">Нейтральный: прочее</option>
+              </select>
+            </div>
+            <div class="row">
+              <button type="button" onclick="applyReviewsFilters()">Применить фильтры</button>
+              <button type="button" class="secondary" onclick="resetReviewsFilters()">Сбросить</button>
+              <button type="button" class="secondary" onclick="toggleReviewsFiltersPanel(false)">Закрыть</button>
+            </div>
           </div>
           <div id="reviewsDateFilterPanel" class="reviews-date-panel hidden">
             <div class="reviews-date-presets">

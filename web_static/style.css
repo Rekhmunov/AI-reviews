@@ -591,6 +591,28 @@ tbody tr:hover {
   flex-wrap: wrap;
 }
 
+.reviews-top-controls {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.reviews-quick-controls {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.reviews-filter-icon-btn {
+  min-width: 42px;
+  width: 42px;
+  padding: 0;
+  font-size: 16px;
+}
+
 .bucket-tab {
   min-height: 38px;
   padding: 8px 14px;
@@ -615,6 +637,14 @@ tbody tr:hover {
 
 .reviews-filter-row {
   align-items: center;
+}
+
+.reviews-filters-panel {
+  margin-top: 12px;
+  border: 1px solid rgba(147, 197, 253, 0.42);
+  border-radius: 14px;
+  padding: 12px;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.92), rgba(238, 246, 255, 0.82));
 }
 
 .reviews-date-panel {
@@ -855,6 +885,11 @@ tbody tr:hover {
   }
 
   .reviews-pagination-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .reviews-top-controls {
     flex-direction: column;
     align-items: flex-start;
   }

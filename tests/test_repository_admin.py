@@ -351,6 +351,16 @@ class RepositoryAdminTests(unittest.TestCase):
             processing_mode="manual",
             status="queued_for_operator",
         )
+        self.repository.upsert_processed_review(
+            user_id=self.user_id,
+            source="ozon",
+            account_id=None,
+            review=ReviewInput(review_id="ext-date-4", text="Отзыв 4", rating=4),
+            processed=processed,
+            category="positive_quality",
+            processing_mode="auto",
+            status="answered_manual",
+        )
         with self.repository._connect() as conn:
             conn.execute(
                 """
@@ -420,6 +430,27 @@ class RepositoryAdminTests(unittest.TestCase):
             page_size=10,
         )
         self.assertEqual(by_category["items"][0]["category"], "negative_delivery")
+
+        by_source = self.repository.list_reviews_paginated(
+            user_id=self.user_id,
+            source="ozon",
+            page=1,
+            page_size=10,
+        )
+        self.assertEqual(by_source["total"], 1)
+        self.assertEqual(by_source["items"][0]["source"], "ozon")
+
+        by_statuses = self.repository.list_reviews_paginated(
+            user_id=self.user_id,
+            statuses=["answered_manual"],
+            page=1,
+            page_size=10,
+        )
+        self.assertEqual(by_statuses["total"], 1)
+        self.assertEqual(by_statuses["items"][0]["external_review_id"], "ext-date-4")
+
+        sources = self.repository.list_review_sources(user_id=self.user_id)
+        self.assertEqual(sources, ["ozon", "wb"])
 
     def test_recommendations_storage_and_random_pick(self) -> None:
         inserted = self.repository.replace_all_recommendations(

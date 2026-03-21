@@ -16,6 +16,10 @@ const reviewsState = {
   sort: "newest",
   date_from: null,
   date_to: null,
+  source: "all",
+  status: "all",
+  priority: "",
+  category: "",
 };
 const templateGroupsState = {
   items: [],
@@ -50,6 +54,12 @@ const reviewStatusLabels = {
   answered_auto: "Обработан автоматически",
   answered_manual: "Обработан оператором",
   ignored: "Игнор",
+  waiting_send: "Ждет отправки",
+  processed_outside_spix: "Обработан вне Спикс",
+  rejected: "Отклонен",
+  answered: "Отвечен",
+  waiting_processing: "Ждет обработки",
+  generating_answer: "Генерация ответа",
 };
 const conversationKindLabels = {
   question: "Вопрос",
@@ -196,6 +206,51 @@ function updateReviewsDateFilterButton() {
   btn.textContent = "Период: все даты";
 }
 
+function setSourceFilterOptions(options) {
+  const select = document.getElementById("sourceFilter");
+  if (!select) return;
+  const current = String(reviewsState.source || "all");
+  select.innerHTML = "";
+  const defaultOption = document.createElement("option");
+  defaultOption.value = "all";
+  defaultOption.textContent = "Источник отзывов: Выбрать все";
+  select.appendChild(defaultOption);
+  for (const item of options || []) {
+    const value = String(item || "").trim();
+    if (!value) continue;
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = `Источник: ${value.toUpperCase()}`;
+    select.appendChild(opt);
+  }
+  select.value = current;
+  if (!Array.from(select.options).some((item) => item.value === current)) {
+    select.value = "all";
+    reviewsState.source = "all";
+  }
+}
+
+function toggleReviewsFiltersPanel(forceOpen) {
+  const panel = document.getElementById("reviewsFiltersPanel");
+  if (!panel) return;
+  if (forceOpen === false) {
+    panel.classList.add("hidden");
+    return;
+  }
+  const shouldOpen = forceOpen === true ? true : panel.classList.contains("hidden");
+  panel.classList.toggle("hidden", !shouldOpen);
+  if (!shouldOpen) return;
+  toggleReviewsDateFilterPanel(false);
+  const sourceSelect = document.getElementById("sourceFilter");
+  const statusSelect = document.getElementById("statusFilter");
+  const prioritySelect = document.getElementById("priorityFilter");
+  const categorySelect = document.getElementById("categoryFilter");
+  if (sourceSelect) sourceSelect.value = reviewsState.source || "all";
+  if (statusSelect) statusSelect.value = reviewsState.status || "all";
+  if (prioritySelect) prioritySelect.value = reviewsState.priority || "";
+  if (categorySelect) categorySelect.value = reviewsState.category || "";
+}
+
 function toggleReviewsDateFilterPanel(forceOpen) {
   const panel = document.getElementById("reviewsDateFilterPanel");
   if (!panel) return;
@@ -206,10 +261,42 @@ function toggleReviewsDateFilterPanel(forceOpen) {
   const shouldOpen = forceOpen === true ? true : panel.classList.contains("hidden");
   panel.classList.toggle("hidden", !shouldOpen);
   if (!shouldOpen) return;
+  toggleReviewsFiltersPanel(false);
   const fromInput = document.getElementById("reviewsDateFrom");
   const toInput = document.getElementById("reviewsDateTo");
   if (fromInput) fromInput.value = reviewsState.date_from || "";
   if (toInput) toInput.value = reviewsState.date_to || "";
+}
+
+function applyReviewsFilters() {
+  const sourceSelect = document.getElementById("sourceFilter");
+  const statusSelect = document.getElementById("statusFilter");
+  const prioritySelect = document.getElementById("priorityFilter");
+  const categorySelect = document.getElementById("categoryFilter");
+  reviewsState.source = String(sourceSelect?.value || "all");
+  reviewsState.status = String(statusSelect?.value || "all");
+  reviewsState.priority = String(prioritySelect?.value || "");
+  reviewsState.category = String(categorySelect?.value || "");
+  reviewsState.page = 1;
+  toggleReviewsFiltersPanel(false);
+  loadReviews();
+}
+
+function resetReviewsFilters() {
+  reviewsState.source = "all";
+  reviewsState.status = "all";
+  reviewsState.priority = "";
+  reviewsState.category = "";
+  const sourceSelect = document.getElementById("sourceFilter");
+  const statusSelect = document.getElementById("statusFilter");
+  const prioritySelect = document.getElementById("priorityFilter");
+  const categorySelect = document.getElementById("categoryFilter");
+  if (sourceSelect) sourceSelect.value = "all";
+  if (statusSelect) statusSelect.value = "all";
+  if (prioritySelect) prioritySelect.value = "";
+  if (categorySelect) categorySelect.value = "";
+  reviewsState.page = 1;
+  loadReviews();
 }
 
 function applyReviewsDateFilter() {
@@ -509,14 +596,20 @@ async function clearAllReviews() {
 }
 
 async function loadReviews() {
-  const priority = document.getElementById("priorityFilter").value;
-  const status = document.getElementById("statusFilter").value;
-  const category = document.getElementById("categoryFilter").value;
+  const priority = String(document.getElementById("priorityFilter")?.value || reviewsState.priority || "");
+  const status = String(document.getElementById("statusFilter")?.value || reviewsState.status || "all");
+  const category = String(document.getElementById("categoryFilter")?.value || reviewsState.category || "");
+  const source = String(document.getElementById("sourceFilter")?.value || reviewsState.source || "all");
+  reviewsState.priority = priority;
+  reviewsState.status = status;
+  reviewsState.category = category;
+  reviewsState.source = source;
   const sort = String(document.getElementById("reviewsSortFilter")?.value || reviewsState.sort || "newest");
   reviewsState.sort = sort;
   const query = new URLSearchParams();
+  if (source && source !== "all") query.set("source", source);
   if (priority) query.set("priority", priority);
-  if (status) query.set("status", status);
+  if (status && status !== "all") query.set("status", status);
   if (category) query.set("category", category);
   if (reviewsState.date_from) query.set("date_from", reviewsState.date_from);
   if (reviewsState.date_to) query.set("date_to", reviewsState.date_to);
@@ -568,10 +661,21 @@ async function loadReviews() {
   reviewsState.page = Number(data.page || 1);
   reviewsState.pages = Number(data.pages || 1);
   reviewsState.sort = String(data.sort || reviewsState.sort || "newest");
+  reviewsState.source = String(data.source || reviewsState.source || "all");
+  reviewsState.status = String(data.status || reviewsState.status || "all");
   reviewsState.date_from = data.date_from || reviewsState.date_from || null;
   reviewsState.date_to = data.date_to || reviewsState.date_to || null;
+  setSourceFilterOptions(data.source_options || []);
   const sortFilter = document.getElementById("reviewsSortFilter");
   if (sortFilter) sortFilter.value = reviewsState.sort;
+  const sourceFilter = document.getElementById("sourceFilter");
+  if (sourceFilter) sourceFilter.value = reviewsState.source;
+  const statusFilter = document.getElementById("statusFilter");
+  if (statusFilter) statusFilter.value = reviewsState.status || "all";
+  const priorityFilter = document.getElementById("priorityFilter");
+  if (priorityFilter) priorityFilter.value = reviewsState.priority || "";
+  const categoryFilter = document.getElementById("categoryFilter");
+  if (categoryFilter) categoryFilter.value = reviewsState.category || "";
   updateReviewsDateFilterButton();
   document.getElementById("reviewsPageInfo").textContent = `Страница ${reviewsState.page} из ${reviewsState.pages}`;
   document.getElementById("reviewsPrevPageBtn").disabled = reviewsState.page <= 1;

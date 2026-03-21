@@ -560,6 +560,7 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
     @app.get("/api/reviews")
     def list_reviews(
         request: Request,
+        source: str | None = None,
         priority: str | None = None,
         status: str | None = None,
         category: str | None = None,
@@ -591,10 +592,31 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
         if normalized_date_from and normalized_date_to and normalized_date_from > normalized_date_to:
             raise HTTPException(status_code=400, detail="Дата начала не может быть позже даты окончания")
 
+        normalized_source = source.strip().lower() if source else None
+        if normalized_source in {"all", "all_sources"}:
+            normalized_source = None
+
+        status_key = status.strip().lower() if status else ""
+        status_map: dict[str, list[str] | None] = {
+            "": None,
+            "all": None,
+            "waiting_send": ["waiting_send"],
+            "processed_outside_spix": ["processed_outside_spix"],
+            "rejected": ["rejected", "ignored"],
+            "answered": ["answered_auto", "answered_manual", "answered"],
+            "waiting_processing": ["queued_for_operator", "waiting_processing"],
+            "generating_answer": ["generating_answer"],
+        }
+        status_values = status_map.get(status_key)
+        if status_values is None and status_key not in {"", "all"}:
+            status_values = [status_key]
+
         page_data = service.list_reviews_paginated(
             user_id=int(user["id"]),
+            source=normalized_source,
             priority=priority,
-            status=status,
+            status=None,
+            statuses=status_values,
             category=category,
             date_from=normalized_date_from,
             date_to=normalized_date_to,
@@ -603,6 +625,7 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
             page_size=normalized_page_size,
             bucket=normalized_bucket,
         )
+        source_options = service.list_review_sources(user_id=int(user["id"]))
         return {
             "items": page_data["items"],
             "count": len(page_data["items"]),
@@ -616,6 +639,9 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
             "sort": normalized_sort,
             "date_from": normalized_date_from,
             "date_to": normalized_date_to,
+            "source": normalized_source,
+            "status": status_key or "all",
+            "source_options": source_options,
         }
 
     @app.get("/api/conversations")

@@ -1067,8 +1067,10 @@ class ReviewRepository:
         self,
         *,
         user_id: int,
+        source: str | None = None,
         priority: str | None = None,
         status: str | None = None,
+        statuses: list[str] | None = None,
         category: str | None = None,
         date_from: str | None = None,
         date_to: str | None = None,
@@ -1077,8 +1079,10 @@ class ReviewRepository:
     ) -> list[dict[str, Any]]:
         page_data = self.list_reviews_paginated(
             user_id=user_id,
+            source=source,
             priority=priority,
             status=status,
+            statuses=statuses,
             category=category,
             date_from=date_from,
             date_to=date_to,
@@ -1093,8 +1097,10 @@ class ReviewRepository:
         self,
         *,
         user_id: int,
+        source: str | None = None,
         priority: str | None = None,
         status: str | None = None,
+        statuses: list[str] | None = None,
         category: str | None = None,
         date_from: str | None = None,
         date_to: str | None = None,
@@ -1105,6 +1111,9 @@ class ReviewRepository:
     ) -> dict[str, Any]:
         base_clauses: list[str] = ["user_id = ?"]
         base_params: list[Any] = [user_id]
+        if source:
+            base_clauses.append("source = ?")
+            base_params.append(source)
         if priority:
             base_clauses.append("priority = ?")
             base_params.append(priority)
@@ -1120,7 +1129,12 @@ class ReviewRepository:
 
         view_clauses = list(base_clauses)
         view_params = list(base_params)
-        if status:
+        status_values = [str(item).strip() for item in (statuses or []) if str(item).strip()]
+        if status_values:
+            placeholders = ", ".join("?" for _ in status_values)
+            view_clauses.append(f"status IN ({placeholders})")
+            view_params.extend(status_values)
+        elif status:
             view_clauses.append("status = ?")
             view_params.append(status)
         elif bucket == "new":
@@ -1190,6 +1204,19 @@ class ReviewRepository:
             "new_count": int(new_row["c"]) if new_row else 0,
             "processed_count": int(processed_row["c"]) if processed_row else 0,
         }
+
+    def list_review_sources(self, *, user_id: int) -> list[str]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT DISTINCT source
+                FROM review_items
+                WHERE user_id = ?
+                ORDER BY source ASC
+                """,
+                (user_id,),
+            ).fetchall()
+        return [str(row["source"]) for row in rows if row["source"] is not None and str(row["source"]).strip()]
 
     def clear_reviews(self, *, user_id: int) -> int:
         with self._connect() as conn:
