@@ -72,14 +72,6 @@ class ReviewRepository:
             )
             conn.execute(
                 """
-                INSERT INTO ai_settings (id, provider, yandex_api_key_encrypted, yandex_folder_id, yandex_model_uri, updated_at)
-                VALUES (1, 'rules', NULL, NULL, NULL, ?)
-                ON CONFLICT(id) DO NOTHING
-                """,
-                (_utc_now(),),
-            )
-            conn.execute(
-                """
                 CREATE TABLE IF NOT EXISTS marketplace_accounts (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_id INTEGER NOT NULL,
@@ -163,6 +155,14 @@ class ReviewRepository:
                 """
             )
             self._migrate_schema(conn)
+            conn.execute(
+                """
+                INSERT INTO ai_settings (id, provider, yandex_api_key_encrypted, yandex_folder_id, yandex_model_uri, updated_at)
+                VALUES (1, 'rules', NULL, NULL, NULL, ?)
+                ON CONFLICT(id) DO NOTHING
+                """,
+                (_utc_now(),),
+            )
 
     def _migrate_schema(self, conn: sqlite3.Connection) -> None:
         # Backward-compatible migrations for already initialized local DBs.
