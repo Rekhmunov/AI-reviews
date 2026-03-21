@@ -40,7 +40,7 @@ class ManualReplyRequest(BaseModel):
 class AccountCreateRequest(BaseModel):
     marketplace: str = Field(description="wb|ozon|mock")
     account_name: str = Field(min_length=2, max_length=120)
-    api_url: str = Field(min_length=3, max_length=2000)
+    api_url: str | None = Field(default=None, max_length=2000)
     api_key: str | None = Field(default=None, max_length=2000)
     client_id: str | None = Field(default=None, max_length=200)
     integration: dict[str, object] | None = None
@@ -296,6 +296,12 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
         if marketplace not in {"wb", "ozon", "mock"}:
             raise HTTPException(status_code=400, detail="marketplace must be one of: wb, ozon, mock")
         integration = payload.integration if isinstance(payload.integration, dict) else {}
+        default_api_urls = {
+            "wb": "https://feedbacks-api.wildberries.ru/api/v1/feedbacks",
+            "ozon": "https://api-seller.ozon.ru",
+            "mock": "https://example.local/api/reviews",
+        }
+        api_url = (payload.api_url or "").strip() or str(integration.get("api_url") or default_api_urls[marketplace])
         if marketplace in {"wb", "ozon"} and not (payload.api_key or "").strip():
             raise HTTPException(status_code=400, detail="api_key is required for WB/OZON")
         client_id_value = (payload.client_id or "").strip() or str(integration.get("client_id") or "").strip()
@@ -316,7 +322,7 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
             user_id=int(user["id"]),
             marketplace=marketplace,
             account_name=payload.account_name.strip(),
-            api_url=payload.api_url.strip(),
+            api_url=api_url,
             api_key=(payload.api_key or "").strip() or None,
             extra=integration,
         )

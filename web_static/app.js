@@ -31,6 +31,28 @@ function showSettingsTab(tab) {
   document.getElementById("settings-pane-" + tab).classList.remove("hidden");
 }
 
+function toggleAddSourceForm(show) {
+  const form = document.getElementById("addSourceForm");
+  if (!form) return;
+  if (show) {
+    form.classList.remove("hidden");
+    onSourceMarketplaceChange();
+  } else {
+    form.classList.add("hidden");
+  }
+}
+
+function onSourceMarketplaceChange() {
+  const marketplace = document.getElementById("newSourceMarketplace")?.value || "wb";
+  const ozonField = document.getElementById("ozonClientField");
+  if (!ozonField) return;
+  if (marketplace === "ozon") {
+    ozonField.classList.remove("hidden");
+  } else {
+    ozonField.classList.add("hidden");
+  }
+}
+
 function syncRuleFormFromStore() {
   const category = document.getElementById("ruleCategory")?.value;
   if (!category) return;
@@ -189,23 +211,30 @@ async function loadAccounts() {
 }
 
 async function createAccount() {
-  let integration = null;
-  const integrationRaw = document.getElementById("accIntegration").value.trim();
-  if (integrationRaw) {
-    try {
-      integration = JSON.parse(integrationRaw);
-    } catch (_) {
-      document.getElementById("accountsInfo").textContent = "Ошибка: integration JSON некорректный";
-      return;
-    }
+  const marketplace = document.getElementById("newSourceMarketplace").value;
+  const accountName = document.getElementById("newSourceName").value.trim();
+  const apiToken = document.getElementById("newSourceApiToken").value.trim();
+  const clientId = document.getElementById("newSourceClientId").value.trim();
+
+  if (!accountName) {
+    document.getElementById("accountsInfo").textContent = "Ошибка: укажите название кабинета";
+    return;
   }
+  if (!apiToken) {
+    document.getElementById("accountsInfo").textContent = "Ошибка: укажите токен API";
+    return;
+  }
+  if (marketplace === "ozon" && !clientId) {
+    document.getElementById("accountsInfo").textContent = "Ошибка: укажите Client ID для OZON";
+    return;
+  }
+
   const payload = {
-    marketplace: document.getElementById("accMarketplace").value,
-    account_name: document.getElementById("accName").value.trim(),
-    api_url: document.getElementById("accApiUrl").value.trim(),
-    client_id: document.getElementById("accClientId").value.trim() || null,
-    api_key: document.getElementById("accApiKey").value.trim() || null,
-    integration: integration,
+    marketplace: marketplace,
+    account_name: accountName,
+    client_id: marketplace === "ozon" ? clientId : null,
+    api_key: apiToken,
+    integration: null,
   };
   const res = await fetch("/api/accounts", {
     method: "POST",
@@ -218,6 +247,10 @@ async function createAccount() {
     return;
   }
   document.getElementById("accountsInfo").textContent = "Кабинет добавлен.";
+  document.getElementById("newSourceName").value = "";
+  document.getElementById("newSourceClientId").value = "";
+  document.getElementById("newSourceApiToken").value = "";
+  toggleAddSourceForm(false);
   await loadAccounts();
 }
 
@@ -341,6 +374,7 @@ async function manualReply(reviewId) {
 
 document.addEventListener("DOMContentLoaded", () => {
   showSettingsTab("sources");
+  onSourceMarketplaceChange();
   document.getElementById("ruleCategory")?.addEventListener("change", syncRuleFormFromStore);
   document.getElementById("tplCategory")?.addEventListener("change", syncTemplateFormFromStore);
   loadReviews();

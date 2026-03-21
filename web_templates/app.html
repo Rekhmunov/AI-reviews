@@ -124,24 +124,33 @@
 
         <div id="settings-pane-sources">
           <div class="panel">
-            <h4>Добавить источник</h4>
-            <div class="row">
-              <select id="accMarketplace">
-                <option value="wb">WB</option>
-                <option value="ozon">OZON</option>
-                <option value="mock">MOCK</option>
-              </select>
-              <input id="accName" type="text" placeholder="Название кабинета" />
-              <input id="accApiUrl" type="text" size="36" placeholder="https://.../api" />
-              <input id="accClientId" type="text" size="20" placeholder="OZON Client ID" />
-              <input id="accApiKey" type="text" size="28" placeholder="API key" />
-              <textarea id="accIntegration" placeholder='integration JSON, например {"questions_path":"/v1/question/list"}' style="min-height:42px;min-width:320px"></textarea>
-              <button onclick="createAccount()">Сохранить</button>
+            <div class="row row-between">
+              <h4 style="margin:0">Подключенные кабинеты</h4>
+              <button onclick="toggleAddSourceForm(true)">Добавить источник</button>
             </div>
             <div id="accountsInfo" class="small"></div>
+
+            <div id="addSourceForm" class="source-form hidden">
+              <div class="row">
+                <select id="newSourceMarketplace" onchange="onSourceMarketplaceChange()">
+                  <option value="wb">WB</option>
+                  <option value="ozon">OZON</option>
+                </select>
+                <input id="newSourceName" type="text" placeholder="Название кабинета" />
+              </div>
+              <div id="ozonClientField" class="row hidden">
+                <input id="newSourceClientId" type="text" placeholder="Client ID" />
+              </div>
+              <div class="row">
+                <textarea id="newSourceApiToken" placeholder="Токен API" style="min-height:56px;min-width:360px"></textarea>
+              </div>
+              <div class="row">
+                <button onclick="createAccount()">Сохранить источник</button>
+                <button class="secondary" onclick="toggleAddSourceForm(false)">Отмена</button>
+              </div>
+            </div>
           </div>
           <div class="panel">
-            <h4>Подключенные кабинеты</h4>
             <table>
               <thead><tr><th>ID</th><th>Marketplace</th><th>Name</th><th>API URL</th><th>Client ID</th><th>API key</th><th>Active</th><th>Actions</th></tr></thead>
               <tbody id="accountsTbody"></tbody>

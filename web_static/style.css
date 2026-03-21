@@ -173,6 +173,10 @@ a {
   align-items: center;
 }
 
+.row-between {
+  justify-content: space-between;
+}
+
 input,
 select,
 textarea,
@@ -276,4 +280,12 @@ td {
   color: #2563eb;
   border-color: #bfdbfe;
   font-weight: 700;
+}
+
+.source-form {
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
 }
