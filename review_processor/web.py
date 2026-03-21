@@ -44,6 +44,10 @@ class AccountStatusRequest(BaseModel):
     is_active: bool
 
 
+class ConversationStatusRequest(BaseModel):
+    status: str = Field(description="open|waiting|closed")
+
+
 class TemplateUpsertRequest(BaseModel):
     category: str
     mode: str = Field(description="auto|manual|ignore")
@@ -192,6 +196,51 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
         )
         return {"items": items, "count": len(items)}
 
+    @app.get("/api/conversations")
+    def list_conversations(
+        request: Request,
+        kind: str | None = None,
+        status: str | None = None,
+    ) -> dict[str, object]:
+        user = _require_user(request)
+        items = repository.list_conversations(
+            user_id=int(user["id"]),
+            kind=kind,
+            status=status,
+        )
+        return {"items": items, "count": len(items)}
+
+    @app.post("/api/conversations/{conversation_uid}/status")
+    def set_conversation_status(
+        conversation_uid: str,
+        payload: ConversationStatusRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        user = _require_user(request)
+        status_value = payload.status.strip().lower()
+        if status_value not in {"open", "waiting", "closed"}:
+            raise HTTPException(status_code=400, detail="status must be one of: open, waiting, closed")
+        updated = repository.update_conversation_status(
+            user_id=int(user["id"]),
+            conversation_uid=conversation_uid,
+            status=status_value,
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        repository.log_review_action(
+            user_id=int(user["id"]),
+            review_uid=conversation_uid,
+            action_type="conversation_status",
+            actor=str(user["email"]),
+            details={"status": status_value},
+        )
+        return {"ok": True}
+
+    @app.get("/api/analytics")
+    def user_analytics(request: Request) -> dict[str, object]:
+        user = _require_user(request)
+        return repository.get_user_analytics(user_id=int(user["id"]))
+
     @app.post("/api/sync")
     def sync_reviews(request: Request, payload: SyncRequest) -> dict[str, object]:
         user = _require_user(request)
@@ -217,9 +266,15 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
                 account_id=int(account["id"]),
                 client=client,
             )
+            loaded_conversations = service.sync_conversations(
+                user_id=user_id,
+                source=marketplace,
+                account_id=int(account["id"]),
+                client=client,
+            )
         except MarketplaceSyncError as exc:
             raise HTTPException(status_code=502, detail=f"Sync failed: {exc}") from exc
-        return {"accounts": 1, "loaded": loaded}
+        return {"accounts": 1, "loaded": loaded, "loaded_conversations": loaded_conversations}
 
     @app.get("/api/accounts")
     def list_accounts(request: Request) -> dict[str, object]:
@@ -531,15 +586,16 @@ def build_app_html(user: dict[str, object]) -> str:
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <style>
-    body { margin: 0; font-family: Arial, sans-serif; background: #f3f4f6; }
+    body { margin: 0; font-family: Arial, sans-serif; background: #f3f4f6; color: #0f172a; }
     .layout { display: grid; grid-template-columns: 260px 1fr; min-height: 100vh; }
-    .sidebar { background: #0f172a; color: #e2e8f0; padding: 16px; }
-    .brand { font-weight: 700; margin-bottom: 10px; }
-    .meta { font-size: 12px; color: #94a3b8; margin-bottom: 14px; line-height: 1.5; }
-    .navbtn { display: block; color: #e2e8f0; text-decoration: none; padding: 9px 10px; border-radius: 8px; margin-bottom: 8px; background: #1e293b; border: 1px solid #334155; }
+    .sidebar { background: #ffffff; border-right: 1px solid #e5e7eb; padding: 16px; }
+    .brand { font-weight: 800; margin-bottom: 8px; }
+    .meta { font-size: 12px; color: #64748b; margin-bottom: 16px; line-height: 1.4; }
+    .navbtn { display: block; color: #334155; text-decoration: none; padding: 10px 12px; border-radius: 10px; margin-bottom: 8px; background: #f8fafc; border: 1px solid #e2e8f0; }
+    .navbtn.active { color: #2563eb; border-color: #bfdbfe; background: #eff6ff; font-weight: 700; }
     .main { padding: 18px; }
     .panel { background: #fff; padding: 14px; border-radius: 10px; box-shadow: 0 1px 4px rgba(15,23,42,0.08); margin-bottom: 12px; }
-    .row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
     input, select, textarea, button { border: 1px solid #d1d5db; border-radius: 7px; padding: 8px; font-size: 14px; }
     textarea { min-height: 90px; min-width: 320px; }
     button { background: #2563eb; color: #fff; border-color: #2563eb; cursor: pointer; }
@@ -552,16 +608,20 @@ def build_app_html(user: dict[str, object]) -> str:
     .low { background: #dcfce7; color: #166534; }
     .hidden { display: none; }
     .small { color: #6b7280; font-size: 12px; }
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+    .stat { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; }
+    .stat .value { font-size: 22px; font-weight: 800; margin-bottom: 4px; }
   </style>
 </head>
 <body>
   <div class="layout">
     <aside class="sidebar">
-      <div class="brand">AI Reviews Platform</div>
+      <div class="brand">REVO</div>
       <div class="meta">user: __SAFE_EMAIL__<br/>role: __SAFE_ROLE__</div>
-      <a class="navbtn" href="#" onclick="showSection('reviews')">Отзывы</a>
-      <a class="navbtn" href="#" onclick="showSection('accounts')">Кабинеты API</a>
-      <a class="navbtn" href="#" onclick="showSection('templates')">Шаблоны</a>
+      <a id="nav-reviews" class="navbtn active" href="#" onclick="showSection('reviews')">1) Отзывы</a>
+      <a id="nav-conversations" class="navbtn" href="#" onclick="showSection('conversations')">2) Вопросы и чаты</a>
+      <a id="nav-analytics" class="navbtn" href="#" onclick="showSection('analytics')">3) Аналитика</a>
+      <a id="nav-settings" class="navbtn" href="#" onclick="showSection('settings')">4) Настройки</a>
       __ADMIN_LINK__
       <a class="navbtn" href="/logout">Выйти</a>
     </aside>
@@ -569,14 +629,13 @@ def build_app_html(user: dict[str, object]) -> str:
     <main class="main">
       <section id="section-reviews">
         <div class="panel">
-          <h3>Синхронизация</h3>
+          <h3>Отзывы</h3>
           <div class="row">
             <button onclick="syncAll()">Синхронизировать все активные кабинеты</button>
             <span id="syncInfo" class="small"></span>
           </div>
         </div>
         <div class="panel">
-          <h3>Фильтры</h3>
           <div class="row">
             <select id="priorityFilter">
               <option value="">priority: all</option>
@@ -586,10 +645,10 @@ def build_app_html(user: dict[str, object]) -> str:
             </select>
             <select id="statusFilter">
               <option value="">status: all</option>
-              <option value="queued_for_operator">queued_for_operator</option>
-              <option value="answered_auto">answered_auto</option>
-              <option value="answered_manual">answered_manual</option>
-              <option value="ignored">ignored</option>
+              <option value="queued_for_operator">Ждут обработки</option>
+              <option value="answered_auto">Обработаны авто</option>
+              <option value="answered_manual">Обработаны оператором</option>
+              <option value="ignored">Игнор</option>
             </select>
             <select id="categoryFilter">
               <option value="">category: all</option>
@@ -604,11 +663,10 @@ def build_app_html(user: dict[str, object]) -> str:
           </div>
         </div>
         <div class="panel">
-          <h3>Отзывы</h3>
           <table>
             <thead>
               <tr>
-                <th>Review UID</th><th>Источник</th><th>Категория</th><th>Текст</th><th>Тональность</th><th>Priority</th><th>Status</th><th>Действия</th>
+                <th>Источник</th><th>Отзыв</th><th>Ответ</th><th>Priority</th><th>Status</th><th>Действия</th>
               </tr>
             </thead>
             <tbody id="reviewsTbody"></tbody>
@@ -616,9 +674,54 @@ def build_app_html(user: dict[str, object]) -> str:
         </div>
       </section>
 
-      <section id="section-accounts" class="hidden">
+      <section id="section-conversations" class="hidden">
         <div class="panel">
-          <h3>Добавить кабинет маркетплейса</h3>
+          <h3>Вопросы и чаты</h3>
+          <div class="row">
+            <select id="conversationKindFilter">
+              <option value="">kind: all</option>
+              <option value="question">question</option>
+              <option value="chat">chat</option>
+            </select>
+            <select id="conversationStatusFilter">
+              <option value="">status: all</option>
+              <option value="open">open</option>
+              <option value="waiting">waiting</option>
+              <option value="closed">closed</option>
+            </select>
+            <button class="secondary" onclick="loadConversations()">Обновить</button>
+          </div>
+        </div>
+        <div class="panel">
+          <table>
+            <thead>
+              <tr>
+                <th>Тип</th><th>Источник</th><th>Покупатель</th><th>Сообщение</th><th>Непрочитано</th><th>Status</th><th>Действия</th>
+              </tr>
+            </thead>
+            <tbody id="conversationsTbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="section-analytics" class="hidden">
+        <div class="panel">
+          <h3>Аналитика</h3>
+          <div class="stats-grid">
+            <div class="stat"><div id="anTotal" class="value">0</div><div class="small">Всего отзывов</div></div>
+            <div class="stat"><div id="anProcessed" class="value">0</div><div class="small">Обработано</div></div>
+            <div class="stat"><div id="anPositive" class="value">0%</div><div class="small">Позитивные</div></div>
+            <div class="stat"><div id="anNegative" class="value">0%</div><div class="small">Негативные</div></div>
+            <div class="stat"><div id="anQuestions" class="value">0</div><div class="small">Вопросы</div></div>
+            <div class="stat"><div id="anChats" class="value">0</div><div class="small">Чаты</div></div>
+          </div>
+          <div class="small" id="analyticsInfo" style="margin-top:10px"></div>
+        </div>
+      </section>
+
+      <section id="section-settings" class="hidden">
+        <div class="panel">
+          <h3>Настройки: Источники отзывов</h3>
           <div class="row">
             <select id="accMarketplace">
               <option value="wb">WB</option>
@@ -626,27 +729,24 @@ def build_app_html(user: dict[str, object]) -> str:
               <option value="mock">MOCK</option>
             </select>
             <input id="accName" type="text" placeholder="Название кабинета" />
-            <input id="accApiUrl" type="text" size="40" placeholder="https://.../reviews" />
-            <input id="accClientId" type="text" size="22" placeholder="OZON Client ID (optional)" />
-            <input id="accApiKey" type="text" size="35" placeholder="API key (optional)" />
-            <textarea id="accIntegration" placeholder='Integration JSON (optional), e.g. {"page_size": 100, "max_pages": 10}' style="min-height:44px;min-width:360px"></textarea>
+            <input id="accApiUrl" type="text" size="36" placeholder="https://.../api" />
+            <input id="accClientId" type="text" size="20" placeholder="OZON Client ID" />
+            <input id="accApiKey" type="text" size="28" placeholder="API key" />
+            <textarea id="accIntegration" placeholder='integration JSON, например {"questions_path":"/v1/question/list"}' style="min-height:42px;min-width:320px"></textarea>
             <button onclick="createAccount()">Сохранить</button>
           </div>
           <div id="accountsInfo" class="small"></div>
         </div>
         <div class="panel">
-          <h3>Подключенные кабинеты</h3>
+          <h4>Подключенные кабинеты</h4>
           <table>
             <thead><tr><th>ID</th><th>Marketplace</th><th>Name</th><th>API URL</th><th>Client ID</th><th>API key</th><th>Active</th><th>Actions</th></tr></thead>
             <tbody id="accountsTbody"></tbody>
           </table>
         </div>
-      </section>
-
-      <section id="section-templates" class="hidden">
         <div class="panel">
-          <h3>Шаблоны по категориям</h3>
-          <p class="small">Режимы: auto (автоответ), manual (в очередь оператора), ignore (пропустить).</p>
+          <h3>Настройки: Правила обработки</h3>
+          <p class="small">Режимы: auto (автоответ), manual (в очередь оператора), ignore (игнорировать).</p>
           <div class="row">
             <select id="tplCategory">
               <option value="negative_delivery">negative_delivery</option>
@@ -669,7 +769,7 @@ def build_app_html(user: dict[str, object]) -> str:
           <div id="templatesInfo" class="small"></div>
         </div>
         <div class="panel">
-          <h3>Текущие шаблоны</h3>
+          <h4>Текущие шаблоны</h4>
           <table>
             <thead><tr><th>Category</th><th>Mode</th><th>Template</th></tr></thead>
             <tbody id="templatesTbody"></tbody>
@@ -685,11 +785,13 @@ def build_app_html(user: dict[str, object]) -> str:
     }
 
     function showSection(section) {
-      const ids = ["reviews", "accounts", "templates"];
+      const ids = ["reviews", "conversations", "analytics", "settings"];
       for (const id of ids) {
         document.getElementById("section-" + id).classList.add("hidden");
+        document.getElementById("nav-" + id).classList.remove("active");
       }
       document.getElementById("section-" + section).classList.remove("hidden");
+      document.getElementById("nav-" + section).classList.add("active");
     }
 
     async function syncAll() {
@@ -705,12 +807,10 @@ def build_app_html(user: dict[str, object]) -> str:
         return;
       }
       const failed = data.failed_accounts || 0;
-      let text = `Кабинетов: ${data.accounts}, отзывов: ${data.loaded}`;
-      if (failed > 0) {
-        text += `, ошибок: ${failed}`;
-      }
+      let text = `Кабинетов: ${data.accounts}, отзывов: ${data.loaded}, вопросов/чатов: ${data.loaded_conversations || 0}`;
+      if (failed > 0) text += `, ошибок: ${failed}`;
       document.getElementById("syncInfo").textContent = text;
-      await loadReviews();
+      await Promise.all([loadReviews(), loadConversations(), loadAnalytics()]);
     }
 
     async function loadReviews() {
@@ -729,19 +829,18 @@ def build_app_html(user: dict[str, object]) -> str:
       for (const review of data.items) {
         const tr = document.createElement("tr");
         tr.innerHTML = `
-          <td>${esc(review.review_uid)}</td>
           <td>${esc(review.source)}</td>
-          <td>${esc(review.category)}</td>
           <td>
             <div>${esc(review.text)}</div>
-            <div class="small">author: ${esc(review.author || "-")} | rating: ${esc(review.rating ?? "-")}</div>
-            <div class="small">reply auto: ${esc(review.auto_reply || "-")}</div>
-            <div class="small">reply manual: ${esc(review.manual_reply || "-")}</div>
+            <div class="small">author: ${esc(review.author || "-")} | rating: ${esc(review.rating ?? "-")} | category: ${esc(review.category)}</div>
           </td>
-          <td>${esc(review.sentiment_label)}</td>
+          <td>
+            <div class="small">auto: ${esc(review.auto_reply || "-")}</div>
+            <div class="small">manual: ${esc(review.manual_reply || "-")}</div>
+          </td>
           <td><span class="pill ${esc(review.priority)}">${esc(review.priority)}</span></td>
           <td>${esc(review.status)}</td>
-          <td class="actions">
+          <td>
             <button onclick="autoReply('${esc(review.review_uid)}')">Автоответ</button>
             <button class="secondary" onclick="queueManual('${esc(review.review_uid)}')">В ручную</button>
             <button class="secondary" onclick="manualReply('${esc(review.review_uid)}')">Ответ оператора</button>
@@ -749,6 +848,65 @@ def build_app_html(user: dict[str, object]) -> str:
         `;
         tbody.appendChild(tr);
       }
+    }
+
+    async function loadConversations() {
+      const kind = document.getElementById("conversationKindFilter").value;
+      const status = document.getElementById("conversationStatusFilter").value;
+      const query = new URLSearchParams();
+      if (kind) query.set("kind", kind);
+      if (status) query.set("status", status);
+      const res = await fetch("/api/conversations?" + query.toString());
+      const data = await res.json();
+      const tbody = document.getElementById("conversationsTbody");
+      tbody.innerHTML = "";
+      for (const item of data.items || []) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${esc(item.kind)}</td>
+          <td>${esc(item.source)}</td>
+          <td>${esc(item.customer_name || "-")}</td>
+          <td>${esc(item.message_text || "-")}</td>
+          <td>${esc(item.unread_count ?? 0)}</td>
+          <td>${esc(item.status)}</td>
+          <td>
+            <button class="secondary" onclick="setConversationStatus('${esc(item.conversation_uid)}', 'waiting')">В ожидании</button>
+            <button class="secondary" onclick="setConversationStatus('${esc(item.conversation_uid)}', 'closed')">Закрыть</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      }
+    }
+
+    async function setConversationStatus(conversationUid, status) {
+      const payload = { status: status };
+      const res = await fetch(`/api/conversations/${encodeURIComponent(conversationUid)}/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.detail || "Ошибка обновления статуса");
+        return;
+      }
+      await loadConversations();
+    }
+
+    async function loadAnalytics() {
+      const res = await fetch("/api/analytics");
+      const data = await res.json();
+      if (!res.ok) {
+        document.getElementById("analyticsInfo").textContent = data.detail || "Ошибка загрузки аналитики";
+        return;
+      }
+      document.getElementById("anTotal").textContent = String(data.total_reviews || 0);
+      document.getElementById("anProcessed").textContent = String(data.processed_reviews || 0);
+      document.getElementById("anPositive").textContent = String(data.positive_percent || 0) + "%";
+      document.getElementById("anNegative").textContent = String(data.negative_percent || 0) + "%";
+      document.getElementById("anQuestions").textContent = String(data.questions_count || 0);
+      document.getElementById("anChats").textContent = String(data.chats_count || 0);
+      document.getElementById("analyticsInfo").textContent = `Позитивных: ${data.positive_count || 0}, негативных: ${data.negative_count || 0}, всего диалогов: ${data.conversation_total || 0}`;
     }
 
     async function loadAccounts() {
@@ -783,7 +941,7 @@ def build_app_html(user: dict[str, object]) -> str:
         try {
           integration = JSON.parse(integrationRaw);
         } catch (_) {
-          document.getElementById("accountsInfo").textContent = "Ошибка: Integration JSON некорректный";
+          document.getElementById("accountsInfo").textContent = "Ошибка: integration JSON некорректный";
           return;
         }
       }
@@ -886,9 +1044,11 @@ def build_app_html(user: dict[str, object]) -> str:
       await loadReviews();
     }
 
+    loadReviews();
+    loadConversations();
+    loadAnalytics();
     loadAccounts();
     loadTemplates();
-    loadReviews();
   </script>
 </body>
 </html>

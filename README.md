@@ -35,8 +35,9 @@ URL: `/admin` (доступ только для роли `admin`)
 Разделы:
 
 - **Отзывы**: синхронизация, фильтры, автоответ, перевод в ручную очередь, ручной ответ;
-- **Кабинеты API**: подключение нескольких кабинетов WB/OZON (и `mock`);
-- **Шаблоны**: процесс по категориям (`auto` / `manual` / `ignore`) и текст шаблонов.
+- **Вопросы и чаты**: вопросы маркетплейсов и переписки с покупателями (статусы open/waiting/closed);
+- **Аналитика**: ключевые метрики (обработано, доля позитива/негатива, вопросы/чаты);
+- **Настройки**: источники API + правила обработки/шаблоны.
 
 ### 4) Логика процессов
 
@@ -145,6 +146,9 @@ http://localhost:8000
 - `POST /api/reviews/{review_uid}/auto-reply`
 - `POST /api/reviews/{review_uid}/queue-manual`
 - `POST /api/reviews/{review_uid}/manual-reply`
+- `GET /api/conversations?kind=&status=`
+- `POST /api/conversations/{conversation_uid}/status`
+- `GET /api/analytics`
 - `GET/POST /api/accounts`, `POST /api/accounts/{id}/status`
 - `GET/PUT /api/templates`
 - `GET/PUT /api/admin/ai-settings` (admin)

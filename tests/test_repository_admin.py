@@ -97,6 +97,79 @@ class RepositoryAdminTests(unittest.TestCase):
         self.assertEqual(len(actions), 1)
         self.assertEqual(actions[0]["action_type"], "queue_manual")
 
+    def test_conversation_storage_and_user_analytics(self) -> None:
+        conv_uid = self.repository.upsert_conversation(
+            user_id=self.user_id,
+            source="ozon",
+            account_id=None,
+            external_conversation_id="chat-1",
+            kind="chat",
+            customer_name="Buyer A",
+            message_text="Когда отправите заказ?",
+            status="open",
+            unread_count=2,
+            metadata={"topic": "delivery"},
+        )
+        self.assertTrue(conv_uid.startswith(f"{self.user_id}:ozon"))
+
+        question_uid = self.repository.upsert_conversation(
+            user_id=self.user_id,
+            source="wb",
+            account_id=None,
+            external_conversation_id="q-1",
+            kind="question",
+            customer_name="Buyer B",
+            message_text="Какой состав ткани?",
+            status="waiting",
+            unread_count=1,
+            metadata={"topic": "material"},
+        )
+        self.assertTrue(question_uid.startswith(f"{self.user_id}:wb"))
+
+        rows = self.repository.list_conversations(user_id=self.user_id)
+        self.assertEqual(len(rows), 2)
+
+        closed = self.repository.update_conversation_status(
+            user_id=self.user_id,
+            conversation_uid=conv_uid,
+            status="closed",
+        )
+        self.assertTrue(closed)
+        rows_after = self.repository.list_conversations(user_id=self.user_id, status="closed")
+        self.assertEqual(len(rows_after), 1)
+        self.assertEqual(rows_after[0]["unread_count"], 0)
+
+        # Add one positive processed review for analytics percentages.
+        processed_positive = ProcessedReview(
+            review_id="2",
+            normalized_text="great quality",
+            sentiment_score=4,
+            sentiment_label="positive",
+            is_spam=False,
+            is_toxic=False,
+            priority="low",
+            tags=["sentiment:positive", "priority:low"],
+            recommended_action="auto_close_with_thanks",
+        )
+        self.repository.upsert_processed_review(
+            user_id=self.user_id,
+            source="ozon",
+            account_id=None,
+            review=ReviewInput(review_id="ext-2", text="Отличное качество", rating=5),
+            processed=processed_positive,
+            category="positive_product",
+            processing_mode="auto",
+            status="answered_auto",
+            auto_reply="Спасибо!",
+        )
+
+        analytics = self.repository.get_user_analytics(user_id=self.user_id)
+        self.assertEqual(analytics["total_reviews"], 1)
+        self.assertEqual(analytics["processed_reviews"], 1)
+        self.assertEqual(analytics["positive_count"], 1)
+        self.assertEqual(analytics["questions_count"], 1)
+        self.assertEqual(analytics["chats_count"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

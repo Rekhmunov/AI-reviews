@@ -18,6 +18,9 @@ class MarketplaceClient(Protocol):
     def fetch_reviews(self) -> list[ReviewInput]:
         """Load reviews from marketplace API."""
 
+    def fetch_conversations(self) -> list[dict[str, object]]:
+        """Load questions/chats from marketplace API."""
+
 
 class MarketplaceSyncError(RuntimeError):
     def __init__(self, source: str, message: str, *, details: dict[str, object] | None = None) -> None:
@@ -44,6 +47,9 @@ class HTTPMarketplaceClient:
 
         return [self._to_review(item) for item in payload]
 
+    def fetch_conversations(self) -> list[dict[str, object]]:
+        return []
+
     @staticmethod
     def _to_review(item: dict[str, object]) -> ReviewInput:
         return ReviewInput(
@@ -64,6 +70,8 @@ class OzonMarketplaceClient:
     base_payload: dict[str, object] | None = None
     items_keys: tuple[str, ...] = ("reviews", "feedbacks", "items")
     cursor_keys: tuple[str, ...] = ("last_id", "lastId", "next_last_id", "cursor")
+    questions_path: str | None = None
+    chats_path: str | None = None
     page_size: int = 50
     max_pages: int = 20
     timeout: int = 20
@@ -101,6 +109,43 @@ class OzonMarketplaceClient:
 
         return [review for review in reviews if review.review_id]
 
+    def fetch_conversations(self) -> list[dict[str, object]]:
+        items: list[dict[str, object]] = []
+        items.extend(self._fetch_conversation_stream(path=self.questions_path, kind="question"))
+        items.extend(self._fetch_conversation_stream(path=self.chats_path, kind="chat"))
+        return items
+
+    def _fetch_conversation_stream(self, *, path: str | None, kind: str) -> list[dict[str, object]]:
+        if not path:
+            return []
+
+        cursor: str | None = None
+        page = 0
+        result_items: list[dict[str, object]] = []
+        while page < self.max_pages:
+            payload: dict[str, object] = {"limit": self.page_size}
+            if cursor:
+                payload["last_id"] = cursor
+            body = self._request_json(path=path, payload=payload)
+            raw = body.get("result") if isinstance(body.get("result"), dict) else body
+            _raise_if_error_payload(raw, source="ozon")
+            page_items = _extract_sequence(raw, keys=self.items_keys + ("questions", "chats", "dialogs", "messages"))
+            if not page_items:
+                break
+            for item in page_items:
+                mapped = self._to_conversation(item, kind=kind)
+                if mapped:
+                    result_items.append(mapped)
+            next_cursor = _extract_str(raw, keys=self.cursor_keys)
+            has_next = bool(raw.get("has_next") or raw.get("hasNext"))
+            if not has_next and len(page_items) < self.page_size:
+                break
+            if not next_cursor or next_cursor == cursor:
+                break
+            cursor = next_cursor
+            page += 1
+        return result_items
+
     def _request_json(self, *, path: str, payload: dict[str, object]) -> dict[str, object]:
         url = _compose_url(self.api_url, path)
         request = Request(
@@ -130,6 +175,27 @@ class OzonMarketplaceClient:
             metadata={"raw": item, "marketplace": "ozon"},
         )
 
+    @staticmethod
+    def _to_conversation(item: dict[str, object], *, kind: str) -> dict[str, object] | None:
+        external_id = str(item.get("id") or item.get("chat_id") or item.get("question_id") or "").strip()
+        if not external_id:
+            return None
+        text = str(item.get("text") or item.get("question") or item.get("message") or item.get("content") or "")
+        customer_name = str(item.get("author") or item.get("user_name") or item.get("customer_name") or "") or None
+        status = str(item.get("status") or "open").lower()
+        unread_count = _to_positive_int(item.get("unread_count") or item.get("unread"), default=0)
+        updated_at = str(item.get("updated_at") or item.get("last_message_at") or "")
+        return {
+            "external_id": external_id,
+            "kind": kind,
+            "customer_name": customer_name,
+            "message_text": text,
+            "status": status if status in {"open", "closed", "waiting"} else "open",
+            "unread_count": unread_count,
+            "last_message_at": updated_at or None,
+            "metadata": {"raw": item, "marketplace": "ozon"},
+        }
+
 
 @dataclass(slots=True)
 class WildberriesMarketplaceClient:
@@ -141,6 +207,8 @@ class WildberriesMarketplaceClient:
     unanswered_param: str = "isAnswered"
     unanswered_value: str = "false"
     items_keys: tuple[str, ...] = ("feedbacks", "reviews", "items")
+    questions_path: str | None = None
+    chats_path: str | None = None
     page_size: int = 100
     max_pages: int = 20
     timeout: int = 20
@@ -169,6 +237,34 @@ class WildberriesMarketplaceClient:
             page += 1
 
         return [review for review in reviews if review.review_id]
+
+    def fetch_conversations(self) -> list[dict[str, object]]:
+        items: list[dict[str, object]] = []
+        if self.questions_path:
+            items.extend(self._fetch_conversation_endpoint(path=self.questions_path, kind="question"))
+        if self.chats_path:
+            items.extend(self._fetch_conversation_endpoint(path=self.chats_path, kind="chat"))
+        return items
+
+    def _fetch_conversation_endpoint(self, *, path: str, kind: str) -> list[dict[str, object]]:
+        endpoint = _compose_url(self.api_url, path)
+        request = Request(endpoint, method="GET", headers={"Authorization": self.api_key})
+        payload = _request_json(request=request, timeout=self.timeout, source="wb")
+        if not isinstance(payload, dict):
+            raise MarketplaceSyncError("wb", "Wildberries API returned non-object payload for conversations")
+        _raise_if_error_payload(payload, source="wb")
+        rows = _extract_sequence(payload, keys=self.items_keys + ("questions", "chats", "dialogs", "messages"))
+        if not rows and isinstance(payload.get("data"), Mapping):
+            rows = _extract_sequence(
+                payload.get("data"),
+                keys=self.items_keys + ("questions", "chats", "dialogs", "messages"),
+            )
+        result: list[dict[str, object]] = []
+        for item in rows:
+            mapped = self._to_conversation(item, kind=kind)
+            if mapped:
+                result.append(mapped)
+        return result
 
     def _request_json(self, *, skip: int, take: int) -> dict[str, object]:
         params = urlencode(
@@ -203,6 +299,25 @@ class WildberriesMarketplaceClient:
             metadata={"raw": item, "marketplace": "wb"},
         )
 
+    @staticmethod
+    def _to_conversation(item: dict[str, object], *, kind: str) -> dict[str, object] | None:
+        external_id = str(item.get("id") or item.get("chatId") or item.get("questionId") or "").strip()
+        if not external_id:
+            return None
+        text = str(item.get("text") or item.get("message") or item.get("question") or "")
+        customer_name = str(item.get("userName") or item.get("author") or "") or None
+        status = str(item.get("status") or "open").lower()
+        return {
+            "external_id": external_id,
+            "kind": kind,
+            "customer_name": customer_name,
+            "message_text": text,
+            "status": status if status in {"open", "closed", "waiting"} else "open",
+            "unread_count": _to_positive_int(item.get("unread_count"), default=0),
+            "last_message_at": str(item.get("updatedAt") or item.get("last_message_at") or "") or None,
+            "metadata": {"raw": item, "marketplace": "wb"},
+        }
+
 
 class MockMarketplaceClient:
     """Demo client for local startup without real marketplace credentials."""
@@ -230,6 +345,30 @@ class MockMarketplaceClient:
                 rating=5,
                 metadata={"marketplace": "mock"},
             ),
+        ]
+
+    def fetch_conversations(self) -> list[dict[str, object]]:
+        return [
+            {
+                "external_id": "mock-q-1",
+                "kind": "question",
+                "customer_name": "Покупатель 10",
+                "message_text": "Подскажите, ткань не садится после стирки?",
+                "status": "open",
+                "unread_count": 1,
+                "last_message_at": None,
+                "metadata": {"marketplace": "mock"},
+            },
+            {
+                "external_id": "mock-c-1",
+                "kind": "chat",
+                "customer_name": "Покупатель 11",
+                "message_text": "Здравствуйте, можете уточнить срок доставки?",
+                "status": "waiting",
+                "unread_count": 2,
+                "last_message_at": None,
+                "metadata": {"marketplace": "mock"},
+            },
         ]
 
 
@@ -308,8 +447,61 @@ class ReviewAutomationService:
             )
         return len(reviews)
 
-    def sync_all_accounts(self, *, user_id: int) -> dict[str, int]:
+    def sync_conversations(
+        self,
+        *,
+        user_id: int,
+        source: str,
+        account_id: int | None,
+        client: MarketplaceClient,
+    ) -> int:
+        fetch_conversations = getattr(client, "fetch_conversations", None)
+        if not callable(fetch_conversations):
+            return 0
+
+        try:
+            rows = fetch_conversations()
+        except MarketplaceSyncError as exc:
+            self.repository.log_review_action(
+                user_id=user_id,
+                review_uid=None,
+                action_type="sync_error",
+                actor="system",
+                details={"source": source, "account_id": account_id, "error": str(exc), "scope": "conversations"},
+            )
+            raise
+
+        loaded = 0
+        for row in rows:
+            external_id = str(row.get("external_id") or "").strip()
+            if not external_id:
+                continue
+            conversation_uid = self.repository.upsert_conversation(
+                user_id=user_id,
+                source=source,
+                account_id=account_id,
+                external_conversation_id=external_id,
+                kind=str(row.get("kind") or "chat"),
+                customer_name=str(row.get("customer_name") or "") or None,
+                message_text=str(row.get("message_text") or ""),
+                status=str(row.get("status") or "open"),
+                unread_count=_to_positive_int(row.get("unread_count"), default=0),
+                metadata=row.get("metadata") if isinstance(row.get("metadata"), dict) else {},
+                last_message_at=str(row.get("last_message_at") or "") or None,
+            )
+            self.repository.log_review_action(
+                user_id=user_id,
+                review_uid=conversation_uid,
+                action_type="sync_conversation",
+                actor="system",
+                details={"source": source, "kind": row.get("kind")},
+            )
+            loaded += 1
+        return loaded
+
+    def sync_all_accounts(self, *, user_id: int) -> dict[str, object]:
         loaded_total = 0
+        loaded_conversations = 0
         successful_accounts = 0
         errors: list[dict[str, object]] = []
         accounts = [
@@ -323,6 +515,12 @@ class ReviewAutomationService:
             try:
                 client = self._build_client(account)
                 loaded_total += self.sync_reviews(
+                    user_id=user_id,
+                    source=marketplace,
+                    account_id=account_id,
+                    client=client,
+                )
+                loaded_conversations += self.sync_conversations(
                     user_id=user_id,
                     source=marketplace,
                     account_id=account_id,
@@ -347,6 +545,7 @@ class ReviewAutomationService:
             "success_accounts": successful_accounts,
             "failed_accounts": len(errors),
             "loaded": loaded_total,
+            "loaded_conversations": loaded_conversations,
             "errors": errors,
         }
 
@@ -367,6 +566,8 @@ class ReviewAutomationService:
                 base_payload=extra.get("base_payload") if isinstance(extra.get("base_payload"), dict) else None,
                 page_size=_to_positive_int(extra.get("page_size"), default=50),
                 max_pages=_to_positive_int(extra.get("max_pages"), default=20),
+                questions_path=str(extra.get("questions_path")) if extra.get("questions_path") else None,
+                chats_path=str(extra.get("chats_path")) if extra.get("chats_path") else None,
             )
         if marketplace == "wb":
             api_key = str(account.get("api_key") or "")
@@ -380,6 +581,8 @@ class ReviewAutomationService:
                 unanswered_value=str(extra.get("unanswered_value") or "false"),
                 page_size=_to_positive_int(extra.get("page_size"), default=100),
                 max_pages=_to_positive_int(extra.get("max_pages"), default=20),
+                questions_path=str(extra.get("questions_path")) if extra.get("questions_path") else None,
+                chats_path=str(extra.get("chats_path")) if extra.get("chats_path") else None,
             )
         return HTTPMarketplaceClient(
             api_url=str(account.get("api_url") or ""),

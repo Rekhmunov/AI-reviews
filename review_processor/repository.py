@@ -150,8 +150,36 @@ class ReviewRepository:
             )
             conn.execute(
                 """
+                CREATE TABLE IF NOT EXISTS conversation_items (
+                    conversation_uid TEXT PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    source TEXT NOT NULL,
+                    account_id INTEGER,
+                    external_conversation_id TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    customer_name TEXT,
+                    message_text TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    unread_count INTEGER NOT NULL DEFAULT 0,
+                    metadata_json TEXT NOT NULL,
+                    last_message_at TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                    FOREIGN KEY (account_id) REFERENCES marketplace_accounts(id) ON DELETE SET NULL
+                )
+                """
+            )
+            conn.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_review_actions_user_created
                 ON review_actions(user_id, created_at DESC)
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_conversation_user_updated
+                ON conversation_items(user_id, updated_at DESC)
                 """
             )
             self._migrate_schema(conn)
@@ -485,6 +513,17 @@ class ReviewRepository:
         account_part = str(account_id) if account_id is not None else "na"
         return f"{user_id}:{source}:{account_part}:{external_review_id}"
 
+    @staticmethod
+    def make_conversation_uid(
+        user_id: int,
+        source: str,
+        account_id: int | None,
+        kind: str,
+        external_conversation_id: str,
+    ) -> str:
+        account_part = str(account_id) if account_id is not None else "na"
+        return f"{user_id}:{source}:{account_part}:{kind}:{external_conversation_id}"
+
     def upsert_processed_review(
         self,
         *,
@@ -592,6 +631,107 @@ class ReviewRepository:
         with self._connect() as conn:
             rows = conn.execute(query, tuple(params)).fetchall()
         return [self._row_to_dict(row) for row in rows]
+
+    def upsert_conversation(
+        self,
+        *,
+        user_id: int,
+        source: str,
+        account_id: int | None,
+        external_conversation_id: str,
+        kind: str,
+        customer_name: str | None,
+        message_text: str,
+        status: str,
+        unread_count: int,
+        metadata: dict[str, Any] | None = None,
+        last_message_at: str | None = None,
+    ) -> str:
+        conversation_uid = self.make_conversation_uid(
+            user_id=user_id,
+            source=source,
+            account_id=account_id,
+            kind=kind,
+            external_conversation_id=external_conversation_id,
+        )
+        now = _utc_now()
+        last_message_ts = last_message_at or now
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO conversation_items (
+                    conversation_uid, user_id, source, account_id, external_conversation_id,
+                    kind, customer_name, message_text, status, unread_count, metadata_json,
+                    last_message_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(conversation_uid) DO UPDATE SET
+                    customer_name = excluded.customer_name,
+                    message_text = excluded.message_text,
+                    status = excluded.status,
+                    unread_count = excluded.unread_count,
+                    metadata_json = excluded.metadata_json,
+                    last_message_at = excluded.last_message_at,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    conversation_uid,
+                    user_id,
+                    source,
+                    account_id,
+                    external_conversation_id,
+                    kind,
+                    customer_name,
+                    message_text,
+                    status,
+                    max(unread_count, 0),
+                    json.dumps(metadata or {}, ensure_ascii=False),
+                    last_message_ts,
+                    now,
+                    now,
+                ),
+            )
+        return conversation_uid
+
+    def list_conversations(
+        self,
+        *,
+        user_id: int,
+        kind: str | None = None,
+        status: str | None = None,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        clauses = ["user_id = ?"]
+        params: list[Any] = [user_id]
+        if kind:
+            clauses.append("kind = ?")
+            params.append(kind)
+        if status:
+            clauses.append("status = ?")
+            params.append(status)
+
+        query = f"SELECT * FROM conversation_items WHERE {' AND '.join(clauses)} ORDER BY updated_at DESC LIMIT ?"
+        params.append(limit)
+        with self._connect() as conn:
+            rows = conn.execute(query, tuple(params)).fetchall()
+        result: list[dict[str, Any]] = []
+        for row in rows:
+            data = dict(row)
+            raw = data.pop("metadata_json", "{}")
+            data["metadata"] = json.loads(raw) if raw else {}
+            result.append(data)
+        return result
+
+    def update_conversation_status(self, *, user_id: int, conversation_uid: str, status: str) -> bool:
+        with self._connect() as conn:
+            result = conn.execute(
+                """
+                UPDATE conversation_items
+                SET status = ?, unread_count = CASE WHEN ? = 'closed' THEN 0 ELSE unread_count END, updated_at = ?
+                WHERE user_id = ? AND conversation_uid = ?
+                """,
+                (status, status, _utc_now(), user_id, conversation_uid),
+            )
+        return result.rowcount > 0
 
     def get_review(self, *, user_id: int, review_uid: str) -> dict[str, Any] | None:
         with self._connect() as conn:
@@ -729,6 +869,53 @@ class ReviewRepository:
             "status_counts": status_map,
             "avg_first_response_minutes": round(avg_minutes, 2),
             "overdue_manual_queue_24h": int(overdue_row["c"]) if overdue_row else 0,
+        }
+
+    def get_user_analytics(self, *, user_id: int) -> dict[str, Any]:
+        with self._connect() as conn:
+            totals = conn.execute(
+                """
+                SELECT
+                    COUNT(*) AS total,
+                    SUM(CASE WHEN status IN ('answered_auto', 'answered_manual', 'ignored') THEN 1 ELSE 0 END) AS processed,
+                    SUM(CASE WHEN sentiment_label = 'positive' THEN 1 ELSE 0 END) AS positive_count,
+                    SUM(CASE WHEN sentiment_label = 'negative' THEN 1 ELSE 0 END) AS negative_count
+                FROM review_items
+                WHERE user_id = ?
+                """,
+                (user_id,),
+            ).fetchone()
+
+            conversation_totals = conn.execute(
+                """
+                SELECT
+                    COUNT(*) AS total_items,
+                    SUM(CASE WHEN kind = 'question' THEN 1 ELSE 0 END) AS questions_count,
+                    SUM(CASE WHEN kind = 'chat' THEN 1 ELSE 0 END) AS chats_count
+                FROM conversation_items
+                WHERE user_id = ?
+                """,
+                (user_id,),
+            ).fetchone()
+
+        total_reviews = int(totals["total"] or 0) if totals else 0
+        processed_reviews = int(totals["processed"] or 0) if totals else 0
+        positive_count = int(totals["positive_count"] or 0) if totals else 0
+        negative_count = int(totals["negative_count"] or 0) if totals else 0
+
+        positive_percent = round((positive_count / total_reviews) * 100, 2) if total_reviews else 0.0
+        negative_percent = round((negative_count / total_reviews) * 100, 2) if total_reviews else 0.0
+
+        return {
+            "total_reviews": total_reviews,
+            "processed_reviews": processed_reviews,
+            "positive_count": positive_count,
+            "negative_count": negative_count,
+            "positive_percent": positive_percent,
+            "negative_percent": negative_percent,
+            "conversation_total": int(conversation_totals["total_items"] or 0) if conversation_totals else 0,
+            "questions_count": int(conversation_totals["questions_count"] or 0) if conversation_totals else 0,
+            "chats_count": int(conversation_totals["chats_count"] or 0) if conversation_totals else 0,
         }
 
     def raw_fetch(self, query: str, params: tuple[Any, ...] = ()) -> list[Mapping[str, Any]]:
