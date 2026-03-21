@@ -122,6 +122,17 @@ a {
   background: #fff;
   border-right: 1px solid #e5e7eb;
   padding: 16px;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-main {
+  flex: 1;
+}
+
+.sidebar-bottom {
+  padding-top: 10px;
+  border-top: 1px solid #e5e7eb;
 }
 
 .brand {

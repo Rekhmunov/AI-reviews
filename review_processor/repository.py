@@ -41,6 +41,7 @@ class ReviewRepository:
                 CREATE TABLE IF NOT EXISTS users (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     email TEXT NOT NULL UNIQUE,
+                    full_name TEXT,
                     password_hash TEXT NOT NULL,
                     role TEXT NOT NULL,
                     created_at TEXT NOT NULL
@@ -194,6 +195,10 @@ class ReviewRepository:
 
     def _migrate_schema(self, conn: sqlite3.Connection) -> None:
         # Backward-compatible migrations for already initialized local DBs.
+        user_columns = self._table_columns(conn, "users")
+        if "full_name" not in user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN full_name TEXT")
+
         ai_columns = self._table_columns(conn, "ai_settings")
         if "yandex_api_key_encrypted" not in ai_columns:
             conn.execute("ALTER TABLE ai_settings ADD COLUMN yandex_api_key_encrypted TEXT")
@@ -267,15 +272,21 @@ class ReviewRepository:
             row = conn.execute("SELECT COUNT(*) AS count FROM users").fetchone()
         return int(row["count"]) if row else 0
 
-    def create_user(self, email: str, password_hash: str, role: str) -> dict[str, Any]:
+    def create_user(
+        self,
+        email: str,
+        password_hash: str,
+        role: str,
+        full_name: str | None = None,
+    ) -> dict[str, Any]:
         now = _utc_now()
         with self._connect() as conn:
             cursor = conn.execute(
                 """
-                INSERT INTO users (email, password_hash, role, created_at)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO users (email, full_name, password_hash, role, created_at)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (email.lower(), password_hash, role, now),
+                (email.lower(), full_name, password_hash, role, now),
             )
             user_id = int(cursor.lastrowid)
         user = self.get_user_by_id(user_id)
@@ -305,6 +316,37 @@ class ReviewRepository:
     def update_user_role(self, user_id: int, role: str) -> bool:
         with self._connect() as conn:
             result = conn.execute("UPDATE users SET role = ? WHERE id = ?", (role, user_id))
+        return result.rowcount > 0
+
+    def update_user_profile(
+        self,
+        *,
+        user_id: int,
+        email: str,
+        full_name: str | None,
+        password_hash: str | None = None,
+    ) -> bool:
+        if password_hash is None:
+            with self._connect() as conn:
+                result = conn.execute(
+                    """
+                    UPDATE users
+                    SET email = ?, full_name = ?
+                    WHERE id = ?
+                    """,
+                    (email.lower(), full_name, user_id),
+                )
+            return result.rowcount > 0
+
+        with self._connect() as conn:
+            result = conn.execute(
+                """
+                UPDATE users
+                SET email = ?, full_name = ?, password_hash = ?
+                WHERE id = ?
+                """,
+                (email.lower(), full_name, password_hash, user_id),
+            )
         return result.rowcount > 0
 
     def create_session(self, token: str, user_id: int, expires_at: str) -> None:

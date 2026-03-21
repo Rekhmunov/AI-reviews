@@ -8,7 +8,7 @@ function esc(value) {
 const templateStore = {};
 
 function showSection(section) {
-  const ids = ["reviews", "conversations", "analytics", "settings"];
+  const ids = ["reviews", "conversations", "analytics", "settings", "profile"];
   for (const id of ids) {
     const sectionEl = document.getElementById("section-" + id);
     const navEl = document.getElementById("nav-" + id);
@@ -17,6 +17,9 @@ function showSection(section) {
   }
   document.getElementById("section-" + section).classList.remove("hidden");
   document.getElementById("nav-" + section).classList.add("active");
+  if (section === "profile") {
+    loadProfile();
+  }
 }
 
 function showSettingsTab(tab) {
@@ -370,6 +373,43 @@ async function manualReply(reviewId) {
     return;
   }
   await loadReviews();
+}
+
+async function loadProfile() {
+  const res = await fetch("/api/profile");
+  const data = await res.json();
+  if (!res.ok) {
+    document.getElementById("profileInfo").textContent = data.detail || "Ошибка загрузки профиля";
+    return;
+  }
+  document.getElementById("profileFullName").value = data.full_name || "";
+  document.getElementById("profileEmail").value = data.email || "";
+  document.getElementById("profileCurrentPassword").value = "";
+  document.getElementById("profileNewPassword").value = "";
+  document.getElementById("profileNewPasswordRepeat").value = "";
+  document.getElementById("profileInfo").textContent = "";
+}
+
+async function saveProfile() {
+  const payload = {
+    full_name: document.getElementById("profileFullName").value.trim() || null,
+    email: document.getElementById("profileEmail").value.trim() || null,
+    current_password: document.getElementById("profileCurrentPassword").value || null,
+    new_password: document.getElementById("profileNewPassword").value || null,
+    new_password_repeat: document.getElementById("profileNewPasswordRepeat").value || null,
+  };
+  const res = await fetch("/api/profile", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    document.getElementById("profileInfo").textContent = "Ошибка: " + (data.detail || "update failed");
+    return;
+  }
+  document.getElementById("profileInfo").textContent = "Изменения сохранены";
+  await loadProfile();
 }
 
 document.addEventListener("DOMContentLoaded", () => {

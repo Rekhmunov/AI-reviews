@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from html import escape
 from pathlib import Path
+import sqlite3
 
 from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -69,6 +70,14 @@ class AISettingsRequest(BaseModel):
 
 class RoleUpdateRequest(BaseModel):
     role: str = Field(description="user|admin")
+
+
+class ProfileUpdateRequest(BaseModel):
+    full_name: str | None = Field(default=None, max_length=200)
+    email: str | None = Field(default=None, max_length=255)
+    current_password: str | None = Field(default=None, max_length=255)
+    new_password: str | None = Field(default=None, max_length=255)
+    new_password_repeat: str | None = Field(default=None, max_length=255)
 
 
 def create_app(db_path: str = "reviews.db") -> FastAPI:
@@ -185,7 +194,63 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
     @app.get("/api/me")
     def get_me(request: Request) -> dict[str, object]:
         user = _require_user(request)
-        return {"id": user["id"], "email": user["email"], "role": user["role"]}
+        return {
+            "id": user["id"],
+            "email": user["email"],
+            "full_name": user.get("full_name") or "",
+            "role": user["role"],
+        }
+
+    @app.get("/api/profile")
+    def get_profile(request: Request) -> dict[str, object]:
+        user = _require_user(request)
+        return {
+            "full_name": user.get("full_name") or "",
+            "email": user["email"],
+        }
+
+    @app.put("/api/profile")
+    def update_profile(request: Request, payload: ProfileUpdateRequest) -> dict[str, object]:
+        user = _require_user(request)
+        user_id = int(user["id"])
+        stored_user = repository.get_user_by_id(user_id)
+        if stored_user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        new_email = (payload.email or str(stored_user.get("email") or "")).strip().lower()
+        if not new_email or "@" not in new_email:
+            raise HTTPException(status_code=400, detail="Введите корректный email")
+
+        full_name = (payload.full_name or "").strip() or None
+
+        wants_password_change = any(
+            value is not None and value != ""
+            for value in (payload.current_password, payload.new_password, payload.new_password_repeat)
+        )
+        password_hash: str | None = None
+        if wants_password_change:
+            if not payload.current_password:
+                raise HTTPException(status_code=400, detail="Введите текущий пароль")
+            if not verify_password(payload.current_password, str(stored_user.get("password_hash") or "")):
+                raise HTTPException(status_code=400, detail="Текущий пароль неверный")
+            if not payload.new_password or len(payload.new_password) < 8:
+                raise HTTPException(status_code=400, detail="Новый пароль должен быть не короче 8 символов")
+            if payload.new_password != (payload.new_password_repeat or ""):
+                raise HTTPException(status_code=400, detail="Новый пароль и подтверждение не совпадают")
+            password_hash = hash_password(payload.new_password)
+
+        try:
+            updated = repository.update_user_profile(
+                user_id=user_id,
+                email=new_email,
+                full_name=full_name,
+                password_hash=password_hash,
+            )
+        except sqlite3.IntegrityError as exc:
+            raise HTTPException(status_code=409, detail="Email уже используется другим аккаунтом") from exc
+        if not updated:
+            raise HTTPException(status_code=404, detail="User not found")
+        return {"ok": True}
 
     @app.get("/api/reviews")
     def list_reviews(

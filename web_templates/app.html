@@ -9,14 +9,18 @@
 <body>
   <div class="layout">
     <aside class="sidebar">
-      <div class="brand">REVO</div>
-      <div class="meta">user: {{SAFE_EMAIL}}<br/>role: {{SAFE_ROLE}}</div>
-      <a id="nav-reviews" class="navbtn active" href="#" onclick="showSection('reviews')">1) Отзывы</a>
-      <a id="nav-conversations" class="navbtn" href="#" onclick="showSection('conversations')">2) Вопросы и чаты</a>
-      <a id="nav-analytics" class="navbtn" href="#" onclick="showSection('analytics')">3) Аналитика</a>
-      <a id="nav-settings" class="navbtn" href="#" onclick="showSection('settings')">4) Настройки</a>
-      {{ADMIN_LINK}}
-      <a class="navbtn" href="/logout">Выйти</a>
+      <div class="sidebar-main">
+        <div class="brand">REVO</div>
+        <div class="meta">user: {{SAFE_EMAIL}}<br/>role: {{SAFE_ROLE}}</div>
+        <a id="nav-reviews" class="navbtn active" href="#" onclick="showSection('reviews')">1) Отзывы</a>
+        <a id="nav-conversations" class="navbtn" href="#" onclick="showSection('conversations')">2) Вопросы и чаты</a>
+        <a id="nav-analytics" class="navbtn" href="#" onclick="showSection('analytics')">3) Аналитика</a>
+        <a id="nav-settings" class="navbtn" href="#" onclick="showSection('settings')">4) Настройки</a>
+        {{ADMIN_LINK}}
+      </div>
+      <div class="sidebar-bottom">
+        <a id="nav-profile" class="navbtn" href="#" onclick="showSection('profile')">Мой профиль</a>
+      </div>
     </aside>
 
     <main class="main">
@@ -214,6 +218,28 @@
               <thead><tr><th>Category</th><th>Mode</th><th>Template</th></tr></thead>
               <tbody id="templatesTbody"></tbody>
             </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="section-profile" class="hidden">
+        <div class="panel">
+          <h3>Мой профиль</h3>
+          <div class="row">
+            <input id="profileFullName" type="text" placeholder="ФИО" />
+            <input id="profileEmail" type="email" placeholder="Email" />
+          </div>
+          <div class="row">
+            <input id="profileCurrentPassword" type="password" placeholder="Текущий пароль" />
+            <input id="profileNewPassword" type="password" placeholder="Новый пароль" />
+            <input id="profileNewPasswordRepeat" type="password" placeholder="Повторите новый пароль" />
+          </div>
+          <div class="row">
+            <button onclick="saveProfile()">Применить</button>
+            <span id="profileInfo" class="small"></span>
+          </div>
+          <div class="row" style="margin-top: 10px;">
+            <a class="navbtn" href="/logout" style="margin:0; display:inline-block;">Выйти из аккаунта</a>
           </div>
         </div>
       </section>
