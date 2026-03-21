@@ -41,7 +41,7 @@
           </div>
         </div>
         <div class="panel">
-          <div class="row">
+          <div class="row reviews-filter-row">
             <select id="priorityFilter">
               <option value="">приоритет: все</option>
               <option value="high">высокий</option>
@@ -64,7 +64,38 @@
               <option value="positive_product">Позитив: товар</option>
               <option value="neutral_other">Нейтральный: прочее</option>
             </select>
+            <select id="reviewsSortFilter">
+              <option value="newest">Сначала новые</option>
+              <option value="oldest">Сначала старые</option>
+              <option value="rating_asc">Оценка (сначала низкая)</option>
+              <option value="rating_desc">Оценка (сначала высокая)</option>
+              <option value="category">По темам</option>
+            </select>
+            <button type="button" id="reviewsDateFilterBtn" class="secondary" onclick="toggleReviewsDateFilterPanel()">
+              Период: все даты
+            </button>
             <button class="secondary" onclick="loadReviews()">Обновить</button>
+          </div>
+          <div id="reviewsDateFilterPanel" class="reviews-date-panel hidden">
+            <div class="reviews-date-presets">
+              <button type="button" class="secondary" onclick="setReviewsDatePreset('today')">Сегодня</button>
+              <button type="button" class="secondary" onclick="setReviewsDatePreset('yesterday')">Вчера</button>
+              <button type="button" class="secondary" onclick="setReviewsDatePreset('last_week')">Последняя неделя</button>
+              <button type="button" class="secondary" onclick="setReviewsDatePreset('last_7_days')">Последние 7 дней</button>
+              <button type="button" class="secondary" onclick="setReviewsDatePreset('last_30_days')">Последние 30 дней</button>
+              <button type="button" class="secondary" onclick="setReviewsDatePreset('last_month')">Последний месяц</button>
+              <button type="button" class="secondary" onclick="setReviewsDatePreset('last_3_months')">Последние 3 месяца</button>
+              <button type="button" class="secondary" onclick="setReviewsDatePreset('last_year')">Последний год</button>
+            </div>
+            <div class="reviews-date-controls">
+              <label>С <input id="reviewsDateFrom" type="date" /></label>
+              <label>По <input id="reviewsDateTo" type="date" /></label>
+              <div class="row">
+                <button type="button" onclick="applyReviewsDateFilter()">Применить период</button>
+                <button type="button" class="secondary" onclick="clearReviewsDateFilter()">Сбросить</button>
+                <button type="button" class="secondary" onclick="toggleReviewsDateFilterPanel(false)">Закрыть</button>
+              </div>
+            </div>
           </div>
         </div>
         <div class="panel">

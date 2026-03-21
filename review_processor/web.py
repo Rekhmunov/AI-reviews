@@ -540,6 +540,9 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
         priority: str | None = None,
         status: str | None = None,
         category: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        sort: str = "newest",
         page: int = 1,
         page_size: int = 30,
         bucket: str = "all",
@@ -550,11 +553,29 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
         normalized_bucket = bucket.strip().lower()
         if normalized_bucket not in {"all", "new", "processed"}:
             normalized_bucket = "all"
+        normalized_sort = sort.strip().lower()
+        if normalized_sort not in {"newest", "oldest", "rating_asc", "rating_desc", "category"}:
+            normalized_sort = "newest"
+
+        normalized_date_from = date_from.strip() if date_from else None
+        normalized_date_to = date_to.strip() if date_to else None
+        for date_value in [normalized_date_from, normalized_date_to]:
+            if date_value:
+                try:
+                    datetime.strptime(date_value, "%Y-%m-%d")
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail="Неверный формат даты. Ожидается YYYY-MM-DD") from exc
+        if normalized_date_from and normalized_date_to and normalized_date_from > normalized_date_to:
+            raise HTTPException(status_code=400, detail="Дата начала не может быть позже даты окончания")
+
         page_data = service.list_reviews_paginated(
             user_id=int(user["id"]),
             priority=priority,
             status=status,
             category=category,
+            date_from=normalized_date_from,
+            date_to=normalized_date_to,
+            sort=normalized_sort,
             page=max(page, 1),
             page_size=normalized_page_size,
             bucket=normalized_bucket,
@@ -569,6 +590,9 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
             "new_count": page_data["new_count"],
             "processed_count": page_data["processed_count"],
             "bucket": normalized_bucket,
+            "sort": normalized_sort,
+            "date_from": normalized_date_from,
+            "date_to": normalized_date_to,
         }
 
     @app.get("/api/conversations")

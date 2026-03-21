@@ -285,6 +285,118 @@ class RepositoryAdminTests(unittest.TestCase):
         self.assertEqual(len(listed), 1)
         self.assertEqual(listed[0]["group_id"], "wrong_size")
 
+    def test_reviews_date_filter_and_sorting(self) -> None:
+        processed = ProcessedReview(
+            review_id="20",
+            normalized_text="ok",
+            sentiment_score=1,
+            sentiment_label="neutral",
+            is_spam=False,
+            is_toxic=False,
+            priority="medium",
+            tags=["sentiment:neutral"],
+            recommended_action="queue_for_manual_review",
+        )
+        self.repository.upsert_processed_review(
+            user_id=self.user_id,
+            source="wb",
+            account_id=None,
+            review=ReviewInput(review_id="ext-date-1", text="Отзыв 1", rating=5),
+            processed=processed,
+            category="positive_product",
+            processing_mode="manual",
+            status="queued_for_operator",
+        )
+        self.repository.upsert_processed_review(
+            user_id=self.user_id,
+            source="wb",
+            account_id=None,
+            review=ReviewInput(review_id="ext-date-2", text="Отзыв 2", rating=1),
+            processed=processed,
+            category="negative_delivery",
+            processing_mode="manual",
+            status="queued_for_operator",
+        )
+        self.repository.upsert_processed_review(
+            user_id=self.user_id,
+            source="wb",
+            account_id=None,
+            review=ReviewInput(review_id="ext-date-3", text="Отзыв 3", rating=3),
+            processed=processed,
+            category="neutral_other",
+            processing_mode="manual",
+            status="queued_for_operator",
+        )
+        with self.repository._connect() as conn:
+            conn.execute(
+                """
+                UPDATE review_items
+                SET updated_at = ?
+                WHERE user_id = ? AND external_review_id = ?
+                """,
+                ("2026-03-10T10:00:00+00:00", self.user_id, "ext-date-1"),
+            )
+            conn.execute(
+                """
+                UPDATE review_items
+                SET updated_at = ?
+                WHERE user_id = ? AND external_review_id = ?
+                """,
+                ("2026-03-11T10:00:00+00:00", self.user_id, "ext-date-2"),
+            )
+            conn.execute(
+                """
+                UPDATE review_items
+                SET updated_at = ?
+                WHERE user_id = ? AND external_review_id = ?
+                """,
+                ("2026-03-12T10:00:00+00:00", self.user_id, "ext-date-3"),
+            )
+
+        date_filtered = self.repository.list_reviews_paginated(
+            user_id=self.user_id,
+            date_from="2026-03-11",
+            date_to="2026-03-12",
+            sort="newest",
+            page=1,
+            page_size=10,
+        )
+        self.assertEqual(date_filtered["total"], 2)
+        self.assertEqual(date_filtered["items"][0]["external_review_id"], "ext-date-3")
+        self.assertEqual(date_filtered["items"][1]["external_review_id"], "ext-date-2")
+
+        by_oldest = self.repository.list_reviews_paginated(
+            user_id=self.user_id,
+            sort="oldest",
+            page=1,
+            page_size=10,
+        )
+        self.assertEqual(by_oldest["items"][0]["external_review_id"], "ext-date-1")
+
+        by_low_rating = self.repository.list_reviews_paginated(
+            user_id=self.user_id,
+            sort="rating_asc",
+            page=1,
+            page_size=10,
+        )
+        self.assertEqual(by_low_rating["items"][0]["external_review_id"], "ext-date-2")
+
+        by_high_rating = self.repository.list_reviews_paginated(
+            user_id=self.user_id,
+            sort="rating_desc",
+            page=1,
+            page_size=10,
+        )
+        self.assertEqual(by_high_rating["items"][0]["external_review_id"], "ext-date-1")
+
+        by_category = self.repository.list_reviews_paginated(
+            user_id=self.user_id,
+            sort="category",
+            page=1,
+            page_size=10,
+        )
+        self.assertEqual(by_category["items"][0]["category"], "negative_delivery")
+
 
 if __name__ == "__main__":
     unittest.main()

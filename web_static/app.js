@@ -11,6 +11,9 @@ const reviewsState = {
   page_size: 30,
   pages: 1,
   bucket: "new",
+  sort: "newest",
+  date_from: null,
+  date_to: null,
 };
 const templateGroupsState = {
   items: [],
@@ -147,6 +150,145 @@ function changeReviewsPage(delta) {
   const next = reviewsState.page + delta;
   if (next < 1 || next > reviewsState.pages) return;
   reviewsState.page = next;
+  loadReviews();
+}
+
+function dateToInputValue(dateValue) {
+  const y = String(dateValue.getFullYear());
+  const m = String(dateValue.getMonth() + 1).padStart(2, "0");
+  const d = String(dateValue.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function inputValueToRuDate(value) {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return "";
+  const year = value.slice(2, 4);
+  const month = value.slice(5, 7);
+  const day = value.slice(8, 10);
+  return `${day}.${month}.${year}`;
+}
+
+function updateReviewsDateFilterButton() {
+  const btn = document.getElementById("reviewsDateFilterBtn");
+  if (!btn) return;
+  const from = reviewsState.date_from;
+  const to = reviewsState.date_to;
+  if (from && to) {
+    btn.textContent = `${inputValueToRuDate(from)} - ${inputValueToRuDate(to)}`;
+    return;
+  }
+  if (from) {
+    btn.textContent = `С ${inputValueToRuDate(from)}`;
+    return;
+  }
+  if (to) {
+    btn.textContent = `До ${inputValueToRuDate(to)}`;
+    return;
+  }
+  btn.textContent = "Период: все даты";
+}
+
+function toggleReviewsDateFilterPanel(forceOpen) {
+  const panel = document.getElementById("reviewsDateFilterPanel");
+  if (!panel) return;
+  if (forceOpen === false) {
+    panel.classList.add("hidden");
+    return;
+  }
+  const shouldOpen = forceOpen === true ? true : panel.classList.contains("hidden");
+  panel.classList.toggle("hidden", !shouldOpen);
+  if (!shouldOpen) return;
+  const fromInput = document.getElementById("reviewsDateFrom");
+  const toInput = document.getElementById("reviewsDateTo");
+  if (fromInput) fromInput.value = reviewsState.date_from || "";
+  if (toInput) toInput.value = reviewsState.date_to || "";
+}
+
+function applyReviewsDateFilter() {
+  const fromInput = document.getElementById("reviewsDateFrom");
+  const toInput = document.getElementById("reviewsDateTo");
+  const from = String(fromInput?.value || "").trim();
+  const to = String(toInput?.value || "").trim();
+  if (from && to && from > to) {
+    alert("Дата начала не может быть позже даты окончания");
+    return;
+  }
+  reviewsState.date_from = from || null;
+  reviewsState.date_to = to || null;
+  reviewsState.page = 1;
+  updateReviewsDateFilterButton();
+  toggleReviewsDateFilterPanel(false);
+  loadReviews();
+}
+
+function clearReviewsDateFilter() {
+  reviewsState.date_from = null;
+  reviewsState.date_to = null;
+  const fromInput = document.getElementById("reviewsDateFrom");
+  const toInput = document.getElementById("reviewsDateTo");
+  if (fromInput) fromInput.value = "";
+  if (toInput) toInput.value = "";
+  reviewsState.page = 1;
+  updateReviewsDateFilterButton();
+  loadReviews();
+}
+
+function setReviewsDatePreset(preset) {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  let fromDate = null;
+  let toDate = new Date(today);
+
+  if (preset === "today") {
+    fromDate = new Date(today);
+  } else if (preset === "yesterday") {
+    fromDate = new Date(today);
+    fromDate.setDate(fromDate.getDate() - 1);
+    toDate = new Date(fromDate);
+  } else if (preset === "last_week") {
+    const currentDay = today.getDay();
+    const diffFromMonday = (currentDay + 6) % 7;
+    const currentWeekMonday = new Date(today);
+    currentWeekMonday.setDate(currentWeekMonday.getDate() - diffFromMonday);
+    fromDate = new Date(currentWeekMonday);
+    fromDate.setDate(fromDate.getDate() - 7);
+    toDate = new Date(currentWeekMonday);
+    toDate.setDate(toDate.getDate() - 1);
+  } else if (preset === "last_7_days") {
+    fromDate = new Date(today);
+    fromDate.setDate(fromDate.getDate() - 6);
+  } else if (preset === "last_30_days") {
+    fromDate = new Date(today);
+    fromDate.setDate(fromDate.getDate() - 29);
+  } else if (preset === "last_month") {
+    const currentMonthFirstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+    fromDate = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    toDate = new Date(currentMonthFirstDay);
+    toDate.setDate(0);
+  } else if (preset === "last_3_months") {
+    fromDate = new Date(today);
+    fromDate.setMonth(fromDate.getMonth() - 3);
+    fromDate.setDate(fromDate.getDate() + 1);
+  } else if (preset === "last_year") {
+    fromDate = new Date(today);
+    fromDate.setFullYear(fromDate.getFullYear() - 1);
+    fromDate.setDate(fromDate.getDate() + 1);
+  } else {
+    return;
+  }
+
+  const fromValue = fromDate ? dateToInputValue(fromDate) : "";
+  const toValue = toDate ? dateToInputValue(toDate) : "";
+  const fromInput = document.getElementById("reviewsDateFrom");
+  const toInput = document.getElementById("reviewsDateTo");
+  if (fromInput) fromInput.value = fromValue;
+  if (toInput) toInput.value = toValue;
+}
+
+function onReviewsSortChange() {
+  const sortValue = String(document.getElementById("reviewsSortFilter")?.value || "newest");
+  reviewsState.sort = sortValue;
+  reviewsState.page = 1;
   loadReviews();
 }
 
@@ -362,10 +504,15 @@ async function loadReviews() {
   const priority = document.getElementById("priorityFilter").value;
   const status = document.getElementById("statusFilter").value;
   const category = document.getElementById("categoryFilter").value;
+  const sort = String(document.getElementById("reviewsSortFilter")?.value || reviewsState.sort || "newest");
+  reviewsState.sort = sort;
   const query = new URLSearchParams();
   if (priority) query.set("priority", priority);
   if (status) query.set("status", status);
   if (category) query.set("category", category);
+  if (reviewsState.date_from) query.set("date_from", reviewsState.date_from);
+  if (reviewsState.date_to) query.set("date_to", reviewsState.date_to);
+  query.set("sort", reviewsState.sort);
   query.set("bucket", reviewsState.bucket);
   query.set("page", String(reviewsState.page));
   query.set("page_size", String(reviewsState.page_size));
@@ -412,6 +559,12 @@ async function loadReviews() {
 
   reviewsState.page = Number(data.page || 1);
   reviewsState.pages = Number(data.pages || 1);
+  reviewsState.sort = String(data.sort || reviewsState.sort || "newest");
+  reviewsState.date_from = data.date_from || reviewsState.date_from || null;
+  reviewsState.date_to = data.date_to || reviewsState.date_to || null;
+  const sortFilter = document.getElementById("reviewsSortFilter");
+  if (sortFilter) sortFilter.value = reviewsState.sort;
+  updateReviewsDateFilterButton();
   document.getElementById("reviewsPageInfo").textContent = `Страница ${reviewsState.page} из ${reviewsState.pages}`;
   document.getElementById("reviewsPrevPageBtn").disabled = reviewsState.page <= 1;
   document.getElementById("reviewsNextPageBtn").disabled = reviewsState.page >= reviewsState.pages;
@@ -937,6 +1090,12 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("adminClearReviewsBtn")?.classList.remove("hidden");
   }
   document.getElementById("reviewsPageSize").value = String(reviewsState.page_size);
+  const sortFilter = document.getElementById("reviewsSortFilter");
+  if (sortFilter) {
+    sortFilter.value = reviewsState.sort;
+    sortFilter.addEventListener("change", onReviewsSortChange);
+  }
+  updateReviewsDateFilterButton();
   onSourceMarketplaceChange();
   setPasswordFieldsVisible(false);
   document.getElementById("ruleCategory")?.addEventListener("change", syncRuleFormFromStore);

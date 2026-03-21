@@ -714,8 +714,19 @@ class ReviewAutomationService:
         priority: str | None = None,
         status: str | None = None,
         category: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        sort: str = "newest",
     ) -> list[dict[str, object]]:
-        return self.repository.list_reviews(user_id=user_id, priority=priority, status=status, category=category)
+        return self.repository.list_reviews(
+            user_id=user_id,
+            priority=priority,
+            status=status,
+            category=category,
+            date_from=date_from,
+            date_to=date_to,
+            sort=sort,
+        )
 
     def list_reviews_paginated(
         self,
@@ -724,6 +735,9 @@ class ReviewAutomationService:
         priority: str | None = None,
         status: str | None = None,
         category: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        sort: str = "newest",
         page: int = 1,
         page_size: int = 30,
         bucket: str = "all",
@@ -733,6 +747,9 @@ class ReviewAutomationService:
             priority=priority,
             status=status,
             category=category,
+            date_from=date_from,
+            date_to=date_to,
+            sort=sort,
             page=page,
             page_size=page_size,
             bucket=bucket,

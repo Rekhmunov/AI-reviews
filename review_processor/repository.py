@@ -948,6 +948,9 @@ class ReviewRepository:
         priority: str | None = None,
         status: str | None = None,
         category: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        sort: str = "newest",
         limit: int = 200,
     ) -> list[dict[str, Any]]:
         page_data = self.list_reviews_paginated(
@@ -955,6 +958,9 @@ class ReviewRepository:
             priority=priority,
             status=status,
             category=category,
+            date_from=date_from,
+            date_to=date_to,
+            sort=sort,
             page=1,
             page_size=limit,
             bucket="all",
@@ -968,6 +974,9 @@ class ReviewRepository:
         priority: str | None = None,
         status: str | None = None,
         category: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        sort: str = "newest",
         page: int = 1,
         page_size: int = 30,
         bucket: str = "all",
@@ -980,6 +989,12 @@ class ReviewRepository:
         if category:
             base_clauses.append("category = ?")
             base_params.append(category)
+        if date_from:
+            base_clauses.append("substr(updated_at, 1, 10) >= ?")
+            base_params.append(date_from)
+        if date_to:
+            base_clauses.append("substr(updated_at, 1, 10) <= ?")
+            base_params.append(date_to)
 
         view_clauses = list(base_clauses)
         view_params = list(base_params)
@@ -996,6 +1011,15 @@ class ReviewRepository:
 
         where_base = " AND ".join(base_clauses)
         where_view = " AND ".join(view_clauses)
+        sort_key = sort.strip().lower()
+        order_by_map = {
+            "newest": "updated_at DESC",
+            "oldest": "updated_at ASC",
+            "rating_asc": "COALESCE(rating, 0) ASC, updated_at DESC",
+            "rating_desc": "COALESCE(rating, 0) DESC, updated_at DESC",
+            "category": "category ASC, updated_at DESC",
+        }
+        order_by = order_by_map.get(sort_key, order_by_map["newest"])
 
         with self._connect() as conn:
             total_row = conn.execute(
@@ -1029,7 +1053,7 @@ class ReviewRepository:
                 SELECT *
                 FROM review_items
                 WHERE {where_view}
-                ORDER BY updated_at DESC
+                ORDER BY {order_by}
                 LIMIT ? OFFSET ?
                 """,
                 tuple([*view_params, safe_page_size, offset]),
