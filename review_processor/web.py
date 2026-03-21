@@ -212,6 +212,16 @@ class TemplateVariantCreateRequest(BaseModel):
     template_text: str = Field(min_length=1, max_length=4000)
 
 
+class ProcessingRuleItemRequest(BaseModel):
+    group_id: str = Field(min_length=2, max_length=100)
+    action_mode: str = Field(description="ai|template|manual|ignore")
+    auto_send: bool = False
+
+
+class ProcessingRulesApplyRequest(BaseModel):
+    rules: list[ProcessingRuleItemRequest] = Field(default_factory=list)
+
+
 ROLE_ADMIN = "admin"
 ROLE_USER = "user"
 ROLE_FEEDBACK_MANAGER = "feedback_manager"
@@ -699,6 +709,56 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
                 }
             )
         return {"items": items, "count": len(items)}
+
+    @app.get("/api/processing-rules")
+    def list_processing_rules(request: Request) -> dict[str, object]:
+        user = _require_settings_access(request)
+        user_id = int(user["id"])
+        _ensure_default_template_variants(user_id)
+        existing_rows = repository.list_processing_rules(user_id=user_id)
+        existing_map = {str(row.get("group_id") or ""): row for row in existing_rows}
+        items: list[dict[str, object]] = []
+        for group in TEMPLATE_GROUPS:
+            group_id = str(group.get("id") or "")
+            title = str(group.get("title") or group_id)
+            row = existing_map.get(group_id)
+            mode = str((row or {}).get("action_mode") or "manual")
+            if mode == "auto":
+                mode = "template"
+            if mode not in {"ai", "template", "manual", "ignore"}:
+                mode = "manual"
+            items.append(
+                {
+                    "group_id": group_id,
+                    "title": title,
+                    "action_mode": mode,
+                    "auto_send": bool((row or {}).get("auto_send")),
+                }
+            )
+        return {"items": items, "count": len(items)}
+
+    @app.put("/api/processing-rules/apply")
+    def apply_processing_rules(payload: ProcessingRulesApplyRequest, request: Request) -> dict[str, object]:
+        user = _require_settings_access(request)
+        user_id = int(user["id"])
+        normalized_rules: list[dict[str, object]] = []
+        for item in payload.rules:
+            group_id = item.group_id.strip()
+            if _template_group_by_id(group_id) is None:
+                raise HTTPException(status_code=400, detail=f"Неизвестная группа правил: {group_id}")
+            mode = item.action_mode.strip().lower()
+            if mode not in {"ai", "template", "manual", "ignore"}:
+                raise HTTPException(status_code=400, detail=f"Некорректный режим правила: {mode}")
+            normalized_rules.append(
+                {
+                    "group_id": group_id,
+                    "action_mode": mode,
+                    "auto_send": bool(item.auto_send),
+                }
+            )
+        repository.replace_processing_rules(user_id=user_id, rules=normalized_rules)
+        stats = service.apply_processing_rules_to_unprocessed(user_id=user_id)
+        return {"ok": True, "applied": len(normalized_rules), "updated_reviews": stats}
 
     @app.get("/api/template-subgroup")
     def get_template_subgroup(group_id: str, subgroup: str, request: Request) -> dict[str, object]:

@@ -188,32 +188,15 @@
 
         <div id="settings-pane-rules" class="hidden">
           <div class="panel">
-            <h4>Правила обработки по категориям</h4>
-            <p class="small">Выберите категорию и режим: авто / вручную / игнор.</p>
+            <h4>По умолчанию</h4>
             <div class="row">
-              <select id="ruleCategory">
-                <option value="negative_delivery">Негатив: доставка</option>
-                <option value="negative_product">Негатив: товар</option>
-                <option value="negative_other">Негатив: прочее</option>
-                <option value="positive_quality">Позитив: качество</option>
-                <option value="positive_product">Позитив: товар</option>
-                <option value="neutral_other">Нейтральный: прочее</option>
-              </select>
-              <select id="ruleMode">
-                <option value="auto">авто</option>
-                <option value="manual">вручную</option>
-                <option value="ignore">игнор</option>
-              </select>
-              <button onclick="saveRuleOnly()">Сохранить правило</button>
-              <span id="rulesInfo" class="small"></span>
+              <label><input id="advancedRulesToggle" class="small-check" type="checkbox" /> Продвинутая настройка</label>
             </div>
-          </div>
-          <div class="panel">
-            <h4>Текущие правила</h4>
-            <table>
-              <thead><tr><th>Категория</th><th>Режим</th><th>Включено</th><th>Удалить</th></tr></thead>
-              <tbody id="rulesTbody"></tbody>
-            </table>
+            <div id="processingRulesContainer" class="processing-rules-grid"></div>
+            <div class="row row-between mt-10">
+              <span id="processingRulesInfo" class="small"></span>
+              <button id="processingRulesApplyBtn" onclick="applyProcessingRules()">Применить</button>
+            </div>
           </div>
         </div>
 

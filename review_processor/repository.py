@@ -122,6 +122,20 @@ class ReviewRepository:
             )
             conn.execute(
                 """
+                CREATE TABLE IF NOT EXISTS processing_rules (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    group_id TEXT NOT NULL,
+                    action_mode TEXT NOT NULL,
+                    auto_send INTEGER NOT NULL DEFAULT 0,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(user_id, group_id),
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                )
+                """
+            )
+            conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS review_items (
                     review_uid TEXT PRIMARY KEY,
                     user_id INTEGER NOT NULL,
@@ -205,6 +219,12 @@ class ReviewRepository:
                 """
                 CREATE INDEX IF NOT EXISTS idx_template_variants_user_group_sub
                 ON response_template_variants(user_id, group_id, subgroup, is_active)
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_processing_rules_user_group
+                ON processing_rules(user_id, group_id)
                 """
             )
             self._migrate_schema(conn)
@@ -297,6 +317,8 @@ class ReviewRepository:
             data["is_enabled"] = bool(data["is_enabled"])
         if "use_sync_start_date" in data:
             data["use_sync_start_date"] = bool(data["use_sync_start_date"])
+        if "auto_send" in data:
+            data["auto_send"] = bool(data["auto_send"])
         if "tags_json" in data:
             data["tags"] = json.loads(data.pop("tags_json"))
         if "metadata_json" in data:
@@ -761,6 +783,71 @@ class ReviewRepository:
             return None
         return self._row_to_dict(row)
 
+    def upsert_processing_rule(
+        self,
+        *,
+        user_id: int,
+        group_id: str,
+        action_mode: str,
+        auto_send: bool,
+    ) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO processing_rules (user_id, group_id, action_mode, auto_send, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(user_id, group_id) DO UPDATE SET
+                    action_mode = excluded.action_mode,
+                    auto_send = excluded.auto_send,
+                    updated_at = excluded.updated_at
+                """,
+                (user_id, group_id, action_mode, int(auto_send), _utc_now()),
+            )
+
+    def list_processing_rules(self, *, user_id: int) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM processing_rules
+                WHERE user_id = ?
+                ORDER BY group_id ASC
+                """,
+                (user_id,),
+            ).fetchall()
+        return [self._row_to_dict(row) for row in rows]
+
+    def get_processing_rule(self, *, user_id: int, group_id: str) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM processing_rules
+                WHERE user_id = ? AND group_id = ?
+                """,
+                (user_id, group_id),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_dict(row)
+
+    def replace_processing_rules(self, *, user_id: int, rules: list[dict[str, Any]]) -> None:
+        now = _utc_now()
+        with self._connect() as conn:
+            conn.execute("DELETE FROM processing_rules WHERE user_id = ?", (user_id,))
+            for item in rules:
+                conn.execute(
+                    """
+                    INSERT INTO processing_rules (user_id, group_id, action_mode, auto_send, updated_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        user_id,
+                        str(item.get("group_id") or ""),
+                        str(item.get("action_mode") or "manual"),
+                        int(bool(item.get("auto_send"))),
+                        now,
+                    ),
+                )
+
     @staticmethod
     def make_review_uid(user_id: int, source: str, account_id: int | None, external_review_id: str) -> str:
         account_part = str(account_id) if account_id is not None else "na"
@@ -962,6 +1049,39 @@ class ReviewRepository:
         with self._connect() as conn:
             result = conn.execute("DELETE FROM review_items WHERE user_id = ?", (user_id,))
         return int(result.rowcount or 0)
+
+    def list_unprocessed_reviews(self, *, user_id: int, limit: int = 5000) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT *
+                FROM review_items
+                WHERE user_id = ? AND status NOT IN ('answered_auto', 'answered_manual')
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (user_id, limit),
+            ).fetchall()
+        return [self._row_to_dict(row) for row in rows]
+
+    def update_review_processing_result(
+        self,
+        *,
+        user_id: int,
+        review_uid: str,
+        status: str,
+        auto_reply: str | None = None,
+    ) -> bool:
+        with self._connect() as conn:
+            result = conn.execute(
+                """
+                UPDATE review_items
+                SET status = ?, auto_reply = ?, updated_at = ?
+                WHERE user_id = ? AND review_uid = ?
+                """,
+                (status, auto_reply, _utc_now(), user_id, review_uid),
+            )
+        return result.rowcount > 0
 
     def upsert_conversation(
         self,

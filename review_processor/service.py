@@ -475,12 +475,18 @@ class ReviewAutomationService:
             processed = self.processor.process(review)
             category = self._classify_category(review, processed, settings=settings)
             template = self.repository.get_template(user_id=user_id, category=category)
-            mode, template_text = self._resolve_processing_mode(processed, template)
+            group_id = self._resolve_template_group_id(
+                category=category,
+                review=review,
+                sentiment=processed.sentiment_label,
+            )
+            rule = self.repository.get_processing_rule(user_id=user_id, group_id=group_id) if group_id else None
+            mode, auto_send, template_text = self._resolve_processing_mode(processed, template, rule)
 
             if mode == "ignore":
                 status = "ignored"
                 auto_reply = None
-            elif mode == "auto":
+            elif mode in {"auto", "ai"} and auto_send:
                 status = "answered_auto"
                 group_template = self._pick_group_template_text(
                     user_id=user_id,
@@ -523,7 +529,14 @@ class ReviewAutomationService:
                 review_uid=review_uid,
                 action_type="sync_review",
                 actor="system",
-                details={"category": category, "status": status, "source": source},
+                details={
+                    "category": category,
+                    "group_id": group_id,
+                    "status": status,
+                    "action_mode": mode,
+                    "auto_send": auto_send,
+                    "source": source,
+                },
             )
         return len(reviews)
 
@@ -724,6 +737,90 @@ class ReviewAutomationService:
             page_size=page_size,
             bucket=bucket,
         )
+
+    def apply_processing_rules_to_unprocessed(self, *, user_id: int) -> dict[str, int]:
+        rows = self.repository.list_unprocessed_reviews(user_id=user_id)
+        updated = 0
+        auto_sent = 0
+        queued = 0
+        ignored = 0
+        for row in rows:
+            review_uid = str(row.get("review_uid") or "")
+            if not review_uid:
+                continue
+            category = str(row.get("category") or "")
+            sentiment = str(row.get("sentiment_label") or "")
+            review = ReviewInput(
+                review_id=str(row.get("external_review_id") or ""),
+                text=str(row.get("text") or ""),
+                author=str(row.get("author")) if row.get("author") else None,
+                rating=int(row["rating"]) if row.get("rating") is not None else None,
+            )
+            group_id = self._resolve_template_group_id(
+                category=category,
+                review=review,
+                sentiment=sentiment,
+            )
+            rule = self.repository.get_processing_rule(user_id=user_id, group_id=group_id) if group_id else None
+            mode = str(rule.get("action_mode") or "manual") if rule else "manual"
+            auto_send = bool(rule.get("auto_send")) if rule else False
+
+            if mode == "ignore":
+                if self.repository.update_review_processing_result(
+                    user_id=user_id,
+                    review_uid=review_uid,
+                    status="ignored",
+                    auto_reply=None,
+                ):
+                    ignored += 1
+                    updated += 1
+                continue
+
+            if mode in {"auto", "template", "ai"} and auto_send:
+                group_template = self._pick_group_template_text(
+                    user_id=user_id,
+                    category=category,
+                    review=review,
+                    sentiment=sentiment,
+                )
+                fallback = self._build_auto_reply(
+                    {
+                        "sentiment_label": sentiment,
+                        "priority": str(row.get("priority") or ""),
+                        "is_spam": bool(row.get("is_spam")),
+                    }
+                )
+                reply = self._render_template(
+                    group_template or fallback,
+                    review=review,
+                    category=category,
+                    sentiment=sentiment,
+                )
+                if self.repository.update_review_processing_result(
+                    user_id=user_id,
+                    review_uid=review_uid,
+                    status="answered_auto",
+                    auto_reply=reply,
+                ):
+                    auto_sent += 1
+                    updated += 1
+                continue
+
+            if self.repository.update_review_processing_result(
+                user_id=user_id,
+                review_uid=review_uid,
+                status="queued_for_operator",
+                auto_reply=None,
+            ):
+                queued += 1
+                updated += 1
+
+        return {
+            "updated": updated,
+            "auto_sent": auto_sent,
+            "queued": queued,
+            "ignored": ignored,
+        }
 
     def queue_for_manual_processing(self, *, user_id: int, review_uid: str) -> bool:
         updated = self.repository.mark_manual_queue(user_id=user_id, review_uid=review_uid)
@@ -929,15 +1026,25 @@ class ReviewAutomationService:
         return self._normalize_category(text)
 
     @staticmethod
-    def _resolve_processing_mode(processed: object, template: dict[str, object] | None) -> tuple[str, str]:
+    def _resolve_processing_mode(
+        processed: object,
+        template: dict[str, object] | None,
+        rule: dict[str, object] | None,
+    ) -> tuple[str, bool, str]:
+        if rule:
+            mode = str(rule.get("action_mode") or "manual").strip().lower()
+            auto_send = bool(rule.get("auto_send"))
+            if mode in {"ai", "auto", "template", "manual", "ignore"}:
+                normalized_mode = "auto" if mode == "template" else mode
+                return normalized_mode, auto_send, ""
         if template:
             mode = str(template.get("mode") or "manual")
             text = str(template.get("template_text") or "")
             is_enabled = bool(template.get("is_enabled"))
             if is_enabled and mode in {"auto", "manual", "ignore"}:
-                return mode, text
+                return mode, mode == "auto", text
         # По умолчанию система не выполняет автообработку, пока правило не включено.
-        return "manual", ""
+        return "manual", False, ""
 
     @staticmethod
     def _render_template(template: str, *, review: ReviewInput, category: str, sentiment: str) -> str:

@@ -19,6 +19,9 @@ const templateGroupsState = {
   currentSubgroup: "",
   currentTemplates: [],
 };
+const processingRulesState = {
+  items: [],
+};
 let syncInProgress = false;
 
 const categoryLabels = {
@@ -175,6 +178,100 @@ function syncRuleFormFromStore() {
   const tpl = templateStore[category];
   if (tpl && tpl.mode) {
     document.getElementById("ruleMode").value = tpl.mode;
+  }
+}
+
+async function loadProcessingRules() {
+  const res = await fetch("/api/processing-rules");
+  const data = await res.json();
+  const info = document.getElementById("processingRulesInfo");
+  if (!res.ok) {
+    if (info) info.textContent = "Ошибка: " + (data.detail || "не удалось загрузить правила");
+    return;
+  }
+  processingRulesState.items = (data.items || []).map((item) => ({
+    group_id: String(item.group_id || ""),
+    title: String(item.title || item.group_id || ""),
+    action_mode: String(item.action_mode || "manual"),
+    auto_send: Boolean(item.auto_send),
+  }));
+  renderProcessingRules();
+}
+
+function renderProcessingRules() {
+  const container = document.getElementById("processingRulesContainer");
+  if (!container) return;
+  container.innerHTML = "";
+  for (const item of processingRulesState.items) {
+    const card = document.createElement("div");
+    card.className = "processing-rule-card";
+    card.innerHTML = `
+      <div class="processing-rule-title">${esc(item.title)}</div>
+      <select class="processing-rule-select" data-group-id="${esc(item.group_id)}" onchange="onRuleModeChange(this)">
+        <option value="ai" ${item.action_mode === "ai" ? "selected" : ""}>Искусственный интеллект</option>
+        <option value="template" ${item.action_mode === "template" ? "selected" : ""}>Ответ по шаблону</option>
+        <option value="manual" ${item.action_mode === "manual" ? "selected" : ""}>Ручной ответ</option>
+        <option value="ignore" ${item.action_mode === "ignore" ? "selected" : ""}>Игнорировать</option>
+      </select>
+      <div class="row processing-rule-toggle-row">
+        <span>Автоотправка</span>
+        <label class="switch">
+          <input type="checkbox" data-group-id="${esc(item.group_id)}" ${item.auto_send ? "checked" : ""} onchange="onRuleAutoSendChange(this)" />
+          <span class="slider"></span>
+        </label>
+      </div>
+    `;
+    container.appendChild(card);
+  }
+}
+
+function onRuleModeChange(selectElement) {
+  const groupId = selectElement.getAttribute("data-group-id") || "";
+  const mode = String(selectElement.value || "manual");
+  const item = processingRulesState.items.find((rule) => rule.group_id === groupId);
+  if (!item) return;
+  item.action_mode = mode;
+}
+
+function onRuleAutoSendChange(inputElement) {
+  const groupId = inputElement.getAttribute("data-group-id") || "";
+  const item = processingRulesState.items.find((rule) => rule.group_id === groupId);
+  if (!item) return;
+  item.auto_send = Boolean(inputElement.checked);
+}
+
+async function applyProcessingRules() {
+  const info = document.getElementById("processingRulesInfo");
+  const applyBtn = document.getElementById("processingRulesApplyBtn");
+  const confirmed = confirm("Вы точно хотите применить эти настройки?");
+  if (!confirmed) return;
+  if (applyBtn) applyBtn.disabled = true;
+  if (info) info.textContent = "Применяем правила...";
+  const payload = {
+    rules: processingRulesState.items.map((item) => ({
+      group_id: item.group_id,
+      action_mode: item.action_mode,
+      auto_send: Boolean(item.auto_send),
+    })),
+  };
+  try {
+    const res = await fetch("/api/processing-rules/apply", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      if (info) info.textContent = "Ошибка: " + (data.detail || "не удалось применить правила");
+      return;
+    }
+    const stats = data.updated_reviews || {};
+    if (info) {
+      info.textContent = `Настройки применены. Обновлено отзывов: ${stats.updated || 0}, авто: ${stats.auto_sent || 0}, вручную: ${stats.queued || 0}, игнор: ${stats.ignored || 0}.`;
+    }
+    await loadReviews();
+  } finally {
+    if (applyBtn) applyBtn.disabled = false;
   }
 }
 
@@ -851,6 +948,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   if (permissions.can_view_settings) {
     loadAccounts();
+    loadProcessingRules();
     loadTemplates();
   }
 });

@@ -768,6 +768,35 @@ tbody tr:hover {
   width: 100%;
 }
 
+.processing-rules-grid {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.processing-rule-card {
+  border: 1px solid rgba(147, 197, 253, 0.42);
+  border-radius: 14px;
+  padding: 12px;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.9), rgba(240, 247, 255, 0.82));
+  display: grid;
+  gap: 10px;
+}
+
+.processing-rule-title {
+  font-weight: 700;
+  font-size: 18px;
+}
+
+.processing-rule-select {
+  width: 100%;
+}
+
+.processing-rule-toggle-row {
+  justify-content: space-between;
+}
+
 @media (max-width: 900px) {
   .layout {
     grid-template-columns: 1fr;

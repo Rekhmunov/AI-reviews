@@ -251,6 +251,40 @@ class RepositoryAdminTests(unittest.TestCase):
         deleted_reviews = self.repository.clear_reviews(user_id=self.user_id)
         self.assertEqual(deleted_reviews, 2)
 
+    def test_processing_rules_and_template_variants(self) -> None:
+        created = self.repository.add_template_variant(
+            user_id=self.user_id,
+            group_id="positive",
+            subgroup="Вкус",
+            template_text="Шаблон 1",
+        )
+        self.assertEqual(created["group_id"], "positive")
+        variants = self.repository.list_template_variants(user_id=self.user_id, group_id="positive", subgroup="Вкус")
+        self.assertGreaterEqual(len(variants), 1)
+
+        random_tpl = self.repository.get_random_template_variant(user_id=self.user_id, group_id="positive")
+        self.assertIsNotNone(random_tpl)
+
+        self.repository.upsert_processing_rule(
+            user_id=self.user_id,
+            group_id="positive",
+            action_mode="template",
+            auto_send=True,
+        )
+        rule = self.repository.get_processing_rule(user_id=self.user_id, group_id="positive")
+        self.assertIsNotNone(rule)
+        assert rule is not None
+        self.assertEqual(rule["action_mode"], "template")
+        self.assertTrue(rule["auto_send"])
+
+        self.repository.replace_processing_rules(
+            user_id=self.user_id,
+            rules=[{"group_id": "wrong_size", "action_mode": "manual", "auto_send": False}],
+        )
+        listed = self.repository.list_processing_rules(user_id=self.user_id)
+        self.assertEqual(len(listed), 1)
+        self.assertEqual(listed[0]["group_id"], "wrong_size")
+
 
 if __name__ == "__main__":
     unittest.main()
