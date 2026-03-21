@@ -12,13 +12,13 @@ class _StubClient:
         return [
             ReviewInput(
                 review_id="ext-1",
-                text="Отличный сервис, все супер",
+                text="Отличный товар, хорошее качество",
                 author="Client A",
                 rating=5,
             ),
             ReviewInput(
                 review_id="ext-2",
-                text="Ужасно, не работает оплата",
+                text="Ужасно, задержали доставку и курьер опоздал",
                 author="Client B",
                 rating=1,
             ),
@@ -33,40 +33,83 @@ class ReviewAutomationServiceTests(unittest.TestCase):
         self.addCleanup(lambda: os.path.exists(self.db_path) and os.unlink(self.db_path))
         self.repository = ReviewRepository(db_path=self.db_path)
         self.service = ReviewAutomationService(repository=self.repository)
+        self.user = self.repository.create_user(email="owner@example.com", password_hash="hash", role="admin")
 
     def test_sync_and_list_reviews(self) -> None:
-        loaded = self.service.sync_reviews(source="test-market", client=_StubClient())
+        loaded = self.service.sync_reviews(
+            user_id=int(self.user["id"]),
+            source="test-market",
+            account_id=None,
+            client=_StubClient(),
+        )
         self.assertEqual(loaded, 2)
 
-        reviews = self.service.list_reviews()
+        reviews = self.service.list_reviews(user_id=int(self.user["id"]))
         self.assertEqual(len(reviews), 2)
-        review_ids = {row["review_id"] for row in reviews}
-        self.assertEqual(review_ids, {"ext-1", "ext-2"})
+        categories = {row["category"] for row in reviews}
+        self.assertIn("negative_delivery", categories)
+        self.assertIn("positive_product", categories)
 
     def test_queue_manual_and_manual_reply(self) -> None:
-        self.service.sync_reviews(source="test-market", client=_StubClient())
+        self.service.sync_reviews(
+            user_id=int(self.user["id"]),
+            source="test-market",
+            account_id=None,
+            client=_StubClient(),
+        )
+        review = self.repository.list_reviews(user_id=int(self.user["id"]), category="negative_delivery", limit=1)[0]
 
-        queued = self.service.queue_for_manual_processing("ext-2")
+        queued = self.service.queue_for_manual_processing(user_id=int(self.user["id"]), review_uid=review["review_uid"])
         self.assertTrue(queued)
 
-        updated = self.service.save_manual_reply("ext-2", "operator-1", "Проблему решили, проверьте заказ.")
+        updated = self.service.save_manual_reply(
+            user_id=int(self.user["id"]),
+            review_uid=review["review_uid"],
+            operator_name="operator-1",
+            response_text="Проблему решили, проверьте заказ.",
+        )
         self.assertTrue(updated)
 
-        review = self.repository.get_review("ext-2")
-        self.assertIsNotNone(review)
-        self.assertEqual(review["status"], "answered_manual")
-        self.assertEqual(review["operator_name"], "operator-1")
+        updated_review = self.repository.get_review(user_id=int(self.user["id"]), review_uid=review["review_uid"])
+        self.assertIsNotNone(updated_review)
+        self.assertEqual(updated_review["status"], "answered_manual")
+        self.assertEqual(updated_review["operator_name"], "operator-1")
 
     def test_auto_reply_marks_review(self) -> None:
-        self.service.sync_reviews(source="test-market", client=_StubClient())
+        self.repository.upsert_template(
+            user_id=int(self.user["id"]),
+            category="positive_product",
+            mode="auto",
+            template_text="Спасибо, {author}! Рады, что товар понравился.",
+        )
+        self.service.sync_reviews(
+            user_id=int(self.user["id"]),
+            source="test-market",
+            account_id=None,
+            client=_StubClient(),
+        )
+        positive = self.repository.list_reviews(user_id=int(self.user["id"]), category="positive_product", limit=1)[0]
+        self.assertEqual(positive["status"], "answered_auto")
+        self.assertIn("Спасибо", positive["auto_reply"] or "")
 
-        reply = self.service.generate_auto_reply("ext-1")
+        reply = self.service.generate_auto_reply(user_id=int(self.user["id"]), review_uid=positive["review_uid"])
         self.assertIn("Спасибо", reply)
 
-        review = self.repository.get_review("ext-1")
-        self.assertIsNotNone(review)
-        self.assertEqual(review["status"], "answered_auto")
-        self.assertEqual(review["auto_reply"], reply)
+    def test_manual_template_routes_negative_to_operator(self) -> None:
+        self.repository.upsert_template(
+            user_id=int(self.user["id"]),
+            category="negative_delivery",
+            mode="manual",
+            template_text="",
+        )
+        self.service.sync_reviews(
+            user_id=int(self.user["id"]),
+            source="test-market",
+            account_id=None,
+            client=_StubClient(),
+        )
+        negative = self.repository.list_reviews(user_id=int(self.user["id"]), category="negative_delivery", limit=1)[0]
+        self.assertEqual(negative["status"], "queued_for_operator")
 
 
 if __name__ == "__main__":
