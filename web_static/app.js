@@ -6,6 +6,49 @@ function esc(value) {
 }
 
 const templateStore = {};
+const categoryLabels = {
+  negative_delivery: "Негатив: доставка",
+  negative_product: "Негатив: товар",
+  negative_other: "Негатив: прочее",
+  positive_quality: "Позитив: качество",
+  positive_product: "Позитив: товар",
+  neutral_other: "Нейтральный: прочее",
+};
+const priorityLabels = {
+  high: "Высокий",
+  medium: "Средний",
+  low: "Низкий",
+};
+const reviewStatusLabels = {
+  queued_for_operator: "Ждет обработки",
+  answered_auto: "Обработан автоматически",
+  answered_manual: "Обработан оператором",
+  ignored: "Игнор",
+};
+const conversationKindLabels = {
+  question: "Вопрос",
+  chat: "Чат",
+};
+const conversationStatusLabels = {
+  open: "Открыт",
+  waiting: "Ожидает",
+  closed: "Закрыт",
+};
+const modeLabels = {
+  auto: "Авто",
+  manual: "Вручную",
+  ignore: "Игнор",
+};
+const marketplaceLabels = {
+  wb: "WB",
+  ozon: "OZON",
+  mock: "Тестовый",
+};
+
+function labelFromMap(map, value) {
+  const key = String(value || "");
+  return map[key] || key || "-";
+}
 
 function getPermissions() {
   const defaults = { can_view_analytics: true, can_view_settings: true };
@@ -108,7 +151,7 @@ async function syncAll() {
   });
   const data = await res.json();
   if (!res.ok) {
-    document.getElementById("syncInfo").textContent = "Ошибка: " + (data.detail || "sync failed");
+    document.getElementById("syncInfo").textContent = "Ошибка: " + (data.detail || "синхронизация не выполнена");
     return;
   }
   const failed = data.failed_accounts || 0;
@@ -139,17 +182,17 @@ async function loadReviews() {
       <td>${esc(review.source)}</td>
       <td>
         <div>${esc(review.text)}</div>
-        <div class="small">author: ${esc(review.author || "-")} | rating: ${esc(review.rating ?? "-")} | category: ${esc(review.category)}</div>
+        <div class="small">автор: ${esc(review.author || "-")} | оценка: ${esc(review.rating ?? "-")} | категория: ${esc(labelFromMap(categoryLabels, review.category))}</div>
       </td>
       <td>
-        <div class="small">auto: ${esc(review.auto_reply || "-")}</div>
-        <div class="small">manual: ${esc(review.manual_reply || "-")}</div>
+        <div class="small">автоответ: ${esc(review.auto_reply || "-")}</div>
+        <div class="small">ответ оператора: ${esc(review.manual_reply || "-")}</div>
       </td>
-      <td><span class="pill ${esc(review.priority)}">${esc(review.priority)}</span></td>
-      <td>${esc(review.status)}</td>
+      <td><span class="pill ${esc(review.priority)}">${esc(labelFromMap(priorityLabels, review.priority))}</span></td>
+      <td>${esc(labelFromMap(reviewStatusLabels, review.status))}</td>
       <td>
         <button onclick="autoReply('${esc(review.review_uid)}')">Автоответ</button>
-        <button class="secondary" onclick="queueManual('${esc(review.review_uid)}')">В ручную</button>
+        <button class="secondary" onclick="queueManual('${esc(review.review_uid)}')">Вручную</button>
         <button class="secondary" onclick="manualReply('${esc(review.review_uid)}')">Ответ оператора</button>
       </td>
     `;
@@ -170,12 +213,12 @@ async function loadConversations() {
   for (const item of data.items || []) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td>${esc(item.kind)}</td>
+      <td>${esc(labelFromMap(conversationKindLabels, item.kind))}</td>
       <td>${esc(item.source)}</td>
       <td>${esc(item.customer_name || "-")}</td>
       <td>${esc(item.message_text || "-")}</td>
       <td>${esc(item.unread_count ?? 0)}</td>
-      <td>${esc(item.status)}</td>
+      <td>${esc(labelFromMap(conversationStatusLabels, item.status))}</td>
       <td>
         <button class="secondary" onclick="setConversationStatus('${esc(item.conversation_uid)}', 'waiting')">В ожидании</button>
         <button class="secondary" onclick="setConversationStatus('${esc(item.conversation_uid)}', 'closed')">Закрыть</button>
@@ -226,12 +269,12 @@ async function loadAccounts() {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${esc(account.id)}</td>
-      <td>${esc(account.marketplace)}</td>
+      <td>${esc(labelFromMap(marketplaceLabels, account.marketplace))}</td>
       <td>${esc(account.account_name)}</td>
       <td>${esc(account.api_url)}</td>
       <td>${esc((account.extra || {}).client_id || "-")}</td>
       <td>${esc(account.api_key_preview || "-")}</td>
-      <td>${esc(account.is_active ? "yes" : "no")}</td>
+      <td>${esc(account.is_active ? "Да" : "Нет")}</td>
       <td>
         <button class="secondary" onclick="toggleAccount(${account.id}, ${account.is_active ? "false" : "true"})">
           ${account.is_active ? "Отключить" : "Включить"}
@@ -253,11 +296,11 @@ async function createAccount() {
     return;
   }
   if (!apiToken) {
-    document.getElementById("accountsInfo").textContent = "Ошибка: укажите токен API";
+    document.getElementById("accountsInfo").textContent = "Ошибка: укажите токен доступа";
     return;
   }
   if (marketplace === "ozon" && !clientId) {
-    document.getElementById("accountsInfo").textContent = "Ошибка: укажите Client ID для OZON";
+    document.getElementById("accountsInfo").textContent = "Ошибка: укажите идентификатор клиента для OZON";
     return;
   }
 
@@ -275,7 +318,7 @@ async function createAccount() {
   });
   const data = await res.json();
   if (!res.ok) {
-    document.getElementById("accountsInfo").textContent = "Ошибка: " + (data.detail || "save failed");
+    document.getElementById("accountsInfo").textContent = "Ошибка: " + (data.detail || "не удалось сохранить");
     return;
   }
   document.getElementById("accountsInfo").textContent = "Кабинет добавлен.";
@@ -310,12 +353,12 @@ async function loadTemplates() {
     templateStore[tpl.category] = tpl;
 
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${esc(tpl.category)}</td><td>${esc(tpl.mode)}</td><td>${esc(tpl.template_text)}</td>`;
+    tr.innerHTML = `<td>${esc(labelFromMap(categoryLabels, tpl.category))}</td><td>${esc(labelFromMap(modeLabels, tpl.mode))}</td><td>${esc(tpl.template_text)}</td>`;
     tbody.appendChild(tr);
 
     if (rulesBody) {
       const row = document.createElement("tr");
-      row.innerHTML = `<td>${esc(tpl.category)}</td><td>${esc(tpl.mode)}</td>`;
+      row.innerHTML = `<td>${esc(labelFromMap(categoryLabels, tpl.category))}</td><td>${esc(labelFromMap(modeLabels, tpl.mode))}</td>`;
       rulesBody.appendChild(row);
     }
   }
@@ -340,7 +383,7 @@ async function saveRuleOnly() {
   });
   const data = await res.json();
   if (!res.ok) {
-    document.getElementById("rulesInfo").textContent = "Ошибка: " + (data.detail || "save failed");
+    document.getElementById("rulesInfo").textContent = "Ошибка: " + (data.detail || "не удалось сохранить");
     return;
   }
   document.getElementById("rulesInfo").textContent = "Правило сохранено.";
@@ -362,7 +405,7 @@ async function saveTemplateText() {
   });
   const data = await res.json();
   if (!res.ok) {
-    document.getElementById("templatesInfo").textContent = "Ошибка: " + (data.detail || "save failed");
+    document.getElementById("templatesInfo").textContent = "Ошибка: " + (data.detail || "не удалось сохранить");
     return;
   }
   document.getElementById("templatesInfo").textContent = "Шаблон сохранен.";
@@ -458,7 +501,7 @@ async function saveProfile() {
   });
   const data = await res.json();
   if (!res.ok) {
-    document.getElementById("profileInfo").textContent = "Ошибка: " + (data.detail || "update failed");
+    document.getElementById("profileInfo").textContent = "Ошибка: " + (data.detail || "не удалось обновить профиль");
     return;
   }
   document.getElementById("profileInfo").textContent = "Изменения сохранены";

@@ -771,12 +771,32 @@ class ReviewAutomationService:
     @staticmethod
     def _render_template(template: str, *, review: ReviewInput, category: str, sentiment: str) -> str:
         text = template or "Спасибо за отзыв!"
+        author = review.author or "клиент"
+        rating = review.rating if review.rating is not None else "без оценки"
+        category_ru = {
+            "negative_delivery": "Негатив: доставка",
+            "negative_product": "Негатив: товар",
+            "negative_other": "Негатив: прочее",
+            "positive_quality": "Позитив: качество",
+            "positive_product": "Позитив: товар",
+            "neutral_other": "Нейтральный: прочее",
+        }.get(category, category)
+        sentiment_ru = {
+            "negative": "негативная",
+            "positive": "позитивная",
+            "neutral": "нейтральная",
+        }.get(sentiment, sentiment)
         context = {
-            "author": review.author or "клиент",
-            "rating": review.rating if review.rating is not None else "без оценки",
+            "author": author,
+            "автор": author,
+            "rating": rating,
+            "оценка": rating,
             "category": category,
+            "категория": category_ru,
             "sentiment": sentiment,
+            "тональность": sentiment_ru,
             "review_id": review.review_id,
+            "идентификатор_отзыва": review.review_id,
         }
         for key, value in context.items():
             text = text.replace(f"{{{key}}}", str(value))

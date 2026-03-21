@@ -11,7 +11,7 @@
     <aside class="sidebar">
       <div class="sidebar-main">
         <div class="brand">REVO</div>
-        <div class="meta">user: {{SAFE_EMAIL}}<br/>role: {{SAFE_ROLE}}</div>
+        <div class="meta">пользователь: {{SAFE_EMAIL}}<br/>роль: {{SAFE_ROLE}}</div>
         <a id="nav-reviews" class="navbtn active" href="#" onclick="showSection('reviews')">1) Отзывы</a>
         <a id="nav-conversations" class="navbtn" href="#" onclick="showSection('conversations')">2) Вопросы и чаты</a>
         {{NAV_ANALYTICS}}
@@ -35,26 +35,26 @@
         <div class="panel">
           <div class="row">
             <select id="priorityFilter">
-              <option value="">priority: all</option>
-              <option value="high">high</option>
-              <option value="medium">medium</option>
-              <option value="low">low</option>
+              <option value="">приоритет: все</option>
+              <option value="high">высокий</option>
+              <option value="medium">средний</option>
+              <option value="low">низкий</option>
             </select>
             <select id="statusFilter">
-              <option value="">status: all</option>
+              <option value="">статус: все</option>
               <option value="queued_for_operator">Ждут обработки</option>
               <option value="answered_auto">Обработаны авто</option>
               <option value="answered_manual">Обработаны оператором</option>
               <option value="ignored">Игнор</option>
             </select>
             <select id="categoryFilter">
-              <option value="">category: all</option>
-              <option value="negative_delivery">negative_delivery</option>
-              <option value="negative_product">negative_product</option>
-              <option value="negative_other">negative_other</option>
-              <option value="positive_quality">positive_quality</option>
-              <option value="positive_product">positive_product</option>
-              <option value="neutral_other">neutral_other</option>
+              <option value="">категория: все</option>
+              <option value="negative_delivery">Негатив: доставка</option>
+              <option value="negative_product">Негатив: товар</option>
+              <option value="negative_other">Негатив: прочее</option>
+              <option value="positive_quality">Позитив: качество</option>
+              <option value="positive_product">Позитив: товар</option>
+              <option value="neutral_other">Нейтральный: прочее</option>
             </select>
             <button class="secondary" onclick="loadReviews()">Обновить</button>
           </div>
@@ -63,7 +63,7 @@
           <table>
             <thead>
               <tr>
-                <th>Источник</th><th>Отзыв</th><th>Ответ</th><th>Priority</th><th>Status</th><th>Действия</th>
+                <th>Источник</th><th>Отзыв</th><th>Ответ</th><th>Приоритет</th><th>Статус</th><th>Действия</th>
               </tr>
             </thead>
             <tbody id="reviewsTbody"></tbody>
@@ -76,15 +76,15 @@
           <h3>Вопросы и чаты</h3>
           <div class="row">
             <select id="conversationKindFilter">
-              <option value="">kind: all</option>
-              <option value="question">question</option>
-              <option value="chat">chat</option>
+              <option value="">тип: все</option>
+              <option value="question">вопрос</option>
+              <option value="chat">чат</option>
             </select>
             <select id="conversationStatusFilter">
-              <option value="">status: all</option>
-              <option value="open">open</option>
-              <option value="waiting">waiting</option>
-              <option value="closed">closed</option>
+              <option value="">статус: все</option>
+              <option value="open">открыт</option>
+              <option value="waiting">ожидает</option>
+              <option value="closed">закрыт</option>
             </select>
             <button class="secondary" onclick="loadConversations()">Обновить</button>
           </div>
@@ -93,7 +93,7 @@
           <table>
             <thead>
               <tr>
-                <th>Тип</th><th>Источник</th><th>Покупатель</th><th>Сообщение</th><th>Непрочитано</th><th>Status</th><th>Действия</th>
+                <th>Тип</th><th>Источник</th><th>Покупатель</th><th>Сообщение</th><th>Непрочитано</th><th>Статус</th><th>Действия</th>
               </tr>
             </thead>
             <tbody id="conversationsTbody"></tbody>
@@ -143,10 +143,10 @@
                 <input id="newSourceName" type="text" placeholder="Название кабинета" />
               </div>
               <div id="ozonClientField" class="row hidden">
-                <input id="newSourceClientId" type="text" placeholder="Client ID" />
+                <input id="newSourceClientId" type="text" placeholder="Идентификатор клиента" />
               </div>
               <div class="row">
-                <textarea id="newSourceApiToken" class="textarea-compact" placeholder="Токен API"></textarea>
+                <textarea id="newSourceApiToken" class="textarea-compact" placeholder="Токен доступа"></textarea>
               </div>
               <div class="row">
                 <button onclick="createAccount()">Сохранить источник</button>
@@ -156,7 +156,7 @@
           </div>
           <div class="panel">
             <table>
-              <thead><tr><th>ID</th><th>Marketplace</th><th>Name</th><th>API URL</th><th>Client ID</th><th>API key</th><th>Active</th><th>Actions</th></tr></thead>
+              <thead><tr><th>№</th><th>Маркетплейс</th><th>Название</th><th>Адрес интерфейса</th><th>Идентификатор клиента</th><th>Ключ доступа</th><th>Активен</th><th>Действия</th></tr></thead>
               <tbody id="accountsTbody"></tbody>
             </table>
           </div>
@@ -165,20 +165,20 @@
         <div id="settings-pane-rules" class="hidden">
           <div class="panel">
             <h4>Правила обработки по категориям</h4>
-            <p class="small">Выберите категорию и режим: auto / manual / ignore.</p>
+            <p class="small">Выберите категорию и режим: авто / вручную / игнор.</p>
             <div class="row">
               <select id="ruleCategory">
-                <option value="negative_delivery">negative_delivery</option>
-                <option value="negative_product">negative_product</option>
-                <option value="negative_other">negative_other</option>
-                <option value="positive_quality">positive_quality</option>
-                <option value="positive_product">positive_product</option>
-                <option value="neutral_other">neutral_other</option>
+                <option value="negative_delivery">Негатив: доставка</option>
+                <option value="negative_product">Негатив: товар</option>
+                <option value="negative_other">Негатив: прочее</option>
+                <option value="positive_quality">Позитив: качество</option>
+                <option value="positive_product">Позитив: товар</option>
+                <option value="neutral_other">Нейтральный: прочее</option>
               </select>
               <select id="ruleMode">
-                <option value="auto">auto</option>
-                <option value="manual">manual</option>
-                <option value="ignore">ignore</option>
+                <option value="auto">авто</option>
+                <option value="manual">вручную</option>
+                <option value="ignore">игнор</option>
               </select>
               <button onclick="saveRuleOnly()">Сохранить правило</button>
               <span id="rulesInfo" class="small"></span>
@@ -187,7 +187,7 @@
           <div class="panel">
             <h4>Текущие правила</h4>
             <table>
-              <thead><tr><th>Category</th><th>Mode</th></tr></thead>
+              <thead><tr><th>Категория</th><th>Режим</th></tr></thead>
               <tbody id="rulesTbody"></tbody>
             </table>
           </div>
@@ -198,16 +198,16 @@
             <h4>Шаблоны ответов</h4>
             <div class="row">
               <select id="tplCategory">
-                <option value="negative_delivery">negative_delivery</option>
-                <option value="negative_product">negative_product</option>
-                <option value="negative_other">negative_other</option>
-                <option value="positive_quality">positive_quality</option>
-                <option value="positive_product">positive_product</option>
-                <option value="neutral_other">neutral_other</option>
+                <option value="negative_delivery">Негатив: доставка</option>
+                <option value="negative_product">Негатив: товар</option>
+                <option value="negative_other">Негатив: прочее</option>
+                <option value="positive_quality">Позитив: качество</option>
+                <option value="positive_product">Позитив: товар</option>
+                <option value="neutral_other">Нейтральный: прочее</option>
               </select>
             </div>
             <div class="row">
-              <textarea id="tplText" placeholder="Шаблон ответа. Переменные: {author}, {rating}, {category}, {sentiment}"></textarea>
+              <textarea id="tplText" placeholder="Шаблон ответа. Подстановки: {автор}, {оценка}, {категория}, {тональность}"></textarea>
             </div>
             <button onclick="saveTemplateText()">Сохранить шаблон</button>
             <div id="templatesInfo" class="small"></div>
@@ -215,7 +215,7 @@
           <div class="panel">
             <h4>Текущие шаблоны</h4>
             <table>
-              <thead><tr><th>Category</th><th>Mode</th><th>Template</th></tr></thead>
+              <thead><tr><th>Категория</th><th>Режим</th><th>Шаблон</th></tr></thead>
               <tbody id="templatesTbody"></tbody>
             </table>
           </div>
@@ -227,7 +227,7 @@
           <h3>Мой профиль</h3>
           <div class="row">
             <input id="profileFullName" type="text" placeholder="ФИО" />
-            <input id="profileEmail" type="email" placeholder="Email" />
+            <input id="profileEmail" type="email" placeholder="Эл. почта" />
           </div>
           <div class="row">
             <a

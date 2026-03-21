@@ -114,13 +114,13 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
     def _require_user(request: Request) -> dict[str, object]:
         user = _get_current_user(request)
         if user is None:
-            raise HTTPException(status_code=401, detail="Auth required")
+            raise HTTPException(status_code=401, detail="Требуется авторизация")
         return user
 
     def _require_admin(request: Request) -> dict[str, object]:
         user = _require_user(request)
         if user.get("role") != ROLE_ADMIN:
-            raise HTTPException(status_code=403, detail="Admin access only")
+            raise HTTPException(status_code=403, detail="Доступ только для администратора")
         return user
 
     def _require_analytics_access(request: Request) -> dict[str, object]:
@@ -153,7 +153,7 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
     def login(email: str = Form(...), password: str = Form(...)) -> HTMLResponse:
         user = repository.get_user_by_email(email)
         if user is None or not verify_password(password, str(user["password_hash"])):
-            return HTMLResponse(build_login_html(error="Неверный email или пароль"), status_code=401)
+            return HTMLResponse(build_login_html(error="Неверная эл. почта или пароль"), status_code=401)
 
         token = _issue_session(int(user["id"]))
         response = RedirectResponse("/app", status_code=302)
@@ -171,7 +171,7 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
     def register(email: str = Form(...), password: str = Form(...), password_repeat: str = Form(...)) -> HTMLResponse:
         email = email.strip().lower()
         if len(email) < 5 or "@" not in email:
-            return HTMLResponse(build_register_html(error="Введите корректный email"), status_code=400)
+            return HTMLResponse(build_register_html(error="Введите корректную эл. почту"), status_code=400)
         if len(password) < 8:
             return HTMLResponse(build_register_html(error="Пароль должен быть не короче 8 символов"), status_code=400)
         if password != password_repeat:
@@ -235,11 +235,11 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
         user_id = int(user["id"])
         stored_user = repository.get_user_by_id(user_id)
         if stored_user is None:
-            raise HTTPException(status_code=404, detail="User not found")
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
 
         new_email = (payload.email or str(stored_user.get("email") or "")).strip().lower()
         if not new_email or "@" not in new_email:
-            raise HTTPException(status_code=400, detail="Введите корректный email")
+            raise HTTPException(status_code=400, detail="Введите корректную электронную почту")
 
         full_name = (payload.full_name or "").strip() or None
 
@@ -267,9 +267,9 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
                 password_hash=password_hash,
             )
         except sqlite3.IntegrityError as exc:
-            raise HTTPException(status_code=409, detail="Email уже используется другим аккаунтом") from exc
+            raise HTTPException(status_code=409, detail="Эта электронная почта уже используется другим аккаунтом") from exc
         if not updated:
-            raise HTTPException(status_code=404, detail="User not found")
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
         return {"ok": True}
 
     @app.get("/api/reviews")
@@ -311,14 +311,14 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
         user = _require_user(request)
         status_value = payload.status.strip().lower()
         if status_value not in {"open", "waiting", "closed"}:
-            raise HTTPException(status_code=400, detail="status must be one of: open, waiting, closed")
+            raise HTTPException(status_code=400, detail="Статус должен быть: открыт, ожидает или закрыт")
         updated = repository.update_conversation_status(
             user_id=int(user["id"]),
             conversation_uid=conversation_uid,
             status=status_value,
         )
         if not updated:
-            raise HTTPException(status_code=404, detail="Conversation not found")
+            raise HTTPException(status_code=404, detail="Диалог не найден")
         repository.log_review_action(
             user_id=int(user["id"]),
             review_uid=conversation_uid,
@@ -341,14 +341,14 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
             return service.sync_all_accounts(user_id=user_id)
 
         if payload.account_id is None:
-            raise HTTPException(status_code=400, detail="account_id is required if all_accounts=false")
+            raise HTTPException(status_code=400, detail="Необходимо указать идентификатор кабинета")
         account = repository.get_marketplace_account(
             user_id=user_id,
             account_id=payload.account_id,
             include_secrets=True,
         )
         if account is None:
-            raise HTTPException(status_code=404, detail="Marketplace account not found")
+            raise HTTPException(status_code=404, detail="Кабинет маркетплейса не найден")
         marketplace = str(account["marketplace"])
         try:
             client = service._build_client(account)
@@ -365,7 +365,7 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
                 client=client,
             )
         except MarketplaceSyncError as exc:
-            raise HTTPException(status_code=502, detail=f"Sync failed: {exc}") from exc
+            raise HTTPException(status_code=502, detail=f"Ошибка синхронизации: {exc}") from exc
         return {"accounts": 1, "loaded": loaded, "loaded_conversations": loaded_conversations}
 
     @app.get("/api/accounts")
@@ -379,7 +379,7 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
         user = _require_settings_access(request)
         marketplace = payload.marketplace.strip().lower()
         if marketplace not in {"wb", "ozon", "mock"}:
-            raise HTTPException(status_code=400, detail="marketplace must be one of: wb, ozon, mock")
+            raise HTTPException(status_code=400, detail="Некорректный маркетплейс")
         integration = payload.integration if isinstance(payload.integration, dict) else {}
         default_api_urls = {
             "wb": "https://feedbacks-api.wildberries.ru/api/v1/feedbacks",
@@ -388,20 +388,20 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
         }
         api_url = (payload.api_url or "").strip() or str(integration.get("api_url") or default_api_urls[marketplace])
         if marketplace in {"wb", "ozon"} and not (payload.api_key or "").strip():
-            raise HTTPException(status_code=400, detail="api_key is required for WB/OZON")
+            raise HTTPException(status_code=400, detail="Для WB/OZON требуется ключ доступа")
         client_id_value = (payload.client_id or "").strip() or str(integration.get("client_id") or "").strip()
         if marketplace == "ozon" and not client_id_value:
-            raise HTTPException(status_code=400, detail="client_id is required for OZON")
+            raise HTTPException(status_code=400, detail="Для OZON требуется идентификатор клиента")
         if client_id_value:
             integration["client_id"] = client_id_value
         if marketplace == "ozon":
             page_size = integration.get("page_size")
             if page_size is not None and (not isinstance(page_size, int) or page_size <= 0):
-                raise HTTPException(status_code=400, detail="integration.page_size must be positive integer")
+                raise HTTPException(status_code=400, detail="Размер страницы должен быть положительным целым числом")
         if marketplace == "wb":
             max_pages = integration.get("max_pages")
             if max_pages is not None and (not isinstance(max_pages, int) or max_pages <= 0):
-                raise HTTPException(status_code=400, detail="integration.max_pages must be positive integer")
+                raise HTTPException(status_code=400, detail="Лимит страниц должен быть положительным целым числом")
 
         account = repository.create_marketplace_account(
             user_id=int(user["id"]),
@@ -422,7 +422,7 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
             is_active=payload.is_active,
         )
         if not updated:
-            raise HTTPException(status_code=404, detail="Marketplace account not found")
+            raise HTTPException(status_code=404, detail="Кабинет маркетплейса не найден")
         return {"ok": True}
 
     @app.get("/api/templates")
@@ -437,9 +437,9 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
         category = payload.category.strip().lower()
         mode = payload.mode.strip().lower()
         if category not in CATEGORIES:
-            raise HTTPException(status_code=400, detail=f"Unknown category: {category}")
+            raise HTTPException(status_code=400, detail=f"Неизвестная категория: {category}")
         if mode not in {"auto", "manual", "ignore"}:
-            raise HTTPException(status_code=400, detail="mode must be one of: auto, manual, ignore")
+            raise HTTPException(status_code=400, detail="Режим должен быть: авто, вручную или игнор")
         repository.upsert_template(
             user_id=int(user["id"]),
             category=category,
@@ -453,7 +453,7 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
         user = _require_user(request)
         updated = service.queue_for_manual_processing(user_id=int(user["id"]), review_uid=review_id)
         if not updated:
-            raise HTTPException(status_code=404, detail="Review not found")
+            raise HTTPException(status_code=404, detail="Отзыв не найден")
         return {"ok": True}
 
     @app.post("/api/reviews/{review_id}/auto-reply")
@@ -475,7 +475,7 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
             response_text=payload.response_text,
         )
         if not updated:
-            raise HTTPException(status_code=404, detail="Review not found")
+            raise HTTPException(status_code=404, detail="Отзыв не найден")
         return {"ok": True}
 
     @app.get("/api/admin/ai-settings")
@@ -488,7 +488,7 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
         _require_admin(request)
         provider = payload.provider.strip().lower()
         if provider not in {"rules", "yandex"}:
-            raise HTTPException(status_code=400, detail="provider must be one of: rules, yandex")
+            raise HTTPException(status_code=400, detail="Провайдер должен быть: встроенные правила или Яндекс")
         repository.update_ai_settings(
             provider=provider,
             yandex_api_key=payload.yandex_api_key.strip() if payload.yandex_api_key is not None else None,
@@ -508,7 +508,10 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
         current_user = _require_admin(request)
         role = payload.role.strip().lower()
         if role not in ROLE_ASSIGNABLE_BY_ADMIN:
-            raise HTTPException(status_code=400, detail="role must be one of: user, feedback_manager, admin")
+            raise HTTPException(
+                status_code=400,
+                detail="Роль должна быть: пользователь, менеджер обратной связи или администратор",
+            )
 
         if role != ROLE_ADMIN:
             admin_rows = repository.raw_fetch("SELECT id FROM users WHERE role = 'admin'")
@@ -517,7 +520,7 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
 
         updated = repository.update_user_role(user_id=target_user_id, role=role)
         if not updated:
-            raise HTTPException(status_code=404, detail="User not found")
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
         return {"ok": True, "by_admin": current_user["email"]}
 
     @app.get("/api/admin/metrics")
@@ -565,7 +568,12 @@ def build_register_html(error: str | None = None) -> str:
 def build_app_html(user: dict[str, object]) -> str:
     safe_email = escape(str(user["email"]))
     role = str(user.get("role") or ROLE_USER)
-    safe_role = escape(role)
+    role_labels = {
+        ROLE_ADMIN: "администратор",
+        ROLE_USER: "пользователь",
+        ROLE_FEEDBACK_MANAGER: "менеджер обратной связи",
+    }
+    safe_role = escape(role_labels.get(role, role))
     can_view_analytics = role in ROLE_CAN_ACCESS_ANALYTICS
     can_view_settings = role in ROLE_CAN_ACCESS_SETTINGS
     admin_link = '<a class="navbtn" href="/admin">Админ-панель</a>' if role == ROLE_ADMIN else ""

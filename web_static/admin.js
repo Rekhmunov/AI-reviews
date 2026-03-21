@@ -6,10 +6,75 @@ function esc(value) {
 }
 
 const roleLabels = {
-  user: "user",
+  user: "пользователь",
   feedback_manager: "менеджер обратной связи",
-  admin: "admin",
+  admin: "администратор",
 };
+const reviewStatusLabels = {
+  queued_for_operator: "Ждет обработки",
+  answered_auto: "Обработан автоматически",
+  answered_manual: "Обработан оператором",
+  ignored: "Игнор",
+};
+const actionTypeLabels = {
+  sync_error: "Ошибка синхронизации",
+  sync_review: "Синхронизация отзыва",
+  sync_conversation: "Синхронизация диалога",
+  queue_manual: "Перевод в ручную обработку",
+  auto_reply: "Автоответ",
+  manual_reply: "Ручной ответ",
+  conversation_status: "Смена статуса диалога",
+};
+const detailKeyLabels = {
+  category: "категория",
+  status: "статус",
+  source: "источник",
+  account_id: "идентификатор кабинета",
+  error: "ошибка",
+  scope: "область",
+  kind: "тип",
+  reply: "ответ",
+  marketplace: "маркетплейс",
+};
+const categoryLabels = {
+  negative_delivery: "Негатив: доставка",
+  negative_product: "Негатив: товар",
+  negative_other: "Негатив: прочее",
+  positive_quality: "Позитив: качество",
+  positive_product: "Позитив: товар",
+  neutral_other: "Нейтральный: прочее",
+};
+const conversationKindLabels = {
+  question: "вопрос",
+  chat: "чат",
+};
+const conversationStatusLabels = {
+  open: "открыт",
+  waiting: "ожидает",
+  closed: "закрыт",
+};
+
+function labelFromMap(map, value) {
+  const key = String(value || "");
+  return map[key] || key || "-";
+}
+
+function formatActionDetails(details) {
+  if (!details || typeof details !== "object") return "-";
+  const parts = [];
+  for (const [key, rawValue] of Object.entries(details)) {
+    let value = rawValue;
+    if (key === "category") value = labelFromMap(categoryLabels, rawValue);
+    if (key === "status") {
+      value = labelFromMap(reviewStatusLabels, rawValue);
+      if (value === String(rawValue)) value = labelFromMap(conversationStatusLabels, rawValue);
+    }
+    if (key === "kind") value = labelFromMap(conversationKindLabels, rawValue);
+    const label = detailKeyLabels[key] || "параметр";
+    parts.push(`${label}: ${value}`);
+  }
+  return parts.join("; ");
+}
 
 function buildRoleOptions(selectedRole) {
   const availableRoles = ["user", "feedback_manager", "admin"];
@@ -33,8 +98,8 @@ async function loadAiSettings() {
   document.getElementById("folderId").value = data.yandex_folder_id || "";
   document.getElementById("modelUri").value = data.yandex_model_uri || "";
   document.getElementById("aiInfo").textContent = data.has_yandex_api_key
-    ? "Текущий API key: " + (data.yandex_api_key_preview || "***")
-    : "API key пока не задан";
+    ? "Текущий ключ доступа: " + (data.yandex_api_key_preview || "***")
+    : "Ключ доступа пока не задан";
 }
 
 async function saveAiSettings() {
@@ -51,7 +116,7 @@ async function saveAiSettings() {
   });
   const data = await res.json();
   if (!res.ok) {
-    document.getElementById("aiInfo").textContent = "Ошибка: " + (data.detail || "save failed");
+    document.getElementById("aiInfo").textContent = "Ошибка: " + (data.detail || "не удалось сохранить");
     return;
   }
   document.getElementById("aiInfo").textContent = "Настройки сохранены";
@@ -103,7 +168,7 @@ async function loadMetrics() {
   document.getElementById("mAvg").textContent = String(data.avg_first_response_minutes || 0);
   document.getElementById("mOverdue").textContent = String(data.overdue_manual_queue_24h || 0);
   const statuses = data.status_counts || {};
-  const parts = Object.entries(statuses).map(([k, v]) => `${k}: ${v}`);
+  const parts = Object.entries(statuses).map(([k, v]) => `${labelFromMap(reviewStatusLabels, k)}: ${v}`);
   document.getElementById("mStatuses").textContent = parts.join(" | ");
 }
 
@@ -118,8 +183,8 @@ async function loadActions() {
       <td>${esc(item.created_at)}</td>
       <td>${esc(item.actor)}</td>
       <td>${esc(item.review_uid || "-")}</td>
-      <td>${esc(item.action_type)}</td>
-      <td>${esc(JSON.stringify(item.details || {}))}</td>
+      <td>${esc(labelFromMap(actionTypeLabels, item.action_type))}</td>
+      <td>${esc(formatActionDetails(item.details || {}))}</td>
     `;
     tbody.appendChild(tr);
   }
