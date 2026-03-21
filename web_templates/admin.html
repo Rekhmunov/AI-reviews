@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Админ-панель</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="container" style="padding-top: 24px;">
+    <div class="panel">
+      <h2>Админ-панель</h2>
+      <p class="small">Вы вошли как: {{SAFE_EMAIL}}</p>
+      <p class="small">Первый зарегистрированный пользователь становится admin. Далее admin может управлять ролями.</p>
+      <p><a href="/app">Вернуться в рабочий кабинет</a></p>
+    </div>
+
+    <div class="panel">
+      <h3>AI-классификатор отзывов</h3>
+      <div class="row">
+        <select id="provider">
+          <option value="rules">rules (встроенные правила)</option>
+          <option value="yandex">yandex (Foundation Models API)</option>
+        </select>
+        <input id="apiKey" type="text" size="30" placeholder="Yandex API key" />
+        <input id="folderId" type="text" size="20" placeholder="Yandex folder id" />
+        <input id="modelUri" type="text" size="30" placeholder="gpt://<folder>/yandexgpt-lite/latest" />
+        <button onclick="saveAiSettings()">Сохранить</button>
+      </div>
+      <div id="aiInfo" class="small"></div>
+      <p class="small">Оставьте API key пустым, чтобы не менять текущий ключ.</p>
+    </div>
+
+    <div class="panel">
+      <h3>Пользователи и роли</h3>
+      <table>
+        <thead><tr><th>ID</th><th>Email</th><th>Role</th><th>Action</th></tr></thead>
+        <tbody id="usersTbody"></tbody>
+      </table>
+    </div>
+
+    <div class="panel">
+      <h3>SLA и загрузка поддержки</h3>
+      <div class="row">
+        <div><strong id="mTotal">0</strong><div class="small">Всего отзывов</div></div>
+        <div><strong id="mAvg">0</strong><div class="small">Среднее время ответа (мин)</div></div>
+        <div><strong id="mOverdue">0</strong><div class="small">Просрочено в ручной очереди (>24ч)</div></div>
+      </div>
+      <div id="mStatuses" class="small"></div>
+    </div>
+
+    <div class="panel">
+      <h3>Лента действий</h3>
+      <table>
+        <thead><tr><th>Время</th><th>Пользователь</th><th>Review UID</th><th>Действие</th><th>Детали</th></tr></thead>
+        <tbody id="actionsTbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script src="/static/admin.js"></script>
+</body>
+</html>

@@ -110,6 +110,8 @@ export APP_ENCRYPTION_KEY="<fernet-key>"
 ## Структура
 
 - `review_processor/web.py` — FastAPI: лендинг, auth, app, admin, API.
+- `web_templates/*.html` — отдельные HTML-страницы (landing/login/register/app/admin).
+- `web_static/*.js`, `web_static/style.css` — клиентские скрипты и стили.
 - `review_processor/repository.py` — SQLite: users/sessions/accounts/templates/reviews/AI settings.
 - `review_processor/service.py` — синхронизация, категоризация, процессы, ответы, WB/OZON клиенты.
 - `review_processor/processor.py` — rule-based анализ отзывов.
@@ -132,6 +134,24 @@ python3 -m uvicorn review_processor.web:app --host 0.0.0.0 --port 8000
 ```
 
 3. Открыть:
+
+```text
+http://localhost:8000
+```
+
+## OpenServer (локально)
+
+Если открыть только папку проекта как статический сайт, будет показан `index.html` с подсказкой, потому что основной сайт рендерится FastAPI-приложением.
+
+Чтобы сайт работал полноценно:
+
+1. запустите backend:
+
+```bash
+python3 -m uvicorn review_processor.web:app --host 0.0.0.0 --port 8000
+```
+
+2. откройте в браузере:
 
 ```text
 http://localhost:8000

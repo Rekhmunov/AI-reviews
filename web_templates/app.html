@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Рабочий кабинет</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="brand">REVO</div>
+      <div class="meta">user: {{SAFE_EMAIL}}<br/>role: {{SAFE_ROLE}}</div>
+      <a id="nav-reviews" class="navbtn active" href="#" onclick="showSection('reviews')">1) Отзывы</a>
+      <a id="nav-conversations" class="navbtn" href="#" onclick="showSection('conversations')">2) Вопросы и чаты</a>
+      <a id="nav-analytics" class="navbtn" href="#" onclick="showSection('analytics')">3) Аналитика</a>
+      <a id="nav-settings" class="navbtn" href="#" onclick="showSection('settings')">4) Настройки</a>
+      {{ADMIN_LINK}}
+      <a class="navbtn" href="/logout">Выйти</a>
+    </aside>
+
+    <main class="main">
+      <section id="section-reviews">
+        <div class="panel">
+          <h3>Отзывы</h3>
+          <div class="row">
+            <button onclick="syncAll()">Синхронизировать все активные кабинеты</button>
+            <span id="syncInfo" class="small"></span>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="row">
+            <select id="priorityFilter">
+              <option value="">priority: all</option>
+              <option value="high">high</option>
+              <option value="medium">medium</option>
+              <option value="low">low</option>
+            </select>
+            <select id="statusFilter">
+              <option value="">status: all</option>
+              <option value="queued_for_operator">Ждут обработки</option>
+              <option value="answered_auto">Обработаны авто</option>
+              <option value="answered_manual">Обработаны оператором</option>
+              <option value="ignored">Игнор</option>
+            </select>
+            <select id="categoryFilter">
+              <option value="">category: all</option>
+              <option value="negative_delivery">negative_delivery</option>
+              <option value="negative_product">negative_product</option>
+              <option value="negative_other">negative_other</option>
+              <option value="positive_quality">positive_quality</option>
+              <option value="positive_product">positive_product</option>
+              <option value="neutral_other">neutral_other</option>
+            </select>
+            <button class="secondary" onclick="loadReviews()">Обновить</button>
+          </div>
+        </div>
+        <div class="panel">
+          <table>
+            <thead>
+              <tr>
+                <th>Источник</th><th>Отзыв</th><th>Ответ</th><th>Priority</th><th>Status</th><th>Действия</th>
+              </tr>
+            </thead>
+            <tbody id="reviewsTbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="section-conversations" class="hidden">
+        <div class="panel">
+          <h3>Вопросы и чаты</h3>
+          <div class="row">
+            <select id="conversationKindFilter">
+              <option value="">kind: all</option>
+              <option value="question">question</option>
+              <option value="chat">chat</option>
+            </select>
+            <select id="conversationStatusFilter">
+              <option value="">status: all</option>
+              <option value="open">open</option>
+              <option value="waiting">waiting</option>
+              <option value="closed">closed</option>
+            </select>
+            <button class="secondary" onclick="loadConversations()">Обновить</button>
+          </div>
+        </div>
+        <div class="panel">
+          <table>
+            <thead>
+              <tr>
+                <th>Тип</th><th>Источник</th><th>Покупатель</th><th>Сообщение</th><th>Непрочитано</th><th>Status</th><th>Действия</th>
+              </tr>
+            </thead>
+            <tbody id="conversationsTbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="section-analytics" class="hidden">
+        <div class="panel">
+          <h3>Аналитика</h3>
+          <div class="stats-grid">
+            <div class="stat"><div id="anTotal" class="value">0</div><div class="small">Всего отзывов</div></div>
+            <div class="stat"><div id="anProcessed" class="value">0</div><div class="small">Обработано</div></div>
+            <div class="stat"><div id="anPositive" class="value">0%</div><div class="small">Позитивные</div></div>
+            <div class="stat"><div id="anNegative" class="value">0%</div><div class="small">Негативные</div></div>
+            <div class="stat"><div id="anQuestions" class="value">0</div><div class="small">Вопросы</div></div>
+            <div class="stat"><div id="anChats" class="value">0</div><div class="small">Чаты</div></div>
+          </div>
+          <div class="small" id="analyticsInfo" style="margin-top:10px"></div>
+        </div>
+      </section>
+
+      <section id="section-settings" class="hidden">
+        <div class="panel">
+          <h3>Настройки: Источники отзывов</h3>
+          <div class="row">
+            <select id="accMarketplace">
+              <option value="wb">WB</option>
+              <option value="ozon">OZON</option>
+              <option value="mock">MOCK</option>
+            </select>
+            <input id="accName" type="text" placeholder="Название кабинета" />
+            <input id="accApiUrl" type="text" size="36" placeholder="https://.../api" />
+            <input id="accClientId" type="text" size="20" placeholder="OZON Client ID" />
+            <input id="accApiKey" type="text" size="28" placeholder="API key" />
+            <textarea id="accIntegration" placeholder='integration JSON, например {"questions_path":"/v1/question/list"}' style="min-height:42px;min-width:320px"></textarea>
+            <button onclick="createAccount()">Сохранить</button>
+          </div>
+          <div id="accountsInfo" class="small"></div>
+        </div>
+        <div class="panel">
+          <h4>Подключенные кабинеты</h4>
+          <table>
+            <thead><tr><th>ID</th><th>Marketplace</th><th>Name</th><th>API URL</th><th>Client ID</th><th>API key</th><th>Active</th><th>Actions</th></tr></thead>
+            <tbody id="accountsTbody"></tbody>
+          </table>
+        </div>
+        <div class="panel">
+          <h3>Настройки: Правила обработки</h3>
+          <p class="small">Режимы: auto (автоответ), manual (в очередь оператора), ignore (игнорировать).</p>
+          <div class="row">
+            <select id="tplCategory">
+              <option value="negative_delivery">negative_delivery</option>
+              <option value="negative_product">negative_product</option>
+              <option value="negative_other">negative_other</option>
+              <option value="positive_quality">positive_quality</option>
+              <option value="positive_product">positive_product</option>
+              <option value="neutral_other">neutral_other</option>
+            </select>
+            <select id="tplMode">
+              <option value="auto">auto</option>
+              <option value="manual">manual</option>
+              <option value="ignore">ignore</option>
+            </select>
+          </div>
+          <div class="row">
+            <textarea id="tplText" placeholder="Шаблон ответа. Переменные: {author}, {rating}, {category}, {sentiment}"></textarea>
+          </div>
+          <button onclick="saveTemplate()">Сохранить шаблон</button>
+          <div id="templatesInfo" class="small"></div>
+        </div>
+        <div class="panel">
+          <h4>Текущие шаблоны</h4>
+          <table>
+            <thead><tr><th>Category</th><th>Mode</th><th>Template</th></tr></thead>
+            <tbody id="templatesTbody"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

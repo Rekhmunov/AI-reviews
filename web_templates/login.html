@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Вход</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="auth-box">
+    <h2>Вход в сервис</h2>
+    {{ERROR_HTML}}
+    <form method="post" action="/login">
+      <label>Email</label>
+      <input name="email" type="email" required />
+      <label>Пароль</label>
+      <input name="password" type="password" required />
+      <button type="submit">Войти</button>
+    </form>
+    <p>Нет аккаунта? <a href="/register">Регистрация</a></p>
+  </div>
+</body>
+</html>
