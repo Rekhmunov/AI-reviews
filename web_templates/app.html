@@ -112,7 +112,7 @@
             <div class="stat"><div id="anQuestions" class="value">0</div><div class="small">Вопросы</div></div>
             <div class="stat"><div id="anChats" class="value">0</div><div class="small">Чаты</div></div>
           </div>
-          <div class="small" id="analyticsInfo" style="margin-top:10px"></div>
+          <div class="small mt-10" id="analyticsInfo"></div>
         </div>
       </section>
 
@@ -129,7 +129,7 @@
         <div id="settings-pane-sources">
           <div class="panel">
             <div class="row row-between">
-              <h4 style="margin:0">Подключенные кабинеты</h4>
+              <h4 class="no-margin">Подключенные кабинеты</h4>
               <button onclick="toggleAddSourceForm(true)">Добавить источник</button>
             </div>
             <div id="accountsInfo" class="small"></div>
@@ -146,7 +146,7 @@
                 <input id="newSourceClientId" type="text" placeholder="Client ID" />
               </div>
               <div class="row">
-                <textarea id="newSourceApiToken" placeholder="Токен API" style="min-height:56px;min-width:360px"></textarea>
+                <textarea id="newSourceApiToken" class="textarea-compact" placeholder="Токен API"></textarea>
               </div>
               <div class="row">
                 <button onclick="createAccount()">Сохранить источник</button>
@@ -238,8 +238,8 @@
             <button onclick="saveProfile()">Применить</button>
             <span id="profileInfo" class="small"></span>
           </div>
-          <div class="row" style="margin-top: 10px;">
-            <a class="navbtn" href="/logout" style="margin:0; display:inline-block;">Выйти из аккаунта</a>
+          <div class="row mt-10">
+            <a class="navbtn logout-link" href="/logout">Выйти из аккаунта</a>
           </div>
         </div>
       </section>
