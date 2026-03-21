@@ -97,9 +97,19 @@ async function loadAiSettings() {
   document.getElementById("apiKey").value = "";
   document.getElementById("folderId").value = data.yandex_folder_id || "";
   document.getElementById("modelUri").value = data.yandex_model_uri || "";
+  document.getElementById("useSyncStartDate").checked = Boolean(data.use_sync_start_date);
+  document.getElementById("syncStartDate").value = data.sync_start_date || "";
+  syncDateToggle();
   document.getElementById("aiInfo").textContent = data.has_yandex_api_key
     ? "Текущий ключ доступа: " + (data.yandex_api_key_preview || "***")
     : "Ключ доступа пока не задан";
+}
+
+function syncDateToggle() {
+  const enabled = Boolean(document.getElementById("useSyncStartDate")?.checked);
+  const input = document.getElementById("syncStartDate");
+  if (!input) return;
+  input.disabled = !enabled;
 }
 
 async function saveAiSettings() {
@@ -108,6 +118,8 @@ async function saveAiSettings() {
     yandex_api_key: document.getElementById("apiKey").value.trim() || null,
     yandex_folder_id: document.getElementById("folderId").value.trim() || null,
     yandex_model_uri: document.getElementById("modelUri").value.trim() || null,
+    use_sync_start_date: Boolean(document.getElementById("useSyncStartDate").checked),
+    sync_start_date: document.getElementById("syncStartDate").value || null,
   };
   const res = await fetch("/api/admin/ai-settings", {
     method: "PUT",
@@ -191,6 +203,7 @@ async function loadActions() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  document.getElementById("useSyncStartDate")?.addEventListener("change", syncDateToggle);
   loadAiSettings();
   loadUsers();
   loadMetrics();

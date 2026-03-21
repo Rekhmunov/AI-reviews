@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from html import escape
 from pathlib import Path
 import sqlite3
+import threading
 
 from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -59,6 +60,7 @@ class TemplateUpsertRequest(BaseModel):
     category: str
     mode: str = Field(description="auto|manual|ignore")
     template_text: str = Field(max_length=4000)
+    is_enabled: bool | None = None
 
 
 class AISettingsRequest(BaseModel):
@@ -66,6 +68,8 @@ class AISettingsRequest(BaseModel):
     yandex_api_key: str | None = None
     yandex_folder_id: str | None = None
     yandex_model_uri: str | None = None
+    use_sync_start_date: bool = False
+    sync_start_date: str | None = None
 
 
 class RoleUpdateRequest(BaseModel):
@@ -78,6 +82,10 @@ class ProfileUpdateRequest(BaseModel):
     current_password: str | None = Field(default=None, max_length=255)
     new_password: str | None = Field(default=None, max_length=255)
     new_password_repeat: str | None = Field(default=None, max_length=255)
+
+
+class ClearReviewsRequest(BaseModel):
+    user_id: int | None = None
 
 
 ROLE_ADMIN = "admin"
@@ -94,6 +102,14 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
 
     app = FastAPI(title="Marketplace Reviews Assistant", version="1.0.0")
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+    sync_stop_event = threading.Event()
+    sync_lock = threading.Lock()
+    sync_state: dict[str, object] = {
+        "in_progress": False,
+        "cancel_requested": False,
+        "last_started_at": None,
+        "last_finished_at": None,
+    }
 
     def _now_iso() -> str:
         return datetime.now(UTC).isoformat()
@@ -134,6 +150,16 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
         if str(user.get("role")) not in ROLE_CAN_ACCESS_SETTINGS:
             raise HTTPException(status_code=403, detail="Недостаточно прав для раздела настроек")
         return user
+
+    def _set_sync_in_progress(in_progress: bool) -> None:
+        with sync_lock:
+            sync_state["in_progress"] = in_progress
+            if in_progress:
+                sync_state["cancel_requested"] = False
+                sync_state["last_started_at"] = _now_iso()
+                sync_stop_event.clear()
+            else:
+                sync_state["last_finished_at"] = _now_iso()
 
     @app.get("/", response_class=HTMLResponse)
     def landing(request: Request) -> HTMLResponse:
@@ -278,15 +304,36 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
         priority: str | None = None,
         status: str | None = None,
         category: str | None = None,
+        page: int = 1,
+        page_size: int = 30,
+        bucket: str = "all",
     ) -> dict[str, object]:
         user = _require_user(request)
-        items = service.list_reviews(
+        allowed_page_sizes = {10, 30, 50, 100}
+        normalized_page_size = page_size if page_size in allowed_page_sizes else 30
+        normalized_bucket = bucket.strip().lower()
+        if normalized_bucket not in {"all", "new", "processed"}:
+            normalized_bucket = "all"
+        page_data = service.list_reviews_paginated(
             user_id=int(user["id"]),
             priority=priority,
             status=status,
             category=category,
+            page=max(page, 1),
+            page_size=normalized_page_size,
+            bucket=normalized_bucket,
         )
-        return {"items": items, "count": len(items)}
+        return {
+            "items": page_data["items"],
+            "count": len(page_data["items"]),
+            "total": page_data["total"],
+            "page": page_data["page"],
+            "page_size": page_data["page_size"],
+            "pages": page_data["pages"],
+            "new_count": page_data["new_count"],
+            "processed_count": page_data["processed_count"],
+            "bucket": normalized_bucket,
+        }
 
     @app.get("/api/conversations")
     def list_conversations(
@@ -338,7 +385,18 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
         user = _require_user(request)
         user_id = int(user["id"])
         if payload.all_accounts:
-            return service.sync_all_accounts(user_id=user_id)
+            with sync_lock:
+                if bool(sync_state.get("in_progress")):
+                    raise HTTPException(status_code=409, detail="Синхронизация уже выполняется")
+            _set_sync_in_progress(True)
+            try:
+                result = service.sync_all_accounts(
+                    user_id=user_id,
+                    stop_requested=sync_stop_event.is_set,
+                )
+            finally:
+                _set_sync_in_progress(False)
+            return result
 
         if payload.account_id is None:
             raise HTTPException(status_code=400, detail="Необходимо указать идентификатор кабинета")
@@ -352,11 +410,18 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
         marketplace = str(account["marketplace"])
         try:
             client = service._build_client(account)
+            sync_settings = repository.get_ai_settings(include_secrets=False)
+            since_date = (
+                str(sync_settings.get("sync_start_date") or "").strip()
+                if bool(sync_settings.get("use_sync_start_date"))
+                else None
+            )
             loaded = service.sync_reviews(
                 user_id=user_id,
                 source=marketplace,
                 account_id=int(account["id"]),
                 client=client,
+                since_date=since_date or None,
             )
             loaded_conversations = service.sync_conversations(
                 user_id=user_id,
@@ -425,6 +490,17 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
             raise HTTPException(status_code=404, detail="Кабинет маркетплейса не найден")
         return {"ok": True}
 
+    @app.delete("/api/accounts/{account_id}")
+    def delete_account(account_id: int, request: Request) -> dict[str, object]:
+        user = _require_settings_access(request)
+        deleted = repository.delete_marketplace_account(
+            user_id=int(user["id"]),
+            account_id=account_id,
+        )
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Кабинет маркетплейса не найден")
+        return {"ok": True}
+
     @app.get("/api/templates")
     def list_templates(request: Request) -> dict[str, object]:
         user = _require_settings_access(request)
@@ -445,7 +521,19 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
             category=category,
             mode=mode,
             template_text=payload.template_text.strip(),
+            is_enabled=payload.is_enabled,
         )
+        return {"ok": True}
+
+    @app.delete("/api/templates/{category}")
+    def delete_template(category: str, request: Request) -> dict[str, object]:
+        user = _require_settings_access(request)
+        normalized = category.strip().lower()
+        if normalized not in CATEGORIES:
+            raise HTTPException(status_code=400, detail=f"Неизвестная категория: {normalized}")
+        deleted = repository.delete_template(user_id=int(user["id"]), category=normalized)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Правило не найдено")
         return {"ok": True}
 
     @app.post("/api/reviews/{review_id}/queue-manual")
@@ -462,7 +550,7 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
         try:
             reply = service.generate_auto_reply(user_id=int(user["id"]), review_uid=review_id)
         except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+            raise HTTPException(status_code=404, detail=str(exc) or "Отзыв не найден") from exc
         return {"ok": True, "reply": reply}
 
     @app.post("/api/reviews/{review_id}/manual-reply")
@@ -489,11 +577,24 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
         provider = payload.provider.strip().lower()
         if provider not in {"rules", "yandex"}:
             raise HTTPException(status_code=400, detail="Провайдер должен быть: встроенные правила или Яндекс")
+        sync_start_date: str | None = None
+        if payload.use_sync_start_date:
+            raw_date = (payload.sync_start_date or "").strip()
+            if not raw_date:
+                raise HTTPException(status_code=400, detail="Укажите дату начала синхронизации")
+            try:
+                # Accept YYYY-MM-DD and store as provided date string.
+                datetime.strptime(raw_date, "%Y-%m-%d")
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail="Дата должна быть в формате ГГГГ-ММ-ДД") from exc
+            sync_start_date = raw_date
         repository.update_ai_settings(
             provider=provider,
             yandex_api_key=payload.yandex_api_key.strip() if payload.yandex_api_key is not None else None,
             yandex_folder_id=(payload.yandex_folder_id or "").strip() or None,
             yandex_model_uri=(payload.yandex_model_uri or "").strip() or None,
+            use_sync_start_date=bool(payload.use_sync_start_date),
+            sync_start_date=sync_start_date,
         )
         return {"ok": True}
 
@@ -533,6 +634,32 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
         _require_admin(request)
         rows = repository.list_recent_actions(user_id=None, limit=min(max(limit, 1), 500))
         return {"items": rows, "count": len(rows)}
+
+    @app.get("/api/admin/sync-status")
+    def admin_sync_status(request: Request) -> dict[str, object]:
+        _require_admin(request)
+        with sync_lock:
+            return {
+                "in_progress": bool(sync_state.get("in_progress")),
+                "cancel_requested": bool(sync_state.get("cancel_requested")),
+                "last_started_at": sync_state.get("last_started_at"),
+                "last_finished_at": sync_state.get("last_finished_at"),
+            }
+
+    @app.post("/api/admin/sync-stop")
+    def admin_stop_sync(request: Request) -> dict[str, object]:
+        _require_admin(request)
+        sync_stop_event.set()
+        with sync_lock:
+            sync_state["cancel_requested"] = True
+        return {"ok": True}
+
+    @app.post("/api/admin/reviews-clear")
+    def admin_clear_reviews(request: Request, payload: ClearReviewsRequest) -> dict[str, object]:
+        admin = _require_admin(request)
+        target_user_id = int(payload.user_id) if payload.user_id is not None else int(admin["id"])
+        deleted = repository.clear_reviews(user_id=target_user_id)
+        return {"ok": True, "deleted": deleted, "user_id": target_user_id}
 
     @app.exception_handler(HTTPException)
     def http_exception_handler(_: Request, exc: HTTPException) -> JSONResponse:
@@ -597,6 +724,7 @@ def build_app_html(user: dict[str, object]) -> str:
             "NAV_SETTINGS": nav_settings,
             "CAN_VIEW_ANALYTICS": "true" if can_view_analytics else "false",
             "CAN_VIEW_SETTINGS": "true" if can_view_settings else "false",
+            "IS_ADMIN": "true" if role == ROLE_ADMIN else "false",
         },
     )
 

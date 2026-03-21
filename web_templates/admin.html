@@ -27,8 +27,12 @@
         <input id="modelUri" type="text" size="30" placeholder="Адрес модели" />
         <button onclick="saveAiSettings()">Сохранить</button>
       </div>
+      <div class="row">
+        <label><input id="useSyncStartDate" class="small-check" type="checkbox" /> Загружать отзывы с указанной даты</label>
+        <input id="syncStartDate" type="date" />
+      </div>
       <div id="aiInfo" class="small"></div>
-      <p class="small">Оставьте ключ доступа пустым, чтобы не менять текущий ключ.</p>
+      <p class="small">Оставьте ключ доступа пустым, чтобы не менять текущий ключ. Если включена дата, синхронизация всегда берет отзывы с этой даты по текущий день.</p>
     </div>
 
     <div class="panel">

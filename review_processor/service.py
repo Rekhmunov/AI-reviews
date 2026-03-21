@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Protocol
 import time
@@ -15,10 +15,19 @@ from .repository import ReviewRepository
 
 
 class MarketplaceClient(Protocol):
-    def fetch_reviews(self) -> list[ReviewInput]:
+    def fetch_reviews(
+        self,
+        *,
+        since_date: str | None = None,
+        stop_requested: Callable[[], bool] | None = None,
+    ) -> list[ReviewInput]:
         """Load reviews from marketplace API."""
 
-    def fetch_conversations(self) -> list[dict[str, object]]:
+    def fetch_conversations(
+        self,
+        *,
+        stop_requested: Callable[[], bool] | None = None,
+    ) -> list[dict[str, object]]:
         """Load questions/chats from marketplace API."""
 
 
@@ -29,13 +38,24 @@ class MarketplaceSyncError(RuntimeError):
         self.details = details or {}
 
 
+def _raise_if_stop_requested(stop_requested: Callable[[], bool] | None, *, source: str) -> None:
+    if stop_requested and stop_requested():
+        raise MarketplaceSyncError(source, "Синхронизация остановлена администратором", details={"cancelled": True})
+
+
 @dataclass(slots=True)
 class HTTPMarketplaceClient:
     api_url: str
     api_key: str | None = None
     timeout: int = 15
 
-    def fetch_reviews(self) -> list[ReviewInput]:
+    def fetch_reviews(
+        self,
+        *,
+        since_date: str | None = None,
+        stop_requested: Callable[[], bool] | None = None,
+    ) -> list[ReviewInput]:
+        _raise_if_stop_requested(stop_requested, source="http")
         headers: dict[str, str] = {}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
@@ -47,7 +67,8 @@ class HTTPMarketplaceClient:
 
         return [self._to_review(item) for item in payload]
 
-    def fetch_conversations(self) -> list[dict[str, object]]:
+    def fetch_conversations(self, *, stop_requested: Callable[[], bool] | None = None) -> list[dict[str, object]]:
+        _raise_if_stop_requested(stop_requested, source="http")
         return []
 
     @staticmethod
@@ -76,7 +97,12 @@ class OzonMarketplaceClient:
     max_pages: int = 20
     timeout: int = 20
 
-    def fetch_reviews(self) -> list[ReviewInput]:
+    def fetch_reviews(
+        self,
+        *,
+        since_date: str | None = None,
+        stop_requested: Callable[[], bool] | None = None,
+    ) -> list[ReviewInput]:
         if not self.client_id or not self.api_key:
             raise MarketplaceSyncError("ozon", "Missing Ozon credentials: client_id/api_key")
 
@@ -85,8 +111,12 @@ class OzonMarketplaceClient:
         reviews: list[ReviewInput] = []
 
         while page < self.max_pages:
+            _raise_if_stop_requested(stop_requested, source="ozon")
             payload: dict[str, object] = dict(self.base_payload or {})
             payload["limit"] = self.page_size
+            if since_date:
+                payload.setdefault("date_from", since_date)
+                payload.setdefault("dateFrom", since_date)
             if last_id:
                 payload["last_id"] = last_id
             body = self._request_json(path=self.list_path, payload=payload)
@@ -109,13 +139,21 @@ class OzonMarketplaceClient:
 
         return [review for review in reviews if review.review_id]
 
-    def fetch_conversations(self) -> list[dict[str, object]]:
+    def fetch_conversations(self, *, stop_requested: Callable[[], bool] | None = None) -> list[dict[str, object]]:
         items: list[dict[str, object]] = []
-        items.extend(self._fetch_conversation_stream(path=self.questions_path, kind="question"))
-        items.extend(self._fetch_conversation_stream(path=self.chats_path, kind="chat"))
+        items.extend(
+            self._fetch_conversation_stream(path=self.questions_path, kind="question", stop_requested=stop_requested)
+        )
+        items.extend(self._fetch_conversation_stream(path=self.chats_path, kind="chat", stop_requested=stop_requested))
         return items
 
-    def _fetch_conversation_stream(self, *, path: str | None, kind: str) -> list[dict[str, object]]:
+    def _fetch_conversation_stream(
+        self,
+        *,
+        path: str | None,
+        kind: str,
+        stop_requested: Callable[[], bool] | None = None,
+    ) -> list[dict[str, object]]:
         if not path:
             return []
 
@@ -123,6 +161,7 @@ class OzonMarketplaceClient:
         page = 0
         result_items: list[dict[str, object]] = []
         while page < self.max_pages:
+            _raise_if_stop_requested(stop_requested, source="ozon")
             payload: dict[str, object] = {"limit": self.page_size}
             if cursor:
                 payload["last_id"] = cursor
@@ -213,7 +252,12 @@ class WildberriesMarketplaceClient:
     max_pages: int = 20
     timeout: int = 20
 
-    def fetch_reviews(self) -> list[ReviewInput]:
+    def fetch_reviews(
+        self,
+        *,
+        since_date: str | None = None,
+        stop_requested: Callable[[], bool] | None = None,
+    ) -> list[ReviewInput]:
         if not self.api_key:
             raise MarketplaceSyncError("wb", "Missing Wildberries api_key")
 
@@ -222,7 +266,11 @@ class WildberriesMarketplaceClient:
         reviews: list[ReviewInput] = []
 
         while page < self.max_pages:
-            payload = self._request_json(skip=skip, take=self.page_size)
+            _raise_if_stop_requested(stop_requested, source="wb")
+            try:
+                payload = self._request_json(skip=skip, take=self.page_size, since_date=since_date)
+            except TypeError:
+                payload = self._request_json(skip=skip, take=self.page_size)
             _raise_if_error_payload(payload, source="wb")
             items = _extract_sequence(payload, keys=self.items_keys)
             if not items and isinstance(payload.get("data"), dict):
@@ -238,15 +286,24 @@ class WildberriesMarketplaceClient:
 
         return [review for review in reviews if review.review_id]
 
-    def fetch_conversations(self) -> list[dict[str, object]]:
+    def fetch_conversations(self, *, stop_requested: Callable[[], bool] | None = None) -> list[dict[str, object]]:
         items: list[dict[str, object]] = []
         if self.questions_path:
-            items.extend(self._fetch_conversation_endpoint(path=self.questions_path, kind="question"))
+            items.extend(
+                self._fetch_conversation_endpoint(path=self.questions_path, kind="question", stop_requested=stop_requested)
+            )
         if self.chats_path:
-            items.extend(self._fetch_conversation_endpoint(path=self.chats_path, kind="chat"))
+            items.extend(self._fetch_conversation_endpoint(path=self.chats_path, kind="chat", stop_requested=stop_requested))
         return items
 
-    def _fetch_conversation_endpoint(self, *, path: str, kind: str) -> list[dict[str, object]]:
+    def _fetch_conversation_endpoint(
+        self,
+        *,
+        path: str,
+        kind: str,
+        stop_requested: Callable[[], bool] | None = None,
+    ) -> list[dict[str, object]]:
+        _raise_if_stop_requested(stop_requested, source="wb")
         endpoint = _compose_url(self.api_url, path)
         request = Request(endpoint, method="GET", headers={"Authorization": self.api_key})
         payload = _request_json(request=request, timeout=self.timeout, source="wb")
@@ -266,14 +323,16 @@ class WildberriesMarketplaceClient:
                 result.append(mapped)
         return result
 
-    def _request_json(self, *, skip: int, take: int) -> dict[str, object]:
-        params = urlencode(
-            {
-                self.skip_param: skip,
-                self.take_param: take,
-                self.unanswered_param: self.unanswered_value,
-            }
-        )
+    def _request_json(self, *, skip: int, take: int, since_date: str | None = None) -> dict[str, object]:
+        params_payload: dict[str, object] = {
+            self.skip_param: skip,
+            self.take_param: take,
+            self.unanswered_param: self.unanswered_value,
+        }
+        if since_date:
+            params_payload["dateFrom"] = since_date
+            params_payload["date_from"] = since_date
+        params = urlencode(params_payload)
         endpoint = _compose_url(self.api_url, self.list_path)
         url = f"{self.api_url}?{params}" if "?" not in self.api_url else f"{self.api_url}&{params}"
         if self.list_path:
@@ -322,7 +381,13 @@ class WildberriesMarketplaceClient:
 class MockMarketplaceClient:
     """Demo client for local startup without real marketplace credentials."""
 
-    def fetch_reviews(self) -> list[ReviewInput]:
+    def fetch_reviews(
+        self,
+        *,
+        since_date: str | None = None,
+        stop_requested: Callable[[], bool] | None = None,
+    ) -> list[ReviewInput]:
+        _raise_if_stop_requested(stop_requested, source="mock")
         return [
             ReviewInput(
                 review_id="mp-1001",
@@ -347,7 +412,8 @@ class MockMarketplaceClient:
             ),
         ]
 
-    def fetch_conversations(self) -> list[dict[str, object]]:
+    def fetch_conversations(self, *, stop_requested: Callable[[], bool] | None = None) -> list[dict[str, object]]:
+        _raise_if_stop_requested(stop_requested, source="mock")
         return [
             {
                 "external_id": "mock-q-1",
@@ -384,9 +450,14 @@ class ReviewAutomationService:
         source: str,
         account_id: int | None,
         client: MarketplaceClient,
+        since_date: str | None = None,
+        stop_requested: Callable[[], bool] | None = None,
     ) -> int:
         try:
-            reviews = client.fetch_reviews()
+            try:
+                reviews = client.fetch_reviews(since_date=since_date, stop_requested=stop_requested)
+            except TypeError:
+                reviews = client.fetch_reviews()
         except MarketplaceSyncError as exc:
             self.repository.log_review_action(
                 user_id=user_id,
@@ -398,6 +469,7 @@ class ReviewAutomationService:
             raise
         settings = self.repository.get_ai_settings(include_secrets=True)
         for review in reviews:
+            _raise_if_stop_requested(stop_requested, source=source)
             if not review.review_id:
                 continue
             processed = self.processor.process(review)
@@ -454,13 +526,17 @@ class ReviewAutomationService:
         source: str,
         account_id: int | None,
         client: MarketplaceClient,
+        stop_requested: Callable[[], bool] | None = None,
     ) -> int:
         fetch_conversations = getattr(client, "fetch_conversations", None)
         if not callable(fetch_conversations):
             return 0
 
         try:
-            rows = fetch_conversations()
+            try:
+                rows = fetch_conversations(stop_requested=stop_requested)
+            except TypeError:
+                rows = fetch_conversations()
         except MarketplaceSyncError as exc:
             self.repository.log_review_action(
                 user_id=user_id,
@@ -473,6 +549,7 @@ class ReviewAutomationService:
 
         loaded = 0
         for row in rows:
+            _raise_if_stop_requested(stop_requested, source=source)
             external_id = str(row.get("external_id") or "").strip()
             if not external_id:
                 continue
@@ -499,17 +576,30 @@ class ReviewAutomationService:
             loaded += 1
         return loaded
 
-    def sync_all_accounts(self, *, user_id: int) -> dict[str, object]:
+    def sync_all_accounts(
+        self,
+        *,
+        user_id: int,
+        stop_requested: Callable[[], bool] | None = None,
+    ) -> dict[str, object]:
         loaded_total = 0
         loaded_conversations = 0
         successful_accounts = 0
         errors: list[dict[str, object]] = []
+        was_cancelled = False
         accounts = [
             item
             for item in self.repository.list_marketplace_accounts(user_id, include_secrets=True)
             if item["is_active"]
         ]
+        sync_settings = self.repository.get_ai_settings(include_secrets=False)
+        use_sync_start_date = bool(sync_settings.get("use_sync_start_date"))
+        since_date = str(sync_settings.get("sync_start_date") or "").strip() if use_sync_start_date else ""
+        since_value = since_date or None
         for account in accounts:
+            if stop_requested and stop_requested():
+                was_cancelled = True
+                break
             account_id = int(account["id"])
             marketplace = str(account["marketplace"])
             try:
@@ -519,15 +609,21 @@ class ReviewAutomationService:
                     source=marketplace,
                     account_id=account_id,
                     client=client,
+                    since_date=since_value,
+                    stop_requested=stop_requested,
                 )
                 loaded_conversations += self.sync_conversations(
                     user_id=user_id,
                     source=marketplace,
                     account_id=account_id,
                     client=client,
+                    stop_requested=stop_requested,
                 )
                 successful_accounts += 1
             except MarketplaceSyncError as exc:
+                if bool(exc.details.get("cancelled")):
+                    was_cancelled = True
+                    break
                 details = {"account_id": account_id, "marketplace": marketplace, "error": str(exc), **exc.details}
                 errors.append(details)
             except Exception as exc:
@@ -547,6 +643,7 @@ class ReviewAutomationService:
             "loaded": loaded_total,
             "loaded_conversations": loaded_conversations,
             "errors": errors,
+            "cancelled": was_cancelled,
         }
 
     @staticmethod
@@ -599,6 +696,27 @@ class ReviewAutomationService:
     ) -> list[dict[str, object]]:
         return self.repository.list_reviews(user_id=user_id, priority=priority, status=status, category=category)
 
+    def list_reviews_paginated(
+        self,
+        *,
+        user_id: int,
+        priority: str | None = None,
+        status: str | None = None,
+        category: str | None = None,
+        page: int = 1,
+        page_size: int = 30,
+        bucket: str = "all",
+    ) -> dict[str, object]:
+        return self.repository.list_reviews_paginated(
+            user_id=user_id,
+            priority=priority,
+            status=status,
+            category=category,
+            page=page,
+            page_size=page_size,
+            bucket=bucket,
+        )
+
     def queue_for_manual_processing(self, *, user_id: int, review_uid: str) -> bool:
         updated = self.repository.mark_manual_queue(user_id=user_id, review_uid=review_uid)
         if updated:
@@ -614,7 +732,7 @@ class ReviewAutomationService:
     def generate_auto_reply(self, *, user_id: int, review_uid: str) -> str:
         review = self.repository.get_review(user_id=user_id, review_uid=review_uid)
         if review is None:
-            raise KeyError(f"Review {review_uid} not found")
+            raise KeyError("Отзыв не найден")
         template = self.repository.get_template(user_id=user_id, category=str(review.get("category")))
         text = str(template["template_text"]) if template else self._build_auto_reply(review)
         reply = self._render_template(
@@ -630,7 +748,7 @@ class ReviewAutomationService:
         )
         updated = self.repository.mark_auto_replied(user_id=user_id, review_uid=review_uid, response_text=reply)
         if not updated:
-            raise KeyError(f"Review {review_uid} not found")
+            raise KeyError("Отзыв не найден")
         self.repository.log_review_action(
             user_id=user_id,
             review_uid=review_uid,
@@ -760,13 +878,11 @@ class ReviewAutomationService:
         if template:
             mode = str(template.get("mode") or "manual")
             text = str(template.get("template_text") or "")
-            if mode in {"auto", "manual", "ignore"}:
+            is_enabled = bool(template.get("is_enabled"))
+            if is_enabled and mode in {"auto", "manual", "ignore"}:
                 return mode, text
-        sentiment = str(getattr(processed, "sentiment_label", "neutral"))
-        priority = str(getattr(processed, "priority", "low"))
-        if sentiment == "negative" or priority == "high":
-            return "manual", ""
-        return "auto", ""
+        # По умолчанию система не выполняет автообработку, пока правило не включено.
+        return "manual", ""
 
     @staticmethod
     def _render_template(template: str, *, review: ReviewInput, category: str, sentiment: str) -> str:

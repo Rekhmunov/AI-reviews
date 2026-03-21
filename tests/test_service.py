@@ -87,6 +87,7 @@ class ReviewAutomationServiceTests(unittest.TestCase):
             category="positive_product",
             mode="auto",
             template_text="Спасибо, {author}! Рады, что товар понравился.",
+            is_enabled=True,
         )
         self.service.sync_reviews(
             user_id=int(self.user["id"]),
@@ -107,6 +108,7 @@ class ReviewAutomationServiceTests(unittest.TestCase):
             category="negative_delivery",
             mode="manual",
             template_text="",
+            is_enabled=True,
         )
         self.service.sync_reviews(
             user_id=int(self.user["id"]),

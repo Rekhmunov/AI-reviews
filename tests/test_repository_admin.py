@@ -170,6 +170,87 @@ class RepositoryAdminTests(unittest.TestCase):
         self.assertEqual(analytics["questions_count"], 1)
         self.assertEqual(analytics["chats_count"], 1)
 
+    def test_template_flags_and_pagination(self) -> None:
+        self.repository.upsert_template(
+            user_id=self.user_id,
+            category="negative_delivery",
+            mode="manual",
+            template_text="",
+            is_enabled=True,
+        )
+        tpl = self.repository.get_template(user_id=self.user_id, category="negative_delivery")
+        self.assertIsNotNone(tpl)
+        assert tpl is not None
+        self.assertTrue(tpl["is_enabled"])
+
+        self.repository.upsert_template(
+            user_id=self.user_id,
+            category="negative_delivery",
+            mode="manual",
+            template_text="",
+            is_enabled=False,
+        )
+        tpl_disabled = self.repository.get_template(user_id=self.user_id, category="negative_delivery")
+        self.assertIsNotNone(tpl_disabled)
+        assert tpl_disabled is not None
+        self.assertFalse(tpl_disabled["is_enabled"])
+
+        deleted = self.repository.delete_template(user_id=self.user_id, category="negative_delivery")
+        self.assertTrue(deleted)
+        self.assertIsNone(self.repository.get_template(user_id=self.user_id, category="negative_delivery"))
+
+        processed_negative = ProcessedReview(
+            review_id="10",
+            normalized_text="bad",
+            sentiment_score=-2,
+            sentiment_label="negative",
+            is_spam=False,
+            is_toxic=False,
+            priority="high",
+            tags=["sentiment:negative"],
+            recommended_action="queue_for_manual_review",
+        )
+        processed_positive = ProcessedReview(
+            review_id="11",
+            normalized_text="good",
+            sentiment_score=3,
+            sentiment_label="positive",
+            is_spam=False,
+            is_toxic=False,
+            priority="low",
+            tags=["sentiment:positive"],
+            recommended_action="auto_close_with_thanks",
+        )
+        self.repository.upsert_processed_review(
+            user_id=self.user_id,
+            source="wb",
+            account_id=None,
+            review=ReviewInput(review_id="ext-p-1", text="Плохо", rating=1),
+            processed=processed_negative,
+            category="negative_delivery",
+            processing_mode="manual",
+            status="queued_for_operator",
+        )
+        self.repository.upsert_processed_review(
+            user_id=self.user_id,
+            source="wb",
+            account_id=None,
+            review=ReviewInput(review_id="ext-p-2", text="Хорошо", rating=5),
+            processed=processed_positive,
+            category="positive_product",
+            processing_mode="auto",
+            status="answered_auto",
+            auto_reply="Спасибо",
+        )
+
+        page = self.repository.list_reviews_paginated(user_id=self.user_id, bucket="new", page=1, page_size=10)
+        self.assertEqual(page["new_count"], 1)
+        self.assertEqual(page["processed_count"], 1)
+        self.assertEqual(page["total"], 1)
+
+        deleted_reviews = self.repository.clear_reviews(user_id=self.user_id)
+        self.assertEqual(deleted_reviews, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -67,6 +67,8 @@ class ReviewRepository:
                     yandex_api_key_encrypted TEXT,
                     yandex_folder_id TEXT,
                     yandex_model_uri TEXT,
+                    use_sync_start_date INTEGER NOT NULL DEFAULT 0,
+                    sync_start_date TEXT,
                     updated_at TEXT NOT NULL
                 )
                 """
@@ -95,6 +97,7 @@ class ReviewRepository:
                     user_id INTEGER NOT NULL,
                     category TEXT NOT NULL,
                     mode TEXT NOT NULL,
+                    is_enabled INTEGER NOT NULL DEFAULT 0,
                     template_text TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     UNIQUE(user_id, category),
@@ -186,8 +189,11 @@ class ReviewRepository:
             self._migrate_schema(conn)
             conn.execute(
                 """
-                INSERT INTO ai_settings (id, provider, yandex_api_key_encrypted, yandex_folder_id, yandex_model_uri, updated_at)
-                VALUES (1, 'rules', NULL, NULL, NULL, ?)
+                INSERT INTO ai_settings (
+                    id, provider, yandex_api_key_encrypted, yandex_folder_id, yandex_model_uri,
+                    use_sync_start_date, sync_start_date, updated_at
+                )
+                VALUES (1, 'rules', NULL, NULL, NULL, 0, NULL, ?)
                 ON CONFLICT(id) DO NOTHING
                 """,
                 (_utc_now(),),
@@ -202,6 +208,10 @@ class ReviewRepository:
         ai_columns = self._table_columns(conn, "ai_settings")
         if "yandex_api_key_encrypted" not in ai_columns:
             conn.execute("ALTER TABLE ai_settings ADD COLUMN yandex_api_key_encrypted TEXT")
+        if "use_sync_start_date" not in ai_columns:
+            conn.execute("ALTER TABLE ai_settings ADD COLUMN use_sync_start_date INTEGER NOT NULL DEFAULT 0")
+        if "sync_start_date" not in ai_columns:
+            conn.execute("ALTER TABLE ai_settings ADD COLUMN sync_start_date TEXT")
 
         account_columns = self._table_columns(conn, "marketplace_accounts")
         if "api_key_encrypted" not in account_columns:
@@ -244,6 +254,10 @@ class ReviewRepository:
                     (encrypt_secret(str(row["yandex_api_key"])), _utc_now()),
                 )
 
+        template_columns = self._table_columns(conn, "response_templates")
+        if "is_enabled" not in template_columns:
+            conn.execute("ALTER TABLE response_templates ADD COLUMN is_enabled INTEGER NOT NULL DEFAULT 0")
+
     @staticmethod
     def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
         rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
@@ -258,6 +272,10 @@ class ReviewRepository:
             data["is_toxic"] = bool(data["is_toxic"])
         if "is_active" in data:
             data["is_active"] = bool(data["is_active"])
+        if "is_enabled" in data:
+            data["is_enabled"] = bool(data["is_enabled"])
+        if "use_sync_start_date" in data:
+            data["use_sync_start_date"] = bool(data["use_sync_start_date"])
         if "tags_json" in data:
             data["tags"] = json.loads(data.pop("tags_json"))
         if "metadata_json" in data:
@@ -403,6 +421,8 @@ class ReviewRepository:
         yandex_api_key: str | None,
         yandex_folder_id: str | None,
         yandex_model_uri: str | None,
+        use_sync_start_date: bool = False,
+        sync_start_date: str | None = None,
     ) -> None:
         current = self.get_ai_settings(include_secrets=True)
         if yandex_api_key is None:
@@ -414,10 +434,19 @@ class ReviewRepository:
             conn.execute(
                 """
                 UPDATE ai_settings
-                SET provider = ?, yandex_api_key_encrypted = ?, yandex_folder_id = ?, yandex_model_uri = ?, updated_at = ?
+                SET provider = ?, yandex_api_key_encrypted = ?, yandex_folder_id = ?, yandex_model_uri = ?,
+                    use_sync_start_date = ?, sync_start_date = ?, updated_at = ?
                 WHERE id = 1
                 """,
-                (provider, encrypted_key, yandex_folder_id, yandex_model_uri, _utc_now()),
+                (
+                    provider,
+                    encrypted_key,
+                    yandex_folder_id,
+                    yandex_model_uri,
+                    int(use_sync_start_date),
+                    sync_start_date,
+                    _utc_now(),
+                ),
             )
 
     def create_marketplace_account(
@@ -511,18 +540,53 @@ class ReviewRepository:
             )
         return result.rowcount > 0
 
-    def upsert_template(self, *, user_id: int, category: str, mode: str, template_text: str) -> None:
+    def delete_marketplace_account(self, *, user_id: int, account_id: int) -> bool:
+        with self._connect() as conn:
+            result = conn.execute(
+                """
+                DELETE FROM marketplace_accounts
+                WHERE user_id = ? AND id = ?
+                """,
+                (user_id, account_id),
+            )
+        return result.rowcount > 0
+
+    def upsert_template(
+        self,
+        *,
+        user_id: int,
+        category: str,
+        mode: str,
+        template_text: str,
+        is_enabled: bool | None = None,
+    ) -> None:
+        if is_enabled is None:
+            with self._connect() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO response_templates (user_id, category, mode, template_text, updated_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(user_id, category) DO UPDATE SET
+                        mode = excluded.mode,
+                        template_text = excluded.template_text,
+                        updated_at = excluded.updated_at
+                    """,
+                    (user_id, category, mode, template_text, _utc_now()),
+                )
+            return
+
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT INTO response_templates (user_id, category, mode, template_text, updated_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO response_templates (user_id, category, mode, is_enabled, template_text, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT(user_id, category) DO UPDATE SET
                     mode = excluded.mode,
+                    is_enabled = excluded.is_enabled,
                     template_text = excluded.template_text,
                     updated_at = excluded.updated_at
                 """,
-                (user_id, category, mode, template_text, _utc_now()),
+                (user_id, category, mode, int(is_enabled), template_text, _utc_now()),
             )
 
     def list_templates(self, user_id: int) -> list[dict[str, Any]]:
@@ -549,6 +613,17 @@ class ReviewRepository:
         if row is None:
             return None
         return self._row_to_dict(row)
+
+    def delete_template(self, *, user_id: int, category: str) -> bool:
+        with self._connect() as conn:
+            result = conn.execute(
+                """
+                DELETE FROM response_templates
+                WHERE user_id = ? AND category = ?
+                """,
+                (user_id, category),
+            )
+        return result.rowcount > 0
 
     @staticmethod
     def make_review_uid(user_id: int, source: str, account_id: int | None, external_review_id: str) -> str:
@@ -652,27 +727,105 @@ class ReviewRepository:
         category: str | None = None,
         limit: int = 200,
     ) -> list[dict[str, Any]]:
-        clauses: list[str] = ["user_id = ?"]
-        params: list[Any] = [user_id]
-        if priority:
-            clauses.append("priority = ?")
-            params.append(priority)
-        if status:
-            clauses.append("status = ?")
-            params.append(status)
-        if category:
-            clauses.append("category = ?")
-            params.append(category)
+        page_data = self.list_reviews_paginated(
+            user_id=user_id,
+            priority=priority,
+            status=status,
+            category=category,
+            page=1,
+            page_size=limit,
+            bucket="all",
+        )
+        return list(page_data["items"])
 
-        query = "SELECT * FROM review_items"
-        if clauses:
-            query += f" WHERE {' AND '.join(clauses)}"
-        query += " ORDER BY updated_at DESC LIMIT ?"
-        params.append(limit)
+    def list_reviews_paginated(
+        self,
+        *,
+        user_id: int,
+        priority: str | None = None,
+        status: str | None = None,
+        category: str | None = None,
+        page: int = 1,
+        page_size: int = 30,
+        bucket: str = "all",
+    ) -> dict[str, Any]:
+        base_clauses: list[str] = ["user_id = ?"]
+        base_params: list[Any] = [user_id]
+        if priority:
+            base_clauses.append("priority = ?")
+            base_params.append(priority)
+        if category:
+            base_clauses.append("category = ?")
+            base_params.append(category)
+
+        view_clauses = list(base_clauses)
+        view_params = list(base_params)
+        if status:
+            view_clauses.append("status = ?")
+            view_params.append(status)
+        elif bucket == "new":
+            view_clauses.append("status NOT IN ('answered_auto', 'answered_manual')")
+        elif bucket == "processed":
+            view_clauses.append("status IN ('answered_auto', 'answered_manual')")
+
+        safe_page = max(page, 1)
+        safe_page_size = min(max(page_size, 1), 500)
+
+        where_base = " AND ".join(base_clauses)
+        where_view = " AND ".join(view_clauses)
 
         with self._connect() as conn:
-            rows = conn.execute(query, tuple(params)).fetchall()
-        return [self._row_to_dict(row) for row in rows]
+            total_row = conn.execute(
+                f"SELECT COUNT(*) AS c FROM review_items WHERE {where_view}",
+                tuple(view_params),
+            ).fetchone()
+            total = int(total_row["c"]) if total_row else 0
+            pages = max((total + safe_page_size - 1) // safe_page_size, 1)
+            safe_page = min(safe_page, pages)
+            offset = (safe_page - 1) * safe_page_size
+            new_row = conn.execute(
+                f"""
+                SELECT COUNT(*) AS c
+                FROM review_items
+                WHERE {where_base}
+                  AND status NOT IN ('answered_auto', 'answered_manual')
+                """,
+                tuple(base_params),
+            ).fetchone()
+            processed_row = conn.execute(
+                f"""
+                SELECT COUNT(*) AS c
+                FROM review_items
+                WHERE {where_base}
+                  AND status IN ('answered_auto', 'answered_manual')
+                """,
+                tuple(base_params),
+            ).fetchone()
+            rows = conn.execute(
+                f"""
+                SELECT *
+                FROM review_items
+                WHERE {where_view}
+                ORDER BY updated_at DESC
+                LIMIT ? OFFSET ?
+                """,
+                tuple([*view_params, safe_page_size, offset]),
+            ).fetchall()
+
+        return {
+            "items": [self._row_to_dict(row) for row in rows],
+            "total": total,
+            "page": safe_page,
+            "page_size": safe_page_size,
+            "pages": pages,
+            "new_count": int(new_row["c"]) if new_row else 0,
+            "processed_count": int(processed_row["c"]) if processed_row else 0,
+        }
+
+    def clear_reviews(self, *, user_id: int) -> int:
+        with self._connect() as conn:
+            result = conn.execute("DELETE FROM review_items WHERE user_id = ?", (user_id,))
+        return int(result.rowcount or 0)
 
     def upsert_conversation(
         self,

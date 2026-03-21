@@ -10,7 +10,7 @@
   <div class="layout">
     <aside class="sidebar">
       <div class="sidebar-main">
-        <div class="brand">REVO</div>
+        <div class="brand">FEEDPILOT</div>
         <div class="meta">пользователь: {{SAFE_EMAIL}}<br/>роль: {{SAFE_ROLE}}</div>
         <a id="nav-reviews" class="navbtn active" href="#" onclick="showSection('reviews')">1) Отзывы</a>
         <a id="nav-conversations" class="navbtn" href="#" onclick="showSection('conversations')">2) Вопросы и чаты</a>
@@ -28,8 +28,16 @@
         <div class="panel">
           <h3>Отзывы</h3>
           <div class="row">
-            <button onclick="syncAll()">Синхронизировать все активные кабинеты</button>
+            <button id="syncAllBtn" onclick="syncAll()">Синхронизировать все активные кабинеты</button>
+            <button id="adminStopSyncBtn" class="secondary hidden" onclick="stopSyncAll()">Остановить синхронизацию</button>
+            <button id="adminClearReviewsBtn" class="secondary hidden" onclick="clearAllReviews()">Очистить отзывы</button>
             <span id="syncInfo" class="small"></span>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="reviews-buckets">
+            <button id="reviews-tab-new" class="bucket-tab active" onclick="setReviewBucket('new')">Новые отзывы (0)</button>
+            <button id="reviews-tab-processed" class="bucket-tab" onclick="setReviewBucket('processed')">Обработанные отзывы (0)</button>
           </div>
         </div>
         <div class="panel">
@@ -68,6 +76,22 @@
             </thead>
             <tbody id="reviewsTbody"></tbody>
           </table>
+          <div class="row reviews-pagination-row">
+            <div class="row">
+              <span class="small">Показывать на странице:</span>
+              <select id="reviewsPageSize" onchange="onReviewPageSizeChange()">
+                <option value="10">10</option>
+                <option value="30" selected>30</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+              </select>
+            </div>
+            <div class="row">
+              <button class="secondary" id="reviewsPrevPageBtn" onclick="changeReviewsPage(-1)">Назад</button>
+              <span id="reviewsPageInfo" class="small">Страница 1 из 1</span>
+              <button class="secondary" id="reviewsNextPageBtn" onclick="changeReviewsPage(1)">Вперед</button>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -187,7 +211,7 @@
           <div class="panel">
             <h4>Текущие правила</h4>
             <table>
-              <thead><tr><th>Категория</th><th>Режим</th></tr></thead>
+              <thead><tr><th>Категория</th><th>Режим</th><th>Включено</th><th>Удалить</th></tr></thead>
               <tbody id="rulesTbody"></tbody>
             </table>
           </div>
@@ -258,7 +282,8 @@
   <script>
     window.APP_PERMISSIONS = {
       can_view_analytics: {{CAN_VIEW_ANALYTICS}},
-      can_view_settings: {{CAN_VIEW_SETTINGS}}
+      can_view_settings: {{CAN_VIEW_SETTINGS}},
+      is_admin: {{IS_ADMIN}}
     };
   </script>
   <script src="/static/app.js"></script>

@@ -6,6 +6,14 @@ function esc(value) {
 }
 
 const templateStore = {};
+const reviewsState = {
+  page: 1,
+  page_size: 30,
+  pages: 1,
+  bucket: "new",
+};
+let syncInProgress = false;
+
 const categoryLabels = {
   negative_delivery: "Негатив: доставка",
   negative_product: "Негатив: товар",
@@ -51,7 +59,7 @@ function labelFromMap(map, value) {
 }
 
 function getPermissions() {
-  const defaults = { can_view_analytics: true, can_view_settings: true };
+  const defaults = { can_view_analytics: true, can_view_settings: true, is_admin: false };
   const fromWindow = window.APP_PERMISSIONS || {};
   return {
     can_view_analytics: Boolean(
@@ -63,6 +71,11 @@ function getPermissions() {
       fromWindow.can_view_settings !== undefined
         ? fromWindow.can_view_settings
         : defaults.can_view_settings,
+    ),
+    is_admin: Boolean(
+      fromWindow.is_admin !== undefined
+        ? fromWindow.is_admin
+        : defaults.is_admin,
     ),
   };
 }
@@ -104,6 +117,29 @@ function showSettingsTab(tab) {
   document.getElementById("settings-pane-" + tab).classList.remove("hidden");
 }
 
+function setReviewBucket(bucket) {
+  reviewsState.bucket = bucket;
+  reviewsState.page = 1;
+  document.getElementById("reviews-tab-new")?.classList.toggle("active", bucket === "new");
+  document.getElementById("reviews-tab-processed")?.classList.toggle("active", bucket === "processed");
+  loadReviews();
+}
+
+function onReviewPageSizeChange() {
+  const raw = Number(document.getElementById("reviewsPageSize")?.value || 30);
+  if (![10, 30, 50, 100].includes(raw)) return;
+  reviewsState.page_size = raw;
+  reviewsState.page = 1;
+  loadReviews();
+}
+
+function changeReviewsPage(delta) {
+  const next = reviewsState.page + delta;
+  if (next < 1 || next > reviewsState.pages) return;
+  reviewsState.page = next;
+  loadReviews();
+}
+
 function toggleAddSourceForm(show) {
   const form = document.getElementById("addSourceForm");
   if (!form) return;
@@ -142,25 +178,80 @@ function syncTemplateFormFromStore() {
   document.getElementById("tplText").value = tpl ? (tpl.template_text || "") : "";
 }
 
+function renderRatingStars(value) {
+  if (value === null || value === undefined || value === "") return "<span class='small'>без оценки</span>";
+  const numeric = Math.max(0, Math.min(5, Number(value) || 0));
+  const rounded = Math.round(numeric);
+  const full = "★".repeat(rounded);
+  const empty = "☆".repeat(Math.max(5 - rounded, 0));
+  return `<span class="rating-stars" title="${rounded}/5">${full}${empty}</span>`;
+}
+
 async function syncAll() {
-  const payload = { all_accounts: true, account_id: null };
-  const res = await fetch("/api/sync", {
+  if (syncInProgress) return;
+  const syncButton = document.getElementById("syncAllBtn");
+  const syncInfo = document.getElementById("syncInfo");
+  syncInProgress = true;
+  if (syncButton) {
+    syncButton.disabled = true;
+    syncButton.textContent = "Идет синхронизация...";
+  }
+  if (syncInfo) syncInfo.textContent = "Загрузка отзывов началась, пожалуйста подождите...";
+  try {
+    const payload = { all_accounts: true, account_id: null };
+    const res = await fetch("/api/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      if (syncInfo) syncInfo.textContent = "Ошибка: " + (data.detail || "синхронизация не выполнена");
+      return;
+    }
+    const failed = data.failed_accounts || 0;
+    let text = `Кабинетов: ${data.accounts}, отзывов: ${data.loaded}, вопросов/чатов: ${data.loaded_conversations || 0}`;
+    if (failed > 0) text += `, ошибок: ${failed}`;
+    if (data.cancelled) text += ", синхронизация остановлена администратором";
+    if (syncInfo) syncInfo.textContent = text;
+    const tasks = [loadReviews(), loadConversations()];
+    if (canViewSection("analytics")) tasks.push(loadAnalytics());
+    await Promise.all(tasks);
+  } finally {
+    syncInProgress = false;
+    if (syncButton) {
+      syncButton.disabled = false;
+      syncButton.textContent = "Синхронизировать все активные кабинеты";
+    }
+  }
+}
+
+async function stopSyncAll() {
+  const res = await fetch("/api/admin/sync-stop", { method: "POST" });
+  const data = await res.json();
+  if (!res.ok) {
+    alert(data.detail || "Не удалось остановить синхронизацию");
+    return;
+  }
+  const syncInfo = document.getElementById("syncInfo");
+  if (syncInfo) syncInfo.textContent = "Отправлена команда остановки. Подождите завершения текущей операции.";
+}
+
+async function clearAllReviews() {
+  if (!confirm("Удалить все отзывы из текущего кабинета?")) return;
+  const res = await fetch("/api/admin/reviews-clear", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({}),
   });
   const data = await res.json();
   if (!res.ok) {
-    document.getElementById("syncInfo").textContent = "Ошибка: " + (data.detail || "синхронизация не выполнена");
+    alert(data.detail || "Не удалось очистить отзывы");
     return;
   }
-  const failed = data.failed_accounts || 0;
-  let text = `Кабинетов: ${data.accounts}, отзывов: ${data.loaded}, вопросов/чатов: ${data.loaded_conversations || 0}`;
-  if (failed > 0) text += `, ошибок: ${failed}`;
-  document.getElementById("syncInfo").textContent = text;
-  const tasks = [loadReviews(), loadConversations()];
-  if (canViewSection("analytics")) tasks.push(loadAnalytics());
-  await Promise.all(tasks);
+  const syncInfo = document.getElementById("syncInfo");
+  if (syncInfo) syncInfo.textContent = `Удалено отзывов: ${data.deleted || 0}`;
+  await loadReviews();
 }
 
 async function loadReviews() {
@@ -171,18 +262,27 @@ async function loadReviews() {
   if (priority) query.set("priority", priority);
   if (status) query.set("status", status);
   if (category) query.set("category", category);
+  query.set("bucket", reviewsState.bucket);
+  query.set("page", String(reviewsState.page));
+  query.set("page_size", String(reviewsState.page_size));
 
   const res = await fetch("/api/reviews?" + query.toString());
   const data = await res.json();
   const tbody = document.getElementById("reviewsTbody");
   tbody.innerHTML = "";
+  if (!res.ok) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td colspan="6" class="small">Ошибка: ${esc(data.detail || "не удалось загрузить отзывы")}</td>`;
+    tbody.appendChild(tr);
+    return;
+  }
   for (const review of data.items || []) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${esc(review.source)}</td>
       <td>
         <div>${esc(review.text)}</div>
-        <div class="small">автор: ${esc(review.author || "-")} | оценка: ${esc(review.rating ?? "-")} | категория: ${esc(labelFromMap(categoryLabels, review.category))}</div>
+        <div class="small">автор: ${esc(review.author || "-")} | рейтинг: ${renderRatingStars(review.rating)} | категория: ${esc(labelFromMap(categoryLabels, review.category))}</div>
       </td>
       <td>
         <div class="small">автоответ: ${esc(review.auto_reply || "-")}</div>
@@ -191,13 +291,26 @@ async function loadReviews() {
       <td><span class="pill ${esc(review.priority)}">${esc(labelFromMap(priorityLabels, review.priority))}</span></td>
       <td>${esc(labelFromMap(reviewStatusLabels, review.status))}</td>
       <td>
-        <button onclick="autoReply('${esc(review.review_uid)}')">Автоответ</button>
-        <button class="secondary" onclick="queueManual('${esc(review.review_uid)}')">Вручную</button>
-        <button class="secondary" onclick="manualReply('${esc(review.review_uid)}')">Ответ оператора</button>
+        <div class="actions-col">
+          <button onclick="autoReply('${esc(review.review_uid)}')">Автоответ</button>
+          <button class="secondary" onclick="queueManual('${esc(review.review_uid)}')">Вручную</button>
+          <button class="secondary" onclick="manualReply('${esc(review.review_uid)}')">Ответ оператора</button>
+        </div>
       </td>
     `;
     tbody.appendChild(tr);
   }
+
+  const newCount = Number(data.new_count || 0);
+  const processedCount = Number(data.processed_count || 0);
+  document.getElementById("reviews-tab-new").textContent = `Новые отзывы (${newCount})`;
+  document.getElementById("reviews-tab-processed").textContent = `Обработанные отзывы (${processedCount})`;
+
+  reviewsState.page = Number(data.page || 1);
+  reviewsState.pages = Number(data.pages || 1);
+  document.getElementById("reviewsPageInfo").textContent = `Страница ${reviewsState.page} из ${reviewsState.pages}`;
+  document.getElementById("reviewsPrevPageBtn").disabled = reviewsState.page <= 1;
+  document.getElementById("reviewsNextPageBtn").disabled = reviewsState.page >= reviewsState.pages;
 }
 
 async function loadConversations() {
@@ -276,9 +389,12 @@ async function loadAccounts() {
       <td>${esc(account.api_key_preview || "-")}</td>
       <td>${esc(account.is_active ? "Да" : "Нет")}</td>
       <td>
-        <button class="secondary" onclick="toggleAccount(${account.id}, ${account.is_active ? "false" : "true"})">
-          ${account.is_active ? "Отключить" : "Включить"}
-        </button>
+        <div class="row">
+          <button class="secondary" onclick="toggleAccount(${account.id}, ${account.is_active ? "false" : "true"})">
+            ${account.is_active ? "Отключить" : "Включить"}
+          </button>
+          <button class="icon-btn danger" title="Удалить источник" onclick="deleteAccount(${account.id})">🗑</button>
+        </div>
       </td>
     `;
     tbody.appendChild(tr);
@@ -339,6 +455,17 @@ async function toggleAccount(accountId, active) {
   await loadAccounts();
 }
 
+async function deleteAccount(accountId) {
+  if (!confirm("Удалить источник данных?")) return;
+  const res = await fetch(`/api/accounts/${accountId}`, { method: "DELETE" });
+  const data = await res.json();
+  if (!res.ok) {
+    alert(data.detail || "Не удалось удалить источник");
+    return;
+  }
+  await loadAccounts();
+}
+
 async function loadTemplates() {
   const res = await fetch("/api/templates");
   const data = await res.json();
@@ -358,7 +485,19 @@ async function loadTemplates() {
 
     if (rulesBody) {
       const row = document.createElement("tr");
-      row.innerHTML = `<td>${esc(labelFromMap(categoryLabels, tpl.category))}</td><td>${esc(labelFromMap(modeLabels, tpl.mode))}</td>`;
+      row.innerHTML = `
+        <td>${esc(labelFromMap(categoryLabels, tpl.category))}</td>
+        <td>${esc(labelFromMap(modeLabels, tpl.mode))}</td>
+        <td>
+          <label class="switch">
+            <input type="checkbox" ${tpl.is_enabled ? "checked" : ""} onchange="toggleRuleEnabled('${esc(tpl.category)}', this.checked)" />
+            <span class="slider"></span>
+          </label>
+        </td>
+        <td>
+          <button class="icon-btn danger" title="Удалить правило" onclick="deleteRule('${esc(tpl.category)}')">🗑</button>
+        </td>
+      `;
       rulesBody.appendChild(row);
     }
   }
@@ -366,15 +505,50 @@ async function loadTemplates() {
   syncTemplateFormFromStore();
 }
 
+async function toggleRuleEnabled(category, enabled) {
+  const current = templateStore[category] || { mode: "manual", template_text: "" };
+  const payload = {
+    category: category,
+    mode: current.mode || "manual",
+    template_text: current.template_text || "",
+    is_enabled: Boolean(enabled),
+  };
+  const res = await fetch("/api/templates", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    alert(data.detail || "Не удалось изменить состояние правила");
+    await loadTemplates();
+    return;
+  }
+  await loadTemplates();
+}
+
+async function deleteRule(category) {
+  if (!confirm("Удалить правило обработки?")) return;
+  const res = await fetch(`/api/templates/${encodeURIComponent(category)}`, { method: "DELETE" });
+  const data = await res.json();
+  if (!res.ok) {
+    alert(data.detail || "Не удалось удалить правило");
+    return;
+  }
+  await loadTemplates();
+}
+
 async function saveRuleOnly() {
   const category = document.getElementById("ruleCategory").value;
   const mode = document.getElementById("ruleMode").value;
   const existingTemplate = templateStore[category]?.template_text || "";
+  const isEnabled = Boolean(templateStore[category]?.is_enabled);
 
   const payload = {
     category: category,
     mode: mode,
     template_text: existingTemplate,
+    is_enabled: isEnabled,
   };
   const res = await fetch("/api/templates", {
     method: "PUT",
@@ -393,10 +567,12 @@ async function saveRuleOnly() {
 async function saveTemplateText() {
   const category = document.getElementById("tplCategory").value;
   const existingMode = templateStore[category]?.mode || "manual";
+  const isEnabled = Boolean(templateStore[category]?.is_enabled);
   const payload = {
     category: category,
     mode: existingMode,
     template_text: document.getElementById("tplText").value,
+    is_enabled: isEnabled,
   };
   const res = await fetch("/api/templates", {
     method: "PUT",
@@ -518,6 +694,11 @@ document.addEventListener("DOMContentLoaded", () => {
   } else {
     showSettingsTab("sources");
   }
+  if (permissions.is_admin) {
+    document.getElementById("adminStopSyncBtn")?.classList.remove("hidden");
+    document.getElementById("adminClearReviewsBtn")?.classList.remove("hidden");
+  }
+  document.getElementById("reviewsPageSize").value = String(reviewsState.page_size);
   onSourceMarketplaceChange();
   setPasswordFieldsVisible(false);
   document.getElementById("ruleCategory")?.addEventListener("change", syncRuleFormFromStore);

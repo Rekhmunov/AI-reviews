@@ -393,6 +393,15 @@ button {
   min-height: 40px;
 }
 
+input.small-check {
+  min-height: 0;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  margin-right: 6px;
+  accent-color: var(--primary);
+}
+
 input:focus,
 select:focus,
 textarea:focus {
@@ -576,6 +585,114 @@ tbody tr:hover {
   text-decoration: none;
 }
 
+.reviews-buckets {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.bucket-tab {
+  min-height: 38px;
+  padding: 8px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(147, 197, 253, 0.45);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.86), rgba(238, 246, 255, 0.8));
+  color: #224278;
+  font-weight: 600;
+}
+
+.bucket-tab.active {
+  color: #dbeafe;
+  border-color: rgba(37, 99, 235, 0.86);
+  background: linear-gradient(150deg, #2563eb 0%, #1d4ed8 58%, #1e40af 100%);
+  box-shadow: 0 0 18px rgba(37, 99, 235, 0.28);
+}
+
+.reviews-pagination-row {
+  justify-content: space-between;
+  margin-top: 14px;
+}
+
+.actions-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.icon-btn {
+  min-width: 38px;
+  min-height: 38px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.icon-btn.danger {
+  color: #991b1b;
+  border-color: rgba(252, 165, 165, 0.7);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.9), rgba(254, 242, 242, 0.95));
+}
+
+.icon-btn.danger:hover {
+  border-color: rgba(239, 68, 68, 0.78);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.94), rgba(254, 226, 226, 0.96));
+}
+
+.rating-stars {
+  color: #fbbf24;
+  letter-spacing: 1px;
+  font-size: 14px;
+  text-shadow: 0 0 8px rgba(251, 191, 36, 0.28);
+}
+
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 42px;
+  height: 22px;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+  min-height: 0;
+}
+
+.switch .slider {
+  position: absolute;
+  inset: 0;
+  cursor: pointer;
+  background: rgba(148, 163, 184, 0.44);
+  border-radius: 999px;
+  transition: 0.2s ease;
+}
+
+.switch .slider::before {
+  content: "";
+  position: absolute;
+  height: 16px;
+  width: 16px;
+  left: 3px;
+  top: 3px;
+  border-radius: 50%;
+  background: #ffffff;
+  transition: 0.2s ease;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.2);
+}
+
+.switch input:checked + .slider {
+  background: linear-gradient(160deg, #2563eb, #1d4ed8);
+}
+
+.switch input:checked + .slider::before {
+  transform: translateX(20px);
+}
+
 @media (max-width: 900px) {
   .layout {
     grid-template-columns: 1fr;
@@ -588,6 +705,11 @@ tbody tr:hover {
 
   .main {
     padding: 16px;
+  }
+
+  .reviews-pagination-row {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
   textarea,
