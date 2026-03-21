@@ -178,6 +178,20 @@ function dateToInputValue(dateValue) {
   return `${y}-${m}-${d}`;
 }
 
+function setDefaultReviewsDateRange(force) {
+  if (!force && reviewsState.date_from && reviewsState.date_to) return;
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const monthAgo = new Date(today);
+  monthAgo.setMonth(monthAgo.getMonth() - 1);
+  reviewsState.date_from = dateToInputValue(monthAgo);
+  reviewsState.date_to = dateToInputValue(today);
+  const fromInput = document.getElementById("reviewsDateFrom");
+  const toInput = document.getElementById("reviewsDateTo");
+  if (fromInput) fromInput.value = reviewsState.date_from;
+  if (toInput) toInput.value = reviewsState.date_to;
+}
+
 function inputValueToRuDate(value) {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return "";
   const year = value.slice(2, 4);
@@ -317,12 +331,11 @@ function applyReviewsDateFilter() {
 }
 
 function clearReviewsDateFilter() {
-  reviewsState.date_from = null;
-  reviewsState.date_to = null;
+  setDefaultReviewsDateRange(true);
   const fromInput = document.getElementById("reviewsDateFrom");
   const toInput = document.getElementById("reviewsDateTo");
-  if (fromInput) fromInput.value = "";
-  if (toInput) toInput.value = "";
+  if (fromInput) fromInput.value = reviewsState.date_from || "";
+  if (toInput) toInput.value = reviewsState.date_to || "";
   reviewsState.page = 1;
   updateReviewsDateFilterButton();
   loadReviews();
@@ -1325,7 +1338,28 @@ document.addEventListener("DOMContentLoaded", () => {
     sortFilter.value = reviewsState.sort;
     sortFilter.addEventListener("change", onReviewsSortChange);
   }
+  setDefaultReviewsDateRange(false);
   updateReviewsDateFilterButton();
+  document.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const dateWrap = document.querySelector(".reviews-date-wrap");
+    const datePanel = document.getElementById("reviewsDateFilterPanel");
+    if (datePanel && !datePanel.classList.contains("hidden") && dateWrap && !dateWrap.contains(target)) {
+      toggleReviewsDateFilterPanel(false);
+    }
+    const filtersPanel = document.getElementById("reviewsFiltersPanel");
+    const filtersButton = document.getElementById("reviewsFiltersBtn");
+    if (
+      filtersPanel &&
+      !filtersPanel.classList.contains("hidden") &&
+      !filtersPanel.contains(target) &&
+      filtersButton &&
+      !filtersButton.contains(target)
+    ) {
+      toggleReviewsFiltersPanel(false);
+    }
+  });
   onSourceMarketplaceChange();
   setPasswordFieldsVisible(false);
   document.getElementById("ruleCategory")?.addEventListener("change", syncRuleFormFromStore);

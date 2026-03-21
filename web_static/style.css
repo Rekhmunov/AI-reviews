@@ -614,6 +614,15 @@ tr.review-row-send-error:hover td {
   flex-wrap: wrap;
 }
 
+.reviews-controls-panel {
+  overflow: visible;
+  z-index: 3;
+}
+
+.reviews-date-wrap {
+  position: relative;
+}
+
 .reviews-filter-icon-btn {
   min-width: 42px;
   width: 42px;
@@ -656,7 +665,10 @@ tr.review-row-send-error:hover td {
 }
 
 .reviews-date-panel {
-  margin-top: 12px;
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: min(760px, calc(100vw - 64px));
   border: 1px solid rgba(147, 197, 253, 0.42);
   border-radius: 14px;
   padding: 12px;
@@ -664,6 +676,8 @@ tr.review-row-send-error:hover td {
   display: grid;
   grid-template-columns: minmax(180px, 220px) minmax(260px, 1fr);
   gap: 12px;
+  box-shadow: 0 12px 26px rgba(15, 23, 42, 0.18);
+  z-index: 20;
 }
 
 .reviews-date-presets {
@@ -919,6 +933,9 @@ tr.review-row-send-error:hover td {
   }
 
   .reviews-date-panel {
+    right: auto;
+    left: 0;
+    width: min(92vw, 760px);
     grid-template-columns: 1fr;
   }
 
