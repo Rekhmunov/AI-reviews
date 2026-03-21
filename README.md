@@ -44,11 +44,11 @@
 Обработайте файл:
 
 ```bash
-python -m review_processor.cli --input reviews.json --output processed_reviews.json
+python3 -m review_processor.cli --input reviews.json --output processed_reviews.json
 ```
 
 ## Запуск тестов
 
 ```bash
-python -m unittest discover -s tests -p "test_*.py"
+python3 -m unittest discover -s tests -p "test_*.py"
 ```
