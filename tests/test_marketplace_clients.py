@@ -1,6 +1,6 @@
 import unittest
 
-from review_processor.service import OzonMarketplaceClient, WildberriesMarketplaceClient
+from review_processor.service import MarketplaceSyncError, OzonMarketplaceClient, WildberriesMarketplaceClient
 
 
 class _TestOzonClient(OzonMarketplaceClient):
@@ -76,6 +76,22 @@ class MarketplaceClientsTests(unittest.TestCase):
         self.assertEqual(len(reviews), 3)
         self.assertEqual(reviews[1].review_id, "w2")
         self.assertEqual(reviews[1].rating, 1)
+
+    def test_ozon_client_detects_error_payload(self) -> None:
+        class _ErrorOzon(_TestOzonClient):
+            def _request_json(self, *, path: str, payload: dict[str, object]) -> dict[str, object]:
+                return {"result": {"error": "token expired"}}
+
+        with self.assertRaises(MarketplaceSyncError):
+            _ErrorOzon().fetch_reviews()
+
+    def test_wb_client_detects_error_payload(self) -> None:
+        class _ErrorWb(_TestWbClient):
+            def _request_json(self, *, skip: int, take: int) -> dict[str, object]:
+                return {"error": "forbidden"}
+
+        with self.assertRaises(MarketplaceSyncError):
+            _ErrorWb().fetch_reviews()
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@ from .models import ProcessedReview, ReviewInput
 from .processor import ReviewProcessor
 from .repository import ReviewRepository
 from .security import decrypt_secret, encrypt_secret, mask_secret
-from .service import OzonMarketplaceClient, ReviewAutomationService, WildberriesMarketplaceClient
+from .service import MarketplaceSyncError, OzonMarketplaceClient, ReviewAutomationService, WildberriesMarketplaceClient
 
 __all__ = [
     "ProcessedReview",
@@ -17,6 +17,7 @@ __all__ = [
     "mask_secret",
     "ReviewRepository",
     "ReviewAutomationService",
+    "MarketplaceSyncError",
     "OzonMarketplaceClient",
     "WildberriesMarketplaceClient",
 ]

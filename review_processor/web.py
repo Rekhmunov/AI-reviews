@@ -9,13 +9,7 @@ from pydantic import BaseModel, Field
 
 from .auth import create_session_token, hash_password, verify_password
 from .repository import ReviewRepository
-from .service import (
-    HTTPMarketplaceClient,
-    MockMarketplaceClient,
-    OzonMarketplaceClient,
-    ReviewAutomationService,
-    WildberriesMarketplaceClient,
-)
+from .service import MarketplaceSyncError, ReviewAutomationService
 
 CATEGORIES = [
     "negative_delivery",
@@ -43,6 +37,7 @@ class AccountCreateRequest(BaseModel):
     api_url: str = Field(min_length=3, max_length=2000)
     api_key: str | None = Field(default=None, max_length=2000)
     client_id: str | None = Field(default=None, max_length=200)
+    integration: dict[str, object] | None = None
 
 
 class AccountStatusRequest(BaseModel):
@@ -214,31 +209,16 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
         if account is None:
             raise HTTPException(status_code=404, detail="Marketplace account not found")
         marketplace = str(account["marketplace"])
-        if marketplace == "mock":
-            client = MockMarketplaceClient()
-        elif marketplace == "ozon":
-            extra = account["extra"] if isinstance(account.get("extra"), dict) else {}
-            client = OzonMarketplaceClient(
-                api_url=str(account["api_url"]),
-                client_id=str(extra.get("client_id") or ""),
-                api_key=str(account.get("api_key") or ""),
+        try:
+            client = service._build_client(account)
+            loaded = service.sync_reviews(
+                user_id=user_id,
+                source=marketplace,
+                account_id=int(account["id"]),
+                client=client,
             )
-        elif marketplace == "wb":
-            client = WildberriesMarketplaceClient(
-                api_url=str(account["api_url"]),
-                api_key=str(account.get("api_key") or ""),
-            )
-        else:
-            client = HTTPMarketplaceClient(
-                api_url=str(account["api_url"]),
-                api_key=str(account["api_key"]) if account.get("api_key") else None,
-            )
-        loaded = service.sync_reviews(
-            user_id=user_id,
-            source=marketplace,
-            account_id=int(account["id"]),
-            client=client,
-        )
+        except MarketplaceSyncError as exc:
+            raise HTTPException(status_code=502, detail=f"Sync failed: {exc}") from exc
         return {"accounts": 1, "loaded": loaded}
 
     @app.get("/api/accounts")
@@ -253,17 +233,30 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
         marketplace = payload.marketplace.strip().lower()
         if marketplace not in {"wb", "ozon", "mock"}:
             raise HTTPException(status_code=400, detail="marketplace must be one of: wb, ozon, mock")
+        integration = payload.integration if isinstance(payload.integration, dict) else {}
         if marketplace in {"wb", "ozon"} and not (payload.api_key or "").strip():
             raise HTTPException(status_code=400, detail="api_key is required for WB/OZON")
-        if marketplace == "ozon" and not (payload.client_id or "").strip():
+        client_id_value = (payload.client_id or "").strip() or str(integration.get("client_id") or "").strip()
+        if marketplace == "ozon" and not client_id_value:
             raise HTTPException(status_code=400, detail="client_id is required for OZON")
+        if client_id_value:
+            integration["client_id"] = client_id_value
+        if marketplace == "ozon":
+            page_size = integration.get("page_size")
+            if page_size is not None and (not isinstance(page_size, int) or page_size <= 0):
+                raise HTTPException(status_code=400, detail="integration.page_size must be positive integer")
+        if marketplace == "wb":
+            max_pages = integration.get("max_pages")
+            if max_pages is not None and (not isinstance(max_pages, int) or max_pages <= 0):
+                raise HTTPException(status_code=400, detail="integration.max_pages must be positive integer")
+
         account = repository.create_marketplace_account(
             user_id=int(user["id"]),
             marketplace=marketplace,
             account_name=payload.account_name.strip(),
             api_url=payload.api_url.strip(),
             api_key=(payload.api_key or "").strip() or None,
-            extra={"client_id": (payload.client_id or "").strip()} if payload.client_id else {},
+            extra=integration,
         )
         return {"ok": True, "item": account}
 
@@ -636,6 +629,7 @@ def build_app_html(user: dict[str, object]) -> str:
             <input id="accApiUrl" type="text" size="40" placeholder="https://.../reviews" />
             <input id="accClientId" type="text" size="22" placeholder="OZON Client ID (optional)" />
             <input id="accApiKey" type="text" size="35" placeholder="API key (optional)" />
+            <textarea id="accIntegration" placeholder='Integration JSON (optional), e.g. {"page_size": 100, "max_pages": 10}' style="min-height:44px;min-width:360px"></textarea>
             <button onclick="createAccount()">Сохранить</button>
           </div>
           <div id="accountsInfo" class="small"></div>
@@ -710,7 +704,12 @@ def build_app_html(user: dict[str, object]) -> str:
         document.getElementById("syncInfo").textContent = "Ошибка: " + (data.detail || "sync failed");
         return;
       }
-      document.getElementById("syncInfo").textContent = `Кабинетов: ${data.accounts}, отзывов: ${data.loaded}`;
+      const failed = data.failed_accounts || 0;
+      let text = `Кабинетов: ${data.accounts}, отзывов: ${data.loaded}`;
+      if (failed > 0) {
+        text += `, ошибок: ${failed}`;
+      }
+      document.getElementById("syncInfo").textContent = text;
       await loadReviews();
     }
 
@@ -778,12 +777,23 @@ def build_app_html(user: dict[str, object]) -> str:
     }
 
     async function createAccount() {
+      let integration = null;
+      const integrationRaw = document.getElementById("accIntegration").value.trim();
+      if (integrationRaw) {
+        try {
+          integration = JSON.parse(integrationRaw);
+        } catch (_) {
+          document.getElementById("accountsInfo").textContent = "Ошибка: Integration JSON некорректный";
+          return;
+        }
+      }
       const payload = {
         marketplace: document.getElementById("accMarketplace").value,
         account_name: document.getElementById("accName").value.trim(),
         api_url: document.getElementById("accApiUrl").value.trim(),
         client_id: document.getElementById("accClientId").value.trim() || null,
-        api_key: document.getElementById("accApiKey").value.trim() || null
+        api_key: document.getElementById("accApiKey").value.trim() || null,
+        integration: integration
       };
       const res = await fetch("/api/accounts", {
         method: "POST",

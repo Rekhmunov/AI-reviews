@@ -61,6 +61,38 @@ URL: `/admin` (доступ только для роли `admin`)
 - для OZON используется `client_id + api_key`;
 - для WB используется `api_key`;
 - можно подключать несколько кабинетов каждого маркетплейса.
+- добавлена нормализация ошибок API и retry для сетевых сбоев.
+
+Дополнительные настройки интеграции можно передать через `integration` (JSON) при создании кабинета:
+
+- для OZON:
+  - `list_path` (по умолчанию `/v1/review/list`)
+  - `page_size`, `max_pages`
+  - `base_payload` (словарь, добавляется в каждую POST-загрузку)
+- для WB:
+  - `list_path` (если нужен явный path поверх base URL)
+  - `page_size`, `max_pages`
+  - `skip_param`, `take_param`, `unanswered_param`, `unanswered_value`
+
+Пример payload для `POST /api/accounts` (OZON):
+
+```json
+{
+  "marketplace": "ozon",
+  "account_name": "Ozon Main",
+  "api_url": "https://api-seller.ozon.ru",
+  "api_key": "secret",
+  "client_id": "12345",
+  "integration": {
+    "list_path": "/v1/review/list",
+    "page_size": 50,
+    "max_pages": 15,
+    "base_payload": {
+      "sort_dir": "DESC"
+    }
+  }
+}
+```
 
 ### 6) Безопасность API-ключей
 
@@ -108,6 +140,7 @@ http://localhost:8000
 
 - `GET /api/me`
 - `POST /api/sync` (`all_accounts=true` или `account_id`)
+  - в ответе для `all_accounts=true` возвращаются `success_accounts`, `failed_accounts`, `errors`
 - `GET /api/reviews?priority=&status=&category=`
 - `POST /api/reviews/{review_uid}/auto-reply`
 - `POST /api/reviews/{review_uid}/queue-manual`
