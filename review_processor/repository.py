@@ -788,17 +788,24 @@ class ReviewRepository:
         *,
         user_id: int,
         group_id: str,
+        subgroup: str | None = None,
     ) -> dict[str, Any] | None:
+        clauses = ["user_id = ?", "group_id = ?", "is_active = 1"]
+        params: list[Any] = [user_id, group_id]
+        if subgroup:
+            clauses.append("subgroup = ?")
+            params.append(subgroup)
+        where = " AND ".join(clauses)
         with self._connect() as conn:
             row = conn.execute(
-                """
+                f"""
                 SELECT *
                 FROM response_template_variants
-                WHERE user_id = ? AND group_id = ? AND is_active = 1
+                WHERE {where}
                 ORDER BY RANDOM()
                 LIMIT 1
                 """,
-                (user_id, group_id),
+                tuple(params),
             ).fetchone()
         if row is None:
             return None
@@ -1101,9 +1108,9 @@ class ReviewRepository:
             view_clauses.append("status = ?")
             view_params.append(status)
         elif bucket == "new":
-            view_clauses.append("status NOT IN ('answered_auto', 'answered_manual')")
+            view_clauses.append("status NOT IN ('answered_auto', 'answered_manual', 'ignored')")
         elif bucket == "processed":
-            view_clauses.append("status IN ('answered_auto', 'answered_manual')")
+            view_clauses.append("status IN ('answered_auto', 'answered_manual', 'ignored')")
 
         safe_page = max(page, 1)
         safe_page_size = min(max(page_size, 1), 500)
@@ -1134,7 +1141,7 @@ class ReviewRepository:
                 SELECT COUNT(*) AS c
                 FROM review_items
                 WHERE {where_base}
-                  AND status NOT IN ('answered_auto', 'answered_manual')
+                  AND status NOT IN ('answered_auto', 'answered_manual', 'ignored')
                 """,
                 tuple(base_params),
             ).fetchone()
@@ -1143,7 +1150,7 @@ class ReviewRepository:
                 SELECT COUNT(*) AS c
                 FROM review_items
                 WHERE {where_base}
-                  AND status IN ('answered_auto', 'answered_manual')
+                  AND status IN ('answered_auto', 'answered_manual', 'ignored')
                 """,
                 tuple(base_params),
             ).fetchone()
@@ -1179,7 +1186,7 @@ class ReviewRepository:
                 """
                 SELECT *
                 FROM review_items
-                WHERE user_id = ? AND status NOT IN ('answered_auto', 'answered_manual')
+                WHERE user_id = ? AND status NOT IN ('answered_auto', 'answered_manual', 'ignored')
                 ORDER BY updated_at DESC
                 LIMIT ?
                 """,

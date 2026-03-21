@@ -1078,6 +1078,8 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
             reply = service.generate_auto_reply(user_id=int(user["id"]), review_uid=review_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc) or "Отзыв не найден") from exc
+        except MarketplaceSyncError as exc:
+            raise HTTPException(status_code=502, detail=f"Не удалось отправить ответ в маркетплейс: {exc}") from exc
         return {"ok": True, "reply": reply}
 
     @app.post("/api/reviews/{review_id}/manual-reply")

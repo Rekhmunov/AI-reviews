@@ -45,6 +45,19 @@ class _RecoClient:
         ]
 
 
+class _PositiveDeliveryClient:
+    def fetch_reviews(self, *args: object, **kwargs: object) -> list[ReviewInput]:
+        _ = args, kwargs
+        return [
+            ReviewInput(
+                review_id="ext-delivery-1",
+                text="Спасибо, отличная доставка и быстрый курьер",
+                author="Client C",
+                rating=5,
+            )
+        ]
+
+
 class ReviewAutomationServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         temp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
@@ -195,6 +208,61 @@ class ReviewAutomationServiceTests(unittest.TestCase):
         self.assertIn("FEEDPILOT", reply)
         self.assertFalse(reply.startswith(","))
         self.assertNotIn(",!", reply)
+
+    def test_ignore_rule_requires_auto_send_to_mark_processed(self) -> None:
+        self.repository.upsert_processing_rule(
+            user_id=int(self.user["id"]),
+            group_id="positive",
+            action_mode="ignore",
+            auto_send=True,
+        )
+        self.service.sync_reviews(
+            user_id=int(self.user["id"]),
+            source="test-market",
+            account_id=None,
+            client=_PositiveDeliveryClient(),
+        )
+        review = self.repository.list_reviews(user_id=int(self.user["id"]), limit=1)[0]
+        self.assertEqual(review["status"], "ignored")
+
+        self.repository.clear_reviews(user_id=int(self.user["id"]))
+        self.repository.upsert_processing_rule(
+            user_id=int(self.user["id"]),
+            group_id="positive",
+            action_mode="ignore",
+            auto_send=False,
+        )
+        self.service.sync_reviews(
+            user_id=int(self.user["id"]),
+            source="test-market",
+            account_id=None,
+            client=_PositiveDeliveryClient(),
+        )
+        queued = self.repository.list_reviews(user_id=int(self.user["id"]), limit=1)[0]
+        self.assertEqual(queued["status"], "queued_for_operator")
+
+    def test_positive_delivery_uses_delivery_subgroup_template(self) -> None:
+        self.repository.upsert_processing_rule(
+            user_id=int(self.user["id"]),
+            group_id="positive",
+            action_mode="template",
+            auto_send=True,
+        )
+        self.repository.replace_subgroup_templates(
+            user_id=int(self.user["id"]),
+            group_id="positive",
+            subgroup="Позитив доставка",
+            templates=["ТЕСТ: спасибо за быструю доставку!"],
+        )
+        self.service.sync_reviews(
+            user_id=int(self.user["id"]),
+            source="test-market",
+            account_id=None,
+            client=_PositiveDeliveryClient(),
+        )
+        review = self.repository.list_reviews(user_id=int(self.user["id"]), limit=1)[0]
+        self.assertEqual(review["status"], "answered_auto")
+        self.assertIn("быструю доставку", str(review.get("auto_reply") or ""))
 
 
 if __name__ == "__main__":

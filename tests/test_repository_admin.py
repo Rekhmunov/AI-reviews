@@ -242,14 +242,27 @@ class RepositoryAdminTests(unittest.TestCase):
             status="answered_auto",
             auto_reply="Спасибо",
         )
+        self.repository.upsert_processed_review(
+            user_id=self.user_id,
+            source="wb",
+            account_id=None,
+            review=ReviewInput(review_id="ext-p-3", text="Пропустить", rating=2),
+            processed=processed_negative,
+            category="negative_other",
+            processing_mode="ignore",
+            status="ignored",
+        )
 
         page = self.repository.list_reviews_paginated(user_id=self.user_id, bucket="new", page=1, page_size=10)
         self.assertEqual(page["new_count"], 1)
-        self.assertEqual(page["processed_count"], 1)
+        self.assertEqual(page["processed_count"], 2)
         self.assertEqual(page["total"], 1)
 
+        processed_page = self.repository.list_reviews_paginated(user_id=self.user_id, bucket="processed", page=1, page_size=10)
+        self.assertEqual(processed_page["total"], 2)
+
         deleted_reviews = self.repository.clear_reviews(user_id=self.user_id)
-        self.assertEqual(deleted_reviews, 2)
+        self.assertEqual(deleted_reviews, 3)
 
     def test_processing_rules_and_template_variants(self) -> None:
         created = self.repository.add_template_variant(

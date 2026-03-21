@@ -94,6 +94,10 @@ class OzonMarketplaceClient:
     cursor_keys: tuple[str, ...] = ("last_id", "lastId", "next_last_id", "cursor")
     questions_path: str | None = None
     chats_path: str | None = None
+    reply_path: str | None = "/v1/review/comment/create"
+    reply_review_id_field: str = "review_id"
+    reply_text_field: str = "text"
+    reply_payload: dict[str, object] | None = None
     page_size: int = 50
     max_pages: int = 20
     timeout: int = 20
@@ -203,6 +207,19 @@ class OzonMarketplaceClient:
             raise MarketplaceSyncError("ozon", "Ozon API returned non-object payload")
         return payload
 
+    def send_review_reply(self, *, review: ReviewInput, response_text: str) -> bool:
+        if not self.client_id or not self.api_key:
+            raise MarketplaceSyncError("ozon", "Missing Ozon credentials: client_id/api_key")
+        if not self.reply_path:
+            return False
+        payload: dict[str, object] = dict(self.reply_payload or {})
+        payload[self.reply_review_id_field] = review.review_id
+        payload[self.reply_text_field] = response_text
+        result = self._request_json(path=self.reply_path, payload=payload)
+        raw = result.get("result") if isinstance(result.get("result"), Mapping) else result
+        _raise_if_error_payload(raw, source="ozon")
+        return True
+
     @staticmethod
     def _to_review(item: dict[str, object]) -> ReviewInput:
         text = str(item.get("text") or item.get("comment") or item.get("content") or "")
@@ -249,6 +266,11 @@ class WildberriesMarketplaceClient:
     items_keys: tuple[str, ...] = ("feedbacks", "reviews", "items")
     questions_path: str | None = None
     chats_path: str | None = None
+    reply_path: str | None = "/api/v1/feedbacks/answer"
+    reply_method: str = "POST"
+    reply_review_id_field: str = "id"
+    reply_text_field: str = "text"
+    reply_payload: dict[str, object] | None = None
     page_size: int = 100
     max_pages: int = 20
     timeout: int = 20
@@ -347,6 +369,31 @@ class WildberriesMarketplaceClient:
         if not isinstance(payload, dict):
             raise MarketplaceSyncError("wb", "Wildberries API returned non-object payload")
         return payload
+
+    def send_review_reply(self, *, review: ReviewInput, response_text: str) -> bool:
+        if not self.api_key:
+            raise MarketplaceSyncError("wb", "Missing Wildberries api_key")
+        if not self.reply_path:
+            return False
+        payload: dict[str, object] = dict(self.reply_payload or {})
+        payload[self.reply_review_id_field] = review.review_id
+        payload[self.reply_text_field] = response_text
+        method = self.reply_method.strip().upper() if self.reply_method else "POST"
+        endpoint = _compose_url(self.api_url, self.reply_path)
+        if method == "GET":
+            query = urlencode(payload)
+            url = f"{endpoint}?{query}" if "?" not in endpoint else f"{endpoint}&{query}"
+            request = Request(url, method="GET", headers={"Authorization": self.api_key})
+        else:
+            request = Request(
+                endpoint,
+                method="POST",
+                headers={"Authorization": self.api_key, "Content-Type": "application/json"},
+                data=json.dumps(payload).encode("utf-8"),
+            )
+        raw = _request_json(request=request, timeout=self.timeout, source="wb", retries=1)
+        _raise_if_error_payload(raw, source="wb")
+        return True
 
     @staticmethod
     def _to_review(item: dict[str, object]) -> ReviewInput:
@@ -485,10 +532,9 @@ class ReviewAutomationService:
             mode, auto_send, template_text = self._resolve_processing_mode(processed, template, rule)
 
             if mode == "ignore":
-                status = "ignored"
+                status = "ignored" if auto_send else "queued_for_operator"
                 auto_reply = None
             elif mode in {"auto", "ai"} and auto_send:
-                status = "answered_auto"
                 group_template = self._pick_group_template_text(
                     user_id=user_id,
                     category=category,
@@ -510,6 +556,24 @@ class ReviewAutomationService:
                     category=category,
                     sentiment=processed.sentiment_label,
                 )
+                sent, send_error = self._send_reply_via_client(
+                    client=client,
+                    source=source,
+                    review=review,
+                    response_text=auto_reply,
+                )
+                if sent:
+                    status = "answered_auto"
+                else:
+                    status = "queued_for_operator"
+                    auto_reply = None
+                    self.repository.log_review_action(
+                        user_id=user_id,
+                        review_uid=self.repository.make_review_uid(user_id, source, account_id, review.review_id),
+                        action_type="send_reply_error",
+                        actor="system",
+                        details={"source": source, "error": send_error or "Не удалось отправить ответ"},
+                    )
             else:
                 status = "queued_for_operator"
                 auto_reply = None
@@ -688,6 +752,10 @@ class ReviewAutomationService:
                 max_pages=_to_positive_int(extra.get("max_pages"), default=20),
                 questions_path=str(extra.get("questions_path")) if extra.get("questions_path") else None,
                 chats_path=str(extra.get("chats_path")) if extra.get("chats_path") else None,
+                reply_path=str(extra.get("reply_path") or "/v1/review/comment/create"),
+                reply_review_id_field=str(extra.get("reply_review_id_field") or "review_id"),
+                reply_text_field=str(extra.get("reply_text_field") or "text"),
+                reply_payload=extra.get("reply_payload") if isinstance(extra.get("reply_payload"), dict) else None,
             )
         if marketplace == "wb":
             api_key = str(account.get("api_key") or "")
@@ -703,6 +771,11 @@ class ReviewAutomationService:
                 max_pages=_to_positive_int(extra.get("max_pages"), default=20),
                 questions_path=str(extra.get("questions_path")) if extra.get("questions_path") else None,
                 chats_path=str(extra.get("chats_path")) if extra.get("chats_path") else None,
+                reply_path=str(extra.get("reply_path") or "/api/v1/feedbacks/answer"),
+                reply_method=str(extra.get("reply_method") or "POST"),
+                reply_review_id_field=str(extra.get("reply_review_id_field") or "id"),
+                reply_text_field=str(extra.get("reply_text_field") or "text"),
+                reply_payload=extra.get("reply_payload") if isinstance(extra.get("reply_payload"), dict) else None,
             )
         return HTTPMarketplaceClient(
             api_url=str(account.get("api_url") or ""),
@@ -786,6 +859,16 @@ class ReviewAutomationService:
             auto_send = bool(rule.get("auto_send")) if rule else False
 
             if mode == "ignore":
+                if not auto_send:
+                    if self.repository.update_review_processing_result(
+                        user_id=user_id,
+                        review_uid=review_uid,
+                        status="queued_for_operator",
+                        auto_reply=None,
+                    ):
+                        queued += 1
+                        updated += 1
+                    continue
                 if self.repository.update_review_processing_result(
                     user_id=user_id,
                     review_uid=review_uid,
@@ -817,6 +900,24 @@ class ReviewAutomationService:
                     category=category,
                     sentiment=sentiment,
                 )
+                sent = self._send_reply_for_saved_review(
+                    user_id=user_id,
+                    source=str(row.get("source") or ""),
+                    account_id=int(row["account_id"]) if row.get("account_id") is not None else None,
+                    review=review,
+                    response_text=reply,
+                    review_uid=review_uid,
+                )
+                if not sent:
+                    if self.repository.update_review_processing_result(
+                        user_id=user_id,
+                        review_uid=review_uid,
+                        status="queued_for_operator",
+                        auto_reply=None,
+                    ):
+                        queued += 1
+                        updated += 1
+                    continue
                 if self.repository.update_review_processing_result(
                     user_id=user_id,
                     review_uid=review_uid,
@@ -842,6 +943,70 @@ class ReviewAutomationService:
             "queued": queued,
             "ignored": ignored,
         }
+
+    def _send_reply_via_client(
+        self,
+        *,
+        client: object,
+        source: str,
+        review: ReviewInput,
+        response_text: str,
+    ) -> tuple[bool, str | None]:
+        sender = getattr(client, "send_review_reply", None)
+        if not callable(sender):
+            # Backward compatibility for test/dummy clients without reply API.
+            return True, None
+        try:
+            try:
+                sent = sender(review=review, response_text=response_text)
+            except TypeError:
+                sent = sender(review, response_text)
+        except MarketplaceSyncError as exc:
+            return False, str(exc)
+        except Exception as exc:
+            return False, str(exc)
+        if sent is False:
+            return False, f"{source}: маркетплейс не подтвердил отправку ответа"
+        return True, None
+
+    def _send_reply_for_saved_review(
+        self,
+        *,
+        user_id: int,
+        source: str,
+        account_id: int | None,
+        review: ReviewInput,
+        response_text: str,
+        review_uid: str,
+    ) -> bool:
+        if source not in {"wb", "ozon"}:
+            return True
+        if account_id is None:
+            return False
+        account = self.repository.get_marketplace_account(
+            user_id=user_id,
+            account_id=account_id,
+            include_secrets=True,
+        )
+        if account is None:
+            return False
+        client = self._build_client(account)
+        sent, error = self._send_reply_via_client(
+            client=client,
+            source=source,
+            review=review,
+            response_text=response_text,
+        )
+        if sent:
+            return True
+        self.repository.log_review_action(
+            user_id=user_id,
+            review_uid=review_uid,
+            action_type="send_reply_error",
+            actor="system",
+            details={"source": source, "account_id": account_id, "error": error or "Не удалось отправить ответ"},
+        )
+        return False
 
     def queue_for_manual_processing(self, *, user_id: int, review_uid: str) -> bool:
         updated = self.repository.mark_manual_queue(user_id=user_id, review_uid=review_uid)
@@ -886,6 +1051,22 @@ class ReviewAutomationService:
             category=str(review.get("category")),
             sentiment=str(review.get("sentiment_label")),
         )
+        sent = self._send_reply_for_saved_review(
+            user_id=user_id,
+            source=str(review.get("source") or ""),
+            account_id=int(review["account_id"]) if review.get("account_id") is not None else None,
+            review=ReviewInput(
+                review_id=str(review.get("external_review_id")),
+                text=str(review.get("text")),
+                author=str(review.get("author")) if review.get("author") else None,
+                rating=int(review["rating"]) if review.get("rating") is not None else None,
+                metadata=dict(review.get("metadata") or {}) if isinstance(review.get("metadata"), dict) else {},
+            ),
+            response_text=reply,
+            review_uid=review_uid,
+        )
+        if not sent:
+            raise MarketplaceSyncError("marketplace", "Не удалось отправить ответ на маркетплейс по API")
         updated = self.repository.mark_auto_replied(user_id=user_id, review_uid=review_uid, response_text=reply)
         if not updated:
             raise KeyError("Отзыв не найден")
@@ -926,11 +1107,92 @@ class ReviewAutomationService:
         group_id = self._resolve_template_group_id(category=category, review=review, sentiment=sentiment)
         if not group_id:
             return None
-        row = self.repository.get_random_template_variant(user_id=user_id, group_id=group_id)
+        subgroup = self._resolve_template_subgroup(group_id=group_id, category=category, review=review)
+        row = self.repository.get_random_template_variant(
+            user_id=user_id,
+            group_id=group_id,
+            subgroup=subgroup,
+        )
+        if row is None and subgroup:
+            row = self.repository.get_random_template_variant(user_id=user_id, group_id=group_id)
         if row is None:
             return None
         text = str(row.get("template_text") or "").strip()
         return text or None
+
+    @staticmethod
+    def _resolve_template_subgroup(*, group_id: str, category: str, review: ReviewInput) -> str | None:
+        text = (review.text or "").lower()
+        if group_id == "positive":
+            if any(word in text for word in ("доставк", "курьер", "пвз", "пункт выдачи")):
+                return "Позитив доставка"
+            if any(word in text for word in ("запах", "аромат")):
+                return "Позитив запах"
+            if any(word in text for word in ("конструкц", "форма", "сборк")):
+                return "Позитив конструкция"
+            if any(word in text for word in ("упаковк", "коробк")):
+                return "Позитив упаковка"
+            if any(word in text for word in ("цвет", "оттенок")):
+                return "Позитив цвет"
+            if any(word in text for word in ("материал", "ткан", "состав")):
+                return "Материал"
+            if any(word in text for word in ("вкус", "вкусн")):
+                return "Вкус"
+            if any(word in text for word in ("эффект", "результат")):
+                return "Эффект"
+            return "Общий позитив"
+        if group_id == "delivery_problems":
+            if any(word in text for word in ("долго", "задерж", "опозд")):
+                return "Долгая доставка"
+            if any(word in text for word in ("испорчен", "мята", "порван", "поврежден", "сломан", "грязн")):
+                return "Недостающая упаковка / грязное / поврежденное и сломанное"
+            if any(word in text for word in ("наклейк", "этикетк")):
+                return "Наклейка"
+            if any(word in text for word in ("не тот", "перепут", "другой товар")):
+                return "Не тот товар"
+            if any(word in text for word in ("некомплект", "не хватает", "нет в комплекте")):
+                return "Некомплект"
+            if any(word in text for word in ("упаковк", "коробк")):
+                return "Испорченная упаковка"
+            return "Общие доставка"
+        if group_id == "wrong_size":
+            if any(word in text for word in ("большемер", "маломер")):
+                return "Большемерит/маломерит"
+            if any(word in text for word in ("замер", "измер")):
+                return "Альтернативные измерения"
+            return "Не подошел размер"
+        if group_id == "textless_ratings":
+            rating = review.rating if review.rating is not None else 0
+            if rating <= 3:
+                return "1-3 звезды"
+            if rating == 4:
+                return "4 звезды"
+            return "5 звезд"
+        if group_id == "product_dissatisfaction":
+            if any(word in text for word in ("подделк", "фейк")):
+                return "Подделка"
+            if any(word in text for word in ("срок", "годност")):
+                return "Срок годности"
+            if any(word in text for word in ("запах", "аромат")):
+                return "Негатив запах"
+            if any(word in text for word in ("конструкц", "сборк", "сломал")):
+                return "Негатив конструкция"
+            if any(word in text for word in ("цвет", "оттенок")):
+                return "Негатив цвет"
+            if any(word in text for word in ("брак", "б/у", "бу ")):
+                return "Брак и Б/У"
+            if any(word in text for word in ("цена", "дорог")):
+                return "Высокая цена"
+            if any(word in text for word in ("текстур", "консистенц", "материал")):
+                return "Текстура, консистенция, материал"
+            if any(word in text for word in ("качество", "некачествен")):
+                return "Качество"
+            if any(word in text for word in ("эффект", "результат")):
+                return "Не устраивает эффект"
+            if any(word in text for word in ("не подош", "не мое", "лично мне")):
+                return "Не подошел лично мне"
+            return "Общий негатив"
+        return None
 
     @staticmethod
     def _resolve_template_group_id(*, category: str, review: ReviewInput, sentiment: str) -> str | None:
