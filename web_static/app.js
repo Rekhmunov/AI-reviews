@@ -978,6 +978,7 @@ function renderTemplateGroups() {
   for (const group of templateGroupsState.items) {
     const details = document.createElement("details");
     details.className = "template-group";
+    details.removeAttribute("open");
     details.open = false;
 
     const summary = document.createElement("summary");

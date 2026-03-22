@@ -958,6 +958,14 @@ tr.review-row-send-error:hover td {
   padding: 0 12px 12px;
 }
 
+.template-group > .template-subgroups-list {
+  display: none;
+}
+
+.template-group[open] > .template-subgroups-list {
+  display: grid;
+}
+
 .template-subgroup-row {
   width: 100%;
   display: flex;
