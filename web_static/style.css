@@ -748,8 +748,14 @@ tr.review-row-send-error:hover td {
   z-index: 3;
 }
 
+.reviews-toolbar-panel {
+  overflow: visible;
+  z-index: 4;
+}
+
 .reviews-date-wrap {
   position: relative;
+  z-index: 40;
 }
 
 .reviews-filter-icon-btn {
@@ -806,7 +812,7 @@ tr.review-row-send-error:hover td {
   grid-template-columns: minmax(180px, 220px) minmax(260px, 1fr);
   gap: 12px;
   box-shadow: 0 12px 26px rgba(15, 23, 42, 0.18);
-  z-index: 20;
+  z-index: 60;
 }
 
 .reviews-date-presets {
