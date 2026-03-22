@@ -3,46 +3,41 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>REVO — управление отзывами</title>
+  <title>FEEDPILOT — автоматизация рутины</title>
   <link rel="stylesheet" href="/static/style.css" />
 </head>
-<body>
-  <section class="hero">
-    <div class="container">
-      <h1>Сервис ответов на отзывы для маркетплейсов</h1>
-      <p class="lead">
-        Платформа автоматически забирает отзывы из кабинетов WB/OZON, классифицирует их и отправляет
-        в нужный процесс: автоответ по шаблону, ручная очередь оператора или игнор.
-      </p>
-      <div class="actions">
-        <a class="btn btn-primary" href="/register">Создать аккаунт</a>
-        <a class="btn btn-secondary" href="/login">Войти</a>
+<body class="landing-page">
+  <main class="landing-shell">
+    <section class="landing-grid">
+      <div class="landing-copy">
+        <p class="landing-kicker">FEEDPILOT</p>
+        <h1>Автоматизируйте рутину работы с отзывами</h1>
+        <p class="landing-lead">
+          Один экран для WB и Ozon: сбор отзывов, умная маршрутизация, шаблонные ответы и контроль ручной обработки.
+        </p>
+        <div class="landing-points">
+          <span class="landing-point">Мультикабинеты маркетплейсов</span>
+          <span class="landing-point">ИИ + правила обработки</span>
+          <span class="landing-point">Единая очередь оператора</span>
+        </div>
       </div>
-    </div>
-  </section>
 
-  <section class="section">
-    <div class="container">
-      <h2>Преимущества</h2>
-      <div class="grid">
-        <div class="card">
-          <h3>Единая лента</h3>
-          <p class="small">Отзывы, вопросы и чаты в одном интерфейсе.</p>
-        </div>
-        <div class="card">
-          <h3>Умные процессы</h3>
-          <p class="small">Категоризация + правила авто/вручную/игнор.</p>
-        </div>
-        <div class="card">
-          <h3>Мультикабинеты</h3>
-          <p class="small">Подключение нескольких кабинетов WB и OZON.</p>
-        </div>
-        <div class="card">
-          <h3>Аналитика</h3>
-          <p class="small">Показатели обработки и доля негатива/позитива.</p>
+      <div class="landing-auth-stack">
+        <article class="landing-auth-card">
+          <h2>Регистрация</h2>
+          <p>Создайте личный кабинет и подключите источники отзывов за пару минут.</p>
+          <a class="btn btn-primary" href="/register">Создать аккаунт</a>
+        </article>
+        <article class="landing-auth-card">
+          <h2>Авторизация</h2>
+          <p>Войдите в систему, чтобы продолжить работу с обработкой отзывов.</p>
+          <a class="btn btn-secondary" href="/login">Войти</a>
+        </article>
+        <div class="landing-note">
+          Автоматизируйте рутину. Оставьте оператору только то, что требует внимания.
         </div>
       </div>
-    </div>
-  </section>
+    </section>
+  </main>
 </body>
 </html>
