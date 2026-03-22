@@ -58,6 +58,28 @@ class AuthTests(unittest.TestCase):
         self.assertEqual(reloaded["full_name"], "New Name")
         self.assertTrue(verify_password("new-password-123", str(reloaded["password_hash"])))
 
+    def test_admin_password_update_helper(self) -> None:
+        temp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        db_path = temp.name
+        temp.close()
+        self.addCleanup(lambda: os.path.exists(db_path) and os.unlink(db_path))
+
+        repository = ReviewRepository(db_path=db_path)
+        user = repository.create_user(
+            email="manager@example.com",
+            password_hash=hash_password("old-password"),
+            role="user",
+        )
+        updated = repository.update_user_password(
+            user_id=int(user["id"]),
+            password_hash=hash_password("new-password-987"),
+        )
+        self.assertTrue(updated)
+
+        reloaded = repository.get_user_by_id(int(user["id"]))
+        self.assertIsNotNone(reloaded)
+        self.assertTrue(verify_password("new-password-987", str(reloaded["password_hash"])))
+
 
 if __name__ == "__main__":
     unittest.main()

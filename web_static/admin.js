@@ -2,7 +2,9 @@ function esc(value) {
   return String(value || "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
 const roleLabels = {
@@ -104,6 +106,13 @@ function buildRoleOptions(selectedRole) {
     .join("");
 }
 
+function setUsersInfo(message, isError = false) {
+  const info = document.getElementById("usersInfo");
+  if (!info) return;
+  info.textContent = message || "";
+  info.style.color = isError ? "#b91c1c" : "";
+}
+
 function renderGroupProcessors(modes) {
   const tbody = document.getElementById("groupProcessorsTbody");
   if (!tbody) return;
@@ -193,18 +202,30 @@ async function loadUsers() {
   const data = await res.json();
   const tbody = document.getElementById("usersTbody");
   tbody.innerHTML = "";
+  if (!res.ok) {
+    setUsersInfo(data.detail || "Не удалось загрузить пользователей", true);
+    return;
+  }
   for (const user of data.items || []) {
     const tr = document.createElement("tr");
     const roleSelectId = `role-select-${user.id}`;
+    const passwordInputId = `password-input-${user.id}`;
     tr.innerHTML = `
       <td>${esc(user.id)}</td>
       <td>${esc(user.email)}</td>
-      <td>${esc(roleLabels[user.role] || user.role)}</td>
+      <td>
+        <input id="${passwordInputId}" type="password" placeholder="Новый пароль" />
+      </td>
       <td>
         <select id="${roleSelectId}">
           ${buildRoleOptions(user.role)}
         </select>
-        <button onclick="setRole(${user.id}, document.getElementById('${roleSelectId}').value)">Применить</button>
+      </td>
+      <td>
+        <div class="row">
+          <button onclick="setRole(${user.id}, document.getElementById('${roleSelectId}').value)">Сохранить роль</button>
+          <button class="secondary" onclick="setUserPassword(${user.id}, document.getElementById('${passwordInputId}').value)">Сменить пароль</button>
+        </div>
       </td>
     `;
     tbody.appendChild(tr);
@@ -219,10 +240,62 @@ async function setRole(userId, role) {
   });
   const data = await res.json();
   if (!res.ok) {
-    alert(data.detail || "Ошибка смены роли");
+    setUsersInfo(data.detail || "Ошибка смены роли", true);
     return;
   }
+  setUsersInfo("Роль пользователя обновлена.");
   await loadUsers();
+}
+
+async function createUser() {
+  const emailInput = document.getElementById("newUserEmail");
+  const passwordInput = document.getElementById("newUserPassword");
+  const roleInput = document.getElementById("newUserRole");
+  const payload = {
+    email: String(emailInput?.value || "").trim(),
+    password: String(passwordInput?.value || ""),
+    role: String(roleInput?.value || "user"),
+  };
+  if (!payload.email || !payload.password) {
+    setUsersInfo("Заполните эл. почту и пароль нового пользователя.", true);
+    return;
+  }
+  const res = await fetch("/api/admin/users", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    setUsersInfo(data.detail || "Ошибка создания пользователя", true);
+    return;
+  }
+  if (emailInput) emailInput.value = "";
+  if (passwordInput) passwordInput.value = "";
+  if (roleInput) roleInput.value = "user";
+  setUsersInfo("Пользователь создан.");
+  await loadUsers();
+}
+
+async function setUserPassword(userId, password) {
+  const cleanPassword = String(password || "");
+  if (!cleanPassword) {
+    setUsersInfo("Введите новый пароль для выбранного пользователя.", true);
+    return;
+  }
+  const res = await fetch(`/api/admin/users/${userId}/password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password: cleanPassword }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    setUsersInfo(data.detail || "Ошибка смены пароля", true);
+    return;
+  }
+  const input = document.getElementById(`password-input-${userId}`);
+  if (input) input.value = "";
+  setUsersInfo("Пароль пользователя обновлен.");
 }
 
 async function loadMetrics() {

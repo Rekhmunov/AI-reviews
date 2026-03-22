@@ -255,6 +255,16 @@ class RoleUpdateRequest(BaseModel):
     role: str = Field(description="user|admin|feedback_manager")
 
 
+class AdminUserCreateRequest(BaseModel):
+    email: str = Field(min_length=5, max_length=255)
+    password: str = Field(min_length=8, max_length=255)
+    role: str = Field(description="user|admin|feedback_manager")
+
+
+class AdminUserPasswordUpdateRequest(BaseModel):
+    password: str = Field(min_length=8, max_length=255)
+
+
 class ProfileUpdateRequest(BaseModel):
     full_name: str | None = Field(default=None, max_length=200)
     email: str | None = Field(default=None, max_length=255)
@@ -1179,6 +1189,38 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
         items = repository.list_users()
         return {"items": items, "count": len(items)}
 
+    @app.post("/api/admin/users")
+    def admin_create_user(payload: AdminUserCreateRequest, request: Request) -> dict[str, object]:
+        _require_admin(request)
+        email = payload.email.strip().lower()
+        if len(email) < 5 or "@" not in email:
+            raise HTTPException(status_code=400, detail="Введите корректную эл. почту")
+        role = payload.role.strip().lower()
+        if role not in ROLE_ASSIGNABLE_BY_ADMIN:
+            raise HTTPException(
+                status_code=400,
+                detail="Роль должна быть: пользователь, менеджер обратной связи или администратор",
+            )
+        password = payload.password
+        if len(password) < 8:
+            raise HTTPException(status_code=400, detail="Пароль должен быть не короче 8 символов")
+        if repository.get_user_by_email(email) is not None:
+            raise HTTPException(status_code=409, detail="Пользователь с такой почтой уже существует")
+        created = repository.create_user(
+            email=email,
+            password_hash=hash_password(password),
+            role=role,
+        )
+        return {
+            "ok": True,
+            "item": {
+                "id": created.get("id"),
+                "email": created.get("email"),
+                "role": created.get("role"),
+                "created_at": created.get("created_at"),
+            },
+        }
+
     @app.post("/api/admin/users/{target_user_id}/role")
     def admin_update_user_role(target_user_id: int, payload: RoleUpdateRequest, request: Request) -> dict[str, object]:
         current_user = _require_admin(request)
@@ -1198,6 +1240,23 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
         if not updated:
             raise HTTPException(status_code=404, detail="Пользователь не найден")
         return {"ok": True, "by_admin": current_user["email"]}
+
+    @app.post("/api/admin/users/{target_user_id}/password")
+    def admin_update_user_password(
+        target_user_id: int,
+        payload: AdminUserPasswordUpdateRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        _require_admin(request)
+        if repository.get_user_by_id(target_user_id) is None:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        updated = repository.update_user_password(
+            user_id=target_user_id,
+            password_hash=hash_password(payload.password),
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        return {"ok": True}
 
     @app.get("/api/admin/metrics")
     def admin_metrics(request: Request) -> dict[str, object]:

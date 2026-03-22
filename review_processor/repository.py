@@ -434,6 +434,18 @@ class ReviewRepository:
             result = conn.execute("UPDATE users SET role = ? WHERE id = ?", (role, user_id))
         return result.rowcount > 0
 
+    def update_user_password(self, *, user_id: int, password_hash: str) -> bool:
+        with self._connect() as conn:
+            result = conn.execute(
+                """
+                UPDATE users
+                SET password_hash = ?
+                WHERE id = ?
+                """,
+                (password_hash, user_id),
+            )
+        return result.rowcount > 0
+
     def update_user_profile(
         self,
         *,
