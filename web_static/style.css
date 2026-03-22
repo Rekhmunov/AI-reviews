@@ -815,6 +815,10 @@ tr.review-row-send-error:hover td {
   z-index: 60;
 }
 
+.reviews-date-panel.hidden {
+  display: none;
+}
+
 .reviews-date-presets {
   display: flex;
   flex-direction: column;

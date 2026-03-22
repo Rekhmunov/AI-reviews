@@ -336,6 +336,12 @@ function applyReviewsDateFilter() {
   loadReviews();
 }
 
+function onReviewsDateInputChange() {
+  const panel = document.getElementById("reviewsDateFilterPanel");
+  if (!panel || panel.classList.contains("hidden")) return;
+  applyReviewsDateFilter();
+}
+
 function clearReviewsDateFilter() {
   setDefaultReviewsDateRange(true);
   const fromInput = document.getElementById("reviewsDateFrom");
@@ -1352,6 +1358,8 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   setDefaultReviewsDateRange(false);
   updateReviewsDateFilterButton();
+  document.getElementById("reviewsDateFrom")?.addEventListener("change", onReviewsDateInputChange);
+  document.getElementById("reviewsDateTo")?.addEventListener("change", onReviewsDateInputChange);
   document.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
