@@ -317,6 +317,7 @@ ROLE_ASSIGNABLE_BY_ADMIN = {ROLE_ADMIN, ROLE_USER, ROLE_FEEDBACK_MANAGER}
 def create_app(db_path: str = "reviews.db") -> FastAPI:
     repository = ReviewRepository(db_path=db_path)
     service = ReviewAutomationService(repository)
+    self_registration_enabled = False
 
     app = FastAPI(title="Marketplace Reviews Assistant", version="1.0.0")
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
@@ -447,6 +448,12 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
             result.append(article)
         return result
 
+    def _registration_disabled_response() -> HTMLResponse:
+        return HTMLResponse(
+            build_login_html(error="Самостоятельная регистрация отключена. Пользователей добавляет администратор."),
+            status_code=403,
+        )
+
     @app.get("/", response_class=HTMLResponse)
     def landing(request: Request) -> HTMLResponse:
         user = _get_current_user(request)
@@ -477,10 +484,14 @@ def create_app(db_path: str = "reviews.db") -> FastAPI:
         user = _get_current_user(request)
         if user is not None:
             return RedirectResponse("/app", status_code=302)
+        if not self_registration_enabled:
+            return _registration_disabled_response()
         return HTMLResponse(build_register_html())
 
     @app.post("/register")
     def register(email: str = Form(...), password: str = Form(...), password_repeat: str = Form(...)) -> HTMLResponse:
+        if not self_registration_enabled:
+            return _registration_disabled_response()
         email = email.strip().lower()
         if len(email) < 5 or "@" not in email:
             return HTMLResponse(build_register_html(error="Введите корректную эл. почту"), status_code=400)
