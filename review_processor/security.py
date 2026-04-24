@@ -12,6 +12,10 @@ def _load_fernet_key() -> bytes:
     if configured:
         return configured.encode("utf-8")
 
+    app_env = (os.getenv("APP_ENV") or "development").strip().lower()
+    if app_env == "production":
+        raise RuntimeError("APP_ENCRYPTION_KEY must be set in production environment")
+
     # Development fallback key. Set APP_ENCRYPTION_KEY in production.
     material = os.getenv("APP_ENCRYPTION_PASSPHRASE", "local-dev-only-key").encode("utf-8")
     return base64.urlsafe_b64encode(hashlib.sha256(material).digest())

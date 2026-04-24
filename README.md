@@ -107,6 +107,7 @@ export APP_ENCRYPTION_KEY="<fernet-key>"
 ```
 
 Если ключ не задан, используется dev fallback (подходит только для локальной разработки).
+При `APP_ENV=production` запуск без `APP_ENCRYPTION_KEY` блокируется.
 
 ## Структура
 
@@ -199,3 +200,71 @@ python3 -m review_processor.cli --input reviews.json --output processed_reviews.
 ```bash
 python3 -m unittest discover -s tests -p "test_*.py"
 ```
+
+## Развертывание на VPS (production)
+
+Ниже базовый контур запуска сервиса на VPS без изменения бизнес-логики.
+
+### 1) Обязательные переменные окружения
+
+- `APP_ENV` — `production` для боевого окружения.
+- `APP_DB_PATH` — путь к SQLite БД (например `/opt/feedpilot/data/reviews.db`).
+- `APP_ENCRYPTION_KEY` — ключ шифрования секретов (обязательно в production).
+- `APP_SELF_REGISTRATION_ENABLED` — `false` (рекомендуется для production).
+
+Пример env-файла:
+
+```env
+APP_ENV=production
+APP_DB_PATH=/opt/feedpilot/data/reviews.db
+APP_ENCRYPTION_KEY=<FERNET_KEY>
+APP_SELF_REGISTRATION_ENABLED=false
+PYTHONUNBUFFERED=1
+```
+
+> Важно: при `APP_ENV=production` приложение не будет работать без `APP_ENCRYPTION_KEY`.
+
+### 2) systemd + nginx templates
+
+В репозитории подготовлены шаблоны:
+
+- `deploy/systemd/feedpilot.service`
+- `deploy/nginx/feedpilot.conf`
+
+Они используют env-файл (`EnvironmentFile`) и проксирование на `127.0.0.1:8000`.
+
+### 3) Бэкапы и восстановление SQLite
+
+Скрипты:
+
+- `scripts/backup_sqlite.sh` — делает timestamp backup и чистит старые файлы.
+- `scripts/restore_sqlite.sh` — восстанавливает БД из backup-копии.
+
+Пример backup:
+
+```bash
+./scripts/backup_sqlite.sh /opt/feedpilot/data/reviews.db /opt/feedpilot/backups 14
+```
+
+Пример restore:
+
+```bash
+./scripts/restore_sqlite.sh /opt/feedpilot/backups/reviews_2026-01-01_03-00-00.db /opt/feedpilot/data/reviews.db
+```
+
+### 4) Обновление приложения в production
+
+```bash
+git pull
+source .venv/bin/activate
+pip install -r requirements.txt
+sudo systemctl restart feedpilot
+sudo systemctl status feedpilot
+```
+
+### 5) Runbook (минимум)
+
+- Проверка логов приложения: `journalctl -u feedpilot -f`
+- Проверка nginx: `nginx -t && systemctl reload nginx`
+- Проверка порта: `ss -ltnp | rg 8000`
+- Проверка backup/restore не реже 1 раза в сутки на staging/backup-host.

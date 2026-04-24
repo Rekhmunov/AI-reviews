@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .auth import create_session_token, hash_password, verify_password
+from .config import AppConfig, load_app_config
 from .repository import ReviewRepository
 from .service import MarketplaceSyncError, ReviewAutomationService
 
@@ -314,10 +315,12 @@ ROLE_CAN_ACCESS_SETTINGS = {ROLE_ADMIN, ROLE_USER}
 ROLE_ASSIGNABLE_BY_ADMIN = {ROLE_ADMIN, ROLE_USER, ROLE_FEEDBACK_MANAGER}
 
 
-def create_app(db_path: str = "reviews.db") -> FastAPI:
-    repository = ReviewRepository(db_path=db_path)
+def create_app(db_path: str | None = None, config: AppConfig | None = None) -> FastAPI:
+    app_config = config or load_app_config()
+    effective_db_path = db_path or app_config.db_path
+    repository = ReviewRepository(db_path=effective_db_path)
     service = ReviewAutomationService(repository)
-    self_registration_enabled = False
+    self_registration_enabled = bool(app_config.self_registration_enabled)
 
     app = FastAPI(title="Marketplace Reviews Assistant", version="1.0.0")
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")

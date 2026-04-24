@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 
 from review_processor.auth import create_session_token, hash_password, verify_password
 from review_processor.repository import ReviewRepository
+from review_processor.security import _load_fernet_key
 
 
 class AuthTests(unittest.TestCase):
@@ -79,6 +80,32 @@ class AuthTests(unittest.TestCase):
         reloaded = repository.get_user_by_id(int(user["id"]))
         self.assertIsNotNone(reloaded)
         self.assertTrue(verify_password("new-password-987", str(reloaded["password_hash"])))
+
+    def test_security_requires_encryption_key_in_production(self) -> None:
+        previous_env = os.environ.get("APP_ENV")
+        previous_key = os.environ.get("APP_ENCRYPTION_KEY")
+        previous_passphrase = os.environ.get("APP_ENCRYPTION_PASSPHRASE")
+        try:
+            os.environ["APP_ENV"] = "production"
+            if "APP_ENCRYPTION_KEY" in os.environ:
+                del os.environ["APP_ENCRYPTION_KEY"]
+            if "APP_ENCRYPTION_PASSPHRASE" in os.environ:
+                del os.environ["APP_ENCRYPTION_PASSPHRASE"]
+            with self.assertRaises(RuntimeError):
+                _load_fernet_key()
+        finally:
+            if previous_env is None:
+                os.environ.pop("APP_ENV", None)
+            else:
+                os.environ["APP_ENV"] = previous_env
+            if previous_key is None:
+                os.environ.pop("APP_ENCRYPTION_KEY", None)
+            else:
+                os.environ["APP_ENCRYPTION_KEY"] = previous_key
+            if previous_passphrase is None:
+                os.environ.pop("APP_ENCRYPTION_PASSPHRASE", None)
+            else:
+                os.environ["APP_ENCRYPTION_PASSPHRASE"] = previous_passphrase
 
 
 if __name__ == "__main__":
