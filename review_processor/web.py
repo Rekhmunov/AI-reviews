@@ -319,10 +319,9 @@ ROLE_CAN_ACCESS_SETTINGS = {ROLE_ADMIN, ROLE_USER}
 ROLE_ASSIGNABLE_BY_ADMIN = {ROLE_ADMIN, ROLE_USER, ROLE_FEEDBACK_MANAGER}
 
 
-def create_app(db_path: str | None = None, config: AppConfig | None = None) -> FastAPI:
+def create_app(config: AppConfig | None = None) -> FastAPI:
     app_config = config or load_app_config()
-    effective_db_path = db_path or app_config.db_path
-    repository = ReviewRepository(db_path=effective_db_path, db_url=app_config.db_url)
+    repository = ReviewRepository(db_url=app_config.db_url)
     service = ReviewAutomationService(repository)
     self_registration_enabled = bool(app_config.self_registration_enabled)
 
