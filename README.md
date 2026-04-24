@@ -268,3 +268,21 @@ sudo systemctl status feedpilot
 - Проверка nginx: `nginx -t && systemctl reload nginx`
 - Проверка порта: `ss -ltnp | rg 8000`
 - Проверка backup/restore не реже 1 раза в сутки на staging/backup-host.
+
+## Переход SQLite -> PostgreSQL (подготовка)
+
+Для безопасного перехода без потери данных добавлены материалы:
+
+- `docs/POSTGRESQL_MIGRATION_ROADMAP.md` — пошаговый план migration/cutover/rollback.
+- `deploy/postgres/schema_v1.sql` — целевая схема PostgreSQL (v1).
+- `scripts/export_sqlite_for_postgres.py` — экспорт текущей SQLite базы в CSV + `manifest.json`.
+
+Пример экспорта:
+
+```bash
+python3 scripts/export_sqlite_for_postgres.py \
+  --sqlite-db /opt/feedpilot/data/reviews.db \
+  --output-dir /opt/feedpilot/migration_export
+```
+
+Дальше импорт CSV выполняется через `psql`/`\copy` по шагам из roadmap-документа.
