@@ -4,7 +4,6 @@ from datetime import UTC, datetime, timedelta
 from html import escape
 import io
 from pathlib import Path
-import sqlite3
 import threading
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -16,6 +15,11 @@ from .auth import create_session_token, hash_password, verify_password
 from .config import AppConfig, load_app_config
 from .repository import ReviewRepository
 from .service import MarketplaceSyncError, ReviewAutomationService
+
+try:  # pragma: no cover - optional in sqlite-only environments
+    import psycopg  # type: ignore
+except Exception:  # pragma: no cover
+    psycopg = None
 
 CATEGORIES = [
     "negative_delivery",
@@ -318,7 +322,7 @@ ROLE_ASSIGNABLE_BY_ADMIN = {ROLE_ADMIN, ROLE_USER, ROLE_FEEDBACK_MANAGER}
 def create_app(db_path: str | None = None, config: AppConfig | None = None) -> FastAPI:
     app_config = config or load_app_config()
     effective_db_path = db_path or app_config.db_path
-    repository = ReviewRepository(db_path=effective_db_path)
+    repository = ReviewRepository(db_path=effective_db_path, db_url=app_config.db_url)
     service = ReviewAutomationService(repository)
     self_registration_enabled = bool(app_config.self_registration_enabled)
 
@@ -592,7 +596,14 @@ def create_app(db_path: str | None = None, config: AppConfig | None = None) -> F
                 full_name=full_name,
                 password_hash=password_hash,
             )
-        except sqlite3.IntegrityError as exc:
+        except Exception as exc:
+            is_duplicate_error = False
+            if psycopg is not None and isinstance(exc, getattr(psycopg, "IntegrityError", (Exception,))):
+                is_duplicate_error = True
+            if "integrityerror" in str(type(exc)).lower():
+                is_duplicate_error = True
+            if not is_duplicate_error:
+                raise
             raise HTTPException(status_code=409, detail="Эта электронная почта уже используется другим аккаунтом") from exc
         if not updated:
             raise HTTPException(status_code=404, detail="Пользователь не найден")

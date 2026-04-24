@@ -19,6 +19,7 @@ def _env_bool(name: str, default: bool) -> bool:
 @dataclass(frozen=True)
 class AppConfig:
     app_env: str
+    db_url: str | None
     db_path: str
     self_registration_enabled: bool
 
@@ -29,10 +30,13 @@ class AppConfig:
 
 def load_app_config() -> AppConfig:
     app_env = (os.getenv("APP_ENV") or "development").strip().lower() or "development"
+    db_url_raw = (os.getenv("APP_DB_URL") or "").strip()
+    db_url = db_url_raw or None
     db_path = (os.getenv("APP_DB_PATH") or "reviews.db").strip() or "reviews.db"
     self_registration_enabled = _env_bool("APP_SELF_REGISTRATION_ENABLED", False)
     return AppConfig(
         app_env=app_env,
+        db_url=db_url,
         db_path=db_path,
         self_registration_enabled=self_registration_enabled,
     )

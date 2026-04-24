@@ -7,6 +7,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+try:  # pragma: no cover - imported lazily in most tests
+    import psycopg  # type: ignore
+    from psycopg import rows as psycopg_rows  # type: ignore
+except Exception:  # pragma: no cover - optional dependency in some environments
+    psycopg = None
+    psycopg_rows = None
+
 from .models import ProcessedReview, ReviewInput
 from .security import decrypt_secret, encrypt_secret, mask_secret
 
@@ -24,12 +31,90 @@ def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-class ReviewRepository:
-    """SQLite repository for auth, settings, and marketplace reviews."""
+def _replace_qmark_placeholders(query: str) -> str:
+    # Convert sqlite-style placeholders to psycopg placeholders.
+    result: list[str] = []
+    in_single_quote = False
+    i = 0
+    while i < len(query):
+        ch = query[i]
+        if ch == "'":
+            if in_single_quote and i + 1 < len(query) and query[i + 1] == "'":
+                result.append("''")
+                i += 2
+                continue
+            in_single_quote = not in_single_quote
+            result.append(ch)
+            i += 1
+            continue
+        if ch == "?" and not in_single_quote:
+            result.append("%s")
+            i += 1
+            continue
+        result.append(ch)
+        i += 1
+    return "".join(result)
 
-    def __init__(self, db_path: str = "reviews.db") -> None:
+
+def _json_load(raw: object, default):
+    if raw is None:
+        return default
+    if isinstance(raw, (dict, list)):
+        return raw
+    text = str(raw or "").strip()
+    if not text:
+        return default
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return default
+
+
+def _coerce_iso_for_storage(value: str | None, *, as_date: bool = False) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if as_date and len(text) >= 10:
+        return text[:10]
+    if text.endswith("Z"):
+        return text[:-1] + "+00:00"
+    return text
+
+
+class _PgCompatConnection:
+    def __init__(self, conn) -> None:
+        self._conn = conn
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        self.close()
+        return False
+
+    def close(self) -> None:
+        self._conn.close()
+
+    def execute(self, query: str, params: tuple[Any, ...] = ()):
+        cur = self._conn.cursor(row_factory=psycopg_rows.dict_row)  # type: ignore[union-attr]
+        cur.execute(_replace_qmark_placeholders(query), params)
+        return cur
+
+
+class ReviewRepository:
+    """Repository for auth, settings, and marketplace reviews."""
+
+    def __init__(self, db_path: str = "reviews.db", db_url: str | None = None) -> None:
+        self.db_url = str(db_url or "").strip() or None
+        self.is_postgres = bool(self.db_url and self.db_url.startswith("postgres"))
         self.db_path = db_path
-        self._ensure_db_dir()
+        if self.is_postgres:
+            if psycopg is None or psycopg_rows is None:
+                raise RuntimeError("psycopg[binary] is required when APP_DB_URL points to PostgreSQL")
+        else:
+            self._ensure_db_dir()
         self._init_schema()
 
     def _ensure_db_dir(self) -> None:
@@ -37,13 +122,42 @@ class ReviewRepository:
         if db_file.parent != Path("."):
             db_file.parent.mkdir(parents=True, exist_ok=True)
 
-    def _connect(self) -> sqlite3.Connection:
+    def _connect(self):
+        if self.is_postgres:
+            assert self.db_url is not None
+            assert psycopg is not None and psycopg_rows is not None
+            conn = psycopg.connect(self.db_url, row_factory=psycopg_rows.dict_row, autocommit=True)
+            return _PgCompatConnection(conn)
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
         return conn
 
+    def _sql(self, query: str) -> str:
+        if self.is_postgres:
+            return _replace_qmark_placeholders(query)
+        return query
+
+    def _bool_db(self, value: bool | None) -> int | bool | None:
+        if value is None:
+            return None
+        return bool(value) if self.is_postgres else int(bool(value))
+
+    def _json_param(self, value: object) -> object:
+        if self.is_postgres:
+            return value
+        return json.dumps(value, ensure_ascii=False)
+
     def _init_schema(self) -> None:
+        if self.is_postgres:
+            sql_path = Path(__file__).resolve().parent.parent / "deploy" / "postgres" / "schema_v1.sql"
+            if not sql_path.exists():
+                raise RuntimeError(f"PostgreSQL schema file not found: {sql_path}")
+            schema_sql = sql_path.read_text(encoding="utf-8")
+            with self._connect() as conn:
+                conn.execute(schema_sql)
+            return
+
         with self._connect() as conn:
             conn.execute(
                 """
@@ -267,9 +381,9 @@ class ReviewRepository:
                     brand_name, group_processors_json, use_sync_start_date, sync_start_date, updated_at
                 )
                 VALUES (1, 'rules', NULL, NULL, NULL, 'VarFabric', ?, 0, NULL, ?)
-                ON CONFLICT(id) DO NOTHING
+                ON CONFLICT (id) DO NOTHING
                 """,
-                (json.dumps(DEFAULT_GROUP_PROCESSORS, ensure_ascii=False), _utc_now()),
+                (self._json_param(DEFAULT_GROUP_PROCESSORS), _utc_now()),
             )
 
     def _migrate_schema(self, conn: sqlite3.Connection) -> None:
@@ -306,7 +420,7 @@ class ReviewRepository:
                     SET group_processors_json = ?, updated_at = ?
                     WHERE id = ?
                     """,
-                    (json.dumps(DEFAULT_GROUP_PROCESSORS, ensure_ascii=False), _utc_now(), int(row["id"])),
+                    (self._json_param(DEFAULT_GROUP_PROCESSORS), _utc_now(), int(row["id"])),
                 )
 
         account_columns = self._table_columns(conn, "marketplace_accounts")
@@ -354,13 +468,37 @@ class ReviewRepository:
         if "is_enabled" not in template_columns:
             conn.execute("ALTER TABLE response_templates ADD COLUMN is_enabled INTEGER NOT NULL DEFAULT 0")
 
-    @staticmethod
-    def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    def _table_columns(self, conn, table: str) -> set[str]:
+        if self.is_postgres:
+            rows = conn.execute(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = ?
+                """,
+                (table,),
+            ).fetchall()
+            result: set[str] = set()
+            for row in rows:
+                if isinstance(row, Mapping):
+                    result.add(str(row.get("column_name") or ""))
+                else:
+                    result.add(str(row["column_name"]))
+            return {item for item in result if item}
         rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
         return {str(row["name"]) for row in rows}
 
+    def _insert_and_get_id(self, conn, query: str, params: tuple[Any, ...]) -> int:
+        if self.is_postgres:
+            row = conn.execute(self._sql(query + " RETURNING id"), params).fetchone()
+            if row is None:
+                raise RuntimeError("Insert did not return id")
+            return int(row["id"]) if isinstance(row, Mapping) else int(row[0])
+        cursor = conn.execute(self._sql(query), params)
+        return int(cursor.lastrowid)
+
     @staticmethod
-    def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
+    def _row_to_dict(row) -> dict[str, Any]:
         data = dict(row)
         if "is_spam" in data:
             data["is_spam"] = bool(data["is_spam"])
@@ -375,12 +513,12 @@ class ReviewRepository:
         if "auto_send" in data:
             data["auto_send"] = bool(data["auto_send"])
         if "tags_json" in data:
-            data["tags"] = json.loads(data.pop("tags_json"))
+            data["tags"] = _json_load(data.pop("tags_json"), [])
         if "metadata_json" in data:
-            data["metadata"] = json.loads(data.pop("metadata_json"))
+            data["metadata"] = _json_load(data.pop("metadata_json"), {})
         if "extra_json" in data:
             raw = data.pop("extra_json")
-            data["extra"] = json.loads(raw) if raw else {}
+            data["extra"] = _json_load(raw, {})
         return data
 
     def count_users(self) -> int:
@@ -397,14 +535,14 @@ class ReviewRepository:
     ) -> dict[str, Any]:
         now = _utc_now()
         with self._connect() as conn:
-            cursor = conn.execute(
+            user_id = self._insert_and_get_id(
+                conn,
                 """
                 INSERT INTO users (email, full_name, password_hash, role, created_at)
                 VALUES (?, ?, ?, ?, ?)
                 """,
                 (email.lower(), full_name, password_hash, role, now),
             )
-            user_id = int(cursor.lastrowid)
         user = self.get_user_by_id(user_id)
         if user is None:
             raise RuntimeError("User creation failed")
@@ -518,10 +656,7 @@ class ReviewRepository:
         data = self._row_to_dict(row)
         data["brand_name"] = str(data.get("brand_name") or "VarFabric").strip() or "VarFabric"
         raw_modes = str(data.pop("group_processors_json", "{}") or "{}")
-        try:
-            parsed_modes = json.loads(raw_modes) if raw_modes else {}
-        except json.JSONDecodeError:
-            parsed_modes = {}
+        parsed_modes = _json_load(raw_modes, {})
         modes: dict[str, str] = dict(DEFAULT_GROUP_PROCESSORS)
         if isinstance(parsed_modes, dict):
             for key, value in parsed_modes.items():
@@ -585,7 +720,7 @@ class ReviewRepository:
                     yandex_folder_id,
                     yandex_model_uri,
                     normalized_brand,
-                    json.dumps(normalized_modes, ensure_ascii=False),
+                    self._json_param(normalized_modes),
                     int(use_sync_start_date),
                     sync_start_date,
                     _utc_now(),
@@ -606,7 +741,8 @@ class ReviewRepository:
         now = _utc_now()
         encrypted_api_key = encrypt_secret(api_key)
         with self._connect() as conn:
-            cursor = conn.execute(
+            account_id = self._insert_and_get_id(
+                conn,
                 """
                 INSERT INTO marketplace_accounts (
                     user_id, marketplace, account_name, api_url, api_key_encrypted, extra_json, is_active, created_at, updated_at
@@ -618,13 +754,12 @@ class ReviewRepository:
                     account_name,
                     api_url,
                     encrypted_api_key,
-                    json.dumps(extra or {}, ensure_ascii=False),
-                    int(is_active),
+                    self._json_param(extra or {}),
+                    self._bool_db(is_active),
                     now,
                     now,
                 ),
             )
-            account_id = int(cursor.lastrowid)
         account = self.get_marketplace_account(user_id=user_id, account_id=account_id, include_secrets=False)
         if account is None:
             raise RuntimeError("Marketplace account creation failed")
@@ -834,7 +969,8 @@ class ReviewRepository:
     ) -> dict[str, Any]:
         now = _utc_now()
         with self._connect() as conn:
-            cursor = conn.execute(
+            row_id = self._insert_and_get_id(
+                conn,
                 """
                 INSERT INTO response_template_variants (
                     user_id, group_id, subgroup, template_text, is_active, created_at, updated_at
@@ -842,7 +978,6 @@ class ReviewRepository:
                 """,
                 (user_id, group_id, subgroup, template_text.strip(), now, now),
             )
-            row_id = int(cursor.lastrowid)
             row = conn.execute(
                 "SELECT * FROM response_template_variants WHERE id = ?",
                 (row_id,),
@@ -1108,14 +1243,14 @@ class ReviewRepository:
                     review.text,
                     review.author,
                     review.rating,
-                    json.dumps(review.metadata, ensure_ascii=False),
+                    self._json_param(review.metadata),
                     processed.normalized_text,
                     processed.sentiment_score,
                     processed.sentiment_label,
                     int(processed.is_spam),
                     int(processed.is_toxic),
                     processed.priority,
-                    json.dumps(processed.tags, ensure_ascii=False),
+                    self._json_param(processed.tags),
                     processed.recommended_action,
                     category,
                     processing_mode,
@@ -1184,10 +1319,16 @@ class ReviewRepository:
             base_clauses.append("category = ?")
             base_params.append(category)
         if date_from:
-            base_clauses.append("substr(updated_at, 1, 10) >= ?")
+            if self.is_postgres:
+                base_clauses.append("updated_at::date >= ?::date")
+            else:
+                base_clauses.append("substr(updated_at, 1, 10) >= ?")
             base_params.append(date_from)
         if date_to:
-            base_clauses.append("substr(updated_at, 1, 10) <= ?")
+            if self.is_postgres:
+                base_clauses.append("updated_at::date <= ?::date")
+            else:
+                base_clauses.append("substr(updated_at, 1, 10) <= ?")
             base_params.append(date_to)
 
         view_clauses = list(base_clauses)
@@ -1278,10 +1419,7 @@ class ReviewRepository:
                     if not uid or uid in error_map:
                         continue
                     details_raw = str(action_row["details_json"] or "{}")
-                    try:
-                        details = json.loads(details_raw) if details_raw else {}
-                    except json.JSONDecodeError:
-                        details = {}
+                    details = _json_load(details_raw, {})
                     reason = str(details.get("error") or "").strip()
                     if reason:
                         error_map[uid] = reason
@@ -1404,7 +1542,7 @@ class ReviewRepository:
                     message_text,
                     status,
                     max(unread_count, 0),
-                    json.dumps(metadata or {}, ensure_ascii=False),
+                    self._json_param(metadata or {}),
                     last_message_ts,
                     now,
                     now,
@@ -1437,7 +1575,7 @@ class ReviewRepository:
         for row in rows:
             data = dict(row)
             raw = data.pop("metadata_json", "{}")
-            data["metadata"] = json.loads(raw) if raw else {}
+            data["metadata"] = _json_load(raw, {})
             result.append(data)
         return result
 
@@ -1517,7 +1655,7 @@ class ReviewRepository:
                 INSERT INTO review_actions (user_id, review_uid, action_type, actor, details_json, created_at)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (user_id, review_uid, action_type, actor, json.dumps(details or {}, ensure_ascii=False), _utc_now()),
+                (user_id, review_uid, action_type, actor, self._json_param(details or {}), _utc_now()),
             )
 
     def list_recent_actions(self, *, user_id: int | None = None, limit: int = 100) -> list[dict[str, Any]]:
@@ -1538,7 +1676,7 @@ class ReviewRepository:
         for row in rows:
             data = self._row_to_dict(row)
             raw = data.pop("details_json", "{}")
-            data["details"] = json.loads(raw) if raw else {}
+            data["details"] = _json_load(raw, {})
             items.append(data)
         return items
 
@@ -1551,6 +1689,16 @@ class ReviewRepository:
 
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         where_and = f"{where} AND" if where else "WHERE"
+        avg_expr = (
+            "AVG(EXTRACT(EPOCH FROM (updated_at - created_at)) / 60.0)"
+            if self.is_postgres
+            else "AVG((julianday(updated_at) - julianday(created_at)) * 24.0 * 60.0)"
+        )
+        overdue_expr = (
+            "EXTRACT(EPOCH FROM (NOW() - updated_at)) / 3600.0 > 24"
+            if self.is_postgres
+            else "(julianday('now') - julianday(updated_at)) * 24.0 > 24"
+        )
 
         with self._connect() as conn:
             total_row = conn.execute(f"SELECT COUNT(*) AS c FROM review_items {where}", tuple(params)).fetchone()
@@ -1565,7 +1713,7 @@ class ReviewRepository:
             ).fetchall()
             avg_row = conn.execute(
                 f"""
-                SELECT AVG((julianday(updated_at) - julianday(created_at)) * 24.0 * 60.0) AS avg_minutes
+                SELECT {avg_expr} AS avg_minutes
                 FROM review_items
                 {where_and} status IN ('answered_auto', 'answered_manual')
                 """,
@@ -1577,7 +1725,7 @@ class ReviewRepository:
                 FROM review_items
                 {where_and}
                     status = 'queued_for_operator'
-                    AND (julianday('now') - julianday(updated_at)) * 24.0 > 24
+                    AND {overdue_expr}
                 """,
                 tuple(params),
             ).fetchone()

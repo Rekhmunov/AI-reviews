@@ -208,6 +208,7 @@ python3 -m unittest discover -s tests -p "test_*.py"
 ### 1) Обязательные переменные окружения
 
 - `APP_ENV` — `production` для боевого окружения.
+- `APP_DB_URL` — строка подключения PostgreSQL (если задана, используется PostgreSQL runtime).
 - `APP_DB_PATH` — путь к SQLite БД (например `/opt/feedpilot/data/reviews.db`).
 - `APP_ENCRYPTION_KEY` — ключ шифрования секретов (обязательно в production).
 - `APP_SELF_REGISTRATION_ENABLED` — `false` (рекомендуется для production).
@@ -216,6 +217,7 @@ python3 -m unittest discover -s tests -p "test_*.py"
 
 ```env
 APP_ENV=production
+APP_DB_URL=postgresql://feedpilot:[REDACTED]@127.0.0.1:5432/feedpilot
 APP_DB_PATH=/opt/feedpilot/data/reviews.db
 APP_ENCRYPTION_KEY=<FERNET_KEY>
 APP_SELF_REGISTRATION_ENABLED=false
@@ -232,6 +234,8 @@ PYTHONUNBUFFERED=1
 - `deploy/nginx/feedpilot.conf`
 
 Они используют env-файл (`EnvironmentFile`) и проксирование на `127.0.0.1:8000`.
+
+При включенном PostgreSQL runtime сервис использует `APP_DB_URL` и игнорирует `APP_DB_PATH`.
 
 ### 3) Бэкапы и восстановление SQLite
 
@@ -275,14 +279,21 @@ sudo systemctl status feedpilot
 
 - `docs/POSTGRESQL_MIGRATION_ROADMAP.md` — пошаговый план migration/cutover/rollback.
 - `deploy/postgres/schema_v1.sql` — целевая схема PostgreSQL (v1).
+- `deploy/postgres/validation_after_import.sql` — сверка count/checksum после импорта.
 - `scripts/export_sqlite_for_postgres.py` — экспорт текущей SQLite базы в CSV + `manifest.json`.
 
 Пример экспорта:
 
 ```bash
 python3 scripts/export_sqlite_for_postgres.py \
-  --sqlite-db /opt/feedpilot/data/reviews.db \
-  --output-dir /opt/feedpilot/migration_export
+  --db /opt/feedpilot/data/reviews.db \
+  --out /opt/feedpilot/migration_export
 ```
 
 Дальше импорт CSV выполняется через `psql`/`\copy` по шагам из roadmap-документа.
+
+После импорта запустите SQL-валидацию:
+
+```bash
+psql "$APP_DB_URL" -f deploy/postgres/validation_after_import.sql
+```

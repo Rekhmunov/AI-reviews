@@ -1,6 +1,6 @@
-# SQLite -> PostgreSQL Migration Roadmap (without immediate runtime switch)
+# SQLite -> PostgreSQL Migration Roadmap
 
-Документ описывает безопасный переход FEEDPILOT с SQLite на PostgreSQL без одномоментного риска для production.
+Документ описывает безопасный переход FEEDPILOT с SQLite на PostgreSQL и полный cutover.
 
 ## 1. Цели миграции
 
@@ -31,7 +31,7 @@
 
 1. Развернуть PostgreSQL (отдельный instance/managed service).
 2. Накатить SQL-схему `deploy/postgres/schema_v1.sql`.
-3. Подготовить dry-run экспорт SQLite в CSV (`scripts/export_sqlite_to_csv.py`).
+3. Подготовить dry-run экспорт SQLite в CSV (`scripts/export_sqlite_for_postgres.py`).
 4. Проверить импорт в staging PostgreSQL.
 
 ### Phase B — Dry run validation
@@ -52,6 +52,8 @@
 3. Импорт в production PostgreSQL.
 4. Smoke-test на prod-копии (до переключения трафика).
 5. Переключение runtime на PostgreSQL (отдельной задачей реализации).
+   - задать `APP_DB_URL=postgresql://...`;
+   - проверить, что сервис стартует на новом backend.
 
 ### Phase D — Post-cutover
 
@@ -79,6 +81,23 @@
 - [ ] Есть backup PostgreSQL и SQLite snapshot перед cutover.
 - [ ] Команда знает rollback команды.
 
+## 6. Runtime switch checklist (production)
+
+1. Проверить доступность PostgreSQL и права пользователя приложения.
+2. Убедиться, что в env задано:
+   - `APP_ENV=production`
+   - `APP_DB_URL=postgresql://...`
+   - `APP_ENCRYPTION_KEY=...`
+3. Перезапустить сервис.
+4. Проверить smoke-тест:
+   - логин;
+   - список аккаунтов;
+   - `/api/reviews`;
+   - ручной/авто-ответ;
+   - админка/роли.
+5. Запустить валидацию после импорта:
+   - `deploy/postgres/validation_after_import.sql`.
+
 ## 6. Риски и меры
 
 1. **Несовместимость типов (SQLite TEXT -> PostgreSQL JSONB/BOOLEAN/TIMESTAMPTZ)**  
@@ -95,9 +114,15 @@
 
 ## 7. Что не делаем в этой задаче
 
-- не переводим runtime-код на PostgreSQL;
 - не добавляем ORM;
 - не внедряем Redis/очереди.
 
-Эта задача только про подготовку и безопасный миграционный контур.
+## 8. Быстрые команды запуска (runtime на PostgreSQL)
+
+```bash
+export APP_ENV=production
+export APP_DB_URL="postgresql://feedpilot:***@127.0.0.1:5432/feedpilot"
+export APP_ENCRYPTION_KEY="..."
+python3 -m uvicorn review_processor.web:app --host 0.0.0.0 --port 8000
+```
 
