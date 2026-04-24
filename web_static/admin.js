@@ -7,6 +7,18 @@ function esc(value) {
     .replaceAll("'", "&#39;");
 }
 
+function readCookie(name) {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = document.cookie.match(new RegExp(`(?:^|; )${escaped}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
+function csrfHeaders(extra = {}) {
+  const token = readCookie("csrf_token");
+  if (token) return { ...extra, "X-CSRF-Token": token };
+  return { ...extra };
+}
+
 const roleLabels = {
   user: "пользователь",
   feedback_manager: "менеджер обратной связи",
@@ -185,7 +197,7 @@ async function saveAiSettings() {
   };
   const res = await fetch("/api/admin/ai-settings", {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: csrfHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify(payload),
   });
   const data = await res.json();
@@ -235,7 +247,7 @@ async function loadUsers() {
 async function setRole(userId, role) {
   const res = await fetch(`/api/admin/users/${userId}/role`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: csrfHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ role }),
   });
   const data = await res.json();
@@ -262,7 +274,7 @@ async function createUser() {
   }
   const res = await fetch("/api/admin/users", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: csrfHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify(payload),
   });
   const data = await res.json();
@@ -285,7 +297,7 @@ async function setUserPassword(userId, password) {
   }
   const res = await fetch(`/api/admin/users/${userId}/password`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: csrfHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ password: cleanPassword }),
   });
   const data = await res.json();

@@ -2,9 +2,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from html import escape
+import ipaddress
 import io
 from pathlib import Path
+import secrets
 import threading
+import time
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
@@ -317,6 +321,14 @@ ROLE_FEEDBACK_MANAGER = "feedback_manager"
 ROLE_CAN_ACCESS_ANALYTICS = {ROLE_ADMIN, ROLE_USER}
 ROLE_CAN_ACCESS_SETTINGS = {ROLE_ADMIN, ROLE_USER}
 ROLE_ASSIGNABLE_BY_ADMIN = {ROLE_ADMIN, ROLE_USER, ROLE_FEEDBACK_MANAGER}
+SESSION_TTL_SECONDS = 30 * 24 * 60 * 60
+CSRF_COOKIE_NAME = "csrf_token"
+CSRF_HEADER_NAME = "X-CSRF-Token"
+RATE_LIMIT_API_READ_PER_MINUTE = 600
+RATE_LIMIT_API_WRITE_PER_MINUTE = 180
+RATE_LIMIT_SYNC_PER_MINUTE = 20
+RATE_LIMIT_LOGIN_PER_10_MIN = 30
+FAILED_LOGIN_LIMIT_PER_15_MIN = 10
 
 
 def create_app(config: AppConfig | None = None) -> FastAPI:
@@ -335,6 +347,192 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         "last_started_at": None,
         "last_finished_at": None,
     }
+    rate_limit_lock = threading.Lock()
+    rate_buckets: dict[str, list[float]] = {}
+    failed_login_attempts: dict[str, list[float]] = {}
+
+    def _client_ip(request: Request) -> str:
+        forwarded = str(request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+        if forwarded:
+            return forwarded
+        if request.client and request.client.host:
+            return str(request.client.host)
+        return "unknown"
+
+    def _allow_rate(scope: str, *, limit: int, window_seconds: int) -> bool:
+        now = time.time()
+        cutoff = now - float(window_seconds)
+        with rate_limit_lock:
+            bucket = [ts for ts in rate_buckets.get(scope, []) if ts >= cutoff]
+            if len(bucket) >= limit:
+                rate_buckets[scope] = bucket
+                return False
+            bucket.append(now)
+            rate_buckets[scope] = bucket
+            return True
+
+    def _record_failed_login(login_key: str) -> None:
+        now = time.time()
+        cutoff = now - 15 * 60
+        with rate_limit_lock:
+            bucket = [ts for ts in failed_login_attempts.get(login_key, []) if ts >= cutoff]
+            bucket.append(now)
+            failed_login_attempts[login_key] = bucket
+
+    def _clear_failed_login(login_key: str) -> None:
+        with rate_limit_lock:
+            failed_login_attempts.pop(login_key, None)
+
+    def _is_login_blocked(login_key: str) -> bool:
+        now = time.time()
+        cutoff = now - 15 * 60
+        with rate_limit_lock:
+            bucket = [ts for ts in failed_login_attempts.get(login_key, []) if ts >= cutoff]
+            failed_login_attempts[login_key] = bucket
+            return len(bucket) >= FAILED_LOGIN_LIMIT_PER_15_MIN
+
+    def _is_private_host(hostname: str) -> bool:
+        host = hostname.strip().lower().rstrip(".")
+        if not host:
+            return True
+        if host in {"localhost", "localhost.localdomain"} or host.endswith(".localhost") or host.endswith(".local"):
+            return True
+        try:
+            ip = ipaddress.ip_address(host)
+        except ValueError:
+            return False
+        return bool(
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_multicast
+            or ip.is_reserved
+            or ip.is_unspecified
+        )
+
+    def _validate_account_api_url(marketplace: str, raw_url: str) -> str:
+        normalized = raw_url.strip()
+        parsed = urlparse(normalized)
+        if parsed.scheme.lower() != "https":
+            raise HTTPException(status_code=400, detail="Адрес интерфейса API должен начинаться с https://")
+        host = (parsed.hostname or "").strip().lower()
+        if not host:
+            raise HTTPException(status_code=400, detail="Некорректный адрес интерфейса API")
+        if _is_private_host(host):
+            raise HTTPException(status_code=400, detail="Адрес интерфейса API указывает на недопустимый внутренний хост")
+        if marketplace == "wb" and not (host == "feedbacks-api.wildberries.ru" or host.endswith(".wildberries.ru")):
+            raise HTTPException(status_code=400, detail="Для WB разрешены только домены wildberries.ru")
+        if marketplace == "ozon" and not (host == "api-seller.ozon.ru" or host.endswith(".ozon.ru")):
+            raise HTTPException(status_code=400, detail="Для OZON разрешены только домены ozon.ru")
+        return normalized
+
+    def _set_session_cookie(response: RedirectResponse, token: str) -> None:
+        secure_cookie = bool(app_config.is_production)
+        response.set_cookie(
+            "session_token",
+            token,
+            httponly=True,
+            samesite="lax",
+            secure=secure_cookie,
+            max_age=SESSION_TTL_SECONDS,
+        )
+        response.set_cookie(
+            CSRF_COOKIE_NAME,
+            secrets.token_urlsafe(32),
+            httponly=False,
+            samesite="lax",
+            secure=secure_cookie,
+            max_age=SESSION_TTL_SECONDS,
+        )
+
+    def _ensure_csrf_cookie(response: HTMLResponse | RedirectResponse, request: Request) -> None:
+        if not request.cookies.get("session_token"):
+            return
+        if request.cookies.get(CSRF_COOKIE_NAME):
+            return
+        response.set_cookie(
+            CSRF_COOKIE_NAME,
+            secrets.token_urlsafe(32),
+            httponly=False,
+            samesite="lax",
+            secure=bool(app_config.is_production),
+            max_age=SESSION_TTL_SECONDS,
+        )
+
+    def _is_same_origin(request: Request, origin_value: str) -> bool:
+        parsed = urlparse(origin_value)
+        if not parsed.scheme or not parsed.netloc:
+            return False
+        expected_scheme = str(request.headers.get("x-forwarded-proto") or request.url.scheme).lower()
+        expected_host = str(request.url.hostname or "").lower()
+        expected_port = request.url.port or (443 if expected_scheme == "https" else 80)
+        origin_host = str(parsed.hostname or "").lower()
+        origin_port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
+        return parsed.scheme.lower() == expected_scheme and origin_host == expected_host and origin_port == expected_port
+
+    def _check_csrf(request: Request) -> None:
+        method = request.method.upper()
+        if method not in {"POST", "PUT", "PATCH", "DELETE"}:
+            return
+        path = request.url.path
+        if not path.startswith("/api/"):
+            return
+        # Only enforce CSRF for authenticated browser requests.
+        if not request.cookies.get("session_token"):
+            return
+        cookie_token = str(request.cookies.get(CSRF_COOKIE_NAME) or "")
+        header_token = str(request.headers.get(CSRF_HEADER_NAME) or "").strip()
+        if not cookie_token or not header_token or not secrets.compare_digest(cookie_token, header_token):
+            raise HTTPException(status_code=403, detail="CSRF токен отсутствует или неверен")
+        origin = str(request.headers.get("origin") or "").strip()
+        referer = str(request.headers.get("referer") or "").strip()
+        if origin and not _is_same_origin(request, origin):
+            raise HTTPException(status_code=403, detail="Недопустимый origin запроса")
+        if not origin and referer and not _is_same_origin(request, referer):
+            raise HTTPException(status_code=403, detail="Недопустимый referer запроса")
+
+    def _check_rate_limit(request: Request) -> None:
+        path = request.url.path
+        method = request.method.upper()
+        ip = _client_ip(request)
+        if path == "/login" and method == "POST":
+            login_scope = f"login:{ip}"
+            if not _allow_rate(login_scope, limit=RATE_LIMIT_LOGIN_PER_10_MIN, window_seconds=10 * 60):
+                raise HTTPException(status_code=429, detail="Слишком много попыток входа. Попробуйте позже.")
+        if path.startswith("/api/"):
+            if method in {"GET", "HEAD", "OPTIONS"}:
+                limit = RATE_LIMIT_API_READ_PER_MINUTE
+            elif path == "/api/sync":
+                limit = RATE_LIMIT_SYNC_PER_MINUTE
+            else:
+                limit = RATE_LIMIT_API_WRITE_PER_MINUTE
+            scope = f"api:{method}:{path}:{ip}"
+            if not _allow_rate(scope, limit=limit, window_seconds=60):
+                raise HTTPException(status_code=429, detail="Слишком много запросов. Попробуйте позже.")
+
+    @app.middleware("http")
+    async def hardening_middleware(request: Request, call_next):
+        try:
+            _check_rate_limit(request)
+            _check_csrf(request)
+        except HTTPException as exc:
+            if request.url.path == "/login":
+                return HTMLResponse(build_login_html(error=str(exc.detail)), status_code=exc.status_code)
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+        response = await call_next(request)
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("Referrer-Policy", "same-origin")
+        response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'self'",
+        )
+        if app_config.is_production:
+            response.headers.setdefault("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")
+        _ensure_csrf_cookie(response, request)
+        return response
 
     def _now_iso() -> str:
         return datetime.now(UTC).isoformat()
@@ -344,6 +542,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         expires = (datetime.now(UTC) + timedelta(days=30)).isoformat()
         repository.create_session(token=token, user_id=user_id, expires_at=expires)
         return token
+
+    def _login_attempt_key(request: Request, email: str) -> str:
+        return f"{_client_ip(request)}::{email.strip().lower()}"
 
     def _get_current_user(request: Request) -> dict[str, object] | None:
         token = request.cookies.get("session_token")
@@ -475,14 +676,19 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         return HTMLResponse(build_login_html())
 
     @app.post("/login")
-    def login(email: str = Form(...), password: str = Form(...)) -> HTMLResponse:
+    def login(request: Request, email: str = Form(...), password: str = Form(...)) -> HTMLResponse:
+        login_key = _login_attempt_key(request, email)
+        if _is_login_blocked(login_key):
+            return HTMLResponse(build_login_html(error="Слишком много неудачных попыток входа. Повторите позже."), status_code=429)
         user = repository.get_user_by_email(email)
         if user is None or not verify_password(password, str(user["password_hash"])):
+            _record_failed_login(login_key)
             return HTMLResponse(build_login_html(error="Неверная эл. почта или пароль"), status_code=401)
 
+        _clear_failed_login(login_key)
         token = _issue_session(int(user["id"]))
         response = RedirectResponse("/app", status_code=302)
-        response.set_cookie("session_token", token, httponly=True, samesite="lax")
+        _set_session_cookie(response, token)
         return response
 
     @app.get("/register", response_class=HTMLResponse)
@@ -512,7 +718,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         user = repository.create_user(email=email, password_hash=hash_password(password), role=role)
         token = _issue_session(int(user["id"]))
         response = RedirectResponse("/app", status_code=302)
-        response.set_cookie("session_token", token, httponly=True, samesite="lax")
+        _set_session_cookie(response, token)
         return response
 
     @app.get("/logout")
@@ -521,7 +727,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if token:
             repository.delete_session(token)
         response = RedirectResponse("/", status_code=302)
-        response.delete_cookie("session_token")
+        secure_cookie = bool(app_config.is_production)
+        response.delete_cookie("session_token", samesite="lax", secure=secure_cookie)
+        response.delete_cookie(CSRF_COOKIE_NAME, samesite="lax", secure=secure_cookie)
         return response
 
     @app.get("/app", response_class=HTMLResponse)
@@ -812,6 +1020,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "mock": "https://example.local/api/reviews",
         }
         api_url = (payload.api_url or "").strip() or str(integration.get("api_url") or default_api_urls[marketplace])
+        api_url = _validate_account_api_url(marketplace, api_url)
         if marketplace in {"wb", "ozon"} and not (payload.api_key or "").strip():
             raise HTTPException(status_code=400, detail="Для WB/OZON требуется ключ доступа")
         client_id_value = (payload.client_id or "").strip() or str(integration.get("client_id") or "").strip()

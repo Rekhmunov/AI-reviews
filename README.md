@@ -263,6 +263,9 @@ sudo systemctl status feedpilot
 - Проверка nginx: `nginx -t && systemctl reload nginx`
 - Проверка порта: `ss -ltnp | rg 8000`
 - Проверка backup/restore PostgreSQL не реже 1 раза в сутки на staging/backup-host.
+- Проверка, что сайт отдается только по HTTPS и настроен редирект с 80 -> 443.
+- В production убедиться, что в ответах есть security headers (`HSTS`, `CSP`, `X-Frame-Options`, `X-Content-Type-Options`).
+- Для браузерных mutating API-запросов используется CSRF-заголовок `X-CSRF-Token` (frontend уже отправляет его автоматически).
 
 ## Миграция с SQLite (историческая) и валидация PostgreSQL
 

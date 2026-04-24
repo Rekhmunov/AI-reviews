@@ -22,5 +22,20 @@ class WebRoleAccessTests(unittest.TestCase):
         self.assertIn("can_view_settings: true", html)
 
 
+class FrontendCsrfHeaderTests(unittest.TestCase):
+    def test_app_js_mutating_requests_include_csrf_header(self) -> None:
+        with open("/workspace/web_static/app.js", "r", encoding="utf-8") as fh:
+            script = fh.read()
+        self.assertIn('headers: jsonHeaders()', script)
+        self.assertIn('headers: withCsrfHeaders()', script)
+        self.assertIn('"X-CSRF-Token"', script)
+
+    def test_admin_js_mutating_requests_include_csrf_header(self) -> None:
+        with open("/workspace/web_static/admin.js", "r", encoding="utf-8") as fh:
+            script = fh.read()
+        self.assertIn('headers: csrfHeaders({ "Content-Type": "application/json" })', script)
+        self.assertIn('"X-CSRF-Token"', script)
+
+
 if __name__ == "__main__":
     unittest.main()

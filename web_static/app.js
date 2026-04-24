@@ -7,6 +7,32 @@ function esc(value) {
     .replaceAll("'", "&#39;");
 }
 
+function getCsrfToken() {
+  const key = "csrf_token=";
+  const parts = String(document.cookie || "").split(";");
+  for (const part of parts) {
+    const value = part.trim();
+    if (value.startsWith(key)) {
+      return decodeURIComponent(value.slice(key.length));
+    }
+  }
+  return "";
+}
+
+function jsonHeaders() {
+  const headers = { "Content-Type": "application/json" };
+  const csrf = getCsrfToken();
+  if (csrf) headers["X-CSRF-Token"] = csrf;
+  return headers;
+}
+
+function withCsrfHeaders(extraHeaders = {}) {
+  const headers = { ...extraHeaders };
+  const csrf = getCsrfToken();
+  if (csrf) headers["X-CSRF-Token"] = csrf;
+  return headers;
+}
+
 const templateStore = {};
 const reviewsState = {
   page: 1,
@@ -519,7 +545,7 @@ async function applyProcessingRules() {
   try {
     const res = await fetch("/api/processing-rules/apply", {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders(),
       body: JSON.stringify(payload),
     });
     const data = await res.json();
@@ -567,7 +593,7 @@ async function syncAll() {
     const payload = { all_accounts: true, account_id: null };
     const res = await fetch("/api/sync", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders(),
       body: JSON.stringify(payload),
     });
     const data = await res.json();
@@ -598,7 +624,10 @@ async function syncAll() {
 }
 
 async function stopSyncAll() {
-  const res = await fetch("/api/admin/sync-stop", { method: "POST" });
+  const res = await fetch("/api/admin/sync-stop", {
+    method: "POST",
+    headers: withCsrfHeaders(),
+  });
   const data = await res.json();
   if (!res.ok) {
     alert(data.detail || "Не удалось остановить синхронизацию");
@@ -612,7 +641,7 @@ async function clearAllReviews() {
   if (!confirm("Удалить все отзывы из текущего кабинета?")) return;
   const res = await fetch("/api/admin/reviews-clear", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: jsonHeaders(),
     body: JSON.stringify({}),
   });
   const data = await res.json();
@@ -751,7 +780,7 @@ async function setConversationStatus(conversationUid, status) {
   const payload = { status: status };
   const res = await fetch(`/api/conversations/${encodeURIComponent(conversationUid)}/status`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: jsonHeaders(),
     body: JSON.stringify(payload),
   });
   const data = await res.json();
@@ -835,7 +864,7 @@ async function createAccount() {
   };
   const res = await fetch("/api/accounts", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: jsonHeaders(),
     body: JSON.stringify(payload),
   });
   const data = await res.json();
@@ -855,7 +884,7 @@ async function toggleAccount(accountId, active) {
   const payload = { is_active: active };
   await fetch(`/api/accounts/${accountId}/status`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: jsonHeaders(),
     body: JSON.stringify(payload),
   });
   await loadAccounts();
@@ -863,7 +892,10 @@ async function toggleAccount(accountId, active) {
 
 async function deleteAccount(accountId) {
   if (!confirm("Удалить источник данных?")) return;
-  const res = await fetch(`/api/accounts/${accountId}`, { method: "DELETE" });
+  const res = await fetch(`/api/accounts/${accountId}`, {
+    method: "DELETE",
+    headers: withCsrfHeaders(),
+  });
   const data = await res.json();
   if (!res.ok) {
     alert(data.detail || "Не удалось удалить источник");
@@ -915,7 +947,7 @@ async function toggleRuleEnabled(category, enabled) {
   };
   const res = await fetch("/api/templates", {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: jsonHeaders(),
     body: JSON.stringify(payload),
   });
   const data = await res.json();
@@ -929,7 +961,10 @@ async function toggleRuleEnabled(category, enabled) {
 
 async function deleteRule(category) {
   if (!confirm("Удалить правило обработки?")) return;
-  const res = await fetch(`/api/templates/${encodeURIComponent(category)}`, { method: "DELETE" });
+  const res = await fetch(`/api/templates/${encodeURIComponent(category)}`, {
+    method: "DELETE",
+    headers: withCsrfHeaders(),
+  });
   const data = await res.json();
   if (!res.ok) {
     alert(data.detail || "Не удалось удалить правило");
@@ -952,7 +987,7 @@ async function saveRuleOnly() {
   };
   const res = await fetch("/api/templates", {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: jsonHeaders(),
     body: JSON.stringify(payload),
   });
   const data = await res.json();
@@ -1083,7 +1118,10 @@ function renderTemplateEditorRows() {
     delBtn.addEventListener("click", async () => {
       const itemId = templateGroupsState.currentTemplates[index]?.id;
       if (itemId) {
-        await fetch(`/api/template-subgroup/item/${itemId}`, { method: "DELETE" });
+        await fetch(`/api/template-subgroup/item/${itemId}`, {
+          method: "DELETE",
+          headers: withCsrfHeaders(),
+        });
       }
       templateGroupsState.currentTemplates.splice(index, 1);
       renderTemplateEditorRows();
@@ -1111,7 +1149,7 @@ async function saveTemplateSubgroup() {
   });
   const res = await fetch("/api/template-subgroup?" + query.toString(), {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: jsonHeaders(),
     body: JSON.stringify(payload),
   });
   const data = await res.json();
@@ -1198,7 +1236,7 @@ async function saveRecommendations() {
   };
   const res = await fetch("/api/recommendations", {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: jsonHeaders(),
     body: JSON.stringify(payload),
   });
   const data = await res.json();
@@ -1225,6 +1263,7 @@ async function importRecommendationsFile(inputElement) {
   formData.append("file", file);
   const res = await fetch("/api/recommendations/import", {
     method: "POST",
+    headers: withCsrfHeaders(),
     body: formData,
   });
   const data = await res.json();
@@ -1241,12 +1280,18 @@ function exportRecommendations() {
 }
 
 async function queueManual(reviewId) {
-  await fetch(`/api/reviews/${encodeURIComponent(reviewId)}/queue-manual`, { method: "POST" });
+  await fetch(`/api/reviews/${encodeURIComponent(reviewId)}/queue-manual`, {
+    method: "POST",
+    headers: withCsrfHeaders(),
+  });
   await loadReviews();
 }
 
 async function autoReply(reviewId) {
-  const res = await fetch(`/api/reviews/${encodeURIComponent(reviewId)}/auto-reply`, { method: "POST" });
+  const res = await fetch(`/api/reviews/${encodeURIComponent(reviewId)}/auto-reply`, {
+    method: "POST",
+    headers: withCsrfHeaders(),
+  });
   const data = await res.json();
   if (!res.ok) {
     alert(data.detail || "Ошибка автоответа");
@@ -1264,7 +1309,7 @@ async function manualReply(reviewId) {
   const payload = { operator_name: operator, response_text: text };
   const res = await fetch(`/api/reviews/${encodeURIComponent(reviewId)}/manual-reply`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: jsonHeaders(),
     body: JSON.stringify(payload),
   });
   const data = await res.json();
@@ -1324,7 +1369,7 @@ async function saveProfile() {
   };
   const res = await fetch("/api/profile", {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: jsonHeaders(),
     body: JSON.stringify(payload),
   });
   const data = await res.json();
