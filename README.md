@@ -114,7 +114,7 @@ export APP_ENCRYPTION_KEY="<fernet-key>"
 - `review_processor/web.py` — FastAPI: лендинг, auth, app, admin, API.
 - `web_templates/*.html` — отдельные HTML-страницы (landing/login/register/app/admin).
 - `web_static/*.js`, `web_static/style.css` — клиентские скрипты и стили.
-- `review_processor/repository.py` — SQLite: users/sessions/accounts/templates/reviews/AI settings.
+- `review_processor/repository.py` — PostgreSQL: users/sessions/accounts/templates/reviews/AI settings.
 - `review_processor/service.py` — синхронизация, категоризация, процессы, ответы, WB/OZON клиенты.
 - `review_processor/processor.py` — rule-based анализ отзывов.
 - `review_processor/auth.py` — hash/verify password и токены сессий.
@@ -208,8 +208,7 @@ python3 -m unittest discover -s tests -p "test_*.py"
 ### 1) Обязательные переменные окружения
 
 - `APP_ENV` — `production` для боевого окружения.
-- `APP_DB_URL` — строка подключения PostgreSQL (если задана, используется PostgreSQL runtime).
-- `APP_DB_PATH` — путь к SQLite БД (например `/opt/feedpilot/data/reviews.db`).
+- `APP_DB_URL` — строка подключения PostgreSQL (обязательна).
 - `APP_ENCRYPTION_KEY` — ключ шифрования секретов (обязательно в production).
 - `APP_SELF_REGISTRATION_ENABLED` — `false` (рекомендуется для production).
 
@@ -218,7 +217,6 @@ python3 -m unittest discover -s tests -p "test_*.py"
 ```env
 APP_ENV=production
 APP_DB_URL=postgresql://feedpilot:[REDACTED]@127.0.0.1:5432/feedpilot
-APP_DB_PATH=/opt/feedpilot/data/reviews.db
 APP_ENCRYPTION_KEY=<FERNET_KEY>
 APP_SELF_REGISTRATION_ENABLED=false
 PYTHONUNBUFFERED=1
@@ -235,25 +233,18 @@ PYTHONUNBUFFERED=1
 
 Они используют env-файл (`EnvironmentFile`) и проксирование на `127.0.0.1:8000`.
 
-При включенном PostgreSQL runtime сервис использует `APP_DB_URL` и игнорирует `APP_DB_PATH`.
+Сервис запускается только с PostgreSQL runtime через `APP_DB_URL`.
 
-### 3) Бэкапы и восстановление SQLite
+### 3) Бэкапы PostgreSQL
 
-Скрипты:
-
-- `scripts/backup_sqlite.sh` — делает timestamp backup и чистит старые файлы.
-- `scripts/restore_sqlite.sh` — восстанавливает БД из backup-копии.
-
-Пример backup:
+Рекомендуемые команды:
 
 ```bash
-./scripts/backup_sqlite.sh /opt/feedpilot/data/reviews.db /opt/feedpilot/backups 14
-```
+# backup
+pg_dump "$APP_DB_URL" -Fc -f /opt/feedpilot/backups/feedpilot_$(date +%F_%H-%M-%S).dump
 
-Пример restore:
-
-```bash
-./scripts/restore_sqlite.sh /opt/feedpilot/backups/reviews_2026-01-01_03-00-00.db /opt/feedpilot/data/reviews.db
+# restore (на отдельную БД/стенд)
+pg_restore --clean --if-exists --no-owner --dbname "$APP_DB_URL" /opt/feedpilot/backups/<backup>.dump
 ```
 
 ### 4) Обновление приложения в production
@@ -271,13 +262,13 @@ sudo systemctl status feedpilot
 - Проверка логов приложения: `journalctl -u feedpilot -f`
 - Проверка nginx: `nginx -t && systemctl reload nginx`
 - Проверка порта: `ss -ltnp | rg 8000`
-- Проверка backup/restore не реже 1 раза в сутки на staging/backup-host.
+- Проверка backup/restore PostgreSQL не реже 1 раза в сутки на staging/backup-host.
 
-## Переход SQLite -> PostgreSQL (подготовка)
+## Миграция с SQLite (историческая) и валидация PostgreSQL
 
 Для безопасного перехода без потери данных добавлены материалы:
 
-- `docs/POSTGRESQL_MIGRATION_ROADMAP.md` — пошаговый план migration/cutover/rollback.
+- `docs/POSTGRESQL_MIGRATION_ROADMAP.md` — пошаговый план исторической migration/cutover/rollback.
 - `deploy/postgres/schema_v1.sql` — целевая схема PostgreSQL (v1).
 - `deploy/postgres/validation_after_import.sql` — сверка count/checksum после импорта.
 - `scripts/export_sqlite_for_postgres.py` — экспорт текущей SQLite базы в CSV + `manifest.json`.

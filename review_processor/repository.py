@@ -106,9 +106,11 @@ class _PgCompatConnection:
 class ReviewRepository:
     """Repository for auth, settings, and marketplace reviews."""
 
-    def __init__(self, db_path: str = "reviews.db", db_url: str | None = None) -> None:
+    def __init__(self, db_url: str | None = None, db_path: str = "reviews.db") -> None:
         self.db_url = str(db_url or "").strip() or None
         self.is_postgres = bool(self.db_url and self.db_url.startswith("postgres"))
+        if self.db_url and not self.is_postgres:
+            raise RuntimeError("APP_DB_URL must be a PostgreSQL DSN (postgresql://...)")
         self.db_path = db_path
         if self.is_postgres:
             if psycopg is None or psycopg_rows is None:
@@ -124,7 +126,6 @@ class ReviewRepository:
 
     def _connect(self):
         if self.is_postgres:
-            assert self.db_url is not None
             assert psycopg is not None and psycopg_rows is not None
             conn = psycopg.connect(self.db_url, row_factory=psycopg_rows.dict_row, autocommit=True)
             return _PgCompatConnection(conn)
@@ -138,7 +139,7 @@ class ReviewRepository:
             return _replace_qmark_placeholders(query)
         return query
 
-    def _bool_db(self, value: bool | None) -> int | bool | None:
+    def _bool_db(self, value: bool | None) -> bool | int | None:
         if value is None:
             return None
         return bool(value) if self.is_postgres else int(bool(value))
@@ -386,87 +387,11 @@ class ReviewRepository:
                 (self._json_param(DEFAULT_GROUP_PROCESSORS), _utc_now()),
             )
 
-    def _migrate_schema(self, conn: sqlite3.Connection) -> None:
-        # Backward-compatible migrations for already initialized local DBs.
-        user_columns = self._table_columns(conn, "users")
-        if "full_name" not in user_columns:
-            conn.execute("ALTER TABLE users ADD COLUMN full_name TEXT")
-
-        ai_columns = self._table_columns(conn, "ai_settings")
-        if "yandex_api_key_encrypted" not in ai_columns:
-            conn.execute("ALTER TABLE ai_settings ADD COLUMN yandex_api_key_encrypted TEXT")
-        if "use_sync_start_date" not in ai_columns:
-            conn.execute("ALTER TABLE ai_settings ADD COLUMN use_sync_start_date INTEGER NOT NULL DEFAULT 0")
-        if "sync_start_date" not in ai_columns:
-            conn.execute("ALTER TABLE ai_settings ADD COLUMN sync_start_date TEXT")
-        if "brand_name" not in ai_columns:
-            conn.execute("ALTER TABLE ai_settings ADD COLUMN brand_name TEXT NOT NULL DEFAULT 'VarFabric'")
-        if "group_processors_json" not in ai_columns:
-            conn.execute("ALTER TABLE ai_settings ADD COLUMN group_processors_json TEXT NOT NULL DEFAULT '{}'")
-        conn.execute(
-            """
-            UPDATE ai_settings
-            SET brand_name = 'VarFabric'
-            WHERE brand_name IS NULL OR TRIM(brand_name) = ''
-            """
-        )
-        rows = conn.execute("SELECT id, group_processors_json FROM ai_settings WHERE id = 1").fetchall()
-        for row in rows:
-            raw = str(row["group_processors_json"] or "").strip()
-            if not raw or raw == "{}":
-                conn.execute(
-                    """
-                    UPDATE ai_settings
-                    SET group_processors_json = ?, updated_at = ?
-                    WHERE id = ?
-                    """,
-                    (self._json_param(DEFAULT_GROUP_PROCESSORS), _utc_now(), int(row["id"])),
-                )
-
-        account_columns = self._table_columns(conn, "marketplace_accounts")
-        if "api_key_encrypted" not in account_columns:
-            conn.execute("ALTER TABLE marketplace_accounts ADD COLUMN api_key_encrypted TEXT")
-        if "extra_json" not in account_columns:
-            conn.execute("ALTER TABLE marketplace_accounts ADD COLUMN extra_json TEXT NOT NULL DEFAULT '{}'")
-
-        if "api_key" in account_columns:
-            rows = conn.execute(
-                """
-                SELECT id, api_key, api_key_encrypted
-                FROM marketplace_accounts
-                WHERE api_key IS NOT NULL AND TRIM(api_key) != ''
-                """
-            ).fetchall()
-            for row in rows:
-                if row["api_key_encrypted"]:
-                    continue
-                encrypted = encrypt_secret(str(row["api_key"]))
-                conn.execute(
-                    """
-                    UPDATE marketplace_accounts
-                    SET api_key_encrypted = ?, api_key = NULL, updated_at = ?
-                    WHERE id = ?
-                    """,
-                    (encrypted, _utc_now(), int(row["id"])),
-                )
-
-        if "yandex_api_key" in ai_columns:
-            row = conn.execute(
-                "SELECT id, yandex_api_key, yandex_api_key_encrypted FROM ai_settings WHERE id = 1"
-            ).fetchone()
-            if row is not None and row["yandex_api_key"] and not row["yandex_api_key_encrypted"]:
-                conn.execute(
-                    """
-                    UPDATE ai_settings
-                    SET yandex_api_key_encrypted = ?, yandex_api_key = NULL, updated_at = ?
-                    WHERE id = 1
-                    """,
-                    (encrypt_secret(str(row["yandex_api_key"])), _utc_now()),
-                )
-
-        template_columns = self._table_columns(conn, "response_templates")
-        if "is_enabled" not in template_columns:
-            conn.execute("ALTER TABLE response_templates ADD COLUMN is_enabled INTEGER NOT NULL DEFAULT 0")
+    def _migrate_schema(self, conn) -> None:
+        # PostgreSQL-only runtime: schema migration is handled by schema_v1.sql.
+        # Keep method for compatibility with initialization flow.
+        _ = conn
+        return
 
     def _table_columns(self, conn, table: str) -> set[str]:
         if self.is_postgres:
@@ -796,7 +721,7 @@ class ReviewRepository:
             return None
         return self._account_row_to_dict(row, include_secrets=include_secrets)
 
-    def _account_row_to_dict(self, row: sqlite3.Row, *, include_secrets: bool) -> dict[str, Any]:
+    def _account_row_to_dict(self, row, *, include_secrets: bool) -> dict[str, Any]:
         data = self._row_to_dict(row)
         encrypted = str(data.pop("api_key_encrypted") or "") if "api_key_encrypted" in data else ""
         api_key = decrypt_secret(encrypted) if encrypted else None

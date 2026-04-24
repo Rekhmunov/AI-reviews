@@ -17,7 +17,6 @@ class PostgresRuntimeSmokeTests(unittest.TestCase):
         cfg = AppConfig(
             app_env="production",
             db_url=dsn,
-            db_path="unused.db",
             self_registration_enabled=False,
         )
         # The app factory should accept PostgreSQL URL configuration shape
