@@ -8,14 +8,19 @@
 </head>
 <body>
   <div class="container container-page">
-    <div class="panel">
-      <h2>Админ-панель</h2>
-      <p class="small">Вы вошли как: {{SAFE_EMAIL}}</p>
-      <p class="small">Первый зарегистрированный пользователь получает роль администратора. Далее администратор может управлять ролями (пользователь / менеджер обратной связи / администратор).</p>
-      <p><a href="/app">Вернуться в рабочий кабинет</a></p>
+    <div id="adminScopeBadge" class="panel hidden">
+      <h3 id="adminScopeTitle">Режим админки</h3>
+      <p id="adminScopeText" class="small"></p>
     </div>
 
     <div class="panel">
+      <h2>Админ-панель</h2>
+      <p class="small">Вы вошли как: {{SAFE_EMAIL}}</p>
+      <p class="small">Супер-администратор управляет всей платформой. Владелец кабинета управляет только своей командой.</p>
+      <p><a href="/app">Вернуться в рабочий кабинет</a></p>
+    </div>
+
+    <div id="superAdminAiPanel" class="panel hidden">
       <h3>ИИ-классификатор отзывов</h3>
       <div class="row">
         <select id="provider">
@@ -48,21 +53,71 @@
       <p class="small">Оставьте ключ доступа пустым, чтобы не менять текущий ключ. Если включена дата, синхронизация всегда берет отзывы с этой даты по текущий день.</p>
     </div>
 
+    <div id="superAdminSaasPanel" class="panel hidden">
+      <h3>SaaS-управление платформой</h3>
+      <div class="row">
+        <button class="secondary" onclick="loadTariffs()">Тарифы</button>
+        <button class="secondary" onclick="loadTenants()">Клиенты</button>
+        <button class="secondary" onclick="loadPayments()">Платежи</button>
+      </div>
+      <div class="row">
+        <input id="tariffCode" type="text" placeholder="Код тарифа (например, pro)" />
+        <input id="tariffTitle" type="text" placeholder="Название тарифа" />
+        <input id="tariffPrice" type="number" step="0.01" min="0" placeholder="Цена / месяц" />
+      </div>
+      <div class="row">
+        <textarea id="tariffLimits" class="textarea-compact" placeholder='Лимиты в JSON, например {"reviews_per_month":15000,"managers":25}'></textarea>
+        <label><input id="tariffIsActive" class="small-check" type="checkbox" checked /> Тариф активен</label>
+        <button onclick="saveTariffPlan()">Сохранить тариф</button>
+      </div>
+      <div class="row">
+        <input id="tenantOwnerId" type="number" min="1" placeholder="ID владельца кабинета" />
+        <input id="tenantPlanCode" type="text" placeholder="Новый план (starter/pro/enterprise/...)" />
+        <textarea id="tenantPlanOverride" class="textarea-compact" placeholder='Переопределение лимитов (JSON, опционально)'></textarea>
+        <button onclick="assignTenantPlan()">Назначить тариф клиенту</button>
+      </div>
+      <div class="row">
+        <input id="paymentOwnerId" type="number" min="1" placeholder="ID владельца кабинета" />
+        <input id="paymentAmount" type="number" step="0.01" min="0" placeholder="Сумма" />
+        <input id="paymentStatus" type="text" placeholder="Статус (paid/pending/...)" value="paid" />
+        <button onclick="addPaymentRecord()">Добавить платеж</button>
+      </div>
+      <div id="saasInfo" class="small"></div>
+      <div class="row">
+        <table>
+          <thead><tr><th colspan="5">Тарифы</th></tr></thead>
+          <tbody id="tariffsTbody"></tbody>
+        </table>
+      </div>
+      <div class="row">
+        <table>
+          <thead><tr><th colspan="6">Клиенты (tenant owners)</th></tr></thead>
+          <tbody id="tenantsTbody"></tbody>
+        </table>
+      </div>
+      <div class="row">
+        <table>
+          <thead><tr><th colspan="6">Платежи</th></tr></thead>
+          <tbody id="paymentsTbody"></tbody>
+        </table>
+      </div>
+    </div>
+
     <div class="panel">
       <h3>Пользователи и роли</h3>
       <div class="row">
         <input id="newUserEmail" type="email" placeholder="Эл. почта нового пользователя" />
         <input id="newUserPassword" type="password" placeholder="Пароль (минимум 8 символов)" />
         <select id="newUserRole">
-          <option value="user">пользователь</option>
-          <option value="feedback_manager">менеджер обратной связи</option>
           <option value="admin">администратор</option>
+          <option value="feedback_manager">менеджер обратной связи</option>
+          <option value="user">пользователь</option>
         </select>
         <button onclick="createUser()">Создать нового пользователя</button>
       </div>
       <div id="usersInfo" class="small"></div>
       <table>
-        <thead><tr><th>№</th><th>Эл. почта</th><th>Новый пароль</th><th>Роль</th><th>Действия</th></tr></thead>
+        <thead><tr><th>№</th><th>Эл. почта</th><th>Новый пароль</th><th>Роль</th><th>Блокировка</th><th>Действия</th></tr></thead>
         <tbody id="usersTbody"></tbody>
       </table>
     </div>
@@ -86,6 +141,6 @@
     </div>
   </div>
 
-  <script src="/static/admin.js?v=2"></script>
+  <script src="/static/admin.js?v=3"></script>
 </body>
 </html>

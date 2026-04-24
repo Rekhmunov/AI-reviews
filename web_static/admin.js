@@ -85,6 +85,24 @@ const processorLabels = {
   yandex: "Яндекс",
   program: "Программа",
 };
+const tenantRoleLabels = {
+  admin: "администратор кабинета",
+  feedback_manager: "менеджер обратной связи",
+};
+const ALL_ROLE_VALUES = ["user", "feedback_manager", "admin"];
+const TENANT_ROLE_VALUES = ["feedback_manager", "admin"];
+
+const adminState = {
+  context: null,
+};
+
+function isSuperAdmin() {
+  return Boolean(adminState.context && adminState.context.is_super_admin);
+}
+
+function isTenantOwner() {
+  return Boolean(adminState.context && adminState.context.is_tenant_owner);
+}
 
 function labelFromMap(map, value) {
   const key = String(value || "");
@@ -109,13 +127,63 @@ function formatActionDetails(details) {
 }
 
 function buildRoleOptions(selectedRole) {
-  const availableRoles = ["user", "feedback_manager", "admin"];
+  const availableRoles = isSuperAdmin() ? ALL_ROLE_VALUES : TENANT_ROLE_VALUES;
   return availableRoles
     .map((role) => {
       const selected = role === selectedRole ? " selected" : "";
       return `<option value="${role}"${selected}>${esc(roleLabels[role] || role)}</option>`;
     })
     .join("");
+}
+
+async function loadAdminContext() {
+  const res = await fetch("/api/admin/context");
+  const data = await res.json();
+  if (!res.ok) {
+    setUsersInfo(data.detail || "Не удалось определить контекст администратора", true);
+    adminState.context = null;
+    return false;
+  }
+  adminState.context = data;
+
+  const roleSelect = document.getElementById("newUserRole");
+  if (roleSelect) {
+    const allowedRoles = isSuperAdmin() ? ALL_ROLE_VALUES : TENANT_ROLE_VALUES;
+    roleSelect.innerHTML = "";
+    for (const role of allowedRoles) {
+      const option = document.createElement("option");
+      option.value = role;
+      option.textContent = roleLabels[role] || role;
+      roleSelect.appendChild(option);
+    }
+    roleSelect.value = allowedRoles.includes("feedback_manager") ? "feedback_manager" : allowedRoles[0];
+  }
+
+  const scopeBadge = document.getElementById("adminScopeBadge");
+  const scopeTitle = document.getElementById("adminScopeTitle");
+  const scopeText = document.getElementById("adminScopeText");
+  const superAiPanel = document.getElementById("superAdminAiPanel");
+  const superSaasPanel = document.getElementById("superAdminSaasPanel");
+  if (isSuperAdmin()) {
+    if (scopeBadge) scopeBadge.classList.remove("hidden");
+    if (scopeTitle) scopeTitle.textContent = "Режим: супер-администратор платформы";
+    if (scopeText) {
+      scopeText.textContent =
+        "Управление ИИ, тарифами, оплатами и клиентскими кабинетами. Доступ ко всем данным платформы.";
+    }
+    if (superAiPanel) superAiPanel.classList.remove("hidden");
+    if (superSaasPanel) superSaasPanel.classList.remove("hidden");
+  } else {
+    if (scopeBadge) scopeBadge.classList.remove("hidden");
+    if (scopeTitle) scopeTitle.textContent = "Режим: владелец клиентского кабинета";
+    if (scopeText) {
+      scopeText.textContent =
+        "Управление только своей командой и рабочими метриками своего кабинета.";
+    }
+    if (superAiPanel) superAiPanel.classList.add("hidden");
+    if (superSaasPanel) superSaasPanel.classList.add("hidden");
+  }
+  return true;
 }
 
 function setUsersInfo(message, isError = false) {
@@ -222,6 +290,12 @@ async function loadUsers() {
     const tr = document.createElement("tr");
     const roleSelectId = `role-select-${user.id}`;
     const passwordInputId = `password-input-${user.id}`;
+    const blocked = Boolean(user.is_blocked);
+    const blockButtonLabel = blocked ? "Разблокировать" : "Заблокировать";
+    const roleLabel = roleLabels[user.role] || user.role || "-";
+    const blockedCell = blocked
+      ? `<span class="small status-badge status-blocked">заблокирован</span>`
+      : `<span class="small status-badge status-active">активен</span>`;
     tr.innerHTML = `
       <td>${esc(user.id)}</td>
       <td>${esc(user.email)}</td>
@@ -232,11 +306,15 @@ async function loadUsers() {
         <select id="${roleSelectId}">
           ${buildRoleOptions(user.role)}
         </select>
+        <div class="small">${esc(roleLabel)}</div>
       </td>
       <td>
+        ${blockedCell}
         <div class="row">
           <button onclick="setRole(${user.id}, document.getElementById('${roleSelectId}').value)">Сохранить роль</button>
           <button class="secondary" onclick="setUserPassword(${user.id}, document.getElementById('${passwordInputId}').value)">Сменить пароль</button>
+          <button class="secondary" onclick="toggleUserBlock(${user.id}, ${blocked ? "false" : "true"})">${blockButtonLabel}</button>
+          <button class="secondary danger" onclick="deleteUser(${user.id})">Удалить</button>
         </div>
       </td>
     `;
@@ -256,6 +334,43 @@ async function setRole(userId, role) {
     return;
   }
   setUsersInfo("Роль пользователя обновлена.");
+  await loadUsers();
+}
+
+async function toggleUserBlock(userId, blocked) {
+  const reason = blocked ? prompt("Причина блокировки (необязательно):", "") : "";
+  const payload = {
+    blocked: Boolean(blocked),
+    reason: blocked ? (reason || "").trim() : null,
+  };
+  const res = await fetch(`/api/admin/users/${userId}/block`, {
+    method: "POST",
+    headers: csrfHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    setUsersInfo(data.detail || "Ошибка изменения статуса блокировки", true);
+    return;
+  }
+  setUsersInfo(payload.blocked ? "Пользователь заблокирован." : "Пользователь разблокирован.");
+  await loadUsers();
+}
+
+async function deleteUser(userId) {
+  const confirmed = window.confirm("Удалить пользователя? Действие необратимо.");
+  if (!confirmed) return;
+  const res = await fetch(`/api/admin/users/${userId}/delete`, {
+    method: "POST",
+    headers: csrfHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ confirm: true }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    setUsersInfo(data.detail || "Ошибка удаления пользователя", true);
+    return;
+  }
+  setUsersInfo("Пользователь удален.");
   await loadUsers();
 }
 
@@ -310,6 +425,188 @@ async function setUserPassword(userId, password) {
   setUsersInfo("Пароль пользователя обновлен.");
 }
 
+function setSuperAdminInfo(message, isError = false) {
+  const info = document.getElementById("saasInfo");
+  if (!info) return;
+  info.textContent = message || "";
+  info.style.color = isError ? "#b91c1c" : "";
+}
+
+function renderTariffs(items) {
+  const tbody = document.getElementById("tariffsTbody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+  for (const item of items || []) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${esc(item.code)}</td>
+      <td>${esc(item.title)}</td>
+      <td>${esc(item.monthly_price)}</td>
+      <td>${esc(JSON.stringify(item.limits || {}, null, 0))}</td>
+      <td>${item.is_active ? "да" : "нет"}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
+function renderTenants(items) {
+  const tbody = document.getElementById("tenantsTbody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+  for (const item of items || []) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${esc(item.id)}</td>
+      <td>${esc(item.email)}</td>
+      <td>${esc(item.plan_code || "starter")}</td>
+      <td>${esc(item.members_count || 0)}</td>
+      <td>${esc(item.reviews_count || 0)}</td>
+      <td>${item.is_blocked ? "заблокирован" : "активен"}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
+function renderPayments(items) {
+  const tbody = document.getElementById("paymentsTbody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+  for (const item of items || []) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${esc(item.id)}</td>
+      <td>${esc(item.owner_user_id)}</td>
+      <td>${esc(item.amount)} ${esc(item.currency || "RUB")}</td>
+      <td>${esc(item.status)}</td>
+      <td>${esc(item.created_at || "")}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
+async function loadSuperAdminSection() {
+  if (!isSuperAdmin()) return;
+  const [tariffsRes, tenantsRes, paymentsRes] = await Promise.all([
+    fetch("/api/super-admin/tariffs"),
+    fetch("/api/super-admin/tenants"),
+    fetch("/api/super-admin/payments?limit=100"),
+  ]);
+  const tariffsData = await tariffsRes.json();
+  const tenantsData = await tenantsRes.json();
+  const paymentsData = await paymentsRes.json();
+  if (!tariffsRes.ok || !tenantsRes.ok || !paymentsRes.ok) {
+    setSuperAdminInfo(
+      tariffsData.detail || tenantsData.detail || paymentsData.detail || "Ошибка загрузки данных супер-админа",
+      true,
+    );
+    return;
+  }
+  renderTariffs(tariffsData.items || []);
+  renderTenants(tenantsData.items || []);
+  renderPayments(paymentsData.items || []);
+}
+
+async function saveTariffPlan() {
+  if (!isSuperAdmin()) return;
+  const code = String(document.getElementById("tariffCode")?.value || "").trim().toLowerCase();
+  const title = String(document.getElementById("tariffTitle")?.value || "").trim();
+  const monthlyPrice = Number(document.getElementById("tariffPrice")?.value || "0");
+  const limitsRaw = String(document.getElementById("tariffLimits")?.value || "{}").trim() || "{}";
+  let limits = {};
+  try {
+    limits = JSON.parse(limitsRaw);
+  } catch (_err) {
+    setSuperAdminInfo("Поле лимитов должно быть корректным JSON.", true);
+    return;
+  }
+  if (!code || !title) {
+    setSuperAdminInfo("Заполните код и название тарифа.", true);
+    return;
+  }
+  const payload = {
+    code,
+    title,
+    monthly_price: monthlyPrice,
+    limits,
+    is_active: true,
+  };
+  const res = await fetch("/api/super-admin/tariffs", {
+    method: "PUT",
+    headers: csrfHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    setSuperAdminInfo(data.detail || "Ошибка сохранения тарифа", true);
+    return;
+  }
+  setSuperAdminInfo("Тариф сохранен.");
+  await loadSuperAdminSection();
+}
+
+async function assignTenantPlan() {
+  if (!isSuperAdmin()) return;
+  const ownerUserId = Number(document.getElementById("tenantOwnerId")?.value || "0");
+  const planCode = String(document.getElementById("tenantPlanCode")?.value || "").trim().toLowerCase();
+  const overrideRaw = String(document.getElementById("tenantPlanOverride")?.value || "{}").trim() || "{}";
+  let limitsOverride = {};
+  try {
+    limitsOverride = JSON.parse(overrideRaw);
+  } catch (_err) {
+    setSuperAdminInfo("Поле override должно быть корректным JSON.", true);
+    return;
+  }
+  if (!ownerUserId || !planCode) {
+    setSuperAdminInfo("Укажите ID владельца и код тарифа.", true);
+    return;
+  }
+  const res = await fetch("/api/super-admin/tenant-plan", {
+    method: "POST",
+    headers: csrfHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({
+      owner_user_id: ownerUserId,
+      plan_code: planCode,
+      limits_override: limitsOverride,
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    setSuperAdminInfo(data.detail || "Ошибка назначения тарифа", true);
+    return;
+  }
+  setSuperAdminInfo("Тариф назначен пользователю.");
+  await loadSuperAdminSection();
+}
+
+async function addPaymentRecord() {
+  if (!isSuperAdmin()) return;
+  const ownerUserId = Number(document.getElementById("paymentOwnerId")?.value || "0");
+  const amount = Number(document.getElementById("paymentAmount")?.value || "0");
+  const status = String(document.getElementById("paymentStatus")?.value || "paid").trim().toLowerCase();
+  if (!ownerUserId || !amount) {
+    setSuperAdminInfo("Укажите ID владельца и сумму.", true);
+    return;
+  }
+  const res = await fetch("/api/super-admin/payments", {
+    method: "POST",
+    headers: csrfHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({
+      owner_user_id: ownerUserId,
+      amount,
+      currency: "RUB",
+      status,
+      details: {},
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    setSuperAdminInfo(data.detail || "Ошибка добавления оплаты", true);
+    return;
+  }
+  setSuperAdminInfo("Платеж добавлен.");
+  await loadSuperAdminSection();
+}
+
 async function loadMetrics() {
   const res = await fetch("/api/admin/metrics");
   const data = await res.json();
@@ -342,8 +639,12 @@ async function loadActions() {
 
 document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("useSyncStartDate")?.addEventListener("change", syncDateToggle);
-  loadAiSettings();
-  loadUsers();
-  loadMetrics();
-  loadActions();
+  loadAdminContext().then((ok) => {
+    if (!ok) return;
+    loadAiSettings();
+    loadUsers();
+    loadMetrics();
+    loadActions();
+    loadSuperAdminSection();
+  });
 });

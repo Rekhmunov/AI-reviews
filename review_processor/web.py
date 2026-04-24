@@ -274,6 +274,63 @@ class AdminUserPasswordUpdateRequest(BaseModel):
     password: str = Field(min_length=8, max_length=255)
 
 
+class TenantUserCreateRequest(BaseModel):
+    email: str = Field(min_length=5, max_length=255)
+    password: str = Field(min_length=8, max_length=255)
+    role: str = Field(description="admin|feedback_manager")
+    full_name: str | None = Field(default=None, max_length=200)
+
+
+class TenantUserRoleUpdateRequest(BaseModel):
+    role: str = Field(description="admin|feedback_manager")
+
+
+class UserBlockUpdateRequest(BaseModel):
+    blocked: bool
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class UserDeleteRequest(BaseModel):
+    confirm: bool = False
+
+
+class SuperAdminSettingsRequest(BaseModel):
+    payment_provider: str = Field(default="manual", max_length=80)
+    payment_api_key: str | None = Field(default=None, max_length=2000)
+    ai_provider: str = Field(description="rules|yandex")
+    yandex_api_key: str | None = None
+    yandex_folder_id: str | None = None
+    yandex_model_uri: str | None = None
+    brand_name: str | None = Field(default=None, max_length=200)
+    group_processors: dict[str, str] | None = None
+    use_sync_start_date: bool = False
+    sync_start_date: str | None = None
+
+
+class TariffPlanUpsertRequest(BaseModel):
+    code: str = Field(min_length=2, max_length=100)
+    title: str = Field(min_length=2, max_length=200)
+    monthly_price: float = Field(default=0)
+    limits: dict[str, object] = Field(default_factory=dict)
+    is_active: bool = True
+
+
+class TenantPlanUpdateRequest(BaseModel):
+    owner_user_id: int
+    plan_code: str = Field(min_length=2, max_length=100)
+    limits_override: dict[str, object] = Field(default_factory=dict)
+
+
+class PaymentRecordCreateRequest(BaseModel):
+    owner_user_id: int
+    amount: float
+    currency: str = Field(default="RUB", max_length=10)
+    status: str = Field(default="pending", max_length=80)
+    external_payment_id: str | None = Field(default=None, max_length=255)
+    details: dict[str, object] = Field(default_factory=dict)
+    paid_at: str | None = None
+
+
 class ProfileUpdateRequest(BaseModel):
     full_name: str | None = Field(default=None, max_length=200)
     email: str | None = Field(default=None, max_length=255)
@@ -321,6 +378,8 @@ ROLE_FEEDBACK_MANAGER = "feedback_manager"
 ROLE_CAN_ACCESS_ANALYTICS = {ROLE_ADMIN, ROLE_USER}
 ROLE_CAN_ACCESS_SETTINGS = {ROLE_ADMIN, ROLE_USER}
 ROLE_ASSIGNABLE_BY_ADMIN = {ROLE_ADMIN, ROLE_USER, ROLE_FEEDBACK_MANAGER}
+TENANT_ROLE_OWNER = "admin"
+TENANT_ROLE_MANAGER = "feedback_manager"
 SESSION_TTL_SECONDS = 30 * 24 * 60 * 60
 CSRF_COOKIE_NAME = "csrf_token"
 CSRF_HEADER_NAME = "X-CSRF-Token"
@@ -329,6 +388,15 @@ RATE_LIMIT_API_WRITE_PER_MINUTE = 180
 RATE_LIMIT_SYNC_PER_MINUTE = 20
 RATE_LIMIT_LOGIN_PER_10_MIN = 30
 FAILED_LOGIN_LIMIT_PER_15_MIN = 10
+
+
+def _normalize_role(raw_role: object) -> str:
+    role = str(raw_role or "").strip().lower()
+    if role in {ROLE_ADMIN, ROLE_USER}:
+        return ROLE_ADMIN
+    if role == ROLE_FEEDBACK_MANAGER:
+        return ROLE_FEEDBACK_MANAGER
+    return ROLE_USER
 
 
 def create_app(config: AppConfig | None = None) -> FastAPI:
@@ -564,6 +632,64 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if user.get("role") != ROLE_ADMIN:
             raise HTTPException(status_code=403, detail="Доступ только для администратора")
         return user
+
+    def _is_super_admin(user: dict[str, object]) -> bool:
+        return bool(user.get("is_super_admin"))
+
+    def _tenant_owner_id(user: dict[str, object]) -> int:
+        owner_raw = user.get("owner_user_id")
+        if owner_raw is None:
+            return int(user["id"])
+        try:
+            return int(owner_raw)
+        except (TypeError, ValueError):
+            return int(user["id"])
+
+    def _require_super_admin(request: Request) -> dict[str, object]:
+        user = _require_admin(request)
+        if not _is_super_admin(user):
+            raise HTTPException(status_code=403, detail="Доступ только для супер-администратора")
+        return user
+
+    def _require_tenant_owner(request: Request) -> dict[str, object]:
+        user = _require_admin(request)
+        if _is_super_admin(user):
+            raise HTTPException(status_code=403, detail="Доступ только для владельца кабинета")
+        if _tenant_owner_id(user) != int(user["id"]):
+            raise HTTPException(status_code=403, detail="Недостаточно прав для управления командой")
+        return user
+
+    def _parse_sync_start_date_or_none(value: str | None, *, enabled: bool) -> str | None:
+        if not enabled:
+            return None
+        raw = (value or "").strip()
+        if not raw:
+            raise HTTPException(status_code=400, detail="Укажите дату начала синхронизации")
+        try:
+            datetime.strptime(raw, "%Y-%m-%d")
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Дата должна быть в формате ГГГГ-ММ-ДД") from exc
+        return raw
+
+    def _target_user_for_admin_scope(*, actor: dict[str, object], target_user_id: int) -> dict[str, object]:
+        target = repository.get_user_by_id(target_user_id)
+        if target is None:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        if _is_super_admin(actor):
+            return target
+        actor_owner_id = _tenant_owner_id(actor)
+        target_owner_id = _tenant_owner_id(target)
+        if target_owner_id != actor_owner_id:
+            raise HTTPException(status_code=403, detail="Пользователь не относится к вашему кабинету")
+        if bool(target.get("is_super_admin")):
+            raise HTTPException(status_code=403, detail="Недостаточно прав для управления этим пользователем")
+        return target
+
+    def _normalize_tenant_role_or_400(raw_role: str) -> str:
+        role = str(raw_role or "").strip().lower()
+        if role not in {TENANT_ROLE_OWNER, TENANT_ROLE_MANAGER}:
+            raise HTTPException(status_code=400, detail="Роль должна быть: администратор или менеджер обратной связи")
+        return role
 
     def _require_analytics_access(request: Request) -> dict[str, object]:
         user = _require_user(request)
@@ -1384,26 +1510,19 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.get("/api/admin/ai-settings")
     def get_ai_settings(request: Request) -> dict[str, object]:
-        _require_admin(request)
+        _require_super_admin(request)
         return repository.get_ai_settings()
 
     @app.put("/api/admin/ai-settings")
     def update_ai_settings(request: Request, payload: AISettingsRequest) -> dict[str, object]:
-        _require_admin(request)
+        _require_super_admin(request)
         provider = payload.provider.strip().lower()
         if provider not in {"rules", "yandex"}:
             raise HTTPException(status_code=400, detail="Провайдер должен быть: встроенные правила или Яндекс")
-        sync_start_date: str | None = None
-        if payload.use_sync_start_date:
-            raw_date = (payload.sync_start_date or "").strip()
-            if not raw_date:
-                raise HTTPException(status_code=400, detail="Укажите дату начала синхронизации")
-            try:
-                # Accept YYYY-MM-DD and store as provided date string.
-                datetime.strptime(raw_date, "%Y-%m-%d")
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail="Дата должна быть в формате ГГГГ-ММ-ДД") from exc
-            sync_start_date = raw_date
+        sync_start_date = _parse_sync_start_date_or_none(
+            payload.sync_start_date,
+            enabled=bool(payload.use_sync_start_date),
+        )
         repository.update_ai_settings(
             provider=provider,
             yandex_api_key=payload.yandex_api_key.strip() if payload.yandex_api_key is not None else None,
@@ -1416,40 +1535,328 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
         return {"ok": True}
 
-    @app.get("/api/admin/users")
-    def admin_list_users(request: Request) -> dict[str, object]:
-        _require_admin(request)
-        items = repository.list_users()
+    @app.get("/api/admin/context")
+    def get_admin_context(request: Request) -> dict[str, object]:
+        user = _require_admin(request)
+        user_id = int(user["id"])
+        owner_user_id = _tenant_owner_id(user)
+        return {
+            "user_id": user_id,
+            "owner_user_id": owner_user_id,
+            "is_super_admin": _is_super_admin(user),
+            "is_tenant_owner": user_id == owner_user_id and not _is_super_admin(user),
+        }
+
+    @app.get("/api/super-admin/settings")
+    def super_admin_settings(request: Request) -> dict[str, object]:
+        _require_super_admin(request)
+        return repository.get_super_admin_settings()
+
+    @app.put("/api/super-admin/settings")
+    def super_admin_update_settings(payload: SuperAdminSettingsRequest, request: Request) -> dict[str, object]:
+        _require_super_admin(request)
+        ai_provider = payload.ai_provider.strip().lower()
+        if ai_provider not in {"rules", "yandex"}:
+            raise HTTPException(status_code=400, detail="Провайдер должен быть: встроенные правила или Яндекс")
+        sync_start_date = _parse_sync_start_date_or_none(
+            payload.sync_start_date,
+            enabled=bool(payload.use_sync_start_date),
+        )
+        repository.save_super_admin_settings(
+            payment_provider=(payload.payment_provider or "").strip() or "manual",
+            payment_api_key=payload.payment_api_key.strip() if payload.payment_api_key is not None else None,
+            ai_provider=ai_provider,
+            yandex_api_key=payload.yandex_api_key.strip() if payload.yandex_api_key is not None else None,
+            yandex_folder_id=(payload.yandex_folder_id or "").strip() or None,
+            yandex_model_uri=(payload.yandex_model_uri or "").strip() or None,
+            group_processors=payload.group_processors,
+            brand_name=(payload.brand_name or "").strip() or "VarFabric",
+            use_sync_start_date=bool(payload.use_sync_start_date),
+            sync_start_date=sync_start_date,
+        )
+        return {"ok": True}
+
+    @app.get("/api/super-admin/tariffs")
+    def super_admin_list_tariffs(request: Request) -> dict[str, object]:
+        _require_super_admin(request)
+        items = repository.list_tariff_plans()
         return {"items": items, "count": len(items)}
 
-    @app.post("/api/admin/users")
-    def admin_create_user(payload: AdminUserCreateRequest, request: Request) -> dict[str, object]:
-        _require_admin(request)
+    @app.put("/api/super-admin/tariffs")
+    def super_admin_upsert_tariff(payload: TariffPlanUpsertRequest, request: Request) -> dict[str, object]:
+        _require_super_admin(request)
+        code = payload.code.strip().lower()
+        if not code:
+            raise HTTPException(status_code=400, detail="Код тарифа обязателен")
+        repository.upsert_tariff_plan(
+            code=code,
+            title=payload.title.strip(),
+            monthly_price=float(payload.monthly_price),
+            limits=dict(payload.limits),
+            is_active=bool(payload.is_active),
+        )
+        return {"ok": True}
+
+    @app.get("/api/super-admin/tenants")
+    def super_admin_list_tenants(request: Request) -> dict[str, object]:
+        _require_super_admin(request)
+        items = repository.list_tenants_overview()
+        return {"items": items, "count": len(items)}
+
+    @app.post("/api/super-admin/tenant-plan")
+    def super_admin_set_tenant_plan(payload: TenantPlanUpdateRequest, request: Request) -> dict[str, object]:
+        _require_super_admin(request)
+        tenant = repository.get_user_by_id(int(payload.owner_user_id))
+        if tenant is None:
+            raise HTTPException(status_code=404, detail="Пользователь кабинета не найден")
+        if bool(tenant.get("is_super_admin")):
+            raise HTTPException(status_code=400, detail="Нельзя назначать тариф супер-администратору")
+        if _tenant_owner_id(tenant) != int(tenant["id"]):
+            raise HTTPException(status_code=400, detail="Тариф можно назначать только владельцу кабинета")
+        updated = repository.set_tenant_plan(
+            owner_user_id=int(payload.owner_user_id),
+            plan_code=payload.plan_code.strip().lower(),
+            limits_override=dict(payload.limits_override),
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Пользователь кабинета не найден")
+        return {"ok": True}
+
+    @app.get("/api/super-admin/payments")
+    def super_admin_list_payments(
+        request: Request,
+        owner_user_id: int | None = None,
+        limit: int = 200,
+    ) -> dict[str, object]:
+        _require_super_admin(request)
+        safe_limit = min(max(limit, 1), 1000)
+        items = repository.list_billing_records(owner_user_id=owner_user_id, limit=safe_limit)
+        return {"items": items, "count": len(items)}
+
+    @app.post("/api/super-admin/payments")
+    def super_admin_create_payment(payload: PaymentRecordCreateRequest, request: Request) -> dict[str, object]:
+        _require_super_admin(request)
+        tenant = repository.get_user_by_id(int(payload.owner_user_id))
+        if tenant is None:
+            raise HTTPException(status_code=404, detail="Пользователь кабинета не найден")
+        if bool(tenant.get("is_super_admin")):
+            raise HTTPException(status_code=400, detail="Нельзя привязывать оплату к супер-администратору")
+        item = repository.save_payment_record(
+            owner_user_id=int(payload.owner_user_id),
+            amount=float(payload.amount),
+            currency=payload.currency.strip().upper(),
+            status=payload.status.strip().lower(),
+            external_payment_id=(payload.external_payment_id or "").strip() or None,
+            details=dict(payload.details),
+            paid_at=(payload.paid_at or "").strip() or None,
+        )
+        return {"ok": True, "item": item}
+
+    @app.post("/api/super-admin/users/{target_user_id}/block")
+    def super_admin_block_user(target_user_id: int, payload: UserBlockUpdateRequest, request: Request) -> dict[str, object]:
+        actor = _require_super_admin(request)
+        target = repository.get_user_by_id(target_user_id)
+        if target is None:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        if int(target["id"]) == int(actor["id"]) and payload.blocked:
+            raise HTTPException(status_code=400, detail="Нельзя заблокировать собственный аккаунт")
+        updated = repository.set_user_blocked(
+            user_id=target_user_id,
+            blocked=bool(payload.blocked),
+            reason=(payload.reason or "").strip() or None,
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        return {"ok": True}
+
+    @app.post("/api/super-admin/users/{target_user_id}/delete")
+    def super_admin_delete_user(target_user_id: int, payload: UserDeleteRequest, request: Request) -> dict[str, object]:
+        actor = _require_super_admin(request)
+        if not payload.confirm:
+            raise HTTPException(status_code=400, detail="Требуется подтверждение удаления")
+        if int(target_user_id) == int(actor["id"]):
+            raise HTTPException(status_code=400, detail="Нельзя удалить собственный аккаунт")
+        deleted = repository.soft_delete_user(user_id=target_user_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        return {"ok": True}
+
+    @app.get("/api/tenant/team")
+    def tenant_list_team(request: Request) -> dict[str, object]:
+        owner = _require_tenant_owner(request)
+        items = repository.list_tenant_users(owner_user_id=int(owner["id"]))
+        return {"items": items, "count": len(items)}
+
+    @app.post("/api/tenant/team")
+    def tenant_create_team_user(payload: TenantUserCreateRequest, request: Request) -> dict[str, object]:
+        owner = _require_tenant_owner(request)
         email = payload.email.strip().lower()
         if len(email) < 5 or "@" not in email:
             raise HTTPException(status_code=400, detail="Введите корректную эл. почту")
-        role = payload.role.strip().lower()
-        if role not in ROLE_ASSIGNABLE_BY_ADMIN:
-            raise HTTPException(
-                status_code=400,
-                detail="Роль должна быть: пользователь, менеджер обратной связи или администратор",
-            )
-        password = payload.password
-        if len(password) < 8:
-            raise HTTPException(status_code=400, detail="Пароль должен быть не короче 8 символов")
         if repository.get_user_by_email(email) is not None:
             raise HTTPException(status_code=409, detail="Пользователь с такой почтой уже существует")
-        created = repository.create_user(
+        role = _normalize_tenant_role_or_400(payload.role)
+        created = repository.create_tenant_user(
+            owner_user_id=int(owner["id"]),
             email=email,
-            password_hash=hash_password(password),
+            password_hash=hash_password(payload.password),
             role=role,
+            full_name=(payload.full_name or "").strip() or None,
         )
         return {
             "ok": True,
             "item": {
                 "id": created.get("id"),
                 "email": created.get("email"),
+                "full_name": created.get("full_name"),
                 "role": created.get("role"),
+                "is_blocked": created.get("is_blocked"),
+                "created_at": created.get("created_at"),
+            },
+        }
+
+    @app.post("/api/tenant/team/{target_user_id}/role")
+    def tenant_update_team_role(
+        target_user_id: int,
+        payload: TenantUserRoleUpdateRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        owner = _require_tenant_owner(request)
+        target = _target_user_for_admin_scope(actor=owner, target_user_id=target_user_id)
+        role = _normalize_tenant_role_or_400(payload.role)
+        if int(target["id"]) == int(owner["id"]) and role != TENANT_ROLE_OWNER:
+            raise HTTPException(status_code=400, detail="Нельзя снять роль администратора у владельца кабинета")
+        updated = repository.update_user_role(user_id=target_user_id, role=role)
+        if not updated:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        return {"ok": True}
+
+    @app.post("/api/tenant/team/{target_user_id}/password")
+    def tenant_update_team_password(
+        target_user_id: int,
+        payload: AdminUserPasswordUpdateRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        owner = _require_tenant_owner(request)
+        _target_user_for_admin_scope(actor=owner, target_user_id=target_user_id)
+        updated = repository.update_user_password(
+            user_id=target_user_id,
+            password_hash=hash_password(payload.password),
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        return {"ok": True}
+
+    @app.post("/api/tenant/team/{target_user_id}/block")
+    def tenant_set_user_block(
+        target_user_id: int,
+        payload: UserBlockUpdateRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        owner = _require_tenant_owner(request)
+        target = _target_user_for_admin_scope(actor=owner, target_user_id=target_user_id)
+        if int(target["id"]) == int(owner["id"]) and payload.blocked:
+            raise HTTPException(status_code=400, detail="Нельзя заблокировать собственный аккаунт")
+        updated = repository.set_user_blocked(
+            user_id=target_user_id,
+            blocked=bool(payload.blocked),
+            reason=(payload.reason or "").strip() or None,
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        return {"ok": True}
+
+    @app.post("/api/tenant/team/{target_user_id}/delete")
+    def tenant_delete_user(
+        target_user_id: int,
+        payload: UserDeleteRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        owner = _require_tenant_owner(request)
+        if not payload.confirm:
+            raise HTTPException(status_code=400, detail="Требуется подтверждение удаления")
+        target = _target_user_for_admin_scope(actor=owner, target_user_id=target_user_id)
+        if int(target["id"]) == int(owner["id"]):
+            raise HTTPException(status_code=400, detail="Нельзя удалить владельца кабинета")
+        deleted = repository.soft_delete_user(user_id=target_user_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        return {"ok": True}
+
+    @app.get("/api/tenant/me/plan")
+    def tenant_me_plan(request: Request) -> dict[str, object]:
+        user = _require_admin(request)
+        owner_user_id = _tenant_owner_id(user)
+        owner = repository.get_user_by_id(owner_user_id)
+        if owner is None:
+            raise HTTPException(status_code=404, detail="Владелец кабинета не найден")
+        plans = repository.list_tariff_plans()
+        current_plan_code = str(owner.get("plan_code") or "").strip().lower()
+        current_plan = next((item for item in plans if str(item.get("code") or "").strip().lower() == current_plan_code), None)
+        effective_limits: dict[str, object] = {}
+        if current_plan and isinstance(current_plan.get("limits"), dict):
+            effective_limits.update(current_plan["limits"])
+        owner_override = owner.get("limits_override")
+        if isinstance(owner_override, dict):
+            effective_limits.update(owner_override)
+        return {
+            "owner_user_id": owner_user_id,
+            "plan_code": current_plan_code,
+            "plan": current_plan,
+            "limits_override": owner_override if isinstance(owner_override, dict) else {},
+            "effective_limits": effective_limits,
+        }
+
+    @app.get("/api/admin/users")
+    def admin_list_users(request: Request) -> dict[str, object]:
+        actor = _require_admin(request)
+        if _is_super_admin(actor):
+            items = repository.list_users()
+        else:
+            owner = _require_tenant_owner(request)
+            items = repository.list_tenant_users(owner_user_id=int(owner["id"]))
+        return {"items": items, "count": len(items)}
+
+    @app.post("/api/admin/users")
+    def admin_create_user(payload: AdminUserCreateRequest, request: Request) -> dict[str, object]:
+        actor = _require_admin(request)
+        email = payload.email.strip().lower()
+        if len(email) < 5 or "@" not in email:
+            raise HTTPException(status_code=400, detail="Введите корректную эл. почту")
+        password = payload.password
+        if len(password) < 8:
+            raise HTTPException(status_code=400, detail="Пароль должен быть не короче 8 символов")
+        if repository.get_user_by_email(email) is not None:
+            raise HTTPException(status_code=409, detail="Пользователь с такой почтой уже существует")
+        if _is_super_admin(actor):
+            role = payload.role.strip().lower()
+            if role not in ROLE_ASSIGNABLE_BY_ADMIN:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Роль должна быть: пользователь, менеджер обратной связи или администратор",
+                )
+            created = repository.create_user(
+                email=email,
+                password_hash=hash_password(password),
+                role=role,
+            )
+        else:
+            owner = _require_tenant_owner(request)
+            created = repository.create_tenant_user(
+                owner_user_id=int(owner["id"]),
+                email=email,
+                password_hash=hash_password(password),
+                role=_normalize_tenant_role_or_400(payload.role),
+                full_name=None,
+            )
+        return {
+            "ok": True,
+            "item": {
+                "id": created.get("id"),
+                "email": created.get("email"),
+                "full_name": created.get("full_name"),
+                "role": created.get("role"),
+                "is_blocked": created.get("is_blocked"),
                 "created_at": created.get("created_at"),
             },
         }
@@ -1457,18 +1864,33 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.post("/api/admin/users/{target_user_id}/role")
     def admin_update_user_role(target_user_id: int, payload: RoleUpdateRequest, request: Request) -> dict[str, object]:
         current_user = _require_admin(request)
-        role = payload.role.strip().lower()
-        if role not in ROLE_ASSIGNABLE_BY_ADMIN:
-            raise HTTPException(
-                status_code=400,
-                detail="Роль должна быть: пользователь, менеджер обратной связи или администратор",
-            )
-
-        if role != ROLE_ADMIN:
-            admin_rows = repository.raw_fetch("SELECT id FROM users WHERE role = 'admin'")
-            if len(admin_rows) <= 1 and any(int(item["id"]) == target_user_id for item in admin_rows):
-                raise HTTPException(status_code=400, detail="Нельзя снять роль последнего администратора")
-
+        target_user = _target_user_for_admin_scope(actor=current_user, target_user_id=target_user_id)
+        if _is_super_admin(current_user):
+            role = payload.role.strip().lower()
+            if role not in ROLE_ASSIGNABLE_BY_ADMIN:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Роль должна быть: пользователь, менеджер обратной связи или администратор",
+                )
+            if role != ROLE_ADMIN:
+                admin_rows = repository.raw_fetch(
+                    """
+                    SELECT id
+                    FROM users
+                    WHERE role = 'admin'
+                      AND is_deleted = 0
+                      AND is_super_admin = 0
+                      AND owner_user_id = ?
+                    """,
+                    (_tenant_owner_id(target_user),),
+                )
+                if len(admin_rows) <= 1 and any(int(item["id"]) == target_user_id for item in admin_rows):
+                    raise HTTPException(status_code=400, detail="Нельзя снять роль последнего администратора клиента")
+        else:
+            owner = _require_tenant_owner(request)
+            role = _normalize_tenant_role_or_400(payload.role)
+            if int(target_user["id"]) == int(owner["id"]) and role != TENANT_ROLE_OWNER:
+                raise HTTPException(status_code=400, detail="Нельзя снять роль администратора у владельца кабинета")
         updated = repository.update_user_role(user_id=target_user_id, role=role)
         if not updated:
             raise HTTPException(status_code=404, detail="Пользователь не найден")
@@ -1480,9 +1902,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         payload: AdminUserPasswordUpdateRequest,
         request: Request,
     ) -> dict[str, object]:
-        _require_admin(request)
-        if repository.get_user_by_id(target_user_id) is None:
-            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        actor = _require_admin(request)
+        if not _is_super_admin(actor):
+            _require_tenant_owner(request)
+        _target_user_for_admin_scope(actor=actor, target_user_id=target_user_id)
         updated = repository.update_user_password(
             user_id=target_user_id,
             password_hash=hash_password(payload.password),
@@ -1491,20 +1914,68 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Пользователь не найден")
         return {"ok": True}
 
+    @app.post("/api/admin/users/{target_user_id}/block")
+    def admin_block_user(
+        target_user_id: int,
+        payload: UserBlockUpdateRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        actor = _require_admin(request)
+        if not _is_super_admin(actor):
+            _require_tenant_owner(request)
+        target_user = _target_user_for_admin_scope(actor=actor, target_user_id=target_user_id)
+        actor_owner_id = _tenant_owner_id(actor)
+        if payload.blocked and int(target_user["id"]) == actor_owner_id:
+            raise HTTPException(status_code=400, detail="Нельзя заблокировать собственный аккаунт владельца")
+        updated = repository.set_user_blocked(
+            user_id=target_user_id,
+            blocked=bool(payload.blocked),
+            reason=(payload.reason or "").strip() or None,
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        return {"ok": True}
+
+    @app.post("/api/admin/users/{target_user_id}/delete")
+    def admin_delete_user(
+        target_user_id: int,
+        payload: UserDeleteRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        actor = _require_admin(request)
+        if not _is_super_admin(actor):
+            _require_tenant_owner(request)
+        if not payload.confirm:
+            raise HTTPException(status_code=400, detail="Требуется подтверждение удаления")
+        target_user = _target_user_for_admin_scope(actor=actor, target_user_id=target_user_id)
+        actor_owner_id = _tenant_owner_id(actor)
+        if int(target_user["id"]) == actor_owner_id:
+            raise HTTPException(status_code=400, detail="Нельзя удалить владельца кабинета")
+        deleted = repository.soft_delete_user(user_id=target_user_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        return {"ok": True}
+
     @app.get("/api/admin/metrics")
     def admin_metrics(request: Request) -> dict[str, object]:
-        _require_admin(request)
-        return repository.get_sla_metrics(user_id=None)
+        actor = _require_admin(request)
+        if _is_super_admin(actor):
+            return repository.get_sla_metrics(user_id=None)
+        return repository.get_sla_metrics(user_id=_tenant_owner_id(actor))
 
     @app.get("/api/admin/actions")
     def admin_actions(request: Request, limit: int = 100) -> dict[str, object]:
-        _require_admin(request)
-        rows = repository.list_recent_actions(user_id=None, limit=min(max(limit, 1), 500))
+        actor = _require_admin(request)
+        safe_limit = min(max(limit, 1), 500)
+        if _is_super_admin(actor):
+            rows = repository.list_recent_actions(user_id=None, limit=safe_limit)
+        else:
+            rows = repository.list_recent_actions(user_id=_tenant_owner_id(actor), limit=safe_limit)
         return {"items": rows, "count": len(rows)}
 
     @app.get("/api/admin/sync-status")
     def admin_sync_status(request: Request) -> dict[str, object]:
-        _require_admin(request)
+        _require_super_admin(request)
         with sync_lock:
             return {
                 "in_progress": bool(sync_state.get("in_progress")),
@@ -1515,7 +1986,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.post("/api/admin/sync-stop")
     def admin_stop_sync(request: Request) -> dict[str, object]:
-        _require_admin(request)
+        _require_super_admin(request)
         sync_stop_event.set()
         with sync_lock:
             sync_state["cancel_requested"] = True
@@ -1523,8 +1994,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.post("/api/admin/reviews-clear")
     def admin_clear_reviews(request: Request, payload: ClearReviewsRequest) -> dict[str, object]:
-        admin = _require_admin(request)
-        target_user_id = int(payload.user_id) if payload.user_id is not None else int(admin["id"])
+        actor = _require_admin(request)
+        if payload.user_id is None:
+            target_user_id = _tenant_owner_id(actor) if not _is_super_admin(actor) else int(actor["id"])
+        else:
+            target_user_id = int(payload.user_id)
+            _target_user_for_admin_scope(actor=actor, target_user_id=target_user_id)
         deleted = repository.clear_reviews(user_id=target_user_id)
         return {"ok": True, "deleted": deleted, "user_id": target_user_id}
 
@@ -1562,6 +2037,7 @@ def build_register_html(error: str | None = None) -> str:
 def build_app_html(user: dict[str, object]) -> str:
     safe_email = escape(str(user["email"]))
     role = str(user.get("role") or ROLE_USER)
+    is_super_admin = bool(user.get("is_super_admin"))
     role_labels = {
         ROLE_ADMIN: "администратор",
         ROLE_USER: "пользователь",
@@ -1592,6 +2068,7 @@ def build_app_html(user: dict[str, object]) -> str:
             "CAN_VIEW_ANALYTICS": "true" if can_view_analytics else "false",
             "CAN_VIEW_SETTINGS": "true" if can_view_settings else "false",
             "IS_ADMIN": "true" if role == ROLE_ADMIN else "false",
+            "IS_SUPER_ADMIN": "true" if is_super_admin else "false",
         },
     )
 
