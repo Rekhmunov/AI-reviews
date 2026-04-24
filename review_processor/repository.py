@@ -157,6 +157,7 @@ class ReviewRepository:
             schema_sql = sql_path.read_text(encoding="utf-8")
             with self._connect() as conn:
                 conn.execute(schema_sql)
+                self._migrate_schema(conn)
             return
 
         with self._connect() as conn:
@@ -168,7 +169,17 @@ class ReviewRepository:
                     full_name TEXT,
                     password_hash TEXT NOT NULL,
                     role TEXT NOT NULL,
-                    created_at TEXT NOT NULL
+                    owner_user_id INTEGER,
+                    is_super_admin INTEGER NOT NULL DEFAULT 0,
+                    is_blocked INTEGER NOT NULL DEFAULT 0,
+                    blocked_reason TEXT,
+                    blocked_at TEXT,
+                    is_deleted INTEGER NOT NULL DEFAULT 0,
+                    deleted_at TEXT,
+                    plan_code TEXT NOT NULL DEFAULT 'starter',
+                    limits_override_json TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE SET NULL
                 )
                 """
             )
@@ -346,6 +357,45 @@ class ReviewRepository:
             )
             conn.execute(
                 """
+                CREATE TABLE IF NOT EXISTS platform_settings (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    payment_provider TEXT NOT NULL DEFAULT 'manual',
+                    payment_api_key_encrypted TEXT,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS tariff_plans (
+                    code TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    monthly_price REAL NOT NULL DEFAULT 0,
+                    limits_json TEXT NOT NULL DEFAULT '{}',
+                    is_active INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS payment_records (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    owner_user_id INTEGER NOT NULL,
+                    amount REAL NOT NULL,
+                    currency TEXT NOT NULL DEFAULT 'RUB',
+                    status TEXT NOT NULL,
+                    external_payment_id TEXT,
+                    details_json TEXT NOT NULL DEFAULT '{}',
+                    paid_at TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE
+                )
+                """
+            )
+            conn.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_review_actions_user_created
                 ON review_actions(user_id, created_at DESC)
                 """
@@ -386,12 +436,316 @@ class ReviewRepository:
                 """,
                 (self._json_param(DEFAULT_GROUP_PROCESSORS), _utc_now()),
             )
+            conn.execute(
+                """
+                INSERT INTO platform_settings (id, payment_provider, payment_api_key_encrypted, updated_at)
+                VALUES (1, 'manual', NULL, ?)
+                ON CONFLICT (id) DO NOTHING
+                """,
+                (_utc_now(),),
+            )
+            default_limits = self._json_param({"reviews_per_month": 3000, "managers": 5, "sources": 3, "ai_units": 20000})
+            pro_limits = self._json_param({"reviews_per_month": 15000, "managers": 25, "sources": 20, "ai_units": 120000})
+            enterprise_limits = self._json_param({"reviews_per_month": 100000, "managers": 200, "sources": 200, "ai_units": 1000000})
+            conn.execute(
+                """
+                INSERT INTO tariff_plans (code, title, monthly_price, limits_json, is_active, created_at, updated_at)
+                VALUES
+                    ('starter', 'Starter', 0, ?, 1, ?, ?),
+                    ('pro', 'Pro', 9900, ?, 1, ?, ?),
+                    ('enterprise', 'Enterprise', 49900, ?, 1, ?, ?)
+                ON CONFLICT (code) DO NOTHING
+                """,
+                (
+                    default_limits,
+                    _utc_now(),
+                    _utc_now(),
+                    pro_limits,
+                    _utc_now(),
+                    _utc_now(),
+                    enterprise_limits,
+                    _utc_now(),
+                    _utc_now(),
+                ),
+            )
 
     def _migrate_schema(self, conn) -> None:
-        # PostgreSQL-only runtime: schema migration is handled by schema_v1.sql.
-        # Keep method for compatibility with initialization flow.
-        _ = conn
-        return
+        if self.is_postgres:
+            conn.execute(
+                """
+                ALTER TABLE users
+                ADD COLUMN IF NOT EXISTS owner_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL
+                """
+            )
+            conn.execute(
+                """
+                ALTER TABLE users
+                ADD COLUMN IF NOT EXISTS is_super_admin BOOLEAN NOT NULL DEFAULT FALSE
+                """
+            )
+            conn.execute(
+                """
+                ALTER TABLE users
+                ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN NOT NULL DEFAULT FALSE
+                """
+            )
+            conn.execute(
+                """
+                ALTER TABLE users
+                ADD COLUMN IF NOT EXISTS blocked_reason TEXT
+                """
+            )
+            conn.execute(
+                """
+                ALTER TABLE users
+                ADD COLUMN IF NOT EXISTS blocked_at TIMESTAMPTZ
+                """
+            )
+            conn.execute(
+                """
+                ALTER TABLE users
+                ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT NULL DEFAULT FALSE
+                """
+            )
+            conn.execute(
+                """
+                ALTER TABLE users
+                ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ
+                """
+            )
+            conn.execute(
+                """
+                ALTER TABLE users
+                ADD COLUMN IF NOT EXISTS plan_code TEXT NOT NULL DEFAULT 'starter'
+                """
+            )
+            conn.execute(
+                """
+                ALTER TABLE users
+                ADD COLUMN IF NOT EXISTS limits_override_json JSONB NOT NULL DEFAULT '{}'::jsonb
+                """
+            )
+            conn.execute(
+                """
+                UPDATE users
+                SET owner_user_id = id
+                WHERE owner_user_id IS NULL
+                """
+            )
+            super_admin_row = conn.execute("SELECT COUNT(*) AS c FROM users WHERE is_super_admin = TRUE").fetchone()
+            has_super_admin = int(super_admin_row["c"]) > 0 if super_admin_row else False
+            if not has_super_admin:
+                candidate = conn.execute(
+                    "SELECT id FROM users WHERE role = 'admin' AND is_deleted = FALSE ORDER BY id ASC LIMIT 1"
+                ).fetchone()
+                if candidate is not None:
+                    conn.execute(
+                        "UPDATE users SET is_super_admin = TRUE WHERE id = ?",
+                        (int(candidate["id"]),),
+                    )
+
+            conn.execute(
+                """
+                ALTER TABLE ai_settings
+                ADD COLUMN IF NOT EXISTS brand_name TEXT NOT NULL DEFAULT 'VarFabric'
+                """
+            )
+            conn.execute(
+                """
+                ALTER TABLE ai_settings
+                ADD COLUMN IF NOT EXISTS group_processors_json JSONB NOT NULL DEFAULT '{}'::jsonb
+                """
+            )
+            conn.execute(
+                """
+                ALTER TABLE ai_settings
+                ADD COLUMN IF NOT EXISTS use_sync_start_date BOOLEAN NOT NULL DEFAULT FALSE
+                """
+            )
+            conn.execute(
+                """
+                ALTER TABLE ai_settings
+                ADD COLUMN IF NOT EXISTS sync_start_date DATE
+                """
+            )
+
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS platform_settings (
+                    id SMALLINT PRIMARY KEY CHECK (id = 1),
+                    payment_provider TEXT NOT NULL DEFAULT 'manual',
+                    payment_api_key_encrypted TEXT,
+                    updated_at TIMESTAMPTZ NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS tariff_plans (
+                    code TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    monthly_price NUMERIC(14,2) NOT NULL DEFAULT 0,
+                    limits_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                    created_at TIMESTAMPTZ NOT NULL,
+                    updated_at TIMESTAMPTZ NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS payment_records (
+                    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                    owner_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    amount NUMERIC(14,2) NOT NULL,
+                    currency TEXT NOT NULL DEFAULT 'RUB',
+                    status TEXT NOT NULL,
+                    external_payment_id TEXT,
+                    details_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    paid_at TIMESTAMPTZ,
+                    created_at TIMESTAMPTZ NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO platform_settings (id, payment_provider, payment_api_key_encrypted, updated_at)
+                VALUES (1, 'manual', NULL, NOW())
+                ON CONFLICT (id) DO NOTHING
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO tariff_plans (code, title, monthly_price, limits_json, is_active, created_at, updated_at)
+                VALUES ('starter', 'Starter', 0, %s::jsonb, TRUE, NOW(), NOW())
+                ON CONFLICT (code) DO NOTHING
+                """,
+                (json.dumps({"reviews_per_month": 3000, "managers": 5, "sources": 3, "ai_units": 20000}, ensure_ascii=False),),
+            )
+            conn.execute(
+                """
+                INSERT INTO tariff_plans (code, title, monthly_price, limits_json, is_active, created_at, updated_at)
+                VALUES ('pro', 'Pro', 9900, %s::jsonb, TRUE, NOW(), NOW())
+                ON CONFLICT (code) DO NOTHING
+                """,
+                (json.dumps({"reviews_per_month": 15000, "managers": 25, "sources": 20, "ai_units": 120000}, ensure_ascii=False),),
+            )
+            conn.execute(
+                """
+                INSERT INTO tariff_plans (code, title, monthly_price, limits_json, is_active, created_at, updated_at)
+                VALUES ('enterprise', 'Enterprise', 49900, %s::jsonb, TRUE, NOW(), NOW())
+                ON CONFLICT (code) DO NOTHING
+                """,
+                (json.dumps({"reviews_per_month": 100000, "managers": 200, "sources": 200, "ai_units": 1000000}, ensure_ascii=False),),
+            )
+            return
+
+        user_columns = self._table_columns(conn, "users")
+        if "owner_user_id" not in user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN owner_user_id INTEGER")
+        if "is_super_admin" not in user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN is_super_admin INTEGER NOT NULL DEFAULT 0")
+        if "is_blocked" not in user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN is_blocked INTEGER NOT NULL DEFAULT 0")
+        if "blocked_reason" not in user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN blocked_reason TEXT")
+        if "blocked_at" not in user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN blocked_at TEXT")
+        if "is_deleted" not in user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0")
+        if "deleted_at" not in user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN deleted_at TEXT")
+        if "plan_code" not in user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN plan_code TEXT NOT NULL DEFAULT 'starter'")
+        if "limits_override_json" not in user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN limits_override_json TEXT NOT NULL DEFAULT '{}'")
+        conn.execute("UPDATE users SET owner_user_id = id WHERE owner_user_id IS NULL")
+        super_admin_row = conn.execute("SELECT COUNT(*) AS c FROM users WHERE is_super_admin = 1").fetchone()
+        has_super_admin = int(super_admin_row["c"]) > 0 if super_admin_row else False
+        if not has_super_admin:
+            candidate = conn.execute(
+                "SELECT id FROM users WHERE role = 'admin' AND is_deleted = 0 ORDER BY id ASC LIMIT 1"
+            ).fetchone()
+            if candidate is not None:
+                conn.execute(
+                    "UPDATE users SET is_super_admin = 1 WHERE id = ?",
+                    (int(candidate["id"]),),
+                )
+
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS platform_settings (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                payment_provider TEXT NOT NULL DEFAULT 'manual',
+                payment_api_key_encrypted TEXT,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tariff_plans (
+                code TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                monthly_price REAL NOT NULL DEFAULT 0,
+                limits_json TEXT NOT NULL DEFAULT '{}',
+                is_active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS payment_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                owner_user_id INTEGER NOT NULL,
+                amount REAL NOT NULL,
+                currency TEXT NOT NULL DEFAULT 'RUB',
+                status TEXT NOT NULL,
+                external_payment_id TEXT,
+                details_json TEXT NOT NULL DEFAULT '{}',
+                paid_at TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO platform_settings (id, payment_provider, payment_api_key_encrypted, updated_at)
+            VALUES (1, 'manual', NULL, ?)
+            ON CONFLICT (id) DO NOTHING
+            """,
+            (_utc_now(),),
+        )
+
+        default_limits = self._json_param({"reviews_per_month": 3000, "managers": 5, "sources": 3, "ai_units": 20000})
+        pro_limits = self._json_param({"reviews_per_month": 15000, "managers": 25, "sources": 20, "ai_units": 120000})
+        enterprise_limits = self._json_param({"reviews_per_month": 100000, "managers": 200, "sources": 200, "ai_units": 1000000})
+        conn.execute(
+            """
+            INSERT INTO tariff_plans (code, title, monthly_price, limits_json, is_active, created_at, updated_at)
+            VALUES ('starter', 'Starter', 0, ?, 1, ?, ?)
+            ON CONFLICT (code) DO NOTHING
+            """,
+            (default_limits, _utc_now(), _utc_now()),
+        )
+        conn.execute(
+            """
+            INSERT INTO tariff_plans (code, title, monthly_price, limits_json, is_active, created_at, updated_at)
+            VALUES ('pro', 'Pro', 9900, ?, 1, ?, ?)
+            ON CONFLICT (code) DO NOTHING
+            """,
+            (pro_limits, _utc_now(), _utc_now()),
+        )
+        conn.execute(
+            """
+            INSERT INTO tariff_plans (code, title, monthly_price, limits_json, is_active, created_at, updated_at)
+            VALUES ('enterprise', 'Enterprise', 49900, ?, 1, ?, ?)
+            ON CONFLICT (code) DO NOTHING
+            """,
+            (enterprise_limits, _utc_now(), _utc_now()),
+        )
 
     def _table_columns(self, conn, table: str) -> set[str]:
         if self.is_postgres:
@@ -425,6 +779,16 @@ class ReviewRepository:
     @staticmethod
     def _row_to_dict(row) -> dict[str, Any]:
         data = dict(row)
+        if "id" in data:
+            try:
+                data["id"] = int(data["id"])
+            except (TypeError, ValueError):
+                pass
+        if "owner_user_id" in data and data["owner_user_id"] is not None:
+            try:
+                data["owner_user_id"] = int(data["owner_user_id"])
+            except (TypeError, ValueError):
+                pass
         if "is_spam" in data:
             data["is_spam"] = bool(data["is_spam"])
         if "is_toxic" in data:
@@ -437,6 +801,12 @@ class ReviewRepository:
             data["use_sync_start_date"] = bool(data["use_sync_start_date"])
         if "auto_send" in data:
             data["auto_send"] = bool(data["auto_send"])
+        if "is_super_admin" in data:
+            data["is_super_admin"] = bool(data["is_super_admin"])
+        if "is_blocked" in data:
+            data["is_blocked"] = bool(data["is_blocked"])
+        if "is_deleted" in data:
+            data["is_deleted"] = bool(data["is_deleted"])
         if "tags_json" in data:
             data["tags"] = _json_load(data.pop("tags_json"), [])
         if "metadata_json" in data:
@@ -444,6 +814,12 @@ class ReviewRepository:
         if "extra_json" in data:
             raw = data.pop("extra_json")
             data["extra"] = _json_load(raw, {})
+        if "limits_override_json" in data:
+            data["limits_override"] = _json_load(data.pop("limits_override_json"), {})
+        if "limits_json" in data:
+            data["limits"] = _json_load(data.pop("limits_json"), {})
+        if "details_json" in data:
+            data["details"] = _json_load(data.pop("details_json"), {})
         return data
 
     def count_users(self) -> int:
@@ -451,23 +827,54 @@ class ReviewRepository:
             row = conn.execute("SELECT COUNT(*) AS count FROM users").fetchone()
         return int(row["count"]) if row else 0
 
+    def count_super_admins(self) -> int:
+        with self._connect() as conn:
+            row = conn.execute("SELECT COUNT(*) AS c FROM users WHERE is_super_admin = 1 AND is_deleted = 0").fetchone()
+        return int(row["c"]) if row else 0
+
     def create_user(
         self,
         email: str,
         password_hash: str,
         role: str,
         full_name: str | None = None,
+        *,
+        owner_user_id: int | None = None,
+        is_super_admin: bool = False,
+        plan_code: str = "starter",
+        limits_override: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         now = _utc_now()
+        owner_value = owner_user_id
+        if owner_value is None and role in {"admin", "user", "feedback_manager"} and not is_super_admin:
+            # Backward-compatible default: existing single-user flow owns itself.
+            owner_value = None
         with self._connect() as conn:
             user_id = self._insert_and_get_id(
                 conn,
                 """
-                INSERT INTO users (email, full_name, password_hash, role, created_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO users (
+                    email, full_name, password_hash, role, owner_user_id, is_super_admin,
+                    is_blocked, blocked_reason, blocked_at, is_deleted, deleted_at,
+                    plan_code, limits_override_json, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, 0, NULL, NULL, 0, NULL, ?, ?, ?)
                 """,
-                (email.lower(), full_name, password_hash, role, now),
+                (
+                    email.lower(),
+                    full_name,
+                    password_hash,
+                    role,
+                    owner_value,
+                    self._bool_db(is_super_admin),
+                    plan_code,
+                    self._json_param(limits_override or {}),
+                    now,
+                ),
             )
+            if owner_value is None and not is_super_admin:
+                # For owner accounts created via old flows, self-own to isolate tenant data.
+                conn.execute("UPDATE users SET owner_user_id = ? WHERE id = ?", (user_id, user_id))
         user = self.get_user_by_id(user_id)
         if user is None:
             raise RuntimeError("User creation failed")
@@ -475,26 +882,31 @@ class ReviewRepository:
 
     def get_user_by_email(self, email: str) -> dict[str, Any] | None:
         with self._connect() as conn:
-            row = conn.execute("SELECT * FROM users WHERE email = ?", (email.lower(),)).fetchone()
+            row = conn.execute(
+                "SELECT * FROM users WHERE email = ? AND is_deleted = 0",
+                (email.lower(),),
+            ).fetchone()
         if row is None:
             return None
         return self._row_to_dict(row)
 
     def get_user_by_id(self, user_id: int) -> dict[str, Any] | None:
         with self._connect() as conn:
-            row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+            row = conn.execute("SELECT * FROM users WHERE id = ? AND is_deleted = 0", (user_id,)).fetchone()
         if row is None:
             return None
         return self._row_to_dict(row)
 
-    def list_users(self) -> list[dict[str, Any]]:
+    def update_user_role(self, *, user_id: int, role: str) -> bool:
         with self._connect() as conn:
-            rows = conn.execute("SELECT id, email, role, created_at FROM users ORDER BY id ASC").fetchall()
-        return [self._row_to_dict(row) for row in rows]
-
-    def update_user_role(self, user_id: int, role: str) -> bool:
-        with self._connect() as conn:
-            result = conn.execute("UPDATE users SET role = ? WHERE id = ?", (role, user_id))
+            result = conn.execute(
+                """
+                UPDATE users
+                SET role = ?
+                WHERE id = ? AND is_deleted = 0
+                """,
+                (role, user_id),
+            )
         return result.rowcount > 0
 
     def update_user_password(self, *, user_id: int, password_hash: str) -> bool:
@@ -503,7 +915,7 @@ class ReviewRepository:
                 """
                 UPDATE users
                 SET password_hash = ?
-                WHERE id = ?
+                WHERE id = ? AND is_deleted = 0
                 """,
                 (password_hash, user_id),
             )
@@ -517,49 +929,59 @@ class ReviewRepository:
         full_name: str | None,
         password_hash: str | None = None,
     ) -> bool:
+        normalized_email = email.strip().lower()
         if password_hash is None:
             with self._connect() as conn:
                 result = conn.execute(
                     """
                     UPDATE users
                     SET email = ?, full_name = ?
-                    WHERE id = ?
+                    WHERE id = ? AND is_deleted = 0
                     """,
-                    (email.lower(), full_name, user_id),
+                    (normalized_email, full_name, user_id),
                 )
             return result.rowcount > 0
-
         with self._connect() as conn:
             result = conn.execute(
                 """
                 UPDATE users
                 SET email = ?, full_name = ?, password_hash = ?
-                WHERE id = ?
+                WHERE id = ? AND is_deleted = 0
                 """,
-                (email.lower(), full_name, password_hash, user_id),
+                (normalized_email, full_name, password_hash, user_id),
             )
         return result.rowcount > 0
 
-    def create_session(self, token: str, user_id: int, expires_at: str) -> None:
+    def create_session(self, *, token: str, user_id: int, expires_at: str) -> None:
+        now = _utc_now()
         with self._connect() as conn:
             conn.execute(
                 """
                 INSERT INTO sessions (token, user_id, expires_at, created_at)
                 VALUES (?, ?, ?, ?)
+                ON CONFLICT(token) DO UPDATE SET
+                    user_id = excluded.user_id,
+                    expires_at = excluded.expires_at,
+                    created_at = excluded.created_at
                 """,
-                (token, user_id, expires_at, _utc_now()),
+                (token, user_id, _coerce_iso_for_storage(expires_at), now),
             )
 
     def get_session_user(self, token: str) -> dict[str, Any] | None:
+        now = _utc_now()
         with self._connect() as conn:
             row = conn.execute(
                 """
-                SELECT users.*
-                FROM sessions
-                JOIN users ON users.id = sessions.user_id
-                WHERE sessions.token = ?
+                SELECT u.*
+                FROM sessions s
+                JOIN users u ON u.id = s.user_id
+                WHERE s.token = ?
+                  AND s.expires_at > ?
+                  AND u.is_deleted = 0
+                  AND u.is_blocked = 0
+                LIMIT 1
                 """,
-                (token,),
+                (token, _coerce_iso_for_storage(now)),
             ).fetchone()
         if row is None:
             return None
@@ -569,9 +991,13 @@ class ReviewRepository:
         with self._connect() as conn:
             conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
 
-    def cleanup_expired_sessions(self, now_iso: str) -> None:
+    def cleanup_expired_sessions(self, now_iso: str) -> int:
         with self._connect() as conn:
-            conn.execute("DELETE FROM sessions WHERE expires_at < ?", (now_iso,))
+            result = conn.execute(
+                "DELETE FROM sessions WHERE expires_at <= ?",
+                (_coerce_iso_for_storage(now_iso),),
+            )
+        return int(result.rowcount)
 
     def get_ai_settings(self, *, include_secrets: bool = False) -> dict[str, Any]:
         with self._connect() as conn:
@@ -579,27 +1005,35 @@ class ReviewRepository:
         if row is None:
             raise RuntimeError("AI settings row is missing")
         data = self._row_to_dict(row)
-        data["brand_name"] = str(data.get("brand_name") or "VarFabric").strip() or "VarFabric"
-        raw_modes = str(data.pop("group_processors_json", "{}") or "{}")
-        parsed_modes = _json_load(raw_modes, {})
-        modes: dict[str, str] = dict(DEFAULT_GROUP_PROCESSORS)
-        if isinstance(parsed_modes, dict):
-            for key, value in parsed_modes.items():
-                group_id = str(key or "").strip()
-                mode = str(value or "").strip().lower()
-                if not group_id:
-                    continue
-                if mode not in {"yandex", "program"}:
-                    continue
-                modes[group_id] = mode
-        data["group_processors"] = modes
-        encrypted_key = str(data.pop("yandex_api_key_encrypted") or "") if "yandex_api_key_encrypted" in data else ""
-        key_value = decrypt_secret(encrypted_key) if encrypted_key else None
-        data["has_yandex_api_key"] = bool(key_value)
-        data["yandex_api_key_preview"] = mask_secret(key_value)
+        provider = str(data.get("provider") or "rules").strip().lower() or "rules"
+        encrypted_key = str(data.get("yandex_api_key_encrypted") or "")
+        yandex_api_key = decrypt_secret(encrypted_key) if encrypted_key else None
+        raw_group_processors = data.get("group_processors")
+        if not isinstance(raw_group_processors, dict):
+            raw_group_processors = {}
+        group_processors = dict(DEFAULT_GROUP_PROCESSORS)
+        for key, value in raw_group_processors.items():
+            group_id = str(key or "").strip()
+            mode = str(value or "").strip().lower()
+            if not group_id:
+                continue
+            if mode not in {"yandex", "program"}:
+                continue
+            group_processors[group_id] = mode
+        result: dict[str, Any] = {
+            "provider": provider,
+            "yandex_folder_id": str(data.get("yandex_folder_id") or "") or None,
+            "yandex_model_uri": str(data.get("yandex_model_uri") or "") or None,
+            "brand_name": str(data.get("brand_name") or "VarFabric") or "VarFabric",
+            "group_processors": group_processors,
+            "use_sync_start_date": bool(data.get("use_sync_start_date")),
+            "sync_start_date": str(data.get("sync_start_date") or "") or None,
+            "has_yandex_api_key": bool(yandex_api_key),
+            "yandex_api_key_preview": mask_secret(yandex_api_key),
+        }
         if include_secrets:
-            data["yandex_api_key"] = key_value
-        return data
+            result["yandex_api_key"] = yandex_api_key
+        return result
 
     def update_ai_settings(
         self,
@@ -608,49 +1042,369 @@ class ReviewRepository:
         yandex_api_key: str | None,
         yandex_folder_id: str | None,
         yandex_model_uri: str | None,
-        brand_name: str | None = None,
         group_processors: dict[str, str] | None = None,
+        brand_name: str | None = None,
         use_sync_start_date: bool = False,
         sync_start_date: str | None = None,
     ) -> None:
-        current = self.get_ai_settings(include_secrets=True)
-        normalized_brand = str(brand_name if brand_name is not None else current.get("brand_name") or "VarFabric").strip()
-        if not normalized_brand:
-            normalized_brand = "VarFabric"
-        normalized_modes: dict[str, str] = dict(DEFAULT_GROUP_PROCESSORS)
-        source_modes = group_processors if isinstance(group_processors, dict) else current.get("group_processors")
-        if isinstance(source_modes, dict):
-            for key, value in source_modes.items():
-                group_id = str(key or "").strip()
-                mode = str(value or "").strip().lower()
-                if not group_id or mode not in {"yandex", "program"}:
-                    continue
-                normalized_modes[group_id] = mode
-        if yandex_api_key is None:
-            encrypted_key = encrypt_secret(str(current.get("yandex_api_key") or "")) if current.get("yandex_api_key") else None
-        else:
-            encrypted_key = encrypt_secret(yandex_api_key.strip())
+        normalized_provider = provider.strip().lower() or "rules"
+        normalized_brand = (brand_name or "").strip() or "VarFabric"
+        normalized_folder = (yandex_folder_id or "").strip() or None
+        normalized_model = (yandex_model_uri or "").strip() or None
+        normalized_sync_date = _coerce_iso_for_storage(sync_start_date, as_date=True) if use_sync_start_date else None
 
         with self._connect() as conn:
+            existing = conn.execute(
+                "SELECT yandex_api_key_encrypted, group_processors_json FROM ai_settings WHERE id = 1"
+            ).fetchone()
+            current_key_encrypted = (
+                str(existing["yandex_api_key_encrypted"] or "")
+                if existing is not None and "yandex_api_key_encrypted" in existing
+                else ""
+            )
+            current_group_processors = _json_load(
+                existing["group_processors_json"] if existing is not None and "group_processors_json" in existing else {},
+                {},
+            )
+
+            encrypted_value: str | None
+            if yandex_api_key is None:
+                encrypted_value = current_key_encrypted or None
+            else:
+                clean_key = yandex_api_key.strip()
+                encrypted_value = encrypt_secret(clean_key) if clean_key else None
+
+            normalized_groups = dict(DEFAULT_GROUP_PROCESSORS)
+            if isinstance(current_group_processors, dict):
+                for key, value in current_group_processors.items():
+                    group_id = str(key or "").strip()
+                    mode = str(value or "").strip().lower()
+                    if not group_id or mode not in {"yandex", "program"}:
+                        continue
+                    normalized_groups[group_id] = mode
+            if isinstance(group_processors, dict):
+                for key, value in group_processors.items():
+                    group_id = str(key or "").strip()
+                    mode = str(value or "").strip().lower()
+                    if not group_id or mode not in {"yandex", "program"}:
+                        continue
+                    normalized_groups[group_id] = mode
+
             conn.execute(
                 """
                 UPDATE ai_settings
-                SET provider = ?, yandex_api_key_encrypted = ?, yandex_folder_id = ?, yandex_model_uri = ?,
-                    brand_name = ?, group_processors_json = ?, use_sync_start_date = ?, sync_start_date = ?, updated_at = ?
+                SET provider = ?,
+                    yandex_api_key_encrypted = ?,
+                    yandex_folder_id = ?,
+                    yandex_model_uri = ?,
+                    brand_name = ?,
+                    group_processors_json = ?,
+                    use_sync_start_date = ?,
+                    sync_start_date = ?,
+                    updated_at = ?
                 WHERE id = 1
                 """,
                 (
-                    provider,
-                    encrypted_key,
-                    yandex_folder_id,
-                    yandex_model_uri,
+                    normalized_provider,
+                    encrypted_value,
+                    normalized_folder,
+                    normalized_model,
                     normalized_brand,
-                    self._json_param(normalized_modes),
-                    int(use_sync_start_date),
-                    sync_start_date,
+                    self._json_param(normalized_groups),
+                    self._bool_db(use_sync_start_date),
+                    normalized_sync_date,
                     _utc_now(),
                 ),
             )
+
+    def list_users(self) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, email, role, owner_user_id, is_super_admin, is_blocked, blocked_reason,
+                       blocked_at, plan_code, limits_override_json, created_at
+                FROM users
+                WHERE is_deleted = 0
+                ORDER BY id ASC
+                """
+            ).fetchall()
+        return [self._row_to_dict(row) for row in rows]
+
+    def list_tenant_users(self, *, owner_user_id: int) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, email, full_name, role, owner_user_id, is_blocked, blocked_reason, blocked_at, created_at
+                FROM users
+                WHERE owner_user_id = ? AND is_deleted = 0 AND is_super_admin = 0
+                ORDER BY id ASC
+                """,
+                (owner_user_id,),
+            ).fetchall()
+        return [self._row_to_dict(row) for row in rows]
+
+    def create_tenant_user(
+        self,
+        *,
+        owner_user_id: int,
+        email: str,
+        password_hash: str,
+        role: str,
+        full_name: str | None = None,
+    ) -> dict[str, Any]:
+        return self.create_user(
+            email=email,
+            password_hash=password_hash,
+            role=role,
+            full_name=full_name,
+            owner_user_id=owner_user_id,
+            is_super_admin=False,
+        )
+
+    def set_user_blocked(
+        self,
+        *,
+        user_id: int,
+        blocked: bool,
+        reason: str | None = None,
+    ) -> bool:
+        with self._connect() as conn:
+            result = conn.execute(
+                """
+                UPDATE users
+                SET is_blocked = ?, blocked_reason = ?, blocked_at = ?
+                WHERE id = ? AND is_deleted = 0
+                """,
+                (
+                    self._bool_db(blocked),
+                    (reason or "").strip() or None if blocked else None,
+                    _utc_now() if blocked else None,
+                    user_id,
+                ),
+            )
+        return result.rowcount > 0
+
+    def soft_delete_user(self, *, user_id: int) -> bool:
+        with self._connect() as conn:
+            result = conn.execute(
+                """
+                UPDATE users
+                SET is_deleted = 1, deleted_at = ?, is_blocked = 1
+                WHERE id = ? AND is_deleted = 0
+                """,
+                (_utc_now(), user_id),
+            )
+            conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+        return result.rowcount > 0
+
+    def list_tariff_plans(self) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT code, title, monthly_price, limits_json, is_active, created_at, updated_at
+                FROM tariff_plans
+                ORDER BY monthly_price ASC, code ASC
+                """
+            ).fetchall()
+        return [self._row_to_dict(row) for row in rows]
+
+    def upsert_tariff_plan(
+        self,
+        *,
+        code: str,
+        title: str,
+        monthly_price: float,
+        limits: dict[str, Any],
+        is_active: bool = True,
+    ) -> None:
+        now = _utc_now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO tariff_plans (code, title, monthly_price, limits_json, is_active, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (code) DO UPDATE SET
+                    title = excluded.title,
+                    monthly_price = excluded.monthly_price,
+                    limits_json = excluded.limits_json,
+                    is_active = excluded.is_active,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    code,
+                    title,
+                    monthly_price,
+                    self._json_param(limits),
+                    self._bool_db(is_active),
+                    now,
+                    now,
+                ),
+            )
+
+    def set_tenant_plan(
+        self,
+        *,
+        owner_user_id: int,
+        plan_code: str,
+        limits_override: dict[str, Any] | None = None,
+    ) -> bool:
+        with self._connect() as conn:
+            result = conn.execute(
+                """
+                UPDATE users
+                SET plan_code = ?, limits_override_json = ?
+                WHERE id = ? AND is_deleted = 0 AND is_super_admin = 0
+                """,
+                (plan_code, self._json_param(limits_override or {}), owner_user_id),
+            )
+        return result.rowcount > 0
+
+    def get_super_admin_settings(self) -> dict[str, Any]:
+        ai = self.get_ai_settings()
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM platform_settings WHERE id = 1").fetchone()
+        if row is None:
+            raise RuntimeError("platform_settings row is missing")
+        data = self._row_to_dict(row)
+        encrypted_key = str(data.get("payment_api_key_encrypted") or "")
+        payment_key = decrypt_secret(encrypted_key) if encrypted_key else None
+        data["has_payment_api_key"] = bool(payment_key)
+        data["payment_api_key_preview"] = mask_secret(payment_key)
+        data["ai"] = ai
+        return data
+
+    def save_super_admin_settings(
+        self,
+        *,
+        payment_provider: str,
+        payment_api_key: str | None,
+        ai_provider: str,
+        yandex_api_key: str | None,
+        yandex_folder_id: str | None,
+        yandex_model_uri: str | None,
+        group_processors: dict[str, str] | None = None,
+        brand_name: str | None = None,
+        use_sync_start_date: bool = False,
+        sync_start_date: str | None = None,
+    ) -> None:
+        self.update_ai_settings(
+            provider=ai_provider,
+            yandex_api_key=yandex_api_key,
+            yandex_folder_id=yandex_folder_id,
+            yandex_model_uri=yandex_model_uri,
+            group_processors=group_processors,
+            brand_name=brand_name,
+            use_sync_start_date=use_sync_start_date,
+            sync_start_date=sync_start_date,
+        )
+        now = _utc_now()
+        with self._connect() as conn:
+            if payment_api_key is None:
+                current = conn.execute(
+                    "SELECT payment_api_key_encrypted FROM platform_settings WHERE id = 1"
+                ).fetchone()
+                encrypted_payment = (
+                    str(current["payment_api_key_encrypted"] or "") if current else ""
+                )
+                encrypted_value = encrypted_payment or None
+            else:
+                encrypted_value = encrypt_secret(payment_api_key.strip())
+            conn.execute(
+                """
+                UPDATE platform_settings
+                SET payment_provider = ?, payment_api_key_encrypted = ?, updated_at = ?
+                WHERE id = 1
+                """,
+                (payment_provider, encrypted_value, now),
+            )
+
+    def save_payment_record(
+        self,
+        *,
+        owner_user_id: int,
+        amount: float,
+        currency: str = "RUB",
+        status: str = "pending",
+        external_payment_id: str | None = None,
+        details: dict[str, Any] | None = None,
+        paid_at: str | None = None,
+    ) -> dict[str, Any]:
+        now = _utc_now()
+        with self._connect() as conn:
+            payment_id = self._insert_and_get_id(
+                conn,
+                """
+                INSERT INTO payment_records (
+                    owner_user_id, amount, currency, status, external_payment_id, details_json, paid_at, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    owner_user_id,
+                    float(amount),
+                    currency,
+                    status,
+                    external_payment_id,
+                    self._json_param(details or {}),
+                    paid_at,
+                    now,
+                ),
+            )
+            row = conn.execute("SELECT * FROM payment_records WHERE id = ?", (payment_id,)).fetchone()
+        if row is None:
+            raise RuntimeError("Payment record creation failed")
+        return self._row_to_dict(row)
+
+    def list_billing_records(self, *, owner_user_id: int | None = None, limit: int = 200) -> list[dict[str, Any]]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if owner_user_id is not None:
+            clauses.append("owner_user_id = ?")
+            params.append(owner_user_id)
+        query = "SELECT * FROM payment_records"
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+        with self._connect() as conn:
+            rows = conn.execute(query, tuple(params)).fetchall()
+        return [self._row_to_dict(row) for row in rows]
+
+    def list_tenants_overview(self) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    u.id,
+                    u.email,
+                    u.full_name,
+                    u.plan_code,
+                    u.is_blocked,
+                    u.created_at,
+                    COALESCE(stats.reviews_count, 0) AS reviews_count,
+                    COALESCE(stats.members_count, 0) AS members_count
+                FROM users u
+                LEFT JOIN (
+                    SELECT
+                        owner.id AS owner_id,
+                        COUNT(DISTINCT ri.review_uid) AS reviews_count,
+                        COUNT(DISTINCT member.id) AS members_count
+                    FROM users owner
+                    LEFT JOIN users member ON member.owner_user_id = owner.id AND member.is_deleted = 0
+                    LEFT JOIN review_items ri ON ri.user_id = member.id
+                    WHERE owner.owner_user_id = owner.id
+                      AND owner.is_deleted = 0
+                      AND owner.is_super_admin = 0
+                    GROUP BY owner.id
+                ) stats ON stats.owner_id = u.id
+                WHERE u.owner_user_id = u.id
+                  AND u.is_deleted = 0
+                  AND u.is_super_admin = 0
+                ORDER BY u.created_at DESC
+                """
+            ).fetchall()
+        return [self._row_to_dict(row) for row in rows]
+
 
     def create_marketplace_account(
         self,
