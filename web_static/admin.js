@@ -244,28 +244,13 @@ async function loadAdminContext() {
     roleSelect.value = allowedRoles.includes("feedback_manager") ? "feedback_manager" : allowedRoles[0];
   }
 
-  const scopeBadge = document.getElementById("adminScopeBadge");
-  const scopeTitle = document.getElementById("adminScopeTitle");
-  const scopeText = document.getElementById("adminScopeText");
   const superAiPanel = document.getElementById("superAdminAiPanel");
   const superSaasPanel = document.getElementById("superAdminSaasPanel");
   if (isSuperAdmin()) {
-    if (scopeBadge) scopeBadge.classList.remove("hidden");
-    if (scopeTitle) scopeTitle.textContent = "Режим: супер-администратор платформы";
-    if (scopeText) {
-      scopeText.textContent =
-        "Управление ИИ, тарифами, оплатами и клиентскими кабинетами. Доступ ко всем данным платформы.";
-    }
     if (superAiPanel) superAiPanel.classList.remove("hidden");
     if (superSaasPanel) superSaasPanel.classList.remove("hidden");
     document.getElementById("superAdminDefaultTemplatesPanel")?.classList.remove("hidden");
   } else {
-    if (scopeBadge) scopeBadge.classList.remove("hidden");
-    if (scopeTitle) scopeTitle.textContent = "Режим: владелец клиентского кабинета";
-    if (scopeText) {
-      scopeText.textContent =
-        "Управление только своей командой и рабочими метриками своего кабинета.";
-    }
     if (superAiPanel) superAiPanel.classList.add("hidden");
     if (superSaasPanel) superSaasPanel.classList.add("hidden");
     document.getElementById("superAdminDefaultTemplatesPanel")?.classList.add("hidden");
