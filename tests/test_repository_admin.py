@@ -309,6 +309,30 @@ class RepositoryAdminTests(unittest.TestCase):
         self.assertEqual(len(listed), 1)
         self.assertEqual(listed[0]["group_id"], "wrong_size")
 
+    def test_default_template_pool_can_seed_and_copy_for_user(self) -> None:
+        inserted = self.repository.seed_default_template_variants(
+            [
+                {"group_id": "positive", "subgroup": "Вкус", "template_text": "Шаблон по умолчанию A"},
+                {"group_id": "positive", "subgroup": "Вкус", "template_text": "Шаблон по умолчанию B"},
+            ]
+        )
+        self.assertEqual(inserted, 2)
+
+        defaults = self.repository.list_default_template_variants(group_id="positive", subgroup="Вкус")
+        self.assertEqual(len(defaults), 2)
+
+        copied = self.repository.copy_default_templates_to_user(user_id=self.user_id, only_if_empty=True)
+        self.assertEqual(copied, 2)
+
+        user_variants = self.repository.list_template_variants(user_id=self.user_id, group_id="positive", subgroup="Вкус")
+        self.assertEqual(len(user_variants), 2)
+
+        first_default_id = int(defaults[0]["id"])
+        deleted = self.repository.delete_default_template_variant(template_id=first_default_id)
+        self.assertTrue(deleted)
+        remaining = self.repository.list_default_template_variants(group_id="positive", subgroup="Вкус")
+        self.assertEqual(len(remaining), 1)
+
     def test_reviews_date_filter_and_sorting(self) -> None:
         processed = ProcessedReview(
             review_id="20",

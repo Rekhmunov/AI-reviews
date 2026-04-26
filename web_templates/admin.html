@@ -103,6 +103,31 @@
       </div>
     </div>
 
+    <div id="superAdminDefaultTemplatesPanel" class="panel hidden">
+      <h3>Шаблоны по умолчанию для всех новых пользователей</h3>
+      <p class="small">Редактируются только супер-администратором. Пользователь получает копию этих шаблонов в свой кабинет и редактирует уже свою версию.</p>
+      <div class="row">
+        <button class="secondary" onclick="loadSuperAdminDefaultTemplateGroups()">Обновить базу шаблонов</button>
+      </div>
+      <div class="row">
+        <div id="defaultTemplateGroupsView">
+          <div id="defaultTemplateGroupsAccordion" class="template-groups-accordion"></div>
+        </div>
+        <div id="defaultTemplateEditorView" class="hidden">
+          <div class="row between center">
+            <h4 id="defaultTemplateEditorTitle" class="no-margin"></h4>
+            <button class="secondary" onclick="closeDefaultTemplateEditor()">Назад к группам</button>
+          </div>
+          <div id="defaultTemplateEditorList" class="template-editor-list"></div>
+          <div class="row">
+            <button class="secondary" onclick="addDefaultTemplateEditorRow()">Добавить шаблон</button>
+            <button onclick="saveDefaultTemplateSubgroup()">Сохранить подгруппу</button>
+            <span id="defaultTemplatesInfo" class="small"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="panel">
       <h3>Пользователи и роли</h3>
       <div class="row">
@@ -141,6 +166,6 @@
     </div>
   </div>
 
-  <script src="/static/admin.js?v=3"></script>
+  <script src="/static/admin.js?v=4"></script>
 </body>
 </html>

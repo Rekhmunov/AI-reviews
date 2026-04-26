@@ -95,6 +95,13 @@ const TENANT_ROLE_VALUES = ["feedback_manager", "admin"];
 const adminState = {
   context: null,
 };
+const defaultTemplatesState = {
+  items: [],
+  currentGroupId: null,
+  currentGroupTitle: "",
+  currentSubgroup: "",
+  currentTemplates: [],
+};
 
 function isSuperAdmin() {
   return Boolean(adminState.context && adminState.context.is_super_admin);
@@ -173,6 +180,7 @@ async function loadAdminContext() {
     }
     if (superAiPanel) superAiPanel.classList.remove("hidden");
     if (superSaasPanel) superSaasPanel.classList.remove("hidden");
+    document.getElementById("superAdminDefaultTemplatesPanel")?.classList.remove("hidden");
   } else {
     if (scopeBadge) scopeBadge.classList.remove("hidden");
     if (scopeTitle) scopeTitle.textContent = "Режим: владелец клиентского кабинета";
@@ -182,6 +190,7 @@ async function loadAdminContext() {
     }
     if (superAiPanel) superAiPanel.classList.add("hidden");
     if (superSaasPanel) superSaasPanel.classList.add("hidden");
+    document.getElementById("superAdminDefaultTemplatesPanel")?.classList.add("hidden");
   }
   return true;
 }
@@ -432,6 +441,172 @@ function setSuperAdminInfo(message, isError = false) {
   info.style.color = isError ? "#b91c1c" : "";
 }
 
+function setDefaultTemplatesInfo(message, isError = false) {
+  const info = document.getElementById("defaultTemplatesInfo");
+  if (!info) return;
+  info.textContent = message || "";
+  info.style.color = isError ? "#b91c1c" : "";
+}
+
+function renderDefaultTemplateGroups() {
+  const container = document.getElementById("defaultTemplateGroupsAccordion");
+  if (!container) return;
+  container.innerHTML = "";
+  for (const group of defaultTemplatesState.items || []) {
+    const details = document.createElement("details");
+    details.className = "template-group";
+    details.open = false;
+    const summary = document.createElement("summary");
+    summary.textContent = String(group.title || "");
+    details.appendChild(summary);
+    const content = document.createElement("div");
+    content.className = "template-subgroups-list";
+    for (const subgroup of group.subgroups || []) {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "template-subgroup-row";
+      const nameSpan = document.createElement("span");
+      nameSpan.textContent = String(subgroup.name || "");
+      const countSpan = document.createElement("span");
+      countSpan.className = "template-count-badge";
+      countSpan.textContent = String(subgroup.count || 0);
+      row.appendChild(nameSpan);
+      row.appendChild(countSpan);
+      row.addEventListener("click", () => {
+        openDefaultTemplateSubgroup(String(group.id || ""), String(subgroup.name || ""), String(group.title || ""));
+      });
+      content.appendChild(row);
+    }
+    details.appendChild(content);
+    container.appendChild(details);
+  }
+}
+
+function renderDefaultTemplateEditorRows() {
+  const container = document.getElementById("defaultTemplateEditorList");
+  if (!container) return;
+  container.innerHTML = "";
+  if (!defaultTemplatesState.currentTemplates.length) {
+    const empty = document.createElement("div");
+    empty.className = "small";
+    empty.textContent = "В этой подгруппе пока нет шаблонов.";
+    container.appendChild(empty);
+    return;
+  }
+  defaultTemplatesState.currentTemplates.forEach((item, index) => {
+    const row = document.createElement("div");
+    row.className = "template-editor-row";
+    const textarea = document.createElement("textarea");
+    textarea.className = "template-editor-input";
+    textarea.value = item.text;
+    textarea.placeholder = "Введите текст шаблона ответа";
+    textarea.addEventListener("input", () => {
+      defaultTemplatesState.currentTemplates[index].text = textarea.value;
+    });
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.className = "icon-btn danger";
+    delBtn.title = "Удалить шаблон";
+    delBtn.textContent = "🗑";
+    delBtn.addEventListener("click", async () => {
+      const itemId = defaultTemplatesState.currentTemplates[index]?.id;
+      if (itemId) {
+        await fetch(`/api/super-admin/default-template-subgroup/item/${itemId}`, {
+          method: "DELETE",
+          headers: csrfHeaders(),
+        });
+      }
+      defaultTemplatesState.currentTemplates.splice(index, 1);
+      renderDefaultTemplateEditorRows();
+    });
+    row.appendChild(textarea);
+    row.appendChild(delBtn);
+    container.appendChild(row);
+  });
+}
+
+function closeDefaultTemplateEditor() {
+  document.getElementById("defaultTemplateEditorView")?.classList.add("hidden");
+  document.getElementById("defaultTemplateGroupsView")?.classList.remove("hidden");
+  defaultTemplatesState.currentGroupId = null;
+  defaultTemplatesState.currentGroupTitle = "";
+  defaultTemplatesState.currentSubgroup = "";
+  defaultTemplatesState.currentTemplates = [];
+}
+
+function addDefaultTemplateEditorRow() {
+  defaultTemplatesState.currentTemplates.push({ id: null, text: "" });
+  renderDefaultTemplateEditorRows();
+}
+
+async function loadDefaultTemplateGroups() {
+  if (!isSuperAdmin()) return;
+  const res = await fetch("/api/super-admin/default-template-groups");
+  const data = await res.json();
+  if (!res.ok) {
+    setDefaultTemplatesInfo(data.detail || "Не удалось загрузить шаблоны по умолчанию", true);
+    return;
+  }
+  defaultTemplatesState.items = data.items || [];
+  renderDefaultTemplateGroups();
+}
+
+async function loadSuperAdminDefaultTemplateGroups() {
+  closeDefaultTemplateEditor();
+  await loadDefaultTemplateGroups();
+}
+
+async function openDefaultTemplateSubgroup(groupId, subgroup, groupTitle) {
+  const query = new URLSearchParams({ group_id: groupId, subgroup });
+  const res = await fetch("/api/super-admin/default-template-subgroup?" + query.toString());
+  const data = await res.json();
+  if (!res.ok) {
+    setDefaultTemplatesInfo(data.detail || "Не удалось загрузить шаблоны подгруппы", true);
+    return;
+  }
+  defaultTemplatesState.currentGroupId = groupId;
+  defaultTemplatesState.currentGroupTitle = groupTitle;
+  defaultTemplatesState.currentSubgroup = subgroup;
+  defaultTemplatesState.currentTemplates = (data.items || []).map((item) => ({
+    id: item.id || null,
+    text: String(item.template_text || ""),
+  }));
+  document.getElementById("defaultTemplateGroupsView")?.classList.add("hidden");
+  document.getElementById("defaultTemplateEditorView")?.classList.remove("hidden");
+  const title = document.getElementById("defaultTemplateEditorTitle");
+  if (title) title.textContent = `${groupTitle} / ${subgroup}`;
+  setDefaultTemplatesInfo("");
+  renderDefaultTemplateEditorRows();
+}
+
+async function saveDefaultTemplateSubgroup() {
+  if (!defaultTemplatesState.currentGroupId || !defaultTemplatesState.currentSubgroup) return;
+  const payload = {
+    templates: defaultTemplatesState.currentTemplates.map((item) => String(item.text || "")),
+  };
+  const query = new URLSearchParams({
+    group_id: defaultTemplatesState.currentGroupId,
+    subgroup: defaultTemplatesState.currentSubgroup,
+  });
+  const res = await fetch("/api/super-admin/default-template-subgroup?" + query.toString(), {
+    method: "PUT",
+    headers: csrfHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    setDefaultTemplatesInfo(data.detail || "Не удалось сохранить шаблоны по умолчанию", true);
+    return;
+  }
+  setDefaultTemplatesInfo("Шаблоны по умолчанию сохранены.");
+  await loadDefaultTemplateGroups();
+  await openDefaultTemplateSubgroup(
+    defaultTemplatesState.currentGroupId,
+    defaultTemplatesState.currentSubgroup,
+    defaultTemplatesState.currentGroupTitle,
+  );
+}
+
 function renderTariffs(items) {
   const tbody = document.getElementById("tariffsTbody");
   if (!tbody) return;
@@ -504,6 +679,7 @@ async function loadSuperAdminSection() {
   renderTariffs(tariffsData.items || []);
   renderTenants(tenantsData.items || []);
   renderPayments(paymentsData.items || []);
+  await loadDefaultTemplateGroups();
 }
 
 async function saveTariffPlan() {

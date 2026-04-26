@@ -353,6 +353,16 @@ class TemplateVariantCreateRequest(BaseModel):
     template_text: str = Field(min_length=1, max_length=4000)
 
 
+class DefaultTemplateSubgroupSaveRequest(BaseModel):
+    templates: list[str] = Field(default_factory=list)
+
+
+class DefaultTemplateVariantCreateRequest(BaseModel):
+    group_id: str = Field(min_length=2, max_length=100)
+    subgroup: str = Field(min_length=1, max_length=255)
+    template_text: str = Field(min_length=1, max_length=4000)
+
+
 class ProcessingRuleItemRequest(BaseModel):
     group_id: str = Field(min_length=2, max_length=100)
     action_mode: str = Field(description="ai|template|manual|ignore")
@@ -728,32 +738,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             return False
         return subgroup in subgroups
 
-    def _ensure_default_template_variants(user_id: int) -> None:
-        existing = repository.list_template_variants(user_id=user_id, include_inactive=True)
-        if existing:
-            for group in TEMPLATE_GROUPS:
-                group_id = str(group.get("id") or "")
-                subgroups = group.get("subgroups")
-                if not group_id or not isinstance(subgroups, list):
-                    continue
-                for subgroup in subgroups:
-                    name = str(subgroup)
-                    subgroup_rows = repository.list_template_variants(
-                        user_id=user_id,
-                        group_id=group_id,
-                        subgroup=name,
-                        include_inactive=True,
-                    )
-                    if subgroup_rows:
-                        continue
-                    defaults = DEFAULT_TEMPLATE_CONTENT.get(name) or [f"Спасибо за отзыв! Категория: {name}."]
-                    repository.replace_subgroup_templates(
-                        user_id=user_id,
-                        group_id=group_id,
-                        subgroup=name,
-                        templates=defaults,
-                    )
-            return
+    def _default_template_seed_rows() -> list[dict[str, str]]:
+        rows: list[dict[str, str]] = []
         for group in TEMPLATE_GROUPS:
             group_id = str(group.get("id") or "")
             subgroups = group.get("subgroups")
@@ -762,12 +748,55 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             for subgroup in subgroups:
                 name = str(subgroup)
                 defaults = DEFAULT_TEMPLATE_CONTENT.get(name) or [f"Спасибо за отзыв! Категория: {name}."]
-                repository.replace_subgroup_templates(
-                    user_id=user_id,
-                    group_id=group_id,
-                    subgroup=name,
-                    templates=defaults,
-                )
+                for text in defaults:
+                    clean = str(text or "").strip()
+                    if not clean:
+                        continue
+                    rows.append(
+                        {
+                            "group_id": group_id,
+                            "subgroup": name,
+                            "template_text": clean,
+                        }
+                    )
+        return rows
+
+    def _ensure_platform_default_templates() -> None:
+        if repository.count_default_template_variants(include_inactive=True) > 0:
+            return
+        seeded = repository.seed_default_templates_from_user_templates()
+        if seeded > 0:
+            return
+        repository.seed_default_template_variants(_default_template_seed_rows())
+
+    def _build_template_group_items(counts: dict[tuple[str, str], int]) -> list[dict[str, object]]:
+        items: list[dict[str, object]] = []
+        for group in TEMPLATE_GROUPS:
+            group_id = str(group.get("id") or "")
+            title = str(group.get("title") or group_id)
+            subgroups_raw = group.get("subgroups")
+            subgroups: list[dict[str, object]] = []
+            if isinstance(subgroups_raw, list):
+                for name in subgroups_raw:
+                    subgroup_name = str(name)
+                    subgroups.append(
+                        {
+                            "name": subgroup_name,
+                            "count": counts.get((group_id, subgroup_name), 0),
+                        }
+                    )
+            items.append(
+                {
+                    "id": group_id,
+                    "title": title,
+                    "subgroups": subgroups,
+                }
+            )
+        return items
+
+    def _ensure_default_template_variants(user_id: int) -> None:
+        _ensure_platform_default_templates()
+        repository.copy_default_templates_to_user(user_id=user_id, only_if_empty=True)
 
     def _parse_recommendation_targets(raw_csv: str) -> list[str]:
         values = str(raw_csv or "").replace(";", ",").replace("\n", ",").split(",")
@@ -1212,29 +1241,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         for row in rows:
             key = (str(row.get("group_id") or ""), str(row.get("subgroup") or ""))
             counts[key] = counts.get(key, 0) + 1
-
-        items: list[dict[str, object]] = []
-        for group in TEMPLATE_GROUPS:
-            group_id = str(group.get("id") or "")
-            title = str(group.get("title") or group_id)
-            subgroups_raw = group.get("subgroups")
-            subgroups: list[dict[str, object]] = []
-            if isinstance(subgroups_raw, list):
-                for name in subgroups_raw:
-                    subgroup_name = str(name)
-                    subgroups.append(
-                        {
-                            "name": subgroup_name,
-                            "count": counts.get((group_id, subgroup_name), 0),
-                        }
-                    )
-            items.append(
-                {
-                    "id": group_id,
-                    "title": title,
-                    "subgroups": subgroups,
-                }
-            )
+        items = _build_template_group_items(counts)
         return {"items": items, "count": len(items)}
 
     @app.get("/api/processing-rules")
@@ -1602,6 +1609,73 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         _require_super_admin(request)
         items = repository.list_tenants_overview()
         return {"items": items, "count": len(items)}
+
+    @app.get("/api/super-admin/default-template-groups")
+    def super_admin_list_default_template_groups(request: Request) -> dict[str, object]:
+        _require_super_admin(request)
+        _ensure_platform_default_templates()
+        rows = repository.list_default_template_variants()
+        counts: dict[tuple[str, str], int] = {}
+        for row in rows:
+            key = (str(row.get("group_id") or ""), str(row.get("subgroup") or ""))
+            counts[key] = counts.get(key, 0) + 1
+        items = _build_template_group_items(counts)
+        return {"items": items, "count": len(items)}
+
+    @app.get("/api/super-admin/default-template-subgroup")
+    def super_admin_get_default_template_subgroup(
+        group_id: str,
+        subgroup: str,
+        request: Request,
+    ) -> dict[str, object]:
+        _require_super_admin(request)
+        if not _validate_subgroup(group_id, subgroup):
+            raise HTTPException(status_code=404, detail="Группа шаблонов или подгруппа не найдена")
+        _ensure_platform_default_templates()
+        items = repository.list_default_template_variants(group_id=group_id, subgroup=subgroup)
+        return {"items": items, "count": len(items), "group_id": group_id, "subgroup": subgroup}
+
+    @app.put("/api/super-admin/default-template-subgroup")
+    def super_admin_save_default_template_subgroup(
+        group_id: str,
+        subgroup: str,
+        payload: DefaultTemplateSubgroupSaveRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        _require_super_admin(request)
+        if not _validate_subgroup(group_id, subgroup):
+            raise HTTPException(status_code=404, detail="Группа шаблонов или подгруппа не найдена")
+        repository.replace_default_subgroup_templates(
+            group_id=group_id,
+            subgroup=subgroup,
+            templates=payload.templates,
+        )
+        return {"ok": True, "saved": len([x for x in payload.templates if x and x.strip()])}
+
+    @app.post("/api/super-admin/default-template-subgroup/item")
+    def super_admin_add_default_template_subgroup_item(
+        payload: DefaultTemplateVariantCreateRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        _require_super_admin(request)
+        group_id = payload.group_id.strip()
+        subgroup = payload.subgroup.strip()
+        if not _validate_subgroup(group_id, subgroup):
+            raise HTTPException(status_code=404, detail="Группа шаблонов или подгруппа не найдена")
+        item = repository.add_default_template_variant(
+            group_id=group_id,
+            subgroup=subgroup,
+            template_text=payload.template_text,
+        )
+        return {"ok": True, "item": item}
+
+    @app.delete("/api/super-admin/default-template-subgroup/item/{template_id}")
+    def super_admin_delete_default_template_subgroup_item(template_id: int, request: Request) -> dict[str, object]:
+        _require_super_admin(request)
+        deleted = repository.delete_default_template_variant(template_id=template_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Шаблон не найден")
+        return {"ok": True}
 
     @app.post("/api/super-admin/tenant-plan")
     def super_admin_set_tenant_plan(payload: TenantPlanUpdateRequest, request: Request) -> dict[str, object]:
