@@ -1415,6 +1415,27 @@ class ReviewRepository:
                 ),
             )
 
+    def delete_tariff_plan(self, *, code: str) -> tuple[bool, int]:
+        normalized_code = (code or "").strip().lower()
+        if not normalized_code:
+            return False, 0
+        with self._connect() as conn:
+            in_use_row = conn.execute(
+                """
+                SELECT COUNT(*) AS c
+                FROM users
+                WHERE plan_code = ?
+                  AND is_deleted = FALSE
+                  AND is_super_admin = FALSE
+                """,
+                (normalized_code,),
+            ).fetchone()
+            in_use_count = int(in_use_row["c"]) if in_use_row else 0
+            if in_use_count > 0:
+                return False, in_use_count
+            result = conn.execute("DELETE FROM tariff_plans WHERE code = ?", (normalized_code,))
+        return result.rowcount > 0, 0
+
     def set_tenant_plan(
         self,
         *,

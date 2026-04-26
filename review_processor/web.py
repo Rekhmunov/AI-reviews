@@ -1635,6 +1635,22 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
         return {"ok": True}
 
+    @app.delete("/api/super-admin/tariffs")
+    def super_admin_delete_tariff(payload: TariffPlanDeleteRequest, request: Request) -> dict[str, object]:
+        _require_super_admin(request)
+        code = payload.code.strip().lower()
+        if not code:
+            raise HTTPException(status_code=400, detail="Код тарифа обязателен")
+        deleted, in_use_count = repository.delete_tariff_plan(code=code)
+        if not deleted and in_use_count > 0:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Тариф используется у {in_use_count} клиентов. Сначала смените им тариф.",
+            )
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Тариф не найден")
+        return {"ok": True}
+
     @app.get("/api/super-admin/tenants")
     def super_admin_list_tenants(request: Request) -> dict[str, object]:
         _require_super_admin(request)

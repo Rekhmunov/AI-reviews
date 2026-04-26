@@ -729,6 +729,47 @@ button.secondary.danger:hover {
   background: linear-gradient(160deg, rgba(248, 251, 255, 0.96), rgba(236, 245, 255, 0.84));
 }
 
+.tariff-form-panel {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(147, 197, 253, 0.42);
+  background: linear-gradient(160deg, rgba(248, 251, 255, 0.95), rgba(236, 245, 255, 0.82));
+}
+
+.tariffs-list {
+  margin-top: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.tariff-item {
+  border: 1px solid rgba(147, 197, 253, 0.38);
+  border-radius: 12px;
+  padding: 12px;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.9), rgba(239, 246, 255, 0.82));
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tariff-item-main {
+  display: grid;
+  gap: 4px;
+}
+
+.tariff-item-title {
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.tariff-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .sync-start-settings {
   margin-top: 12px;
   padding: 12px;
@@ -1248,6 +1289,15 @@ button.secondary.danger:hover {
   .settings-tab-btn {
     white-space: nowrap;
     width: auto;
+  }
+
+  .tariff-item {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .tariff-item-actions {
+    width: 100%;
   }
 
   .table-wrap {

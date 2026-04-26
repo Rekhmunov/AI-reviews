@@ -60,15 +60,31 @@
         <button class="secondary" onclick="loadTenants()">Клиенты</button>
         <button class="secondary" onclick="loadPayments()">Платежи</button>
       </div>
-      <div class="row">
-        <input id="tariffCode" type="text" placeholder="Код тарифа (например, pro)" />
-        <input id="tariffTitle" type="text" placeholder="Название тарифа" />
-        <input id="tariffPrice" type="number" step="0.01" min="0" placeholder="Цена / месяц" />
-      </div>
-      <div class="row">
-        <textarea id="tariffLimits" class="textarea-compact" placeholder='Лимиты в JSON, например {"reviews_per_month":15000,"managers":25}'></textarea>
-        <label><input id="tariffIsActive" class="small-check" type="checkbox" checked /> Тариф активен</label>
-        <button onclick="saveTariffPlan()">Сохранить тариф</button>
+      <div id="tariffsBlock" class="panel">
+        <div class="row row-between">
+          <h4 class="no-margin">Тарифы</h4>
+          <button class="secondary" type="button" onclick="openCreateTariffForm()">Добавить тариф</button>
+        </div>
+        <div id="tariffFormPanel" class="tariff-form-panel hidden">
+          <h4 id="tariffFormTitle" class="no-margin">Добавить тариф</h4>
+          <div class="row">
+            <input id="tariffCode" type="text" placeholder="Код тарифа (например, pro)" />
+            <input id="tariffTitle" type="text" placeholder="Название тарифа" />
+            <input id="tariffPrice" type="number" step="0.01" min="0" placeholder="Цена в месяц" />
+          </div>
+          <div class="row">
+            <input id="tariffLimitReviews" type="number" min="0" step="1" placeholder="Лимит отзывов в месяц" />
+            <input id="tariffLimitManagers" type="number" min="0" step="1" placeholder="Лимит менеджеров" />
+            <input id="tariffLimitSources" type="number" min="0" step="1" placeholder="Лимит источников" />
+            <input id="tariffLimitAiUnits" type="number" min="0" step="1" placeholder="Лимит AI-единиц в месяц" />
+          </div>
+          <div class="row">
+            <label><input id="tariffIsActive" class="small-check" type="checkbox" checked /> Тариф активен</label>
+            <button id="tariffSaveButton" type="button" onclick="saveTariffPlan()">Создать тариф</button>
+            <button id="tariffCancelButton" type="button" class="secondary hidden" onclick="closeTariffForm()">Отмена</button>
+          </div>
+        </div>
+        <div id="tariffsList" class="tariffs-list"></div>
       </div>
       <div class="row">
         <input id="tenantOwnerId" type="number" min="1" placeholder="ID владельца кабинета" />
@@ -83,19 +99,13 @@
         <button onclick="addPaymentRecord()">Добавить платеж</button>
       </div>
       <div id="saasInfo" class="small"></div>
-      <div class="row table-wrap">
-        <table>
-          <thead><tr><th colspan="5">Тарифы</th></tr></thead>
-          <tbody id="tariffsTbody"></tbody>
-        </table>
-      </div>
-      <div class="row table-wrap">
+      <div id="tenantsBlock" class="row table-wrap">
         <table>
           <thead><tr><th colspan="6">Клиенты (tenant owners)</th></tr></thead>
           <tbody id="tenantsTbody"></tbody>
         </table>
       </div>
-      <div class="row">
+      <div id="paymentsBlock" class="row table-wrap">
         <table>
           <thead><tr><th colspan="6">Платежи</th></tr></thead>
           <tbody id="paymentsTbody"></tbody>
@@ -181,6 +191,6 @@
     </div>
   </div>
 
-  <script src="/static/admin.js?v=6"></script>
+  <script src="/static/admin.js?v=7"></script>
 </body>
 </html>

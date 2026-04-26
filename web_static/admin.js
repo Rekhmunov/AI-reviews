@@ -107,6 +107,73 @@ const actionsState = {
   pageSize: 50,
   hasMore: false,
 };
+const tariffEditorState = {
+  mode: "create",
+  originalCode: null,
+};
+
+function normalizeNumber(value, fallback = 0) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return parsed;
+}
+
+function tariffLimitsFromFields() {
+  return {
+    reviews_per_month: Math.max(0, Math.floor(normalizeNumber(document.getElementById("tariffLimitReviews")?.value, 0))),
+    managers: Math.max(0, Math.floor(normalizeNumber(document.getElementById("tariffLimitManagers")?.value, 0))),
+    sources: Math.max(0, Math.floor(normalizeNumber(document.getElementById("tariffLimitSources")?.value, 0))),
+    ai_units: Math.max(0, Math.floor(normalizeNumber(document.getElementById("tariffLimitAiUnits")?.value, 0))),
+  };
+}
+
+function openTariffForm(mode = "create", item = null) {
+  const form = document.getElementById("tariffFormPanel");
+  if (!form) return;
+  const isEdit = mode === "edit" && item;
+  tariffEditorState.mode = isEdit ? "edit" : "create";
+  tariffEditorState.originalCode = isEdit ? String(item.code || "").trim().toLowerCase() : null;
+
+  const title = document.getElementById("tariffFormTitle");
+  const saveBtn = document.getElementById("tariffSaveButton");
+  const cancelBtn = document.getElementById("tariffCancelButton");
+  const codeInput = document.getElementById("tariffCode");
+  const nameInput = document.getElementById("tariffTitle");
+  const priceInput = document.getElementById("tariffPrice");
+  const reviewsInput = document.getElementById("tariffLimitReviews");
+  const managersInput = document.getElementById("tariffLimitManagers");
+  const sourcesInput = document.getElementById("tariffLimitSources");
+  const aiUnitsInput = document.getElementById("tariffLimitAiUnits");
+  const activeInput = document.getElementById("tariffIsActive");
+
+  if (title) title.textContent = isEdit ? "Изменить тариф" : "Добавить тариф";
+  if (saveBtn) saveBtn.textContent = isEdit ? "Сохранить изменения" : "Создать тариф";
+  if (cancelBtn) cancelBtn.classList.toggle("hidden", !isEdit);
+
+  const limits = (item && item.limits) || {};
+  if (codeInput) codeInput.value = isEdit ? String(item.code || "") : "";
+  if (nameInput) nameInput.value = isEdit ? String(item.title || "") : "";
+  if (priceInput) priceInput.value = isEdit ? String(item.monthly_price ?? 0) : "";
+  if (reviewsInput) reviewsInput.value = isEdit ? String(limits.reviews_per_month ?? 0) : "";
+  if (managersInput) managersInput.value = isEdit ? String(limits.managers ?? 0) : "";
+  if (sourcesInput) sourcesInput.value = isEdit ? String(limits.sources ?? 0) : "";
+  if (aiUnitsInput) aiUnitsInput.value = isEdit ? String(limits.ai_units ?? 0) : "";
+  if (activeInput) activeInput.checked = isEdit ? Boolean(item.is_active) : true;
+
+  form.classList.remove("hidden");
+}
+
+function openCreateTariffForm() {
+  openTariffForm("create");
+}
+
+function closeTariffForm() {
+  const form = document.getElementById("tariffFormPanel");
+  if (!form) return;
+  tariffEditorState.mode = "create";
+  tariffEditorState.originalCode = null;
+  form.classList.add("hidden");
+}
 
 function isSuperAdmin() {
   return Boolean(adminState.context && adminState.context.is_super_admin);
@@ -613,20 +680,56 @@ async function saveDefaultTemplateSubgroup() {
   );
 }
 
+function formatTariffLimits(limits) {
+  const normalized = limits && typeof limits === "object" ? limits : {};
+  return [
+    `Отзывы/мес: ${Number(normalized.reviews_per_month || 0)}`,
+    `Менеджеры: ${Number(normalized.managers || 0)}`,
+    `Источники: ${Number(normalized.sources || 0)}`,
+    `AI-единицы: ${Number(normalized.ai_units || 0)}`,
+  ].join(" · ");
+}
+
 function renderTariffs(items) {
-  const tbody = document.getElementById("tariffsTbody");
-  if (!tbody) return;
-  tbody.innerHTML = "";
-  for (const item of items || []) {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${esc(item.code)}</td>
-      <td>${esc(item.title)}</td>
-      <td>${esc(item.monthly_price)}</td>
-      <td>${esc(JSON.stringify(item.limits || {}, null, 0))}</td>
-      <td>${item.is_active ? "да" : "нет"}</td>
+  const list = document.getElementById("tariffsList");
+  if (!list) return;
+  list.innerHTML = "";
+  const normalizedItems = Array.isArray(items) ? items : [];
+  if (!normalizedItems.length) {
+    const row = document.createElement("div");
+    row.className = "tariff-item";
+    row.innerHTML = `<div class="small">Тарифы пока не добавлены</div>`;
+    list.appendChild(row);
+    return;
+  }
+  for (const item of normalizedItems) {
+    const row = document.createElement("div");
+    row.className = "tariff-item";
+    const main = document.createElement("div");
+    main.className = "tariff-item-main";
+    main.innerHTML = `
+      <div class="tariff-item-title">${esc(item.title)} <span class="small">(${esc(item.code)})</span></div>
+      <div class="small">Цена в месяц: ${esc(item.monthly_price)} ₽</div>
+      <div class="small">${esc(formatTariffLimits(item.limits || {}))}</div>
+      <div class="small">Статус: ${item.is_active ? "активен" : "неактивен"}</div>
     `;
-    tbody.appendChild(tr);
+    const actions = document.createElement("div");
+    actions.className = "tariff-item-actions";
+    const editButton = document.createElement("button");
+    editButton.className = "secondary";
+    editButton.type = "button";
+    editButton.textContent = "Изменить";
+    editButton.addEventListener("click", () => openTariffForm("edit", item));
+    const deleteButton = document.createElement("button");
+    deleteButton.className = "secondary danger";
+    deleteButton.type = "button";
+    deleteButton.textContent = "Удалить";
+    deleteButton.addEventListener("click", () => deleteTariffPlan(String(item.code || "")));
+    actions.appendChild(editButton);
+    actions.appendChild(deleteButton);
+    row.appendChild(main);
+    row.appendChild(actions);
+    list.appendChild(row);
   }
 }
 
@@ -693,24 +796,29 @@ async function saveTariffPlan() {
   const code = String(document.getElementById("tariffCode")?.value || "").trim().toLowerCase();
   const title = String(document.getElementById("tariffTitle")?.value || "").trim();
   const monthlyPrice = Number(document.getElementById("tariffPrice")?.value || "0");
-  const limitsRaw = String(document.getElementById("tariffLimits")?.value || "{}").trim() || "{}";
-  let limits = {};
-  try {
-    limits = JSON.parse(limitsRaw);
-  } catch (_err) {
-    setSuperAdminInfo("Поле лимитов должно быть корректным JSON.", true);
-    return;
-  }
+  const limits = tariffLimitsFromFields();
   if (!code || !title) {
     setSuperAdminInfo("Заполните код и название тарифа.", true);
     return;
+  }
+  if (!Number.isFinite(monthlyPrice) || monthlyPrice < 0) {
+    setSuperAdminInfo("Цена в месяц должна быть числом не меньше 0.", true);
+    return;
+  }
+  const originalCode = tariffEditorState.originalCode;
+  if (tariffEditorState.mode === "edit" && originalCode && originalCode !== code) {
+    const deleted = await deleteTariffPlan(originalCode, false);
+    if (!deleted) {
+      setSuperAdminInfo("Не удалось изменить код тарифа: старый тариф не удален.", true);
+      return;
+    }
   }
   const payload = {
     code,
     title,
     monthly_price: monthlyPrice,
     limits,
-    is_active: true,
+    is_active: Boolean(document.getElementById("tariffIsActive")?.checked ?? true),
   };
   const res = await fetch("/api/super-admin/tariffs", {
     method: "PUT",
@@ -722,8 +830,45 @@ async function saveTariffPlan() {
     setSuperAdminInfo(data.detail || "Ошибка сохранения тарифа", true);
     return;
   }
-  setSuperAdminInfo("Тариф сохранен.");
+  setSuperAdminInfo(tariffEditorState.mode === "edit" ? "Тариф изменен." : "Тариф создан.");
+  closeTariffForm();
   await loadSuperAdminSection();
+}
+
+async function deleteTariffPlan(code, showMessage = true) {
+  if (!isSuperAdmin()) return;
+  const normalizedCode = String(code || "").trim().toLowerCase();
+  if (!normalizedCode) return false;
+  if (showMessage) {
+    const confirmed = confirm(`Удалить тариф "${normalizedCode}"?`);
+    if (!confirmed) return false;
+  }
+  const res = await fetch("/api/super-admin/tariffs", {
+    method: "DELETE",
+    headers: csrfHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ code: normalizedCode }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    if (showMessage) setSuperAdminInfo(data.detail || "Не удалось удалить тариф", true);
+    return false;
+  }
+  if (showMessage) setSuperAdminInfo("Тариф удален.");
+  await loadSuperAdminSection();
+  return true;
+}
+
+function loadTariffs() {
+  if (!isSuperAdmin()) return;
+  document.getElementById("tariffsBlock")?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function loadTenants() {
+  document.getElementById("tenantsBlock")?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function loadPayments() {
+  document.getElementById("paymentsBlock")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 async function assignTenantPlan() {
