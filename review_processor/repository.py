@@ -145,8 +145,6 @@ class ReviewRepository:
         return bool(value) if self.is_postgres else int(bool(value))
 
     def _json_param(self, value: object) -> object:
-        if self.is_postgres:
-            return value
         return json.dumps(value, ensure_ascii=False)
 
     def _init_schema(self) -> None:
