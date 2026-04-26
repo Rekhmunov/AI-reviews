@@ -812,7 +812,17 @@ async function loadAccounts() {
   const res = await fetch("/api/accounts");
   const data = await res.json();
   const tbody = document.getElementById("accountsTbody");
+  const info = document.getElementById("accountsInfo");
   tbody.innerHTML = "";
+  if (!res.ok) {
+    if (info) {
+      info.textContent = data.detail || "Ошибка загрузки кабинетов";
+    }
+    return;
+  }
+  if (info) {
+    info.textContent = data.items?.length ? `Подключено кабинетов: ${data.items.length}` : "Кабинеты пока не подключены";
+  }
   for (const account of data.items || []) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
@@ -834,6 +844,24 @@ async function loadAccounts() {
     `;
     tbody.appendChild(tr);
   }
+}
+
+async function loadUserSyncSettings() {
+  const res = await fetch("/api/user-sync-settings");
+  const data = await res.json();
+  const toggle = document.getElementById("userUseSyncStartDate");
+  const input = document.getElementById("userSyncStartDate");
+  const info = document.getElementById("userSyncSettingsInfo");
+  if (!toggle || !input || !info) return;
+  if (!res.ok) {
+    info.textContent = "Ошибка загрузки даты синхронизации";
+    return;
+  }
+  toggle.checked = data.use_sync_start_date !== false;
+  input.value = data.sync_start_date || "";
+  input.disabled = !toggle.checked;
+  const lookbackDays = Number(data.default_sync_lookback_days || 7);
+  info.textContent = `По умолчанию: за ${lookbackDays} дн. до регистрации`;
 }
 
 async function createAccount() {
@@ -1332,8 +1360,56 @@ async function loadProfile() {
   document.getElementById("profileCurrentPassword").value = "";
   document.getElementById("profileNewPassword").value = "";
   document.getElementById("profileNewPasswordRepeat").value = "";
+  const userSyncToggle = document.getElementById("userUseSyncStartDate");
+  const userSyncDateInput = document.getElementById("userSyncStartDate");
+  const userSyncInfo = document.getElementById("userSyncSettingsInfo");
+  if (userSyncToggle) {
+    userSyncToggle.checked = data.use_sync_start_date !== false;
+  }
+  if (userSyncDateInput) {
+    userSyncDateInput.value = data.sync_start_date || "";
+    userSyncDateInput.disabled = !(userSyncToggle?.checked ?? true);
+  }
+  if (userSyncInfo) {
+    const lookbackDays = Number(data.default_sync_lookback_days || 7);
+    userSyncInfo.textContent = `По умолчанию: за ${lookbackDays} дн. до регистрации`;
+  }
   setPasswordFieldsVisible(false);
   document.getElementById("profileInfo").textContent = "";
+}
+
+function onUserSyncToggleChange() {
+  const toggle = document.getElementById("userUseSyncStartDate");
+  const input = document.getElementById("userSyncStartDate");
+  if (!toggle || !input) return;
+  input.disabled = !toggle.checked;
+}
+
+async function saveUserSyncSettings() {
+  const toggle = document.getElementById("userUseSyncStartDate");
+  const input = document.getElementById("userSyncStartDate");
+  const info = document.getElementById("userSyncSettingsInfo");
+  if (!toggle || !input || !info) return;
+  const payload = {
+    use_sync_start_date: Boolean(toggle.checked),
+    sync_start_date: input.value || null,
+  };
+  const res = await fetch("/api/user-sync-settings", {
+    method: "PUT",
+    headers: jsonHeaders(),
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    info.textContent = "Ошибка: " + (data.detail || "не удалось сохранить дату");
+    return;
+  }
+  const settings = data.settings || {};
+  toggle.checked = settings.use_sync_start_date !== false;
+  input.value = settings.sync_start_date || "";
+  input.disabled = !toggle.checked;
+  const lookbackDays = Number(settings.default_sync_lookback_days || 7);
+  info.textContent = `Сохранено. По умолчанию: за ${lookbackDays} дн. до регистрации`;
 }
 
 function setPasswordFieldsVisible(visible) {
@@ -1427,6 +1503,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   onSourceMarketplaceChange();
   setPasswordFieldsVisible(false);
+  document.getElementById("userUseSyncStartDate")?.addEventListener("change", onUserSyncToggleChange);
   document.getElementById("ruleCategory")?.addEventListener("change", syncRuleFormFromStore);
   document.getElementById("tplCategory")?.addEventListener("change", syncTemplateFormFromStore);
   loadReviews();
@@ -1436,6 +1513,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   if (permissions.can_view_settings) {
     loadAccounts();
+    loadProfile();
     loadProcessingRules();
     loadTemplates();
     loadRecommendations();

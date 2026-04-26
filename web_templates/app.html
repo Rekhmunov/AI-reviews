@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
-  <link rel="stylesheet" href="/static/style.css?v=4" />
+  <link rel="stylesheet" href="/static/style.css?v=5" />
 </head>
 <body>
   <div class="layout">
@@ -123,14 +123,16 @@
           </div>
         </div>
         <div class="panel">
-          <table>
+          <div class="table-wrap">
+            <table>
             <thead>
               <tr>
                 <th>Источник</th><th>Отзыв</th><th>Ответ</th><th>Приоритет</th><th>Статус</th><th>Действия</th>
               </tr>
             </thead>
             <tbody id="reviewsTbody"></tbody>
-          </table>
+            </table>
+          </div>
           <div class="row reviews-pagination-row">
             <div class="row">
               <span class="small">Показывать на странице:</span>
@@ -169,14 +171,16 @@
           </div>
         </div>
         <div class="panel">
-          <table>
+          <div class="table-wrap">
+            <table>
             <thead>
               <tr>
                 <th>Тип</th><th>Источник</th><th>Покупатель</th><th>Сообщение</th><th>Непрочитано</th><th>Статус</th><th>Действия</th>
               </tr>
             </thead>
             <tbody id="conversationsTbody"></tbody>
-          </table>
+            </table>
+          </div>
         </div>
       </section>
 
@@ -214,6 +218,25 @@
             </div>
             <div id="accountsInfo" class="small"></div>
 
+            <div class="sync-start-settings mt-10">
+              <div class="row row-between">
+                <div>
+                  <div class="sync-start-title">Дата начала загрузки отзывов</div>
+                  <div class="small">По умолчанию берется дата регистрации минус заданное количество дней.</div>
+                </div>
+                <label class="sync-start-toggle">
+                  <input id="userUseSyncStartDate" type="checkbox" checked />
+                  Использовать дату начала
+                </label>
+              </div>
+              <div class="row mt-10">
+                <label>Загружать отзывы с даты</label>
+                <input id="userSyncStartDate" type="date" />
+                <button class="secondary" onclick="saveUserSyncSettings()">Сохранить дату</button>
+                <span id="userSyncSettingsInfo" class="small"></span>
+              </div>
+            </div>
+
             <div id="addSourceForm" class="source-form hidden">
               <div class="row">
                 <select id="newSourceMarketplace" onchange="onSourceMarketplaceChange()">
@@ -235,10 +258,12 @@
             </div>
           </div>
           <div class="panel">
-            <table>
+            <div class="table-wrap">
+              <table>
               <thead><tr><th>№</th><th>Маркетплейс</th><th>Название</th><th>Адрес интерфейса</th><th>Идентификатор клиента</th><th>Ключ доступа</th><th>Активен</th><th>Действия</th></tr></thead>
               <tbody id="accountsTbody"></tbody>
-            </table>
+              </table>
+            </div>
           </div>
         </div>
 
@@ -289,7 +314,8 @@
               Для каждого ответа система подставляет в %RECO% один случайный артикул.
             </p>
             <input id="recommendationsImportInput" type="file" accept=".xlsx,.xlsm,.xltx,.xltm" class="hidden" onchange="importRecommendationsFile(this)" />
-            <table>
+            <div class="table-wrap">
+              <table>
               <thead>
                 <tr>
                   <th>Артикул товара</th>
@@ -298,7 +324,8 @@
                 </tr>
               </thead>
               <tbody id="recommendationsTbody"></tbody>
-            </table>
+              </table>
+            </div>
             <div class="row mt-10">
               <button class="secondary" onclick="addRecommendationRow()">Добавить строку</button>
               <span id="recommendationsInfo" class="small"></span>
@@ -347,6 +374,6 @@
       is_admin: {{IS_ADMIN}}
     };
   </script>
-  <script src="/static/app.js?v=3"></script>
+  <script src="/static/app.js?v=5"></script>
 </body>
 </html>

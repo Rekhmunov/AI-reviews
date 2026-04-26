@@ -256,8 +256,7 @@ class AISettingsRequest(BaseModel):
     yandex_model_uri: str | None = None
     brand_name: str | None = Field(default=None, max_length=200)
     group_processors: dict[str, str] | None = None
-    use_sync_start_date: bool = False
-    sync_start_date: str | None = None
+    default_sync_lookback_days: int = Field(default=7, ge=0, le=365)
 
 
 class RoleUpdateRequest(BaseModel):
@@ -305,6 +304,12 @@ class SuperAdminSettingsRequest(BaseModel):
     group_processors: dict[str, str] | None = None
     use_sync_start_date: bool = False
     sync_start_date: str | None = None
+    default_sync_lookback_days: int = Field(default=7, ge=0, le=365)
+
+
+class UserSyncSettingsRequest(BaseModel):
+    use_sync_start_date: bool = True
+    sync_start_date: str | None = None
 
 
 class TariffPlanUpsertRequest(BaseModel):
@@ -337,6 +342,8 @@ class ProfileUpdateRequest(BaseModel):
     current_password: str | None = Field(default=None, max_length=255)
     new_password: str | None = Field(default=None, max_length=255)
     new_password_repeat: str | None = Field(default=None, max_length=255)
+    use_sync_start_date: bool | None = None
+    sync_start_date: str | None = None
 
 
 class ClearReviewsRequest(BaseModel):
@@ -916,10 +923,36 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.get("/api/profile")
     def get_profile(request: Request) -> dict[str, object]:
         user = _require_user(request)
+        sync_settings = repository.get_user_sync_settings(user_id=int(user["id"]))
         return {
             "full_name": user.get("full_name") or "",
             "email": user["email"],
+            "use_sync_start_date": bool(sync_settings.get("use_sync_start_date")),
+            "sync_start_date": str(sync_settings.get("sync_start_date") or "") or None,
+            "default_sync_lookback_days": int(sync_settings.get("default_sync_lookback_days") or 7),
         }
+
+    @app.get("/api/user-sync-settings")
+    def get_user_sync_settings(request: Request) -> dict[str, object]:
+        user = _require_user(request)
+        return repository.get_user_sync_settings(user_id=int(user["id"]))
+
+    @app.put("/api/user-sync-settings")
+    def update_user_sync_settings(request: Request, payload: UserSyncSettingsRequest) -> dict[str, object]:
+        user = _require_user(request)
+        sync_start_date = _parse_sync_start_date_or_none(
+            payload.sync_start_date,
+            enabled=bool(payload.use_sync_start_date),
+        )
+        updated = repository.save_user_sync_settings(
+            user_id=int(user["id"]),
+            use_sync_start_date=bool(payload.use_sync_start_date),
+            sync_start_date=sync_start_date,
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        settings = repository.get_user_sync_settings(user_id=int(user["id"]))
+        return {"ok": True, "settings": settings}
 
     @app.put("/api/profile")
     def update_profile(request: Request, payload: ProfileUpdateRequest) -> dict[str, object]:
@@ -1107,6 +1140,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     def sync_reviews(request: Request, payload: SyncRequest) -> dict[str, object]:
         user = _require_user(request)
         user_id = int(user["id"])
+        user_sync_settings = repository.get_user_sync_settings(user_id=user_id)
+        since_date = (
+            str(user_sync_settings.get("sync_start_date") or "").strip()
+            if bool(user_sync_settings.get("use_sync_start_date"))
+            else None
+        )
         if payload.all_accounts:
             with sync_lock:
                 if bool(sync_state.get("in_progress")):
@@ -1115,6 +1154,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             try:
                 result = service.sync_all_accounts(
                     user_id=user_id,
+                    since_date=since_date or None,
                     stop_requested=sync_stop_event.is_set,
                 )
             finally:
@@ -1133,12 +1173,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         marketplace = str(account["marketplace"])
         try:
             client = service._build_client(account)
-            sync_settings = repository.get_ai_settings(include_secrets=False)
-            since_date = (
-                str(sync_settings.get("sync_start_date") or "").strip()
-                if bool(sync_settings.get("use_sync_start_date"))
-                else None
-            )
             loaded = service.sync_reviews(
                 user_id=user_id,
                 source=marketplace,
@@ -1537,8 +1571,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             yandex_model_uri=(payload.yandex_model_uri or "").strip() or None,
             brand_name=(payload.brand_name or "").strip() or "VarFabric",
             group_processors=payload.group_processors,
-            use_sync_start_date=bool(payload.use_sync_start_date),
-            sync_start_date=sync_start_date,
+            use_sync_start_date=False,
+            sync_start_date=None,
         )
         return {"ok": True}
 
@@ -1565,10 +1599,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         ai_provider = payload.ai_provider.strip().lower()
         if ai_provider not in {"rules", "yandex"}:
             raise HTTPException(status_code=400, detail="Провайдер должен быть: встроенные правила или Яндекс")
-        sync_start_date = _parse_sync_start_date_or_none(
-            payload.sync_start_date,
-            enabled=bool(payload.use_sync_start_date),
-        )
         repository.save_super_admin_settings(
             payment_provider=(payload.payment_provider or "").strip() or "manual",
             payment_api_key=payload.payment_api_key.strip() if payload.payment_api_key is not None else None,
@@ -1578,8 +1608,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             yandex_model_uri=(payload.yandex_model_uri or "").strip() or None,
             group_processors=payload.group_processors,
             brand_name=(payload.brand_name or "").strip() or "VarFabric",
-            use_sync_start_date=bool(payload.use_sync_start_date),
-            sync_start_date=sync_start_date,
+            use_sync_start_date=False,
+            sync_start_date=None,
+            default_sync_lookback_days=int(payload.default_sync_lookback_days),
         )
         return {"ok": True}
 

@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Админ-панель</title>
-  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="stylesheet" href="/static/style.css?v=6" />
 </head>
 <body>
   <div class="container container-page">
@@ -40,17 +40,17 @@
         <h4 class="no-margin">Маршрутизация групп отзывов</h4>
       </div>
       <div class="row">
+        <label for="defaultSyncLookbackDays">Старт синхронизации для новых пользователей (дней до регистрации)</label>
+        <input id="defaultSyncLookbackDays" type="number" min="0" max="365" step="1" value="7" />
+      </div>
+      <div class="row table-wrap">
         <table>
           <thead><tr><th>Группа отзывов</th><th>Кто обрабатывает</th></tr></thead>
           <tbody id="groupProcessorsTbody"></tbody>
         </table>
       </div>
-      <div class="row">
-        <label><input id="useSyncStartDate" class="small-check" type="checkbox" /> Загружать отзывы с указанной даты</label>
-        <input id="syncStartDate" type="date" />
-      </div>
       <div id="aiInfo" class="small"></div>
-      <p class="small">Оставьте ключ доступа пустым, чтобы не менять текущий ключ. Если включена дата, синхронизация всегда берет отзывы с этой даты по текущий день.</p>
+      <p class="small">Оставьте ключ доступа пустым, чтобы не менять текущий ключ. Дата синхронизации теперь задается пользователем в его кабинете, а здесь настраивается только стандартное значение для новых регистраций.</p>
     </div>
 
     <div id="superAdminSaasPanel" class="panel hidden">
@@ -83,13 +83,13 @@
         <button onclick="addPaymentRecord()">Добавить платеж</button>
       </div>
       <div id="saasInfo" class="small"></div>
-      <div class="row">
+      <div class="row table-wrap">
         <table>
           <thead><tr><th colspan="5">Тарифы</th></tr></thead>
           <tbody id="tariffsTbody"></tbody>
         </table>
       </div>
-      <div class="row">
+      <div class="row table-wrap">
         <table>
           <thead><tr><th colspan="6">Клиенты (tenant owners)</th></tr></thead>
           <tbody id="tenantsTbody"></tbody>
@@ -159,24 +159,28 @@
 
     <div class="panel">
       <h3>Лента действий</h3>
-      <div class="row">
+      <div class="row admin-actions-pagination">
         <label for="actionsPageSize" class="small">На странице:</label>
         <select id="actionsPageSize" onchange="updateActionsPageSize(this.value)">
           <option value="20">20</option>
           <option value="50" selected>50</option>
           <option value="100">100</option>
         </select>
-        <button id="actionsPrevButton" class="secondary" onclick="prevActionsPage()">Назад</button>
-        <button id="actionsNextButton" class="secondary" onclick="nextActionsPage()">Вперёд</button>
-        <span id="actionsPaginationInfo" class="small"></span>
+        <div class="row">
+          <button id="actionsPrevButton" class="secondary" onclick="prevActionsPage()">Назад</button>
+          <button id="actionsNextButton" class="secondary" onclick="nextActionsPage()">Вперёд</button>
+          <span id="actionsPaginationInfo" class="small"></span>
+        </div>
       </div>
+      <div class="table-wrap">
       <table>
         <thead><tr><th>Время</th><th>Пользователь</th><th>Идентификатор</th><th>Действие</th><th>Детали</th></tr></thead>
         <tbody id="actionsTbody"></tbody>
       </table>
+      </div>
     </div>
   </div>
 
-  <script src="/static/admin.js?v=5"></script>
+  <script src="/static/admin.js?v=6"></script>
 </body>
 </html>

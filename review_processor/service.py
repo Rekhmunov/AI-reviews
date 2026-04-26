@@ -683,6 +683,7 @@ class ReviewAutomationService:
         self,
         *,
         user_id: int,
+        since_date: str | None = None,
         stop_requested: Callable[[], bool] | None = None,
     ) -> dict[str, object]:
         loaded_total = 0
@@ -695,10 +696,7 @@ class ReviewAutomationService:
             for item in self.repository.list_marketplace_accounts(user_id, include_secrets=True)
             if item["is_active"]
         ]
-        sync_settings = self.repository.get_ai_settings(include_secrets=False)
-        use_sync_start_date = bool(sync_settings.get("use_sync_start_date"))
-        since_date = str(sync_settings.get("sync_start_date") or "").strip() if use_sync_start_date else ""
-        since_value = since_date or None
+        since_value = str(since_date or "").strip() or None
         for account in accounts:
             if stop_requested and stop_requested():
                 was_cancelled = True

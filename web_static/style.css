@@ -729,6 +729,31 @@ button.secondary.danger:hover {
   background: linear-gradient(160deg, rgba(248, 251, 255, 0.96), rgba(236, 245, 255, 0.84));
 }
 
+.sync-start-settings {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(147, 197, 253, 0.42);
+  background: linear-gradient(160deg, rgba(248, 251, 255, 0.94), rgba(236, 245, 255, 0.8));
+}
+
+.sync-start-title {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.sync-start-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.sync-start-toggle input[type="checkbox"] {
+  min-height: 0;
+}
+
 .no-margin {
   margin: 0;
 }
@@ -978,6 +1003,15 @@ button.secondary.danger:hover {
   gap: 8px;
 }
 
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.table-wrap > table {
+  min-width: 720px;
+}
+
 .template-group {
   border: 1px solid rgba(147, 197, 253, 0.35);
   border-radius: 12px;
@@ -1089,6 +1123,66 @@ button.secondary.danger:hover {
   width: 100%;
 }
 
+@media (max-width: 1200px) {
+  .main {
+    padding: 18px;
+  }
+
+  .panel {
+    padding: 16px;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+}
+
+@media (max-width: 1024px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    box-shadow: none;
+    padding: 12px 10px;
+  }
+
+  .sidebar-main,
+  .sidebar-bottom {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .sidebar-bottom {
+    padding-top: 8px;
+    margin-top: 8px;
+  }
+
+  .meta {
+    width: 100%;
+    margin-bottom: 8px;
+  }
+
+  .navbtn {
+    margin-bottom: 0;
+  }
+
+  .main {
+    padding: 16px;
+  }
+
+  .reviews-date-panel {
+    right: auto;
+    left: 0;
+    width: min(92vw, 760px);
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 900px) {
   body.landing-page {
     overflow: auto;
@@ -1107,17 +1201,32 @@ button.secondary.danger:hover {
     font-size: clamp(28px, 7vw, 40px);
   }
 
-  .layout {
-    grid-template-columns: 1fr;
-  }
-
-  .sidebar {
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
-  }
-
   .main {
     padding: 16px;
+  }
+
+  .panel {
+    padding: 14px;
+  }
+
+  .row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .row.row-between {
+    align-items: stretch;
+  }
+
+  input,
+  select,
+  textarea,
+  button {
+    width: 100%;
+  }
+
+  .reviews-quick-controls {
+    width: 100%;
   }
 
   .reviews-pagination-row {
@@ -1130,15 +1239,109 @@ button.secondary.danger:hover {
     align-items: flex-start;
   }
 
-  .reviews-date-panel {
-    right: auto;
-    left: 0;
-    width: min(92vw, 760px);
+  .settings-tabs {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding-bottom: 4px;
+  }
+
+  .settings-tab-btn {
+    white-space: nowrap;
+    width: auto;
+  }
+
+  .table-wrap {
+    margin: 0 -4px;
+    padding: 0 4px;
+  }
+
+  .table-wrap > table {
+    min-width: 640px;
+  }
+
+  .admin-actions-pagination {
+    display: grid;
     grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .admin-actions-pagination .row {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
   }
 
   textarea,
   .textarea-compact {
     min-width: 100%;
+  }
+}
+
+@media (max-width: 768px) {
+  .main {
+    padding: 14px;
+  }
+
+  .panel {
+    border-radius: 14px;
+    padding: 12px;
+  }
+
+  .row {
+    gap: 8px;
+  }
+
+  .table-wrap > table {
+    min-width: 580px;
+  }
+
+  .stats-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .template-editor-row {
+    grid-template-columns: 1fr;
+  }
+
+  .template-editor-row button {
+    width: 100%;
+  }
+
+  .processing-rules-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .main {
+    padding: 12px;
+  }
+
+  .panel {
+    border-radius: 14px;
+    padding: 12px;
+  }
+
+  .brand {
+    font-size: 16px;
+    margin-bottom: 6px;
+  }
+
+  .reviews-buckets {
+    width: 100%;
+  }
+
+  .bucket-tab {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .reviews-date-panel {
+    width: min(94vw, 540px);
+  }
+
+  .settings-tab-btn {
+    font-size: 13px;
+    padding: 8px 10px;
   }
 }

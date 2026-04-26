@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -83,6 +83,26 @@ def _coerce_iso_for_storage(value: str | None, *, as_date: bool = False) -> str 
     return text
 
 
+def _date_from_created_at_with_lookback(created_at: object, lookback_days: int) -> str:
+    lookback = max(int(lookback_days), 0)
+    if isinstance(created_at, datetime):
+        dt = created_at
+    else:
+        raw = str(created_at or "").strip()
+        if not raw:
+            dt = datetime.now(UTC)
+        else:
+            normalized = raw[:-1] + "+00:00" if raw.endswith("Z") else raw
+            try:
+                dt = datetime.fromisoformat(normalized)
+            except ValueError:
+                dt = datetime.now(UTC)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    base_date = dt.astimezone(UTC).date()
+    return (base_date - timedelta(days=lookback)).isoformat()
+
+
 class _PgCompatConnection:
     def __init__(self, conn) -> None:
         self._conn = conn
@@ -149,6 +169,16 @@ class ReviewRepository:
 
     def _json_param(self, value: object) -> object:
         return json.dumps(value, ensure_ascii=False)
+
+    def _default_sync_lookback_days(self) -> int:
+        return 7
+
+    def _coerce_lookback_days(self, value: object | None) -> int:
+        try:
+            parsed = int(value) if value is not None else self._default_sync_lookback_days()
+        except (TypeError, ValueError):
+            parsed = self._default_sync_lookback_days()
+        return min(max(parsed, 0), 365)
 
     def _init_schema(self) -> None:
         if self.is_postgres:
@@ -548,6 +578,18 @@ class ReviewRepository:
             )
             conn.execute(
                 """
+                ALTER TABLE users
+                ADD COLUMN IF NOT EXISTS use_sync_start_date BOOLEAN NOT NULL DEFAULT FALSE
+                """
+            )
+            conn.execute(
+                """
+                ALTER TABLE users
+                ADD COLUMN IF NOT EXISTS sync_start_date DATE
+                """
+            )
+            conn.execute(
+                """
                 UPDATE users
                 SET owner_user_id = id
                 WHERE owner_user_id IS NULL
@@ -598,6 +640,12 @@ class ReviewRepository:
                     payment_api_key_encrypted TEXT,
                     updated_at TIMESTAMPTZ NOT NULL
                 )
+                """
+            )
+            conn.execute(
+                """
+                ALTER TABLE platform_settings
+                ADD COLUMN IF NOT EXISTS default_sync_lookback_days INTEGER NOT NULL DEFAULT 7
                 """
             )
             conn.execute(
@@ -657,6 +705,39 @@ class ReviewRepository:
             )
             conn.execute(
                 """
+                ALTER TABLE users
+                ADD COLUMN IF NOT EXISTS use_sync_start_date BOOLEAN NOT NULL DEFAULT FALSE
+                """
+            )
+            conn.execute(
+                """
+                ALTER TABLE users
+                ADD COLUMN IF NOT EXISTS sync_start_date DATE
+                """
+            )
+            conn.execute(
+                """
+                UPDATE users
+                SET use_sync_start_date = TRUE
+                WHERE use_sync_start_date IS DISTINCT FROM TRUE
+                """
+            )
+            conn.execute(
+                """
+                UPDATE users
+                SET sync_start_date = ((created_at AT TIME ZONE 'UTC')::date - COALESCE((SELECT default_sync_lookback_days FROM platform_settings WHERE id = 1), 7))
+                WHERE sync_start_date IS NULL
+                """
+            )
+            conn.execute(
+                """
+                UPDATE platform_settings
+                SET default_sync_lookback_days = COALESCE(default_sync_lookback_days, 7)
+                WHERE id = 1
+                """
+            )
+            conn.execute(
+                """
                 INSERT INTO tariff_plans (code, title, monthly_price, limits_json, is_active, created_at, updated_at)
                 VALUES ('starter', 'Starter', 0, %s::jsonb, TRUE, NOW(), NOW())
                 ON CONFLICT (code) DO NOTHING
@@ -700,6 +781,10 @@ class ReviewRepository:
             conn.execute("ALTER TABLE users ADD COLUMN plan_code TEXT NOT NULL DEFAULT 'starter'")
         if "limits_override_json" not in user_columns:
             conn.execute("ALTER TABLE users ADD COLUMN limits_override_json TEXT NOT NULL DEFAULT '{}'")
+        if "use_sync_start_date" not in user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN use_sync_start_date INTEGER NOT NULL DEFAULT 0")
+        if "sync_start_date" not in user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN sync_start_date TEXT")
         conn.execute("UPDATE users SET owner_user_id = id WHERE owner_user_id IS NULL")
         super_admin_row = conn.execute("SELECT COUNT(*) AS c FROM users WHERE is_super_admin = TRUE").fetchone()
         has_super_admin = int(super_admin_row["c"]) > 0 if super_admin_row else False
@@ -719,10 +804,14 @@ class ReviewRepository:
                 id INTEGER PRIMARY KEY CHECK (id = 1),
                 payment_provider TEXT NOT NULL DEFAULT 'manual',
                 payment_api_key_encrypted TEXT,
+                default_sync_lookback_days INTEGER NOT NULL DEFAULT 7,
                 updated_at TEXT NOT NULL
             )
             """
         )
+        platform_columns = self._table_columns(conn, "platform_settings")
+        if "default_sync_lookback_days" not in platform_columns:
+            conn.execute("ALTER TABLE platform_settings ADD COLUMN default_sync_lookback_days INTEGER NOT NULL DEFAULT 7")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS tariff_plans (
@@ -773,11 +862,32 @@ class ReviewRepository:
         )
         conn.execute(
             """
-            INSERT INTO platform_settings (id, payment_provider, payment_api_key_encrypted, updated_at)
-            VALUES (1, 'manual', NULL, ?)
+            INSERT INTO platform_settings (id, payment_provider, payment_api_key_encrypted, default_sync_lookback_days, updated_at)
+            VALUES (1, 'manual', NULL, 7, ?)
             ON CONFLICT (id) DO NOTHING
             """,
             (_utc_now(),),
+        )
+        conn.execute(
+            """
+            UPDATE platform_settings
+            SET default_sync_lookback_days = COALESCE(default_sync_lookback_days, 7)
+            WHERE id = 1
+            """
+        )
+        conn.execute(
+            """
+            UPDATE users
+            SET use_sync_start_date = 1
+            WHERE use_sync_start_date IS NULL OR use_sync_start_date = 0
+            """
+        )
+        conn.execute(
+            """
+            UPDATE users
+            SET sync_start_date = date(substr(created_at, 1, 10), '-' || COALESCE((SELECT default_sync_lookback_days FROM platform_settings WHERE id = 1), 7) || ' days')
+            WHERE sync_start_date IS NULL
+            """
         )
 
         default_limits = self._json_param({"reviews_per_month": 3000, "managers": 5, "sources": 3, "ai_units": 20000})
@@ -938,6 +1048,7 @@ class ReviewRepository:
                 conn.execute("UPDATE users SET owner_user_id = ? WHERE id = ?", (user_id, user_id))
         if not is_super_admin:
             self.copy_default_templates_to_user(user_id=user_id, only_if_empty=True)
+            self.get_user_sync_settings(user_id=user_id)
         user = self.get_user_by_id(user_id)
         if user is None:
             raise RuntimeError("User creation failed")
@@ -1334,7 +1445,30 @@ class ReviewRepository:
         data["has_payment_api_key"] = bool(payment_key)
         data["payment_api_key_preview"] = mask_secret(payment_key)
         data["ai"] = ai
+        data["default_sync_lookback_days"] = self._coerce_lookback_days(data.get("default_sync_lookback_days"))
         return data
+
+    def get_default_sync_lookback_days(self) -> int:
+        with self._connect() as conn:
+            row = conn.execute("SELECT default_sync_lookback_days FROM platform_settings WHERE id = 1").fetchone()
+        if row is None:
+            return self._default_sync_lookback_days()
+        return self._coerce_lookback_days(row["default_sync_lookback_days"])
+
+    def set_default_sync_lookback_days(self, *, days: int) -> None:
+        normalized_days = self._coerce_lookback_days(days)
+        now = _utc_now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO platform_settings (id, payment_provider, payment_api_key_encrypted, default_sync_lookback_days, updated_at)
+                VALUES (1, 'manual', NULL, ?, ?)
+                ON CONFLICT (id) DO UPDATE SET
+                    default_sync_lookback_days = excluded.default_sync_lookback_days,
+                    updated_at = excluded.updated_at
+                """,
+                (normalized_days, now),
+            )
 
     def save_super_admin_settings(
         self,
@@ -1349,6 +1483,7 @@ class ReviewRepository:
         brand_name: str | None = None,
         use_sync_start_date: bool = False,
         sync_start_date: str | None = None,
+        default_sync_lookback_days: int | None = None,
     ) -> None:
         self.update_ai_settings(
             provider=ai_provider,
@@ -1361,6 +1496,7 @@ class ReviewRepository:
             sync_start_date=sync_start_date,
         )
         now = _utc_now()
+        lookback_days = self._coerce_lookback_days(default_sync_lookback_days)
         with self._connect() as conn:
             if payment_api_key is None:
                 current = conn.execute(
@@ -1375,11 +1511,76 @@ class ReviewRepository:
             conn.execute(
                 """
                 UPDATE platform_settings
-                SET payment_provider = ?, payment_api_key_encrypted = ?, updated_at = ?
+                SET payment_provider = ?, payment_api_key_encrypted = ?, default_sync_lookback_days = ?, updated_at = ?
                 WHERE id = 1
                 """,
-                (payment_provider, encrypted_value, now),
+                (payment_provider, encrypted_value, lookback_days, now),
             )
+
+    def get_user_sync_settings(self, *, user_id: int) -> dict[str, Any]:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT use_sync_start_date, sync_start_date, created_at
+                FROM users
+                WHERE id = ? AND is_deleted = ?
+                """,
+                (user_id, self._bool_db(False)),
+            ).fetchone()
+            if row is None:
+                raise RuntimeError("User not found")
+            lookback_row = conn.execute(
+                "SELECT default_sync_lookback_days FROM platform_settings WHERE id = 1"
+            ).fetchone()
+        lookback_days = self._coerce_lookback_days(lookback_row["default_sync_lookback_days"] if lookback_row else None)
+        use_sync_start_date = bool(row["use_sync_start_date"])
+        sync_start_date = _coerce_iso_for_storage(str(row["sync_start_date"] or ""), as_date=True)
+        if not sync_start_date:
+            created_at = _coerce_iso_for_storage(str(row["created_at"] or ""))
+            base = datetime.now(UTC)
+            if created_at:
+                try:
+                    base = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+                except ValueError:
+                    base = datetime.now(UTC)
+            sync_start_date = (base - timedelta(days=lookback_days)).date().isoformat()
+            use_sync_start_date = True
+            with self._connect() as conn:
+                conn.execute(
+                    """
+                    UPDATE users
+                    SET use_sync_start_date = ?, sync_start_date = ?
+                    WHERE id = ? AND is_deleted = ?
+                    """,
+                    (self._bool_db(True), sync_start_date, user_id, self._bool_db(False)),
+                )
+        return {
+            "use_sync_start_date": use_sync_start_date,
+            "sync_start_date": sync_start_date,
+            "default_sync_lookback_days": lookback_days,
+        }
+
+    def save_user_sync_settings(
+        self,
+        *,
+        user_id: int,
+        use_sync_start_date: bool,
+        sync_start_date: str | None,
+    ) -> bool:
+        normalized_date = _coerce_iso_for_storage(sync_start_date, as_date=True) if use_sync_start_date else None
+        if use_sync_start_date and not normalized_date:
+            settings = self.get_user_sync_settings(user_id=user_id)
+            normalized_date = str(settings.get("sync_start_date") or "")
+        with self._connect() as conn:
+            result = conn.execute(
+                """
+                UPDATE users
+                SET use_sync_start_date = ?, sync_start_date = ?
+                WHERE id = ? AND is_deleted = FALSE
+                """,
+                (self._bool_db(use_sync_start_date), normalized_date, user_id),
+            )
+        return result.rowcount > 0
 
     def save_payment_record(
         self,

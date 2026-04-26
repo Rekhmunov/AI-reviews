@@ -241,21 +241,21 @@ async function loadAiSettings() {
   document.getElementById("modelUri").value = data.yandex_model_uri || "";
   document.getElementById("brandName").value = data.brand_name || "VarFabric";
   renderGroupProcessors(data.group_processors || {});
-  document.getElementById("useSyncStartDate").checked = Boolean(data.use_sync_start_date);
-  document.getElementById("syncStartDate").value = data.sync_start_date || "";
-  syncDateToggle();
+  const lookbackInput = document.getElementById("defaultSyncLookbackDays");
+  if (lookbackInput) {
+    const lookback = Number(data.default_sync_lookback_days || 7);
+    lookbackInput.value = String(Number.isFinite(lookback) ? lookback : 7);
+  }
   const keyText = data.has_yandex_api_key
     ? "Текущий ключ доступа: " + (data.yandex_api_key_preview || "***")
     : "Ключ доступа пока не задан";
   const brandText = `Бренд для %BRAND%: ${data.brand_name || "VarFabric"}`;
-  document.getElementById("aiInfo").textContent = `${keyText}. ${brandText}`;
+  const lookbackText = `Стандартный старт синхронизации: за ${Number(data.default_sync_lookback_days || 7)} дн. до регистрации`;
+  document.getElementById("aiInfo").textContent = `${keyText}. ${brandText}. ${lookbackText}`;
 }
 
 function syncDateToggle() {
-  const enabled = Boolean(document.getElementById("useSyncStartDate")?.checked);
-  const input = document.getElementById("syncStartDate");
-  if (!input) return;
-  input.disabled = !enabled;
+  return;
 }
 
 async function saveAiSettings() {
@@ -274,8 +274,9 @@ async function saveAiSettings() {
     yandex_model_uri: document.getElementById("modelUri").value.trim() || null,
     brand_name: document.getElementById("brandName").value.trim() || "VarFabric",
     group_processors: groupProcessors,
-    use_sync_start_date: Boolean(document.getElementById("useSyncStartDate").checked),
-    sync_start_date: document.getElementById("syncStartDate").value || null,
+    use_sync_start_date: false,
+    sync_start_date: null,
+    default_sync_lookback_days: Number(document.getElementById("defaultSyncLookbackDays")?.value || "7"),
   };
   const res = await fetch("/api/admin/ai-settings", {
     method: "PUT",
@@ -869,7 +870,6 @@ async function nextActionsPage() {
 
 
 document.addEventListener("DOMContentLoaded", () => {
-  document.getElementById("useSyncStartDate")?.addEventListener("change", syncDateToggle);
   loadAdminContext().then((ok) => {
     if (!ok) return;
     loadAiSettings();
