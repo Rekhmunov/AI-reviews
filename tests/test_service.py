@@ -205,7 +205,7 @@ class ReviewAutomationServiceTests(unittest.TestCase):
         self.assertEqual(result["loaded"], 2)
         self.assertEqual(len(result["errors"]), 1)
 
-        actions = self.repository.list_recent_actions(user_id=int(self.user["id"]), limit=20)
+        actions, _total = self.repository.list_recent_actions(user_id=int(self.user["id"]), limit=20)
         self.assertTrue(any(item["action_type"] == "sync_error" for item in actions))
 
     def test_template_placeholders_user_reco_brand(self) -> None:

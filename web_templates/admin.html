@@ -159,6 +159,17 @@
 
     <div class="panel">
       <h3>Лента действий</h3>
+      <div class="row">
+        <label for="actionsPageSize" class="small">На странице:</label>
+        <select id="actionsPageSize" onchange="updateActionsPageSize(this.value)">
+          <option value="20">20</option>
+          <option value="50" selected>50</option>
+          <option value="100">100</option>
+        </select>
+        <button id="actionsPrevButton" class="secondary" onclick="prevActionsPage()">Назад</button>
+        <button id="actionsNextButton" class="secondary" onclick="nextActionsPage()">Вперёд</button>
+        <span id="actionsPaginationInfo" class="small"></span>
+      </div>
       <table>
         <thead><tr><th>Время</th><th>Пользователь</th><th>Идентификатор</th><th>Действие</th><th>Детали</th></tr></thead>
         <tbody id="actionsTbody"></tbody>
@@ -166,6 +177,6 @@
     </div>
   </div>
 
-  <script src="/static/admin.js?v=4"></script>
+  <script src="/static/admin.js?v=5"></script>
 </body>
 </html>

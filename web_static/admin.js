@@ -102,6 +102,11 @@ const defaultTemplatesState = {
   currentSubgroup: "",
   currentTemplates: [],
 };
+const actionsState = {
+  page: 1,
+  pageSize: 50,
+  hasMore: false,
+};
 
 function isSuperAdmin() {
   return Boolean(adminState.context && adminState.context.is_super_admin);
@@ -796,11 +801,24 @@ async function loadMetrics() {
 }
 
 async function loadActions() {
-  const res = await fetch("/api/admin/actions?limit=50");
+  const page = Number(actionsState.page || 1);
+  const pageSize = Number(actionsState.pageSize || 50);
+  const query = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+  });
+  const res = await fetch("/api/admin/actions?" + query.toString());
   const data = await res.json();
   const tbody = document.getElementById("actionsTbody");
   tbody.innerHTML = "";
-  for (const item of data.items || []) {
+  if (!res.ok) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td colspan="5">${esc(data.detail || "Не удалось загрузить ленту действий")}</td>`;
+    tbody.appendChild(tr);
+    return;
+  }
+  const items = data.items || [];
+  for (const item of items) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${esc(item.created_at)}</td>
@@ -811,7 +829,44 @@ async function loadActions() {
     `;
     tbody.appendChild(tr);
   }
+  if (!items.length) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td colspan="5">Действий пока нет</td>`;
+    tbody.appendChild(tr);
+  }
+  actionsState.hasMore = Boolean(data.has_more);
+  const pageInfo = document.getElementById("actionsPaginationInfo");
+  if (pageInfo) pageInfo.textContent = `Страница ${page}${actionsState.hasMore ? " (есть следующая)" : ""}`;
+  const prevBtn = document.getElementById("actionsPrevButton");
+  if (prevBtn) prevBtn.disabled = page <= 1;
+  const nextBtn = document.getElementById("actionsNextButton");
+  if (nextBtn) nextBtn.disabled = !actionsState.hasMore;
 }
+
+async function changeActionsPage(delta) {
+  const nextPage = Math.max(1, Number(actionsState.page || 1) + Number(delta || 0));
+  if (nextPage === actionsState.page) return;
+  actionsState.page = nextPage;
+  await loadActions();
+}
+
+async function updateActionsPageSize() {
+  const value = document.getElementById("actionsPageSize")?.value || "50";
+  const size = Number(value || 50);
+  if (!Number.isFinite(size) || size < 10 || size > 200) return;
+  actionsState.pageSize = size;
+  actionsState.page = 1;
+  await loadActions();
+}
+
+async function prevActionsPage() {
+  await changeActionsPage(-1);
+}
+
+async function nextActionsPage() {
+  await changeActionsPage(1);
+}
+
 
 document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("useSyncStartDate")?.addEventListener("change", syncDateToggle);

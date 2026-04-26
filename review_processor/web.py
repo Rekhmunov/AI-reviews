@@ -2038,14 +2038,28 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         return repository.get_sla_metrics(user_id=_tenant_owner_id(actor))
 
     @app.get("/api/admin/actions")
-    def admin_actions(request: Request, limit: int = 100) -> dict[str, object]:
+    def admin_actions(request: Request, page: int = 1, page_size: int = 50) -> dict[str, object]:
         actor = _require_admin(request)
-        safe_limit = min(max(limit, 1), 500)
+        safe_page = max(page, 1)
+        safe_page_size = min(max(page_size, 1), 200)
+        safe_offset = (safe_page - 1) * safe_page_size
         if _is_super_admin(actor):
-            rows = repository.list_recent_actions(user_id=None, limit=safe_limit)
+            rows, total = repository.list_recent_actions(user_id=None, limit=safe_page_size, offset=safe_offset)
         else:
-            rows = repository.list_recent_actions(user_id=_tenant_owner_id(actor), limit=safe_limit)
-        return {"items": rows, "count": len(rows)}
+            rows, total = repository.list_recent_actions(
+                user_id=_tenant_owner_id(actor),
+                limit=safe_page_size,
+                offset=safe_offset,
+            )
+        return {
+            "items": rows,
+            "count": len(rows),
+            "total": int(total),
+            "page": safe_page,
+            "page_size": safe_page_size,
+            "offset": safe_offset,
+            "has_more": (safe_offset + len(rows)) < int(total),
+        }
 
     @app.get("/api/admin/sync-status")
     def admin_sync_status(request: Request) -> dict[str, object]:

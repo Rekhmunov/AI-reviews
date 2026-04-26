@@ -2629,7 +2629,26 @@ class ReviewRepository:
                 (user_id, review_uid, action_type, actor, self._json_param(details or {}), _utc_now()),
             )
 
-    def list_recent_actions(self, *, user_id: int | None = None, limit: int = 100) -> list[dict[str, Any]]:
+    def count_recent_actions(self, *, user_id: int | None = None) -> int:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if user_id is not None:
+            clauses.append("user_id = ?")
+            params.append(user_id)
+        query = "SELECT COUNT(*) AS c FROM review_actions"
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+        with self._connect() as conn:
+            row = conn.execute(query, tuple(params)).fetchone()
+        return int(row["c"]) if row else 0
+
+    def list_recent_actions(
+        self,
+        *,
+        user_id: int | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> tuple[list[dict[str, Any]], int]:
         clauses: list[str] = []
         params: list[Any] = []
         if user_id is not None:
@@ -2638,10 +2657,15 @@ class ReviewRepository:
         query = "SELECT * FROM review_actions"
         if clauses:
             query += " WHERE " + " AND ".join(clauses)
-        query += " ORDER BY created_at DESC LIMIT ?"
-        params.append(limit)
+        query += " ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?"
+        params.append(max(limit, 1))
+        params.append(max(offset, 0))
 
         with self._connect() as conn:
+            count_query = "SELECT COUNT(*) AS c FROM review_actions"
+            if clauses:
+                count_query += " WHERE " + " AND ".join(clauses)
+            total_row = conn.execute(count_query, tuple(params[: len(clauses)])).fetchone()
             rows = conn.execute(query, tuple(params)).fetchall()
         items: list[dict[str, Any]] = []
         for row in rows:
@@ -2649,7 +2673,8 @@ class ReviewRepository:
             raw = data.pop("details_json", "{}")
             data["details"] = _json_load(raw, {})
             items.append(data)
-        return items
+        total = int(total_row["c"]) if total_row else 0
+        return items, total
 
     def get_sla_metrics(self, *, user_id: int | None = None) -> dict[str, Any]:
         clauses: list[str] = []

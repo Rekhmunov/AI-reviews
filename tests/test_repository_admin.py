@@ -104,7 +104,8 @@ class RepositoryAdminTests(unittest.TestCase):
         self.assertEqual(metrics["total_reviews"], 1)
         self.assertEqual(metrics["status_counts"].get("queued_for_operator"), 1)
 
-        actions = self.repository.list_recent_actions(user_id=self.user_id, limit=10)
+        actions, total = self.repository.list_recent_actions(user_id=self.user_id, limit=10)
+        self.assertEqual(total, 1)
         self.assertEqual(len(actions), 1)
         self.assertEqual(actions[0]["action_type"], "queue_manual")
 
