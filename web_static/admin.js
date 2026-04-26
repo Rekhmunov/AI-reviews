@@ -377,7 +377,7 @@ function renderUsers() {
     .join("");
   if (!pageItems.length) {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td colspan="7">Пользователи не найдены</td>`;
+    tr.innerHTML = `<td colspan="9">Пользователи не найдены</td>`;
     tbody.appendChild(tr);
   }
   for (const user of pageItems) {
@@ -391,6 +391,16 @@ function renderUsers() {
     const blockedCell = blocked
       ? `<span class="small status-badge status-blocked">заблокирован</span>`
       : `<span class="small status-badge status-active">активен</span>`;
+    const subscriptionStatus = String(user.subscription_status || "inactive").toLowerCase();
+    const subscriptionLabelMap = {
+      active: "Активна",
+      grace: "Льготный период",
+      suspended: "Приостановлена",
+      cancelled: "Отключена",
+      inactive: "Не активирована",
+    };
+    const paidUntilRaw = String(user.subscription_paid_until || "").trim();
+    const paidUntil = paidUntilRaw ? paidUntilRaw.slice(0, 10) : "-";
     tr.innerHTML = `
       <td>${esc(user.id)}</td>
       <td>${esc(user.email)}</td>
@@ -399,6 +409,8 @@ function renderUsers() {
           ${tariffOptions}
         </select>
       </td>
+      <td>${esc(subscriptionLabelMap[subscriptionStatus] || subscriptionStatus || "Не активирована")}</td>
+      <td>${esc(paidUntil)}</td>
       <td>
         <input id="${passwordInputId}" type="password" placeholder="Новый пароль" />
       </td>

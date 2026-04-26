@@ -342,6 +342,8 @@ class PaymentRecordCreateRequest(BaseModel):
     external_payment_id: str | None = Field(default=None, max_length=255)
     details: dict[str, object] = Field(default_factory=dict)
     paid_at: str | None = None
+    months: int = Field(default=1, ge=1, le=36)
+    grace_days: int = Field(default=3, ge=0, le=30)
 
 
 class ProfileUpdateRequest(BaseModel):
@@ -1770,7 +1772,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Пользователь кабинета не найден")
         if bool(tenant.get("is_super_admin")):
             raise HTTPException(status_code=400, detail="Нельзя привязывать оплату к супер-администратору")
-        item = repository.save_payment_record(
+        item, subscription = repository.save_payment_record_with_subscription_update(
             owner_user_id=int(payload.owner_user_id),
             amount=float(payload.amount),
             currency=payload.currency.strip().upper(),
@@ -1778,8 +1780,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             external_payment_id=(payload.external_payment_id or "").strip() or None,
             details=dict(payload.details),
             paid_at=(payload.paid_at or "").strip() or None,
+            months=int(payload.months),
+            grace_days=int(payload.grace_days),
         )
-        return {"ok": True, "item": item}
+        return {"ok": True, "item": item, "subscription": subscription}
 
     @app.post("/api/super-admin/users/{target_user_id}/block")
     def super_admin_block_user(target_user_id: int, payload: UserBlockUpdateRequest, request: Request) -> dict[str, object]:
