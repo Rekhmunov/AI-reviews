@@ -658,15 +658,15 @@ class ReviewRepository:
         if "limits_override_json" not in user_columns:
             conn.execute("ALTER TABLE users ADD COLUMN limits_override_json TEXT NOT NULL DEFAULT '{}'")
         conn.execute("UPDATE users SET owner_user_id = id WHERE owner_user_id IS NULL")
-        super_admin_row = conn.execute("SELECT COUNT(*) AS c FROM users WHERE is_super_admin = 1").fetchone()
+        super_admin_row = conn.execute("SELECT COUNT(*) AS c FROM users WHERE is_super_admin = TRUE").fetchone()
         has_super_admin = int(super_admin_row["c"]) > 0 if super_admin_row else False
         if not has_super_admin:
             candidate = conn.execute(
-                "SELECT id FROM users WHERE role = 'admin' AND is_deleted = 0 ORDER BY id ASC LIMIT 1"
+                "SELECT id FROM users WHERE role = 'admin' AND is_deleted = FALSE ORDER BY id ASC LIMIT 1"
             ).fetchone()
             if candidate is not None:
                 conn.execute(
-                    "UPDATE users SET is_super_admin = 1 WHERE id = ?",
+                    "UPDATE users SET is_super_admin = TRUE WHERE id = ?",
                     (int(candidate["id"]),),
                 )
 
@@ -827,7 +827,7 @@ class ReviewRepository:
 
     def count_super_admins(self) -> int:
         with self._connect() as conn:
-            row = conn.execute("SELECT COUNT(*) AS c FROM users WHERE is_super_admin = 1 AND is_deleted = 0").fetchone()
+            row = conn.execute("SELECT COUNT(*) AS c FROM users WHERE is_super_admin = TRUE AND is_deleted = FALSE").fetchone()
         return int(row["c"]) if row else 0
 
     def create_user(
@@ -856,7 +856,7 @@ class ReviewRepository:
                     is_blocked, blocked_reason, blocked_at, is_deleted, deleted_at,
                     plan_code, limits_override_json, created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, 0, NULL, NULL, 0, NULL, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, FALSE, NULL, NULL, FALSE, NULL, ?, ?, ?)
                 """,
                 (
                     email.lower(),
@@ -881,7 +881,7 @@ class ReviewRepository:
     def get_user_by_email(self, email: str) -> dict[str, Any] | None:
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM users WHERE email = ? AND is_deleted = 0",
+                "SELECT * FROM users WHERE email = ? AND is_deleted = FALSE",
                 (email.lower(),),
             ).fetchone()
         if row is None:
@@ -890,7 +890,7 @@ class ReviewRepository:
 
     def get_user_by_id(self, user_id: int) -> dict[str, Any] | None:
         with self._connect() as conn:
-            row = conn.execute("SELECT * FROM users WHERE id = ? AND is_deleted = 0", (user_id,)).fetchone()
+            row = conn.execute("SELECT * FROM users WHERE id = ? AND is_deleted = FALSE", (user_id,)).fetchone()
         if row is None:
             return None
         return self._row_to_dict(row)
@@ -901,7 +901,7 @@ class ReviewRepository:
                 """
                 UPDATE users
                 SET role = ?
-                WHERE id = ? AND is_deleted = 0
+                WHERE id = ? AND is_deleted = FALSE
                 """,
                 (role, user_id),
             )
@@ -913,7 +913,7 @@ class ReviewRepository:
                 """
                 UPDATE users
                 SET password_hash = ?
-                WHERE id = ? AND is_deleted = 0
+                WHERE id = ? AND is_deleted = FALSE
                 """,
                 (password_hash, user_id),
             )
@@ -934,7 +934,7 @@ class ReviewRepository:
                     """
                     UPDATE users
                     SET email = ?, full_name = ?
-                    WHERE id = ? AND is_deleted = 0
+                    WHERE id = ? AND is_deleted = FALSE
                     """,
                     (normalized_email, full_name, user_id),
                 )
@@ -944,7 +944,7 @@ class ReviewRepository:
                 """
                 UPDATE users
                 SET email = ?, full_name = ?, password_hash = ?
-                WHERE id = ? AND is_deleted = 0
+                WHERE id = ? AND is_deleted = FALSE
                 """,
                 (normalized_email, full_name, password_hash, user_id),
             )
@@ -975,8 +975,8 @@ class ReviewRepository:
                 JOIN users u ON u.id = s.user_id
                 WHERE s.token = ?
                   AND s.expires_at > ?
-                  AND u.is_deleted = 0
-                  AND u.is_blocked = 0
+                  AND u.is_deleted = FALSE
+                  AND u.is_blocked = FALSE
                 LIMIT 1
                 """,
                 (token, _coerce_iso_for_storage(now)),
@@ -1122,7 +1122,7 @@ class ReviewRepository:
                 SELECT id, email, role, owner_user_id, is_super_admin, is_blocked, blocked_reason,
                        blocked_at, plan_code, limits_override_json, created_at
                 FROM users
-                WHERE is_deleted = 0
+                WHERE is_deleted = FALSE
                 ORDER BY id ASC
                 """
             ).fetchall()
@@ -1134,7 +1134,7 @@ class ReviewRepository:
                 """
                 SELECT id, email, full_name, role, owner_user_id, is_blocked, blocked_reason, blocked_at, created_at
                 FROM users
-                WHERE owner_user_id = ? AND is_deleted = 0 AND is_super_admin = 0
+                WHERE owner_user_id = ? AND is_deleted = FALSE AND is_super_admin = FALSE
                 ORDER BY id ASC
                 """,
                 (owner_user_id,),
@@ -1171,7 +1171,7 @@ class ReviewRepository:
                 """
                 UPDATE users
                 SET is_blocked = ?, blocked_reason = ?, blocked_at = ?
-                WHERE id = ? AND is_deleted = 0
+                WHERE id = ? AND is_deleted = FALSE
                 """,
                 (
                     self._bool_db(blocked),
@@ -1187,8 +1187,8 @@ class ReviewRepository:
             result = conn.execute(
                 """
                 UPDATE users
-                SET is_deleted = 1, deleted_at = ?, is_blocked = 1
-                WHERE id = ? AND is_deleted = 0
+                SET is_deleted = TRUE, deleted_at = ?, is_blocked = TRUE
+                WHERE id = ? AND is_deleted = FALSE
                 """,
                 (_utc_now(), user_id),
             )
@@ -1251,7 +1251,7 @@ class ReviewRepository:
                 """
                 UPDATE users
                 SET plan_code = ?, limits_override_json = ?
-                WHERE id = ? AND is_deleted = 0 AND is_super_admin = 0
+                WHERE id = ? AND is_deleted = FALSE AND is_super_admin = FALSE
                 """,
                 (plan_code, self._json_param(limits_override or {}), owner_user_id),
             )
@@ -1388,16 +1388,16 @@ class ReviewRepository:
                         COUNT(DISTINCT ri.review_uid) AS reviews_count,
                         COUNT(DISTINCT member.id) AS members_count
                     FROM users owner
-                    LEFT JOIN users member ON member.owner_user_id = owner.id AND member.is_deleted = 0
+                    LEFT JOIN users member ON member.owner_user_id = owner.id AND member.is_deleted = FALSE
                     LEFT JOIN review_items ri ON ri.user_id = member.id
                     WHERE owner.owner_user_id = owner.id
-                      AND owner.is_deleted = 0
-                      AND owner.is_super_admin = 0
+                      AND owner.is_deleted = FALSE
+                      AND owner.is_super_admin = FALSE
                     GROUP BY owner.id
                 ) stats ON stats.owner_id = u.id
                 WHERE u.owner_user_id = u.id
-                  AND u.is_deleted = 0
-                  AND u.is_super_admin = 0
+                  AND u.is_deleted = FALSE
+                  AND u.is_super_admin = FALSE
                 ORDER BY u.created_at DESC
                 """
             ).fetchall()
