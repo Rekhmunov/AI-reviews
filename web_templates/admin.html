@@ -10,9 +10,9 @@
   <div class="container container-page">
     <div class="panel">
       <h2>Админ-панель</h2>
-      <p class="small">Вы вошли как: {{SAFE_EMAIL}}</p>
-      <p class="small">Супер-администратор управляет всей платформой. Владелец кабинета управляет только своей командой.</p>
-      <p><a href="/app">Вернуться в рабочий кабинет</a></p>
+      <div class="row">
+        <button type="button" class="secondary" onclick="window.location.href='/app'">Вернуться в рабочий кабинет</button>
+      </div>
     </div>
 
     <div id="superAdminAiPanel" class="panel hidden">
