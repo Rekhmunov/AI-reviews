@@ -320,10 +320,18 @@ class TariffPlanUpsertRequest(BaseModel):
     is_active: bool = True
 
 
+class TariffPlanDeleteRequest(BaseModel):
+    code: str = Field(min_length=2, max_length=100)
+
+
 class TenantPlanUpdateRequest(BaseModel):
     owner_user_id: int
     plan_code: str = Field(min_length=2, max_length=100)
     limits_override: dict[str, object] = Field(default_factory=dict)
+
+
+class UserPlanUpdateRequest(BaseModel):
+    plan_code: str = Field(min_length=2, max_length=100)
 
 
 class PaymentRecordCreateRequest(BaseModel):
@@ -1932,7 +1940,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     def admin_list_users(request: Request) -> dict[str, object]:
         actor = _require_admin(request)
         if _is_super_admin(actor):
-            items = repository.list_users()
+            items = repository.list_users(super_admin_only=False, owner_only=True)
         else:
             owner = _require_tenant_owner(request)
             items = repository.list_tenant_users(owner_user_id=int(owner["id"]))
@@ -2030,6 +2038,35 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         updated = repository.update_user_password(
             user_id=target_user_id,
             password_hash=hash_password(payload.password),
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        return {"ok": True}
+
+    @app.post("/api/admin/users/{target_user_id}/plan")
+    def admin_update_user_plan(
+        target_user_id: int,
+        payload: UserPlanUpdateRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        actor = _require_admin(request)
+        if not _is_super_admin(actor):
+            _require_tenant_owner(request)
+        target_user = _target_user_for_admin_scope(actor=actor, target_user_id=target_user_id)
+        if bool(target_user.get("is_super_admin")):
+            raise HTTPException(status_code=400, detail="Нельзя менять тариф супер-администратора")
+        plan_code = payload.plan_code.strip().lower()
+        if not plan_code:
+            raise HTTPException(status_code=400, detail="Код тарифа обязателен")
+        plans = repository.list_tariff_plans()
+        available_codes = {str(item.get("code") or "").strip().lower() for item in plans}
+        if plan_code not in available_codes:
+            raise HTTPException(status_code=404, detail="Тариф не найден")
+        owner_user_id = _tenant_owner_id(target_user)
+        updated = repository.set_tenant_plan(
+            owner_user_id=owner_user_id,
+            plan_code=plan_code,
+            limits_override={},
         )
         if not updated:
             raise HTTPException(status_code=404, detail="Пользователь не найден")

@@ -1308,7 +1308,7 @@ class ReviewRepository:
         with self._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT id, email, full_name, role, owner_user_id, is_blocked, blocked_reason, blocked_at, created_at
+                SELECT id, email, full_name, role, owner_user_id, is_blocked, blocked_reason, blocked_at, plan_code, created_at
                 FROM users
                 WHERE owner_user_id = ? AND is_deleted = FALSE AND is_super_admin = FALSE
                 ORDER BY id ASC

@@ -107,6 +107,12 @@ const actionsState = {
   pageSize: 50,
   hasMore: false,
 };
+const usersState = {
+  items: [],
+  search: "",
+  page: 1,
+  pageSize: 10,
+};
 const tariffEditorState = {
   mode: "create",
   originalCode: null,
@@ -359,19 +365,41 @@ async function saveAiSettings() {
   await loadAiSettings();
 }
 
-async function loadUsers() {
-  const res = await fetch("/api/admin/users");
-  const data = await res.json();
+function getFilteredUsers() {
+  const query = usersState.search.trim().toLowerCase();
+  const source = Array.isArray(usersState.items) ? usersState.items : [];
+  if (!query) return source;
+  return source.filter((user) => String(user.email || "").toLowerCase().includes(query));
+}
+
+function renderUsers() {
   const tbody = document.getElementById("usersTbody");
+  if (!tbody) return;
   tbody.innerHTML = "";
-  if (!res.ok) {
-    setUsersInfo(data.detail || "Не удалось загрузить пользователей", true);
-    return;
+  const filtered = getFilteredUsers();
+  const total = filtered.length;
+  const pageSize = Math.max(1, Number(usersState.pageSize || 10));
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  usersState.page = Math.min(Math.max(1, usersState.page), pages);
+  const start = (usersState.page - 1) * pageSize;
+  const pageItems = filtered.slice(start, start + pageSize);
+  const tariffOptions = (window.__AVAILABLE_PLANS__ || [])
+    .map((plan) => {
+      const code = String(plan.code || "");
+      const title = String(plan.title || code);
+      return `<option value="${esc(code)}">${esc(title)} (${esc(code)})</option>`;
+    })
+    .join("");
+  if (!pageItems.length) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td colspan="7">Пользователи не найдены</td>`;
+    tbody.appendChild(tr);
   }
-  for (const user of data.items || []) {
+  for (const user of pageItems) {
     const tr = document.createElement("tr");
     const roleSelectId = `role-select-${user.id}`;
     const passwordInputId = `password-input-${user.id}`;
+    const planSelectId = `plan-select-${user.id}`;
     const blocked = Boolean(user.is_blocked);
     const blockButtonLabel = blocked ? "Разблокировать" : "Заблокировать";
     const roleLabel = roleLabels[user.role] || user.role || "-";
@@ -382,6 +410,11 @@ async function loadUsers() {
       <td>${esc(user.id)}</td>
       <td>${esc(user.email)}</td>
       <td>
+        <select id="${planSelectId}">
+          ${tariffOptions}
+        </select>
+      </td>
+      <td>
         <input id="${passwordInputId}" type="password" placeholder="Новый пароль" />
       </td>
       <td>
@@ -390,10 +423,11 @@ async function loadUsers() {
         </select>
         <div class="small">${esc(roleLabel)}</div>
       </td>
+      <td>${blockedCell}</td>
       <td>
-        ${blockedCell}
         <div class="row">
           <button onclick="setRole(${user.id}, document.getElementById('${roleSelectId}').value)">Сохранить роль</button>
+          <button class="secondary" onclick="setUserPlan(${user.id}, document.getElementById('${planSelectId}').value)">Сменить тариф</button>
           <button class="secondary" onclick="setUserPassword(${user.id}, document.getElementById('${passwordInputId}').value)">Сменить пароль</button>
           <button class="secondary" onclick="toggleUserBlock(${user.id}, ${blocked ? "false" : "true"})">${blockButtonLabel}</button>
           <button class="secondary danger" onclick="deleteUser(${user.id})">Удалить</button>
@@ -401,7 +435,64 @@ async function loadUsers() {
       </td>
     `;
     tbody.appendChild(tr);
+    const planSelect = document.getElementById(planSelectId);
+    if (planSelect) {
+      planSelect.value = String(user.plan_code || "");
+      if (!planSelect.value) {
+        planSelect.value = "starter";
+      }
+    }
   }
+  const pageInfo = document.getElementById("usersPaginationInfo");
+  if (pageInfo) {
+    pageInfo.textContent = `Страница ${usersState.page} из ${pages}. Всего клиентов: ${total}`;
+  }
+  const prevBtn = document.getElementById("usersPrevPageButton");
+  if (prevBtn) prevBtn.disabled = usersState.page <= 1;
+  const nextBtn = document.getElementById("usersNextPageButton");
+  if (nextBtn) nextBtn.disabled = usersState.page >= pages;
+}
+
+async function loadUsers() {
+  const usersRes = await fetch("/api/admin/users");
+  const usersData = await usersRes.json();
+  if (!usersRes.ok) {
+    setUsersInfo(usersData.detail || "Не удалось загрузить пользователей", true);
+    return;
+  }
+  let tariffs = [];
+  if (isSuperAdmin()) {
+    const tariffsRes = await fetch("/api/super-admin/tariffs");
+    const tariffsData = await tariffsRes.json();
+    if (!tariffsRes.ok) {
+      setUsersInfo(tariffsData.detail || "Не удалось загрузить тарифы для пользователей", true);
+      return;
+    }
+    tariffs = tariffsData.items || [];
+  }
+  usersState.items = usersData.items || [];
+  window.__AVAILABLE_PLANS__ = tariffs;
+  renderUsers();
+}
+
+function onUsersSearchInput(value) {
+  usersState.search = String(value || "");
+  usersState.page = 1;
+  renderUsers();
+}
+
+async function prevUsersPage() {
+  if (usersState.page <= 1) return;
+  usersState.page -= 1;
+  renderUsers();
+}
+
+async function nextUsersPage() {
+  const total = getFilteredUsers().length;
+  const pages = Math.max(1, Math.ceil(total / usersState.pageSize));
+  if (usersState.page >= pages) return;
+  usersState.page += 1;
+  renderUsers();
 }
 
 async function setRole(userId, role) {
@@ -416,6 +507,26 @@ async function setRole(userId, role) {
     return;
   }
   setUsersInfo("Роль пользователя обновлена.");
+  await loadUsers();
+}
+
+async function setUserPlan(userId, planCode) {
+  const normalized = String(planCode || "").trim().toLowerCase();
+  if (!normalized) {
+    setUsersInfo("Выберите тарифный план.", true);
+    return;
+  }
+  const res = await fetch(`/api/admin/users/${userId}/plan`, {
+    method: "POST",
+    headers: csrfHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ plan_code: normalized }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    setUsersInfo(data.detail || "Ошибка смены тарифа пользователя", true);
+    return;
+  }
+  setUsersInfo("Тариф пользователя обновлен.");
   await loadUsers();
 }
 
@@ -733,24 +844,6 @@ function renderTariffs(items) {
   }
 }
 
-function renderTenants(items) {
-  const tbody = document.getElementById("tenantsTbody");
-  if (!tbody) return;
-  tbody.innerHTML = "";
-  for (const item of items || []) {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${esc(item.id)}</td>
-      <td>${esc(item.email)}</td>
-      <td>${esc(item.plan_code || "starter")}</td>
-      <td>${esc(item.members_count || 0)}</td>
-      <td>${esc(item.reviews_count || 0)}</td>
-      <td>${item.is_blocked ? "заблокирован" : "активен"}</td>
-    `;
-    tbody.appendChild(tr);
-  }
-}
-
 function renderPayments(items) {
   const tbody = document.getElementById("paymentsTbody");
   if (!tbody) return;
@@ -770,23 +863,20 @@ function renderPayments(items) {
 
 async function loadSuperAdminSection() {
   if (!isSuperAdmin()) return;
-  const [tariffsRes, tenantsRes, paymentsRes] = await Promise.all([
+  const [tariffsRes, paymentsRes] = await Promise.all([
     fetch("/api/super-admin/tariffs"),
-    fetch("/api/super-admin/tenants"),
     fetch("/api/super-admin/payments?limit=100"),
   ]);
   const tariffsData = await tariffsRes.json();
-  const tenantsData = await tenantsRes.json();
   const paymentsData = await paymentsRes.json();
-  if (!tariffsRes.ok || !tenantsRes.ok || !paymentsRes.ok) {
+  if (!tariffsRes.ok || !paymentsRes.ok) {
     setSuperAdminInfo(
-      tariffsData.detail || tenantsData.detail || paymentsData.detail || "Ошибка загрузки данных супер-админа",
+      tariffsData.detail || paymentsData.detail || "Ошибка загрузки данных супер-админа",
       true,
     );
     return;
   }
   renderTariffs(tariffsData.items || []);
-  renderTenants(tenantsData.items || []);
   renderPayments(paymentsData.items || []);
   await loadDefaultTemplateGroups();
 }
@@ -860,49 +950,12 @@ async function deleteTariffPlan(code, showMessage = true) {
 
 function loadTariffs() {
   if (!isSuperAdmin()) return;
+  openCreateTariffForm();
   document.getElementById("tariffsBlock")?.scrollIntoView({ behavior: "smooth", block: "start" });
-}
-
-function loadTenants() {
-  document.getElementById("tenantsBlock")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function loadPayments() {
   document.getElementById("paymentsBlock")?.scrollIntoView({ behavior: "smooth", block: "start" });
-}
-
-async function assignTenantPlan() {
-  if (!isSuperAdmin()) return;
-  const ownerUserId = Number(document.getElementById("tenantOwnerId")?.value || "0");
-  const planCode = String(document.getElementById("tenantPlanCode")?.value || "").trim().toLowerCase();
-  const overrideRaw = String(document.getElementById("tenantPlanOverride")?.value || "{}").trim() || "{}";
-  let limitsOverride = {};
-  try {
-    limitsOverride = JSON.parse(overrideRaw);
-  } catch (_err) {
-    setSuperAdminInfo("Поле override должно быть корректным JSON.", true);
-    return;
-  }
-  if (!ownerUserId || !planCode) {
-    setSuperAdminInfo("Укажите ID владельца и код тарифа.", true);
-    return;
-  }
-  const res = await fetch("/api/super-admin/tenant-plan", {
-    method: "POST",
-    headers: csrfHeaders({ "Content-Type": "application/json" }),
-    body: JSON.stringify({
-      owner_user_id: ownerUserId,
-      plan_code: planCode,
-      limits_override: limitsOverride,
-    }),
-  });
-  const data = await res.json();
-  if (!res.ok) {
-    setSuperAdminInfo(data.detail || "Ошибка назначения тарифа", true);
-    return;
-  }
-  setSuperAdminInfo("Тариф назначен пользователю.");
-  await loadSuperAdminSection();
 }
 
 async function addPaymentRecord() {

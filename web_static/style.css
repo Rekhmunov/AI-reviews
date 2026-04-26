@@ -770,6 +770,11 @@ button.secondary.danger:hover {
   flex-wrap: wrap;
 }
 
+.users-pagination-row {
+  justify-content: space-between;
+  align-items: center;
+}
+
 .sync-start-settings {
   margin-top: 12px;
   padding: 12px;
