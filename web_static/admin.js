@@ -637,6 +637,13 @@ function setTemplateVariablesInfo(message, isError = false) {
   info.style.color = isError ? "#b91c1c" : "";
 }
 
+function normalizeTemplateVariableKey(value) {
+  const raw = String(value || "").trim().toUpperCase();
+  if (!raw) return "";
+  if (/^%[A-Z0-9_]{2,50}%$/.test(raw)) return raw;
+  return "";
+}
+
 function fillTemplateVariableForm(item = null) {
   const payload = item && typeof item === "object" ? item : {};
   const varKeyInput = document.getElementById("templateVarKey");
@@ -721,18 +728,36 @@ async function loadTemplateVariables() {
 
 async function saveTemplateVariable() {
   if (!isSuperAdmin()) return;
+  const sourceTypeValue = String(document.getElementById("templateVarSourceType")?.value || "manual")
+    .trim()
+    .toLowerCase();
+  const sourcePathInput = document.getElementById("templateVarSourcePath");
+  const sourcePathValue = String(sourcePathInput?.value || "").trim();
+  const keyValue = normalizeTemplateVariableKey(document.getElementById("templateVarKey")?.value || "");
   const payload = {
-    var_key: String(document.getElementById("templateVarKey")?.value || "").trim().toUpperCase(),
+    var_key: keyValue,
     title: String(document.getElementById("templateVarTitle")?.value || "").trim(),
     description: String(document.getElementById("templateVarDescription")?.value || "").trim() || null,
     is_user_editable: Boolean(document.getElementById("templateVarUserEditable")?.checked),
-    source_type: String(document.getElementById("templateVarSourceType")?.value || "manual").trim().toLowerCase(),
-    source_path: String(document.getElementById("templateVarSourcePath")?.value || "").trim() || null,
+    source_type: sourceTypeValue,
+    source_path: sourcePathValue || null,
     default_value: String(document.getElementById("templateVarDefaultValue")?.value || "").trim() || null,
     is_active: Boolean(document.getElementById("templateVarIsActive")?.checked ?? true),
   };
-  if (!payload.var_key || !payload.title) {
-    setTemplateVariablesInfo("Заполните ключ и название переменной.", true);
+  if (!payload.var_key) {
+    setTemplateVariablesInfo("Ключ должен быть в формате %KEY% (только A-Z, 0-9, _; длина 2-50).", true);
+    return;
+  }
+  if (!payload.title) {
+    setTemplateVariablesInfo("Заполните название переменной.", true);
+    return;
+  }
+  if (payload.source_type === "review_field" && !payload.source_path) {
+    setTemplateVariablesInfo("Для источника «из отзыва» укажите поле source_path.", true);
+    return;
+  }
+  if (payload.source_type === "system" && !payload.source_path) {
+    setTemplateVariablesInfo("Для системного источника укажите source_path.", true);
     return;
   }
   const res = await fetch("/api/super-admin/template-variables", {

@@ -5,6 +5,7 @@ from html import escape
 import ipaddress
 import io
 from pathlib import Path
+import re
 import secrets
 import threading
 import time
@@ -322,6 +323,9 @@ class TemplateVariableDeleteRequest(BaseModel):
 
 class UserTemplateVariableValuesSaveRequest(BaseModel):
     values: dict[str, str] = Field(default_factory=dict)
+
+
+TEMPLATE_VARIABLE_KEY_RE = re.compile(r"^%[A-Z0-9_]{2,50}%$")
 
 
 class UserSyncSettingsRequest(BaseModel):
@@ -1700,11 +1704,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         request: Request,
     ) -> dict[str, object]:
         _require_super_admin(request)
+        normalized_key = payload.var_key.strip().upper()
+        if not TEMPLATE_VARIABLE_KEY_RE.fullmatch(normalized_key):
+            raise HTTPException(
+                status_code=400,
+                detail="Ключ переменной должен быть в формате %NAME% и содержать только A-Z, 0-9 и _ (2-50 символов).",
+            )
         source_type = (payload.source_type or "").strip().lower() or "manual"
-        if source_type not in {"manual", "review"}:
-            raise HTTPException(status_code=400, detail="source_type должен быть manual или review")
+        if source_type not in {"manual", "review_field", "system"}:
+            raise HTTPException(status_code=400, detail="source_type должен быть manual, review_field или system")
         item = repository.upsert_template_variable(
-            var_key=payload.var_key.strip().upper(),
+            var_key=normalized_key,
             title=payload.title.strip(),
             description=(payload.description or "").strip() or None,
             is_user_editable=bool(payload.is_user_editable),

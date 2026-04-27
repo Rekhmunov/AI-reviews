@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
@@ -42,12 +43,14 @@ DEFAULT_TEMPLATE_VARIABLES: tuple[dict[str, object], ...] = (
         "title": "Имя автора отзыва",
         "description": "Автоматически подставляется из имени автора отзыва",
         "is_user_editable": False,
-        "source_type": "review",
-        "source_path": "author",
+        "source_type": "review_field",
+        "source_path": "author_name",
         "default_value": "",
         "is_active": True,
     },
 )
+
+TEMPLATE_VARIABLE_KEY_RE = re.compile(r"^%[A-Z0-9_]{2,50}%$")
 
 
 def _utc_now() -> str:
@@ -2788,6 +2791,14 @@ class ReviewRepository:
         normalized_key = var_key.strip().upper()
         if not normalized_key:
             raise ValueError("var_key is required")
+        if not TEMPLATE_VARIABLE_KEY_RE.fullmatch(normalized_key):
+            raise ValueError("var_key must match ^%[A-Z0-9_]{2,50}%$")
+        normalized_source_type = (source_type or "").strip().lower() or "manual"
+        if normalized_source_type not in {"manual", "review_field", "system"}:
+            raise ValueError("source_type must be one of: manual, review_field, system")
+        normalized_source_path = str(source_path or "").strip()
+        if normalized_source_type in {"review_field", "system"} and not normalized_source_path:
+            raise ValueError("source_path is required for review_field/system")
         now = _utc_now()
         with self._connect() as conn:
             conn.execute(
@@ -2812,8 +2823,8 @@ class ReviewRepository:
                     title.strip() or normalized_key,
                     str(description or ""),
                     self._bool_db(is_user_editable),
-                    source_type.strip().lower() or "manual",
-                    str(source_path or ""),
+                    normalized_source_type,
+                    normalized_source_path,
                     str(default_value or ""),
                     self._bool_db(is_active),
                     now,
@@ -2955,11 +2966,14 @@ class ReviewRepository:
             if not key:
                 continue
             source_type = str(item.get("source_type") or "manual").strip().lower()
+            # Backward compatibility for older rows saved as "review".
+            if source_type == "review":
+                source_type = "review_field"
             source_path = str(item.get("source_path") or "").strip()
             default_value = str(item.get("default_value") or "").strip()
             resolved = ""
-            if source_type == "review":
-                if source_path in {"author", "name"}:
+            if source_type == "review_field":
+                if source_path in {"author", "name", "author_name"}:
                     resolved = str(review_author or "").strip()
                 elif source_path in {"rating"}:
                     resolved = str(review_rating if review_rating is not None else "").strip()
@@ -2968,6 +2982,20 @@ class ReviewRepository:
                 elif source_path in {"sentiment"}:
                     resolved = str(review_sentiment or "").strip()
                 elif source_path in {"tags"}:
+                    resolved = tags_text.strip()
+                elif source_path.startswith("metadata."):
+                    meta_key = source_path.split(".", 1)[1].strip()
+                    resolved = str(metadata.get(meta_key) or "").strip()
+            elif source_type == "system":
+                if source_path in {"author_name", "review_author"}:
+                    resolved = str(review_author or "").strip()
+                elif source_path == "review_rating":
+                    resolved = str(review_rating if review_rating is not None else "").strip()
+                elif source_path == "review_category":
+                    resolved = str(review_category or "").strip()
+                elif source_path == "review_sentiment":
+                    resolved = str(review_sentiment or "").strip()
+                elif source_path == "review_tags":
                     resolved = tags_text.strip()
                 elif source_path.startswith("metadata."):
                     meta_key = source_path.split(".", 1)[1].strip()
