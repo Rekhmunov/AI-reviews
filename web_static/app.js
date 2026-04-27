@@ -75,11 +75,16 @@ const processingRulesState = {
 const recommendationsState = {
   rows: [],
 };
+const teamState = {
+  items: [],
+  accounts: [],
+  managerModalUserId: null,
+};
 let syncInProgress = false;
 const ACTIVE_SECTION_STORAGE_KEY = "feedpilot_active_section";
 const ACTIVE_SETTINGS_TAB_STORAGE_KEY = "feedpilot_active_settings_tab";
 const SECTION_IDS = ["reviews", "conversations", "analytics", "settings", "profile"];
-const SETTINGS_TAB_IDS = ["sources", "rules", "templates", "recommendations", "template-variables"];
+const SETTINGS_TAB_IDS = ["sources", "team", "rules", "templates", "recommendations", "template-variables"];
 const APP_BOOT_HIDE_CLASS = "app-boot-hidden";
 
 const categoryLabels = {
@@ -132,6 +137,11 @@ const marketplaceLabels = {
   ozon: "OZON",
   mock: "Тестовый",
 };
+const roleLabels = {
+  user: "пользователь",
+  feedback_manager: "менеджер обратной связи",
+  admin: "администратор",
+};
 
 function labelFromMap(map, value) {
   const key = String(value || "");
@@ -158,6 +168,11 @@ function getPermissions() {
         : defaults.is_admin,
     ),
   };
+}
+
+function isTenantOwner() {
+  const fromWindow = window.APP_PERMISSIONS || {};
+  return Boolean(fromWindow.is_tenant_owner);
 }
 
 function canViewSection(section) {
@@ -211,6 +226,7 @@ function showSettingsTab(tab, options = {}) {
     if (pane) pane.classList.add("hidden");
   }
   if (!SETTINGS_TAB_IDS.includes(tab)) tab = "sources";
+  if (tab === "team" && !isTenantOwner()) tab = "sources";
   document.getElementById("settings-tab-" + tab)?.classList.add("active");
   document.getElementById("settings-pane-" + tab)?.classList.remove("hidden");
   if (persist) writeStoredUiState(ACTIVE_SETTINGS_TAB_STORAGE_KEY, tab);
@@ -219,6 +235,9 @@ function showSettingsTab(tab, options = {}) {
   }
   if (tab === "template-variables") {
     loadUserTemplateVariables();
+  }
+  if (tab === "team") {
+    loadTeam();
   }
 }
 
@@ -1081,29 +1100,6 @@ async function setConversationStatus(conversationUid, status) {
   await loadConversations();
 }
 
-function setConversationBucket(bucket) {
-  conversationsState.bucket = bucket;
-  conversationsState.page = 1;
-  document.getElementById("conversations-tab-new")?.classList.toggle("active", bucket === "new");
-  document.getElementById("conversations-tab-processed")?.classList.toggle("active", bucket === "processed");
-  loadConversations();
-}
-
-function onConversationsPageSizeChange() {
-  const raw = Number(document.getElementById("conversationsPageSize")?.value || 30);
-  if (![10, 30, 50, 100].includes(raw)) return;
-  conversationsState.page_size = raw;
-  conversationsState.page = 1;
-  loadConversations();
-}
-
-function changeConversationsPage(delta) {
-  const next = conversationsState.page + delta;
-  if (next < 1 || next > conversationsState.pages) return;
-  conversationsState.page = next;
-  loadConversations();
-}
-
 function toggleConversationsFiltersPanel(forceOpen) {
   const panel = document.getElementById("conversationsFiltersPanel");
   if (!panel) return;
@@ -1220,6 +1216,7 @@ async function loadAccounts() {
     `;
     tbody.appendChild(tr);
   }
+  teamState.accounts = Array.isArray(data.items) ? data.items : [];
 }
 
 async function loadUserSyncSettings() {
@@ -1314,6 +1311,251 @@ async function deleteAccount(accountId) {
   }
   document.getElementById("accountsInfo").textContent = "Источник удален. Ключ доступа удален из базы.";
   await loadAccounts();
+}
+
+function setTeamInfo(message, isError = false) {
+  const info = document.getElementById("teamInfo");
+  if (!info) return;
+  info.textContent = String(message || "");
+  info.style.color = isError ? "#b91c1c" : "";
+}
+
+function closeManagerPermissionsModal() {
+  const modal = document.getElementById("managerPermissionsModal");
+  if (modal) modal.classList.add("hidden");
+  teamState.managerModalUserId = null;
+  const info = document.getElementById("managerPermissionsInfo");
+  if (info) {
+    info.textContent = "";
+    info.style.color = "";
+  }
+}
+
+function renderManagerPermissionsRows(accounts, permissions = []) {
+  const tbody = document.getElementById("managerPermissionsTbody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+  const permissionsByAccount = new Map(
+    (permissions || []).map((row) => [Number(row.account_id || 0), row]),
+  );
+  for (const account of accounts || []) {
+    const accountId = Number(account.id || 0);
+    if (!accountId) continue;
+    const rowPerm = permissionsByAccount.get(accountId) || {};
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${esc(account.account_name || `Кабинет #${accountId}`)}</td>
+      <td><input type="checkbox" data-account-id="${accountId}" data-scope="reviews" ${rowPerm.can_reviews ? "checked" : ""} /></td>
+      <td><input type="checkbox" data-account-id="${accountId}" data-scope="questions" ${rowPerm.can_questions ? "checked" : ""} /></td>
+      <td><input type="checkbox" data-account-id="${accountId}" data-scope="chats" ${rowPerm.can_chats ? "checked" : ""} /></td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
+function collectManagerPermissionsFromModal() {
+  const map = new Map();
+  document.querySelectorAll("#managerPermissionsTbody input[type='checkbox']").forEach((node) => {
+    const accountId = Number(node.getAttribute("data-account-id") || "0");
+    const scope = String(node.getAttribute("data-scope") || "");
+    if (!accountId || !scope) return;
+    if (!map.has(accountId)) {
+      map.set(accountId, {
+        account_id: accountId,
+        can_reviews: false,
+        can_questions: false,
+        can_chats: false,
+      });
+    }
+    const row = map.get(accountId);
+    if (!row) return;
+    if (scope === "reviews") row.can_reviews = Boolean(node.checked);
+    if (scope === "questions") row.can_questions = Boolean(node.checked);
+    if (scope === "chats") row.can_chats = Boolean(node.checked);
+  });
+  return Array.from(map.values()).filter((item) => item.can_reviews || item.can_questions || item.can_chats);
+}
+
+function formatManagerPermissionsText(permissions) {
+  const rows = Array.isArray(permissions) ? permissions : [];
+  if (!rows.length) return "Доступы не назначены";
+  const accountById = new Map((teamState.accounts || []).map((item) => [Number(item.id || 0), item]));
+  return rows
+    .map((perm) => {
+      const accountId = Number(perm.account_id || 0);
+      const account = accountById.get(accountId);
+      const accountName = account ? String(account.account_name || `#${accountId}`) : `#${accountId}`;
+      const scopes = [];
+      if (perm.can_reviews) scopes.push("отзывы");
+      if (perm.can_questions) scopes.push("вопросы");
+      if (perm.can_chats) scopes.push("чаты");
+      return `${accountName}: ${scopes.join(", ") || "нет"}`;
+    })
+    .join("; ");
+}
+
+async function loadTeam() {
+  if (!isTenantOwner()) return;
+  const [teamRes, accountsRes] = await Promise.all([fetch("/api/tenant/team"), fetch("/api/accounts")]);
+  const teamData = await teamRes.json();
+  const accountsData = await accountsRes.json();
+  if (!teamRes.ok) {
+    setTeamInfo("Ошибка: " + (teamData.detail || "не удалось загрузить команду"), true);
+    return;
+  }
+  if (!accountsRes.ok) {
+    setTeamInfo("Ошибка: " + (accountsData.detail || "не удалось загрузить кабинеты"), true);
+    return;
+  }
+  teamState.items = teamData.items || [];
+  teamState.accounts = accountsData.items || [];
+  const tbody = document.getElementById("teamTbody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+  if (!teamState.items.length) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = '<td colspan="6">Менеджеры пока не добавлены</td>';
+    tbody.appendChild(tr);
+  } else {
+    for (const member of teamState.items) {
+      const memberId = Number(member.id || 0);
+      const permsText = formatManagerPermissionsText(member.manager_permissions || []);
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${esc(member.id)}</td>
+        <td>${esc(member.email || "")}</td>
+        <td>${esc(member.full_name || "")}</td>
+        <td>${esc(roleLabels[member.role] || member.role || "-")}</td>
+        <td>${esc(permsText)}</td>
+        <td>
+          <div class="row">
+            <button class="secondary" type="button" onclick="openManagerPermissionsModal(${memberId})">Права</button>
+            <button class="icon-btn danger" title="Удалить менеджера" onclick="deleteTeamMember(${memberId})">🗑</button>
+          </div>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    }
+  }
+  setTeamInfo(`Менеджеров в команде: ${teamState.items.length}`);
+}
+
+async function deleteTeamMember(userId) {
+  if (!confirm("Удалить менеджера из команды?")) return;
+  const res = await fetch(`/api/tenant/team/${userId}/delete`, {
+    method: "POST",
+    headers: jsonHeaders(),
+    body: JSON.stringify({ confirm: true }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    setTeamInfo("Ошибка: " + (data.detail || "не удалось удалить менеджера"), true);
+    return;
+  }
+  setTeamInfo("Менеджер удален");
+  await loadTeam();
+}
+
+async function openManagerPermissionsModal(managerUserId = null) {
+  if (!isTenantOwner()) {
+    setTeamInfo("Доступ к команде есть только у владельца кабинета.", true);
+    return;
+  }
+  if (!Array.isArray(teamState.accounts) || !teamState.accounts.length) {
+    await loadAccounts();
+  }
+  if (!teamState.accounts.length) {
+    setTeamInfo("Сначала добавьте хотя бы один кабинет источника.", true);
+    return;
+  }
+  teamState.managerModalUserId = managerUserId ? Number(managerUserId) : null;
+  const info = document.getElementById("managerPermissionsInfo");
+  if (info) {
+    info.textContent = "";
+    info.style.color = "";
+  }
+  const saveBtn = document.getElementById("managerPermissionsSaveBtn");
+  if (saveBtn) {
+    saveBtn.textContent = teamState.managerModalUserId ? "Сохранить права" : "Сохранить менеджера";
+  }
+  let permissions = [];
+  if (teamState.managerModalUserId) {
+    const res = await fetch(`/api/tenant/team/${teamState.managerModalUserId}/permissions`);
+    const data = await res.json();
+    if (!res.ok) {
+      if (info) {
+        info.textContent = "Ошибка: " + (data.detail || "не удалось загрузить права");
+        info.style.color = "#b91c1c";
+      }
+      return;
+    }
+    permissions = data.items || [];
+  }
+  renderManagerPermissionsRows(teamState.accounts, permissions);
+  const modal = document.getElementById("managerPermissionsModal");
+  if (modal) modal.classList.remove("hidden");
+}
+
+async function saveManagerWithPermissions() {
+  if (teamState.managerModalUserId) {
+    await saveManagerPermissions();
+    return;
+  }
+  const permissions = collectManagerPermissionsFromModal();
+  if (!permissions.length) {
+    const info = document.getElementById("managerPermissionsInfo");
+    if (info) info.textContent = "Нужно выбрать хотя бы один доступ";
+    return;
+  }
+  const payload = {
+    email: String(document.getElementById("teamManagerEmail")?.value || "").trim(),
+    password: String(document.getElementById("teamManagerPassword")?.value || ""),
+    full_name: String(document.getElementById("teamManagerFullName")?.value || "").trim() || null,
+    role: "feedback_manager",
+    permissions,
+  };
+  if (!payload.email || !payload.password) {
+    const info = document.getElementById("managerPermissionsInfo");
+    if (info) info.textContent = "Укажите email и пароль менеджера";
+    return;
+  }
+  const res = await fetch("/api/tenant/team", {
+    method: "POST",
+    headers: jsonHeaders(),
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    const info = document.getElementById("managerPermissionsInfo");
+    if (info) info.textContent = "Ошибка: " + (data.detail || "не удалось создать менеджера");
+    return;
+  }
+  document.getElementById("teamManagerEmail").value = "";
+  document.getElementById("teamManagerPassword").value = "";
+  document.getElementById("teamManagerFullName").value = "";
+  closeManagerPermissionsModal();
+  setTeamInfo("Менеджер создан");
+  await loadTeam();
+}
+
+async function saveManagerPermissions() {
+  const managerId = Number(teamState.managerModalUserId || 0);
+  if (!managerId) return;
+  const permissions = collectManagerPermissionsFromModal();
+  const res = await fetch(`/api/tenant/team/${managerId}/permissions`, {
+    method: "PUT",
+    headers: jsonHeaders(),
+    body: JSON.stringify({ permissions }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    const info = document.getElementById("managerPermissionsInfo");
+    if (info) info.textContent = "Ошибка: " + (data.detail || "не удалось сохранить права");
+    return;
+  }
+  closeManagerPermissionsModal();
+  setTeamInfo("Права менеджера сохранены");
+  await loadTeam();
 }
 
 async function loadTemplates() {
@@ -1908,11 +2150,14 @@ async function saveProfile() {
 document.addEventListener("DOMContentLoaded", () => {
   document.body.classList.add(APP_BOOT_HIDE_CLASS);
   const permissions = getPermissions();
+  const teamTabBtn = document.getElementById("settings-tab-team");
+  if (teamTabBtn) teamTabBtn.classList.toggle("hidden", !isTenantOwner());
   if (!permissions.can_view_analytics) {
     document.getElementById("section-analytics")?.classList.add("hidden");
   }
   const savedSettingsTab = readStoredUiState(ACTIVE_SETTINGS_TAB_STORAGE_KEY);
-  const initialSettingsTab = SETTINGS_TAB_IDS.includes(savedSettingsTab) ? savedSettingsTab : "sources";
+  let initialSettingsTab = SETTINGS_TAB_IDS.includes(savedSettingsTab) ? savedSettingsTab : "sources";
+  if (initialSettingsTab === "team" && !isTenantOwner()) initialSettingsTab = "sources";
   if (!permissions.can_view_settings) {
     document.getElementById("section-settings")?.classList.add("hidden");
   } else {

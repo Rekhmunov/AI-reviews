@@ -838,6 +838,7 @@ class ReviewAutomationService:
         date_from: str | None = None,
         date_to: str | None = None,
         sort: str = "newest",
+        account_ids: list[int] | None = None,
     ) -> list[dict[str, object]]:
         return self.repository.list_reviews(
             user_id=user_id,
@@ -849,6 +850,7 @@ class ReviewAutomationService:
             date_from=date_from,
             date_to=date_to,
             sort=sort,
+            account_ids=account_ids,
         )
 
     def list_reviews_paginated(
@@ -866,6 +868,7 @@ class ReviewAutomationService:
         page: int = 1,
         page_size: int = 30,
         bucket: str = "all",
+        account_ids: list[int] | None = None,
     ) -> dict[str, object]:
         return self.repository.list_reviews_paginated(
             user_id=user_id,
@@ -880,6 +883,7 @@ class ReviewAutomationService:
             page=page,
             page_size=page_size,
             bucket=bucket,
+            account_ids=account_ids,
         )
 
     def list_review_sources(self, *, user_id: int) -> list[str]:
@@ -1075,6 +1079,24 @@ class ReviewAutomationService:
             )
         return updated
 
+    def queue_for_manual_processing_with_actor(
+        self,
+        *,
+        actor_email: str,
+        owner_user_id: int,
+        review_uid: str,
+    ) -> bool:
+        updated = self.repository.mark_manual_queue(user_id=owner_user_id, review_uid=review_uid)
+        if updated:
+            self.repository.log_review_action(
+                user_id=owner_user_id,
+                review_uid=review_uid,
+                action_type="queue_manual",
+                actor=actor_email,
+                details={},
+            )
+        return updated
+
     def generate_auto_reply(self, *, user_id: int, review_uid: str) -> str:
         review = self.repository.get_review(user_id=user_id, review_uid=review_uid)
         if review is None:
@@ -1147,6 +1169,30 @@ class ReviewAutomationService:
                 review_uid=review_uid,
                 action_type="manual_reply",
                 actor=operator_name,
+                details={"reply": response_text},
+            )
+        return updated
+
+    def save_manual_reply_with_actor(
+        self,
+        *,
+        actor_email: str,
+        owner_user_id: int,
+        review_uid: str,
+        response_text: str,
+    ) -> bool:
+        updated = self.repository.mark_manual_replied(
+            user_id=owner_user_id,
+            review_uid=review_uid,
+            operator_name=actor_email,
+            response_text=response_text,
+        )
+        if updated:
+            self.repository.log_review_action(
+                user_id=owner_user_id,
+                review_uid=review_uid,
+                action_type="manual_reply",
+                actor=actor_email,
                 details={"reply": response_text},
             )
         return updated

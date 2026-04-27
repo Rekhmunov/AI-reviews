@@ -254,6 +254,14 @@ async function loadAdminContext() {
     }
     roleSelect.value = allowedRoles.includes("feedback_manager") ? "feedback_manager" : allowedRoles[0];
   }
+  const createRoleWrap = document.getElementById("newUserRoleWrap");
+  if (createRoleWrap) {
+    createRoleWrap.classList.toggle("hidden", isSuperAdmin());
+  }
+  const planSelect = document.getElementById("newUserPlan");
+  if (planSelect) {
+    planSelect.classList.toggle("hidden", !isSuperAdmin());
+  }
 
   const superAiPanel = document.getElementById("superAdminAiPanel");
   const superSaasPanel = document.getElementById("superAdminSaasPanel");
@@ -657,7 +665,7 @@ async function createUser() {
   const payload = {
     email: String(emailInput?.value || "").trim(),
     password: String(passwordInput?.value || ""),
-    role: String(roleInput?.value || "user"),
+    role: isSuperAdmin() ? "user" : String(roleInput?.value || "feedback_manager"),
     plan_code: selectedPlan,
   };
   if (!payload.email || !payload.password) {

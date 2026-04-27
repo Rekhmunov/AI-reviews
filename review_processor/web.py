@@ -267,7 +267,7 @@ class RoleUpdateRequest(BaseModel):
 class AdminUserCreateRequest(BaseModel):
     email: str = Field(min_length=5, max_length=255)
     password: str = Field(min_length=8, max_length=255)
-    role: str = Field(description="user|admin|feedback_manager")
+    role: str = Field(default=ROLE_USER, description="user")
     plan_code: str = Field(default="starter", min_length=2, max_length=100)
 
 
@@ -278,12 +278,24 @@ class AdminUserPasswordUpdateRequest(BaseModel):
 class TenantUserCreateRequest(BaseModel):
     email: str = Field(min_length=5, max_length=255)
     password: str = Field(min_length=8, max_length=255)
-    role: str = Field(description="admin|feedback_manager")
+    role: str = Field(default=TENANT_ROLE_MANAGER, description="feedback_manager")
     full_name: str | None = Field(default=None, max_length=200)
+    permissions: list["ManagerPermissionItemRequest"] = Field(default_factory=list)
 
 
 class TenantUserRoleUpdateRequest(BaseModel):
     role: str = Field(description="admin|feedback_manager")
+
+
+class ManagerPermissionItemRequest(BaseModel):
+    account_id: int = Field(ge=1)
+    can_reviews: bool = False
+    can_questions: bool = False
+    can_chats: bool = False
+
+
+class ManagerPermissionsUpdateRequest(BaseModel):
+    permissions: list[ManagerPermissionItemRequest] = Field(default_factory=list)
 
 
 class UserBlockUpdateRequest(BaseModel):
@@ -433,8 +445,8 @@ class RecommendationsSaveRequest(BaseModel):
 ROLE_ADMIN = "admin"
 ROLE_USER = "user"
 ROLE_FEEDBACK_MANAGER = "feedback_manager"
-ROLE_CAN_ACCESS_ANALYTICS = {ROLE_ADMIN, ROLE_USER}
-ROLE_CAN_ACCESS_SETTINGS = {ROLE_ADMIN, ROLE_USER}
+ROLE_CAN_ACCESS_ANALYTICS = {ROLE_ADMIN, ROLE_USER, ROLE_FEEDBACK_MANAGER}
+ROLE_CAN_ACCESS_SETTINGS = {ROLE_ADMIN, ROLE_USER, ROLE_FEEDBACK_MANAGER}
 ROLE_ASSIGNABLE_BY_ADMIN = {ROLE_ADMIN, ROLE_USER, ROLE_FEEDBACK_MANAGER}
 TENANT_ROLE_OWNER = "admin"
 TENANT_ROLE_MANAGER = "feedback_manager"
@@ -748,6 +760,94 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if role not in {TENANT_ROLE_OWNER, TENANT_ROLE_MANAGER}:
             raise HTTPException(status_code=400, detail="Роль должна быть: администратор или менеджер обратной связи")
         return role
+
+    def _manager_permissions_context_for_user(user: dict[str, object]) -> list[dict[str, object]]:
+        if str(user.get("role") or "").strip().lower() != TENANT_ROLE_MANAGER:
+            return []
+        return repository.list_manager_permissions(manager_user_id=int(user["id"]))
+
+    def _manager_allowed_review_account_ids(user: dict[str, object]) -> list[int] | None:
+        if str(user.get("role") or "").strip().lower() != TENANT_ROLE_MANAGER:
+            return None
+        rows = _manager_permissions_context_for_user(user)
+        ids: list[int] = []
+        seen: set[int] = set()
+        for row in rows:
+            if not bool(row.get("can_reviews")):
+                continue
+            try:
+                account_id = int(row.get("account_id"))
+            except (TypeError, ValueError):
+                continue
+            if account_id <= 0 or account_id in seen:
+                continue
+            seen.add(account_id)
+            ids.append(account_id)
+        return ids
+
+    def _manager_allowed_conversation_accounts(user: dict[str, object]) -> dict[str, list[int]] | None:
+        if str(user.get("role") or "").strip().lower() != TENANT_ROLE_MANAGER:
+            return None
+        rows = _manager_permissions_context_for_user(user)
+        scope: dict[str, list[int]] = {"question": [], "chat": []}
+        seen: dict[str, set[int]] = {"question": set(), "chat": set()}
+        for row in rows:
+            try:
+                account_id = int(row.get("account_id"))
+            except (TypeError, ValueError):
+                continue
+            if account_id <= 0:
+                continue
+            if bool(row.get("can_questions")) and account_id not in seen["question"]:
+                seen["question"].add(account_id)
+                scope["question"].append(account_id)
+            if bool(row.get("can_chats")) and account_id not in seen["chat"]:
+                seen["chat"].add(account_id)
+                scope["chat"].append(account_id)
+        return scope
+
+    def _manager_owner_account_ids(owner_user_id: int) -> set[int]:
+        return {
+            int(item.get("id"))
+            for item in repository.list_marketplace_accounts(user_id=owner_user_id, include_secrets=False)
+            if item.get("id") is not None
+        }
+
+    def _require_manager_scope_for_review(user: dict[str, object], review_uid: str) -> None:
+        if str(user.get("role") or "").strip().lower() != TENANT_ROLE_MANAGER:
+            return
+        allowed = set(_manager_allowed_review_account_ids(user) or [])
+        if not allowed:
+            raise HTTPException(status_code=403, detail="Менеджеру не назначены доступы к отзывам")
+        review = repository.get_review(user_id=int(user["id"]), review_uid=review_uid)
+        if review is None:
+            raise HTTPException(status_code=404, detail="Отзыв не найден")
+        try:
+            account_id = int(review.get("account_id"))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=403, detail="Отзыв не привязан к разрешенному кабинету")
+        if account_id not in allowed:
+            raise HTTPException(status_code=403, detail="Нет доступа к этому кабинету отзывов")
+
+    def _require_manager_scope_for_conversation(user: dict[str, object], conversation_uid: str) -> None:
+        if str(user.get("role") or "").strip().lower() != TENANT_ROLE_MANAGER:
+            return
+        scope = _manager_allowed_conversation_accounts(user) or {"question": [], "chat": []}
+        conversation = repository.get_conversation(user_id=int(user["id"]), conversation_uid=conversation_uid)
+        if conversation is None:
+            raise HTTPException(status_code=404, detail="Диалог не найден")
+        kind = str(conversation.get("kind") or "").strip().lower()
+        if kind not in {"question", "chat"}:
+            raise HTTPException(status_code=403, detail="Нет доступа к этому типу диалога")
+        allowed = set(scope.get(kind, []))
+        if not allowed:
+            raise HTTPException(status_code=403, detail="Менеджеру не назначены доступы к этому типу диалогов")
+        try:
+            account_id = int(conversation.get("account_id"))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=403, detail="Диалог не привязан к разрешенному кабинету")
+        if account_id not in allowed:
+            raise HTTPException(status_code=403, detail="Нет доступа к этому кабинету диалогов")
 
     def _require_analytics_access(request: Request) -> dict[str, object]:
         user = _require_user(request)
@@ -1132,6 +1232,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if status_values is None and status_key not in {"", "all"}:
             status_values = [status_key]
 
+        account_ids_filter = _manager_allowed_review_account_ids(user)
         page_data = service.list_reviews_paginated(
             user_id=int(user["id"]),
             source=normalized_source,
@@ -1145,6 +1246,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             page=max(page, 1),
             page_size=normalized_page_size,
             bucket=normalized_bucket,
+            account_ids=account_ids_filter,
         )
         source_options = service.list_review_sources(user_id=int(user["id"]))
         return {
@@ -1214,6 +1316,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if normalized_bucket not in {"all", "new", "processed"}:
             normalized_bucket = "new"
         normalized_page_size = page_size if page_size in {10, 30, 50, 100} else 30
+        manager_conversation_scope = _manager_allowed_conversation_accounts(user)
         page_data = repository.list_conversations_paginated(
             user_id=int(user["id"]),
             source=normalized_source,
@@ -1226,6 +1329,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             page=max(page, 1),
             page_size=normalized_page_size,
             bucket=normalized_bucket,
+            account_permissions=manager_conversation_scope,
         )
         source_options = repository.list_conversation_sources(user_id=int(user["id"]))
         return {
@@ -1254,6 +1358,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         request: Request,
     ) -> dict[str, object]:
         user = _require_user(request)
+        _require_manager_scope_for_conversation(user, conversation_uid)
         status_value = payload.status.strip().lower()
         if status_value not in {"open", "waiting", "closed"}:
             raise HTTPException(status_code=400, detail="Статус должен быть: открыт, ожидает или закрыт")
@@ -1692,7 +1797,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.post("/api/reviews/{review_id}/queue-manual")
     def queue_manual(review_id: str, request: Request) -> dict[str, object]:
         user = _require_user(request)
-        updated = service.queue_for_manual_processing(user_id=int(user["id"]), review_uid=review_id)
+        _require_manager_scope_for_review(user, review_id)
+        updated = service.queue_for_manual_processing_with_actor(
+            actor_email=str(user.get("email") or ""),
+            owner_user_id=_tenant_owner_id(user),
+            review_uid=review_id,
+        )
         if not updated:
             raise HTTPException(status_code=404, detail="Отзыв не найден")
         return {"ok": True}
@@ -1700,8 +1810,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.post("/api/reviews/{review_id}/auto-reply")
     def auto_reply(review_id: str, request: Request) -> dict[str, object]:
         user = _require_user(request)
+        _require_manager_scope_for_review(user, review_id)
         try:
-            reply = service.generate_auto_reply(user_id=int(user["id"]), review_uid=review_id)
+            reply = service.generate_auto_reply(user_id=_tenant_owner_id(user), review_uid=review_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc) or "Отзыв не найден") from exc
         except MarketplaceSyncError as exc:
@@ -1711,10 +1822,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.post("/api/reviews/{review_id}/manual-reply")
     def manual_reply(review_id: str, payload: ManualReplyRequest, request: Request) -> dict[str, object]:
         user = _require_user(request)
-        updated = service.save_manual_reply(
-            user_id=int(user["id"]),
+        _require_manager_scope_for_review(user, review_id)
+        updated = service.save_manual_reply_with_actor(
+            actor_email=str(user.get("email") or ""),
+            owner_user_id=_tenant_owner_id(user),
             review_uid=review_id,
-            operator_name=payload.operator_name,
             response_text=payload.response_text,
         )
         if not updated:
@@ -1748,11 +1860,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         user = _require_admin(request)
         user_id = int(user["id"])
         owner_user_id = _tenant_owner_id(user)
+        manager_permissions: list[dict[str, object]] = []
+        if str(user.get("role") or "").strip().lower() == TENANT_ROLE_MANAGER:
+            manager_permissions = _manager_permissions_context_for_user(user)
         return {
             "user_id": user_id,
             "owner_user_id": owner_user_id,
             "is_super_admin": _is_super_admin(user),
             "is_tenant_owner": user_id == owner_user_id and not _is_super_admin(user),
+            "manager_permissions": manager_permissions,
         }
 
     @app.get("/api/super-admin/settings")
@@ -2026,6 +2142,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     def tenant_list_team(request: Request) -> dict[str, object]:
         owner = _require_tenant_owner(request)
         items = repository.list_tenant_users(owner_user_id=int(owner["id"]))
+        for item in items:
+            if str(item.get("role") or "").strip().lower() == TENANT_ROLE_MANAGER:
+                item["manager_permissions"] = repository.list_manager_permissions(manager_user_id=int(item["id"]))
         return {"items": items, "count": len(items)}
 
     @app.post("/api/tenant/team")
@@ -2036,13 +2155,34 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="Введите корректную эл. почту")
         if repository.get_user_by_email(email) is not None:
             raise HTTPException(status_code=409, detail="Пользователь с такой почтой уже существует")
-        role = _normalize_tenant_role_or_400(payload.role)
+        role = TENANT_ROLE_MANAGER
         created = repository.create_tenant_user(
             owner_user_id=int(owner["id"]),
             email=email,
             password_hash=hash_password(payload.password),
             role=role,
             full_name=(payload.full_name or "").strip() or None,
+        )
+        owner_account_ids = _manager_owner_accounts_ids(int(owner["id"]))
+        normalized_permissions: list[dict[str, object]] = []
+        for item in payload.permissions:
+            account_id = int(item.account_id)
+            if account_id not in owner_account_ids:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Кабинет {account_id} не относится к вашему профилю или недоступен",
+                )
+            normalized_permissions.append(
+                {
+                    "account_id": account_id,
+                    "can_reviews": bool(item.can_reviews),
+                    "can_questions": bool(item.can_questions),
+                    "can_chats": bool(item.can_chats),
+                }
+            )
+        saved_permissions = repository.replace_manager_permissions(
+            manager_user_id=int(created["id"]),
+            permissions=normalized_permissions,
         )
         return {
             "ok": True,
@@ -2053,7 +2193,59 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 "role": created.get("role"),
                 "is_blocked": created.get("is_blocked"),
                 "created_at": created.get("created_at"),
+                "manager_permissions": repository.list_manager_permissions(manager_user_id=int(created["id"])),
+                "permissions_saved": saved_permissions,
             },
+        }
+
+    @app.get("/api/tenant/team/{target_user_id}/permissions")
+    def tenant_get_manager_permissions(target_user_id: int, request: Request) -> dict[str, object]:
+        owner = _require_tenant_owner(request)
+        target = _target_user_for_admin_scope(actor=owner, target_user_id=target_user_id)
+        if int(target["id"]) == int(owner["id"]):
+            raise HTTPException(status_code=400, detail="Для владельца кабинета отдельные права менеджера не назначаются")
+        if str(target.get("role") or "").strip().lower() != TENANT_ROLE_MANAGER:
+            raise HTTPException(status_code=400, detail="Права можно настраивать только для менеджера")
+        permissions = repository.list_manager_permissions(manager_user_id=target_user_id)
+        return {"items": permissions, "count": len(permissions)}
+
+    @app.put("/api/tenant/team/{target_user_id}/permissions")
+    def tenant_update_manager_permissions(
+        target_user_id: int,
+        payload: ManagerPermissionsUpdateRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        owner = _require_tenant_owner(request)
+        target = _target_user_for_admin_scope(actor=owner, target_user_id=target_user_id)
+        if int(target["id"]) == int(owner["id"]):
+            raise HTTPException(status_code=400, detail="Для владельца кабинета отдельные права менеджера не назначаются")
+        if str(target.get("role") or "").strip().lower() != TENANT_ROLE_MANAGER:
+            raise HTTPException(status_code=400, detail="Права можно настраивать только для менеджера")
+        owner_account_ids = _manager_owner_accounts_ids(int(owner["id"]))
+        normalized_permissions: list[dict[str, object]] = []
+        for item in payload.permissions:
+            account_id = int(item.account_id)
+            if account_id not in owner_account_ids:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Кабинет {account_id} не относится к вашему профилю или недоступен",
+                )
+            normalized_permissions.append(
+                {
+                    "account_id": account_id,
+                    "can_reviews": bool(item.can_reviews),
+                    "can_questions": bool(item.can_questions),
+                    "can_chats": bool(item.can_chats),
+                }
+            )
+        saved = repository.replace_manager_permissions(
+            manager_user_id=target_user_id,
+            permissions=normalized_permissions,
+        )
+        return {
+            "ok": True,
+            "saved": saved,
+            "items": repository.list_manager_permissions(manager_user_id=target_user_id),
         }
 
     @app.post("/api/tenant/team/{target_user_id}/role")
@@ -2170,12 +2362,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if repository.get_user_by_email(email) is not None:
             raise HTTPException(status_code=409, detail="Пользователь с такой почтой уже существует")
         if _is_super_admin(actor):
-            role = payload.role.strip().lower()
-            if role not in ROLE_ASSIGNABLE_BY_ADMIN:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Роль должна быть: пользователь, менеджер обратной связи или администратор",
-                )
+            role = ROLE_USER
             plan_code = payload.plan_code.strip().lower()
             plans = repository.list_tariff_plans()
             all_codes = {str(item.get("code") or "").strip().lower() for item in plans}
@@ -2591,6 +2778,9 @@ def build_app_html(user: dict[str, object]) -> str:
     safe_email = escape(str(user["email"]))
     role = str(user.get("role") or ROLE_USER)
     is_super_admin = bool(user.get("is_super_admin"))
+    user_id = int(user.get("id") or 0)
+    owner_user_id = int(user.get("owner_user_id") or user_id or 0)
+    is_tenant_owner = (not is_super_admin) and role == ROLE_ADMIN and user_id > 0 and owner_user_id == user_id
     role_labels = {
         ROLE_ADMIN: "администратор",
         ROLE_USER: "пользователь",
@@ -2622,6 +2812,7 @@ def build_app_html(user: dict[str, object]) -> str:
             "CAN_VIEW_SETTINGS": "true" if can_view_settings else "false",
             "IS_ADMIN": "true" if role == ROLE_ADMIN else "false",
             "IS_SUPER_ADMIN": "true" if is_super_admin else "false",
+            "IS_TENANT_OWNER": "true" if is_tenant_owner else "false",
         },
     )
 

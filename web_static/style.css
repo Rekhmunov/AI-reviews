@@ -1005,6 +1005,28 @@ button.secondary.danger:hover {
   display: none;
 }
 
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(13, 27, 60, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1200;
+  padding: 20px;
+}
+
+.modal-card {
+  width: min(940px, 96vw);
+  max-height: 90vh;
+  overflow: auto;
+  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  box-shadow: 0 24px 54px rgba(15, 23, 42, 0.24);
+  border-radius: 14px;
+  padding: 18px;
+}
+
 .admin-actions-filters {
   align-items: flex-end;
   gap: 8px;
