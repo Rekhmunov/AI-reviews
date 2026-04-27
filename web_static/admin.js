@@ -488,12 +488,15 @@ async function loadUsers() {
   const newUserPlan = document.getElementById("newUserPlan");
   if (newUserPlan) {
     newUserPlan.innerHTML = "";
-    const plans = window.__AVAILABLE_PLANS__ || [];
+    const plans = (window.__AVAILABLE_PLANS__ || []).filter((plan) => Boolean(plan && plan.is_active !== false));
     if (!plans.length) {
       const fallback = document.createElement("option");
-      fallback.value = "starter";
-      fallback.textContent = "Starter (starter)";
+      fallback.value = "";
+      fallback.textContent = "Нет активных тарифов";
       newUserPlan.appendChild(fallback);
+      newUserPlan.disabled = true;
+    } else {
+      newUserPlan.disabled = false;
     }
     for (const plan of plans) {
       const option = document.createElement("option");
@@ -501,7 +504,7 @@ async function loadUsers() {
       option.textContent = `${String(plan.title || plan.code || "")} (${String(plan.code || "")})`;
       newUserPlan.appendChild(option);
     }
-    if (!newUserPlan.value) newUserPlan.value = "starter";
+    if (plans.length && !newUserPlan.value) newUserPlan.value = String(plans[0].code || "");
   }
   renderUsers();
 }
@@ -636,18 +639,28 @@ async function deleteUser(userId) {
 }
 
 async function createUser() {
+  const createButton = document.getElementById("createUserButton");
+  if (createButton && createButton.disabled) {
+    setUsersInfo("Нет активных тарифов. Сначала активируйте хотя бы один тариф.", true);
+    return;
+  }
   const emailInput = document.getElementById("newUserEmail");
   const passwordInput = document.getElementById("newUserPassword");
   const roleInput = document.getElementById("newUserRole");
   const planInput = document.getElementById("newUserPlan");
+  const selectedPlan = String(planInput?.value || "").trim().toLowerCase();
   const payload = {
     email: String(emailInput?.value || "").trim(),
     password: String(passwordInput?.value || ""),
     role: String(roleInput?.value || "user"),
-    plan_code: String(planInput?.value || "starter").trim().toLowerCase() || "starter",
+    plan_code: selectedPlan,
   };
   if (!payload.email || !payload.password) {
     setUsersInfo("Заполните эл. почту и пароль нового пользователя.", true);
+    return;
+  }
+  if (!payload.plan_code) {
+    setUsersInfo("Нет активного тарифа для создания пользователя. Сначала активируйте хотя бы один тариф.", true);
     return;
   }
   const res = await fetch("/api/admin/users", {
