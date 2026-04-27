@@ -58,17 +58,6 @@ class RepositoryAdminTests(unittest.TestCase):
 
         secret = self.repository.get_ai_settings(include_secrets=True)
         self.assertEqual(secret["yandex_api_key"], "yandex-secret")
-        self.assertEqual(secret["brand_name"], "VarFabric")
-
-        self.repository.update_ai_settings(
-            provider="rules",
-            yandex_api_key=None,
-            yandex_folder_id=None,
-            yandex_model_uri=None,
-            brand_name="MyBrand",
-        )
-        updated_brand = self.repository.get_ai_settings()
-        self.assertEqual(updated_brand["brand_name"], "MyBrand")
 
         processed = ProcessedReview(
             review_id="1",
@@ -108,6 +97,38 @@ class RepositoryAdminTests(unittest.TestCase):
         self.assertEqual(total, 1)
         self.assertEqual(len(actions), 1)
         self.assertEqual(actions[0]["action_type"], "queue_manual")
+
+    def test_default_template_variables_and_user_values(self) -> None:
+        inserted = self.repository.ensure_default_template_variables()
+        self.assertGreaterEqual(inserted, 0)
+
+        variables = self.repository.list_template_variables(only_active=True)
+        keys = {str(item.get("var_key") or "") for item in variables}
+        self.assertIn("%BRAND%", keys)
+        self.assertIn("%NAME%", keys)
+
+        updated = self.repository.save_user_template_variable_values(
+            user_id=self.user_id,
+            values={"%BRAND%": "MyBrand", "%NAME%": "ShouldNotPersist"},
+        )
+        self.assertEqual(updated, 1)
+
+        user_rows = self.repository.list_user_template_variable_values(user_id=self.user_id)
+        by_key = {str(item.get("var_key") or ""): item for item in user_rows}
+        self.assertEqual(str(by_key["%BRAND%"].get("value") or ""), "MyBrand")
+        self.assertEqual(str(by_key["%NAME%"].get("value") or ""), "")
+
+        context = self.repository.build_template_variables_context(
+            user_id=self.user_id,
+            review_author="Анна",
+            review_rating=5,
+            review_category="positive",
+            review_sentiment="positive",
+            review_tags=["доставка", "качество"],
+            review_metadata={"brand": "MetaBrand"},
+        )
+        self.assertEqual(context.get("%BRAND%"), "MyBrand")
+        self.assertEqual(context.get("%NAME%"), "Анна")
 
     def test_conversation_storage_and_user_analytics(self) -> None:
         conv_uid = self.repository.upsert_conversation(

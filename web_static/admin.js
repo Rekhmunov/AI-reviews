@@ -102,6 +102,10 @@ const defaultTemplatesState = {
   currentSubgroup: "",
   currentTemplates: [],
 };
+const templateVariablesState = {
+  items: [],
+  editKey: null,
+};
 const actionsState = {
   page: 1,
   pageSize: 50,
@@ -297,7 +301,6 @@ async function loadAiSettings() {
   document.getElementById("apiKey").value = "";
   document.getElementById("folderId").value = data.yandex_folder_id || "";
   document.getElementById("modelUri").value = data.yandex_model_uri || "";
-  document.getElementById("brandName").value = data.brand_name || "VarFabric";
   renderGroupProcessors(data.group_processors || {});
   const lookbackInput = document.getElementById("defaultSyncLookbackDays");
   if (lookbackInput) {
@@ -307,9 +310,8 @@ async function loadAiSettings() {
   const keyText = data.has_yandex_api_key
     ? "Текущий ключ доступа: " + (data.yandex_api_key_preview || "***")
     : "Ключ доступа пока не задан";
-  const brandText = `Бренд для %BRAND%: ${data.brand_name || "VarFabric"}`;
   const lookbackText = `Стандартный старт синхронизации: за ${Number(data.default_sync_lookback_days || 7)} дн. до регистрации`;
-  document.getElementById("aiInfo").textContent = `${keyText}. ${brandText}. ${lookbackText}`;
+  document.getElementById("aiInfo").textContent = `${keyText}. ${lookbackText}`;
 }
 
 function syncDateToggle() {
@@ -330,7 +332,6 @@ async function saveAiSettings() {
     yandex_api_key: document.getElementById("apiKey").value.trim() || null,
     yandex_folder_id: document.getElementById("folderId").value.trim() || null,
     yandex_model_uri: document.getElementById("modelUri").value.trim() || null,
-    brand_name: document.getElementById("brandName").value.trim() || "VarFabric",
     group_processors: groupProcessors,
     use_sync_start_date: false,
     sync_start_date: null,
@@ -629,6 +630,145 @@ function setDefaultTemplatesInfo(message, isError = false) {
   info.style.color = isError ? "#b91c1c" : "";
 }
 
+function setTemplateVariablesInfo(message, isError = false) {
+  const info = document.getElementById("templateVariablesInfo");
+  if (!info) return;
+  info.textContent = message || "";
+  info.style.color = isError ? "#b91c1c" : "";
+}
+
+function fillTemplateVariableForm(item = null) {
+  const payload = item && typeof item === "object" ? item : {};
+  const varKeyInput = document.getElementById("templateVarKey");
+  if (varKeyInput) varKeyInput.value = String(payload.var_key || "");
+  const titleInput = document.getElementById("templateVarTitle");
+  if (titleInput) titleInput.value = String(payload.title || "");
+  const descriptionInput = document.getElementById("templateVarDescription");
+  if (descriptionInput) descriptionInput.value = String(payload.description || "");
+  const sourceTypeInput = document.getElementById("templateVarSourceType");
+  if (sourceTypeInput) sourceTypeInput.value = String(payload.source_type || "manual");
+  const sourcePathInput = document.getElementById("templateVarSourcePath");
+  if (sourcePathInput) sourcePathInput.value = String(payload.source_path || "");
+  const defaultValueInput = document.getElementById("templateVarDefaultValue");
+  if (defaultValueInput) defaultValueInput.value = String(payload.default_value || "");
+  const userEditableInput = document.getElementById("templateVarUserEditable");
+  if (userEditableInput) userEditableInput.checked = Boolean(payload.is_user_editable);
+  const activeInput = document.getElementById("templateVarIsActive");
+  if (activeInput) activeInput.checked = payload.is_active !== false;
+  templateVariablesState.editKey = payload.var_key ? String(payload.var_key).toUpperCase() : null;
+}
+
+function resetTemplateVariableForm() {
+  fillTemplateVariableForm(null);
+}
+
+function renderTemplateVariablesList() {
+  const tbody = document.getElementById("templateVariablesTbody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+  const items = Array.isArray(templateVariablesState.items) ? templateVariablesState.items : [];
+  if (!items.length) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td colspan="8" class="small">Переменные пока не настроены</td>`;
+    tbody.appendChild(tr);
+    return;
+  }
+  for (const item of items) {
+    const varKey = String(item.var_key || "");
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${esc(varKey)}</td>
+      <td>${esc(item.title || "")}</td>
+      <td>${esc(item.source_type || "manual")}</td>
+      <td>${esc(item.source_path || "-")}</td>
+      <td>${item.is_user_editable ? "да" : "нет"}</td>
+      <td>${item.is_active ? "да" : "нет"}</td>
+      <td>${esc(item.default_value || "")}</td>
+      <td>
+        <div class="row">
+          <button class="secondary" type="button" onclick="editTemplateVariableByKey('${esc(varKey)}')">Изменить</button>
+          <button class="secondary danger" type="button" onclick="deleteTemplateVariable('${esc(varKey)}')">Удалить</button>
+        </div>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
+function editTemplateVariableByKey(varKey) {
+  const key = String(varKey || "").trim().toUpperCase();
+  if (!key) return;
+  const item = (templateVariablesState.items || []).find(
+    (row) => String(row.var_key || "").trim().toUpperCase() === key,
+  );
+  if (!item) return;
+  fillTemplateVariableForm(item);
+  setTemplateVariablesInfo("");
+}
+
+async function loadTemplateVariables() {
+  if (!isSuperAdmin()) return;
+  const res = await fetch("/api/super-admin/template-variables");
+  const data = await res.json();
+  if (!res.ok) {
+    setTemplateVariablesInfo(data.detail || "Не удалось загрузить переменные шаблонов", true);
+    return;
+  }
+  templateVariablesState.items = data.items || [];
+  renderTemplateVariablesList();
+  setTemplateVariablesInfo("");
+}
+
+async function saveTemplateVariable() {
+  if (!isSuperAdmin()) return;
+  const payload = {
+    var_key: String(document.getElementById("templateVarKey")?.value || "").trim().toUpperCase(),
+    title: String(document.getElementById("templateVarTitle")?.value || "").trim(),
+    description: String(document.getElementById("templateVarDescription")?.value || "").trim() || null,
+    is_user_editable: Boolean(document.getElementById("templateVarUserEditable")?.checked),
+    source_type: String(document.getElementById("templateVarSourceType")?.value || "manual").trim().toLowerCase(),
+    source_path: String(document.getElementById("templateVarSourcePath")?.value || "").trim() || null,
+    default_value: String(document.getElementById("templateVarDefaultValue")?.value || "").trim() || null,
+    is_active: Boolean(document.getElementById("templateVarIsActive")?.checked ?? true),
+  };
+  if (!payload.var_key || !payload.title) {
+    setTemplateVariablesInfo("Заполните ключ и название переменной.", true);
+    return;
+  }
+  const res = await fetch("/api/super-admin/template-variables", {
+    method: "PUT",
+    headers: csrfHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    setTemplateVariablesInfo(data.detail || "Не удалось сохранить переменную", true);
+    return;
+  }
+  setTemplateVariablesInfo("Переменная сохранена.");
+  resetTemplateVariableForm();
+  await loadTemplateVariables();
+}
+
+async function deleteTemplateVariable(varKey) {
+  if (!isSuperAdmin()) return;
+  const normalizedKey = String(varKey || "").trim().toUpperCase();
+  if (!normalizedKey) return;
+  if (!confirm(`Удалить переменную ${normalizedKey}?`)) return;
+  const res = await fetch("/api/super-admin/template-variables", {
+    method: "DELETE",
+    headers: csrfHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ var_key: normalizedKey }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    setTemplateVariablesInfo(data.detail || "Не удалось удалить переменную", true);
+    return;
+  }
+  setTemplateVariablesInfo("Переменная удалена.");
+  await loadTemplateVariables();
+}
+
 function renderDefaultTemplateGroups() {
   const container = document.getElementById("defaultTemplateGroupsAccordion");
   if (!container) return;
@@ -860,21 +1000,26 @@ function renderPayments(items) {
 
 async function loadSuperAdminSection() {
   if (!isSuperAdmin()) return;
-  const [tariffsRes, paymentsRes] = await Promise.all([
+  const [tariffsRes, paymentsRes, variablesRes] = await Promise.all([
     fetch("/api/super-admin/tariffs"),
     fetch("/api/super-admin/payments?limit=100"),
+    fetch("/api/super-admin/template-variables"),
   ]);
   const tariffsData = await tariffsRes.json();
   const paymentsData = await paymentsRes.json();
-  if (!tariffsRes.ok || !paymentsRes.ok) {
+  const variablesData = await variablesRes.json();
+  if (!tariffsRes.ok || !paymentsRes.ok || !variablesRes.ok) {
     setSuperAdminInfo(
-      tariffsData.detail || paymentsData.detail || "Ошибка загрузки данных супер-админа",
+      tariffsData.detail || paymentsData.detail || variablesData.detail || "Ошибка загрузки данных супер-админа",
       true,
     );
     return;
   }
   renderTariffs(tariffsData.items || []);
   renderPayments(paymentsData.items || []);
+  templateVariablesState.items = variablesData.items || [];
+  renderTemplateVariablesList();
+  setTemplateVariablesInfo("");
   await loadDefaultTemplateGroups();
 }
 

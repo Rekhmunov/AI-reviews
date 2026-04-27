@@ -26,6 +26,29 @@ DEFAULT_GROUP_PROCESSORS: dict[str, str] = {
     "textless_ratings": "program",
 }
 
+DEFAULT_TEMPLATE_VARIABLES: tuple[dict[str, object], ...] = (
+    {
+        "var_key": "%BRAND%",
+        "title": "Бренд",
+        "description": "Название бренда для подстановки в ответы",
+        "is_user_editable": True,
+        "source_type": "manual",
+        "source_path": "",
+        "default_value": "VarFabric",
+        "is_active": True,
+    },
+    {
+        "var_key": "%NAME%",
+        "title": "Имя автора отзыва",
+        "description": "Автоматически подставляется из имени автора отзыва",
+        "is_user_editable": False,
+        "source_type": "review",
+        "source_path": "author",
+        "default_value": "",
+        "is_active": True,
+    },
+)
+
 
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
@@ -252,7 +275,6 @@ class ReviewRepository:
                     yandex_api_key_encrypted TEXT,
                     yandex_folder_id TEXT,
                     yandex_model_uri TEXT,
-                    brand_name TEXT NOT NULL DEFAULT 'VarFabric',
                     group_processors_json TEXT NOT NULL DEFAULT '{}',
                     use_sync_start_date INTEGER NOT NULL DEFAULT 0,
                     sync_start_date TEXT,
@@ -460,6 +482,37 @@ class ReviewRepository:
             )
             conn.execute(
                 """
+                CREATE TABLE IF NOT EXISTS template_variables (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    var_key TEXT NOT NULL UNIQUE,
+                    title TEXT NOT NULL,
+                    description TEXT,
+                    is_user_editable INTEGER NOT NULL DEFAULT 0,
+                    source_type TEXT NOT NULL DEFAULT 'manual',
+                    source_path TEXT,
+                    default_value TEXT,
+                    is_active INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS user_template_variable_values (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    variable_id INTEGER NOT NULL,
+                    value TEXT,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(user_id, variable_id),
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                    FOREIGN KEY (variable_id) REFERENCES template_variables(id) ON DELETE CASCADE
+                )
+                """
+            )
+            conn.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_review_actions_user_created
                 ON review_actions(user_id, created_at DESC)
                 """
@@ -494,14 +547,26 @@ class ReviewRepository:
                 ON product_recommendations(user_id, source_article, is_active)
                 """
             )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_template_variables_active
+                ON template_variables(is_active, var_key)
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_user_template_values_user
+                ON user_template_variable_values(user_id, variable_id)
+                """
+            )
             self._migrate_schema(conn)
             conn.execute(
                 """
                 INSERT INTO ai_settings (
                     id, provider, yandex_api_key_encrypted, yandex_folder_id, yandex_model_uri,
-                    brand_name, group_processors_json, use_sync_start_date, sync_start_date, updated_at
+                    group_processors_json, use_sync_start_date, sync_start_date, updated_at
                 )
-                VALUES (1, 'rules', NULL, NULL, NULL, 'VarFabric', ?, 0, NULL, ?)
+                VALUES (1, 'rules', NULL, NULL, NULL, ?, 0, NULL, ?)
                 ON CONFLICT (id) DO NOTHING
                 """,
                 (self._json_param(DEFAULT_GROUP_PROCESSORS), _utc_now()),
@@ -538,6 +603,7 @@ class ReviewRepository:
                     _utc_now(),
                 ),
             )
+        self.ensure_default_template_variables()
 
     def _migrate_schema(self, conn) -> None:
         if self.is_postgres:
@@ -626,12 +692,6 @@ class ReviewRepository:
                         (int(candidate["id"]),),
                     )
 
-            conn.execute(
-                """
-                ALTER TABLE ai_settings
-                ADD COLUMN IF NOT EXISTS brand_name TEXT NOT NULL DEFAULT 'VarFabric'
-                """
-            )
             conn.execute(
                 """
                 ALTER TABLE ai_settings
@@ -725,6 +785,47 @@ class ReviewRepository:
                 """
                 CREATE INDEX IF NOT EXISTS idx_default_template_variants_group_sub
                 ON default_template_variants(group_id, subgroup, is_active)
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS template_variables (
+                    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                    var_key TEXT NOT NULL UNIQUE,
+                    title TEXT NOT NULL,
+                    description TEXT,
+                    is_user_editable BOOLEAN NOT NULL DEFAULT FALSE,
+                    source_type TEXT NOT NULL DEFAULT 'manual',
+                    source_path TEXT,
+                    default_value TEXT,
+                    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                    created_at TIMESTAMPTZ NOT NULL,
+                    updated_at TIMESTAMPTZ NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS user_template_variable_values (
+                    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    variable_id BIGINT NOT NULL REFERENCES template_variables(id) ON DELETE CASCADE,
+                    value TEXT,
+                    updated_at TIMESTAMPTZ NOT NULL,
+                    UNIQUE(user_id, variable_id)
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_template_variables_active
+                ON template_variables(is_active, var_key)
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_user_template_values_user
+                ON user_template_variable_values(user_id, variable_id)
                 """
             )
             conn.execute(
@@ -928,6 +1029,49 @@ class ReviewRepository:
         )
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS template_variables (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                var_key TEXT NOT NULL UNIQUE,
+                title TEXT NOT NULL,
+                description TEXT,
+                is_user_editable INTEGER NOT NULL DEFAULT 0,
+                source_type TEXT NOT NULL DEFAULT 'manual',
+                source_path TEXT,
+                default_value TEXT,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_template_variable_values (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                variable_id INTEGER NOT NULL,
+                value TEXT,
+                updated_at TEXT NOT NULL,
+                UNIQUE(user_id, variable_id),
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (variable_id) REFERENCES template_variables(id) ON DELETE CASCADE
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_template_variables_active
+            ON template_variables(is_active, var_key)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_user_template_values_user
+            ON user_template_variable_values(user_id, variable_id)
+            """
+        )
+        conn.execute(
+            """
             INSERT INTO platform_settings (id, payment_provider, payment_api_key_encrypted, default_sync_lookback_days, updated_at)
             VALUES (1, 'manual', NULL, 7, ?)
             ON CONFLICT (id) DO NOTHING
@@ -1039,6 +1183,8 @@ class ReviewRepository:
             data["is_active"] = bool(data["is_active"])
         if "is_enabled" in data:
             data["is_enabled"] = bool(data["is_enabled"])
+        if "is_user_editable" in data:
+            data["is_user_editable"] = bool(data["is_user_editable"])
         if "use_sync_start_date" in data:
             data["use_sync_start_date"] = bool(data["use_sync_start_date"])
         if "auto_send" in data:
@@ -1120,6 +1266,7 @@ class ReviewRepository:
         if not is_super_admin:
             self.ensure_tenant_subscription(owner_user_id=int(owner_value or user_id))
         if not is_super_admin:
+            self.ensure_default_template_variables()
             self.copy_default_templates_to_user(user_id=user_id, only_if_empty=True)
             self.get_user_sync_settings(user_id=user_id)
         user = self.get_user_by_id(user_id)
@@ -1271,7 +1418,6 @@ class ReviewRepository:
             "provider": provider,
             "yandex_folder_id": str(data.get("yandex_folder_id") or "") or None,
             "yandex_model_uri": str(data.get("yandex_model_uri") or "") or None,
-            "brand_name": str(data.get("brand_name") or "VarFabric") or "VarFabric",
             "group_processors": group_processors,
             "use_sync_start_date": bool(data.get("use_sync_start_date")),
             "sync_start_date": str(data.get("sync_start_date") or "") or None,
@@ -1290,12 +1436,10 @@ class ReviewRepository:
         yandex_folder_id: str | None,
         yandex_model_uri: str | None,
         group_processors: dict[str, str] | None = None,
-        brand_name: str | None = None,
         use_sync_start_date: bool = False,
         sync_start_date: str | None = None,
     ) -> None:
         normalized_provider = provider.strip().lower() or "rules"
-        normalized_brand = (brand_name or "").strip() or "VarFabric"
         normalized_folder = (yandex_folder_id or "").strip() or None
         normalized_model = (yandex_model_uri or "").strip() or None
         normalized_sync_date = _coerce_iso_for_storage(sync_start_date, as_date=True) if use_sync_start_date else None
@@ -1344,7 +1488,6 @@ class ReviewRepository:
                     yandex_api_key_encrypted = ?,
                     yandex_folder_id = ?,
                     yandex_model_uri = ?,
-                    brand_name = ?,
                     group_processors_json = ?,
                     use_sync_start_date = ?,
                     sync_start_date = ?,
@@ -1356,7 +1499,6 @@ class ReviewRepository:
                     encrypted_value,
                     normalized_folder,
                     normalized_model,
-                    normalized_brand,
                     self._json_param(normalized_groups),
                     self._bool_db(use_sync_start_date),
                     normalized_sync_date,
@@ -1689,7 +1831,6 @@ class ReviewRepository:
         yandex_folder_id: str | None,
         yandex_model_uri: str | None,
         group_processors: dict[str, str] | None = None,
-        brand_name: str | None = None,
         use_sync_start_date: bool = False,
         sync_start_date: str | None = None,
         default_sync_lookback_days: int | None = None,
@@ -1700,7 +1841,6 @@ class ReviewRepository:
             yandex_folder_id=yandex_folder_id,
             yandex_model_uri=yandex_model_uri,
             group_processors=group_processors,
-            brand_name=brand_name,
             use_sync_start_date=use_sync_start_date,
             sync_start_date=sync_start_date,
         )
@@ -2580,6 +2720,264 @@ class ReviewRepository:
             return None
         target = str(row["target_article"] or "").strip()
         return target or None
+
+    def ensure_default_template_variables(self) -> int:
+        inserted = 0
+        now = _utc_now()
+        with self._connect() as conn:
+            for item in DEFAULT_TEMPLATE_VARIABLES:
+                var_key = str(item.get("var_key") or "").strip()
+                if not var_key:
+                    continue
+                result = conn.execute(
+                    """
+                    INSERT INTO template_variables (
+                        var_key, title, description, is_user_editable, source_type, source_path, default_value, is_active,
+                        created_at, updated_at
+                    )
+                    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM template_variables WHERE var_key = ?
+                    )
+                    """,
+                    (
+                        var_key,
+                        str(item.get("title") or var_key),
+                        str(item.get("description") or ""),
+                        self._bool_db(bool(item.get("is_user_editable"))),
+                        str(item.get("source_type") or "manual"),
+                        str(item.get("source_path") or ""),
+                        str(item.get("default_value") or ""),
+                        self._bool_db(bool(item.get("is_active", True))),
+                        now,
+                        now,
+                        var_key,
+                    ),
+                )
+                inserted += int(result.rowcount or 0)
+        return inserted
+
+    def list_template_variables(self, *, only_active: bool = False) -> list[dict[str, Any]]:
+        clauses: list[str] = []
+        if only_active:
+            clauses.append(f"is_active = {self._bool_true_literal()}")
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT *
+                FROM template_variables
+                {where}
+                ORDER BY var_key ASC
+                """
+            ).fetchall()
+        return [self._row_to_dict(row) for row in rows]
+
+    def upsert_template_variable(
+        self,
+        *,
+        var_key: str,
+        title: str,
+        description: str | None = None,
+        is_user_editable: bool,
+        source_type: str,
+        source_path: str | None = None,
+        default_value: str | None = None,
+        is_active: bool = True,
+    ) -> dict[str, Any]:
+        normalized_key = var_key.strip().upper()
+        if not normalized_key:
+            raise ValueError("var_key is required")
+        now = _utc_now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO template_variables (
+                    var_key, title, description, is_user_editable, source_type, source_path, default_value, is_active,
+                    created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (var_key) DO UPDATE SET
+                    title = excluded.title,
+                    description = excluded.description,
+                    is_user_editable = excluded.is_user_editable,
+                    source_type = excluded.source_type,
+                    source_path = excluded.source_path,
+                    default_value = excluded.default_value,
+                    is_active = excluded.is_active,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    normalized_key,
+                    title.strip() or normalized_key,
+                    str(description or ""),
+                    self._bool_db(is_user_editable),
+                    source_type.strip().lower() or "manual",
+                    str(source_path or ""),
+                    str(default_value or ""),
+                    self._bool_db(is_active),
+                    now,
+                    now,
+                ),
+            )
+            row = conn.execute(
+                """
+                SELECT *
+                FROM template_variables
+                WHERE var_key = ?
+                LIMIT 1
+                """,
+                (normalized_key,),
+            ).fetchone()
+        if row is None:
+            raise RuntimeError("Template variable upsert failed")
+        return self._row_to_dict(row)
+
+    def delete_template_variable(self, *, var_key: str) -> bool:
+        normalized_key = var_key.strip().upper()
+        if not normalized_key:
+            return False
+        with self._connect() as conn:
+            result = conn.execute(
+                """
+                DELETE FROM template_variables
+                WHERE var_key = ?
+                """,
+                (normalized_key,),
+            )
+        return result.rowcount > 0
+
+    def list_user_template_variable_values(self, *, user_id: int) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT
+                    v.id AS variable_id,
+                    v.var_key,
+                    v.title,
+                    v.description,
+                    v.is_user_editable,
+                    v.source_type,
+                    v.source_path,
+                    v.default_value,
+                    v.is_active,
+                    uv.value,
+                    uv.updated_at AS value_updated_at
+                FROM template_variables v
+                LEFT JOIN user_template_variable_values uv
+                  ON uv.variable_id = v.id
+                 AND uv.user_id = ?
+                WHERE v.is_active = {self._bool_true_literal()}
+                ORDER BY v.var_key ASC
+                """,
+                (user_id,),
+            ).fetchall()
+        return [self._row_to_dict(row) for row in rows]
+
+    def save_user_template_variable_values(self, *, user_id: int, values: dict[str, str]) -> int:
+        updates = 0
+        now = _utc_now()
+        normalized_values: dict[str, str] = {}
+        for key, value in values.items():
+            normalized_key = str(key or "").strip().upper()
+            if not normalized_key:
+                continue
+            normalized_values[normalized_key] = str(value or "").strip()
+        if not normalized_values:
+            return 0
+        with self._connect() as conn:
+            variable_rows = conn.execute(
+                """
+                SELECT id, var_key, is_user_editable
+                FROM template_variables
+                WHERE var_key IN ({})
+                """.format(",".join("?" for _ in normalized_values)),
+                tuple(normalized_values.keys()),
+            ).fetchall()
+            for row in variable_rows:
+                if not bool(row["is_user_editable"]):
+                    continue
+                var_key = str(row["var_key"] or "").strip().upper()
+                if var_key not in normalized_values:
+                    continue
+                conn.execute(
+                    """
+                    INSERT INTO user_template_variable_values (user_id, variable_id, value, updated_at)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT (user_id, variable_id) DO UPDATE SET
+                        value = excluded.value,
+                        updated_at = excluded.updated_at
+                    """,
+                    (user_id, int(row["id"]), normalized_values[var_key], now),
+                )
+                updates += 1
+        return updates
+
+    def build_template_variables_context(
+        self,
+        *,
+        user_id: int | None,
+        review_author: str | None,
+        review_rating: int | str | None,
+        review_category: str | None,
+        review_sentiment: str | None,
+        review_tags: str | list[str] | None,
+        review_metadata: dict[str, Any] | None,
+    ) -> dict[str, str]:
+        self.ensure_default_template_variables()
+        metadata = review_metadata if isinstance(review_metadata, dict) else {}
+        tags_text = ", ".join(review_tags) if isinstance(review_tags, list) else str(review_tags or "")
+        context: dict[str, str] = {
+            "%NAME%": str(review_author or "").strip() or "клиент",
+            "%AUTHOR%": str(review_author or "").strip() or "клиент",
+            "%RATING%": str(review_rating if review_rating is not None else ""),
+            "%CATEGORY%": str(review_category or ""),
+            "%SENTIMENT%": str(review_sentiment or ""),
+            "%TAGS%": tags_text.strip(),
+        }
+        if metadata:
+            for key, value in metadata.items():
+                key_name = str(key or "").strip().upper()
+                if not key_name:
+                    continue
+                context[f"%META_{key_name}%"] = str(value or "").strip()
+
+        variables = self.list_template_variables(only_active=True)
+        user_values_map: dict[str, str] = {}
+        if user_id is not None:
+            for row in self.list_user_template_variable_values(user_id=user_id):
+                value = str(row.get("value") or "").strip()
+                if value:
+                    user_values_map[str(row.get("var_key") or "").strip().upper()] = value
+
+        for item in variables:
+            key = str(item.get("var_key") or "").strip().upper()
+            if not key:
+                continue
+            source_type = str(item.get("source_type") or "manual").strip().lower()
+            source_path = str(item.get("source_path") or "").strip()
+            default_value = str(item.get("default_value") or "").strip()
+            resolved = ""
+            if source_type == "review":
+                if source_path in {"author", "name"}:
+                    resolved = str(review_author or "").strip()
+                elif source_path in {"rating"}:
+                    resolved = str(review_rating if review_rating is not None else "").strip()
+                elif source_path in {"category"}:
+                    resolved = str(review_category or "").strip()
+                elif source_path in {"sentiment"}:
+                    resolved = str(review_sentiment or "").strip()
+                elif source_path in {"tags"}:
+                    resolved = tags_text.strip()
+                elif source_path.startswith("metadata."):
+                    meta_key = source_path.split(".", 1)[1].strip()
+                    resolved = str(metadata.get(meta_key) or "").strip()
+            if source_type == "manual":
+                resolved = user_values_map.get(key) or default_value
+            if not resolved:
+                resolved = user_values_map.get(key) or default_value
+            context[key] = str(resolved or "")
+        return context
 
     @staticmethod
     def make_review_uid(user_id: int, source: str, account_id: int | None, external_review_id: str) -> str:

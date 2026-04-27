@@ -294,7 +294,28 @@
                 <button onclick="saveTemplateSubgroup()">Сохранить изменения</button>
                 <span id="templatesInfo" class="small"></span>
               </div>
-              <p class="small">Подстановки: {автор}, {оценка}, {категория}, {тональность}, {теги}, %USER%, %RECO%, %BRAND%</p>
+              <p class="small">Подстановки: {автор}, {оценка}, {категория}, {тональность}, {теги}, %USER%, %RECO%, а также платформенные переменные вроде %BRAND% и %NAME%.</p>
+            </div>
+          </div>
+          <div class="panel">
+            <h4>Платформенные переменные (доступные для редактирования)</h4>
+            <p class="small">Эти значения задаются для вашего кабинета и используются в шаблонах ответов.</p>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Ключ</th>
+                    <th>Название</th>
+                    <th>Описание</th>
+                    <th>Значение</th>
+                  </tr>
+                </thead>
+                <tbody id="userTemplateVariablesTbody"></tbody>
+              </table>
+            </div>
+            <div class="row mt-10">
+              <button onclick="saveUserTemplateVariables()">Сохранить переменные</button>
+              <span id="userTemplateVariablesInfo" class="small"></span>
             </div>
           </div>
         </div>

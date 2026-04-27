@@ -28,10 +28,6 @@
         <button onclick="saveAiSettings()">Сохранить</button>
       </div>
       <div class="row">
-        <label for="brandName">%BRAND%</label>
-        <input id="brandName" type="text" size="30" placeholder="Название бренда (по умолчанию VarFabric)" />
-      </div>
-      <div class="row">
         <h4 class="no-margin">Маршрутизация групп отзывов</h4>
       </div>
       <div class="row">
@@ -92,6 +88,37 @@
           <thead><tr><th colspan="6">Платежи</th></tr></thead>
           <tbody id="paymentsTbody"></tbody>
         </table>
+      </div>
+      <div id="templateVariablesBlock" class="panel">
+        <div class="row row-between">
+          <h4 class="no-margin">Переменные шаблонов платформы</h4>
+          <button class="secondary" type="button" onclick="resetTemplateVariableForm()">Новая переменная</button>
+        </div>
+        <div class="row">
+          <input id="templateVarKey" type="text" placeholder="Ключ, например %BRAND%" />
+          <input id="templateVarTitle" type="text" placeholder="Название" />
+          <select id="templateVarSourceType">
+            <option value="manual">manual</option>
+            <option value="review">review</option>
+          </select>
+          <input id="templateVarSourcePath" type="text" placeholder="source_path (author, rating, metadata.brand...)" />
+        </div>
+        <div class="row">
+          <input id="templateVarDefaultValue" type="text" placeholder="Значение по умолчанию" />
+          <input id="templateVarDescription" type="text" placeholder="Описание" />
+        </div>
+        <div class="row">
+          <label><input id="templateVarUserEditable" class="small-check" type="checkbox" /> Пользователь может редактировать</label>
+          <label><input id="templateVarIsActive" class="small-check" type="checkbox" checked /> Активна</label>
+          <button type="button" onclick="saveTemplateVariable()">Сохранить переменную</button>
+        </div>
+        <div id="templateVariablesInfo" class="small"></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Ключ</th><th>Название</th><th>Источник</th><th>Путь</th><th>Редакт.</th><th>Активна</th><th>По умолчанию</th><th>Действия</th></tr></thead>
+            <tbody id="templateVariablesTbody"></tbody>
+          </table>
+        </div>
       </div>
     </div>
 

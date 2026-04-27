@@ -54,6 +54,9 @@ const templateGroupsState = {
   currentSubgroup: "",
   currentTemplates: [],
 };
+const userTemplateVariablesState = {
+  items: [],
+};
 const processingRulesState = {
   items: [],
 };
@@ -166,7 +169,7 @@ function showSection(section) {
 }
 
 function showSettingsTab(tab) {
-  const tabs = ["sources", "rules", "templates", "recommendations"];
+  const tabs = ["sources", "rules", "templates", "recommendations", "template-variables"];
   for (const name of tabs) {
     const tabBtn = document.getElementById("settings-tab-" + name);
     const pane = document.getElementById("settings-pane-" + name);
@@ -177,6 +180,9 @@ function showSettingsTab(tab) {
   document.getElementById("settings-pane-" + tab).classList.remove("hidden");
   if (tab === "recommendations") {
     loadRecommendations();
+  }
+  if (tab === "template-variables") {
+    loadUserTemplateVariables();
   }
 }
 
@@ -1195,6 +1201,75 @@ async function saveTemplateSubgroup() {
   );
 }
 
+function renderUserTemplateVariables() {
+  const tbody = document.getElementById("userTemplateVariablesTbody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+  const items = Array.isArray(userTemplateVariablesState.items) ? userTemplateVariablesState.items : [];
+  if (!items.length) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td colspan="4" class="small">Нет доступных пользовательских переменных.</td>`;
+    tbody.appendChild(tr);
+    return;
+  }
+  items.forEach((item, index) => {
+    const tr = document.createElement("tr");
+    const varKey = String(item.var_key || "");
+    const title = String(item.title || varKey);
+    const description = String(item.description || "");
+    const currentValue = String(item.value || item.default_value || "");
+    tr.innerHTML = `
+      <td>${esc(varKey)}</td>
+      <td>${esc(title)}</td>
+      <td>${esc(description || "-")}</td>
+      <td><input type="text" data-var-index="${index}" class="template-variable-value-input" value="${esc(currentValue)}" placeholder="Введите значение" oninput="onUserTemplateVariableInput(this)" /></td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function onUserTemplateVariableInput(inputElement) {
+  const index = Number(inputElement.getAttribute("data-var-index") || -1);
+  if (index < 0 || index >= userTemplateVariablesState.items.length) return;
+  userTemplateVariablesState.items[index].value = String(inputElement.value || "");
+}
+
+async function loadUserTemplateVariables() {
+  const res = await fetch("/api/user/template-variables");
+  const data = await res.json();
+  const info = document.getElementById("userTemplateVariablesInfo");
+  if (!res.ok) {
+    if (info) info.textContent = "Ошибка: " + (data.detail || "не удалось загрузить переменные");
+    return;
+  }
+  userTemplateVariablesState.items = data.items || [];
+  renderUserTemplateVariables();
+  if (info) info.textContent = "";
+}
+
+async function saveUserTemplateVariables() {
+  const info = document.getElementById("userTemplateVariablesInfo");
+  const values = {};
+  for (const item of userTemplateVariablesState.items) {
+    const key = String(item.var_key || "").trim();
+    if (!key) continue;
+    values[key] = String(item.value || "").trim();
+  }
+  const res = await fetch("/api/user/template-variables", {
+    method: "PUT",
+    headers: jsonHeaders(),
+    body: JSON.stringify({ values }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    if (info) info.textContent = "Ошибка: " + (data.detail || "не удалось сохранить переменные");
+    return;
+  }
+  userTemplateVariablesState.items = data.items || userTemplateVariablesState.items;
+  renderUserTemplateVariables();
+  if (info) info.textContent = "Переменные сохранены.";
+}
+
 function renderRecommendationsRows() {
   const tbody = document.getElementById("recommendationsTbody");
   if (!tbody) return;
@@ -1374,6 +1449,16 @@ async function loadProfile() {
     const lookbackDays = Number(data.default_sync_lookback_days || 7);
     userSyncInfo.textContent = `По умолчанию: за ${lookbackDays} дн. до регистрации`;
   }
+  if (!Array.isArray(data.editable_template_variables)) {
+    await loadUserTemplateVariables();
+  }
+  if (Array.isArray(data.editable_template_variables)) {
+    userTemplateVariablesState.items = data.editable_template_variables.map((item) => ({
+      ...item,
+      value: String(item.value || item.default_value || ""),
+    }));
+    renderUserTemplateVariables();
+  }
   setPasswordFieldsVisible(false);
   document.getElementById("profileInfo").textContent = "";
 }
@@ -1516,6 +1601,7 @@ document.addEventListener("DOMContentLoaded", () => {
     loadProfile();
     loadProcessingRules();
     loadTemplates();
+    loadUserTemplateVariables();
     loadRecommendations();
   }
 });

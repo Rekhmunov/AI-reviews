@@ -254,7 +254,6 @@ class AISettingsRequest(BaseModel):
     yandex_api_key: str | None = None
     yandex_folder_id: str | None = None
     yandex_model_uri: str | None = None
-    brand_name: str | None = Field(default=None, max_length=200)
     group_processors: dict[str, str] | None = None
     default_sync_lookback_days: int = Field(default=7, ge=0, le=365)
 
@@ -300,11 +299,29 @@ class SuperAdminSettingsRequest(BaseModel):
     yandex_api_key: str | None = None
     yandex_folder_id: str | None = None
     yandex_model_uri: str | None = None
-    brand_name: str | None = Field(default=None, max_length=200)
     group_processors: dict[str, str] | None = None
     use_sync_start_date: bool = False
     sync_start_date: str | None = None
     default_sync_lookback_days: int = Field(default=7, ge=0, le=365)
+
+
+class TemplateVariableUpsertRequest(BaseModel):
+    var_key: str = Field(min_length=3, max_length=120)
+    title: str = Field(min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=2000)
+    is_user_editable: bool = False
+    source_type: str = Field(default="manual", max_length=40)
+    source_path: str | None = Field(default=None, max_length=255)
+    default_value: str | None = Field(default=None, max_length=4000)
+    is_active: bool = True
+
+
+class TemplateVariableDeleteRequest(BaseModel):
+    var_key: str = Field(min_length=3, max_length=120)
+
+
+class UserTemplateVariableValuesSaveRequest(BaseModel):
+    values: dict[str, str] = Field(default_factory=dict)
 
 
 class UserSyncSettingsRequest(BaseModel):
@@ -933,13 +950,21 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.get("/api/profile")
     def get_profile(request: Request) -> dict[str, object]:
         user = _require_user(request)
+        repository.ensure_default_template_variables()
         sync_settings = repository.get_user_sync_settings(user_id=int(user["id"]))
+        template_variables = repository.list_user_template_variable_values(user_id=int(user["id"]))
+        editable_template_variables = [
+            item
+            for item in template_variables
+            if bool(item.get("is_user_editable")) and bool(item.get("is_active"))
+        ]
         return {
             "full_name": user.get("full_name") or "",
             "email": user["email"],
             "use_sync_start_date": bool(sync_settings.get("use_sync_start_date")),
             "sync_start_date": str(sync_settings.get("sync_start_date") or "") or None,
             "default_sync_lookback_days": int(sync_settings.get("default_sync_lookback_days") or 7),
+            "editable_template_variables": editable_template_variables,
         }
 
     @app.get("/api/user-sync-settings")
@@ -963,6 +988,31 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Пользователь не найден")
         settings = repository.get_user_sync_settings(user_id=int(user["id"]))
         return {"ok": True, "settings": settings}
+
+    @app.get("/api/user/template-variables")
+    def user_list_template_variables(request: Request) -> dict[str, object]:
+        user = _require_user(request)
+        repository.ensure_default_template_variables()
+        rows = repository.list_user_template_variable_values(user_id=int(user["id"]))
+        items = [
+            item
+            for item in rows
+            if bool(item.get("is_active")) and bool(item.get("is_user_editable"))
+        ]
+        return {"items": items, "count": len(items)}
+
+    @app.put("/api/user/template-variables")
+    def user_save_template_variables(
+        payload: UserTemplateVariableValuesSaveRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        user = _require_user(request)
+        repository.ensure_default_template_variables()
+        saved = repository.save_user_template_variable_values(
+            user_id=int(user["id"]),
+            values={str(k): str(v) for k, v in dict(payload.values).items()},
+        )
+        return {"ok": True, "saved": int(saved)}
 
     @app.put("/api/profile")
     def update_profile(request: Request, payload: ProfileUpdateRequest) -> dict[str, object]:
@@ -1570,16 +1620,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         provider = payload.provider.strip().lower()
         if provider not in {"rules", "yandex"}:
             raise HTTPException(status_code=400, detail="Провайдер должен быть: встроенные правила или Яндекс")
-        sync_start_date = _parse_sync_start_date_or_none(
-            payload.sync_start_date,
-            enabled=bool(payload.use_sync_start_date),
-        )
         repository.update_ai_settings(
             provider=provider,
             yandex_api_key=payload.yandex_api_key.strip() if payload.yandex_api_key is not None else None,
             yandex_folder_id=(payload.yandex_folder_id or "").strip() or None,
             yandex_model_uri=(payload.yandex_model_uri or "").strip() or None,
-            brand_name=(payload.brand_name or "").strip() or "VarFabric",
             group_processors=payload.group_processors,
             use_sync_start_date=False,
             sync_start_date=None,
@@ -1617,11 +1662,49 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             yandex_folder_id=(payload.yandex_folder_id or "").strip() or None,
             yandex_model_uri=(payload.yandex_model_uri or "").strip() or None,
             group_processors=payload.group_processors,
-            brand_name=(payload.brand_name or "").strip() or "VarFabric",
             use_sync_start_date=False,
             sync_start_date=None,
             default_sync_lookback_days=int(payload.default_sync_lookback_days),
         )
+        return {"ok": True}
+
+    @app.get("/api/super-admin/template-variables")
+    def super_admin_list_template_variables(request: Request) -> dict[str, object]:
+        _require_super_admin(request)
+        repository.ensure_default_template_variables()
+        items = repository.list_template_variables(only_active=False)
+        return {"items": items, "count": len(items)}
+
+    @app.put("/api/super-admin/template-variables")
+    def super_admin_upsert_template_variable(
+        payload: TemplateVariableUpsertRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        _require_super_admin(request)
+        source_type = (payload.source_type or "").strip().lower() or "manual"
+        if source_type not in {"manual", "review"}:
+            raise HTTPException(status_code=400, detail="source_type должен быть manual или review")
+        item = repository.upsert_template_variable(
+            var_key=payload.var_key.strip().upper(),
+            title=payload.title.strip(),
+            description=(payload.description or "").strip() or None,
+            is_user_editable=bool(payload.is_user_editable),
+            source_type=source_type,
+            source_path=(payload.source_path or "").strip() or None,
+            default_value=(payload.default_value or "").strip() or None,
+            is_active=bool(payload.is_active),
+        )
+        return {"ok": True, "item": item}
+
+    @app.delete("/api/super-admin/template-variables")
+    def super_admin_delete_template_variable(
+        payload: TemplateVariableDeleteRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        _require_super_admin(request)
+        deleted = repository.delete_template_variable(var_key=payload.var_key.strip().upper())
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Переменная шаблона не найдена")
         return {"ok": True}
 
     @app.get("/api/super-admin/tariffs")
