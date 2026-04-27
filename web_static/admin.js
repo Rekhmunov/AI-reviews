@@ -650,6 +650,8 @@ async function createUser() {
     const plans = (window.__AVAILABLE_PLANS__ || []).filter((plan) => Boolean(plan && String(plan.code || "").trim()));
     if (plans.length) {
       selectedPlan = String(plans[0].code || "").trim().toLowerCase();
+    } else {
+      selectedPlan = "starter";
     }
   }
   const payload = {
@@ -662,18 +664,22 @@ async function createUser() {
     setUsersInfo("Заполните эл. почту и пароль нового пользователя.", true);
     return;
   }
-  if (!payload.plan_code) {
-    setUsersInfo("Нет доступного тарифа для создания пользователя. Сначала создайте тариф в SaaS-управлении.", true);
-    return;
-  }
   const res = await fetch("/api/admin/users", {
     method: "POST",
     headers: csrfHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify(payload),
   });
-  const data = await res.json();
+  let data = {};
+  try {
+    data = await res.json();
+  } catch (error) {
+    data = {};
+  }
   if (!res.ok) {
-    setUsersInfo(data.detail || "Ошибка создания пользователя", true);
+    setUsersInfo(
+      data.detail || `Ошибка создания пользователя (HTTP ${res.status}). Проверьте корректность тарифа и данных.`,
+      true,
+    );
     return;
   }
   if (emailInput) emailInput.value = "";
@@ -1115,6 +1121,7 @@ function renderPayments(items) {
       <td>${esc(item.amount)} ${esc(item.currency || "RUB")}</td>
       <td>${esc(item.status)}</td>
       <td>${esc(item.created_at || "")}</td>
+      <td><button class="secondary danger" type="button" onclick="deletePaymentRecord(${Number(item.id || 0)})">Удалить</button></td>
     `;
     tbody.appendChild(tr);
   }
@@ -1248,6 +1255,34 @@ async function addPaymentRecord() {
     return;
   }
   setSuperAdminInfo("Платеж добавлен.");
+  await loadSuperAdminSection();
+}
+
+async function deletePaymentRecord(paymentId) {
+  if (!isSuperAdmin()) return;
+  const normalizedId = Number(paymentId || 0);
+  if (!Number.isInteger(normalizedId) || normalizedId <= 0) {
+    setSuperAdminInfo("Некорректный идентификатор платежа.", true);
+    return;
+  }
+  const confirmed = confirm(`Удалить платеж #${normalizedId}?`);
+  if (!confirmed) return;
+  const res = await fetch("/api/super-admin/payments", {
+    method: "DELETE",
+    headers: csrfHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ id: normalizedId }),
+  });
+  let data = {};
+  try {
+    data = await res.json();
+  } catch (error) {
+    data = {};
+  }
+  if (!res.ok) {
+    setSuperAdminInfo(data.detail || "Не удалось удалить платеж.", true);
+    return;
+  }
+  setSuperAdminInfo("Платеж удален.");
   await loadSuperAdminSection();
 }
 

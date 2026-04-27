@@ -1935,6 +1935,11 @@ class ReviewRepository:
             rows = conn.execute(query, tuple(params)).fetchall()
         return [self._row_to_dict(row) for row in rows]
 
+    def delete_payment_record(self, *, payment_id: int) -> bool:
+        with self._connect() as conn:
+            result = conn.execute("DELETE FROM payment_records WHERE id = ?", (payment_id,))
+        return result.rowcount > 0
+
     def list_tenants_overview(self) -> list[dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(

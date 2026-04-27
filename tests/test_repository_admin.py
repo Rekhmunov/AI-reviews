@@ -200,6 +200,26 @@ class RepositoryAdminTests(unittest.TestCase):
         self.assertIn("alpha@example.com", options.get("actors", []))
         self.assertIn("beta@example.com", options.get("actors", []))
 
+    def test_payment_record_can_be_deleted(self) -> None:
+        payment = self.repository.save_payment_record(
+            owner_user_id=self.user_id,
+            amount=1499.0,
+            currency="RUB",
+            status="paid",
+            details={"note": "test payment"},
+        )
+        payment_id = int(payment["id"])
+        existing = self.repository.list_billing_records(owner_user_id=self.user_id, limit=50)
+        self.assertTrue(any(int(row.get("id") or 0) == payment_id for row in existing))
+
+        deleted = self.repository.delete_payment_record(payment_id=payment_id)
+        self.assertTrue(deleted)
+        deleted_again = self.repository.delete_payment_record(payment_id=payment_id)
+        self.assertFalse(deleted_again)
+
+        remaining = self.repository.list_billing_records(owner_user_id=self.user_id, limit=50)
+        self.assertFalse(any(int(row.get("id") or 0) == payment_id for row in remaining))
+
     def test_conversation_storage_and_user_analytics(self) -> None:
         conv_uid = self.repository.upsert_conversation(
             user_id=self.user_id,

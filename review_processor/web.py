@@ -369,6 +369,10 @@ class PaymentRecordCreateRequest(BaseModel):
     grace_days: int = Field(default=3, ge=0, le=30)
 
 
+class PaymentRecordDeleteRequest(BaseModel):
+    id: int = Field(ge=1)
+
+
 class ProfileUpdateRequest(BaseModel):
     full_name: str | None = Field(default=None, max_length=200)
     email: str | None = Field(default=None, max_length=255)
@@ -1981,6 +1985,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
         return {"ok": True, "item": item, "subscription": subscription}
 
+    @app.delete("/api/super-admin/payments")
+    def super_admin_delete_payment(payload: PaymentRecordDeleteRequest, request: Request) -> dict[str, object]:
+        _require_super_admin(request)
+        deleted = repository.delete_payment_record(payment_id=int(payload.id))
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Платеж не найден")
+        return {"ok": True}
+
     @app.post("/api/super-admin/users/{target_user_id}/block")
     def super_admin_block_user(target_user_id: int, payload: UserBlockUpdateRequest, request: Request) -> dict[str, object]:
         actor = _require_super_admin(request)
@@ -2168,15 +2180,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             plans = repository.list_tariff_plans()
             all_codes = {str(item.get("code") or "").strip().lower() for item in plans}
             all_codes = {code for code in all_codes if code}
-            if not all_codes:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Нет доступных тарифов. Сначала создайте хотя бы один тариф в разделе SaaS-управления.",
-                )
-            if plan_code not in all_codes:
+            if all_codes and plan_code not in all_codes:
                 # Keep user creation resilient to stale UI state:
                 # if selected plan was removed, fall back to any existing tariff.
                 plan_code = sorted(all_codes)[0]
+            if not plan_code:
+                # Keep super-admin flow operational even when tariff catalog
+                # is temporarily empty or not yet configured.
+                plan_code = "starter"
             created = repository.create_user(
                 email=email,
                 password_hash=hash_password(password),
