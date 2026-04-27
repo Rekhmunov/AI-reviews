@@ -280,7 +280,7 @@
             <button id="settings-tab-rules" class="settings-tab-btn" onclick="showSettingsTab('rules')">Правила обработки</button>
             <button id="settings-tab-templates" class="settings-tab-btn" onclick="showSettingsTab('templates')">Шаблоны</button>
             <button id="settings-tab-recommendations" class="settings-tab-btn" onclick="showSettingsTab('recommendations')">Рекомендации</button>
-            <button id="settings-open-team-btn" class="settings-tab-btn {{TEAM_BUTTON_HIDDEN_CLASS}}" type="button" onclick="openTeamManagerModal()">Команда</button>
+            <button id="settings-tab-team" class="settings-tab-btn hidden" onclick="showSettingsTab('team')">Команда</button>
           </div>
         </div>
 
@@ -424,6 +424,39 @@
             </div>
           </div>
         </div>
+        <div id="settings-pane-team" class="hidden">
+          <div class="panel">
+            <div class="row row-between">
+              <h4 class="no-margin">Команда кабинета</h4>
+            </div>
+            <div class="row">
+              <input id="teamManagerEmail" type="email" placeholder="Эл. почта менеджера" />
+              <input id="teamManagerPassword" type="password" placeholder="Пароль (минимум 8 символов)" />
+              <input id="teamManagerFullName" type="text" placeholder="ФИО (необязательно)" />
+            </div>
+            <div class="row">
+              <button class="secondary" type="button" onclick="openManagerPermissionsModalForCreate()">Разрешения</button>
+              <button type="button" onclick="saveNewManager()">Добавить менеджера</button>
+              <span id="teamPermissionsPreview" class="small">Разрешения не выбраны</span>
+            </div>
+            <div id="teamInfo" class="small"></div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Email</th>
+                    <th>ФИО</th>
+                    <th>Роль</th>
+                    <th>Доступы</th>
+                    <th>Действия</th>
+                  </tr>
+                </thead>
+                <tbody id="teamTbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
       </section>
 
       <section id="section-profile" class="hidden">
@@ -458,40 +491,6 @@
         </div>
       </section>
     </main>
-  </div>
-  <div id="teamManagerModal" class="modal-overlay hidden">
-    <div class="modal-card">
-      <div class="row row-between">
-        <h4 class="no-margin">Команда кабинета</h4>
-        <button class="secondary" type="button" onclick="closeTeamManagerModal()">Закрыть</button>
-      </div>
-      <div class="row">
-        <input id="teamManagerEmail" type="email" placeholder="Эл. почта менеджера" />
-        <input id="teamManagerPassword" type="password" placeholder="Пароль (минимум 8 символов)" />
-        <input id="teamManagerFullName" type="text" placeholder="ФИО (необязательно)" />
-      </div>
-      <div class="row">
-        <button class="secondary" type="button" onclick="openManagerPermissionsModalForCreate()">Разрешения</button>
-        <button type="button" onclick="saveNewManager()">Добавить менеджера</button>
-        <span id="teamPermissionsPreview" class="small">Разрешения не выбраны</span>
-      </div>
-      <div id="teamInfo" class="small"></div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Email</th>
-              <th>ФИО</th>
-              <th>Роль</th>
-              <th>Доступы</th>
-              <th>Действия</th>
-            </tr>
-          </thead>
-          <tbody id="teamTbody"></tbody>
-        </table>
-      </div>
-    </div>
   </div>
   <div id="managerPermissionsModal" class="modal-overlay hidden">
     <div class="modal-card">

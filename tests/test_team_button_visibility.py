@@ -15,7 +15,7 @@ class TeamButtonVisibilityTests(unittest.TestCase):
             }
         )
         self.assertIn("is_tenant_owner: true", html)
-        self.assertIn('id="settings-open-team-btn"', html)
+        self.assertIn('id="settings-tab-team"', html)
 
     def test_super_admin_can_see_team_button_permission(self) -> None:
         html = build_app_html(
@@ -28,41 +28,7 @@ class TeamButtonVisibilityTests(unittest.TestCase):
             }
         )
         self.assertIn("is_tenant_owner: true", html)
-        self.assertIn('id="settings-open-team-btn"', html)
-
-    def test_non_owner_user_role_cannot_see_team_button_permission(self) -> None:
-        html = build_app_html(
-            {
-                "id": 43,
-                "owner_user_id": 42,
-                "email": "manager@example.com",
-                "role": "user",
-                "is_super_admin": False,
-            }
-        )
-        self.assertIn("is_tenant_owner: false", html)
-
-
-if __name__ == "__main__":
-    unittest.main()
-import unittest
-
-from review_processor.web import build_app_html
-
-
-class TeamButtonVisibilityTests(unittest.TestCase):
-    def test_owner_user_role_can_see_team_button_permission(self) -> None:
-        html = build_app_html(
-            {
-                "id": 42,
-                "owner_user_id": 42,
-                "email": "owner@example.com",
-                "role": "user",
-                "is_super_admin": False,
-            }
-        )
-        self.assertIn("is_tenant_owner: true", html)
-        self.assertIn('id="settings-open-team-btn"', html)
+        self.assertIn('id="settings-tab-team"', html)
 
     def test_non_owner_user_role_cannot_see_team_button_permission(self) -> None:
         html = build_app_html(

@@ -86,7 +86,7 @@ let syncInProgress = false;
 const ACTIVE_SECTION_STORAGE_KEY = "feedpilot_active_section";
 const ACTIVE_SETTINGS_TAB_STORAGE_KEY = "feedpilot_active_settings_tab";
 const SECTION_IDS = ["reviews", "conversations", "analytics", "settings", "profile"];
-const SETTINGS_TAB_IDS = ["sources", "rules", "templates", "recommendations", "template-variables"];
+const SETTINGS_TAB_IDS = ["sources", "rules", "templates", "recommendations", "team", "template-variables"];
 const APP_BOOT_HIDE_CLASS = "app-boot-hidden";
 
 const categoryLabels = {
@@ -233,6 +233,9 @@ function showSettingsTab(tab, options = {}) {
   if (persist) writeStoredUiState(ACTIVE_SETTINGS_TAB_STORAGE_KEY, tab);
   if (tab === "recommendations") {
     loadRecommendations();
+  }
+  if (tab === "team") {
+    loadTeam();
   }
   if (tab === "template-variables") {
     loadUserTemplateVariables();
@@ -1456,13 +1459,10 @@ function openTeamManagerModal() {
     setTeamInfo("Доступ к команде есть только у владельца кабинета.", true);
     return;
   }
-  setModalVisibility("teamManagerModal", true);
-  updateTeamPermissionsPreview();
-  loadTeam();
+  showSettingsTab("team");
 }
 
 function closeTeamManagerModal() {
-  setModalVisibility("teamManagerModal", false);
   closeManagerPermissionsModal();
   teamState.pendingPermissions = [];
   updateTeamPermissionsPreview();
@@ -2165,7 +2165,7 @@ async function saveProfile() {
 document.addEventListener("DOMContentLoaded", () => {
   document.body.classList.add(APP_BOOT_HIDE_CLASS);
   const permissions = getPermissions();
-  const teamButton = document.getElementById("settings-open-team-btn");
+  const teamButton = document.getElementById("settings-tab-team");
   if (teamButton) {
     const visible = isTenantOwner();
     teamButton.classList.toggle("hidden", !visible);
@@ -2253,12 +2253,10 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   onSourceMarketplaceChange();
   setPasswordFieldsVisible(false);
-  setModalVisibility("teamManagerModal", false);
   setModalVisibility("managerPermissionsModal", false);
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
     closeManagerPermissionsModal();
-    closeTeamManagerModal();
   });
   document.getElementById("ruleCategory")?.addEventListener("change", syncRuleFormFromStore);
   document.getElementById("tplCategory")?.addEventListener("change", syncTemplateFormFromStore);
