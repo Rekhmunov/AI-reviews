@@ -848,14 +848,17 @@ button.secondary.danger:hover {
   flex-wrap: wrap;
 }
 
-.reviews-controls-panel {
-  overflow: visible;
-  z-index: 3;
-}
-
 .reviews-toolbar-panel {
   overflow: visible;
   z-index: 4;
+}
+
+.reviews-heading {
+  margin: 0 0 8px;
+}
+
+.reviews-sync-row {
+  margin: 0 0 12px;
 }
 
 .reviews-date-wrap {
