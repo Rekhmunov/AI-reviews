@@ -210,6 +210,26 @@
 
     <div class="panel">
       <h3>Лента действий</h3>
+      <div class="row admin-actions-filters">
+        <select id="actionsFilterActionType">
+          <option value="all">Действие: все</option>
+        </select>
+        <select id="actionsFilterActor">
+          <option value="all">Пользователь: все</option>
+        </select>
+        <label class="small">С <input id="actionsDateFrom" type="date" /></label>
+        <label class="small">По <input id="actionsDateTo" type="date" /></label>
+        <input
+          id="actionsSearch"
+          type="search"
+          placeholder="Быстрый поиск по пользователю, ID, действию и деталям"
+          oninput="onActionsSearchInput(this.value)"
+        />
+        <button class="secondary" type="button" onclick="applyActionsFilters()">Применить</button>
+        <button class="secondary" type="button" onclick="resetActionsFilters()">Сбросить</button>
+        <button class="secondary" type="button" onclick="exportActions('csv')">Экспорт CSV</button>
+        <button class="secondary" type="button" onclick="exportActions('xlsx')">Экспорт Excel</button>
+      </div>
       <div class="row admin-actions-pagination">
         <label for="actionsPageSize" class="small">На странице:</label>
         <select id="actionsPageSize" onchange="updateActionsPageSize(this.value)">
@@ -232,6 +252,6 @@
     </div>
   </div>
 
-  <script src="/static/admin.js?v=8"></script>
+  <script src="/static/admin.js?v=9"></script>
 </body>
 </html>

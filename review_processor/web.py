@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from html import escape
 import ipaddress
 import io
+import csv
 from pathlib import Path
 import re
 import secrets
@@ -2324,19 +2325,57 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         return repository.get_sla_metrics(user_id=_tenant_owner_id(actor))
 
     @app.get("/api/admin/actions")
-    def admin_actions(request: Request, page: int = 1, page_size: int = 50) -> dict[str, object]:
-        actor = _require_admin(request)
+    def admin_actions(
+        request: Request,
+        page: int = 1,
+        page_size: int = 50,
+        action_type: str | None = None,
+        actor: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        search: str | None = None,
+    ) -> dict[str, object]:
+        admin_user = _require_admin(request)
         safe_page = max(page, 1)
         safe_page_size = min(max(page_size, 1), 200)
         safe_offset = (safe_page - 1) * safe_page_size
-        if _is_super_admin(actor):
-            rows, total = repository.list_recent_actions(user_id=None, limit=safe_page_size, offset=safe_offset)
-        else:
+        normalized_action_type = (action_type or "").strip() or None
+        normalized_actor = (actor or "").strip() or None
+        normalized_search = (search or "").strip() or None
+        normalized_date_from = date_from.strip() if date_from else None
+        normalized_date_to = date_to.strip() if date_to else None
+        for date_value in [normalized_date_from, normalized_date_to]:
+            if date_value:
+                try:
+                    datetime.strptime(date_value, "%Y-%m-%d")
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail="Неверный формат даты. Ожидается YYYY-MM-DD") from exc
+        if normalized_date_from and normalized_date_to and normalized_date_from > normalized_date_to:
+            raise HTTPException(status_code=400, detail="Дата начала не может быть позже даты окончания")
+        owner_scope_user_id = None if _is_super_admin(admin_user) else _tenant_owner_id(admin_user)
+        if _is_super_admin(admin_user):
             rows, total = repository.list_recent_actions(
-                user_id=_tenant_owner_id(actor),
+                user_id=None,
                 limit=safe_page_size,
                 offset=safe_offset,
+                action_type=normalized_action_type,
+                actor=normalized_actor,
+                date_from=normalized_date_from,
+                date_to=normalized_date_to,
+                search=normalized_search,
             )
+        else:
+            rows, total = repository.list_recent_actions(
+                user_id=owner_scope_user_id,
+                limit=safe_page_size,
+                offset=safe_offset,
+                action_type=normalized_action_type,
+                actor=normalized_actor,
+                date_from=normalized_date_from,
+                date_to=normalized_date_to,
+                search=normalized_search,
+            )
+        filter_options = repository.list_action_filter_options(user_id=owner_scope_user_id)
         return {
             "items": rows,
             "count": len(rows),
@@ -2345,7 +2384,114 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "page_size": safe_page_size,
             "offset": safe_offset,
             "has_more": (safe_offset + len(rows)) < int(total),
+            "filters": {
+                "action_type": normalized_action_type or "all",
+                "actor": normalized_actor or "all",
+                "date_from": normalized_date_from,
+                "date_to": normalized_date_to,
+                "search": normalized_search or "",
+            },
+            "filter_options": filter_options,
         }
+
+    @app.get("/api/admin/actions/export")
+    def admin_actions_export(
+        request: Request,
+        format: str = "csv",
+        action_type: str | None = None,
+        actor: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        search: str | None = None,
+    ) -> StreamingResponse:
+        actor_user = _require_admin(request)
+        export_format = format.strip().lower()
+        if export_format not in {"csv", "xlsx"}:
+            raise HTTPException(status_code=400, detail="Формат экспорта должен быть csv или xlsx")
+        normalized_action_type = (action_type or "").strip() or None
+        normalized_actor = (actor or "").strip() or None
+        normalized_search = (search or "").strip() or None
+        normalized_date_from = date_from.strip() if date_from else None
+        normalized_date_to = date_to.strip() if date_to else None
+        for date_value in [normalized_date_from, normalized_date_to]:
+            if date_value:
+                try:
+                    datetime.strptime(date_value, "%Y-%m-%d")
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail="Неверный формат даты. Ожидается YYYY-MM-DD") from exc
+        if normalized_date_from and normalized_date_to and normalized_date_from > normalized_date_to:
+            raise HTTPException(status_code=400, detail="Дата начала не может быть позже даты окончания")
+        scope_user_id = None if _is_super_admin(actor_user) else _tenant_owner_id(actor_user)
+        items, _total = repository.list_recent_actions(
+            user_id=scope_user_id,
+            limit=200000,
+            offset=0,
+            action_type=normalized_action_type,
+            actor=normalized_actor,
+            date_from=normalized_date_from,
+            date_to=normalized_date_to,
+            search=normalized_search,
+        )
+        normalized_rows: list[dict[str, str]] = []
+        for item in items:
+            details = item.get("details")
+            details_text = ""
+            if isinstance(details, dict):
+                pairs: list[str] = []
+                for key, value in details.items():
+                    pairs.append(f"{key}={value}")
+                details_text = "; ".join(pairs)
+            row = {
+                "created_at": str(item.get("created_at") or ""),
+                "actor": str(item.get("actor") or ""),
+                "review_uid": str(item.get("review_uid") or ""),
+                "action_type": str(item.get("action_type") or ""),
+                "details": details_text,
+            }
+            normalized_rows.append(row)
+        if export_format == "csv":
+            out = io.StringIO()
+            writer = csv.DictWriter(out, fieldnames=["created_at", "actor", "review_uid", "action_type", "details"])
+            writer.writeheader()
+            for row in normalized_rows:
+                writer.writerow(row)
+            payload = io.BytesIO(out.getvalue().encode("utf-8-sig"))
+            filename = f"admin-actions-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}.csv"
+            return StreamingResponse(
+                payload,
+                media_type="text/csv; charset=utf-8",
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            )
+        try:
+            from openpyxl import Workbook
+        except ImportError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail="Для экспорта Excel нужен пакет openpyxl. Установите: pip install openpyxl",
+            ) from exc
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "Лента действий"
+        sheet.append(["Время", "Пользователь", "Идентификатор", "Действие", "Детали"])
+        for row in normalized_rows:
+            sheet.append(
+                [
+                    row["created_at"],
+                    row["actor"],
+                    row["review_uid"],
+                    row["action_type"],
+                    row["details"],
+                ]
+            )
+        out_xlsx = io.BytesIO()
+        workbook.save(out_xlsx)
+        out_xlsx.seek(0)
+        xlsx_name = f"admin-actions-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}.xlsx"
+        return StreamingResponse(
+            out_xlsx,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{xlsx_name}"'},
+        )
 
     @app.get("/api/admin/sync-status")
     def admin_sync_status(request: Request) -> dict[str, object]:

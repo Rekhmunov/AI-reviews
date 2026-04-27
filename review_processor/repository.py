@@ -3592,25 +3592,62 @@ class ReviewRepository:
         user_id: int | None = None,
         limit: int = 100,
         offset: int = 0,
+        action_type: str | None = None,
+        actor: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        search: str | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
         clauses: list[str] = []
-        params: list[Any] = []
+        filter_params: list[Any] = []
         if user_id is not None:
             clauses.append("user_id = ?")
-            params.append(user_id)
+            filter_params.append(user_id)
+        normalized_action_type = str(action_type or "").strip()
+        if normalized_action_type:
+            clauses.append("action_type = ?")
+            filter_params.append(normalized_action_type)
+        normalized_actor = str(actor or "").strip()
+        if normalized_actor:
+            clauses.append("LOWER(actor) LIKE ?")
+            filter_params.append(f"%{normalized_actor.lower()}%")
+        if date_from:
+            if self.is_postgres:
+                clauses.append("created_at::date >= ?::date")
+            else:
+                clauses.append("substr(created_at, 1, 10) >= ?")
+            filter_params.append(date_from)
+        if date_to:
+            if self.is_postgres:
+                clauses.append("created_at::date <= ?::date")
+            else:
+                clauses.append("substr(created_at, 1, 10) <= ?")
+            filter_params.append(date_to)
+        normalized_search = str(search or "").strip().lower()
+        if normalized_search:
+            details_expr = "COALESCE(details_json::text, '')" if self.is_postgres else "COALESCE(details_json, '')"
+            clauses.append(
+                f"""(
+                    LOWER(COALESCE(actor, '')) LIKE ?
+                    OR LOWER(COALESCE(review_uid, '')) LIKE ?
+                    OR LOWER(COALESCE(action_type, '')) LIKE ?
+                    OR LOWER({details_expr}) LIKE ?
+                )"""
+            )
+            search_value = f"%{normalized_search}%"
+            filter_params.extend([search_value, search_value, search_value, search_value])
         query = "SELECT * FROM review_actions"
         if clauses:
             query += " WHERE " + " AND ".join(clauses)
         query += " ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?"
-        params.append(max(limit, 1))
-        params.append(max(offset, 0))
+        query_params = [*filter_params, max(limit, 1), max(offset, 0)]
 
         with self._connect() as conn:
             count_query = "SELECT COUNT(*) AS c FROM review_actions"
             if clauses:
                 count_query += " WHERE " + " AND ".join(clauses)
-            total_row = conn.execute(count_query, tuple(params[: len(clauses)])).fetchone()
-            rows = conn.execute(query, tuple(params)).fetchall()
+            total_row = conn.execute(count_query, tuple(filter_params)).fetchone()
+            rows = conn.execute(query, tuple(query_params)).fetchall()
         items: list[dict[str, Any]] = []
         for row in rows:
             data = self._row_to_dict(row)
@@ -3619,6 +3656,43 @@ class ReviewRepository:
             items.append(data)
         total = int(total_row["c"]) if total_row else 0
         return items, total
+
+    def list_action_filter_options(self, *, user_id: int | None = None) -> dict[str, list[str]]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if user_id is not None:
+            clauses.append("user_id = ?")
+            params.append(user_id)
+        where_sql = ""
+        if clauses:
+            where_sql = " WHERE " + " AND ".join(clauses)
+        with self._connect() as conn:
+            action_type_rows = conn.execute(
+                f"""
+                SELECT DISTINCT action_type
+                FROM review_actions
+                {where_sql}
+                ORDER BY action_type ASC
+                """,
+                tuple(params),
+            ).fetchall()
+            actor_rows = conn.execute(
+                f"""
+                SELECT DISTINCT actor
+                FROM review_actions
+                {where_sql}
+                ORDER BY actor ASC
+                """,
+                tuple(params),
+            ).fetchall()
+        return {
+            "action_types": [
+                str(row["action_type"])
+                for row in action_type_rows
+                if row["action_type"] is not None and str(row["action_type"]).strip()
+            ],
+            "actors": [str(row["actor"]) for row in actor_rows if row["actor"] is not None and str(row["actor"]).strip()],
+        }
 
     def get_sla_metrics(self, *, user_id: int | None = None) -> dict[str, Any]:
         clauses: list[str] = []

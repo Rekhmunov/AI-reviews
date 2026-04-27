@@ -998,6 +998,24 @@ button.secondary.danger:hover {
   display: none;
 }
 
+.admin-actions-filters {
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.admin-actions-filters input[type="search"] {
+  min-width: 280px;
+  flex: 1 1 320px;
+}
+
+.admin-actions-filters label {
+  display: grid;
+  gap: 6px;
+  color: #2d4f80;
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .icon-btn {
   min-width: 38px;
   min-height: 38px;
@@ -1437,6 +1455,12 @@ button.secondary.danger:hover {
   .users-search-wrap input[type="search"] {
     min-width: 0;
     width: 100%;
+  }
+
+  .admin-actions-filters input[type="search"] {
+    min-width: 0;
+    width: 100%;
+    flex-basis: 100%;
   }
 
   .processing-rules-grid {

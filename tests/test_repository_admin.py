@@ -145,6 +145,61 @@ class RepositoryAdminTests(unittest.TestCase):
         self.assertEqual(context.get("%STORE_NAME%"), "MyStore")
         self.assertEqual(context.get("%AUTHOR_NAME%"), "Анна")
 
+    def test_recent_actions_filters_and_search(self) -> None:
+        self.repository.log_review_action(
+            user_id=self.user_id,
+            review_uid="rv-1",
+            action_type="sync_review",
+            actor="alpha@example.com",
+            details={"source": "wb", "status": "open"},
+        )
+        self.repository.log_review_action(
+            user_id=self.user_id,
+            review_uid="rv-2",
+            action_type="manual_reply",
+            actor="beta@example.com",
+            details={"reply": "ok", "kind": "question"},
+        )
+        all_rows, all_total = self.repository.list_recent_actions(user_id=self.user_id, limit=20, offset=0)
+        self.assertEqual(all_total, 2)
+        self.assertEqual(len(all_rows), 2)
+
+        filtered_by_type, total_by_type = self.repository.list_recent_actions(
+            user_id=self.user_id,
+            limit=20,
+            offset=0,
+            action_type="manual_reply",
+        )
+        self.assertEqual(total_by_type, 1)
+        self.assertEqual(len(filtered_by_type), 1)
+        self.assertEqual(filtered_by_type[0]["review_uid"], "rv-2")
+
+        filtered_by_actor, total_by_actor = self.repository.list_recent_actions(
+            user_id=self.user_id,
+            limit=20,
+            offset=0,
+            actor="alpha@",
+        )
+        self.assertEqual(total_by_actor, 1)
+        self.assertEqual(len(filtered_by_actor), 1)
+        self.assertEqual(filtered_by_actor[0]["actor"], "alpha@example.com")
+
+        filtered_by_search, total_by_search = self.repository.list_recent_actions(
+            user_id=self.user_id,
+            limit=20,
+            offset=0,
+            search="question",
+        )
+        self.assertEqual(total_by_search, 1)
+        self.assertEqual(len(filtered_by_search), 1)
+        self.assertEqual(filtered_by_search[0]["review_uid"], "rv-2")
+
+        options = self.repository.list_action_filter_options(user_id=self.user_id)
+        self.assertIn("sync_review", options.get("action_types", []))
+        self.assertIn("manual_reply", options.get("action_types", []))
+        self.assertIn("alpha@example.com", options.get("actors", []))
+        self.assertIn("beta@example.com", options.get("actors", []))
+
     def test_conversation_storage_and_user_analytics(self) -> None:
         conv_uid = self.repository.upsert_conversation(
             user_id=self.user_id,

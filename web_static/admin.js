@@ -110,7 +110,14 @@ const actionsState = {
   page: 1,
   pageSize: 50,
   hasMore: false,
+  total: 0,
+  action_type: "all",
+  actor: "all",
+  date_from: null,
+  date_to: null,
+  search: "",
 };
+let actionsSearchTimer = null;
 const usersState = {
   items: [],
   search: "",
@@ -1247,6 +1254,14 @@ async function loadActions() {
     page: String(page),
     page_size: String(pageSize),
   });
+  const actionType = String(actionsState.action_type || "all");
+  const actor = String(actionsState.actor || "all");
+  const search = String(actionsState.search || "").trim();
+  if (actionType && actionType !== "all") query.set("action_type", actionType);
+  if (actor && actor !== "all") query.set("actor", actor);
+  if (actionsState.date_from) query.set("date_from", String(actionsState.date_from));
+  if (actionsState.date_to) query.set("date_to", String(actionsState.date_to));
+  if (search) query.set("search", search);
   const res = await fetch("/api/admin/actions?" + query.toString());
   const data = await res.json();
   const tbody = document.getElementById("actionsTbody");
@@ -1257,6 +1272,57 @@ async function loadActions() {
     tbody.appendChild(tr);
     return;
   }
+  const filterOptions = data.filter_options || {};
+  const actionTypeSelect = document.getElementById("actionsFilterActionType");
+  if (actionTypeSelect) {
+    const current = String(actionsState.action_type || "all");
+    actionTypeSelect.innerHTML = "";
+    const defaultOption = document.createElement("option");
+    defaultOption.value = "all";
+    defaultOption.textContent = "Действие: все";
+    actionTypeSelect.appendChild(defaultOption);
+    for (const item of filterOptions.action_types || []) {
+      const value = String(item || "").trim();
+      if (!value) continue;
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = labelFromMap(actionTypeLabels, value);
+      actionTypeSelect.appendChild(option);
+    }
+    actionTypeSelect.value = current;
+    if (!Array.from(actionTypeSelect.options).some((opt) => opt.value === current)) {
+      actionTypeSelect.value = "all";
+      actionsState.action_type = "all";
+    }
+  }
+  const actorSelect = document.getElementById("actionsFilterActor");
+  if (actorSelect) {
+    const current = String(actionsState.actor || "all");
+    actorSelect.innerHTML = "";
+    const defaultOption = document.createElement("option");
+    defaultOption.value = "all";
+    defaultOption.textContent = "Пользователь: все";
+    actorSelect.appendChild(defaultOption);
+    for (const item of filterOptions.actors || []) {
+      const value = String(item || "").trim();
+      if (!value) continue;
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = value;
+      actorSelect.appendChild(option);
+    }
+    actorSelect.value = current;
+    if (!Array.from(actorSelect.options).some((opt) => opt.value === current)) {
+      actorSelect.value = "all";
+      actionsState.actor = "all";
+    }
+  }
+  const dateFromInput = document.getElementById("actionsDateFrom");
+  if (dateFromInput) dateFromInput.value = actionsState.date_from || "";
+  const dateToInput = document.getElementById("actionsDateTo");
+  if (dateToInput) dateToInput.value = actionsState.date_to || "";
+  const searchInput = document.getElementById("actionsSearch");
+  if (searchInput && searchInput.value !== actionsState.search) searchInput.value = actionsState.search || "";
   const items = data.items || [];
   for (const item of items) {
     const tr = document.createElement("tr");
@@ -1274,9 +1340,12 @@ async function loadActions() {
     tr.innerHTML = `<td colspan="5">Действий пока нет</td>`;
     tbody.appendChild(tr);
   }
+  actionsState.total = Number(data.total || 0);
   actionsState.hasMore = Boolean(data.has_more);
   const pageInfo = document.getElementById("actionsPaginationInfo");
-  if (pageInfo) pageInfo.textContent = `Страница ${page}${actionsState.hasMore ? " (есть следующая)" : ""}`;
+  if (pageInfo) {
+    pageInfo.textContent = `Страница ${page} · записей: ${actionsState.total}${actionsState.hasMore ? " (есть следующая)" : ""}`;
+  }
   const prevBtn = document.getElementById("actionsPrevButton");
   if (prevBtn) prevBtn.disabled = page <= 1;
   const nextBtn = document.getElementById("actionsNextButton");
@@ -1305,6 +1374,67 @@ async function prevActionsPage() {
 
 async function nextActionsPage() {
   await changeActionsPage(1);
+}
+
+function onActionsSearchInput(value) {
+  actionsState.search = String(value || "");
+  actionsState.page = 1;
+  if (actionsSearchTimer) clearTimeout(actionsSearchTimer);
+  actionsSearchTimer = setTimeout(() => {
+    loadActions();
+  }, 300);
+}
+
+async function applyActionsFilters() {
+  const actionType = String(document.getElementById("actionsFilterActionType")?.value || "all");
+  const actor = String(document.getElementById("actionsFilterActor")?.value || "all");
+  const dateFrom = String(document.getElementById("actionsDateFrom")?.value || "").trim();
+  const dateTo = String(document.getElementById("actionsDateTo")?.value || "").trim();
+  if (dateFrom && dateTo && dateFrom > dateTo) {
+    alert("Дата начала не может быть позже даты окончания");
+    return;
+  }
+  actionsState.action_type = actionType;
+  actionsState.actor = actor;
+  actionsState.date_from = dateFrom || null;
+  actionsState.date_to = dateTo || null;
+  actionsState.search = String(document.getElementById("actionsSearch")?.value || "").trim();
+  actionsState.page = 1;
+  await loadActions();
+}
+
+async function resetActionsFilters() {
+  actionsState.action_type = "all";
+  actionsState.actor = "all";
+  actionsState.date_from = null;
+  actionsState.date_to = null;
+  actionsState.search = "";
+  const actionTypeSelect = document.getElementById("actionsFilterActionType");
+  if (actionTypeSelect) actionTypeSelect.value = "all";
+  const actorSelect = document.getElementById("actionsFilterActor");
+  if (actorSelect) actorSelect.value = "all";
+  const dateFromInput = document.getElementById("actionsDateFrom");
+  if (dateFromInput) dateFromInput.value = "";
+  const dateToInput = document.getElementById("actionsDateTo");
+  if (dateToInput) dateToInput.value = "";
+  const searchInput = document.getElementById("actionsSearch");
+  if (searchInput) searchInput.value = "";
+  actionsState.page = 1;
+  await loadActions();
+}
+
+function exportActions(format) {
+  const exportFormat = String(format || "csv").toLowerCase();
+  if (!["csv", "xlsx"].includes(exportFormat)) return;
+  const query = new URLSearchParams();
+  query.set("format", exportFormat);
+  if (actionsState.action_type && actionsState.action_type !== "all") query.set("action_type", actionsState.action_type);
+  if (actionsState.actor && actionsState.actor !== "all") query.set("actor", actionsState.actor);
+  if (actionsState.date_from) query.set("date_from", String(actionsState.date_from));
+  if (actionsState.date_to) query.set("date_to", String(actionsState.date_to));
+  const search = String(actionsState.search || "").trim();
+  if (search) query.set("search", search);
+  window.location.href = "/api/admin/actions/export?" + query.toString();
 }
 
 
