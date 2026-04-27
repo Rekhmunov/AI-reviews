@@ -17,25 +17,14 @@
     </div>
 
     <div id="superAdminAiPanel" class="panel hidden">
-      <h3>ИИ-классификатор отзывов</h3>
+      <h3>Подключение ИИ</h3>
       <div class="row">
-        <select id="provider">
-          <option value="rules">встроенные правила</option>
-          <option value="yandex">Яндекс: интерфейс моделей</option>
-        </select>
-        <input id="apiKey" type="text" size="30" placeholder="Ключ доступа Яндекса" />
-        <input id="folderId" type="text" size="20" placeholder="Идентификатор каталога Яндекса" />
-        <input id="modelUri" type="text" size="30" placeholder="Адрес модели" />
+        <input id="apiKey" type="text" size="34" placeholder="API-ключ Yandex Cloud" />
+        <input id="folderId" type="text" size="24" placeholder="ID каталога (folderId)" />
       </div>
       <div class="row">
         <label for="defaultSyncLookbackDays">Старт синхронизации для новых пользователей (дней до регистрации)</label>
         <input id="defaultSyncLookbackDays" type="number" min="0" max="365" step="1" value="7" />
-      </div>
-      <div class="row table-wrap">
-        <table>
-          <thead><tr><th>Группа отзывов</th><th>Кто обрабатывает</th></tr></thead>
-          <tbody id="groupProcessorsTbody"></tbody>
-        </table>
       </div>
       <div class="row">
         <button onclick="saveAiSettings()">Сохранить</button>
@@ -245,6 +234,6 @@
     </div>
   </div>
 
-  <script src="/static/admin.js?v=11"></script>
+  <script src="/static/admin.js?v=12"></script>
 </body>
 </html>

@@ -73,18 +73,6 @@ const conversationStatusLabels = {
   waiting: "ожидает",
   closed: "закрыт",
 };
-const groupTitles = {
-  positive: "Позитив",
-  product_dissatisfaction: "Недовольство товаром",
-  delivery_problems: "Проблемы при доставке",
-  wrong_size: "Неправильный размер",
-  tagged_reviews: "Отзывы с тегами",
-  textless_ratings: "Оценки без текста",
-};
-const processorLabels = {
-  yandex: "Яндекс",
-  program: "Программа",
-};
 const tenantRoleLabels = {
   admin: "администратор кабинета",
   feedback_manager: "менеджер обратной связи",
@@ -94,6 +82,7 @@ const TENANT_ROLE_VALUES = ["feedback_manager", "admin"];
 
 const adminState = {
   context: null,
+  hasYandexApiKey: false,
 };
 const defaultTemplatesState = {
   items: [],
@@ -284,27 +273,6 @@ function setUsersInfo(message, isError = false) {
   info.style.color = isError ? "#b91c1c" : "";
 }
 
-function renderGroupProcessors(modes) {
-  const tbody = document.getElementById("groupProcessorsTbody");
-  if (!tbody) return;
-  tbody.innerHTML = "";
-  const entries = Object.entries(groupTitles);
-  for (const [groupId, title] of entries) {
-    const selectedMode = String((modes || {})[groupId] || (groupId === "tagged_reviews" || groupId === "textless_ratings" ? "program" : "yandex"));
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${esc(title)}</td>
-      <td>
-        <select data-group-id="${esc(groupId)}" class="group-processor-select">
-          <option value="yandex" ${selectedMode === "yandex" ? "selected" : ""}>${esc(processorLabels.yandex)}</option>
-          <option value="program" ${selectedMode === "program" ? "selected" : ""}>${esc(processorLabels.program)}</option>
-        </select>
-      </td>
-    `;
-    tbody.appendChild(tr);
-  }
-}
-
 async function loadAiSettings() {
   const res = await fetch("/api/admin/ai-settings");
   const data = await res.json();
@@ -312,11 +280,15 @@ async function loadAiSettings() {
     document.getElementById("aiInfo").textContent = data.detail || "Ошибка";
     return;
   }
-  document.getElementById("provider").value = data.provider || "rules";
-  document.getElementById("apiKey").value = "";
+  adminState.hasYandexApiKey = Boolean(data.has_yandex_api_key);
+  const apiKeyInput = document.getElementById("apiKey");
+  if (apiKeyInput) {
+    apiKeyInput.value = "";
+    apiKeyInput.placeholder = adminState.hasYandexApiKey
+      ? "API-ключ Yandex Cloud (ключ уже сохранен)"
+      : "API-ключ Yandex Cloud";
+  }
   document.getElementById("folderId").value = data.yandex_folder_id || "";
-  document.getElementById("modelUri").value = data.yandex_model_uri || "";
-  renderGroupProcessors(data.group_processors || {});
   const lookbackInput = document.getElementById("defaultSyncLookbackDays");
   if (lookbackInput) {
     const lookback = Number(data.default_sync_lookback_days || 7);
@@ -335,24 +307,32 @@ async function saveAiSettings() {
     aiInfo.textContent = "Сохраняем настройки...";
     aiInfo.style.color = "";
   }
-  const groupProcessors = {};
-  document.querySelectorAll(".group-processor-select").forEach((element) => {
-    const groupId = String(element.getAttribute("data-group-id") || "").trim();
-    const mode = String(element.value || "").trim().toLowerCase();
-    if (!groupId) return;
-    if (!["yandex", "program"].includes(mode)) return;
-    groupProcessors[groupId] = mode;
-  });
   const lookbackRaw = Number(document.getElementById("defaultSyncLookbackDays")?.value || "7");
   const defaultSyncLookbackDays = Number.isFinite(lookbackRaw)
     ? Math.max(0, Math.min(365, Math.floor(lookbackRaw)))
     : 7;
+  const apiKey = String(document.getElementById("apiKey")?.value || "").trim();
+  const folderId = String(document.getElementById("folderId")?.value || "").trim();
+  if (!folderId) {
+    if (aiInfo) {
+      aiInfo.textContent = "Укажите folderId для подключения Yandex GPT.";
+      aiInfo.style.color = "#b91c1c";
+    }
+    return;
+  }
+  if (!apiKey && !adminState.hasYandexApiKey) {
+    if (aiInfo) {
+      aiInfo.textContent = "Укажите API-ключ для подключения Yandex GPT.";
+      aiInfo.style.color = "#b91c1c";
+    }
+    return;
+  }
   const payload = {
-    provider: document.getElementById("provider").value,
-    yandex_api_key: document.getElementById("apiKey").value.trim() || null,
-    yandex_folder_id: document.getElementById("folderId").value.trim() || null,
-    yandex_model_uri: document.getElementById("modelUri").value.trim() || null,
-    group_processors: groupProcessors,
+    provider: "yandex",
+    yandex_api_key: apiKey || null,
+    yandex_folder_id: folderId,
+    yandex_model_uri: null,
+    group_processors: null,
     use_sync_start_date: false,
     sync_start_date: null,
     default_sync_lookback_days: defaultSyncLookbackDays,
