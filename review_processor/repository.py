@@ -3370,6 +3370,8 @@ class ReviewRepository:
         kind: str | None = None,
         status: str | None = None,
         statuses: list[str] | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
         sort: str = "newest",
         page: int = 1,
         page_size: int = 30,
@@ -3383,6 +3385,18 @@ class ReviewRepository:
         if kind:
             base_clauses.append("kind = ?")
             base_params.append(kind)
+        if date_from:
+            if self.is_postgres:
+                base_clauses.append("updated_at::date >= ?::date")
+            else:
+                base_clauses.append("substr(updated_at, 1, 10) >= ?")
+            base_params.append(date_from)
+        if date_to:
+            if self.is_postgres:
+                base_clauses.append("updated_at::date <= ?::date")
+            else:
+                base_clauses.append("substr(updated_at, 1, 10) <= ?")
+            base_params.append(date_to)
 
         view_clauses = list(base_clauses)
         view_params = list(base_params)

@@ -162,17 +162,36 @@
               <button id="adminClearConversationsBtn" class="secondary hidden" onclick="clearAllConversations()">Очистить вопросы/чаты</button>
             </div>
             <div class="reviews-quick-controls">
-              <select id="conversationKindFilter" onchange="applyConversationFilters()">
-                <option value="all">Тип: все</option>
-                <option value="question">Вопрос</option>
-                <option value="chat">Чат</option>
+              <select id="conversationSortFilter">
+                <option value="newest">Сначала новые</option>
+                <option value="oldest">Сначала старые</option>
               </select>
-              <select id="conversationStatusFilter" onchange="applyConversationFilters()">
-                <option value="all">Статус: все</option>
-                <option value="open">Открыт</option>
-                <option value="waiting">Ожидает</option>
-                <option value="closed">Закрыт</option>
-              </select>
+              <div id="conversationsDateWrap" class="reviews-date-wrap">
+                <button type="button" id="conversationsDateFilterBtn" class="secondary" onclick="toggleConversationsDateFilterPanel()">
+                  Период: все даты
+                </button>
+                <div id="conversationsDateFilterPanel" class="reviews-date-panel hidden">
+                  <div class="reviews-date-presets">
+                    <button type="button" class="secondary" onclick="setConversationsDatePreset('today')">Сегодня</button>
+                    <button type="button" class="secondary" onclick="setConversationsDatePreset('yesterday')">Вчера</button>
+                    <button type="button" class="secondary" onclick="setConversationsDatePreset('last_week')">Последняя неделя</button>
+                    <button type="button" class="secondary" onclick="setConversationsDatePreset('last_7_days')">Последние 7 дней</button>
+                    <button type="button" class="secondary" onclick="setConversationsDatePreset('last_30_days')">Последние 30 дней</button>
+                    <button type="button" class="secondary" onclick="setConversationsDatePreset('last_month')">Последний месяц</button>
+                    <button type="button" class="secondary" onclick="setConversationsDatePreset('last_3_months')">Последние 3 месяца</button>
+                    <button type="button" class="secondary" onclick="setConversationsDatePreset('last_year')">Последний год</button>
+                  </div>
+                  <div class="reviews-date-controls">
+                    <label>С <input id="conversationsDateFrom" type="date" /></label>
+                    <label>По <input id="conversationsDateTo" type="date" /></label>
+                    <div class="row">
+                      <button type="button" onclick="applyConversationsDateFilter()">Применить период</button>
+                      <button type="button" class="secondary" onclick="clearConversationsDateFilter()">Сбросить</button>
+                      <button type="button" class="secondary" onclick="toggleConversationsDateFilterPanel(false)">Закрыть</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
               <button
                 type="button"
                 id="conversationsFiltersBtn"
@@ -186,6 +205,9 @@
           </div>
           <div id="conversationsFiltersPanel" class="reviews-filters-panel hidden">
             <div class="row">
+            <select id="conversationPanelSourceFilter">
+              <option value="all">Источник: все</option>
+            </select>
               <select id="conversationPanelKindFilter">
                 <option value="all">Тип: все</option>
                 <option value="question">Вопрос</option>

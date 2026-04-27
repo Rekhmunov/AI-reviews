@@ -53,6 +53,8 @@ const conversationsState = {
   pages: 1,
   bucket: "new",
   sort: "newest",
+  date_from: null,
+  date_to: null,
   source: "all",
   status: "all",
   kind: "all",
@@ -315,6 +317,30 @@ function setSourceFilterOptions(options) {
   }
 }
 
+function setConversationSourceFilterOptions(options) {
+  const select = document.getElementById("conversationPanelSourceFilter");
+  if (!select) return;
+  const current = String(conversationsState.source || "all");
+  select.innerHTML = "";
+  const defaultOption = document.createElement("option");
+  defaultOption.value = "all";
+  defaultOption.textContent = "Источник: все";
+  select.appendChild(defaultOption);
+  for (const item of options || []) {
+    const value = String(item || "").trim();
+    if (!value) continue;
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = `Источник: ${value.toUpperCase()}`;
+    select.appendChild(opt);
+  }
+  select.value = current;
+  if (!Array.from(select.options).some((item) => item.value === current)) {
+    select.value = "all";
+    conversationsState.source = "all";
+  }
+}
+
 function toggleReviewsFiltersPanel(forceOpen) {
   const panel = document.getElementById("reviewsFiltersPanel");
   if (!panel) return;
@@ -468,6 +494,150 @@ function setReviewsDatePreset(preset) {
   const toInput = document.getElementById("reviewsDateTo");
   if (fromInput) fromInput.value = fromValue;
   if (toInput) toInput.value = toValue;
+}
+
+function setDefaultConversationsDateRange(force) {
+  if (!force && conversationsState.date_from && conversationsState.date_to) return;
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const monthAgo = new Date(today);
+  monthAgo.setMonth(monthAgo.getMonth() - 1);
+  conversationsState.date_from = dateToInputValue(monthAgo);
+  conversationsState.date_to = dateToInputValue(today);
+  const fromInput = document.getElementById("conversationsDateFrom");
+  const toInput = document.getElementById("conversationsDateTo");
+  if (fromInput) fromInput.value = conversationsState.date_from;
+  if (toInput) toInput.value = conversationsState.date_to;
+}
+
+function updateConversationsDateFilterButton() {
+  const btn = document.getElementById("conversationsDateFilterBtn");
+  if (!btn) return;
+  const from = conversationsState.date_from;
+  const to = conversationsState.date_to;
+  if (from && to) {
+    btn.textContent = `${inputValueToRuDate(from)} - ${inputValueToRuDate(to)}`;
+    return;
+  }
+  if (from) {
+    btn.textContent = `С ${inputValueToRuDate(from)}`;
+    return;
+  }
+  if (to) {
+    btn.textContent = `До ${inputValueToRuDate(to)}`;
+    return;
+  }
+  btn.textContent = "Период: все даты";
+}
+
+function toggleConversationsDateFilterPanel(forceOpen) {
+  const panel = document.getElementById("conversationsDateFilterPanel");
+  if (!panel) return;
+  if (forceOpen === false) {
+    panel.classList.add("hidden");
+    return;
+  }
+  const shouldOpen = forceOpen === true ? true : panel.classList.contains("hidden");
+  panel.classList.toggle("hidden", !shouldOpen);
+  if (!shouldOpen) return;
+  toggleConversationsFiltersPanel(false);
+  const fromInput = document.getElementById("conversationsDateFrom");
+  const toInput = document.getElementById("conversationsDateTo");
+  if (fromInput) fromInput.value = conversationsState.date_from || "";
+  if (toInput) toInput.value = conversationsState.date_to || "";
+}
+
+function applyConversationsDateFilter() {
+  const fromInput = document.getElementById("conversationsDateFrom");
+  const toInput = document.getElementById("conversationsDateTo");
+  const from = String(fromInput?.value || "").trim();
+  const to = String(toInput?.value || "").trim();
+  if (from && to && from > to) {
+    alert("Дата начала не может быть позже даты окончания");
+    return;
+  }
+  conversationsState.date_from = from || null;
+  conversationsState.date_to = to || null;
+  conversationsState.page = 1;
+  updateConversationsDateFilterButton();
+  toggleConversationsDateFilterPanel(false);
+  loadConversations();
+}
+
+function onConversationsDateInputChange() {
+  const panel = document.getElementById("conversationsDateFilterPanel");
+  if (!panel || panel.classList.contains("hidden")) return;
+  applyConversationsDateFilter();
+}
+
+function clearConversationsDateFilter() {
+  setDefaultConversationsDateRange(true);
+  const fromInput = document.getElementById("conversationsDateFrom");
+  const toInput = document.getElementById("conversationsDateTo");
+  if (fromInput) fromInput.value = conversationsState.date_from || "";
+  if (toInput) toInput.value = conversationsState.date_to || "";
+  conversationsState.page = 1;
+  updateConversationsDateFilterButton();
+  loadConversations();
+}
+
+function setConversationsDatePreset(preset) {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  let fromDate = null;
+  let toDate = new Date(today);
+
+  if (preset === "today") {
+    fromDate = new Date(today);
+  } else if (preset === "yesterday") {
+    fromDate = new Date(today);
+    fromDate.setDate(fromDate.getDate() - 1);
+    toDate = new Date(fromDate);
+  } else if (preset === "last_week") {
+    const currentDay = today.getDay();
+    const diffFromMonday = (currentDay + 6) % 7;
+    const currentWeekMonday = new Date(today);
+    currentWeekMonday.setDate(currentWeekMonday.getDate() - diffFromMonday);
+    fromDate = new Date(currentWeekMonday);
+    fromDate.setDate(fromDate.getDate() - 7);
+    toDate = new Date(currentWeekMonday);
+    toDate.setDate(toDate.getDate() - 1);
+  } else if (preset === "last_7_days") {
+    fromDate = new Date(today);
+    fromDate.setDate(fromDate.getDate() - 6);
+  } else if (preset === "last_30_days") {
+    fromDate = new Date(today);
+    fromDate.setDate(fromDate.getDate() - 29);
+  } else if (preset === "last_month") {
+    const currentMonthFirstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+    fromDate = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    toDate = new Date(currentMonthFirstDay);
+    toDate.setDate(0);
+  } else if (preset === "last_3_months") {
+    fromDate = new Date(today);
+    fromDate.setMonth(fromDate.getMonth() - 3);
+    fromDate.setDate(fromDate.getDate() + 1);
+  } else if (preset === "last_year") {
+    fromDate = new Date(today);
+    fromDate.setFullYear(fromDate.getFullYear() - 1);
+    fromDate.setDate(fromDate.getDate() + 1);
+  } else {
+    return;
+  }
+
+  const fromValue = fromDate ? dateToInputValue(fromDate) : "";
+  const toValue = toDate ? dateToInputValue(toDate) : "";
+  const fromInput = document.getElementById("conversationsDateFrom");
+  const toInput = document.getElementById("conversationsDateTo");
+  if (fromInput) fromInput.value = fromValue;
+  if (toInput) toInput.value = toValue;
+}
+
+function onConversationsSortChange() {
+  const sortValue = String(document.getElementById("conversationSortFilter")?.value || "newest");
+  conversationsState.sort = sortValue;
+  conversationsState.page = 1;
+  loadConversations();
 }
 
 function onReviewsSortChange() {
@@ -794,15 +964,26 @@ async function loadReviews() {
 }
 
 async function loadConversations() {
-  const kind = String(document.getElementById("conversationKindFilter")?.value || conversationsState.kind || "all");
-  const status = String(
-    document.getElementById("conversationStatusFilter")?.value || conversationsState.status || "all",
+  const source = String(
+    document.getElementById("conversationPanelSourceFilter")?.value || conversationsState.source || "all",
   );
+  const kind = String(document.getElementById("conversationPanelKindFilter")?.value || conversationsState.kind || "all");
+  const status = String(
+    document.getElementById("conversationPanelStatusFilter")?.value || conversationsState.status || "all",
+  );
+  conversationsState.source = source;
+  conversationsState.kind = kind;
+  conversationsState.status = status;
+  const sort = String(document.getElementById("conversationSortFilter")?.value || conversationsState.sort || "newest");
+  conversationsState.sort = sort;
   const query = new URLSearchParams();
+  if (source && source !== "all") query.set("source", source);
   if (kind && kind !== "all") query.set("kind", kind);
   if (status && status !== "all") query.set("status", status);
+  if (conversationsState.date_from) query.set("date_from", conversationsState.date_from);
+  if (conversationsState.date_to) query.set("date_to", conversationsState.date_to);
   query.set("bucket", conversationsState.bucket || "new");
-  query.set("sort", conversationsState.sort || "newest");
+  query.set("sort", sort);
   query.set("page", String(conversationsState.page || 1));
   query.set("page_size", String(conversationsState.page_size || 30));
   const res = await fetch("/api/conversations?" + query.toString());
@@ -839,17 +1020,21 @@ async function loadConversations() {
   conversationsState.page = Number(data.page || 1);
   conversationsState.pages = Number(data.pages || 1);
   conversationsState.sort = String(data.sort || conversationsState.sort || "newest");
+  conversationsState.date_from = data.date_from || conversationsState.date_from || null;
+  conversationsState.date_to = data.date_to || conversationsState.date_to || null;
+  conversationsState.source = String(data.source || conversationsState.source || "all");
   conversationsState.kind = String(data.kind || conversationsState.kind || "all");
   conversationsState.status = String(data.status || conversationsState.status || "all");
-
-  const kindFilter = document.getElementById("conversationKindFilter");
-  if (kindFilter) kindFilter.value = conversationsState.kind || "all";
-  const statusFilter = document.getElementById("conversationStatusFilter");
-  if (statusFilter) statusFilter.value = conversationsState.status || "all";
+  setConversationSourceFilterOptions(data.source_options || []);
+  const sortFilter = document.getElementById("conversationSortFilter");
+  if (sortFilter) sortFilter.value = conversationsState.sort || "newest";
+  const panelSourceFilter = document.getElementById("conversationPanelSourceFilter");
+  if (panelSourceFilter) panelSourceFilter.value = conversationsState.source || "all";
   const panelKindFilter = document.getElementById("conversationPanelKindFilter");
   if (panelKindFilter) panelKindFilter.value = conversationsState.kind || "all";
   const panelStatusFilter = document.getElementById("conversationPanelStatusFilter");
   if (panelStatusFilter) panelStatusFilter.value = conversationsState.status || "all";
+  updateConversationsDateFilterButton();
 
   document.getElementById("conversationsPageInfo").textContent =
     `Страница ${conversationsState.page} из ${conversationsState.pages}`;
@@ -905,28 +1090,20 @@ function toggleConversationsFiltersPanel(forceOpen) {
   const shouldOpen = forceOpen === true ? true : panel.classList.contains("hidden");
   panel.classList.toggle("hidden", !shouldOpen);
   if (!shouldOpen) return;
+  toggleConversationsDateFilterPanel(false);
+  const sourceSelect = document.getElementById("conversationPanelSourceFilter");
   const kindSelect = document.getElementById("conversationPanelKindFilter");
   const statusSelect = document.getElementById("conversationPanelStatusFilter");
+  if (sourceSelect) sourceSelect.value = conversationsState.source || "all";
   if (kindSelect) kindSelect.value = conversationsState.kind || "all";
   if (statusSelect) statusSelect.value = conversationsState.status || "all";
 }
 
-function applyConversationFilters() {
-  const kind = String(document.getElementById("conversationKindFilter")?.value || "all");
-  const status = String(document.getElementById("conversationStatusFilter")?.value || "all");
-  conversationsState.kind = kind;
-  conversationsState.status = status;
-  conversationsState.page = 1;
-  loadConversations();
-}
-
 function applyConversationFiltersFromPanel() {
+  const source = String(document.getElementById("conversationPanelSourceFilter")?.value || "all");
   const kind = String(document.getElementById("conversationPanelKindFilter")?.value || "all");
   const status = String(document.getElementById("conversationPanelStatusFilter")?.value || "all");
-  const topKind = document.getElementById("conversationKindFilter");
-  const topStatus = document.getElementById("conversationStatusFilter");
-  if (topKind) topKind.value = kind;
-  if (topStatus) topStatus.value = status;
+  conversationsState.source = source;
   conversationsState.kind = kind;
   conversationsState.status = status;
   conversationsState.page = 1;
@@ -935,14 +1112,13 @@ function applyConversationFiltersFromPanel() {
 }
 
 function resetConversationFilters() {
+  conversationsState.source = "all";
   conversationsState.kind = "all";
   conversationsState.status = "all";
-  const topKind = document.getElementById("conversationKindFilter");
-  const topStatus = document.getElementById("conversationStatusFilter");
+  const panelSource = document.getElementById("conversationPanelSourceFilter");
   const panelKind = document.getElementById("conversationPanelKindFilter");
   const panelStatus = document.getElementById("conversationPanelStatusFilter");
-  if (topKind) topKind.value = "all";
-  if (topStatus) topStatus.value = "all";
+  if (panelSource) panelSource.value = "all";
   if (panelKind) panelKind.value = "all";
   if (panelStatus) panelStatus.value = "all";
   conversationsState.page = 1;
@@ -1745,10 +1921,19 @@ document.addEventListener("DOMContentLoaded", () => {
     sortFilter.value = reviewsState.sort;
     sortFilter.addEventListener("change", onReviewsSortChange);
   }
+  const conversationSortFilter = document.getElementById("conversationSortFilter");
+  if (conversationSortFilter) {
+    conversationSortFilter.value = conversationsState.sort;
+    conversationSortFilter.addEventListener("change", onConversationsSortChange);
+  }
   setDefaultReviewsDateRange(false);
+  setDefaultConversationsDateRange(false);
   updateReviewsDateFilterButton();
+  updateConversationsDateFilterButton();
   document.getElementById("reviewsDateFrom")?.addEventListener("change", onReviewsDateInputChange);
   document.getElementById("reviewsDateTo")?.addEventListener("change", onReviewsDateInputChange);
+  document.getElementById("conversationsDateFrom")?.addEventListener("change", onConversationsDateInputChange);
+  document.getElementById("conversationsDateTo")?.addEventListener("change", onConversationsDateInputChange);
   document.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
@@ -1756,6 +1941,16 @@ document.addEventListener("DOMContentLoaded", () => {
     const datePanel = document.getElementById("reviewsDateFilterPanel");
     if (datePanel && !datePanel.classList.contains("hidden") && dateWrap && !dateWrap.contains(target)) {
       toggleReviewsDateFilterPanel(false);
+    }
+    const conversationsDateWrap = document.getElementById("conversationsDateWrap");
+    const conversationsDatePanel = document.getElementById("conversationsDateFilterPanel");
+    if (
+      conversationsDatePanel &&
+      !conversationsDatePanel.classList.contains("hidden") &&
+      conversationsDateWrap &&
+      !conversationsDateWrap.contains(target)
+    ) {
+      toggleConversationsDateFilterPanel(false);
     }
     const filtersPanel = document.getElementById("reviewsFiltersPanel");
     const filtersButton = document.getElementById("reviewsFiltersBtn");

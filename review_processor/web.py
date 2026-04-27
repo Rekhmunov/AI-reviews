@@ -1163,6 +1163,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         source: str | None = None,
         kind: str | None = None,
         status: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
         sort: str = "newest",
         bucket: str = "new",
         page: int = 1,
@@ -1190,6 +1192,16 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         normalized_sort = sort.strip().lower()
         if normalized_sort not in {"newest", "oldest"}:
             normalized_sort = "newest"
+        normalized_date_from = date_from.strip() if date_from else None
+        normalized_date_to = date_to.strip() if date_to else None
+        for date_value in [normalized_date_from, normalized_date_to]:
+            if date_value:
+                try:
+                    datetime.strptime(date_value, "%Y-%m-%d")
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail="Неверный формат даты. Ожидается YYYY-MM-DD") from exc
+        if normalized_date_from and normalized_date_to and normalized_date_from > normalized_date_to:
+            raise HTTPException(status_code=400, detail="Дата начала не может быть позже даты окончания")
         normalized_bucket = bucket.strip().lower()
         if normalized_bucket not in {"all", "new", "processed"}:
             normalized_bucket = "new"
@@ -1200,6 +1212,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             kind=normalized_kind,
             status=normalized_status,
             statuses=None,
+            date_from=normalized_date_from,
+            date_to=normalized_date_to,
             sort=normalized_sort,
             page=max(page, 1),
             page_size=normalized_page_size,
@@ -1217,6 +1231,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "processed_count": page_data["processed_count"],
             "bucket": normalized_bucket,
             "sort": normalized_sort,
+            "date_from": normalized_date_from,
+            "date_to": normalized_date_to,
             "source": normalized_source or "all",
             "status": status_key,
             "kind": normalized_kind or "all",
