@@ -1318,6 +1318,14 @@ function setTeamInfo(message, isError = false) {
   info.style.color = isError ? "#b91c1c" : "";
 }
 
+function setModalVisibility(modalId, visible) {
+  const modal = document.getElementById(modalId);
+  if (!modal) return;
+  modal.classList.toggle("hidden", !visible);
+  modal.style.display = visible ? "flex" : "none";
+  modal.setAttribute("aria-hidden", visible ? "false" : "true");
+}
+
 function updateTeamPermissionsPreview() {
   const preview = document.getElementById("teamPermissionsPreview");
   if (!preview) return;
@@ -1326,8 +1334,7 @@ function updateTeamPermissionsPreview() {
 }
 
 function closeManagerPermissionsModal() {
-  const modal = document.getElementById("managerPermissionsModal");
-  if (modal) modal.classList.add("hidden");
+  setModalVisibility("managerPermissionsModal", false);
   teamState.managerModalUserId = null;
   const info = document.getElementById("managerPermissionsInfo");
   if (info) {
@@ -1449,15 +1456,13 @@ function openTeamManagerModal() {
     setTeamInfo("Доступ к команде есть только у владельца кабинета.", true);
     return;
   }
-  const modal = document.getElementById("teamManagerModal");
-  if (modal) modal.classList.remove("hidden");
+  setModalVisibility("teamManagerModal", true);
   updateTeamPermissionsPreview();
   loadTeam();
 }
 
 function closeTeamManagerModal() {
-  const modal = document.getElementById("teamManagerModal");
-  if (modal) modal.classList.add("hidden");
+  setModalVisibility("teamManagerModal", false);
   closeManagerPermissionsModal();
   teamState.pendingPermissions = [];
   updateTeamPermissionsPreview();
@@ -1509,8 +1514,7 @@ async function openManagerPermissionsModalForCreate() {
   }
   const permissions = Array.isArray(teamState.pendingPermissions) ? teamState.pendingPermissions : [];
   renderManagerPermissionsRows(teamState.accounts, permissions);
-  const modal = document.getElementById("managerPermissionsModal");
-  if (modal) modal.classList.remove("hidden");
+  setModalVisibility("managerPermissionsModal", true);
 }
 
 function applyManagerPermissionsSelection() {
@@ -2243,6 +2247,13 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   onSourceMarketplaceChange();
   setPasswordFieldsVisible(false);
+  setModalVisibility("teamManagerModal", false);
+  setModalVisibility("managerPermissionsModal", false);
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    closeManagerPermissionsModal();
+    closeTeamManagerModal();
+  });
   document.getElementById("ruleCategory")?.addEventListener("change", syncRuleFormFromStore);
   document.getElementById("tplCategory")?.addEventListener("change", syncTemplateFormFromStore);
   loadReviews();
