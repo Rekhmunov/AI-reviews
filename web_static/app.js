@@ -76,6 +76,10 @@ const recommendationsState = {
   rows: [],
 };
 let syncInProgress = false;
+const ACTIVE_SECTION_STORAGE_KEY = "feedpilot_active_section";
+const ACTIVE_SETTINGS_TAB_STORAGE_KEY = "feedpilot_active_settings_tab";
+const SECTION_IDS = ["reviews", "conversations", "analytics", "settings", "profile"];
+const SETTINGS_TAB_IDS = ["sources", "rules", "templates", "recommendations", "template-variables"];
 
 const categoryLabels = {
   positive: "Позитив",
@@ -162,10 +166,26 @@ function canViewSection(section) {
   return true;
 }
 
-function showSection(section) {
+function readStoredUiState(key) {
+  try {
+    return String(window.localStorage.getItem(key) || "");
+  } catch (_error) {
+    return "";
+  }
+}
+
+function writeStoredUiState(key, value) {
+  try {
+    window.localStorage.setItem(key, String(value || ""));
+  } catch (_error) {
+    // noop: localStorage may be unavailable in hardened browser modes.
+  }
+}
+
+function showSection(section, options = {}) {
   if (!canViewSection(section)) return;
-  const ids = ["reviews", "conversations", "analytics", "settings", "profile"];
-  for (const id of ids) {
+  const persist = options.persist !== false;
+  for (const id of SECTION_IDS) {
     const sectionEl = document.getElementById("section-" + id);
     const navEl = document.getElementById("nav-" + id);
     if (sectionEl) sectionEl.classList.add("hidden");
@@ -175,21 +195,24 @@ function showSection(section) {
   const targetNav = document.getElementById("nav-" + section);
   if (targetSection) targetSection.classList.remove("hidden");
   if (targetNav) targetNav.classList.add("active");
+  if (persist) writeStoredUiState(ACTIVE_SECTION_STORAGE_KEY, section);
   if (section === "profile") {
     loadProfile();
   }
 }
 
-function showSettingsTab(tab) {
-  const tabs = ["sources", "rules", "templates", "recommendations", "template-variables"];
-  for (const name of tabs) {
+function showSettingsTab(tab, options = {}) {
+  const persist = options.persist !== false;
+  for (const name of SETTINGS_TAB_IDS) {
     const tabBtn = document.getElementById("settings-tab-" + name);
     const pane = document.getElementById("settings-pane-" + name);
     if (tabBtn) tabBtn.classList.remove("active");
     if (pane) pane.classList.add("hidden");
   }
-  document.getElementById("settings-tab-" + tab).classList.add("active");
-  document.getElementById("settings-pane-" + tab).classList.remove("hidden");
+  if (!SETTINGS_TAB_IDS.includes(tab)) tab = "sources";
+  document.getElementById("settings-tab-" + tab)?.classList.add("active");
+  document.getElementById("settings-pane-" + tab)?.classList.remove("hidden");
+  if (persist) writeStoredUiState(ACTIVE_SETTINGS_TAB_STORAGE_KEY, tab);
   if (tab === "recommendations") {
     loadRecommendations();
   }
@@ -1904,11 +1927,17 @@ document.addEventListener("DOMContentLoaded", () => {
   if (!permissions.can_view_analytics) {
     document.getElementById("section-analytics")?.classList.add("hidden");
   }
+  const savedSettingsTab = readStoredUiState(ACTIVE_SETTINGS_TAB_STORAGE_KEY);
+  const initialSettingsTab = SETTINGS_TAB_IDS.includes(savedSettingsTab) ? savedSettingsTab : "sources";
   if (!permissions.can_view_settings) {
     document.getElementById("section-settings")?.classList.add("hidden");
   } else {
-    showSettingsTab("sources");
+    showSettingsTab(initialSettingsTab, { persist: false });
   }
+  const savedSection = readStoredUiState(ACTIVE_SECTION_STORAGE_KEY);
+  let initialSection = SECTION_IDS.includes(savedSection) ? savedSection : "reviews";
+  if (!canViewSection(initialSection)) initialSection = "reviews";
+  showSection(initialSection, { persist: false });
   if (permissions.is_admin) {
     document.getElementById("adminStopSyncBtn")?.classList.remove("hidden");
     document.getElementById("adminClearReviewsBtn")?.classList.remove("hidden");
