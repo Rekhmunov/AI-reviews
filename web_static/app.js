@@ -2167,7 +2167,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const permissions = getPermissions();
   const teamButton = document.getElementById("settings-open-team-btn");
   if (teamButton) {
-    teamButton.classList.toggle("hidden", !isTenantOwner());
+    const visible = isTenantOwner();
+    teamButton.classList.toggle("hidden", !visible);
+    teamButton.style.display = visible ? "" : "none";
   }
   if (!permissions.can_view_analytics) {
     document.getElementById("section-analytics")?.classList.add("hidden");

@@ -280,7 +280,7 @@
             <button id="settings-tab-rules" class="settings-tab-btn" onclick="showSettingsTab('rules')">Правила обработки</button>
             <button id="settings-tab-templates" class="settings-tab-btn" onclick="showSettingsTab('templates')">Шаблоны</button>
             <button id="settings-tab-recommendations" class="settings-tab-btn" onclick="showSettingsTab('recommendations')">Рекомендации</button>
-            <button id="settings-open-team-btn" class="settings-tab-btn hidden" type="button" onclick="openTeamManagerModal()">Команда</button>
+            <button id="settings-open-team-btn" class="settings-tab-btn {{TEAM_BUTTON_HIDDEN_CLASS}}" type="button" onclick="openTeamManagerModal()">Команда</button>
           </div>
         </div>
 
@@ -528,6 +528,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=8"></script>
+  <script src="/static/app.js?v=9"></script>
 </body>
 </html>

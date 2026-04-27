@@ -452,7 +452,7 @@ ROLE_USER = "user"
 ROLE_FEEDBACK_MANAGER = "feedback_manager"
 ROLE_CAN_ACCESS_ANALYTICS = {ROLE_ADMIN, ROLE_USER}
 ROLE_CAN_ACCESS_SETTINGS = {ROLE_ADMIN, ROLE_USER}
-ROLE_ASSIGNABLE_BY_ADMIN = {ROLE_ADMIN, ROLE_USER, ROLE_FEEDBACK_MANAGER}
+ROLE_ASSIGNABLE_BY_ADMIN = {ROLE_USER, ROLE_FEEDBACK_MANAGER}
 TENANT_ROLE_OWNER = "admin"
 TENANT_ROLE_MANAGER = "feedback_manager"
 SESSION_TTL_SECONDS = 30 * 24 * 60 * 60
@@ -467,8 +467,10 @@ FAILED_LOGIN_LIMIT_PER_15_MIN = 10
 
 def _normalize_role(raw_role: object) -> str:
     role = str(raw_role or "").strip().lower()
-    if role in {ROLE_ADMIN, ROLE_USER}:
+    if role == ROLE_ADMIN:
         return ROLE_ADMIN
+    if role == ROLE_USER:
+        return ROLE_USER
     if role == ROLE_FEEDBACK_MANAGER:
         return ROLE_FEEDBACK_MANAGER
     return ROLE_USER
