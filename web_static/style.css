@@ -873,6 +873,14 @@ button.secondary.danger:hover {
   font-size: 16px;
 }
 
+.conversations-filters-panel {
+  margin-top: 12px;
+  border: 1px solid rgba(147, 197, 253, 0.42);
+  border-radius: 14px;
+  padding: 12px;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.92), rgba(238, 246, 255, 0.82));
+}
+
 .bucket-tab {
   min-height: 38px;
   padding: 8px 14px;

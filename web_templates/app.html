@@ -150,21 +150,59 @@
       </section>
 
       <section id="section-conversations" class="hidden">
-        <div class="panel">
-          <h3>Вопросы и чаты</h3>
-          <div class="row">
-            <select id="conversationKindFilter">
-              <option value="">тип: все</option>
-              <option value="question">вопрос</option>
-              <option value="chat">чат</option>
-            </select>
-            <select id="conversationStatusFilter">
-              <option value="">статус: все</option>
-              <option value="open">открыт</option>
-              <option value="waiting">ожидает</option>
-              <option value="closed">закрыт</option>
-            </select>
-            <button class="secondary" onclick="loadConversations()">Обновить</button>
+        <h3 class="reviews-heading">Вопросы и чаты</h3>
+        <div class="row reviews-sync-row">
+          <span id="conversationsInfo" class="small"></span>
+        </div>
+        <div class="panel reviews-toolbar-panel">
+          <div class="reviews-top-controls">
+            <div class="reviews-buckets">
+              <button id="conversations-tab-new" class="bucket-tab active" onclick="setConversationBucket('new')">Новые вопросы/чаты (0)</button>
+              <button id="conversations-tab-processed" class="bucket-tab" onclick="setConversationBucket('processed')">Обработанные вопросы/чаты (0)</button>
+              <button id="adminClearConversationsBtn" class="secondary hidden" onclick="clearAllConversations()">Очистить вопросы/чаты</button>
+            </div>
+            <div class="reviews-quick-controls">
+              <select id="conversationKindFilter" onchange="applyConversationFilters()">
+                <option value="all">Тип: все</option>
+                <option value="question">Вопрос</option>
+                <option value="chat">Чат</option>
+              </select>
+              <select id="conversationStatusFilter" onchange="applyConversationFilters()">
+                <option value="all">Статус: все</option>
+                <option value="open">Открыт</option>
+                <option value="waiting">Ожидает</option>
+                <option value="closed">Закрыт</option>
+              </select>
+              <button
+                type="button"
+                id="conversationsFiltersBtn"
+                class="secondary reviews-filter-icon-btn"
+                title="Фильтры"
+                onclick="toggleConversationsFiltersPanel()"
+              >
+                ⛃
+              </button>
+            </div>
+          </div>
+          <div id="conversationsFiltersPanel" class="reviews-filters-panel hidden">
+            <div class="row">
+              <select id="conversationPanelKindFilter">
+                <option value="all">Тип: все</option>
+                <option value="question">Вопрос</option>
+                <option value="chat">Чат</option>
+              </select>
+              <select id="conversationPanelStatusFilter">
+                <option value="all">Статус: все</option>
+                <option value="open">Открыт</option>
+                <option value="waiting">Ожидает</option>
+                <option value="closed">Закрыт</option>
+              </select>
+            </div>
+            <div class="row">
+              <button type="button" onclick="applyConversationFiltersFromPanel()">Применить фильтры</button>
+              <button type="button" class="secondary" onclick="resetConversationFilters()">Сбросить</button>
+              <button type="button" class="secondary" onclick="toggleConversationsFiltersPanel(false)">Закрыть</button>
+            </div>
           </div>
         </div>
         <div class="panel">
@@ -177,6 +215,22 @@
             </thead>
             <tbody id="conversationsTbody"></tbody>
             </table>
+          </div>
+          <div class="row reviews-pagination-row">
+            <div class="row">
+              <span class="small">Показывать на странице:</span>
+              <select id="conversationsPageSize" onchange="onConversationsPageSizeChange()">
+                <option value="10">10</option>
+                <option value="30" selected>30</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+              </select>
+            </div>
+            <div class="row">
+              <button class="secondary" id="conversationsPrevPageBtn" onclick="changeConversationsPage(-1)">Назад</button>
+              <span id="conversationsPageInfo" class="small">Страница 1 из 1</span>
+              <button class="secondary" id="conversationsNextPageBtn" onclick="changeConversationsPage(1)">Вперед</button>
+            </div>
           </div>
         </div>
       </section>

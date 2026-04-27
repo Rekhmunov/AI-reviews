@@ -3349,26 +3349,136 @@ class ReviewRepository:
         status: str | None = None,
         limit: int = 200,
     ) -> list[dict[str, Any]]:
-        clauses = ["user_id = ?"]
-        params: list[Any] = [user_id]
-        if kind:
-            clauses.append("kind = ?")
-            params.append(kind)
-        if status:
-            clauses.append("status = ?")
-            params.append(status)
+        page_data = self.list_conversations_paginated(
+            user_id=user_id,
+            source=None,
+            kind=kind,
+            status=status,
+            statuses=None,
+            sort="newest",
+            page=1,
+            page_size=limit,
+            bucket="all",
+        )
+        return list(page_data["items"])
 
-        query = f"SELECT * FROM conversation_items WHERE {' AND '.join(clauses)} ORDER BY updated_at DESC LIMIT ?"
-        params.append(limit)
+    def list_conversations_paginated(
+        self,
+        *,
+        user_id: int,
+        source: str | None = None,
+        kind: str | None = None,
+        status: str | None = None,
+        statuses: list[str] | None = None,
+        sort: str = "newest",
+        page: int = 1,
+        page_size: int = 30,
+        bucket: str = "all",
+    ) -> dict[str, Any]:
+        base_clauses: list[str] = ["user_id = ?"]
+        base_params: list[Any] = [user_id]
+        if source:
+            base_clauses.append("source = ?")
+            base_params.append(source)
+        if kind:
+            base_clauses.append("kind = ?")
+            base_params.append(kind)
+
+        view_clauses = list(base_clauses)
+        view_params = list(base_params)
+        status_values = [str(item).strip() for item in (statuses or []) if str(item).strip()]
+        if status_values:
+            placeholders = ", ".join("?" for _ in status_values)
+            view_clauses.append(f"status IN ({placeholders})")
+            view_params.extend(status_values)
+        elif status:
+            view_clauses.append("status = ?")
+            view_params.append(status)
+        elif bucket == "new":
+            view_clauses.append("status = 'open'")
+        elif bucket == "processed":
+            view_clauses.append("status IN ('waiting', 'closed')")
+
+        safe_page = max(page, 1)
+        safe_page_size = min(max(page_size, 1), 500)
+        where_base = " AND ".join(base_clauses)
+        where_view = " AND ".join(view_clauses)
+        order_by_map = {
+            "newest": "updated_at DESC",
+            "oldest": "updated_at ASC",
+        }
+        order_by = order_by_map.get(sort.strip().lower(), order_by_map["newest"])
+
         with self._connect() as conn:
-            rows = conn.execute(query, tuple(params)).fetchall()
-        result: list[dict[str, Any]] = []
+            total_row = conn.execute(
+                f"SELECT COUNT(*) AS c FROM conversation_items WHERE {where_view}",
+                tuple(view_params),
+            ).fetchone()
+            total = int(total_row["c"]) if total_row else 0
+            pages = max((total + safe_page_size - 1) // safe_page_size, 1)
+            safe_page = min(safe_page, pages)
+            offset = (safe_page - 1) * safe_page_size
+            new_row = conn.execute(
+                f"""
+                SELECT COUNT(*) AS c
+                FROM conversation_items
+                WHERE {where_base}
+                  AND status = 'open'
+                """,
+                tuple(base_params),
+            ).fetchone()
+            processed_row = conn.execute(
+                f"""
+                SELECT COUNT(*) AS c
+                FROM conversation_items
+                WHERE {where_base}
+                  AND status IN ('waiting', 'closed')
+                """,
+                tuple(base_params),
+            ).fetchone()
+            rows = conn.execute(
+                f"""
+                SELECT *
+                FROM conversation_items
+                WHERE {where_view}
+                ORDER BY {order_by}
+                LIMIT ? OFFSET ?
+                """,
+                tuple([*view_params, safe_page_size, offset]),
+            ).fetchall()
+        items: list[dict[str, Any]] = []
         for row in rows:
             data = dict(row)
             raw = data.pop("metadata_json", "{}")
             data["metadata"] = _json_load(raw, {})
-            result.append(data)
-        return result
+            items.append(data)
+        return {
+            "items": items,
+            "total": total,
+            "page": safe_page,
+            "page_size": safe_page_size,
+            "pages": pages,
+            "new_count": int(new_row["c"]) if new_row else 0,
+            "processed_count": int(processed_row["c"]) if processed_row else 0,
+        }
+
+    def list_conversation_sources(self, *, user_id: int) -> list[str]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT DISTINCT source
+                FROM conversation_items
+                WHERE user_id = ?
+                ORDER BY source ASC
+                """,
+                (user_id,),
+            ).fetchall()
+        return [str(row["source"]) for row in rows if row["source"] is not None and str(row["source"]).strip()]
+
+    def clear_conversations(self, *, user_id: int) -> int:
+        with self._connect() as conn:
+            result = conn.execute("DELETE FROM conversation_items WHERE user_id = ?", (user_id,))
+        return int(result.rowcount or 0)
 
     def update_conversation_status(self, *, user_id: int, conversation_uid: str, status: str) -> bool:
         with self._connect() as conn:

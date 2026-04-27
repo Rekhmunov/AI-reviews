@@ -382,6 +382,10 @@ class ClearReviewsRequest(BaseModel):
     user_id: int | None = None
 
 
+class ClearConversationsRequest(BaseModel):
+    user_id: int | None = None
+
+
 class TemplateSubgroupSaveRequest(BaseModel):
     templates: list[str] = Field(default_factory=list)
 
@@ -1156,16 +1160,68 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.get("/api/conversations")
     def list_conversations(
         request: Request,
+        source: str | None = None,
         kind: str | None = None,
         status: str | None = None,
+        sort: str = "newest",
+        bucket: str = "new",
+        page: int = 1,
+        page_size: int = 30,
     ) -> dict[str, object]:
         user = _require_user(request)
-        items = repository.list_conversations(
+        normalized_source = (source or "").strip().lower()
+        if not normalized_source or normalized_source == "all":
+            normalized_source = None
+        kind_key = (kind or "").strip().lower()
+        if not kind_key or kind_key == "all":
+            normalized_kind = None
+        elif kind_key in {"question", "chat"}:
+            normalized_kind = kind_key
+        else:
+            raise HTTPException(status_code=400, detail="Тип должен быть: вопрос, чат или все")
+        status_key = (status or "").strip().lower()
+        if not status_key or status_key == "all":
+            normalized_status = None
+            status_key = "all"
+        elif status_key in {"open", "waiting", "closed"}:
+            normalized_status = status_key
+        else:
+            raise HTTPException(status_code=400, detail="Статус должен быть: открыт, ожидает, закрыт или все")
+        normalized_sort = sort.strip().lower()
+        if normalized_sort not in {"newest", "oldest"}:
+            normalized_sort = "newest"
+        normalized_bucket = bucket.strip().lower()
+        if normalized_bucket not in {"all", "new", "processed"}:
+            normalized_bucket = "new"
+        normalized_page_size = page_size if page_size in {10, 30, 50, 100} else 30
+        page_data = repository.list_conversations_paginated(
             user_id=int(user["id"]),
-            kind=kind,
-            status=status,
+            source=normalized_source,
+            kind=normalized_kind,
+            status=normalized_status,
+            statuses=None,
+            sort=normalized_sort,
+            page=max(page, 1),
+            page_size=normalized_page_size,
+            bucket=normalized_bucket,
         )
-        return {"items": items, "count": len(items)}
+        source_options = repository.list_conversation_sources(user_id=int(user["id"]))
+        return {
+            "items": page_data["items"],
+            "count": len(page_data["items"]),
+            "total": page_data["total"],
+            "page": page_data["page"],
+            "page_size": page_data["page_size"],
+            "pages": page_data["pages"],
+            "new_count": page_data["new_count"],
+            "processed_count": page_data["processed_count"],
+            "bucket": normalized_bucket,
+            "sort": normalized_sort,
+            "source": normalized_source or "all",
+            "status": status_key,
+            "kind": normalized_kind or "all",
+            "source_options": source_options,
+        }
 
     @app.post("/api/conversations/{conversation_uid}/status")
     def set_conversation_status(
@@ -1192,6 +1248,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             details={"status": status_value},
         )
         return {"ok": True}
+
+    @app.post("/api/admin/conversations-clear")
+    def admin_clear_conversations(request: Request, payload: ClearReviewsRequest) -> dict[str, object]:
+        actor = _require_admin(request)
+        if payload.user_id is None:
+            target_user_id = _tenant_owner_id(actor) if not _is_super_admin(actor) else int(actor["id"])
+        else:
+            target_user_id = int(payload.user_id)
+            _target_user_for_admin_scope(actor=actor, target_user_id=target_user_id)
+        deleted = repository.clear_conversations(user_id=target_user_id)
+        return {"ok": True, "deleted": deleted, "user_id": target_user_id}
 
     @app.get("/api/analytics")
     def user_analytics(request: Request) -> dict[str, object]:
@@ -2292,6 +2359,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             target_user_id = int(payload.user_id)
             _target_user_for_admin_scope(actor=actor, target_user_id=target_user_id)
         deleted = repository.clear_reviews(user_id=target_user_id)
+        return {"ok": True, "deleted": deleted, "user_id": target_user_id}
+
+    @app.post("/api/admin/conversations-clear")
+    def admin_clear_conversations(request: Request, payload: ClearReviewsRequest) -> dict[str, object]:
+        actor = _require_admin(request)
+        if payload.user_id is None:
+            target_user_id = _tenant_owner_id(actor) if not _is_super_admin(actor) else int(actor["id"])
+        else:
+            target_user_id = int(payload.user_id)
+            _target_user_for_admin_scope(actor=actor, target_user_id=target_user_id)
+        deleted = repository.clear_conversations(user_id=target_user_id)
         return {"ok": True, "deleted": deleted, "user_id": target_user_id}
 
     @app.exception_handler(HTTPException)

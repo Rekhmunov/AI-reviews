@@ -47,6 +47,16 @@ const reviewsState = {
   priority: "",
   category: "",
 };
+const conversationsState = {
+  page: 1,
+  page_size: 30,
+  pages: 1,
+  bucket: "new",
+  sort: "newest",
+  source: "all",
+  status: "all",
+  kind: "all",
+};
 const templateGroupsState = {
   items: [],
   currentGroupId: null,
@@ -207,6 +217,29 @@ function changeReviewsPage(delta) {
   if (next < 1 || next > reviewsState.pages) return;
   reviewsState.page = next;
   loadReviews();
+}
+
+function setConversationBucket(bucket) {
+  conversationsState.bucket = bucket;
+  conversationsState.page = 1;
+  document.getElementById("conversations-tab-new")?.classList.toggle("active", bucket === "new");
+  document.getElementById("conversations-tab-processed")?.classList.toggle("active", bucket === "processed");
+  loadConversations();
+}
+
+function onConversationsPageSizeChange() {
+  const raw = Number(document.getElementById("conversationsPageSize")?.value || 30);
+  if (![10, 30, 50, 100].includes(raw)) return;
+  conversationsState.page_size = raw;
+  conversationsState.page = 1;
+  loadConversations();
+}
+
+function changeConversationsPage(delta) {
+  const next = conversationsState.page + delta;
+  if (next < 1 || next > conversationsState.pages) return;
+  conversationsState.page = next;
+  loadConversations();
 }
 
 function dateToInputValue(dateValue) {
@@ -761,15 +794,27 @@ async function loadReviews() {
 }
 
 async function loadConversations() {
-  const kind = document.getElementById("conversationKindFilter").value;
-  const status = document.getElementById("conversationStatusFilter").value;
+  const kind = String(document.getElementById("conversationKindFilter")?.value || conversationsState.kind || "all");
+  const status = String(
+    document.getElementById("conversationStatusFilter")?.value || conversationsState.status || "all",
+  );
   const query = new URLSearchParams();
-  if (kind) query.set("kind", kind);
-  if (status) query.set("status", status);
+  if (kind && kind !== "all") query.set("kind", kind);
+  if (status && status !== "all") query.set("status", status);
+  query.set("bucket", conversationsState.bucket || "new");
+  query.set("sort", conversationsState.sort || "newest");
+  query.set("page", String(conversationsState.page || 1));
+  query.set("page_size", String(conversationsState.page_size || 30));
   const res = await fetch("/api/conversations?" + query.toString());
   const data = await res.json();
   const tbody = document.getElementById("conversationsTbody");
+  const info = document.getElementById("conversationsInfo");
   tbody.innerHTML = "";
+  if (!res.ok) {
+    if (info) info.textContent = "Ошибка: " + (data.detail || "не удалось загрузить вопросы и чаты");
+    return;
+  }
+  if (info) info.textContent = "";
   for (const item of data.items || []) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
@@ -786,6 +831,30 @@ async function loadConversations() {
     `;
     tbody.appendChild(tr);
   }
+  const newCount = Number(data.new_count || 0);
+  const processedCount = Number(data.processed_count || 0);
+  document.getElementById("conversations-tab-new").textContent = `Новые вопросы/чаты (${newCount})`;
+  document.getElementById("conversations-tab-processed").textContent = `Обработанные вопросы/чаты (${processedCount})`;
+
+  conversationsState.page = Number(data.page || 1);
+  conversationsState.pages = Number(data.pages || 1);
+  conversationsState.sort = String(data.sort || conversationsState.sort || "newest");
+  conversationsState.kind = String(data.kind || conversationsState.kind || "all");
+  conversationsState.status = String(data.status || conversationsState.status || "all");
+
+  const kindFilter = document.getElementById("conversationKindFilter");
+  if (kindFilter) kindFilter.value = conversationsState.kind || "all";
+  const statusFilter = document.getElementById("conversationStatusFilter");
+  if (statusFilter) statusFilter.value = conversationsState.status || "all";
+  const panelKindFilter = document.getElementById("conversationPanelKindFilter");
+  if (panelKindFilter) panelKindFilter.value = conversationsState.kind || "all";
+  const panelStatusFilter = document.getElementById("conversationPanelStatusFilter");
+  if (panelStatusFilter) panelStatusFilter.value = conversationsState.status || "all";
+
+  document.getElementById("conversationsPageInfo").textContent =
+    `Страница ${conversationsState.page} из ${conversationsState.pages}`;
+  document.getElementById("conversationsPrevPageBtn").disabled = conversationsState.page <= 1;
+  document.getElementById("conversationsNextPageBtn").disabled = conversationsState.page >= conversationsState.pages;
 }
 
 async function setConversationStatus(conversationUid, status) {
@@ -800,6 +869,101 @@ async function setConversationStatus(conversationUid, status) {
     alert(data.detail || "Ошибка обновления статуса");
     return;
   }
+  await loadConversations();
+}
+
+function setConversationBucket(bucket) {
+  conversationsState.bucket = bucket;
+  conversationsState.page = 1;
+  document.getElementById("conversations-tab-new")?.classList.toggle("active", bucket === "new");
+  document.getElementById("conversations-tab-processed")?.classList.toggle("active", bucket === "processed");
+  loadConversations();
+}
+
+function onConversationsPageSizeChange() {
+  const raw = Number(document.getElementById("conversationsPageSize")?.value || 30);
+  if (![10, 30, 50, 100].includes(raw)) return;
+  conversationsState.page_size = raw;
+  conversationsState.page = 1;
+  loadConversations();
+}
+
+function changeConversationsPage(delta) {
+  const next = conversationsState.page + delta;
+  if (next < 1 || next > conversationsState.pages) return;
+  conversationsState.page = next;
+  loadConversations();
+}
+
+function toggleConversationsFiltersPanel(forceOpen) {
+  const panel = document.getElementById("conversationsFiltersPanel");
+  if (!panel) return;
+  if (forceOpen === false) {
+    panel.classList.add("hidden");
+    return;
+  }
+  const shouldOpen = forceOpen === true ? true : panel.classList.contains("hidden");
+  panel.classList.toggle("hidden", !shouldOpen);
+  if (!shouldOpen) return;
+  const kindSelect = document.getElementById("conversationPanelKindFilter");
+  const statusSelect = document.getElementById("conversationPanelStatusFilter");
+  if (kindSelect) kindSelect.value = conversationsState.kind || "all";
+  if (statusSelect) statusSelect.value = conversationsState.status || "all";
+}
+
+function applyConversationFilters() {
+  const kind = String(document.getElementById("conversationKindFilter")?.value || "all");
+  const status = String(document.getElementById("conversationStatusFilter")?.value || "all");
+  conversationsState.kind = kind;
+  conversationsState.status = status;
+  conversationsState.page = 1;
+  loadConversations();
+}
+
+function applyConversationFiltersFromPanel() {
+  const kind = String(document.getElementById("conversationPanelKindFilter")?.value || "all");
+  const status = String(document.getElementById("conversationPanelStatusFilter")?.value || "all");
+  const topKind = document.getElementById("conversationKindFilter");
+  const topStatus = document.getElementById("conversationStatusFilter");
+  if (topKind) topKind.value = kind;
+  if (topStatus) topStatus.value = status;
+  conversationsState.kind = kind;
+  conversationsState.status = status;
+  conversationsState.page = 1;
+  toggleConversationsFiltersPanel(false);
+  loadConversations();
+}
+
+function resetConversationFilters() {
+  conversationsState.kind = "all";
+  conversationsState.status = "all";
+  const topKind = document.getElementById("conversationKindFilter");
+  const topStatus = document.getElementById("conversationStatusFilter");
+  const panelKind = document.getElementById("conversationPanelKindFilter");
+  const panelStatus = document.getElementById("conversationPanelStatusFilter");
+  if (topKind) topKind.value = "all";
+  if (topStatus) topStatus.value = "all";
+  if (panelKind) panelKind.value = "all";
+  if (panelStatus) panelStatus.value = "all";
+  conversationsState.page = 1;
+  toggleConversationsFiltersPanel(false);
+  loadConversations();
+}
+
+async function clearAllConversations() {
+  if (!confirm("Удалить все вопросы и чаты из текущего кабинета?")) return;
+  const res = await fetch("/api/admin/conversations-clear", {
+    method: "POST",
+    headers: jsonHeaders(),
+    body: JSON.stringify({}),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    alert(data.detail || "Не удалось очистить вопросы и чаты");
+    return;
+  }
+  const info = document.getElementById("conversationsInfo");
+  if (info) info.textContent = `Удалено вопросов/чатов: ${data.deleted || 0}`;
   await loadConversations();
 }
 
@@ -1572,8 +1736,10 @@ document.addEventListener("DOMContentLoaded", () => {
   if (permissions.is_admin) {
     document.getElementById("adminStopSyncBtn")?.classList.remove("hidden");
     document.getElementById("adminClearReviewsBtn")?.classList.remove("hidden");
+    document.getElementById("adminClearConversationsBtn")?.classList.remove("hidden");
   }
   document.getElementById("reviewsPageSize").value = String(reviewsState.page_size);
+  document.getElementById("conversationsPageSize").value = String(conversationsState.page_size);
   const sortFilter = document.getElementById("reviewsSortFilter");
   if (sortFilter) {
     sortFilter.value = reviewsState.sort;
@@ -1601,6 +1767,17 @@ document.addEventListener("DOMContentLoaded", () => {
       !filtersButton.contains(target)
     ) {
       toggleReviewsFiltersPanel(false);
+    }
+    const conversationsFiltersPanel = document.getElementById("conversationsFiltersPanel");
+    const conversationsFiltersButton = document.getElementById("conversationsFiltersBtn");
+    if (
+      conversationsFiltersPanel &&
+      !conversationsFiltersPanel.classList.contains("hidden") &&
+      !conversationsFiltersPanel.contains(target) &&
+      conversationsFiltersButton &&
+      !conversationsFiltersButton.contains(target)
+    ) {
+      toggleConversationsFiltersPanel(false);
     }
   });
   onSourceMarketplaceChange();
