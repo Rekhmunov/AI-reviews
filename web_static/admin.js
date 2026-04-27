@@ -211,16 +211,6 @@ function formatActionDetails(details) {
   return parts.join("; ");
 }
 
-function buildRoleOptions(selectedRole) {
-  const availableRoles = isSuperAdmin() ? ALL_ROLE_VALUES : TENANT_ROLE_VALUES;
-  return availableRoles
-    .map((role) => {
-      const selected = role === selectedRole ? " selected" : "";
-      return `<option value="${role}"${selected}>${esc(roleLabels[role] || role)}</option>`;
-    })
-    .join("");
-}
-
 async function loadAdminContext() {
   const res = await fetch("/api/admin/context");
   const data = await res.json();
@@ -397,18 +387,16 @@ function renderUsers() {
     .join("");
   if (!pageItems.length) {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td colspan="9">Пользователи не найдены</td>`;
+    tr.innerHTML = `<td colspan="8">Пользователи не найдены</td>`;
     tbody.appendChild(tr);
   }
   for (const user of pageItems) {
     const tr = document.createElement("tr");
-    const roleSelectId = `role-select-${user.id}`;
     const passwordInputId = `password-input-${user.id}`;
     const planSelectId = `plan-select-${user.id}`;
     const blocked = Boolean(user.is_blocked);
     const saveIconTitle = "Сохранить изменения в строке";
     const blockIconTitle = blocked ? "Разблокировать пользователя" : "Заблокировать пользователя";
-    const roleLabel = roleLabels[user.role] || user.role || "-";
     const blockedCell = blocked
       ? `<span class="small status-badge status-blocked">заблокирован</span>`
       : `<span class="small status-badge status-active">активен</span>`;
@@ -434,12 +422,6 @@ function renderUsers() {
       <td>${esc(paidUntil)}</td>
       <td>
         <input id="${passwordInputId}" type="password" placeholder="Новый пароль" />
-      </td>
-      <td>
-        <select id="${roleSelectId}">
-          ${buildRoleOptions(user.role)}
-        </select>
-        <div class="small">${esc(roleLabel)}</div>
       </td>
       <td>${blockedCell}</td>
       <td>
@@ -544,11 +526,10 @@ async function nextUsersPage() {
 }
 
 async function saveUserRow(userId) {
-  const role = String(document.getElementById(`role-select-${userId}`)?.value || "").trim();
   const planCode = String(document.getElementById(`plan-select-${userId}`)?.value || "").trim().toLowerCase();
   const password = String(document.getElementById(`password-input-${userId}`)?.value || "");
 
-  const actions = [setRole(userId, role, { silent: true })];
+  const actions = [];
   if (planCode) actions.push(setUserPlan(userId, planCode, { silent: true }));
   if (password) actions.push(setUserPassword(userId, password, { silent: true }));
 
@@ -561,25 +542,6 @@ async function saveUserRow(userId) {
   if (passwordInput) passwordInput.value = "";
   setUsersInfo("Изменения пользователя сохранены.");
   await loadUsers();
-}
-
-async function setRole(userId, role, options = {}) {
-  const { silent = false } = options;
-  const res = await fetch(`/api/admin/users/${userId}/role`, {
-    method: "POST",
-    headers: csrfHeaders({ "Content-Type": "application/json" }),
-    body: JSON.stringify({ role }),
-  });
-  const data = await res.json();
-  if (!res.ok) {
-    if (!silent) setUsersInfo(data.detail || "Ошибка смены роли", true);
-    return false;
-  }
-  if (!silent) {
-    setUsersInfo("Роль пользователя обновлена.");
-    await loadUsers();
-  }
-  return true;
 }
 
 async function setUserPlan(userId, planCode, options = {}) {
