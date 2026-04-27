@@ -2165,6 +2165,10 @@ async function saveProfile() {
 document.addEventListener("DOMContentLoaded", () => {
   document.body.classList.add(APP_BOOT_HIDE_CLASS);
   const permissions = getPermissions();
+  const teamButton = document.getElementById("settings-open-team-btn");
+  if (teamButton) {
+    teamButton.classList.toggle("hidden", !isTenantOwner());
+  }
   if (!permissions.can_view_analytics) {
     document.getElementById("section-analytics")?.classList.add("hidden");
   }
