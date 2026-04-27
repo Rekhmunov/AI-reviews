@@ -267,6 +267,7 @@ class AdminUserCreateRequest(BaseModel):
     email: str = Field(min_length=5, max_length=255)
     password: str = Field(min_length=8, max_length=255)
     role: str = Field(description="user|admin|feedback_manager")
+    plan_code: str = Field(default="starter", min_length=2, max_length=100)
 
 
 class AdminUserPasswordUpdateRequest(BaseModel):
@@ -2076,10 +2077,16 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     status_code=400,
                     detail="Роль должна быть: пользователь, менеджер обратной связи или администратор",
                 )
+            plan_code = payload.plan_code.strip().lower()
+            plans = repository.list_tariff_plans()
+            available_codes = {str(item.get("code") or "").strip().lower() for item in plans if bool(item.get("is_active", True))}
+            if plan_code not in available_codes:
+                raise HTTPException(status_code=400, detail="Выбранный тариф недоступен")
             created = repository.create_user(
                 email=email,
                 password_hash=hash_password(password),
                 role=role,
+                plan_code=plan_code,
             )
         else:
             owner = _require_tenant_owner(request)

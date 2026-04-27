@@ -125,10 +125,6 @@
 
     <div id="superAdminDefaultTemplatesPanel" class="panel hidden">
       <h3>Шаблоны по умолчанию для всех новых пользователей</h3>
-      <p class="small">Редактируются только супер-администратором. Пользователь получает копию этих шаблонов в свой кабинет и редактирует уже свою версию.</p>
-      <div class="row">
-        <button class="secondary" onclick="loadSuperAdminDefaultTemplateGroups()">Обновить базу шаблонов</button>
-      </div>
       <div class="row default-templates-workspace">
         <div id="defaultTemplateGroupsView">
           <div id="defaultTemplateGroupsAccordion" class="template-groups-accordion"></div>
@@ -153,6 +149,9 @@
       <div class="row">
         <input id="newUserEmail" type="email" placeholder="Эл. почта нового пользователя" />
         <input id="newUserPassword" type="password" placeholder="Пароль (минимум 8 символов)" />
+        <select id="newUserPlan">
+          <option value="starter">Starter (starter)</option>
+        </select>
         <select id="newUserRole">
           <option value="admin">администратор</option>
           <option value="feedback_manager">менеджер обратной связи</option>
@@ -160,13 +159,33 @@
         </select>
         <button onclick="createUser()">Создать нового пользователя</button>
       </div>
-      <div class="row">
+      <div id="usersSearchWrap" class="users-search-inline collapsed">
         <input id="usersSearchEmail" type="search" placeholder="Поиск клиента по e-mail" oninput="onUsersSearchInput(this.value)" />
+        <button class="secondary icon-btn" type="button" title="Скрыть поиск" onclick="toggleUsersSearch(false)">✕</button>
       </div>
       <div id="usersInfo" class="small"></div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>№</th><th>Эл. почта</th><th>Тариф</th><th>Подписка</th><th>Оплачено до</th><th>Новый пароль</th><th>Роль</th><th>Блокировка</th><th>Действия</th></tr></thead>
+          <thead>
+            <tr>
+              <th>№</th>
+              <th>
+                <div class="users-email-header">
+                  <span>Эл. почта</span>
+                  <button class="secondary icon-btn users-search-icon" type="button" title="Поиск по e-mail" onclick="toggleUsersSearch()">
+                    🔍
+                  </button>
+                </div>
+              </th>
+              <th>Тариф</th>
+              <th>Подписка</th>
+              <th>Оплачено до</th>
+              <th>Новый пароль</th>
+              <th>Роль</th>
+              <th>Блокировка</th>
+              <th>Действия</th>
+            </tr>
+          </thead>
           <tbody id="usersTbody"></tbody>
         </table>
       </div>

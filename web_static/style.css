@@ -587,7 +587,7 @@ td {
   text-align: left;
   border-bottom: 1px solid rgba(147, 175, 224, 0.25);
   padding: 10px 8px;
-  vertical-align: top;
+  vertical-align: middle;
 }
 
 th {
@@ -953,6 +953,33 @@ button.secondary.danger:hover {
   flex-direction: column;
   gap: 8px;
   align-items: flex-start;
+}
+
+.users-actions-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.users-search-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.users-search-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.users-search-wrap input[type="search"] {
+  min-width: 260px;
+}
+
+.users-search-wrap.collapsed input[type="search"],
+.users-search-wrap.collapsed button.users-search-clear {
+  display: none;
 }
 
 .icon-btn {
@@ -1388,6 +1415,11 @@ button.secondary.danger:hover {
   }
 
   .template-editor-row button {
+    width: 100%;
+  }
+
+  .users-search-wrap input[type="search"] {
+    min-width: 0;
     width: 100%;
   }
 

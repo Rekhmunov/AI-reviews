@@ -354,6 +354,19 @@ function getFilteredUsers() {
   return source.filter((user) => String(user.email || "").toLowerCase().includes(query));
 }
 
+function usersSearchToggle(forceOpen) {
+  const wrap = document.getElementById("usersSearchRow");
+  const input = document.getElementById("usersSearchEmail");
+  if (!wrap || !input) return;
+  const open = typeof forceOpen === "boolean" ? forceOpen : wrap.classList.contains("hidden");
+  wrap.classList.toggle("hidden", !open);
+  if (open) {
+    input.focus();
+  } else if (!usersState.search) {
+    input.value = "";
+  }
+}
+
 function renderUsers() {
   const tbody = document.getElementById("usersTbody");
   if (!tbody) return;
@@ -383,7 +396,8 @@ function renderUsers() {
     const passwordInputId = `password-input-${user.id}`;
     const planSelectId = `plan-select-${user.id}`;
     const blocked = Boolean(user.is_blocked);
-    const blockButtonLabel = blocked ? "Разблокировать" : "Заблокировать";
+    const saveIconTitle = "Сохранить изменения в строке";
+    const blockIconTitle = blocked ? "Разблокировать пользователя" : "Заблокировать пользователя";
     const roleLabel = roleLabels[user.role] || user.role || "-";
     const blockedCell = blocked
       ? `<span class="small status-badge status-blocked">заблокирован</span>`
@@ -419,12 +433,10 @@ function renderUsers() {
       </td>
       <td>${blockedCell}</td>
       <td>
-        <div class="row">
-          <button onclick="setRole(${user.id}, document.getElementById('${roleSelectId}').value)">Сохранить роль</button>
-          <button class="secondary" onclick="setUserPlan(${user.id}, document.getElementById('${planSelectId}').value)">Сменить тариф</button>
-          <button class="secondary" onclick="setUserPassword(${user.id}, document.getElementById('${passwordInputId}').value)">Сменить пароль</button>
-          <button class="secondary" onclick="toggleUserBlock(${user.id}, ${blocked ? "false" : "true"})">${blockButtonLabel}</button>
-          <button class="secondary danger" onclick="deleteUser(${user.id})">Удалить</button>
+        <div class="users-actions-row">
+          <button class="icon-btn secondary" title="${esc(saveIconTitle)}" onclick="saveUserRow(${user.id})">💾</button>
+          <button class="icon-btn secondary" title="${esc(blockIconTitle)}" onclick="toggleUserBlock(${user.id}, ${blocked ? "false" : "true"})">${blocked ? "🔓" : "🔒"}</button>
+          <button class="icon-btn danger" title="Удалить пользователя" onclick="deleteUser(${user.id})">🗑</button>
         </div>
       </td>
     `;
@@ -466,11 +478,38 @@ async function loadUsers() {
   }
   usersState.items = usersData.items || [];
   window.__AVAILABLE_PLANS__ = tariffs;
+  const newUserPlan = document.getElementById("newUserPlan");
+  if (newUserPlan) {
+    newUserPlan.innerHTML = "";
+    const plans = window.__AVAILABLE_PLANS__ || [];
+    if (!plans.length) {
+      const fallback = document.createElement("option");
+      fallback.value = "starter";
+      fallback.textContent = "Starter (starter)";
+      newUserPlan.appendChild(fallback);
+    }
+    for (const plan of plans) {
+      const option = document.createElement("option");
+      option.value = String(plan.code || "");
+      option.textContent = `${String(plan.title || plan.code || "")} (${String(plan.code || "")})`;
+      newUserPlan.appendChild(option);
+    }
+    if (!newUserPlan.value) newUserPlan.value = "starter";
+  }
   renderUsers();
 }
 
 function onUsersSearchInput(value) {
   usersState.search = String(value || "");
+  usersState.page = 1;
+  renderUsers();
+}
+
+function clearUsersSearch() {
+  usersState.search = "";
+  const input = document.getElementById("usersSearchEmail");
+  if (input) input.value = "";
+  usersSearchToggle(false);
   usersState.page = 1;
   renderUsers();
 }
@@ -489,7 +528,28 @@ async function nextUsersPage() {
   renderUsers();
 }
 
-async function setRole(userId, role) {
+async function saveUserRow(userId) {
+  const role = String(document.getElementById(`role-select-${userId}`)?.value || "").trim();
+  const planCode = String(document.getElementById(`plan-select-${userId}`)?.value || "").trim().toLowerCase();
+  const password = String(document.getElementById(`password-input-${userId}`)?.value || "");
+
+  const actions = [setRole(userId, role, { silent: true })];
+  if (planCode) actions.push(setUserPlan(userId, planCode, { silent: true }));
+  if (password) actions.push(setUserPassword(userId, password, { silent: true }));
+
+  const results = await Promise.all(actions);
+  if (results.some((ok) => ok === false)) {
+    setUsersInfo("Не все изменения удалось сохранить. Проверьте данные строки.", true);
+    return;
+  }
+  const passwordInput = document.getElementById(`password-input-${userId}`);
+  if (passwordInput) passwordInput.value = "";
+  setUsersInfo("Изменения пользователя сохранены.");
+  await loadUsers();
+}
+
+async function setRole(userId, role, options = {}) {
+  const { silent = false } = options;
   const res = await fetch(`/api/admin/users/${userId}/role`, {
     method: "POST",
     headers: csrfHeaders({ "Content-Type": "application/json" }),
@@ -497,18 +557,22 @@ async function setRole(userId, role) {
   });
   const data = await res.json();
   if (!res.ok) {
-    setUsersInfo(data.detail || "Ошибка смены роли", true);
-    return;
+    if (!silent) setUsersInfo(data.detail || "Ошибка смены роли", true);
+    return false;
   }
-  setUsersInfo("Роль пользователя обновлена.");
-  await loadUsers();
+  if (!silent) {
+    setUsersInfo("Роль пользователя обновлена.");
+    await loadUsers();
+  }
+  return true;
 }
 
-async function setUserPlan(userId, planCode) {
+async function setUserPlan(userId, planCode, options = {}) {
+  const { silent = false } = options;
   const normalized = String(planCode || "").trim().toLowerCase();
   if (!normalized) {
-    setUsersInfo("Выберите тарифный план.", true);
-    return;
+    if (!silent) setUsersInfo("Выберите тарифный план.", true);
+    return false;
   }
   const res = await fetch(`/api/admin/users/${userId}/plan`, {
     method: "POST",
@@ -517,11 +581,14 @@ async function setUserPlan(userId, planCode) {
   });
   const data = await res.json();
   if (!res.ok) {
-    setUsersInfo(data.detail || "Ошибка смены тарифа пользователя", true);
-    return;
+    if (!silent) setUsersInfo(data.detail || "Ошибка смены тарифа пользователя", true);
+    return false;
   }
-  setUsersInfo("Тариф пользователя обновлен.");
-  await loadUsers();
+  if (!silent) {
+    setUsersInfo("Тариф пользователя обновлен.");
+    await loadUsers();
+  }
+  return true;
 }
 
 async function toggleUserBlock(userId, blocked) {
@@ -565,10 +632,12 @@ async function createUser() {
   const emailInput = document.getElementById("newUserEmail");
   const passwordInput = document.getElementById("newUserPassword");
   const roleInput = document.getElementById("newUserRole");
+  const planInput = document.getElementById("newUserPlan");
   const payload = {
     email: String(emailInput?.value || "").trim(),
     password: String(passwordInput?.value || ""),
     role: String(roleInput?.value || "user"),
+    plan_code: String(planInput?.value || "starter").trim().toLowerCase() || "starter",
   };
   if (!payload.email || !payload.password) {
     setUsersInfo("Заполните эл. почту и пароль нового пользователя.", true);
@@ -587,15 +656,17 @@ async function createUser() {
   if (emailInput) emailInput.value = "";
   if (passwordInput) passwordInput.value = "";
   if (roleInput) roleInput.value = "user";
+  if (planInput) planInput.value = "starter";
   setUsersInfo("Пользователь создан.");
   await loadUsers();
 }
 
-async function setUserPassword(userId, password) {
+async function setUserPassword(userId, password, options = {}) {
+  const { silent = false } = options;
   const cleanPassword = String(password || "");
   if (!cleanPassword) {
-    setUsersInfo("Введите новый пароль для выбранного пользователя.", true);
-    return;
+    if (!silent) setUsersInfo("Введите новый пароль для выбранного пользователя.", true);
+    return false;
   }
   const res = await fetch(`/api/admin/users/${userId}/password`, {
     method: "POST",
@@ -604,12 +675,19 @@ async function setUserPassword(userId, password) {
   });
   const data = await res.json();
   if (!res.ok) {
-    setUsersInfo(data.detail || "Ошибка смены пароля", true);
-    return;
+    if (!silent) setUsersInfo(data.detail || "Ошибка смены пароля", true);
+    return false;
   }
-  const input = document.getElementById(`password-input-${userId}`);
-  if (input) input.value = "";
-  setUsersInfo("Пароль пользователя обновлен.");
+  if (!silent) {
+    const input = document.getElementById(`password-input-${userId}`);
+    if (input) input.value = "";
+    setUsersInfo("Пароль пользователя обновлен.");
+  }
+  return true;
+}
+
+function toggleUsersSearch(forceOpen) {
+  usersSearchToggle(forceOpen);
 }
 
 function setSuperAdminInfo(message, isError = false) {
