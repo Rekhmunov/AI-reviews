@@ -569,30 +569,8 @@ class ReviewRepository:
                 """,
                 (_utc_now(),),
             )
-            default_limits = self._json_param({"reviews_per_month": 3000, "managers": 5, "sources": 3, "ai_units": 20000})
-            pro_limits = self._json_param({"reviews_per_month": 15000, "managers": 25, "sources": 20, "ai_units": 120000})
-            enterprise_limits = self._json_param({"reviews_per_month": 100000, "managers": 200, "sources": 200, "ai_units": 1000000})
-            conn.execute(
-                """
-                INSERT INTO tariff_plans (code, title, monthly_price, limits_json, is_active, created_at, updated_at)
-                VALUES
-                    ('starter', 'Starter', 0, ?, 1, ?, ?),
-                    ('pro', 'Pro', 9900, ?, 1, ?, ?),
-                    ('enterprise', 'Enterprise', 49900, ?, 1, ?, ?)
-                ON CONFLICT (code) DO NOTHING
-                """,
-                (
-                    default_limits,
-                    _utc_now(),
-                    _utc_now(),
-                    pro_limits,
-                    _utc_now(),
-                    _utc_now(),
-                    enterprise_limits,
-                    _utc_now(),
-                    _utc_now(),
-                ),
-            )
+            # Tariffs are fully managed by super-admin in UI/API.
+            # Do not auto-seed built-in plans here: deleted plans must stay deleted.
         # Template variables are fully managed by super-admin (no hardcoded defaults).
 
     def _migrate_schema(self, conn) -> None:
@@ -869,30 +847,8 @@ class ReviewRepository:
                 ON CONFLICT (owner_user_id) DO NOTHING
                 """
             )
-            conn.execute(
-                """
-                INSERT INTO tariff_plans (code, title, monthly_price, limits_json, is_active, created_at, updated_at)
-                VALUES ('starter', 'Starter', 0, %s::jsonb, TRUE, NOW(), NOW())
-                ON CONFLICT (code) DO NOTHING
-                """,
-                (json.dumps({"reviews_per_month": 3000, "managers": 5, "sources": 3, "ai_units": 20000}, ensure_ascii=False),),
-            )
-            conn.execute(
-                """
-                INSERT INTO tariff_plans (code, title, monthly_price, limits_json, is_active, created_at, updated_at)
-                VALUES ('pro', 'Pro', 9900, %s::jsonb, TRUE, NOW(), NOW())
-                ON CONFLICT (code) DO NOTHING
-                """,
-                (json.dumps({"reviews_per_month": 15000, "managers": 25, "sources": 20, "ai_units": 120000}, ensure_ascii=False),),
-            )
-            conn.execute(
-                """
-                INSERT INTO tariff_plans (code, title, monthly_price, limits_json, is_active, created_at, updated_at)
-                VALUES ('enterprise', 'Enterprise', 49900, %s::jsonb, TRUE, NOW(), NOW())
-                ON CONFLICT (code) DO NOTHING
-                """,
-                (json.dumps({"reviews_per_month": 100000, "managers": 200, "sources": 200, "ai_units": 1000000}, ensure_ascii=False),),
-            )
+            # Tariff plans are not auto-created by migration to avoid restoring
+            # plans that were intentionally removed by super-admin.
             return
 
         user_columns = self._table_columns(conn, "users")
@@ -1090,33 +1046,8 @@ class ReviewRepository:
             """
         )
 
-        default_limits = self._json_param({"reviews_per_month": 3000, "managers": 5, "sources": 3, "ai_units": 20000})
-        pro_limits = self._json_param({"reviews_per_month": 15000, "managers": 25, "sources": 20, "ai_units": 120000})
-        enterprise_limits = self._json_param({"reviews_per_month": 100000, "managers": 200, "sources": 200, "ai_units": 1000000})
-        conn.execute(
-            """
-            INSERT INTO tariff_plans (code, title, monthly_price, limits_json, is_active, created_at, updated_at)
-            VALUES ('starter', 'Starter', 0, ?, 1, ?, ?)
-            ON CONFLICT (code) DO NOTHING
-            """,
-            (default_limits, _utc_now(), _utc_now()),
-        )
-        conn.execute(
-            """
-            INSERT INTO tariff_plans (code, title, monthly_price, limits_json, is_active, created_at, updated_at)
-            VALUES ('pro', 'Pro', 9900, ?, 1, ?, ?)
-            ON CONFLICT (code) DO NOTHING
-            """,
-            (pro_limits, _utc_now(), _utc_now()),
-        )
-        conn.execute(
-            """
-            INSERT INTO tariff_plans (code, title, monthly_price, limits_json, is_active, created_at, updated_at)
-            VALUES ('enterprise', 'Enterprise', 49900, ?, 1, ?, ?)
-            ON CONFLICT (code) DO NOTHING
-            """,
-            (enterprise_limits, _utc_now(), _utc_now()),
-        )
+        # Tariff plans are managed exclusively by super-admin and should not be
+        # reseeded automatically during SQLite migrations.
 
     def _table_columns(self, conn, table: str) -> set[str]:
         if self.is_postgres:
