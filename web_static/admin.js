@@ -892,17 +892,15 @@ function renderDefaultTemplateGroups() {
         openDefaultTemplateSubgroup(String(group.id || ""), String(subgroup.name || ""), String(group.title || ""));
       });
       row.appendChild(openButton);
-      if (!subgroup.is_system) {
-        const deleteButton = document.createElement("button");
-        deleteButton.type = "button";
-        deleteButton.className = "icon-btn danger template-subgroup-delete-btn";
-        deleteButton.title = "Удалить группу";
-        deleteButton.textContent = "🗑";
-        deleteButton.addEventListener("click", async () => {
-          await deleteDefaultTemplateSubgroup(String(group.id || ""), String(subgroup.name || ""), String(group.title || ""));
-        });
-        row.appendChild(deleteButton);
-      }
+      const deleteButton = document.createElement("button");
+      deleteButton.type = "button";
+      deleteButton.className = "icon-btn danger template-subgroup-delete-btn";
+      deleteButton.title = "Удалить группу";
+      deleteButton.textContent = "🗑";
+      deleteButton.addEventListener("click", async () => {
+        await deleteDefaultTemplateSubgroup(String(group.id || ""), String(subgroup.name || ""), String(group.title || ""));
+      });
+      row.appendChild(deleteButton);
       content.appendChild(row);
     }
     const addRow = document.createElement("div");

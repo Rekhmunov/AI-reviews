@@ -31,6 +31,22 @@ class SuperAdminDefaultTemplateSubgroupsTests(unittest.TestCase):
         names_after = [str(item.get("subgroup") or "") for item in listed_after]
         self.assertNotIn("Новая группа тест", names_after)
 
+    def test_can_delete_seeded_default_subgroup(self) -> None:
+        self.repository.ensure_default_template_subgroups(
+            [
+                {"group_id": "positive", "subgroup": "Вкус"},
+                {"group_id": "positive", "subgroup": "Материал"},
+            ]
+        )
+        deleted = self.repository.delete_default_template_subgroup(
+            group_id="positive",
+            subgroup="Вкус",
+        )
+        self.assertTrue(deleted)
+        listed_after = self.repository.list_default_template_subgroups(group_id="positive")
+        names_after = [str(item.get("subgroup") or "") for item in listed_after]
+        self.assertNotIn("Вкус", names_after)
+
 
 if __name__ == "__main__":
     unittest.main()

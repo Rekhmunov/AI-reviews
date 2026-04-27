@@ -897,14 +897,18 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         return result
 
     def _all_subgroups_for_group(group_id: str) -> list[str]:
-        base = _base_subgroups_for_group(group_id)
         custom_rows = repository.list_default_template_subgroups(group_id=group_id)
-        result = list(base)
+        result: list[str] = []
         for row in custom_rows:
             clean = str((row or {}).get("subgroup") or "").strip()
             if clean and clean not in result:
                 result.append(clean)
-        return result
+        if result:
+            return result
+        # Backward-compatible fallback for old datasets where subgroup registry
+        # might still be empty.
+        return _base_subgroups_for_group(group_id)
+        
 
     def _validate_subgroup(group_id: str, subgroup: str) -> bool:
         clean_group_id = str(group_id or "").strip()
@@ -942,7 +946,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     def _ensure_platform_default_templates() -> None:
         seed_rows, subgroup_rows = _default_template_seed_rows()
-        repository.ensure_default_template_subgroups(subgroup_rows)
+        if repository.count_default_template_subgroups() == 0:
+            repository.ensure_default_template_subgroups(subgroup_rows)
+        repository.sync_default_template_subgroups_from_variants()
         if repository.count_default_template_variants(include_inactive=True) > 0:
             return
         seeded = repository.seed_default_templates_from_user_templates()
@@ -2091,8 +2097,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Группа шаблонов не найдена")
         if not clean_subgroup:
             raise HTTPException(status_code=400, detail="Название подгруппы обязательно")
-        if clean_subgroup in set(_base_subgroups_for_group(clean_group_id)):
-            raise HTTPException(status_code=400, detail="Системную подгруппу удалить нельзя")
         deleted = repository.delete_default_template_subgroup(group_id=clean_group_id, subgroup=clean_subgroup)
         if not deleted:
             raise HTTPException(status_code=404, detail="Подгруппа не найдена")
