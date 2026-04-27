@@ -79,12 +79,14 @@ const teamState = {
   items: [],
   accounts: [],
   managerModalUserId: null,
+  pendingCreate: null,
+  pendingPermissions: [],
 };
 let syncInProgress = false;
 const ACTIVE_SECTION_STORAGE_KEY = "feedpilot_active_section";
 const ACTIVE_SETTINGS_TAB_STORAGE_KEY = "feedpilot_active_settings_tab";
 const SECTION_IDS = ["reviews", "conversations", "analytics", "settings", "profile"];
-const SETTINGS_TAB_IDS = ["sources", "team", "rules", "templates", "recommendations", "template-variables"];
+const SETTINGS_TAB_IDS = ["sources", "rules", "templates", "recommendations", "template-variables"];
 const APP_BOOT_HIDE_CLASS = "app-boot-hidden";
 
 const categoryLabels = {
@@ -226,7 +228,6 @@ function showSettingsTab(tab, options = {}) {
     if (pane) pane.classList.add("hidden");
   }
   if (!SETTINGS_TAB_IDS.includes(tab)) tab = "sources";
-  if (tab === "team" && !isTenantOwner()) tab = "sources";
   document.getElementById("settings-tab-" + tab)?.classList.add("active");
   document.getElementById("settings-pane-" + tab)?.classList.remove("hidden");
   if (persist) writeStoredUiState(ACTIVE_SETTINGS_TAB_STORAGE_KEY, tab);
@@ -235,9 +236,6 @@ function showSettingsTab(tab, options = {}) {
   }
   if (tab === "template-variables") {
     loadUserTemplateVariables();
-  }
-  if (tab === "team") {
-    loadTeam();
   }
 }
 
@@ -1320,6 +1318,13 @@ function setTeamInfo(message, isError = false) {
   info.style.color = isError ? "#b91c1c" : "";
 }
 
+function updateTeamPermissionsPreview() {
+  const preview = document.getElementById("teamPermissionsPreview");
+  if (!preview) return;
+  const permissions = Array.isArray(teamState.pendingPermissions) ? teamState.pendingPermissions : [];
+  preview.textContent = permissions.length ? formatManagerPermissionsText(permissions) : "Разрешения не выбраны";
+}
+
 function closeManagerPermissionsModal() {
   const modal = document.getElementById("managerPermissionsModal");
   if (modal) modal.classList.add("hidden");
@@ -1429,7 +1434,6 @@ async function loadTeam() {
         <td>${esc(permsText)}</td>
         <td>
           <div class="row">
-            <button class="secondary" type="button" onclick="openManagerPermissionsModal(${memberId})">Права</button>
             <button class="icon-btn danger" title="Удалить менеджера" onclick="deleteTeamMember(${memberId})">🗑</button>
           </div>
         </td>
@@ -1438,6 +1442,25 @@ async function loadTeam() {
     }
   }
   setTeamInfo(`Менеджеров в команде: ${teamState.items.length}`);
+}
+
+function openTeamManagerModal() {
+  if (!isTenantOwner()) {
+    setTeamInfo("Доступ к команде есть только у владельца кабинета.", true);
+    return;
+  }
+  const modal = document.getElementById("teamManagerModal");
+  if (modal) modal.classList.remove("hidden");
+  updateTeamPermissionsPreview();
+  loadTeam();
+}
+
+function closeTeamManagerModal() {
+  const modal = document.getElementById("teamManagerModal");
+  if (modal) modal.classList.add("hidden");
+  closeManagerPermissionsModal();
+  teamState.pendingPermissions = [];
+  updateTeamPermissionsPreview();
 }
 
 async function deleteTeamMember(userId) {
@@ -1456,9 +1479,15 @@ async function deleteTeamMember(userId) {
   await loadTeam();
 }
 
-async function openManagerPermissionsModal(managerUserId = null) {
+async function openManagerPermissionsModalForCreate() {
   if (!isTenantOwner()) {
     setTeamInfo("Доступ к команде есть только у владельца кабинета.", true);
+    return;
+  }
+  const email = String(document.getElementById("teamManagerEmail")?.value || "").trim();
+  const password = String(document.getElementById("teamManagerPassword")?.value || "");
+  if (!email || !password) {
+    setTeamInfo("Сначала заполните email и пароль менеджера.", true);
     return;
   }
   if (!Array.isArray(teamState.accounts) || !teamState.accounts.length) {
@@ -1468,7 +1497,7 @@ async function openManagerPermissionsModal(managerUserId = null) {
     setTeamInfo("Сначала добавьте хотя бы один кабинет источника.", true);
     return;
   }
-  teamState.managerModalUserId = managerUserId ? Number(managerUserId) : null;
+  teamState.managerModalUserId = null;
   const info = document.getElementById("managerPermissionsInfo");
   if (info) {
     info.textContent = "";
@@ -1476,49 +1505,51 @@ async function openManagerPermissionsModal(managerUserId = null) {
   }
   const saveBtn = document.getElementById("managerPermissionsSaveBtn");
   if (saveBtn) {
-    saveBtn.textContent = teamState.managerModalUserId ? "Сохранить права" : "Сохранить менеджера";
+    saveBtn.textContent = "Применить разрешения";
   }
-  let permissions = [];
-  if (teamState.managerModalUserId) {
-    const res = await fetch(`/api/tenant/team/${teamState.managerModalUserId}/permissions`);
-    const data = await res.json();
-    if (!res.ok) {
-      if (info) {
-        info.textContent = "Ошибка: " + (data.detail || "не удалось загрузить права");
-        info.style.color = "#b91c1c";
-      }
-      return;
-    }
-    permissions = data.items || [];
-  }
+  const permissions = Array.isArray(teamState.pendingPermissions) ? teamState.pendingPermissions : [];
   renderManagerPermissionsRows(teamState.accounts, permissions);
   const modal = document.getElementById("managerPermissionsModal");
   if (modal) modal.classList.remove("hidden");
 }
 
-async function saveManagerWithPermissions() {
-  if (teamState.managerModalUserId) {
-    await saveManagerPermissions();
-    return;
-  }
+function applyManagerPermissionsSelection() {
   const permissions = collectManagerPermissionsFromModal();
   if (!permissions.length) {
     const info = document.getElementById("managerPermissionsInfo");
-    if (info) info.textContent = "Нужно выбрать хотя бы один доступ";
+    if (info) {
+      info.textContent = "Нужно выбрать хотя бы один доступ";
+      info.style.color = "#b91c1c";
+    }
+    return;
+  }
+  teamState.pendingPermissions = permissions;
+  closeManagerPermissionsModal();
+  updateTeamPermissionsPreview();
+  setTeamInfo("Разрешения менеджера выбраны");
+}
+
+async function saveNewManager() {
+  if (!isTenantOwner()) return;
+  const email = String(document.getElementById("teamManagerEmail")?.value || "").trim();
+  const password = String(document.getElementById("teamManagerPassword")?.value || "");
+  const fullName = String(document.getElementById("teamManagerFullName")?.value || "").trim() || null;
+  if (!email || !password) {
+    setTeamInfo("Укажите email и пароль менеджера", true);
+    return;
+  }
+  const permissions = Array.isArray(teamState.pendingPermissions) ? teamState.pendingPermissions : [];
+  if (!permissions.length) {
+    setTeamInfo("Сначала нажмите «Разрешения» и сохраните доступы менеджера.", true);
     return;
   }
   const payload = {
-    email: String(document.getElementById("teamManagerEmail")?.value || "").trim(),
-    password: String(document.getElementById("teamManagerPassword")?.value || ""),
-    full_name: String(document.getElementById("teamManagerFullName")?.value || "").trim() || null,
+    email,
+    password,
+    full_name: fullName,
     role: "feedback_manager",
     permissions,
   };
-  if (!payload.email || !payload.password) {
-    const info = document.getElementById("managerPermissionsInfo");
-    if (info) info.textContent = "Укажите email и пароль менеджера";
-    return;
-  }
   const res = await fetch("/api/tenant/team", {
     method: "POST",
     headers: jsonHeaders(),
@@ -1526,35 +1557,15 @@ async function saveManagerWithPermissions() {
   });
   const data = await res.json();
   if (!res.ok) {
-    const info = document.getElementById("managerPermissionsInfo");
-    if (info) info.textContent = "Ошибка: " + (data.detail || "не удалось создать менеджера");
+    setTeamInfo("Ошибка: " + (data.detail || "не удалось создать менеджера"), true);
     return;
   }
   document.getElementById("teamManagerEmail").value = "";
   document.getElementById("teamManagerPassword").value = "";
   document.getElementById("teamManagerFullName").value = "";
-  closeManagerPermissionsModal();
+  teamState.pendingPermissions = [];
+  updateTeamPermissionsPreview();
   setTeamInfo("Менеджер создан");
-  await loadTeam();
-}
-
-async function saveManagerPermissions() {
-  const managerId = Number(teamState.managerModalUserId || 0);
-  if (!managerId) return;
-  const permissions = collectManagerPermissionsFromModal();
-  const res = await fetch(`/api/tenant/team/${managerId}/permissions`, {
-    method: "PUT",
-    headers: jsonHeaders(),
-    body: JSON.stringify({ permissions }),
-  });
-  const data = await res.json();
-  if (!res.ok) {
-    const info = document.getElementById("managerPermissionsInfo");
-    if (info) info.textContent = "Ошибка: " + (data.detail || "не удалось сохранить права");
-    return;
-  }
-  closeManagerPermissionsModal();
-  setTeamInfo("Права менеджера сохранены");
   await loadTeam();
 }
 
@@ -2150,14 +2161,11 @@ async function saveProfile() {
 document.addEventListener("DOMContentLoaded", () => {
   document.body.classList.add(APP_BOOT_HIDE_CLASS);
   const permissions = getPermissions();
-  const teamTabBtn = document.getElementById("settings-tab-team");
-  if (teamTabBtn) teamTabBtn.classList.toggle("hidden", !isTenantOwner());
   if (!permissions.can_view_analytics) {
     document.getElementById("section-analytics")?.classList.add("hidden");
   }
   const savedSettingsTab = readStoredUiState(ACTIVE_SETTINGS_TAB_STORAGE_KEY);
   let initialSettingsTab = SETTINGS_TAB_IDS.includes(savedSettingsTab) ? savedSettingsTab : "sources";
-  if (initialSettingsTab === "team" && !isTenantOwner()) initialSettingsTab = "sources";
   if (!permissions.can_view_settings) {
     document.getElementById("section-settings")?.classList.add("hidden");
   } else {

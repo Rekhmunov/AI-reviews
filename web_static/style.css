@@ -1053,6 +1053,28 @@ button.secondary.danger:hover {
   padding: 18px;
 }
 
+.team-manage-modal-card {
+  width: min(1100px, 98vw);
+}
+
+.team-create-panel {
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid rgba(147, 197, 253, 0.42);
+  border-radius: var(--radius-md);
+  background: linear-gradient(160deg, rgba(248, 251, 255, 0.94), rgba(236, 245, 255, 0.8));
+}
+
+.manager-panel-card {
+  width: min(980px, 96vw);
+}
+
+.manager-create-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
 .admin-actions-filters {
   align-items: flex-end;
   gap: 8px;
