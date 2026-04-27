@@ -93,6 +93,11 @@ class MarketplaceClientsTests(unittest.TestCase):
         with self.assertRaises(MarketplaceSyncError):
             _ErrorWb().fetch_reviews()
 
+    def test_wb_date_from_is_converted_to_unix_timestamp(self) -> None:
+        self.assertEqual(WildberriesMarketplaceClient._to_wb_unix_timestamp("2026-04-27"), 1777248000)
+        self.assertEqual(WildberriesMarketplaceClient._to_wb_unix_timestamp("1745712000"), 1745712000)
+        self.assertIsNone(WildberriesMarketplaceClient._to_wb_unix_timestamp("bad-date"))
+
 
 if __name__ == "__main__":
     unittest.main()

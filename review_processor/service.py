@@ -4,6 +4,7 @@ import json
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Protocol
 import time
 from urllib.parse import urlencode, urljoin
@@ -357,9 +358,9 @@ class WildberriesMarketplaceClient:
             self.take_param: take,
             self.unanswered_param: self.unanswered_value,
         }
-        if since_date:
-            params_payload["dateFrom"] = since_date
-            params_payload["date_from"] = since_date
+        wb_date_from = self._to_wb_unix_timestamp(since_date)
+        if wb_date_from is not None:
+            params_payload["dateFrom"] = wb_date_from
         params = urlencode(params_payload)
         endpoint = _compose_url(self.api_url, self.list_path)
         url = f"{self.api_url}?{params}" if "?" not in self.api_url else f"{self.api_url}&{params}"
@@ -374,6 +375,29 @@ class WildberriesMarketplaceClient:
         if not isinstance(payload, dict):
             raise MarketplaceSyncError("wb", "Wildberries API returned non-object payload")
         return payload
+
+    @staticmethod
+    def _to_wb_unix_timestamp(since_date: str | None) -> int | None:
+        raw = str(since_date or "").strip()
+        if not raw:
+            return None
+        if raw.isdigit():
+            parsed = int(raw)
+            return parsed if parsed > 0 else None
+        normalized = raw.replace("Z", "+00:00")
+        parsed_dt: datetime | None = None
+        try:
+            parsed_dt = datetime.fromisoformat(normalized)
+        except ValueError:
+            # Sync settings keep date in YYYY-MM-DD format.
+            date_part = normalized[:10]
+            try:
+                parsed_dt = datetime.strptime(date_part, "%Y-%m-%d")
+            except ValueError:
+                return None
+        if parsed_dt.tzinfo is None:
+            parsed_dt = parsed_dt.replace(tzinfo=UTC)
+        return int(parsed_dt.astimezone(UTC).timestamp())
 
     def send_review_reply(self, *, review: ReviewInput, response_text: str) -> bool:
         if not self.api_key:
@@ -789,7 +813,7 @@ class ReviewAutomationService:
                 unanswered_value=str(extra.get("unanswered_value") or "false"),
                 page_size=_to_positive_int(extra.get("page_size"), default=100),
                 max_pages=_to_positive_int(extra.get("max_pages"), default=20),
-                questions_path=str(extra.get("questions_path")) if extra.get("questions_path") else None,
+                questions_path=str(extra.get("questions_path") or "/api/v1/questions"),
                 chats_path=str(extra.get("chats_path")) if extra.get("chats_path") else None,
                 reply_path=str(extra.get("reply_path") or "/api/v1/feedbacks/answer"),
                 reply_method=str(extra.get("reply_method") or "POST"),

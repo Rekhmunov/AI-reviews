@@ -208,6 +208,25 @@ class ReviewAutomationServiceTests(unittest.TestCase):
         actions, _total = self.repository.list_recent_actions(user_id=int(self.user["id"]), limit=20)
         self.assertTrue(any(item["action_type"] == "sync_error" for item in actions))
 
+    def test_build_wb_client_sets_questions_endpoint_by_default(self) -> None:
+        account = self.repository.create_marketplace_account(
+            user_id=int(self.user["id"]),
+            marketplace="wb",
+            account_name="wb-defaults",
+            api_url="https://feedbacks-api.wildberries.ru/api/v1/feedbacks",
+            api_key="token",
+            extra={},
+        )
+        full_account = self.repository.get_marketplace_account(
+            user_id=int(self.user["id"]),
+            account_id=int(account["id"]),
+            include_secrets=True,
+        )
+        self.assertIsNotNone(full_account)
+        client = self.service._build_client(full_account or {})
+        self.assertEqual(getattr(client, "questions_path", None), "/api/v1/questions")
+        self.assertIsNone(getattr(client, "chats_path", None))
+
     def test_template_placeholders_user_reco_brand(self) -> None:
         self.repository.replace_all_recommendations(
             user_id=int(self.user["id"]),
