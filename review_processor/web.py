@@ -730,6 +730,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     def _require_tenant_owner(request: Request) -> dict[str, object]:
         user = _require_settings_access(request)
+        if _is_super_admin(user):
+            owner_scope_user_id = _tenant_owner_id(user)
+            if owner_scope_user_id <= 0:
+                owner_scope_user_id = int(user["id"])
+            owner_scope_user = repository.get_user_by_id(owner_scope_user_id)
+            return owner_scope_user or user
         if _tenant_owner_id(user) != int(user["id"]):
             raise HTTPException(status_code=403, detail="Недостаточно прав для управления командой")
         return user
@@ -2218,7 +2224,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.get("/api/tenant/team")
     def tenant_list_team(request: Request) -> dict[str, object]:
         owner = _require_tenant_owner(request)
-        items = repository.list_tenant_users(owner_user_id=int(owner["id"]))
+        owner_id = _tenant_owner_id(owner)
+        items = repository.list_tenant_users(owner_user_id=owner_id)
         for item in items:
             if str(item.get("role") or "").strip().lower() == TENANT_ROLE_MANAGER:
                 item["manager_permissions"] = repository.list_manager_permissions(manager_user_id=int(item["id"]))
@@ -2227,6 +2234,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.post("/api/tenant/team")
     def tenant_create_team_user(payload: TenantUserCreateRequest, request: Request) -> dict[str, object]:
         owner = _require_tenant_owner(request)
+        owner_id = _tenant_owner_id(owner)
         email = payload.email.strip().lower()
         if len(email) < 5 or "@" not in email:
             raise HTTPException(status_code=400, detail="Введите корректную эл. почту")
@@ -2234,13 +2242,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=409, detail="Пользователь с такой почтой уже существует")
         role = TENANT_ROLE_MANAGER
         created = repository.create_tenant_user(
-            owner_user_id=int(owner["id"]),
+            owner_user_id=owner_id,
             email=email,
             password_hash=hash_password(payload.password),
             role=role,
             full_name=(payload.full_name or "").strip() or None,
         )
-        owner_account_ids = _manager_owner_accounts_ids(int(owner["id"]))
+        owner_account_ids = _manager_owner_account_ids(owner_id)
         normalized_permissions: list[dict[str, object]] = []
         for item in payload.permissions:
             account_id = int(item.account_id)
@@ -2298,7 +2306,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="Для владельца кабинета отдельные права менеджера не назначаются")
         if str(target.get("role") or "").strip().lower() != TENANT_ROLE_MANAGER:
             raise HTTPException(status_code=400, detail="Права можно настраивать только для менеджера")
-        owner_account_ids = _manager_owner_accounts_ids(int(owner["id"]))
+        owner_account_ids = _manager_owner_account_ids(_tenant_owner_id(owner))
         normalized_permissions: list[dict[str, object]] = []
         for item in payload.permissions:
             account_id = int(item.account_id)
