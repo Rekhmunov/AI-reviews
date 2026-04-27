@@ -26,10 +26,6 @@
         <input id="apiKey" type="text" size="30" placeholder="Ключ доступа Яндекса" />
         <input id="folderId" type="text" size="20" placeholder="Идентификатор каталога Яндекса" />
         <input id="modelUri" type="text" size="30" placeholder="Адрес модели" />
-        <button onclick="saveAiSettings()">Сохранить</button>
-      </div>
-      <div class="row">
-        <h4 class="no-margin">Маршрутизация групп отзывов</h4>
       </div>
       <div class="row">
         <label for="defaultSyncLookbackDays">Старт синхронизации для новых пользователей (дней до регистрации)</label>
@@ -40,6 +36,9 @@
           <thead><tr><th>Группа отзывов</th><th>Кто обрабатывает</th></tr></thead>
           <tbody id="groupProcessorsTbody"></tbody>
         </table>
+      </div>
+      <div class="row">
+        <button onclick="saveAiSettings()">Сохранить</button>
       </div>
       <div id="aiInfo" class="small"></div>
     </div>

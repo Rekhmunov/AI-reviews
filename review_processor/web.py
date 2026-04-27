@@ -1844,6 +1844,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         provider = payload.provider.strip().lower()
         if provider not in {"rules", "yandex"}:
             raise HTTPException(status_code=400, detail="Провайдер должен быть: встроенные правила или Яндекс")
+        lookback_days = int(payload.default_sync_lookback_days)
         repository.update_ai_settings(
             provider=provider,
             yandex_api_key=payload.yandex_api_key.strip() if payload.yandex_api_key is not None else None,
@@ -1853,6 +1854,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             use_sync_start_date=False,
             sync_start_date=None,
         )
+        repository.set_default_sync_lookback_days(days=lookback_days)
         return {"ok": True}
 
     @app.get("/api/admin/context")

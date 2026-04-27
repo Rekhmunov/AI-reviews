@@ -751,6 +751,32 @@ button.secondary.danger:hover {
   background: linear-gradient(160deg, rgba(248, 251, 255, 0.95), rgba(236, 245, 255, 0.82));
 }
 
+#superAdminAiPanel .ai-settings-top-row {
+  align-items: flex-start;
+}
+
+#superAdminAiPanel .ai-settings-top-row .ai-provider-col {
+  flex: 1 1 260px;
+  min-width: 240px;
+}
+
+#superAdminAiPanel .ai-settings-top-row .ai-provider-col select {
+  width: 100%;
+}
+
+#superAdminAiPanel .ai-settings-top-row .ai-yandex-keys-col {
+  flex: 2 1 520px;
+  min-width: 320px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+#superAdminAiPanel .ai-settings-footer {
+  justify-content: space-between;
+  align-items: center;
+}
+
 .tariffs-list {
   margin-top: 12px;
   display: grid;

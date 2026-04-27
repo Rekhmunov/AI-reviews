@@ -1194,6 +1194,8 @@ class ReviewRepository:
             data["limits"] = _json_load(data.pop("limits_json"), {})
         if "details_json" in data:
             data["details"] = _json_load(data.pop("details_json"), {})
+        if "group_processors_json" in data:
+            data["group_processors"] = _json_load(data.pop("group_processors_json"), {})
         return data
 
     def count_users(self) -> int:

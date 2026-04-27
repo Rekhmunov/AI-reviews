@@ -330,6 +330,11 @@ function syncDateToggle() {
 }
 
 async function saveAiSettings() {
+  const aiInfo = document.getElementById("aiInfo");
+  if (aiInfo) {
+    aiInfo.textContent = "Сохраняем настройки...";
+    aiInfo.style.color = "";
+  }
   const groupProcessors = {};
   document.querySelectorAll(".group-processor-select").forEach((element) => {
     const groupId = String(element.getAttribute("data-group-id") || "").trim();
@@ -338,6 +343,10 @@ async function saveAiSettings() {
     if (!["yandex", "program"].includes(mode)) return;
     groupProcessors[groupId] = mode;
   });
+  const lookbackRaw = Number(document.getElementById("defaultSyncLookbackDays")?.value || "7");
+  const defaultSyncLookbackDays = Number.isFinite(lookbackRaw)
+    ? Math.max(0, Math.min(365, Math.floor(lookbackRaw)))
+    : 7;
   const payload = {
     provider: document.getElementById("provider").value,
     yandex_api_key: document.getElementById("apiKey").value.trim() || null,
@@ -346,7 +355,7 @@ async function saveAiSettings() {
     group_processors: groupProcessors,
     use_sync_start_date: false,
     sync_start_date: null,
-    default_sync_lookback_days: Number(document.getElementById("defaultSyncLookbackDays")?.value || "7"),
+    default_sync_lookback_days: defaultSyncLookbackDays,
   };
   const res = await fetch("/api/admin/ai-settings", {
     method: "PUT",
@@ -355,10 +364,16 @@ async function saveAiSettings() {
   });
   const data = await res.json();
   if (!res.ok) {
-    document.getElementById("aiInfo").textContent = "Ошибка: " + (data.detail || "не удалось сохранить");
+    if (aiInfo) {
+      aiInfo.textContent = "Ошибка: " + (data.detail || "не удалось сохранить");
+      aiInfo.style.color = "#b91c1c";
+    }
     return;
   }
-  document.getElementById("aiInfo").textContent = "Настройки сохранены";
+  if (aiInfo) {
+    aiInfo.textContent = "Настройки сохранены";
+    aiInfo.style.color = "";
+  }
   await loadAiSettings();
 }
 
