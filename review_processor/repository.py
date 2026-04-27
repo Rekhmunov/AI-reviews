@@ -2958,12 +2958,17 @@ class ReviewRepository:
     ) -> dict[str, str]:
         metadata = review_metadata if isinstance(review_metadata, dict) else {}
         tags_text = ", ".join(review_tags) if isinstance(review_tags, list) else str(review_tags or "")
+        # Backward-compatible defaults for historic placeholders used in templates/tests.
+        default_brand = "VarFabric"
+        default_name = str(review_author or "").strip()
         context: dict[str, str] = {
             "%AUTHOR%": str(review_author or "").strip() or "клиент",
             "%RATING%": str(review_rating if review_rating is not None else ""),
             "%CATEGORY%": str(review_category or ""),
             "%SENTIMENT%": str(review_sentiment or ""),
             "%TAGS%": tags_text.strip(),
+            "%BRAND%": default_brand,
+            "%NAME%": default_name,
         }
         if metadata:
             for key, value in metadata.items():

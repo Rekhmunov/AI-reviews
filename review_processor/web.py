@@ -267,7 +267,7 @@ class RoleUpdateRequest(BaseModel):
 class AdminUserCreateRequest(BaseModel):
     email: str = Field(min_length=5, max_length=255)
     password: str = Field(min_length=8, max_length=255)
-    role: str = Field(default=ROLE_USER, description="user")
+    role: str = Field(default="user", description="user")
     plan_code: str = Field(default="starter", min_length=2, max_length=100)
 
 
@@ -278,7 +278,7 @@ class AdminUserPasswordUpdateRequest(BaseModel):
 class TenantUserCreateRequest(BaseModel):
     email: str = Field(min_length=5, max_length=255)
     password: str = Field(min_length=8, max_length=255)
-    role: str = Field(default=TENANT_ROLE_MANAGER, description="feedback_manager")
+    role: str = Field(default="feedback_manager", description="feedback_manager")
     full_name: str | None = Field(default=None, max_length=200)
     permissions: list["ManagerPermissionItemRequest"] = Field(default_factory=list)
 
@@ -445,8 +445,8 @@ class RecommendationsSaveRequest(BaseModel):
 ROLE_ADMIN = "admin"
 ROLE_USER = "user"
 ROLE_FEEDBACK_MANAGER = "feedback_manager"
-ROLE_CAN_ACCESS_ANALYTICS = {ROLE_ADMIN, ROLE_USER, ROLE_FEEDBACK_MANAGER}
-ROLE_CAN_ACCESS_SETTINGS = {ROLE_ADMIN, ROLE_USER, ROLE_FEEDBACK_MANAGER}
+ROLE_CAN_ACCESS_ANALYTICS = {ROLE_ADMIN, ROLE_USER}
+ROLE_CAN_ACCESS_SETTINGS = {ROLE_ADMIN, ROLE_USER}
 ROLE_ASSIGNABLE_BY_ADMIN = {ROLE_ADMIN, ROLE_USER, ROLE_FEEDBACK_MANAGER}
 TENANT_ROLE_OWNER = "admin"
 TENANT_ROLE_MANAGER = "feedback_manager"
