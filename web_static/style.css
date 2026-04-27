@@ -37,6 +37,11 @@ body {
     linear-gradient(180deg, #f8fbff 0%, var(--bg) 44%, var(--bg-deep) 100%);
 }
 
+body.app-booting,
+body.app-boot-hidden {
+  visibility: hidden;
+}
+
 body::before {
   content: "";
   position: fixed;

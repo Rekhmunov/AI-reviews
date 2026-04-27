@@ -80,6 +80,7 @@ const ACTIVE_SECTION_STORAGE_KEY = "feedpilot_active_section";
 const ACTIVE_SETTINGS_TAB_STORAGE_KEY = "feedpilot_active_settings_tab";
 const SECTION_IDS = ["reviews", "conversations", "analytics", "settings", "profile"];
 const SETTINGS_TAB_IDS = ["sources", "rules", "templates", "recommendations", "template-variables"];
+const APP_BOOT_HIDE_CLASS = "app-boot-hidden";
 
 const categoryLabels = {
   positive: "Позитив",
@@ -1235,8 +1236,7 @@ async function loadUserSyncSettings() {
   toggle.checked = data.use_sync_start_date !== false;
   input.value = data.sync_start_date || "";
   input.disabled = !toggle.checked;
-  const lookbackDays = Number(data.default_sync_lookback_days || 7);
-  info.textContent = `По умолчанию: за ${lookbackDays} дн. до регистрации`;
+  info.textContent = "";
 }
 
 async function createAccount() {
@@ -1826,8 +1826,7 @@ async function loadProfile() {
     userSyncDateInput.disabled = !(userSyncToggle?.checked ?? true);
   }
   if (userSyncInfo) {
-    const lookbackDays = Number(data.default_sync_lookback_days || 7);
-    userSyncInfo.textContent = `По умолчанию: за ${lookbackDays} дн. до регистрации`;
+    userSyncInfo.textContent = "";
   }
   if (!Array.isArray(data.editable_template_variables)) {
     await loadUserTemplateVariables();
@@ -1873,8 +1872,7 @@ async function saveUserSyncSettings() {
   toggle.checked = settings.use_sync_start_date !== false;
   input.value = settings.sync_start_date || "";
   input.disabled = !toggle.checked;
-  const lookbackDays = Number(settings.default_sync_lookback_days || 7);
-  info.textContent = `Сохранено. По умолчанию: за ${lookbackDays} дн. до регистрации`;
+  info.textContent = "Сохранено";
 }
 
 function setPasswordFieldsVisible(visible) {
@@ -1923,6 +1921,7 @@ async function saveProfile() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  document.body.classList.add(APP_BOOT_HIDE_CLASS);
   const permissions = getPermissions();
   if (!permissions.can_view_analytics) {
     document.getElementById("section-analytics")?.classList.add("hidden");
@@ -2022,4 +2021,7 @@ document.addEventListener("DOMContentLoaded", () => {
     loadUserTemplateVariables();
     loadRecommendations();
   }
+  requestAnimationFrame(() => {
+    document.body.classList.remove(APP_BOOT_HIDE_CLASS);
+  });
 });
