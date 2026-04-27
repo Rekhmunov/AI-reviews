@@ -2166,9 +2166,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 )
             plan_code = payload.plan_code.strip().lower()
             plans = repository.list_tariff_plans()
-            available_codes = {str(item.get("code") or "").strip().lower() for item in plans if bool(item.get("is_active", True))}
-            if plan_code not in available_codes:
-                raise HTTPException(status_code=400, detail="Выбранный тариф недоступен")
+            all_codes = {str(item.get("code") or "").strip().lower() for item in plans}
+            all_codes = {code for code in all_codes if code}
+            if not all_codes:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Нет доступных тарифов. Сначала создайте хотя бы один тариф в разделе SaaS-управления.",
+                )
+            if plan_code not in all_codes:
+                # Keep user creation resilient to stale UI state:
+                # if selected plan was removed, fall back to any existing tariff.
+                plan_code = sorted(all_codes)[0]
             created = repository.create_user(
                 email=email,
                 password_hash=hash_password(password),

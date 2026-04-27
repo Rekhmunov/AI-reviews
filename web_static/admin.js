@@ -488,11 +488,11 @@ async function loadUsers() {
   const newUserPlan = document.getElementById("newUserPlan");
   if (newUserPlan) {
     newUserPlan.innerHTML = "";
-    const plans = (window.__AVAILABLE_PLANS__ || []).filter((plan) => Boolean(plan && plan.is_active !== false));
+    const plans = (window.__AVAILABLE_PLANS__ || []).filter((plan) => Boolean(plan && String(plan.code || "").trim()));
     if (!plans.length) {
       const fallback = document.createElement("option");
       fallback.value = "";
-      fallback.textContent = "Нет активных тарифов";
+      fallback.textContent = "Нет тарифов";
       newUserPlan.appendChild(fallback);
       newUserPlan.disabled = true;
     } else {
@@ -500,8 +500,10 @@ async function loadUsers() {
     }
     for (const plan of plans) {
       const option = document.createElement("option");
-      option.value = String(plan.code || "");
-      option.textContent = `${String(plan.title || plan.code || "")} (${String(plan.code || "")})`;
+      const code = String(plan.code || "");
+      const isActive = Boolean(plan.is_active !== false);
+      option.value = code;
+      option.textContent = `${String(plan.title || code)} (${code})${isActive ? "" : " · неактивен"}`;
       newUserPlan.appendChild(option);
     }
     if (plans.length && !newUserPlan.value) newUserPlan.value = String(plans[0].code || "");
@@ -639,16 +641,17 @@ async function deleteUser(userId) {
 }
 
 async function createUser() {
-  const createButton = document.getElementById("createUserButton");
-  if (createButton && createButton.disabled) {
-    setUsersInfo("Нет активных тарифов. Сначала активируйте хотя бы один тариф.", true);
-    return;
-  }
   const emailInput = document.getElementById("newUserEmail");
   const passwordInput = document.getElementById("newUserPassword");
   const roleInput = document.getElementById("newUserRole");
   const planInput = document.getElementById("newUserPlan");
-  const selectedPlan = String(planInput?.value || "").trim().toLowerCase();
+  let selectedPlan = String(planInput?.value || "").trim().toLowerCase();
+  if (!selectedPlan) {
+    const plans = (window.__AVAILABLE_PLANS__ || []).filter((plan) => Boolean(plan && String(plan.code || "").trim()));
+    if (plans.length) {
+      selectedPlan = String(plans[0].code || "").trim().toLowerCase();
+    }
+  }
   const payload = {
     email: String(emailInput?.value || "").trim(),
     password: String(passwordInput?.value || ""),
@@ -660,7 +663,7 @@ async function createUser() {
     return;
   }
   if (!payload.plan_code) {
-    setUsersInfo("Нет активного тарифа для создания пользователя. Сначала активируйте хотя бы один тариф.", true);
+    setUsersInfo("Нет доступного тарифа для создания пользователя. Сначала создайте тариф в SaaS-управлении.", true);
     return;
   }
   const res = await fetch("/api/admin/users", {
@@ -676,7 +679,7 @@ async function createUser() {
   if (emailInput) emailInput.value = "";
   if (passwordInput) passwordInput.value = "";
   if (roleInput) roleInput.value = "user";
-  if (planInput) planInput.value = "starter";
+  if (planInput && planInput.options.length > 0) planInput.selectedIndex = 0;
   setUsersInfo("Пользователь создан.");
   await loadUsers();
 }
