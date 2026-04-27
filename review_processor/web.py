@@ -942,7 +942,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     def _ensure_platform_default_templates() -> None:
         seed_rows, subgroup_rows = _default_template_seed_rows()
-        repository.seed_default_template_subgroups(subgroup_rows)
+        repository.ensure_default_template_subgroups(subgroup_rows)
         if repository.count_default_template_variants(include_inactive=True) > 0:
             return
         seeded = repository.seed_default_templates_from_user_templates()
