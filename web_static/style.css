@@ -483,9 +483,14 @@ body.landing-page {
 
 .panel h2,
 .panel h3,
-.panel h4 {
+.panel h4,
+.main > section > h3 {
   margin: 0 0 12px;
   letter-spacing: -0.01em;
+  font-size: 24px;
+  line-height: 1.25;
+  font-weight: 700;
+  color: #0f172a;
 }
 
 .row {
@@ -854,7 +859,7 @@ button.secondary.danger:hover {
 }
 
 .reviews-heading {
-  margin: 0 0 8px;
+  margin: 0 0 12px;
 }
 
 .reviews-sync-row {
