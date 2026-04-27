@@ -99,24 +99,39 @@ class RepositoryAdminTests(unittest.TestCase):
         self.assertEqual(actions[0]["action_type"], "queue_manual")
 
     def test_default_template_variables_and_user_values(self) -> None:
-        inserted = self.repository.ensure_default_template_variables()
-        self.assertGreaterEqual(inserted, 0)
-
         variables = self.repository.list_template_variables(only_active=True)
         keys = {str(item.get("var_key") or "") for item in variables}
-        self.assertIn("%BRAND%", keys)
-        self.assertIn("%NAME%", keys)
+        self.assertNotIn("%BRAND%", keys)
+        self.assertNotIn("%NAME%", keys)
 
+        self.repository.upsert_template_variable(
+            var_key="%STORE_NAME%",
+            title="Название магазина",
+            is_user_editable=True,
+            source_type="manual",
+            source_path=None,
+            default_value="StoreFallback",
+            is_active=True,
+        )
+        self.repository.upsert_template_variable(
+            var_key="%AUTHOR_NAME%",
+            title="Имя автора",
+            is_user_editable=False,
+            source_type="review_field",
+            source_path="author_name",
+            default_value="",
+            is_active=True,
+        )
         updated = self.repository.save_user_template_variable_values(
             user_id=self.user_id,
-            values={"%BRAND%": "MyBrand", "%NAME%": "ShouldNotPersist"},
+            values={"%STORE_NAME%": "MyStore", "%AUTHOR_NAME%": "ShouldNotPersist"},
         )
         self.assertEqual(updated, 1)
 
         user_rows = self.repository.list_user_template_variable_values(user_id=self.user_id)
         by_key = {str(item.get("var_key") or ""): item for item in user_rows}
-        self.assertEqual(str(by_key["%BRAND%"].get("value") or ""), "MyBrand")
-        self.assertEqual(str(by_key["%NAME%"].get("value") or ""), "")
+        self.assertEqual(str(by_key["%STORE_NAME%"].get("value") or ""), "MyStore")
+        self.assertEqual(str(by_key["%AUTHOR_NAME%"].get("value") or ""), "")
 
         context = self.repository.build_template_variables_context(
             user_id=self.user_id,
@@ -127,8 +142,8 @@ class RepositoryAdminTests(unittest.TestCase):
             review_tags=["доставка", "качество"],
             review_metadata={"brand": "MetaBrand"},
         )
-        self.assertEqual(context.get("%BRAND%"), "MyBrand")
-        self.assertEqual(context.get("%NAME%"), "Анна")
+        self.assertEqual(context.get("%STORE_NAME%"), "MyStore")
+        self.assertEqual(context.get("%AUTHOR_NAME%"), "Анна")
 
     def test_conversation_storage_and_user_analytics(self) -> None:
         conv_uid = self.repository.upsert_conversation(

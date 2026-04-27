@@ -232,34 +232,4 @@ VALUES (
 )
 ON CONFLICT (id) DO NOTHING;
 
-INSERT INTO template_variables (
-    var_key, title, description, is_user_editable, source_type, source_path, default_value, is_active, created_at, updated_at
-)
-VALUES
-    (
-        '%BRAND%',
-        'Бренд',
-        'Название бренда для подстановки в ответы',
-        TRUE,
-        'manual',
-        '',
-        'VarFabric',
-        TRUE,
-        NOW(),
-        NOW()
-    ),
-    (
-        '%NAME%',
-        'Имя автора отзыва',
-        'Автоматически подставляется из имени автора отзыва',
-        FALSE,
-        'review',
-        'author',
-        '',
-        TRUE,
-        NOW(),
-        NOW()
-    )
-ON CONFLICT (var_key) DO NOTHING;
-
 COMMIT;

@@ -954,7 +954,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.get("/api/profile")
     def get_profile(request: Request) -> dict[str, object]:
         user = _require_user(request)
-        repository.ensure_default_template_variables()
         sync_settings = repository.get_user_sync_settings(user_id=int(user["id"]))
         template_variables = repository.list_user_template_variable_values(user_id=int(user["id"]))
         editable_template_variables = [
@@ -996,7 +995,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.get("/api/user/template-variables")
     def user_list_template_variables(request: Request) -> dict[str, object]:
         user = _require_user(request)
-        repository.ensure_default_template_variables()
         rows = repository.list_user_template_variable_values(user_id=int(user["id"]))
         items = [
             item
@@ -1011,7 +1009,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         request: Request,
     ) -> dict[str, object]:
         user = _require_user(request)
-        repository.ensure_default_template_variables()
         saved = repository.save_user_template_variable_values(
             user_id=int(user["id"]),
             values={str(k): str(v) for k, v in dict(payload.values).items()},
@@ -1694,7 +1691,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.get("/api/super-admin/template-variables")
     def super_admin_list_template_variables(request: Request) -> dict[str, object]:
         _require_super_admin(request)
-        repository.ensure_default_template_variables()
         items = repository.list_template_variables(only_active=False)
         return {"items": items, "count": len(items)}
 

@@ -27,29 +27,6 @@ DEFAULT_GROUP_PROCESSORS: dict[str, str] = {
     "textless_ratings": "program",
 }
 
-DEFAULT_TEMPLATE_VARIABLES: tuple[dict[str, object], ...] = (
-    {
-        "var_key": "%BRAND%",
-        "title": "Бренд",
-        "description": "Название бренда для подстановки в ответы",
-        "is_user_editable": True,
-        "source_type": "manual",
-        "source_path": "",
-        "default_value": "VarFabric",
-        "is_active": True,
-    },
-    {
-        "var_key": "%NAME%",
-        "title": "Имя автора отзыва",
-        "description": "Автоматически подставляется из имени автора отзыва",
-        "is_user_editable": False,
-        "source_type": "review_field",
-        "source_path": "author_name",
-        "default_value": "",
-        "is_active": True,
-    },
-)
-
 TEMPLATE_VARIABLE_KEY_RE = re.compile(r"^%[A-Z0-9_]{2,50}%$")
 
 
@@ -616,7 +593,7 @@ class ReviewRepository:
                     _utc_now(),
                 ),
             )
-        self.ensure_default_template_variables()
+        # Template variables are fully managed by super-admin (no hardcoded defaults).
 
     def _migrate_schema(self, conn) -> None:
         if self.is_postgres:
@@ -1279,7 +1256,6 @@ class ReviewRepository:
         if not is_super_admin:
             self.ensure_tenant_subscription(owner_user_id=int(owner_value or user_id))
         if not is_super_admin:
-            self.ensure_default_template_variables()
             self.copy_default_templates_to_user(user_id=user_id, only_if_empty=True)
             self.get_user_sync_settings(user_id=user_id)
         user = self.get_user_by_id(user_id)
@@ -2735,40 +2711,8 @@ class ReviewRepository:
         return target or None
 
     def ensure_default_template_variables(self) -> int:
-        inserted = 0
-        now = _utc_now()
-        with self._connect() as conn:
-            for item in DEFAULT_TEMPLATE_VARIABLES:
-                var_key = str(item.get("var_key") or "").strip()
-                if not var_key:
-                    continue
-                result = conn.execute(
-                    """
-                    INSERT INTO template_variables (
-                        var_key, title, description, is_user_editable, source_type, source_path, default_value, is_active,
-                        created_at, updated_at
-                    )
-                    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-                    WHERE NOT EXISTS (
-                        SELECT 1 FROM template_variables WHERE var_key = ?
-                    )
-                    """,
-                    (
-                        var_key,
-                        str(item.get("title") or var_key),
-                        str(item.get("description") or ""),
-                        self._bool_db(bool(item.get("is_user_editable"))),
-                        str(item.get("source_type") or "manual"),
-                        str(item.get("source_path") or ""),
-                        str(item.get("default_value") or ""),
-                        self._bool_db(bool(item.get("is_active", True))),
-                        now,
-                        now,
-                        var_key,
-                    ),
-                )
-                inserted += int(result.rowcount or 0)
-        return inserted
+        # Backward-compatible no-op: template variables are not auto-seeded.
+        return 0
 
     def list_template_variables(self, *, only_active: bool = False) -> list[dict[str, Any]]:
         clauses: list[str] = []
@@ -2945,11 +2889,9 @@ class ReviewRepository:
         review_tags: str | list[str] | None,
         review_metadata: dict[str, Any] | None,
     ) -> dict[str, str]:
-        self.ensure_default_template_variables()
         metadata = review_metadata if isinstance(review_metadata, dict) else {}
         tags_text = ", ".join(review_tags) if isinstance(review_tags, list) else str(review_tags or "")
         context: dict[str, str] = {
-            "%NAME%": str(review_author or "").strip() or "клиент",
             "%AUTHOR%": str(review_author or "").strip() or "клиент",
             "%RATING%": str(review_rating if review_rating is not None else ""),
             "%CATEGORY%": str(review_category or ""),
