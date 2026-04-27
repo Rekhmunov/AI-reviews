@@ -1221,11 +1221,23 @@ class ReviewRepository:
         limits_override: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         now = _utc_now()
+        normalized_email = email.lower()
         owner_value = owner_user_id
         if owner_value is None and role in {"admin", "user", "feedback_manager"} and not is_super_admin:
             # Backward-compatible default: existing single-user flow owns itself.
             owner_value = None
         with self._connect() as conn:
+            # If a legacy soft-deleted user still has this email, free the unique key.
+            deleted_row = conn.execute(
+                "SELECT id FROM users WHERE email = ? AND is_deleted = TRUE ORDER BY id DESC LIMIT 1",
+                (normalized_email,),
+            ).fetchone()
+            if deleted_row is not None:
+                deleted_user_id = int(deleted_row["id"])
+                conn.execute(
+                    "UPDATE users SET email = ? WHERE id = ?",
+                    (f"deleted-user-{deleted_user_id}@deleted.local", deleted_user_id),
+                )
             user_id = self._insert_and_get_id(
                 conn,
                 """
@@ -1237,7 +1249,7 @@ class ReviewRepository:
                 VALUES (?, ?, ?, ?, ?, ?, FALSE, NULL, NULL, FALSE, NULL, ?, ?, ?)
                 """,
                 (
-                    email.lower(),
+                    normalized_email,
                     full_name,
                     password_hash,
                     role,
@@ -1743,13 +1755,21 @@ class ReviewRepository:
 
     def soft_delete_user(self, *, user_id: int) -> bool:
         with self._connect() as conn:
+            existing = conn.execute(
+                "SELECT email FROM users WHERE id = ? AND is_deleted = FALSE",
+                (user_id,),
+            ).fetchone()
+            if existing is None:
+                return False
+            # Keep unique constraint on users.email reusable for future accounts.
+            deleted_email = f"deleted-user-{int(user_id)}@deleted.local"
             result = conn.execute(
                 """
                 UPDATE users
-                SET is_deleted = TRUE, deleted_at = ?, is_blocked = TRUE
+                SET email = ?, is_deleted = TRUE, deleted_at = ?, is_blocked = TRUE
                 WHERE id = ? AND is_deleted = FALSE
                 """,
-                (_utc_now(), user_id),
+                (deleted_email, _utc_now(), user_id),
             )
             conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
         return result.rowcount > 0

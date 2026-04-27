@@ -220,6 +220,26 @@ class RepositoryAdminTests(unittest.TestCase):
         remaining = self.repository.list_billing_records(owner_user_id=self.user_id, limit=50)
         self.assertFalse(any(int(row.get("id") or 0) == payment_id for row in remaining))
 
+    def test_recreate_user_with_same_email_after_soft_delete(self) -> None:
+        first = self.repository.create_user(
+            email="duplicate@example.com",
+            password_hash="h1",
+            role="user",
+            plan_code="starter",
+        )
+        first_id = int(first["id"])
+        self.assertTrue(self.repository.soft_delete_user(user_id=first_id))
+
+        second = self.repository.create_user(
+            email="duplicate@example.com",
+            password_hash="h2",
+            role="user",
+            plan_code="starter",
+        )
+        second_id = int(second["id"])
+        self.assertNotEqual(first_id, second_id)
+        self.assertEqual(str(second["email"]), "duplicate@example.com")
+
     def test_conversation_storage_and_user_analytics(self) -> None:
         conv_uid = self.repository.upsert_conversation(
             user_id=self.user_id,
