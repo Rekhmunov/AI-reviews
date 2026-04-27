@@ -237,6 +237,10 @@ class ReviewRepository:
             if not sql_path.exists():
                 raise RuntimeError(f"PostgreSQL schema file not found: {sql_path}")
             schema_sql = sql_path.read_text(encoding="utf-8")
+            # psycopg interprets "%" markers in query text as placeholders even
+            # when executing raw SQL scripts. Escape percent literals such as
+            # %BRAND%/%NAME% used in seed data to keep bootstrap stable.
+            schema_sql = schema_sql.replace("%", "%%")
             with self._connect() as conn:
                 conn.execute(schema_sql)
                 self._migrate_schema(conn)
