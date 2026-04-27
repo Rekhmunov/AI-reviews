@@ -174,7 +174,7 @@ function getPermissions() {
 
 function isTenantOwner() {
   const fromWindow = window.APP_PERMISSIONS || {};
-  return Boolean(fromWindow.is_tenant_owner);
+  return Boolean(fromWindow.is_tenant_owner || fromWindow.is_super_admin);
 }
 
 function canViewSection(section) {

@@ -730,8 +730,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     def _require_tenant_owner(request: Request) -> dict[str, object]:
         user = _require_settings_access(request)
-        if _is_super_admin(user):
-            raise HTTPException(status_code=403, detail="Доступ только для владельца кабинета")
         if _tenant_owner_id(user) != int(user["id"]):
             raise HTTPException(status_code=403, detail="Недостаточно прав для управления командой")
         return user
@@ -2856,8 +2854,7 @@ def build_app_html(user: dict[str, object]) -> str:
     user_id = int(user.get("id") or 0)
     owner_user_id = int(user.get("owner_user_id") or user_id or 0)
     is_tenant_owner = (
-        (not is_super_admin)
-        and role in ROLE_CAN_ACCESS_SETTINGS
+        role in ROLE_CAN_ACCESS_SETTINGS
         and user_id > 0
         and owner_user_id == user_id
     )
