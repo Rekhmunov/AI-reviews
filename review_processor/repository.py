@@ -159,7 +159,13 @@ class _PgCompatConnection:
 
     def execute(self, query: str, params: tuple[Any, ...] = ()):
         cur = self._conn.cursor(row_factory=psycopg_rows.dict_row)  # type: ignore[union-attr]
-        cur.execute(_replace_qmark_placeholders(query), params)
+        normalized_query = _replace_qmark_placeholders(query)
+        # Pass query without params when there are none: this avoids psycopg
+        # placeholder parsing for SQL literals like '%BRAND%' in seed scripts.
+        if params:
+            cur.execute(normalized_query, params)
+        else:
+            cur.execute(normalized_query)
         return cur
 
 
