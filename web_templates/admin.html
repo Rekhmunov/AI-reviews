@@ -42,7 +42,6 @@
         </table>
       </div>
       <div id="aiInfo" class="small"></div>
-      <p class="small">Оставьте ключ доступа пустым, чтобы не менять текущий ключ. Дата синхронизации теперь задается пользователем в его кабинете, а здесь настраивается только стандартное значение для новых регистраций.</p>
     </div>
 
     <div id="superAdminSaasPanel" class="panel hidden">
@@ -130,11 +129,11 @@
       <div class="row">
         <button class="secondary" onclick="loadSuperAdminDefaultTemplateGroups()">Обновить базу шаблонов</button>
       </div>
-      <div class="row">
+      <div class="row default-templates-workspace">
         <div id="defaultTemplateGroupsView">
           <div id="defaultTemplateGroupsAccordion" class="template-groups-accordion"></div>
         </div>
-        <div id="defaultTemplateEditorView" class="hidden">
+        <div id="defaultTemplateEditorView" class="hidden default-template-editor-view">
           <div class="row between center">
             <h4 id="defaultTemplateEditorTitle" class="no-margin"></h4>
             <button class="secondary" onclick="closeDefaultTemplateEditor()">Назад к группам</button>

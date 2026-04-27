@@ -1136,6 +1136,35 @@ button.secondary.danger:hover {
   width: 100%;
 }
 
+#superAdminDefaultTemplatesPanel .row {
+  align-items: stretch;
+}
+
+#superAdminDefaultTemplatesPanel #defaultTemplateGroupsView,
+#superAdminDefaultTemplatesPanel #defaultTemplateEditorView {
+  width: 100%;
+  flex: 1 1 100%;
+}
+
+#superAdminDefaultTemplatesPanel #defaultTemplateEditorView .row {
+  width: 100%;
+}
+
+#superAdminDefaultTemplatesPanel .template-editor-list {
+  width: 100%;
+}
+
+#superAdminDefaultTemplatesPanel .template-editor-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  width: 100%;
+}
+
+#superAdminDefaultTemplatesPanel .template-editor-input {
+  width: 100%;
+  min-height: 86px;
+  min-width: 0;
+}
+
 .processing-rules-grid {
   margin-top: 12px;
   display: grid;

@@ -307,11 +307,7 @@ async function loadAiSettings() {
     const lookback = Number(data.default_sync_lookback_days || 7);
     lookbackInput.value = String(Number.isFinite(lookback) ? lookback : 7);
   }
-  const keyText = data.has_yandex_api_key
-    ? "Текущий ключ доступа: " + (data.yandex_api_key_preview || "***")
-    : "Ключ доступа пока не задан";
-  const lookbackText = `Стандартный старт синхронизации: за ${Number(data.default_sync_lookback_days || 7)} дн. до регистрации`;
-  document.getElementById("aiInfo").textContent = `${keyText}. ${lookbackText}`;
+  document.getElementById("aiInfo").textContent = "";
 }
 
 function syncDateToggle() {
