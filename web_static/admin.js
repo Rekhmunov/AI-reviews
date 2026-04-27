@@ -698,7 +698,7 @@ function toggleUsersSearch(forceOpen) {
 }
 
 function setSuperAdminInfo(message, isError = false) {
-  const info = document.getElementById("saasInfo");
+  const info = document.getElementById("tariffsInfo");
   if (!info) return;
   info.textContent = message || "";
   info.style.color = isError ? "#b91c1c" : "";

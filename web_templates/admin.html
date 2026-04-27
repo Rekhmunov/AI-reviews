@@ -44,15 +44,10 @@
       <div id="aiInfo" class="small"></div>
     </div>
 
-    <div id="superAdminSaasPanel" class="panel hidden">
-      <h3>SaaS-управление платформой</h3>
-      <div class="row">
-        <button class="secondary" onclick="loadTariffs()">Тарифы</button>
-        <button class="secondary" onclick="loadPayments()">Платежи</button>
-      </div>
+    <div id="superAdminSaasPanel" class="hidden">
       <div id="tariffsBlock" class="panel">
         <div class="row row-between">
-          <h4 class="no-margin">Тарифы</h4>
+          <h3 class="no-margin">Тарифы</h3>
           <button class="secondary" type="button" onclick="openCreateTariffForm()">Добавить тариф</button>
         </div>
         <div id="tariffFormPanel" class="tariff-form-panel hidden">
@@ -75,23 +70,28 @@
           </div>
         </div>
         <div id="tariffsList" class="tariffs-list"></div>
+        <div id="tariffsInfo" class="small"></div>
       </div>
-      <div class="row">
-        <input id="paymentOwnerId" type="number" min="1" placeholder="ID владельца кабинета" />
-        <input id="paymentAmount" type="number" step="0.01" min="0" placeholder="Сумма" />
-        <input id="paymentStatus" type="text" placeholder="Статус (paid/pending/...)" value="paid" />
-        <button onclick="addPaymentRecord()">Добавить платеж</button>
+
+      <div id="paymentsBlock" class="panel">
+        <h3>Платежи</h3>
+        <div class="row">
+          <input id="paymentOwnerId" type="number" min="1" placeholder="ID владельца кабинета" />
+          <input id="paymentAmount" type="number" step="0.01" min="0" placeholder="Сумма" />
+          <input id="paymentStatus" type="text" placeholder="Статус (paid/pending/...)" value="paid" />
+          <button onclick="addPaymentRecord()">Добавить платеж</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th colspan="6">Платежи</th></tr></thead>
+            <tbody id="paymentsTbody"></tbody>
+          </table>
+        </div>
       </div>
-      <div id="saasInfo" class="small"></div>
-      <div id="paymentsBlock" class="row table-wrap">
-        <table>
-          <thead><tr><th colspan="6">Платежи</th></tr></thead>
-          <tbody id="paymentsTbody"></tbody>
-        </table>
-      </div>
+
       <div id="templateVariablesBlock" class="panel">
         <div class="row row-between">
-          <h4 class="no-margin">Переменные шаблонов платформы</h4>
+          <h3 class="no-margin">Переменные шаблонов платформы</h3>
           <button class="secondary" type="button" onclick="resetTemplateVariableForm()">Новая переменная</button>
         </div>
         <div class="row">
