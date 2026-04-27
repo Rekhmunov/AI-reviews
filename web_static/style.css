@@ -1247,6 +1247,29 @@ button.secondary.danger:hover {
   background: rgba(239, 246, 255, 0.95);
 }
 
+.template-subgroup-open-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.template-subgroup-delete-btn {
+  margin-right: 6px;
+}
+
+.template-subgroup-add-row {
+  display: flex;
+  justify-content: flex-start;
+}
+
 .template-count-badge {
   min-width: 28px;
   height: 22px;

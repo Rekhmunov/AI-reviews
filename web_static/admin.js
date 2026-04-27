@@ -914,24 +914,93 @@ function renderDefaultTemplateGroups() {
     const content = document.createElement("div");
     content.className = "template-subgroups-list";
     for (const subgroup of group.subgroups || []) {
-      const row = document.createElement("button");
-      row.type = "button";
+      const row = document.createElement("div");
       row.className = "template-subgroup-row";
+      const openButton = document.createElement("button");
+      openButton.type = "button";
+      openButton.className = "template-subgroup-open-btn";
       const nameSpan = document.createElement("span");
       nameSpan.textContent = String(subgroup.name || "");
       const countSpan = document.createElement("span");
       countSpan.className = "template-count-badge";
       countSpan.textContent = String(subgroup.count || 0);
-      row.appendChild(nameSpan);
-      row.appendChild(countSpan);
-      row.addEventListener("click", () => {
+      openButton.appendChild(nameSpan);
+      openButton.appendChild(countSpan);
+      openButton.addEventListener("click", () => {
         openDefaultTemplateSubgroup(String(group.id || ""), String(subgroup.name || ""), String(group.title || ""));
       });
+      row.appendChild(openButton);
+      if (!subgroup.is_system) {
+        const deleteButton = document.createElement("button");
+        deleteButton.type = "button";
+        deleteButton.className = "icon-btn danger template-subgroup-delete-btn";
+        deleteButton.title = "Удалить группу";
+        deleteButton.textContent = "🗑";
+        deleteButton.addEventListener("click", async () => {
+          await deleteDefaultTemplateSubgroup(String(group.id || ""), String(subgroup.name || ""), String(group.title || ""));
+        });
+        row.appendChild(deleteButton);
+      }
       content.appendChild(row);
     }
+    const addRow = document.createElement("div");
+    addRow.className = "template-subgroup-add-row";
+    const addButton = document.createElement("button");
+    addButton.type = "button";
+    addButton.className = "secondary";
+    addButton.textContent = "Добавить группу";
+    addButton.addEventListener("click", async () => {
+      await createDefaultTemplateSubgroup(String(group.id || ""), String(group.title || ""));
+    });
+    addRow.appendChild(addButton);
+    content.appendChild(addRow);
     details.appendChild(content);
     container.appendChild(details);
   }
+}
+
+async function createDefaultTemplateSubgroup(groupId, groupTitle) {
+  if (!groupId) return;
+  const name = prompt(`Новая группа для категории "${groupTitle}"`);
+  const subgroup = String(name || "").trim();
+  if (!subgroup) return;
+  const res = await fetch("/api/super-admin/default-template-subgroup", {
+    method: "POST",
+    headers: csrfHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ group_id: groupId, subgroup }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    setDefaultTemplatesInfo(data.detail || "Не удалось добавить группу", true);
+    return;
+  }
+  setDefaultTemplatesInfo("Группа добавлена.");
+  await loadDefaultTemplateGroups();
+  await openDefaultTemplateSubgroup(groupId, subgroup, groupTitle);
+}
+
+async function deleteDefaultTemplateSubgroup(groupId, subgroup, groupTitle) {
+  if (!groupId || !subgroup) return;
+  const confirmed = confirm(`Удалить группу "${subgroup}" в категории "${groupTitle}"?`);
+  if (!confirmed) return;
+  const query = new URLSearchParams({ group_id: groupId, subgroup });
+  const res = await fetch("/api/super-admin/default-template-subgroup?" + query.toString(), {
+    method: "DELETE",
+    headers: csrfHeaders(),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    setDefaultTemplatesInfo(data.detail || "Не удалось удалить группу", true);
+    return;
+  }
+  setDefaultTemplatesInfo("Группа удалена.");
+  if (
+    defaultTemplatesState.currentGroupId === groupId &&
+    defaultTemplatesState.currentSubgroup === subgroup
+  ) {
+    closeDefaultTemplateEditor();
+  }
+  await loadDefaultTemplateGroups();
 }
 
 function renderDefaultTemplateEditorRows() {

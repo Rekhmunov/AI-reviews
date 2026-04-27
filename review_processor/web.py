@@ -423,6 +423,11 @@ class DefaultTemplateVariantCreateRequest(BaseModel):
     template_text: str = Field(min_length=1, max_length=4000)
 
 
+class DefaultTemplateSubgroupManageRequest(BaseModel):
+    group_id: str = Field(min_length=2, max_length=100)
+    subgroup: str = Field(min_length=1, max_length=255)
+
+
 class ProcessingRuleItemRequest(BaseModel):
     group_id: str = Field(min_length=2, max_length=100)
     action_mode: str = Field(description="ai|template|manual|ignore")
@@ -877,24 +882,50 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 return item
         return None
 
-    def _validate_subgroup(group_id: str, subgroup: str) -> bool:
+    def _base_subgroups_for_group(group_id: str) -> list[str]:
         group = _template_group_by_id(group_id)
         if group is None:
-            return False
-        subgroups = group.get("subgroups")
-        if not isinstance(subgroups, list):
-            return False
-        return subgroup in subgroups
+            return []
+        subgroups_raw = group.get("subgroups")
+        if not isinstance(subgroups_raw, list):
+            return []
+        result: list[str] = []
+        for value in subgroups_raw:
+            name = str(value).strip()
+            if name and name not in result:
+                result.append(name)
+        return result
 
-    def _default_template_seed_rows() -> list[dict[str, str]]:
+    def _all_subgroups_for_group(group_id: str) -> list[str]:
+        base = _base_subgroups_for_group(group_id)
+        custom_rows = repository.list_default_template_subgroups(group_id=group_id)
+        result = list(base)
+        for row in custom_rows:
+            clean = str((row or {}).get("subgroup") or "").strip()
+            if clean and clean not in result:
+                result.append(clean)
+        return result
+
+    def _validate_subgroup(group_id: str, subgroup: str) -> bool:
+        clean_group_id = str(group_id or "").strip()
+        clean_subgroup = str(subgroup or "").strip()
+        if not clean_group_id or not clean_subgroup:
+            return False
+        return clean_subgroup in _all_subgroups_for_group(clean_group_id)
+
+    def _default_template_seed_rows() -> tuple[list[dict[str, str]], list[dict[str, object]]]:
         rows: list[dict[str, str]] = []
+        subgroup_rows: list[dict[str, object]] = []
         for group in TEMPLATE_GROUPS:
             group_id = str(group.get("id") or "")
             subgroups = group.get("subgroups")
             if not group_id or not isinstance(subgroups, list):
                 continue
             for subgroup in subgroups:
-                name = str(subgroup)
+                name = str(subgroup).strip()
+                if not name:
+                    continue
+                subgroup_rows.append({"group_id": group_id, "subgroup": name, "is_system": True})
                 defaults = DEFAULT_TEMPLATE_CONTENT.get(name) or [f"Спасибо за отзыв! Категория: {name}."]
                 for text in defaults:
                     clean = str(text or "").strip()
@@ -907,32 +938,34 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                             "template_text": clean,
                         }
                     )
-        return rows
+        return rows, subgroup_rows
 
     def _ensure_platform_default_templates() -> None:
+        seed_rows, subgroup_rows = _default_template_seed_rows()
+        repository.seed_default_template_subgroups(subgroup_rows)
         if repository.count_default_template_variants(include_inactive=True) > 0:
             return
         seeded = repository.seed_default_templates_from_user_templates()
         if seeded > 0:
             return
-        repository.seed_default_template_variants(_default_template_seed_rows())
+        repository.seed_default_template_variants(seed_rows)
 
     def _build_template_group_items(counts: dict[tuple[str, str], int]) -> list[dict[str, object]]:
         items: list[dict[str, object]] = []
         for group in TEMPLATE_GROUPS:
             group_id = str(group.get("id") or "")
             title = str(group.get("title") or group_id)
-            subgroups_raw = group.get("subgroups")
+            base_subgroups = set(_base_subgroups_for_group(group_id))
+            all_subgroups = _all_subgroups_for_group(group_id)
             subgroups: list[dict[str, object]] = []
-            if isinstance(subgroups_raw, list):
-                for name in subgroups_raw:
-                    subgroup_name = str(name)
-                    subgroups.append(
-                        {
-                            "name": subgroup_name,
-                            "count": counts.get((group_id, subgroup_name), 0),
-                        }
-                    )
+            for subgroup_name in all_subgroups:
+                subgroups.append(
+                    {
+                        "name": subgroup_name,
+                        "count": counts.get((group_id, subgroup_name), 0),
+                        "is_system": subgroup_name in base_subgroups,
+                    }
+                )
             items.append(
                 {
                     "id": group_id,
@@ -2026,6 +2059,44 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             templates=payload.templates,
         )
         return {"ok": True, "saved": len([x for x in payload.templates if x and x.strip()])}
+
+    @app.post("/api/super-admin/default-template-subgroup")
+    def super_admin_add_default_template_subgroup(
+        payload: DefaultTemplateSubgroupManageRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        _require_super_admin(request)
+        group_id = payload.group_id.strip()
+        subgroup = payload.subgroup.strip()
+        if _template_group_by_id(group_id) is None:
+            raise HTTPException(status_code=404, detail="Группа шаблонов не найдена")
+        if not subgroup:
+            raise HTTPException(status_code=400, detail="Название подгруппы обязательно")
+        existing = set(_all_subgroups_for_group(group_id))
+        if subgroup in existing:
+            raise HTTPException(status_code=409, detail="Подгруппа с таким названием уже существует")
+        repository.add_default_template_subgroup(group_id=group_id, subgroup=subgroup)
+        return {"ok": True, "group_id": group_id, "subgroup": subgroup}
+
+    @app.delete("/api/super-admin/default-template-subgroup")
+    def super_admin_delete_default_template_subgroup(
+        group_id: str,
+        subgroup: str,
+        request: Request,
+    ) -> dict[str, object]:
+        _require_super_admin(request)
+        clean_group_id = str(group_id or "").strip()
+        clean_subgroup = str(subgroup or "").strip()
+        if _template_group_by_id(clean_group_id) is None:
+            raise HTTPException(status_code=404, detail="Группа шаблонов не найдена")
+        if not clean_subgroup:
+            raise HTTPException(status_code=400, detail="Название подгруппы обязательно")
+        if clean_subgroup in set(_base_subgroups_for_group(clean_group_id)):
+            raise HTTPException(status_code=400, detail="Системную подгруппу удалить нельзя")
+        deleted = repository.delete_default_template_subgroup(group_id=clean_group_id, subgroup=clean_subgroup)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Подгруппа не найдена")
+        return {"ok": True}
 
     @app.post("/api/super-admin/default-template-subgroup/item")
     def super_admin_add_default_template_subgroup_item(
