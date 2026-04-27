@@ -1225,17 +1225,15 @@ async function loadAccounts() {
 async function loadUserSyncSettings() {
   const res = await fetch("/api/user-sync-settings");
   const data = await res.json();
-  const toggle = document.getElementById("userUseSyncStartDate");
   const input = document.getElementById("userSyncStartDate");
   const info = document.getElementById("userSyncSettingsInfo");
-  if (!toggle || !input || !info) return;
+  if (!input || !info) return;
   if (!res.ok) {
     info.textContent = "Ошибка загрузки даты синхронизации";
     return;
   }
-  toggle.checked = data.use_sync_start_date !== false;
   input.value = data.sync_start_date || "";
-  input.disabled = !toggle.checked;
+  input.disabled = false;
   info.textContent = "";
 }
 
@@ -1815,15 +1813,11 @@ async function loadProfile() {
   document.getElementById("profileCurrentPassword").value = "";
   document.getElementById("profileNewPassword").value = "";
   document.getElementById("profileNewPasswordRepeat").value = "";
-  const userSyncToggle = document.getElementById("userUseSyncStartDate");
   const userSyncDateInput = document.getElementById("userSyncStartDate");
   const userSyncInfo = document.getElementById("userSyncSettingsInfo");
-  if (userSyncToggle) {
-    userSyncToggle.checked = data.use_sync_start_date !== false;
-  }
   if (userSyncDateInput) {
     userSyncDateInput.value = data.sync_start_date || "";
-    userSyncDateInput.disabled = !(userSyncToggle?.checked ?? true);
+    userSyncDateInput.disabled = false;
   }
   if (userSyncInfo) {
     userSyncInfo.textContent = "";
@@ -1842,20 +1836,12 @@ async function loadProfile() {
   document.getElementById("profileInfo").textContent = "";
 }
 
-function onUserSyncToggleChange() {
-  const toggle = document.getElementById("userUseSyncStartDate");
-  const input = document.getElementById("userSyncStartDate");
-  if (!toggle || !input) return;
-  input.disabled = !toggle.checked;
-}
-
 async function saveUserSyncSettings() {
-  const toggle = document.getElementById("userUseSyncStartDate");
   const input = document.getElementById("userSyncStartDate");
   const info = document.getElementById("userSyncSettingsInfo");
-  if (!toggle || !input || !info) return;
+  if (!input || !info) return;
   const payload = {
-    use_sync_start_date: Boolean(toggle.checked),
+    use_sync_start_date: true,
     sync_start_date: input.value || null,
   };
   const res = await fetch("/api/user-sync-settings", {
@@ -1869,9 +1855,8 @@ async function saveUserSyncSettings() {
     return;
   }
   const settings = data.settings || {};
-  toggle.checked = settings.use_sync_start_date !== false;
   input.value = settings.sync_start_date || "";
-  input.disabled = !toggle.checked;
+  input.disabled = false;
   info.textContent = "Сохранено";
 }
 
@@ -2005,7 +1990,6 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   onSourceMarketplaceChange();
   setPasswordFieldsVisible(false);
-  document.getElementById("userUseSyncStartDate")?.addEventListener("change", onUserSyncToggleChange);
   document.getElementById("ruleCategory")?.addEventListener("change", syncRuleFormFromStore);
   document.getElementById("tplCategory")?.addEventListener("change", syncTemplateFormFromStore);
   loadReviews();

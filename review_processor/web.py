@@ -984,13 +984,16 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.put("/api/user-sync-settings")
     def update_user_sync_settings(request: Request, payload: UserSyncSettingsRequest) -> dict[str, object]:
         user = _require_user(request)
+        # User-level settings always operate with explicit sync start date.
+        # The checkbox toggle was removed from UI, so force enabled mode.
+        enabled_sync_start_date = True
         sync_start_date = _parse_sync_start_date_or_none(
             payload.sync_start_date,
-            enabled=bool(payload.use_sync_start_date),
+            enabled=enabled_sync_start_date,
         )
         updated = repository.save_user_sync_settings(
             user_id=int(user["id"]),
-            use_sync_start_date=bool(payload.use_sync_start_date),
+            use_sync_start_date=enabled_sync_start_date,
             sync_start_date=sync_start_date,
         )
         if not updated:
