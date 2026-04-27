@@ -362,11 +362,11 @@ function getFilteredUsers() {
 }
 
 function usersSearchToggle(forceOpen) {
-  const wrap = document.getElementById("usersSearchRow");
+  const wrap = document.getElementById("usersSearchWrap");
   const input = document.getElementById("usersSearchEmail");
   if (!wrap || !input) return;
-  const open = typeof forceOpen === "boolean" ? forceOpen : wrap.classList.contains("hidden");
-  wrap.classList.toggle("hidden", !open);
+  const open = typeof forceOpen === "boolean" ? forceOpen : wrap.classList.contains("collapsed");
+  wrap.classList.toggle("collapsed", !open);
   if (open) {
     input.focus();
   } else if (!usersState.search) {

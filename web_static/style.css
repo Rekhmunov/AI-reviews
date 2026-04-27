@@ -983,18 +983,16 @@ button.secondary.danger:hover {
   gap: 8px;
 }
 
-.users-search-wrap {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.users-search-wrap input[type="search"] {
+.users-search-inline input[type="search"] {
   min-width: 260px;
 }
 
-.users-search-wrap.collapsed input[type="search"],
-.users-search-wrap.collapsed button.users-search-clear {
+.users-search-inline.collapsed {
+  display: none;
+}
+
+.users-search-inline.collapsed input[type="search"],
+.users-search-inline.collapsed button.users-search-clear {
   display: none;
 }
 
@@ -1452,7 +1450,7 @@ button.secondary.danger:hover {
     width: 100%;
   }
 
-  .users-search-wrap input[type="search"] {
+  .users-search-inline input[type="search"] {
     min-width: 0;
     width: 100%;
   }
