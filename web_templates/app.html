@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
   <link rel="stylesheet" href="/static/style.css?v=5" />
 </head>
 <body>
@@ -28,9 +29,6 @@
         <div class="panel reviews-controls-panel">
           <h3>Отзывы</h3>
           <div class="row">
-            <button id="syncAllBtn" onclick="syncAll()">Синхронизировать все активные кабинеты</button>
-            <button id="adminStopSyncBtn" class="secondary hidden" onclick="stopSyncAll()">Остановить синхронизацию</button>
-            <button id="adminClearReviewsBtn" class="secondary hidden" onclick="clearAllReviews()">Очистить отзывы</button>
             <span id="syncInfo" class="small"></span>
           </div>
         </div>
@@ -39,6 +37,7 @@
             <div class="reviews-buckets">
               <button id="reviews-tab-new" class="bucket-tab active" onclick="setReviewBucket('new')">Новые отзывы (0)</button>
               <button id="reviews-tab-processed" class="bucket-tab" onclick="setReviewBucket('processed')">Обработанные отзывы (0)</button>
+              <button id="adminClearReviewsBtn" class="secondary hidden" onclick="clearAllReviews()">Очистить отзывы</button>
             </div>
             <div class="reviews-quick-controls">
               <select id="reviewsSortFilter">
@@ -235,6 +234,10 @@
                 <button class="secondary" onclick="saveUserSyncSettings()">Сохранить дату</button>
                 <span id="userSyncSettingsInfo" class="small"></span>
               </div>
+            </div>
+            <div class="row mt-10">
+              <button id="syncAllBtn" onclick="syncAll()">Синхронизировать все активные кабинеты</button>
+              <button id="adminStopSyncBtn" class="secondary hidden" onclick="stopSyncAll()">Остановить синхронизацию</button>
             </div>
 
             <div id="addSourceForm" class="source-form hidden">

@@ -630,17 +630,23 @@ async function syncAll() {
 }
 
 async function stopSyncAll() {
+  const stopButton = document.getElementById("adminStopSyncBtn");
+  if (stopButton) stopButton.disabled = true;
   const res = await fetch("/api/admin/sync-stop", {
     method: "POST",
     headers: withCsrfHeaders(),
   });
   const data = await res.json();
   if (!res.ok) {
+    if (stopButton) stopButton.disabled = false;
     alert(data.detail || "Не удалось остановить синхронизацию");
     return;
   }
   const syncInfo = document.getElementById("syncInfo");
   if (syncInfo) syncInfo.textContent = "Отправлена команда остановки. Подождите завершения текущей операции.";
+  setTimeout(() => {
+    if (stopButton) stopButton.disabled = false;
+  }, 1500);
 }
 
 async function clearAllReviews() {
@@ -916,11 +922,21 @@ async function createAccount() {
 
 async function toggleAccount(accountId, active) {
   const payload = { is_active: active };
-  await fetch(`/api/accounts/${accountId}/status`, {
+  const res = await fetch(`/api/accounts/${accountId}/status`, {
     method: "POST",
     headers: jsonHeaders(),
     body: JSON.stringify(payload),
   });
+  const data = await res.json();
+  if (!res.ok) {
+    alert(data.detail || "Не удалось изменить статус источника");
+    return;
+  }
+  if (!active) {
+    document.getElementById("accountsInfo").textContent = "Источник отключен. Сбор по нему остановлен.";
+  } else {
+    document.getElementById("accountsInfo").textContent = "Источник включен.";
+  }
   await loadAccounts();
 }
 
@@ -935,6 +951,7 @@ async function deleteAccount(accountId) {
     alert(data.detail || "Не удалось удалить источник");
     return;
   }
+  document.getElementById("accountsInfo").textContent = "Источник удален. Ключ доступа удален из базы.";
   await loadAccounts();
 }
 

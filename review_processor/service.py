@@ -702,8 +702,15 @@ class ReviewAutomationService:
                 break
             account_id = int(account["id"])
             marketplace = str(account["marketplace"])
+            current_account = self.repository.get_marketplace_account(
+                user_id=user_id,
+                account_id=account_id,
+                include_secrets=True,
+            )
+            if current_account is None or not bool(current_account.get("is_active")):
+                continue
             try:
-                client = self._build_client(account)
+                client = self._build_client(current_account)
                 loaded_total += self.sync_reviews(
                     user_id=user_id,
                     source=marketplace,

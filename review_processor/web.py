@@ -1299,6 +1299,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.post("/api/accounts/{account_id}/status")
     def update_account_status(account_id: int, request: Request, payload: AccountStatusRequest) -> dict[str, object]:
         user = _require_settings_access(request)
+        account = repository.get_marketplace_account(
+            user_id=int(user["id"]),
+            account_id=account_id,
+            include_secrets=False,
+        )
+        if account is None:
+            raise HTTPException(status_code=404, detail="Кабинет маркетплейса не найден")
         updated = repository.update_marketplace_account_status(
             user_id=int(user["id"]),
             account_id=account_id,
@@ -1311,6 +1318,18 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.delete("/api/accounts/{account_id}")
     def delete_account(account_id: int, request: Request) -> dict[str, object]:
         user = _require_settings_access(request)
+        account = repository.get_marketplace_account(
+            user_id=int(user["id"]),
+            account_id=account_id,
+            include_secrets=False,
+        )
+        if account is None:
+            raise HTTPException(status_code=404, detail="Кабинет маркетплейса не найден")
+        repository.update_marketplace_account_status(
+            user_id=int(user["id"]),
+            account_id=account_id,
+            is_active=False,
+        )
         deleted = repository.delete_marketplace_account(
             user_id=int(user["id"]),
             account_id=account_id,
