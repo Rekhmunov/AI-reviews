@@ -110,11 +110,13 @@ TEMPLATE_GROUPS: list[dict[str, object]] = [
         "title": "Оценки без текста",
         "subgroups": [
             "1-3 звезды",
-            "4 звезды",
-            "5 звезд",
+            "4-5 звезд",
         ],
     },
 ]
+
+TEXTLESS_RATINGS_GROUP_ID = "textless_ratings"
+TEXTLESS_LOCKED_SUBGROUPS: tuple[str, ...] = ("1-3 звезды", "4-5 звезд")
 
 DEFAULT_TEMPLATE_CONTENT: dict[str, list[str]] = {
     "Вкус": [
@@ -212,9 +214,17 @@ DEFAULT_TEMPLATE_CONTENT: dict[str, list[str]] = {
         "Благодарим за отзыв с тегами {теги}. Ваши отметки помогают нам становиться лучше!",
     ],
     "1-3 звезды": ["Спасибо за оценку. Нам важно ваше мнение — мы улучшаем сервис каждый день."],
-    "4 звезды": ["Спасибо за высокую оценку! Будем рады снова видеть вас среди покупателей."],
-    "5 звезд": ["Спасибо за 5 звезд! Очень рады, что вам все понравилось."],
+    "4-5 звезд": [
+        "Спасибо за высокую оценку! Будем рады снова видеть вас среди покупателей.",
+        "Спасибо за 5 звезд! Очень рады, что вам все понравилось.",
+    ],
 }
+
+
+def _is_protected_default_subgroup(group_id: str, subgroup: str) -> bool:
+    clean_group = str(group_id or "").strip()
+    clean_subgroup = str(subgroup or "").strip()
+    return clean_group == TEXTLESS_RATINGS_GROUP_ID and clean_subgroup in TEXTLESS_LOCKED_SUBGROUPS
 
 
 class SyncRequest(BaseModel):
@@ -2103,6 +2113,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Группа шаблонов не найдена")
         if not clean_subgroup:
             raise HTTPException(status_code=400, detail="Название подгруппы обязательно")
+        if _is_protected_default_subgroup(clean_group_id, clean_subgroup):
+            raise HTTPException(
+                status_code=400,
+                detail="Подгруппы '1-3 звезды' и '4-5 звезд' в блоке 'Оценки без текста' удалять нельзя",
+            )
         deleted = repository.delete_default_template_subgroup(group_id=clean_group_id, subgroup=clean_subgroup)
         if not deleted:
             raise HTTPException(status_code=404, detail="Подгруппа не найдена")

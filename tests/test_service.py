@@ -58,6 +58,34 @@ class _PositiveDeliveryClient:
         ]
 
 
+class _TextlessClient:
+    def fetch_reviews(self, *args: object, **kwargs: object) -> list[ReviewInput]:
+        _ = args, kwargs
+        return [
+            ReviewInput(
+                review_id="ext-textless-1",
+                text="",
+                author="Client D",
+                rating=5,
+                metadata={},
+            )
+        ]
+
+
+class _TextlessLowRatingClient:
+    def fetch_reviews(self, *args: object, **kwargs: object) -> list[ReviewInput]:
+        _ = args, kwargs
+        return [
+            ReviewInput(
+                review_id="ext-textless-2",
+                text="",
+                author="Client E",
+                rating=2,
+                metadata={},
+            )
+        ]
+
+
 def _fake_yandex_category(review: ReviewInput) -> str:
     text = (review.text or "").lower()
     has_negative = any(word in text for word in ("ужас", "плох", "брак", "некачеств", "слом", "задерж", "опозд"))
@@ -80,6 +108,9 @@ class ReviewAutomationServiceTests(unittest.TestCase):
         self.service = ReviewAutomationService(repository=self.repository)
         self.service._classify_with_yandex = mock.Mock(
             side_effect=lambda review, settings, strict=False, allowed_groups=None: _fake_yandex_category(review)
+        )
+        self.service._classify_with_yandex_target = mock.Mock(
+            side_effect=lambda review, settings, user_id, strict=False: (_fake_yandex_category(review), None)
         )
         self.user = self.repository.create_user(email="owner@example.com", password_hash="hash", role="admin")
 
@@ -323,9 +354,9 @@ class ReviewAutomationServiceTests(unittest.TestCase):
         group_id = self.service._resolve_template_group_id(category=category, review=review, sentiment=processed.sentiment_label)
         subgroup = self.service._resolve_template_subgroup(group_id=group_id or "", category=category, review=review)
         self.assertEqual(group_id, "textless_ratings")
-        self.assertEqual(subgroup, "5 звезд")
+        self.assertEqual(subgroup, "4-5 звезд")
 
-    def test_textless_with_tags_routes_to_tagged_group(self) -> None:
+    def test_textless_with_tags_routes_to_rating_group(self) -> None:
         review = ReviewInput(
             review_id="r-tags",
             text="",
@@ -336,8 +367,8 @@ class ReviewAutomationServiceTests(unittest.TestCase):
         category = self.service._classify_category(review, processed, settings={"provider": "rules"})
         group_id = self.service._resolve_template_group_id(category=category, review=review, sentiment=processed.sentiment_label)
         subgroup = self.service._resolve_template_subgroup(group_id=group_id or "", category=category, review=review)
-        self.assertEqual(group_id, "tagged_reviews")
-        self.assertEqual(subgroup, "Общие теги")
+        self.assertEqual(group_id, "textless_ratings")
+        self.assertEqual(subgroup, "4-5 звезд")
 
     def test_neutral_text_with_size_hint_routes_to_wrong_size(self) -> None:
         review = ReviewInput(
@@ -362,6 +393,54 @@ class ReviewAutomationServiceTests(unittest.TestCase):
                 account_id=None,
                 client=_StubClient(),
             )
+
+    def test_textless_rating_uses_4_5_stars_subgroup_template(self) -> None:
+        self.repository.upsert_processing_rule(
+            user_id=int(self.user["id"]),
+            group_id="textless_ratings",
+            action_mode="template",
+            auto_send=True,
+        )
+        self.repository.replace_subgroup_templates(
+            user_id=int(self.user["id"]),
+            group_id="textless_ratings",
+            subgroup="4-5 звезд",
+            templates=["ТЕСТ: шаблон для 4-5 звезд"],
+        )
+        self.service.sync_reviews(
+            user_id=int(self.user["id"]),
+            source="test-market",
+            account_id=None,
+            client=_TextlessClient(),
+        )
+        review = self.repository.list_reviews(user_id=int(self.user["id"]), category="textless_ratings", limit=1)[0]
+        self.assertEqual(review["status"], "answered_auto")
+        self.assertIn("4-5 звезд", str((review.get("metadata") or {}).get("classified_subgroup") or ""))
+        self.assertIn("4-5", str(review.get("auto_reply") or ""))
+
+    def test_textless_rating_uses_1_3_stars_subgroup_template(self) -> None:
+        self.repository.upsert_processing_rule(
+            user_id=int(self.user["id"]),
+            group_id="textless_ratings",
+            action_mode="template",
+            auto_send=True,
+        )
+        self.repository.replace_subgroup_templates(
+            user_id=int(self.user["id"]),
+            group_id="textless_ratings",
+            subgroup="1-3 звезды",
+            templates=["ТЕСТ: шаблон для 1-3 звезд"],
+        )
+        self.service.sync_reviews(
+            user_id=int(self.user["id"]),
+            source="test-market",
+            account_id=None,
+            client=_TextlessLowRatingClient(),
+        )
+        review = self.repository.list_reviews(user_id=int(self.user["id"]), category="textless_ratings", limit=1)[0]
+        self.assertEqual(review["status"], "answered_auto")
+        self.assertIn("1-3 звезды", str((review.get("metadata") or {}).get("classified_subgroup") or ""))
+        self.assertIn("1-3", str(review.get("auto_reply") or ""))
 
 
 if __name__ == "__main__":

@@ -897,9 +897,17 @@ function renderDefaultTemplateGroups() {
       deleteButton.className = "icon-btn danger template-subgroup-delete-btn";
       deleteButton.title = "Удалить группу";
       deleteButton.textContent = "🗑";
-      deleteButton.addEventListener("click", async () => {
-        await deleteDefaultTemplateSubgroup(String(group.id || ""), String(subgroup.name || ""), String(group.title || ""));
-      });
+      const isProtectedTextlessSubgroup =
+        String(group.id || "") === "textless_ratings" &&
+        (String(subgroup.name || "") === "1-3 звезды" || String(subgroup.name || "") === "4-5 звезд");
+      if (isProtectedTextlessSubgroup) {
+        deleteButton.disabled = true;
+        deleteButton.title = "Эту подгруппу удалять нельзя";
+      } else {
+        deleteButton.addEventListener("click", async () => {
+          await deleteDefaultTemplateSubgroup(String(group.id || ""), String(subgroup.name || ""), String(group.title || ""));
+        });
+      }
       row.appendChild(deleteButton);
       content.appendChild(row);
     }
