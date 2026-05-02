@@ -2048,4 +2048,43 @@ button.secondary.danger:hover {
     margin: 0;
     padding: 0;
   }
+
+  /* Unify all settings panes to the same mobile width template */
+  #section-settings > div[id^="settings-pane-"],
+  #section-settings > div[id^="settings-pane-"] > .panel {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  #section-settings > div[id^="settings-pane-"] .row {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    margin-left: 0;
+    margin-right: 0;
+  }
+
+  #section-settings > div[id^="settings-pane-"] .row > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  #section-settings > div[id^="settings-pane-"] .row button,
+  #section-settings > div[id^="settings-pane-"] .row .navbtn {
+    width: 100%;
+    white-space: normal;
+  }
+
+  #section-settings > div[id^="settings-pane-"] .table-wrap {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+  }
+
+  #section-settings > div[id^="settings-pane-"] .table-wrap > table {
+    min-width: 560px;
+  }
 }
