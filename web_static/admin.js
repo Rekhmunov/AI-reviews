@@ -1210,27 +1210,47 @@ function renderDefaultTemplateGroups() {
         openDefaultTemplateSubgroup(String(group.id || ""), String(subgroup.name || ""), String(group.title || ""));
       });
       row.appendChild(openButton);
+      const editButton = document.createElement("button");
+      editButton.type = "button";
+      editButton.className = "icon-btn template-subgroup-edit-btn";
+      editButton.title = "Переименовать подгруппу";
+      editButton.textContent = "✎";
+      const isProtectedGeneralSubgroup =
+        ["positive", "product_dissatisfaction", "delivery_problems", "wrong_size", "tagged_reviews"].includes(
+          String(group.id || "")
+        ) && String(subgroup.name || "") === "Общий";
+      const isProtectedTextlessSubgroup =
+        String(group.id || "") === "textless_ratings" &&
+        (String(subgroup.name || "") === "1-3 звезды" || String(subgroup.name || "") === "4-5 звезд");
+      if (isProtectedGeneralSubgroup || isProtectedTextlessSubgroup) {
+        editButton.disabled = true;
+        editButton.title = "Эту подгруппу переименовывать нельзя";
+      } else {
+        editButton.addEventListener("click", async () => {
+          await renameDefaultTemplateSubgroup(
+            String(group.id || ""),
+            String(subgroup.name || ""),
+            String(group.title || "")
+          );
+        });
+      }
       const deleteButton = document.createElement("button");
       deleteButton.type = "button";
       deleteButton.className = "icon-btn danger template-subgroup-delete-btn";
       deleteButton.title = "Удалить группу";
       deleteButton.textContent = "🗑";
-      const isProtectedTextlessSubgroup =
-        String(group.id || "") === "textless_ratings" &&
-        (String(subgroup.name || "") === "1-3 звезды" || String(subgroup.name || "") === "4-5 звезд");
-      const isProtectedGeneralSubgroup =
-        ["positive", "product_dissatisfaction", "delivery_problems", "wrong_size", "tagged_reviews"].includes(
-          String(group.id || "")
-        ) && String(subgroup.name || "") === "Общий";
-      if (isProtectedTextlessSubgroup || isProtectedGeneralSubgroup) {
-        deleteButton.disabled = true;
-        deleteButton.title = "Эту подгруппу удалять нельзя";
-      } else {
+      if (!(isProtectedTextlessSubgroup || isProtectedGeneralSubgroup)) {
         deleteButton.addEventListener("click", async () => {
           await deleteDefaultTemplateSubgroup(String(group.id || ""), String(subgroup.name || ""), String(group.title || ""));
         });
       }
-      row.appendChild(deleteButton);
+      const actions = document.createElement("div");
+      actions.className = "template-subgroup-actions";
+      actions.appendChild(editButton);
+      if (!(isProtectedTextlessSubgroup || isProtectedGeneralSubgroup)) {
+        actions.appendChild(deleteButton);
+      }
+      row.appendChild(actions);
       content.appendChild(row);
     }
     const addRow = document.createElement("div");
@@ -1291,6 +1311,31 @@ async function deleteDefaultTemplateSubgroup(groupId, subgroup, groupTitle) {
     closeDefaultTemplateEditor();
   }
   await loadDefaultTemplateGroups();
+}
+
+async function renameDefaultTemplateSubgroup(groupId, subgroup, groupTitle) {
+  if (!groupId || !subgroup) return;
+  const nextNameRaw = prompt(`Новое название подгруппы "${subgroup}" в категории "${groupTitle}"`, subgroup);
+  const nextName = String(nextNameRaw || "").trim();
+  if (!nextName || nextName === subgroup) return;
+  const res = await fetch("/api/super-admin/default-template-subgroup", {
+    method: "PATCH",
+    headers: csrfHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ group_id: groupId, subgroup, new_subgroup: nextName }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    setDefaultTemplatesInfo(data.detail || "Не удалось переименовать подгруппу", true);
+    return;
+  }
+  setDefaultTemplatesInfo("Подгруппа переименована.");
+  await loadDefaultTemplateGroups();
+  if (
+    defaultTemplatesState.currentGroupId === groupId &&
+    defaultTemplatesState.currentSubgroup === subgroup
+  ) {
+    await openDefaultTemplateSubgroup(groupId, nextName, groupTitle);
+  }
 }
 
 function renderDefaultTemplateEditorRows() {

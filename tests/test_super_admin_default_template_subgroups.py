@@ -60,6 +60,33 @@ class SuperAdminDefaultTemplateSubgroupsTests(unittest.TestCase):
         names.sort(key=lambda value: (0 if value == "Общий" else 1, value.casefold()))
         self.assertEqual(names[0], "Общий")
 
+    def test_rename_subgroup_preserves_subgroup_id(self) -> None:
+        created = self.repository.add_default_template_subgroup(
+            group_id="positive",
+            subgroup="Старое имя",
+        )
+        original_subgroup_id = str(created.get("subgroup_id") or "")
+        self.assertTrue(bool(original_subgroup_id))
+
+        renamed = self.repository.rename_default_template_subgroup(
+            group_id="positive",
+            subgroup="Старое имя",
+            new_subgroup="Новое имя",
+        )
+        self.assertTrue(renamed)
+
+        old_row = self.repository.get_default_template_subgroup(
+            group_id="positive",
+            subgroup="Старое имя",
+        )
+        self.assertIsNone(old_row)
+        new_row = self.repository.get_default_template_subgroup(
+            group_id="positive",
+            subgroup="Новое имя",
+        )
+        self.assertIsNotNone(new_row)
+        self.assertEqual(str((new_row or {}).get("subgroup_id") or ""), original_subgroup_id)
+
 
 if __name__ == "__main__":
     unittest.main()

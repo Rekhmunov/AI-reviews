@@ -1984,9 +1984,24 @@ class ReviewAutomationService:
             )
 
         default_registry_rows = repository.list_default_template_subgroups()
-        if default_registry_rows:
+        has_stored_subgroup_ids = any(str(row.get("subgroup_id") or "").strip() for row in default_registry_rows)
+        if default_registry_rows and has_stored_subgroup_ids:
             for row in default_registry_rows:
-                _push(str(row.get("group_id") or ""), str(row.get("subgroup") or ""))
+                clean_group = str(row.get("group_id") or "").strip()
+                clean_subgroup = str(row.get("subgroup") or "").strip()
+                if clean_group not in allowed_group_ids or not clean_subgroup:
+                    continue
+                normalized = cls._normalize_subgroup_name(clean_subgroup)
+                if normalized in seen_by_group[clean_group]:
+                    continue
+                seen_by_group[clean_group].add(normalized)
+                stored_subgroup_id = str(row.get("subgroup_id") or "").strip()
+                subgroup_items_by_group[clean_group].append(
+                    {
+                        "subgroup_id": stored_subgroup_id or cls._build_subgroup_id(clean_group, clean_subgroup),
+                        "subgroup": clean_subgroup,
+                    }
+                )
         else:
             # Fallback for fresh installations before subgroup registry is initialized.
             for group_id, defaults in cls.REVIEW_GROUP_DEFAULT_SUBGROUPS.items():

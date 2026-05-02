@@ -1434,6 +1434,13 @@ button.secondary.danger:hover {
   margin-right: 6px;
 }
 
+.template-subgroup-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 6px;
+}
+
 .template-subgroup-add-row {
   display: flex;
   justify-content: flex-start;
