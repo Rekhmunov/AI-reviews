@@ -261,12 +261,13 @@
         <div class="panel chats-shell">
           <aside class="chats-list-panel">
             <div class="row chats-list-head">
+              <div class="reviews-buckets">
+                <button id="chats-tab-new" class="bucket-tab active" onclick="setChatBucket('new')">Нужно ответить (0)</button>
+                <button id="chats-tab-processed" class="bucket-tab" onclick="setChatBucket('processed')">Отвеченные (0)</button>
+              </div>
               <button type="button" class="secondary icon-btn" title="Обновить" aria-label="Обновить" onclick="reloadChats()">↻</button>
             </div>
-            <div class="small chats-subtitle">Нужно ответить</div>
-            <div id="chatsPendingList" class="chats-list"></div>
-            <div class="small chats-subtitle mt-10">Отвеченные</div>
-            <div id="chatsResolvedList" class="chats-list"></div>
+            <div id="chatsList" class="chats-list"></div>
           </aside>
           <section class="chats-thread-panel">
             <div id="chatThreadHeader" class="chat-thread-header small">Выберите чат слева</div>

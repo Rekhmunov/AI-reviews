@@ -3834,6 +3834,17 @@ class ReviewRepository:
             else:
                 base_clauses.append("substr(updated_at, 1, 10) <= ?")
             base_params.append(date_to)
+        if self.is_postgres:
+            processed_by_operator_clause = (
+                "last_sent_at IS NOT NULL "
+                "AND COALESCE(last_message_at, to_timestamp(0)) <= last_sent_at"
+            )
+        else:
+            processed_by_operator_clause = (
+                "last_sent_at IS NOT NULL "
+                "AND (last_message_at IS NULL OR last_sent_at >= last_message_at)"
+            )
+
         if account_permissions:
             permission_clauses: list[str] = []
             permission_params: list[Any] = []
@@ -3869,9 +3880,9 @@ class ReviewRepository:
             view_clauses.append("status = ?")
             view_params.append(status)
         elif bucket == "new":
-            view_clauses.append("status = 'open'")
+            view_clauses.append(f"NOT ({processed_by_operator_clause})")
         elif bucket == "processed":
-            view_clauses.append("status IN ('waiting', 'closed')")
+            view_clauses.append(processed_by_operator_clause)
 
         safe_page = max(page, 1)
         safe_page_size = min(max(page_size, 1), 500)
@@ -3897,7 +3908,7 @@ class ReviewRepository:
                 SELECT COUNT(*) AS c
                 FROM conversation_items
                 WHERE {where_base}
-                  AND status = 'open'
+                  AND NOT ({processed_by_operator_clause})
                 """,
                 tuple(base_params),
             ).fetchone()
@@ -3906,7 +3917,7 @@ class ReviewRepository:
                 SELECT COUNT(*) AS c
                 FROM conversation_items
                 WHERE {where_base}
-                  AND status IN ('waiting', 'closed')
+                  AND {processed_by_operator_clause}
                 """,
                 tuple(base_params),
             ).fetchone()

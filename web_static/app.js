@@ -59,7 +59,7 @@ const questionsState = {
   status: "all",
 };
 const chatsState = {
-  bucket: "all",
+  bucket: "new",
   sort: "newest",
   date_from: null,
   date_to: null,
@@ -1352,10 +1352,11 @@ function renderChatListGroup(containerId, items, emptyText) {
 
 function renderChatsList() {
   const all = Array.isArray(chatsState.items) ? chatsState.items : [];
-  const needReply = all.filter((item) => String(item.status || "") === "open");
-  const processed = all.filter((item) => String(item.status || "") !== "open");
-  renderChatListGroup("chatsPendingList", needReply, "Нет чатов, требующих ответа");
-  renderChatListGroup("chatsResolvedList", processed, "Нет обработанных чатов");
+  const list = Array.isArray(all) ? all : [];
+  const emptyText = chatsState.bucket === "processed"
+    ? "Нет обработанных чатов"
+    : "Нет чатов, требующих ответа";
+  renderChatListGroup("chatsList", list, emptyText);
 }
 
 function findActiveChatConversation() {
