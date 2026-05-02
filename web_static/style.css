@@ -1901,6 +1901,10 @@ button.secondary.danger:hover {
 
 /* Mobile navigation + settings switcher (mobile only) */
 @media (max-width: 900px) {
+  body {
+    --mobile-topbar-height: 62px;
+  }
+
   .mobile-topbar {
     position: sticky;
     top: 0;
@@ -1912,6 +1916,7 @@ button.secondary.danger:hover {
     border-bottom: 1px solid var(--line);
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(244, 249, 255, 0.9));
     backdrop-filter: blur(10px);
+    min-height: var(--mobile-topbar-height);
   }
 
   .mobile-nav-toggle {
@@ -1949,19 +1954,20 @@ button.secondary.danger:hover {
 
   .layout > .sidebar {
     position: fixed;
-    top: 0;
+    top: var(--mobile-topbar-height);
     left: 0;
     width: min(82vw, 320px);
     max-width: 320px;
-    height: 100vh;
+    height: calc(100vh - var(--mobile-topbar-height));
     z-index: 1350;
     transform: translateX(-104%);
     transition: transform 0.24s ease;
     border-right: 1px solid var(--line);
+    border-top: 1px solid var(--line);
     border-bottom: 0;
     box-shadow: 16px 0 38px rgba(15, 23, 42, 0.2);
     overflow-y: auto;
-    padding-top: 16px;
+    padding-top: 12px;
   }
 
   .layout > .sidebar .sidebar-main,
