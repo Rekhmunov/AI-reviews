@@ -2223,6 +2223,46 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except Exception as exc:
             raise HTTPException(status_code=502, detail=f"Не удалось выполнить тестовый запрос к Yandex GPT: {exc}") from exc
 
+    @app.get("/api/admin/ai-settings/active-ids")
+    def list_ai_active_ids(request: Request) -> dict[str, object]:
+        user = _require_super_admin(request)
+        owner_user_id = _tenant_owner_id(user)
+        options = service._list_group_subgroups_for_review_classification(
+            repository=repository,
+            user_id=owner_user_id,
+        )
+        items: list[dict[str, object]] = []
+        for group in options:
+            group_id = str(group.get("group_id") or "").strip()
+            if not group_id or group_id == service.TEXTLESS_GROUP_ID:
+                continue
+            subgroup_items_raw = group.get("subgroup_items")
+            subgroup_items: list[dict[str, str]] = []
+            if isinstance(subgroup_items_raw, list):
+                for subgroup_item in subgroup_items_raw:
+                    if not isinstance(subgroup_item, dict):
+                        continue
+                    subgroup_id = str(subgroup_item.get("subgroup_id") or "").strip()
+                    subgroup_title = str(subgroup_item.get("subgroup") or "").strip()
+                    if not subgroup_id or not subgroup_title:
+                        continue
+                    subgroup_items.append(
+                        {
+                            "subgroup_id": subgroup_id,
+                            "subgroup": subgroup_title,
+                        }
+                    )
+            if not subgroup_items:
+                continue
+            items.append(
+                {
+                    "group_id": group_id,
+                    "group_title": str(group.get("group_title") or group_id),
+                    "subgroup_items": subgroup_items,
+                }
+            )
+        return {"ok": True, "items": items, "count": len(items)}
+
     @app.get("/api/admin/context")
     def get_admin_context(request: Request) -> dict[str, object]:
         user = _require_admin(request)

@@ -86,6 +86,7 @@ const adminState = {
   aiEditMode: false,
   aiSettingsSnapshot: null,
   aiTestReviewLoading: false,
+  aiActualIdsLoading: false,
 };
 const defaultTemplatesState = {
   items: [],
@@ -462,6 +463,7 @@ function closeAiTestReviewModal() {
 function renderAiTestReviewLoadingState() {
   const submitBtn = document.getElementById("aiTestReviewSendBtn");
   const closeBtn = document.getElementById("aiTestReviewCloseBtn");
+  const idsBtn = document.getElementById("aiTestReviewActualIdsBtn");
   const loading = Boolean(adminState.aiTestReviewLoading);
   if (submitBtn) {
     submitBtn.disabled = loading;
@@ -469,6 +471,9 @@ function renderAiTestReviewLoadingState() {
   }
   if (closeBtn) {
     closeBtn.disabled = loading;
+  }
+  if (idsBtn) {
+    idsBtn.disabled = loading || Boolean(adminState.aiActualIdsLoading);
   }
 }
 
@@ -516,6 +521,79 @@ function _formatAiTestReviewErrorDetails(data) {
     lines.push(promptPreview);
   }
   return lines.join("\n").trim();
+}
+
+function renderAiActualIdsLoadingState() {
+  const idsBtn = document.getElementById("aiCurrentIdsBtn");
+  const closeBtn = document.getElementById("aiCurrentIdsCloseBtn");
+  const loading = Boolean(adminState.aiActualIdsLoading);
+  if (idsBtn) {
+    idsBtn.disabled = loading || Boolean(adminState.aiTestReviewLoading);
+    idsBtn.textContent = loading ? "Загрузка..." : "Актуальные ID";
+  }
+  if (closeBtn) {
+    closeBtn.disabled = loading;
+  }
+}
+
+function closeAiCurrentIdsModal() {
+  const modal = document.getElementById("aiCurrentIdsModal");
+  if (!modal) return;
+  modal.classList.add("hidden");
+}
+
+function _formatAiActualIdsPayload(data) {
+  if (!data || typeof data !== "object") return "Нет данных.";
+  const items = Array.isArray(data.items) ? data.items : [];
+  if (!items.length) return "Список групп/подгрупп пуст.";
+  const lines = [];
+  for (const group of items) {
+    const groupId = String(group.group_id || "").trim() || "-";
+    const groupTitle = String(group.group_title || "").trim() || groupId;
+    lines.push(`${groupTitle} (${groupId})`);
+    const subgroupItems = Array.isArray(group.subgroup_items) ? group.subgroup_items : [];
+    if (!subgroupItems.length) {
+      lines.push("  - (нет подгрупп)");
+      lines.push("");
+      continue;
+    }
+    for (const subgroup of subgroupItems) {
+      const subgroupId = String(subgroup.subgroup_id || "").trim() || "-";
+      const subgroupTitle = String(subgroup.subgroup || "").trim() || "-";
+      lines.push(`  - ${subgroupId}: ${subgroupTitle}`);
+    }
+    lines.push("");
+  }
+  return lines.join("\n").trim();
+}
+
+async function openAiCurrentIdsModal() {
+  if (adminState.aiActualIdsLoading) return;
+  const modal = document.getElementById("aiCurrentIdsModal");
+  const contentEl = document.getElementById("aiCurrentIdsResult");
+  if (!modal || !contentEl) return;
+  adminState.aiActualIdsLoading = true;
+  renderAiActualIdsLoadingState();
+  contentEl.textContent = "Загружаем актуальные ID...";
+  contentEl.style.color = "";
+  modal.classList.remove("hidden");
+  try {
+    const res = await fetch("/api/admin/ai-settings/active-ids");
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      contentEl.textContent = "Ошибка загрузки: " + (data.detail || data.error || "не удалось загрузить список ID");
+      contentEl.style.color = "#b91c1c";
+      return;
+    }
+    contentEl.textContent = _formatAiActualIdsPayload(data);
+    contentEl.style.color = "#0f172a";
+  } catch (_error) {
+    contentEl.textContent = "Сетевая ошибка при загрузке актуальных ID.";
+    contentEl.style.color = "#b91c1c";
+  } finally {
+    adminState.aiActualIdsLoading = false;
+    renderAiActualIdsLoadingState();
+  }
 }
 
 async function submitAiTestReview() {
