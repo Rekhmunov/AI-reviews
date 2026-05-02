@@ -903,6 +903,8 @@ button.secondary.danger:hover {
 
 .reviews-sync-row {
   margin: 0;
+  min-height: 20px;
+  align-items: center;
 }
 
 .reviews-date-wrap {
