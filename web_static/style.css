@@ -1837,3 +1837,52 @@ button.secondary.danger:hover {
     padding: 8px 10px;
   }
 }
+
+/* Settings section: dedicated mobile adaptation without logic changes */
+@media (max-width: 900px) {
+  #section-settings .settings-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    overflow: visible;
+    padding-bottom: 0;
+  }
+
+  #section-settings .settings-tab-btn {
+    width: 100%;
+    white-space: normal;
+    text-align: center;
+    min-height: 42px;
+  }
+
+  #section-settings .row.row-between {
+    gap: 8px;
+  }
+
+  #section-settings .sync-start-settings .row {
+    gap: 8px;
+  }
+
+  #section-settings .source-form,
+  #section-settings .sync-start-settings {
+    padding: 10px;
+  }
+
+  #section-settings .template-editor-input {
+    min-width: 0;
+  }
+
+  #section-settings #settings-pane-recommendations .row.row-between > .row {
+    width: 100%;
+  }
+
+  #section-settings #teamPermissionsPreview {
+    display: block;
+  }
+}
+
+@media (max-width: 560px) {
+  #section-settings .settings-tabs {
+    grid-template-columns: 1fr;
+  }
+}
