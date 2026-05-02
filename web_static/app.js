@@ -98,6 +98,7 @@ const ACTIVE_SETTINGS_TAB_STORAGE_KEY = "feedpilot_active_settings_tab";
 const SECTION_IDS = ["reviews", "conversations", "chats", "analytics", "settings", "profile"];
 const SETTINGS_TAB_IDS = ["sources", "rules", "templates", "recommendations", "team", "template-variables"];
 const APP_BOOT_HIDE_CLASS = "app-boot-hidden";
+const MOBILE_NAV_BREAKPOINT_PX = 900;
 
 const categoryLabels = {
   positive: "Позитив",
@@ -223,6 +224,8 @@ function showSection(section, options = {}) {
   const targetNav = document.getElementById("nav-" + section);
   if (targetSection) targetSection.classList.remove("hidden");
   if (targetNav) targetNav.classList.add("active");
+  updateMobileCurrentSectionLabel(section);
+  closeMobileNavMenu();
   if (persist) writeStoredUiState(ACTIVE_SECTION_STORAGE_KEY, section);
   if (section === "profile") {
     loadProfile();
@@ -240,6 +243,7 @@ function showSettingsTab(tab, options = {}) {
   if (!SETTINGS_TAB_IDS.includes(tab)) tab = "sources";
   document.getElementById("settings-tab-" + tab)?.classList.add("active");
   document.getElementById("settings-pane-" + tab)?.classList.remove("hidden");
+  updateMobileSettingsTabSelect(tab);
   if (persist) writeStoredUiState(ACTIVE_SETTINGS_TAB_STORAGE_KEY, tab);
   if (tab === "recommendations") {
     loadRecommendations();
@@ -250,6 +254,91 @@ function showSettingsTab(tab, options = {}) {
   if (tab === "template-variables") {
     loadUserTemplateVariables();
   }
+}
+
+function isMobileViewport() {
+  return window.matchMedia(`(max-width: ${MOBILE_NAV_BREAKPOINT_PX}px)`).matches;
+}
+
+function sectionLabel(section) {
+  const labels = {
+    reviews: "Отзывы",
+    conversations: "Вопросы",
+    chats: "Чаты",
+    analytics: "Аналитика",
+    settings: "Настройки",
+    profile: "Мой профиль",
+  };
+  return labels[String(section || "")] || "Раздел";
+}
+
+function updateMobileCurrentSectionLabel(section) {
+  const title = document.getElementById("mobileCurrentSectionTitle");
+  if (!title) return;
+  title.textContent = sectionLabel(section);
+}
+
+function openMobileNavMenu() {
+  const menu = document.getElementById("mobileNavMenu");
+  const overlay = document.getElementById("mobileNavOverlay");
+  const button = document.getElementById("mobileNavToggleBtn");
+  if (!menu || !overlay || !button) return;
+  menu.classList.add("open");
+  overlay.classList.add("open");
+  button.setAttribute("aria-expanded", "true");
+}
+
+function closeMobileNavMenu() {
+  const menu = document.getElementById("mobileNavMenu");
+  const overlay = document.getElementById("mobileNavOverlay");
+  const button = document.getElementById("mobileNavToggleBtn");
+  if (!menu || !overlay || !button) return;
+  menu.classList.remove("open");
+  overlay.classList.remove("open");
+  button.setAttribute("aria-expanded", "false");
+}
+
+function toggleMobileNavMenu() {
+  const menu = document.getElementById("mobileNavMenu");
+  if (!menu) return;
+  if (menu.classList.contains("open")) {
+    closeMobileNavMenu();
+    return;
+  }
+  openMobileNavMenu();
+}
+
+function updateMobileSettingsTabSelect(tab) {
+  const select = document.getElementById("mobileSettingsTabSelect");
+  if (!select) return;
+  if (!SETTINGS_TAB_IDS.includes(tab)) return;
+  select.value = tab;
+}
+
+function onMobileSettingsTabChange(value) {
+  const tab = String(value || "").trim();
+  if (!SETTINGS_TAB_IDS.includes(tab)) return;
+  showSettingsTab(tab);
+}
+
+function setupMobileSettingsTabSelect() {
+  const select = document.getElementById("mobileSettingsTabSelect");
+  const teamOption = document.getElementById("mobile-settings-option-team");
+  if (!select) return;
+  const showTeam = isTenantOwner();
+  if (teamOption) {
+    teamOption.hidden = !showTeam;
+    teamOption.disabled = !showTeam;
+  }
+  const activeButton = document.querySelector("#section-settings .settings-tab-btn.active");
+  const activeId = String(activeButton?.id || "").replace("settings-tab-", "");
+  const initial = SETTINGS_TAB_IDS.includes(activeId) ? activeId : "sources";
+  updateMobileSettingsTabSelect(initial);
+}
+
+function closeMobileNavIfDesktop() {
+  if (isMobileViewport()) return;
+  closeMobileNavMenu();
 }
 
 function setReviewBucket(bucket) {
@@ -2695,6 +2784,7 @@ document.addEventListener("DOMContentLoaded", () => {
   } else {
     showSettingsTab(initialSettingsTab, { persist: false });
   }
+  setupMobileSettingsTabSelect();
   const savedSection = readStoredUiState(ACTIVE_SECTION_STORAGE_KEY);
   let initialSection = SECTION_IDS.includes(savedSection) ? savedSection : "reviews";
   if (!canViewSection(initialSection)) initialSection = "reviews";
@@ -2772,7 +2862,9 @@ document.addEventListener("DOMContentLoaded", () => {
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
     closeManagerPermissionsModal();
+    closeMobileNavMenu();
   });
+  window.addEventListener("resize", closeMobileNavIfDesktop);
   document.getElementById("ruleCategory")?.addEventListener("change", syncRuleFormFromStore);
   document.getElementById("tplCategory")?.addEventListener("change", syncTemplateFormFromStore);
   loadReviews();
@@ -2793,3 +2885,9 @@ document.addEventListener("DOMContentLoaded", () => {
     document.body.classList.remove(APP_BOOT_HIDE_CLASS);
   });
 });
+
+window.showSection = showSection;
+window.showSettingsTab = showSettingsTab;
+window.toggleMobileNavMenu = toggleMobileNavMenu;
+window.closeMobileNavMenu = closeMobileNavMenu;
+window.onMobileSettingsTabChange = onMobileSettingsTabChange;

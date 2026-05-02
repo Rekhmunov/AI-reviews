@@ -5,11 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=7" />
+  <link rel="stylesheet" href="/static/style.css?v=8" />
 </head>
 <body>
+  <div class="mobile-topbar">
+    <button id="mobileNavToggleBtn" type="button" class="mobile-nav-toggle" aria-label="Открыть меню" aria-expanded="false" onclick="toggleMobileNavMenu()">
+      ☰
+    </button>
+    <div id="mobileCurrentSectionTitle" class="mobile-topbar-title">Отзывы</div>
+  </div>
+  <div id="mobileNavOverlay" class="mobile-nav-backdrop" onclick="closeMobileNavMenu()" aria-hidden="true"></div>
   <div class="layout">
-    <aside class="sidebar">
+    <aside id="mobileNavMenu" class="sidebar">
       <div class="sidebar-main">
         <div class="brand">FEEDPILOT</div>
         <div class="meta">пользователь: {{SAFE_EMAIL}}<br/>роль: {{SAFE_ROLE}}</div>
@@ -310,6 +317,16 @@
             <button id="settings-tab-recommendations" class="settings-tab-btn" onclick="showSettingsTab('recommendations')">Рекомендации</button>
             <button id="settings-tab-team" class="settings-tab-btn hidden" onclick="showSettingsTab('team')">Команда</button>
           </div>
+          <div class="settings-mobile-tab-switch">
+            <label for="mobileSettingsTabSelect" class="small">Раздел настроек</label>
+            <select id="mobileSettingsTabSelect" onchange="onMobileSettingsTabChange(this.value)">
+              <option value="sources">Источники</option>
+              <option value="rules">Правила обработки</option>
+              <option value="templates">Шаблоны</option>
+              <option value="recommendations">Рекомендации</option>
+              <option id="mobile-settings-option-team" value="team">Команда</option>
+            </select>
+          </div>
         </div>
 
         <div id="settings-pane-sources">
@@ -555,6 +572,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=9"></script>
+  <script src="/static/app.js?v=10"></script>
 </body>
 </html>
