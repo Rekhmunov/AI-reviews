@@ -47,6 +47,19 @@ class SuperAdminDefaultTemplateSubgroupsTests(unittest.TestCase):
         names_after = [str(item.get("subgroup") or "") for item in listed_after]
         self.assertNotIn("Вкус", names_after)
 
+    def test_general_subgroup_stays_first_after_sorting(self) -> None:
+        self.repository.ensure_default_template_subgroups(
+            [
+                {"group_id": "positive", "subgroup": "Материал"},
+                {"group_id": "positive", "subgroup": "Общий"},
+                {"group_id": "positive", "subgroup": "Вкус"},
+            ]
+        )
+        listed = self.repository.list_default_template_subgroups(group_id="positive")
+        names = [str(item.get("subgroup") or "") for item in listed]
+        names.sort(key=lambda value: (0 if value == "Общий" else 1, value.casefold()))
+        self.assertEqual(names[0], "Общий")
+
 
 if __name__ == "__main__":
     unittest.main()

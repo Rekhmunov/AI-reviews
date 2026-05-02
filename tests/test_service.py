@@ -391,6 +391,33 @@ class ReviewAutomationServiceTests(unittest.TestCase):
         self.assertEqual(review["status"], "answered_auto")
         self.assertIn("быструю доставку", str(review.get("auto_reply") or ""))
 
+    def test_classification_group_without_subgroup_falls_back_to_general(self) -> None:
+        self.repository.upsert_processing_rule(
+            user_id=int(self.user["id"]),
+            group_id="wrong_size",
+            action_mode="template",
+            auto_send=True,
+        )
+        self.repository.replace_subgroup_templates(
+            user_id=int(self.user["id"]),
+            group_id="wrong_size",
+            subgroup="Общий",
+            templates=["ТЕСТ: общий шаблон wrong_size"],
+        )
+        self.service._classify_with_yandex_target = mock.Mock(
+            return_value=("wrong_size", "Несуществующая подгруппа")
+        )
+        self.service.sync_reviews(
+            user_id=int(self.user["id"]),
+            source="test-market",
+            account_id=None,
+            client=_StubClient(),
+        )
+        review = self.repository.list_reviews(user_id=int(self.user["id"]), category="wrong_size", limit=1)[0]
+        self.assertEqual(review["status"], "answered_auto")
+        self.assertIn("общий шаблон wrong_size", str(review.get("auto_reply") or ""))
+        self.assertEqual(str((review.get("metadata") or {}).get("classified_subgroup") or ""), "Общий")
+
     def test_textless_without_tags_routes_to_textless_group(self) -> None:
         review = ReviewInput(review_id="r-empty", text="", rating=5, metadata={})
         processed = self.service.processor.process(review)
@@ -428,15 +455,21 @@ class ReviewAutomationServiceTests(unittest.TestCase):
         self.assertEqual(group_id, "wrong_size")
         self.assertEqual(subgroup, "Большемерит/маломерит")
 
-    def test_text_review_without_yandex_configuration_raises_error(self) -> None:
+    def test_text_review_without_yandex_configuration_routes_to_manual_queue(self) -> None:
         raw_service = ReviewAutomationService(repository=self.repository)
-        with self.assertRaises(MarketplaceSyncError):
-            raw_service.sync_reviews(
-                user_id=int(self.user["id"]),
-                source="test-market",
-                account_id=None,
-                client=_StubClient(),
-            )
+        loaded = raw_service.sync_reviews(
+            user_id=int(self.user["id"]),
+            source="test-market",
+            account_id=None,
+            client=_StubClient(),
+        )
+        self.assertEqual(loaded, 2)
+        reviews = self.repository.list_reviews(user_id=int(self.user["id"]), category="ai_unclassified", limit=10)
+        self.assertEqual(len(reviews), 2)
+        for row in reviews:
+            metadata = row.get("metadata") or {}
+            self.assertEqual(str(row.get("status") or ""), "queued_for_operator")
+            self.assertEqual(str(metadata.get("ai_classification_status") or ""), "failed")
 
     def test_textless_rating_uses_4_5_stars_subgroup_template(self) -> None:
         self.repository.upsert_processing_rule(
@@ -485,6 +518,52 @@ class ReviewAutomationServiceTests(unittest.TestCase):
         self.assertEqual(review["status"], "answered_auto")
         self.assertIn("1-3 звезды", str((review.get("metadata") or {}).get("classified_subgroup") or ""))
         self.assertIn("1-3", str(review.get("auto_reply") or ""))
+
+    def test_group_without_subgroup_fallbacks_to_general_subgroup(self) -> None:
+        self.service._classify_with_yandex_target = mock.Mock(return_value=("delivery_problems", None))
+        self.repository.upsert_processing_rule(
+            user_id=int(self.user["id"]),
+            group_id="delivery_problems",
+            action_mode="template",
+            auto_send=True,
+        )
+        self.repository.replace_subgroup_templates(
+            user_id=int(self.user["id"]),
+            group_id="delivery_problems",
+            subgroup="Общий",
+            templates=["ТЕСТ: общий шаблон для доставки"],
+        )
+        self.service.sync_reviews(
+            user_id=int(self.user["id"]),
+            source="test-market",
+            account_id=None,
+            client=_StubClient(),
+        )
+        review = self.repository.list_reviews(user_id=int(self.user["id"]), category="delivery_problems", limit=1)[0]
+        metadata = review.get("metadata") or {}
+        self.assertEqual(review["status"], "answered_auto")
+        self.assertEqual(str(metadata.get("classified_subgroup") or ""), "Общий")
+        self.assertIn("общий шаблон", str(review.get("auto_reply") or "").lower())
+
+    def test_unclassified_ai_result_routes_review_to_manual_with_note(self) -> None:
+        self.service._classify_with_yandex_target = mock.Mock(return_value=("", None))
+        self.repository.upsert_processing_rule(
+            user_id=int(self.user["id"]),
+            group_id="delivery_problems",
+            action_mode="template",
+            auto_send=True,
+        )
+        self.service.sync_reviews(
+            user_id=int(self.user["id"]),
+            source="test-market",
+            account_id=None,
+            client=_StubClient(),
+        )
+        review = self.repository.list_reviews(user_id=int(self.user["id"]), category="ai_unclassified", limit=1)[0]
+        metadata = review.get("metadata") or {}
+        self.assertEqual(review["status"], "queued_for_operator")
+        self.assertEqual(str(metadata.get("ai_classification_status") or ""), "failed")
+        self.assertIn("ИИ не смог корректно определить категорию", str(metadata.get("ai_classification_note") or ""))
 
     def test_send_conversation_reply_success_marks_waiting_and_logs(self) -> None:
         account = self.repository.create_marketplace_account(

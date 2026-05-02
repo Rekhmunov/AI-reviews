@@ -1218,7 +1218,11 @@ function renderDefaultTemplateGroups() {
       const isProtectedTextlessSubgroup =
         String(group.id || "") === "textless_ratings" &&
         (String(subgroup.name || "") === "1-3 звезды" || String(subgroup.name || "") === "4-5 звезд");
-      if (isProtectedTextlessSubgroup) {
+      const isProtectedGeneralSubgroup =
+        ["positive", "product_dissatisfaction", "delivery_problems", "wrong_size", "tagged_reviews"].includes(
+          String(group.id || "")
+        ) && String(subgroup.name || "") === "Общий";
+      if (isProtectedTextlessSubgroup || isProtectedGeneralSubgroup) {
         deleteButton.disabled = true;
         deleteButton.title = "Эту подгруппу удалять нельзя";
       } else {

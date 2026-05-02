@@ -573,8 +573,19 @@ class ReviewAutomationService:
     TEXTLESS_GROUP_ID = "textless_ratings"
     TEXTLESS_LOW_SUBGROUP = "1-3 звезды"
     TEXTLESS_HIGH_SUBGROUP = "4-5 звезд"
+    GENERAL_SUBGROUP_TITLE = "Общий"
+    REVIEW_GROUPS_WITH_GENERAL_SUBGROUP: tuple[str, ...] = (
+        "positive",
+        "product_dissatisfaction",
+        "delivery_problems",
+        "wrong_size",
+        "tagged_reviews",
+    )
+    AI_UNCLASSIFIED_CATEGORY = "ai_unclassified"
+    AI_UNCLASSIFIED_NOTE = "ИИ не смог корректно определить категорию."
     REVIEW_GROUP_DEFAULT_SUBGROUPS: dict[str, list[str]] = {
         "positive": [
+            GENERAL_SUBGROUP_TITLE,
             "Вкус",
             "Материал",
             "Общий позитив",
@@ -586,6 +597,7 @@ class ReviewAutomationService:
             "Эффект",
         ],
         "product_dissatisfaction": [
+            GENERAL_SUBGROUP_TITLE,
             "Брак и Б/У",
             "Высокая цена",
             "Качество",
@@ -602,6 +614,7 @@ class ReviewAutomationService:
             "Текстура, консистенция, материал",
         ],
         "delivery_problems": [
+            GENERAL_SUBGROUP_TITLE,
             "Долгая доставка",
             "Испорченная упаковка",
             "Наклейка",
@@ -611,11 +624,13 @@ class ReviewAutomationService:
             "Общие доставка",
         ],
         "wrong_size": [
+            GENERAL_SUBGROUP_TITLE,
             "Альтернативные измерения",
             "Большемерит/маломерит",
             "Не подошел размер",
         ],
         "tagged_reviews": [
+            GENERAL_SUBGROUP_TITLE,
             "Общие теги",
         ],
         TEXTLESS_GROUP_ID: [
@@ -669,21 +684,86 @@ class ReviewAutomationService:
             )
             raise
         settings = self.repository.get_ai_settings(include_secrets=True)
+        classification_options = self._list_group_subgroups_for_review_classification(
+            repository=self.repository,
+            user_id=user_id,
+        )
+        subgroup_lookup_by_group: dict[str, dict[str, str]] = {}
+        for item in classification_options:
+            group_id = str(item.get("group_id") or "").strip()
+            subgroup_items = item.get("subgroup_items")
+            if not group_id or not isinstance(subgroup_items, list):
+                continue
+            subgroup_lookup: dict[str, str] = {}
+            for subgroup_item in subgroup_items:
+                if not isinstance(subgroup_item, Mapping):
+                    continue
+                subgroup_title = str(subgroup_item.get("subgroup") or subgroup_item.get("subgroup_title") or "").strip()
+                if not subgroup_title:
+                    continue
+                normalized = self._normalize_subgroup_name(subgroup_title)
+                if normalized and normalized not in subgroup_lookup:
+                    subgroup_lookup[normalized] = subgroup_title
+            if subgroup_lookup:
+                subgroup_lookup_by_group[group_id] = subgroup_lookup
+
+        def _resolve_classified_subgroup(group_id: str, subgroup: str | None) -> str | None:
+            clean_group = str(group_id or "").strip()
+            clean_subgroup = str(subgroup or "").strip()
+            if clean_group not in self.REVIEW_GROUPS_WITH_GENERAL_SUBGROUP:
+                return clean_subgroup or None
+            lookup = subgroup_lookup_by_group.get(clean_group) or {}
+            general_subgroup = lookup.get(
+                self._normalize_subgroup_name(self.GENERAL_SUBGROUP_TITLE),
+                self.GENERAL_SUBGROUP_TITLE,
+            )
+            if not clean_subgroup:
+                return general_subgroup
+            normalized = self._normalize_subgroup_name(clean_subgroup)
+            if normalized in lookup:
+                return lookup[normalized]
+            return general_subgroup
+
         for review in reviews:
             _raise_if_stop_requested(stop_requested, source=source)
             if not review.review_id:
                 continue
             processed = self.processor.process(review)
-            category, classified_subgroup = self._classify_category_and_subgroup(
-                review,
-                processed,
-                settings=settings,
-                user_id=user_id,
-            )
+            ai_classification_failed = False
+            ai_classification_error = ""
+            try:
+                category, classified_subgroup = self._classify_category_and_subgroup(
+                    review,
+                    processed,
+                    settings=settings,
+                    user_id=user_id,
+                )
+            except MarketplaceSyncError as exc:
+                details = exc.details if isinstance(exc.details, Mapping) else {}
+                if str(details.get("scope") or "").strip().lower() == "classification":
+                    category = self.AI_UNCLASSIFIED_CATEGORY
+                    classified_subgroup = None
+                    ai_classification_failed = True
+                    ai_classification_error = str(exc)
+                else:
+                    raise
+            if not ai_classification_failed:
+                category = str(category or "").strip()
+                if not category:
+                    ai_classification_failed = True
+                    ai_classification_error = "Яндекс-классификатор не вернул корректную группу и подгруппу."
+                    category = self.AI_UNCLASSIFIED_CATEGORY
+                    classified_subgroup = None
+                else:
+                    classified_subgroup = _resolve_classified_subgroup(category, classified_subgroup)
             review_metadata = dict(review.metadata) if isinstance(review.metadata, dict) else {}
             if classified_subgroup:
                 review_metadata["classified_subgroup"] = classified_subgroup
             review_metadata["classified_group_id"] = category
+            if ai_classification_failed:
+                review_metadata["ai_classification_status"] = "failed"
+                review_metadata["ai_classification_note"] = self.AI_UNCLASSIFIED_NOTE
+                review_metadata["ai_classification_error"] = ai_classification_error
             review_for_processing = ReviewInput(
                 review_id=review.review_id,
                 text=review.text,
@@ -691,7 +771,10 @@ class ReviewAutomationService:
                 rating=review.rating,
                 metadata=review_metadata,
             )
-            template = self.repository.get_template(user_id=user_id, category=category)
+            category_for_template = category
+            if category_for_template == self.AI_UNCLASSIFIED_CATEGORY:
+                category_for_template = "product_dissatisfaction"
+            template = self.repository.get_template(user_id=user_id, category=category_for_template)
             group_id = self._resolve_template_group_id(
                 category=category,
                 review=review_for_processing,
@@ -699,11 +782,15 @@ class ReviewAutomationService:
             )
             rule = self.repository.get_processing_rule(user_id=user_id, group_id=group_id) if group_id else None
             mode, auto_send, template_text = self._resolve_processing_mode(processed, template, rule)
+            if ai_classification_failed:
+                mode = "manual"
+                auto_send = False
+                template_text = ""
 
             if mode == "template":
                 group_template = self._pick_group_template_text(
                     user_id=user_id,
-                    category=category,
+                    category=category_for_template,
                     review=review_for_processing,
                     sentiment=processed.sentiment_label,
                     preferred_subgroup=classified_subgroup,
@@ -750,7 +837,7 @@ class ReviewAutomationService:
                     selected_template,
                     user_id=user_id,
                     review=review_for_processing,
-                    category=category,
+                    category=category_for_template,
                     sentiment=processed.sentiment_label,
                 )
                 sent, send_error = self._send_reply_via_client(
@@ -801,6 +888,18 @@ class ReviewAutomationService:
                     "source": source,
                 },
             )
+            if ai_classification_failed:
+                self.repository.log_review_action(
+                    user_id=user_id,
+                    review_uid=review_uid,
+                    action_type="ai_classification_failed",
+                    actor="system",
+                    details={
+                        "source": source,
+                        "error": ai_classification_error,
+                        "scope": "classification",
+                    },
+                )
         return len(reviews)
 
     def sync_conversations(
@@ -1566,8 +1665,8 @@ class ReviewAutomationService:
         text = str(row.get("template_text") or "").strip()
         return text or None
 
-    @staticmethod
-    def _resolve_template_subgroup(*, group_id: str, category: str, review: ReviewInput) -> str | None:
+    @classmethod
+    def _resolve_template_subgroup(cls, *, group_id: str, category: str, review: ReviewInput) -> str | None:
         metadata = review.metadata if isinstance(review.metadata, dict) else {}
         classified_subgroup = str(metadata.get("classified_subgroup") or "").strip()
         if classified_subgroup:
@@ -1787,9 +1886,9 @@ class ReviewAutomationService:
             raise MarketplaceSyncError(
                 "yandex",
                 "Не удалось определить категорию отзыва через Яндекс. Проверьте настройки и доступность API.",
-                details={"scope": "classification", "has_media": has_media},
+                details={"scope": "classification", "has_media": has_media, "queue_manual": True},
             )
-        return self._classify_with_yandex_target(review=review, settings=settings, user_id=user_id, strict=True)
+        return self._classify_with_yandex_target(review=review, settings=settings, user_id=user_id, strict=False)
 
     def _classify_category(
         self,
@@ -1805,6 +1904,46 @@ class ReviewAutomationService:
             user_id=None,
         )
         return category
+
+    @classmethod
+    def _is_general_subgroup_for_group(cls, *, group_id: str, subgroup: str) -> bool:
+        clean_group = str(group_id or "").strip()
+        clean_subgroup = cls._normalize_subgroup_name(subgroup)
+        return (
+            clean_group in cls.REVIEW_GROUPS_WITH_GENERAL_SUBGROUP
+            and clean_subgroup == cls._normalize_subgroup_name(cls.GENERAL_SUBGROUP_TITLE)
+        )
+
+    @classmethod
+    def _ensure_general_subgroup_first(
+        cls,
+        *,
+        group_id: str,
+        subgroup_items: list[dict[str, str]],
+    ) -> list[dict[str, str]]:
+        clean_group = str(group_id or "").strip()
+        if clean_group not in cls.REVIEW_GROUPS_WITH_GENERAL_SUBGROUP:
+            return list(subgroup_items)
+        result: list[dict[str, str]] = []
+        general_row: dict[str, str] | None = None
+        for item in subgroup_items:
+            subgroup_title = str(item.get("subgroup") or "").strip()
+            subgroup_id = str(item.get("subgroup_id") or "").strip()
+            if not subgroup_title:
+                continue
+            resolved_id = subgroup_id or cls._build_subgroup_id(clean_group, subgroup_title)
+            normalized_row = {"subgroup_id": resolved_id, "subgroup": subgroup_title}
+            if cls._is_general_subgroup_for_group(group_id=clean_group, subgroup=subgroup_title):
+                if general_row is None:
+                    general_row = normalized_row
+                continue
+            result.append(normalized_row)
+        if general_row is None:
+            general_row = {
+                "subgroup_id": cls._build_subgroup_id(clean_group, cls.GENERAL_SUBGROUP_TITLE),
+                "subgroup": cls.GENERAL_SUBGROUP_TITLE,
+            }
+        return [general_row, *result]
 
     @staticmethod
     def _normalize_subgroup_name(value: str) -> str:
@@ -1879,6 +2018,7 @@ class ReviewAutomationService:
             subgroup_items = list(subgroup_items_by_group.get(group_id) or [])
             if group_id != cls.TEXTLESS_GROUP_ID and not subgroup_items:
                 continue
+            subgroup_items = cls._ensure_general_subgroup_first(group_id=group_id, subgroup_items=subgroup_items)
             items.append(
                 {
                     "group_id": group_id,
@@ -2024,9 +2164,12 @@ class ReviewAutomationService:
             ).strip()
             detected_group = _detect_group(group_candidate)
             if detected_group:
-                detected_subgroup = _detect_subgroup(detected_group, subgroup_candidate)
-                if detected_subgroup:
-                    return _to_result(detected_group, detected_subgroup[0], detected_subgroup[1])
+                if subgroup_candidate:
+                    detected_subgroup = _detect_subgroup(detected_group, subgroup_candidate)
+                    if detected_subgroup:
+                        return _to_result(detected_group, detected_subgroup[0], detected_subgroup[1])
+                    return {"group_id": detected_group, "subgroup_id": "", "subgroup": ""}
+                return {"group_id": detected_group, "subgroup_id": "", "subgroup": ""}
 
         group_match = re.search(r"group[_\s-]*id\s*[:=]\s*([a-z0-9_:-]+)", normalized_response)
         subgroup_match = re.search(r"subgroup[_\s-]*id\s*[:=]\s*([a-z0-9_:-]+)", normalized_response)
@@ -2073,7 +2216,37 @@ class ReviewAutomationService:
             user_id=user_id,
             strict=strict,
         )
-        return str(result.get("group_id") or ""), result.get("subgroup") if result.get("subgroup") is not None else None
+        return (
+            str(result.get("group_id") or "").strip(),
+            str(result.get("subgroup") or "").strip() or None,
+        )
+
+    @classmethod
+    def _default_subgroup_for_group(cls, group_id: str, options: list[dict[str, object]]) -> dict[str, str] | None:
+        clean_group_id = str(group_id or "").strip()
+        if not clean_group_id or clean_group_id not in cls.REVIEW_GROUPS_WITH_GENERAL_SUBGROUP:
+            return None
+        for item in options:
+            candidate_group_id = str(item.get("group_id") or "").strip()
+            if candidate_group_id != clean_group_id:
+                continue
+            subgroup_items = item.get("subgroup_items")
+            if not isinstance(subgroup_items, list):
+                continue
+            for subgroup_item in subgroup_items:
+                if not isinstance(subgroup_item, Mapping):
+                    continue
+                subgroup_title = str(subgroup_item.get("subgroup") or subgroup_item.get("subgroup_title") or "").strip()
+                subgroup_id = str(subgroup_item.get("subgroup_id") or "").strip()
+                if cls._normalize_subgroup_name(subgroup_title) != cls._normalize_subgroup_name(cls.GENERAL_SUBGROUP_TITLE):
+                    continue
+                if subgroup_id:
+                    return {"subgroup_id": subgroup_id, "subgroup": subgroup_title}
+                return {
+                    "subgroup_id": cls._build_subgroup_id(clean_group_id, subgroup_title),
+                    "subgroup": subgroup_title,
+                }
+        return None
 
     def _classify_with_yandex_target_debug(
         self,
@@ -2196,22 +2369,39 @@ class ReviewAutomationService:
                     if isinstance(message, dict):
                         text = str(message.get("text") or "")
 
+        raw_response = str(text or "").strip()
         parsed = self._parse_yandex_target_response(text, options=options_for_prompt)
         if parsed:
-            return {
-                "group_id": parsed["group_id"],
-                "subgroup_id": parsed["subgroup_id"],
-                "subgroup": parsed["subgroup"],
-                "raw_response": str(text or "").strip(),
-                "model_uri": model_uri,
-            }
+            group_id = str(parsed.get("group_id") or "").strip()
+            subgroup_id = str(parsed.get("subgroup_id") or "").strip()
+            subgroup_title = str(parsed.get("subgroup") or "").strip()
+            if group_id and subgroup_id and subgroup_title:
+                return {
+                    "group_id": group_id,
+                    "subgroup_id": subgroup_id,
+                    "subgroup": subgroup_title,
+                    "raw_response": raw_response,
+                    "model_uri": model_uri,
+                }
+            if group_id:
+                default_subgroup = self._default_subgroup_for_group(group_id, options_for_prompt)
+                if default_subgroup:
+                    return {
+                        "group_id": group_id,
+                        "subgroup_id": str(default_subgroup.get("subgroup_id") or ""),
+                        "subgroup": str(default_subgroup.get("subgroup") or ""),
+                        "raw_response": raw_response,
+                        "model_uri": model_uri,
+                        "used_default_subgroup": True,
+                        "default_subgroup_reason": "missing_or_invalid_subgroup",
+                    }
         if strict:
             raise MarketplaceSyncError(
                 "yandex",
                 "Яндекс-классификатор вернул ответ без корректной группы/подгруппы.",
                 details={
                     "scope": "classification",
-                    "raw_response": str(text or "").strip(),
+                    "raw_response": raw_response,
                     "model_uri": model_uri,
                     "expected_format": '{"group_id":"<group_id>","subgroup_id":"<subgroup_id>"}',
                     "allowed_pairs": allowed_pairs,
@@ -2222,7 +2412,7 @@ class ReviewAutomationService:
             "group_id": "",
             "subgroup_id": "",
             "subgroup": None,
-            "raw_response": str(text or "").strip(),
+            "raw_response": raw_response,
             "model_uri": model_uri,
         }
 
@@ -2409,6 +2599,7 @@ class ReviewAutomationService:
             if normalized_rating < 1 or normalized_rating > 5:
                 raise MarketplaceSyncError("yandex", "Оценка тестового отзыва должна быть от 1 до 5.")
 
+        options = self._list_group_subgroups_for_review_classification(repository=self.repository, user_id=user_id)
         result = self._classify_with_yandex_target_debug(
             review=ReviewInput(
                 review_id="admin-test-review",
@@ -2431,8 +2622,11 @@ class ReviewAutomationService:
             "group_title": self.REVIEW_GROUP_TITLES.get(group_id, group_id),
             "subgroup_id": subgroup_id,
             "subgroup": subgroup,
+            "used_default_subgroup": bool(result.get("used_default_subgroup")),
+            "default_subgroup_reason": str(result.get("default_subgroup_reason") or ""),
             "model_uri": str(result.get("model_uri") or ""),
             "raw_response": str(result.get("raw_response") or ""),
+            "available_options": options,
         }
 
     @classmethod

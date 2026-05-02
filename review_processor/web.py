@@ -46,6 +46,7 @@ TEMPLATE_GROUPS: list[dict[str, object]] = [
         "id": "positive",
         "title": "Позитив",
         "subgroups": [
+            "Общий",
             "Вкус",
             "Материал",
             "Общий позитив",
@@ -61,6 +62,7 @@ TEMPLATE_GROUPS: list[dict[str, object]] = [
         "id": "product_dissatisfaction",
         "title": "Недовольство товаром",
         "subgroups": [
+            "Общий",
             "Брак и Б/У",
             "Высокая цена",
             "Качество",
@@ -81,6 +83,7 @@ TEMPLATE_GROUPS: list[dict[str, object]] = [
         "id": "delivery_problems",
         "title": "Проблемы при доставке",
         "subgroups": [
+            "Общий",
             "Долгая доставка",
             "Испорченная упаковка",
             "Наклейка",
@@ -94,6 +97,7 @@ TEMPLATE_GROUPS: list[dict[str, object]] = [
         "id": "wrong_size",
         "title": "Неправильный размер",
         "subgroups": [
+            "Общий",
             "Альтернативные измерения",
             "Большемерит/маломерит",
             "Не подошел размер",
@@ -103,6 +107,7 @@ TEMPLATE_GROUPS: list[dict[str, object]] = [
         "id": "tagged_reviews",
         "title": "Отзывы с тегами",
         "subgroups": [
+            "Общий",
             "Общие теги",
         ],
     },
@@ -118,8 +123,17 @@ TEMPLATE_GROUPS: list[dict[str, object]] = [
 
 TEXTLESS_RATINGS_GROUP_ID = "textless_ratings"
 TEXTLESS_LOCKED_SUBGROUPS: tuple[str, ...] = ("1-3 звезды", "4-5 звезд")
+GENERAL_LOCKED_SUBGROUP = "Общий"
+GENERAL_LOCKED_GROUP_IDS: tuple[str, ...] = (
+    "positive",
+    "product_dissatisfaction",
+    "delivery_problems",
+    "wrong_size",
+    "tagged_reviews",
+)
 
 DEFAULT_TEMPLATE_CONTENT: dict[str, list[str]] = {
+    "Общий": ["Спасибо за ваш отзыв! Мы ценим обратную связь и уже работаем над улучшениями."],
     "Вкус": [
         "%USER%, добрый день. Мы рады, что вы довольны покупкой. Попробуйте еще %%RECO%% — вам точно понравится!",
         "Добрый день, %USER%! Благодарим за доверие и внимание к вкусу нашего продукта.",
@@ -225,7 +239,11 @@ DEFAULT_TEMPLATE_CONTENT: dict[str, list[str]] = {
 def _is_protected_default_subgroup(group_id: str, subgroup: str) -> bool:
     clean_group = str(group_id or "").strip()
     clean_subgroup = str(subgroup or "").strip()
-    return clean_group == TEXTLESS_RATINGS_GROUP_ID and clean_subgroup in TEXTLESS_LOCKED_SUBGROUPS
+    if clean_group == TEXTLESS_RATINGS_GROUP_ID and clean_subgroup in TEXTLESS_LOCKED_SUBGROUPS:
+        return True
+    if clean_group in GENERAL_LOCKED_GROUP_IDS and clean_subgroup == GENERAL_LOCKED_SUBGROUP:
+        return True
+    return False
 
 
 class SyncRequest(BaseModel):
@@ -1077,6 +1095,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             clean = str((row or {}).get("subgroup") or "").strip()
             if clean and clean not in result:
                 result.append(clean)
+        if group_id in GENERAL_LOCKED_GROUP_IDS:
+            general = GENERAL_LOCKED_SUBGROUP
+            reordered = [name for name in result if name != general]
+            if general in result:
+                result = [general, *reordered]
+            else:
+                result = [general, *reordered]
         if result:
             return result
         # Backward-compatible fallback for old datasets where subgroup registry
@@ -1122,6 +1147,18 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         seed_rows, subgroup_rows = _default_template_seed_rows()
         if repository.count_default_template_subgroups() == 0:
             repository.ensure_default_template_subgroups(subgroup_rows)
+        for group_id in GENERAL_LOCKED_GROUP_IDS:
+            repository.ensure_default_template_subgroups(
+                [{"group_id": group_id, "subgroup": GENERAL_LOCKED_SUBGROUP}]
+            )
+            existing = repository.list_default_template_variants(group_id=group_id, subgroup=GENERAL_LOCKED_SUBGROUP)
+            if not existing:
+                repository.replace_default_subgroup_templates(
+                    group_id=group_id,
+                    subgroup=GENERAL_LOCKED_SUBGROUP,
+                    templates=DEFAULT_TEMPLATE_CONTENT.get(GENERAL_LOCKED_SUBGROUP)
+                    or ["Спасибо за ваш отзыв! Мы ценим обратную связь и уже работаем над улучшениями."],
+                )
         repository.sync_default_template_subgroups_from_variants()
         if repository.count_default_template_variants(include_inactive=True) > 0:
             return
