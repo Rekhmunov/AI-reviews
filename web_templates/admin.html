@@ -22,12 +22,17 @@
         <input id="apiKey" type="text" size="34" placeholder="API-ключ Yandex Cloud" />
         <input id="folderId" type="text" size="24" placeholder="ID каталога (folderId)" />
       </div>
+      <div class="row ai-settings-actions">
+        <button id="aiEditBtn" type="button" class="secondary" onclick="editAiSettings()">Изменить</button>
+        <button id="aiTestBtn" type="button" class="secondary" onclick="testAiSettingsConnection()">Проверить</button>
+        <button id="aiCancelBtn" type="button" class="secondary hidden" onclick="cancelAiSettingsEdit()">Отмена</button>
+      </div>
       <div class="row">
         <label for="defaultSyncLookbackDays">Старт синхронизации для новых пользователей (дней до регистрации)</label>
         <input id="defaultSyncLookbackDays" type="number" min="0" max="365" step="1" value="7" />
       </div>
       <div class="row">
-        <button onclick="saveAiSettings()">Сохранить</button>
+        <button id="aiSaveBtn" class="hidden" onclick="saveAiSettings()">Сохранить</button>
       </div>
       <div id="aiInfo" class="small"></div>
     </div>

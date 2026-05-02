@@ -43,6 +43,8 @@ def decrypt_secret(value: str | None) -> str | None:
 def mask_secret(value: str | None) -> str:
     if not value:
         return ""
-    if len(value) <= 8:
-        return "*" * len(value)
-    return f"{value[:3]}***{value[-3:]}"
+    clean = str(value)
+    if len(clean) <= 4:
+        return "*" * len(clean)
+    middle = "*" * max(len(clean) - 4, 1)
+    return f"{clean[:2]}{middle}{clean[-2:]}"

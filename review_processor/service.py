@@ -2162,6 +2162,47 @@ class ReviewAutomationService:
             )
         return None
 
+    def check_yandex_connection(
+        self,
+        *,
+        api_key: str,
+        folder_id: str,
+        timeout_seconds: int = 12,
+    ) -> dict[str, object]:
+        clean_api_key = str(api_key or "").strip()
+        clean_folder_id = str(folder_id or "").strip()
+        if not clean_api_key:
+            raise MarketplaceSyncError("yandex", "Укажите API-ключ Yandex Cloud.")
+        if not clean_folder_id:
+            raise MarketplaceSyncError("yandex", "Укажите ID каталога (folderId).")
+        model_uri = f"gpt://{clean_folder_id}/yandexgpt-lite/latest"
+        body = {
+            "modelUri": model_uri,
+            "completionOptions": {"stream": False, "temperature": 0.0, "maxTokens": 8},
+            "messages": [{"role": "user", "text": "Ответь одним словом: OK"}],
+        }
+        request = Request(
+            "https://llm.api.cloud.yandex.net/foundationModels/v1/completion",
+            method="POST",
+            headers={
+                "Authorization": f"Api-Key {clean_api_key}",
+                "Content-Type": "application/json",
+            },
+            data=json.dumps(body).encode("utf-8"),
+        )
+        payload = _request_json(request=request, timeout=max(int(timeout_seconds), 1), source="yandex", retries=0)
+        result = payload.get("result") if isinstance(payload, Mapping) else None
+        alternatives = result.get("alternatives") if isinstance(result, Mapping) else None
+        first = alternatives[0] if isinstance(alternatives, list) and alternatives else {}
+        message = first.get("message") if isinstance(first, Mapping) else {}
+        text = str(message.get("text") or "").strip() if isinstance(message, Mapping) else ""
+        return {
+            "ok": True,
+            "message": "Подключение к Yandex GPT успешно.",
+            "model_uri": model_uri,
+            "response_preview": text[:120],
+        }
+
     @classmethod
     def _resolve_group_processors(cls, settings: dict[str, object]) -> dict[str, str]:
         modes: dict[str, str] = dict(cls.GROUP_PROCESSING_DEFAULTS)

@@ -276,6 +276,11 @@ class AISettingsRequest(BaseModel):
     default_sync_lookback_days: int = Field(default=7, ge=0, le=365)
 
 
+class AIConnectionTestRequest(BaseModel):
+    yandex_api_key: str | None = None
+    yandex_folder_id: str | None = None
+
+
 class RoleUpdateRequest(BaseModel):
     role: str = Field(description="user|admin|feedback_manager")
 
@@ -2123,6 +2128,38 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
         repository.set_default_sync_lookback_days(days=lookback_days)
         return {"ok": True}
+
+    @app.post("/api/admin/ai-settings/check")
+    def check_ai_settings_connection(request: Request, payload: AIConnectionTestRequest) -> dict[str, object]:
+        _require_super_admin(request)
+        stored = repository.get_ai_settings(include_secrets=True)
+        api_key = (payload.yandex_api_key or "").strip() or str(stored.get("yandex_api_key") or "").strip()
+        folder_id = (payload.yandex_folder_id or "").strip() or str(stored.get("yandex_folder_id") or "").strip()
+        if not api_key:
+            raise HTTPException(status_code=400, detail="Укажите API-ключ Yandex Cloud.")
+        if not folder_id:
+            raise HTTPException(status_code=400, detail="Укажите ID каталога (folderId).")
+        try:
+            result = service.check_yandex_connection(api_key=api_key, folder_id=folder_id)
+            return {
+                "ok": True,
+                "status": "ok",
+                "message": str(result.get("message") or "Подключение успешно"),
+                "model_uri": result.get("model_uri"),
+                "response_preview": result.get("response_preview"),
+            }
+        except MarketplaceSyncError as exc:
+            detail = str(exc).lower()
+            error_code = "connection"
+            if any(code in detail for code in ["401", "403", "unauthorized", "forbidden", "invalid api"]):
+                error_code = "auth"
+            elif any(code in detail for code in ["400", "404", "folder", "modeluri", "not found"]):
+                error_code = "config"
+            elif "429" in detail or "rate" in detail or "quota" in detail:
+                error_code = "rate_limit"
+            elif "timeout" in detail or "network" in detail:
+                error_code = "network"
+            return {"ok": False, "status": "error", "error_code": error_code, "error": str(exc)}
 
     @app.get("/api/admin/context")
     def get_admin_context(request: Request) -> dict[str, object]:

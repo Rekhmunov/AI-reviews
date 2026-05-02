@@ -58,6 +58,7 @@ class RepositoryAdminTests(unittest.TestCase):
 
         secret = self.repository.get_ai_settings(include_secrets=True)
         self.assertEqual(secret["yandex_api_key"], "yandex-secret")
+        self.assertEqual(public["yandex_api_key_preview"], "ya*********et")
 
         processed = ProcessedReview(
             review_id="1",

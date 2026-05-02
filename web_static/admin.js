@@ -83,6 +83,8 @@ const TENANT_ROLE_VALUES = ["feedback_manager", "admin"];
 const adminState = {
   context: null,
   hasYandexApiKey: false,
+  aiEditMode: false,
+  aiSettingsSnapshot: null,
 };
 const defaultTemplatesState = {
   items: [],
@@ -271,14 +273,9 @@ async function loadAiSettings() {
     return;
   }
   adminState.hasYandexApiKey = Boolean(data.has_yandex_api_key);
-  const apiKeyInput = document.getElementById("apiKey");
-  if (apiKeyInput) {
-    apiKeyInput.value = "";
-    apiKeyInput.placeholder = adminState.hasYandexApiKey
-      ? "API-ключ Yandex Cloud (ключ уже сохранен)"
-      : "API-ключ Yandex Cloud";
-  }
-  document.getElementById("folderId").value = data.yandex_folder_id || "";
+  adminState.aiSettingsSnapshot = data;
+  adminState.aiEditMode = false;
+  renderAiSettingsMode(data);
   const lookbackInput = document.getElementById("defaultSyncLookbackDays");
   if (lookbackInput) {
     const lookback = Number(data.default_sync_lookback_days || 7);
@@ -287,11 +284,68 @@ async function loadAiSettings() {
   document.getElementById("aiInfo").textContent = "";
 }
 
+function renderAiSettingsMode(data = {}) {
+  const apiKeyInput = document.getElementById("apiKey");
+  const folderIdInput = document.getElementById("folderId");
+  const editBtn = document.getElementById("aiEditBtn");
+  const saveBtn = document.getElementById("aiSaveBtn");
+  const cancelBtn = document.getElementById("aiCancelBtn");
+  const testBtn = document.getElementById("aiTestBtn");
+  if (!apiKeyInput || !folderIdInput) return;
+
+  const preview = String(data.yandex_api_key_preview || "");
+  const folderId = String(data.yandex_folder_id || "");
+  const inEditMode = Boolean(adminState.aiEditMode);
+
+  if (inEditMode) {
+    apiKeyInput.type = "password";
+    apiKeyInput.readOnly = false;
+    apiKeyInput.value = "";
+    apiKeyInput.placeholder = adminState.hasYandexApiKey
+      ? "Новый API-ключ (оставьте пустым, чтобы не менять)"
+      : "API-ключ Yandex Cloud";
+    folderIdInput.readOnly = false;
+    folderIdInput.value = folderId;
+    if (editBtn) editBtn.classList.add("hidden");
+    if (saveBtn) saveBtn.classList.remove("hidden");
+    if (cancelBtn) cancelBtn.classList.remove("hidden");
+    if (testBtn) testBtn.disabled = false;
+    return;
+  }
+
+  apiKeyInput.type = "password";
+  apiKeyInput.readOnly = true;
+  apiKeyInput.value = preview || "";
+  apiKeyInput.placeholder = adminState.hasYandexApiKey ? "API-ключ сохранен" : "API-ключ Yandex Cloud";
+  folderIdInput.readOnly = true;
+  folderIdInput.value = folderId;
+  if (editBtn) editBtn.classList.remove("hidden");
+  if (saveBtn) saveBtn.classList.add("hidden");
+  if (cancelBtn) cancelBtn.classList.add("hidden");
+  if (testBtn) testBtn.disabled = !adminState.hasYandexApiKey || !folderId;
+}
+
+function editAiSettings() {
+  adminState.aiEditMode = true;
+  renderAiSettingsMode({
+    yandex_folder_id: adminState.aiSettingsSnapshot?.yandex_folder_id || "",
+  });
+}
+
+function cancelAiSettingsEdit() {
+  adminState.aiEditMode = false;
+  loadAiSettings();
+}
+
 function syncDateToggle() {
   return;
 }
 
 async function saveAiSettings() {
+  if (!adminState.aiEditMode) {
+    editAiSettings();
+    return;
+  }
   const aiInfo = document.getElementById("aiInfo");
   if (aiInfo) {
     aiInfo.textContent = "Сохраняем настройки...";
@@ -345,6 +399,35 @@ async function saveAiSettings() {
     aiInfo.style.color = "";
   }
   await loadAiSettings();
+}
+
+async function testAiSettingsConnection() {
+  const aiInfo = document.getElementById("aiInfo");
+  if (aiInfo) {
+    aiInfo.textContent = "Проверяем подключение...";
+    aiInfo.style.color = "";
+  }
+  const payload = {
+    yandex_folder_id: String(document.getElementById("folderId")?.value || "").trim() || null,
+    yandex_api_key: adminState.aiEditMode ? (String(document.getElementById("apiKey")?.value || "").trim() || null) : null,
+  };
+  const res = await fetch("/api/admin/ai-settings/check", {
+    method: "POST",
+    headers: csrfHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok || !data.ok) {
+    if (aiInfo) {
+      aiInfo.textContent = "Ошибка проверки: " + (data.detail || data.error || "подключение не прошло");
+      aiInfo.style.color = "#b91c1c";
+    }
+    return;
+  }
+  if (aiInfo) {
+    aiInfo.textContent = data.message || "Подключение успешно";
+    aiInfo.style.color = "#166534";
+  }
 }
 
 function getFilteredUsers() {
