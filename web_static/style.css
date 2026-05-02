@@ -2010,4 +2010,9 @@ button.secondary.danger:hover {
   #section-settings .settings-tabs {
     display: none;
   }
+
+  /* Section title duplicates mobile topbar title */
+  .main > section > .section-title {
+    display: none;
+  }
 }
