@@ -3,36 +3,275 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>FEEDPILOT — автоматизация рутины</title>
+  <title>ReviewFlow AI — отзывы, вопросы и чаты в одном окне</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css" />
-  <link rel="stylesheet" href="/static/landing.css?v=2" />
+  <link rel="stylesheet" href="/static/style.css?v=9" />
+  <link rel="stylesheet" href="/static/landing.css?v=3" />
 </head>
-<body class="landing-page">
-  <main class="fp-landing-shell">
-    <section class="fp-landing-layout">
-      <div class="fp-landing-copy">
-        <p class="fp-landing-kicker">FEEDPILOT</p>
-        <h1>Автоматизируйте рутину работы с отзывами</h1>
-        <p class="fp-landing-lead">
-          Единый центр для WB и Ozon: сбор отзывов, умная маршрутизация, шаблонные ответы и контроль ручной обработки.
-        </p>
-        <div class="fp-landing-points">
-          <span class="fp-landing-point">Мультикабинеты маркетплейсов</span>
-          <span class="fp-landing-point">ИИ + правила обработки</span>
-          <span class="fp-landing-point">Единая очередь оператора</span>
+<body class="landing-page reviewflow-landing">
+  <header class="rf-nav">
+    <div class="rf-container rf-nav-inner">
+      <a class="rf-logo" href="/">ReviewFlow AI</a>
+      <div class="rf-nav-actions">
+        <a class="rf-btn rf-btn-ghost" href="/login">Войти</a>
+        <a class="rf-btn rf-btn-primary" href="/register">Попробовать бесплатно</a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="rf-section rf-section-hero" id="hero">
+      <div class="rf-container rf-hero-grid">
+        <div class="rf-hero-copy">
+          <p class="rf-eyebrow">Единый центр коммуникаций маркетплейсов</p>
+          <h1>Отзывы, вопросы и чаты маркетплейсов — в одном окне</h1>
+          <p class="rf-subheadline">
+            Собирайте обращения из Wildberries и Ozon в одном интерфейсе, ускоряйте ответы с помощью YandexGPT и
+            контролируйте аналитику по всей команде.
+          </p>
+          <div class="rf-hero-cta">
+            <a class="rf-btn rf-btn-primary" href="/register">Попробовать бесплатно</a>
+            <a class="rf-btn rf-btn-secondary" href="#demo">Посмотреть демо</a>
+          </div>
+          <p class="rf-trust-line">Для команд, которые ведут продажи и поддержку на маркетплейсах.</p>
+          <ul class="rf-bullet-list">
+            <li>Wildberries и Ozon в одном интерфейсе</li>
+            <li>Отзывы, вопросы и чаты без переключения между кабинетами</li>
+            <li>Подсказки и ответы с помощью YandexGPT</li>
+          </ul>
         </div>
-        <div class="fp-landing-note">
-          FEEDPILOT убирает рутину, а оператор занимается только сложными кейсами.
+
+        <div class="rf-hero-visual" id="demo" aria-label="Превью интерфейса ReviewFlow AI">
+          <div class="rf-ui-window">
+            <div class="rf-ui-topbar">
+              <span class="rf-ui-dot"></span>
+              <span class="rf-ui-dot"></span>
+              <span class="rf-ui-dot"></span>
+              <div class="rf-ui-tabs">
+                <span class="rf-ui-tab rf-ui-tab-active">Отзывы</span>
+                <span class="rf-ui-tab">Вопросы</span>
+                <span class="rf-ui-tab">Чаты</span>
+              </div>
+            </div>
+            <div class="rf-ui-body">
+              <div class="rf-ui-feed">
+                <article class="rf-ui-review-card">
+                  <div class="rf-ui-review-head">
+                    <span class="rf-ui-badge">WB</span>
+                    <span class="rf-ui-rating">★ 2</span>
+                  </div>
+                  <p>Товар не подошел по размеру, нужна быстрая замена.</p>
+                </article>
+                <article class="rf-ui-review-card">
+                  <div class="rf-ui-review-head">
+                    <span class="rf-ui-badge">Ozon</span>
+                    <span class="rf-ui-rating">★ 5</span>
+                  </div>
+                  <p>Доставка вовремя, качество отличное. Спасибо!</p>
+                </article>
+                <article class="rf-ui-review-card">
+                  <div class="rf-ui-review-head">
+                    <span class="rf-ui-badge">Чат</span>
+                    <span class="rf-ui-rating">new</span>
+                  </div>
+                  <p>Подскажите, когда будет повторная поставка?</p>
+                </article>
+              </div>
+              <aside class="rf-ui-side">
+                <div class="rf-ui-kpi-grid">
+                  <div class="rf-ui-kpi">
+                    <strong>164</strong>
+                    <span>Входящие</span>
+                  </div>
+                  <div class="rf-ui-kpi">
+                    <strong>137</strong>
+                    <span>Обработано</span>
+                  </div>
+                </div>
+                <div class="rf-ui-ai-card">
+                  <h3>YandexGPT</h3>
+                  <p>Сформирован ответ для обращения «Неподходящий размер».</p>
+                  <button type="button">Применить ответ</button>
+                </div>
+              </aside>
+            </div>
+          </div>
         </div>
       </div>
+    </section>
 
-      <div class="fp-landing-auth-stack">
-        <article class="fp-landing-auth-card">
-          <h2>Авторизация</h2>
-          <p>Войдите в систему, чтобы продолжить работу с обработкой отзывов.</p>
-          <a class="btn btn-primary" href="/login">Войти</a>
-        </article>
+    <section class="rf-section rf-section-trust">
+      <div class="rf-container">
+        <p class="rf-section-label">Интеграции</p>
+        <div class="rf-logo-row">
+          <span>Wildberries</span>
+          <span>Ozon</span>
+          <span>YandexGPT</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="rf-section">
+      <div class="rf-container">
+        <p class="rf-section-label">Почему это важно</p>
+        <h2 class="rf-section-title">Маркетплейсы разрознены. Коммуникации — тоже.</h2>
+        <div class="rf-two-col">
+          <article class="rf-card">
+            <h3>Проблема</h3>
+            <ul class="rf-list">
+              <li>Отзывы, вопросы и чаты нужно проверять в разных кабинетах.</li>
+              <li>Команда тратит время на ручную обработку и переключение между системами.</li>
+              <li>Сложно контролировать скорость ответа и качество коммуникации.</li>
+              <li>Нет единой аналитики по всем обращениям.</li>
+            </ul>
+          </article>
+          <article class="rf-card rf-card-highlight">
+            <h3>Решение</h3>
+            <p>ReviewFlow AI собирает всё в одном рабочем окне.</p>
+            <ul class="rf-list">
+              <li>Один интерфейс для Wildberries и Ozon.</li>
+              <li>Единый поток отзывов, вопросов и чатов.</li>
+              <li>AI-помощь в обработке и ответах.</li>
+              <li>Аналитика по обращениям и работе команды.</li>
+            </ul>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="rf-section">
+      <div class="rf-container">
+        <p class="rf-section-label">Возможности</p>
+        <h2 class="rf-section-title">Инструменты для ежедневной операционной работы</h2>
+        <div class="rf-feature-grid">
+          <article class="rf-card rf-feature-card">
+            <p class="rf-feature-eyebrow">Единое окно</p>
+            <h3>Все маркетплейсы в одном интерфейсе</h3>
+            <p>Единая лента обращений с фильтрами по каналу, статусу и приоритету.</p>
+          </article>
+          <article class="rf-card rf-feature-card">
+            <p class="rf-feature-eyebrow">YandexGPT</p>
+            <h3>Быстрее обработка и ответы с AI</h3>
+            <p>Подсказки для ответов и ускорение рутинной обработки для команды поддержки.</p>
+          </article>
+          <article class="rf-card rf-feature-card">
+            <p class="rf-feature-eyebrow">Аналитика</p>
+            <h3>Понимайте, что происходит в коммуникациях</h3>
+            <p>Обзор динамики обращений и проблемных зон по отзывам, вопросам и чатам.</p>
+          </article>
+          <article class="rf-card rf-feature-card">
+            <p class="rf-feature-eyebrow">Команда</p>
+            <h3>Добавляйте сотрудников и назначайте роли</h3>
+            <p>Прозрачное распределение доступа и единый рабочий процесс в одной системе.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="rf-section">
+      <div class="rf-container">
+        <p class="rf-section-label">Как это работает</p>
+        <h2 class="rf-section-title">Один процесс вместо трех разрозненных потоков</h2>
+        <ol class="rf-steps">
+          <li class="rf-step">
+            <strong>Подключите маркетплейсы</strong>
+            <span>Сервис собирает отзывы, вопросы и чаты из Wildberries и Ozon.</span>
+          </li>
+          <li class="rf-step">
+            <strong>Работайте в одном окне</strong>
+            <span>Команда обрабатывает все обращения в общем интерфейсе с фильтрами и статусами.</span>
+          </li>
+          <li class="rf-step">
+            <strong>Ускоряйте ответы с YandexGPT</strong>
+            <span>Используйте AI для подготовки ответов и уменьшения ручной нагрузки.</span>
+          </li>
+          <li class="rf-step">
+            <strong>Следите за аналитикой</strong>
+            <span>Смотрите общую картину по обращениям, каналам и работе команды.</span>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="rf-section">
+      <div class="rf-container">
+        <p class="rf-section-label">Результат</p>
+        <h2 class="rf-section-title">Что получает команда</h2>
+        <div class="rf-benefits">
+          <article class="rf-card"><p>Меньше ручной рутины при работе с коммуникациями.</p></article>
+          <article class="rf-card"><p>Быстрее реакция на отзывы, вопросы и чаты.</p></article>
+          <article class="rf-card"><p>Единый контроль по Wildberries и Ozon.</p></article>
+          <article class="rf-card"><p>Более прозрачная работа команды и ролей.</p></article>
+          <article class="rf-card"><p>Понятная аналитика по всем обращениям.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="rf-section">
+      <div class="rf-container">
+        <p class="rf-section-label">Кому подойдет</p>
+        <h2 class="rf-section-title">Для команд, которые работают с маркетплейсами каждый день</h2>
+        <div class="rf-usecases">
+          <article class="rf-card">
+            <h3>Селлеры</h3>
+            <p>Чтобы быстрее отвечать клиентам и держать всё под контролем в одном окне.</p>
+          </article>
+          <article class="rf-card">
+            <h3>Команды поддержки</h3>
+            <p>Чтобы распределять обращения и ускорять обработку без хаоса.</p>
+          </article>
+          <article class="rf-card">
+            <h3>Marketplace-менеджеры</h3>
+            <p>Чтобы видеть общую картину по каналам и не терять важные обращения.</p>
+          </article>
+          <article class="rf-card">
+            <h3>Агентства</h3>
+            <p>Чтобы централизованно вести коммуникации по нескольким магазинам и командам.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="rf-section rf-section-cta">
+      <div class="rf-container">
+        <div class="rf-card rf-final-cta">
+          <p class="rf-section-label">Запуск</p>
+          <h2>Начните с демо или пробного периода</h2>
+          <p>Соберите отзывы, вопросы и чаты маркетплейсов в одном окне и ускорьте работу команды с помощью YandexGPT.</p>
+          <div class="rf-hero-cta">
+            <a class="rf-btn rf-btn-primary" href="/register">Попробовать бесплатно</a>
+            <a class="rf-btn rf-btn-secondary" href="/login">Посмотреть демо</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="rf-section">
+      <div class="rf-container">
+        <p class="rf-section-label">Вопросы</p>
+        <h2 class="rf-section-title">Частые вопросы</h2>
+        <div class="rf-faq">
+          <details class="rf-faq-item">
+            <summary>С какими площадками работает сервис?</summary>
+            <p>Сервис объединяет коммуникации из Wildberries и Ozon в одном интерфейсе.</p>
+          </details>
+          <details class="rf-faq-item">
+            <summary>Что можно обрабатывать внутри сервиса?</summary>
+            <p>Отзывы, вопросы и чаты маркетплейсов в едином рабочем процессе.</p>
+          </details>
+          <details class="rf-faq-item">
+            <summary>Как используется YandexGPT?</summary>
+            <p>YandexGPT помогает ускорять обработку обращений и подготовку ответов.</p>
+          </details>
+          <details class="rf-faq-item">
+            <summary>Можно ли подключить команду?</summary>
+            <p>Да, в сервис можно добавлять участников и назначать роли с доступами.</p>
+          </details>
+          <details class="rf-faq-item">
+            <summary>Для кого подходит сервис?</summary>
+            <p>Для селлеров, команд поддержки, marketplace-менеджеров и агентств.</p>
+          </details>
+        </div>
       </div>
     </section>
   </main>
