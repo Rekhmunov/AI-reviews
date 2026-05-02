@@ -265,6 +265,40 @@ class ReviewAutomationServiceTests(unittest.TestCase):
         actions, _total = self.repository.list_recent_actions(user_id=int(self.user["id"]), limit=20)
         self.assertTrue(any(item["action_type"] == "sync_error" for item in actions))
 
+    def test_sync_all_accounts_can_use_specific_account_ids(self) -> None:
+        first = self.repository.create_marketplace_account(
+            user_id=int(self.user["id"]),
+            marketplace="mock",
+            account_name="first-account",
+            api_url="https://example.local/api/reviews",
+            api_key=None,
+            extra={},
+        )
+        second = self.repository.create_marketplace_account(
+            user_id=int(self.user["id"]),
+            marketplace="mock",
+            account_name="second-account",
+            api_url="https://example.local/api/reviews",
+            api_key=None,
+            extra={},
+        )
+        target_ids = [int(first["id"])]
+
+        def _client_for(_account: dict[str, object]) -> object:
+            return _StubClient()
+
+        with mock.patch.object(self.service, "_build_client", side_effect=_client_for):
+            result = self.service.sync_all_accounts(user_id=int(self.user["id"]), account_ids=target_ids)
+
+        self.assertEqual(result["accounts"], 1)
+        self.assertEqual(result["success_accounts"], 1)
+        self.assertEqual(result["failed_accounts"], 0)
+        self.assertEqual(result["loaded"], 2)
+        self.assertEqual(result["loaded_conversations"], 0)
+        self.assertEqual(result["account_ids"], target_ids)
+        self.assertEqual(result["skipped_accounts"], 0)
+        self.assertEqual(int(second["id"]) in result["account_ids"], False)
+
     def test_build_wb_client_sets_questions_endpoint_by_default(self) -> None:
         account = self.repository.create_marketplace_account(
             user_id=int(self.user["id"]),

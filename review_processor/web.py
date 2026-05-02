@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from html import escape
+import json
 import ipaddress
 import io
 import csv
@@ -479,6 +480,7 @@ RATE_LIMIT_API_WRITE_PER_MINUTE = 180
 RATE_LIMIT_SYNC_PER_MINUTE = 20
 RATE_LIMIT_LOGIN_PER_10_MIN = 30
 FAILED_LOGIN_LIMIT_PER_15_MIN = 10
+AUTO_SYNC_INTERVAL_SECONDS = 60
 
 
 def _normalize_role(raw_role: object) -> str:
@@ -507,7 +509,16 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         "cancel_requested": False,
         "last_started_at": None,
         "last_finished_at": None,
+        "polling_enabled": False,
+        "polling_user_id": None,
+        "polling_account_ids": [],
+        "polling_since_date": None,
+        "polling_started_at": None,
+        "last_poll_at": None,
+        "last_poll_result": None,
     }
+    auto_sync_stop_event = threading.Event()
+    auto_sync_worker: dict[str, threading.Thread | None] = {"thread": None}
     rate_limit_lock = threading.Lock()
     rate_buckets: dict[str, list[float]] = {}
     failed_login_attempts: dict[str, list[float]] = {}
@@ -897,6 +908,135 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 sync_stop_event.clear()
             else:
                 sync_state["last_finished_at"] = _now_iso()
+
+    def _snapshot_active_account_ids_for_user(user_id: int) -> list[int]:
+        ids: list[int] = []
+        seen: set[int] = set()
+        for account in repository.list_marketplace_accounts(user_id, include_secrets=False):
+            try:
+                account_id = int(account.get("id"))
+            except (TypeError, ValueError):
+                continue
+            if account_id <= 0 or account_id in seen:
+                continue
+            if not bool(account.get("is_active")):
+                continue
+            seen.add(account_id)
+            ids.append(account_id)
+        return ids
+
+    def _run_sync_for_user(
+        *,
+        user_id: int,
+        since_date: str | None,
+        account_ids: list[int] | None,
+        run_started_at: str,
+    ) -> dict[str, object]:
+        with sync_lock:
+            if bool(sync_state.get("in_progress")):
+                raise HTTPException(status_code=409, detail="Синхронизация уже выполняется")
+            sync_state["in_progress"] = True
+            sync_state["cancel_requested"] = False
+            sync_state["last_started_at"] = run_started_at
+        sync_stop_event.clear()
+        try:
+            result = service.sync_all_accounts(
+                user_id=user_id,
+                since_date=since_date or None,
+                account_ids=account_ids,
+                stop_requested=sync_stop_event.is_set,
+            )
+            return result
+        finally:
+            with sync_lock:
+                sync_state["in_progress"] = False
+                sync_state["last_finished_at"] = _now_iso()
+            sync_stop_event.clear()
+
+    def _start_auto_sync_worker_if_needed() -> None:
+        with sync_lock:
+            existing = auto_sync_worker.get("thread")
+            if isinstance(existing, threading.Thread) and existing.is_alive():
+                return
+            auto_sync_stop_event.clear()
+
+            def _auto_sync_loop() -> None:
+                while not auto_sync_stop_event.is_set():
+                    auto_sync_stop_event.wait(AUTO_SYNC_INTERVAL_SECONDS)
+                    if auto_sync_stop_event.is_set():
+                        break
+                    with sync_lock:
+                        polling_enabled = bool(sync_state.get("polling_enabled"))
+                        polling_user_id_raw = sync_state.get("polling_user_id")
+                        polling_since_raw = sync_state.get("polling_since_date")
+                        polling_accounts_raw = sync_state.get("polling_account_ids")
+                    if not polling_enabled:
+                        continue
+                    try:
+                        polling_user_id = int(polling_user_id_raw)
+                    except (TypeError, ValueError):
+                        continue
+                    if polling_user_id <= 0:
+                        continue
+                    account_ids: list[int] = []
+                    if isinstance(polling_accounts_raw, list):
+                        for value in polling_accounts_raw:
+                            try:
+                                parsed = int(value)
+                            except (TypeError, ValueError):
+                                continue
+                            if parsed > 0 and parsed not in account_ids:
+                                account_ids.append(parsed)
+                    if not account_ids:
+                        continue
+                    run_started_at = _now_iso()
+                    try:
+                        result = _run_sync_for_user(
+                            user_id=polling_user_id,
+                            since_date=str(polling_since_raw or "").strip() or None,
+                            account_ids=account_ids,
+                            run_started_at=run_started_at,
+                        )
+                        with sync_lock:
+                            sync_state["last_poll_at"] = _now_iso()
+                            sync_state["last_poll_result"] = {
+                                "ok": True,
+                                "run_started_at": run_started_at,
+                                "accounts": int(result.get("accounts") or 0),
+                                "success_accounts": int(result.get("success_accounts") or 0),
+                                "failed_accounts": int(result.get("failed_accounts") or 0),
+                                "loaded": int(result.get("loaded") or 0),
+                                "loaded_conversations": int(result.get("loaded_conversations") or 0),
+                                "account_ids": list(account_ids),
+                                "errors": _serialize_sync_error_details(result.get("errors")),
+                                "cancelled": bool(result.get("cancelled")),
+                            }
+                    except HTTPException as exc:
+                        with sync_lock:
+                            sync_state["last_poll_at"] = _now_iso()
+                            sync_state["last_poll_result"] = {
+                                "ok": False,
+                                "run_started_at": run_started_at,
+                                "error": str(exc.detail),
+                                "account_ids": list(account_ids),
+                            }
+                    except Exception as exc:  # pragma: no cover - defensive background guard
+                        with sync_lock:
+                            sync_state["last_poll_at"] = _now_iso()
+                            sync_state["last_poll_result"] = {
+                                "ok": False,
+                                "run_started_at": run_started_at,
+                                "error": str(exc),
+                                "account_ids": list(account_ids),
+                            }
+
+            worker = threading.Thread(
+                target=_auto_sync_loop,
+                name="feedpilot-auto-sync-worker",
+                daemon=True,
+            )
+            auto_sync_worker["thread"] = worker
+            worker.start()
 
     def _template_group_by_id(group_id: str) -> dict[str, object] | None:
         for item in TEMPLATE_GROUPS:
@@ -1510,18 +1650,36 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             else None
         )
         if payload.all_accounts:
+            account_ids_snapshot = _snapshot_active_account_ids_for_user(user_id)
+            if not account_ids_snapshot:
+                raise HTTPException(status_code=400, detail="Нет активных кабинетов для синхронизации")
+            run_started_at = _now_iso()
+            result = _run_sync_for_user(
+                user_id=user_id,
+                since_date=since_date or None,
+                account_ids=account_ids_snapshot,
+                run_started_at=run_started_at,
+            )
             with sync_lock:
-                if bool(sync_state.get("in_progress")):
-                    raise HTTPException(status_code=409, detail="Синхронизация уже выполняется")
-            _set_sync_in_progress(True)
-            try:
-                result = service.sync_all_accounts(
-                    user_id=user_id,
-                    since_date=since_date or None,
-                    stop_requested=sync_stop_event.is_set,
-                )
-            finally:
-                _set_sync_in_progress(False)
+                sync_state["polling_enabled"] = True
+                sync_state["polling_user_id"] = user_id
+                sync_state["polling_account_ids"] = list(account_ids_snapshot)
+                sync_state["polling_since_date"] = since_date or None
+                sync_state["polling_started_at"] = run_started_at
+                sync_state["last_poll_at"] = run_started_at
+                sync_state["last_poll_result"] = {
+                    "ok": True,
+                    "run_started_at": run_started_at,
+                    "accounts": int(result.get("accounts") or 0),
+                    "success_accounts": int(result.get("success_accounts") or 0),
+                    "failed_accounts": int(result.get("failed_accounts") or 0),
+                    "loaded": int(result.get("loaded") or 0),
+                    "loaded_conversations": int(result.get("loaded_conversations") or 0),
+                    "account_ids": list(result.get("account_ids") or account_ids_snapshot),
+                    "errors": _serialize_sync_error_details(result.get("errors")),
+                    "cancelled": bool(result.get("cancelled")),
+                }
+            _start_auto_sync_worker_if_needed()
             return result
 
         if payload.account_id is None:
@@ -2865,6 +3023,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 "cancel_requested": bool(sync_state.get("cancel_requested")),
                 "last_started_at": sync_state.get("last_started_at"),
                 "last_finished_at": sync_state.get("last_finished_at"),
+                "polling_enabled": bool(sync_state.get("polling_enabled")),
+                "polling_user_id": sync_state.get("polling_user_id"),
+                "polling_account_ids": list(sync_state.get("polling_account_ids") or []),
+                "polling_since_date": sync_state.get("polling_since_date"),
+                "polling_started_at": sync_state.get("polling_started_at"),
+                "last_poll_at": sync_state.get("last_poll_at"),
+                "last_poll_result": sync_state.get("last_poll_result"),
             }
 
     @app.post("/api/admin/sync-stop")
@@ -2873,7 +3038,19 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         sync_stop_event.set()
         with sync_lock:
             sync_state["cancel_requested"] = True
+            sync_state["polling_enabled"] = False
+            sync_state["polling_user_id"] = None
+            sync_state["polling_account_ids"] = []
+            sync_state["polling_since_date"] = None
+            sync_state["polling_started_at"] = None
         return {"ok": True}
+
+    @app.on_event("shutdown")
+    def stop_auto_sync_worker() -> None:
+        auto_sync_stop_event.set()
+        worker = auto_sync_worker.get("thread")
+        if isinstance(worker, threading.Thread) and worker.is_alive():
+            worker.join(timeout=1.5)
 
     @app.post("/api/admin/reviews-clear")
     def admin_clear_reviews(request: Request, payload: ClearReviewsRequest) -> dict[str, object]:

@@ -864,6 +864,7 @@ class ReviewAutomationService:
         *,
         user_id: int,
         since_date: str | None = None,
+        account_ids: list[int] | None = None,
         stop_requested: Callable[[], bool] | None = None,
     ) -> dict[str, object]:
         loaded_total = 0
@@ -871,11 +872,35 @@ class ReviewAutomationService:
         successful_accounts = 0
         errors: list[dict[str, object]] = []
         was_cancelled = False
+        account_ids_filter: set[int] | None = None
+        if account_ids is not None:
+            normalized_ids: set[int] = set()
+            for value in account_ids:
+                try:
+                    account_id = int(value)
+                except (TypeError, ValueError):
+                    continue
+                if account_id > 0:
+                    normalized_ids.add(account_id)
+            account_ids_filter = normalized_ids
         accounts = [
             item
             for item in self.repository.list_marketplace_accounts(user_id, include_secrets=True)
             if item["is_active"]
         ]
+        if account_ids_filter is not None:
+            accounts = [
+                item
+                for item in accounts
+                if int(item.get("id") or 0) in account_ids_filter
+            ]
+        selected_account_ids = [
+            int(item.get("id") or 0)
+            for item in accounts
+            if int(item.get("id") or 0) > 0
+        ]
+        requested_account_ids = sorted(account_ids_filter) if account_ids_filter is not None else list(selected_account_ids)
+        skipped_accounts = max(len(requested_account_ids) - len(selected_account_ids), 0)
         since_value = str(since_date or "").strip() or None
         for account in accounts:
             if stop_requested and stop_requested():
@@ -930,6 +955,8 @@ class ReviewAutomationService:
             "failed_accounts": len(errors),
             "loaded": loaded_total,
             "loaded_conversations": loaded_conversations,
+            "account_ids": selected_account_ids,
+            "skipped_accounts": skipped_accounts,
             "errors": errors,
             "cancelled": was_cancelled,
         }
