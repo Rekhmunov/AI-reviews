@@ -33,6 +33,8 @@ class ServiceAiConnectionTests(unittest.TestCase):
 
         self.repository = ReviewRepository(db_path=self.db_path)
         self.service = ReviewAutomationService(repository=self.repository)
+        self.material_subgroup_id = self.service._build_subgroup_id("positive", "Материал")
+        self.repository.add_default_template_subgroup(group_id="positive", subgroup="Материал")
     def test_check_yandex_connection_success(self) -> None:
         with mock.patch("review_processor.service.urlopen", return_value=_FakeResponse({"result": {"alternatives": []}})):
             result = self.service.check_yandex_connection(
@@ -66,7 +68,7 @@ class ServiceAiConnectionTests(unittest.TestCase):
                 "alternatives": [
                     {
                         "message": {
-                            "text": '{"group_id":"positive","subgroup_id":"positive__255837f920eb"}',
+                            "text": f'{{"group_id":"positive","subgroup_id":"{self.material_subgroup_id}"}}',
                         }
                     }
                 ]
@@ -84,9 +86,9 @@ class ServiceAiConnectionTests(unittest.TestCase):
             )
         self.assertTrue(result["ok"])
         self.assertEqual(result["group_id"], "positive")
-        self.assertEqual(result["subgroup_id"], "positive__255837f920eb")
+        self.assertEqual(result["subgroup_id"], self.material_subgroup_id)
         self.assertEqual(result["subgroup"], "Материал")
-        self.assertEqual(result["raw_response"], '{"group_id":"positive","subgroup_id":"positive__255837f920eb"}')
+        self.assertEqual(result["raw_response"], f'{{"group_id":"positive","subgroup_id":"{self.material_subgroup_id}"}}')
 
     def test_classify_test_review_with_yandex_requires_text(self) -> None:
         with self.assertRaisesRegex(Exception, "Введите текст тестового отзыва"):

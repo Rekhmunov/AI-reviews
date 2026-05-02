@@ -1844,8 +1844,15 @@ class ReviewAutomationService:
                 }
             )
 
-        for row in repository.list_default_template_subgroups():
-            _push(str(row.get("group_id") or ""), str(row.get("subgroup") or ""))
+        default_registry_rows = repository.list_default_template_subgroups()
+        if default_registry_rows:
+            for row in default_registry_rows:
+                _push(str(row.get("group_id") or ""), str(row.get("subgroup") or ""))
+        else:
+            # Fallback for fresh installations before subgroup registry is initialized.
+            for group_id, defaults in cls.REVIEW_GROUP_DEFAULT_SUBGROUPS.items():
+                for subgroup in defaults:
+                    _push(group_id, subgroup)
 
         # Закрепленная структура для отзывов без текста.
         subgroup_items_by_group[cls.TEXTLESS_GROUP_ID] = [
