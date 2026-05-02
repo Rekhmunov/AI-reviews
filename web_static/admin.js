@@ -1212,9 +1212,14 @@ function renderDefaultTemplateGroups() {
       row.appendChild(openButton);
       const editButton = document.createElement("button");
       editButton.type = "button";
-      editButton.className = "icon-btn template-subgroup-edit-btn";
+      editButton.className = "icon-btn modern-icon-btn template-subgroup-edit-btn";
       editButton.title = "Переименовать подгруппу";
-      editButton.textContent = "✎";
+      editButton.setAttribute("aria-label", "Переименовать подгруппу");
+      editButton.innerHTML = `
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M4 20h4.3l9.95-9.95a1.5 1.5 0 0 0 0-2.12l-2.18-2.18a1.5 1.5 0 0 0-2.12 0L4 15.7V20Zm2-3.47 9.36-9.36 1.47 1.47L7.47 18H6v-1.47Z"/>
+        </svg>
+      `;
       const isProtectedGeneralSubgroup =
         ["positive", "product_dissatisfaction", "delivery_problems", "wrong_size", "tagged_reviews"].includes(
           String(group.id || "")
@@ -1236,9 +1241,14 @@ function renderDefaultTemplateGroups() {
       }
       const deleteButton = document.createElement("button");
       deleteButton.type = "button";
-      deleteButton.className = "icon-btn danger template-subgroup-delete-btn";
+      deleteButton.className = "icon-btn danger modern-icon-btn template-subgroup-delete-btn";
       deleteButton.title = "Удалить группу";
-      deleteButton.textContent = "🗑";
+      deleteButton.setAttribute("aria-label", "Удалить подгруппу");
+      deleteButton.innerHTML = `
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M9 3h6a2 2 0 0 1 2 2v1h3v2h-1v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V8H4V6h3V5a2 2 0 0 1 2-2Zm1 3h4V5h-4v1Zm-3 2v11h10V8H7Zm3 2h2v7h-2v-7Zm4 0h2v7h-2v-7Z"/>
+        </svg>
+      `;
       if (!(isProtectedTextlessSubgroup || isProtectedGeneralSubgroup)) {
         deleteButton.addEventListener("click", async () => {
           await deleteDefaultTemplateSubgroup(String(group.id || ""), String(subgroup.name || ""), String(group.title || ""));
