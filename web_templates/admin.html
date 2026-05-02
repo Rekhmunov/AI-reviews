@@ -25,6 +25,7 @@
       <div class="row ai-settings-actions">
         <button id="aiEditBtn" type="button" class="secondary" onclick="editAiSettings()">Изменить</button>
         <button id="aiTestBtn" type="button" class="secondary" onclick="testAiSettingsConnection()">Проверить</button>
+        <button id="aiTestReviewBtn" type="button" class="secondary" onclick="openAiTestReviewModal()">Отправить тестовый отзыв</button>
         <button id="aiCancelBtn" type="button" class="secondary hidden" onclick="cancelAiSettingsEdit()">Отмена</button>
       </div>
       <div class="row">
@@ -238,6 +239,34 @@
     </div>
   </div>
 
-  <script src="/static/admin.js?v=14"></script>
+  <div id="aiTestReviewModal" class="modal-overlay hidden">
+    <div class="modal-card ai-test-review-modal-card">
+      <div class="row row-between">
+        <h4 class="no-margin">Тестовый отзыв для Yandex GPT</h4>
+        <button id="aiTestReviewCloseBtn" class="secondary" type="button" onclick="closeAiTestReviewModal()">Закрыть</button>
+      </div>
+      <p class="small">Введите текст отзыва, нажмите «Отправить», и система выполнит классификацию так же, как для обычных отзывов.</p>
+      <div class="row ai-test-review-rating-row">
+        <label for="aiTestReviewRating" class="small">Оценка (опционально):</label>
+        <select id="aiTestReviewRating">
+          <option value="">Не задана</option>
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+          <option value="4">4</option>
+          <option value="5">5</option>
+        </select>
+      </div>
+      <div class="row">
+        <textarea id="aiTestReviewText" placeholder="Введите текст тестового отзыва"></textarea>
+      </div>
+      <div class="row">
+        <button id="aiTestReviewSendBtn" type="button" onclick="submitAiTestReview()">Отправить</button>
+      </div>
+      <pre id="aiTestReviewResult" class="ai-test-review-result hidden"></pre>
+    </div>
+  </div>
+
+  <script src="/static/admin.js?v=15"></script>
 </body>
 </html>

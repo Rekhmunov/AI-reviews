@@ -60,6 +60,44 @@ class ServiceAiConnectionTests(unittest.TestCase):
                     folder_id="folder-abc",
                 )
 
+    def test_classify_test_review_with_yandex_success(self) -> None:
+        payload = {
+            "result": {
+                "alternatives": [
+                    {
+                        "message": {
+                            "text": "positive/Материал",
+                        }
+                    }
+                ]
+            }
+        }
+        with mock.patch("review_processor.service.urlopen", return_value=_FakeResponse(payload)):
+            result = self.service.classify_test_review_with_yandex(
+                user_id=1,
+                review_text="Отличное качество ткани, спасибо!",
+                review_rating=5,
+                settings={
+                    "yandex_api_key": "abMYSECRETKEYzz",
+                    "yandex_folder_id": "folder-abc",
+                },
+            )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["group_id"], "positive")
+        self.assertEqual(result["subgroup"], "Материал")
+        self.assertEqual(result["raw_response"], "positive/Материал")
+
+    def test_classify_test_review_with_yandex_requires_text(self) -> None:
+        with self.assertRaisesRegex(Exception, "Введите текст тестового отзыва"):
+            self.service.classify_test_review_with_yandex(
+                user_id=1,
+                review_text="  ",
+                settings={
+                    "yandex_api_key": "abMYSECRETKEYzz",
+                    "yandex_folder_id": "folder-abc",
+                },
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -281,6 +281,13 @@ class AIConnectionTestRequest(BaseModel):
     yandex_folder_id: str | None = None
 
 
+class AIReviewTestRequest(BaseModel):
+    review_text: str = Field(min_length=1, max_length=8000)
+    review_rating: int | None = Field(default=None, ge=1, le=5)
+    yandex_api_key: str | None = None
+    yandex_folder_id: str | None = None
+
+
 class RoleUpdateRequest(BaseModel):
     role: str = Field(description="user|admin|feedback_manager")
 
@@ -2160,6 +2167,54 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             elif "timeout" in detail or "network" in detail:
                 error_code = "network"
             return {"ok": False, "status": "error", "error_code": error_code, "error": str(exc)}
+
+    @app.post("/api/admin/ai-settings/test-review")
+    def test_ai_review_classification(request: Request, payload: AIReviewTestRequest) -> dict[str, object]:
+        user = _require_super_admin(request)
+        stored = repository.get_ai_settings(include_secrets=True)
+        api_key = (payload.yandex_api_key or "").strip() or str(stored.get("yandex_api_key") or "").strip()
+        folder_id = (payload.yandex_folder_id or "").strip() or str(stored.get("yandex_folder_id") or "").strip()
+        review_text = str(payload.review_text or "").strip()
+        if not api_key:
+            raise HTTPException(status_code=400, detail="Укажите API-ключ Yandex Cloud.")
+        if not folder_id:
+            raise HTTPException(status_code=400, detail="Укажите ID каталога (folderId).")
+        if not review_text:
+            raise HTTPException(status_code=400, detail="Введите текст тестового отзыва.")
+        try:
+            result = service.classify_test_review_with_yandex(
+                user_id=int(user["id"]),
+                review_text=review_text,
+                review_rating=payload.review_rating,
+                settings={
+                    "yandex_api_key": api_key,
+                    "yandex_folder_id": folder_id,
+                    "yandex_model_uri": str(stored.get("yandex_model_uri") or "") or None,
+                },
+            )
+            return {
+                "ok": True,
+                "status": "ok",
+                "group_id": result.get("group_id"),
+                "group_title": result.get("group_title"),
+                "subgroup": result.get("subgroup"),
+                "model_uri": result.get("model_uri"),
+                "raw_response": result.get("raw_response"),
+            }
+        except MarketplaceSyncError as exc:
+            detail = str(exc).lower()
+            error_code = "classification"
+            if any(code in detail for code in ["401", "403", "unauthorized", "forbidden", "invalid api"]):
+                error_code = "auth"
+            elif any(code in detail for code in ["400", "404", "folder", "modeluri", "not found"]):
+                error_code = "config"
+            elif "429" in detail or "rate" in detail or "quota" in detail:
+                error_code = "rate_limit"
+            elif "timeout" in detail or "network" in detail:
+                error_code = "network"
+            return {"ok": False, "status": "error", "error_code": error_code, "error": str(exc)}
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Не удалось выполнить тестовый запрос к Yandex GPT: {exc}") from exc
 
     @app.get("/api/admin/context")
     def get_admin_context(request: Request) -> dict[str, object]:

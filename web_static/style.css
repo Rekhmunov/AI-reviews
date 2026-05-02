@@ -1092,6 +1092,26 @@ button.secondary.danger:hover {
   width: min(1100px, 98vw);
 }
 
+.ai-test-review-modal-card {
+  width: min(860px, 96vw);
+}
+
+.ai-test-review-modal-card textarea {
+  width: 100%;
+  min-height: 140px;
+  min-width: 0;
+}
+
+.ai-test-review-modal-card pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(147, 197, 253, 0.42);
+  background: rgba(248, 251, 255, 0.9);
+}
+
 .team-create-panel {
   margin-top: 10px;
   padding: 12px;

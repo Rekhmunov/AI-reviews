@@ -85,6 +85,7 @@ const adminState = {
   hasYandexApiKey: false,
   aiEditMode: false,
   aiSettingsSnapshot: null,
+  aiTestReviewLoading: false,
 };
 const defaultTemplatesState = {
   items: [],
@@ -291,6 +292,7 @@ function renderAiSettingsMode(data = {}) {
   const saveBtn = document.getElementById("aiSaveBtn");
   const cancelBtn = document.getElementById("aiCancelBtn");
   const testBtn = document.getElementById("aiTestBtn");
+  const testReviewBtn = document.getElementById("aiTestReviewBtn");
   if (!apiKeyInput || !folderIdInput) return;
 
   const preview = String(data.yandex_api_key_preview || "");
@@ -310,6 +312,7 @@ function renderAiSettingsMode(data = {}) {
     if (saveBtn) saveBtn.classList.remove("hidden");
     if (cancelBtn) cancelBtn.classList.remove("hidden");
     if (testBtn) testBtn.disabled = false;
+    if (testReviewBtn) testReviewBtn.disabled = false;
     return;
   }
 
@@ -323,6 +326,7 @@ function renderAiSettingsMode(data = {}) {
   if (saveBtn) saveBtn.classList.add("hidden");
   if (cancelBtn) cancelBtn.classList.add("hidden");
   if (testBtn) testBtn.disabled = !adminState.hasYandexApiKey || !folderId;
+  if (testReviewBtn) testReviewBtn.disabled = !adminState.hasYandexApiKey || !folderId;
 }
 
 function editAiSettings() {
@@ -427,6 +431,123 @@ async function testAiSettingsConnection() {
   if (aiInfo) {
     aiInfo.textContent = data.message || "Подключение успешно";
     aiInfo.style.color = "#166534";
+  }
+}
+
+function openAiTestReviewModal() {
+  const modal = document.getElementById("aiTestReviewModal");
+  if (!modal) return;
+  const textInput = document.getElementById("aiTestReviewText");
+  const ratingInput = document.getElementById("aiTestReviewRating");
+  const resultEl = document.getElementById("aiTestReviewResult");
+  if (textInput) textInput.value = "";
+  if (ratingInput) ratingInput.value = "";
+  if (resultEl) {
+    resultEl.textContent = "";
+    resultEl.style.color = "";
+    resultEl.classList.add("hidden");
+  }
+  adminState.aiTestReviewLoading = false;
+  renderAiTestReviewLoadingState();
+  modal.classList.remove("hidden");
+  textInput?.focus();
+}
+
+function closeAiTestReviewModal() {
+  const modal = document.getElementById("aiTestReviewModal");
+  if (!modal) return;
+  modal.classList.add("hidden");
+}
+
+function renderAiTestReviewLoadingState() {
+  const submitBtn = document.getElementById("aiTestReviewSendBtn");
+  const closeBtn = document.getElementById("aiTestReviewCloseBtn");
+  const loading = Boolean(adminState.aiTestReviewLoading);
+  if (submitBtn) {
+    submitBtn.disabled = loading;
+    submitBtn.textContent = loading ? "Отправляем..." : "Отправить";
+  }
+  if (closeBtn) {
+    closeBtn.disabled = loading;
+  }
+}
+
+function _formatAiTestReviewResult(data) {
+  const lines = [];
+  lines.push(`Группа: ${String(data.group_title || data.group_id || "-")}`);
+  lines.push(`ID группы: ${String(data.group_id || "-")}`);
+  lines.push(`Подгруппа: ${String(data.subgroup || "-")}`);
+  lines.push(`Модель: ${String(data.model_uri || "-")}`);
+  lines.push("");
+  lines.push("Ответ YandexGPT:");
+  lines.push(String(data.raw_response || "(пустой ответ)"));
+  return lines.join("\n");
+}
+
+async function submitAiTestReview() {
+  if (adminState.aiTestReviewLoading) return;
+  const resultEl = document.getElementById("aiTestReviewResult");
+  const textValue = String(document.getElementById("aiTestReviewText")?.value || "").trim();
+  const ratingRaw = String(document.getElementById("aiTestReviewRating")?.value || "").trim();
+  const folderId = String(document.getElementById("folderId")?.value || "").trim();
+  const apiKey = adminState.aiEditMode ? String(document.getElementById("apiKey")?.value || "").trim() : "";
+  if (!textValue) {
+    if (resultEl) {
+      resultEl.textContent = "Введите текст тестового отзыва.";
+      resultEl.style.color = "#b91c1c";
+      resultEl.classList.remove("hidden");
+    }
+    return;
+  }
+  const ratingNum = Number(ratingRaw);
+  if (ratingRaw && (!Number.isInteger(ratingNum) || ratingNum < 1 || ratingNum > 5)) {
+    if (resultEl) {
+      resultEl.textContent = "Оценка должна быть целым числом от 1 до 5.";
+      resultEl.style.color = "#b91c1c";
+      resultEl.classList.remove("hidden");
+    }
+    return;
+  }
+  const payload = {
+    review_text: textValue,
+    review_rating: ratingRaw ? ratingNum : null,
+    yandex_folder_id: folderId || null,
+    yandex_api_key: apiKey || null,
+  };
+  adminState.aiTestReviewLoading = true;
+  renderAiTestReviewLoadingState();
+  if (resultEl) {
+    resultEl.textContent = "Отправляем тестовый отзыв в Yandex GPT...";
+    resultEl.style.color = "";
+    resultEl.classList.remove("hidden");
+  }
+  try {
+    const res = await fetch("/api/admin/ai-settings/test-review", {
+      method: "POST",
+      headers: csrfHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      if (resultEl) {
+        resultEl.textContent = "Ошибка: " + (data.detail || data.error || "не удалось выполнить тестовый запрос");
+        resultEl.style.color = "#b91c1c";
+        resultEl.classList.remove("hidden");
+      }
+      return;
+    }
+    if (resultEl) {
+      resultEl.textContent = _formatAiTestReviewResult(data);
+      resultEl.style.color = "#0f172a";
+    }
+  } catch (_error) {
+    if (resultEl) {
+      resultEl.textContent = "Сетевая ошибка при отправке тестового отзыва.";
+      resultEl.style.color = "#b91c1c";
+    }
+  } finally {
+    adminState.aiTestReviewLoading = false;
+    renderAiTestReviewLoadingState();
   }
 }
 

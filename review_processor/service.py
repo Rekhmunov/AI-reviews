@@ -1951,6 +1951,22 @@ class ReviewAutomationService:
         user_id: int,
         strict: bool = False,
     ) -> tuple[str, str | None]:
+        result = self._classify_with_yandex_target_debug(
+            review=review,
+            settings=settings,
+            user_id=user_id,
+            strict=strict,
+        )
+        return str(result.get("group_id") or ""), result.get("subgroup") if result.get("subgroup") is not None else None
+
+    def _classify_with_yandex_target_debug(
+        self,
+        *,
+        review: ReviewInput,
+        settings: dict[str, object],
+        user_id: int,
+        strict: bool = False,
+    ) -> dict[str, object]:
         api_key = str(settings.get("yandex_api_key") or "")
         folder_id = str(settings.get("yandex_folder_id") or "")
         model_uri = str(settings.get("yandex_model_uri") or "")
@@ -1961,7 +1977,7 @@ class ReviewAutomationService:
                     "Яндекс-классификатор не настроен: укажите ключ API и идентификатор каталога.",
                     details={"scope": "classification"},
                 )
-            return "", None
+            return {"group_id": "", "subgroup": None, "raw_response": "", "model_uri": model_uri}
         if not model_uri:
             model_uri = f"gpt://{folder_id}/yandexgpt-lite/latest"
 
@@ -1974,7 +1990,7 @@ class ReviewAutomationService:
                     "Не удалось сформировать список групп/подгрупп для классификации.",
                     details={"scope": "classification"},
                 )
-            return "", None
+            return {"group_id": "", "subgroup": None, "raw_response": "", "model_uri": model_uri}
 
         options_lines: list[str] = []
         for item in options_for_prompt:
@@ -2017,7 +2033,7 @@ class ReviewAutomationService:
                     f"Ошибка запроса к Яндекс-классификатору: {exc}",
                     details={"scope": "classification"},
                 ) from exc
-            return "", None
+            return {"group_id": "", "subgroup": None, "raw_response": "", "model_uri": model_uri}
 
         text = ""
         result = payload.get("result") if isinstance(payload, Mapping) else None
@@ -2032,14 +2048,24 @@ class ReviewAutomationService:
 
         parsed = self._parse_yandex_target_response(text, options=options_for_prompt)
         if parsed:
-            return parsed[0], parsed[1]
+            return {
+                "group_id": parsed[0],
+                "subgroup": parsed[1],
+                "raw_response": str(text or "").strip(),
+                "model_uri": model_uri,
+            }
         if strict:
             raise MarketplaceSyncError(
                 "yandex",
                 "Яндекс-классификатор вернул ответ без корректной группы/подгруппы.",
-                details={"scope": "classification", "raw_response": text[:160]},
+                details={"scope": "classification", "raw_response": text[:160], "model_uri": model_uri},
             )
-        return "", None
+        return {
+            "group_id": "",
+            "subgroup": None,
+            "raw_response": str(text or "").strip(),
+            "model_uri": model_uri,
+        }
 
     @staticmethod
     def _normalize_category(text: str, *, allowed_groups: list[str] | None = None) -> str | None:
@@ -2201,6 +2227,51 @@ class ReviewAutomationService:
             "message": "Подключение к Yandex GPT успешно.",
             "model_uri": model_uri,
             "response_preview": text[:120],
+        }
+
+    def classify_test_review_with_yandex(
+        self,
+        *,
+        user_id: int,
+        review_text: str,
+        review_rating: int | None = None,
+        settings: dict[str, object],
+    ) -> dict[str, object]:
+        clean_text = str(review_text or "").strip()
+        if not clean_text:
+            raise MarketplaceSyncError("yandex", "Введите текст тестового отзыва.")
+
+        normalized_rating: int | None = None
+        if review_rating is not None:
+            try:
+                normalized_rating = int(review_rating)
+            except (TypeError, ValueError) as exc:
+                raise MarketplaceSyncError("yandex", "Оценка тестового отзыва должна быть целым числом от 1 до 5.") from exc
+            if normalized_rating < 1 or normalized_rating > 5:
+                raise MarketplaceSyncError("yandex", "Оценка тестового отзыва должна быть от 1 до 5.")
+
+        result = self._classify_with_yandex_target_debug(
+            review=ReviewInput(
+                review_id="admin-test-review",
+                text=clean_text,
+                rating=normalized_rating,
+                metadata={"source": "admin_test"},
+            ),
+            settings=settings,
+            user_id=user_id,
+            strict=True,
+        )
+        group_id = str(result.get("group_id") or "").strip()
+        subgroup = str(result.get("subgroup") or "").strip()
+        if not group_id or not subgroup:
+            raise MarketplaceSyncError("yandex", "Яндекс-классификатор не вернул корректную группу и подгруппу.")
+        return {
+            "ok": True,
+            "group_id": group_id,
+            "group_title": self.REVIEW_GROUP_TITLES.get(group_id, group_id),
+            "subgroup": subgroup,
+            "model_uri": str(result.get("model_uri") or ""),
+            "raw_response": str(result.get("raw_response") or ""),
         }
 
     @classmethod
