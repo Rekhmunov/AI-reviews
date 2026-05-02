@@ -2109,6 +2109,7 @@ class ReviewAutomationService:
             return {"group_id": "", "subgroup_id": "", "subgroup": None, "raw_response": "", "model_uri": model_uri}
 
         options_lines: list[str] = []
+        allowed_pairs: list[dict[str, str]] = []
         for item in options_for_prompt:
             group_id = str(item.get("group_id") or "")
             group_title = str(item.get("group_title") or group_id)
@@ -2127,8 +2128,20 @@ class ReviewAutomationService:
                 continue
             options_lines.append(f"- {group_id} ({group_title}):")
             for subgroup_item in subgroup_items:
+                subgroup_id = str(subgroup_item.get("subgroup_id") or "").strip()
+                subgroup_title = str(subgroup_item.get("subgroup") or "").strip()
+                if not subgroup_id or not subgroup_title:
+                    continue
+                allowed_pairs.append(
+                    {
+                        "group_id": group_id,
+                        "group_title": group_title,
+                        "subgroup_id": subgroup_id,
+                        "subgroup": subgroup_title,
+                    }
+                )
                 options_lines.append(
-                    f"  - {str(subgroup_item.get('subgroup_id') or '')}: {str(subgroup_item.get('subgroup') or '')}"
+                    f"  - {subgroup_id}: {subgroup_title}"
                 )
         prompt = (
             "Определи одну категорию и одну подгруппу для отзыва.\n"
@@ -2162,7 +2175,13 @@ class ReviewAutomationService:
                 raise MarketplaceSyncError(
                     "yandex",
                     f"Ошибка запроса к Яндекс-классификатору: {exc}",
-                    details={"scope": "classification"},
+                    details={
+                        "scope": "classification",
+                        "model_uri": model_uri,
+                        "expected_format": '{"group_id":"<group_id>","subgroup_id":"<subgroup_id>"}',
+                        "allowed_pairs": allowed_pairs,
+                        "prompt_preview": prompt[:8000],
+                    },
                 ) from exc
             return {"group_id": "", "subgroup_id": "", "subgroup": None, "raw_response": "", "model_uri": model_uri}
 
@@ -2190,7 +2209,14 @@ class ReviewAutomationService:
             raise MarketplaceSyncError(
                 "yandex",
                 "Яндекс-классификатор вернул ответ без корректной группы/подгруппы.",
-                details={"scope": "classification", "raw_response": text[:160], "model_uri": model_uri},
+                details={
+                    "scope": "classification",
+                    "raw_response": str(text or "").strip(),
+                    "model_uri": model_uri,
+                    "expected_format": '{"group_id":"<group_id>","subgroup_id":"<subgroup_id>"}',
+                    "allowed_pairs": allowed_pairs,
+                    "prompt_preview": prompt[:8000],
+                },
             )
         return {
             "group_id": "",

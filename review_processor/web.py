@@ -2213,7 +2213,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 error_code = "rate_limit"
             elif "timeout" in detail or "network" in detail:
                 error_code = "network"
-            return {"ok": False, "status": "error", "error_code": error_code, "error": str(exc)}
+            return {
+                "ok": False,
+                "status": "error",
+                "error_code": error_code,
+                "error": str(exc),
+                "debug": exc.details if isinstance(exc.details, dict) else {},
+            }
         except Exception as exc:
             raise HTTPException(status_code=502, detail=f"Не удалось выполнить тестовый запрос к Yandex GPT: {exc}") from exc
 

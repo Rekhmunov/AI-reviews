@@ -485,6 +485,39 @@ function _formatAiTestReviewResult(data) {
   return lines.join("\n");
 }
 
+function _formatAiTestReviewErrorDetails(data) {
+  if (!data || typeof data !== "object") return "";
+  const details = data.details && typeof data.details === "object" ? data.details : {};
+  const lines = [];
+  const parsedGroupId = String(details.parsed_group_id || "").trim();
+  const parsedSubgroupId = String(details.parsed_subgroup_id || "").trim();
+  const parsedSubgroup = String(details.parsed_subgroup || "").trim();
+  const modelUri = String(details.model_uri || "").trim();
+  const rawResponse = String(details.raw_response || "").trim();
+  const promptPreview = String(details.prompt_preview || "").trim();
+  if (parsedGroupId || parsedSubgroupId || parsedSubgroup) {
+    lines.push("Распознанный результат:");
+    lines.push(`- group_id: ${parsedGroupId || "-"}`);
+    lines.push(`- subgroup_id: ${parsedSubgroupId || "-"}`);
+    lines.push(`- subgroup: ${parsedSubgroup || "-"}`);
+    lines.push("");
+  }
+  if (modelUri) {
+    lines.push(`modelUri: ${modelUri}`);
+    lines.push("");
+  }
+  if (rawResponse) {
+    lines.push("Сырой ответ YandexGPT:");
+    lines.push(rawResponse);
+    lines.push("");
+  }
+  if (promptPreview) {
+    lines.push("Фрагмент отправленного prompt:");
+    lines.push(promptPreview);
+  }
+  return lines.join("\n").trim();
+}
+
 async function submitAiTestReview() {
   if (adminState.aiTestReviewLoading) return;
   const resultEl = document.getElementById("aiTestReviewResult");
@@ -531,7 +564,9 @@ async function submitAiTestReview() {
     const data = await res.json();
     if (!res.ok || !data.ok) {
       if (resultEl) {
-        resultEl.textContent = "Ошибка: " + (data.detail || data.error || "не удалось выполнить тестовый запрос");
+        const baseError = "Ошибка: " + (data.detail || data.error || "не удалось выполнить тестовый запрос");
+        const debugInfo = _formatAiTestReviewErrorDetails(data);
+        resultEl.textContent = debugInfo ? `${baseError}\n\n${debugInfo}` : baseError;
         resultEl.style.color = "#b91c1c";
         resultEl.classList.remove("hidden");
       }
