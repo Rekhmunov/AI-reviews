@@ -458,7 +458,7 @@ body.landing-page {
 
 .main > section {
   display: grid;
-  gap: 14px;
+  gap: 8px;
 }
 
 .main > section.hidden {
