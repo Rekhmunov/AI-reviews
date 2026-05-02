@@ -14,7 +14,8 @@
         <div class="brand">FEEDPILOT</div>
         <div class="meta">пользователь: {{SAFE_EMAIL}}<br/>роль: {{SAFE_ROLE}}</div>
         <a id="nav-reviews" class="navbtn active" href="#" onclick="showSection('reviews')">1) Отзывы</a>
-        <a id="nav-conversations" class="navbtn" href="#" onclick="showSection('conversations')">2) Вопросы и чаты</a>
+        <a id="nav-conversations" class="navbtn" href="#" onclick="showSection('conversations')">2) Вопросы</a>
+        <a id="nav-chats" class="navbtn" href="#" onclick="showSection('chats')">3) Чаты</a>
         {{NAV_ANALYTICS}}
         {{NAV_SETTINGS}}
         {{ADMIN_LINK}}
@@ -150,70 +151,65 @@
       </section>
 
       <section id="section-conversations" class="hidden">
-        <h3 class="reviews-heading">Вопросы и чаты</h3>
+        <h3 class="reviews-heading">Вопросы</h3>
         <div class="row reviews-sync-row">
-          <span id="conversationsInfo" class="small"></span>
+          <span id="questionsInfo" class="small"></span>
         </div>
         <div class="panel reviews-toolbar-panel">
           <div class="reviews-top-controls">
             <div class="reviews-buckets">
-              <button id="conversations-tab-new" class="bucket-tab active" onclick="setConversationBucket('new')">Новые вопросы/чаты (0)</button>
-              <button id="conversations-tab-processed" class="bucket-tab" onclick="setConversationBucket('processed')">Обработанные вопросы/чаты (0)</button>
-              <button id="adminClearConversationsBtn" class="secondary hidden" onclick="clearAllConversations()">Очистить вопросы/чаты</button>
+              <button id="questions-tab-new" class="bucket-tab active" onclick="setQuestionBucket('new')">Новые вопросы (0)</button>
+              <button id="questions-tab-processed" class="bucket-tab" onclick="setQuestionBucket('processed')">Обработанные вопросы (0)</button>
+              <button id="adminClearQuestionsBtn" class="secondary hidden" onclick="clearAllQuestions()">Очистить вопросы</button>
             </div>
             <div class="reviews-quick-controls">
-              <select id="conversationSortFilter">
+              <select id="questionSortFilter">
                 <option value="newest">Сначала новые</option>
                 <option value="oldest">Сначала старые</option>
               </select>
-              <div id="conversationsDateWrap" class="reviews-date-wrap">
-                <button type="button" id="conversationsDateFilterBtn" class="secondary" onclick="toggleConversationsDateFilterPanel()">
+              <div id="questionsDateWrap" class="reviews-date-wrap">
+                <button type="button" id="questionsDateFilterBtn" class="secondary" onclick="toggleQuestionsDateFilterPanel()">
                   Период: все даты
                 </button>
-                <div id="conversationsDateFilterPanel" class="reviews-date-panel hidden">
+                <div id="questionsDateFilterPanel" class="reviews-date-panel hidden">
                   <div class="reviews-date-presets">
-                    <button type="button" class="secondary" onclick="setConversationsDatePreset('today')">Сегодня</button>
-                    <button type="button" class="secondary" onclick="setConversationsDatePreset('yesterday')">Вчера</button>
-                    <button type="button" class="secondary" onclick="setConversationsDatePreset('last_week')">Последняя неделя</button>
-                    <button type="button" class="secondary" onclick="setConversationsDatePreset('last_7_days')">Последние 7 дней</button>
-                    <button type="button" class="secondary" onclick="setConversationsDatePreset('last_30_days')">Последние 30 дней</button>
-                    <button type="button" class="secondary" onclick="setConversationsDatePreset('last_month')">Последний месяц</button>
-                    <button type="button" class="secondary" onclick="setConversationsDatePreset('last_3_months')">Последние 3 месяца</button>
-                    <button type="button" class="secondary" onclick="setConversationsDatePreset('last_year')">Последний год</button>
+                    <button type="button" class="secondary" onclick="setQuestionsDatePreset('today')">Сегодня</button>
+                    <button type="button" class="secondary" onclick="setQuestionsDatePreset('yesterday')">Вчера</button>
+                    <button type="button" class="secondary" onclick="setQuestionsDatePreset('last_week')">Последняя неделя</button>
+                    <button type="button" class="secondary" onclick="setQuestionsDatePreset('last_7_days')">Последние 7 дней</button>
+                    <button type="button" class="secondary" onclick="setQuestionsDatePreset('last_30_days')">Последние 30 дней</button>
+                    <button type="button" class="secondary" onclick="setQuestionsDatePreset('last_month')">Последний месяц</button>
+                    <button type="button" class="secondary" onclick="setQuestionsDatePreset('last_3_months')">Последние 3 месяца</button>
+                    <button type="button" class="secondary" onclick="setQuestionsDatePreset('last_year')">Последний год</button>
                   </div>
                   <div class="reviews-date-controls">
-                    <label>С <input id="conversationsDateFrom" type="date" /></label>
-                    <label>По <input id="conversationsDateTo" type="date" /></label>
+                    <label>С <input id="questionsDateFrom" type="date" /></label>
+                    <label>По <input id="questionsDateTo" type="date" /></label>
                     <div class="row">
-                      <button type="button" onclick="applyConversationsDateFilter()">Применить период</button>
-                      <button type="button" class="secondary" onclick="clearConversationsDateFilter()">Сбросить</button>
-                      <button type="button" class="secondary" onclick="toggleConversationsDateFilterPanel(false)">Закрыть</button>
+                      <button type="button" onclick="applyQuestionsDateFilter()">Применить период</button>
+                      <button type="button" class="secondary" onclick="clearQuestionsDateFilter()">Сбросить</button>
+                      <button type="button" class="secondary" onclick="toggleQuestionsDateFilterPanel(false)">Закрыть</button>
                     </div>
                   </div>
                 </div>
               </div>
               <button
                 type="button"
-                id="conversationsFiltersBtn"
+                id="questionsFiltersBtn"
                 class="secondary reviews-filter-icon-btn"
                 title="Фильтры"
-                onclick="toggleConversationsFiltersPanel()"
+                onclick="toggleQuestionsFiltersPanel()"
               >
                 ⛃
               </button>
             </div>
           </div>
-          <div id="conversationsFiltersPanel" class="reviews-filters-panel hidden">
+          <div id="questionsFiltersPanel" class="reviews-filters-panel hidden">
             <div class="row">
-            <select id="conversationPanelSourceFilter">
+            <select id="questionPanelSourceFilter">
               <option value="all">Источник: все</option>
             </select>
-              <select id="conversationPanelKindFilter">
-                <option value="all">Тип: все</option>
-                <option value="question">Вопрос</option>
-                <option value="chat">Чат</option>
-              </select>
-              <select id="conversationPanelStatusFilter">
+              <select id="questionPanelStatusFilter">
                 <option value="all">Статус: все</option>
                 <option value="open">Открыт</option>
                 <option value="waiting">Ожидает</option>
@@ -221,9 +217,9 @@
               </select>
             </div>
             <div class="row">
-              <button type="button" onclick="applyConversationFiltersFromPanel()">Применить фильтры</button>
-              <button type="button" class="secondary" onclick="resetConversationFilters()">Сбросить</button>
-              <button type="button" class="secondary" onclick="toggleConversationsFiltersPanel(false)">Закрыть</button>
+              <button type="button" onclick="applyQuestionFiltersFromPanel()">Применить фильтры</button>
+              <button type="button" class="secondary" onclick="resetQuestionFilters()">Сбросить</button>
+              <button type="button" class="secondary" onclick="toggleQuestionsFiltersPanel(false)">Закрыть</button>
             </div>
           </div>
         </div>
@@ -232,16 +228,16 @@
             <table>
             <thead>
               <tr>
-                <th>Тип</th><th>Источник</th><th>Покупатель</th><th>Сообщение</th><th>Непрочитано</th><th>Статус</th><th>Действия</th>
+                <th>Источник</th><th>Покупатель</th><th>Вопрос</th><th>Непрочитано</th><th>Статус</th><th>Ошибка</th><th>Действия</th>
               </tr>
             </thead>
-            <tbody id="conversationsTbody"></tbody>
+            <tbody id="questionsTbody"></tbody>
             </table>
           </div>
           <div class="row reviews-pagination-row">
             <div class="row">
               <span class="small">Показывать на странице:</span>
-              <select id="conversationsPageSize" onchange="onConversationsPageSizeChange()">
+              <select id="questionsPageSize" onchange="onQuestionsPageSizeChange()">
                 <option value="10">10</option>
                 <option value="30" selected>30</option>
                 <option value="50">50</option>
@@ -249,11 +245,110 @@
               </select>
             </div>
             <div class="row">
-              <button class="secondary" id="conversationsPrevPageBtn" onclick="changeConversationsPage(-1)">Назад</button>
-              <span id="conversationsPageInfo" class="small">Страница 1 из 1</span>
-              <button class="secondary" id="conversationsNextPageBtn" onclick="changeConversationsPage(1)">Вперед</button>
+              <button class="secondary" id="questionsPrevPageBtn" onclick="changeQuestionsPage(-1)">Назад</button>
+              <span id="questionsPageInfo" class="small">Страница 1 из 1</span>
+              <button class="secondary" id="questionsNextPageBtn" onclick="changeQuestionsPage(1)">Вперед</button>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section id="section-chats" class="hidden">
+        <h3 class="reviews-heading">Чаты</h3>
+        <div class="row reviews-sync-row">
+          <span id="chatsInfo" class="small"></span>
+        </div>
+        <div class="panel reviews-toolbar-panel">
+          <div class="reviews-top-controls">
+            <div class="reviews-buckets">
+              <button id="chats-tab-new" class="bucket-tab active" onclick="setChatBucket('new')">Нужно ответить (0)</button>
+              <button id="chats-tab-processed" class="bucket-tab" onclick="setChatBucket('processed')">Отвеченные (0)</button>
+              <button id="adminClearChatsBtn" class="secondary hidden" onclick="clearAllChats()">Очистить чаты</button>
+            </div>
+            <div class="reviews-quick-controls">
+              <select id="chatsSortFilter">
+                <option value="newest">Сначала новые</option>
+                <option value="oldest">Сначала старые</option>
+              </select>
+              <div id="chatsDateWrap" class="reviews-date-wrap">
+                <button type="button" id="chatsDateFilterBtn" class="secondary" onclick="toggleChatsDateFilterPanel()">
+                  Период: все даты
+                </button>
+                <div id="chatsDateFilterPanel" class="reviews-date-panel hidden">
+                  <div class="reviews-date-presets">
+                    <button type="button" class="secondary" onclick="setChatsDatePreset('today')">Сегодня</button>
+                    <button type="button" class="secondary" onclick="setChatsDatePreset('yesterday')">Вчера</button>
+                    <button type="button" class="secondary" onclick="setChatsDatePreset('last_week')">Последняя неделя</button>
+                    <button type="button" class="secondary" onclick="setChatsDatePreset('last_7_days')">Последние 7 дней</button>
+                    <button type="button" class="secondary" onclick="setChatsDatePreset('last_30_days')">Последние 30 дней</button>
+                    <button type="button" class="secondary" onclick="setChatsDatePreset('last_month')">Последний месяц</button>
+                    <button type="button" class="secondary" onclick="setChatsDatePreset('last_3_months')">Последние 3 месяца</button>
+                    <button type="button" class="secondary" onclick="setChatsDatePreset('last_year')">Последний год</button>
+                  </div>
+                  <div class="reviews-date-controls">
+                    <label>С <input id="chatsDateFrom" type="date" /></label>
+                    <label>По <input id="chatsDateTo" type="date" /></label>
+                    <div class="row">
+                      <button type="button" onclick="applyChatsDateFilter()">Применить период</button>
+                      <button type="button" class="secondary" onclick="clearChatsDateFilter()">Сбросить</button>
+                      <button type="button" class="secondary" onclick="toggleChatsDateFilterPanel(false)">Закрыть</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                id="chatsFiltersBtn"
+                class="secondary reviews-filter-icon-btn"
+                title="Фильтры"
+                onclick="toggleChatsFiltersPanel()"
+              >
+                ⛃
+              </button>
+            </div>
+          </div>
+          <div id="chatsFiltersPanel" class="reviews-filters-panel hidden">
+            <div class="row">
+              <select id="chatPanelSourceFilter">
+                <option value="all">Источник: все</option>
+              </select>
+              <select id="chatPanelStatusFilter">
+                <option value="all">Статус: все</option>
+                <option value="open">Открыт</option>
+                <option value="waiting">Ожидает</option>
+                <option value="closed">Закрыт</option>
+              </select>
+            </div>
+            <div class="row">
+              <button type="button" onclick="applyChatFiltersFromPanel()">Применить фильтры</button>
+              <button type="button" class="secondary" onclick="resetChatFilters()">Сбросить</button>
+              <button type="button" class="secondary" onclick="toggleChatsFiltersPanel(false)">Закрыть</button>
+            </div>
+          </div>
+        </div>
+        <div class="panel chats-shell">
+          <aside class="chats-list-panel">
+            <div class="row chats-list-head">
+              <strong>Диалоги</strong>
+              <button type="button" class="secondary" onclick="reloadChats()">Обновить</button>
+            </div>
+            <div class="small chats-subtitle">Нужно ответить</div>
+            <div id="chatsPendingList" class="chats-list"></div>
+            <div class="small chats-subtitle mt-10">Отвеченные</div>
+            <div id="chatsResolvedList" class="chats-list"></div>
+          </aside>
+          <section class="chats-thread-panel">
+            <div id="chatThreadHeader" class="chat-thread-header small">Выберите чат слева</div>
+            <div id="chatMessages" class="chat-messages"></div>
+            <div class="chat-compose">
+              <textarea id="chatReplyInput" rows="3" placeholder="Введите ответ..." maxlength="4000"></textarea>
+              <div class="row">
+                <button id="chatReplySendBtn" type="button" onclick="sendChatReply()">Отправить</button>
+                <button type="button" class="secondary" onclick="markChatWaiting()">В ожидании</button>
+                <button type="button" class="secondary" onclick="markChatClosed()">Закрыть</button>
+              </div>
+            </div>
+          </section>
         </div>
       </section>
 

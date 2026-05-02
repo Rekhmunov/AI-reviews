@@ -47,7 +47,7 @@ const reviewsState = {
   priority: "",
   category: "",
 };
-const conversationsState = {
+const questionsState = {
   page: 1,
   page_size: 30,
   pages: 1,
@@ -57,7 +57,17 @@ const conversationsState = {
   date_to: null,
   source: "all",
   status: "all",
-  kind: "all",
+};
+const chatsState = {
+  bucket: "new",
+  sort: "newest",
+  date_from: null,
+  date_to: null,
+  source: "all",
+  status: "all",
+  items: [],
+  activeConversationUid: "",
+  loadingMessages: false,
 };
 const templateGroupsState = {
   items: [],
@@ -85,7 +95,7 @@ const teamState = {
 let syncInProgress = false;
 const ACTIVE_SECTION_STORAGE_KEY = "feedpilot_active_section";
 const ACTIVE_SETTINGS_TAB_STORAGE_KEY = "feedpilot_active_settings_tab";
-const SECTION_IDS = ["reviews", "conversations", "analytics", "settings", "profile"];
+const SECTION_IDS = ["reviews", "conversations", "chats", "analytics", "settings", "profile"];
 const SETTINGS_TAB_IDS = ["sources", "rules", "templates", "recommendations", "team", "template-variables"];
 const APP_BOOT_HIDE_CLASS = "app-boot-hidden";
 
@@ -265,27 +275,34 @@ function changeReviewsPage(delta) {
   loadReviews();
 }
 
-function setConversationBucket(bucket) {
-  conversationsState.bucket = bucket;
-  conversationsState.page = 1;
-  document.getElementById("conversations-tab-new")?.classList.toggle("active", bucket === "new");
-  document.getElementById("conversations-tab-processed")?.classList.toggle("active", bucket === "processed");
-  loadConversations();
+function setQuestionBucket(bucket) {
+  questionsState.bucket = bucket;
+  questionsState.page = 1;
+  document.getElementById("questions-tab-new")?.classList.toggle("active", bucket === "new");
+  document.getElementById("questions-tab-processed")?.classList.toggle("active", bucket === "processed");
+  loadQuestions();
 }
 
-function onConversationsPageSizeChange() {
-  const raw = Number(document.getElementById("conversationsPageSize")?.value || 30);
+function onQuestionsPageSizeChange() {
+  const raw = Number(document.getElementById("questionsPageSize")?.value || 30);
   if (![10, 30, 50, 100].includes(raw)) return;
-  conversationsState.page_size = raw;
-  conversationsState.page = 1;
-  loadConversations();
+  questionsState.page_size = raw;
+  questionsState.page = 1;
+  loadQuestions();
 }
 
-function changeConversationsPage(delta) {
-  const next = conversationsState.page + delta;
-  if (next < 1 || next > conversationsState.pages) return;
-  conversationsState.page = next;
-  loadConversations();
+function changeQuestionsPage(delta) {
+  const next = questionsState.page + delta;
+  if (next < 1 || next > questionsState.pages) return;
+  questionsState.page = next;
+  loadQuestions();
+}
+
+function setChatBucket(bucket) {
+  chatsState.bucket = bucket;
+  document.getElementById("chats-tab-new")?.classList.toggle("active", bucket === "new");
+  document.getElementById("chats-tab-processed")?.classList.toggle("active", bucket === "processed");
+  loadChats();
 }
 
 function dateToInputValue(dateValue) {
@@ -361,10 +378,10 @@ function setSourceFilterOptions(options) {
   }
 }
 
-function setConversationSourceFilterOptions(options) {
-  const select = document.getElementById("conversationPanelSourceFilter");
+function setQuestionSourceFilterOptions(options) {
+  const select = document.getElementById("questionPanelSourceFilter");
   if (!select) return;
-  const current = String(conversationsState.source || "all");
+  const current = String(questionsState.source || "all");
   select.innerHTML = "";
   const defaultOption = document.createElement("option");
   defaultOption.value = "all";
@@ -381,7 +398,31 @@ function setConversationSourceFilterOptions(options) {
   select.value = current;
   if (!Array.from(select.options).some((item) => item.value === current)) {
     select.value = "all";
-    conversationsState.source = "all";
+    questionsState.source = "all";
+  }
+}
+
+function setChatSourceFilterOptions(options) {
+  const select = document.getElementById("chatPanelSourceFilter");
+  if (!select) return;
+  const current = String(chatsState.source || "all");
+  select.innerHTML = "";
+  const defaultOption = document.createElement("option");
+  defaultOption.value = "all";
+  defaultOption.textContent = "Источник: все";
+  select.appendChild(defaultOption);
+  for (const item of options || []) {
+    const value = String(item || "").trim();
+    if (!value) continue;
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = `Источник: ${value.toUpperCase()}`;
+    select.appendChild(opt);
+  }
+  select.value = current;
+  if (!Array.from(select.options).some((item) => item.value === current)) {
+    select.value = "all";
+    chatsState.source = "all";
   }
 }
 
@@ -540,25 +581,25 @@ function setReviewsDatePreset(preset) {
   if (toInput) toInput.value = toValue;
 }
 
-function setDefaultConversationsDateRange(force) {
-  if (!force && conversationsState.date_from && conversationsState.date_to) return;
+function setDefaultQuestionsDateRange(force) {
+  if (!force && questionsState.date_from && questionsState.date_to) return;
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const monthAgo = new Date(today);
   monthAgo.setMonth(monthAgo.getMonth() - 1);
-  conversationsState.date_from = dateToInputValue(monthAgo);
-  conversationsState.date_to = dateToInputValue(today);
-  const fromInput = document.getElementById("conversationsDateFrom");
-  const toInput = document.getElementById("conversationsDateTo");
-  if (fromInput) fromInput.value = conversationsState.date_from;
-  if (toInput) toInput.value = conversationsState.date_to;
+  questionsState.date_from = dateToInputValue(monthAgo);
+  questionsState.date_to = dateToInputValue(today);
+  const fromInput = document.getElementById("questionsDateFrom");
+  const toInput = document.getElementById("questionsDateTo");
+  if (fromInput) fromInput.value = questionsState.date_from;
+  if (toInput) toInput.value = questionsState.date_to;
 }
 
-function updateConversationsDateFilterButton() {
-  const btn = document.getElementById("conversationsDateFilterBtn");
+function updateQuestionsDateFilterButton() {
+  const btn = document.getElementById("questionsDateFilterBtn");
   if (!btn) return;
-  const from = conversationsState.date_from;
-  const to = conversationsState.date_to;
+  const from = questionsState.date_from;
+  const to = questionsState.date_to;
   if (from && to) {
     btn.textContent = `${inputValueToRuDate(from)} - ${inputValueToRuDate(to)}`;
     return;
@@ -574,8 +615,8 @@ function updateConversationsDateFilterButton() {
   btn.textContent = "Период: все даты";
 }
 
-function toggleConversationsDateFilterPanel(forceOpen) {
-  const panel = document.getElementById("conversationsDateFilterPanel");
+function toggleQuestionsDateFilterPanel(forceOpen) {
+  const panel = document.getElementById("questionsDateFilterPanel");
   if (!panel) return;
   if (forceOpen === false) {
     panel.classList.add("hidden");
@@ -584,48 +625,48 @@ function toggleConversationsDateFilterPanel(forceOpen) {
   const shouldOpen = forceOpen === true ? true : panel.classList.contains("hidden");
   panel.classList.toggle("hidden", !shouldOpen);
   if (!shouldOpen) return;
-  toggleConversationsFiltersPanel(false);
-  const fromInput = document.getElementById("conversationsDateFrom");
-  const toInput = document.getElementById("conversationsDateTo");
-  if (fromInput) fromInput.value = conversationsState.date_from || "";
-  if (toInput) toInput.value = conversationsState.date_to || "";
+  toggleQuestionsFiltersPanel(false);
+  const fromInput = document.getElementById("questionsDateFrom");
+  const toInput = document.getElementById("questionsDateTo");
+  if (fromInput) fromInput.value = questionsState.date_from || "";
+  if (toInput) toInput.value = questionsState.date_to || "";
 }
 
-function applyConversationsDateFilter() {
-  const fromInput = document.getElementById("conversationsDateFrom");
-  const toInput = document.getElementById("conversationsDateTo");
+function applyQuestionsDateFilter() {
+  const fromInput = document.getElementById("questionsDateFrom");
+  const toInput = document.getElementById("questionsDateTo");
   const from = String(fromInput?.value || "").trim();
   const to = String(toInput?.value || "").trim();
   if (from && to && from > to) {
     alert("Дата начала не может быть позже даты окончания");
     return;
   }
-  conversationsState.date_from = from || null;
-  conversationsState.date_to = to || null;
-  conversationsState.page = 1;
-  updateConversationsDateFilterButton();
-  toggleConversationsDateFilterPanel(false);
-  loadConversations();
+  questionsState.date_from = from || null;
+  questionsState.date_to = to || null;
+  questionsState.page = 1;
+  updateQuestionsDateFilterButton();
+  toggleQuestionsDateFilterPanel(false);
+  loadQuestions();
 }
 
-function onConversationsDateInputChange() {
-  const panel = document.getElementById("conversationsDateFilterPanel");
+function onQuestionsDateInputChange() {
+  const panel = document.getElementById("questionsDateFilterPanel");
   if (!panel || panel.classList.contains("hidden")) return;
-  applyConversationsDateFilter();
+  applyQuestionsDateFilter();
 }
 
-function clearConversationsDateFilter() {
-  setDefaultConversationsDateRange(true);
-  const fromInput = document.getElementById("conversationsDateFrom");
-  const toInput = document.getElementById("conversationsDateTo");
-  if (fromInput) fromInput.value = conversationsState.date_from || "";
-  if (toInput) toInput.value = conversationsState.date_to || "";
-  conversationsState.page = 1;
-  updateConversationsDateFilterButton();
-  loadConversations();
+function clearQuestionsDateFilter() {
+  setDefaultQuestionsDateRange(true);
+  const fromInput = document.getElementById("questionsDateFrom");
+  const toInput = document.getElementById("questionsDateTo");
+  if (fromInput) fromInput.value = questionsState.date_from || "";
+  if (toInput) toInput.value = questionsState.date_to || "";
+  questionsState.page = 1;
+  updateQuestionsDateFilterButton();
+  loadQuestions();
 }
 
-function setConversationsDatePreset(preset) {
+function setQuestionsDatePreset(preset) {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   let fromDate = null;
@@ -671,17 +712,160 @@ function setConversationsDatePreset(preset) {
 
   const fromValue = fromDate ? dateToInputValue(fromDate) : "";
   const toValue = toDate ? dateToInputValue(toDate) : "";
-  const fromInput = document.getElementById("conversationsDateFrom");
-  const toInput = document.getElementById("conversationsDateTo");
+  const fromInput = document.getElementById("questionsDateFrom");
+  const toInput = document.getElementById("questionsDateTo");
   if (fromInput) fromInput.value = fromValue;
   if (toInput) toInput.value = toValue;
 }
 
-function onConversationsSortChange() {
-  const sortValue = String(document.getElementById("conversationSortFilter")?.value || "newest");
-  conversationsState.sort = sortValue;
-  conversationsState.page = 1;
-  loadConversations();
+function onQuestionsSortChange() {
+  const sortValue = String(document.getElementById("questionSortFilter")?.value || "newest");
+  questionsState.sort = sortValue;
+  questionsState.page = 1;
+  loadQuestions();
+}
+
+function setDefaultChatsDateRange(force) {
+  if (!force && chatsState.date_from && chatsState.date_to) return;
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const monthAgo = new Date(today);
+  monthAgo.setMonth(monthAgo.getMonth() - 1);
+  chatsState.date_from = dateToInputValue(monthAgo);
+  chatsState.date_to = dateToInputValue(today);
+  const fromInput = document.getElementById("chatsDateFrom");
+  const toInput = document.getElementById("chatsDateTo");
+  if (fromInput) fromInput.value = chatsState.date_from;
+  if (toInput) toInput.value = chatsState.date_to;
+}
+
+function updateChatsDateFilterButton() {
+  const btn = document.getElementById("chatsDateFilterBtn");
+  if (!btn) return;
+  const from = chatsState.date_from;
+  const to = chatsState.date_to;
+  if (from && to) {
+    btn.textContent = `${inputValueToRuDate(from)} - ${inputValueToRuDate(to)}`;
+    return;
+  }
+  if (from) {
+    btn.textContent = `С ${inputValueToRuDate(from)}`;
+    return;
+  }
+  if (to) {
+    btn.textContent = `До ${inputValueToRuDate(to)}`;
+    return;
+  }
+  btn.textContent = "Период: все даты";
+}
+
+function toggleChatsDateFilterPanel(forceOpen) {
+  const panel = document.getElementById("chatsDateFilterPanel");
+  if (!panel) return;
+  if (forceOpen === false) {
+    panel.classList.add("hidden");
+    return;
+  }
+  const shouldOpen = forceOpen === true ? true : panel.classList.contains("hidden");
+  panel.classList.toggle("hidden", !shouldOpen);
+  if (!shouldOpen) return;
+  toggleChatsFiltersPanel(false);
+  const fromInput = document.getElementById("chatsDateFrom");
+  const toInput = document.getElementById("chatsDateTo");
+  if (fromInput) fromInput.value = chatsState.date_from || "";
+  if (toInput) toInput.value = chatsState.date_to || "";
+}
+
+function applyChatsDateFilter() {
+  const fromInput = document.getElementById("chatsDateFrom");
+  const toInput = document.getElementById("chatsDateTo");
+  const from = String(fromInput?.value || "").trim();
+  const to = String(toInput?.value || "").trim();
+  if (from && to && from > to) {
+    alert("Дата начала не может быть позже даты окончания");
+    return;
+  }
+  chatsState.date_from = from || null;
+  chatsState.date_to = to || null;
+  chatsState.activeConversationUid = "";
+  updateChatsDateFilterButton();
+  toggleChatsDateFilterPanel(false);
+  loadChats();
+}
+
+function onChatsDateInputChange() {
+  const panel = document.getElementById("chatsDateFilterPanel");
+  if (!panel || panel.classList.contains("hidden")) return;
+  applyChatsDateFilter();
+}
+
+function clearChatsDateFilter() {
+  setDefaultChatsDateRange(true);
+  const fromInput = document.getElementById("chatsDateFrom");
+  const toInput = document.getElementById("chatsDateTo");
+  if (fromInput) fromInput.value = chatsState.date_from || "";
+  if (toInput) toInput.value = chatsState.date_to || "";
+  chatsState.activeConversationUid = "";
+  updateChatsDateFilterButton();
+  loadChats();
+}
+
+function setChatsDatePreset(preset) {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  let fromDate = null;
+  let toDate = new Date(today);
+
+  if (preset === "today") {
+    fromDate = new Date(today);
+  } else if (preset === "yesterday") {
+    fromDate = new Date(today);
+    fromDate.setDate(fromDate.getDate() - 1);
+    toDate = new Date(fromDate);
+  } else if (preset === "last_week") {
+    const currentDay = today.getDay();
+    const diffFromMonday = (currentDay + 6) % 7;
+    const currentWeekMonday = new Date(today);
+    currentWeekMonday.setDate(currentWeekMonday.getDate() - diffFromMonday);
+    fromDate = new Date(currentWeekMonday);
+    fromDate.setDate(fromDate.getDate() - 7);
+    toDate = new Date(currentWeekMonday);
+    toDate.setDate(toDate.getDate() - 1);
+  } else if (preset === "last_7_days") {
+    fromDate = new Date(today);
+    fromDate.setDate(fromDate.getDate() - 6);
+  } else if (preset === "last_30_days") {
+    fromDate = new Date(today);
+    fromDate.setDate(fromDate.getDate() - 29);
+  } else if (preset === "last_month") {
+    const currentMonthFirstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+    fromDate = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    toDate = new Date(currentMonthFirstDay);
+    toDate.setDate(0);
+  } else if (preset === "last_3_months") {
+    fromDate = new Date(today);
+    fromDate.setMonth(fromDate.getMonth() - 3);
+    fromDate.setDate(fromDate.getDate() + 1);
+  } else if (preset === "last_year") {
+    fromDate = new Date(today);
+    fromDate.setFullYear(fromDate.getFullYear() - 1);
+    fromDate.setDate(fromDate.getDate() + 1);
+  } else {
+    return;
+  }
+
+  const fromValue = fromDate ? dateToInputValue(fromDate) : "";
+  const toValue = toDate ? dateToInputValue(toDate) : "";
+  const fromInput = document.getElementById("chatsDateFrom");
+  const toInput = document.getElementById("chatsDateTo");
+  if (fromInput) fromInput.value = fromValue;
+  if (toInput) toInput.value = toValue;
+}
+
+function onChatsSortChange() {
+  const sortValue = String(document.getElementById("chatsSortFilter")?.value || "newest");
+  chatsState.sort = sortValue;
+  loadChats();
 }
 
 function onReviewsSortChange() {
@@ -852,7 +1036,7 @@ async function syncAll() {
     }
     if (data.cancelled) text += ", синхронизация остановлена администратором";
     if (syncInfo) syncInfo.textContent = text;
-    const tasks = [loadReviews(), loadConversations()];
+    const tasks = [loadReviews(), loadQuestions(), loadChats()];
     if (canViewSection("analytics")) tasks.push(loadAnalytics());
     await Promise.all(tasks);
   } finally {
@@ -995,86 +1179,355 @@ async function loadReviews() {
   document.getElementById("reviewsNextPageBtn").disabled = reviewsState.page >= reviewsState.pages;
 }
 
-async function loadConversations() {
+async function sendConversationReply(conversationUid, responseText, idempotencyKey = null) {
+  const payload = {
+    response_text: String(responseText || "").trim(),
+    idempotency_key: idempotencyKey,
+  };
+  const res = await fetch(`/api/conversations/${encodeURIComponent(conversationUid)}/reply`, {
+    method: "POST",
+    headers: jsonHeaders(),
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(String(data.detail || "Не удалось отправить ответ"));
+  }
+  return data;
+}
+
+function conversationErrorInfo(item) {
+  const errorMessage = String(item.send_error_message || "").trim();
+  const sendAttempts = Number(item.send_attempts || 0);
+  const lastAttemptAt = String(item.last_send_attempt_at || "").trim();
+  return {
+    hasError: Boolean(errorMessage),
+    errorMessage,
+    sendAttempts,
+    lastAttemptAt,
+  };
+}
+
+function buildConversationErrorTitle(meta) {
+  if (!meta.hasError) return "";
+  const pieces = [meta.errorMessage];
+  if (meta.sendAttempts > 0) pieces.push(`попыток: ${meta.sendAttempts}`);
+  if (meta.lastAttemptAt) pieces.push(`последняя: ${meta.lastAttemptAt}`);
+  return pieces.join(" | ");
+}
+
+async function replyToQuestion(conversationUid) {
+  const text = window.prompt("Введите ответ на вопрос:");
+  if (text === null) return;
+  const cleanText = String(text || "").trim();
+  if (!cleanText) {
+    alert("Текст ответа не может быть пустым");
+    return;
+  }
+  try {
+    await sendConversationReply(conversationUid, cleanText, `${conversationUid}:${Date.now()}`);
+    await loadQuestions();
+  } catch (error) {
+    alert(error instanceof Error ? error.message : "Не удалось отправить ответ");
+  }
+}
+
+async function loadQuestions() {
   const source = String(
-    document.getElementById("conversationPanelSourceFilter")?.value || conversationsState.source || "all",
+    document.getElementById("questionPanelSourceFilter")?.value || questionsState.source || "all",
   );
-  const kind = String(document.getElementById("conversationPanelKindFilter")?.value || conversationsState.kind || "all");
   const status = String(
-    document.getElementById("conversationPanelStatusFilter")?.value || conversationsState.status || "all",
+    document.getElementById("questionPanelStatusFilter")?.value || questionsState.status || "all",
   );
-  conversationsState.source = source;
-  conversationsState.kind = kind;
-  conversationsState.status = status;
-  const sort = String(document.getElementById("conversationSortFilter")?.value || conversationsState.sort || "newest");
-  conversationsState.sort = sort;
+  questionsState.source = source;
+  questionsState.status = status;
+  const sort = String(document.getElementById("questionSortFilter")?.value || questionsState.sort || "newest");
+  questionsState.sort = sort;
+
   const query = new URLSearchParams();
+  query.set("kind", "question");
   if (source && source !== "all") query.set("source", source);
-  if (kind && kind !== "all") query.set("kind", kind);
   if (status && status !== "all") query.set("status", status);
-  if (conversationsState.date_from) query.set("date_from", conversationsState.date_from);
-  if (conversationsState.date_to) query.set("date_to", conversationsState.date_to);
-  query.set("bucket", conversationsState.bucket || "new");
+  if (questionsState.date_from) query.set("date_from", questionsState.date_from);
+  if (questionsState.date_to) query.set("date_to", questionsState.date_to);
+  query.set("bucket", questionsState.bucket || "new");
   query.set("sort", sort);
-  query.set("page", String(conversationsState.page || 1));
-  query.set("page_size", String(conversationsState.page_size || 30));
+  query.set("page", String(questionsState.page || 1));
+  query.set("page_size", String(questionsState.page_size || 30));
+
   const res = await fetch("/api/conversations?" + query.toString());
   const data = await res.json();
-  const tbody = document.getElementById("conversationsTbody");
-  const info = document.getElementById("conversationsInfo");
-  tbody.innerHTML = "";
+  const tbody = document.getElementById("questionsTbody");
+  const info = document.getElementById("questionsInfo");
+  if (tbody) tbody.innerHTML = "";
   if (!res.ok) {
-    if (info) info.textContent = "Ошибка: " + (data.detail || "не удалось загрузить вопросы и чаты");
+    if (info) info.textContent = "Ошибка: " + (data.detail || "не удалось загрузить вопросы");
     return;
   }
   if (info) info.textContent = "";
+
   for (const item of data.items || []) {
     const tr = document.createElement("tr");
+    const errorMeta = conversationErrorInfo(item);
+    if (errorMeta.hasError) tr.classList.add("review-row-send-error");
+    const errorIcon = errorMeta.hasError
+      ? `<span class="send-error-indicator" title="${esc(buildConversationErrorTitle(errorMeta))}">❗</span>`
+      : "";
     tr.innerHTML = `
-      <td>${esc(labelFromMap(conversationKindLabels, item.kind))}</td>
       <td>${esc(item.source)}</td>
       <td>${esc(item.customer_name || "-")}</td>
       <td>${esc(item.message_text || "-")}</td>
       <td>${esc(item.unread_count ?? 0)}</td>
       <td>${esc(labelFromMap(conversationStatusLabels, item.status))}</td>
       <td>
-        <button class="secondary" onclick="setConversationStatus('${esc(item.conversation_uid)}', 'waiting')">В ожидании</button>
-        <button class="secondary" onclick="setConversationStatus('${esc(item.conversation_uid)}', 'closed')">Закрыть</button>
+        <div class="actions-col">
+          <button onclick="replyToQuestion('${esc(item.conversation_uid)}')">Ответить</button>
+          <button class="secondary" onclick="setConversationStatus('${esc(item.conversation_uid)}', 'waiting', 'question')">В ожидании</button>
+          <button class="secondary" onclick="setConversationStatus('${esc(item.conversation_uid)}', 'closed', 'question')">Закрыть</button>
+          ${errorIcon}
+        </div>
       </td>
     `;
-    tbody.appendChild(tr);
+    tbody?.appendChild(tr);
   }
+
   const newCount = Number(data.new_count || 0);
   const processedCount = Number(data.processed_count || 0);
-  document.getElementById("conversations-tab-new").textContent = `Новые вопросы/чаты (${newCount})`;
-  document.getElementById("conversations-tab-processed").textContent = `Обработанные вопросы/чаты (${processedCount})`;
+  document.getElementById("questions-tab-new").textContent = `Новые вопросы (${newCount})`;
+  document.getElementById("questions-tab-processed").textContent = `Обработанные вопросы (${processedCount})`;
 
-  conversationsState.page = Number(data.page || 1);
-  conversationsState.pages = Number(data.pages || 1);
-  conversationsState.sort = String(data.sort || conversationsState.sort || "newest");
-  conversationsState.date_from = data.date_from || conversationsState.date_from || null;
-  conversationsState.date_to = data.date_to || conversationsState.date_to || null;
-  conversationsState.source = String(data.source || conversationsState.source || "all");
-  conversationsState.kind = String(data.kind || conversationsState.kind || "all");
-  conversationsState.status = String(data.status || conversationsState.status || "all");
-  setConversationSourceFilterOptions(data.source_options || []);
-  const sortFilter = document.getElementById("conversationSortFilter");
-  if (sortFilter) sortFilter.value = conversationsState.sort || "newest";
-  const panelSourceFilter = document.getElementById("conversationPanelSourceFilter");
-  if (panelSourceFilter) panelSourceFilter.value = conversationsState.source || "all";
-  const panelKindFilter = document.getElementById("conversationPanelKindFilter");
-  if (panelKindFilter) panelKindFilter.value = conversationsState.kind || "all";
-  const panelStatusFilter = document.getElementById("conversationPanelStatusFilter");
-  if (panelStatusFilter) panelStatusFilter.value = conversationsState.status || "all";
-  updateConversationsDateFilterButton();
+  questionsState.page = Number(data.page || 1);
+  questionsState.pages = Number(data.pages || 1);
+  questionsState.sort = String(data.sort || questionsState.sort || "newest");
+  questionsState.date_from = data.date_from || questionsState.date_from || null;
+  questionsState.date_to = data.date_to || questionsState.date_to || null;
+  questionsState.source = String(data.source || questionsState.source || "all");
+  questionsState.status = String(data.status || questionsState.status || "all");
+  setQuestionSourceFilterOptions(data.source_options || []);
 
-  document.getElementById("conversationsPageInfo").textContent =
-    `Страница ${conversationsState.page} из ${conversationsState.pages}`;
-  document.getElementById("conversationsPrevPageBtn").disabled = conversationsState.page <= 1;
-  document.getElementById("conversationsNextPageBtn").disabled = conversationsState.page >= conversationsState.pages;
+  const sortFilter = document.getElementById("questionSortFilter");
+  if (sortFilter) sortFilter.value = questionsState.sort || "newest";
+  const panelSourceFilter = document.getElementById("questionPanelSourceFilter");
+  if (panelSourceFilter) panelSourceFilter.value = questionsState.source || "all";
+  const panelStatusFilter = document.getElementById("questionPanelStatusFilter");
+  if (panelStatusFilter) panelStatusFilter.value = questionsState.status || "all";
+  updateQuestionsDateFilterButton();
+
+  document.getElementById("questionsPageInfo").textContent = `Страница ${questionsState.page} из ${questionsState.pages}`;
+  document.getElementById("questionsPrevPageBtn").disabled = questionsState.page <= 1;
+  document.getElementById("questionsNextPageBtn").disabled = questionsState.page >= questionsState.pages;
 }
 
-async function setConversationStatus(conversationUid, status) {
+function renderChatListGroup(containerId, items, emptyText) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  container.innerHTML = "";
+  if (!Array.isArray(items) || !items.length) {
+    const empty = document.createElement("div");
+    empty.className = "small";
+    empty.textContent = emptyText;
+    container.appendChild(empty);
+    return;
+  }
+  for (const item of items) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "chat-list-item" + (item.conversation_uid === chatsState.activeConversationUid ? " active" : "");
+    const preview = String(item.message_text || "").trim();
+    const unread = Number(item.unread_count || 0);
+    button.innerHTML = `
+      <div class="chat-list-head">
+        <span>${esc(item.customer_name || item.external_conversation_id || "Диалог")}</span>
+        <span class="small">${esc((item.source || "").toUpperCase())}</span>
+      </div>
+      <div class="small">${esc(preview || "-")}</div>
+      <div class="small">Статус: ${esc(labelFromMap(conversationStatusLabels, item.status))}${unread > 0 ? ` · непрочитано: ${unread}` : ""}</div>
+    `;
+    button.addEventListener("click", () => {
+      selectChatConversation(item.conversation_uid);
+    });
+    container.appendChild(button);
+  }
+}
+
+function renderChatsList() {
+  const all = Array.isArray(chatsState.items) ? chatsState.items : [];
+  const needReply = all.filter((item) => String(item.status || "") === "open");
+  const processed = all.filter((item) => String(item.status || "") !== "open");
+  renderChatListGroup("chatsPendingList", needReply, "Нет чатов, требующих ответа");
+  renderChatListGroup("chatsResolvedList", processed, "Нет обработанных чатов");
+}
+
+function findActiveChatConversation() {
+  const uid = String(chatsState.activeConversationUid || "");
+  if (!uid) return null;
+  return (Array.isArray(chatsState.items) ? chatsState.items : []).find((item) => item.conversation_uid === uid) || null;
+}
+
+function renderChatsThreadPlaceholder(message) {
+  const thread = document.getElementById("chatMessages");
+  if (!thread) return;
+  thread.innerHTML = `<div class="small">${esc(message)}</div>`;
+}
+
+function renderChatMessages(messages) {
+  const thread = document.getElementById("chatMessages");
+  if (!thread) return;
+  thread.innerHTML = "";
+  if (!Array.isArray(messages) || !messages.length) {
+    renderChatsThreadPlaceholder("Сообщений пока нет");
+    return;
+  }
+  for (const message of messages) {
+    const direction = String(message.direction || "inbound").toLowerCase();
+    const outbound = direction === "outbound";
+    const bubble = document.createElement("div");
+    bubble.className = `chat-bubble ${outbound ? "outbound" : "inbound"}`;
+    const status = String(message.send_status || "").toLowerCase();
+    const errorHint = status === "failed" ? String(message.send_error_message || "Ошибка отправки") : "";
+    if (status === "failed") bubble.classList.add("failed");
+    bubble.innerHTML = `
+      <div>${esc(message.message_text || "")}</div>
+      <div class="small">${esc(outbound ? (message.operator_name || "Оператор") : "Покупатель")}${errorHint ? ` · ${esc(errorHint)}` : ""}</div>
+    `;
+    thread.appendChild(bubble);
+  }
+  thread.scrollTop = thread.scrollHeight;
+}
+
+async function loadChatMessages(conversationUid) {
+  const uid = String(conversationUid || "").trim();
+  if (!uid) {
+    renderChatsThreadPlaceholder("Выберите чат слева");
+    return;
+  }
+  const title = document.getElementById("chatThreadHeader");
+  const activeConversation = findActiveChatConversation();
+  if (title) {
+    title.textContent = activeConversation
+      ? `${activeConversation.customer_name || "Чат"} · ${String(activeConversation.source || "").toUpperCase()} · ${labelFromMap(conversationStatusLabels, activeConversation.status)}`
+      : "Чат";
+  }
+  renderChatsThreadPlaceholder("Загрузка переписки...");
+  const res = await fetch(`/api/conversations/${encodeURIComponent(uid)}/messages?limit=200`);
+  const data = await res.json();
+  if (!res.ok) {
+    renderChatsThreadPlaceholder(String(data.detail || "Не удалось загрузить переписку"));
+    return;
+  }
+  const merged = [];
+  const sourceText = String(data.conversation?.message_text || activeConversation?.message_text || "").trim();
+  if (sourceText) {
+    merged.push({
+      direction: "inbound",
+      message_text: sourceText,
+      operator_name: null,
+      send_status: "sent",
+    });
+  }
+  for (const row of data.messages || []) {
+    merged.push(row);
+  }
+  renderChatMessages(merged);
+}
+
+function selectChatConversation(conversationUid) {
+  chatsState.activeConversationUid = String(conversationUid || "");
+  renderChatsList();
+  loadChatMessages(chatsState.activeConversationUid);
+}
+
+async function loadChats() {
+  const source = String(document.getElementById("chatPanelSourceFilter")?.value || chatsState.source || "all");
+  const status = String(document.getElementById("chatPanelStatusFilter")?.value || chatsState.status || "all");
+  chatsState.source = source;
+  chatsState.status = status;
+  const sort = String(document.getElementById("chatsSortFilter")?.value || chatsState.sort || "newest");
+  chatsState.sort = sort;
+
+  const query = new URLSearchParams();
+  query.set("kind", "chat");
+  if (source && source !== "all") query.set("source", source);
+  if (status && status !== "all") query.set("status", status);
+  if (chatsState.date_from) query.set("date_from", chatsState.date_from);
+  if (chatsState.date_to) query.set("date_to", chatsState.date_to);
+  query.set("bucket", chatsState.bucket || "new");
+  query.set("sort", sort);
+  query.set("page", "1");
+  query.set("page_size", "100");
+
+  const res = await fetch("/api/conversations?" + query.toString());
+  const data = await res.json();
+  const info = document.getElementById("chatsInfo");
+  if (!res.ok) {
+    if (info) info.textContent = "Ошибка: " + (data.detail || "не удалось загрузить чаты");
+    chatsState.items = [];
+    chatsState.activeConversationUid = "";
+    renderChatsList();
+    renderChatsThreadPlaceholder("Не удалось загрузить чаты");
+    return;
+  }
+  if (info) info.textContent = "";
+
+  chatsState.items = Array.isArray(data.items) ? data.items : [];
+  const newCount = Number(data.new_count || 0);
+  const processedCount = Number(data.processed_count || 0);
+  document.getElementById("chats-tab-new").textContent = `Нужно ответить (${newCount})`;
+  document.getElementById("chats-tab-processed").textContent = `Отвеченные (${processedCount})`;
+
+  chatsState.date_from = data.date_from || chatsState.date_from || null;
+  chatsState.date_to = data.date_to || chatsState.date_to || null;
+  chatsState.source = String(data.source || chatsState.source || "all");
+  chatsState.status = String(data.status || chatsState.status || "all");
+  setChatSourceFilterOptions(data.source_options || []);
+
+  const sortFilter = document.getElementById("chatsSortFilter");
+  if (sortFilter) sortFilter.value = chatsState.sort || "newest";
+  const panelSourceFilter = document.getElementById("chatPanelSourceFilter");
+  if (panelSourceFilter) panelSourceFilter.value = chatsState.source || "all";
+  const panelStatusFilter = document.getElementById("chatPanelStatusFilter");
+  if (panelStatusFilter) panelStatusFilter.value = chatsState.status || "all";
+  updateChatsDateFilterButton();
+
+  const hasActive = chatsState.items.some((item) => item.conversation_uid === chatsState.activeConversationUid);
+  if (!hasActive) {
+    chatsState.activeConversationUid = chatsState.items.length ? String(chatsState.items[0].conversation_uid || "") : "";
+  }
+  renderChatsList();
+  if (chatsState.activeConversationUid) {
+    await loadChatMessages(chatsState.activeConversationUid);
+  } else {
+    renderChatsThreadPlaceholder("Выберите чат слева");
+    const title = document.getElementById("chatThreadHeader");
+    if (title) title.textContent = "Чат не выбран";
+  }
+}
+
+async function sendChatReply() {
+  const conversationUid = String(chatsState.activeConversationUid || "").trim();
+  if (!conversationUid) {
+    alert("Сначала выберите чат");
+    return;
+  }
+  const input = document.getElementById("chatReplyInput");
+  const sendBtn = document.getElementById("chatReplySendBtn");
+  const info = document.getElementById("chatsInfo");
+  const text = String(input?.value || "").trim();
+  if (!text) return;
+  if (sendBtn) sendBtn.disabled = true;
+  try {
+    await sendConversationReply(conversationUid, text, `${conversationUid}:${Date.now()}`);
+    if (input) input.value = "";
+    if (info) info.textContent = "Ответ отправлен";
+    await Promise.all([loadChats(), loadQuestions()]);
+  } catch (error) {
+    if (info) info.textContent = error instanceof Error ? error.message : "Не удалось отправить ответ";
+  } finally {
+    if (sendBtn) sendBtn.disabled = false;
+  }
+}
+
+async function setConversationStatus(conversationUid, status, scope = "question") {
   const payload = { status: status };
   const res = await fetch(`/api/conversations/${encodeURIComponent(conversationUid)}/status`, {
     method: "POST",
@@ -1086,11 +1539,15 @@ async function setConversationStatus(conversationUid, status) {
     alert(data.detail || "Ошибка обновления статуса");
     return;
   }
-  await loadConversations();
+  if (scope === "chat") {
+    await loadChats();
+    return;
+  }
+  await loadQuestions();
 }
 
-function toggleConversationsFiltersPanel(forceOpen) {
-  const panel = document.getElementById("conversationsFiltersPanel");
+function toggleQuestionsFiltersPanel(forceOpen) {
+  const panel = document.getElementById("questionsFiltersPanel");
   if (!panel) return;
   if (forceOpen === false) {
     panel.classList.add("hidden");
@@ -1099,57 +1556,123 @@ function toggleConversationsFiltersPanel(forceOpen) {
   const shouldOpen = forceOpen === true ? true : panel.classList.contains("hidden");
   panel.classList.toggle("hidden", !shouldOpen);
   if (!shouldOpen) return;
-  toggleConversationsDateFilterPanel(false);
-  const sourceSelect = document.getElementById("conversationPanelSourceFilter");
-  const kindSelect = document.getElementById("conversationPanelKindFilter");
-  const statusSelect = document.getElementById("conversationPanelStatusFilter");
-  if (sourceSelect) sourceSelect.value = conversationsState.source || "all";
-  if (kindSelect) kindSelect.value = conversationsState.kind || "all";
-  if (statusSelect) statusSelect.value = conversationsState.status || "all";
+  toggleQuestionsDateFilterPanel(false);
+  const sourceSelect = document.getElementById("questionPanelSourceFilter");
+  const statusSelect = document.getElementById("questionPanelStatusFilter");
+  if (sourceSelect) sourceSelect.value = questionsState.source || "all";
+  if (statusSelect) statusSelect.value = questionsState.status || "all";
 }
 
-function applyConversationFiltersFromPanel() {
-  const source = String(document.getElementById("conversationPanelSourceFilter")?.value || "all");
-  const kind = String(document.getElementById("conversationPanelKindFilter")?.value || "all");
-  const status = String(document.getElementById("conversationPanelStatusFilter")?.value || "all");
-  conversationsState.source = source;
-  conversationsState.kind = kind;
-  conversationsState.status = status;
-  conversationsState.page = 1;
-  toggleConversationsFiltersPanel(false);
-  loadConversations();
+function applyQuestionFiltersFromPanel() {
+  const source = String(document.getElementById("questionPanelSourceFilter")?.value || "all");
+  const status = String(document.getElementById("questionPanelStatusFilter")?.value || "all");
+  questionsState.source = source;
+  questionsState.status = status;
+  questionsState.page = 1;
+  toggleQuestionsFiltersPanel(false);
+  loadQuestions();
 }
 
-function resetConversationFilters() {
-  conversationsState.source = "all";
-  conversationsState.kind = "all";
-  conversationsState.status = "all";
-  const panelSource = document.getElementById("conversationPanelSourceFilter");
-  const panelKind = document.getElementById("conversationPanelKindFilter");
-  const panelStatus = document.getElementById("conversationPanelStatusFilter");
+function resetQuestionFilters() {
+  questionsState.source = "all";
+  questionsState.status = "all";
+  const panelSource = document.getElementById("questionPanelSourceFilter");
+  const panelStatus = document.getElementById("questionPanelStatusFilter");
   if (panelSource) panelSource.value = "all";
-  if (panelKind) panelKind.value = "all";
   if (panelStatus) panelStatus.value = "all";
-  conversationsState.page = 1;
-  toggleConversationsFiltersPanel(false);
-  loadConversations();
+  questionsState.page = 1;
+  toggleQuestionsFiltersPanel(false);
+  loadQuestions();
 }
 
-async function clearAllConversations() {
-  if (!confirm("Удалить все вопросы и чаты из текущего кабинета?")) return;
+function toggleChatsFiltersPanel(forceOpen) {
+  const panel = document.getElementById("chatsFiltersPanel");
+  if (!panel) return;
+  if (forceOpen === false) {
+    panel.classList.add("hidden");
+    return;
+  }
+  const shouldOpen = forceOpen === true ? true : panel.classList.contains("hidden");
+  panel.classList.toggle("hidden", !shouldOpen);
+  if (!shouldOpen) return;
+  toggleChatsDateFilterPanel(false);
+  const sourceSelect = document.getElementById("chatPanelSourceFilter");
+  const statusSelect = document.getElementById("chatPanelStatusFilter");
+  if (sourceSelect) sourceSelect.value = chatsState.source || "all";
+  if (statusSelect) statusSelect.value = chatsState.status || "all";
+}
+
+function applyChatFiltersFromPanel() {
+  const source = String(document.getElementById("chatPanelSourceFilter")?.value || "all");
+  const status = String(document.getElementById("chatPanelStatusFilter")?.value || "all");
+  chatsState.source = source;
+  chatsState.status = status;
+  toggleChatsFiltersPanel(false);
+  loadChats();
+}
+
+function resetChatFilters() {
+  chatsState.source = "all";
+  chatsState.status = "all";
+  const panelSource = document.getElementById("chatPanelSourceFilter");
+  const panelStatus = document.getElementById("chatPanelStatusFilter");
+  if (panelSource) panelSource.value = "all";
+  if (panelStatus) panelStatus.value = "all";
+  toggleChatsFiltersPanel(false);
+  loadChats();
+}
+
+async function clearAllConversations(scope = "all") {
+  const label = scope === "questions" ? "вопросы" : scope === "chats" ? "чаты" : "вопросы и чаты";
+  if (!confirm(`Удалить все ${label} из текущего кабинета?`)) return;
+  const payload = {};
+  if (scope === "questions") payload.kind = "question";
+  if (scope === "chats") payload.kind = "chat";
   const res = await fetch("/api/admin/conversations-clear", {
     method: "POST",
     headers: jsonHeaders(),
-    body: JSON.stringify({}),
+    body: JSON.stringify(payload),
   });
   const data = await res.json();
   if (!res.ok) {
-    alert(data.detail || "Не удалось очистить вопросы и чаты");
+    alert(data.detail || "Не удалось очистить данные");
     return;
   }
-  const info = document.getElementById("conversationsInfo");
-  if (info) info.textContent = `Удалено вопросов/чатов: ${data.deleted || 0}`;
-  await loadConversations();
+  const questionsInfo = document.getElementById("questionsInfo");
+  const chatsInfo = document.getElementById("chatsInfo");
+  if (questionsInfo) questionsInfo.textContent = `Удалено: ${data.deleted || 0}`;
+  if (chatsInfo) chatsInfo.textContent = `Удалено: ${data.deleted || 0}`;
+  await Promise.all([loadQuestions(), loadChats()]);
+}
+
+async function clearAllQuestions() {
+  await clearAllConversations("questions");
+}
+
+async function clearAllChats() {
+  await clearAllConversations("chats");
+}
+
+async function reloadChats() {
+  await loadChats();
+}
+
+async function markChatWaiting() {
+  const uid = String(chatsState.activeConversationUid || "").trim();
+  if (!uid) {
+    alert("Сначала выберите чат");
+    return;
+  }
+  await setConversationStatus(uid, "waiting", "chat");
+}
+
+async function markChatClosed() {
+  const uid = String(chatsState.activeConversationUid || "").trim();
+  if (!uid) {
+    alert("Сначала выберите чат");
+    return;
+  }
+  await setConversationStatus(uid, "closed", "chat");
 }
 
 async function loadAnalytics() {
@@ -2176,28 +2699,38 @@ document.addEventListener("DOMContentLoaded", () => {
   if (permissions.is_admin) {
     document.getElementById("adminStopSyncBtn")?.classList.remove("hidden");
     document.getElementById("adminClearReviewsBtn")?.classList.remove("hidden");
-    document.getElementById("adminClearConversationsBtn")?.classList.remove("hidden");
+    document.getElementById("adminClearQuestionsBtn")?.classList.remove("hidden");
+    document.getElementById("adminClearChatsBtn")?.classList.remove("hidden");
   }
   document.getElementById("reviewsPageSize").value = String(reviewsState.page_size);
-  document.getElementById("conversationsPageSize").value = String(conversationsState.page_size);
+  document.getElementById("questionsPageSize").value = String(questionsState.page_size);
   const sortFilter = document.getElementById("reviewsSortFilter");
   if (sortFilter) {
     sortFilter.value = reviewsState.sort;
     sortFilter.addEventListener("change", onReviewsSortChange);
   }
-  const conversationSortFilter = document.getElementById("conversationSortFilter");
-  if (conversationSortFilter) {
-    conversationSortFilter.value = conversationsState.sort;
-    conversationSortFilter.addEventListener("change", onConversationsSortChange);
+  const questionSortFilter = document.getElementById("questionSortFilter");
+  if (questionSortFilter) {
+    questionSortFilter.value = questionsState.sort;
+    questionSortFilter.addEventListener("change", onQuestionsSortChange);
+  }
+  const chatsSortFilter = document.getElementById("chatsSortFilter");
+  if (chatsSortFilter) {
+    chatsSortFilter.value = chatsState.sort;
+    chatsSortFilter.addEventListener("change", onChatsSortChange);
   }
   setDefaultReviewsDateRange(false);
-  setDefaultConversationsDateRange(false);
+  setDefaultQuestionsDateRange(false);
+  setDefaultChatsDateRange(false);
   updateReviewsDateFilterButton();
-  updateConversationsDateFilterButton();
+  updateQuestionsDateFilterButton();
+  updateChatsDateFilterButton();
   document.getElementById("reviewsDateFrom")?.addEventListener("change", onReviewsDateInputChange);
   document.getElementById("reviewsDateTo")?.addEventListener("change", onReviewsDateInputChange);
-  document.getElementById("conversationsDateFrom")?.addEventListener("change", onConversationsDateInputChange);
-  document.getElementById("conversationsDateTo")?.addEventListener("change", onConversationsDateInputChange);
+  document.getElementById("questionsDateFrom")?.addEventListener("change", onQuestionsDateInputChange);
+  document.getElementById("questionsDateTo")?.addEventListener("change", onQuestionsDateInputChange);
+  document.getElementById("chatsDateFrom")?.addEventListener("change", onChatsDateInputChange);
+  document.getElementById("chatsDateTo")?.addEventListener("change", onChatsDateInputChange);
   document.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
@@ -2206,15 +2739,25 @@ document.addEventListener("DOMContentLoaded", () => {
     if (datePanel && !datePanel.classList.contains("hidden") && dateWrap && !dateWrap.contains(target)) {
       toggleReviewsDateFilterPanel(false);
     }
-    const conversationsDateWrap = document.getElementById("conversationsDateWrap");
-    const conversationsDatePanel = document.getElementById("conversationsDateFilterPanel");
+    const questionsDateWrap = document.getElementById("questionsDateWrap");
+    const questionsDatePanel = document.getElementById("questionsDateFilterPanel");
     if (
-      conversationsDatePanel &&
-      !conversationsDatePanel.classList.contains("hidden") &&
-      conversationsDateWrap &&
-      !conversationsDateWrap.contains(target)
+      questionsDatePanel &&
+      !questionsDatePanel.classList.contains("hidden") &&
+      questionsDateWrap &&
+      !questionsDateWrap.contains(target)
     ) {
-      toggleConversationsDateFilterPanel(false);
+      toggleQuestionsDateFilterPanel(false);
+    }
+    const chatsDateWrap = document.getElementById("chatsDateWrap");
+    const chatsDatePanel = document.getElementById("chatsDateFilterPanel");
+    if (
+      chatsDatePanel &&
+      !chatsDatePanel.classList.contains("hidden") &&
+      chatsDateWrap &&
+      !chatsDateWrap.contains(target)
+    ) {
+      toggleChatsDateFilterPanel(false);
     }
     const filtersPanel = document.getElementById("reviewsFiltersPanel");
     const filtersButton = document.getElementById("reviewsFiltersBtn");
@@ -2227,16 +2770,27 @@ document.addEventListener("DOMContentLoaded", () => {
     ) {
       toggleReviewsFiltersPanel(false);
     }
-    const conversationsFiltersPanel = document.getElementById("conversationsFiltersPanel");
-    const conversationsFiltersButton = document.getElementById("conversationsFiltersBtn");
+    const questionsFiltersPanel = document.getElementById("questionsFiltersPanel");
+    const questionsFiltersButton = document.getElementById("questionsFiltersBtn");
     if (
-      conversationsFiltersPanel &&
-      !conversationsFiltersPanel.classList.contains("hidden") &&
-      !conversationsFiltersPanel.contains(target) &&
-      conversationsFiltersButton &&
-      !conversationsFiltersButton.contains(target)
+      questionsFiltersPanel &&
+      !questionsFiltersPanel.classList.contains("hidden") &&
+      !questionsFiltersPanel.contains(target) &&
+      questionsFiltersButton &&
+      !questionsFiltersButton.contains(target)
     ) {
-      toggleConversationsFiltersPanel(false);
+      toggleQuestionsFiltersPanel(false);
+    }
+    const chatsFiltersPanel = document.getElementById("chatsFiltersPanel");
+    const chatsFiltersButton = document.getElementById("chatsFiltersBtn");
+    if (
+      chatsFiltersPanel &&
+      !chatsFiltersPanel.classList.contains("hidden") &&
+      !chatsFiltersPanel.contains(target) &&
+      chatsFiltersButton &&
+      !chatsFiltersButton.contains(target)
+    ) {
+      toggleChatsFiltersPanel(false);
     }
   });
   onSourceMarketplaceChange();
@@ -2249,7 +2803,8 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("ruleCategory")?.addEventListener("change", syncRuleFormFromStore);
   document.getElementById("tplCategory")?.addEventListener("change", syncTemplateFormFromStore);
   loadReviews();
-  loadConversations();
+  loadQuestions();
+  loadChats();
   if (permissions.can_view_analytics) {
     loadAnalytics();
   }

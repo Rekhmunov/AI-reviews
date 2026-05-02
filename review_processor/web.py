@@ -254,6 +254,11 @@ class ConversationStatusRequest(BaseModel):
     status: str = Field(description="open|waiting|closed")
 
 
+class ConversationReplyRequest(BaseModel):
+    response_text: str = Field(min_length=1, max_length=4000)
+    idempotency_key: str | None = Field(default=None, max_length=120)
+
+
 class TemplateUpsertRequest(BaseModel):
     category: str
     mode: str = Field(description="auto|manual|ignore")
@@ -411,6 +416,7 @@ class ClearReviewsRequest(BaseModel):
 
 class ClearConversationsRequest(BaseModel):
     user_id: int | None = None
+        kind: str | None = None
 
 
 class TemplateSubgroupSaveRequest(BaseModel):
@@ -1432,6 +1438,50 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             details={"status": status_value},
         )
         return {"ok": True}
+
+    @app.post("/api/conversations/{conversation_uid}/reply")
+    def reply_conversation(
+        conversation_uid: str,
+        payload: ConversationReplyRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        user = _require_user(request)
+        _require_manager_scope_for_conversation(user, conversation_uid)
+        operator_name = str(user.get("email") or "").strip() or "operator"
+        idempotency_key = (payload.idempotency_key or "").strip() or f"{conversation_uid}:{int(time.time() * 1000)}"
+        result = service.send_conversation_reply(
+            user_id=int(user["id"]),
+            conversation_uid=conversation_uid,
+            response_text=payload.response_text,
+            operator_name=operator_name,
+            idempotency_key=idempotency_key,
+        )
+        if not bool(result.get("ok")):
+            raise HTTPException(status_code=502, detail=str(result.get("error") or "Не удалось отправить ответ в диалог"))
+        return {
+            "ok": True,
+            "status": result.get("status"),
+            "deduplicated": bool(result.get("deduplicated")),
+            "idempotency_key": idempotency_key,
+        }
+
+    @app.get("/api/conversations/{conversation_uid}/messages")
+    def conversation_messages(conversation_uid: str, request: Request, limit: int = 200) -> dict[str, object]:
+        user = _require_user(request)
+        _require_manager_scope_for_conversation(user, conversation_uid)
+        conversation = repository.get_conversation(user_id=int(user["id"]), conversation_uid=conversation_uid)
+        if conversation is None:
+            raise HTTPException(status_code=404, detail="Диалог не найден")
+        messages = repository.list_conversation_messages(
+            user_id=int(user["id"]),
+            conversation_uid=conversation_uid,
+            limit=limit,
+        )
+        return {
+            "conversation": conversation,
+            "messages": messages,
+            "count": len(messages),
+        }
 
     @app.post("/api/admin/conversations-clear")
     def admin_clear_conversations(request: Request, payload: ClearReviewsRequest) -> dict[str, object]:

@@ -313,6 +313,78 @@ class RepositoryAdminTests(unittest.TestCase):
         self.assertEqual(analytics["questions_count"], 1)
         self.assertEqual(analytics["chats_count"], 1)
 
+    def test_conversation_reply_tracking_with_idempotency(self) -> None:
+        conversation_uid = self.repository.upsert_conversation(
+            user_id=self.user_id,
+            source="wb",
+            account_id=None,
+            external_conversation_id="conversation-42",
+            kind="question",
+            customer_name="Buyer C",
+            message_text="Подходит ли на диван 200x220?",
+            status="open",
+            unread_count=1,
+            metadata={},
+        )
+        idempotency_key = "conversation-42:1"
+        message = self.repository.upsert_conversation_outbound_message(
+            user_id=self.user_id,
+            conversation_uid=conversation_uid,
+            message_text="Да, размер подходит.",
+            operator_name="operator@example.com",
+            idempotency_key=idempotency_key,
+        )
+        self.assertEqual(message["send_status"], "pending")
+
+        fetched = self.repository.get_conversation_message_by_idempotency(
+            user_id=self.user_id,
+            conversation_uid=conversation_uid,
+            idempotency_key=idempotency_key,
+        )
+        self.assertIsNotNone(fetched)
+        assert fetched is not None
+        self.assertEqual(fetched["idempotency_key"], idempotency_key)
+
+        failed = self.repository.mark_conversation_message_send_failure(
+            user_id=self.user_id,
+            conversation_uid=conversation_uid,
+            idempotency_key=idempotency_key,
+            error_code="timeout",
+            error_message="API timeout",
+        )
+        self.assertTrue(failed)
+        after_fail = self.repository.get_conversation(user_id=self.user_id, conversation_uid=conversation_uid)
+        self.assertIsNotNone(after_fail)
+        assert after_fail is not None
+        self.assertEqual(after_fail["status"], "open")
+        self.assertEqual(after_fail.get("send_error_code"), "timeout")
+        self.assertEqual(after_fail.get("send_error_message"), "API timeout")
+        self.assertEqual(int(after_fail.get("send_attempts") or 0), 1)
+        self.assertTrue(str(after_fail.get("last_send_attempt_at") or "").strip())
+
+        success = self.repository.mark_conversation_message_send_success(
+            user_id=self.user_id,
+            conversation_uid=conversation_uid,
+            idempotency_key=idempotency_key,
+            external_message_id="ext-msg-100",
+        )
+        self.assertTrue(success)
+        after_success = self.repository.get_conversation(user_id=self.user_id, conversation_uid=conversation_uid)
+        self.assertIsNotNone(after_success)
+        assert after_success is not None
+        self.assertEqual(after_success["status"], "waiting")
+        self.assertEqual(int(after_success.get("send_attempts") or 0), 0)
+        self.assertFalse(str(after_success.get("send_error_code") or "").strip())
+        self.assertTrue(str(after_success.get("last_sent_at") or "").strip())
+
+        messages = self.repository.list_conversation_messages(
+            user_id=self.user_id,
+            conversation_uid=conversation_uid,
+        )
+        self.assertEqual(len(messages), 1)
+        self.assertEqual(messages[0]["send_status"], "sent")
+        self.assertEqual(messages[0]["external_message_id"], "ext-msg-100")
+
     def test_template_flags_and_pagination(self) -> None:
         self.repository.upsert_template(
             user_id=self.user_id,

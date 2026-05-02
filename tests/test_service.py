@@ -86,6 +86,17 @@ class _TextlessLowRatingClient:
         ]
 
 
+class _ConversationReplyClient:
+    def __init__(self, *, should_fail: bool = False) -> None:
+        self.should_fail = should_fail
+
+    def send_conversation_reply(self, *, conversation: dict[str, object], response_text: str) -> bool:
+        _ = conversation, response_text
+        if self.should_fail:
+            raise MarketplaceSyncError("wb", "reply timeout")
+        return True
+
+
 def _fake_yandex_category(review: ReviewInput) -> str:
     text = (review.text or "").lower()
     has_negative = any(word in text for word in ("ужас", "плох", "брак", "некачеств", "слом", "задерж", "опозд"))
@@ -440,6 +451,95 @@ class ReviewAutomationServiceTests(unittest.TestCase):
         self.assertEqual(review["status"], "answered_auto")
         self.assertIn("1-3 звезды", str((review.get("metadata") or {}).get("classified_subgroup") or ""))
         self.assertIn("1-3", str(review.get("auto_reply") or ""))
+
+    def test_send_conversation_reply_success_marks_waiting_and_logs(self) -> None:
+        account = self.repository.create_marketplace_account(
+            user_id=int(self.user["id"]),
+            marketplace="wb",
+            account_name="WB chat",
+            api_url="https://feedbacks-api.wildberries.ru/api/v1/feedbacks",
+            api_key="token",
+            extra={},
+        )
+        conv_uid = self.repository.upsert_conversation(
+            user_id=int(self.user["id"]),
+            source="wb",
+            account_id=int(account["id"]),
+            external_conversation_id="chat-success-1",
+            kind="chat",
+            customer_name="Buyer Chat",
+            message_text="Есть в наличии?",
+            status="open",
+            unread_count=1,
+            metadata={},
+        )
+        with mock.patch.object(self.service, "_build_client", return_value=_ConversationReplyClient(should_fail=False)):
+            result = self.service.send_conversation_reply(
+                user_id=int(self.user["id"]),
+                conversation_uid=conv_uid,
+                response_text="Да, есть в наличии.",
+                operator_name="operator@example.com",
+                idempotency_key="idem-success-1",
+            )
+        self.assertTrue(bool(result.get("ok")))
+        self.assertEqual(str(result.get("status")), "sent")
+        conv = self.repository.get_conversation(user_id=int(self.user["id"]), conversation_uid=conv_uid)
+        self.assertIsNotNone(conv)
+        self.assertEqual(str(conv.get("status")), "waiting")
+        self.assertEqual(int(conv.get("send_attempts") or 0), 0)
+        messages = self.repository.list_conversation_messages(
+            user_id=int(self.user["id"]),
+            conversation_uid=conv_uid,
+        )
+        self.assertEqual(len(messages), 1)
+        self.assertEqual(str(messages[0].get("send_status")), "sent")
+        actions, _ = self.repository.list_recent_actions(user_id=int(self.user["id"]), limit=20)
+        self.assertTrue(any(str(item.get("action_type")) == "conversation_send_success" for item in actions))
+
+    def test_send_conversation_reply_failure_keeps_open_and_records_error(self) -> None:
+        account = self.repository.create_marketplace_account(
+            user_id=int(self.user["id"]),
+            marketplace="wb",
+            account_name="WB chat fail",
+            api_url="https://feedbacks-api.wildberries.ru/api/v1/feedbacks",
+            api_key="token",
+            extra={},
+        )
+        conv_uid = self.repository.upsert_conversation(
+            user_id=int(self.user["id"]),
+            source="wb",
+            account_id=int(account["id"]),
+            external_conversation_id="chat-fail-1",
+            kind="chat",
+            customer_name="Buyer Chat 2",
+            message_text="Почему задержка?",
+            status="open",
+            unread_count=2,
+            metadata={},
+        )
+        with mock.patch.object(self.service, "_build_client", return_value=_ConversationReplyClient(should_fail=True)):
+            result = self.service.send_conversation_reply(
+                user_id=int(self.user["id"]),
+                conversation_uid=conv_uid,
+                response_text="Проверяем информацию.",
+                operator_name="operator@example.com",
+                idempotency_key="idem-fail-1",
+            )
+        self.assertFalse(bool(result.get("ok")))
+        self.assertEqual(str(result.get("status")), "failed")
+        conv = self.repository.get_conversation(user_id=int(self.user["id"]), conversation_uid=conv_uid)
+        self.assertIsNotNone(conv)
+        self.assertEqual(str(conv.get("status")), "open")
+        self.assertEqual(int(conv.get("send_attempts") or 0), 1)
+        self.assertTrue(str(conv.get("send_error_message") or "").strip())
+        messages = self.repository.list_conversation_messages(
+            user_id=int(self.user["id"]),
+            conversation_uid=conv_uid,
+        )
+        self.assertEqual(len(messages), 1)
+        self.assertEqual(str(messages[0].get("send_status")), "failed")
+        actions, _ = self.repository.list_recent_actions(user_id=int(self.user["id"]), limit=20)
+        self.assertTrue(any(str(item.get("action_type")) == "conversation_send_error" for item in actions))
 
 
 if __name__ == "__main__":

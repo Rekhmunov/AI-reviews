@@ -32,6 +32,14 @@ class MarketplaceClient(Protocol):
     ) -> list[dict[str, object]]:
         """Load questions/chats from marketplace API."""
 
+    def send_conversation_reply(
+        self,
+        *,
+        conversation: dict[str, object],
+        response_text: str,
+    ) -> bool:
+        """Send reply for question/chat to marketplace API."""
+
 
 class MarketplaceSyncError(RuntimeError):
     def __init__(self, source: str, message: str, *, details: dict[str, object] | None = None) -> None:
@@ -225,6 +233,22 @@ class OzonMarketplaceClient:
         _raise_if_error_payload(raw, source="ozon")
         return True
 
+    def send_conversation_reply(self, *, conversation: dict[str, object], response_text: str) -> bool:
+        if not self.client_id or not self.api_key:
+            raise MarketplaceSyncError("ozon", "Missing Ozon credentials: client_id/api_key")
+        if not self.reply_path:
+            return False
+        external_id = str(conversation.get("external_conversation_id") or conversation.get("external_id") or "").strip()
+        if not external_id:
+            raise MarketplaceSyncError("ozon", "Missing external conversation id for reply")
+        payload: dict[str, object] = dict(self.reply_payload or {})
+        payload[self.reply_review_id_field] = external_id
+        payload[self.reply_text_field] = response_text
+        result = self._request_json(path=self.reply_path, payload=payload)
+        raw = result.get("result") if isinstance(result.get("result"), Mapping) else result
+        _raise_if_error_payload(raw, source="ozon")
+        return True
+
     @staticmethod
     def _to_review(item: dict[str, object]) -> ReviewInput:
         text = str(item.get("text") or item.get("comment") or item.get("content") or "")
@@ -406,6 +430,34 @@ class WildberriesMarketplaceClient:
             return False
         payload: dict[str, object] = dict(self.reply_payload or {})
         payload[self.reply_review_id_field] = review.review_id
+        payload[self.reply_text_field] = response_text
+        method = self.reply_method.strip().upper() if self.reply_method else "POST"
+        endpoint = _compose_url(self.api_url, self.reply_path)
+        if method == "GET":
+            query = urlencode(payload)
+            url = f"{endpoint}?{query}" if "?" not in endpoint else f"{endpoint}&{query}"
+            request = Request(url, method="GET", headers={"Authorization": self.api_key})
+        else:
+            request = Request(
+                endpoint,
+                method="POST",
+                headers={"Authorization": self.api_key, "Content-Type": "application/json"},
+                data=json.dumps(payload).encode("utf-8"),
+            )
+        raw = _request_json(request=request, timeout=self.timeout, source="wb", retries=1)
+        _raise_if_error_payload(raw, source="wb")
+        return True
+
+    def send_conversation_reply(self, *, conversation: dict[str, object], response_text: str) -> bool:
+        if not self.api_key:
+            raise MarketplaceSyncError("wb", "Missing Wildberries api_key")
+        if not self.reply_path:
+            return False
+        external_id = str(conversation.get("external_conversation_id") or conversation.get("external_id") or "").strip()
+        if not external_id:
+            raise MarketplaceSyncError("wb", "Missing external conversation id for reply")
+        payload: dict[str, object] = dict(self.reply_payload or {})
+        payload[self.reply_review_id_field] = external_id
         payload[self.reply_text_field] = response_text
         method = self.reply_method.strip().upper() if self.reply_method else "POST"
         endpoint = _compose_url(self.api_url, self.reply_path)
@@ -1167,6 +1219,165 @@ class ReviewAutomationService:
             details={"source": source, "account_id": account_id, "error": error or "Не удалось отправить ответ"},
         )
         return False
+
+    def _send_conversation_reply_via_client(
+        self,
+        *,
+        client: object,
+        source: str,
+        conversation: dict[str, object],
+        response_text: str,
+    ) -> tuple[bool, str | None]:
+        sender = getattr(client, "send_conversation_reply", None)
+        if not callable(sender):
+            # Backward compatibility: clients without conversation reply API
+            # should not break manual workflow.
+            return True, None
+        try:
+            try:
+                sent = sender(conversation=conversation, response_text=response_text)
+            except TypeError:
+                sent = sender(conversation, response_text)
+        except MarketplaceSyncError as exc:
+            return False, str(exc)
+        except Exception as exc:
+            return False, str(exc)
+        if sent is False:
+            return False, f"{source}: маркетплейс не подтвердил отправку ответа в диалог"
+        return True, None
+
+    def send_conversation_reply(
+        self,
+        *,
+        user_id: int,
+        conversation_uid: str,
+        response_text: str,
+        operator_name: str,
+        idempotency_key: str,
+    ) -> dict[str, object]:
+        conversation = self.repository.get_conversation(user_id=user_id, conversation_uid=conversation_uid)
+        if conversation is None:
+            raise KeyError("Диалог не найден")
+        source = str(conversation.get("source") or "").strip().lower()
+        account_id = conversation.get("account_id")
+        clean_text = str(response_text or "").strip()
+        if not clean_text:
+            raise ValueError("Текст ответа не может быть пустым")
+        clean_idempotency = str(idempotency_key or "").strip()
+        if not clean_idempotency:
+            raise ValueError("idempotency_key обязателен")
+
+        existing = self.repository.get_conversation_message_by_idempotency(
+            user_id=user_id,
+            conversation_uid=conversation_uid,
+            idempotency_key=clean_idempotency,
+        )
+        if existing is not None and str(existing.get("send_status") or "").strip().lower() == "sent":
+            return {"ok": True, "status": "sent", "deduplicated": True}
+
+        self.repository.upsert_conversation_outbound_message(
+            user_id=user_id,
+            conversation_uid=conversation_uid,
+            message_text=clean_text,
+            operator_name=operator_name,
+            idempotency_key=clean_idempotency,
+        )
+
+        account_id_value: int | None = None
+        try:
+            if account_id is not None:
+                account_id_value = int(account_id)
+        except (TypeError, ValueError):
+            account_id_value = None
+
+        if source not in {"wb", "ozon"} or account_id_value is None:
+            self.repository.mark_conversation_message_send_success(
+                user_id=user_id,
+                conversation_uid=conversation_uid,
+                idempotency_key=clean_idempotency,
+            )
+            self.repository.log_review_action(
+                user_id=user_id,
+                review_uid=conversation_uid,
+                action_type="conversation_send_success",
+                actor=operator_name,
+                details={"source": source, "idempotency_key": clean_idempotency, "scope": "conversations"},
+            )
+            return {"ok": True, "status": "sent", "deduplicated": False}
+
+        account = self.repository.get_marketplace_account(
+            user_id=user_id,
+            account_id=account_id_value,
+            include_secrets=True,
+        )
+        if account is None:
+            error_message = "Кабинет маркетплейса для диалога не найден"
+            self.repository.mark_conversation_message_send_failure(
+                user_id=user_id,
+                conversation_uid=conversation_uid,
+                idempotency_key=clean_idempotency,
+                error_code="account_not_found",
+                error_message=error_message,
+            )
+            self.repository.log_review_action(
+                user_id=user_id,
+                review_uid=conversation_uid,
+                action_type="conversation_send_error",
+                actor=operator_name,
+                details={
+                    "source": source,
+                    "error_code": "account_not_found",
+                    "error": error_message,
+                    "idempotency_key": clean_idempotency,
+                    "scope": "conversations",
+                },
+            )
+            return {"ok": False, "status": "failed", "error": error_message}
+
+        client = self._build_client(account)
+        sent, send_error = self._send_conversation_reply_via_client(
+            client=client,
+            source=source,
+            conversation=conversation,
+            response_text=clean_text,
+        )
+        if sent:
+            self.repository.mark_conversation_message_send_success(
+                user_id=user_id,
+                conversation_uid=conversation_uid,
+                idempotency_key=clean_idempotency,
+            )
+            self.repository.log_review_action(
+                user_id=user_id,
+                review_uid=conversation_uid,
+                action_type="conversation_send_success",
+                actor=operator_name,
+                details={"source": source, "idempotency_key": clean_idempotency, "scope": "conversations"},
+            )
+            return {"ok": True, "status": "sent", "deduplicated": False}
+
+        error_text = send_error or "Не удалось отправить ответ в диалог"
+        self.repository.mark_conversation_message_send_failure(
+            user_id=user_id,
+            conversation_uid=conversation_uid,
+            idempotency_key=clean_idempotency,
+            error_code="send_failed",
+            error_message=error_text,
+        )
+        self.repository.log_review_action(
+            user_id=user_id,
+            review_uid=conversation_uid,
+            action_type="conversation_send_error",
+            actor=operator_name,
+            details={
+                "source": source,
+                "error_code": "send_failed",
+                "error": error_text,
+                "idempotency_key": clean_idempotency,
+                "scope": "conversations",
+            },
+        )
+        return {"ok": False, "status": "failed", "error": error_text}
 
     def queue_for_manual_processing(self, *, user_id: int, review_uid: str) -> bool:
         updated = self.repository.mark_manual_queue(user_id=user_id, review_uid=review_uid)
