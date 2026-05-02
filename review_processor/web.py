@@ -416,7 +416,7 @@ class ClearReviewsRequest(BaseModel):
 
 class ClearConversationsRequest(BaseModel):
     user_id: int | None = None
-        kind: str | None = None
+    kind: str | None = None
 
 
 class TemplateSubgroupSaveRequest(BaseModel):
