@@ -465,6 +465,10 @@ body.landing-page {
   display: none;
 }
 
+.section-title {
+  margin: 0;
+}
+
 .panel {
   position: relative;
   overflow: hidden;
@@ -898,7 +902,7 @@ button.secondary.danger:hover {
 }
 
 .reviews-sync-row {
-  margin: 0 0 12px;
+  margin: 0;
 }
 
 .reviews-date-wrap {
