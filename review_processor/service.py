@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -1810,6 +1811,13 @@ class ReviewAutomationService:
         return " ".join(str(value or "").strip().lower().split())
 
     @classmethod
+    def _build_subgroup_id(cls, group_id: str, subgroup: str) -> str:
+        clean_group = str(group_id or "").strip().lower().replace(" ", "_").replace("-", "_")
+        normalized_subgroup = cls._normalize_subgroup_name(subgroup)
+        digest = hashlib.sha1(f"{clean_group}|{normalized_subgroup}".encode("utf-8")).hexdigest()[:12]
+        return f"{clean_group}__{digest}"
+
+    @classmethod
     def _list_group_subgroups_for_review_classification(
         cls,
         *,
@@ -1817,7 +1825,7 @@ class ReviewAutomationService:
         user_id: int,
     ) -> list[dict[str, object]]:
         allowed_group_ids = set(cls.REVIEW_GROUP_TITLES.keys())
-        subgroups_by_group: dict[str, list[str]] = {group_id: [] for group_id in allowed_group_ids}
+        subgroup_items_by_group: dict[str, list[dict[str, str]]] = {group_id: [] for group_id in allowed_group_ids}
         seen_by_group: dict[str, set[str]] = {group_id: set() for group_id in allowed_group_ids}
 
         def _push(group_id: str, subgroup: str) -> None:
@@ -1829,20 +1837,27 @@ class ReviewAutomationService:
             if normalized in seen_by_group[clean_group]:
                 return
             seen_by_group[clean_group].add(normalized)
-            subgroups_by_group[clean_group].append(clean_subgroup)
+            subgroup_items_by_group[clean_group].append(
+                {
+                    "subgroup_id": cls._build_subgroup_id(clean_group, clean_subgroup),
+                    "subgroup": clean_subgroup,
+                }
+            )
 
         for row in repository.list_default_template_subgroups():
             _push(str(row.get("group_id") or ""), str(row.get("subgroup") or ""))
-        for row in repository.list_template_variants(user_id=user_id, include_inactive=True):
-            _push(str(row.get("group_id") or ""), str(row.get("subgroup") or ""))
-
-        # Fallback for fresh installations before default subgroup registry was opened in UI.
-        for group_id, defaults in cls.REVIEW_GROUP_DEFAULT_SUBGROUPS.items():
-            for subgroup in defaults:
-                _push(group_id, subgroup)
 
         # Закрепленная структура для отзывов без текста.
-        subgroups_by_group[cls.TEXTLESS_GROUP_ID] = [cls.TEXTLESS_LOW_SUBGROUP, cls.TEXTLESS_HIGH_SUBGROUP]
+        subgroup_items_by_group[cls.TEXTLESS_GROUP_ID] = [
+            {
+                "subgroup_id": cls._build_subgroup_id(cls.TEXTLESS_GROUP_ID, cls.TEXTLESS_LOW_SUBGROUP),
+                "subgroup": cls.TEXTLESS_LOW_SUBGROUP,
+            },
+            {
+                "subgroup_id": cls._build_subgroup_id(cls.TEXTLESS_GROUP_ID, cls.TEXTLESS_HIGH_SUBGROUP),
+                "subgroup": cls.TEXTLESS_HIGH_SUBGROUP,
+            },
+        ]
 
         items: list[dict[str, object]] = []
         ordered_group_ids = [
@@ -1854,14 +1869,15 @@ class ReviewAutomationService:
             cls.TEXTLESS_GROUP_ID,
         ]
         for group_id in ordered_group_ids:
-            subgroups = list(subgroups_by_group.get(group_id) or [])
-            if group_id != cls.TEXTLESS_GROUP_ID and not subgroups:
+            subgroup_items = list(subgroup_items_by_group.get(group_id) or [])
+            if group_id != cls.TEXTLESS_GROUP_ID and not subgroup_items:
                 continue
             items.append(
                 {
                     "group_id": group_id,
                     "group_title": cls.REVIEW_GROUP_TITLES.get(group_id, group_id),
-                    "subgroups": subgroups,
+                    "subgroup_items": subgroup_items,
+                    "subgroups": [str(item.get("subgroup") or "") for item in subgroup_items if str(item.get("subgroup") or "")],
                 }
             )
         return items
@@ -1872,22 +1888,55 @@ class ReviewAutomationService:
         raw_text: str,
         *,
         options: list[dict[str, object]],
-    ) -> tuple[str, str] | None:
+    ) -> dict[str, str] | None:
         response = str(raw_text or "").strip()
         if not response:
             return None
         normalized_response = response.lower()
-        options_by_group: dict[str, dict[str, object]] = {}
         group_aliases: dict[str, str] = {}
+        subgroup_ids_by_group: dict[str, dict[str, str]] = {}
+        subgroup_titles_by_group: dict[str, dict[str, str]] = {}
         for item in options:
             group_id = str(item.get("group_id") or "").strip()
             group_title = str(item.get("group_title") or "").strip()
             if not group_id:
                 continue
-            options_by_group[group_id] = item
             group_aliases[group_id.lower()] = group_id
             if group_title:
                 group_aliases[group_title.lower()] = group_id
+            id_map: dict[str, str] = {}
+            title_map: dict[str, str] = {}
+            subgroup_items_raw = item.get("subgroup_items")
+            subgroup_items: list[dict[str, str]] = []
+            if isinstance(subgroup_items_raw, list) and subgroup_items_raw:
+                for subgroup_item in subgroup_items_raw:
+                    if not isinstance(subgroup_item, Mapping):
+                        continue
+                    subgroup_id = str(subgroup_item.get("subgroup_id") or "").strip()
+                    subgroup_title = str(subgroup_item.get("subgroup") or subgroup_item.get("subgroup_title") or "").strip()
+                    if not subgroup_id or not subgroup_title:
+                        continue
+                    subgroup_items.append({"subgroup_id": subgroup_id, "subgroup": subgroup_title})
+            if not subgroup_items:
+                for subgroup_title in item.get("subgroups") or []:
+                    clean_subgroup = str(subgroup_title or "").strip()
+                    if not clean_subgroup:
+                        continue
+                    subgroup_items.append(
+                        {
+                            "subgroup_id": cls._build_subgroup_id(group_id, clean_subgroup),
+                            "subgroup": clean_subgroup,
+                        }
+                    )
+            for subgroup_item in subgroup_items:
+                subgroup_id = str(subgroup_item.get("subgroup_id") or "").strip()
+                subgroup_title = str(subgroup_item.get("subgroup") or "").strip()
+                if not subgroup_id or not subgroup_title:
+                    continue
+                id_map[subgroup_id.lower()] = subgroup_title
+                title_map[cls._normalize_subgroup_name(subgroup_title)] = subgroup_title
+            subgroup_ids_by_group[group_id] = id_map
+            subgroup_titles_by_group[group_id] = title_map
 
         def _detect_group(candidate: str) -> str | None:
             clean = str(candidate or "").strip().lower()
@@ -1903,33 +1952,93 @@ class ReviewAutomationService:
                     return group
             return None
 
-        def _detect_subgroup(group_id: str, candidate: str) -> str | None:
-            item = options_by_group.get(group_id) or {}
-            available = [str(value or "").strip() for value in (item.get("subgroups") or []) if str(value or "").strip()]
-            if not available:
+        def _detect_subgroup(group_id: str, candidate: str) -> tuple[str, str] | None:
+            id_map = subgroup_ids_by_group.get(group_id) or {}
+            title_map = subgroup_titles_by_group.get(group_id) or {}
+            if not id_map and not title_map:
                 return None
-            clean = cls._normalize_subgroup_name(candidate)
-            if clean:
-                for subgroup in available:
-                    if clean == cls._normalize_subgroup_name(subgroup):
-                        return subgroup
-                for subgroup in available:
-                    normalized = cls._normalize_subgroup_name(subgroup)
-                    if clean in normalized or normalized in clean:
-                        return subgroup
+            raw_candidate = str(candidate or "").strip()
+            clean = raw_candidate.lower()
+            if clean in id_map:
+                subgroup_title = id_map[clean]
+                return clean, subgroup_title
+            normalized_candidate = clean.replace(" ", "_").replace("-", "_")
+            if normalized_candidate in id_map:
+                subgroup_title = id_map[normalized_candidate]
+                return normalized_candidate, subgroup_title
+            normalized_title_candidate = cls._normalize_subgroup_name(raw_candidate)
+            if normalized_title_candidate and normalized_title_candidate in title_map:
+                subgroup_title = title_map[normalized_title_candidate]
+                return cls._build_subgroup_id(group_id, subgroup_title), subgroup_title
             lowered_candidate = str(candidate or "").strip().lower()
-            for subgroup in available:
-                if subgroup.lower() in lowered_candidate:
-                    return subgroup
+            for subgroup_id, subgroup_title in id_map.items():
+                if subgroup_id and subgroup_id in lowered_candidate:
+                    return cls._build_subgroup_id(group_id, subgroup_title), subgroup_title
+            for normalized_title, subgroup_title in title_map.items():
+                if normalized_title and normalized_title in cls._normalize_subgroup_name(lowered_candidate):
+                    return cls._build_subgroup_id(group_id, subgroup_title), subgroup_title
             return None
 
-        if "/" in response:
-            left, right = response.split("/", 1)
+        def _to_result(group_id: str, subgroup_id: str, subgroup_title: str) -> dict[str, str]:
+            return {
+                "group_id": group_id,
+                "subgroup_id": subgroup_id,
+                "subgroup": subgroup_title,
+            }
+
+        parsed_object: dict[str, object] | None = None
+        try:
+            maybe = json.loads(response)
+            if isinstance(maybe, Mapping):
+                parsed_object = dict(maybe)
+        except Exception:
+            pass
+        if parsed_object is None:
+            json_match = re.search(r"\{.*\}", response, flags=re.DOTALL)
+            if json_match:
+                try:
+                    maybe_nested = json.loads(json_match.group(0))
+                    if isinstance(maybe_nested, Mapping):
+                        parsed_object = dict(maybe_nested)
+                except Exception:
+                    parsed_object = None
+        if parsed_object is not None:
+            group_candidate = str(
+                parsed_object.get("group_id")
+                or parsed_object.get("group")
+                or parsed_object.get("category")
+                or ""
+            ).strip()
+            subgroup_candidate = str(
+                parsed_object.get("subgroup_id")
+                or parsed_object.get("subgroup")
+                or parsed_object.get("subcategory")
+                or ""
+            ).strip()
+            detected_group = _detect_group(group_candidate)
+            if detected_group:
+                detected_subgroup = _detect_subgroup(detected_group, subgroup_candidate)
+                if detected_subgroup:
+                    return _to_result(detected_group, detected_subgroup[0], detected_subgroup[1])
+
+        group_match = re.search(r"group[_\s-]*id\s*[:=]\s*([a-z0-9_:-]+)", normalized_response)
+        subgroup_match = re.search(r"subgroup[_\s-]*id\s*[:=]\s*([a-z0-9_:-]+)", normalized_response)
+        if group_match and subgroup_match:
+            detected_group = _detect_group(group_match.group(1))
+            if detected_group:
+                detected_subgroup = _detect_subgroup(detected_group, subgroup_match.group(1))
+                if detected_subgroup:
+                    return _to_result(detected_group, detected_subgroup[0], detected_subgroup[1])
+
+        for separator in ("|", "/", ";"):
+            if separator not in response:
+                continue
+            left, right = response.split(separator, 1)
             detected_group = _detect_group(left)
             if detected_group:
                 detected_subgroup = _detect_subgroup(detected_group, right)
                 if detected_subgroup:
-                    return detected_group, detected_subgroup
+                    return _to_result(detected_group, detected_subgroup[0], detected_subgroup[1])
 
         best_group: str | None = None
         for alias, group_id in group_aliases.items():
@@ -1941,7 +2050,7 @@ class ReviewAutomationService:
         detected_subgroup = _detect_subgroup(best_group, response)
         if not detected_subgroup:
             return None
-        return best_group, detected_subgroup
+        return _to_result(best_group, detected_subgroup[0], detected_subgroup[1])
 
     def _classify_with_yandex_target(
         self,
@@ -1977,7 +2086,7 @@ class ReviewAutomationService:
                     "Яндекс-классификатор не настроен: укажите ключ API и идентификатор каталога.",
                     details={"scope": "classification"},
                 )
-            return {"group_id": "", "subgroup": None, "raw_response": "", "model_uri": model_uri}
+            return {"group_id": "", "subgroup_id": "", "subgroup": None, "raw_response": "", "model_uri": model_uri}
         if not model_uri:
             model_uri = f"gpt://{folder_id}/yandexgpt-lite/latest"
 
@@ -1990,24 +2099,39 @@ class ReviewAutomationService:
                     "Не удалось сформировать список групп/подгрупп для классификации.",
                     details={"scope": "classification"},
                 )
-            return {"group_id": "", "subgroup": None, "raw_response": "", "model_uri": model_uri}
+            return {"group_id": "", "subgroup_id": "", "subgroup": None, "raw_response": "", "model_uri": model_uri}
 
         options_lines: list[str] = []
         for item in options_for_prompt:
             group_id = str(item.get("group_id") or "")
             group_title = str(item.get("group_title") or group_id)
-            subgroups = [str(value or "").strip() for value in (item.get("subgroups") or []) if str(value or "").strip()]
-            if not subgroups:
+            subgroup_items_raw = item.get("subgroup_items")
+            subgroup_items: list[dict[str, str]] = []
+            if isinstance(subgroup_items_raw, list):
+                for subgroup_item in subgroup_items_raw:
+                    if not isinstance(subgroup_item, Mapping):
+                        continue
+                    subgroup_id = str(subgroup_item.get("subgroup_id") or "").strip()
+                    subgroup_title = str(subgroup_item.get("subgroup") or subgroup_item.get("subgroup_title") or "").strip()
+                    if not subgroup_id or not subgroup_title:
+                        continue
+                    subgroup_items.append({"subgroup_id": subgroup_id, "subgroup": subgroup_title})
+            if not subgroup_items:
                 continue
-            options_lines.append(f"- {group_id} ({group_title}): {', '.join(subgroups)}")
+            options_lines.append(f"- {group_id} ({group_title}):")
+            for subgroup_item in subgroup_items:
+                options_lines.append(
+                    f"  - {str(subgroup_item.get('subgroup_id') or '')}: {str(subgroup_item.get('subgroup') or '')}"
+                )
         prompt = (
             "Определи одну категорию и одну подгруппу для отзыва.\n"
             f"Отзыв: {review.text or '(без текста)'}\n"
             f"Оценка: {review.rating if review.rating is not None else 'unknown'}\n"
-            "Список допустимых вариантов:\n"
+            "Список допустимых вариантов group_id/subgroup_id:\n"
             f"{chr(10).join(options_lines)}\n"
-            "Ответ строго в формате group_id/подгруппа, без пояснений. "
-            "Пример: positive/Материал."
+            "Ответ строго в JSON-формате без пояснений: "
+            '{"group_id":"<group_id>","subgroup_id":"<subgroup_id>"}.\n'
+            "Нельзя возвращать значения, которых нет в списке."
         )
 
         body = {
@@ -2033,7 +2157,7 @@ class ReviewAutomationService:
                     f"Ошибка запроса к Яндекс-классификатору: {exc}",
                     details={"scope": "classification"},
                 ) from exc
-            return {"group_id": "", "subgroup": None, "raw_response": "", "model_uri": model_uri}
+            return {"group_id": "", "subgroup_id": "", "subgroup": None, "raw_response": "", "model_uri": model_uri}
 
         text = ""
         result = payload.get("result") if isinstance(payload, Mapping) else None
@@ -2049,8 +2173,9 @@ class ReviewAutomationService:
         parsed = self._parse_yandex_target_response(text, options=options_for_prompt)
         if parsed:
             return {
-                "group_id": parsed[0],
-                "subgroup": parsed[1],
+                "group_id": parsed["group_id"],
+                "subgroup_id": parsed["subgroup_id"],
+                "subgroup": parsed["subgroup"],
                 "raw_response": str(text or "").strip(),
                 "model_uri": model_uri,
             }
@@ -2062,6 +2187,7 @@ class ReviewAutomationService:
             )
         return {
             "group_id": "",
+            "subgroup_id": "",
             "subgroup": None,
             "raw_response": str(text or "").strip(),
             "model_uri": model_uri,
@@ -2262,13 +2388,15 @@ class ReviewAutomationService:
             strict=True,
         )
         group_id = str(result.get("group_id") or "").strip()
+        subgroup_id = str(result.get("subgroup_id") or "").strip()
         subgroup = str(result.get("subgroup") or "").strip()
-        if not group_id or not subgroup:
+        if not group_id or not subgroup_id or not subgroup:
             raise MarketplaceSyncError("yandex", "Яндекс-классификатор не вернул корректную группу и подгруппу.")
         return {
             "ok": True,
             "group_id": group_id,
             "group_title": self.REVIEW_GROUP_TITLES.get(group_id, group_id),
+            "subgroup_id": subgroup_id,
             "subgroup": subgroup,
             "model_uri": str(result.get("model_uri") or ""),
             "raw_response": str(result.get("raw_response") or ""),

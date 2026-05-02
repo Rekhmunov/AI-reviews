@@ -121,7 +121,7 @@ class ReviewAutomationServiceTests(unittest.TestCase):
             side_effect=lambda review, settings, strict=False, allowed_groups=None: _fake_yandex_category(review)
         )
         self.service._classify_with_yandex_target = mock.Mock(
-            side_effect=lambda review, settings, user_id, strict=False: (_fake_yandex_category(review), None)
+            side_effect=lambda review, settings, user_id, strict=False: (_fake_yandex_category(review), "Общий позитив")
         )
         self.user = self.repository.create_user(email="owner@example.com", password_hash="hash", role="admin")
 

@@ -476,6 +476,7 @@ function _formatAiTestReviewResult(data) {
   const lines = [];
   lines.push(`Группа: ${String(data.group_title || data.group_id || "-")}`);
   lines.push(`ID группы: ${String(data.group_id || "-")}`);
+  lines.push(`ID подгруппы: ${String(data.subgroup_id || "-")}`);
   lines.push(`Подгруппа: ${String(data.subgroup || "-")}`);
   lines.push(`Модель: ${String(data.model_uri || "-")}`);
   lines.push("");

@@ -66,7 +66,7 @@ class ServiceAiConnectionTests(unittest.TestCase):
                 "alternatives": [
                     {
                         "message": {
-                            "text": "positive/Материал",
+                            "text": '{"group_id":"positive","subgroup_id":"positive__255837f920eb"}',
                         }
                     }
                 ]
@@ -84,8 +84,9 @@ class ServiceAiConnectionTests(unittest.TestCase):
             )
         self.assertTrue(result["ok"])
         self.assertEqual(result["group_id"], "positive")
+        self.assertEqual(result["subgroup_id"], "positive__255837f920eb")
         self.assertEqual(result["subgroup"], "Материал")
-        self.assertEqual(result["raw_response"], "positive/Материал")
+        self.assertEqual(result["raw_response"], '{"group_id":"positive","subgroup_id":"positive__255837f920eb"}')
 
     def test_classify_test_review_with_yandex_requires_text(self) -> None:
         with self.assertRaisesRegex(Exception, "Введите текст тестового отзыва"):

@@ -2197,6 +2197,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 "status": "ok",
                 "group_id": result.get("group_id"),
                 "group_title": result.get("group_title"),
+                "subgroup_id": result.get("subgroup_id"),
                 "subgroup": result.get("subgroup"),
                 "model_uri": result.get("model_uri"),
                 "raw_response": result.get("raw_response"),
