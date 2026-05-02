@@ -2080,6 +2080,19 @@ button.secondary.danger:hover {
     max-width: 100%;
   }
 
+  /* Date input in Sources pane must never exceed viewport width */
+  #section-settings #settings-pane-sources .sync-start-settings input[type="date"] {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  #section-settings #settings-pane-sources .sync-start-settings label {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
   #section-settings > div[id^="settings-pane-"] .row button,
   #section-settings > div[id^="settings-pane-"] .row .navbtn {
     width: 100%;
