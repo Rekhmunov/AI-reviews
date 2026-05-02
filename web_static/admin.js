@@ -1210,6 +1210,13 @@ function renderDefaultTemplateGroups() {
         openDefaultTemplateSubgroup(String(group.id || ""), String(subgroup.name || ""), String(group.title || ""));
       });
       row.appendChild(openButton);
+      const isProtectedGeneralSubgroup =
+        ["positive", "product_dissatisfaction", "delivery_problems", "wrong_size", "tagged_reviews"].includes(
+          String(group.id || "")
+        ) && String(subgroup.name || "") === "Общий";
+      const isProtectedTextlessSubgroup =
+        String(group.id || "") === "textless_ratings" &&
+        (String(subgroup.name || "") === "1-3 звезды" || String(subgroup.name || "") === "4-5 звезд");
       const editButton = document.createElement("button");
       editButton.type = "button";
       editButton.className = "icon-btn modern-icon-btn template-subgroup-edit-btn";
@@ -1220,17 +1227,7 @@ function renderDefaultTemplateGroups() {
           <path d="M4 20h4.3l9.95-9.95a1.5 1.5 0 0 0 0-2.12l-2.18-2.18a1.5 1.5 0 0 0-2.12 0L4 15.7V20Zm2-3.47 9.36-9.36 1.47 1.47L7.47 18H6v-1.47Z"/>
         </svg>
       `;
-      const isProtectedGeneralSubgroup =
-        ["positive", "product_dissatisfaction", "delivery_problems", "wrong_size", "tagged_reviews"].includes(
-          String(group.id || "")
-        ) && String(subgroup.name || "") === "Общий";
-      const isProtectedTextlessSubgroup =
-        String(group.id || "") === "textless_ratings" &&
-        (String(subgroup.name || "") === "1-3 звезды" || String(subgroup.name || "") === "4-5 звезд");
-      if (isProtectedGeneralSubgroup || isProtectedTextlessSubgroup) {
-        editButton.disabled = true;
-        editButton.title = "Эту подгруппу переименовывать нельзя";
-      } else {
+      if (!(isProtectedGeneralSubgroup || isProtectedTextlessSubgroup)) {
         editButton.addEventListener("click", async () => {
           await renameDefaultTemplateSubgroup(
             String(group.id || ""),
@@ -1256,7 +1253,9 @@ function renderDefaultTemplateGroups() {
       }
       const actions = document.createElement("div");
       actions.className = "template-subgroup-actions";
-      actions.appendChild(editButton);
+      if (!(isProtectedGeneralSubgroup || isProtectedTextlessSubgroup)) {
+        actions.appendChild(editButton);
+      }
       if (!(isProtectedTextlessSubgroup || isProtectedGeneralSubgroup)) {
         actions.appendChild(deleteButton);
       }
