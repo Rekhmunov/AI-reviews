@@ -59,7 +59,7 @@ const questionsState = {
   status: "all",
 };
 const chatsState = {
-  bucket: "new",
+  bucket: "all",
   sort: "newest",
   date_from: null,
   date_to: null,
@@ -1451,7 +1451,7 @@ async function loadChats() {
   if (status && status !== "all") query.set("status", status);
   if (chatsState.date_from) query.set("date_from", chatsState.date_from);
   if (chatsState.date_to) query.set("date_to", chatsState.date_to);
-  query.set("bucket", chatsState.bucket || "new");
+  query.set("bucket", chatsState.bucket || "all");
   query.set("sort", sort);
   query.set("page", "1");
   query.set("page_size", "100");
@@ -1472,8 +1472,10 @@ async function loadChats() {
   chatsState.items = Array.isArray(data.items) ? data.items : [];
   const newCount = Number(data.new_count || 0);
   const processedCount = Number(data.processed_count || 0);
-  document.getElementById("chats-tab-new").textContent = `Нужно ответить (${newCount})`;
-  document.getElementById("chats-tab-processed").textContent = `Отвеченные (${processedCount})`;
+  const chatsTabNew = document.getElementById("chats-tab-new");
+  if (chatsTabNew) chatsTabNew.textContent = `Нужно ответить (${newCount})`;
+  const chatsTabProcessed = document.getElementById("chats-tab-processed");
+  if (chatsTabProcessed) chatsTabProcessed.textContent = `Отвеченные (${processedCount})`;
 
   chatsState.date_from = data.date_from || chatsState.date_from || null;
   chatsState.date_to = data.date_to || chatsState.date_to || null;
@@ -2714,23 +2716,14 @@ document.addEventListener("DOMContentLoaded", () => {
     questionSortFilter.value = questionsState.sort;
     questionSortFilter.addEventListener("change", onQuestionsSortChange);
   }
-  const chatsSortFilter = document.getElementById("chatsSortFilter");
-  if (chatsSortFilter) {
-    chatsSortFilter.value = chatsState.sort;
-    chatsSortFilter.addEventListener("change", onChatsSortChange);
-  }
   setDefaultReviewsDateRange(false);
   setDefaultQuestionsDateRange(false);
-  setDefaultChatsDateRange(false);
   updateReviewsDateFilterButton();
   updateQuestionsDateFilterButton();
-  updateChatsDateFilterButton();
   document.getElementById("reviewsDateFrom")?.addEventListener("change", onReviewsDateInputChange);
   document.getElementById("reviewsDateTo")?.addEventListener("change", onReviewsDateInputChange);
   document.getElementById("questionsDateFrom")?.addEventListener("change", onQuestionsDateInputChange);
   document.getElementById("questionsDateTo")?.addEventListener("change", onQuestionsDateInputChange);
-  document.getElementById("chatsDateFrom")?.addEventListener("change", onChatsDateInputChange);
-  document.getElementById("chatsDateTo")?.addEventListener("change", onChatsDateInputChange);
   document.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
@@ -2748,16 +2741,6 @@ document.addEventListener("DOMContentLoaded", () => {
       !questionsDateWrap.contains(target)
     ) {
       toggleQuestionsDateFilterPanel(false);
-    }
-    const chatsDateWrap = document.getElementById("chatsDateWrap");
-    const chatsDatePanel = document.getElementById("chatsDateFilterPanel");
-    if (
-      chatsDatePanel &&
-      !chatsDatePanel.classList.contains("hidden") &&
-      chatsDateWrap &&
-      !chatsDateWrap.contains(target)
-    ) {
-      toggleChatsDateFilterPanel(false);
     }
     const filtersPanel = document.getElementById("reviewsFiltersPanel");
     const filtersButton = document.getElementById("reviewsFiltersBtn");
@@ -2780,17 +2763,6 @@ document.addEventListener("DOMContentLoaded", () => {
       !questionsFiltersButton.contains(target)
     ) {
       toggleQuestionsFiltersPanel(false);
-    }
-    const chatsFiltersPanel = document.getElementById("chatsFiltersPanel");
-    const chatsFiltersButton = document.getElementById("chatsFiltersBtn");
-    if (
-      chatsFiltersPanel &&
-      !chatsFiltersPanel.classList.contains("hidden") &&
-      !chatsFiltersPanel.contains(target) &&
-      chatsFiltersButton &&
-      !chatsFiltersButton.contains(target)
-    ) {
-      toggleChatsFiltersPanel(false);
     }
   });
   onSourceMarketplaceChange();
