@@ -2949,12 +2949,12 @@ def build_app_html(user: dict[str, object]) -> str:
     can_view_settings = role in ROLE_CAN_ACCESS_SETTINGS
     admin_link = '<a class="navbtn" href="/admin">Админ-панель</a>' if role == ROLE_ADMIN else ""
     nav_analytics = (
-        '<a id="nav-analytics" class="navbtn" href="#" onclick="showSection(\'analytics\')">3) Аналитика</a>'
+        '<a id="nav-analytics" class="navbtn" href="#" onclick="showSection(\'analytics\')">Аналитика</a>'
         if can_view_analytics
         else ""
     )
     nav_settings = (
-        '<a id="nav-settings" class="navbtn" href="#" onclick="showSection(\'settings\')">4) Настройки</a>'
+        '<a id="nav-settings" class="navbtn" href="#" onclick="showSection(\'settings\')">Настройки</a>'
         if can_view_settings
         else ""
     )
