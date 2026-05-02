@@ -730,12 +730,16 @@ async function loadProcessingRules() {
     if (info) info.textContent = "Ошибка: " + (data.detail || "не удалось загрузить правила");
     return;
   }
-  processingRulesState.items = (data.items || []).map((item) => ({
+  processingRulesState.items = (data.items || []).map((item) => {
+    const rawMode = String(item.action_mode || "manual");
+    const normalizedMode = rawMode === "template" ? "template" : "manual";
+    return {
     group_id: String(item.group_id || ""),
     title: String(item.title || item.group_id || ""),
-    action_mode: String(item.action_mode || "manual"),
+    action_mode: normalizedMode,
     auto_send: Boolean(item.auto_send),
-  }));
+    };
+  });
   renderProcessingRules();
 }
 
@@ -749,10 +753,8 @@ function renderProcessingRules() {
     card.innerHTML = `
       <div class="processing-rule-title">${esc(item.title)}</div>
       <select class="processing-rule-select" data-group-id="${esc(item.group_id)}" onchange="onRuleModeChange(this)">
-        <option value="ai" ${item.action_mode === "ai" ? "selected" : ""}>Искусственный интеллект</option>
         <option value="template" ${item.action_mode === "template" ? "selected" : ""}>Ответ по шаблону</option>
         <option value="manual" ${item.action_mode === "manual" ? "selected" : ""}>Ручной ответ</option>
-        <option value="ignore" ${item.action_mode === "ignore" ? "selected" : ""}>Игнорировать</option>
       </select>
       <div class="row processing-rule-toggle-row">
         <span>Автоотправка</span>
@@ -808,7 +810,7 @@ async function applyProcessingRules() {
     }
     const stats = data.updated_reviews || {};
     if (info) {
-      info.textContent = `Настройки применены. Обновлено отзывов: ${stats.updated || 0}, авто: ${stats.auto_sent || 0}, вручную: ${stats.queued || 0}, игнор: ${stats.ignored || 0}.`;
+      info.textContent = `Настройки применены. Обновлено отзывов: ${stats.updated || 0}, авто: ${stats.auto_sent || 0}, вручную: ${stats.queued || 0}.`;
     }
     await loadReviews();
   } finally {

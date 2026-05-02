@@ -440,7 +440,7 @@ class DefaultTemplateSubgroupManageRequest(BaseModel):
 
 class ProcessingRuleItemRequest(BaseModel):
     group_id: str = Field(min_length=2, max_length=100)
-    action_mode: str = Field(description="ai|template|manual|ignore")
+    action_mode: str = Field(description="template|manual")
     auto_send: bool = False
 
 
@@ -1625,7 +1625,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             mode = str((row or {}).get("action_mode") or "manual")
             if mode == "auto":
                 mode = "template"
-            if mode not in {"ai", "template", "manual", "ignore"}:
+            if mode in {"ai", "ignore"}:
+                mode = "manual"
+            if mode not in {"template", "manual"}:
                 mode = "manual"
             items.append(
                 {
@@ -1647,7 +1649,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             if _template_group_by_id(group_id) is None:
                 raise HTTPException(status_code=400, detail=f"Неизвестная группа правил: {group_id}")
             mode = item.action_mode.strip().lower()
-            if mode not in {"ai", "template", "manual", "ignore"}:
+            if mode in {"ai", "ignore"}:
+                mode = "manual"
+            if mode not in {"template", "manual"}:
                 raise HTTPException(status_code=400, detail=f"Некорректный режим правила: {mode}")
             normalized_rules.append(
                 {
