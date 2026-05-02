@@ -2015,4 +2015,37 @@ button.secondary.danger:hover {
   .main > section > .section-title {
     display: none;
   }
+
+  /* Keep settings layout strictly within viewport width on mobile */
+  #section-settings {
+    min-width: 0;
+    overflow-x: hidden;
+  }
+
+  #section-settings > .panel,
+  #section-settings .panel,
+  #section-settings .row,
+  #section-settings .sync-start-settings,
+  #section-settings .source-form,
+  #section-settings .settings-mobile-tab-switch {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  #section-settings .settings-mobile-tab-switch select,
+  #section-settings input,
+  #section-settings select,
+  #section-settings textarea,
+  #section-settings button {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  #section-settings .table-wrap {
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    padding: 0;
+  }
 }
