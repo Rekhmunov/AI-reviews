@@ -1355,10 +1355,6 @@ button.secondary.danger:hover {
   width: 100%;
 }
 
-.processing-rule-toggle-row {
-  justify-content: space-between;
-}
-
 #recommendationsTbody input[type="text"] {
   width: 100%;
 }

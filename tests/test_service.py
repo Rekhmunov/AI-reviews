@@ -155,18 +155,17 @@ class ReviewAutomationServiceTests(unittest.TestCase):
         self.assertEqual(updated_review["operator_name"], "operator-1")
 
     def test_auto_reply_marks_review(self) -> None:
-        self.repository.upsert_template(
-            user_id=int(self.user["id"]),
-            category="positive",
-            mode="auto",
-            template_text="Спасибо, {author}! Рады, что товар понравился.",
-            is_enabled=True,
-        )
         self.repository.upsert_processing_rule(
             user_id=int(self.user["id"]),
             group_id="positive",
             action_mode="template",
             auto_send=True,
+        )
+        self.repository.replace_subgroup_templates(
+            user_id=int(self.user["id"]),
+            group_id="positive",
+            subgroup="Общий позитив",
+            templates=["Спасибо, {author}! Рады, что товар понравился."],
         )
         self.service.sync_reviews(
             user_id=int(self.user["id"]),
@@ -182,13 +181,6 @@ class ReviewAutomationServiceTests(unittest.TestCase):
         self.assertIn("Спасибо", reply)
 
     def test_manual_template_routes_negative_to_operator(self) -> None:
-        self.repository.upsert_template(
-            user_id=int(self.user["id"]),
-            category="delivery_problems",
-            mode="manual",
-            template_text="",
-            is_enabled=True,
-        )
         self.repository.upsert_processing_rule(
             user_id=int(self.user["id"]),
             group_id="delivery_problems",
@@ -203,6 +195,29 @@ class ReviewAutomationServiceTests(unittest.TestCase):
         )
         negative = self.repository.list_reviews(user_id=int(self.user["id"]), category="delivery_problems", limit=1)[0]
         self.assertEqual(negative["status"], "queued_for_operator")
+
+    def test_template_mode_without_matching_template_falls_back_to_new_reviews(self) -> None:
+        self.repository.upsert_processing_rule(
+            user_id=int(self.user["id"]),
+            group_id="delivery_problems",
+            action_mode="template",
+            auto_send=True,
+        )
+        self.repository.replace_subgroup_templates(
+            user_id=int(self.user["id"]),
+            group_id="delivery_problems",
+            subgroup="Долгая доставка",
+            templates=[],
+        )
+        self.service.sync_reviews(
+            user_id=int(self.user["id"]),
+            source="test-market",
+            account_id=None,
+            client=_StubClient(),
+        )
+        negative = self.repository.list_reviews(user_id=int(self.user["id"]), category="delivery_problems", limit=1)[0]
+        self.assertEqual(negative["status"], "queued_for_operator")
+        self.assertFalse(bool(negative.get("auto_reply")))
 
     def test_sync_all_accounts_collects_errors_and_logs(self) -> None:
         self.repository.create_marketplace_account(
@@ -292,27 +307,11 @@ class ReviewAutomationServiceTests(unittest.TestCase):
         self.assertFalse(reply.startswith(","))
         self.assertNotIn(",!", reply)
 
-    def test_ignore_rule_requires_auto_send_to_mark_processed(self) -> None:
+    def test_manual_mode_queues_new_review(self) -> None:
         self.repository.upsert_processing_rule(
             user_id=int(self.user["id"]),
             group_id="positive",
-            action_mode="ignore",
-            auto_send=True,
-        )
-        self.service.sync_reviews(
-            user_id=int(self.user["id"]),
-            source="test-market",
-            account_id=None,
-            client=_PositiveDeliveryClient(),
-        )
-        review = self.repository.list_reviews(user_id=int(self.user["id"]), limit=1)[0]
-        self.assertEqual(review["status"], "ignored")
-
-        self.repository.clear_reviews(user_id=int(self.user["id"]))
-        self.repository.upsert_processing_rule(
-            user_id=int(self.user["id"]),
-            group_id="positive",
-            action_mode="ignore",
+            action_mode="manual",
             auto_send=False,
         )
         self.service.sync_reviews(

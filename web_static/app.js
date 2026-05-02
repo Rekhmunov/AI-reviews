@@ -756,13 +756,6 @@ function renderProcessingRules() {
         <option value="template" ${item.action_mode === "template" ? "selected" : ""}>Ответ по шаблону</option>
         <option value="manual" ${item.action_mode === "manual" ? "selected" : ""}>Ручной ответ</option>
       </select>
-      <div class="row processing-rule-toggle-row">
-        <span>Автоотправка</span>
-        <label class="switch">
-          <input type="checkbox" data-group-id="${esc(item.group_id)}" ${item.auto_send ? "checked" : ""} onchange="onRuleAutoSendChange(this)" />
-          <span class="slider"></span>
-        </label>
-      </div>
     `;
     container.appendChild(card);
   }
@@ -776,13 +769,6 @@ function onRuleModeChange(selectElement) {
   item.action_mode = mode;
 }
 
-function onRuleAutoSendChange(inputElement) {
-  const groupId = inputElement.getAttribute("data-group-id") || "";
-  const item = processingRulesState.items.find((rule) => rule.group_id === groupId);
-  if (!item) return;
-  item.auto_send = Boolean(inputElement.checked);
-}
-
 async function applyProcessingRules() {
   const info = document.getElementById("processingRulesInfo");
   const applyBtn = document.getElementById("processingRulesApplyBtn");
@@ -794,7 +780,7 @@ async function applyProcessingRules() {
     rules: processingRulesState.items.map((item) => ({
       group_id: item.group_id,
       action_mode: item.action_mode,
-      auto_send: Boolean(item.auto_send),
+      auto_send: item.action_mode === "template",
     })),
   };
   try {

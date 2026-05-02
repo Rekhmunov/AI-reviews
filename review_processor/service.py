@@ -647,10 +647,7 @@ class ReviewAutomationService:
             rule = self.repository.get_processing_rule(user_id=user_id, group_id=group_id) if group_id else None
             mode, auto_send, template_text = self._resolve_processing_mode(processed, template, rule)
 
-            if mode == "ignore":
-                status = "ignored" if auto_send else "queued_for_operator"
-                auto_reply = None
-            elif mode in {"auto", "ai"} and auto_send:
+            if mode == "template":
                 group_template = self._pick_group_template_text(
                     user_id=user_id,
                     category=category,
@@ -658,16 +655,46 @@ class ReviewAutomationService:
                     sentiment=processed.sentiment_label,
                     preferred_subgroup=classified_subgroup,
                 )
+                selected_template = str(group_template or template_text or "").strip()
+                if not selected_template:
+                    status = "queued_for_operator"
+                    auto_reply = None
+                    self.repository.log_review_action(
+                        user_id=user_id,
+                        review_uid=self.repository.make_review_uid(user_id, source, account_id, review.review_id),
+                        action_type="send_reply_error",
+                        actor="system",
+                        details={"source": source, "error": "Не найден шаблон для автоматического ответа"},
+                    )
+                    self.repository.upsert_processed_review(
+                        user_id=user_id,
+                        source=source,
+                        account_id=account_id,
+                        review=review_for_processing,
+                        processed=processed,
+                        category=category,
+                        processing_mode=mode,
+                        status=status,
+                        auto_reply=auto_reply,
+                    )
+                    review_uid = self.repository.make_review_uid(user_id, source, account_id, review_for_processing.review_id)
+                    self.repository.log_review_action(
+                        user_id=user_id,
+                        review_uid=review_uid,
+                        action_type="sync_review",
+                        actor="system",
+                        details={
+                            "category": category,
+                            "group_id": group_id,
+                            "status": status,
+                            "action_mode": mode,
+                            "auto_send": auto_send,
+                            "source": source,
+                        },
+                    )
+                    continue
                 auto_reply = self._render_template(
-                    group_template
-                    or template_text
-                    or self._build_auto_reply(
-                        {
-                            "sentiment_label": processed.sentiment_label,
-                            "priority": processed.priority,
-                            "is_spam": processed.is_spam,
-                        }
-                    ),
+                    selected_template,
                     user_id=user_id,
                     review=review_for_processing,
                     category=category,
@@ -992,11 +1019,31 @@ class ReviewAutomationService:
                 sentiment=sentiment,
             )
             rule = self.repository.get_processing_rule(user_id=user_id, group_id=group_id) if group_id else None
-            mode = str(rule.get("action_mode") or "manual") if rule else "manual"
-            auto_send = bool(rule.get("auto_send")) if rule else False
-
-            if mode == "ignore":
-                if not auto_send:
+            mode, auto_send, _template_text = self._resolve_processing_mode(processed, None, rule)
+            if mode == "template":
+                group_template = self._pick_group_template_text(
+                    user_id=user_id,
+                    category=category,
+                    review=review,
+                    sentiment=sentiment,
+                )
+                template = self.repository.get_template(user_id=user_id, category=category)
+                template_text = ""
+                if template and bool(template.get("is_enabled")):
+                    template_text = str(template.get("template_text") or "").strip()
+                selected_template = str(group_template or template_text).strip()
+                if not selected_template:
+                    self.repository.log_review_action(
+                        user_id=user_id,
+                        review_uid=review_uid,
+                        action_type="send_reply_error",
+                        actor="system",
+                        details={
+                            "source": str(row.get("source") or ""),
+                            "account_id": int(row["account_id"]) if row.get("account_id") is not None else None,
+                            "error": "Не найден шаблон для автоматического ответа",
+                        },
+                    )
                     if self.repository.update_review_processing_result(
                         user_id=user_id,
                         review_uid=review_uid,
@@ -1006,32 +1053,8 @@ class ReviewAutomationService:
                         queued += 1
                         updated += 1
                     continue
-                if self.repository.update_review_processing_result(
-                    user_id=user_id,
-                    review_uid=review_uid,
-                    status="ignored",
-                    auto_reply=None,
-                ):
-                    ignored += 1
-                    updated += 1
-                continue
-
-            if mode in {"auto", "template", "ai"} and auto_send:
-                group_template = self._pick_group_template_text(
-                    user_id=user_id,
-                    category=category,
-                    review=review,
-                    sentiment=sentiment,
-                )
-                fallback = self._build_auto_reply(
-                    {
-                        "sentiment_label": sentiment,
-                        "priority": str(row.get("priority") or ""),
-                        "is_spam": bool(row.get("is_spam")),
-                    }
-                )
                 reply = self._render_template(
-                    group_template or fallback,
+                    selected_template,
                     user_id=user_id,
                     review=review,
                     category=category,
@@ -1951,16 +1974,18 @@ class ReviewAutomationService:
     ) -> tuple[str, bool, str]:
         if rule:
             mode = str(rule.get("action_mode") or "manual").strip().lower()
-            auto_send = bool(rule.get("auto_send"))
-            if mode in {"ai", "auto", "template", "manual", "ignore"}:
-                normalized_mode = "auto" if mode == "template" else mode
-                return normalized_mode, auto_send, ""
+            if mode in {"ai", "auto", "template", "ignore"}:
+                return "template", True, ""
+            if mode == "manual":
+                return "manual", False, ""
         if template:
             mode = str(template.get("mode") or "manual")
             text = str(template.get("template_text") or "")
             is_enabled = bool(template.get("is_enabled"))
-            if is_enabled and mode in {"auto", "manual", "ignore"}:
-                return mode, mode == "auto", text
+            if is_enabled and mode in {"auto", "template", "ignore"}:
+                return "template", True, text
+            if is_enabled and mode == "manual":
+                return "manual", False, text
         # По умолчанию система не выполняет автообработку, пока правило не включено.
         return "manual", False, ""
 
