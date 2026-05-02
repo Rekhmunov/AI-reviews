@@ -1964,6 +1964,25 @@ button.secondary.danger:hover {
     padding-top: 16px;
   }
 
+  .layout > .sidebar .sidebar-main,
+  .layout > .sidebar .sidebar-bottom {
+    display: block;
+  }
+
+  .layout > .sidebar .sidebar-bottom {
+    margin-top: 12px;
+    padding-top: 12px;
+  }
+
+  .layout > .sidebar .meta {
+    margin-bottom: 14px;
+  }
+
+  .layout > .sidebar .navbtn {
+    width: 100%;
+    margin-bottom: 9px;
+  }
+
   .layout > .sidebar.open {
     transform: translateX(0);
   }
