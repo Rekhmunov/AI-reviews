@@ -95,6 +95,10 @@ const defaultTemplatesState = {
   currentSubgroup: "",
   currentTemplates: [],
 };
+const defaultTemplateBulkState = {
+  groupId: "",
+  subgroup: "",
+};
 const templateVariablesState = {
   items: [],
   editKey: null,
@@ -1016,6 +1020,159 @@ function setDefaultTemplatesInfo(message, isError = false) {
   info.style.color = isError ? "#b91c1c" : "";
 }
 
+function setDefaultTemplateBulkInfo(message, isError = false) {
+  const info = document.getElementById("defaultTemplateBulkInfo");
+  if (!info) return;
+  info.textContent = message || "";
+  info.style.color = isError ? "#b91c1c" : "";
+}
+
+function _defaultTemplateGroupOptions() {
+  return (defaultTemplatesState.items || [])
+    .map((group) => ({
+      id: String(group?.id || "").trim(),
+      title: String(group?.title || "").trim(),
+      subgroups: Array.isArray(group?.subgroups) ? group.subgroups : [],
+    }))
+    .filter((group) => group.id);
+}
+
+function _selectedBulkGroup() {
+  return _defaultTemplateGroupOptions().find((group) => group.id === defaultTemplateBulkState.groupId) || null;
+}
+
+function _selectedBulkSubgroupExists(group, subgroupName) {
+  if (!group || !Array.isArray(group.subgroups)) return false;
+  const target = String(subgroupName || "").trim();
+  if (!target) return false;
+  return group.subgroups.some((item) => String(item?.name || "").trim() === target);
+}
+
+function renderDefaultTemplateBulkSelectors() {
+  const groupSelect = document.getElementById("defaultTemplateBulkGroup");
+  const subgroupSelect = document.getElementById("defaultTemplateBulkSubgroup");
+  if (!groupSelect || !subgroupSelect) return;
+
+  const groups = _defaultTemplateGroupOptions();
+  groupSelect.innerHTML = "";
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = "Выберите группу";
+  groupSelect.appendChild(placeholder);
+  for (const group of groups) {
+    const option = document.createElement("option");
+    option.value = group.id;
+    option.textContent = group.title || group.id;
+    groupSelect.appendChild(option);
+  }
+  if (!groups.some((group) => group.id === defaultTemplateBulkState.groupId)) {
+    defaultTemplateBulkState.groupId = "";
+  }
+  groupSelect.value = defaultTemplateBulkState.groupId;
+
+  const selectedGroup = _selectedBulkGroup();
+  const subgroupItems = selectedGroup ? selectedGroup.subgroups : [];
+  if (!selectedGroup || !_selectedBulkSubgroupExists(selectedGroup, defaultTemplateBulkState.subgroup)) {
+    defaultTemplateBulkState.subgroup = "";
+  }
+
+  subgroupSelect.innerHTML = "";
+  const subgroupPlaceholder = document.createElement("option");
+  subgroupPlaceholder.value = "";
+  subgroupPlaceholder.textContent = selectedGroup ? "Выберите подгруппу" : "Сначала выберите группу";
+  subgroupSelect.appendChild(subgroupPlaceholder);
+  for (const item of subgroupItems) {
+    const subgroupName = String(item?.name || "").trim();
+    if (!subgroupName) continue;
+    const option = document.createElement("option");
+    option.value = subgroupName;
+    option.textContent = subgroupName;
+    subgroupSelect.appendChild(option);
+  }
+  subgroupSelect.disabled = !selectedGroup;
+  subgroupSelect.value = defaultTemplateBulkState.subgroup;
+}
+
+function openDefaultTemplateBulkModal() {
+  const modal = document.getElementById("defaultTemplateBulkModal");
+  if (!modal) return;
+  setDefaultTemplateBulkInfo("");
+  const textarea = document.getElementById("defaultTemplateBulkText");
+  if (textarea) textarea.value = "";
+  renderDefaultTemplateBulkSelectors();
+  modal.classList.remove("hidden");
+}
+
+function closeDefaultTemplateBulkModal() {
+  const modal = document.getElementById("defaultTemplateBulkModal");
+  if (!modal) return;
+  modal.classList.add("hidden");
+}
+
+function onDefaultTemplateBulkGroupChange(value) {
+  defaultTemplateBulkState.groupId = String(value || "").trim();
+  defaultTemplateBulkState.subgroup = "";
+  renderDefaultTemplateBulkSelectors();
+}
+
+function onDefaultTemplateBulkSubgroupChange(value) {
+  defaultTemplateBulkState.subgroup = String(value || "").trim();
+}
+
+function _parseBulkTemplates(rawText) {
+  const text = String(rawText || "").replaceAll("\r\n", "\n").trim();
+  if (!text) return [];
+  const chunks = text
+    .split(/\n\s*---\s*\n/g)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const unique = [];
+  const seen = new Set();
+  for (const item of chunks) {
+    if (seen.has(item)) continue;
+    seen.add(item);
+    unique.push(item);
+  }
+  return unique;
+}
+
+async function submitDefaultTemplateBulk() {
+  const groupId = String(defaultTemplateBulkState.groupId || "").trim();
+  const subgroup = String(defaultTemplateBulkState.subgroup || "").trim();
+  const textarea = document.getElementById("defaultTemplateBulkText");
+  if (!groupId) {
+    setDefaultTemplateBulkInfo("Выберите группу.", true);
+    return;
+  }
+  if (!subgroup) {
+    setDefaultTemplateBulkInfo("Выберите подгруппу.", true);
+    return;
+  }
+  const templates = _parseBulkTemplates(textarea?.value || "");
+  if (!templates.length) {
+    setDefaultTemplateBulkInfo("Введите хотя бы один шаблон. Разделяйте шаблоны строкой ---", true);
+    return;
+  }
+  const res = await fetch("/api/super-admin/default-template-subgroup/bulk-import", {
+    method: "POST",
+    headers: csrfHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ group_id: groupId, subgroup, templates }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    setDefaultTemplateBulkInfo(data.detail || "Не удалось выполнить экспорт.", true);
+    return;
+  }
+  setDefaultTemplateBulkInfo(`Экспорт завершен: добавлено ${Number(data.added || templates.length)} шаблон(ов).`);
+  await loadDefaultTemplateGroups();
+  if (
+    defaultTemplatesState.currentGroupId === groupId &&
+    defaultTemplatesState.currentSubgroup === subgroup
+  ) {
+    await openDefaultTemplateSubgroup(groupId, subgroup, defaultTemplatesState.currentGroupTitle || "");
+  }
+}
+
 function setTemplateVariablesInfo(message, isError = false) {
   const info = document.getElementById("templateVariablesInfo");
   if (!info) return;
@@ -1414,6 +1571,7 @@ async function loadDefaultTemplateGroups() {
   }
   defaultTemplatesState.items = data.items || [];
   renderDefaultTemplateGroups();
+  renderDefaultTemplateBulkSelectors();
 }
 
 async function loadSuperAdminDefaultTemplateGroups() {

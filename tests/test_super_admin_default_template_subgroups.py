@@ -87,6 +87,36 @@ class SuperAdminDefaultTemplateSubgroupsTests(unittest.TestCase):
         self.assertIsNotNone(new_row)
         self.assertEqual(str((new_row or {}).get("subgroup_id") or ""), original_subgroup_id)
 
+    def test_bulk_add_default_template_variants_deduplicates(self) -> None:
+        added = self.repository.add_default_template_variants_bulk(
+            group_id="positive",
+            subgroup="Массовая загрузка",
+            templates=[
+                "Шаблон А",
+                "Шаблон Б",
+                "Шаблон А",
+                "   ",
+            ],
+        )
+        self.assertEqual(added, 2)
+
+        listed = self.repository.list_default_template_variants(
+            group_id="positive",
+            subgroup="Массовая загрузка",
+        )
+        texts = [str(item.get("template_text") or "") for item in listed]
+        self.assertEqual(sorted(texts), ["Шаблон А", "Шаблон Б"])
+
+        added_again = self.repository.add_default_template_variants_bulk(
+            group_id="positive",
+            subgroup="Массовая загрузка",
+            templates=[
+                "Шаблон Б",
+                "Шаблон В",
+            ],
+        )
+        self.assertEqual(added_again, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

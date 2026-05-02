@@ -2934,6 +2934,48 @@ class ReviewRepository:
             raise RuntimeError("Default template variant creation failed")
         return self._row_to_dict(row)
 
+    def add_default_template_variants_bulk(self, *, group_id: str, subgroup: str, templates: list[str]) -> int:
+        clean_unique: list[str] = []
+        seen: set[str] = set()
+        for item in templates:
+            text = str(item or "").strip()
+            if not text or text in seen:
+                continue
+            seen.add(text)
+            clean_unique.append(text)
+        if not clean_unique:
+            return 0
+        now = _utc_now()
+        inserted = 0
+        self.ensure_default_template_subgroups([{"group_id": group_id, "subgroup": subgroup}])
+        with self._connect() as conn:
+            for text in clean_unique:
+                result = conn.execute(
+                    """
+                    INSERT INTO default_template_variants (
+                        group_id, subgroup, template_text, is_active, created_at, updated_at
+                    )
+                    SELECT ?, ?, ?, ?, ?, ?
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM default_template_variants
+                        WHERE group_id = ? AND subgroup = ? AND template_text = ?
+                    )
+                    """,
+                    (
+                        group_id,
+                        subgroup,
+                        text,
+                        self._bool_db(True),
+                        now,
+                        now,
+                        group_id,
+                        subgroup,
+                        text,
+                    ),
+                )
+                inserted += int(result.rowcount or 0)
+        return inserted
+
     def delete_default_template_variant(self, *, template_id: int) -> bool:
         with self._connect() as conn:
             result = conn.execute(

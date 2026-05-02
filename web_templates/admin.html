@@ -118,6 +118,9 @@
 
     <div id="superAdminDefaultTemplatesPanel" class="panel hidden">
       <h3>Шаблоны по умолчанию для всех новых пользователей</h3>
+      <div class="row">
+        <button id="defaultTemplateBulkExportBtn" class="secondary" type="button" onclick="openDefaultTemplateBulkModal()">Экспорт</button>
+      </div>
       <div class="row default-templates-workspace">
         <div id="defaultTemplateGroupsView">
           <div id="defaultTemplateGroupsAccordion" class="template-groups-accordion"></div>
@@ -279,6 +282,27 @@
     </div>
   </div>
 
-  <script src="/static/admin.js?v=16"></script>
+  <div id="defaultTemplateBulkModal" class="modal-overlay hidden">
+    <div class="modal-card default-template-bulk-modal-card">
+      <div class="row row-between">
+        <h4 class="no-margin">Массовое добавление шаблонов</h4>
+        <button class="secondary" type="button" onclick="closeDefaultTemplateBulkModal()">Закрыть</button>
+      </div>
+      <p class="small">Выберите группу и подгруппу, затем вставьте список шаблонов. Разделяйте шаблоны строкой <code>---</code> (только на отдельной строке).</p>
+      <div class="row">
+        <select id="defaultTemplateBulkGroup" onchange="onDefaultTemplateBulkGroupChange(this.value)"></select>
+        <select id="defaultTemplateBulkSubgroup" onchange="onDefaultTemplateBulkSubgroupChange(this.value)"></select>
+      </div>
+      <div class="row">
+        <textarea id="defaultTemplateBulkText" placeholder="Шаблон 1&#10;---&#10;Шаблон 2&#10;---&#10;Шаблон 3"></textarea>
+      </div>
+      <div class="row">
+        <button type="button" onclick="submitDefaultTemplateBulk()">Добавить шаблоны</button>
+        <span id="defaultTemplateBulkInfo" class="small"></span>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/admin.js?v=17"></script>
 </body>
 </html>

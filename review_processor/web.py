@@ -481,6 +481,12 @@ class DefaultTemplateSubgroupRenameRequest(BaseModel):
     new_subgroup: str = Field(min_length=1, max_length=255)
 
 
+class DefaultTemplateBulkImportRequest(BaseModel):
+    group_id: str = Field(min_length=2, max_length=100)
+    subgroup: str = Field(min_length=1, max_length=255)
+    templates: list[str] = Field(default_factory=list)
+
+
 class ProcessingRuleItemRequest(BaseModel):
     group_id: str = Field(min_length=2, max_length=100)
     action_mode: str = Field(description="template|manual")
@@ -2595,6 +2601,27 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             template_text=payload.template_text,
         )
         return {"ok": True, "item": item}
+
+    @app.post("/api/super-admin/default-template-subgroup/bulk-import")
+    def super_admin_bulk_import_default_template_subgroup_items(
+        payload: DefaultTemplateBulkImportRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        _require_super_admin(request)
+        group_id = payload.group_id.strip()
+        subgroup = payload.subgroup.strip()
+        if not _validate_subgroup(group_id, subgroup):
+            raise HTTPException(status_code=404, detail="Группа шаблонов или подгруппа не найдена")
+        templates = [str(item or "").strip() for item in payload.templates]
+        clean_templates = [item for item in templates if item]
+        if not clean_templates:
+            raise HTTPException(status_code=400, detail="Передайте хотя бы один непустой шаблон")
+        added = repository.add_default_template_variants_bulk(
+            group_id=group_id,
+            subgroup=subgroup,
+            templates=clean_templates,
+        )
+        return {"ok": True, "added": int(added), "group_id": group_id, "subgroup": subgroup}
 
     @app.delete("/api/super-admin/default-template-subgroup/item/{template_id}")
     def super_admin_delete_default_template_subgroup_item(template_id: int, request: Request) -> dict[str, object]:

@@ -1096,9 +1096,19 @@ button.secondary.danger:hover {
   width: min(860px, 96vw);
 }
 
+.default-template-bulk-modal-card {
+  width: min(900px, 96vw);
+}
+
 .ai-test-review-modal-card textarea {
   width: 100%;
   min-height: 140px;
+  min-width: 0;
+}
+
+.default-template-bulk-modal-card textarea {
+  width: 100%;
+  min-height: 180px;
   min-width: 0;
 }
 
