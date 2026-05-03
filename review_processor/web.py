@@ -1885,24 +1885,40 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if account is None:
             raise HTTPException(status_code=404, detail="Кабинет маркетплейса не найден")
         marketplace = str(account["marketplace"])
+        client = service._build_client(account)
+        account_id_val = int(account["id"])
+        loaded = 0
+        loaded_conversations = 0
+        errors: list[str] = []
         try:
-            client = service._build_client(account)
             loaded = service.sync_reviews(
                 user_id=user_id,
                 source=marketplace,
-                account_id=int(account["id"]),
+                account_id=account_id_val,
                 client=client,
                 since_date=since_date or None,
             )
+        except MarketplaceSyncError as exc:
+            if not service._is_access_error(exc):
+                raise HTTPException(status_code=502, detail=f"Ошибка синхронизации отзывов: {exc}") from exc
+            errors.append(str(exc))
+        try:
             loaded_conversations = service.sync_conversations(
                 user_id=user_id,
                 source=marketplace,
-                account_id=int(account["id"]),
+                account_id=account_id_val,
                 client=client,
             )
         except MarketplaceSyncError as exc:
-            raise HTTPException(status_code=502, detail=f"Ошибка синхронизации: {exc}") from exc
-        return {"accounts": 1, "loaded": loaded, "loaded_conversations": loaded_conversations}
+            if not service._is_access_error(exc):
+                raise HTTPException(status_code=502, detail=f"Ошибка синхронизации диалогов: {exc}") from exc
+            errors.append(str(exc))
+        return {
+            "accounts": 1,
+            "loaded": loaded,
+            "loaded_conversations": loaded_conversations,
+            "errors": errors,
+        }
 
     @app.post("/api/sync/capabilities")
     def sync_capabilities(request: Request, payload: SyncCapabilitiesRequest) -> dict[str, object]:

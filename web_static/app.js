@@ -3172,10 +3172,13 @@ document.addEventListener("DOMContentLoaded", () => {
   setDefaultQuestionsDateRange(false);
   updateReviewsDateFilterButton();
   updateQuestionsDateFilterButton();
+  updateChatsDateFilterButton();
   document.getElementById("reviewsDateFrom")?.addEventListener("change", onReviewsDateInputChange);
   document.getElementById("reviewsDateTo")?.addEventListener("change", onReviewsDateInputChange);
   document.getElementById("questionsDateFrom")?.addEventListener("change", onQuestionsDateInputChange);
   document.getElementById("questionsDateTo")?.addEventListener("change", onQuestionsDateInputChange);
+  document.getElementById("chatsDateFrom")?.addEventListener("change", onChatsDateInputChange);
+  document.getElementById("chatsDateTo")?.addEventListener("change", onChatsDateInputChange);
   document.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
