@@ -388,7 +388,16 @@ class WildberriesMarketplaceClient:
         *,
         since_date: str | None = None,
         stop_requested: Callable[[], bool] | None = None,
+        enrich_with_events: bool = False,
     ) -> list[dict[str, object]]:
+        """Fetch the list of seller chats.
+
+        When ``enrich_with_events=True`` (used only during full sync, not during
+        capability probes) the events endpoint is also queried to determine the
+        last-message sender per chat, which drives the answered/needs-reply
+        bucket logic.  This extra step paginates events with a 1.1 s inter-page
+        sleep and should NOT be triggered during quick capability checks.
+        """
         if not self.chats_path:
             return []
         chats = self._fetch_conversation_endpoint(
@@ -397,7 +406,7 @@ class WildberriesMarketplaceClient:
             base_url=self.chats_api_url or self.api_url,
             stop_requested=stop_requested,
         )
-        if not chats:
+        if not chats or not enrich_with_events:
             return chats
         # Enrich each chat with last-sender info from the events endpoint so we
         # can correctly classify chats as "needs reply" vs "answered".
@@ -469,12 +478,15 @@ class WildberriesMarketplaceClient:
         cursor: str | None = None
         max_pages = 500
         page = 0
+        # WB Buyer Chat API rate limit: 10 req / 10 s.
+        # Use a token-bucket approach: after every 9 requests sleep 10 s to
+        # stay within the 10-per-10s window.  This gives ~0.9 req/s average
+        # while allowing a burst of up to 9 requests without waiting.
+        _CHAT_API_BURST = 9
         while page < max_pages:
             _raise_if_stop_requested(stop_requested, source="wb")
-            # WB Buyer Chat API rate limit: 10 req / 10 s (= 1 req/s).
-            # Sleep 1.1 s between pages to stay safely within the limit.
-            if page > 0:
-                time.sleep(1.1)
+            if page > 0 and page % _CHAT_API_BURST == 0:
+                time.sleep(10.5)
             url = endpoint if cursor is None else f"{endpoint}?next={cursor}"
             request = Request(url, method="GET", headers={"Authorization": self.api_key})
             try:
@@ -1257,7 +1269,11 @@ class ReviewAutomationService:
 
         try:
             try:
-                rows = fetch_chats(since_date=since_date, stop_requested=stop_requested)
+                rows = fetch_chats(
+                    since_date=since_date,
+                    stop_requested=stop_requested,
+                    enrich_with_events=True,
+                )
             except TypeError:
                 rows = fetch_chats()
         except MarketplaceSyncError as exc:
