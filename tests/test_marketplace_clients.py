@@ -141,6 +141,8 @@ class MarketplaceClientsTests(unittest.TestCase):
                 path: str,
                 kind: str,
                 base_url: str | None = None,
+                since_date: str | None = None,
+                single_request: bool = False,
                 stop_requested: object = None,
             ) -> list[dict[str, object]]:
                 _ = path, kind, base_url, stop_requested

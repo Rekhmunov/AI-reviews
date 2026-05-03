@@ -435,10 +435,13 @@ class WildberriesMarketplaceClient:
         """
         if not self.chats_path:
             return []
+        # WB buyer-chat list returns ALL chats in a single request —
+        # no pagination params (skip/take/isAnswered/dateFrom) are supported.
         chats = self._fetch_conversation_endpoint(
             path=self.chats_path,
             kind="chat",
             base_url=self.chats_api_url or self.api_url,
+            single_request=True,
             stop_requested=stop_requested,
         )
         if not chats or not enrich_with_events:
@@ -452,6 +455,11 @@ class WildberriesMarketplaceClient:
                 since_date=since_date,
                 stop_requested=stop_requested,
             )
+        except MarketplaceSyncError as exc:
+            # Propagate cancellation so the whole sync stops cleanly.
+            if bool(exc.details.get("cancelled")):
+                raise
+            sender_map = {}
         except Exception:
             sender_map = {}
         if sender_map:
@@ -575,17 +583,48 @@ class WildberriesMarketplaceClient:
         kind: str,
         base_url: str | None = None,
         since_date: str | None = None,
+        single_request: bool = False,
         stop_requested: Callable[[], bool] | None = None,
     ) -> list[dict[str, object]]:
-        """Fetch a paginated WB conversation endpoint (questions or single-page chats list).
+        """Fetch a WB conversation endpoint.
 
-        WB Questions endpoint supports skip/take/dateFrom pagination with the same
-        params as the reviews endpoint.  Chats list returns all chats in one response
-        (WB Chat API does not support dateFrom on /api/v1/seller/chats).
-        Rate limit: WB Feedbacks/Questions API = 3 req/s → sleep 0.4 s between pages.
+        ``single_request=True``: one GET with no query params (used for the
+        WB buyer-chat list which returns all chats in one response and does not
+        support skip/take/isAnswered/dateFrom).
+
+        ``single_request=False`` (default): paginated loop with skip/take and
+        optional dateFrom — used for the WB questions endpoint.
+
+        Rate limit: WB Feedbacks/Questions API = 3 req/s → sleep 0.4 s between
+        pages for paginated mode.
         """
         conversation_keys = self.items_keys + ("questions", "chats", "dialogs", "messages", "result")
         result: list[dict[str, object]] = []
+
+        if single_request:
+            # One-shot fetch — no pagination, no extra query params.
+            _raise_if_stop_requested(stop_requested, source="wb")
+            endpoint = _compose_url(base_url or self.api_url, path)
+            request = Request(endpoint, method="GET", headers={"Authorization": self.api_key})
+            payload = _request_json(request=request, timeout=self.timeout, source="wb")
+            if not isinstance(payload, dict):
+                raise MarketplaceSyncError("wb", "Wildberries API returned non-object payload for conversations")
+            _raise_if_error_payload(payload, source="wb")
+            rows = _extract_sequence(payload, keys=conversation_keys)
+            if not rows:
+                for nested_key in ("data", "result", "response"):
+                    nested_value = payload.get(nested_key)
+                    if not isinstance(nested_value, Mapping | list):
+                        continue
+                    rows = _extract_sequence(nested_value, keys=conversation_keys)
+                    if rows:
+                        break
+            for item in rows:
+                mapped = self._to_conversation(item, kind=kind)
+                if mapped:
+                    result.append(mapped)
+            return result
+
         skip = 0
         page = 0
 
