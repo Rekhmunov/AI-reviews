@@ -377,6 +377,25 @@ class ReviewAutomationServiceTests(unittest.TestCase):
         self.assertEqual(getattr(client, "chats_path", None), "/api/v1/seller/chats")
         self.assertEqual(getattr(client, "chats_api_url", None), "https://buyer-chat-api.wildberries.ru")
 
+    def test_build_wb_client_migrates_legacy_chat_path(self) -> None:
+        account = self.repository.create_marketplace_account(
+            user_id=int(self.user["id"]),
+            marketplace="wb",
+            account_name="wb-legacy-chat-path",
+            api_url="https://feedbacks-api.wildberries.ru/api/v1/feedbacks",
+            api_key="token",
+            extra={"chats_path": "/api/v1/chats"},
+        )
+        full_account = self.repository.get_marketplace_account(
+            user_id=int(self.user["id"]),
+            account_id=int(account["id"]),
+            include_secrets=True,
+        )
+        self.assertIsNotNone(full_account)
+        client = self.service._build_client(full_account or {})
+        self.assertEqual(getattr(client, "chats_path", None), "/api/v1/seller/chats")
+        self.assertEqual(getattr(client, "chats_api_url", None), "https://buyer-chat-api.wildberries.ru")
+
     def test_template_placeholders_user_reco_brand(self) -> None:
         self.repository.replace_all_recommendations(
             user_id=int(self.user["id"]),

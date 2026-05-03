@@ -1521,6 +1521,20 @@ class ReviewAutomationService:
             )
         if marketplace == "wb":
             api_key = str(account.get("api_key") or "")
+            raw_wb_chats_path = str(extra.get("chats_path") or "").strip()
+            # Backward compatibility: older configs may persist legacy feedbacks path.
+            if raw_wb_chats_path in {"", "/api/v1/chats", "api/v1/chats"}:
+                wb_chats_path = "/api/v1/seller/chats"
+            else:
+                wb_chats_path = raw_wb_chats_path
+            raw_wb_chats_api_url = str(extra.get("chats_api_url") or "").strip()
+            if (
+                not raw_wb_chats_api_url
+                or "feedbacks-api.wildberries.ru" in raw_wb_chats_api_url.lower()
+            ):
+                wb_chats_api_url = "https://buyer-chat-api.wildberries.ru"
+            else:
+                wb_chats_api_url = raw_wb_chats_api_url
             return WildberriesMarketplaceClient(
                 api_url=str(account.get("api_url") or ""),
                 api_key=api_key,
@@ -1532,8 +1546,8 @@ class ReviewAutomationService:
                 page_size=_to_positive_int(extra.get("page_size"), default=100),
                 max_pages=_to_positive_int(extra.get("max_pages"), default=20),
                 questions_path=str(extra.get("questions_path") or "/api/v1/questions"),
-                chats_path=str(extra.get("chats_path") or "/api/v1/seller/chats"),
-                chats_api_url=str(extra.get("chats_api_url") or "https://buyer-chat-api.wildberries.ru"),
+                chats_path=wb_chats_path,
+                chats_api_url=wb_chats_api_url,
                 reply_path=str(extra.get("reply_path") or "/api/v1/feedbacks/answer"),
                 reply_method=str(extra.get("reply_method") or "POST"),
                 reply_review_id_field=str(extra.get("reply_review_id_field") or "id"),

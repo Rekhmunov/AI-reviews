@@ -986,6 +986,22 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             cleaned: dict[str, object] = {}
             for key, value in item.items():
                 cleaned[str(key)] = value
+            error_text = str(cleaned.get("error") or "").strip()
+            source = str(cleaned.get("source") or cleaned.get("marketplace") or "").strip().lower()
+            channel = str(cleaned.get("channel") or cleaned.get("scope") or "").strip().lower()
+            # Provide a concise readable text for admin logs/UI.
+            if source == "wb" and channel == "chats":
+                if "/api/v1/chats" in error_text and "path not found" in error_text.lower():
+                    cleaned["human_error"] = (
+                        "WB чаты: неверный endpoint /api/v1/chats. "
+                        "Нужно использовать buyer-chat-api + /api/v1/seller/chats."
+                    )
+            elif source == "wb" and channel in {"reviews", "questions"}:
+                lowered = error_text.lower()
+                if "token scope not allowed" in lowered or "unauthorized" in lowered or "403" in lowered or "401" in lowered:
+                    cleaned["human_error"] = (
+                        "WB токен не имеет прав для этого канала (scope ограничен)."
+                    )
             result.append(cleaned)
         return result
 

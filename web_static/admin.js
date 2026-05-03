@@ -31,7 +31,7 @@ const reviewStatusLabels = {
   ignored: "Игнор",
 };
 const actionTypeLabels = {
-  sync_error: "Ошибка синхронизации",
+  sync_error: "Ошибка синхронизации (подробно)",
   sync_review: "Синхронизация отзыва",
   sync_conversation: "Синхронизация диалога",
   queue_manual: "Перевод в ручную обработку",
@@ -52,6 +52,7 @@ const detailKeyLabels = {
   marketplace: "маркетплейс",
   reason: "причина",
   access_denied: "доступ запрещен",
+  human_error: "пояснение",
 };
 const categoryLabels = {
   positive: "Позитив",
