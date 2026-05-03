@@ -3450,6 +3450,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.post("/api/admin/sync-stop")
     def admin_stop_sync(request: Request) -> dict[str, object]:
         _require_super_admin(request)
+        was_running = False
+        was_polling = False
+        with sync_lock:
+            was_running = bool(sync_state.get("in_progress"))
+            was_polling = bool(sync_state.get("polling_enabled"))
         sync_stop_event.set()
         auto_sync_stop_event.set()
         with sync_lock:
@@ -3465,7 +3470,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 "message": "Синхронизация остановлена администратором",
                 "run_started_at": _now_iso(),
             }
-        return {"ok": True}
+        return {
+            "ok": True,
+            "was_running": bool(was_running or was_polling),
+            "already_stopped": not bool(was_running or was_polling),
+        }
 
     @app.on_event("shutdown")
     def stop_auto_sync_worker() -> None:

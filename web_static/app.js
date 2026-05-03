@@ -1301,6 +1301,13 @@ async function stopSyncAll() {
     return;
   }
   const syncInfo = document.getElementById("syncInfo");
+  const wasRunning = Boolean(data.was_running);
+  if (!wasRunning) {
+    if (syncInfo) syncInfo.textContent = "Синхронизация не была запущена.";
+    if (stopButton) stopButton.disabled = false;
+    stopSyncStatusPolling();
+    return;
+  }
   if (syncInfo) syncInfo.textContent = "Отправлена команда остановки. Проверяем статус...";
   scheduleSyncStatusPolling();
 }
