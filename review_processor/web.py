@@ -567,6 +567,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         "polling_started_at": None,
         "last_poll_at": None,
         "last_poll_result": None,
+        # Progress tracking (visible to all users via /api/sync/status)
+        "progress_step": "",
+        "progress_account": "",
+        "progress_channel": "",
+        "progress_loaded": 0,
+        "progress_total_accounts": 0,
+        "progress_current_account": 0,
     }
     auto_sync_stop_event = threading.Event()
     auto_sync_worker: dict[str, threading.Thread | None] = {"thread": None}
@@ -1065,6 +1072,26 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "all_channels_available": bool(probe.get("all_channels_available")),
         }
 
+    def _update_sync_progress(
+        *,
+        step: str = "",
+        account: str = "",
+        channel: str = "",
+        loaded: int = 0,
+        total_accounts: int = 0,
+        current_account: int = 0,
+    ) -> None:
+        with sync_lock:
+            sync_state["progress_step"] = step
+            sync_state["progress_account"] = account
+            sync_state["progress_channel"] = channel
+            if loaded:
+                sync_state["progress_loaded"] = int(sync_state.get("progress_loaded") or 0) + loaded
+            if total_accounts:
+                sync_state["progress_total_accounts"] = total_accounts
+            if current_account:
+                sync_state["progress_current_account"] = current_account
+
     def _run_sync_for_user(
         *,
         user_id: int,
@@ -1078,6 +1105,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             sync_state["in_progress"] = True
             sync_state["cancel_requested"] = False
             sync_state["last_started_at"] = run_started_at
+            sync_state["progress_step"] = "Подготовка..."
+            sync_state["progress_account"] = ""
+            sync_state["progress_channel"] = ""
+            sync_state["progress_loaded"] = 0
+            sync_state["progress_total_accounts"] = 0
+            sync_state["progress_current_account"] = 0
         sync_stop_event.clear()
         try:
             result = service.sync_all_accounts(
@@ -1085,12 +1118,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 since_date=since_date or None,
                 account_ids=account_ids,
                 stop_requested=sync_stop_event.is_set,
+                progress_callback=_update_sync_progress,
             )
             return result
         finally:
             with sync_lock:
                 sync_state["in_progress"] = False
                 sync_state["last_finished_at"] = _now_iso()
+                sync_state["progress_step"] = "Завершено"
             sync_stop_event.clear()
 
     def _start_auto_sync_worker_if_needed() -> None:
@@ -2001,6 +2036,24 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "any_syncable": any_syncable,
             "errors": aggregate_errors,
         }
+
+    @app.get("/api/sync/status")
+    def sync_status_public(request: Request) -> dict[str, object]:
+        """Public sync progress endpoint accessible to all logged-in users."""
+        _require_user(request)
+        with sync_lock:
+            return {
+                "in_progress": bool(sync_state.get("in_progress")),
+                "cancel_requested": bool(sync_state.get("cancel_requested")),
+                "last_started_at": sync_state.get("last_started_at"),
+                "last_finished_at": sync_state.get("last_finished_at"),
+                "step": str(sync_state.get("progress_step") or ""),
+                "account": str(sync_state.get("progress_account") or ""),
+                "channel": str(sync_state.get("progress_channel") or ""),
+                "loaded": int(sync_state.get("progress_loaded") or 0),
+                "total_accounts": int(sync_state.get("progress_total_accounts") or 0),
+                "current_account": int(sync_state.get("progress_current_account") or 0),
+            }
 
     @app.get("/api/accounts")
     def list_accounts(request: Request) -> dict[str, object]:

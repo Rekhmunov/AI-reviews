@@ -961,6 +961,38 @@ button.secondary.danger:hover {
   align-items: center;
 }
 
+.sync-progress-wrap {
+  margin: 6px 0 4px;
+}
+
+.sync-progress-track {
+  height: 6px;
+  background: #e5e7eb;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+
+.sync-progress-fill {
+  height: 100%;
+  width: 5%;
+  background: linear-gradient(90deg, #3b82f6, #6366f1);
+  border-radius: 4px;
+  transition: width 0.6s ease;
+  animation: sync-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes sync-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.sync-progress-text {
+  color: #6b7280;
+  font-size: 12px;
+  display: block;
+}
+
 .reviews-date-wrap {
   position: relative;
   z-index: 40;

@@ -1546,6 +1546,7 @@ class ReviewAutomationService:
         since_date: str | None = None,
         account_ids: list[int] | None = None,
         stop_requested: Callable[[], bool] | None = None,
+        progress_callback: Callable[..., None] | None = None,
     ) -> dict[str, object]:
         loaded_total = 0
         loaded_questions = 0
@@ -1586,7 +1587,17 @@ class ReviewAutomationService:
         requested_account_ids = sorted(account_ids_filter) if account_ids_filter is not None else list(selected_account_ids)
         skipped_accounts = max(len(requested_account_ids) - len(selected_account_ids), 0)
         since_value = str(since_date or "").strip() or None
-        for account in accounts:
+        total_accounts = len(accounts)
+        if progress_callback:
+            try:
+                progress_callback(
+                    step="Начало синхронизации",
+                    total_accounts=total_accounts,
+                    current_account=0,
+                )
+            except Exception:
+                pass
+        for account_idx, account in enumerate(accounts, start=1):
             if stop_requested and stop_requested():
                 was_cancelled = True
                 break
@@ -1599,15 +1610,37 @@ class ReviewAutomationService:
             )
             if current_account is None or not bool(current_account.get("is_active")):
                 continue
+            account_name = str(current_account.get("account_name") or f"#{account_id}")
+            if progress_callback:
+                try:
+                    progress_callback(
+                        step="Синхронизация кабинета",
+                        account=f"{account_name} ({marketplace.upper()})",
+                        channel="",
+                        current_account=account_idx,
+                        total_accounts=total_accounts,
+                    )
+                except Exception:
+                    pass
             try:
                 client = self._build_client(current_account)
+                channel_names = {"reviews": "Отзывы", "questions": "Вопросы", "chats": "Чаты"}
                 channel_outcomes: dict[str, dict[str, object]] = {}
                 for channel in ("reviews", "questions", "chats"):
                     if stop_requested and stop_requested():
                         was_cancelled = True
                         break
+                    if progress_callback:
+                        try:
+                            progress_callback(
+                                step="Загрузка данных",
+                                account=f"{account_name} ({marketplace.upper()})",
+                                channel=channel_names.get(channel, channel),
+                            )
+                        except Exception:
+                            pass
                     try:
-                        channel_outcomes[channel] = self._run_channel_sync(
+                        ch_result = self._run_channel_sync(
                             channel=channel,
                             user_id=user_id,
                             source=marketplace,
@@ -1616,6 +1649,14 @@ class ReviewAutomationService:
                             since_date=since_value,
                             stop_requested=stop_requested,
                         )
+                        channel_outcomes[channel] = ch_result
+                        if progress_callback:
+                            try:
+                                progress_callback(
+                                    loaded=int(ch_result.get("loaded") or 0),
+                                )
+                            except Exception:
+                                pass
                     except MarketplaceSyncError as exc:
                         if bool(exc.details.get("cancelled")):
                             was_cancelled = True
