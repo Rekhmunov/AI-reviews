@@ -2377,6 +2377,59 @@ async function loadAccounts() {
     tbody.appendChild(tr);
   }
   teamState.accounts = Array.isArray(data.items) ? data.items : [];
+
+  // Mobile card list
+  const mobileList = document.getElementById("accountsMobileList");
+  if (mobileList) {
+    mobileList.innerHTML = "";
+    for (const account of data.items || []) {
+      const rawApiKey = String(account.api_key || "").trim();
+      const apiKeyPreview = String(account.api_key_preview || "-");
+      const masked = rawApiKey ? smartMaskSecret(rawApiKey) : apiKeyPreview;
+      const mp = String(account.marketplace || "").toLowerCase();
+      const mpLabel = labelFromMap(marketplaceLabels, account.marketplace);
+      const isActive = Boolean(account.is_active);
+      const card = document.createElement("div");
+      card.className = "account-card";
+      card.innerHTML = `
+        <div class="account-card-header">
+          <span class="account-card-name">${esc(account.account_name)}</span>
+          <div style="display:flex;gap:5px;flex-shrink:0">
+            <span class="account-card-badge ${mp}">${esc(mpLabel)}</span>
+            <span class="account-card-badge ${isActive ? "active" : "inactive"}">${isActive ? "Активен" : "Отключён"}</span>
+          </div>
+        </div>
+        <div class="account-card-row">
+          <span class="account-card-label">API URL</span>
+          <span class="account-card-value">${esc(account.api_url)}</span>
+        </div>
+        ${(account.extra || {}).client_id ? `<div class="account-card-row"><span class="account-card-label">Client-Id</span><span class="account-card-value">${esc((account.extra || {}).client_id)}</span></div>` : ""}
+        <div class="account-card-row">
+          <span class="account-card-label">Ключ</span>
+          <div class="account-card-key-wrap">
+            <span style="word-break:break-all;flex:1">${esc(masked || "-")}</span>
+            ${rawApiKey ? `<button type="button" class="icon-btn mobile-copy-key-btn" title="Скопировать ключ" data-key="${esc(rawApiKey)}">📋</button>` : ""}
+          </div>
+        </div>
+        <div class="account-card-actions">
+          <button class="secondary" onclick="toggleAccount(${account.id}, ${isActive ? "false" : "true"})">${isActive ? "Отключить" : "Включить"}</button>
+          <button class="icon-btn danger" title="Удалить" onclick="deleteAccount(${account.id})">🗑 Удалить</button>
+        </div>
+      `;
+      const copyBtn = card.querySelector(".mobile-copy-key-btn");
+      if (copyBtn) {
+        copyBtn.addEventListener("click", async () => {
+          const key = copyBtn.getAttribute("data-key") || "";
+          const copied = await copyAccountApiKey(key);
+          if (copied) {
+            copyBtn.textContent = "✓";
+            window.setTimeout(() => { copyBtn.textContent = "📋"; }, 1500);
+          }
+        });
+      }
+      mobileList.appendChild(card);
+    }
+  }
 }
 
 async function loadUserSyncSettings() {
@@ -2586,10 +2639,16 @@ async function loadTeam() {
   const tbody = document.getElementById("teamTbody");
   if (!tbody) return;
   tbody.innerHTML = "";
+  const mobileList = document.getElementById("teamMobileList");
+  if (mobileList) mobileList.innerHTML = "";
+
   if (!teamState.items.length) {
     const tr = document.createElement("tr");
     tr.innerHTML = '<td colspan="6">Менеджеры пока не добавлены</td>';
     tbody.appendChild(tr);
+    if (mobileList) {
+      mobileList.innerHTML = '<p class="small" style="color:#9ca3af;margin:4px 0">Менеджеры пока не добавлены</p>';
+    }
   } else {
     for (const member of teamState.items) {
       const memberId = Number(member.id || 0);
@@ -2608,6 +2667,24 @@ async function loadTeam() {
         </td>
       `;
       tbody.appendChild(tr);
+
+      // Mobile card
+      if (mobileList) {
+        const card = document.createElement("div");
+        card.className = "team-card";
+        card.innerHTML = `
+          <div class="team-card-header">
+            <span class="team-card-email">${esc(member.email || "")}</span>
+            <span class="account-card-badge" style="background:rgba(99,102,241,0.12);color:#4338ca">${esc(roleLabels[member.role] || member.role || "-")}</span>
+          </div>
+          ${member.full_name ? `<div class="team-card-row">ФИО: <b>${esc(member.full_name)}</b></div>` : ""}
+          ${permsText ? `<div class="team-card-row small" style="white-space:pre-wrap">${esc(permsText)}</div>` : ""}
+          <div class="team-card-actions">
+            <button class="secondary danger" onclick="deleteTeamMember(${memberId})">🗑 Удалить</button>
+          </div>
+        `;
+        mobileList.appendChild(card);
+      }
     }
   }
   setTeamInfo(`Менеджеров в команде: ${teamState.items.length}`);

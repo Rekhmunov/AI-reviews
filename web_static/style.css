@@ -2359,3 +2359,264 @@ button.secondary.danger:hover {
     min-width: 560px;
   }
 }
+
+/* ─── Mobile card layout for Settings tables ─────────────────────────── */
+@media (max-width: 900px) {
+
+  /* ── Accounts (sources) pane ── */
+  .accounts-mobile-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 10px;
+  }
+
+  .account-card {
+    background: linear-gradient(160deg, rgba(248,251,255,0.97), rgba(236,245,255,0.9));
+    border: 1px solid rgba(147,197,253,0.42);
+    border-radius: 14px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .account-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .account-card-name {
+    font-weight: 700;
+    font-size: 15px;
+    color: #0f172a;
+  }
+
+  .account-card-badge {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 20px;
+    white-space: nowrap;
+  }
+
+  .account-card-badge.wb {
+    background: rgba(59,130,246,0.12);
+    color: #1d4ed8;
+  }
+
+  .account-card-badge.ozon {
+    background: rgba(16,185,129,0.12);
+    color: #065f46;
+  }
+
+  .account-card-badge.active {
+    background: rgba(16,185,129,0.12);
+    color: #065f46;
+  }
+
+  .account-card-badge.inactive {
+    background: rgba(239,68,68,0.1);
+    color: #b91c1c;
+  }
+
+  .account-card-row {
+    display: flex;
+    gap: 6px;
+    align-items: baseline;
+    font-size: 13px;
+  }
+
+  .account-card-label {
+    color: #6b7280;
+    min-width: 68px;
+    flex-shrink: 0;
+  }
+
+  .account-card-value {
+    color: #1e293b;
+    word-break: break-all;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .account-card-key-wrap {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .account-card-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+  }
+
+  .account-card-actions button {
+    flex: 1;
+  }
+
+  /* Hide the desktop table on mobile */
+  #accountsTbody {
+    display: none;
+  }
+  #accountsTbody.desktop-visible {
+    display: table-row-group;
+  }
+
+  /* ── Add source form ── */
+  #section-settings #addSourceForm .row {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  #section-settings #addSourceForm select,
+  #section-settings #addSourceForm input,
+  #section-settings #addSourceForm textarea {
+    width: 100%;
+  }
+
+  /* ── Sync start date row ── */
+  #section-settings .sync-start-settings .row {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  /* ── Sync buttons row ── */
+  #section-settings .sync-btn-row {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  /* ── Team pane ── */
+  .team-mobile-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 10px;
+  }
+
+  .team-card {
+    background: linear-gradient(160deg, rgba(248,251,255,0.97), rgba(236,245,255,0.9));
+    border: 1px solid rgba(147,197,253,0.42);
+    border-radius: 14px;
+    padding: 13px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .team-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .team-card-email {
+    font-weight: 700;
+    font-size: 14px;
+    word-break: break-all;
+  }
+
+  .team-card-row {
+    font-size: 13px;
+    color: #475569;
+  }
+
+  .team-card-row b {
+    color: #1e293b;
+  }
+
+  .team-card-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+    flex-wrap: wrap;
+  }
+
+  .team-card-actions button {
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* Hide desktop tables */
+  #teamTbody {
+    display: none;
+  }
+  #teamTbody.desktop-visible {
+    display: table-row-group;
+  }
+
+  /* ── Add manager form ── */
+  #section-settings #settings-pane-team .row:not(.team-card-actions) {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  /* ── Recommendations ── */
+  #section-settings #settings-pane-recommendations .row.row-between {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  #section-settings #settings-pane-recommendations .row.row-between > .row {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  /* ── Template variables table → cards ── */
+  .template-variables-mobile-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 8px;
+  }
+
+  .template-variable-card {
+    background: rgba(248,251,255,0.97);
+    border: 1px solid rgba(147,197,253,0.4);
+    border-radius: 12px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .template-variable-card-key {
+    font-weight: 700;
+    font-size: 13px;
+    color: #1d4ed8;
+  }
+
+  .template-variable-card-desc {
+    font-size: 12px;
+    color: #6b7280;
+  }
+
+  .template-variable-card input {
+    width: 100%;
+    font-size: 13px;
+  }
+
+  /* Show mobile account/team lists only on mobile */
+  .accounts-mobile-list,
+  .team-mobile-list,
+  .template-variables-mobile-list {
+    display: flex;
+  }
+}
+
+@media (min-width: 901px) {
+  /* Hide mobile card lists on desktop */
+  .accounts-mobile-list,
+  .team-mobile-list,
+  .template-variables-mobile-list {
+    display: none !important;
+  }
+}
