@@ -1,0 +1,3631 @@
+from __future__ import annotations
+
+from collections.abc import Mapping
+from datetime import UTC, datetime, timedelta
+from html import escape
+import json
+import ipaddress
+import io
+import csv
+from pathlib import Path
+import re
+import secrets
+import threading
+import time
+from urllib.parse import urlparse
+
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
+
+from .auth import create_session_token, hash_password, verify_password
+from .config import AppConfig, load_app_config
+from .repository import ReviewRepository
+from .service import MarketplaceSyncError, ReviewAutomationService
+
+try:  # pragma: no cover - optional in sqlite-only environments
+    import psycopg  # type: ignore
+except Exception:  # pragma: no cover
+    psycopg = None
+
+CATEGORIES = [
+    "negative_delivery",
+    "negative_product",
+    "negative_other",
+    "positive_quality",
+    "positive_product",
+    "neutral_other",
+]
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+TEMPLATES_DIR = BASE_DIR / "web_templates"
+STATIC_DIR = BASE_DIR / "web_static"
+
+TEMPLATE_GROUPS: list[dict[str, object]] = [
+    {
+        "id": "positive",
+        "title": "Позитив",
+        "subgroups": [
+            "Общий",
+            "Вкус",
+            "Материал",
+            "Общий позитив",
+            "Позитив доставка",
+            "Позитив запах",
+            "Позитив конструкция",
+            "Позитив упаковка",
+            "Позитив цвет",
+            "Эффект",
+        ],
+    },
+    {
+        "id": "product_dissatisfaction",
+        "title": "Недовольство товаром",
+        "subgroups": [
+            "Общий",
+            "Брак и Б/У",
+            "Высокая цена",
+            "Качество",
+            "Негатив запах",
+            "Негатив конструкция",
+            "Негатив цвет",
+            "Не подошел лично мне",
+            "Не соответствует фото",
+            "Не устраивает эффект",
+            "Общий негатив",
+            "Побочные эффекты",
+            "Подделка",
+            "Срок годности",
+            "Текстура, консистенция, материал",
+        ],
+    },
+    {
+        "id": "delivery_problems",
+        "title": "Проблемы при доставке",
+        "subgroups": [
+            "Общий",
+            "Долгая доставка",
+            "Испорченная упаковка",
+            "Наклейка",
+            "Недостающая упаковка / грязное / поврежденное и сломанное",
+            "Некомплект",
+            "Не тот товар",
+            "Общие доставка",
+        ],
+    },
+    {
+        "id": "wrong_size",
+        "title": "Неправильный размер",
+        "subgroups": [
+            "Общий",
+            "Альтернативные измерения",
+            "Большемерит/маломерит",
+            "Не подошел размер",
+        ],
+    },
+    {
+        "id": "tagged_reviews",
+        "title": "Отзывы с тегами",
+        "subgroups": [
+            "Общий",
+            "Общие теги",
+        ],
+    },
+    {
+        "id": "textless_ratings",
+        "title": "Оценки без текста",
+        "subgroups": [
+            "1-3 звезды",
+            "4-5 звезд",
+        ],
+    },
+]
+
+TEXTLESS_RATINGS_GROUP_ID = "textless_ratings"
+TEXTLESS_LOCKED_SUBGROUPS: tuple[str, ...] = ("1-3 звезды", "4-5 звезд")
+GENERAL_LOCKED_SUBGROUP = "Общий"
+GENERAL_LOCKED_GROUP_IDS: tuple[str, ...] = (
+    "positive",
+    "product_dissatisfaction",
+    "delivery_problems",
+    "wrong_size",
+    "tagged_reviews",
+)
+
+DEFAULT_TEMPLATE_CONTENT: dict[str, list[str]] = {
+    "Общий": ["Спасибо за ваш отзыв! Мы ценим обратную связь и уже работаем над улучшениями."],
+    "Вкус": [
+        "%USER%, добрый день. Мы рады, что вы довольны покупкой. Попробуйте еще %%RECO%% — вам точно понравится!",
+        "Добрый день, %USER%! Благодарим за доверие и внимание к вкусу нашего продукта.",
+        "Здравствуйте, %USER%! Спасибо за высокую оценку. Будем ждать вас снова!",
+    ],
+    "Материал": ["Спасибо за отзыв! Рады, что материал вам понравился."],
+    "Общий позитив": [
+        "Приветствуем, %USER%! Благодарим вас за высокую оценку нашей продукции. Ваше мнение очень важно для нас. С уважением, %BRAND%",
+        "Здравствуйте, %USER%! Мы искренне благодарны за ваше время и положительный отзыв о нашем продукте. Спасибо, что выбираете нас. Желаем вам прекрасного дня!",
+        "Здравствуйте! Спасибо за ваше доверие и положительный отзыв о нашем продукте. Хорошего вам дня! С уважением, команда бренда %BRAND%",
+        "%USER%, добрый день! Благодарим за отзыв! Мы всегда рады помочь вам. Прекрасного вам дня!",
+        "%USER%, добрый день! Мы рады, что вы остались довольны нашим брендом. Спасибо за вашу поддержку! С надеждой на ваши будущие покупки, %BRAND%",
+        "%USER%, добрый день. Мы стараемся предлагать только качественные товары. Прекрасного дня!",
+        "%USER%, добрый день! Большое спасибо за приятные слова о нашем бренде %BRAND%. Это важно для нас! С надеждой на ваши будущие покупки, %BRAND%",
+        "%USER%, добрый день! Мы рады, что вы довольны нашей продукцией. Благодарим за высокую оценку! С надеждой на ваши будущие покупки, %BRAND%",
+        "Благодарим вас за добрые слова и оценку нашего продукта.",
+        "Добрый день, спасибо за обратную связь! Рады, что наш продукт оправдал ваши ожидания. Мы дорожим мнением каждого покупателя!",
+        "Добрый день! Спасибо за вашу поддержку! Надеемся на долгосрочное сотрудничество. Хорошего настроения!",
+        "Добрый день, спасибо за обратную связь! Спасибо за отличный отзыв и оценку нашего продукта.",
+        "Добрый день! Благодарим вас за хороший отзыв о нашем продукте. Надеемся, что он приносит вам удовольствие! Мы дорожим мнением каждого покупателя!",
+        "Добрый день! Благодарим за ваш отзыв. Мы рекомендуем попробовать %RECO% — это отличный вариант для новых открытий!",
+        "Добрый день! Ваше мнение важно для нас и помогает нам развиваться. С уважением, ваш %BRAND%!",
+        "Добрый день! Мы рады, что наш товар приносит вам удовольствие. Спасибо за отзыв. Прекрасного дня!",
+        "Добрый день! Мы рады, что наша продукция соответствует вашим ожиданиям. Спасибо за отзыв!",
+        "Добрый день! Мы ценим ваш отзыв и поддержку. Рекомендуем попробовать и %RECO% — это может принести вам новые впечатления.",
+        "Добрый день! Мы ценим ваше доверие к нашему бренду. Попробуйте и %RECO% — вы останетесь довольны результатом.",
+        "Добрый день! Мы ценим ваше мнение о нашей продукции. Спасибо за положительный отзыв.",
+        "Добрый день! Мы ценим вашу поддержку. Рекомендуем вам попробовать %RECO% — это наш бестселлер!",
+        "Добрый день. Мы рады, что вы оценили качество нашего товара. Спасибо за высокую оценку. С уважением, ваш %BRAND%!",
+        "Добрый день. Спасибо за ваше доброе отношение к нашему бренду. Ваши слова — лучшая награда для нас. Хорошего дня!",
+        "Здравствуйте, %USER%! Очень приятно получить от вас такой отзыв. Спасибо за высокую оценку! С надеждой на ваши будущие покупки, %BRAND%",
+        "Здравствуйте, спасибо за обратную связь! Ваше доверие — наше главное признание. Прекрасного вам дня!",
+        "Здравствуйте, спасибо за обратную связь! Ваш отзыв вдохновляет нас на новые достижения. С уважением, ваш %BRAND%!",
+        "Здравствуйте, спасибо за обратную связь! Мы рады, что вы довольны качеством нашей продукции. Спасибо за отличный отзыв.",
+        "Здравствуйте, спасибо за обратную связь! Мы рады, что вы оценили качество нашего товара. Спасибо за высокую оценку. Прекрасного дня!",
+        "Здравствуйте, спасибо за обратную связь! Огромное спасибо за положительную оценку и поддержку нашего бренда %BRAND%!",
+        "Здравствуйте! Благодарим за вашу поддержку и хороший отзыв о продукции бренда!",
+        "Здравствуйте! Благодарим за положительный отзыв о нашем бренде %BRAND%! Мы дорожим мнением каждого покупателя!",
+        "Здравствуйте! Большое спасибо за вашу поддержку и высокую оценку нашего бренда %BRAND%!",
+        "Здравствуйте! Благодарим за отзыв!",
+        "Здравствуйте! Мы рады, что вы остались довольны нашим товаром. Спасибо за отзыв! Мы дорожим мнением каждого покупателя!",
+        "Здравствуйте! Мы ценим ваш отзыв и благодарим за высокую оценку нашего продукта. Хорошего дня!",
+        "Здравствуйте! Мы ценим ваш отзыв. Попробуйте еще %RECO% — это один из самых популярных товаров бренда.",
+        "Здравствуйте! Мы ценим ваше мнение о нашей продукции. Спасибо за отзыв!",
+        "Здравствуйте! Рады, что вы остались довольны нашей продукцией. Спасибо за отзыв!",
+        "Мы рады, что вы выбрали именно наш бренд. Спасибо за вашу поддержку!",
+        "Мы всегда стараемся делать качественные товары. Спасибо за ваш отзыв!",
+        "Приветствуем! Благодарим за вашу поддержку и добрые слова о нашем бренде!",
+        "Приветствуем! Большое спасибо за высокую оценку нашего бренда!",
+        "Приветствуем! Мы рады, что вам нравится наш продукт. Не упустите шанс попробовать и %RECO% — это один из лучших товаров бренда.",
+        "Приветствуем! Мы рады, что вы оценили нашу продукцию. Если вы хотите разнообразить выбор, попробуйте %RECO%.",
+        "Приветствуем! Мы ценим ваше мнение и благодарим за высокую оценку. Не забудьте попробовать %RECO% — это хит продаж!",
+        "Здравствуйте! Очень приятно получить такой отзыв. Спасибо за добрые слова о нашей продукции!",
+        "Здравствуйте! Спасибо за вашу поддержку! Мы всегда рады видеть вас в числе наших клиентов. Прекрасного вам дня!",
+        "Здравствуйте! Спасибо за добрые слова и поддержку. Прекрасного дня!",
+        "Добрый день! Рады, что вы оценили качество нашего товара. Спасибо за вашу поддержку.",
+        "Добрый день! Спасибо за высокую оценку нашего продукта! Ваш отзыв — лучшая награда для нас.",
+    ],
+    "Позитив доставка": ["Спасибо! Очень рады, что доставка прошла отлично."],
+    "Позитив запах": ["Спасибо за отзыв! Приятно, что аромат вам понравился."],
+    "Позитив конструкция": ["Спасибо! Рады, что конструкция товара вам подошла."],
+    "Позитив упаковка": ["Спасибо! Рады, что упаковка вам понравилась."],
+    "Позитив цвет": ["Спасибо за высокую оценку! Рады, что цвет вам подошел."],
+    "Эффект": ["Спасибо за отзыв! Рады, что вы заметили хороший эффект."],
+    "Брак и Б/У": ["Нам очень жаль, что вы получили товар в таком состоянии. Уже разбираемся."],
+    "Высокая цена": ["Спасибо за обратную связь. Учтем ваш комментарий по стоимости."],
+    "Качество": ["Нам жаль, что качество не оправдало ожиданий. Передали информацию в отдел качества."],
+    "Негатив запах": ["Сожалеем о ситуации. Проверим партию и вернемся с ответом."],
+    "Негатив конструкция": ["Спасибо за сигнал. Мы уже передали информацию в отдел разработки."],
+    "Негатив цвет": ["Сожалеем, что цвет не совпал с ожиданиями. Проверим карточку товара."],
+    "Не подошел лично мне": ["Спасибо за отзыв. Нам жаль, что товар вам не подошел."],
+    "Не соответствует фото": ["Сожалеем о несоответствии. Передали информацию для проверки карточки."],
+    "Не устраивает эффект": ["Спасибо за отзыв. Передали ваше замечание технологам."],
+    "Общий негатив": ["Нам очень жаль, что вы остались недовольны. Уже разбираемся с ситуацией."],
+    "Побочные эффекты": ["Сожалеем о ситуации. Рекомендуем прекратить использование и написать нам в поддержку."],
+    "Подделка": ["Спасибо за сигнал. Мы проведем дополнительную проверку партии."],
+    "Срок годности": ["Спасибо за отзыв. Мы проверим товар и условия хранения."],
+    "Текстура, консистенция, материал": ["Спасибо за обратную связь. Передали замечание в отдел качества."],
+    "Долгая доставка": ["Сожалеем о задержке доставки. Проверим логистику по вашему заказу."],
+    "Испорченная упаковка": ["Нам очень жаль. Передали информацию в логистику и отдел упаковки."],
+    "Наклейка": ["Спасибо за сигнал. Проверим корректность маркировки."],
+    "Недостающая упаковка / грязное / поврежденное и сломанное": [
+        "Сожалеем о состоянии товара. Уже разбираемся и улучшим контроль отгрузки."
+    ],
+    "Некомплект": ["Сожалеем о неполной комплектации. Мы уже передали информацию на склад."],
+    "Не тот товар": ["Нам жаль, что пришел не тот товар. Уже разбираемся с отгрузкой."],
+    "Общие доставка": ["Спасибо за отзыв о доставке. Учтем замечание и исправим процесс."],
+    "Альтернативные измерения": ["Спасибо за отзыв. Дополним информацию по размерам в карточке товара."],
+    "Большемерит/маломерит": ["Сожалеем, что размер не подошел. Передадим замечание по размерной сетке."],
+    "Не подошел размер": ["Спасибо за обратную связь. Учтем это при обновлении размерной таблицы."],
+    "Общие теги": [
+        "Спасибо за оценку и выбор тегов {теги}! Нам очень приятно, что вы отметили эти преимущества.",
+        "Благодарим за отзыв с тегами {теги}. Ваши отметки помогают нам становиться лучше!",
+    ],
+    "1-3 звезды": ["Спасибо за оценку. Нам важно ваше мнение — мы улучшаем сервис каждый день."],
+    "4-5 звезд": [
+        "Спасибо за высокую оценку! Будем рады снова видеть вас среди покупателей.",
+        "Спасибо за 5 звезд! Очень рады, что вам все понравилось.",
+    ],
+}
+
+
+def _is_protected_default_subgroup(group_id: str, subgroup: str) -> bool:
+    clean_group = str(group_id or "").strip()
+    clean_subgroup = str(subgroup or "").strip()
+    if clean_group == TEXTLESS_RATINGS_GROUP_ID and clean_subgroup in TEXTLESS_LOCKED_SUBGROUPS:
+        return True
+    if clean_group in GENERAL_LOCKED_GROUP_IDS and clean_subgroup == GENERAL_LOCKED_SUBGROUP:
+        return True
+    return False
+
+
+class SyncRequest(BaseModel):
+    account_id: int | None = Field(default=None, description="Specific marketplace account ID")
+    all_accounts: bool = Field(default=True, description="Sync all active accounts")
+
+
+class SyncCapabilitiesRequest(BaseModel):
+    account_id: int = Field(ge=1, description="Marketplace account ID for capabilities check")
+
+
+class ChatQuickTemplateCreateRequest(BaseModel):
+    template_text: str = Field(min_length=1, max_length=2000)
+
+
+class ManualReplyRequest(BaseModel):
+    operator_name: str = Field(min_length=2, max_length=120)
+    response_text: str = Field(min_length=2, max_length=2000)
+
+
+class AccountCreateRequest(BaseModel):
+    marketplace: str = Field(description="wb|ozon|mock")
+    account_name: str = Field(min_length=2, max_length=120)
+    api_url: str | None = Field(default=None, max_length=2000)
+    api_key: str | None = Field(default=None, max_length=2000)
+    client_id: str | None = Field(default=None, max_length=200)
+    integration: dict[str, object] | None = None
+
+
+class AccountStatusRequest(BaseModel):
+    is_active: bool
+
+
+class ConversationStatusRequest(BaseModel):
+    status: str = Field(description="open|waiting|closed")
+
+
+class ConversationReplyRequest(BaseModel):
+    response_text: str = Field(min_length=1, max_length=4000)
+    idempotency_key: str | None = Field(default=None, max_length=120)
+
+
+class TemplateUpsertRequest(BaseModel):
+    category: str
+    mode: str = Field(description="auto|manual|ignore")
+    template_text: str = Field(max_length=4000)
+    is_enabled: bool | None = None
+
+
+class AISettingsRequest(BaseModel):
+    provider: str = Field(description="rules|yandex")
+    yandex_api_key: str | None = None
+    yandex_folder_id: str | None = None
+    yandex_model_uri: str | None = None
+    group_processors: dict[str, str] | None = None
+    default_sync_lookback_days: int = Field(default=7, ge=0, le=365)
+
+
+class AIConnectionTestRequest(BaseModel):
+    yandex_api_key: str | None = None
+    yandex_folder_id: str | None = None
+
+
+class AIReviewTestRequest(BaseModel):
+    review_text: str = Field(min_length=1, max_length=8000)
+    review_rating: int | None = Field(default=None, ge=1, le=5)
+    yandex_api_key: str | None = None
+    yandex_folder_id: str | None = None
+
+
+class RoleUpdateRequest(BaseModel):
+    role: str = Field(description="user|admin|feedback_manager")
+
+
+class AdminUserCreateRequest(BaseModel):
+    email: str = Field(min_length=5, max_length=255)
+    password: str = Field(min_length=8, max_length=255)
+    role: str = Field(default="user", description="user")
+    plan_code: str = Field(default="starter", min_length=2, max_length=100)
+
+
+class AdminUserPasswordUpdateRequest(BaseModel):
+    password: str = Field(min_length=8, max_length=255)
+
+
+class TenantUserCreateRequest(BaseModel):
+    email: str = Field(min_length=5, max_length=255)
+    password: str = Field(min_length=8, max_length=255)
+    role: str = Field(default="feedback_manager", description="feedback_manager")
+    full_name: str | None = Field(default=None, max_length=200)
+    permissions: list["ManagerPermissionItemRequest"] = Field(default_factory=list)
+
+
+class TenantUserRoleUpdateRequest(BaseModel):
+    role: str = Field(description="admin|feedback_manager")
+
+
+class ManagerPermissionItemRequest(BaseModel):
+    account_id: int = Field(ge=1)
+    can_reviews: bool = False
+    can_questions: bool = False
+    can_chats: bool = False
+
+
+class ManagerPermissionsUpdateRequest(BaseModel):
+    permissions: list[ManagerPermissionItemRequest] = Field(default_factory=list)
+
+
+class UserBlockUpdateRequest(BaseModel):
+    blocked: bool
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class UserDeleteRequest(BaseModel):
+    confirm: bool = False
+
+
+class SuperAdminSettingsRequest(BaseModel):
+    payment_provider: str = Field(default="manual", max_length=80)
+    payment_api_key: str | None = Field(default=None, max_length=2000)
+    ai_provider: str = Field(description="rules|yandex")
+    yandex_api_key: str | None = None
+    yandex_folder_id: str | None = None
+    yandex_model_uri: str | None = None
+    group_processors: dict[str, str] | None = None
+    use_sync_start_date: bool = False
+    sync_start_date: str | None = None
+    default_sync_lookback_days: int = Field(default=7, ge=0, le=365)
+
+
+class TemplateVariableUpsertRequest(BaseModel):
+    var_key: str = Field(min_length=3, max_length=120)
+    title: str = Field(min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=2000)
+    is_user_editable: bool = False
+    source_type: str = Field(default="manual", max_length=40)
+    source_path: str | None = Field(default=None, max_length=255)
+    default_value: str | None = Field(default=None, max_length=4000)
+    is_active: bool = True
+
+
+class TemplateVariableDeleteRequest(BaseModel):
+    var_key: str = Field(min_length=3, max_length=120)
+
+
+class UserTemplateVariableValuesSaveRequest(BaseModel):
+    values: dict[str, str] = Field(default_factory=dict)
+
+
+TEMPLATE_VARIABLE_KEY_RE = re.compile(r"^%[A-Z0-9_]{2,50}%$")
+
+
+class UserSyncSettingsRequest(BaseModel):
+    use_sync_start_date: bool = True
+    sync_start_date: str | None = None
+
+
+class TariffPlanUpsertRequest(BaseModel):
+    code: str = Field(min_length=2, max_length=100)
+    title: str = Field(min_length=2, max_length=200)
+    monthly_price: float = Field(default=0)
+    limits: dict[str, object] = Field(default_factory=dict)
+    is_active: bool = True
+
+
+class TariffPlanDeleteRequest(BaseModel):
+    code: str = Field(min_length=2, max_length=100)
+
+
+class TenantPlanUpdateRequest(BaseModel):
+    owner_user_id: int
+    plan_code: str = Field(min_length=2, max_length=100)
+    limits_override: dict[str, object] = Field(default_factory=dict)
+
+
+class UserPlanUpdateRequest(BaseModel):
+    plan_code: str = Field(min_length=2, max_length=100)
+
+
+class PaymentRecordCreateRequest(BaseModel):
+    owner_user_id: int
+    amount: float
+    currency: str = Field(default="RUB", max_length=10)
+    status: str = Field(default="pending", max_length=80)
+    external_payment_id: str | None = Field(default=None, max_length=255)
+    details: dict[str, object] = Field(default_factory=dict)
+    paid_at: str | None = None
+    months: int = Field(default=1, ge=1, le=36)
+    grace_days: int = Field(default=3, ge=0, le=30)
+
+
+class PaymentRecordDeleteRequest(BaseModel):
+    id: int = Field(ge=1)
+
+
+class ProfileUpdateRequest(BaseModel):
+    full_name: str | None = Field(default=None, max_length=200)
+    email: str | None = Field(default=None, max_length=255)
+    current_password: str | None = Field(default=None, max_length=255)
+    new_password: str | None = Field(default=None, max_length=255)
+    new_password_repeat: str | None = Field(default=None, max_length=255)
+    use_sync_start_date: bool | None = None
+    sync_start_date: str | None = None
+
+
+class ClearReviewsRequest(BaseModel):
+    user_id: int | None = None
+
+
+class ClearConversationsRequest(BaseModel):
+    user_id: int | None = None
+    kind: str | None = None
+
+
+class TemplateSubgroupSaveRequest(BaseModel):
+    templates: list[str] = Field(default_factory=list)
+
+
+class TemplateVariantCreateRequest(BaseModel):
+    group_id: str = Field(min_length=2, max_length=100)
+    subgroup: str = Field(min_length=1, max_length=255)
+    template_text: str = Field(min_length=1, max_length=4000)
+
+
+class DefaultTemplateSubgroupSaveRequest(BaseModel):
+    templates: list[str] = Field(default_factory=list)
+
+
+class DefaultTemplateVariantCreateRequest(BaseModel):
+    group_id: str = Field(min_length=2, max_length=100)
+    subgroup: str = Field(min_length=1, max_length=255)
+    template_text: str = Field(min_length=1, max_length=4000)
+
+
+class DefaultTemplateSubgroupManageRequest(BaseModel):
+    group_id: str = Field(min_length=2, max_length=100)
+    subgroup: str = Field(min_length=1, max_length=255)
+
+
+class DefaultTemplateSubgroupRenameRequest(BaseModel):
+    group_id: str = Field(min_length=2, max_length=100)
+    subgroup: str = Field(min_length=1, max_length=255)
+    new_subgroup: str = Field(min_length=1, max_length=255)
+
+
+class DefaultTemplateBulkImportRequest(BaseModel):
+    group_id: str = Field(min_length=2, max_length=100)
+    subgroup: str = Field(min_length=1, max_length=255)
+    templates: list[str] = Field(default_factory=list)
+
+
+class ProcessingRuleItemRequest(BaseModel):
+    group_id: str = Field(min_length=2, max_length=100)
+    action_mode: str = Field(description="template|manual")
+    auto_send: bool = False
+
+
+class ProcessingRulesApplyRequest(BaseModel):
+    rules: list[ProcessingRuleItemRequest] = Field(default_factory=list)
+
+
+class RecommendationRowRequest(BaseModel):
+    source_article: str = Field(default="", max_length=255)
+    targets_csv: str = Field(default="", max_length=4000)
+
+
+class RecommendationsSaveRequest(BaseModel):
+    rows: list[RecommendationRowRequest] = Field(default_factory=list)
+
+
+ROLE_ADMIN = "admin"
+ROLE_USER = "user"
+ROLE_FEEDBACK_MANAGER = "feedback_manager"
+ROLE_CAN_ACCESS_ANALYTICS = {ROLE_ADMIN, ROLE_USER}
+ROLE_CAN_ACCESS_SETTINGS = {ROLE_ADMIN, ROLE_USER}
+ROLE_ASSIGNABLE_BY_ADMIN = {ROLE_USER, ROLE_FEEDBACK_MANAGER}
+TENANT_ROLE_OWNER = "admin"
+TENANT_ROLE_MANAGER = "feedback_manager"
+SESSION_TTL_SECONDS = 30 * 24 * 60 * 60
+CSRF_COOKIE_NAME = "csrf_token"
+CSRF_HEADER_NAME = "X-CSRF-Token"
+RATE_LIMIT_API_READ_PER_MINUTE = 600
+RATE_LIMIT_API_WRITE_PER_MINUTE = 180
+RATE_LIMIT_SYNC_PER_MINUTE = 20
+RATE_LIMIT_LOGIN_PER_10_MIN = 30
+FAILED_LOGIN_LIMIT_PER_15_MIN = 10
+AUTO_SYNC_INTERVAL_SECONDS = 60
+
+
+def _normalize_role(raw_role: object) -> str:
+    role = str(raw_role or "").strip().lower()
+    if role == ROLE_ADMIN:
+        return ROLE_ADMIN
+    if role == ROLE_USER:
+        return ROLE_USER
+    if role == ROLE_FEEDBACK_MANAGER:
+        return ROLE_FEEDBACK_MANAGER
+    return ROLE_USER
+
+
+def create_app(config: AppConfig | None = None) -> FastAPI:
+    app_config = config or load_app_config()
+    repository = ReviewRepository(db_url=app_config.db_url)
+    service = ReviewAutomationService(repository)
+    self_registration_enabled = bool(app_config.self_registration_enabled)
+
+    app = FastAPI(title="Marketplace Reviews Assistant", version="1.0.0")
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+    sync_stop_event = threading.Event()
+    sync_lock = threading.Lock()
+    sync_state: dict[str, object] = {
+        "in_progress": False,
+        "cancel_requested": False,
+        "last_started_at": None,
+        "last_finished_at": None,
+        "polling_enabled": False,
+        "polling_user_id": None,
+        "polling_account_ids": [],
+        "polling_since_date": None,
+        "polling_started_at": None,
+        "last_poll_at": None,
+        "last_poll_result": None,
+    }
+    auto_sync_stop_event = threading.Event()
+    auto_sync_worker: dict[str, threading.Thread | None] = {"thread": None}
+    rate_limit_lock = threading.Lock()
+    rate_buckets: dict[str, list[float]] = {}
+    failed_login_attempts: dict[str, list[float]] = {}
+
+    def _client_ip(request: Request) -> str:
+        forwarded = str(request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+        if forwarded:
+            return forwarded
+        if request.client and request.client.host:
+            return str(request.client.host)
+        return "unknown"
+
+    def _allow_rate(scope: str, *, limit: int, window_seconds: int) -> bool:
+        now = time.time()
+        cutoff = now - float(window_seconds)
+        with rate_limit_lock:
+            bucket = [ts for ts in rate_buckets.get(scope, []) if ts >= cutoff]
+            if len(bucket) >= limit:
+                rate_buckets[scope] = bucket
+                return False
+            bucket.append(now)
+            rate_buckets[scope] = bucket
+            return True
+
+    def _record_failed_login(login_key: str) -> None:
+        now = time.time()
+        cutoff = now - 15 * 60
+        with rate_limit_lock:
+            bucket = [ts for ts in failed_login_attempts.get(login_key, []) if ts >= cutoff]
+            bucket.append(now)
+            failed_login_attempts[login_key] = bucket
+
+    def _clear_failed_login(login_key: str) -> None:
+        with rate_limit_lock:
+            failed_login_attempts.pop(login_key, None)
+
+    def _is_login_blocked(login_key: str) -> bool:
+        now = time.time()
+        cutoff = now - 15 * 60
+        with rate_limit_lock:
+            bucket = [ts for ts in failed_login_attempts.get(login_key, []) if ts >= cutoff]
+            failed_login_attempts[login_key] = bucket
+            return len(bucket) >= FAILED_LOGIN_LIMIT_PER_15_MIN
+
+    def _is_private_host(hostname: str) -> bool:
+        host = hostname.strip().lower().rstrip(".")
+        if not host:
+            return True
+        if host in {"localhost", "localhost.localdomain"} or host.endswith(".localhost") or host.endswith(".local"):
+            return True
+        try:
+            ip = ipaddress.ip_address(host)
+        except ValueError:
+            return False
+        return bool(
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_multicast
+            or ip.is_reserved
+            or ip.is_unspecified
+        )
+
+    def _validate_account_api_url(marketplace: str, raw_url: str) -> str:
+        normalized = raw_url.strip()
+        parsed = urlparse(normalized)
+        if parsed.scheme.lower() != "https":
+            raise HTTPException(status_code=400, detail="Адрес интерфейса API должен начинаться с https://")
+        host = (parsed.hostname or "").strip().lower()
+        if not host:
+            raise HTTPException(status_code=400, detail="Некорректный адрес интерфейса API")
+        if _is_private_host(host):
+            raise HTTPException(status_code=400, detail="Адрес интерфейса API указывает на недопустимый внутренний хост")
+        if marketplace == "wb" and not (host == "feedbacks-api.wildberries.ru" or host.endswith(".wildberries.ru")):
+            raise HTTPException(status_code=400, detail="Для WB разрешены только домены wildberries.ru")
+        if marketplace == "ozon" and not (host == "api-seller.ozon.ru" or host.endswith(".ozon.ru")):
+            raise HTTPException(status_code=400, detail="Для OZON разрешены только домены ozon.ru")
+        return normalized
+
+    def _set_session_cookie(response: RedirectResponse, token: str) -> None:
+        secure_cookie = bool(app_config.is_production)
+        response.set_cookie(
+            "session_token",
+            token,
+            httponly=True,
+            samesite="lax",
+            secure=secure_cookie,
+            max_age=SESSION_TTL_SECONDS,
+        )
+        response.set_cookie(
+            CSRF_COOKIE_NAME,
+            secrets.token_urlsafe(32),
+            httponly=False,
+            samesite="lax",
+            secure=secure_cookie,
+            max_age=SESSION_TTL_SECONDS,
+        )
+
+    def _ensure_csrf_cookie(response: HTMLResponse | RedirectResponse, request: Request) -> None:
+        if not request.cookies.get("session_token"):
+            return
+        if request.cookies.get(CSRF_COOKIE_NAME):
+            return
+        response.set_cookie(
+            CSRF_COOKIE_NAME,
+            secrets.token_urlsafe(32),
+            httponly=False,
+            samesite="lax",
+            secure=bool(app_config.is_production),
+            max_age=SESSION_TTL_SECONDS,
+        )
+
+    def _is_same_origin(request: Request, origin_value: str) -> bool:
+        parsed = urlparse(origin_value)
+        if not parsed.scheme or not parsed.netloc:
+            return False
+        expected_scheme = str(request.headers.get("x-forwarded-proto") or request.url.scheme).lower()
+        expected_host = str(request.url.hostname or "").lower()
+        expected_port = request.url.port or (443 if expected_scheme == "https" else 80)
+        origin_host = str(parsed.hostname or "").lower()
+        origin_port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
+        return parsed.scheme.lower() == expected_scheme and origin_host == expected_host and origin_port == expected_port
+
+    def _check_csrf(request: Request) -> None:
+        method = request.method.upper()
+        if method not in {"POST", "PUT", "PATCH", "DELETE"}:
+            return
+        path = request.url.path
+        if not path.startswith("/api/"):
+            return
+        # Only enforce CSRF for authenticated browser requests.
+        if not request.cookies.get("session_token"):
+            return
+        cookie_token = str(request.cookies.get(CSRF_COOKIE_NAME) or "")
+        header_token = str(request.headers.get(CSRF_HEADER_NAME) or "").strip()
+        if not cookie_token or not header_token or not secrets.compare_digest(cookie_token, header_token):
+            raise HTTPException(status_code=403, detail="CSRF токен отсутствует или неверен")
+        origin = str(request.headers.get("origin") or "").strip()
+        referer = str(request.headers.get("referer") or "").strip()
+        if origin and not _is_same_origin(request, origin):
+            raise HTTPException(status_code=403, detail="Недопустимый origin запроса")
+        if not origin and referer and not _is_same_origin(request, referer):
+            raise HTTPException(status_code=403, detail="Недопустимый referer запроса")
+
+    def _check_rate_limit(request: Request) -> None:
+        path = request.url.path
+        method = request.method.upper()
+        ip = _client_ip(request)
+        if path == "/login" and method == "POST":
+            login_scope = f"login:{ip}"
+            if not _allow_rate(login_scope, limit=RATE_LIMIT_LOGIN_PER_10_MIN, window_seconds=10 * 60):
+                raise HTTPException(status_code=429, detail="Слишком много попыток входа. Попробуйте позже.")
+        if path.startswith("/api/"):
+            if method in {"GET", "HEAD", "OPTIONS"}:
+                limit = RATE_LIMIT_API_READ_PER_MINUTE
+            elif path == "/api/sync":
+                limit = RATE_LIMIT_SYNC_PER_MINUTE
+            else:
+                limit = RATE_LIMIT_API_WRITE_PER_MINUTE
+            scope = f"api:{method}:{path}:{ip}"
+            if not _allow_rate(scope, limit=limit, window_seconds=60):
+                raise HTTPException(status_code=429, detail="Слишком много запросов. Попробуйте позже.")
+
+    @app.middleware("http")
+    async def hardening_middleware(request: Request, call_next):
+        try:
+            _check_rate_limit(request)
+            _check_csrf(request)
+        except HTTPException as exc:
+            if request.url.path == "/login":
+                return HTMLResponse(build_login_html(error=str(exc.detail)), status_code=exc.status_code)
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+        response = await call_next(request)
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("Referrer-Policy", "same-origin")
+        response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'self'",
+        )
+        if app_config.is_production:
+            response.headers.setdefault("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")
+        _ensure_csrf_cookie(response, request)
+        return response
+
+    def _now_iso() -> str:
+        return datetime.now(UTC).isoformat()
+
+    def _issue_session(user_id: int) -> str:
+        token = create_session_token()
+        expires = (datetime.now(UTC) + timedelta(days=30)).isoformat()
+        repository.create_session(token=token, user_id=user_id, expires_at=expires)
+        return token
+
+    def _login_attempt_key(request: Request, email: str) -> str:
+        return f"{_client_ip(request)}::{email.strip().lower()}"
+
+    def _get_current_user(request: Request) -> dict[str, object] | None:
+        token = request.cookies.get("session_token")
+        if not token:
+            return None
+        repository.cleanup_expired_sessions(_now_iso())
+        return repository.get_session_user(token)
+
+    def _require_user(request: Request) -> dict[str, object]:
+        user = _get_current_user(request)
+        if user is None:
+            raise HTTPException(status_code=401, detail="Требуется авторизация")
+        return user
+
+    def _require_admin(request: Request) -> dict[str, object]:
+        user = _require_user(request)
+        if user.get("role") != ROLE_ADMIN:
+            raise HTTPException(status_code=403, detail="Доступ только для администратора")
+        return user
+
+    def _is_super_admin(user: dict[str, object]) -> bool:
+        return bool(user.get("is_super_admin"))
+
+    def _tenant_owner_id(user: dict[str, object]) -> int:
+        owner_raw = user.get("owner_user_id")
+        if owner_raw is None:
+            return int(user["id"])
+        try:
+            return int(owner_raw)
+        except (TypeError, ValueError):
+            return int(user["id"])
+
+    def _require_super_admin(request: Request) -> dict[str, object]:
+        user = _require_admin(request)
+        if not _is_super_admin(user):
+            raise HTTPException(status_code=403, detail="Доступ только для супер-администратора")
+        return user
+
+    def _require_tenant_owner(request: Request) -> dict[str, object]:
+        user = _require_settings_access(request)
+        if _is_super_admin(user):
+            owner_scope_user_id = _tenant_owner_id(user)
+            if owner_scope_user_id <= 0:
+                owner_scope_user_id = int(user["id"])
+            owner_scope_user = repository.get_user_by_id(owner_scope_user_id)
+            return owner_scope_user or user
+        if _tenant_owner_id(user) != int(user["id"]):
+            raise HTTPException(status_code=403, detail="Недостаточно прав для управления командой")
+        return user
+
+    def _parse_sync_start_date_or_none(value: str | None, *, enabled: bool) -> str | None:
+        if not enabled:
+            return None
+        raw = (value or "").strip()
+        if not raw:
+            raise HTTPException(status_code=400, detail="Укажите дату начала синхронизации")
+        try:
+            datetime.strptime(raw, "%Y-%m-%d")
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Дата должна быть в формате ГГГГ-ММ-ДД") from exc
+        return raw
+
+    def _target_user_for_admin_scope(*, actor: dict[str, object], target_user_id: int) -> dict[str, object]:
+        target = repository.get_user_by_id(target_user_id)
+        if target is None:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        if _is_super_admin(actor):
+            return target
+        actor_owner_id = _tenant_owner_id(actor)
+        target_owner_id = _tenant_owner_id(target)
+        if target_owner_id != actor_owner_id:
+            raise HTTPException(status_code=403, detail="Пользователь не относится к вашему кабинету")
+        if bool(target.get("is_super_admin")):
+            raise HTTPException(status_code=403, detail="Недостаточно прав для управления этим пользователем")
+        return target
+
+    def _normalize_tenant_role_or_400(raw_role: str) -> str:
+        role = str(raw_role or "").strip().lower()
+        if role not in {TENANT_ROLE_OWNER, TENANT_ROLE_MANAGER}:
+            raise HTTPException(status_code=400, detail="Роль должна быть: администратор или менеджер обратной связи")
+        return role
+
+    def _manager_permissions_context_for_user(user: dict[str, object]) -> list[dict[str, object]]:
+        if str(user.get("role") or "").strip().lower() != TENANT_ROLE_MANAGER:
+            return []
+        return repository.list_manager_permissions(manager_user_id=int(user["id"]))
+
+    def _manager_allowed_review_account_ids(user: dict[str, object]) -> list[int] | None:
+        if str(user.get("role") or "").strip().lower() != TENANT_ROLE_MANAGER:
+            return None
+        rows = _manager_permissions_context_for_user(user)
+        ids: list[int] = []
+        seen: set[int] = set()
+        for row in rows:
+            if not bool(row.get("can_reviews")):
+                continue
+            try:
+                account_id = int(row.get("account_id"))
+            except (TypeError, ValueError):
+                continue
+            if account_id <= 0 or account_id in seen:
+                continue
+            seen.add(account_id)
+            ids.append(account_id)
+        return ids
+
+    def _manager_allowed_conversation_accounts(user: dict[str, object]) -> dict[str, list[int]] | None:
+        if str(user.get("role") or "").strip().lower() != TENANT_ROLE_MANAGER:
+            return None
+        rows = _manager_permissions_context_for_user(user)
+        scope: dict[str, list[int]] = {"question": [], "chat": []}
+        seen: dict[str, set[int]] = {"question": set(), "chat": set()}
+        for row in rows:
+            try:
+                account_id = int(row.get("account_id"))
+            except (TypeError, ValueError):
+                continue
+            if account_id <= 0:
+                continue
+            if bool(row.get("can_questions")) and account_id not in seen["question"]:
+                seen["question"].add(account_id)
+                scope["question"].append(account_id)
+            if bool(row.get("can_chats")) and account_id not in seen["chat"]:
+                seen["chat"].add(account_id)
+                scope["chat"].append(account_id)
+        return scope
+
+    def _manager_owner_account_ids(owner_user_id: int) -> set[int]:
+        return {
+            int(item.get("id"))
+            for item in repository.list_marketplace_accounts(user_id=owner_user_id, include_secrets=False)
+            if item.get("id") is not None
+        }
+
+    def _require_manager_scope_for_review(user: dict[str, object], review_uid: str) -> None:
+        if str(user.get("role") or "").strip().lower() != TENANT_ROLE_MANAGER:
+            return
+        allowed = set(_manager_allowed_review_account_ids(user) or [])
+        if not allowed:
+            raise HTTPException(status_code=403, detail="Менеджеру не назначены доступы к отзывам")
+        review = repository.get_review(user_id=int(user["id"]), review_uid=review_uid)
+        if review is None:
+            raise HTTPException(status_code=404, detail="Отзыв не найден")
+        try:
+            account_id = int(review.get("account_id"))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=403, detail="Отзыв не привязан к разрешенному кабинету")
+        if account_id not in allowed:
+            raise HTTPException(status_code=403, detail="Нет доступа к этому кабинету отзывов")
+
+    def _require_manager_scope_for_conversation(user: dict[str, object], conversation_uid: str) -> None:
+        if str(user.get("role") or "").strip().lower() != TENANT_ROLE_MANAGER:
+            return
+        scope = _manager_allowed_conversation_accounts(user) or {"question": [], "chat": []}
+        conversation = repository.get_conversation(user_id=int(user["id"]), conversation_uid=conversation_uid)
+        if conversation is None:
+            raise HTTPException(status_code=404, detail="Диалог не найден")
+        kind = str(conversation.get("kind") or "").strip().lower()
+        if kind not in {"question", "chat"}:
+            raise HTTPException(status_code=403, detail="Нет доступа к этому типу диалога")
+        allowed = set(scope.get(kind, []))
+        if not allowed:
+            raise HTTPException(status_code=403, detail="Менеджеру не назначены доступы к этому типу диалогов")
+        try:
+            account_id = int(conversation.get("account_id"))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=403, detail="Диалог не привязан к разрешенному кабинету")
+        if account_id not in allowed:
+            raise HTTPException(status_code=403, detail="Нет доступа к этому кабинету диалогов")
+
+    def _require_analytics_access(request: Request) -> dict[str, object]:
+        user = _require_user(request)
+        if str(user.get("role")) not in ROLE_CAN_ACCESS_ANALYTICS:
+            raise HTTPException(status_code=403, detail="Недостаточно прав для просмотра аналитики")
+        return user
+
+    def _require_settings_access(request: Request) -> dict[str, object]:
+        user = _require_user(request)
+        if str(user.get("role")) not in ROLE_CAN_ACCESS_SETTINGS:
+            raise HTTPException(status_code=403, detail="Недостаточно прав для раздела настроек")
+        return user
+
+    def _set_sync_in_progress(in_progress: bool) -> None:
+        with sync_lock:
+            sync_state["in_progress"] = in_progress
+            if in_progress:
+                sync_state["cancel_requested"] = False
+                sync_state["last_started_at"] = _now_iso()
+                sync_stop_event.clear()
+            else:
+                sync_state["last_finished_at"] = _now_iso()
+
+    def _snapshot_active_account_ids_for_user(user_id: int) -> list[int]:
+        ids: list[int] = []
+        seen: set[int] = set()
+        for account in repository.list_marketplace_accounts(user_id, include_secrets=False):
+            try:
+                account_id = int(account.get("id"))
+            except (TypeError, ValueError):
+                continue
+            if account_id <= 0 or account_id in seen:
+                continue
+            if not bool(account.get("is_active")):
+                continue
+            seen.add(account_id)
+            ids.append(account_id)
+        return ids
+
+    def _serialize_sync_error_details(raw_errors: object) -> list[dict[str, object]]:
+        if not isinstance(raw_errors, list):
+            return []
+        result: list[dict[str, object]] = []
+        for item in raw_errors:
+            if not isinstance(item, dict):
+                continue
+            cleaned: dict[str, object] = {}
+            for key, value in item.items():
+                cleaned[str(key)] = value
+            error_text = str(cleaned.get("error") or "").strip()
+            source = str(cleaned.get("source") or cleaned.get("marketplace") or "").strip().lower()
+            channel = str(cleaned.get("channel") or cleaned.get("scope") or "").strip().lower()
+            # Provide a concise readable text for admin logs/UI.
+            if source == "wb" and channel == "chats":
+                if "/api/v1/chats" in error_text and "path not found" in error_text.lower():
+                    cleaned["human_error"] = (
+                        "WB чаты: неверный endpoint /api/v1/chats. "
+                        "Нужно использовать buyer-chat-api + /api/v1/seller/chats."
+                    )
+            elif source == "wb" and channel in {"reviews", "questions"}:
+                lowered = error_text.lower()
+                if "token scope not allowed" in lowered or "unauthorized" in lowered or "403" in lowered or "401" in lowered:
+                    cleaned["human_error"] = (
+                        "WB токен не имеет прав для этого канала (scope ограничен)."
+                    )
+            result.append(cleaned)
+        return result
+
+    def _channel_access_label(capabilities: Mapping[str, object]) -> str:
+        reviews_ok = bool(capabilities.get("reviews"))
+        questions_ok = bool(capabilities.get("questions"))
+        chats_ok = bool(capabilities.get("chats"))
+        if reviews_ok and questions_ok and chats_ok:
+            return "По данному ключу доступны все каналы: отзывы, вопросы и чаты."
+        if chats_ok and not reviews_ok and not questions_ok:
+            return "По данному ключу вы можете работать только с чатами. К отзывам и вопросам нет доступа."
+        if reviews_ok and questions_ok and not chats_ok:
+            return "По данному ключу вы можете работать только с отзывами и вопросами, но у вас нет доступа к чатам."
+        if reviews_ok and chats_ok and not questions_ok:
+            return "По данному ключу вы можете работать только с отзывами и чатами, но у вас нет доступа к вопросам."
+        if questions_ok and chats_ok and not reviews_ok:
+            return "По данному ключу вы можете работать только с вопросами и чатами, но у вас нет доступа к отзывам."
+        if reviews_ok and not questions_ok and not chats_ok:
+            return "По данному ключу вы можете работать только с отзывами. К вопросам и чатам нет доступа."
+        if questions_ok and not reviews_ok and not chats_ok:
+            return "По данному ключу вы можете работать только с вопросами. К отзывам и чатам нет доступа."
+        return "По данному ключу нет доступа к отзывам, вопросам и чатам."
+
+    def _probe_account_capabilities(*, user_id: int, account_id: int, since_date: str | None) -> dict[str, object]:
+        account = repository.get_marketplace_account(
+            user_id=user_id,
+            account_id=account_id,
+            include_secrets=True,
+        )
+        if account is None:
+            raise HTTPException(status_code=404, detail="Кабинет маркетплейса не найден")
+        if not bool(account.get("is_active")):
+            raise HTTPException(status_code=400, detail="Кабинет отключен")
+
+        probe = service.probe_account_channels(account=account, since_date=since_date or None)
+        channels_raw = probe.get("channels")
+        channels: dict[str, dict[str, object]] = (
+            channels_raw if isinstance(channels_raw, dict) else {}
+        )
+        capabilities: dict[str, bool] = {
+            "reviews": bool((channels.get("reviews") or {}).get("available")),
+            "questions": bool((channels.get("questions") or {}).get("available")),
+            "chats": bool((channels.get("chats") or {}).get("available")),
+        }
+        channel_messages: dict[str, str] = {}
+        all_errors: list[dict[str, object]] = []
+        for channel in ("reviews", "questions", "chats"):
+            channel_data = channels.get(channel)
+            if not isinstance(channel_data, Mapping):
+                continue
+            if bool(channel_data.get("available")):
+                continue
+            message = str(channel_data.get("error") or "").strip()
+            if message:
+                channel_messages[channel] = message
+            all_errors.append(
+                {
+                    "account_id": int(probe.get("account_id") or account_id),
+                    "marketplace": str(probe.get("marketplace") or account.get("marketplace") or ""),
+                    "channel": channel,
+                    "scope": channel,
+                    "error": message,
+                    "access_denied": bool(channel_data.get("access_denied")),
+                }
+            )
+        can_sync_any = any(capabilities.values())
+        return {
+            "account_id": int(probe.get("account_id") or account_id),
+            "marketplace": str(probe.get("marketplace") or account.get("marketplace") or ""),
+            "account_name": str(probe.get("account_name") or account.get("account_name") or ""),
+            "is_active": bool(account.get("is_active")),
+            "capabilities": capabilities,
+            "can_sync_any": can_sync_any,
+            "summary": _channel_access_label(capabilities),
+            "channel_messages": channel_messages,
+            "errors": all_errors,
+            "all_channels_available": bool(probe.get("all_channels_available")),
+        }
+
+    def _run_sync_for_user(
+        *,
+        user_id: int,
+        since_date: str | None,
+        account_ids: list[int] | None,
+        run_started_at: str,
+    ) -> dict[str, object]:
+        with sync_lock:
+            if bool(sync_state.get("in_progress")):
+                raise HTTPException(status_code=409, detail="Синхронизация уже выполняется")
+            sync_state["in_progress"] = True
+            sync_state["cancel_requested"] = False
+            sync_state["last_started_at"] = run_started_at
+        sync_stop_event.clear()
+        try:
+            result = service.sync_all_accounts(
+                user_id=user_id,
+                since_date=since_date or None,
+                account_ids=account_ids,
+                stop_requested=sync_stop_event.is_set,
+            )
+            return result
+        finally:
+            with sync_lock:
+                sync_state["in_progress"] = False
+                sync_state["last_finished_at"] = _now_iso()
+            sync_stop_event.clear()
+
+    def _start_auto_sync_worker_if_needed() -> None:
+        with sync_lock:
+            existing = auto_sync_worker.get("thread")
+            if isinstance(existing, threading.Thread) and existing.is_alive():
+                return
+            auto_sync_stop_event.clear()
+
+            def _auto_sync_loop() -> None:
+                while not auto_sync_stop_event.is_set():
+                    auto_sync_stop_event.wait(AUTO_SYNC_INTERVAL_SECONDS)
+                    if auto_sync_stop_event.is_set():
+                        break
+                    with sync_lock:
+                        polling_enabled = bool(sync_state.get("polling_enabled"))
+                        polling_user_id_raw = sync_state.get("polling_user_id")
+                        polling_since_raw = sync_state.get("polling_since_date")
+                        polling_accounts_raw = sync_state.get("polling_account_ids")
+                    if not polling_enabled:
+                        continue
+                    try:
+                        polling_user_id = int(polling_user_id_raw)
+                    except (TypeError, ValueError):
+                        continue
+                    if polling_user_id <= 0:
+                        continue
+                    account_ids: list[int] = []
+                    if isinstance(polling_accounts_raw, list):
+                        for value in polling_accounts_raw:
+                            try:
+                                parsed = int(value)
+                            except (TypeError, ValueError):
+                                continue
+                            if parsed > 0 and parsed not in account_ids:
+                                account_ids.append(parsed)
+                    if not account_ids:
+                        continue
+                    run_started_at = _now_iso()
+                    try:
+                        result = _run_sync_for_user(
+                            user_id=polling_user_id,
+                            since_date=str(polling_since_raw or "").strip() or None,
+                            account_ids=account_ids,
+                            run_started_at=run_started_at,
+                        )
+                        with sync_lock:
+                            sync_state["last_poll_at"] = _now_iso()
+                            sync_state["last_poll_result"] = {
+                                "ok": True,
+                                "run_started_at": run_started_at,
+                                "accounts": int(result.get("accounts") or 0),
+                                "success_accounts": int(result.get("success_accounts") or 0),
+                                "failed_accounts": int(result.get("failed_accounts") or 0),
+                                "loaded": int(result.get("loaded") or 0),
+                                "loaded_conversations": int(result.get("loaded_conversations") or 0),
+                                "account_ids": list(account_ids),
+                                "errors": _serialize_sync_error_details(result.get("errors")),
+                                "cancelled": bool(result.get("cancelled")),
+                            }
+                    except HTTPException as exc:
+                        with sync_lock:
+                            sync_state["last_poll_at"] = _now_iso()
+                            sync_state["last_poll_result"] = {
+                                "ok": False,
+                                "run_started_at": run_started_at,
+                                "error": str(exc.detail),
+                                "account_ids": list(account_ids),
+                            }
+                    except Exception as exc:  # pragma: no cover - defensive background guard
+                        with sync_lock:
+                            sync_state["last_poll_at"] = _now_iso()
+                            sync_state["last_poll_result"] = {
+                                "ok": False,
+                                "run_started_at": run_started_at,
+                                "error": str(exc),
+                                "account_ids": list(account_ids),
+                            }
+
+            worker = threading.Thread(
+                target=_auto_sync_loop,
+                name="feedpilot-auto-sync-worker",
+                daemon=True,
+            )
+            auto_sync_worker["thread"] = worker
+            worker.start()
+
+    def _template_group_by_id(group_id: str) -> dict[str, object] | None:
+        for item in TEMPLATE_GROUPS:
+            if str(item.get("id")) == group_id:
+                return item
+        return None
+
+    def _base_subgroups_for_group(group_id: str) -> list[str]:
+        group = _template_group_by_id(group_id)
+        if group is None:
+            return []
+        subgroups_raw = group.get("subgroups")
+        if not isinstance(subgroups_raw, list):
+            return []
+        result: list[str] = []
+        for value in subgroups_raw:
+            name = str(value).strip()
+            if name and name not in result:
+                result.append(name)
+        return result
+
+    def _all_subgroups_for_group(group_id: str) -> list[dict[str, object]]:
+        custom_rows = repository.list_default_template_subgroups(group_id=group_id)
+        result: list[dict[str, object]] = []
+        seen: set[str] = set()
+        for row in custom_rows:
+            clean = str((row or {}).get("subgroup") or "").strip()
+            if not clean or clean in seen:
+                continue
+            seen.add(clean)
+            subgroup_id = str((row or {}).get("subgroup_id") or "").strip() or None
+            result.append({"name": clean, "subgroup_id": subgroup_id})
+        if group_id in GENERAL_LOCKED_GROUP_IDS:
+            general = GENERAL_LOCKED_SUBGROUP
+            reordered = [item for item in result if str(item.get("name") or "") != general]
+            general_item = next((item for item in result if str(item.get("name") or "") == general), None)
+            if general_item is None:
+                general_item = {"name": general, "subgroup_id": None}
+            result = [general_item, *reordered]
+        if result:
+            return result
+        # Backward-compatible fallback for old datasets where subgroup registry
+        # might still be empty.
+        return [{"name": name, "subgroup_id": None} for name in _base_subgroups_for_group(group_id)]
+        
+
+    def _validate_subgroup(group_id: str, subgroup: str) -> bool:
+        clean_group_id = str(group_id or "").strip()
+        clean_subgroup = str(subgroup or "").strip()
+        if not clean_group_id or not clean_subgroup:
+            return False
+        return any(
+            str(item.get("name") or "") == clean_subgroup
+            for item in _all_subgroups_for_group(clean_group_id)
+        )
+
+    def _default_template_seed_rows() -> tuple[list[dict[str, str]], list[dict[str, object]]]:
+        rows: list[dict[str, str]] = []
+        subgroup_rows: list[dict[str, object]] = []
+        for group in TEMPLATE_GROUPS:
+            group_id = str(group.get("id") or "")
+            subgroups = group.get("subgroups")
+            if not group_id or not isinstance(subgroups, list):
+                continue
+            for subgroup in subgroups:
+                name = str(subgroup).strip()
+                if not name:
+                    continue
+                subgroup_rows.append({"group_id": group_id, "subgroup": name, "is_system": True})
+                defaults = DEFAULT_TEMPLATE_CONTENT.get(name) or [f"Спасибо за отзыв! Категория: {name}."]
+                for text in defaults:
+                    clean = str(text or "").strip()
+                    if not clean:
+                        continue
+                    rows.append(
+                        {
+                            "group_id": group_id,
+                            "subgroup": name,
+                            "template_text": clean,
+                        }
+                    )
+        return rows, subgroup_rows
+
+    def _ensure_platform_default_templates() -> None:
+        seed_rows, subgroup_rows = _default_template_seed_rows()
+        if repository.count_default_template_subgroups() == 0:
+            repository.ensure_default_template_subgroups(subgroup_rows)
+        for group_id in GENERAL_LOCKED_GROUP_IDS:
+            repository.ensure_default_template_subgroups(
+                [{"group_id": group_id, "subgroup": GENERAL_LOCKED_SUBGROUP}]
+            )
+            existing = repository.list_default_template_variants(group_id=group_id, subgroup=GENERAL_LOCKED_SUBGROUP)
+            if not existing:
+                repository.replace_default_subgroup_templates(
+                    group_id=group_id,
+                    subgroup=GENERAL_LOCKED_SUBGROUP,
+                    templates=DEFAULT_TEMPLATE_CONTENT.get(GENERAL_LOCKED_SUBGROUP)
+                    or ["Спасибо за ваш отзыв! Мы ценим обратную связь и уже работаем над улучшениями."],
+                )
+        repository.sync_default_template_subgroups_from_variants()
+        if repository.count_default_template_variants(include_inactive=True) > 0:
+            return
+        seeded = repository.seed_default_templates_from_user_templates()
+        if seeded > 0:
+            return
+        repository.seed_default_template_variants(seed_rows)
+
+    def _build_template_group_items(counts: dict[tuple[str, str], int]) -> list[dict[str, object]]:
+        items: list[dict[str, object]] = []
+        for group in TEMPLATE_GROUPS:
+            group_id = str(group.get("id") or "")
+            title = str(group.get("title") or group_id)
+            base_subgroups = set(_base_subgroups_for_group(group_id))
+            all_subgroups = _all_subgroups_for_group(group_id)
+            subgroups: list[dict[str, object]] = []
+            for subgroup_item in all_subgroups:
+                subgroup_name = str(subgroup_item.get("name") or "").strip()
+                if not subgroup_name:
+                    continue
+                subgroups.append(
+                    {
+                        "name": subgroup_name,
+                        "count": counts.get((group_id, subgroup_name), 0),
+                        "subgroup_id": str(subgroup_item.get("subgroup_id") or "").strip() or None,
+                        "is_system": subgroup_name in base_subgroups,
+                    }
+                )
+            items.append(
+                {
+                    "id": group_id,
+                    "title": title,
+                    "subgroups": subgroups,
+                }
+            )
+        return items
+
+    def _ensure_default_template_variants(user_id: int) -> None:
+        _ensure_platform_default_templates()
+        repository.copy_default_templates_to_user(user_id=user_id, only_if_empty=True)
+
+    def _parse_recommendation_targets(raw_csv: str) -> list[str]:
+        values = str(raw_csv or "").replace(";", ",").replace("\n", ",").split(",")
+        result: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            article = value.strip()
+            if not article or article in seen:
+                continue
+            seen.add(article)
+            result.append(article)
+        return result
+
+    def _registration_disabled_response() -> HTMLResponse:
+        return HTMLResponse(
+            build_login_html(error="Самостоятельная регистрация отключена. Пользователей добавляет администратор."),
+            status_code=403,
+        )
+
+    @app.get("/", response_class=HTMLResponse)
+    def landing(request: Request) -> HTMLResponse:
+        user = _get_current_user(request)
+        if user is not None:
+            return RedirectResponse("/app", status_code=302)
+        return HTMLResponse(build_landing_html())
+
+    @app.get("/login", response_class=HTMLResponse)
+    def login_page(request: Request) -> HTMLResponse:
+        user = _get_current_user(request)
+        if user is not None:
+            return RedirectResponse("/app", status_code=302)
+        return HTMLResponse(build_login_html())
+
+    @app.post("/login")
+    def login(request: Request, email: str = Form(...), password: str = Form(...)) -> HTMLResponse:
+        login_key = _login_attempt_key(request, email)
+        if _is_login_blocked(login_key):
+            return HTMLResponse(build_login_html(error="Слишком много неудачных попыток входа. Повторите позже."), status_code=429)
+        user = repository.get_user_by_email(email)
+        if user is None or not verify_password(password, str(user["password_hash"])):
+            _record_failed_login(login_key)
+            return HTMLResponse(build_login_html(error="Неверная эл. почта или пароль"), status_code=401)
+
+        _clear_failed_login(login_key)
+        token = _issue_session(int(user["id"]))
+        response = RedirectResponse("/app", status_code=302)
+        _set_session_cookie(response, token)
+        return response
+
+    @app.get("/register", response_class=HTMLResponse)
+    def register_page(request: Request) -> HTMLResponse:
+        user = _get_current_user(request)
+        if user is not None:
+            return RedirectResponse("/app", status_code=302)
+        if not self_registration_enabled:
+            return _registration_disabled_response()
+        return HTMLResponse(build_register_html())
+
+    @app.post("/register")
+    def register(email: str = Form(...), password: str = Form(...), password_repeat: str = Form(...)) -> HTMLResponse:
+        if not self_registration_enabled:
+            return _registration_disabled_response()
+        email = email.strip().lower()
+        if len(email) < 5 or "@" not in email:
+            return HTMLResponse(build_register_html(error="Введите корректную эл. почту"), status_code=400)
+        if len(password) < 8:
+            return HTMLResponse(build_register_html(error="Пароль должен быть не короче 8 символов"), status_code=400)
+        if password != password_repeat:
+            return HTMLResponse(build_register_html(error="Пароли не совпадают"), status_code=400)
+        if repository.get_user_by_email(email) is not None:
+            return HTMLResponse(build_register_html(error="Пользователь уже существует"), status_code=409)
+
+        role = ROLE_ADMIN if repository.count_users() == 0 else ROLE_USER
+        user = repository.create_user(email=email, password_hash=hash_password(password), role=role)
+        token = _issue_session(int(user["id"]))
+        response = RedirectResponse("/app", status_code=302)
+        _set_session_cookie(response, token)
+        return response
+
+    @app.get("/logout")
+    def logout(request: Request) -> RedirectResponse:
+        token = request.cookies.get("session_token")
+        if token:
+            repository.delete_session(token)
+        response = RedirectResponse("/", status_code=302)
+        secure_cookie = bool(app_config.is_production)
+        response.delete_cookie("session_token", samesite="lax", secure=secure_cookie)
+        response.delete_cookie(CSRF_COOKIE_NAME, samesite="lax", secure=secure_cookie)
+        return response
+
+    @app.get("/app", response_class=HTMLResponse)
+    def app_dashboard(request: Request) -> HTMLResponse:
+        user = _get_current_user(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=302)
+        return HTMLResponse(build_app_html(user))
+
+    @app.get("/admin", response_class=HTMLResponse)
+    def admin_page(request: Request) -> HTMLResponse:
+        user = _get_current_user(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=302)
+        if user.get("role") != ROLE_ADMIN:
+            return HTMLResponse("<h1>Доступ запрещен</h1><p>Нужны права администратора.</p>", status_code=403)
+        return HTMLResponse(build_admin_html(user))
+
+    @app.get("/api/me")
+    def get_me(request: Request) -> dict[str, object]:
+        user = _require_user(request)
+        return {
+            "id": user["id"],
+            "email": user["email"],
+            "full_name": user.get("full_name") or "",
+            "role": user["role"],
+        }
+
+    @app.get("/api/profile")
+    def get_profile(request: Request) -> dict[str, object]:
+        user = _require_user(request)
+        sync_settings = repository.get_user_sync_settings(user_id=int(user["id"]))
+        template_variables = repository.list_user_template_variable_values(user_id=int(user["id"]))
+        editable_template_variables = [
+            item
+            for item in template_variables
+            if bool(item.get("is_user_editable")) and bool(item.get("is_active"))
+        ]
+        return {
+            "full_name": user.get("full_name") or "",
+            "email": user["email"],
+            "use_sync_start_date": bool(sync_settings.get("use_sync_start_date")),
+            "sync_start_date": str(sync_settings.get("sync_start_date") or "") or None,
+            "default_sync_lookback_days": int(sync_settings.get("default_sync_lookback_days") or 7),
+            "editable_template_variables": editable_template_variables,
+        }
+
+    @app.get("/api/user-sync-settings")
+    def get_user_sync_settings(request: Request) -> dict[str, object]:
+        user = _require_user(request)
+        return repository.get_user_sync_settings(user_id=int(user["id"]))
+
+    @app.put("/api/user-sync-settings")
+    def update_user_sync_settings(request: Request, payload: UserSyncSettingsRequest) -> dict[str, object]:
+        user = _require_user(request)
+        # User-level settings always operate with explicit sync start date.
+        # The checkbox toggle was removed from UI, so force enabled mode.
+        enabled_sync_start_date = True
+        sync_start_date = _parse_sync_start_date_or_none(
+            payload.sync_start_date,
+            enabled=enabled_sync_start_date,
+        )
+        updated = repository.save_user_sync_settings(
+            user_id=int(user["id"]),
+            use_sync_start_date=enabled_sync_start_date,
+            sync_start_date=sync_start_date,
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        settings = repository.get_user_sync_settings(user_id=int(user["id"]))
+        return {"ok": True, "settings": settings}
+
+    @app.get("/api/user/template-variables")
+    def user_list_template_variables(request: Request) -> dict[str, object]:
+        user = _require_user(request)
+        rows = repository.list_user_template_variable_values(user_id=int(user["id"]))
+        items = [
+            item
+            for item in rows
+            if bool(item.get("is_active")) and bool(item.get("is_user_editable"))
+        ]
+        return {"items": items, "count": len(items)}
+
+    @app.put("/api/user/template-variables")
+    def user_save_template_variables(
+        payload: UserTemplateVariableValuesSaveRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        user = _require_user(request)
+        saved = repository.save_user_template_variable_values(
+            user_id=int(user["id"]),
+            values={str(k): str(v) for k, v in dict(payload.values).items()},
+        )
+        return {"ok": True, "saved": int(saved)}
+
+    @app.put("/api/profile")
+    def update_profile(request: Request, payload: ProfileUpdateRequest) -> dict[str, object]:
+        user = _require_user(request)
+        user_id = int(user["id"])
+        stored_user = repository.get_user_by_id(user_id)
+        if stored_user is None:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+        new_email = (payload.email or str(stored_user.get("email") or "")).strip().lower()
+        if not new_email or "@" not in new_email:
+            raise HTTPException(status_code=400, detail="Введите корректную электронную почту")
+
+        full_name = (payload.full_name or "").strip() or None
+
+        wants_password_change = any(
+            value is not None and value != ""
+            for value in (payload.current_password, payload.new_password, payload.new_password_repeat)
+        )
+        password_hash: str | None = None
+        if wants_password_change:
+            if not payload.current_password:
+                raise HTTPException(status_code=400, detail="Введите текущий пароль")
+            if not verify_password(payload.current_password, str(stored_user.get("password_hash") or "")):
+                raise HTTPException(status_code=400, detail="Текущий пароль неверный")
+            if not payload.new_password or len(payload.new_password) < 8:
+                raise HTTPException(status_code=400, detail="Новый пароль должен быть не короче 8 символов")
+            if payload.new_password != (payload.new_password_repeat or ""):
+                raise HTTPException(status_code=400, detail="Новый пароль и подтверждение не совпадают")
+            password_hash = hash_password(payload.new_password)
+
+        try:
+            updated = repository.update_user_profile(
+                user_id=user_id,
+                email=new_email,
+                full_name=full_name,
+                password_hash=password_hash,
+            )
+        except Exception as exc:
+            is_duplicate_error = False
+            if psycopg is not None and isinstance(exc, getattr(psycopg, "IntegrityError", (Exception,))):
+                is_duplicate_error = True
+            if "integrityerror" in str(type(exc)).lower():
+                is_duplicate_error = True
+            if not is_duplicate_error:
+                raise
+            raise HTTPException(status_code=409, detail="Эта электронная почта уже используется другим аккаунтом") from exc
+        if not updated:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        return {"ok": True}
+
+    @app.get("/api/reviews")
+    def list_reviews(
+        request: Request,
+        source: str | None = None,
+        priority: str | None = None,
+        status: str | None = None,
+        category: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        sort: str = "newest",
+        page: int = 1,
+        page_size: int = 30,
+        bucket: str = "all",
+    ) -> dict[str, object]:
+        user = _require_user(request)
+        allowed_page_sizes = {10, 30, 50, 100}
+        normalized_page_size = page_size if page_size in allowed_page_sizes else 30
+        normalized_bucket = bucket.strip().lower()
+        if normalized_bucket not in {"all", "new", "processed"}:
+            normalized_bucket = "all"
+        normalized_sort = sort.strip().lower()
+        if normalized_sort not in {"newest", "oldest", "rating_asc", "rating_desc", "category"}:
+            normalized_sort = "newest"
+
+        normalized_date_from = date_from.strip() if date_from else None
+        normalized_date_to = date_to.strip() if date_to else None
+        for date_value in [normalized_date_from, normalized_date_to]:
+            if date_value:
+                try:
+                    datetime.strptime(date_value, "%Y-%m-%d")
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail="Неверный формат даты. Ожидается YYYY-MM-DD") from exc
+        if normalized_date_from and normalized_date_to and normalized_date_from > normalized_date_to:
+            raise HTTPException(status_code=400, detail="Дата начала не может быть позже даты окончания")
+
+        normalized_source = source.strip().lower() if source else None
+        if normalized_source in {"all", "all_sources"}:
+            normalized_source = None
+
+        status_key = status.strip().lower() if status else ""
+        status_map: dict[str, list[str] | None] = {
+            "": None,
+            "all": None,
+            "waiting_send": ["waiting_send"],
+            "processed_outside_spix": ["processed_outside_spix"],
+            "rejected": ["rejected", "ignored"],
+            "answered": ["answered_auto", "answered_manual", "answered"],
+            "waiting_processing": ["queued_for_operator", "waiting_processing"],
+            "generating_answer": ["generating_answer"],
+        }
+        status_values = status_map.get(status_key)
+        if status_values is None and status_key not in {"", "all"}:
+            status_values = [status_key]
+
+        account_ids_filter = _manager_allowed_review_account_ids(user)
+        page_data = service.list_reviews_paginated(
+            user_id=int(user["id"]),
+            source=normalized_source,
+            priority=priority,
+            status=None,
+            statuses=status_values,
+            category=category,
+            date_from=normalized_date_from,
+            date_to=normalized_date_to,
+            sort=normalized_sort,
+            page=max(page, 1),
+            page_size=normalized_page_size,
+            bucket=normalized_bucket,
+            account_ids=account_ids_filter,
+        )
+        source_options = service.list_review_sources(user_id=int(user["id"]))
+        return {
+            "items": page_data["items"],
+            "count": len(page_data["items"]),
+            "total": page_data["total"],
+            "page": page_data["page"],
+            "page_size": page_data["page_size"],
+            "pages": page_data["pages"],
+            "new_count": page_data["new_count"],
+            "processed_count": page_data["processed_count"],
+            "bucket": normalized_bucket,
+            "sort": normalized_sort,
+            "date_from": normalized_date_from,
+            "date_to": normalized_date_to,
+            "source": normalized_source,
+            "status": status_key or "all",
+            "source_options": source_options,
+        }
+
+    @app.get("/api/conversations")
+    def list_conversations(
+        request: Request,
+        source: str | None = None,
+        kind: str | None = None,
+        status: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        sort: str = "newest",
+        bucket: str = "new",
+        page: int = 1,
+        page_size: int = 30,
+    ) -> dict[str, object]:
+        user = _require_user(request)
+        normalized_source = (source or "").strip().lower()
+        if not normalized_source or normalized_source == "all":
+            normalized_source = None
+        kind_key = (kind or "").strip().lower()
+        if not kind_key or kind_key == "all":
+            normalized_kind = None
+        elif kind_key in {"question", "chat"}:
+            normalized_kind = kind_key
+        else:
+            raise HTTPException(status_code=400, detail="Тип должен быть: вопрос, чат или все")
+        status_key = (status or "").strip().lower()
+        if not status_key or status_key == "all":
+            normalized_status = None
+            status_key = "all"
+        elif status_key in {"open", "waiting", "closed"}:
+            normalized_status = status_key
+        else:
+            raise HTTPException(status_code=400, detail="Статус должен быть: открыт, ожидает, закрыт или все")
+        normalized_sort = sort.strip().lower()
+        if normalized_sort not in {"newest", "oldest"}:
+            normalized_sort = "newest"
+        normalized_date_from = date_from.strip() if date_from else None
+        normalized_date_to = date_to.strip() if date_to else None
+        for date_value in [normalized_date_from, normalized_date_to]:
+            if date_value:
+                try:
+                    datetime.strptime(date_value, "%Y-%m-%d")
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail="Неверный формат даты. Ожидается YYYY-MM-DD") from exc
+        if normalized_date_from and normalized_date_to and normalized_date_from > normalized_date_to:
+            raise HTTPException(status_code=400, detail="Дата начала не может быть позже даты окончания")
+        normalized_bucket = bucket.strip().lower()
+        if normalized_bucket not in {"all", "new", "processed"}:
+            normalized_bucket = "new"
+        normalized_page_size = page_size if page_size in {10, 30, 50, 100} else 30
+        manager_conversation_scope = _manager_allowed_conversation_accounts(user)
+        page_data = repository.list_conversations_paginated(
+            user_id=int(user["id"]),
+            source=normalized_source,
+            kind=normalized_kind,
+            status=normalized_status,
+            statuses=None,
+            date_from=normalized_date_from,
+            date_to=normalized_date_to,
+            sort=normalized_sort,
+            page=max(page, 1),
+            page_size=normalized_page_size,
+            bucket=normalized_bucket,
+            account_permissions=manager_conversation_scope,
+        )
+        source_options = repository.list_conversation_sources(user_id=int(user["id"]))
+        return {
+            "items": page_data["items"],
+            "count": len(page_data["items"]),
+            "total": page_data["total"],
+            "page": page_data["page"],
+            "page_size": page_data["page_size"],
+            "pages": page_data["pages"],
+            "new_count": page_data["new_count"],
+            "processed_count": page_data["processed_count"],
+            "bucket": normalized_bucket,
+            "sort": normalized_sort,
+            "date_from": normalized_date_from,
+            "date_to": normalized_date_to,
+            "source": normalized_source or "all",
+            "status": status_key,
+            "kind": normalized_kind or "all",
+            "source_options": source_options,
+        }
+
+    @app.post("/api/conversations/{conversation_uid}/status")
+    def set_conversation_status(
+        conversation_uid: str,
+        payload: ConversationStatusRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        user = _require_user(request)
+        _require_manager_scope_for_conversation(user, conversation_uid)
+        status_value = payload.status.strip().lower()
+        if status_value not in {"open", "waiting", "closed"}:
+            raise HTTPException(status_code=400, detail="Статус должен быть: открыт, ожидает или закрыт")
+        updated = repository.update_conversation_status(
+            user_id=int(user["id"]),
+            conversation_uid=conversation_uid,
+            status=status_value,
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Диалог не найден")
+        repository.log_review_action(
+            user_id=int(user["id"]),
+            review_uid=conversation_uid,
+            action_type="conversation_status",
+            actor=str(user["email"]),
+            details={"status": status_value},
+        )
+        return {"ok": True}
+
+    @app.post("/api/conversations/{conversation_uid}/reply")
+    def reply_conversation(
+        conversation_uid: str,
+        payload: ConversationReplyRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        user = _require_user(request)
+        _require_manager_scope_for_conversation(user, conversation_uid)
+        operator_name = str(user.get("email") or "").strip() or "operator"
+        idempotency_key = (payload.idempotency_key or "").strip() or f"{conversation_uid}:{int(time.time() * 1000)}"
+        result = service.send_conversation_reply(
+            user_id=int(user["id"]),
+            conversation_uid=conversation_uid,
+            response_text=payload.response_text,
+            operator_name=operator_name,
+            idempotency_key=idempotency_key,
+        )
+        if not bool(result.get("ok")):
+            raise HTTPException(status_code=502, detail=str(result.get("error") or "Не удалось отправить ответ в диалог"))
+        return {
+            "ok": True,
+            "status": result.get("status"),
+            "deduplicated": bool(result.get("deduplicated")),
+            "idempotency_key": idempotency_key,
+        }
+
+    @app.get("/api/conversations/{conversation_uid}/messages")
+    def conversation_messages(conversation_uid: str, request: Request, limit: int = 200) -> dict[str, object]:
+        user = _require_user(request)
+        _require_manager_scope_for_conversation(user, conversation_uid)
+        conversation = repository.get_conversation(user_id=int(user["id"]), conversation_uid=conversation_uid)
+        if conversation is None:
+            raise HTTPException(status_code=404, detail="Диалог не найден")
+        messages = repository.list_conversation_messages(
+            user_id=int(user["id"]),
+            conversation_uid=conversation_uid,
+            limit=limit,
+        )
+        return {
+            "conversation": conversation,
+            "messages": messages,
+            "count": len(messages),
+        }
+
+    @app.get("/api/chat-quick-templates")
+    def list_chat_quick_templates(request: Request) -> dict[str, object]:
+        user = _require_user(request)
+        items = repository.list_chat_quick_templates(user_id=int(user["id"]))
+        return {"items": items, "count": len(items)}
+
+    @app.post("/api/chat-quick-templates")
+    def create_chat_quick_template(request: Request, payload: ChatQuickTemplateCreateRequest) -> dict[str, object]:
+        user = _require_user(request)
+        text = str(payload.template_text or "").strip()
+        if not text:
+            raise HTTPException(status_code=400, detail="Введите текст шаблона")
+        item = repository.add_chat_quick_template(user_id=int(user["id"]), template_text=text)
+        return {"ok": True, "item": item}
+
+    @app.delete("/api/chat-quick-templates/{template_id}")
+    def delete_chat_quick_template(template_id: int, request: Request) -> dict[str, object]:
+        user = _require_user(request)
+        deleted = repository.delete_chat_quick_template(user_id=int(user["id"]), template_id=int(template_id))
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Шаблон не найден")
+        return {"ok": True, "deleted": True}
+
+    @app.post("/api/admin/conversations-clear")
+    def admin_clear_conversations(request: Request, payload: ClearReviewsRequest) -> dict[str, object]:
+        actor = _require_admin(request)
+        if payload.user_id is None:
+            target_user_id = _tenant_owner_id(actor) if not _is_super_admin(actor) else int(actor["id"])
+        else:
+            target_user_id = int(payload.user_id)
+            _target_user_for_admin_scope(actor=actor, target_user_id=target_user_id)
+        deleted = repository.clear_conversations(user_id=target_user_id)
+        return {"ok": True, "deleted": deleted, "user_id": target_user_id}
+
+    @app.get("/api/analytics")
+    def user_analytics(request: Request) -> dict[str, object]:
+        user = _require_analytics_access(request)
+        return repository.get_user_analytics(user_id=int(user["id"]))
+
+    @app.post("/api/sync")
+    def sync_reviews(request: Request, payload: SyncRequest) -> dict[str, object]:
+        user = _require_user(request)
+        user_id = int(user["id"])
+        user_sync_settings = repository.get_user_sync_settings(user_id=user_id)
+        since_date = (
+            str(user_sync_settings.get("sync_start_date") or "").strip()
+            if bool(user_sync_settings.get("use_sync_start_date"))
+            else None
+        )
+        if payload.all_accounts:
+            account_ids_snapshot = _snapshot_active_account_ids_for_user(user_id)
+            if not account_ids_snapshot:
+                raise HTTPException(status_code=400, detail="Нет активных кабинетов для синхронизации")
+            run_started_at = _now_iso()
+            result = _run_sync_for_user(
+                user_id=user_id,
+                since_date=since_date or None,
+                account_ids=account_ids_snapshot,
+                run_started_at=run_started_at,
+            )
+            with sync_lock:
+                sync_state["polling_enabled"] = True
+                sync_state["polling_user_id"] = user_id
+                sync_state["polling_account_ids"] = list(account_ids_snapshot)
+                sync_state["polling_since_date"] = since_date or None
+                sync_state["polling_started_at"] = run_started_at
+                sync_state["last_poll_at"] = run_started_at
+                sync_state["last_poll_result"] = {
+                    "ok": True,
+                    "run_started_at": run_started_at,
+                    "accounts": int(result.get("accounts") or 0),
+                    "success_accounts": int(result.get("success_accounts") or 0),
+                    "failed_accounts": int(result.get("failed_accounts") or 0),
+                    "loaded": int(result.get("loaded") or 0),
+                    "loaded_conversations": int(result.get("loaded_conversations") or 0),
+                    "account_ids": list(result.get("account_ids") or account_ids_snapshot),
+                    "errors": _serialize_sync_error_details(result.get("errors")),
+                    "cancelled": bool(result.get("cancelled")),
+                }
+            _start_auto_sync_worker_if_needed()
+            return result
+
+        if payload.account_id is None:
+            raise HTTPException(status_code=400, detail="Необходимо указать идентификатор кабинета")
+        account = repository.get_marketplace_account(
+            user_id=user_id,
+            account_id=payload.account_id,
+            include_secrets=True,
+        )
+        if account is None:
+            raise HTTPException(status_code=404, detail="Кабинет маркетплейса не найден")
+        marketplace = str(account["marketplace"])
+        try:
+            client = service._build_client(account)
+            loaded = service.sync_reviews(
+                user_id=user_id,
+                source=marketplace,
+                account_id=int(account["id"]),
+                client=client,
+                since_date=since_date or None,
+            )
+            loaded_conversations = service.sync_conversations(
+                user_id=user_id,
+                source=marketplace,
+                account_id=int(account["id"]),
+                client=client,
+            )
+        except MarketplaceSyncError as exc:
+            raise HTTPException(status_code=502, detail=f"Ошибка синхронизации: {exc}") from exc
+        return {"accounts": 1, "loaded": loaded, "loaded_conversations": loaded_conversations}
+
+    @app.post("/api/sync/capabilities")
+    def sync_capabilities(request: Request, payload: SyncCapabilitiesRequest) -> dict[str, object]:
+        user = _require_settings_access(request)
+        user_id = int(user["id"])
+        user_sync_settings = repository.get_user_sync_settings(user_id=user_id)
+        since_date = (
+            str(user_sync_settings.get("sync_start_date") or "").strip()
+            if bool(user_sync_settings.get("use_sync_start_date"))
+            else None
+        )
+        result = _probe_account_capabilities(
+            user_id=user_id,
+            account_id=int(payload.account_id),
+            since_date=since_date or None,
+        )
+        return {"ok": True, "item": result}
+
+    @app.get("/api/sync/capabilities")
+    def sync_capabilities_all(request: Request) -> dict[str, object]:
+        user = _require_settings_access(request)
+        user_id = int(user["id"])
+        account_ids = _snapshot_active_account_ids_for_user(user_id)
+        user_sync_settings = repository.get_user_sync_settings(user_id=user_id)
+        since_date = (
+            str(user_sync_settings.get("sync_start_date") or "").strip()
+            if bool(user_sync_settings.get("use_sync_start_date"))
+            else None
+        )
+        items: list[dict[str, object]] = []
+        aggregate_errors: list[dict[str, object]] = []
+        any_syncable = False
+        for account_id in account_ids:
+            item = _probe_account_capabilities(
+                user_id=user_id,
+                account_id=account_id,
+                since_date=since_date or None,
+            )
+            items.append(item)
+            any_syncable = any_syncable or bool(item.get("can_sync_any"))
+            raw_item_errors = item.get("errors")
+            if isinstance(raw_item_errors, list):
+                aggregate_errors.extend(_serialize_sync_error_details(raw_item_errors))
+        return {
+            "ok": True,
+            "items": items,
+            "count": len(items),
+            "any_syncable": any_syncable,
+            "errors": aggregate_errors,
+        }
+
+    @app.get("/api/accounts")
+    def list_accounts(request: Request) -> dict[str, object]:
+        user = _require_settings_access(request)
+        items = repository.list_marketplace_accounts(user_id=int(user["id"]), include_secrets=True)
+        return {"items": items, "count": len(items)}
+
+    @app.post("/api/accounts")
+    def create_account(request: Request, payload: AccountCreateRequest) -> dict[str, object]:
+        user = _require_settings_access(request)
+        marketplace = payload.marketplace.strip().lower()
+        if marketplace not in {"wb", "ozon", "mock"}:
+            raise HTTPException(status_code=400, detail="Некорректный маркетплейс")
+        integration = payload.integration if isinstance(payload.integration, dict) else {}
+        default_api_urls = {
+            "wb": "https://feedbacks-api.wildberries.ru/api/v1/feedbacks",
+            "ozon": "https://api-seller.ozon.ru",
+            "mock": "https://example.local/api/reviews",
+        }
+        api_url = (payload.api_url or "").strip() or str(integration.get("api_url") or default_api_urls[marketplace])
+        api_url = _validate_account_api_url(marketplace, api_url)
+        if marketplace in {"wb", "ozon"} and not (payload.api_key or "").strip():
+            raise HTTPException(status_code=400, detail="Для WB/OZON требуется ключ доступа")
+        client_id_value = (payload.client_id or "").strip() or str(integration.get("client_id") or "").strip()
+        if marketplace == "ozon" and not client_id_value:
+            raise HTTPException(status_code=400, detail="Для OZON требуется идентификатор клиента")
+        if client_id_value:
+            integration["client_id"] = client_id_value
+        if marketplace == "ozon":
+            page_size = integration.get("page_size")
+            if page_size is not None and (not isinstance(page_size, int) or page_size <= 0):
+                raise HTTPException(status_code=400, detail="Размер страницы должен быть положительным целым числом")
+        if marketplace == "wb":
+            max_pages = integration.get("max_pages")
+            if max_pages is not None and (not isinstance(max_pages, int) or max_pages <= 0):
+                raise HTTPException(status_code=400, detail="Лимит страниц должен быть положительным целым числом")
+
+        account = repository.create_marketplace_account(
+            user_id=int(user["id"]),
+            marketplace=marketplace,
+            account_name=payload.account_name.strip(),
+            api_url=api_url,
+            api_key=(payload.api_key or "").strip() or None,
+            extra=integration,
+        )
+        return {"ok": True, "item": account}
+
+    @app.post("/api/accounts/{account_id}/status")
+    def update_account_status(account_id: int, request: Request, payload: AccountStatusRequest) -> dict[str, object]:
+        user = _require_settings_access(request)
+        account = repository.get_marketplace_account(
+            user_id=int(user["id"]),
+            account_id=account_id,
+            include_secrets=False,
+        )
+        if account is None:
+            raise HTTPException(status_code=404, detail="Кабинет маркетплейса не найден")
+        updated = repository.update_marketplace_account_status(
+            user_id=int(user["id"]),
+            account_id=account_id,
+            is_active=payload.is_active,
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Кабинет маркетплейса не найден")
+        return {"ok": True}
+
+    @app.delete("/api/accounts/{account_id}")
+    def delete_account(account_id: int, request: Request) -> dict[str, object]:
+        user = _require_settings_access(request)
+        account = repository.get_marketplace_account(
+            user_id=int(user["id"]),
+            account_id=account_id,
+            include_secrets=False,
+        )
+        if account is None:
+            raise HTTPException(status_code=404, detail="Кабинет маркетплейса не найден")
+        repository.update_marketplace_account_status(
+            user_id=int(user["id"]),
+            account_id=account_id,
+            is_active=False,
+        )
+        deleted = repository.delete_marketplace_account(
+            user_id=int(user["id"]),
+            account_id=account_id,
+        )
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Кабинет маркетплейса не найден")
+        return {"ok": True}
+
+    @app.get("/api/templates")
+    def list_templates(request: Request) -> dict[str, object]:
+        user = _require_settings_access(request)
+        items = repository.list_templates(user_id=int(user["id"]))
+        return {"items": items, "count": len(items)}
+
+    @app.get("/api/template-groups")
+    def list_template_groups(request: Request) -> dict[str, object]:
+        user = _require_settings_access(request)
+        user_id = int(user["id"])
+        _ensure_default_template_variants(user_id)
+        rows = repository.list_template_variants(user_id=user_id)
+        counts: dict[tuple[str, str], int] = {}
+        for row in rows:
+            key = (str(row.get("group_id") or ""), str(row.get("subgroup") or ""))
+            counts[key] = counts.get(key, 0) + 1
+        items = _build_template_group_items(counts)
+        return {"items": items, "count": len(items)}
+
+    @app.get("/api/processing-rules")
+    def list_processing_rules(request: Request) -> dict[str, object]:
+        user = _require_settings_access(request)
+        user_id = int(user["id"])
+        _ensure_default_template_variants(user_id)
+        existing_rows = repository.list_processing_rules(user_id=user_id)
+        existing_map = {str(row.get("group_id") or ""): row for row in existing_rows}
+        items: list[dict[str, object]] = []
+        for group in TEMPLATE_GROUPS:
+            group_id = str(group.get("id") or "")
+            title = str(group.get("title") or group_id)
+            row = existing_map.get(group_id)
+            mode = str((row or {}).get("action_mode") or "manual")
+            if mode == "auto":
+                mode = "template"
+            if mode in {"ai", "ignore"}:
+                mode = "manual"
+            if mode not in {"template", "manual"}:
+                mode = "manual"
+            items.append(
+                {
+                    "group_id": group_id,
+                    "title": title,
+                    "action_mode": mode,
+                    "auto_send": bool((row or {}).get("auto_send")),
+                }
+            )
+        return {"items": items, "count": len(items)}
+
+    @app.put("/api/processing-rules/apply")
+    def apply_processing_rules(payload: ProcessingRulesApplyRequest, request: Request) -> dict[str, object]:
+        user = _require_settings_access(request)
+        user_id = int(user["id"])
+        normalized_rules: list[dict[str, object]] = []
+        for item in payload.rules:
+            group_id = item.group_id.strip()
+            if _template_group_by_id(group_id) is None:
+                raise HTTPException(status_code=400, detail=f"Неизвестная группа правил: {group_id}")
+            mode = item.action_mode.strip().lower()
+            if mode in {"ai", "ignore"}:
+                mode = "manual"
+            if mode not in {"template", "manual"}:
+                raise HTTPException(status_code=400, detail=f"Некорректный режим правила: {mode}")
+            normalized_rules.append(
+                {
+                    "group_id": group_id,
+                    "action_mode": mode,
+                    "auto_send": bool(item.auto_send),
+                }
+            )
+        repository.replace_processing_rules(user_id=user_id, rules=normalized_rules)
+        stats = service.apply_processing_rules_to_unprocessed(user_id=user_id)
+        return {"ok": True, "applied": len(normalized_rules), "updated_reviews": stats}
+
+    @app.get("/api/recommendations")
+    def list_recommendations(request: Request) -> dict[str, object]:
+        user = _require_settings_access(request)
+        items = repository.list_recommendations(user_id=int(user["id"]))
+        return {"items": items, "count": len(items)}
+
+    @app.put("/api/recommendations")
+    def save_recommendations(payload: RecommendationsSaveRequest, request: Request) -> dict[str, object]:
+        user = _require_settings_access(request)
+        normalized_rows: list[dict[str, object]] = []
+        unique_sources: set[str] = set()
+        for row in payload.rows:
+            source_article = row.source_article.strip()
+            targets = _parse_recommendation_targets(row.targets_csv)
+            if not source_article:
+                continue
+            if source_article in unique_sources:
+                continue
+            unique_sources.add(source_article)
+            normalized_rows.append(
+                {
+                    "source_article": source_article,
+                    "target_articles": targets,
+                }
+            )
+        inserted_pairs = repository.replace_all_recommendations(
+            user_id=int(user["id"]),
+            rows=normalized_rows,
+        )
+        return {"ok": True, "sources": len(normalized_rows), "pairs": inserted_pairs}
+
+    @app.post("/api/recommendations/import")
+    async def import_recommendations(request: Request, file: UploadFile = File(...)) -> dict[str, object]:
+        user = _require_settings_access(request)
+        try:
+            from openpyxl import load_workbook
+        except Exception as exc:  # pragma: no cover - protected by dependency
+            raise HTTPException(status_code=500, detail="Библиотека Excel не установлена") from exc
+
+        filename = (file.filename or "").lower()
+        if filename and not filename.endswith((".xlsx", ".xlsm", ".xltx", ".xltm")):
+            raise HTTPException(status_code=400, detail="Поддерживаются только файлы Excel формата .xlsx")
+        content = await file.read()
+        if not content:
+            raise HTTPException(status_code=400, detail="Файл пустой")
+        try:
+            workbook = load_workbook(io.BytesIO(content), data_only=True)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Не удалось прочитать Excel-файл") from exc
+        sheet = workbook.active
+        normalized_rows: list[dict[str, object]] = []
+        unique_sources: set[str] = set()
+        for row in sheet.iter_rows(min_row=2, values_only=True):
+            source_article = str(row[0] or "").strip() if len(row) > 0 else ""
+            targets_csv = str(row[1] or "").strip() if len(row) > 1 else ""
+            targets = _parse_recommendation_targets(targets_csv)
+            if not source_article:
+                continue
+            if source_article in unique_sources:
+                continue
+            unique_sources.add(source_article)
+            normalized_rows.append(
+                {
+                    "source_article": source_article,
+                    "target_articles": targets,
+                }
+            )
+        inserted_pairs = repository.replace_all_recommendations(
+            user_id=int(user["id"]),
+            rows=normalized_rows,
+        )
+        return {"ok": True, "sources": len(normalized_rows), "pairs": inserted_pairs}
+
+    @app.get("/api/recommendations/export")
+    def export_recommendations(request: Request) -> StreamingResponse:
+        try:
+            from openpyxl import Workbook
+        except Exception as exc:  # pragma: no cover - protected by dependency
+            raise HTTPException(status_code=500, detail="Библиотека Excel не установлена") from exc
+        user = _require_settings_access(request)
+        items = repository.list_recommendations(user_id=int(user["id"]))
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "Рекомендации"
+        sheet.append(["Артикул товара", "Рекомендуемые артикулы"])
+        for item in items:
+            sheet.append(
+                [
+                    str(item.get("source_article") or ""),
+                    str(item.get("targets_csv") or ""),
+                ]
+            )
+        output = io.BytesIO()
+        workbook.save(output)
+        output.seek(0)
+        headers = {"Content-Disposition": 'attachment; filename="recommendations.xlsx"'}
+        return StreamingResponse(
+            output,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers=headers,
+        )
+
+    @app.get("/api/template-subgroup")
+    def get_template_subgroup(group_id: str, subgroup: str, request: Request) -> dict[str, object]:
+        user = _require_settings_access(request)
+        user_id = int(user["id"])
+        if not _validate_subgroup(group_id, subgroup):
+            raise HTTPException(status_code=404, detail="Группа шаблонов или подгруппа не найдена")
+        _ensure_default_template_variants(user_id)
+        items = repository.list_template_variants(
+            user_id=user_id,
+            group_id=group_id,
+            subgroup=subgroup,
+        )
+        return {"items": items, "count": len(items), "group_id": group_id, "subgroup": subgroup}
+
+    @app.put("/api/template-subgroup")
+    def save_template_subgroup(
+        group_id: str,
+        subgroup: str,
+        payload: TemplateSubgroupSaveRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        user = _require_settings_access(request)
+        if not _validate_subgroup(group_id, subgroup):
+            raise HTTPException(status_code=404, detail="Группа шаблонов или подгруппа не найдена")
+        repository.replace_subgroup_templates(
+            user_id=int(user["id"]),
+            group_id=group_id,
+            subgroup=subgroup,
+            templates=payload.templates,
+        )
+        return {"ok": True, "saved": len([x for x in payload.templates if x and x.strip()])}
+
+    @app.post("/api/template-subgroup/item")
+    def add_template_subgroup_item(payload: TemplateVariantCreateRequest, request: Request) -> dict[str, object]:
+        user = _require_settings_access(request)
+        group_id = payload.group_id.strip()
+        subgroup = payload.subgroup.strip()
+        if not _validate_subgroup(group_id, subgroup):
+            raise HTTPException(status_code=404, detail="Группа шаблонов или подгруппа не найдена")
+        item = repository.add_template_variant(
+            user_id=int(user["id"]),
+            group_id=group_id,
+            subgroup=subgroup,
+            template_text=payload.template_text,
+        )
+        return {"ok": True, "item": item}
+
+    @app.delete("/api/template-subgroup/item/{template_id}")
+    def delete_template_subgroup_item(template_id: int, request: Request) -> dict[str, object]:
+        user = _require_settings_access(request)
+        deleted = repository.delete_template_variant(
+            user_id=int(user["id"]),
+            template_id=template_id,
+        )
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Шаблон не найден")
+        return {"ok": True}
+
+    @app.put("/api/templates")
+    def upsert_template(request: Request, payload: TemplateUpsertRequest) -> dict[str, object]:
+        user = _require_settings_access(request)
+        category = payload.category.strip().lower()
+        mode = payload.mode.strip().lower()
+        if category not in CATEGORIES:
+            raise HTTPException(status_code=400, detail=f"Неизвестная категория: {category}")
+        if mode not in {"auto", "manual", "ignore"}:
+            raise HTTPException(status_code=400, detail="Режим должен быть: авто, вручную или игнор")
+        repository.upsert_template(
+            user_id=int(user["id"]),
+            category=category,
+            mode=mode,
+            template_text=payload.template_text.strip(),
+            is_enabled=payload.is_enabled,
+        )
+        return {"ok": True}
+
+    @app.delete("/api/templates/{category}")
+    def delete_template(category: str, request: Request) -> dict[str, object]:
+        user = _require_settings_access(request)
+        normalized = category.strip().lower()
+        if normalized not in CATEGORIES:
+            raise HTTPException(status_code=400, detail=f"Неизвестная категория: {normalized}")
+        deleted = repository.delete_template(user_id=int(user["id"]), category=normalized)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Правило не найдено")
+        return {"ok": True}
+
+    @app.post("/api/reviews/{review_id}/queue-manual")
+    def queue_manual(review_id: str, request: Request) -> dict[str, object]:
+        user = _require_user(request)
+        _require_manager_scope_for_review(user, review_id)
+        updated = service.queue_for_manual_processing_with_actor(
+            actor_email=str(user.get("email") or ""),
+            owner_user_id=_tenant_owner_id(user),
+            review_uid=review_id,
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Отзыв не найден")
+        return {"ok": True}
+
+    @app.post("/api/reviews/{review_id}/auto-reply")
+    def auto_reply(review_id: str, request: Request) -> dict[str, object]:
+        user = _require_user(request)
+        _require_manager_scope_for_review(user, review_id)
+        try:
+            reply = service.generate_auto_reply(user_id=_tenant_owner_id(user), review_uid=review_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc) or "Отзыв не найден") from exc
+        except MarketplaceSyncError as exc:
+            raise HTTPException(status_code=502, detail=f"Не удалось отправить ответ в маркетплейс: {exc}") from exc
+        return {"ok": True, "reply": reply}
+
+    @app.post("/api/reviews/{review_id}/manual-reply")
+    def manual_reply(review_id: str, payload: ManualReplyRequest, request: Request) -> dict[str, object]:
+        user = _require_user(request)
+        _require_manager_scope_for_review(user, review_id)
+        updated = service.save_manual_reply_with_actor(
+            actor_email=str(user.get("email") or ""),
+            owner_user_id=_tenant_owner_id(user),
+            review_uid=review_id,
+            response_text=payload.response_text,
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Отзыв не найден")
+        return {"ok": True}
+
+    @app.get("/api/admin/ai-settings")
+    def get_ai_settings(request: Request) -> dict[str, object]:
+        _require_super_admin(request)
+        return repository.get_ai_settings()
+
+    @app.put("/api/admin/ai-settings")
+    def update_ai_settings(request: Request, payload: AISettingsRequest) -> dict[str, object]:
+        _require_super_admin(request)
+        provider = payload.provider.strip().lower()
+        if provider not in {"rules", "yandex"}:
+            raise HTTPException(status_code=400, detail="Провайдер должен быть: встроенные правила или Яндекс")
+        lookback_days = int(payload.default_sync_lookback_days)
+        repository.update_ai_settings(
+            provider=provider,
+            yandex_api_key=payload.yandex_api_key.strip() if payload.yandex_api_key is not None else None,
+            yandex_folder_id=(payload.yandex_folder_id or "").strip() or None,
+            yandex_model_uri=(payload.yandex_model_uri or "").strip() or None,
+            group_processors=payload.group_processors,
+            use_sync_start_date=False,
+            sync_start_date=None,
+        )
+        repository.set_default_sync_lookback_days(days=lookback_days)
+        return {"ok": True}
+
+    @app.post("/api/admin/ai-settings/check")
+    def check_ai_settings_connection(request: Request, payload: AIConnectionTestRequest) -> dict[str, object]:
+        _require_super_admin(request)
+        stored = repository.get_ai_settings(include_secrets=True)
+        api_key = (payload.yandex_api_key or "").strip() or str(stored.get("yandex_api_key") or "").strip()
+        folder_id = (payload.yandex_folder_id or "").strip() or str(stored.get("yandex_folder_id") or "").strip()
+        if not api_key:
+            raise HTTPException(status_code=400, detail="Укажите API-ключ Yandex Cloud.")
+        if not folder_id:
+            raise HTTPException(status_code=400, detail="Укажите ID каталога (folderId).")
+        try:
+            result = service.check_yandex_connection(api_key=api_key, folder_id=folder_id)
+            return {
+                "ok": True,
+                "status": "ok",
+                "message": str(result.get("message") or "Подключение успешно"),
+                "model_uri": result.get("model_uri"),
+                "response_preview": result.get("response_preview"),
+            }
+        except MarketplaceSyncError as exc:
+            detail = str(exc).lower()
+            error_code = "connection"
+            if any(code in detail for code in ["401", "403", "unauthorized", "forbidden", "invalid api"]):
+                error_code = "auth"
+            elif any(code in detail for code in ["400", "404", "folder", "modeluri", "not found"]):
+                error_code = "config"
+            elif "429" in detail or "rate" in detail or "quota" in detail:
+                error_code = "rate_limit"
+            elif "timeout" in detail or "network" in detail:
+                error_code = "network"
+            return {"ok": False, "status": "error", "error_code": error_code, "error": str(exc)}
+
+    @app.post("/api/admin/ai-settings/test-review")
+    def test_ai_review_classification(request: Request, payload: AIReviewTestRequest) -> dict[str, object]:
+        user = _require_super_admin(request)
+        stored = repository.get_ai_settings(include_secrets=True)
+        api_key = (payload.yandex_api_key or "").strip() or str(stored.get("yandex_api_key") or "").strip()
+        folder_id = (payload.yandex_folder_id or "").strip() or str(stored.get("yandex_folder_id") or "").strip()
+        review_text = str(payload.review_text or "").strip()
+        if not api_key:
+            raise HTTPException(status_code=400, detail="Укажите API-ключ Yandex Cloud.")
+        if not folder_id:
+            raise HTTPException(status_code=400, detail="Укажите ID каталога (folderId).")
+        if not review_text:
+            raise HTTPException(status_code=400, detail="Введите текст тестового отзыва.")
+        try:
+            result = service.classify_test_review_with_yandex(
+                user_id=int(user["id"]),
+                review_text=review_text,
+                review_rating=payload.review_rating,
+                settings={
+                    "yandex_api_key": api_key,
+                    "yandex_folder_id": folder_id,
+                    "yandex_model_uri": str(stored.get("yandex_model_uri") or "") or None,
+                },
+            )
+            return {
+                "ok": True,
+                "status": "ok",
+                "group_id": result.get("group_id"),
+                "group_title": result.get("group_title"),
+                "subgroup_id": result.get("subgroup_id"),
+                "subgroup": result.get("subgroup"),
+                "model_uri": result.get("model_uri"),
+                "raw_response": result.get("raw_response"),
+            }
+        except MarketplaceSyncError as exc:
+            detail = str(exc).lower()
+            error_code = "classification"
+            if any(code in detail for code in ["401", "403", "unauthorized", "forbidden", "invalid api"]):
+                error_code = "auth"
+            elif any(code in detail for code in ["400", "404", "folder", "modeluri", "not found"]):
+                error_code = "config"
+            elif "429" in detail or "rate" in detail or "quota" in detail:
+                error_code = "rate_limit"
+            elif "timeout" in detail or "network" in detail:
+                error_code = "network"
+            return {
+                "ok": False,
+                "status": "error",
+                "error_code": error_code,
+                "error": str(exc),
+                "debug": exc.details if isinstance(exc.details, dict) else {},
+            }
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Не удалось выполнить тестовый запрос к Yandex GPT: {exc}") from exc
+
+    @app.get("/api/admin/ai-settings/active-ids")
+    def list_ai_active_ids(request: Request) -> dict[str, object]:
+        user = _require_super_admin(request)
+        owner_user_id = _tenant_owner_id(user)
+        options = service._list_group_subgroups_for_review_classification(
+            repository=repository,
+            user_id=owner_user_id,
+        )
+        items: list[dict[str, object]] = []
+        for group in options:
+            group_id = str(group.get("group_id") or "").strip()
+            if not group_id or group_id == service.TEXTLESS_GROUP_ID:
+                continue
+            subgroup_items_raw = group.get("subgroup_items")
+            subgroup_items: list[dict[str, str]] = []
+            if isinstance(subgroup_items_raw, list):
+                for subgroup_item in subgroup_items_raw:
+                    if not isinstance(subgroup_item, dict):
+                        continue
+                    subgroup_id = str(subgroup_item.get("subgroup_id") or "").strip()
+                    subgroup_title = str(subgroup_item.get("subgroup") or "").strip()
+                    if not subgroup_id or not subgroup_title:
+                        continue
+                    subgroup_items.append(
+                        {
+                            "subgroup_id": subgroup_id,
+                            "subgroup": subgroup_title,
+                        }
+                    )
+            if not subgroup_items:
+                continue
+            items.append(
+                {
+                    "group_id": group_id,
+                    "group_title": str(group.get("group_title") or group_id),
+                    "subgroup_items": subgroup_items,
+                }
+            )
+        return {"ok": True, "items": items, "count": len(items)}
+
+    @app.get("/api/admin/context")
+    def get_admin_context(request: Request) -> dict[str, object]:
+        user = _require_admin(request)
+        user_id = int(user["id"])
+        owner_user_id = _tenant_owner_id(user)
+        manager_permissions: list[dict[str, object]] = []
+        if str(user.get("role") or "").strip().lower() == TENANT_ROLE_MANAGER:
+            manager_permissions = _manager_permissions_context_for_user(user)
+        return {
+            "user_id": user_id,
+            "owner_user_id": owner_user_id,
+            "is_super_admin": _is_super_admin(user),
+            "is_tenant_owner": user_id == owner_user_id and not _is_super_admin(user),
+            "manager_permissions": manager_permissions,
+        }
+
+    @app.get("/api/super-admin/settings")
+    def super_admin_settings(request: Request) -> dict[str, object]:
+        _require_super_admin(request)
+        return repository.get_super_admin_settings()
+
+    @app.put("/api/super-admin/settings")
+    def super_admin_update_settings(payload: SuperAdminSettingsRequest, request: Request) -> dict[str, object]:
+        _require_super_admin(request)
+        ai_provider = payload.ai_provider.strip().lower()
+        if ai_provider not in {"rules", "yandex"}:
+            raise HTTPException(status_code=400, detail="Провайдер должен быть: встроенные правила или Яндекс")
+        repository.save_super_admin_settings(
+            payment_provider=(payload.payment_provider or "").strip() or "manual",
+            payment_api_key=payload.payment_api_key.strip() if payload.payment_api_key is not None else None,
+            ai_provider=ai_provider,
+            yandex_api_key=payload.yandex_api_key.strip() if payload.yandex_api_key is not None else None,
+            yandex_folder_id=(payload.yandex_folder_id or "").strip() or None,
+            yandex_model_uri=(payload.yandex_model_uri or "").strip() or None,
+            group_processors=payload.group_processors,
+            use_sync_start_date=False,
+            sync_start_date=None,
+            default_sync_lookback_days=int(payload.default_sync_lookback_days),
+        )
+        return {"ok": True}
+
+    @app.get("/api/super-admin/template-variables")
+    def super_admin_list_template_variables(request: Request) -> dict[str, object]:
+        _require_super_admin(request)
+        items = repository.list_template_variables(only_active=False)
+        return {"items": items, "count": len(items)}
+
+    @app.put("/api/super-admin/template-variables")
+    def super_admin_upsert_template_variable(
+        payload: TemplateVariableUpsertRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        _require_super_admin(request)
+        normalized_key = payload.var_key.strip().upper()
+        if not TEMPLATE_VARIABLE_KEY_RE.fullmatch(normalized_key):
+            raise HTTPException(
+                status_code=400,
+                detail="Ключ переменной должен быть в формате %NAME% и содержать только A-Z, 0-9 и _ (2-50 символов).",
+            )
+        source_type = (payload.source_type or "").strip().lower() or "manual"
+        if source_type not in {"manual", "review_field", "system"}:
+            raise HTTPException(status_code=400, detail="source_type должен быть manual, review_field или system")
+        item = repository.upsert_template_variable(
+            var_key=normalized_key,
+            title=payload.title.strip(),
+            description=(payload.description or "").strip() or None,
+            is_user_editable=bool(payload.is_user_editable),
+            source_type=source_type,
+            source_path=(payload.source_path or "").strip() or None,
+            default_value=(payload.default_value or "").strip() or None,
+            is_active=bool(payload.is_active),
+        )
+        return {"ok": True, "item": item}
+
+    @app.delete("/api/super-admin/template-variables")
+    def super_admin_delete_template_variable(
+        payload: TemplateVariableDeleteRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        _require_super_admin(request)
+        deleted = repository.delete_template_variable(var_key=payload.var_key.strip().upper())
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Переменная шаблона не найдена")
+        return {"ok": True}
+
+    @app.get("/api/super-admin/tariffs")
+    def super_admin_list_tariffs(request: Request) -> dict[str, object]:
+        _require_super_admin(request)
+        items = repository.list_tariff_plans()
+        return {"items": items, "count": len(items)}
+
+    @app.put("/api/super-admin/tariffs")
+    def super_admin_upsert_tariff(payload: TariffPlanUpsertRequest, request: Request) -> dict[str, object]:
+        _require_super_admin(request)
+        code = payload.code.strip().lower()
+        if not code:
+            raise HTTPException(status_code=400, detail="Код тарифа обязателен")
+        repository.upsert_tariff_plan(
+            code=code,
+            title=payload.title.strip(),
+            monthly_price=float(payload.monthly_price),
+            limits=dict(payload.limits),
+            is_active=bool(payload.is_active),
+        )
+        return {"ok": True}
+
+    @app.delete("/api/super-admin/tariffs")
+    def super_admin_delete_tariff(payload: TariffPlanDeleteRequest, request: Request) -> dict[str, object]:
+        _require_super_admin(request)
+        code = payload.code.strip().lower()
+        if not code:
+            raise HTTPException(status_code=400, detail="Код тарифа обязателен")
+        deleted, in_use_count = repository.delete_tariff_plan(code=code)
+        if not deleted and in_use_count > 0:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Тариф используется у {in_use_count} клиентов. Сначала смените им тариф.",
+            )
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Тариф не найден")
+        return {"ok": True}
+
+    @app.get("/api/super-admin/tenants")
+    def super_admin_list_tenants(request: Request) -> dict[str, object]:
+        _require_super_admin(request)
+        items = repository.list_tenants_overview()
+        return {"items": items, "count": len(items)}
+
+    @app.get("/api/super-admin/default-template-groups")
+    def super_admin_list_default_template_groups(request: Request) -> dict[str, object]:
+        _require_super_admin(request)
+        _ensure_platform_default_templates()
+        rows = repository.list_default_template_variants()
+        counts: dict[tuple[str, str], int] = {}
+        for row in rows:
+            key = (str(row.get("group_id") or ""), str(row.get("subgroup") or ""))
+            counts[key] = counts.get(key, 0) + 1
+        items = _build_template_group_items(counts)
+        return {"items": items, "count": len(items)}
+
+    @app.get("/api/super-admin/default-template-subgroup")
+    def super_admin_get_default_template_subgroup(
+        group_id: str,
+        subgroup: str,
+        request: Request,
+    ) -> dict[str, object]:
+        _require_super_admin(request)
+        if not _validate_subgroup(group_id, subgroup):
+            raise HTTPException(status_code=404, detail="Группа шаблонов или подгруппа не найдена")
+        _ensure_platform_default_templates()
+        items = repository.list_default_template_variants(group_id=group_id, subgroup=subgroup)
+        return {"items": items, "count": len(items), "group_id": group_id, "subgroup": subgroup}
+
+    @app.put("/api/super-admin/default-template-subgroup")
+    def super_admin_save_default_template_subgroup(
+        group_id: str,
+        subgroup: str,
+        payload: DefaultTemplateSubgroupSaveRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        _require_super_admin(request)
+        if not _validate_subgroup(group_id, subgroup):
+            raise HTTPException(status_code=404, detail="Группа шаблонов или подгруппа не найдена")
+        repository.replace_default_subgroup_templates(
+            group_id=group_id,
+            subgroup=subgroup,
+            templates=payload.templates,
+        )
+        return {"ok": True, "saved": len([x for x in payload.templates if x and x.strip()])}
+
+    @app.post("/api/super-admin/default-template-subgroup")
+    def super_admin_add_default_template_subgroup(
+        payload: DefaultTemplateSubgroupManageRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        _require_super_admin(request)
+        group_id = payload.group_id.strip()
+        subgroup = payload.subgroup.strip()
+        if _template_group_by_id(group_id) is None:
+            raise HTTPException(status_code=404, detail="Группа шаблонов не найдена")
+        if not subgroup:
+            raise HTTPException(status_code=400, detail="Название подгруппы обязательно")
+        existing = {
+            str(item.get("name") or "").strip()
+            for item in _all_subgroups_for_group(group_id)
+            if str(item.get("name") or "").strip()
+        }
+        if subgroup in existing:
+            raise HTTPException(status_code=409, detail="Подгруппа с таким названием уже существует")
+        repository.add_default_template_subgroup(group_id=group_id, subgroup=subgroup)
+        return {"ok": True, "group_id": group_id, "subgroup": subgroup}
+
+    @app.delete("/api/super-admin/default-template-subgroup")
+    def super_admin_delete_default_template_subgroup(
+        group_id: str,
+        subgroup: str,
+        request: Request,
+    ) -> dict[str, object]:
+        _require_super_admin(request)
+        clean_group_id = str(group_id or "").strip()
+        clean_subgroup = str(subgroup or "").strip()
+        if _template_group_by_id(clean_group_id) is None:
+            raise HTTPException(status_code=404, detail="Группа шаблонов не найдена")
+        if not clean_subgroup:
+            raise HTTPException(status_code=400, detail="Название подгруппы обязательно")
+        if _is_protected_default_subgroup(clean_group_id, clean_subgroup):
+            raise HTTPException(
+                status_code=400,
+                detail="Подгруппы '1-3 звезды' и '4-5 звезд' в блоке 'Оценки без текста' удалять нельзя",
+            )
+        deleted = repository.delete_default_template_subgroup(group_id=clean_group_id, subgroup=clean_subgroup)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Подгруппа не найдена")
+        return {"ok": True}
+
+    @app.patch("/api/super-admin/default-template-subgroup")
+    def super_admin_rename_default_template_subgroup(
+        payload: DefaultTemplateSubgroupRenameRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        _require_super_admin(request)
+        group_id = payload.group_id.strip()
+        subgroup = payload.subgroup.strip()
+        new_subgroup = payload.new_subgroup.strip()
+        if _template_group_by_id(group_id) is None:
+            raise HTTPException(status_code=404, detail="Группа шаблонов не найдена")
+        if not subgroup or not new_subgroup:
+            raise HTTPException(status_code=400, detail="Название подгруппы обязательно")
+        if subgroup == new_subgroup:
+            current = repository.get_default_template_subgroup(group_id=group_id, subgroup=subgroup)
+            return {
+                "ok": True,
+                "group_id": group_id,
+                "subgroup": subgroup,
+                "new_subgroup": new_subgroup,
+                "subgroup_id": str((current or {}).get("subgroup_id") or "").strip() or None,
+            }
+        if not _validate_subgroup(group_id, subgroup):
+            raise HTTPException(status_code=404, detail="Подгруппа не найдена")
+        if _is_protected_default_subgroup(group_id, subgroup):
+            raise HTTPException(status_code=400, detail="Эту системную подгруппу переименовывать нельзя")
+        if _validate_subgroup(group_id, new_subgroup):
+            raise HTTPException(status_code=409, detail="Подгруппа с таким названием уже существует")
+        current = repository.get_default_template_subgroup(group_id=group_id, subgroup=subgroup)
+        if current is None:
+            raise HTTPException(status_code=404, detail="Подгруппа не найдена")
+        preserved_subgroup_id = str(current.get("subgroup_id") or "").strip() or None
+        renamed = repository.rename_default_template_subgroup(
+            group_id=group_id,
+            subgroup=subgroup,
+            new_subgroup=new_subgroup,
+        )
+        if not renamed:
+            raise HTTPException(status_code=409, detail="Не удалось переименовать подгруппу")
+        return {
+            "ok": True,
+            "group_id": group_id,
+            "subgroup": subgroup,
+            "new_subgroup": new_subgroup,
+            "subgroup_id": preserved_subgroup_id,
+        }
+
+    @app.post("/api/super-admin/default-template-subgroup/item")
+    def super_admin_add_default_template_subgroup_item(
+        payload: DefaultTemplateVariantCreateRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        _require_super_admin(request)
+        group_id = payload.group_id.strip()
+        subgroup = payload.subgroup.strip()
+        if not _validate_subgroup(group_id, subgroup):
+            raise HTTPException(status_code=404, detail="Группа шаблонов или подгруппа не найдена")
+        item = repository.add_default_template_variant(
+            group_id=group_id,
+            subgroup=subgroup,
+            template_text=payload.template_text,
+        )
+        return {"ok": True, "item": item}
+
+    @app.post("/api/super-admin/default-template-subgroup/bulk-import")
+    def super_admin_bulk_import_default_template_subgroup_items(
+        payload: DefaultTemplateBulkImportRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        _require_super_admin(request)
+        group_id = payload.group_id.strip()
+        subgroup = payload.subgroup.strip()
+        if not _validate_subgroup(group_id, subgroup):
+            raise HTTPException(status_code=404, detail="Группа шаблонов или подгруппа не найдена")
+        templates = [str(item or "").strip() for item in payload.templates]
+        clean_templates = [item for item in templates if item]
+        if not clean_templates:
+            raise HTTPException(status_code=400, detail="Передайте хотя бы один непустой шаблон")
+        added = repository.add_default_template_variants_bulk(
+            group_id=group_id,
+            subgroup=subgroup,
+            templates=clean_templates,
+        )
+        return {"ok": True, "added": int(added), "group_id": group_id, "subgroup": subgroup}
+
+    @app.delete("/api/super-admin/default-template-subgroup/item/{template_id}")
+    def super_admin_delete_default_template_subgroup_item(template_id: int, request: Request) -> dict[str, object]:
+        _require_super_admin(request)
+        deleted = repository.delete_default_template_variant(template_id=template_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Шаблон не найден")
+        return {"ok": True}
+
+    @app.post("/api/super-admin/tenant-plan")
+    def super_admin_set_tenant_plan(payload: TenantPlanUpdateRequest, request: Request) -> dict[str, object]:
+        _require_super_admin(request)
+        tenant = repository.get_user_by_id(int(payload.owner_user_id))
+        if tenant is None:
+            raise HTTPException(status_code=404, detail="Пользователь кабинета не найден")
+        if bool(tenant.get("is_super_admin")):
+            raise HTTPException(status_code=400, detail="Нельзя назначать тариф супер-администратору")
+        if _tenant_owner_id(tenant) != int(tenant["id"]):
+            raise HTTPException(status_code=400, detail="Тариф можно назначать только владельцу кабинета")
+        updated = repository.set_tenant_plan(
+            owner_user_id=int(payload.owner_user_id),
+            plan_code=payload.plan_code.strip().lower(),
+            limits_override=dict(payload.limits_override),
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Пользователь кабинета не найден")
+        return {"ok": True}
+
+    @app.get("/api/super-admin/payments")
+    def super_admin_list_payments(
+        request: Request,
+        owner_user_id: int | None = None,
+        limit: int = 200,
+    ) -> dict[str, object]:
+        _require_super_admin(request)
+        safe_limit = min(max(limit, 1), 1000)
+        items = repository.list_billing_records(owner_user_id=owner_user_id, limit=safe_limit)
+        return {"items": items, "count": len(items)}
+
+    @app.post("/api/super-admin/payments")
+    def super_admin_create_payment(payload: PaymentRecordCreateRequest, request: Request) -> dict[str, object]:
+        _require_super_admin(request)
+        tenant = repository.get_user_by_id(int(payload.owner_user_id))
+        if tenant is None:
+            raise HTTPException(status_code=404, detail="Пользователь кабинета не найден")
+        if bool(tenant.get("is_super_admin")):
+            raise HTTPException(status_code=400, detail="Нельзя привязывать оплату к супер-администратору")
+        item, subscription = repository.save_payment_record_with_subscription_update(
+            owner_user_id=int(payload.owner_user_id),
+            amount=float(payload.amount),
+            currency=payload.currency.strip().upper(),
+            status=payload.status.strip().lower(),
+            external_payment_id=(payload.external_payment_id or "").strip() or None,
+            details=dict(payload.details),
+            paid_at=(payload.paid_at or "").strip() or None,
+            months=int(payload.months),
+            grace_days=int(payload.grace_days),
+        )
+        return {"ok": True, "item": item, "subscription": subscription}
+
+    @app.delete("/api/super-admin/payments")
+    def super_admin_delete_payment(payload: PaymentRecordDeleteRequest, request: Request) -> dict[str, object]:
+        _require_super_admin(request)
+        deleted = repository.delete_payment_record(payment_id=int(payload.id))
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Платеж не найден")
+        return {"ok": True}
+
+    @app.post("/api/super-admin/users/{target_user_id}/block")
+    def super_admin_block_user(target_user_id: int, payload: UserBlockUpdateRequest, request: Request) -> dict[str, object]:
+        actor = _require_super_admin(request)
+        target = repository.get_user_by_id(target_user_id)
+        if target is None:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        if int(target["id"]) == int(actor["id"]) and payload.blocked:
+            raise HTTPException(status_code=400, detail="Нельзя заблокировать собственный аккаунт")
+        updated = repository.set_user_blocked(
+            user_id=target_user_id,
+            blocked=bool(payload.blocked),
+            reason=(payload.reason or "").strip() or None,
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        return {"ok": True}
+
+    @app.post("/api/super-admin/users/{target_user_id}/delete")
+    def super_admin_delete_user(target_user_id: int, payload: UserDeleteRequest, request: Request) -> dict[str, object]:
+        actor = _require_super_admin(request)
+        if not payload.confirm:
+            raise HTTPException(status_code=400, detail="Требуется подтверждение удаления")
+        if int(target_user_id) == int(actor["id"]):
+            raise HTTPException(status_code=400, detail="Нельзя удалить собственный аккаунт")
+        deleted = repository.soft_delete_user(user_id=target_user_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        return {"ok": True}
+
+    @app.get("/api/tenant/team")
+    def tenant_list_team(request: Request) -> dict[str, object]:
+        owner = _require_tenant_owner(request)
+        owner_id = _tenant_owner_id(owner)
+        items = repository.list_tenant_users(owner_user_id=owner_id)
+        for item in items:
+            if str(item.get("role") or "").strip().lower() == TENANT_ROLE_MANAGER:
+                item["manager_permissions"] = repository.list_manager_permissions(manager_user_id=int(item["id"]))
+        return {"items": items, "count": len(items)}
+
+    @app.post("/api/tenant/team")
+    def tenant_create_team_user(payload: TenantUserCreateRequest, request: Request) -> dict[str, object]:
+        owner = _require_tenant_owner(request)
+        owner_id = _tenant_owner_id(owner)
+        email = payload.email.strip().lower()
+        if len(email) < 5 or "@" not in email:
+            raise HTTPException(status_code=400, detail="Введите корректную эл. почту")
+        if repository.get_user_by_email(email) is not None:
+            raise HTTPException(status_code=409, detail="Пользователь с такой почтой уже существует")
+        role = TENANT_ROLE_MANAGER
+        created = repository.create_tenant_user(
+            owner_user_id=owner_id,
+            email=email,
+            password_hash=hash_password(payload.password),
+            role=role,
+            full_name=(payload.full_name or "").strip() or None,
+        )
+        owner_account_ids = _manager_owner_account_ids(owner_id)
+        normalized_permissions: list[dict[str, object]] = []
+        for item in payload.permissions:
+            account_id = int(item.account_id)
+            if account_id not in owner_account_ids:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Кабинет {account_id} не относится к вашему профилю или недоступен",
+                )
+            normalized_permissions.append(
+                {
+                    "account_id": account_id,
+                    "can_reviews": bool(item.can_reviews),
+                    "can_questions": bool(item.can_questions),
+                    "can_chats": bool(item.can_chats),
+                }
+            )
+        saved_permissions = repository.replace_manager_permissions(
+            manager_user_id=int(created["id"]),
+            permissions=normalized_permissions,
+        )
+        return {
+            "ok": True,
+            "item": {
+                "id": created.get("id"),
+                "email": created.get("email"),
+                "full_name": created.get("full_name"),
+                "role": created.get("role"),
+                "is_blocked": created.get("is_blocked"),
+                "created_at": created.get("created_at"),
+                "manager_permissions": repository.list_manager_permissions(manager_user_id=int(created["id"])),
+                "permissions_saved": saved_permissions,
+            },
+        }
+
+    @app.get("/api/tenant/team/{target_user_id}/permissions")
+    def tenant_get_manager_permissions(target_user_id: int, request: Request) -> dict[str, object]:
+        owner = _require_tenant_owner(request)
+        target = _target_user_for_admin_scope(actor=owner, target_user_id=target_user_id)
+        if int(target["id"]) == int(owner["id"]):
+            raise HTTPException(status_code=400, detail="Для владельца кабинета отдельные права менеджера не назначаются")
+        if str(target.get("role") or "").strip().lower() != TENANT_ROLE_MANAGER:
+            raise HTTPException(status_code=400, detail="Права можно настраивать только для менеджера")
+        permissions = repository.list_manager_permissions(manager_user_id=target_user_id)
+        return {"items": permissions, "count": len(permissions)}
+
+    @app.put("/api/tenant/team/{target_user_id}/permissions")
+    def tenant_update_manager_permissions(
+        target_user_id: int,
+        payload: ManagerPermissionsUpdateRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        owner = _require_tenant_owner(request)
+        target = _target_user_for_admin_scope(actor=owner, target_user_id=target_user_id)
+        if int(target["id"]) == int(owner["id"]):
+            raise HTTPException(status_code=400, detail="Для владельца кабинета отдельные права менеджера не назначаются")
+        if str(target.get("role") or "").strip().lower() != TENANT_ROLE_MANAGER:
+            raise HTTPException(status_code=400, detail="Права можно настраивать только для менеджера")
+        owner_account_ids = _manager_owner_account_ids(_tenant_owner_id(owner))
+        normalized_permissions: list[dict[str, object]] = []
+        for item in payload.permissions:
+            account_id = int(item.account_id)
+            if account_id not in owner_account_ids:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Кабинет {account_id} не относится к вашему профилю или недоступен",
+                )
+            normalized_permissions.append(
+                {
+                    "account_id": account_id,
+                    "can_reviews": bool(item.can_reviews),
+                    "can_questions": bool(item.can_questions),
+                    "can_chats": bool(item.can_chats),
+                }
+            )
+        saved = repository.replace_manager_permissions(
+            manager_user_id=target_user_id,
+            permissions=normalized_permissions,
+        )
+        return {
+            "ok": True,
+            "saved": saved,
+            "items": repository.list_manager_permissions(manager_user_id=target_user_id),
+        }
+
+    @app.post("/api/tenant/team/{target_user_id}/role")
+    def tenant_update_team_role(
+        target_user_id: int,
+        payload: TenantUserRoleUpdateRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        owner = _require_tenant_owner(request)
+        target = _target_user_for_admin_scope(actor=owner, target_user_id=target_user_id)
+        role = _normalize_tenant_role_or_400(payload.role)
+        if int(target["id"]) == int(owner["id"]) and role != TENANT_ROLE_OWNER:
+            raise HTTPException(status_code=400, detail="Нельзя снять роль администратора у владельца кабинета")
+        updated = repository.update_user_role(user_id=target_user_id, role=role)
+        if not updated:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        return {"ok": True}
+
+    @app.post("/api/tenant/team/{target_user_id}/password")
+    def tenant_update_team_password(
+        target_user_id: int,
+        payload: AdminUserPasswordUpdateRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        owner = _require_tenant_owner(request)
+        _target_user_for_admin_scope(actor=owner, target_user_id=target_user_id)
+        updated = repository.update_user_password(
+            user_id=target_user_id,
+            password_hash=hash_password(payload.password),
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        return {"ok": True}
+
+    @app.post("/api/tenant/team/{target_user_id}/block")
+    def tenant_set_user_block(
+        target_user_id: int,
+        payload: UserBlockUpdateRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        owner = _require_tenant_owner(request)
+        target = _target_user_for_admin_scope(actor=owner, target_user_id=target_user_id)
+        if int(target["id"]) == int(owner["id"]) and payload.blocked:
+            raise HTTPException(status_code=400, detail="Нельзя заблокировать собственный аккаунт")
+        updated = repository.set_user_blocked(
+            user_id=target_user_id,
+            blocked=bool(payload.blocked),
+            reason=(payload.reason or "").strip() or None,
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        return {"ok": True}
+
+    @app.post("/api/tenant/team/{target_user_id}/delete")
+    def tenant_delete_user(
+        target_user_id: int,
+        payload: UserDeleteRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        owner = _require_tenant_owner(request)
+        if not payload.confirm:
+            raise HTTPException(status_code=400, detail="Требуется подтверждение удаления")
+        target = _target_user_for_admin_scope(actor=owner, target_user_id=target_user_id)
+        if int(target["id"]) == int(owner["id"]):
+            raise HTTPException(status_code=400, detail="Нельзя удалить владельца кабинета")
+        deleted = repository.soft_delete_user(user_id=target_user_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        return {"ok": True}
+
+    @app.get("/api/tenant/me/plan")
+    def tenant_me_plan(request: Request) -> dict[str, object]:
+        user = _require_admin(request)
+        owner_user_id = _tenant_owner_id(user)
+        owner = repository.get_user_by_id(owner_user_id)
+        if owner is None:
+            raise HTTPException(status_code=404, detail="Владелец кабинета не найден")
+        plans = repository.list_tariff_plans()
+        current_plan_code = str(owner.get("plan_code") or "").strip().lower()
+        current_plan = next((item for item in plans if str(item.get("code") or "").strip().lower() == current_plan_code), None)
+        effective_limits: dict[str, object] = {}
+        if current_plan and isinstance(current_plan.get("limits"), dict):
+            effective_limits.update(current_plan["limits"])
+        owner_override = owner.get("limits_override")
+        if isinstance(owner_override, dict):
+            effective_limits.update(owner_override)
+        return {
+            "owner_user_id": owner_user_id,
+            "plan_code": current_plan_code,
+            "plan": current_plan,
+            "limits_override": owner_override if isinstance(owner_override, dict) else {},
+            "effective_limits": effective_limits,
+        }
+
+    @app.get("/api/admin/users")
+    def admin_list_users(request: Request) -> dict[str, object]:
+        actor = _require_admin(request)
+        if _is_super_admin(actor):
+            items = repository.list_users(super_admin_only=False, owner_only=True)
+        else:
+            owner = _require_tenant_owner(request)
+            items = repository.list_tenant_users(owner_user_id=int(owner["id"]))
+        return {"items": items, "count": len(items)}
+
+    @app.post("/api/admin/users")
+    def admin_create_user(payload: AdminUserCreateRequest, request: Request) -> dict[str, object]:
+        actor = _require_admin(request)
+        email = payload.email.strip().lower()
+        if len(email) < 5 or "@" not in email:
+            raise HTTPException(status_code=400, detail="Введите корректную эл. почту")
+        password = payload.password
+        if len(password) < 8:
+            raise HTTPException(status_code=400, detail="Пароль должен быть не короче 8 символов")
+        if repository.get_user_by_email(email) is not None:
+            raise HTTPException(status_code=409, detail="Пользователь с такой почтой уже существует")
+        if _is_super_admin(actor):
+            role = ROLE_USER
+            plan_code = payload.plan_code.strip().lower()
+            plans = repository.list_tariff_plans()
+            all_codes = {str(item.get("code") or "").strip().lower() for item in plans}
+            all_codes = {code for code in all_codes if code}
+            if all_codes and plan_code not in all_codes:
+                # Keep user creation resilient to stale UI state:
+                # if selected plan was removed, fall back to any existing tariff.
+                plan_code = sorted(all_codes)[0]
+            if not plan_code:
+                # Keep super-admin flow operational even when tariff catalog
+                # is temporarily empty or not yet configured.
+                plan_code = "starter"
+            created = repository.create_user(
+                email=email,
+                password_hash=hash_password(password),
+                role=role,
+                plan_code=plan_code,
+            )
+        else:
+            owner = _require_tenant_owner(request)
+            created = repository.create_tenant_user(
+                owner_user_id=int(owner["id"]),
+                email=email,
+                password_hash=hash_password(password),
+                role=_normalize_tenant_role_or_400(payload.role),
+                full_name=None,
+            )
+        return {
+            "ok": True,
+            "item": {
+                "id": created.get("id"),
+                "email": created.get("email"),
+                "full_name": created.get("full_name"),
+                "role": created.get("role"),
+                "is_blocked": created.get("is_blocked"),
+                "created_at": created.get("created_at"),
+            },
+        }
+
+    @app.post("/api/admin/users/{target_user_id}/role")
+    def admin_update_user_role(target_user_id: int, payload: RoleUpdateRequest, request: Request) -> dict[str, object]:
+        current_user = _require_admin(request)
+        target_user = _target_user_for_admin_scope(actor=current_user, target_user_id=target_user_id)
+        if _is_super_admin(current_user):
+            role = payload.role.strip().lower()
+            if role not in ROLE_ASSIGNABLE_BY_ADMIN:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Роль должна быть: пользователь, менеджер обратной связи или администратор",
+                )
+            if role != ROLE_ADMIN:
+                admin_rows = repository.raw_fetch(
+                    """
+                    SELECT id
+                    FROM users
+                    WHERE role = 'admin'
+                      AND is_deleted = 0
+                      AND is_super_admin = 0
+                      AND owner_user_id = ?
+                    """,
+                    (_tenant_owner_id(target_user),),
+                )
+                if len(admin_rows) <= 1 and any(int(item["id"]) == target_user_id for item in admin_rows):
+                    raise HTTPException(status_code=400, detail="Нельзя снять роль последнего администратора клиента")
+        else:
+            owner = _require_tenant_owner(request)
+            role = _normalize_tenant_role_or_400(payload.role)
+            if int(target_user["id"]) == int(owner["id"]) and role != TENANT_ROLE_OWNER:
+                raise HTTPException(status_code=400, detail="Нельзя снять роль администратора у владельца кабинета")
+        updated = repository.update_user_role(user_id=target_user_id, role=role)
+        if not updated:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        return {"ok": True, "by_admin": current_user["email"]}
+
+    @app.post("/api/admin/users/{target_user_id}/password")
+    def admin_update_user_password(
+        target_user_id: int,
+        payload: AdminUserPasswordUpdateRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        actor = _require_admin(request)
+        if not _is_super_admin(actor):
+            _require_tenant_owner(request)
+        _target_user_for_admin_scope(actor=actor, target_user_id=target_user_id)
+        updated = repository.update_user_password(
+            user_id=target_user_id,
+            password_hash=hash_password(payload.password),
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        return {"ok": True}
+
+    @app.post("/api/admin/users/{target_user_id}/plan")
+    def admin_update_user_plan(
+        target_user_id: int,
+        payload: UserPlanUpdateRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        actor = _require_admin(request)
+        if not _is_super_admin(actor):
+            _require_tenant_owner(request)
+        target_user = _target_user_for_admin_scope(actor=actor, target_user_id=target_user_id)
+        if bool(target_user.get("is_super_admin")):
+            raise HTTPException(status_code=400, detail="Нельзя менять тариф супер-администратора")
+        plan_code = payload.plan_code.strip().lower()
+        if not plan_code:
+            raise HTTPException(status_code=400, detail="Код тарифа обязателен")
+        plans = repository.list_tariff_plans()
+        available_codes = {str(item.get("code") or "").strip().lower() for item in plans}
+        if plan_code not in available_codes:
+            raise HTTPException(status_code=404, detail="Тариф не найден")
+        owner_user_id = _tenant_owner_id(target_user)
+        updated = repository.set_tenant_plan(
+            owner_user_id=owner_user_id,
+            plan_code=plan_code,
+            limits_override={},
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        return {"ok": True}
+
+    @app.post("/api/admin/users/{target_user_id}/block")
+    def admin_block_user(
+        target_user_id: int,
+        payload: UserBlockUpdateRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        actor = _require_admin(request)
+        if not _is_super_admin(actor):
+            _require_tenant_owner(request)
+        target_user = _target_user_for_admin_scope(actor=actor, target_user_id=target_user_id)
+        actor_owner_id = _tenant_owner_id(actor)
+        if payload.blocked and int(target_user["id"]) == actor_owner_id:
+            raise HTTPException(status_code=400, detail="Нельзя заблокировать собственный аккаунт владельца")
+        updated = repository.set_user_blocked(
+            user_id=target_user_id,
+            blocked=bool(payload.blocked),
+            reason=(payload.reason or "").strip() or None,
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        return {"ok": True}
+
+    @app.post("/api/admin/users/{target_user_id}/delete")
+    def admin_delete_user(
+        target_user_id: int,
+        payload: UserDeleteRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        actor = _require_admin(request)
+        if not _is_super_admin(actor):
+            _require_tenant_owner(request)
+        if not payload.confirm:
+            raise HTTPException(status_code=400, detail="Требуется подтверждение удаления")
+        target_user = _target_user_for_admin_scope(actor=actor, target_user_id=target_user_id)
+        actor_owner_id = _tenant_owner_id(actor)
+        if int(target_user["id"]) == actor_owner_id:
+            raise HTTPException(status_code=400, detail="Нельзя удалить владельца кабинета")
+        deleted = repository.soft_delete_user(user_id=target_user_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        return {"ok": True}
+
+    @app.get("/api/admin/metrics")
+    def admin_metrics(request: Request) -> dict[str, object]:
+        actor = _require_admin(request)
+        if _is_super_admin(actor):
+            return repository.get_sla_metrics(user_id=None)
+        return repository.get_sla_metrics(user_id=_tenant_owner_id(actor))
+
+    @app.get("/api/admin/actions")
+    def admin_actions(
+        request: Request,
+        page: int = 1,
+        page_size: int = 50,
+        action_type: str | None = None,
+        actor: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        search: str | None = None,
+    ) -> dict[str, object]:
+        admin_user = _require_admin(request)
+        safe_page = max(page, 1)
+        safe_page_size = min(max(page_size, 1), 200)
+        safe_offset = (safe_page - 1) * safe_page_size
+        normalized_action_type = (action_type or "").strip() or None
+        normalized_actor = (actor or "").strip() or None
+        normalized_search = (search or "").strip() or None
+        normalized_date_from = date_from.strip() if date_from else None
+        normalized_date_to = date_to.strip() if date_to else None
+        for date_value in [normalized_date_from, normalized_date_to]:
+            if date_value:
+                try:
+                    datetime.strptime(date_value, "%Y-%m-%d")
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail="Неверный формат даты. Ожидается YYYY-MM-DD") from exc
+        if normalized_date_from and normalized_date_to and normalized_date_from > normalized_date_to:
+            raise HTTPException(status_code=400, detail="Дата начала не может быть позже даты окончания")
+        owner_scope_user_id = None if _is_super_admin(admin_user) else _tenant_owner_id(admin_user)
+        if _is_super_admin(admin_user):
+            rows, total = repository.list_recent_actions(
+                user_id=None,
+                limit=safe_page_size,
+                offset=safe_offset,
+                action_type=normalized_action_type,
+                actor=normalized_actor,
+                date_from=normalized_date_from,
+                date_to=normalized_date_to,
+                search=normalized_search,
+            )
+        else:
+            rows, total = repository.list_recent_actions(
+                user_id=owner_scope_user_id,
+                limit=safe_page_size,
+                offset=safe_offset,
+                action_type=normalized_action_type,
+                actor=normalized_actor,
+                date_from=normalized_date_from,
+                date_to=normalized_date_to,
+                search=normalized_search,
+            )
+        filter_options = repository.list_action_filter_options(user_id=owner_scope_user_id)
+        return {
+            "items": rows,
+            "count": len(rows),
+            "total": int(total),
+            "page": safe_page,
+            "page_size": safe_page_size,
+            "offset": safe_offset,
+            "has_more": (safe_offset + len(rows)) < int(total),
+            "filters": {
+                "action_type": normalized_action_type or "all",
+                "actor": normalized_actor or "all",
+                "date_from": normalized_date_from,
+                "date_to": normalized_date_to,
+                "search": normalized_search or "",
+            },
+            "filter_options": filter_options,
+        }
+
+    @app.get("/api/admin/actions/export")
+    def admin_actions_export(
+        request: Request,
+        format: str = "csv",
+        action_type: str | None = None,
+        actor: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        search: str | None = None,
+    ) -> StreamingResponse:
+        actor_user = _require_admin(request)
+        export_format = format.strip().lower()
+        if export_format not in {"csv", "xlsx"}:
+            raise HTTPException(status_code=400, detail="Формат экспорта должен быть csv или xlsx")
+        normalized_action_type = (action_type or "").strip() or None
+        normalized_actor = (actor or "").strip() or None
+        normalized_search = (search or "").strip() or None
+        normalized_date_from = date_from.strip() if date_from else None
+        normalized_date_to = date_to.strip() if date_to else None
+        for date_value in [normalized_date_from, normalized_date_to]:
+            if date_value:
+                try:
+                    datetime.strptime(date_value, "%Y-%m-%d")
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail="Неверный формат даты. Ожидается YYYY-MM-DD") from exc
+        if normalized_date_from and normalized_date_to and normalized_date_from > normalized_date_to:
+            raise HTTPException(status_code=400, detail="Дата начала не может быть позже даты окончания")
+        scope_user_id = None if _is_super_admin(actor_user) else _tenant_owner_id(actor_user)
+        items, _total = repository.list_recent_actions(
+            user_id=scope_user_id,
+            limit=200000,
+            offset=0,
+            action_type=normalized_action_type,
+            actor=normalized_actor,
+            date_from=normalized_date_from,
+            date_to=normalized_date_to,
+            search=normalized_search,
+        )
+        normalized_rows: list[dict[str, str]] = []
+        for item in items:
+            details = item.get("details")
+            details_text = ""
+            if isinstance(details, dict):
+                pairs: list[str] = []
+                for key, value in details.items():
+                    pairs.append(f"{key}={value}")
+                details_text = "; ".join(pairs)
+            row = {
+                "created_at": str(item.get("created_at") or ""),
+                "actor": str(item.get("actor") or ""),
+                "review_uid": str(item.get("review_uid") or ""),
+                "action_type": str(item.get("action_type") or ""),
+                "details": details_text,
+            }
+            normalized_rows.append(row)
+        if export_format == "csv":
+            out = io.StringIO()
+            writer = csv.DictWriter(out, fieldnames=["created_at", "actor", "review_uid", "action_type", "details"])
+            writer.writeheader()
+            for row in normalized_rows:
+                writer.writerow(row)
+            payload = io.BytesIO(out.getvalue().encode("utf-8-sig"))
+            filename = f"admin-actions-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}.csv"
+            return StreamingResponse(
+                payload,
+                media_type="text/csv; charset=utf-8",
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            )
+        try:
+            from openpyxl import Workbook
+        except ImportError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail="Для экспорта Excel нужен пакет openpyxl. Установите: pip install openpyxl",
+            ) from exc
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "Лента действий"
+        sheet.append(["Время", "Пользователь", "Идентификатор", "Действие", "Детали"])
+        for row in normalized_rows:
+            sheet.append(
+                [
+                    row["created_at"],
+                    row["actor"],
+                    row["review_uid"],
+                    row["action_type"],
+                    row["details"],
+                ]
+            )
+        out_xlsx = io.BytesIO()
+        workbook.save(out_xlsx)
+        out_xlsx.seek(0)
+        xlsx_name = f"admin-actions-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}.xlsx"
+        return StreamingResponse(
+            out_xlsx,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{xlsx_name}"'},
+        )
+
+    @app.get("/api/admin/sync-status")
+    def admin_sync_status(request: Request) -> dict[str, object]:
+        _require_super_admin(request)
+        with sync_lock:
+            return {
+                "in_progress": bool(sync_state.get("in_progress")),
+                "cancel_requested": bool(sync_state.get("cancel_requested")),
+                "last_started_at": sync_state.get("last_started_at"),
+                "last_finished_at": sync_state.get("last_finished_at"),
+                "polling_enabled": bool(sync_state.get("polling_enabled")),
+                "polling_user_id": sync_state.get("polling_user_id"),
+                "polling_account_ids": list(sync_state.get("polling_account_ids") or []),
+                "polling_since_date": sync_state.get("polling_since_date"),
+                "polling_started_at": sync_state.get("polling_started_at"),
+                "last_poll_at": sync_state.get("last_poll_at"),
+                "last_poll_result": sync_state.get("last_poll_result"),
+            }
+
+    @app.post("/api/admin/sync-stop")
+    def admin_stop_sync(request: Request) -> dict[str, object]:
+        _require_super_admin(request)
+        was_running = False
+        was_polling = False
+        with sync_lock:
+            was_running = bool(sync_state.get("in_progress"))
+            was_polling = bool(sync_state.get("polling_enabled"))
+        sync_stop_event.set()
+        auto_sync_stop_event.set()
+        with sync_lock:
+            sync_state["cancel_requested"] = True
+            sync_state["polling_enabled"] = False
+            sync_state["polling_user_id"] = None
+            sync_state["polling_account_ids"] = []
+            sync_state["polling_since_date"] = None
+            sync_state["polling_started_at"] = None
+            sync_state["last_poll_result"] = {
+                "ok": True,
+                "cancelled": True,
+                "message": "Синхронизация остановлена администратором",
+                "run_started_at": _now_iso(),
+            }
+        return {
+            "ok": True,
+            "was_running": bool(was_running or was_polling),
+            "already_stopped": not bool(was_running or was_polling),
+        }
+
+    @app.on_event("shutdown")
+    def stop_auto_sync_worker() -> None:
+        auto_sync_stop_event.set()
+        worker = auto_sync_worker.get("thread")
+        if isinstance(worker, threading.Thread) and worker.is_alive():
+            worker.join(timeout=1.5)
+
+    @app.post("/api/admin/reviews-clear")
+    def admin_clear_reviews(request: Request, payload: ClearReviewsRequest) -> dict[str, object]:
+        actor = _require_admin(request)
+        if payload.user_id is None:
+            target_user_id = _tenant_owner_id(actor) if not _is_super_admin(actor) else int(actor["id"])
+        else:
+            target_user_id = int(payload.user_id)
+            _target_user_for_admin_scope(actor=actor, target_user_id=target_user_id)
+        deleted = repository.clear_reviews(user_id=target_user_id)
+        return {"ok": True, "deleted": deleted, "user_id": target_user_id}
+
+    @app.post("/api/admin/conversations-clear")
+    def admin_clear_conversations(request: Request, payload: ClearReviewsRequest) -> dict[str, object]:
+        actor = _require_admin(request)
+        if payload.user_id is None:
+            target_user_id = _tenant_owner_id(actor) if not _is_super_admin(actor) else int(actor["id"])
+        else:
+            target_user_id = int(payload.user_id)
+            _target_user_for_admin_scope(actor=actor, target_user_id=target_user_id)
+        deleted = repository.clear_conversations(user_id=target_user_id)
+        return {"ok": True, "deleted": deleted, "user_id": target_user_id}
+
+    @app.exception_handler(HTTPException)
+    def http_exception_handler(_: Request, exc: HTTPException) -> JSONResponse:
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+    return app
+
+
+app = create_app()
+
+def _render_template(name: str, context: dict[str, str] | None = None) -> str:
+    template_path = TEMPLATES_DIR / name
+    html = template_path.read_text(encoding="utf-8")
+    for key, value in (context or {}).items():
+        html = html.replace(f"{{{{{key}}}}}", value)
+    return html
+
+
+def build_landing_html() -> str:
+    return _render_template("landing.html")
+
+
+def build_login_html(error: str | None = None) -> str:
+    error_html = f"<p class='error'>{escape(error)}</p>" if error else ""
+    return _render_template("login.html", {"ERROR_HTML": error_html})
+
+
+def build_register_html(error: str | None = None) -> str:
+    error_html = f"<p class='error'>{escape(error)}</p>" if error else ""
+    return _render_template("register.html", {"ERROR_HTML": error_html})
+
+
+def build_app_html(user: dict[str, object]) -> str:
+    safe_email = escape(str(user["email"]))
+    role = str(user.get("role") or ROLE_USER)
+    is_super_admin = bool(user.get("is_super_admin"))
+    user_id = int(user.get("id") or 0)
+    owner_user_id = int(user.get("owner_user_id") or user_id or 0)
+    is_tenant_owner = (
+        role in ROLE_CAN_ACCESS_SETTINGS
+        and user_id > 0
+        and owner_user_id == user_id
+    )
+    role_labels = {
+        ROLE_ADMIN: "администратор",
+        ROLE_USER: "пользователь",
+        ROLE_FEEDBACK_MANAGER: "менеджер обратной связи",
+    }
+    safe_role = escape(role_labels.get(role, role))
+    can_view_analytics = role in ROLE_CAN_ACCESS_ANALYTICS
+    can_view_settings = role in ROLE_CAN_ACCESS_SETTINGS
+    admin_link = '<a class="navbtn" href="/admin">Админ-панель</a>' if role == ROLE_ADMIN else ""
+    nav_analytics = (
+        '<a id="nav-analytics" class="navbtn" href="#" onclick="showSection(\'analytics\')">Аналитика</a>'
+        if can_view_analytics
+        else ""
+    )
+    nav_settings = (
+        '<a id="nav-settings" class="navbtn" href="#" onclick="showSection(\'settings\')">Настройки</a>'
+        if can_view_settings
+        else ""
+    )
+    return _render_template(
+        "app.html",
+        {
+            "SAFE_EMAIL": safe_email,
+            "SAFE_ROLE": safe_role,
+            "ADMIN_LINK": admin_link,
+            "NAV_ANALYTICS": nav_analytics,
+            "NAV_SETTINGS": nav_settings,
+            "CAN_VIEW_ANALYTICS": "true" if can_view_analytics else "false",
+            "CAN_VIEW_SETTINGS": "true" if can_view_settings else "false",
+            "IS_ADMIN": "true" if role == ROLE_ADMIN else "false",
+            "IS_SUPER_ADMIN": "true" if is_super_admin else "false",
+            "IS_TENANT_OWNER": "true" if is_tenant_owner else "false",
+        },
+    )
+
+
+def build_admin_html(user: dict[str, object]) -> str:
+    safe_email = escape(str(user["email"]))
+    return _render_template("admin.html", {"SAFE_EMAIL": safe_email})

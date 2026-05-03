@@ -1,0 +1,597 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Рабочий кабинет</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
+  <link rel="stylesheet" href="/static/style.css?v=11" />
+</head>
+<body>
+  <div class="mobile-topbar">
+    <button id="mobileNavToggleBtn" type="button" class="mobile-nav-toggle" aria-label="Открыть меню" aria-expanded="false" onclick="toggleMobileNavMenu()">
+      ☰
+    </button>
+    <div id="mobileCurrentSectionTitle" class="mobile-topbar-title">Отзывы</div>
+  </div>
+  <div id="mobileNavOverlay" class="mobile-nav-backdrop" onclick="closeMobileNavMenu()" aria-hidden="true"></div>
+  <div class="layout">
+    <aside id="mobileNavMenu" class="sidebar">
+      <div class="sidebar-main">
+        <div class="brand">FEEDPILOT</div>
+        <div class="meta">пользователь: {{SAFE_EMAIL}}<br/>роль: {{SAFE_ROLE}}</div>
+        <a id="nav-reviews" class="navbtn active" href="#" onclick="showSection('reviews')">Отзывы</a>
+        <a id="nav-conversations" class="navbtn" href="#" onclick="showSection('conversations')">Вопросы</a>
+        <a id="nav-chats" class="navbtn" href="#" onclick="showSection('chats')">Чаты</a>
+        {{NAV_ANALYTICS}}
+        {{NAV_SETTINGS}}
+        {{ADMIN_LINK}}
+      </div>
+      <div class="sidebar-bottom">
+        <a id="nav-profile" class="navbtn" href="#" onclick="showSection('profile')">Мой профиль</a>
+      </div>
+    </aside>
+
+    <main class="main">
+      <section id="section-reviews">
+        <h3 class="section-title">Отзывы</h3>
+        <div class="row reviews-sync-row">
+          <span id="syncInfo" class="small"></span>
+        </div>
+        <div class="panel reviews-toolbar-panel">
+          <div class="reviews-top-controls">
+            <div class="reviews-buckets">
+              <button id="reviews-tab-new" class="bucket-tab active" onclick="setReviewBucket('new')">Новые отзывы (0)</button>
+              <button id="reviews-tab-processed" class="bucket-tab" onclick="setReviewBucket('processed')">Обработанные отзывы (0)</button>
+              <button id="adminClearReviewsBtn" class="secondary hidden" onclick="clearAllReviews()">Очистить отзывы</button>
+            </div>
+            <div class="reviews-quick-controls">
+              <select id="reviewsSortFilter">
+                <option value="newest">Сначала новые</option>
+                <option value="oldest">Сначала старые</option>
+                <option value="rating_asc">Оценка (сначала низкая)</option>
+                <option value="rating_desc">Оценка (сначала высокая)</option>
+                <option value="category">По темам</option>
+              </select>
+              <div class="reviews-date-wrap">
+                <button type="button" id="reviewsDateFilterBtn" class="secondary" onclick="toggleReviewsDateFilterPanel()">
+                  Период: все даты
+                </button>
+                <div id="reviewsDateFilterPanel" class="reviews-date-panel hidden">
+                  <div class="reviews-date-presets">
+                    <button type="button" class="secondary" onclick="setReviewsDatePreset('today')">Сегодня</button>
+                    <button type="button" class="secondary" onclick="setReviewsDatePreset('yesterday')">Вчера</button>
+                    <button type="button" class="secondary" onclick="setReviewsDatePreset('last_week')">Последняя неделя</button>
+                    <button type="button" class="secondary" onclick="setReviewsDatePreset('last_7_days')">Последние 7 дней</button>
+                    <button type="button" class="secondary" onclick="setReviewsDatePreset('last_30_days')">Последние 30 дней</button>
+                    <button type="button" class="secondary" onclick="setReviewsDatePreset('last_month')">Последний месяц</button>
+                    <button type="button" class="secondary" onclick="setReviewsDatePreset('last_3_months')">Последние 3 месяца</button>
+                    <button type="button" class="secondary" onclick="setReviewsDatePreset('last_year')">Последний год</button>
+                  </div>
+                  <div class="reviews-date-controls">
+                    <label>С <input id="reviewsDateFrom" type="date" /></label>
+                    <label>По <input id="reviewsDateTo" type="date" /></label>
+                    <div class="row">
+                      <button type="button" onclick="applyReviewsDateFilter()">Применить период</button>
+                      <button type="button" class="secondary" onclick="clearReviewsDateFilter()">Сбросить</button>
+                      <button type="button" class="secondary" onclick="toggleReviewsDateFilterPanel(false)">Закрыть</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                id="reviewsFiltersBtn"
+                class="secondary reviews-filter-icon-btn"
+                title="Фильтры"
+                onclick="toggleReviewsFiltersPanel()"
+              >
+                ⛃
+              </button>
+            </div>
+          </div>
+          <div id="reviewsFiltersPanel" class="reviews-filters-panel hidden">
+            <div class="row">
+              <select id="sourceFilter">
+                <option value="all">Источник отзывов: Выбрать все</option>
+              </select>
+              <select id="statusFilter">
+                <option value="all">Статус: Выбрать все</option>
+                <option value="waiting_send">Ждет отправки</option>
+                <option value="processed_outside_spix">Обработан вне Спикс</option>
+                <option value="rejected">Отклонен</option>
+                <option value="answered">Отвечен</option>
+                <option value="waiting_processing">Ждет обработки</option>
+                <option value="generating_answer">Генерация ответа</option>
+              </select>
+              <select id="priorityFilter">
+                <option value="">Приоритет: все</option>
+                <option value="high">Высокий</option>
+                <option value="medium">Средний</option>
+                <option value="low">Низкий</option>
+              </select>
+              <select id="categoryFilter">
+                <option value="">Категория: все</option>
+                <option value="positive">Позитив</option>
+                <option value="product_dissatisfaction">Недовольство товаром</option>
+                <option value="delivery_problems">Проблемы при доставке</option>
+                <option value="wrong_size">Неправильный размер</option>
+                <option value="tagged_reviews">Отзывы с тегами</option>
+                <option value="textless_ratings">Оценки без текста</option>
+              </select>
+            </div>
+            <div class="row">
+              <button type="button" onclick="applyReviewsFilters()">Применить фильтры</button>
+              <button type="button" class="secondary" onclick="resetReviewsFilters()">Сбросить</button>
+              <button type="button" class="secondary" onclick="toggleReviewsFiltersPanel(false)">Закрыть</button>
+            </div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="table-wrap">
+            <table>
+            <thead>
+              <tr>
+                <th>Источник</th><th>Отзыв</th><th>Ответ</th><th>Приоритет</th><th>Статус</th><th>Действия</th>
+              </tr>
+            </thead>
+            <tbody id="reviewsTbody"></tbody>
+            </table>
+          </div>
+          <div class="row reviews-pagination-row">
+            <div class="row">
+              <span class="small">Показывать на странице:</span>
+              <select id="reviewsPageSize" onchange="onReviewPageSizeChange()">
+                <option value="10">10</option>
+                <option value="30" selected>30</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+              </select>
+            </div>
+            <div class="row">
+              <button class="secondary" id="reviewsPrevPageBtn" onclick="changeReviewsPage(-1)">Назад</button>
+              <span id="reviewsPageInfo" class="small">Страница 1 из 1</span>
+              <button class="secondary" id="reviewsNextPageBtn" onclick="changeReviewsPage(1)">Вперед</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="section-conversations" class="hidden">
+        <h3 class="section-title">Вопросы</h3>
+        <div class="row reviews-sync-row">
+          <span id="questionsInfo" class="small"></span>
+        </div>
+        <div class="panel reviews-toolbar-panel">
+          <div class="reviews-top-controls">
+            <div class="reviews-buckets">
+              <button id="questions-tab-new" class="bucket-tab active" onclick="setQuestionBucket('new')">Новые вопросы (0)</button>
+              <button id="questions-tab-processed" class="bucket-tab" onclick="setQuestionBucket('processed')">Обработанные вопросы (0)</button>
+              <button id="adminClearQuestionsBtn" class="secondary hidden" onclick="clearAllQuestions()">Очистить вопросы</button>
+            </div>
+            <div class="reviews-quick-controls">
+              <select id="questionSortFilter">
+                <option value="newest">Сначала новые</option>
+                <option value="oldest">Сначала старые</option>
+              </select>
+              <div id="questionsDateWrap" class="reviews-date-wrap">
+                <button type="button" id="questionsDateFilterBtn" class="secondary" onclick="toggleQuestionsDateFilterPanel()">
+                  Период: все даты
+                </button>
+                <div id="questionsDateFilterPanel" class="reviews-date-panel hidden">
+                  <div class="reviews-date-presets">
+                    <button type="button" class="secondary" onclick="setQuestionsDatePreset('today')">Сегодня</button>
+                    <button type="button" class="secondary" onclick="setQuestionsDatePreset('yesterday')">Вчера</button>
+                    <button type="button" class="secondary" onclick="setQuestionsDatePreset('last_week')">Последняя неделя</button>
+                    <button type="button" class="secondary" onclick="setQuestionsDatePreset('last_7_days')">Последние 7 дней</button>
+                    <button type="button" class="secondary" onclick="setQuestionsDatePreset('last_30_days')">Последние 30 дней</button>
+                    <button type="button" class="secondary" onclick="setQuestionsDatePreset('last_month')">Последний месяц</button>
+                    <button type="button" class="secondary" onclick="setQuestionsDatePreset('last_3_months')">Последние 3 месяца</button>
+                    <button type="button" class="secondary" onclick="setQuestionsDatePreset('last_year')">Последний год</button>
+                  </div>
+                  <div class="reviews-date-controls">
+                    <label>С <input id="questionsDateFrom" type="date" /></label>
+                    <label>По <input id="questionsDateTo" type="date" /></label>
+                    <div class="row">
+                      <button type="button" onclick="applyQuestionsDateFilter()">Применить период</button>
+                      <button type="button" class="secondary" onclick="clearQuestionsDateFilter()">Сбросить</button>
+                      <button type="button" class="secondary" onclick="toggleQuestionsDateFilterPanel(false)">Закрыть</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                id="questionsFiltersBtn"
+                class="secondary reviews-filter-icon-btn"
+                title="Фильтры"
+                onclick="toggleQuestionsFiltersPanel()"
+              >
+                ⛃
+              </button>
+            </div>
+          </div>
+          <div id="questionsFiltersPanel" class="reviews-filters-panel hidden">
+            <div class="row">
+            <select id="questionPanelSourceFilter">
+              <option value="all">Источник: все</option>
+            </select>
+              <select id="questionPanelStatusFilter">
+                <option value="all">Статус: все</option>
+                <option value="open">Открыт</option>
+                <option value="waiting">Ожидает</option>
+                <option value="closed">Закрыт</option>
+              </select>
+            </div>
+            <div class="row">
+              <button type="button" onclick="applyQuestionFiltersFromPanel()">Применить фильтры</button>
+              <button type="button" class="secondary" onclick="resetQuestionFilters()">Сбросить</button>
+              <button type="button" class="secondary" onclick="toggleQuestionsFiltersPanel(false)">Закрыть</button>
+            </div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="table-wrap">
+            <table>
+            <thead>
+              <tr>
+                <th>Источник</th><th>Покупатель</th><th>Вопрос</th><th>Непрочитано</th><th>Статус</th><th>Ошибка</th><th>Действия</th>
+              </tr>
+            </thead>
+            <tbody id="questionsTbody"></tbody>
+            </table>
+          </div>
+          <div class="row reviews-pagination-row">
+            <div class="row">
+              <span class="small">Показывать на странице:</span>
+              <select id="questionsPageSize" onchange="onQuestionsPageSizeChange()">
+                <option value="10">10</option>
+                <option value="30" selected>30</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+              </select>
+            </div>
+            <div class="row">
+              <button class="secondary" id="questionsPrevPageBtn" onclick="changeQuestionsPage(-1)">Назад</button>
+              <span id="questionsPageInfo" class="small">Страница 1 из 1</span>
+              <button class="secondary" id="questionsNextPageBtn" onclick="changeQuestionsPage(1)">Вперед</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="section-chats" class="hidden">
+        <h3 class="section-title">Чаты</h3>
+        <div class="row reviews-sync-row">
+          <span id="chatsInfo" class="small"></span>
+        </div>
+        <div class="panel chats-shell">
+          <aside class="chats-list-panel">
+            <div class="row chats-list-head">
+              <div class="reviews-buckets">
+                <button id="chats-tab-new" class="bucket-tab active" onclick="setChatBucket('new')">Нужно ответить (0)</button>
+                <button id="chats-tab-processed" class="bucket-tab" onclick="setChatBucket('processed')">Отвеченные (0)</button>
+              </div>
+            </div>
+            <div id="chatsList" class="chats-list"></div>
+          </aside>
+          <section class="chats-thread-panel">
+            <div id="chatThreadHeader" class="chat-thread-header small">Выберите чат слева</div>
+            <div id="chatMessages" class="chat-messages"></div>
+            <div class="chat-compose">
+              <textarea id="chatReplyInput" rows="3" placeholder="Введите ответ..." maxlength="4000"></textarea>
+              <div class="row chat-compose-actions">
+                <button id="chatEmojiBtn" type="button" class="icon-btn chat-emoji-btn" title="Смайлы" aria-label="Смайлы" onclick="toggleChatEmojiPicker()">🙂</button>
+                <button id="chatReplySendBtn" type="button" onclick="sendChatReply()">Отправить</button>
+                <button id="chatQuickTemplatesBtn" type="button" class="secondary" onclick="openChatQuickTemplatesModal()">Шаблоны</button>
+                <button type="button" class="secondary" onclick="markChatWaiting()">В ожидании</button>
+                <button type="button" class="secondary" onclick="markChatClosed()">Закрыть</button>
+              </div>
+              <div id="chatEmojiPicker" class="chat-emoji-picker hidden" aria-hidden="true"></div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section id="section-analytics" class="hidden">
+        <h3 class="section-title">Аналитика</h3>
+        <div class="row reviews-sync-row"></div>
+        <div class="panel">
+          <div class="stats-grid">
+            <div class="stat"><div id="anTotal" class="value">0</div><div class="small">Всего отзывов</div></div>
+            <div class="stat"><div id="anProcessed" class="value">0</div><div class="small">Обработано</div></div>
+            <div class="stat"><div id="anPositive" class="value">0%</div><div class="small">Позитивные</div></div>
+            <div class="stat"><div id="anNegative" class="value">0%</div><div class="small">Негативные</div></div>
+            <div class="stat"><div id="anQuestions" class="value">0</div><div class="small">Вопросы</div></div>
+            <div class="stat"><div id="anChats" class="value">0</div><div class="small">Чаты</div></div>
+          </div>
+          <div class="small mt-10" id="analyticsInfo"></div>
+        </div>
+      </section>
+
+      <section id="section-settings" class="hidden">
+        <h3 class="section-title">Настройки</h3>
+        <div class="row reviews-sync-row"></div>
+        <div class="panel">
+          <div class="settings-tabs">
+            <button id="settings-tab-sources" class="settings-tab-btn active" onclick="showSettingsTab('sources')">Источники</button>
+            <button id="settings-tab-rules" class="settings-tab-btn" onclick="showSettingsTab('rules')">Правила обработки</button>
+            <button id="settings-tab-templates" class="settings-tab-btn" onclick="showSettingsTab('templates')">Шаблоны</button>
+            <button id="settings-tab-recommendations" class="settings-tab-btn" onclick="showSettingsTab('recommendations')">Рекомендации</button>
+            <button id="settings-tab-team" class="settings-tab-btn hidden" onclick="showSettingsTab('team')">Команда</button>
+          </div>
+          <div class="settings-mobile-tab-switch">
+            <label for="mobileSettingsTabSelect" class="small">Раздел настроек</label>
+            <select id="mobileSettingsTabSelect" onchange="onMobileSettingsTabChange(this.value)">
+              <option value="sources">Источники</option>
+              <option value="rules">Правила обработки</option>
+              <option value="templates">Шаблоны</option>
+              <option value="recommendations">Рекомендации</option>
+              <option id="mobile-settings-option-team" value="team">Команда</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="settings-pane-sources">
+          <div class="panel">
+            <div class="row row-between">
+              <h4 class="no-margin">Подключенные кабинеты</h4>
+              <button onclick="toggleAddSourceForm(true)">Добавить источник</button>
+            </div>
+            <div id="accountsInfo" class="small"></div>
+
+            <div class="sync-start-settings mt-10">
+              <div class="row">
+                <div class="sync-start-title">Дата начала загрузки</div>
+              </div>
+              <div class="row mt-10">
+                <label>Загружать отзывы с даты</label>
+                <input id="userSyncStartDate" type="date" />
+                <button class="secondary" onclick="saveUserSyncSettings()">Сохранить дату</button>
+                <span id="userSyncSettingsInfo" class="small"></span>
+              </div>
+            </div>
+            <div class="row mt-10">
+              <button id="syncAllBtn" onclick="syncAll()">Синхронизировать все активные кабинеты</button>
+              <button id="adminStopSyncBtn" class="secondary hidden" onclick="stopSyncAll()">Остановить синхронизацию</button>
+            </div>
+
+            <div id="addSourceForm" class="source-form hidden">
+              <div class="row">
+                <select id="newSourceMarketplace" onchange="onSourceMarketplaceChange()">
+                  <option value="wb">WB</option>
+                  <option value="ozon">OZON</option>
+                </select>
+                <input id="newSourceName" type="text" placeholder="Название кабинета" />
+              </div>
+              <div id="ozonClientField" class="row hidden">
+                <input id="newSourceClientId" type="text" placeholder="Идентификатор клиента" />
+              </div>
+              <div class="row">
+                <textarea id="newSourceApiToken" class="textarea-compact" placeholder="Токен доступа"></textarea>
+              </div>
+              <div class="row">
+                <button onclick="createAccount()">Сохранить источник</button>
+                <button class="secondary" onclick="toggleAddSourceForm(false)">Отмена</button>
+              </div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="table-wrap">
+              <table>
+              <thead><tr><th>№</th><th>Маркетплейс</th><th>Название</th><th>Адрес интерфейса</th><th>Идентификатор клиента</th><th>Ключ доступа</th><th>Активен</th><th>Действия</th></tr></thead>
+              <tbody id="accountsTbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div id="settings-pane-rules" class="hidden">
+          <div class="panel">
+            <div id="processingRulesContainer" class="processing-rules-grid"></div>
+            <div class="row row-between mt-10">
+              <span id="processingRulesInfo" class="small"></span>
+              <button id="processingRulesApplyBtn" onclick="applyProcessingRules()">Применить</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="settings-pane-templates" class="hidden">
+          <div class="panel">
+            <h4>Шаблоны ответов по группам</h4>
+            <div id="templateGroupsView">
+              <div id="templateGroupsAccordion" class="template-groups-accordion"></div>
+            </div>
+            <div id="templateEditorView" class="hidden">
+              <div class="row row-between">
+                <button class="secondary" onclick="closeTemplateEditor()">← Назад к группам</button>
+                <h4 id="templateEditorTitle" class="no-margin"></h4>
+              </div>
+              <div id="templateEditorList" class="template-editor-list"></div>
+              <div class="row">
+                <button class="secondary" onclick="addTemplateEditorRow()">Добавить шаблон</button>
+                <button onclick="saveTemplateSubgroup()">Сохранить изменения</button>
+                <span id="templatesInfo" class="small"></span>
+              </div>
+              <p class="small">Подстановки: {автор}, {оценка}, {категория}, {тональность}, {теги}, %USER%, %RECO%, а также платформенные переменные вроде %BRAND% и %NAME%.</p>
+            </div>
+          </div>
+          <div class="panel">
+            <h4>Платформенные переменные (доступные для редактирования)</h4>
+            <p class="small">Эти значения задаются для вашего кабинета и используются в шаблонах ответов.</p>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Ключ</th>
+                    <th>Название</th>
+                    <th>Описание</th>
+                    <th>Значение</th>
+                  </tr>
+                </thead>
+                <tbody id="userTemplateVariablesTbody"></tbody>
+              </table>
+            </div>
+            <div class="row mt-10">
+              <button onclick="saveUserTemplateVariables()">Сохранить переменные</button>
+              <span id="userTemplateVariablesInfo" class="small"></span>
+            </div>
+          </div>
+        </div>
+
+        <div id="settings-pane-recommendations" class="hidden">
+          <div class="panel">
+            <div class="row row-between">
+              <h4 class="no-margin">База рекомендаций для %RECO%</h4>
+              <div class="row">
+                <button class="secondary" onclick="exportRecommendations()">Экспорт Excel</button>
+                <button class="secondary" onclick="triggerRecommendationsImport()">Импорт Excel</button>
+                <button onclick="saveRecommendations()">Сохранить рекомендации</button>
+              </div>
+            </div>
+            <p class="small">
+              Первый столбец — артикул товара, на который оставили отзыв. Второй столбец — рекомендуемые артикулы через запятую.
+              Для каждого ответа система подставляет в %RECO% один случайный артикул.
+            </p>
+            <input id="recommendationsImportInput" type="file" accept=".xlsx,.xlsm,.xltx,.xltm" class="hidden" onchange="importRecommendationsFile(this)" />
+            <div class="table-wrap">
+              <table>
+              <thead>
+                <tr>
+                  <th>Артикул товара</th>
+                  <th>Рекомендуемые артикулы (через запятую)</th>
+                  <th>Действия</th>
+                </tr>
+              </thead>
+              <tbody id="recommendationsTbody"></tbody>
+              </table>
+            </div>
+            <div class="row mt-10">
+              <button class="secondary" onclick="addRecommendationRow()">Добавить строку</button>
+              <span id="recommendationsInfo" class="small"></span>
+            </div>
+          </div>
+        </div>
+        <div id="settings-pane-team" class="hidden">
+          <div class="panel">
+            <div class="row row-between">
+              <h4 class="no-margin">Команда кабинета</h4>
+            </div>
+            <div class="row">
+              <input id="teamManagerEmail" type="email" placeholder="Эл. почта менеджера" />
+              <input id="teamManagerPassword" type="password" placeholder="Пароль (минимум 8 символов)" />
+              <input id="teamManagerFullName" type="text" placeholder="ФИО (необязательно)" />
+            </div>
+            <div class="row">
+              <button class="secondary" type="button" onclick="openManagerPermissionsModalForCreate()">Разрешения</button>
+              <button type="button" onclick="saveNewManager()">Добавить менеджера</button>
+              <span id="teamPermissionsPreview" class="small">Разрешения не выбраны</span>
+            </div>
+            <div id="teamInfo" class="small"></div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Email</th>
+                    <th>ФИО</th>
+                    <th>Роль</th>
+                    <th>Доступы</th>
+                    <th>Действия</th>
+                  </tr>
+                </thead>
+                <tbody id="teamTbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="section-profile" class="hidden">
+        <div class="panel">
+          <h3>Мой профиль</h3>
+          <div class="row">
+            <input id="profileFullName" type="text" placeholder="ФИО" />
+            <input id="profileEmail" type="email" placeholder="Эл. почта" />
+          </div>
+          <div class="row">
+            <a
+              id="profilePasswordToggle"
+              class="profile-password-toggle"
+              href="#"
+              onclick="togglePasswordFields(event)"
+            >
+              Изменить пароль
+            </a>
+          </div>
+          <div id="profilePasswordFields" class="row hidden">
+            <input id="profileCurrentPassword" type="password" placeholder="Текущий пароль" />
+            <input id="profileNewPassword" type="password" placeholder="Новый пароль" />
+            <input id="profileNewPasswordRepeat" type="password" placeholder="Повторите новый пароль" />
+          </div>
+          <div class="row">
+            <button onclick="saveProfile()">Применить</button>
+            <span id="profileInfo" class="small"></span>
+          </div>
+          <div class="row mt-10">
+            <a class="navbtn logout-link" href="/logout">Выйти из аккаунта</a>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <div id="managerPermissionsModal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="row row-between">
+        <h4 class="no-margin">Доступы менеджера</h4>
+        <button class="secondary" type="button" onclick="closeManagerPermissionsModal()">Закрыть</button>
+      </div>
+      <p class="small">Отметьте кабинеты и типы сущностей, с которыми менеджер сможет работать.</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Кабинет</th>
+              <th>Отзывы</th>
+              <th>Вопросы</th>
+              <th>Чаты</th>
+            </tr>
+          </thead>
+          <tbody id="managerPermissionsTbody"></tbody>
+        </table>
+      </div>
+      <div class="row">
+        <button id="managerPermissionsSaveBtn" type="button" onclick="applyManagerPermissionsSelection()">Применить разрешения</button>
+        <span id="managerPermissionsInfo" class="small"></span>
+      </div>
+    </div>
+  </div>
+  <div id="chatQuickTemplatesModal" class="modal-overlay hidden" aria-hidden="true">
+    <div class="modal-card chat-quick-templates-modal-card">
+      <div class="row row-between">
+        <h4 class="no-margin">Быстрые ответы для чатов</h4>
+        <button type="button" class="secondary" onclick="closeChatQuickTemplatesModal()">Закрыть</button>
+      </div>
+      <p class="small">Клик по шаблону подставляет текст в поле ответа чата. Можно добавлять и удалять шаблоны.</p>
+      <div class="row">
+        <textarea id="chatQuickTemplateInput" rows="3" maxlength="2000" placeholder="Введите новый шаблон ответа"></textarea>
+      </div>
+      <div class="row">
+        <button type="button" onclick="createChatQuickTemplate()">Добавить шаблон</button>
+        <span id="chatQuickTemplatesInfo" class="small"></span>
+      </div>
+      <div id="chatQuickTemplatesList" class="chat-quick-templates-list mt-10"></div>
+    </div>
+  </div>
+  <script>
+    window.APP_PERMISSIONS = {
+      can_view_analytics: {{CAN_VIEW_ANALYTICS}},
+      can_view_settings: {{CAN_VIEW_SETTINGS}},
+      is_admin: {{IS_ADMIN}},
+      is_super_admin: {{IS_SUPER_ADMIN}},
+      is_tenant_owner: {{IS_TENANT_OWNER}}
+    };
+  </script>
+  <script src="/static/app.js?v=12"></script>
+</body>
+</html>
