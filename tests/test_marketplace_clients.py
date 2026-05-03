@@ -98,6 +98,52 @@ class MarketplaceClientsTests(unittest.TestCase):
         self.assertEqual(WildberriesMarketplaceClient._to_wb_unix_timestamp("1745712000"), 1745712000)
         self.assertIsNone(WildberriesMarketplaceClient._to_wb_unix_timestamp("bad-date"))
 
+    def test_wb_chat_payload_with_dialog_keys_is_mapped(self) -> None:
+        payload = {
+            "result": {
+                "chats": [
+                    {
+                        "dialogId": "dlg-1",
+                        "lastMessage": {"text": "Добрый день", "createdAt": "2026-05-03T10:00:00Z"},
+                        "unreadCount": 2,
+                    }
+                ]
+            }
+        }
+
+        class _ChatClient(WildberriesMarketplaceClient):
+            def __init__(self) -> None:
+                super().__init__(
+                    api_url="https://feedbacks-api.wildberries.ru/api/v1/feedbacks",
+                    api_key="token",
+                    chats_api_url="https://buyer-chat-api.wildberries.ru",
+                    chats_path="/api/v1/seller/chats",
+                )
+
+            def _fetch_conversation_endpoint(
+                self,
+                *,
+                path: str,
+                kind: str,
+                base_url: str | None = None,
+                stop_requested: object = None,
+            ) -> list[dict[str, object]]:
+                _ = path, kind, base_url, stop_requested
+                rows = payload["result"]["chats"]
+                mapped: list[dict[str, object]] = []
+                for row in rows:
+                    item = self._to_conversation(row, kind="chat")
+                    if item:
+                        mapped.append(item)
+                return mapped
+
+        client = _ChatClient()
+        rows = client.fetch_chats()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["external_id"], "dlg-1")
+        self.assertEqual(rows[0]["message_text"], "Добрый день")
+        self.assertEqual(rows[0]["unread_count"], 2)
+
 
 if __name__ == "__main__":
     unittest.main()

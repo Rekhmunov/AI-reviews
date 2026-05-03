@@ -320,6 +320,7 @@ class WildberriesMarketplaceClient:
     items_keys: tuple[str, ...] = ("feedbacks", "reviews", "items")
     questions_path: str | None = None
     chats_path: str | None = None
+    chats_api_url: str | None = None
     reply_path: str | None = "/api/v1/feedbacks/answer"
     reply_method: str = "POST"
     reply_review_id_field: str = "id"
@@ -374,28 +375,40 @@ class WildberriesMarketplaceClient:
     def fetch_chats(self, *, stop_requested: Callable[[], bool] | None = None) -> list[dict[str, object]]:
         if not self.chats_path:
             return []
-        return self._fetch_conversation_endpoint(path=self.chats_path, kind="chat", stop_requested=stop_requested)
+        return self._fetch_conversation_endpoint(
+            path=self.chats_path,
+            kind="chat",
+            base_url=self.chats_api_url or self.api_url,
+            stop_requested=stop_requested,
+        )
 
     def _fetch_conversation_endpoint(
         self,
         *,
         path: str,
         kind: str,
+        base_url: str | None = None,
         stop_requested: Callable[[], bool] | None = None,
     ) -> list[dict[str, object]]:
         _raise_if_stop_requested(stop_requested, source="wb")
-        endpoint = _compose_url(self.api_url, path)
+        endpoint = _compose_url(base_url or self.api_url, path)
         request = Request(endpoint, method="GET", headers={"Authorization": self.api_key})
         payload = _request_json(request=request, timeout=self.timeout, source="wb")
         if not isinstance(payload, dict):
             raise MarketplaceSyncError("wb", "Wildberries API returned non-object payload for conversations")
         _raise_if_error_payload(payload, source="wb")
         rows = _extract_sequence(payload, keys=self.items_keys + ("questions", "chats", "dialogs", "messages"))
-        if not rows and isinstance(payload.get("data"), Mapping):
-            rows = _extract_sequence(
-                payload.get("data"),
-                keys=self.items_keys + ("questions", "chats", "dialogs", "messages"),
-            )
+        if not rows:
+            for nested_key in ("data", "result", "response"):
+                nested_value = payload.get(nested_key)
+                if not isinstance(nested_value, Mapping | list):
+                    continue
+                rows = _extract_sequence(
+                    nested_value,
+                    keys=self.items_keys + ("questions", "chats", "dialogs", "messages"),
+                )
+                if rows:
+                    break
         result: list[dict[str, object]] = []
         for item in rows:
             mapped = self._to_conversation(item, kind=kind)
@@ -517,20 +530,56 @@ class WildberriesMarketplaceClient:
 
     @staticmethod
     def _to_conversation(item: dict[str, object], *, kind: str) -> dict[str, object] | None:
-        external_id = str(item.get("id") or item.get("chatId") or item.get("questionId") or "").strip()
+        external_id = str(
+            item.get("id")
+            or item.get("chatId")
+            or item.get("chat_id")
+            or item.get("questionId")
+            or item.get("question_id")
+            or item.get("dialogId")
+            or item.get("dialog_id")
+            or item.get("conversationId")
+            or item.get("conversation_id")
+            or ""
+        ).strip()
         if not external_id:
             return None
-        text = str(item.get("text") or item.get("message") or item.get("question") or "")
+        last_message = item.get("lastMessage") if isinstance(item.get("lastMessage"), Mapping) else None
+        text = str(
+            item.get("text")
+            or item.get("message")
+            or item.get("question")
+            or item.get("lastMessageText")
+            or item.get("last_message_text")
+            or (last_message.get("text") if isinstance(last_message, Mapping) else "")
+            or (last_message.get("message") if isinstance(last_message, Mapping) else "")
+            or ""
+        )
         customer_name = str(item.get("userName") or item.get("author") or "") or None
         status = str(item.get("status") or "open").lower()
+        unread_raw = (
+            item.get("unread_count")
+            if item.get("unread_count") is not None
+            else item.get("unreadCount")
+            if item.get("unreadCount") is not None
+            else item.get("newMessages")
+        )
+        last_message_at = (
+            item.get("updatedAt")
+            or item.get("updated_at")
+            or item.get("last_message_at")
+            or item.get("lastMessageAt")
+            or (last_message.get("createdAt") if isinstance(last_message, Mapping) else None)
+            or (last_message.get("dateTime") if isinstance(last_message, Mapping) else None)
+        )
         return {
             "external_id": external_id,
             "kind": kind,
             "customer_name": customer_name,
             "message_text": text,
             "status": status if status in {"open", "closed", "waiting"} else "open",
-            "unread_count": _to_positive_int(item.get("unread_count"), default=0),
-            "last_message_at": str(item.get("updatedAt") or item.get("last_message_at") or "") or None,
+            "unread_count": _to_positive_int(unread_raw, default=0),
+            "last_message_at": str(last_message_at or "") or None,
             "metadata": {"raw": item, "marketplace": "wb"},
         }
 
@@ -1477,7 +1526,8 @@ class ReviewAutomationService:
                 page_size=_to_positive_int(extra.get("page_size"), default=100),
                 max_pages=_to_positive_int(extra.get("max_pages"), default=20),
                 questions_path=str(extra.get("questions_path") or "/api/v1/questions"),
-                chats_path=str(extra.get("chats_path") or "/api/v1/chats"),
+                chats_path=str(extra.get("chats_path") or "/api/v1/seller/chats"),
+                chats_api_url=str(extra.get("chats_api_url") or "https://buyer-chat-api.wildberries.ru"),
                 reply_path=str(extra.get("reply_path") or "/api/v1/feedbacks/answer"),
                 reply_method=str(extra.get("reply_method") or "POST"),
                 reply_review_id_field=str(extra.get("reply_review_id_field") or "id"),
