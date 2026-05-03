@@ -1402,7 +1402,8 @@ button.secondary.danger:hover {
 }
 
 #accountsTbody td.accounts-api-url-cell,
-#accountsTbody td.accounts-api-key-cell {
+#accountsTbody td.accounts-api-key-cell,
+#accountsTbody td.account-api-key-cell {
   max-width: 0;
 }
 
@@ -1410,6 +1411,41 @@ button.secondary.danger:hover {
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+#accountsTbody .account-api-key-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+#accountsTbody .account-api-key-text {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+#accountsTbody .account-key-copy-btn {
+  flex: 0 0 auto;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0 6px;
+  font-size: 14px;
+}
+
+#accountsTbody .account-key-copy-btn.copied {
+  color: #065f46;
+  border-color: rgba(16, 185, 129, 0.5);
+  background: linear-gradient(160deg, rgba(236, 253, 245, 0.96), rgba(209, 250, 229, 0.92));
+}
+
+#accountsTbody .account-key-copy-btn:disabled {
+  opacity: 0.46;
+  cursor: not-allowed;
 }
 
 .template-group {

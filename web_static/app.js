@@ -162,6 +162,46 @@ function labelFromMap(map, value) {
   return map[key] || key || "-";
 }
 
+function smartMaskSecret(value) {
+  const clean = String(value || "");
+  if (!clean) return "";
+  if (clean.length <= 4) return "*".repeat(clean.length);
+  const start = clean.slice(0, 2);
+  const endLength = clean.length > 8 ? 3 : 1;
+  const end = clean.slice(-endLength);
+  const stars = "*".repeat(Math.max(clean.length - start.length - end.length, 1));
+  return `${start}${stars}${end}`;
+}
+
+async function copyAccountApiKey(rawKey) {
+  const clean = String(rawKey || "").trim();
+  if (!clean) return false;
+  try {
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(clean);
+      return true;
+    }
+  } catch (_error) {
+    // Fallback below for hardened browser environments.
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = clean;
+  textarea.setAttribute("readonly", "readonly");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  let copied = false;
+  try {
+    copied = Boolean(document.execCommand("copy"));
+  } catch (_error) {
+    copied = false;
+  }
+  document.body.removeChild(textarea);
+  return copied;
+}
+
 function getPermissions() {
   const defaults = { can_view_analytics: true, can_view_settings: true, is_admin: false };
   const fromWindow = window.APP_PERMISSIONS || {};
@@ -1863,14 +1903,28 @@ async function loadAccounts() {
   }
   for (const account of data.items || []) {
     const tr = document.createElement("tr");
+    const rawApiKey = String(account.api_key || "").trim();
     const apiKeyPreview = String(account.api_key_preview || "-");
+    const maskedApiKey = rawApiKey ? smartMaskSecret(rawApiKey) : apiKeyPreview;
+    const apiKeyTooltip = rawApiKey || apiKeyPreview;
     tr.innerHTML = `
       <td>${esc(account.id)}</td>
       <td>${esc(labelFromMap(marketplaceLabels, account.marketplace))}</td>
       <td>${esc(account.account_name)}</td>
       <td>${esc(account.api_url)}</td>
       <td>${esc((account.extra || {}).client_id || "-")}</td>
-      <td class="account-api-key-cell" title="${esc(apiKeyPreview)}"><span class="account-api-key-text">${esc(apiKeyPreview)}</span></td>
+      <td class="account-api-key-cell">
+        <div class="account-api-key-wrap">
+          <span class="account-api-key-text" title="${esc(apiKeyTooltip)}">${esc(maskedApiKey || "-")}</span>
+          <button
+            type="button"
+            class="icon-btn account-key-copy-btn"
+            title="Скопировать полный ключ"
+            aria-label="Скопировать полный ключ"
+            ${rawApiKey ? "" : "disabled"}
+          >📋</button>
+        </div>
+      </td>
       <td>${esc(account.is_active ? "Да" : "Нет")}</td>
       <td>
         <div class="row">
@@ -1881,6 +1935,26 @@ async function loadAccounts() {
         </div>
       </td>
     `;
+    const copyBtn = tr.querySelector(".account-key-copy-btn");
+    if (copyBtn && rawApiKey) {
+      copyBtn.addEventListener("click", async () => {
+        const copied = await copyAccountApiKey(rawApiKey);
+        const infoEl = document.getElementById("accountsInfo");
+        if (copied) {
+          copyBtn.classList.add("copied");
+          copyBtn.textContent = "✓";
+          copyBtn.title = "Скопировано";
+          if (infoEl) infoEl.textContent = "Ключ доступа скопирован в буфер обмена.";
+          window.setTimeout(() => {
+            copyBtn.classList.remove("copied");
+            copyBtn.textContent = "📋";
+            copyBtn.title = "Скопировать полный ключ";
+          }, 1200);
+        } else if (infoEl) {
+          infoEl.textContent = "Не удалось скопировать ключ. Попробуйте вручную через подсказку.";
+        }
+      });
+    }
     tbody.appendChild(tr);
   }
   teamState.accounts = Array.isArray(data.items) ? data.items : [];

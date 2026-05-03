@@ -1786,7 +1786,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.get("/api/accounts")
     def list_accounts(request: Request) -> dict[str, object]:
         user = _require_settings_access(request)
-        items = repository.list_marketplace_accounts(user_id=int(user["id"]))
+        items = repository.list_marketplace_accounts(user_id=int(user["id"]), include_secrets=True)
         return {"items": items, "count": len(items)}
 
     @app.post("/api/accounts")
