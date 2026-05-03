@@ -153,6 +153,10 @@ class OzonMarketplaceClient:
 
         while page < self.max_pages:
             _raise_if_stop_requested(stop_requested, source="ozon")
+            # Ozon API: general guideline ≤ 10 req/s. Sleep 150 ms between
+            # pages to stay comfortably within the limit.
+            if page > 0:
+                time.sleep(0.15)
             payload: dict[str, object] = dict(self.base_payload or {})
             payload["limit"] = self.page_size
             if since_date:
@@ -204,6 +208,8 @@ class OzonMarketplaceClient:
         result_items: list[dict[str, object]] = []
         while page < self.max_pages:
             _raise_if_stop_requested(stop_requested, source="ozon")
+            if page > 0:
+                time.sleep(0.15)
             payload: dict[str, object] = {"limit": self.page_size}
             if cursor:
                 payload["last_id"] = cursor
@@ -346,6 +352,10 @@ class WildberriesMarketplaceClient:
 
         while page < self.max_pages:
             _raise_if_stop_requested(stop_requested, source="wb")
+            # WB Feedbacks API: limit 3 req/s (burst 6). Sleep between pages so
+            # we stay well within the 333 ms / request budget.
+            if page > 0:
+                time.sleep(0.4)
             try:
                 payload = self._request_json(skip=skip, take=self.page_size, since_date=since_date)
             except TypeError:
@@ -461,6 +471,10 @@ class WildberriesMarketplaceClient:
         page = 0
         while page < max_pages:
             _raise_if_stop_requested(stop_requested, source="wb")
+            # WB Buyer Chat API rate limit: 10 req / 10 s (= 1 req/s).
+            # Sleep 1.1 s between pages to stay safely within the limit.
+            if page > 0:
+                time.sleep(1.1)
             url = endpoint if cursor is None else f"{endpoint}?next={cursor}"
             request = Request(url, method="GET", headers={"Authorization": self.api_key})
             try:
@@ -515,33 +529,56 @@ class WildberriesMarketplaceClient:
         base_url: str | None = None,
         stop_requested: Callable[[], bool] | None = None,
     ) -> list[dict[str, object]]:
-        _raise_if_stop_requested(stop_requested, source="wb")
-        endpoint = _compose_url(base_url or self.api_url, path)
-        request = Request(endpoint, method="GET", headers={"Authorization": self.api_key})
-        payload = _request_json(request=request, timeout=self.timeout, source="wb")
-        if not isinstance(payload, dict):
-            raise MarketplaceSyncError("wb", "Wildberries API returned non-object payload for conversations")
-        _raise_if_error_payload(payload, source="wb")
-        rows = _extract_sequence(
-            payload,
-            keys=self.items_keys + ("questions", "chats", "dialogs", "messages", "result"),
-        )
-        if not rows:
-            for nested_key in ("data", "result", "response"):
-                nested_value = payload.get(nested_key)
-                if not isinstance(nested_value, Mapping | list):
-                    continue
-                rows = _extract_sequence(
-                    nested_value,
-                    keys=self.items_keys + ("questions", "chats", "dialogs", "messages", "result"),
-                )
-                if rows:
-                    break
+        """Fetch a paginated WB conversation endpoint (questions or single-page chats list).
+
+        WB Questions endpoint supports skip/take pagination with the same params
+        as the reviews endpoint.  Chats list returns all chats in one response.
+        We try skip/take pagination and stop when a page returns fewer items
+        than requested (signals end of data).
+        Rate limit: WB Feedbacks/Questions API = 3 req/s → sleep 0.4 s between pages.
+        """
+        conversation_keys = self.items_keys + ("questions", "chats", "dialogs", "messages", "result")
         result: list[dict[str, object]] = []
-        for item in rows:
-            mapped = self._to_conversation(item, kind=kind)
-            if mapped:
-                result.append(mapped)
+        skip = 0
+        page = 0
+
+        while page < self.max_pages:
+            _raise_if_stop_requested(stop_requested, source="wb")
+            if page > 0:
+                # WB Feedbacks API: 3 req/s limit → 400 ms between requests.
+                time.sleep(0.4)
+            endpoint = _compose_url(base_url or self.api_url, path)
+            params = urlencode({
+                self.skip_param: skip,
+                self.take_param: self.page_size,
+                self.unanswered_param: self.unanswered_value,
+            })
+            url = f"{endpoint}?{params}" if "?" not in endpoint else f"{endpoint}&{params}"
+            request = Request(url, method="GET", headers={"Authorization": self.api_key})
+            payload = _request_json(request=request, timeout=self.timeout, source="wb")
+            if not isinstance(payload, dict):
+                raise MarketplaceSyncError("wb", "Wildberries API returned non-object payload for conversations")
+            _raise_if_error_payload(payload, source="wb")
+            rows = _extract_sequence(payload, keys=conversation_keys)
+            if not rows:
+                for nested_key in ("data", "result", "response"):
+                    nested_value = payload.get(nested_key)
+                    if not isinstance(nested_value, Mapping | list):
+                        continue
+                    rows = _extract_sequence(nested_value, keys=conversation_keys)
+                    if rows:
+                        break
+            if not rows:
+                break
+            for item in rows:
+                mapped = self._to_conversation(item, kind=kind)
+                if mapped:
+                    result.append(mapped)
+            if len(rows) < self.page_size:
+                break
+            skip += self.page_size
+            page += 1
+
         return result
 
     def _request_json(self, *, skip: int, take: int, since_date: str | None = None) -> dict[str, object]:
@@ -3657,12 +3694,35 @@ def _raise_if_error_payload(payload: object, *, source: str) -> None:
 
 
 def _request_json(*, request: Request, timeout: int, source: str, retries: int = 2) -> object:
+    """Execute an HTTP request and return the parsed JSON response.
+
+    Retryable errors (network, timeout, JSON parse): up to ``retries`` retries
+    with exponential backoff starting at 0.4 s.
+
+    HTTP 429 Too Many Requests: retried with a mandatory 60-second wait so we
+    respect marketplace rate-limit windows before trying again.  After
+    ``retries`` 429 responses the error is re-raised so the caller can handle
+    it gracefully (log as access-rate issue, not a hard failure).
+
+    All other HTTP errors (4xx except 429, 5xx) are raised immediately.
+    """
     attempt = 0
+    rate_limit_attempt = 0
     while True:
         try:
             with urlopen(request, timeout=timeout) as response:
                 return json.loads(response.read().decode("utf-8"))
         except HTTPError as exc:
+            if exc.code == 429:
+                # Rate-limited: wait and retry up to ``retries`` times.
+                rate_limit_attempt += 1
+                if rate_limit_attempt > retries:
+                    message = f"{source} HTTP error 429: rate limit exceeded"
+                    raise MarketplaceSyncError(source, message) from exc
+                # Back off: 60 s for the first hit, 120 s for the second.
+                wait_sec = 60 * rate_limit_attempt
+                time.sleep(wait_sec)
+                continue
             message = f"{source} HTTP error {exc.code}"
             try:
                 body_text = exc.read().decode("utf-8")
