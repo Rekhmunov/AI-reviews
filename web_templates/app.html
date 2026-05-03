@@ -32,17 +32,22 @@
       </div>
     </aside>
 
+    <!-- Global sync progress bar - visible on all pages while sync runs -->
+    <div id="syncProgressBar" class="sync-progress-global" style="display:none" aria-live="polite">
+      <div class="sync-progress-header">
+        <span class="sync-progress-label">⏳ Синхронизация</span>
+        <span id="syncProgressText" class="sync-progress-text"></span>
+      </div>
+      <div class="sync-progress-track">
+        <div id="syncProgressFill" class="sync-progress-fill"></div>
+      </div>
+    </div>
+
     <main class="main">
       <section id="section-reviews">
         <h3 class="section-title">Отзывы</h3>
         <div class="row reviews-sync-row">
           <span id="syncInfo" class="small"></span>
-        </div>
-        <div id="syncProgressBar" class="sync-progress-wrap" style="display:none">
-          <div class="sync-progress-track">
-            <div id="syncProgressFill" class="sync-progress-fill"></div>
-          </div>
-          <span id="syncProgressText" class="sync-progress-text small"></span>
         </div>
         <div class="panel reviews-toolbar-panel">
           <div class="reviews-top-controls">

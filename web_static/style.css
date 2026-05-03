@@ -961,8 +961,28 @@ button.secondary.danger:hover {
   align-items: center;
 }
 
-.sync-progress-wrap {
-  margin: 6px 0 4px;
+.sync-progress-global {
+  position: sticky;
+  top: 0;
+  z-index: 200;
+  background: #fff;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 8px 20px 6px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+}
+
+.sync-progress-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+
+.sync-progress-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #3b82f6;
+  white-space: nowrap;
 }
 
 .sync-progress-track {
@@ -970,7 +990,6 @@ button.secondary.danger:hover {
   background: #e5e7eb;
   border-radius: 4px;
   overflow: hidden;
-  margin-bottom: 4px;
 }
 
 .sync-progress-fill {
@@ -984,13 +1003,17 @@ button.secondary.danger:hover {
 
 @keyframes sync-pulse {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.7; }
+  50% { opacity: 0.65; }
 }
 
 .sync-progress-text {
   color: #6b7280;
   font-size: 12px;
-  display: block;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .reviews-date-wrap {

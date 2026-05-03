@@ -100,12 +100,105 @@ const teamState = {
 let syncInProgress = false;
 let syncStopStatusTimer = null;
 let syncCapabilityCheckInProgress = false;
+let globalSyncPollTimer = null;
+let globalSyncProgressDots = 0;
+const CHANNEL_ICONS = { "Отзывы": "⭐", "Вопросы": "❓", "Чаты": "💬" };
 const ACTIVE_SECTION_STORAGE_KEY = "feedpilot_active_section";
 const ACTIVE_SETTINGS_TAB_STORAGE_KEY = "feedpilot_active_settings_tab";
 const SECTION_IDS = ["reviews", "conversations", "chats", "analytics", "settings", "profile"];
 const SETTINGS_TAB_IDS = ["sources", "rules", "templates", "recommendations", "team", "template-variables"];
 const APP_BOOT_HIDE_CLASS = "app-boot-hidden";
 const MOBILE_NAV_BREAKPOINT_PX = 900;
+
+function showSyncProgress() {
+  const bar = document.getElementById("syncProgressBar");
+  if (bar) bar.style.display = "block";
+}
+
+function hideSyncProgress() {
+  const bar = document.getElementById("syncProgressBar");
+  if (bar) bar.style.display = "none";
+  const fill = document.getElementById("syncProgressFill");
+  if (fill) fill.style.width = "5%";
+  const text = document.getElementById("syncProgressText");
+  if (text) text.textContent = "";
+}
+
+function updateSyncProgressUI(p) {
+  const bar = document.getElementById("syncProgressBar");
+  const fill = document.getElementById("syncProgressFill");
+  const text = document.getElementById("syncProgressText");
+  const label = bar?.querySelector(".sync-progress-label");
+
+  if (!p || !p.in_progress) {
+    return;
+  }
+
+  globalSyncProgressDots = (globalSyncProgressDots + 1) % 4;
+  const dots = ".".repeat(globalSyncProgressDots + 1);
+  const step = p.step || "Синхронизация";
+  const account = p.account ? ` · ${p.account}` : "";
+  const channel = p.channel ? ` · ${CHANNEL_ICONS[p.channel] || ""} ${p.channel}` : "";
+  const loaded = p.loaded ? ` · загружено: ${p.loaded}` : "";
+  const accounts = p.total_accounts > 0
+    ? ` (${p.current_account || 0}/${p.total_accounts})`
+    : "";
+
+  if (text) text.textContent = `${step}${accounts}${account}${channel}${loaded}${dots}`;
+
+  // Fill progress bar by account progress
+  if (fill && p.total_accounts > 0) {
+    const pct = Math.round(((p.current_account || 0) / p.total_accounts) * 100);
+    fill.style.width = `${Math.max(pct, 5)}%`;
+  } else if (fill) {
+    fill.style.width = "15%";
+  }
+}
+
+async function pollGlobalSyncStatus() {
+  try {
+    const res = await fetch("/api/sync/status");
+    if (!res.ok) {
+      stopGlobalSyncPoll();
+      return;
+    }
+    const p = await res.json();
+    if (p.in_progress) {
+      showSyncProgress();
+      updateSyncProgressUI(p);
+      globalSyncPollTimer = window.setTimeout(pollGlobalSyncStatus, 2000);
+    } else {
+      // Sync just finished
+      if (document.getElementById("syncProgressBar")?.style.display !== "none") {
+        // Show completion briefly then hide
+        const fill = document.getElementById("syncProgressFill");
+        const text = document.getElementById("syncProgressText");
+        if (fill) fill.style.width = "100%";
+        if (text) text.textContent = "✅ Синхронизация завершена";
+        window.setTimeout(hideSyncProgress, 4000);
+        // Reload data
+        const tasks = [loadReviews(), loadQuestions(), loadChats()];
+        if (canViewSection && canViewSection("analytics")) tasks.push(loadAnalytics());
+        await Promise.all(tasks).catch(() => {});
+      }
+      stopGlobalSyncPoll();
+    }
+  } catch (_) {
+    globalSyncPollTimer = window.setTimeout(pollGlobalSyncStatus, 4000);
+  }
+}
+
+function startGlobalSyncPoll() {
+  stopGlobalSyncPoll();
+  globalSyncPollTimer = window.setTimeout(pollGlobalSyncStatus, 800);
+}
+
+function stopGlobalSyncPoll() {
+  if (globalSyncPollTimer !== null) {
+    window.clearTimeout(globalSyncPollTimer);
+    globalSyncPollTimer = null;
+  }
+}
 
 const categoryLabels = {
   positive: "Позитив",
@@ -1181,53 +1274,14 @@ async function syncAll() {
 
   if (syncInProgress) return;
   const syncButton = document.getElementById("syncAllBtn");
-  const syncProgressBar = document.getElementById("syncProgressBar");
-  const syncProgressText = document.getElementById("syncProgressText");
   syncInProgress = true;
   if (syncButton) {
     syncButton.disabled = true;
     syncButton.textContent = "⏳ Синхронизация...";
   }
-  if (syncProgressBar) syncProgressBar.style.display = "block";
-  if (syncProgressText) syncProgressText.textContent = "Начало синхронизации...";
   if (syncInfo) syncInfo.textContent = "";
-
-  // Start polling progress every 2 seconds while sync runs
-  let progressTimer = null;
-  let progressDots = 0;
-  const channelIcons = { "Отзывы": "⭐", "Вопросы": "❓", "Чаты": "💬" };
-  async function pollProgress() {
-    try {
-      const pRes = await fetch("/api/sync/status");
-      if (pRes.ok) {
-        const p = await pRes.json();
-        if (p.in_progress) {
-          progressDots = (progressDots + 1) % 4;
-          const dots = ".".repeat(progressDots + 1);
-          const step = p.step || "Синхронизация";
-          const account = p.account ? ` · ${p.account}` : "";
-          const channel = p.channel ? ` · ${channelIcons[p.channel] || ""} ${p.channel}` : "";
-          const loaded = p.loaded ? ` · загружено: ${p.loaded}` : "";
-          const accounts = (p.total_accounts > 0)
-            ? ` (${p.current_account || 0}/${p.total_accounts})`
-            : "";
-          if (syncProgressText) {
-            syncProgressText.textContent = `${step}${accounts}${account}${channel}${loaded}${dots}`;
-          }
-          // Animate progress bar width based on account progress
-          const pct = p.total_accounts > 0
-            ? Math.round(((p.current_account || 0) / p.total_accounts) * 100)
-            : null;
-          const fill = document.getElementById("syncProgressFill");
-          if (fill && pct !== null) fill.style.width = `${Math.max(pct, 5)}%`;
-        }
-      }
-    } catch (_) {}
-    if (syncInProgress) {
-      progressTimer = window.setTimeout(pollProgress, 2000);
-    }
-  }
-  progressTimer = window.setTimeout(pollProgress, 1500);
+  showSyncProgress();
+  startGlobalSyncPoll();
 
   try {
     const payload = { all_accounts: true, account_id: null };
@@ -1239,6 +1293,8 @@ async function syncAll() {
     const data = await res.json();
     if (!res.ok) {
       if (syncInfo) syncInfo.textContent = "Ошибка: " + (data.detail || "синхронизация не выполнена");
+      stopGlobalSyncPoll();
+      hideSyncProgress();
       return;
     }
     const failed = data.failed_accounts || 0;
@@ -1261,26 +1317,22 @@ async function syncAll() {
     }
     if (data.cancelled) text += ", синхронизация остановлена администратором";
     if (syncInfo) syncInfo.textContent = text;
-    if (syncProgressText) syncProgressText.textContent = "✅ Синхронизация завершена";
+    // Global poll will detect in_progress=false and show "✅ завершено" + hide bar
+    stopGlobalSyncPoll();
     const fill = document.getElementById("syncProgressFill");
+    const progressText = document.getElementById("syncProgressText");
     if (fill) fill.style.width = "100%";
+    if (progressText) progressText.textContent = "✅ Синхронизация завершена";
+    window.setTimeout(hideSyncProgress, 4000);
     const tasks = [loadReviews(), loadQuestions(), loadChats()];
     if (canViewSection("analytics")) tasks.push(loadAnalytics());
     await Promise.all(tasks);
   } finally {
     syncInProgress = false;
-    if (progressTimer !== null) {
-      window.clearTimeout(progressTimer);
-      progressTimer = null;
-    }
     if (syncButton) {
       syncButton.disabled = false;
       syncButton.textContent = "Синхронизировать все активные кабинеты";
     }
-    window.setTimeout(() => {
-      if (syncProgressBar) syncProgressBar.style.display = "none";
-      if (syncProgressText) syncProgressText.textContent = "";
-    }, 4000);
   }
 }
 
@@ -3314,6 +3366,22 @@ document.addEventListener("DOMContentLoaded", () => {
   window.addEventListener("resize", closeMobileNavIfDesktop);
   document.getElementById("ruleCategory")?.addEventListener("change", syncRuleFormFromStore);
   document.getElementById("tplCategory")?.addEventListener("change", syncTemplateFormFromStore);
+  // On page load: check if a sync is already running (e.g. user navigated away
+  // and came back) - if so, show the progress bar and start polling immediately.
+  fetch("/api/sync/status").then((r) => r.ok ? r.json() : null).then((p) => {
+    if (p && p.in_progress) {
+      syncInProgress = true;
+      const syncButton = document.getElementById("syncAllBtn");
+      if (syncButton) {
+        syncButton.disabled = true;
+        syncButton.textContent = "⏳ Синхронизация...";
+      }
+      showSyncProgress();
+      updateSyncProgressUI(p);
+      startGlobalSyncPoll();
+    }
+  }).catch(() => {});
+
   loadReviews();
   loadQuestions();
   loadChats();
