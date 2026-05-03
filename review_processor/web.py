@@ -3307,6 +3307,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     def admin_stop_sync(request: Request) -> dict[str, object]:
         _require_super_admin(request)
         sync_stop_event.set()
+        auto_sync_stop_event.set()
         with sync_lock:
             sync_state["cancel_requested"] = True
             sync_state["polling_enabled"] = False
@@ -3314,6 +3315,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             sync_state["polling_account_ids"] = []
             sync_state["polling_since_date"] = None
             sync_state["polling_started_at"] = None
+            sync_state["last_poll_result"] = {
+                "ok": True,
+                "cancelled": True,
+                "message": "Синхронизация остановлена администратором",
+                "run_started_at": _now_iso(),
+            }
         return {"ok": True}
 
     @app.on_event("shutdown")

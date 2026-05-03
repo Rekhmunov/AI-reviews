@@ -93,6 +93,7 @@ const teamState = {
   pendingPermissions: [],
 };
 let syncInProgress = false;
+let syncStopStatusTimer = null;
 const ACTIVE_SECTION_STORAGE_KEY = "feedpilot_active_section";
 const ACTIVE_SETTINGS_TAB_STORAGE_KEY = "feedpilot_active_settings_tab";
 const SECTION_IDS = ["reviews", "conversations", "chats", "analytics", "settings", "profile"];
@@ -1137,6 +1138,69 @@ async function syncAll() {
   }
 }
 
+function stopSyncStatusPolling() {
+  if (syncStopStatusTimer !== null) {
+    window.clearTimeout(syncStopStatusTimer);
+    syncStopStatusTimer = null;
+  }
+}
+
+function scheduleSyncStatusPolling() {
+  stopSyncStatusPolling();
+  syncStopStatusTimer = window.setTimeout(() => {
+    pollSyncStatusUntilStopped();
+  }, 1200);
+}
+
+async function pollSyncStatusUntilStopped() {
+  const syncInfo = document.getElementById("syncInfo");
+  const stopButton = document.getElementById("adminStopSyncBtn");
+  try {
+    const res = await fetch("/api/admin/sync-status");
+    const data = await res.json();
+    if (!res.ok) {
+      if (syncInfo) syncInfo.textContent = data.detail || "Не удалось получить статус синхронизации";
+      if (stopButton) stopButton.disabled = false;
+      stopSyncStatusPolling();
+      return;
+    }
+    const inProgress = Boolean(data.in_progress);
+    const cancelRequested = Boolean(data.cancel_requested);
+    if (cancelRequested && inProgress) {
+      if (syncInfo) syncInfo.textContent = "Остановка синхронизации выполняется... Подождите.";
+      scheduleSyncStatusPolling();
+      return;
+    }
+    if (cancelRequested && !inProgress) {
+      if (syncInfo) syncInfo.textContent = "Синхронизация остановлена.";
+      if (stopButton) stopButton.disabled = false;
+      syncInProgress = false;
+      const syncButton = document.getElementById("syncAllBtn");
+      if (syncButton) {
+        syncButton.disabled = false;
+        syncButton.textContent = "Синхронизировать все активные кабинеты";
+      }
+      const tasks = [loadReviews(), loadQuestions(), loadChats()];
+      if (canViewSection("analytics")) tasks.push(loadAnalytics());
+      await Promise.all(tasks);
+      stopSyncStatusPolling();
+      return;
+    }
+    if (!inProgress) {
+      if (syncInfo) syncInfo.textContent = "Синхронизация не запущена.";
+      if (stopButton) stopButton.disabled = false;
+      stopSyncStatusPolling();
+      return;
+    }
+    if (syncInfo) syncInfo.textContent = "Синхронизация выполняется. Ожидаем остановку...";
+    scheduleSyncStatusPolling();
+  } catch (_error) {
+    if (syncInfo) syncInfo.textContent = "Не удалось проверить статус синхронизации";
+    if (stopButton) stopButton.disabled = false;
+    stopSyncStatusPolling();
+  }
+}
+
 async function stopSyncAll() {
   const stopButton = document.getElementById("adminStopSyncBtn");
   if (stopButton) stopButton.disabled = true;
@@ -1151,10 +1215,8 @@ async function stopSyncAll() {
     return;
   }
   const syncInfo = document.getElementById("syncInfo");
-  if (syncInfo) syncInfo.textContent = "Отправлена команда остановки. Подождите завершения текущей операции.";
-  setTimeout(() => {
-    if (stopButton) stopButton.disabled = false;
-  }, 1500);
+  if (syncInfo) syncInfo.textContent = "Отправлена команда остановки. Проверяем статус...";
+  scheduleSyncStatusPolling();
 }
 
 async function clearAllReviews() {
