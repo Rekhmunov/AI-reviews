@@ -1985,9 +1985,15 @@ button.secondary.danger:hover {
     display: block;
   }
 
+  .layout > .sidebar .sidebar-main {
+    flex: 0 0 auto;
+  }
+
   .layout > .sidebar .sidebar-bottom {
     margin-top: 12px;
     padding-top: 12px;
+    border-top: 1px solid var(--line);
+    flex: 0 0 auto;
   }
 
   .layout > .sidebar .meta {
