@@ -46,6 +46,7 @@ const detailKeyLabels = {
   account_id: "идентификатор кабинета",
   channel: "канал",
   error: "ошибка",
+  human_error: "пояснение",
   scope: "область",
   kind: "тип",
   reply: "ответ",
@@ -222,6 +223,16 @@ function formatActionDetails(details) {
     parts.push(`${label}: ${value}`);
   }
   return parts.join("; ");
+}
+
+function summarizeSyncError(details) {
+  if (!details || typeof details !== "object") return "";
+  const human = String(details.human_error || "").trim();
+  if (human) return human;
+  const error = String(details.error || "").trim();
+  if (error) return error;
+  const fallback = String(details.detail || details.message || "").trim();
+  return fallback;
 }
 
 async function loadAdminContext() {
@@ -1956,12 +1967,24 @@ async function loadActions() {
   const items = data.items || [];
   for (const item of items) {
     const tr = document.createElement("tr");
+    const actionType = String(item.action_type || "");
+    const actionLabel = labelFromMap(actionTypeLabels, actionType);
+    const details = item.details || {};
+    const detailsText = formatActionDetails(details);
+    const syncErrorSummary = actionType === "sync_error" ? summarizeSyncError(details) : "";
+    const actionCellHtml = syncErrorSummary
+      ? `${esc(actionLabel)}<div class="small">${esc(syncErrorSummary)}</div>`
+      : esc(actionLabel);
+    const detailsCellHtml =
+      detailsText === "-" && syncErrorSummary
+        ? esc(`пояснение: ${syncErrorSummary}`)
+        : esc(detailsText);
     tr.innerHTML = `
       <td>${esc(item.created_at)}</td>
       <td>${esc(item.actor)}</td>
       <td>${esc(item.review_uid || "-")}</td>
-      <td>${esc(labelFromMap(actionTypeLabels, item.action_type))}</td>
-      <td>${esc(formatActionDetails(item.details || {}))}</td>
+      <td>${actionCellHtml}</td>
+      <td>${detailsCellHtml}</td>
     `;
     tbody.appendChild(tr);
   }
