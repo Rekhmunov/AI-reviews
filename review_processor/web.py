@@ -3649,6 +3649,54 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "already_stopped": not bool(was_running or was_polling),
         }
 
+    @app.on_event("startup")
+    def restore_auto_sync_on_startup() -> None:
+        """Resume background polling for all users who have active accounts.
+
+        When the server restarts the in-memory sync_state is lost.  This hook
+        reads the database to find tenant-owner users with at least one active
+        marketplace account, initialises sync_state, and starts the auto-sync
+        worker.  The first poll fires after AUTO_SYNC_INTERVAL_SECONDS (60 s)
+        to avoid hammering the marketplace APIs right at startup.
+        """
+        try:
+            owner_users = repository.list_users(owner_only=True)
+            for user in owner_users:
+                uid = int(user.get("id") or 0)
+                if uid <= 0:
+                    continue
+                try:
+                    accounts = [
+                        item
+                        for item in repository.list_marketplace_accounts(uid, include_secrets=False)
+                        if item.get("is_active")
+                    ]
+                    if not accounts:
+                        continue
+                    account_ids = [int(a["id"]) for a in accounts if a.get("id")]
+                    sync_settings = repository.get_user_sync_settings(user_id=uid)
+                    since_date = (
+                        str(sync_settings.get("sync_start_date") or "").strip()
+                        if bool(sync_settings.get("use_sync_start_date"))
+                        else None
+                    )
+                    # Set the first user with active accounts as the polling target.
+                    # If more tenants exist they will activate their own polling when
+                    # they manually trigger a sync.
+                    with sync_lock:
+                        if not bool(sync_state.get("polling_enabled")):
+                            sync_state["polling_enabled"] = True
+                            sync_state["polling_user_id"] = uid
+                            sync_state["polling_account_ids"] = account_ids
+                            sync_state["polling_since_date"] = since_date
+                            sync_state["polling_started_at"] = _now_iso()
+                    _start_auto_sync_worker_if_needed()
+                    break
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
     @app.on_event("shutdown")
     def stop_auto_sync_worker() -> None:
         auto_sync_stop_event.set()
