@@ -373,7 +373,12 @@ class WildberriesMarketplaceClient:
             return []
         return self._fetch_conversation_endpoint(path=self.questions_path, kind="question", stop_requested=stop_requested)
 
-    def fetch_chats(self, *, stop_requested: Callable[[], bool] | None = None) -> list[dict[str, object]]:
+    def fetch_chats(
+        self,
+        *,
+        since_date: str | None = None,
+        stop_requested: Callable[[], bool] | None = None,
+    ) -> list[dict[str, object]]:
         if not self.chats_path:
             return []
         chats = self._fetch_conversation_endpoint(
@@ -389,7 +394,10 @@ class WildberriesMarketplaceClient:
         # The /api/v1/seller/chats list does not include a sender field on the
         # lastMessage, but /api/v1/seller/events does.
         try:
-            sender_map = self._fetch_last_sender_map(stop_requested=stop_requested)
+            sender_map = self._fetch_last_sender_map(
+                since_date=since_date,
+                stop_requested=stop_requested,
+            )
         except Exception:
             sender_map = {}
         if sender_map:
@@ -402,31 +410,52 @@ class WildberriesMarketplaceClient:
                     continue
                 meta = chat.get("metadata")
                 if isinstance(meta, dict):
-                    meta["last_sender"] = sender_info["sender"]
-                    meta["last_sender_ts"] = sender_info["ts"]
-                # If the last message was from the seller, mark as closed so
-                # it lands in the "answered" bucket, not "needs reply".
-                if sender_info["sender"] == "seller":
+                    meta["last_sender"] = sender_info.get("sender")
+                    meta["last_sender_ts"] = sender_info.get("ts")
+                    # Embed raw events for later storage in sync_chats().
+                    meta["_wb_events"] = sender_info.get("events") or []
+                if sender_info.get("sender") == "seller":
                     chat["last_sender"] = "seller"
-                elif sender_info["sender"] == "client":
+                elif sender_info.get("sender") == "client":
                     chat["last_sender"] = "client"
         return chats
 
     def _fetch_last_sender_map(
         self,
         *,
+        since_date: str | None = None,
         stop_requested: Callable[[], bool] | None = None,
     ) -> dict[str, dict[str, object]]:
-        """Return a map of chatID -> {sender, ts} for the LAST message in each chat.
+        """Return a map of chatID -> {sender, ts, messages} for the LAST message
+        in each chat, plus the full list of events per chat for history storage.
 
         Paginates through /api/v1/seller/events using the ``next`` cursor and
-        keeps only the most-recent event per chatID.
+        keeps only the most-recent event per chatID for status determination.
+
+        When ``since_date`` is supplied (YYYY-MM-DD or unix seconds), events
+        older than that cutoff are skipped so the chat list respects the
+        "sync start date" setting.
         """
         if not self.chats_events_path:
             return {}
         base_url = self.chats_api_url or self.api_url
         endpoint = _compose_url(base_url, self.chats_events_path)
+
+        # Convert since_date to a unix-ms cutoff for comparison with addTimestamp.
+        since_ts_ms: int | None = None
+        if since_date:
+            raw_since = _normalize_timestamp(since_date)
+            if raw_since:
+                try:
+                    from datetime import timezone
+                    dt = datetime.fromisoformat(raw_since.replace("Z", "+00:00"))
+                    since_ts_ms = int(dt.timestamp() * 1000)
+                except (ValueError, AttributeError):
+                    pass
+
         result: dict[str, dict[str, object]] = {}
+        # chatID -> list of event dicts (for history storage)
+        events_by_chat: dict[str, list[dict[str, object]]] = {}
         cursor: str | None = None
         max_pages = 500
         page = 0
@@ -456,15 +485,26 @@ class WildberriesMarketplaceClient:
                     ts = int(ts_raw) if ts_raw is not None else 0
                 except (TypeError, ValueError):
                     ts = 0
+                # Apply since_date filter – skip events older than cutoff.
+                if since_ts_ms is not None and ts > 0 and ts < since_ts_ms:
+                    continue
                 if not chat_id or not sender:
                     continue
+                # Track last sender per chat (for status classification).
                 prev = result.get(chat_id)
                 if prev is None or ts > int(prev.get("ts") or 0):
                     result[chat_id] = {"sender": sender, "ts": ts}
+                # Collect full event for history storage.
+                events_by_chat.setdefault(chat_id, []).append(event)
             cursor = str(raw_result.get("next") or "").strip() or None
             if not cursor:
                 break
             page += 1
+
+        # Attach all events to the result map so sync_chats can persist them.
+        for chat_id, ev_list in events_by_chat.items():
+            entry = result.setdefault(chat_id, {})
+            entry["events"] = ev_list
         return result
 
     def _fetch_conversation_endpoint(
@@ -1171,6 +1211,7 @@ class ReviewAutomationService:
         source: str,
         account_id: int | None,
         client: MarketplaceClient,
+        since_date: str | None = None,
         stop_requested: Callable[[], bool] | None = None,
     ) -> int:
         fetch_chats = getattr(client, "fetch_chats", None)
@@ -1179,7 +1220,7 @@ class ReviewAutomationService:
 
         try:
             try:
-                rows = fetch_chats(stop_requested=stop_requested)
+                rows = fetch_chats(since_date=since_date, stop_requested=stop_requested)
             except TypeError:
                 rows = fetch_chats()
         except MarketplaceSyncError as exc:
@@ -1213,6 +1254,11 @@ class ReviewAutomationService:
             seller_replied_at: str | None = None
             if str(row.get("last_sender") or "").strip().lower() == "seller":
                 seller_replied_at = last_message_at
+            meta = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+            # Pull out the internal events list before storing metadata
+            wb_events: list[dict[str, object]] = []
+            if isinstance(meta, dict):
+                wb_events = list(meta.pop("_wb_events", None) or [])
             conversation_uid = self.repository.upsert_conversation(
                 user_id=user_id,
                 source=source,
@@ -1223,10 +1269,43 @@ class ReviewAutomationService:
                 message_text=str(row.get("message_text") or ""),
                 status=str(row.get("status") or "open"),
                 unread_count=_to_positive_int(row.get("unread_count"), default=0),
-                metadata=row.get("metadata") if isinstance(row.get("metadata"), dict) else {},
+                metadata=meta,
                 last_message_at=last_message_at,
                 seller_replied_at=seller_replied_at,
             )
+            # Persist the full chat history from WB events.
+            if wb_events:
+                history_msgs: list[dict[str, object]] = []
+                for ev in wb_events:
+                    if not isinstance(ev, dict):
+                        continue
+                    ev_id = str(ev.get("eventID") or "").strip()
+                    ev_sender = str(ev.get("sender") or "").strip().lower()
+                    ev_text = str((ev.get("message") or {}).get("text") or "").strip()
+                    ev_ts_raw = ev.get("addTimestamp")
+                    ev_ts_ms = int(ev_ts_raw) if ev_ts_raw is not None else 0
+                    ev_iso = _normalize_timestamp(ev_ts_ms) or ""
+                    client_name = str(ev.get("clientName") or "").strip()
+                    if not ev_id or not ev_text:
+                        continue
+                    direction = "inbound" if ev_sender == "client" else "outbound"
+                    op_name = client_name if ev_sender == "client" else "Продавец"
+                    history_msgs.append({
+                        "direction": direction,
+                        "message_text": ev_text,
+                        "idempotency_key": f"wb-event-{ev_id}",
+                        "created_at": ev_iso,
+                        "operator_name": op_name,
+                    })
+                if history_msgs:
+                    try:
+                        self.repository.bulk_insert_chat_history_messages(
+                            user_id=user_id,
+                            conversation_uid=conversation_uid,
+                            messages=history_msgs,
+                        )
+                    except Exception:
+                        pass
             self.repository.log_review_action(
                 user_id=user_id,
                 review_uid=conversation_uid,
@@ -1399,6 +1478,7 @@ class ReviewAutomationService:
                 source=source,
                 account_id=account_id,
                 client=client,
+                since_date=since_date,
                 stop_requested=stop_requested,
             )
         else:

@@ -2093,6 +2093,31 @@ async function markChatClosed() {
   await setConversationStatus(uid, "closed", "chat");
 }
 
+async function markChatAnswered() {
+  const uid = String(chatsState.activeConversationUid || "").trim();
+  if (!uid) {
+    alert("Сначала выберите чат");
+    return;
+  }
+  const info = document.getElementById("chatsInfo");
+  try {
+    const res = await fetch(`/api/conversations/${encodeURIComponent(uid)}/mark-answered`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({}),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      if (info) info.textContent = "Ошибка: " + (data.detail || "не удалось перенести в отвеченные");
+      return;
+    }
+    if (info) info.textContent = "Чат перенесён в «Отвеченные»";
+    await loadChats();
+  } catch (err) {
+    if (info) info.textContent = "Ошибка: не удалось перенести в отвеченные";
+  }
+}
+
 async function loadAnalytics() {
   const res = await fetch("/api/analytics");
   const data = await res.json();

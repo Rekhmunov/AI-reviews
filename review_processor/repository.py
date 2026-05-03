@@ -4251,6 +4251,24 @@ class ReviewRepository:
             )
         return result.rowcount > 0
 
+    def mark_conversation_answered(self, *, user_id: int, conversation_uid: str) -> bool:
+        """Set last_sent_at = now so the chat moves to the 'answered' bucket.
+
+        Used for ad/promo chats where the seller does not need to reply but
+        wants to remove them from the 'needs reply' queue.
+        """
+        now = _utc_now()
+        with self._connect() as conn:
+            result = conn.execute(
+                """
+                UPDATE conversation_items
+                SET last_sent_at = ?, updated_at = ?
+                WHERE user_id = ? AND conversation_uid = ?
+                """,
+                (now, now, user_id, conversation_uid),
+            )
+        return result.rowcount > 0
+
     def list_chat_quick_templates(self, *, user_id: int) -> list[dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(
@@ -4344,6 +4362,51 @@ class ReviewRepository:
         if row is None:
             return None
         return self._row_to_dict(row)
+
+    def bulk_insert_chat_history_messages(
+        self,
+        *,
+        user_id: int,
+        conversation_uid: str,
+        messages: list[dict[str, Any]],
+    ) -> int:
+        """Insert historical messages from WB events into conversation_messages.
+
+        Each item in ``messages`` must have:
+          - direction: 'inbound' | 'outbound'
+          - message_text: str
+          - idempotency_key: str  (event_id from WB)
+          - created_at: str (ISO timestamp of the WB event)
+          - operator_name: str | None (clientName or 'Продавец')
+
+        Rows with duplicate idempotency_key are silently skipped.
+        Returns the number of newly inserted rows.
+        """
+        if not messages:
+            return 0
+        inserted = 0
+        with self._connect() as conn:
+            for msg in messages:
+                direction = str(msg.get("direction") or "inbound").strip()
+                text = str(msg.get("message_text") or "").strip()
+                idem_key = str(msg.get("idempotency_key") or "").strip()
+                created = str(msg.get("created_at") or _utc_now()).strip()
+                op_name = str(msg.get("operator_name") or "").strip() or None
+                if not idem_key or not text:
+                    continue
+                result = conn.execute(
+                    """
+                    INSERT INTO conversation_messages (
+                        conversation_uid, user_id, direction, message_text,
+                        operator_name, send_status, idempotency_key, created_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, 'sent', ?, ?)
+                    ON CONFLICT(user_id, conversation_uid, idempotency_key) DO NOTHING
+                    """,
+                    (conversation_uid, user_id, direction, text, op_name, idem_key, created),
+                )
+                inserted += int(result.rowcount or 0)
+        return inserted
 
     def upsert_conversation_outbound_message(
         self,
