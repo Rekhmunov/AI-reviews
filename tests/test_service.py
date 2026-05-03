@@ -374,7 +374,7 @@ class ReviewAutomationServiceTests(unittest.TestCase):
         self.assertIsNotNone(full_account)
         client = self.service._build_client(full_account or {})
         self.assertEqual(getattr(client, "questions_path", None), "/api/v1/questions")
-        self.assertIsNone(getattr(client, "chats_path", None))
+        self.assertEqual(getattr(client, "chats_path", None), "/api/v1/chats")
 
     def test_template_placeholders_user_reco_brand(self) -> None:
         self.repository.replace_all_recommendations(

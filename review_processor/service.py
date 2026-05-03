@@ -1477,7 +1477,7 @@ class ReviewAutomationService:
                 page_size=_to_positive_int(extra.get("page_size"), default=100),
                 max_pages=_to_positive_int(extra.get("max_pages"), default=20),
                 questions_path=str(extra.get("questions_path") or "/api/v1/questions"),
-                chats_path=str(extra.get("chats_path")) if extra.get("chats_path") else None,
+                chats_path=str(extra.get("chats_path") or "/api/v1/chats"),
                 reply_path=str(extra.get("reply_path") or "/api/v1/feedbacks/answer"),
                 reply_method=str(extra.get("reply_method") or "POST"),
                 reply_review_id_field=str(extra.get("reply_review_id_field") or "id"),
