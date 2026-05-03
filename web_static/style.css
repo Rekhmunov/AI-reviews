@@ -2328,17 +2328,20 @@ button.secondary.danger:hover {
     max-width: 100%;
   }
 
-  /* Date input in Sources pane must never exceed viewport width */
+  /* Date input in Sources pane - compact, not full-width */
   #section-settings #settings-pane-sources .sync-start-settings input[type="date"] {
-    width: 100%;
-    max-width: 100%;
-    min-width: 0;
+    width: auto;
+    max-width: 180px;
+    min-width: 130px;
+    flex: 1 1 140px;
   }
 
   #section-settings #settings-pane-sources .sync-start-settings label {
     width: 100%;
     max-width: 100%;
     min-width: 0;
+    font-size: 13px;
+    color: #6b7280;
   }
 
   #section-settings > div[id^="settings-pane-"] .row button,
@@ -2529,8 +2532,35 @@ button.secondary.danger:hover {
 
   /* ── Sync start date row ── */
   #section-settings .sync-start-settings .row {
-    flex-direction: column;
+    flex-direction: row;
+    flex-wrap: wrap;
     gap: 8px;
+    align-items: center;
+  }
+
+  #section-settings .sync-start-settings label {
+    width: 100%;
+    font-size: 13px;
+    color: #6b7280;
+  }
+
+  #section-settings .sync-start-settings input[type="date"] {
+    flex: 1 1 140px;
+    max-width: 180px;
+    min-width: 130px;
+    width: auto !important;
+  }
+
+  #section-settings .sync-start-settings button {
+    flex: 0 0 auto;
+    width: auto !important;
+    padding: 0 16px;
+    white-space: nowrap;
+  }
+
+  #section-settings .sync-start-settings .small {
+    width: 100%;
+    font-size: 12px;
   }
 
   /* ── Sync buttons row ── */
