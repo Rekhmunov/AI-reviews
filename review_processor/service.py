@@ -187,17 +187,38 @@ class OzonMarketplaceClient:
     def fetch_conversations(self, *, stop_requested: Callable[[], bool] | None = None) -> list[dict[str, object]]:
         return self.fetch_questions(stop_requested=stop_requested) + self.fetch_chats(stop_requested=stop_requested)
 
-    def fetch_questions(self, *, stop_requested: Callable[[], bool] | None = None) -> list[dict[str, object]]:
-        return self._fetch_conversation_stream(path=self.questions_path, kind="question", stop_requested=stop_requested)
+    def fetch_questions(
+        self,
+        *,
+        since_date: str | None = None,
+        stop_requested: Callable[[], bool] | None = None,
+    ) -> list[dict[str, object]]:
+        return self._fetch_conversation_stream(
+            path=self.questions_path,
+            kind="question",
+            since_date=since_date,
+            stop_requested=stop_requested,
+        )
 
-    def fetch_chats(self, *, stop_requested: Callable[[], bool] | None = None) -> list[dict[str, object]]:
-        return self._fetch_conversation_stream(path=self.chats_path, kind="chat", stop_requested=stop_requested)
+    def fetch_chats(
+        self,
+        *,
+        since_date: str | None = None,
+        stop_requested: Callable[[], bool] | None = None,
+    ) -> list[dict[str, object]]:
+        return self._fetch_conversation_stream(
+            path=self.chats_path,
+            kind="chat",
+            since_date=since_date,
+            stop_requested=stop_requested,
+        )
 
     def _fetch_conversation_stream(
         self,
         *,
         path: str | None,
         kind: str,
+        since_date: str | None = None,
         stop_requested: Callable[[], bool] | None = None,
     ) -> list[dict[str, object]]:
         if not path:
@@ -211,6 +232,10 @@ class OzonMarketplaceClient:
             if page > 0:
                 time.sleep(0.15)
             payload: dict[str, object] = {"limit": self.page_size}
+            if since_date:
+                # Ozon uses date_from / dateFrom for filtering by date
+                payload.setdefault("date_from", since_date)
+                payload.setdefault("dateFrom", since_date)
             if cursor:
                 payload["last_id"] = cursor
             body = self._request_json(path=path, payload=payload)
@@ -378,10 +403,20 @@ class WildberriesMarketplaceClient:
     def fetch_conversations(self, *, stop_requested: Callable[[], bool] | None = None) -> list[dict[str, object]]:
         return self.fetch_questions(stop_requested=stop_requested) + self.fetch_chats(stop_requested=stop_requested)
 
-    def fetch_questions(self, *, stop_requested: Callable[[], bool] | None = None) -> list[dict[str, object]]:
+    def fetch_questions(
+        self,
+        *,
+        since_date: str | None = None,
+        stop_requested: Callable[[], bool] | None = None,
+    ) -> list[dict[str, object]]:
         if not self.questions_path:
             return []
-        return self._fetch_conversation_endpoint(path=self.questions_path, kind="question", stop_requested=stop_requested)
+        return self._fetch_conversation_endpoint(
+            path=self.questions_path,
+            kind="question",
+            since_date=since_date,
+            stop_requested=stop_requested,
+        )
 
     def fetch_chats(
         self,
@@ -539,14 +574,14 @@ class WildberriesMarketplaceClient:
         path: str,
         kind: str,
         base_url: str | None = None,
+        since_date: str | None = None,
         stop_requested: Callable[[], bool] | None = None,
     ) -> list[dict[str, object]]:
         """Fetch a paginated WB conversation endpoint (questions or single-page chats list).
 
-        WB Questions endpoint supports skip/take pagination with the same params
-        as the reviews endpoint.  Chats list returns all chats in one response.
-        We try skip/take pagination and stop when a page returns fewer items
-        than requested (signals end of data).
+        WB Questions endpoint supports skip/take/dateFrom pagination with the same
+        params as the reviews endpoint.  Chats list returns all chats in one response
+        (WB Chat API does not support dateFrom on /api/v1/seller/chats).
         Rate limit: WB Feedbacks/Questions API = 3 req/s → sleep 0.4 s between pages.
         """
         conversation_keys = self.items_keys + ("questions", "chats", "dialogs", "messages", "result")
@@ -554,17 +589,23 @@ class WildberriesMarketplaceClient:
         skip = 0
         page = 0
 
+        # WB Questions supports dateFrom as unix seconds (same as feedbacks).
+        wb_date_from = self._to_wb_unix_timestamp(since_date)
+
         while page < self.max_pages:
             _raise_if_stop_requested(stop_requested, source="wb")
             if page > 0:
                 # WB Feedbacks API: 3 req/s limit → 400 ms between requests.
                 time.sleep(0.4)
             endpoint = _compose_url(base_url or self.api_url, path)
-            params = urlencode({
+            params_dict: dict[str, object] = {
                 self.skip_param: skip,
                 self.take_param: self.page_size,
                 self.unanswered_param: self.unanswered_value,
-            })
+            }
+            if wb_date_from is not None:
+                params_dict["dateFrom"] = wb_date_from
+            params = urlencode(params_dict)
             url = f"{endpoint}?{params}" if "?" not in endpoint else f"{endpoint}&{params}"
             request = Request(url, method="GET", headers={"Authorization": self.api_key})
             payload = _request_json(request=request, timeout=self.timeout, source="wb")
@@ -1197,6 +1238,7 @@ class ReviewAutomationService:
         source: str,
         account_id: int | None,
         client: MarketplaceClient,
+        since_date: str | None = None,
         stop_requested: Callable[[], bool] | None = None,
     ) -> int:
         fetch_questions = getattr(client, "fetch_questions", None)
@@ -1205,7 +1247,7 @@ class ReviewAutomationService:
 
         try:
             try:
-                rows = fetch_questions(stop_requested=stop_requested)
+                rows = fetch_questions(since_date=since_date, stop_requested=stop_requested)
             except TypeError:
                 rows = fetch_questions()
         except MarketplaceSyncError as exc:
@@ -1523,6 +1565,7 @@ class ReviewAutomationService:
                 source=source,
                 account_id=account_id,
                 client=client,
+                since_date=since_date,
                 stop_requested=stop_requested,
             )
         elif channel == "chats":
