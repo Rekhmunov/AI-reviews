@@ -256,6 +256,10 @@ class SyncCapabilitiesRequest(BaseModel):
     account_id: int = Field(ge=1, description="Marketplace account ID for capabilities check")
 
 
+class ChatQuickTemplateCreateRequest(BaseModel):
+    template_text: str = Field(min_length=1, max_length=2000)
+
+
 class ManualReplyRequest(BaseModel):
     operator_name: str = Field(min_length=2, max_length=120)
     response_text: str = Field(min_length=2, max_length=2000)
@@ -1788,6 +1792,29 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "messages": messages,
             "count": len(messages),
         }
+
+    @app.get("/api/chat-quick-templates")
+    def list_chat_quick_templates(request: Request) -> dict[str, object]:
+        user = _require_user(request)
+        items = repository.list_chat_quick_templates(user_id=int(user["id"]))
+        return {"items": items, "count": len(items)}
+
+    @app.post("/api/chat-quick-templates")
+    def create_chat_quick_template(request: Request, payload: ChatQuickTemplateCreateRequest) -> dict[str, object]:
+        user = _require_user(request)
+        text = str(payload.template_text or "").strip()
+        if not text:
+            raise HTTPException(status_code=400, detail="Введите текст шаблона")
+        item = repository.add_chat_quick_template(user_id=int(user["id"]), template_text=text)
+        return {"ok": True, "item": item}
+
+    @app.delete("/api/chat-quick-templates/{template_id}")
+    def delete_chat_quick_template(template_id: int, request: Request) -> dict[str, object]:
+        user = _require_user(request)
+        deleted = repository.delete_chat_quick_template(user_id=int(user["id"]), template_id=int(template_id))
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Шаблон не найден")
+        return {"ok": True, "deleted": True}
 
     @app.post("/api/admin/conversations-clear")
     def admin_clear_conversations(request: Request, payload: ClearReviewsRequest) -> dict[str, object]:

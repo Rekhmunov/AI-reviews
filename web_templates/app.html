@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=10" />
+  <link rel="stylesheet" href="/static/style.css?v=11" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -280,11 +280,14 @@
             <div id="chatMessages" class="chat-messages"></div>
             <div class="chat-compose">
               <textarea id="chatReplyInput" rows="3" placeholder="Введите ответ..." maxlength="4000"></textarea>
-              <div class="row">
+              <div class="row chat-compose-actions">
+                <button id="chatEmojiBtn" type="button" class="icon-btn chat-emoji-btn" title="Смайлы" aria-label="Смайлы" onclick="toggleChatEmojiPicker()">🙂</button>
                 <button id="chatReplySendBtn" type="button" onclick="sendChatReply()">Отправить</button>
+                <button id="chatQuickTemplatesBtn" type="button" class="secondary" onclick="openChatQuickTemplatesModal()">Шаблоны</button>
                 <button type="button" class="secondary" onclick="markChatWaiting()">В ожидании</button>
                 <button type="button" class="secondary" onclick="markChatClosed()">Закрыть</button>
               </div>
+              <div id="chatEmojiPicker" class="chat-emoji-picker hidden" aria-hidden="true"></div>
             </div>
           </section>
         </div>
@@ -563,6 +566,23 @@
       </div>
     </div>
   </div>
+  <div id="chatQuickTemplatesModal" class="modal-overlay hidden" aria-hidden="true">
+    <div class="modal-card chat-quick-templates-modal-card">
+      <div class="row row-between">
+        <h4 class="no-margin">Быстрые ответы для чатов</h4>
+        <button type="button" class="secondary" onclick="closeChatQuickTemplatesModal()">Закрыть</button>
+      </div>
+      <p class="small">Клик по шаблону подставляет текст в поле ответа чата. Можно добавлять и удалять шаблоны.</p>
+      <div class="row">
+        <textarea id="chatQuickTemplateInput" rows="3" maxlength="2000" placeholder="Введите новый шаблон ответа"></textarea>
+      </div>
+      <div class="row">
+        <button type="button" onclick="createChatQuickTemplate()">Добавить шаблон</button>
+        <span id="chatQuickTemplatesInfo" class="small"></span>
+      </div>
+      <div id="chatQuickTemplatesList" class="chat-quick-templates-list mt-10"></div>
+    </div>
+  </div>
   <script>
     window.APP_PERMISSIONS = {
       can_view_analytics: {{CAN_VIEW_ANALYTICS}},
@@ -572,6 +592,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=11"></script>
+  <script src="/static/app.js?v=12"></script>
 </body>
 </html>

@@ -69,6 +69,11 @@ const chatsState = {
   activeConversationUid: "",
   loadingMessages: false,
 };
+const chatQuickTemplatesState = {
+  items: [],
+  loading: false,
+};
+const CHAT_EMOJI_PRESET = ["🙂", "😊", "😉", "😌", "😍", "😎", "🤝", "👍", "👌", "🙏", "🎉", "💙", "✨", "🔥", "🤗", "😅", "😇", "🤔", "🙌", "👀"];
 const templateGroupsState = {
   items: [],
   currentGroupId: null,
@@ -256,6 +261,8 @@ function writeStoredUiState(key, value) {
 function showSection(section, options = {}) {
   if (!canViewSection(section)) return;
   const persist = options.persist !== false;
+  toggleChatEmojiPicker(false);
+  closeChatQuickTemplatesModal();
   for (const id of SECTION_IDS) {
     const sectionEl = document.getElementById("section-" + id);
     const navEl = document.getElementById("nav-" + id);
@@ -1613,6 +1620,170 @@ function renderChatsThreadPlaceholder(message) {
   const thread = document.getElementById("chatMessages");
   if (!thread) return;
   thread.innerHTML = `<div class="small">${esc(message)}</div>`;
+}
+
+function setChatQuickTemplatesInfo(message, isError = false) {
+  const info = document.getElementById("chatQuickTemplatesInfo");
+  if (!info) return;
+  info.textContent = String(message || "");
+  info.style.color = isError ? "#b91c1c" : "";
+}
+
+function appendTextToChatInput(text) {
+  const input = document.getElementById("chatReplyInput");
+  if (!(input instanceof HTMLTextAreaElement)) return;
+  const insertion = String(text || "");
+  if (!insertion) return;
+  const start = Number.isInteger(input.selectionStart) ? input.selectionStart : input.value.length;
+  const end = Number.isInteger(input.selectionEnd) ? input.selectionEnd : input.value.length;
+  const before = input.value.slice(0, start);
+  const after = input.value.slice(end);
+  input.value = `${before}${insertion}${after}`;
+  const nextPos = start + insertion.length;
+  input.focus();
+  input.setSelectionRange(nextPos, nextPos);
+}
+
+function buildChatEmojiPicker() {
+  const picker = document.getElementById("chatEmojiPicker");
+  if (!picker) return;
+  picker.innerHTML = "";
+  for (const emoji of CHAT_EMOJI_PRESET) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "secondary chat-emoji-item";
+    btn.textContent = String(emoji);
+    btn.title = `Вставить ${emoji}`;
+    btn.addEventListener("click", () => {
+      appendTextToChatInput(`${emoji} `);
+      toggleChatEmojiPicker(false);
+    });
+    picker.appendChild(btn);
+  }
+}
+
+function toggleChatEmojiPicker(forceVisible) {
+  const picker = document.getElementById("chatEmojiPicker");
+  if (!picker) return;
+  const nextVisible = forceVisible === undefined ? picker.classList.contains("hidden") : Boolean(forceVisible);
+  picker.classList.toggle("hidden", !nextVisible);
+  picker.setAttribute("aria-hidden", nextVisible ? "false" : "true");
+}
+
+function hideChatEmojiPickerIfOutside(target) {
+  const picker = document.getElementById("chatEmojiPicker");
+  const btn = document.getElementById("chatEmojiBtn");
+  if (!picker || picker.classList.contains("hidden")) return;
+  if (target && (picker.contains(target) || (btn && btn.contains(target)))) return;
+  toggleChatEmojiPicker(false);
+}
+
+function renderChatQuickTemplatesList() {
+  const container = document.getElementById("chatQuickTemplatesList");
+  if (!container) return;
+  container.innerHTML = "";
+  const items = Array.isArray(chatQuickTemplatesState.items) ? chatQuickTemplatesState.items : [];
+  if (!items.length) {
+    const empty = document.createElement("div");
+    empty.className = "small";
+    empty.textContent = "Шаблонов пока нет";
+    container.appendChild(empty);
+    return;
+  }
+  for (const item of items) {
+    const templateId = Number(item.id || 0);
+    const text = String(item.template_text || "").trim();
+    if (!templateId || !text) continue;
+    const row = document.createElement("div");
+    row.className = "chat-quick-template-item";
+    row.innerHTML = `
+      <div class="chat-quick-template-text">${esc(text)}</div>
+      <div class="row">
+        <button type="button" class="secondary">Подставить</button>
+        <button type="button" class="secondary danger">Удалить</button>
+      </div>
+    `;
+    const [applyBtn, deleteBtn] = row.querySelectorAll("button");
+    applyBtn?.addEventListener("click", () => {
+      appendTextToChatInput(text);
+      setChatQuickTemplatesInfo("Шаблон подставлен в поле ответа.");
+      closeChatQuickTemplatesModal();
+    });
+    deleteBtn?.addEventListener("click", async () => {
+      await deleteChatQuickTemplate(templateId);
+    });
+    container.appendChild(row);
+  }
+}
+
+async function loadChatQuickTemplates() {
+  chatQuickTemplatesState.loading = true;
+  try {
+    const res = await fetch("/api/chat-quick-templates");
+    const data = await res.json();
+    if (!res.ok) {
+      setChatQuickTemplatesInfo(data.detail || "Не удалось загрузить шаблоны", true);
+      return;
+    }
+    chatQuickTemplatesState.items = Array.isArray(data.items) ? data.items : [];
+    renderChatQuickTemplatesList();
+  } catch (_error) {
+    setChatQuickTemplatesInfo("Не удалось загрузить шаблоны", true);
+  } finally {
+    chatQuickTemplatesState.loading = false;
+  }
+}
+
+function openChatQuickTemplatesModal() {
+  setModalVisibility("chatQuickTemplatesModal", true);
+  setChatQuickTemplatesInfo("");
+  toggleChatEmojiPicker(false);
+  loadChatQuickTemplates();
+}
+
+function closeChatQuickTemplatesModal() {
+  setModalVisibility("chatQuickTemplatesModal", false);
+  const input = document.getElementById("chatQuickTemplateInput");
+  if (input instanceof HTMLTextAreaElement) input.value = "";
+  setChatQuickTemplatesInfo("");
+}
+
+async function createChatQuickTemplate() {
+  const input = document.getElementById("chatQuickTemplateInput");
+  const text = String(input?.value || "").trim();
+  if (!text) {
+    setChatQuickTemplatesInfo("Введите текст шаблона", true);
+    return;
+  }
+  const res = await fetch("/api/chat-quick-templates", {
+    method: "POST",
+    headers: jsonHeaders(),
+    body: JSON.stringify({ template_text: text }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    setChatQuickTemplatesInfo(data.detail || "Не удалось добавить шаблон", true);
+    return;
+  }
+  if (input) input.value = "";
+  setChatQuickTemplatesInfo("Шаблон добавлен.");
+  await loadChatQuickTemplates();
+}
+
+async function deleteChatQuickTemplate(templateId) {
+  const cleanId = Number(templateId || 0);
+  if (!cleanId) return;
+  const res = await fetch(`/api/chat-quick-templates/${cleanId}`, {
+    method: "DELETE",
+    headers: withCsrfHeaders(),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    setChatQuickTemplatesInfo(data.detail || "Не удалось удалить шаблон", true);
+    return;
+  }
+  setChatQuickTemplatesInfo("Шаблон удален.");
+  await loadChatQuickTemplates();
 }
 
 function renderChatMessages(messages) {
@@ -3008,6 +3179,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
+    hideChatEmojiPickerIfOutside(target);
     const dateWrap = document.querySelector(".reviews-date-wrap");
     const datePanel = document.getElementById("reviewsDateFilterPanel");
     if (datePanel && !datePanel.classList.contains("hidden") && dateWrap && !dateWrap.contains(target)) {
@@ -3049,9 +3221,13 @@ document.addEventListener("DOMContentLoaded", () => {
   onSourceMarketplaceChange();
   setPasswordFieldsVisible(false);
   setModalVisibility("managerPermissionsModal", false);
+  setModalVisibility("chatQuickTemplatesModal", false);
+  buildChatEmojiPicker();
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
     closeManagerPermissionsModal();
+    closeChatQuickTemplatesModal();
+    toggleChatEmojiPicker(false);
     closeMobileNavMenu();
   });
   window.addEventListener("resize", closeMobileNavIfDesktop);
@@ -3081,3 +3257,7 @@ window.showSettingsTab = showSettingsTab;
 window.toggleMobileNavMenu = toggleMobileNavMenu;
 window.closeMobileNavMenu = closeMobileNavMenu;
 window.onMobileSettingsTabChange = onMobileSettingsTabChange;
+window.toggleChatEmojiPicker = toggleChatEmojiPicker;
+window.openChatQuickTemplatesModal = openChatQuickTemplatesModal;
+window.closeChatQuickTemplatesModal = closeChatQuickTemplatesModal;
+window.createChatQuickTemplate = createChatQuickTemplate;
