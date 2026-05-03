@@ -1262,12 +1262,26 @@ async function syncAll() {
     openSyncPreviewModal();
 
     // Load preview data (counts per channel)
-    const previewRes = await fetch("/api/sync/preview");
-    const previewData = await previewRes.json();
+    let previewData = null;
+    let previewOk = false;
+    try {
+      const previewRes = await fetch("/api/sync/preview");
+      previewData = await previewRes.json();
+      previewOk = previewRes.ok;
+    } catch (_fetchErr) {
+      previewOk = false;
+    }
 
-    if (!previewRes.ok) {
+    if (!previewOk) {
+      // Preview failed (e.g. old server without this endpoint, or network error).
+      // Still allow the user to proceed — just show a fallback message.
+      if (previewSince) previewSince.innerHTML = "";
       if (previewContent) previewContent.innerHTML =
-        `<p class="small" style="color:#ef4444">Ошибка: ${previewData.detail || "не удалось получить данные"}</p>`;
+        `<p class="small" style="color:#6b7280;margin:4px 0">
+          Не удалось подсчитать количество данных заранее.<br>
+          Синхронизация будет выполнена с учётом настроенной даты начала загрузки.
+        </p>`;
+      if (confirmBtn) confirmBtn.disabled = false;
       if (syncInfo) syncInfo.textContent = "";
       return;
     }
@@ -1325,9 +1339,16 @@ async function syncAll() {
     if (confirmBtn) confirmBtn.disabled = false;
     if (syncInfo) syncInfo.textContent = "";
   } catch (_error) {
-    closeSyncPreviewModal();
-    if (syncInfo) syncInfo.textContent = "Не удалось подготовить данные синхронизации.";
-    return;
+    // On any unexpected error still let the user proceed
+    if (previewSince) previewSince.innerHTML = "";
+    if (previewContent) previewContent.innerHTML =
+      `<p class="small" style="color:#6b7280;margin:4px 0">
+        Не удалось подсчитать количество данных заранее.
+        Можно продолжить синхронизацию.
+      </p>`;
+    const confirmBtn2 = document.getElementById("syncPreviewConfirmBtn");
+    if (confirmBtn2) confirmBtn2.disabled = false;
+    if (syncInfo) syncInfo.textContent = "";
   } finally {
     syncCapabilityCheckInProgress = false;
   }
