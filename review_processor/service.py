@@ -397,7 +397,10 @@ class WildberriesMarketplaceClient:
         if not isinstance(payload, dict):
             raise MarketplaceSyncError("wb", "Wildberries API returned non-object payload for conversations")
         _raise_if_error_payload(payload, source="wb")
-        rows = _extract_sequence(payload, keys=self.items_keys + ("questions", "chats", "dialogs", "messages"))
+        rows = _extract_sequence(
+            payload,
+            keys=self.items_keys + ("questions", "chats", "dialogs", "messages", "result"),
+        )
         if not rows:
             for nested_key in ("data", "result", "response"):
                 nested_value = payload.get(nested_key)
@@ -405,7 +408,7 @@ class WildberriesMarketplaceClient:
                     continue
                 rows = _extract_sequence(
                     nested_value,
-                    keys=self.items_keys + ("questions", "chats", "dialogs", "messages"),
+                    keys=self.items_keys + ("questions", "chats", "dialogs", "messages", "result"),
                 )
                 if rows:
                     break
@@ -533,8 +536,10 @@ class WildberriesMarketplaceClient:
         external_id = str(
             item.get("id")
             or item.get("chatId")
+            or item.get("chatID")
             or item.get("chat_id")
             or item.get("questionId")
+            or item.get("questionID")
             or item.get("question_id")
             or item.get("dialogId")
             or item.get("dialog_id")
@@ -555,7 +560,7 @@ class WildberriesMarketplaceClient:
             or (last_message.get("message") if isinstance(last_message, Mapping) else "")
             or ""
         )
-        customer_name = str(item.get("userName") or item.get("author") or "") or None
+        customer_name = str(item.get("userName") or item.get("author") or item.get("clientName") or "") or None
         status = str(item.get("status") or "open").lower()
         unread_raw = (
             item.get("unread_count")
@@ -569,6 +574,7 @@ class WildberriesMarketplaceClient:
             or item.get("updated_at")
             or item.get("last_message_at")
             or item.get("lastMessageAt")
+            or (last_message.get("addTimestamp") if isinstance(last_message, Mapping) else None)
             or (last_message.get("createdAt") if isinstance(last_message, Mapping) else None)
             or (last_message.get("dateTime") if isinstance(last_message, Mapping) else None)
         )

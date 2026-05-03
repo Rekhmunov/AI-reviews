@@ -44,11 +44,14 @@ const detailKeyLabels = {
   status: "статус",
   source: "источник",
   account_id: "идентификатор кабинета",
+  channel: "канал",
   error: "ошибка",
   scope: "область",
   kind: "тип",
   reply: "ответ",
   marketplace: "маркетплейс",
+  reason: "причина",
+  access_denied: "доступ запрещен",
 };
 const categoryLabels = {
   positive: "Позитив",
@@ -213,6 +216,7 @@ function formatActionDetails(details) {
       if (value === String(rawValue)) value = labelFromMap(conversationStatusLabels, rawValue);
     }
     if (key === "kind") value = labelFromMap(conversationKindLabels, rawValue);
+    if (key === "access_denied") value = rawValue ? "да" : "нет";
     const label = detailKeyLabels[key] || "параметр";
     parts.push(`${label}: ${value}`);
   }

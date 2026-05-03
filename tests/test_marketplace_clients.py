@@ -98,6 +98,21 @@ class MarketplaceClientsTests(unittest.TestCase):
         self.assertEqual(WildberriesMarketplaceClient._to_wb_unix_timestamp("1745712000"), 1745712000)
         self.assertIsNone(WildberriesMarketplaceClient._to_wb_unix_timestamp("bad-date"))
 
+    def test_wb_to_conversation_supports_chat_id_uppercase(self) -> None:
+        mapped = WildberriesMarketplaceClient._to_conversation(
+            {
+                "chatID": "chat-upper-1",
+                "clientName": "Клиент",
+                "lastMessage": {"text": "Здравствуйте", "addTimestamp": "2026-05-03T21:30:00Z"},
+            },
+            kind="chat",
+        )
+        self.assertIsNotNone(mapped)
+        assert mapped is not None
+        self.assertEqual(mapped["external_id"], "chat-upper-1")
+        self.assertEqual(mapped["customer_name"], "Клиент")
+        self.assertEqual(mapped["message_text"], "Здравствуйте")
+
     def test_wb_chat_payload_with_dialog_keys_is_mapped(self) -> None:
         payload = {
             "result": {
