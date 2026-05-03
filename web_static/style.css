@@ -1937,7 +1937,7 @@ button.secondary.danger:hover {
   input,
   select,
   textarea,
-  button {
+  button:not(.icon-btn):not(.mobile-copy-key-btn):not([class*="emoji"]):not(.mobile-nav-toggle):not(.bucket-tab) {
     width: 100%;
   }
 
@@ -2440,6 +2440,7 @@ button.secondary.danger:hover {
     word-break: break-all;
     min-width: 0;
     flex: 1;
+    font-size: 12px;
   }
 
   .account-card-key-wrap {
@@ -2450,14 +2451,60 @@ button.secondary.danger:hover {
     flex: 1;
   }
 
+  /* Key text: truncate with ellipsis to keep card compact */
+  .account-card-key-wrap > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    flex: 1;
+    font-size: 12px;
+    font-family: monospace;
+    color: #475569;
+  }
+
+  /* Copy button stays small — never stretch to full width */
+  .account-card-key-wrap .mobile-copy-key-btn,
+  .mobile-copy-key-btn {
+    width: auto !important;
+    min-width: 34px !important;
+    max-width: 34px !important;
+    flex-shrink: 0;
+    padding: 0 6px;
+    font-size: 14px;
+  }
+
   .account-card-actions {
     display: flex;
     gap: 8px;
-    margin-top: 4px;
+    margin-top: 6px;
   }
 
   .account-card-actions button {
     flex: 1;
+    width: auto;
+  }
+
+  /* Ensure action buttons are never full-width individually */
+  .account-card-actions button,
+  .account-card-actions .secondary {
+    width: auto !important;
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  /* mobile-copy-key-btn must always be a compact square */
+  .mobile-copy-key-btn {
+    width: 34px !important;
+    min-width: 34px !important;
+    max-width: 34px !important;
+    height: 34px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: 15px;
   }
 
   /* Hide the desktop table on mobile */

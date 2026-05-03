@@ -2410,6 +2410,11 @@ async function loadAccounts() {
       const mp = String(account.marketplace || "").toLowerCase();
       const mpLabel = labelFromMap(marketplaceLabels, account.marketplace);
       const isActive = Boolean(account.is_active);
+
+      // Show only the hostname of the API URL to keep the card compact
+      let apiUrlShort = String(account.api_url || "");
+      try { apiUrlShort = new URL(apiUrlShort).hostname; } catch (_) {}
+
       const card = document.createElement("div");
       card.className = "account-card";
       card.innerHTML = `
@@ -2422,19 +2427,19 @@ async function loadAccounts() {
         </div>
         <div class="account-card-row">
           <span class="account-card-label">API URL</span>
-          <span class="account-card-value">${esc(account.api_url)}</span>
+          <span class="account-card-value" title="${esc(account.api_url)}">${esc(apiUrlShort)}</span>
         </div>
         ${(account.extra || {}).client_id ? `<div class="account-card-row"><span class="account-card-label">Client-Id</span><span class="account-card-value">${esc((account.extra || {}).client_id)}</span></div>` : ""}
         <div class="account-card-row">
           <span class="account-card-label">Ключ</span>
           <div class="account-card-key-wrap">
-            <span style="word-break:break-all;flex:1">${esc(masked || "-")}</span>
-            ${rawApiKey ? `<button type="button" class="icon-btn mobile-copy-key-btn" title="Скопировать ключ" data-key="${esc(rawApiKey)}">📋</button>` : ""}
+            <span title="${esc(masked || "-")}">${esc(masked || "-")}</span>
+            ${rawApiKey ? `<button type="button" class="mobile-copy-key-btn" title="Скопировать ключ" data-key="${esc(rawApiKey)}">📋</button>` : ""}
           </div>
         </div>
         <div class="account-card-actions">
           <button class="secondary" onclick="toggleAccount(${account.id}, ${isActive ? "false" : "true"})">${isActive ? "Отключить" : "Включить"}</button>
-          <button class="icon-btn danger" title="Удалить" onclick="deleteAccount(${account.id})">🗑 Удалить</button>
+          <button class="secondary danger" onclick="deleteAccount(${account.id})">🗑 Удалить</button>
         </div>
       `;
       const copyBtn = card.querySelector(".mobile-copy-key-btn");
