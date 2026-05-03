@@ -3961,7 +3961,18 @@ class ReviewRepository:
         unread_count: int,
         metadata: dict[str, Any] | None = None,
         last_message_at: str | None = None,
+        seller_replied_at: str | None = None,
     ) -> str:
+        """Upsert a conversation record.
+
+        ``seller_replied_at`` should be set to the timestamp of the seller's
+        last message (from the WB events endpoint).  When provided it is written
+        to ``last_sent_at``, which drives the "answered" / "needs reply" bucket
+        logic:  processed_by_operator = last_sent_at IS NOT NULL AND
+        last_sent_at >= last_message_at.
+        Only update last_sent_at when the incoming value is newer than the
+        stored one so that a manual reply from our app is never overwritten.
+        """
         conversation_uid = self.make_conversation_uid(
             user_id=user_id,
             source=source,
@@ -3979,7 +3990,7 @@ class ReviewRepository:
                     kind, customer_name, message_text, status, unread_count, metadata_json,
                     send_error_code, send_error_message, send_attempts, last_send_attempt_at, last_sent_at,
                     last_message_at, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, 0, NULL, NULL, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, 0, NULL, ?, ?, ?, ?)
                 ON CONFLICT(conversation_uid) DO UPDATE SET
                     customer_name = excluded.customer_name,
                     message_text = excluded.message_text,
@@ -4003,6 +4014,12 @@ class ReviewRepository:
                         ELSE conversation_items.last_send_attempt_at
                     END,
                     last_message_at = excluded.last_message_at,
+                    last_sent_at = CASE
+                        WHEN excluded.last_sent_at IS NULL THEN conversation_items.last_sent_at
+                        WHEN conversation_items.last_sent_at IS NULL THEN excluded.last_sent_at
+                        WHEN excluded.last_sent_at > conversation_items.last_sent_at THEN excluded.last_sent_at
+                        ELSE conversation_items.last_sent_at
+                    END,
                     updated_at = excluded.updated_at
                 """,
                 (
@@ -4017,6 +4034,7 @@ class ReviewRepository:
                     status,
                     max(unread_count, 0),
                     self._json_param(metadata or {}),
+                    seller_replied_at or None,
                     last_message_ts,
                     now,
                     now,

@@ -321,6 +321,7 @@ class WildberriesMarketplaceClient:
     questions_path: str | None = None
     chats_path: str | None = None
     chats_api_url: str | None = None
+    chats_events_path: str | None = "/api/v1/seller/events"
     reply_path: str | None = "/api/v1/feedbacks/answer"
     reply_method: str = "POST"
     reply_review_id_field: str = "id"
@@ -375,12 +376,96 @@ class WildberriesMarketplaceClient:
     def fetch_chats(self, *, stop_requested: Callable[[], bool] | None = None) -> list[dict[str, object]]:
         if not self.chats_path:
             return []
-        return self._fetch_conversation_endpoint(
+        chats = self._fetch_conversation_endpoint(
             path=self.chats_path,
             kind="chat",
             base_url=self.chats_api_url or self.api_url,
             stop_requested=stop_requested,
         )
+        if not chats:
+            return chats
+        # Enrich each chat with last-sender info from the events endpoint so we
+        # can correctly classify chats as "needs reply" vs "answered".
+        # The /api/v1/seller/chats list does not include a sender field on the
+        # lastMessage, but /api/v1/seller/events does.
+        try:
+            sender_map = self._fetch_last_sender_map(stop_requested=stop_requested)
+        except Exception:
+            sender_map = {}
+        if sender_map:
+            for chat in chats:
+                ext_id = str(chat.get("external_id") or "").strip()
+                if not ext_id:
+                    continue
+                sender_info = sender_map.get(ext_id)
+                if not sender_info:
+                    continue
+                meta = chat.get("metadata")
+                if isinstance(meta, dict):
+                    meta["last_sender"] = sender_info["sender"]
+                    meta["last_sender_ts"] = sender_info["ts"]
+                # If the last message was from the seller, mark as closed so
+                # it lands in the "answered" bucket, not "needs reply".
+                if sender_info["sender"] == "seller":
+                    chat["last_sender"] = "seller"
+                elif sender_info["sender"] == "client":
+                    chat["last_sender"] = "client"
+        return chats
+
+    def _fetch_last_sender_map(
+        self,
+        *,
+        stop_requested: Callable[[], bool] | None = None,
+    ) -> dict[str, dict[str, object]]:
+        """Return a map of chatID -> {sender, ts} for the LAST message in each chat.
+
+        Paginates through /api/v1/seller/events using the ``next`` cursor and
+        keeps only the most-recent event per chatID.
+        """
+        if not self.chats_events_path:
+            return {}
+        base_url = self.chats_api_url or self.api_url
+        endpoint = _compose_url(base_url, self.chats_events_path)
+        result: dict[str, dict[str, object]] = {}
+        cursor: str | None = None
+        max_pages = 500
+        page = 0
+        while page < max_pages:
+            _raise_if_stop_requested(stop_requested, source="wb")
+            url = endpoint if cursor is None else f"{endpoint}?next={cursor}"
+            request = Request(url, method="GET", headers={"Authorization": self.api_key})
+            try:
+                payload = _request_json(request=request, timeout=self.timeout, source="wb")
+            except MarketplaceSyncError:
+                break
+            if not isinstance(payload, dict):
+                break
+            raw_result = payload.get("result") or {}
+            if not isinstance(raw_result, dict):
+                break
+            events = raw_result.get("events") or []
+            if not isinstance(events, list) or not events:
+                break
+            for event in events:
+                if not isinstance(event, dict):
+                    continue
+                chat_id = str(event.get("chatID") or "").strip()
+                sender = str(event.get("sender") or "").strip().lower()
+                ts_raw = event.get("addTimestamp")
+                try:
+                    ts = int(ts_raw) if ts_raw is not None else 0
+                except (TypeError, ValueError):
+                    ts = 0
+                if not chat_id or not sender:
+                    continue
+                prev = result.get(chat_id)
+                if prev is None or ts > int(prev.get("ts") or 0):
+                    result[chat_id] = {"sender": sender, "ts": ts}
+            cursor = str(raw_result.get("next") or "").strip() or None
+            if not cursor:
+                break
+            page += 1
+        return result
 
     def _fetch_conversation_endpoint(
         self,
@@ -1119,6 +1204,15 @@ class ReviewAutomationService:
             external_id = str(row.get("external_id") or "").strip()
             if not external_id:
                 continue
+            last_message_at = str(row.get("last_message_at") or "") or None
+            # Determine seller_replied_at from the enriched last_sender field.
+            # fetch_chats() adds last_sender="seller" when the most-recent event
+            # in /api/v1/seller/events was sent by the seller.  In that case we
+            # set seller_replied_at = last_message_at so the conversation moves
+            # to the "answered" bucket without requiring a manual reply.
+            seller_replied_at: str | None = None
+            if str(row.get("last_sender") or "").strip().lower() == "seller":
+                seller_replied_at = last_message_at
             conversation_uid = self.repository.upsert_conversation(
                 user_id=user_id,
                 source=source,
@@ -1130,7 +1224,8 @@ class ReviewAutomationService:
                 status=str(row.get("status") or "open"),
                 unread_count=_to_positive_int(row.get("unread_count"), default=0),
                 metadata=row.get("metadata") if isinstance(row.get("metadata"), dict) else {},
-                last_message_at=str(row.get("last_message_at") or "") or None,
+                last_message_at=last_message_at,
+                seller_replied_at=seller_replied_at,
             )
             self.repository.log_review_action(
                 user_id=user_id,
@@ -1538,6 +1633,7 @@ class ReviewAutomationService:
                 questions_path=str(extra.get("questions_path") or "/api/v1/questions"),
                 chats_path=str(extra.get("chats_path") or "/api/v1/seller/chats"),
                 chats_api_url=str(extra.get("chats_api_url") or "https://buyer-chat-api.wildberries.ru"),
+                chats_events_path=str(extra.get("chats_events_path") or "/api/v1/seller/events"),
                 reply_path=str(extra.get("reply_path") or "/api/v1/feedbacks/answer"),
                 reply_method=str(extra.get("reply_method") or "POST"),
                 reply_review_id_field=str(extra.get("reply_review_id_field") or "id"),
