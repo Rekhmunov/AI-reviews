@@ -97,6 +97,31 @@ class _ConversationReplyClient:
         return True
 
 
+class _QuestionFailClient:
+    def fetch_reviews(self, *args: object, **kwargs: object) -> list[ReviewInput]:
+        _ = args, kwargs
+        return []
+
+    def fetch_questions(self, *args: object, **kwargs: object) -> list[dict[str, object]]:
+        _ = args, kwargs
+        raise MarketplaceSyncError("wb", "wb HTTP error 403: forbidden for questions")
+
+    def fetch_chats(self, *args: object, **kwargs: object) -> list[dict[str, object]]:
+        _ = args, kwargs
+        return [
+            {
+                "external_id": "chat-only-1",
+                "kind": "chat",
+                "customer_name": "User",
+                "message_text": "Здравствуйте",
+                "status": "open",
+                "unread_count": 1,
+                "metadata": {},
+                "last_message_at": None,
+            }
+        ]
+
+
 def _fake_yandex_category(review: ReviewInput) -> str:
     text = (review.text or "").lower()
     has_negative = any(word in text for word in ("ужас", "плох", "брак", "некачеств", "слом", "задерж", "опозд"))
@@ -298,6 +323,39 @@ class ReviewAutomationServiceTests(unittest.TestCase):
         self.assertEqual(result["account_ids"], target_ids)
         self.assertEqual(result["skipped_accounts"], 0)
         self.assertEqual(int(second["id"]) in result["account_ids"], False)
+
+    def test_sync_all_accounts_fail_soft_by_channels(self) -> None:
+        account = self.repository.create_marketplace_account(
+            user_id=int(self.user["id"]),
+            marketplace="wb",
+            account_name="wb-chat-only",
+            api_url="https://feedbacks-api.wildberries.ru/api/v1/feedbacks",
+            api_key="token",
+            extra={"questions_path": "/api/v1/questions", "chats_path": "/api/v1/chats"},
+        )
+        full_account = self.repository.get_marketplace_account(
+            user_id=int(self.user["id"]),
+            account_id=int(account["id"]),
+            include_secrets=True,
+        )
+        self.assertIsNotNone(full_account)
+        with mock.patch.object(self.service, "_build_client", return_value=_QuestionFailClient()):
+            result = self.service.sync_all_accounts(user_id=int(self.user["id"]), account_ids=[int(account["id"])])
+
+        self.assertEqual(result["accounts"], 1)
+        self.assertEqual(result["success_accounts"], 1)
+        self.assertEqual(result["loaded_reviews"], 0)
+        self.assertEqual(result["loaded_questions"], 0)
+        self.assertEqual(result["loaded_chats"], 1)
+        self.assertEqual(result["loaded_conversations"], 1)
+        self.assertGreaterEqual(result["failed_accounts"], 1)
+        errors = result.get("errors") or []
+        self.assertTrue(any(str(item.get("channel")) == "questions" for item in errors if isinstance(item, dict)))
+        stats = result.get("account_channel_stats") or []
+        self.assertEqual(len(stats), 1)
+        first = stats[0]
+        self.assertTrue(bool((first.get("chats") or {}).get("ok")))
+        self.assertFalse(bool((first.get("questions") or {}).get("ok")))
 
     def test_build_wb_client_sets_questions_endpoint_by_default(self) -> None:
         account = self.repository.create_marketplace_account(

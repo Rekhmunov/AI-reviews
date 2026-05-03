@@ -33,6 +33,20 @@ class MarketplaceClient(Protocol):
     ) -> list[dict[str, object]]:
         """Load questions/chats from marketplace API."""
 
+    def fetch_questions(
+        self,
+        *,
+        stop_requested: Callable[[], bool] | None = None,
+    ) -> list[dict[str, object]]:
+        """Load only questions from marketplace API."""
+
+    def fetch_chats(
+        self,
+        *,
+        stop_requested: Callable[[], bool] | None = None,
+    ) -> list[dict[str, object]]:
+        """Load only chats from marketplace API."""
+
     def send_conversation_reply(
         self,
         *,
@@ -79,6 +93,14 @@ class HTTPMarketplaceClient:
         return [self._to_review(item) for item in payload]
 
     def fetch_conversations(self, *, stop_requested: Callable[[], bool] | None = None) -> list[dict[str, object]]:
+        _raise_if_stop_requested(stop_requested, source="http")
+        return self.fetch_questions(stop_requested=stop_requested) + self.fetch_chats(stop_requested=stop_requested)
+
+    def fetch_questions(self, *, stop_requested: Callable[[], bool] | None = None) -> list[dict[str, object]]:
+        _raise_if_stop_requested(stop_requested, source="http")
+        return []
+
+    def fetch_chats(self, *, stop_requested: Callable[[], bool] | None = None) -> list[dict[str, object]]:
         _raise_if_stop_requested(stop_requested, source="http")
         return []
 
@@ -159,12 +181,13 @@ class OzonMarketplaceClient:
         return [review for review in reviews if review.review_id]
 
     def fetch_conversations(self, *, stop_requested: Callable[[], bool] | None = None) -> list[dict[str, object]]:
-        items: list[dict[str, object]] = []
-        items.extend(
-            self._fetch_conversation_stream(path=self.questions_path, kind="question", stop_requested=stop_requested)
-        )
-        items.extend(self._fetch_conversation_stream(path=self.chats_path, kind="chat", stop_requested=stop_requested))
-        return items
+        return self.fetch_questions(stop_requested=stop_requested) + self.fetch_chats(stop_requested=stop_requested)
+
+    def fetch_questions(self, *, stop_requested: Callable[[], bool] | None = None) -> list[dict[str, object]]:
+        return self._fetch_conversation_stream(path=self.questions_path, kind="question", stop_requested=stop_requested)
+
+    def fetch_chats(self, *, stop_requested: Callable[[], bool] | None = None) -> list[dict[str, object]]:
+        return self._fetch_conversation_stream(path=self.chats_path, kind="chat", stop_requested=stop_requested)
 
     def _fetch_conversation_stream(
         self,
@@ -341,14 +364,17 @@ class WildberriesMarketplaceClient:
         return [review for review in reviews if review.review_id]
 
     def fetch_conversations(self, *, stop_requested: Callable[[], bool] | None = None) -> list[dict[str, object]]:
-        items: list[dict[str, object]] = []
-        if self.questions_path:
-            items.extend(
-                self._fetch_conversation_endpoint(path=self.questions_path, kind="question", stop_requested=stop_requested)
-            )
-        if self.chats_path:
-            items.extend(self._fetch_conversation_endpoint(path=self.chats_path, kind="chat", stop_requested=stop_requested))
-        return items
+        return self.fetch_questions(stop_requested=stop_requested) + self.fetch_chats(stop_requested=stop_requested)
+
+    def fetch_questions(self, *, stop_requested: Callable[[], bool] | None = None) -> list[dict[str, object]]:
+        if not self.questions_path:
+            return []
+        return self._fetch_conversation_endpoint(path=self.questions_path, kind="question", stop_requested=stop_requested)
+
+    def fetch_chats(self, *, stop_requested: Callable[[], bool] | None = None) -> list[dict[str, object]]:
+        if not self.chats_path:
+            return []
+        return self._fetch_conversation_endpoint(path=self.chats_path, kind="chat", stop_requested=stop_requested)
 
     def _fetch_conversation_endpoint(
         self,
@@ -544,6 +570,9 @@ class MockMarketplaceClient:
         ]
 
     def fetch_conversations(self, *, stop_requested: Callable[[], bool] | None = None) -> list[dict[str, object]]:
+        return self.fetch_questions(stop_requested=stop_requested) + self.fetch_chats(stop_requested=stop_requested)
+
+    def fetch_questions(self, *, stop_requested: Callable[[], bool] | None = None) -> list[dict[str, object]]:
         _raise_if_stop_requested(stop_requested, source="mock")
         return [
             {
@@ -556,6 +585,11 @@ class MockMarketplaceClient:
                 "last_message_at": None,
                 "metadata": {"marketplace": "mock"},
             },
+        ]
+
+    def fetch_chats(self, *, stop_requested: Callable[[], bool] | None = None) -> list[dict[str, object]]:
+        _raise_if_stop_requested(stop_requested, source="mock")
+        return [
             {
                 "external_id": "mock-c-1",
                 "kind": "chat",
@@ -911,22 +945,50 @@ class ReviewAutomationService:
         client: MarketplaceClient,
         stop_requested: Callable[[], bool] | None = None,
     ) -> int:
-        fetch_conversations = getattr(client, "fetch_conversations", None)
-        if not callable(fetch_conversations):
+        return self.sync_questions(
+            user_id=user_id,
+            source=source,
+            account_id=account_id,
+            client=client,
+            stop_requested=stop_requested,
+        ) + self.sync_chats(
+            user_id=user_id,
+            source=source,
+            account_id=account_id,
+            client=client,
+            stop_requested=stop_requested,
+        )
+
+    def sync_questions(
+        self,
+        *,
+        user_id: int,
+        source: str,
+        account_id: int | None,
+        client: MarketplaceClient,
+        stop_requested: Callable[[], bool] | None = None,
+    ) -> int:
+        fetch_questions = getattr(client, "fetch_questions", None)
+        if not callable(fetch_questions):
             return 0
 
         try:
             try:
-                rows = fetch_conversations(stop_requested=stop_requested)
+                rows = fetch_questions(stop_requested=stop_requested)
             except TypeError:
-                rows = fetch_conversations()
+                rows = fetch_questions()
         except MarketplaceSyncError as exc:
             self.repository.log_review_action(
                 user_id=user_id,
                 review_uid=None,
                 action_type="sync_error",
                 actor="system",
-                details={"source": source, "account_id": account_id, "error": str(exc), "scope": "conversations"},
+                details={
+                    "source": source,
+                    "account_id": account_id,
+                    "error": str(exc),
+                    "scope": "questions",
+                },
             )
             raise
 
@@ -941,7 +1003,7 @@ class ReviewAutomationService:
                 source=source,
                 account_id=account_id,
                 external_conversation_id=external_id,
-                kind=str(row.get("kind") or "chat"),
+                kind="question",
                 customer_name=str(row.get("customer_name") or "") or None,
                 message_text=str(row.get("message_text") or ""),
                 status=str(row.get("status") or "open"),
@@ -954,10 +1016,241 @@ class ReviewAutomationService:
                 review_uid=conversation_uid,
                 action_type="sync_conversation",
                 actor="system",
-                details={"source": source, "kind": row.get("kind")},
+                details={"source": source, "kind": "question"},
             )
             loaded += 1
         return loaded
+
+    def sync_chats(
+        self,
+        *,
+        user_id: int,
+        source: str,
+        account_id: int | None,
+        client: MarketplaceClient,
+        stop_requested: Callable[[], bool] | None = None,
+    ) -> int:
+        fetch_chats = getattr(client, "fetch_chats", None)
+        if not callable(fetch_chats):
+            return 0
+
+        try:
+            try:
+                rows = fetch_chats(stop_requested=stop_requested)
+            except TypeError:
+                rows = fetch_chats()
+        except MarketplaceSyncError as exc:
+            self.repository.log_review_action(
+                user_id=user_id,
+                review_uid=None,
+                action_type="sync_error",
+                actor="system",
+                details={
+                    "source": source,
+                    "account_id": account_id,
+                    "error": str(exc),
+                    "scope": "chats",
+                },
+            )
+            raise
+
+        loaded = 0
+        for row in rows:
+            _raise_if_stop_requested(stop_requested, source=source)
+            external_id = str(row.get("external_id") or "").strip()
+            if not external_id:
+                continue
+            conversation_uid = self.repository.upsert_conversation(
+                user_id=user_id,
+                source=source,
+                account_id=account_id,
+                external_conversation_id=external_id,
+                kind="chat",
+                customer_name=str(row.get("customer_name") or "") or None,
+                message_text=str(row.get("message_text") or ""),
+                status=str(row.get("status") or "open"),
+                unread_count=_to_positive_int(row.get("unread_count"), default=0),
+                metadata=row.get("metadata") if isinstance(row.get("metadata"), dict) else {},
+                last_message_at=str(row.get("last_message_at") or "") or None,
+            )
+            self.repository.log_review_action(
+                user_id=user_id,
+                review_uid=conversation_uid,
+                action_type="sync_conversation",
+                actor="system",
+                details={"source": source, "kind": "chat"},
+            )
+            loaded += 1
+        return loaded
+
+    def _is_access_error(self, error: object) -> bool:
+        if isinstance(error, MarketplaceSyncError):
+            message = str(error).lower()
+        else:
+            message = str(error or "").lower()
+        if " 401" in message or " 403" in message:
+            return True
+        if "http error 401" in message or "http error 403" in message:
+            return True
+        if "forbidden" in message or "unauthorized" in message:
+            return True
+        if "access denied" in message or "permission" in message:
+            return True
+        if "недостаточно прав" in message or "нет доступа" in message:
+            return True
+        return False
+
+    def _is_channel_supported(self, *, client: MarketplaceClient, channel: str) -> tuple[bool, str]:
+        if channel == "reviews":
+            return (callable(getattr(client, "fetch_reviews", None)), "Канал отзывов не поддерживается источником")
+        if channel == "questions":
+            method = getattr(client, "fetch_questions", None)
+            if not callable(method):
+                return False, "Канал вопросов не поддерживается источником"
+            if hasattr(client, "questions_path") and not bool(getattr(client, "questions_path")):
+                return False, "Канал вопросов не настроен для этого источника"
+            return True, ""
+        if channel == "chats":
+            method = getattr(client, "fetch_chats", None)
+            if not callable(method):
+                return False, "Канал чатов не поддерживается источником"
+            if hasattr(client, "chats_path") and not bool(getattr(client, "chats_path")):
+                return False, "Канал чатов не настроен для этого источника"
+            return True, ""
+        return False, f"Неизвестный канал: {channel}"
+
+    def probe_account_channels(
+        self,
+        *,
+        account: dict[str, object],
+        since_date: str | None = None,
+        stop_requested: Callable[[], bool] | None = None,
+    ) -> dict[str, object]:
+        account_id = int(account.get("id") or 0)
+        marketplace = str(account.get("marketplace") or "")
+        account_name = str(account.get("account_name") or "")
+        client = self._build_client(account)
+        if hasattr(client, "page_size"):
+            try:
+                setattr(client, "page_size", 1)
+            except Exception:
+                pass
+        if hasattr(client, "max_pages"):
+            try:
+                setattr(client, "max_pages", 1)
+            except Exception:
+                pass
+
+        channel_result: dict[str, dict[str, object]] = {}
+        available_channels: list[str] = []
+        unavailable_channels: list[str] = []
+        for channel in ("reviews", "questions", "chats"):
+            supported, reason = self._is_channel_supported(client=client, channel=channel)
+            if not supported:
+                channel_result[channel] = {
+                    "available": False,
+                    "access_denied": True,
+                    "error": reason,
+                    "reason": "not_configured",
+                }
+                unavailable_channels.append(channel)
+                continue
+            try:
+                if channel == "reviews":
+                    try:
+                        getattr(client, "fetch_reviews")(since_date=since_date, stop_requested=stop_requested)
+                    except TypeError:
+                        getattr(client, "fetch_reviews")()
+                elif channel == "questions":
+                    try:
+                        getattr(client, "fetch_questions")(stop_requested=stop_requested)
+                    except TypeError:
+                        getattr(client, "fetch_questions")()
+                elif channel == "chats":
+                    try:
+                        getattr(client, "fetch_chats")(stop_requested=stop_requested)
+                    except TypeError:
+                        getattr(client, "fetch_chats")()
+                channel_result[channel] = {"available": True, "access_denied": False, "error": ""}
+                available_channels.append(channel)
+            except MarketplaceSyncError as exc:
+                if bool(exc.details.get("cancelled")):
+                    raise
+                access_denied = self._is_access_error(exc)
+                channel_result[channel] = {
+                    "available": False,
+                    "access_denied": bool(access_denied),
+                    "error": str(exc),
+                    "reason": "access_denied" if access_denied else "temporary_error",
+                }
+                unavailable_channels.append(channel)
+            except Exception as exc:  # pragma: no cover - defensive guard
+                channel_result[channel] = {
+                    "available": False,
+                    "access_denied": False,
+                    "error": str(exc),
+                    "reason": "temporary_error",
+                }
+                unavailable_channels.append(channel)
+        return {
+            "account_id": account_id,
+            "marketplace": marketplace,
+            "account_name": account_name,
+            "channels": channel_result,
+            "available_channels": available_channels,
+            "unavailable_channels": unavailable_channels,
+        }
+
+    def _run_channel_sync(
+        self,
+        *,
+        channel: str,
+        user_id: int,
+        source: str,
+        account_id: int,
+        client: MarketplaceClient,
+        since_date: str | None,
+        stop_requested: Callable[[], bool] | None,
+    ) -> dict[str, object]:
+        supported, reason = self._is_channel_supported(client=client, channel=channel)
+        if not supported:
+            return {
+                "ok": False,
+                "loaded": 0,
+                "channel": channel,
+                "skipped": True,
+                "access_denied": True,
+                "error": reason,
+            }
+        if channel == "reviews":
+            loaded = self.sync_reviews(
+                user_id=user_id,
+                source=source,
+                account_id=account_id,
+                client=client,
+                since_date=since_date,
+                stop_requested=stop_requested,
+            )
+        elif channel == "questions":
+            loaded = self.sync_questions(
+                user_id=user_id,
+                source=source,
+                account_id=account_id,
+                client=client,
+                stop_requested=stop_requested,
+            )
+        elif channel == "chats":
+            loaded = self.sync_chats(
+                user_id=user_id,
+                source=source,
+                account_id=account_id,
+                client=client,
+                stop_requested=stop_requested,
+            )
+        else:
+            raise ValueError(f"Unknown channel: {channel}")
+        return {"ok": True, "loaded": int(loaded), "channel": channel}
+
 
     def sync_all_accounts(
         self,
@@ -968,9 +1261,13 @@ class ReviewAutomationService:
         stop_requested: Callable[[], bool] | None = None,
     ) -> dict[str, object]:
         loaded_total = 0
+        loaded_questions = 0
+        loaded_chats = 0
         loaded_conversations = 0
         successful_accounts = 0
         errors: list[dict[str, object]] = []
+        capability_warnings: list[dict[str, object]] = []
+        account_channel_stats: list[dict[str, object]] = []
         was_cancelled = False
         account_ids_filter: set[int] | None = None
         if account_ids is not None:
@@ -1017,22 +1314,99 @@ class ReviewAutomationService:
                 continue
             try:
                 client = self._build_client(current_account)
-                loaded_total += self.sync_reviews(
-                    user_id=user_id,
-                    source=marketplace,
-                    account_id=account_id,
-                    client=client,
-                    since_date=since_value,
-                    stop_requested=stop_requested,
+                channel_outcomes: dict[str, dict[str, object]] = {}
+                for channel in ("reviews", "questions", "chats"):
+                    if stop_requested and stop_requested():
+                        was_cancelled = True
+                        break
+                    try:
+                        channel_outcomes[channel] = self._run_channel_sync(
+                            channel=channel,
+                            user_id=user_id,
+                            source=marketplace,
+                            account_id=account_id,
+                            client=client,
+                            since_date=since_value,
+                            stop_requested=stop_requested,
+                        )
+                    except MarketplaceSyncError as exc:
+                        if bool(exc.details.get("cancelled")):
+                            was_cancelled = True
+                            break
+                        is_access_error = self._is_access_error(exc)
+                        details = {
+                            "account_id": account_id,
+                            "marketplace": marketplace,
+                            "channel": channel,
+                            "scope": channel,
+                            "error": str(exc),
+                            "access_denied": bool(is_access_error),
+                            **exc.details,
+                        }
+                        errors.append(details)
+                        if is_access_error:
+                            capability_warnings.append(
+                                {
+                                    "account_id": account_id,
+                                    "marketplace": marketplace,
+                                    "channel": channel,
+                                    "message": str(exc),
+                                }
+                            )
+                        channel_outcomes[channel] = {
+                            "ok": False,
+                            "loaded": 0,
+                            "error": str(exc),
+                            "access_denied": bool(is_access_error),
+                        }
+                    except Exception as exc:
+                        details = {
+                            "account_id": account_id,
+                            "marketplace": marketplace,
+                            "channel": channel,
+                            "scope": channel,
+                            "error": str(exc),
+                        }
+                        errors.append(details)
+                        self.repository.log_review_action(
+                            user_id=user_id,
+                            review_uid=None,
+                            action_type="sync_error",
+                            actor="system",
+                            details=details,
+                        )
+                        channel_outcomes[channel] = {
+                            "ok": False,
+                            "loaded": 0,
+                            "error": str(exc),
+                            "access_denied": False,
+                        }
+                if was_cancelled:
+                    break
+
+                account_loaded_reviews = int((channel_outcomes.get("reviews") or {}).get("loaded") or 0)
+                account_loaded_questions = int((channel_outcomes.get("questions") or {}).get("loaded") or 0)
+                account_loaded_chats = int((channel_outcomes.get("chats") or {}).get("loaded") or 0)
+                loaded_total += account_loaded_reviews
+                loaded_questions += account_loaded_questions
+                loaded_chats += account_loaded_chats
+                loaded_conversations = loaded_questions + loaded_chats
+
+                account_success = any(
+                    bool((channel_outcomes.get(name) or {}).get("ok")) for name in ("reviews", "questions", "chats")
                 )
-                loaded_conversations += self.sync_conversations(
-                    user_id=user_id,
-                    source=marketplace,
-                    account_id=account_id,
-                    client=client,
-                    stop_requested=stop_requested,
+                if account_success:
+                    successful_accounts += 1
+
+                account_channel_stats.append(
+                    {
+                        "account_id": account_id,
+                        "marketplace": marketplace,
+                        "reviews": channel_outcomes.get("reviews") or {"ok": False, "loaded": 0},
+                        "questions": channel_outcomes.get("questions") or {"ok": False, "loaded": 0},
+                        "chats": channel_outcomes.get("chats") or {"ok": False, "loaded": 0},
+                    }
                 )
-                successful_accounts += 1
             except MarketplaceSyncError as exc:
                 if bool(exc.details.get("cancelled")):
                     was_cancelled = True
@@ -1054,10 +1428,15 @@ class ReviewAutomationService:
             "success_accounts": successful_accounts,
             "failed_accounts": len(errors),
             "loaded": loaded_total,
+            "loaded_reviews": loaded_total,
+            "loaded_questions": loaded_questions,
+            "loaded_chats": loaded_chats,
             "loaded_conversations": loaded_conversations,
             "account_ids": selected_account_ids,
             "skipped_accounts": skipped_accounts,
             "errors": errors,
+            "capability_warnings": capability_warnings,
+            "account_channel_stats": account_channel_stats,
             "cancelled": was_cancelled,
         }
 

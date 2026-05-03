@@ -94,6 +94,7 @@ const teamState = {
 };
 let syncInProgress = false;
 let syncStopStatusTimer = null;
+let syncCapabilityCheckInProgress = false;
 const ACTIVE_SECTION_STORAGE_KEY = "feedpilot_active_section";
 const ACTIVE_SETTINGS_TAB_STORAGE_KEY = "feedpilot_active_settings_tab";
 const SECTION_IDS = ["reviews", "conversations", "chats", "analytics", "settings", "profile"];
@@ -1135,9 +1136,44 @@ function renderRatingStars(value) {
 }
 
 async function syncAll() {
+  if (syncInProgress || syncCapabilityCheckInProgress) return;
+  syncCapabilityCheckInProgress = true;
+  const syncInfo = document.getElementById("syncInfo");
+  try {
+    if (syncInfo) syncInfo.textContent = "Проверяем доступные каналы по подключенным кабинетам...";
+    const capabilitiesRes = await fetch("/api/sync/capabilities");
+    const capabilitiesData = await capabilitiesRes.json();
+    if (!capabilitiesRes.ok) {
+      if (syncInfo) syncInfo.textContent = "Ошибка: " + (capabilitiesData.detail || "не удалось проверить доступы каналов");
+      return;
+    }
+    const capabilityItems = Array.isArray(capabilitiesData.items) ? capabilitiesData.items : [];
+    if (!capabilityItems.length) {
+      if (syncInfo) syncInfo.textContent = "Нет активных кабинетов для синхронизации.";
+      return;
+    }
+    const summaryLines = capabilityItems.map((item) => {
+      const accountName = String(item.account_name || `Кабинет #${item.account_id || "-"}`).trim();
+      const summary = String(item.summary || "").trim();
+      return `• ${accountName}: ${summary}`;
+    });
+    const confirmMessage =
+      "Проверка доступов по каналам:\n\n" +
+      summaryLines.join("\n") +
+      "\n\nПродолжить синхронизацию доступных каналов?";
+    if (!window.confirm(confirmMessage)) {
+      if (syncInfo) syncInfo.textContent = "Синхронизация отменена пользователем.";
+      return;
+    }
+  } catch (_error) {
+    if (syncInfo) syncInfo.textContent = "Не удалось проверить доступные каналы перед синхронизацией.";
+    return;
+  } finally {
+    syncCapabilityCheckInProgress = false;
+  }
+
   if (syncInProgress) return;
   const syncButton = document.getElementById("syncAllBtn");
-  const syncInfo = document.getElementById("syncInfo");
   syncInProgress = true;
   if (syncButton) {
     syncButton.disabled = true;
@@ -1157,12 +1193,22 @@ async function syncAll() {
       return;
     }
     const failed = data.failed_accounts || 0;
-    let text = `Кабинетов: ${data.accounts}, отзывов: ${data.loaded}, вопросов/чатов: ${data.loaded_conversations || 0}`;
+    let text = `Кабинетов: ${data.accounts}, отзывов: ${data.loaded_reviews ?? data.loaded ?? 0}, вопросов: ${data.loaded_questions || 0}, чатов: ${data.loaded_chats || 0}`;
     if (failed > 0) {
       text += `, ошибок: ${failed}`;
       const firstError = Array.isArray(data.errors) && data.errors.length ? data.errors[0] : null;
       const reason = firstError && firstError.error ? String(firstError.error) : "";
       if (reason) text += `. Причина: ${reason}`;
+    }
+    if (Array.isArray(data.account_channel_stats) && data.account_channel_stats.length) {
+      const perAccountLines = data.account_channel_stats.map((item) => {
+        const reviewsOk = Boolean(item?.reviews?.ok);
+        const questionsOk = Boolean(item?.questions?.ok);
+        const chatsOk = Boolean(item?.chats?.ok);
+        const accountId = item?.account_id ?? "-";
+        return `#${accountId} [Отзывы ${reviewsOk ? "✅" : "❌"}, Вопросы ${questionsOk ? "✅" : "❌"}, Чаты ${chatsOk ? "✅" : "❌"}]`;
+      });
+      text += `. ${perAccountLines.join("; ")}`;
     }
     if (data.cancelled) text += ", синхронизация остановлена администратором";
     if (syncInfo) syncInfo.textContent = text;

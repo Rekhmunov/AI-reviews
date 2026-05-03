@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from html import escape
 import json
@@ -249,6 +250,10 @@ def _is_protected_default_subgroup(group_id: str, subgroup: str) -> bool:
 class SyncRequest(BaseModel):
     account_id: int | None = Field(default=None, description="Specific marketplace account ID")
     all_accounts: bool = Field(default=True, description="Sync all active accounts")
+
+
+class SyncCapabilitiesRequest(BaseModel):
+    account_id: int = Field(ge=1, description="Marketplace account ID for capabilities check")
 
 
 class ManualReplyRequest(BaseModel):
@@ -966,6 +971,95 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             seen.add(account_id)
             ids.append(account_id)
         return ids
+
+    def _serialize_sync_error_details(raw_errors: object) -> list[dict[str, object]]:
+        if not isinstance(raw_errors, list):
+            return []
+        result: list[dict[str, object]] = []
+        for item in raw_errors:
+            if not isinstance(item, dict):
+                continue
+            cleaned: dict[str, object] = {}
+            for key, value in item.items():
+                cleaned[str(key)] = value
+            result.append(cleaned)
+        return result
+
+    def _channel_access_label(capabilities: Mapping[str, object]) -> str:
+        reviews_ok = bool(capabilities.get("reviews"))
+        questions_ok = bool(capabilities.get("questions"))
+        chats_ok = bool(capabilities.get("chats"))
+        if reviews_ok and questions_ok and chats_ok:
+            return "По данному ключу доступны все каналы: отзывы, вопросы и чаты."
+        if chats_ok and not reviews_ok and not questions_ok:
+            return "По данному ключу вы можете работать только с чатами. К отзывам и вопросам нет доступа."
+        if reviews_ok and questions_ok and not chats_ok:
+            return "По данному ключу вы можете работать только с отзывами и вопросами, но у вас нет доступа к чатам."
+        if reviews_ok and chats_ok and not questions_ok:
+            return "По данному ключу вы можете работать только с отзывами и чатами, но у вас нет доступа к вопросам."
+        if questions_ok and chats_ok and not reviews_ok:
+            return "По данному ключу вы можете работать только с вопросами и чатами, но у вас нет доступа к отзывам."
+        if reviews_ok and not questions_ok and not chats_ok:
+            return "По данному ключу вы можете работать только с отзывами. К вопросам и чатам нет доступа."
+        if questions_ok and not reviews_ok and not chats_ok:
+            return "По данному ключу вы можете работать только с вопросами. К отзывам и чатам нет доступа."
+        return "По данному ключу нет доступа к отзывам, вопросам и чатам."
+
+    def _probe_account_capabilities(*, user_id: int, account_id: int, since_date: str | None) -> dict[str, object]:
+        account = repository.get_marketplace_account(
+            user_id=user_id,
+            account_id=account_id,
+            include_secrets=True,
+        )
+        if account is None:
+            raise HTTPException(status_code=404, detail="Кабинет маркетплейса не найден")
+        if not bool(account.get("is_active")):
+            raise HTTPException(status_code=400, detail="Кабинет отключен")
+
+        probe = service.probe_account_channels(account=account, since_date=since_date or None)
+        channels_raw = probe.get("channels")
+        channels: dict[str, dict[str, object]] = (
+            channels_raw if isinstance(channels_raw, dict) else {}
+        )
+        capabilities: dict[str, bool] = {
+            "reviews": bool((channels.get("reviews") or {}).get("available")),
+            "questions": bool((channels.get("questions") or {}).get("available")),
+            "chats": bool((channels.get("chats") or {}).get("available")),
+        }
+        channel_messages: dict[str, str] = {}
+        all_errors: list[dict[str, object]] = []
+        for channel in ("reviews", "questions", "chats"):
+            channel_data = channels.get(channel)
+            if not isinstance(channel_data, Mapping):
+                continue
+            if bool(channel_data.get("available")):
+                continue
+            message = str(channel_data.get("error") or "").strip()
+            if message:
+                channel_messages[channel] = message
+            all_errors.append(
+                {
+                    "account_id": int(probe.get("account_id") or account_id),
+                    "marketplace": str(probe.get("marketplace") or account.get("marketplace") or ""),
+                    "channel": channel,
+                    "scope": channel,
+                    "error": message,
+                    "access_denied": bool(channel_data.get("access_denied")),
+                }
+            )
+        can_sync_any = any(capabilities.values())
+        return {
+            "account_id": int(probe.get("account_id") or account_id),
+            "marketplace": str(probe.get("marketplace") or account.get("marketplace") or ""),
+            "account_name": str(probe.get("account_name") or account.get("account_name") or ""),
+            "is_active": bool(account.get("is_active")),
+            "capabilities": capabilities,
+            "can_sync_any": can_sync_any,
+            "summary": _channel_access_label(capabilities),
+            "channel_messages": channel_messages,
+            "errors": all_errors,
+            "all_channels_available": bool(probe.get("all_channels_available")),
+        }
 
     def _run_sync_for_user(
         *,
@@ -1782,6 +1876,56 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except MarketplaceSyncError as exc:
             raise HTTPException(status_code=502, detail=f"Ошибка синхронизации: {exc}") from exc
         return {"accounts": 1, "loaded": loaded, "loaded_conversations": loaded_conversations}
+
+    @app.post("/api/sync/capabilities")
+    def sync_capabilities(request: Request, payload: SyncCapabilitiesRequest) -> dict[str, object]:
+        user = _require_settings_access(request)
+        user_id = int(user["id"])
+        user_sync_settings = repository.get_user_sync_settings(user_id=user_id)
+        since_date = (
+            str(user_sync_settings.get("sync_start_date") or "").strip()
+            if bool(user_sync_settings.get("use_sync_start_date"))
+            else None
+        )
+        result = _probe_account_capabilities(
+            user_id=user_id,
+            account_id=int(payload.account_id),
+            since_date=since_date or None,
+        )
+        return {"ok": True, "item": result}
+
+    @app.get("/api/sync/capabilities")
+    def sync_capabilities_all(request: Request) -> dict[str, object]:
+        user = _require_settings_access(request)
+        user_id = int(user["id"])
+        account_ids = _snapshot_active_account_ids_for_user(user_id)
+        user_sync_settings = repository.get_user_sync_settings(user_id=user_id)
+        since_date = (
+            str(user_sync_settings.get("sync_start_date") or "").strip()
+            if bool(user_sync_settings.get("use_sync_start_date"))
+            else None
+        )
+        items: list[dict[str, object]] = []
+        aggregate_errors: list[dict[str, object]] = []
+        any_syncable = False
+        for account_id in account_ids:
+            item = _probe_account_capabilities(
+                user_id=user_id,
+                account_id=account_id,
+                since_date=since_date or None,
+            )
+            items.append(item)
+            any_syncable = any_syncable or bool(item.get("can_sync_any"))
+            raw_item_errors = item.get("errors")
+            if isinstance(raw_item_errors, list):
+                aggregate_errors.extend(_serialize_sync_error_details(raw_item_errors))
+        return {
+            "ok": True,
+            "items": items,
+            "count": len(items),
+            "any_syncable": any_syncable,
+            "errors": aggregate_errors,
+        }
 
     @app.get("/api/accounts")
     def list_accounts(request: Request) -> dict[str, object]:
