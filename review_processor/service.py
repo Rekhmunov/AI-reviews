@@ -1289,6 +1289,7 @@ class ReviewAutomationService:
         source: str,
         account_id: int | None,
         client: MarketplaceClient,
+        since_date: str | None = None,
         stop_requested: Callable[[], bool] | None = None,
     ) -> int:
         return self.sync_questions(
@@ -1296,12 +1297,14 @@ class ReviewAutomationService:
             source=source,
             account_id=account_id,
             client=client,
+            since_date=since_date,
             stop_requested=stop_requested,
         ) + self.sync_chats(
             user_id=user_id,
             source=source,
             account_id=account_id,
             client=client,
+            since_date=since_date,
             stop_requested=stop_requested,
         )
 

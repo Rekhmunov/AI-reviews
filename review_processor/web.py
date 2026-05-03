@@ -1975,6 +1975,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 source=marketplace,
                 account_id=account_id_val,
                 client=client,
+                since_date=since_date or None,
             )
         except MarketplaceSyncError as exc:
             if not service._is_access_error(exc):
