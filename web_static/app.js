@@ -1801,13 +1801,14 @@ async function loadAccounts() {
   }
   for (const account of data.items || []) {
     const tr = document.createElement("tr");
+    const apiKeyPreview = String(account.api_key_preview || "-");
     tr.innerHTML = `
       <td>${esc(account.id)}</td>
       <td>${esc(labelFromMap(marketplaceLabels, account.marketplace))}</td>
       <td>${esc(account.account_name)}</td>
       <td>${esc(account.api_url)}</td>
       <td>${esc((account.extra || {}).client_id || "-")}</td>
-      <td>${esc(account.api_key_preview || "-")}</td>
+      <td class="account-api-key-cell" title="${esc(apiKeyPreview)}"><span class="account-api-key-text">${esc(apiKeyPreview)}</span></td>
       <td>${esc(account.is_active ? "Да" : "Нет")}</td>
       <td>
         <div class="row">

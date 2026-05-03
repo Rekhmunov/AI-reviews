@@ -1401,6 +1401,17 @@ button.secondary.danger:hover {
   min-width: 720px;
 }
 
+#accountsTbody td.accounts-api-url-cell,
+#accountsTbody td.accounts-api-key-cell {
+  max-width: 0;
+}
+
+#accountsTbody .cell-break-anywhere {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .template-group {
   border: 1px solid rgba(147, 197, 253, 0.35);
   border-radius: 12px;
