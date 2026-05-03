@@ -681,6 +681,80 @@ class WildberriesMarketplaceClient:
             parsed_dt = parsed_dt.replace(tzinfo=UTC)
         return int(parsed_dt.astimezone(UTC).timestamp())
 
+    def count_pending(self, *, since_date: str | None = None) -> dict[str, int]:
+        """Return approximate counts of items available to sync per channel.
+
+        Uses lightweight count endpoints where available:
+        - Reviews: GET /api/v1/feedbacks/count-unanswered → countUnanswered
+        - Questions: GET /api/v1/questions/count          → countUnanswered
+        - Chats: GET /api/v1/seller/chats (full list), count items returned
+
+        Returns 0 for any channel that errors (access denied, not configured).
+        """
+        counts: dict[str, int] = {"reviews": 0, "questions": 0, "chats": 0}
+        wb_date_from = self._to_wb_unix_timestamp(since_date)
+
+        # Reviews count via /api/v1/feedbacks/count-unanswered
+        try:
+            review_count_path = "/api/v1/feedbacks/count-unanswered"
+            endpoint = _compose_url(self.api_url, review_count_path)
+            if wb_date_from is not None:
+                endpoint = f"{endpoint}?dateFrom={wb_date_from}"
+            req = Request(endpoint, method="GET", headers={"Authorization": self.api_key})
+            payload = _request_json(request=req, timeout=self.timeout, source="wb")
+            if isinstance(payload, dict):
+                data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+                counts["reviews"] = int(data.get("countUnanswered") or 0)
+        except Exception:
+            counts["reviews"] = 0
+
+        # Questions count via /api/v1/questions/count
+        try:
+            q_count_path = "/api/v1/questions/count"
+            endpoint = _compose_url(self.api_url, q_count_path)
+            if wb_date_from is not None:
+                endpoint = f"{endpoint}?dateFrom={wb_date_from}"
+            req = Request(endpoint, method="GET", headers={"Authorization": self.api_key})
+            payload = _request_json(request=req, timeout=self.timeout, source="wb")
+            if isinstance(payload, dict):
+                data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+                counts["questions"] = int(
+                    data.get("countUnanswered")
+                    or data.get("count")
+                    or data.get("total")
+                    or 0
+                )
+        except Exception:
+            counts["questions"] = 0
+
+        # Chats: GET /api/v1/seller/chats returns the full list - just count items
+        try:
+            if self.chats_path:
+                base = self.chats_api_url or self.api_url
+                endpoint = _compose_url(base, self.chats_path)
+                req = Request(endpoint, method="GET", headers={"Authorization": self.api_key})
+                payload = _request_json(request=req, timeout=self.timeout, source="wb")
+                if isinstance(payload, dict):
+                    items = _extract_sequence(
+                        payload,
+                        keys=self.items_keys + ("questions", "chats", "dialogs", "messages", "result"),
+                    )
+                    if not items:
+                        for nk in ("data", "result", "response"):
+                            nv = payload.get(nk)
+                            if isinstance(nv, (dict, list)):
+                                items = _extract_sequence(
+                                    nv,
+                                    keys=self.items_keys + ("questions", "chats", "result"),
+                                )
+                                if items:
+                                    break
+                    counts["chats"] = len(items)
+        except Exception:
+            counts["chats"] = 0
+
+        return counts
+
     def send_review_reply(self, *, review: ReviewInput, response_text: str) -> bool:
         if not self.api_key:
             raise MarketplaceSyncError("wb", "Missing Wildberries api_key")
@@ -1446,6 +1520,38 @@ class ReviewAutomationService:
                 return False, "Канал чатов не настроен для этого источника"
             return True, ""
         return False, f"Неизвестный канал: {channel}"
+
+    def count_pending_for_account(
+        self,
+        *,
+        account: dict[str, object],
+        since_date: str | None = None,
+    ) -> dict[str, object]:
+        """Return a preview of how many items will be synced for this account.
+
+        Calls lightweight count endpoints rather than doing a full sync.
+        Returns a dict with account_id, account_name, marketplace and
+        channel counts: reviews, questions, chats.
+        """
+        account_id = int(account.get("id") or 0)
+        account_name = str(account.get("account_name") or "")
+        marketplace = str(account.get("marketplace") or "")
+        client = self._build_client(account)
+        counts: dict[str, int] = {"reviews": 0, "questions": 0, "chats": 0}
+        if hasattr(client, "count_pending"):
+            try:
+                counts = client.count_pending(since_date=since_date)  # type: ignore[call-arg]
+            except Exception:
+                pass
+        return {
+            "account_id": account_id,
+            "account_name": account_name,
+            "marketplace": marketplace,
+            "reviews": counts.get("reviews", 0),
+            "questions": counts.get("questions", 0),
+            "chats": counts.get("chats", 0),
+            "total": sum(counts.values()),
+        }
 
     def probe_account_channels(
         self,

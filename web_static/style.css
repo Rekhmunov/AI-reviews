@@ -961,6 +961,58 @@ button.secondary.danger:hover {
   align-items: center;
 }
 
+.sync-preview-modal-card {
+  width: min(560px, 96vw);
+}
+
+.sync-preview-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.sync-preview-table th,
+.sync-preview-table td {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.sync-preview-table th {
+  font-weight: 600;
+  color: #6b7280;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.sync-preview-table tr:last-child td {
+  border-bottom: none;
+}
+
+.sync-preview-table .total-row td {
+  font-weight: 600;
+  border-top: 2px solid #e5e7eb;
+  background: #f9fafb;
+}
+
+.sync-preview-count {
+  font-weight: 600;
+  color: #1d4ed8;
+}
+
+.sync-preview-count.zero {
+  color: #9ca3af;
+  font-weight: 400;
+}
+
+.sync-preview-loading {
+  text-align: center;
+  padding: 24px;
+  color: #6b7280;
+  font-size: 14px;
+}
+
 .sync-progress-global {
   position: sticky;
   top: 0;

@@ -1235,45 +1235,110 @@ function renderRatingStars(value) {
   return `<span class="rating-stars" title="${rounded}/5">${full}${empty}</span>`;
 }
 
+function closeSyncPreviewModal() {
+  setModalVisibility("syncPreviewModal", false);
+}
+
+function openSyncPreviewModal() {
+  setModalVisibility("syncPreviewModal", true);
+}
+
 async function syncAll() {
   if (syncInProgress || syncCapabilityCheckInProgress) return;
   syncCapabilityCheckInProgress = true;
   const syncInfo = document.getElementById("syncInfo");
+  const previewContent = document.getElementById("syncPreviewContent");
+  const previewSince = document.getElementById("syncPreviewSinceText");
+  const previewInfo = document.getElementById("syncPreviewInfo");
+  const confirmBtn = document.getElementById("syncPreviewConfirmBtn");
+
   try {
-    if (syncInfo) syncInfo.textContent = "Проверяем доступные каналы по подключенным кабинетам...";
-    const capabilitiesRes = await fetch("/api/sync/capabilities");
-    const capabilitiesData = await capabilitiesRes.json();
-    if (!capabilitiesRes.ok) {
-      if (syncInfo) syncInfo.textContent = "Ошибка: " + (capabilitiesData.detail || "не удалось проверить доступы каналов");
+    if (syncInfo) syncInfo.textContent = "Проверяем количество данных для синхронизации...";
+
+    // Show modal with loading state immediately
+    if (previewContent) previewContent.innerHTML = '<div class="sync-preview-loading">⏳ Подсчёт данных...</div>';
+    if (previewInfo) previewInfo.textContent = "";
+    if (confirmBtn) confirmBtn.disabled = true;
+    openSyncPreviewModal();
+
+    // Load preview data (counts per channel)
+    const previewRes = await fetch("/api/sync/preview");
+    const previewData = await previewRes.json();
+
+    if (!previewRes.ok) {
+      if (previewContent) previewContent.innerHTML =
+        `<p class="small" style="color:#ef4444">Ошибка: ${previewData.detail || "не удалось получить данные"}</p>`;
+      if (syncInfo) syncInfo.textContent = "";
       return;
     }
-    const capabilityItems = Array.isArray(capabilitiesData.items) ? capabilitiesData.items : [];
-    if (!capabilityItems.length) {
+
+    const items = Array.isArray(previewData.items) ? previewData.items : [];
+    if (!items.length) {
+      closeSyncPreviewModal();
       if (syncInfo) syncInfo.textContent = "Нет активных кабинетов для синхронизации.";
       return;
     }
-    const summaryLines = capabilityItems.map((item) => {
-      const accountName = String(item.account_name || `Кабинет #${item.account_id || "-"}`).trim();
-      const summary = String(item.summary || "").trim();
-      return `• ${accountName}: ${summary}`;
-    });
-    const confirmMessage =
-      "Проверка доступов по каналам:\n\n" +
-      summaryLines.join("\n") +
-      "\n\nПродолжить синхронизацию доступных каналов?";
-    if (!window.confirm(confirmMessage)) {
-      if (syncInfo) syncInfo.textContent = "Синхронизация отменена пользователем.";
-      return;
+
+    // Build table with per-account counts
+    const sinceDate = previewData.since_date
+      ? `Дата начала загрузки: <b>${previewData.since_date}</b>`
+      : "Дата начала загрузки не ограничена — загрузятся все данные";
+    if (previewSince) previewSince.innerHTML = sinceDate;
+
+    const countCell = (n) =>
+      `<td class="sync-preview-count${n === 0 ? " zero" : ""}">${n.toLocaleString("ru-RU")}</td>`;
+
+    let rows = items.map((item) => {
+      const name = String(item.account_name || `Кабинет #${item.account_id || "?"}`);
+      const mp = String(item.marketplace || "").toUpperCase();
+      return `<tr>
+        <td>${name} <span class="small" style="color:#9ca3af">${mp}</span></td>
+        ${countCell(Number(item.reviews || 0))}
+        ${countCell(Number(item.questions || 0))}
+        ${countCell(Number(item.chats || 0))}
+      </tr>`;
+    }).join("");
+
+    if (items.length > 1) {
+      rows += `<tr class="total-row">
+        <td>Итого</td>
+        ${countCell(Number(previewData.total_reviews || 0))}
+        ${countCell(Number(previewData.total_questions || 0))}
+        ${countCell(Number(previewData.total_chats || 0))}
+      </tr>`;
     }
+
+    if (previewContent) {
+      previewContent.innerHTML = `
+        <table class="sync-preview-table">
+          <thead>
+            <tr>
+              <th>Кабинет</th>
+              <th>⭐ Отзывы</th>
+              <th>❓ Вопросы</th>
+              <th>💬 Чаты</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>`;
+    }
+    if (confirmBtn) confirmBtn.disabled = false;
+    if (syncInfo) syncInfo.textContent = "";
   } catch (_error) {
-    if (syncInfo) syncInfo.textContent = "Не удалось проверить доступные каналы перед синхронизацией.";
+    closeSyncPreviewModal();
+    if (syncInfo) syncInfo.textContent = "Не удалось подготовить данные синхронизации.";
     return;
   } finally {
     syncCapabilityCheckInProgress = false;
   }
+}
+
+async function confirmSyncPreview() {
+  closeSyncPreviewModal();
 
   if (syncInProgress) return;
   const syncButton = document.getElementById("syncAllBtn");
+  const syncInfo = document.getElementById("syncInfo");
   syncInProgress = true;
   if (syncButton) {
     syncButton.disabled = true;

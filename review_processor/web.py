@@ -2037,6 +2037,50 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "errors": aggregate_errors,
         }
 
+    @app.get("/api/sync/preview")
+    def sync_preview(request: Request) -> dict[str, object]:
+        """Return estimated counts of items available to sync for all active accounts.
+
+        Uses lightweight count endpoints (no full data download).  Results are
+        used to populate the confirmation modal before starting a sync.
+        """
+        user = _require_user(request)
+        user_id = int(user["id"])
+        user_sync_settings = repository.get_user_sync_settings(user_id=user_id)
+        since_date = (
+            str(user_sync_settings.get("sync_start_date") or "").strip()
+            if bool(user_sync_settings.get("use_sync_start_date"))
+            else None
+        )
+        accounts = [
+            item
+            for item in repository.list_marketplace_accounts(user_id=user_id, include_secrets=True)
+            if item["is_active"]
+        ]
+        items: list[dict[str, object]] = []
+        total_reviews = 0
+        total_questions = 0
+        total_chats = 0
+        for account in accounts:
+            result = service.count_pending_for_account(
+                account=account,
+                since_date=since_date,
+            )
+            items.append(result)
+            total_reviews += int(result.get("reviews") or 0)
+            total_questions += int(result.get("questions") or 0)
+            total_chats += int(result.get("chats") or 0)
+        return {
+            "ok": True,
+            "since_date": since_date,
+            "accounts": len(items),
+            "items": items,
+            "total_reviews": total_reviews,
+            "total_questions": total_questions,
+            "total_chats": total_chats,
+            "total": total_reviews + total_questions + total_chats,
+        }
+
     @app.get("/api/sync/status")
     def sync_status_public(request: Request) -> dict[str, object]:
         """Public sync progress endpoint accessible to all logged-in users."""

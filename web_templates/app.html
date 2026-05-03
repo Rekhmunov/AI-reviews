@@ -557,6 +557,23 @@
       </section>
     </main>
   </div>
+  <!-- Sync confirmation modal -->
+  <div id="syncPreviewModal" class="modal-overlay hidden" aria-modal="true" role="dialog">
+    <div class="modal-card sync-preview-modal-card">
+      <div class="row row-between">
+        <h4 class="no-margin">Подтверждение синхронизации</h4>
+        <button class="secondary" type="button" onclick="closeSyncPreviewModal()">✕</button>
+      </div>
+      <p id="syncPreviewSinceText" class="small" style="margin:6px 0 12px"></p>
+      <div id="syncPreviewContent"></div>
+      <div class="row" style="margin-top:16px;gap:10px">
+        <button id="syncPreviewConfirmBtn" type="button" onclick="confirmSyncPreview()">Синхронизировать</button>
+        <button class="secondary" type="button" onclick="closeSyncPreviewModal()">Отмена</button>
+        <span id="syncPreviewInfo" class="small"></span>
+      </div>
+    </div>
+  </div>
+
   <div id="managerPermissionsModal" class="modal-overlay hidden">
     <div class="modal-card">
       <div class="row row-between">
