@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Protocol
 import time
-from urllib.parse import urlencode, urljoin
+from urllib.parse import urlencode, urljoin, urlparse
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -569,7 +569,7 @@ class WildberriesMarketplaceClient:
             if item.get("unreadCount") is not None
             else item.get("newMessages")
         )
-        last_message_at = (
+        last_message_at_raw = (
             item.get("updatedAt")
             or item.get("updated_at")
             or item.get("last_message_at")
@@ -578,6 +578,7 @@ class WildberriesMarketplaceClient:
             or (last_message.get("createdAt") if isinstance(last_message, Mapping) else None)
             or (last_message.get("dateTime") if isinstance(last_message, Mapping) else None)
         )
+        last_message_at = _normalize_timestamp(last_message_at_raw)
         return {
             "external_id": external_id,
             "kind": kind,
@@ -585,7 +586,7 @@ class WildberriesMarketplaceClient:
             "message_text": text,
             "status": status if status in {"open", "closed", "waiting"} else "open",
             "unread_count": _to_positive_int(unread_raw, default=0),
-            "last_message_at": str(last_message_at or "") or None,
+            "last_message_at": last_message_at,
             "metadata": {"raw": item, "marketplace": "wb"},
         }
 
@@ -764,13 +765,14 @@ class ReviewAutomationService:
             except TypeError:
                 reviews = client.fetch_reviews()
         except MarketplaceSyncError as exc:
-            self.repository.log_review_action(
-                user_id=user_id,
-                review_uid=None,
-                action_type="sync_error",
-                actor="system",
-                details={"source": source, "account_id": account_id, "error": str(exc), **exc.details},
-            )
+            if not self._is_access_error(exc):
+                self.repository.log_review_action(
+                    user_id=user_id,
+                    review_uid=None,
+                    action_type="sync_error",
+                    actor="system",
+                    details={"source": source, "account_id": account_id, "error": str(exc), **exc.details},
+                )
             raise
         settings = self.repository.get_ai_settings(include_secrets=True)
         classification_options = self._list_group_subgroups_for_review_classification(
@@ -1033,18 +1035,19 @@ class ReviewAutomationService:
             except TypeError:
                 rows = fetch_questions()
         except MarketplaceSyncError as exc:
-            self.repository.log_review_action(
-                user_id=user_id,
-                review_uid=None,
-                action_type="sync_error",
-                actor="system",
-                details={
-                    "source": source,
-                    "account_id": account_id,
-                    "error": str(exc),
-                    "scope": "questions",
-                },
-            )
+            if not self._is_access_error(exc):
+                self.repository.log_review_action(
+                    user_id=user_id,
+                    review_uid=None,
+                    action_type="sync_error",
+                    actor="system",
+                    details={
+                        "source": source,
+                        "account_id": account_id,
+                        "error": str(exc),
+                        "scope": "questions",
+                    },
+                )
             raise
 
         loaded = 0
@@ -1095,18 +1098,19 @@ class ReviewAutomationService:
             except TypeError:
                 rows = fetch_chats()
         except MarketplaceSyncError as exc:
-            self.repository.log_review_action(
-                user_id=user_id,
-                review_uid=None,
-                action_type="sync_error",
-                actor="system",
-                details={
-                    "source": source,
-                    "account_id": account_id,
-                    "error": str(exc),
-                    "scope": "chats",
-                },
-            )
+            if not self._is_access_error(exc):
+                self.repository.log_review_action(
+                    user_id=user_id,
+                    review_uid=None,
+                    action_type="sync_error",
+                    actor="system",
+                    details={
+                        "source": source,
+                        "account_id": account_id,
+                        "error": str(exc),
+                        "scope": "chats",
+                    },
+                )
             raise
 
         loaded = 0
@@ -3374,6 +3378,41 @@ def _extract_review_tags_from_payload(payload: object) -> list[str]:
     return result
 
 
+def _normalize_timestamp(value: object) -> str | None:
+    """Convert a timestamp value to an ISO-8601 string.
+
+    WB Buyer Chat API returns ``addTimestamp`` as Unix milliseconds (integer).
+    Storing the raw integer as a string would break lexicographic comparisons
+    used by the ``processed_by_operator`` SQL clause and date-range filters.
+    This helper converts millisecond integers to ISO strings and passes through
+    values that are already strings.
+    """
+    if value is None:
+        return None
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        ts_sec = float(value)
+        # Heuristic: values > 1e10 are milliseconds, not seconds
+        if ts_sec > 1e10:
+            ts_sec = ts_sec / 1000.0
+        try:
+            return datetime.fromtimestamp(ts_sec, tz=UTC).isoformat()
+        except (OSError, OverflowError, ValueError):
+            return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    # If the string is a pure integer it may still be a unix timestamp
+    if raw.lstrip("-").isdigit():
+        try:
+            ts_sec = float(raw)
+            if ts_sec > 1e10:
+                ts_sec = ts_sec / 1000.0
+            return datetime.fromtimestamp(ts_sec, tz=UTC).isoformat()
+        except (OSError, OverflowError, ValueError):
+            pass
+    return raw
+
+
 def _extract_sequence(payload: object, *, keys: tuple[str, ...]) -> list[dict[str, object]]:
     if isinstance(payload, list):
         return [item for item in payload if isinstance(item, dict)]
@@ -3417,8 +3456,14 @@ def _to_positive_int(value: object, *, default: int) -> int:
 def _compose_url(base_url: str, path: str | None) -> str:
     if not path:
         return base_url
-    normalized_base = base_url.rstrip("/")
     normalized_path = "/" + path.strip("/")
+    parsed = urlparse(base_url)
+    # If path starts with "/" treat it as absolute path from host root,
+    # so we always replace the path component rather than appending to it.
+    if path.startswith("/"):
+        base_root = f"{parsed.scheme}://{parsed.netloc}"
+        return base_root + normalized_path
+    normalized_base = base_url.rstrip("/")
     if normalized_base.endswith(normalized_path):
         return normalized_base
     return urljoin(normalized_base + "/", path.lstrip("/"))
