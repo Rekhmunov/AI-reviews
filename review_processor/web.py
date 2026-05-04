@@ -1100,6 +1100,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         since_date: str | None,
         account_ids: list[int] | None,
         run_started_at: str,
+        apply_date_filter: bool = False,
     ) -> dict[str, object]:
         with sync_lock:
             if bool(sync_state.get("in_progress")):
@@ -1122,6 +1123,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 account_ids=account_ids,
                 stop_requested=sync_stop_event.is_set,
                 progress_callback=_update_sync_progress,
+                apply_date_filter=apply_date_filter,
             )
             return result
         finally:
@@ -1875,13 +1877,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     )
                     if account:
                         client = service._build_client(account)
-                        # Use stored resume cursor for incremental fetch
-                        resume_cursor = str(account.get("extra", {}).get("_wb_events_cursor") or "").strip() or None
+                        # Fetch ALL events to get full history for this specific chat.
+                        # No cursor — we want complete history regardless of last sync.
+                        # Rate: 10 req/10s; with 83 pages this takes ~90s but runs
+                        # in background while the user sees "Загрузка переписки..."
                         sender_map = client._fetch_last_sender_map(  # type: ignore[attr-defined]
-                            resume_cursor=resume_cursor,
+                            resume_cursor=None,  # full history for complete chat load
                             stop_requested=None,
                         )
-                        # Cursor update is handled by sync_chats; skip here.
                         sender_map.pop("_final_cursor", None)
                         entry = sender_map.get(ext_id, {})
                         wb_events = entry.get("events") or []
@@ -1996,6 +1999,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 since_date=since_date or None,
                 account_ids=account_ids_snapshot,
                 run_started_at=run_started_at,
+                apply_date_filter=True,  # manual sync applies date filter
             )
             with sync_lock:
                 sync_state["polling_enabled"] = True

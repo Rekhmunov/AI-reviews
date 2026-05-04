@@ -1489,6 +1489,7 @@ class ReviewAutomationService:
         account_id: int | None,
         client: MarketplaceClient,
         since_date: str | None = None,
+        apply_date_filter: bool = False,
         stop_requested: Callable[[], bool] | None = None,
     ) -> int:
         fetch_chats = getattr(client, "fetch_chats", None)
@@ -1562,9 +1563,10 @@ class ReviewAutomationService:
             loaded += 1
 
         # WB /api/v1/seller/chats returns ALL chats with no date filter.
-        # Apply since_date client-side: remove chats whose last_message_at
-        # is older than the cutoff.
-        if since_date and account_id is not None:
+        # Only apply client-side date filter when explicitly requested
+        # (i.e. on manual sync triggered by user, NOT on 60s auto-sync).
+        # This prevents the auto-sync from continuously deleting chats.
+        if apply_date_filter and since_date and account_id is not None:
             since_iso = _normalize_timestamp(since_date)
             if since_iso:
                 try:
@@ -1859,6 +1861,7 @@ class ReviewAutomationService:
         client: MarketplaceClient,
         since_date: str | None,
         stop_requested: Callable[[], bool] | None,
+        apply_date_filter: bool = False,
     ) -> dict[str, object]:
         supported, reason = self._is_channel_supported(client=client, channel=channel)
         if not supported:
@@ -1895,6 +1898,7 @@ class ReviewAutomationService:
                 account_id=account_id,
                 client=client,
                 since_date=since_date,
+                apply_date_filter=apply_date_filter,
                 stop_requested=stop_requested,
             )
         else:
@@ -1910,6 +1914,7 @@ class ReviewAutomationService:
         account_ids: list[int] | None = None,
         stop_requested: Callable[[], bool] | None = None,
         progress_callback: Callable[..., None] | None = None,
+        apply_date_filter: bool = False,
     ) -> dict[str, object]:
         loaded_total = 0
         loaded_questions = 0
@@ -2011,6 +2016,7 @@ class ReviewAutomationService:
                             client=client,
                             since_date=since_value,
                             stop_requested=stop_requested,
+                            apply_date_filter=apply_date_filter,
                         )
                         channel_outcomes[channel] = ch_result
                         if progress_callback:
