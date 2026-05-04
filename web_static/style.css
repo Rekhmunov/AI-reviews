@@ -1451,7 +1451,10 @@ button.secondary.danger:hover {
   min-height: 0;
   max-height: none;
   overflow-y: auto;
+  overflow-x: hidden;
   padding-right: 2px;
+  width: 100%;
+  max-width: 100%;
 }
 
 .chats-subtitle {
@@ -1621,6 +1624,7 @@ button.secondary.danger:hover {
 
 .chat-list-item {
   width: 100%;
+  min-width: 0;
   text-align: left;
   display: flex;
   flex-direction: column;
@@ -1631,6 +1635,7 @@ button.secondary.danger:hover {
   background: linear-gradient(160deg, rgba(255,255,255,0.97), rgba(239,246,255,0.8));
   color: #1e293b;
   transition: box-shadow 0.15s, border-color 0.15s;
+  overflow: hidden;
 }
 
 .chat-list-item:hover {
@@ -2449,6 +2454,8 @@ button.secondary.danger:hover {
     background: transparent;
     box-shadow: none;
     gap: 0;
+    max-width: 100%;
+    width: 100%;
   }
 
   /* List panel fills the screen; hidden when a chat is open */
@@ -2458,6 +2465,9 @@ button.secondary.danger:hover {
     border-radius: 12px;
     display: flex;
     flex-direction: column;
+    overflow: hidden;
+    max-width: 100%;
+    width: 100%;
   }
 
   .chats-list-panel.mobile-hidden {
