@@ -1568,6 +1568,15 @@ class ReviewAutomationService:
                 except Exception:
                     pass
 
+        # Step 2b: repair answered status for chats where metadata says
+        # last_sender=seller but last_sent_at is NULL (e.g. from a previous
+        # interrupted sync).  This is fast and fixes the bucket display
+        # without requiring a full events re-fetch.
+        try:
+            self.repository.repair_chat_answered_status(user_id=user_id)
+        except Exception:
+            pass
+
         # Step 3: enrich chats with events (sender info + history).
         # This is the slow part (~95s first time) so it runs AFTER chats are
         # already saved to DB.  If the user stops sync early, chats are
@@ -2116,6 +2125,13 @@ class ReviewAutomationService:
             "account_channel_stats": account_channel_stats,
             "cancelled": was_cancelled,
         }
+
+    def repair_all_chat_statuses(self, *, user_id: int) -> int:
+        """Convenience wrapper: fix answered status for all user chats."""
+        try:
+            return self.repository.repair_chat_answered_status(user_id=user_id)
+        except Exception:
+            return 0
 
     @staticmethod
     def _build_client(account: dict[str, object]) -> MarketplaceClient:

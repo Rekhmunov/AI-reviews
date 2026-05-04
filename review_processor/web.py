@@ -3779,6 +3779,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                             sync_state["polling_since_date"] = since_date
                             sync_state["polling_started_at"] = _now_iso()
                     _start_auto_sync_worker_if_needed()
+                    # Repair any chats whose answered status got lost
+                    try:
+                        service.repair_all_chat_statuses(user_id=uid)
+                    except Exception:
+                        pass
                     break
                 except Exception:
                     continue

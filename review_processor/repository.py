@@ -4326,6 +4326,31 @@ class ReviewRepository:
             )
         return result.rowcount > 0
 
+    def repair_chat_answered_status(self, *, user_id: int) -> int:
+        """Fix chats where metadata says last_sender=seller but last_sent_at is NULL.
+
+        This happens when phase-2 events enrichment was interrupted.  We can
+        recover without re-fetching events by reading the last_sender field
+        already stored in metadata_json.
+        """
+        with self._connect() as conn:
+            result = conn.execute(
+                """
+                UPDATE conversation_items
+                SET last_sent_at = COALESCE(last_message_at, updated_at),
+                    updated_at   = updated_at
+                WHERE user_id = ?
+                  AND kind = 'chat'
+                  AND last_sent_at IS NULL
+                  AND (
+                      metadata_json LIKE '%"last_sender": "seller"%'
+                      OR metadata_json LIKE '%''last_sender'': ''seller''%'
+                  )
+                """,
+                (user_id,),
+            )
+        return int(result.rowcount or 0)
+
     def mark_conversation_answered(self, *, user_id: int, conversation_uid: str) -> bool:
         """Set last_sent_at = now so the chat moves to the 'answered' bucket.
 
