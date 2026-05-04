@@ -1649,11 +1649,17 @@ class ReviewAutomationService:
                             ev_sender = str(ev.get("sender") or "").strip().lower()
                             msg = ev.get("message") or {}
                             ev_text = str(msg.get("text") or "").strip()
-                            # Handle image attachments: use placeholder text
+                            # Handle image attachments: store image URLs for display
                             attachments = msg.get("attachments") or {}
                             images = attachments.get("images") or []
                             if not ev_text and images:
-                                ev_text = f"[Фото: {len(images)} шт.]"
+                                # Store all image URLs as [img:url1] [img:url2] ...
+                                img_parts = []
+                                for img in images:
+                                    url = str(img.get("url") or "").strip()
+                                    if url:
+                                        img_parts.append(f"[img:{url}]")
+                                ev_text = " ".join(img_parts) if img_parts else f"[Фото: {len(images)} шт.]"
                             elif not ev_text and attachments.get("goodCard"):
                                 card = attachments["goodCard"]
                                 ev_text = f"[Товар: {card.get('name', '')}]".strip()

@@ -1901,7 +1901,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                                 attachments = msg.get("attachments") or {}
                                 images = attachments.get("images") or []
                                 if images:
-                                    ev_text = f"[Фото: {len(images)} шт.]"
+                                    img_parts = [f"[img:{img.get('url','')}]" for img in images if img.get("url")]
+                                    ev_text = " ".join(img_parts) if img_parts else f"[Фото: {len(images)} шт.]"
                                 elif attachments.get("goodCard"):
                                     ev_text = f"[Товар: {attachments['goodCard'].get('name', '')}]"
                             ev_ts_raw = ev.get("addTimestamp")

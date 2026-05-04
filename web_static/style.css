@@ -1870,6 +1870,19 @@ button.secondary.danger:hover {
   white-space: pre-wrap;
 }
 
+.chat-bubble-img {
+  display: block;
+  max-width: 260px;
+  max-height: 300px;
+  border-radius: 8px;
+  cursor: pointer;
+  object-fit: cover;
+}
+
+.chat-bubble-img:hover {
+  opacity: 0.9;
+}
+
 .chat-bubble-meta {
   font-size: 11px;
   color: #6b7280;

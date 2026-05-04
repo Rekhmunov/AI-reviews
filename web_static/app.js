@@ -104,7 +104,9 @@ let syncCapabilityCheckInProgress = false;
 let globalSyncPollTimer = null;
 let globalSyncProgressDots = 0;
 let chatAutoRefreshTimer = null;
-const CHAT_AUTO_REFRESH_MS = 30000; // refresh open chat every 30s
+let uiRefreshTimer = null;
+const CHAT_AUTO_REFRESH_MS = 30000; // refresh open chat messages every 30s
+const UI_REFRESH_MS = 60000;        // refresh chat list from DB every 60s (after server auto-sync)
 const CHANNEL_ICONS = { "Отзывы": "⭐", "Вопросы": "❓", "Чаты": "💬" };
 const ACTIVE_SECTION_STORAGE_KEY = "feedpilot_active_section";
 const ACTIVE_SETTINGS_TAB_STORAGE_KEY = "feedpilot_active_settings_tab";
@@ -223,6 +225,24 @@ function stopGlobalSyncPoll() {
   if (globalSyncPollTimer !== null) {
     window.clearTimeout(globalSyncPollTimer);
     globalSyncPollTimer = null;
+  }
+}
+
+// Silent UI refresh: reload chat list from DB every 60s so new messages from
+// the server auto-sync appear in the list without requiring page reload.
+function startUiRefresh() {
+  stopUiRefresh();
+  uiRefreshTimer = window.setInterval(() => {
+    if (!syncInProgress) {
+      loadChats();
+    }
+  }, UI_REFRESH_MS);
+}
+
+function stopUiRefresh() {
+  if (uiRefreshTimer !== null) {
+    window.clearInterval(uiRefreshTimer);
+    uiRefreshTimer = null;
   }
 }
 
@@ -1873,7 +1893,6 @@ function renderChatListGroup(containerId, items, emptyText) {
           ${unread > 0 ? `<span class="chat-list-unread">${unread}</span>` : ""}
         </div>
       </div>
-      ${preview ? `<div class="chat-list-preview">${esc(preview)}</div>` : ""}
     `;
     button.addEventListener("click", () => {
       selectChatConversation(item.conversation_uid);
@@ -2157,8 +2176,26 @@ function renderChatMessages(messages) {
     if (senderLabel) metaParts.push(esc(senderLabel));
     if (timeStr) metaParts.push(`<span class="chat-msg-time">${esc(timeStr)}</span>`);
     if (errorHint) metaParts.push(`<span style="color:#b91c1c">${esc(errorHint)}</span>`);
+
+    // Render message content: parse [img:url] tokens as images
+    const rawText = String(message.message_text || "");
+    const imgRegex = /\[img:(https?:\/\/[^\]]+)\]/g;
+    let contentHtml = "";
+    const imgMatches = [...rawText.matchAll(imgRegex)];
+    if (imgMatches.length > 0) {
+      // Show images
+      contentHtml = imgMatches
+        .map((m) => `<img src="${esc(m[1])}" class="chat-bubble-img" alt="Фото" loading="lazy" />`)
+        .join("");
+      // If there's also text outside [img:] tokens, show it too
+      const textOnly = rawText.replace(imgRegex, "").trim();
+      if (textOnly) contentHtml += `<div class="chat-bubble-text">${esc(textOnly)}</div>`;
+    } else {
+      contentHtml = `<div class="chat-bubble-text">${esc(rawText)}</div>`;
+    }
+
     bubble.innerHTML = `
-      <div class="chat-bubble-text">${esc(message.message_text || "")}</div>
+      ${contentHtml}
       ${metaParts.length ? `<div class="chat-bubble-meta">${metaParts.join(" · ")}</div>` : ""}
     `;
     thread.appendChild(bubble);
@@ -2179,11 +2216,14 @@ async function loadChatMessages(conversationUid) {
       ? `${activeConversation.customer_name || "Чат"} · ${String(activeConversation.source || "").toUpperCase()} · ${labelFromMap(conversationStatusLabels, activeConversation.status)}`
       : "Чат";
   }
-  renderChatsThreadPlaceholder("Загрузка переписки...");
-  // refresh=1 on first open to ensure full history from WB; subsequent 30s polls skip it
-  const isFirstOpen = !chatsState.loadedConversations?.has(uid);
+  // Only show loading placeholder on first open, not on 30s background refreshes
   if (!chatsState.loadedConversations) chatsState.loadedConversations = new Set();
+  const isFirstOpen = !chatsState.loadedConversations.has(uid);
   chatsState.loadedConversations.add(uid);
+  if (isFirstOpen) {
+    renderChatsThreadPlaceholder("Загрузка переписки...");
+  }
+  // refresh=1 on first open to fetch full history from WB API
   const refreshParam = isFirstOpen ? "&refresh=1" : "";
   const res = await fetch(`/api/conversations/${encodeURIComponent(uid)}/messages?limit=200${refreshParam}`);
   const data = await res.json();
@@ -3818,6 +3858,9 @@ document.addEventListener("DOMContentLoaded", () => {
   requestAnimationFrame(() => {
     document.body.classList.remove(APP_BOOT_HIDE_CLASS);
   });
+  // Start silent 60s UI refresh so chat list stays up-to-date
+  // without requiring manual page reload
+  startUiRefresh();
 });
 
 window.showSection = showSection;
