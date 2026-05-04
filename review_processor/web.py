@@ -1877,12 +1877,27 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     )
                     if account:
                         client = service._build_client(account)
-                        # Fetch ALL events to get full history for this specific chat.
-                        # No cursor — we want complete history regardless of last sync.
-                        # Rate: 10 req/10s; with 83 pages this takes ~90s but runs
-                        # in background while the user sees "Загрузка переписки..."
+                        # Fetch events starting from since_date (or 30 days ago fallback).
+                        # This gives only RECENT events — fast (1-2 requests instead of 83).
+                        # Use sync_start_date from user settings as the start cursor.
+                        user_sync_settings = repository.get_user_sync_settings(user_id=int(user["id"]))
+                        event_since = (
+                            str(user_sync_settings.get("sync_start_date") or "").strip()
+                            if bool(user_sync_settings.get("use_sync_start_date"))
+                            else None
+                        )
+                        if not event_since:
+                            # Default: events from last 30 days
+                            event_since = (datetime.now(UTC) - timedelta(days=30)).date().isoformat()
+                        # Convert since date to ms timestamp for cursor
+                        if hasattr(client, "_to_wb_unix_timestamp"):
+                            since_ts = client._to_wb_unix_timestamp(event_since)  # type: ignore[attr-defined]
+                            # WB events cursor is in milliseconds
+                            resume_cursor = str(since_ts * 1000) if since_ts else None
+                        else:
+                            resume_cursor = None
                         sender_map = client._fetch_last_sender_map(  # type: ignore[attr-defined]
-                            resume_cursor=None,  # full history for complete chat load
+                            resume_cursor=resume_cursor,
                             stop_requested=None,
                         )
                         sender_map.pop("_final_cursor", None)
