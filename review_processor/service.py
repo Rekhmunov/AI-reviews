@@ -1499,9 +1499,21 @@ class ReviewAutomationService:
         client: MarketplaceClient,
         since_date: str | None = None,
         apply_date_filter: bool = False,
+        full_sync: bool = False,
         stop_requested: Callable[[], bool] | None = None,
         progress_callback: Callable[..., None] | None = None,
     ) -> int:
+        """Sync chats from WB.
+
+        full_sync=True  (manual button): fetch chat list + full events history.
+                        Correctly assigns Answered/New buckets from the start.
+                        Takes 2-10 minutes depending on event history.
+
+        full_sync=False (60s auto-sync): fetch chat list ONLY (one request).
+                        Updates last_message_at so new buyer messages cause
+                        the chat to move back to New bucket within seconds.
+                        Takes ~1 second.
+        """
         fetch_chats = getattr(client, "fetch_chats", None)
         if not callable(fetch_chats):
             return 0
@@ -1531,8 +1543,8 @@ class ReviewAutomationService:
                 enriched_rows = fetch_chats(
                     since_date=since_date,
                     stop_requested=stop_requested,
-                    enrich_with_events=True,
-                    page_progress_callback=_events_page_cb,
+                    enrich_with_events=full_sync,   # events only on manual sync
+                    page_progress_callback=_events_page_cb if full_sync else None,
                 )
             except TypeError:
                 enriched_rows = fetch_chats()
@@ -1874,6 +1886,7 @@ class ReviewAutomationService:
                 client=client,
                 since_date=since_date,
                 apply_date_filter=apply_date_filter,
+                full_sync=apply_date_filter,   # full_sync = manual trigger
                 stop_requested=stop_requested,
                 progress_callback=progress_callback,
             )
