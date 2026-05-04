@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=16" />
+  <link rel="stylesheet" href="/static/style.css?v=17" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -364,8 +364,9 @@
 
             <div class="sync-start-settings mt-10">
               <div class="sync-start-title">Дата начала загрузки</div>
+              <p class="small" style="margin:4px 0 8px;color:#6b7280">Выберите дату и нажмите «Сохранить» — система будет загружать только данные начиная с этой даты. Без сохранения фильтр не применяется.</p>
               <div class="row mt-10">
-                <label>Загружать данные с даты</label>
+                <label>С даты</label>
                 <input id="userSyncStartDate" type="date" />
                 <button class="secondary" onclick="saveUserSyncSettings()">Сохранить</button>
                 <span id="userSyncSettingsInfo" class="small"></span>
@@ -635,6 +636,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=16"></script>
+  <script src="/static/app.js?v=17"></script>
 </body>
 </html>
