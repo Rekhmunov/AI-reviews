@@ -4191,7 +4191,7 @@ class ReviewRepository:
             view_clauses.append(processed_by_operator_clause)
 
         safe_page = max(page, 1)
-        safe_page_size = min(max(page_size, 1), 500)
+        safe_page_size = min(max(page_size, 1), 2000)
         where_base = " AND ".join(base_clauses)
         where_view = " AND ".join(view_clauses)
         order_by_map = {

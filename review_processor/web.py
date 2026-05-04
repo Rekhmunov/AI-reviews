@@ -1725,7 +1725,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         normalized_bucket = bucket.strip().lower()
         if normalized_bucket not in {"all", "new", "processed"}:
             normalized_bucket = "new"
-        normalized_page_size = page_size if page_size in {10, 30, 50, 100} else 30
+        normalized_page_size = page_size if page_size in {10, 30, 50, 100, 200, 500, 1000} else 30
         manager_conversation_scope = _manager_allowed_conversation_accounts(user)
         page_data = repository.list_conversations_paginated(
             user_id=int(user["id"]),

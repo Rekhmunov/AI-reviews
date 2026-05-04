@@ -1536,9 +1536,17 @@ class ReviewAutomationService:
                         kind="chat", external_conversation_id=ext_id,
                     )
                     last_msg_at = str(row.get("last_message_at") or "") or None
+                    last_sender = str(row.get("last_sender") or "").strip().lower()
+                    # Only update seller_replied_at when we have explicit sender info.
+                    # If sender is unknown (no events returned), leave existing value
+                    # so already-answered chats don't lose their status.
                     seller_replied_at: str | None = None
-                    if str(row.get("last_sender") or "").strip().lower() == "seller":
+                    if last_sender == "seller":
                         seller_replied_at = last_msg_at
+                    elif last_sender == "":
+                        # No event data for this chat in this sync pass — skip upsert
+                        # to preserve existing answered/new status
+                        continue
                     meta = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
                     wb_events_enrich: list[dict[str, object]] = []
                     if isinstance(meta, dict):

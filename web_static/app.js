@@ -2254,21 +2254,25 @@ async function loadChats() {
   const sort = String(chatsState.sort || "newest");
   chatsState.sort = sort;
 
-  const query = new URLSearchParams();
-  query.set("kind", "chat");
-  if (source && source !== "all") query.set("source", source);
-  if (status && status !== "all") query.set("status", status);
-  if (chatsState.date_from) query.set("date_from", chatsState.date_from);
-  if (chatsState.date_to) query.set("date_to", chatsState.date_to);
-  query.set("bucket", chatsState.bucket || "all");
-  query.set("sort", sort);
-  query.set("page", "1");
-  // Load all chats (max 500 per page covers typical volumes)
+  const PAGE_SIZE = 1000;
   const hasSearch = String(chatsState.search || "").trim().length > 0;
-  query.set("page_size", "500");
-  if (hasSearch) query.set("search", chatsState.search);
+  const buildQuery = (page) => {
+    const q = new URLSearchParams();
+    q.set("kind", "chat");
+    if (source && source !== "all") q.set("source", source);
+    if (status && status !== "all") q.set("status", status);
+    if (chatsState.date_from) q.set("date_from", chatsState.date_from);
+    if (chatsState.date_to) q.set("date_to", chatsState.date_to);
+    q.set("bucket", chatsState.bucket || "all");
+    q.set("sort", sort);
+    q.set("page", String(page));
+    q.set("page_size", String(PAGE_SIZE));
+    if (hasSearch) q.set("search", chatsState.search);
+    return q;
+  };
 
-  const res = await fetch("/api/conversations?" + query.toString());
+  // Load first page
+  const res = await fetch("/api/conversations?" + buildQuery(1).toString());
   const data = await res.json();
   const info = document.getElementById("chatsInfo");
   if (!res.ok) {
@@ -2281,7 +2285,24 @@ async function loadChats() {
   }
   if (info) info.textContent = "";
 
-  chatsState.items = Array.isArray(data.items) ? data.items : [];
+  // If there are more pages, load them all
+  let allItems = Array.isArray(data.items) ? data.items : [];
+  const totalPages = Number(data.pages || 1);
+  if (totalPages > 1) {
+    const pagePromises = [];
+    for (let p = 2; p <= totalPages; p++) {
+      pagePromises.push(
+        fetch("/api/conversations?" + buildQuery(p).toString())
+          .then((r) => r.json())
+          .then((d) => (Array.isArray(d.items) ? d.items : []))
+          .catch(() => [])
+      );
+    }
+    const extraPages = await Promise.all(pagePromises);
+    for (const pg of extraPages) allItems = allItems.concat(pg);
+  }
+
+  chatsState.items = allItems;
   const newCount = Number(data.new_count || 0);
   const processedCount = Number(data.processed_count || 0);
   const chatsTabNew = document.getElementById("chats-tab-new");
