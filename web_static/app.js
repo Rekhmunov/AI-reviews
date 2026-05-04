@@ -2180,7 +2180,12 @@ async function loadChatMessages(conversationUid) {
       : "Чат";
   }
   renderChatsThreadPlaceholder("Загрузка переписки...");
-  const res = await fetch(`/api/conversations/${encodeURIComponent(uid)}/messages?limit=200`);
+  // refresh=1 on first open to ensure full history from WB; subsequent 30s polls skip it
+  const isFirstOpen = !chatsState.loadedConversations?.has(uid);
+  if (!chatsState.loadedConversations) chatsState.loadedConversations = new Set();
+  chatsState.loadedConversations.add(uid);
+  const refreshParam = isFirstOpen ? "&refresh=1" : "";
+  const res = await fetch(`/api/conversations/${encodeURIComponent(uid)}/messages?limit=200${refreshParam}`);
   const data = await res.json();
   if (!res.ok) {
     renderChatsThreadPlaceholder(String(data.detail || "Не удалось загрузить переписку"));

@@ -1848,7 +1848,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         }
 
     @app.get("/api/conversations/{conversation_uid}/messages")
-    def conversation_messages(conversation_uid: str, request: Request, limit: int = 200) -> dict[str, object]:
+    def conversation_messages(conversation_uid: str, request: Request, limit: int = 200, refresh: int = 0) -> dict[str, object]:
         user = _require_user(request)
         _require_manager_scope_for_conversation(user, conversation_uid)
         conversation = repository.get_conversation(user_id=int(user["id"]), conversation_uid=conversation_uid)
@@ -1859,10 +1859,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             conversation_uid=conversation_uid,
             limit=limit,
         )
-        # For WB chats with no messages in DB: do a targeted events fetch
-        # to populate history. Only run when messages table is empty to avoid
-        # expensive repeated scans on every 30s auto-refresh.
-        if not messages and str(conversation.get("source") or "") == "wb":
+        # For WB chats: fetch events from WB API when:
+        # - messages table is empty (first load), OR
+        # - refresh=1 parameter passed (force reload of full history)
+        _should_refresh = not messages or bool(refresh)
+        if _should_refresh and str(conversation.get("source") or "") == "wb":
             try:
                 account_id = conversation.get("account_id")
                 ext_id = str(conversation.get("external_conversation_id") or "")
