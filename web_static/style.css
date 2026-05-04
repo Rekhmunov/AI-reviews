@@ -1475,21 +1475,55 @@ button.secondary.danger:hover {
   align-items: center;
 }
 
+/* Emoji button: plain, no blue background */
 .chat-emoji-btn {
-  min-width: 38px;
-  font-size: 18px;
-  padding: 0 8px;
+  min-width: 34px;
+  min-height: 34px;
+  width: 34px !important;
+  font-size: 20px;
+  padding: 0;
+  background: transparent !important;
+  border: 1px solid rgba(147,197,253,0.3) !important;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.chat-emoji-btn:hover {
+  background: rgba(239,246,255,0.9) !important;
+}
+
+/* Emoji wrap: hover triggers picker */
+.chat-emoji-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
 }
 
 .chat-emoji-picker {
-  display: grid;
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 300;
   grid-template-columns: repeat(8, minmax(0, 1fr));
   gap: 6px;
   padding: 8px;
   border: 1px solid rgba(147, 197, 253, 0.4);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.95);
-  max-width: 320px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+  max-width: 300px;
+  width: 300px;
+}
+
+/* Show on hover over wrap, or when .emoji-open class set by JS */
+.chat-emoji-wrap:hover .chat-emoji-picker,
+.chat-emoji-wrap.emoji-open .chat-emoji-picker {
+  display: grid;
 }
 
 .chat-emoji-item {
@@ -1581,19 +1615,86 @@ button.secondary.danger:hover {
 .chats-buckets-row .bucket-tab {
   flex: 1 1 0;
   min-width: 0;
-  font-size: 12px;
-  padding: 7px 6px;
+  font-size: 13px;
+  padding: 7px 10px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   width: auto !important;
 }
 
-.chats-buckets-row #chatsSortFilter {
+/* Sort icon button */
+.chats-sort-wrap {
+  position: relative;
   flex-shrink: 0;
+}
+
+.chats-sort-btn {
+  min-width: 34px !important;
+  max-width: 34px !important;
+  width: 34px !important;
+  height: 34px;
+  font-size: 16px;
+  padding: 0;
+  border-radius: 8px;
+}
+
+.chats-sort-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 100;
+  background: #fff;
+  border: 1px solid rgba(147,197,253,0.5);
+  border-radius: 10px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.12);
+  min-width: 160px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.chats-sort-dropdown.hidden {
+  display: none !important;
+}
+
+.chats-sort-option {
+  text-align: left;
+  padding: 10px 14px;
+  font-size: 13px;
+  color: #374151;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+  width: 100% !important;
+}
+
+.chats-sort-option:hover {
+  background: rgba(239,246,255,0.9);
+}
+
+.chats-sort-option.active {
+  color: #2563eb;
+  font-weight: 600;
+  background: rgba(239,246,255,0.6);
+}
+
+/* "‹ Все чаты" back link style */
+.chat-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #2563eb;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  white-space: nowrap;
   width: auto !important;
-  max-width: 120px;
-  font-size: 12px;
+  flex-shrink: 0;
 }
 
 .chat-list-head {

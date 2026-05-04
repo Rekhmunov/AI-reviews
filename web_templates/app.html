@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=17" />
+  <link rel="stylesheet" href="/static/style.css?v=18" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -283,33 +283,38 @@
           <aside class="chats-list-panel">
             <div class="chats-list-head">
               <div class="chats-buckets-row">
-                <button id="chats-tab-new" class="bucket-tab active" onclick="setChatBucket('new')">Нужно ответить (0)</button>
+                <button id="chats-tab-new" class="bucket-tab active" onclick="setChatBucket('new')">Новые (0)</button>
                 <button id="chats-tab-processed" class="bucket-tab" onclick="setChatBucket('processed')">Отвеченные (0)</button>
-                <select id="chatsSortFilter" class="sort-select small" title="Сортировка" onchange="onChatsSortChange()">
-                  <option value="newest">Сначала новые</option>
-                  <option value="oldest">Сначала старые</option>
-                </select>
+                <div class="chats-sort-wrap" title="Сортировка">
+                  <button type="button" class="icon-btn chats-sort-btn" onclick="toggleChatsSortDropdown()" aria-label="Сортировка">⇅</button>
+                  <div id="chatsSortDropdown" class="chats-sort-dropdown hidden">
+                    <button type="button" class="chats-sort-option active" data-value="newest" onclick="selectChatsSort('newest')">Сначала новые</button>
+                    <button type="button" class="chats-sort-option" data-value="oldest" onclick="selectChatsSort('oldest')">Сначала старые</button>
+                  </div>
+                </div>
               </div>
             </div>
             <div id="chatsList" class="chats-list"></div>
           </aside>
           <section class="chats-thread-panel">
             <div id="chatThreadHeader" class="chat-thread-header">
-              <button id="chatBackBtn" class="chat-back-btn hidden" type="button" onclick="goBackToChats()">← Все чаты</button>
+              <button id="chatBackBtn" class="chat-back-btn hidden" type="button" onclick="goBackToChats()">‹ Все чаты</button>
               <span id="chatThreadTitle" class="small">Выберите чат слева</span>
             </div>
             <div id="chatMessages" class="chat-messages"></div>
             <div class="chat-compose">
               <textarea id="chatReplyInput" rows="3" placeholder="Введите ответ..." maxlength="4000"></textarea>
               <div class="row chat-compose-actions">
-                <button id="chatEmojiBtn" type="button" class="icon-btn chat-emoji-btn" title="Смайлы" aria-label="Смайлы" onclick="toggleChatEmojiPicker()">🙂</button>
+                <div class="chat-emoji-wrap">
+                  <button id="chatEmojiBtn" type="button" class="chat-emoji-btn" title="Смайлы" aria-label="Смайлы">🙂</button>
+                  <div id="chatEmojiPicker" class="chat-emoji-picker" aria-hidden="true"></div>
+                </div>
                 <button id="chatReplySendBtn" type="button" onclick="sendChatReply()">Отправить</button>
                 <button id="chatQuickTemplatesBtn" type="button" class="secondary" onclick="openChatQuickTemplatesModal()">Шаблоны</button>
                 <button type="button" class="secondary" onclick="markChatAnswered()">Перенести в отвеченные</button>
                 <button type="button" class="secondary" onclick="markChatWaiting()">В ожидании</button>
                 <button type="button" class="secondary" onclick="markChatClosed()">Закрыть</button>
               </div>
-              <div id="chatEmojiPicker" class="chat-emoji-picker hidden" aria-hidden="true"></div>
             </div>
           </section>
         </div>
@@ -636,6 +641,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=17"></script>
+  <script src="/static/app.js?v=18"></script>
 </body>
 </html>

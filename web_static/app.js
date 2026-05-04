@@ -1122,6 +1122,22 @@ function onChatsSortChange() {
   loadChats();
 }
 
+function toggleChatsSortDropdown() {
+  const dd = document.getElementById("chatsSortDropdown");
+  if (dd) dd.classList.toggle("hidden");
+}
+
+function selectChatsSort(value) {
+  chatsState.sort = value;
+  // Update active state on options
+  const options = document.querySelectorAll(".chats-sort-option");
+  options.forEach((opt) => opt.classList.toggle("active", opt.getAttribute("data-value") === value));
+  // Close dropdown
+  const dd = document.getElementById("chatsSortDropdown");
+  if (dd) dd.classList.add("hidden");
+  loadChats();
+}
+
 function onReviewsSortChange() {
   const sortValue = String(document.getElementById("reviewsSortFilter")?.value || "newest");
   reviewsState.sort = sortValue;
@@ -1932,19 +1948,20 @@ function buildChatEmojiPicker() {
 }
 
 function toggleChatEmojiPicker(forceVisible) {
-  const picker = document.getElementById("chatEmojiPicker");
-  if (!picker) return;
-  const nextVisible = forceVisible === undefined ? picker.classList.contains("hidden") : Boolean(forceVisible);
-  picker.classList.toggle("hidden", !nextVisible);
-  picker.setAttribute("aria-hidden", nextVisible ? "false" : "true");
+  // Emoji picker is now CSS hover-driven; JS toggle kept for compatibility
+  const wrap = document.querySelector(".chat-emoji-wrap");
+  if (!wrap) return;
+  if (forceVisible === false) {
+    wrap.classList.remove("emoji-open");
+  } else if (forceVisible === true) {
+    wrap.classList.add("emoji-open");
+  } else {
+    wrap.classList.toggle("emoji-open");
+  }
 }
 
 function hideChatEmojiPickerIfOutside(target) {
-  const picker = document.getElementById("chatEmojiPicker");
-  const btn = document.getElementById("chatEmojiBtn");
-  if (!picker || picker.classList.contains("hidden")) return;
-  if (target && (picker.contains(target) || (btn && btn.contains(target)))) return;
-  toggleChatEmojiPicker(false);
+  // No-op: emoji picker closes via CSS :hover + mouseout
 }
 
 function renderChatQuickTemplatesList() {
@@ -2177,7 +2194,7 @@ async function loadChats() {
   const status = String(document.getElementById("chatPanelStatusFilter")?.value || chatsState.status || "all");
   chatsState.source = source;
   chatsState.status = status;
-  const sort = String(document.getElementById("chatsSortFilter")?.value || chatsState.sort || "newest");
+  const sort = String(chatsState.sort || "newest");
   chatsState.sort = sort;
 
   const query = new URLSearchParams();
@@ -2208,7 +2225,7 @@ async function loadChats() {
   const newCount = Number(data.new_count || 0);
   const processedCount = Number(data.processed_count || 0);
   const chatsTabNew = document.getElementById("chats-tab-new");
-  if (chatsTabNew) chatsTabNew.textContent = `Нужно ответить (${newCount})`;
+  if (chatsTabNew) chatsTabNew.textContent = `Новые (${newCount})`;
   const chatsTabProcessed = document.getElementById("chats-tab-processed");
   if (chatsTabProcessed) chatsTabProcessed.textContent = `Отвеченные (${processedCount})`;
 
@@ -2218,8 +2235,9 @@ async function loadChats() {
   chatsState.status = String(data.status || chatsState.status || "all");
   setChatSourceFilterOptions(data.source_options || []);
 
-  const sortFilter = document.getElementById("chatsSortFilter");
-  if (sortFilter) sortFilter.value = chatsState.sort || "newest";
+  // Update sort dropdown active state
+  const sortOptions = document.querySelectorAll(".chats-sort-option");
+  sortOptions.forEach((opt) => opt.classList.toggle("active", opt.getAttribute("data-value") === (chatsState.sort || "newest")));
   const panelSourceFilter = document.getElementById("chatPanelSourceFilter");
   if (panelSourceFilter) panelSourceFilter.value = chatsState.source || "all";
   const panelStatusFilter = document.getElementById("chatPanelStatusFilter");
@@ -3623,6 +3641,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const target = event.target;
     if (!(target instanceof Element)) return;
     hideChatEmojiPickerIfOutside(target);
+    // Close sort dropdown when clicking outside
+    const sortWrap = document.querySelector(".chats-sort-wrap");
+    const sortDd = document.getElementById("chatsSortDropdown");
+    if (sortDd && !sortDd.classList.contains("hidden") && sortWrap && !sortWrap.contains(target)) {
+      sortDd.classList.add("hidden");
+    }
     const dateWrap = document.querySelector(".reviews-date-wrap");
     const datePanel = document.getElementById("reviewsDateFilterPanel");
     if (datePanel && !datePanel.classList.contains("hidden") && dateWrap && !dateWrap.contains(target)) {
