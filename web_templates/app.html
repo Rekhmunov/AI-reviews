@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=18" />
+  <link rel="stylesheet" href="/static/style.css?v=19" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -32,20 +32,20 @@
       </div>
     </aside>
 
-    <!-- Global sync progress bar - visible on all pages while sync runs -->
-    <div id="syncProgressBar" class="sync-progress-global" style="display:none" aria-live="polite">
-      <div class="sync-progress-header">
-        <span class="sync-progress-label">⏳ Синхронизация</span>
-        <span id="syncProgressAccountsText" class="sync-progress-accounts"></span>
-        <span id="syncProgressPct" class="sync-progress-pct"></span>
-      </div>
-      <div class="sync-progress-detail" id="syncProgressText"></div>
-      <div class="sync-progress-track">
-        <div id="syncProgressFill" class="sync-progress-fill"></div>
-      </div>
-    </div>
-
     <main class="main">
+      <!-- Global sync progress bar - inside .main so it doesn't break the sidebar grid -->
+      <div id="syncProgressBar" class="sync-progress-global" style="display:none" aria-live="polite">
+        <div class="sync-progress-header">
+          <span class="sync-progress-label">⏳ Синхронизация</span>
+          <span id="syncProgressAccountsText" class="sync-progress-accounts"></span>
+          <span id="syncProgressPct" class="sync-progress-pct"></span>
+        </div>
+        <div class="sync-progress-detail" id="syncProgressText"></div>
+        <div class="sync-progress-track">
+          <div id="syncProgressFill" class="sync-progress-fill"></div>
+        </div>
+      </div>
+
       <section id="section-reviews">
         <h3 class="section-title">Отзывы</h3>
         <div class="row reviews-sync-row">
@@ -641,6 +641,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=18"></script>
+  <script src="/static/app.js?v=19"></script>
 </body>
 </html>
