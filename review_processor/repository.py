@@ -2530,6 +2530,37 @@ class ReviewRepository:
             data["api_key"] = api_key
         return data
 
+    def update_marketplace_account_extra_field(
+        self,
+        *,
+        user_id: int,
+        account_id: int,
+        key: str,
+        value: Any,
+    ) -> bool:
+        """Update a single key inside the extra_json field of a marketplace account.
+
+        Used to persist lightweight per-account sync state (e.g. last events
+        cursor) without a full account update.
+        """
+        account = self.get_marketplace_account(
+            user_id=user_id, account_id=account_id, include_secrets=False
+        )
+        if account is None:
+            return False
+        extra = dict(account.get("extra") or {})
+        extra[str(key)] = value
+        with self._connect() as conn:
+            result = conn.execute(
+                """
+                UPDATE marketplace_accounts
+                SET extra_json = ?, updated_at = ?
+                WHERE user_id = ? AND id = ?
+                """,
+                (self._json_param(extra), _utc_now(), user_id, account_id),
+            )
+        return result.rowcount > 0
+
     def update_marketplace_account_status(self, *, user_id: int, account_id: int, is_active: bool) -> bool:
         with self._connect() as conn:
             result = conn.execute(

@@ -353,6 +353,7 @@ class WildberriesMarketplaceClient:
     chats_path: str | None = None
     chats_api_url: str | None = None
     chats_events_path: str | None = "/api/v1/seller/events"
+    _resume_events_cursor: str | None = None
     reply_path: str | None = "/api/v1/feedbacks/answer"
     reply_method: str = "POST"
     reply_review_id_field: str = "id"
@@ -446,22 +447,26 @@ class WildberriesMarketplaceClient:
         )
         if not chats or not enrich_with_events:
             return chats
-        # Enrich each chat with last-sender info from the events endpoint so we
-        # can correctly classify chats as "needs reply" vs "answered".
-        # The /api/v1/seller/chats list does not include a sender field on the
-        # lastMessage, but /api/v1/seller/events does.
+        # Enrich each chat with last-sender info from the events endpoint.
+        # Pass resume_cursor so subsequent syncs only fetch new events.
         try:
             sender_map = self._fetch_last_sender_map(
                 since_date=since_date,
+                resume_cursor=self._resume_events_cursor,
                 stop_requested=stop_requested,
             )
         except MarketplaceSyncError as exc:
-            # Propagate cancellation so the whole sync stops cleanly.
             if bool(exc.details.get("cancelled")):
                 raise
             sender_map = {}
         except Exception:
             sender_map = {}
+        # Extract and store final cursor for next sync.
+        cursor_entry = sender_map.pop("_final_cursor", None)
+        if isinstance(cursor_entry, dict):
+            new_cursor = cursor_entry.get("cursor")
+            if new_cursor:
+                self._resume_events_cursor = str(new_cursor)
         if sender_map:
             for chat in chats:
                 ext_id = str(chat.get("external_id") or "").strip()
@@ -486,45 +491,46 @@ class WildberriesMarketplaceClient:
         self,
         *,
         since_date: str | None = None,
+        resume_cursor: str | None = None,
         stop_requested: Callable[[], bool] | None = None,
     ) -> dict[str, dict[str, object]]:
-        """Return a map of chatID -> {sender, ts, messages} for the LAST message
-        in each chat, plus the full list of events per chat for history storage.
+        """Return a map of chatID -> {sender, ts, events, _final_cursor}.
 
-        Paginates through /api/v1/seller/events using the ``next`` cursor and
-        keeps only the most-recent event per chatID for status determination.
+        Paginates through /api/v1/seller/events using the ``next`` cursor.
 
-        When ``since_date`` is supplied (YYYY-MM-DD or unix seconds), events
-        older than that cutoff are skipped so the chat list respects the
-        "sync start date" setting.
+        ``resume_cursor`` (persisted from last sync): start pagination from
+        this position instead of the beginning.  This means subsequent syncs
+        only fetch NEW events, not the full history (saves ~90 seconds on the
+        first daily re-sync after the initial full load).
+
+        The returned dict includes a special key ``_final_cursor`` with the
+        last cursor value so the caller can persist it for next time.
+
+        Events older than ``since_date`` are still skipped client-side.
         """
         if not self.chats_events_path:
             return {}
         base_url = self.chats_api_url or self.api_url
         endpoint = _compose_url(base_url, self.chats_events_path)
 
-        # Convert since_date to a unix-ms cutoff for comparison with addTimestamp.
+        # Convert since_date to a unix-ms cutoff.
         since_ts_ms: int | None = None
         if since_date:
             raw_since = _normalize_timestamp(since_date)
             if raw_since:
                 try:
-                    from datetime import timezone
                     dt = datetime.fromisoformat(raw_since.replace("Z", "+00:00"))
                     since_ts_ms = int(dt.timestamp() * 1000)
                 except (ValueError, AttributeError):
                     pass
 
         result: dict[str, dict[str, object]] = {}
-        # chatID -> list of event dicts (for history storage)
         events_by_chat: dict[str, list[dict[str, object]]] = {}
-        cursor: str | None = None
+        # Start from resume_cursor if provided (incremental sync), else from start.
+        cursor: str | None = resume_cursor or None
+        final_cursor: str | None = cursor
         max_pages = 500
         page = 0
-        # WB Buyer Chat API rate limit: 10 req / 10 s.
-        # Use a token-bucket approach: after every 9 requests sleep 10 s to
-        # stay within the 10-per-10s window.  This gives ~0.9 req/s average
-        # while allowing a burst of up to 9 requests without waiting.
         _CHAT_API_BURST = 9
         while page < max_pages:
             _raise_if_stop_requested(stop_requested, source="wb")
@@ -554,26 +560,27 @@ class WildberriesMarketplaceClient:
                     ts = int(ts_raw) if ts_raw is not None else 0
                 except (TypeError, ValueError):
                     ts = 0
-                # Apply since_date filter – skip events older than cutoff.
                 if since_ts_ms is not None and ts > 0 and ts < since_ts_ms:
                     continue
                 if not chat_id or not sender:
                     continue
-                # Track last sender per chat (for status classification).
                 prev = result.get(chat_id)
                 if prev is None or ts > int(prev.get("ts") or 0):
                     result[chat_id] = {"sender": sender, "ts": ts}
-                # Collect full event for history storage.
                 events_by_chat.setdefault(chat_id, []).append(event)
-            cursor = str(raw_result.get("next") or "").strip() or None
+            new_cursor = str(raw_result.get("next") or "").strip() or None
+            if new_cursor:
+                final_cursor = new_cursor
+            cursor = new_cursor
             if not cursor:
                 break
             page += 1
 
-        # Attach all events to the result map so sync_chats can persist them.
         for chat_id, ev_list in events_by_chat.items():
             entry = result.setdefault(chat_id, {})
             entry["events"] = ev_list
+        # Store the final cursor so the caller can persist it.
+        result["_final_cursor"] = {"cursor": final_cursor}  # type: ignore[assignment]
         return result
 
     def _fetch_conversation_endpoint(
@@ -1525,6 +1532,22 @@ class ReviewAutomationService:
                 details={"source": source, "kind": "chat"},
             )
             loaded += 1
+
+        # Persist the final events cursor so the next sync starts from here
+        # instead of re-scanning all historical events.
+        if account_id is not None and hasattr(client, "_resume_events_cursor"):
+            new_cursor = getattr(client, "_resume_events_cursor", None)
+            if new_cursor:
+                try:
+                    self.repository.update_marketplace_account_extra_field(
+                        user_id=user_id,
+                        account_id=int(account_id),
+                        key="_wb_events_cursor",
+                        value=str(new_cursor),
+                    )
+                except Exception:
+                    pass
+
         return loaded
 
     def _is_access_error(self, error: object) -> bool:
@@ -1999,6 +2022,7 @@ class ReviewAutomationService:
                 chats_path=str(extra.get("chats_path") or "/api/v1/seller/chats"),
                 chats_api_url=str(extra.get("chats_api_url") or "https://buyer-chat-api.wildberries.ru"),
                 chats_events_path=str(extra.get("chats_events_path") or "/api/v1/seller/events"),
+                _resume_events_cursor=str(extra["_wb_events_cursor"]) if extra.get("_wb_events_cursor") else None,
                 reply_path=str(extra.get("reply_path") or "/api/v1/feedbacks/answer"),
                 reply_method=str(extra.get("reply_method") or "POST"),
                 reply_review_id_field=str(extra.get("reply_review_id_field") or "id"),
