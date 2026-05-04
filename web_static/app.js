@@ -1792,6 +1792,42 @@ function renderChatListGroup(containerId, items, emptyText) {
   }
 }
 
+function isMobileChatView() {
+  return window.matchMedia(`(max-width: ${MOBILE_NAV_BREAKPOINT_PX}px)`).matches;
+}
+
+function showChatListPanel() {
+  const listPanel = document.querySelector(".chats-list-panel");
+  const threadPanel = document.querySelector(".chats-thread-panel");
+  if (listPanel) listPanel.classList.remove("mobile-hidden");
+  if (threadPanel) threadPanel.classList.remove("mobile-visible");
+}
+
+function showChatThreadPanel() {
+  const listPanel = document.querySelector(".chats-list-panel");
+  const threadPanel = document.querySelector(".chats-thread-panel");
+  if (listPanel) listPanel.classList.add("mobile-hidden");
+  if (threadPanel) threadPanel.classList.add("mobile-visible");
+}
+
+function renderMobileChatBackBtn() {
+  const header = document.getElementById("chatThreadHeader");
+  if (!header) return;
+  // Remove existing back button if any
+  const existing = header.querySelector(".chat-back-btn");
+  if (existing) existing.remove();
+  if (!isMobileChatView()) return;
+  const btn = document.createElement("button");
+  btn.className = "chat-back-btn";
+  btn.type = "button";
+  btn.innerHTML = "← Все чаты";
+  btn.addEventListener("click", () => {
+    chatsState.activeConversationUid = "";
+    showChatListPanel();
+  });
+  header.insertBefore(btn, header.firstChild);
+}
+
 function renderChatsList() {
   const all = Array.isArray(chatsState.items) ? chatsState.items : [];
   const list = Array.isArray(all) ? all : [];
@@ -1799,6 +1835,10 @@ function renderChatsList() {
     ? "Нет обработанных чатов"
     : "Нет чатов, требующих ответа";
   renderChatListGroup("chatsList", list, emptyText);
+  // On mobile, if no active chat - show list panel
+  if (isMobileChatView() && !chatsState.activeConversationUid) {
+    showChatListPanel();
+  }
 }
 
 function findActiveChatConversation() {
@@ -2041,6 +2081,11 @@ async function loadChatMessages(conversationUid) {
 function selectChatConversation(conversationUid) {
   chatsState.activeConversationUid = String(conversationUid || "");
   renderChatsList();
+  // On mobile: switch to thread panel when a chat is selected
+  if (isMobileChatView() && chatsState.activeConversationUid) {
+    showChatThreadPanel();
+    renderMobileChatBackBtn();
+  }
   loadChatMessages(chatsState.activeConversationUid);
 }
 
@@ -2100,12 +2145,24 @@ async function loadChats() {
 
   const hasActive = chatsState.items.some((item) => item.conversation_uid === chatsState.activeConversationUid);
   if (!hasActive) {
-    chatsState.activeConversationUid = chatsState.items.length ? String(chatsState.items[0].conversation_uid || "") : "";
+    // On mobile: don't auto-select first chat — show the list instead
+    if (isMobileChatView()) {
+      chatsState.activeConversationUid = "";
+    } else {
+      chatsState.activeConversationUid = chatsState.items.length ? String(chatsState.items[0].conversation_uid || "") : "";
+    }
   }
   renderChatsList();
   if (chatsState.activeConversationUid) {
+    if (isMobileChatView()) {
+      showChatThreadPanel();
+      renderMobileChatBackBtn();
+    }
     await loadChatMessages(chatsState.activeConversationUid);
   } else {
+    if (isMobileChatView()) {
+      showChatListPanel();
+    }
     renderChatsThreadPlaceholder("Выберите чат слева");
     const title = document.getElementById("chatThreadHeader");
     if (title) title.textContent = "Чат не выбран";

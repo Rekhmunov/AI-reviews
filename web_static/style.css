@@ -2020,24 +2020,156 @@ button.secondary.danger:hover {
     min-width: 580px;
   }
 
-  .chats-shell {
-    grid-template-columns: 1fr;
-  }
-
-  .chat-compose-actions {
-    flex-wrap: wrap;
-  }
-
-  .chats-list {
-    max-height: 180px;
-  }
-
+  /* ── Mobile chat layout: one panel at a time ── */
   #section-chats {
     min-height: 0;
+    display: flex;
+    flex-direction: column;
+    height: calc(100dvh - var(--mobile-topbar-height, 62px) - 16px);
+    overflow: hidden;
+  }
+
+  #section-chats > .reviews-sync-row {
+    flex-shrink: 0;
   }
 
   #section-chats .chats-shell {
+    flex: 1 1 0;
     min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 0;
+    border: none;
+    background: transparent;
+    box-shadow: none;
+    gap: 0;
+  }
+
+  /* List panel fills the screen; hidden when a chat is open */
+  .chats-list-panel {
+    flex: 1 1 0;
+    min-height: 0;
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .chats-list-panel.mobile-hidden {
+    display: none !important;
+  }
+
+  /* Thread panel hidden until a chat is selected */
+  .chats-thread-panel {
+    display: none;
+    flex: 1 1 0;
+    min-height: 0;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    height: 100%;
+  }
+
+  .chats-thread-panel.mobile-visible {
+    display: grid;
+  }
+
+  /* List height: fill available space */
+  .chats-list {
+    max-height: none;
+    flex: 1 1 0;
+    min-height: 0;
+  }
+
+  /* Back button in thread header */
+  .chat-back-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: none;
+    border: none;
+    color: #2563eb;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 0;
+    width: auto !important;
+    min-width: 0;
+    cursor: pointer;
+    margin-bottom: 6px;
+  }
+
+  /* Thread header layout */
+  #chatThreadHeader {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  /* Sort select stays compact */
+  #chatsSortFilter {
+    width: auto !important;
+    max-width: 130px;
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+
+  /* chats-list-head row stays horizontal */
+  .chats-list-head {
+    flex-direction: row !important;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: nowrap;
+  }
+
+  .chats-list-head .reviews-buckets {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    gap: 4px;
+  }
+
+  .chats-list-head .bucket-tab {
+    flex: 1 1 0;
+    min-width: 0;
+    font-size: 12px;
+    padding: 6px 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    width: auto !important;
+  }
+
+  /* Compose action buttons */
+  .chat-compose-actions {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    gap: 6px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .chat-compose-actions button {
+    flex-shrink: 0;
+    white-space: nowrap;
+    width: auto !important;
+    font-size: 13px;
+    padding: 8px 12px;
+  }
+
+  .chat-compose-actions .icon-btn {
+    min-width: 38px;
+    max-width: 38px;
+    padding: 0;
+  }
+
+  /* Emoji picker full width on mobile */
+  .chat-emoji-picker {
+    max-width: 100%;
+    grid-template-columns: repeat(10, minmax(0, 1fr));
+  }
+
+  /* Make textarea comfortable on mobile */
+  #chatReplyInput {
+    width: 100% !important;
+    font-size: 15px;
+    resize: none;
   }
 
   .stats-grid {
