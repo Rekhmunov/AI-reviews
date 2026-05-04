@@ -1829,7 +1829,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     ) -> dict[str, object]:
         user = _require_user(request)
         _require_manager_scope_for_conversation(user, conversation_uid)
-        operator_name = str(user.get("email") or "").strip() or "operator"
+        operator_name = str(user.get("full_name") or user.get("email") or "").strip() or "Продавец"
         idempotency_key = (payload.idempotency_key or "").strip() or f"{conversation_uid}:{int(time.time() * 1000)}"
         result = service.send_conversation_reply(
             user_id=int(user["id"]),

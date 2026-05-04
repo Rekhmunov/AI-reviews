@@ -865,8 +865,17 @@ class WildberriesMarketplaceClient:
         # WB Buyer Chat API uses POST /api/v1/seller/message with replySign.
         # replySign is stored in conversation metadata.raw from the chat list.
         meta = conversation.get("metadata") or {}
-        raw_data = meta.get("raw") or {} if isinstance(meta, Mapping) else {}
+        raw_data = (meta.get("raw") or {}) if isinstance(meta, Mapping) else {}
         reply_sign = str(raw_data.get("replySign") or "").strip() if isinstance(raw_data, Mapping) else ""
+
+        if not reply_sign and self.chats_api_url:
+            # replySign not in stored metadata — fetch fresh from /seller/chats
+            try:
+                chat_id = str(conversation.get("external_conversation_id") or "").strip()
+                if chat_id:
+                    reply_sign = self._fetch_fresh_reply_sign(chat_id=chat_id) or ""
+            except Exception:
+                pass
 
         if reply_sign and self.chats_api_url:
             # Chat reply via buyer-chat-api
@@ -2533,26 +2542,10 @@ class ReviewAutomationService:
             return {"ok": False, "status": "failed", "error": error_message}
 
         client = self._build_client(account)
-        # For WB chats: refresh replySign from /seller/chats before sending
-        # because replySign changes over time and stale values cause auth errors.
-        conversation_with_fresh_sign = dict(conversation)
-        if source == "wb" and hasattr(client, "_fetch_fresh_reply_sign"):
-            try:
-                fresh_sign = client._fetch_fresh_reply_sign(  # type: ignore[attr-defined]
-                    chat_id=str(conversation.get("external_conversation_id") or ""),
-                )
-                if fresh_sign:
-                    meta = dict(conversation.get("metadata") or {})
-                    raw = dict(meta.get("raw") or {})
-                    raw["replySign"] = fresh_sign
-                    meta["raw"] = raw
-                    conversation_with_fresh_sign["metadata"] = meta
-            except Exception:
-                pass
         sent, send_error = self._send_conversation_reply_via_client(
             client=client,
             source=source,
-            conversation=conversation_with_fresh_sign,
+            conversation=conversation,
             response_text=clean_text,
         )
         if sent:
@@ -2561,6 +2554,14 @@ class ReviewAutomationService:
                 conversation_uid=conversation_uid,
                 idempotency_key=clean_idempotency,
             )
+            # Move chat to 'answered' bucket: set last_sent_at in conversation_items
+            try:
+                self.repository.mark_conversation_answered(
+                    user_id=user_id,
+                    conversation_uid=conversation_uid,
+                )
+            except Exception:
+                pass
             self.repository.log_review_action(
                 user_id=user_id,
                 review_uid=conversation_uid,
