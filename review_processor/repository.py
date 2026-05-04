@@ -4440,6 +4440,35 @@ class ReviewRepository:
             ).fetchall()
         return [self._row_to_dict(row) for row in rows]
 
+    def update_conversation_message_idempotency_key(
+        self,
+        *,
+        user_id: int,
+        conversation_uid: str,
+        old_key: str,
+        new_key: str,
+    ) -> bool:
+        """Replace a temporary idempotency key with the WB eventID-based key.
+
+        Used after sending a message to link our DB record to the WB event so
+        that when we later download events the ON CONFLICT DO NOTHING prevents
+        a duplicate entry.
+        """
+        clean_old = str(old_key or "").strip()
+        clean_new = str(new_key or "").strip()
+        if not clean_old or not clean_new or clean_old == clean_new:
+            return False
+        with self._connect() as conn:
+            result = conn.execute(
+                """
+                UPDATE conversation_messages
+                SET idempotency_key = ?
+                WHERE user_id = ? AND conversation_uid = ? AND idempotency_key = ?
+                """,
+                (clean_new, user_id, conversation_uid, clean_old),
+            )
+        return result.rowcount > 0
+
     def get_conversation_message_by_idempotency(
         self,
         *,

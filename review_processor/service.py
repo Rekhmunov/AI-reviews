@@ -354,6 +354,7 @@ class WildberriesMarketplaceClient:
     chats_api_url: str | None = None
     chats_events_path: str | None = "/api/v1/seller/events"
     _resume_events_cursor: str | None = None
+    _last_sent_add_time: int | None = None  # addTime from last /seller/message response
     reply_path: str | None = "/api/v1/feedbacks/answer"
     reply_method: str = "POST"
     reply_review_id_field: str = "id"
@@ -769,6 +770,57 @@ class WildberriesMarketplaceClient:
             pass
         return None
 
+    def _find_wb_event_id_for_sent(
+        self,
+        *,
+        chat_id: str,
+        add_time_ms: int,
+        max_retries: int = 3,
+    ) -> str | None:
+        """Look up the WB eventID for a message we just sent.
+
+        WB assigns an eventID to every message but doesn't return it in the
+        /seller/message response — only addTime. We use addTime as a cursor
+        to find the event in /seller/events, then return its eventID.
+        Retries up to max_retries times with a short sleep to allow WB to
+        process the message.
+        """
+        if not self.chats_events_path or not chat_id:
+            return None
+        base_url = self.chats_api_url or self.api_url
+        endpoint = _compose_url(base_url, self.chats_events_path)
+        # Start cursor 2 seconds before addTime to account for clock skew
+        cursor = str(max(add_time_ms - 2000, 0))
+
+        for attempt in range(max_retries):
+            if attempt > 0:
+                time.sleep(2.0)
+            try:
+                url = f"{endpoint}?next={cursor}"
+                req = Request(url, method="GET", headers={"Authorization": self.api_key})
+                payload = _request_json(request=req, timeout=self.timeout, source="wb")
+                if not isinstance(payload, dict):
+                    continue
+                raw_result = payload.get("result") or {}
+                events = (raw_result.get("events") or []) if isinstance(raw_result, dict) else []
+                for ev in events:
+                    if not isinstance(ev, dict):
+                        continue
+                    if str(ev.get("chatID") or "") != chat_id:
+                        continue
+                    ev_sender = str(ev.get("sender") or "").strip().lower()
+                    if ev_sender != "seller":
+                        continue
+                    ev_ts = int(ev.get("addTimestamp") or 0)
+                    # Match: event within 5 seconds of our addTime
+                    if abs(ev_ts - add_time_ms) <= 5000:
+                        ev_id = str(ev.get("eventID") or "").strip()
+                        if ev_id:
+                            return ev_id
+            except Exception:
+                continue
+        return None
+
     def count_pending(self, *, since_date: str | None = None) -> dict[str, int]:
         """Return approximate counts of items available to sync per channel.
 
@@ -898,6 +950,13 @@ class WildberriesMarketplaceClient:
             )
             raw = _request_json(request=request, timeout=self.timeout, source="wb", retries=1)
             _raise_if_error_payload(raw, source="wb")
+            # Store the WB addTime so caller can look up the eventID
+            if isinstance(raw, dict):
+                result_obj = raw.get("result") or {}
+                if isinstance(result_obj, dict):
+                    wb_add_time = result_obj.get("addTime")
+                    if wb_add_time:
+                        self._last_sent_add_time = int(wb_add_time)
             return True
 
         # Fallback: legacy reply path (feedbacks/questions)
@@ -2550,7 +2609,7 @@ class ReviewAutomationService:
                 conversation_uid=conversation_uid,
                 idempotency_key=clean_idempotency,
             )
-            # Move chat to 'answered' bucket: set last_sent_at in conversation_items
+            # Move chat to 'answered' bucket
             try:
                 self.repository.mark_conversation_answered(
                     user_id=user_id,
@@ -2558,6 +2617,27 @@ class ReviewAutomationService:
                 )
             except Exception:
                 pass
+            # For WB chat replies: link our DB record to the WB eventID so
+            # subsequent event downloads don't create a duplicate message.
+            if source == "wb" and hasattr(client, "_last_sent_add_time"):
+                add_time = getattr(client, "_last_sent_add_time", None)
+                ext_id = str(conversation.get("external_conversation_id") or "").strip()
+                if add_time and ext_id:
+                    try:
+                        wb_event_id = client._find_wb_event_id_for_sent(  # type: ignore[attr-defined]
+                            chat_id=ext_id,
+                            add_time_ms=int(add_time),
+                        )
+                        if wb_event_id:
+                            wb_idem_key = f"wb-event-{wb_event_id}"
+                            self.repository.update_conversation_message_idempotency_key(
+                                user_id=user_id,
+                                conversation_uid=conversation_uid,
+                                old_key=clean_idempotency,
+                                new_key=wb_idem_key,
+                            )
+                    except Exception:
+                        pass  # Non-critical: worst case a duplicate appears
             self.repository.log_review_action(
                 user_id=user_id,
                 review_uid=conversation_uid,
