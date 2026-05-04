@@ -4125,6 +4125,9 @@ class ReviewRepository:
             # Search by customer name (case-insensitive LIKE)
             base_clauses.append("LOWER(COALESCE(customer_name, '')) LIKE ?")
             base_params.append(f"%{search.strip().lower()}%")
+        # Exclude conversations with no message text (empty chats from WB)
+        if kind == "chat":
+            base_clauses.append("(message_text IS NOT NULL AND TRIM(message_text) != '')")
         if date_from:
             if self.is_postgres:
                 base_clauses.append("updated_at::date >= ?::date")

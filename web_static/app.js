@@ -1848,17 +1848,30 @@ function renderChatListGroup(containerId, items, emptyText) {
     const unread = Number(item.unread_count || 0);
     const name = esc(item.customer_name || item.external_conversation_id || "Диалог");
     const source = esc((item.source || "").toUpperCase());
-    const statusLabel = esc(labelFromMap(conversationStatusLabels, item.status) || "");
+    // Format date: dd.mm.yy from last_message_at
+    let dateStr = "";
+    const lmt = String(item.last_message_at || item.updated_at || "");
+    if (lmt) {
+      try {
+        const d = new Date(lmt);
+        if (!isNaN(d.getTime())) {
+          const dd = String(d.getDate()).padStart(2, "0");
+          const mm = String(d.getMonth() + 1).padStart(2, "0");
+          const yy = String(d.getFullYear()).slice(-2);
+          dateStr = `${dd}.${mm}.${yy}`;
+        }
+      } catch (_) {}
+    }
     button.innerHTML = `
       <div class="chat-list-head">
         <span class="chat-list-name">${name}</span>
-        <span class="chat-list-badge">${source}</span>
+        <div class="chat-list-meta">
+          ${dateStr ? `<span class="chat-list-date">${esc(dateStr)}</span>` : ""}
+          <span class="chat-list-badge">${source}</span>
+          ${unread > 0 ? `<span class="chat-list-unread">${unread}</span>` : ""}
+        </div>
       </div>
-      <div class="chat-list-preview">${esc(preview || "—")}</div>
-      <div class="chat-list-footer">
-        <span class="chat-list-status">${statusLabel}</span>
-        ${unread > 0 ? `<span class="chat-list-unread">${unread}</span>` : ""}
-      </div>
+      ${preview ? `<div class="chat-list-preview">${esc(preview)}</div>` : ""}
     `;
     button.addEventListener("click", () => {
       selectChatConversation(item.conversation_uid);
@@ -2227,9 +2240,9 @@ async function loadChats() {
   query.set("bucket", chatsState.bucket || "all");
   query.set("sort", sort);
   query.set("page", "1");
-  // When searching: load up to 500, otherwise 100
+  // Load all chats (max 500 per page covers typical volumes)
   const hasSearch = String(chatsState.search || "").trim().length > 0;
-  query.set("page_size", hasSearch ? "500" : "100");
+  query.set("page_size", "500");
   if (hasSearch) query.set("search", chatsState.search);
 
   const res = await fetch("/api/conversations?" + query.toString());
