@@ -425,6 +425,7 @@ class WildberriesMarketplaceClient:
         since_date: str | None = None,
         stop_requested: Callable[[], bool] | None = None,
         enrich_with_events: bool = False,
+        page_progress_callback: Callable[[int, int], None] | None = None,
     ) -> list[dict[str, object]]:
         """Fetch the list of seller chats.
 
@@ -454,6 +455,7 @@ class WildberriesMarketplaceClient:
                 since_date=since_date,
                 resume_cursor=self._resume_events_cursor,
                 stop_requested=stop_requested,
+                page_progress_callback=page_progress_callback,
             )
         except MarketplaceSyncError as exc:
             if bool(exc.details.get("cancelled")):
@@ -493,6 +495,7 @@ class WildberriesMarketplaceClient:
         since_date: str | None = None,
         resume_cursor: str | None = None,
         stop_requested: Callable[[], bool] | None = None,
+        page_progress_callback: Callable[[int, int], None] | None = None,
     ) -> dict[str, dict[str, object]]:
         """Return a map of chatID -> {sender, ts, events, _final_cursor}.
 
@@ -575,6 +578,12 @@ class WildberriesMarketplaceClient:
             if not cursor:
                 break
             page += 1
+            # Report page progress to caller (e.g. for progress bar)
+            if page_progress_callback:
+                try:
+                    page_progress_callback(page, max_pages)
+                except Exception:
+                    pass
 
         for chat_id, ev_list in events_by_chat.items():
             entry = result.setdefault(chat_id, {})
@@ -1491,22 +1500,42 @@ class ReviewAutomationService:
         since_date: str | None = None,
         apply_date_filter: bool = False,
         stop_requested: Callable[[], bool] | None = None,
+        progress_callback: Callable[..., None] | None = None,
     ) -> int:
         fetch_chats = getattr(client, "fetch_chats", None)
         if not callable(fetch_chats):
             return 0
 
+        # ── Single-phase sync ────────────────────────────────────────────────
+        # Fetch chats WITH full event history before saving anything.
+        # This guarantees correct Answered/New bucket assignment from the
+        # start — no "temporary wrong state" visible to the user.
+        # The UI keeps the progress bar visible until this function returns.
+
+        # Build a progress callback for event pages so the progress bar
+        # shows "Загрузка событий: страница X из Y" during the events scan.
+        _progress_cb = progress_callback if progress_callback else None
+
+        def _events_page_cb(current_page: int, max_p: int) -> None:
+            if _progress_cb:
+                try:
+                    _progress_cb(
+                        step="Загрузка событий чатов",
+                        channel=f"Чаты (стр. {current_page} из {max_p})",
+                    )
+                except Exception:
+                    pass
+
         try:
             try:
-                # Step 1: fetch the chat list WITHOUT events — this is a single
-                # fast request that returns all chats immediately.
-                rows = fetch_chats(
+                enriched_rows = fetch_chats(
                     since_date=since_date,
                     stop_requested=stop_requested,
-                    enrich_with_events=False,
+                    enrich_with_events=True,
+                    page_progress_callback=_events_page_cb,
                 )
             except TypeError:
-                rows = fetch_chats()
+                enriched_rows = fetch_chats()
         except MarketplaceSyncError as exc:
             if not self._is_access_error(exc):
                 self.repository.log_review_action(
@@ -1523,49 +1552,100 @@ class ReviewAutomationService:
                 )
             raise
 
+        # Compute date cutoff for filtering (only chats active on/after since_date)
+        since_iso_filter: str | None = None
+        if since_date:
+            since_iso_filter = _normalize_timestamp(since_date)
+
         loaded = 0
-        for row in rows:
+        for row in enriched_rows:
             _raise_if_stop_requested(stop_requested, source=source)
-            external_id = str(row.get("external_id") or "").strip()
-            if not external_id:
+            ext_id = str(row.get("external_id") or "").strip()
+            if not ext_id:
                 continue
-            last_message_at = str(row.get("last_message_at") or "") or None
-            # Determine seller_replied_at from the enriched last_sender field.
-            # fetch_chats() adds last_sender="seller" when the most-recent event
-            # in /api/v1/seller/events was sent by the seller.  In that case we
-            # set seller_replied_at = last_message_at so the conversation moves
-            # to the "answered" bucket without requiring a manual reply.
-            seller_replied_at: str | None = None
-            if str(row.get("last_sender") or "").strip().lower() == "seller":
-                seller_replied_at = last_message_at
+            last_msg_at = str(row.get("last_message_at") or "") or None
+
+            # Apply date filter: skip chats with last activity before since_date.
+            # This keeps stale chats out of the DB entirely.
+            if since_iso_filter and last_msg_at and last_msg_at < since_iso_filter:
+                continue
+
+            last_sender = str(row.get("last_sender") or "").strip().lower()
             meta = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
-            conversation_uid = self.repository.upsert_conversation(
+            wb_events_row: list[dict[str, object]] = []
+            if isinstance(meta, dict):
+                wb_events_row = list(meta.pop("_wb_events", None) or [])
+
+            # Determine bucket: seller replied → answered, buyer or unknown → new
+            seller_replied_at: str | None = None
+            if last_sender == "seller":
+                seller_replied_at = last_msg_at
+
+            conv_uid = self.repository.upsert_conversation(
                 user_id=user_id,
                 source=source,
                 account_id=account_id,
-                external_conversation_id=external_id,
+                external_conversation_id=ext_id,
                 kind="chat",
                 customer_name=str(row.get("customer_name") or "") or None,
                 message_text=str(row.get("message_text") or ""),
                 status=str(row.get("status") or "open"),
                 unread_count=_to_positive_int(row.get("unread_count"), default=0),
                 metadata=meta,
-                last_message_at=last_message_at,
+                last_message_at=last_msg_at,
                 seller_replied_at=seller_replied_at,
             )
             self.repository.log_review_action(
                 user_id=user_id,
-                review_uid=conversation_uid,
+                review_uid=conv_uid,
                 action_type="sync_conversation",
                 actor="system",
                 details={"source": source, "kind": "chat"},
             )
             loaded += 1
 
-        # WB /api/v1/seller/chats returns ALL chats with no date filter.
-        # Only apply client-side date filter when explicitly requested
-        # (i.e. on manual sync triggered by user, NOT on 60s auto-sync).
-        # This prevents the auto-sync from continuously deleting chats.
+            # Save message history from events
+            if wb_events_row:
+                history: list[dict[str, object]] = []
+                for ev in wb_events_row:
+                    if not isinstance(ev, dict):
+                        continue
+                    ev_id = str(ev.get("eventID") or "").strip()
+                    ev_sender = str(ev.get("sender") or "").strip().lower()
+                    msg = ev.get("message") or {}
+                    ev_text = str(msg.get("text") or "").strip()
+                    attachments = msg.get("attachments") or {}
+                    images = attachments.get("images") or []
+                    if not ev_text and images:
+                        img_parts = [f"[img:{img.get('url','')}]" for img in images if img.get("url")]
+                        ev_text = " ".join(img_parts) if img_parts else f"[Фото: {len(images)} шт.]"
+                    elif not ev_text and attachments.get("goodCard"):
+                        card = attachments["goodCard"]
+                        ev_text = f"[Товар: {card.get('name', '')}]".strip()
+                    ev_ts_raw = ev.get("addTimestamp")
+                    ev_ts_ms = int(ev_ts_raw) if ev_ts_raw is not None else 0
+                    ev_iso = _normalize_timestamp(ev_ts_ms) or ""
+                    client_name = str(ev.get("clientName") or "").strip()
+                    if not ev_id or not ev_text:
+                        continue
+                    history.append({
+                        "direction": "inbound" if ev_sender == "client" else "outbound",
+                        "message_text": ev_text,
+                        "idempotency_key": f"wb-event-{ev_id}",
+                        "created_at": ev_iso,
+                        "operator_name": client_name if ev_sender == "client" else "Продавец",
+                    })
+                if history:
+                    try:
+                        self.repository.bulk_insert_chat_history_messages(
+                            user_id=user_id,
+                            conversation_uid=conv_uid,
+                            messages=history,
+                        )
+                    except Exception:
+                        pass
+
+        # Also delete any stale chats that survived from previous syncs
         if apply_date_filter and since_date and account_id is not None:
             since_iso = _normalize_timestamp(since_date)
             if since_iso:
@@ -1579,131 +1659,19 @@ class ReviewAutomationService:
                 except Exception:
                     pass
 
-        # Step 2b: repair answered status for chats where metadata says
-        # last_sender=seller but last_sent_at is NULL (e.g. from a previous
-        # interrupted sync).  This is fast and fixes the bucket display
-        # without requiring a full events re-fetch.
-        try:
-            self.repository.repair_chat_answered_status(user_id=user_id)
-        except Exception:
-            pass
-
-        # Step 3: enrich chats with events (sender info + history).
-        # This is the slow part (~95s first time) so it runs AFTER chats are
-        # already saved to DB.  If the user stops sync early, chats are
-        # still accessible — they just won't have correct answered/new status
-        # until the next full sync completes.
-        if loaded > 0 and callable(getattr(client, "fetch_chats", None)):
-            try:
-                enriched_rows = client.fetch_chats(
-                    since_date=since_date,
-                    stop_requested=stop_requested,
-                    enrich_with_events=True,
-                )
-                for row in enriched_rows:
-                    _raise_if_stop_requested(stop_requested, source=source)
-                    ext_id = str(row.get("external_id") or "").strip()
-                    if not ext_id:
-                        continue
-                    conv_uid = self.repository.make_conversation_uid(
-                        user_id=user_id, source=source, account_id=account_id,
-                        kind="chat", external_conversation_id=ext_id,
+        # Persist the final events cursor for the next incremental sync
+        if account_id is not None and hasattr(client, "_resume_events_cursor"):
+            new_cursor = getattr(client, "_resume_events_cursor", None)
+            if new_cursor:
+                try:
+                    self.repository.update_marketplace_account_extra_field(
+                        user_id=user_id,
+                        account_id=int(account_id),
+                        key="_wb_events_cursor",
+                        value=str(new_cursor),
                     )
-                    last_msg_at = str(row.get("last_message_at") or "") or None
-                    last_sender = str(row.get("last_sender") or "").strip().lower()
-                    meta = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
-                    wb_events_enrich: list[dict[str, object]] = []
-                    if isinstance(meta, dict):
-                        wb_events_enrich = list(meta.pop("_wb_events", None) or [])
-                    # Only update seller_replied_at when we have explicit sender info.
-                    # If sender is unknown (no events), skip the status upsert only —
-                    # still save history messages below.
-                    if last_sender:
-                        seller_replied_at: str | None = None
-                        if last_sender == "seller":
-                            seller_replied_at = last_msg_at
-                        try:
-                            self.repository.upsert_conversation(
-                                user_id=user_id,
-                                source=source,
-                                account_id=account_id,
-                                external_conversation_id=ext_id,
-                                kind="chat",
-                                customer_name=str(row.get("customer_name") or "") or None,
-                                message_text=str(row.get("message_text") or ""),
-                                status=str(row.get("status") or "open"),
-                                unread_count=_to_positive_int(row.get("unread_count"), default=0),
-                                metadata=meta,
-                                last_message_at=last_msg_at,
-                                seller_replied_at=seller_replied_at,
-                            )
-                        except Exception:
-                            pass
-                    # Always save chat history messages — regardless of sender info.
-                    if wb_events_enrich:
-                        history: list[dict[str, object]] = []
-                        for ev in wb_events_enrich:
-                            if not isinstance(ev, dict):
-                                continue
-                            ev_id = str(ev.get("eventID") or "").strip()
-                            ev_sender = str(ev.get("sender") or "").strip().lower()
-                            msg = ev.get("message") or {}
-                            ev_text = str(msg.get("text") or "").strip()
-                            # Handle image attachments: store image URLs for display
-                            attachments = msg.get("attachments") or {}
-                            images = attachments.get("images") or []
-                            if not ev_text and images:
-                                # Store all image URLs as [img:url1] [img:url2] ...
-                                img_parts = []
-                                for img in images:
-                                    url = str(img.get("url") or "").strip()
-                                    if url:
-                                        img_parts.append(f"[img:{url}]")
-                                ev_text = " ".join(img_parts) if img_parts else f"[Фото: {len(images)} шт.]"
-                            elif not ev_text and attachments.get("goodCard"):
-                                card = attachments["goodCard"]
-                                ev_text = f"[Товар: {card.get('name', '')}]".strip()
-                            ev_ts_raw = ev.get("addTimestamp")
-                            ev_ts_ms = int(ev_ts_raw) if ev_ts_raw is not None else 0
-                            ev_iso = _normalize_timestamp(ev_ts_ms) or ""
-                            client_name = str(ev.get("clientName") or "").strip()
-                            if not ev_id or not ev_text:
-                                continue
-                            history.append({
-                                "direction": "inbound" if ev_sender == "client" else "outbound",
-                                "message_text": ev_text,
-                                "idempotency_key": f"wb-event-{ev_id}",
-                                "created_at": ev_iso,
-                                "operator_name": client_name if ev_sender == "client" else "Продавец",
-                            })
-                        if history:
-                            try:
-                                self.repository.bulk_insert_chat_history_messages(
-                                    user_id=user_id,
-                                    conversation_uid=conv_uid,
-                                    messages=history,
-                                )
-                            except Exception:
-                                pass
-            except MarketplaceSyncError as exc:
-                if bool(exc.details.get("cancelled")):
-                    pass  # Cancelled: chats already saved, statuses will update on next sync
-            except Exception:
-                pass
-
-            # Persist the final events cursor so the next sync starts from here.
-            if account_id is not None and hasattr(client, "_resume_events_cursor"):
-                new_cursor = getattr(client, "_resume_events_cursor", None)
-                if new_cursor:
-                    try:
-                        self.repository.update_marketplace_account_extra_field(
-                            user_id=user_id,
-                            account_id=int(account_id),
-                            key="_wb_events_cursor",
-                            value=str(new_cursor),
-                        )
-                    except Exception:
-                        pass
+                except Exception:
+                    pass
 
         return loaded
 
@@ -1868,6 +1836,7 @@ class ReviewAutomationService:
         since_date: str | None,
         stop_requested: Callable[[], bool] | None,
         apply_date_filter: bool = False,
+        progress_callback: Callable[..., None] | None = None,
     ) -> dict[str, object]:
         supported, reason = self._is_channel_supported(client=client, channel=channel)
         if not supported:
@@ -1906,6 +1875,7 @@ class ReviewAutomationService:
                 since_date=since_date,
                 apply_date_filter=apply_date_filter,
                 stop_requested=stop_requested,
+                progress_callback=progress_callback,
             )
         else:
             raise ValueError(f"Unknown channel: {channel}")
@@ -2023,6 +1993,7 @@ class ReviewAutomationService:
                             since_date=since_value,
                             stop_requested=stop_requested,
                             apply_date_filter=apply_date_filter,
+                            progress_callback=progress_callback,
                         )
                         channel_outcomes[channel] = ch_result
                         if progress_callback:

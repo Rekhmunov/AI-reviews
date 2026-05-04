@@ -2291,6 +2291,10 @@ function selectChatConversation(conversationUid) {
 }
 
 async function loadChats() {
+  // Don't update the chat list while a sync is in progress — wait for sync to finish
+  // so the list is only shown once with correct Answered/New bucket assignment.
+  if (syncInProgress) return;
+
   const source = String(document.getElementById("chatPanelSourceFilter")?.value || chatsState.source || "all");
   const status = String(document.getElementById("chatPanelStatusFilter")?.value || chatsState.status || "all");
   chatsState.source = source;
