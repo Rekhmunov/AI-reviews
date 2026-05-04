@@ -139,25 +139,35 @@ function updateSyncProgressUI(p) {
     accountsText.textContent = totalAcc > 0 ? `Кабинет ${curAcc} из ${totalAcc}` : "";
   }
 
-  // Row 2: detail — what exactly is being done right now
-  const step = String(p.step || "").trim();
+  // Row 2: detail — channel + loaded/total counter
   const account = String(p.account || "").trim();
   const channel = String(p.channel || "").trim();
   const loaded = Number(p.loaded || 0);
+  // Total expected: server may expose it, or fall back to sessionStorage from preview
+  const totalItems = Number(p.total_items || 0) || Number(sessionStorage.getItem("sync_total_items") || 0);
   const channelIcon = CHANNEL_ICONS[channel] || "📦";
 
   let detailParts = [];
   if (account) detailParts.push(account);
   if (channel) detailParts.push(`${channelIcon} ${channel}`);
-  if (loaded > 0) detailParts.push(`загружено: ${loaded.toLocaleString("ru-RU")}`);
+  if (loaded > 0 || totalItems > 0) {
+    const loadedStr = loaded.toLocaleString("ru-RU");
+    const totalStr = totalItems > 0 ? `/${totalItems.toLocaleString("ru-RU")}` : "";
+    detailParts.push(`${loadedStr}${totalStr}`);
+  }
 
   if (detail) {
+    const step = String(p.step || "").trim();
     detail.textContent = detailParts.length ? detailParts.join("  ·  ") : (step || "Синхронизация...");
   }
 
-  // Progress bar + percentage
+  // Progress bar + counter display
   let pct = 5;
-  if (totalAcc > 0 && curAcc > 0) {
+  if (totalItems > 0 && loaded > 0) {
+    // Use loaded/total for accurate progress
+    pct = Math.min(Math.round((loaded / totalItems) * 100), 95);
+  } else if (totalAcc > 0 && curAcc > 0) {
+    // Fall back to account progress
     pct = Math.min(Math.round((curAcc / totalAcc) * 100), 95);
   }
   if (fill) fill.style.width = `${pct}%`;
@@ -1349,6 +1359,11 @@ async function syncAll() {
           <tbody>${rows}</tbody>
         </table>`;
     }
+    // Save total expected items for progress display
+    if (previewOk && previewData) {
+      const total = Number(previewData.total || 0);
+      sessionStorage.setItem("sync_total_items", String(total));
+    }
     if (confirmBtn) confirmBtn.disabled = false;
     if (syncInfo) syncInfo.textContent = "";
   } catch (_error) {
@@ -1383,7 +1398,8 @@ async function confirmSyncPreview() {
   startGlobalSyncPoll();
 
   try {
-    const payload = { all_accounts: true, account_id: null };
+    const totalExpected = Number(sessionStorage.getItem("sync_total_items") || 0);
+    const payload = { all_accounts: true, account_id: null, total_expected: totalExpected || null };
     const res = await fetch("/api/sync", {
       method: "POST",
       headers: jsonHeaders(),
@@ -1417,6 +1433,7 @@ async function confirmSyncPreview() {
     if (data.cancelled) text += ", синхронизация остановлена администратором";
     if (syncInfo) syncInfo.textContent = text;
     stopGlobalSyncPoll();
+    sessionStorage.removeItem("sync_total_items");
     const fill = document.getElementById("syncProgressFill");
     const detailEl = document.getElementById("syncProgressText");
     const accEl = document.getElementById("syncProgressAccountsText");

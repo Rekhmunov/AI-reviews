@@ -250,6 +250,7 @@ def _is_protected_default_subgroup(group_id: str, subgroup: str) -> bool:
 class SyncRequest(BaseModel):
     account_id: int | None = Field(default=None, description="Specific marketplace account ID")
     all_accounts: bool = Field(default=True, description="Sync all active accounts")
+    total_expected: int | None = Field(default=None, ge=0, description="Expected total items from preview")
 
 
 class SyncCapabilitiesRequest(BaseModel):
@@ -572,6 +573,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         "progress_account": "",
         "progress_channel": "",
         "progress_loaded": 0,
+        "progress_total_items": 0,
         "progress_total_accounts": 0,
         "progress_current_account": 0,
     }
@@ -1109,6 +1111,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             sync_state["progress_account"] = ""
             sync_state["progress_channel"] = ""
             sync_state["progress_loaded"] = 0
+            sync_state["progress_total_items"] = 0
             sync_state["progress_total_accounts"] = 0
             sync_state["progress_current_account"] = 0
         sync_stop_event.clear()
@@ -1913,6 +1916,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             account_ids_snapshot = _snapshot_active_account_ids_for_user(user_id)
             if not account_ids_snapshot:
                 raise HTTPException(status_code=400, detail="Нет активных кабинетов для синхронизации")
+            # Store expected total from preview for the progress bar
+            if payload.total_expected is not None and payload.total_expected > 0:
+                with sync_lock:
+                    sync_state["progress_total_items"] = int(payload.total_expected)
             run_started_at = _now_iso()
             result = _run_sync_for_user(
                 user_id=user_id,
@@ -2107,6 +2114,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 "account": str(sync_state.get("progress_account") or ""),
                 "channel": str(sync_state.get("progress_channel") or ""),
                 "loaded": int(sync_state.get("progress_loaded") or 0),
+                "total_items": int(sync_state.get("progress_total_items") or 0),
                 "total_accounts": int(sync_state.get("progress_total_accounts") or 0),
                 "current_account": int(sync_state.get("progress_current_account") or 0),
             }
