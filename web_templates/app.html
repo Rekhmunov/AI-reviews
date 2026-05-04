@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=19" />
+  <link rel="stylesheet" href="/static/style.css?v=20" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -292,6 +292,10 @@
                     <button type="button" class="chats-sort-option" data-value="oldest" onclick="selectChatsSort('oldest')">Сначала старые</button>
                   </div>
                 </div>
+                <button type="button" class="icon-btn chats-search-btn" id="chatsSearchToggle" onclick="toggleChatsSearch()" aria-label="Поиск">🔍</button>
+              </div>
+              <div id="chatsSearchRow" class="chats-search-row hidden">
+                <input type="text" id="chatsSearchInput" class="chats-search-input" placeholder="Поиск по имени покупателя..." oninput="onChatsSearchInput()" />
               </div>
             </div>
             <div id="chatsList" class="chats-list"></div>
@@ -641,6 +645,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=19"></script>
+  <script src="/static/app.js?v=20"></script>
 </body>
 </html>

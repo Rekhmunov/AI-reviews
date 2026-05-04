@@ -65,6 +65,7 @@ const chatsState = {
   date_to: null,
   source: "all",
   status: "all",
+  search: "",
   items: [],
   activeConversationUid: "",
   loadingMessages: false,
@@ -1127,6 +1128,27 @@ function toggleChatsSortDropdown() {
   if (dd) dd.classList.toggle("hidden");
 }
 
+function toggleChatsSearch() {
+  const row = document.getElementById("chatsSearchRow");
+  const input = document.getElementById("chatsSearchInput");
+  if (!row) return;
+  const isHidden = row.classList.contains("hidden");
+  row.classList.toggle("hidden", !isHidden);
+  if (isHidden && input) {
+    input.focus();
+  } else if (!isHidden && input) {
+    input.value = "";
+    chatsState.search = "";
+    renderChatsList();
+  }
+}
+
+function onChatsSearchInput() {
+  const input = document.getElementById("chatsSearchInput");
+  chatsState.search = String(input?.value || "").trim().toLowerCase();
+  renderChatsList();
+}
+
 function selectChatsSort(value) {
   chatsState.sort = value;
   // Update active state on options
@@ -1884,10 +1906,20 @@ function renderMobileChatBackBtn() {
 
 function renderChatsList() {
   const all = Array.isArray(chatsState.items) ? chatsState.items : [];
-  const list = Array.isArray(all) ? all : [];
-  const emptyText = chatsState.bucket === "processed"
-    ? "Нет обработанных чатов"
-    : "Нет чатов, требующих ответа";
+  // Apply client-side search filter
+  const query = String(chatsState.search || "").trim().toLowerCase();
+  const list = query
+    ? all.filter((item) => {
+        const name = String(item.customer_name || item.external_conversation_id || "").toLowerCase();
+        const text = String(item.message_text || "").toLowerCase();
+        return name.includes(query) || text.includes(query);
+      })
+    : all;
+  const emptyText = query
+    ? `По запросу «${chatsState.search}» ничего не найдено`
+    : chatsState.bucket === "processed"
+      ? "Нет обработанных чатов"
+      : "Нет чатов, требующих ответа";
   renderChatListGroup("chatsList", list, emptyText);
   // On mobile, if no active chat - show list panel
   if (isMobileChatView() && !chatsState.activeConversationUid) {

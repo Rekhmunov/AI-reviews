@@ -484,12 +484,49 @@ body.landing-page {
   gap: 8px;
 }
 
+/* Desktop: chats section fills viewport height, no overflow */
 #section-chats {
-  min-height: calc(100vh - 44px);
+  height: calc(100vh - 66px); /* account for .main padding-top */
+  max-height: calc(100vh - 66px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#section-chats .chats-topbar {
+  flex-shrink: 0;
 }
 
 #section-chats .chats-shell {
-  min-height: calc(100vh - 170px);
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* List panel: fill available height, list scrolls */
+#section-chats .chats-list-panel {
+  height: 100%;
+  overflow: hidden;
+}
+
+#section-chats .chats-list {
+  flex: 1 1 0;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+}
+
+/* Thread panel: fill height, messages scroll */
+#section-chats .chats-thread-panel {
+  height: 100%;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto minmax(0,1fr) auto;
+}
+
+#section-chats .chat-messages {
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .main > section.hidden {
@@ -1683,9 +1720,45 @@ button.secondary.danger:hover {
   background: rgba(239,246,255,0.6);
 }
 
-/* "‹ Все чаты" back link style */
+/* Search toggle button */
+.chats-search-btn {
+  min-width: 34px !important;
+  max-width: 34px !important;
+  width: 34px !important;
+  height: 34px;
+  font-size: 15px;
+  padding: 0;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+/* Search input row */
+.chats-search-row {
+  padding: 6px 0 2px;
+}
+
+.chats-search-row.hidden {
+  display: none !important;
+}
+
+.chats-search-input {
+  width: 100% !important;
+  font-size: 13px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(147,197,253,0.5);
+  background: rgba(248,251,255,0.95);
+  outline: none;
+}
+
+.chats-search-input:focus {
+  border-color: rgba(59,130,246,0.6);
+  box-shadow: 0 0 0 2px rgba(59,130,246,0.15);
+}
+
+/* "‹ Все чаты" back link — hidden on desktop, shown only on mobile */
 .chat-back-btn {
-  display: inline-flex;
+  display: none; /* desktop: hidden */
   align-items: center;
   gap: 4px;
   font-size: 13px;
