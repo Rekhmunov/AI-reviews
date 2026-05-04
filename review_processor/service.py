@@ -1569,7 +1569,16 @@ class ReviewAutomationService:
                                 continue
                             ev_id = str(ev.get("eventID") or "").strip()
                             ev_sender = str(ev.get("sender") or "").strip().lower()
-                            ev_text = str((ev.get("message") or {}).get("text") or "").strip()
+                            msg = ev.get("message") or {}
+                            ev_text = str(msg.get("text") or "").strip()
+                            # Handle image attachments: use placeholder text
+                            attachments = msg.get("attachments") or {}
+                            images = attachments.get("images") or []
+                            if not ev_text and images:
+                                ev_text = f"[Фото: {len(images)} шт.]"
+                            elif not ev_text and attachments.get("goodCard"):
+                                card = attachments["goodCard"]
+                                ev_text = f"[Товар: {card.get('name', '')}]".strip()
                             ev_ts_raw = ev.get("addTimestamp")
                             ev_ts_ms = int(ev_ts_raw) if ev_ts_raw is not None else 0
                             ev_iso = _normalize_timestamp(ev_ts_ms) or ""

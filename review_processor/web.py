@@ -1859,6 +1859,65 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             conversation_uid=conversation_uid,
             limit=limit,
         )
+        # If no messages in DB, try to fetch history from WB API on-demand
+        if not messages and str(conversation.get("source") or "") == "wb":
+            try:
+                account_id = conversation.get("account_id")
+                ext_id = str(conversation.get("external_conversation_id") or "")
+                if account_id and ext_id:
+                    account = repository.get_marketplace_account(
+                        user_id=int(user["id"]),
+                        account_id=int(account_id),
+                        include_secrets=True,
+                    )
+                    if account:
+                        client = service._build_client(account)
+                        sender_map = client._fetch_last_sender_map(stop_requested=None)  # type: ignore[attr-defined]
+                        sender_map.pop("_final_cursor", None)
+                        entry = sender_map.get(ext_id, {})
+                        wb_events = entry.get("events") or []
+                        history: list[dict[str, object]] = []
+                        from review_processor.service import _normalize_timestamp
+                        for ev in wb_events:
+                            if not isinstance(ev, dict):
+                                continue
+                            ev_id = str(ev.get("eventID") or "").strip()
+                            ev_sender = str(ev.get("sender") or "").strip().lower()
+                            msg = ev.get("message") or {}
+                            ev_text = str(msg.get("text") or "").strip()
+                            if not ev_text:
+                                attachments = msg.get("attachments") or {}
+                                images = attachments.get("images") or []
+                                if images:
+                                    ev_text = f"[Фото: {len(images)} шт.]"
+                                elif attachments.get("goodCard"):
+                                    ev_text = f"[Товар: {attachments['goodCard'].get('name', '')}]"
+                            ev_ts_raw = ev.get("addTimestamp")
+                            ev_ts_ms = int(ev_ts_raw) if ev_ts_raw is not None else 0
+                            ev_iso = _normalize_timestamp(ev_ts_ms) or ""
+                            client_name = str(ev.get("clientName") or "").strip()
+                            if not ev_id or not ev_text:
+                                continue
+                            history.append({
+                                "direction": "inbound" if ev_sender == "client" else "outbound",
+                                "message_text": ev_text,
+                                "idempotency_key": f"wb-event-{ev_id}",
+                                "created_at": ev_iso,
+                                "operator_name": client_name if ev_sender == "client" else "Продавец",
+                            })
+                        if history:
+                            repository.bulk_insert_chat_history_messages(
+                                user_id=int(user["id"]),
+                                conversation_uid=conversation_uid,
+                                messages=history,
+                            )
+                            messages = repository.list_conversation_messages(
+                                user_id=int(user["id"]),
+                                conversation_uid=conversation_uid,
+                                limit=limit,
+                            )
+            except Exception:
+                pass
         return {
             "conversation": conversation,
             "messages": messages,
