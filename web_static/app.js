@@ -1775,15 +1775,21 @@ function renderChatListGroup(containerId, items, emptyText) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "chat-list-item" + (item.conversation_uid === chatsState.activeConversationUid ? " active" : "");
-    const preview = String(item.message_text || "").trim();
+    const preview = String(item.message_text || "").replace(/\s+/g, " ").trim();
     const unread = Number(item.unread_count || 0);
+    const name = esc(item.customer_name || item.external_conversation_id || "Диалог");
+    const source = esc((item.source || "").toUpperCase());
+    const statusLabel = esc(labelFromMap(conversationStatusLabels, item.status) || "");
     button.innerHTML = `
       <div class="chat-list-head">
-        <span>${esc(item.customer_name || item.external_conversation_id || "Диалог")}</span>
-        <span class="small">${esc((item.source || "").toUpperCase())}</span>
+        <span class="chat-list-name">${name}</span>
+        <span class="chat-list-badge">${source}</span>
       </div>
-      <div class="small">${esc(preview || "-")}</div>
-      <div class="small">Статус: ${esc(labelFromMap(conversationStatusLabels, item.status))}${unread > 0 ? ` · непрочитано: ${unread}` : ""}</div>
+      <div class="chat-list-preview">${esc(preview || "—")}</div>
+      <div class="chat-list-footer">
+        <span class="chat-list-status">${statusLabel}</span>
+        ${unread > 0 ? `<span class="chat-list-unread">${unread}</span>` : ""}
+      </div>
     `;
     button.addEventListener("click", () => {
       selectChatConversation(item.conversation_uid);

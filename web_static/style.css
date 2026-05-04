@@ -1481,25 +1481,93 @@ button.secondary.danger:hover {
 .chat-list-item {
   width: 100%;
   text-align: left;
-  display: grid;
-  gap: 4px;
-  border: 1px solid rgba(147, 197, 253, 0.35);
-  border-radius: 10px;
-  padding: 8px;
-  background: linear-gradient(160deg, rgba(255, 255, 255, 0.95), rgba(239, 246, 255, 0.72));
-  color: #1e3a8a;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  border: 1px solid rgba(147, 197, 253, 0.3);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: linear-gradient(160deg, rgba(255,255,255,0.97), rgba(239,246,255,0.8));
+  color: #1e293b;
+  transition: box-shadow 0.15s, border-color 0.15s;
+}
+
+.chat-list-item:hover {
+  border-color: rgba(96, 165, 250, 0.6);
+  box-shadow: 0 2px 8px rgba(59,130,246,0.10);
 }
 
 .chat-list-item.active {
-  border-color: rgba(37, 99, 235, 0.8);
-  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.32);
+  border-color: rgba(37, 99, 235, 0.75);
+  background: linear-gradient(160deg, rgba(239,246,255,0.98), rgba(219,234,254,0.88));
+  box-shadow: 0 0 0 2px rgba(59,130,246,0.20);
 }
 
+/* Row 1: name + source badge */
 .chat-list-head {
   display: flex;
   justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.chat-list-name {
+  font-weight: 700;
+  font-size: 14px;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
+}
+
+.chat-list-badge {
+  font-size: 11px;
+  font-weight: 700;
+  color: #1d4ed8;
+  background: rgba(59,130,246,0.10);
+  border-radius: 20px;
+  padding: 1px 7px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Row 2: message preview */
+.chat-list-preview {
+  font-size: 13px;
+  color: #475569;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.4;
+}
+
+/* Row 3: status + unread badge */
+.chat-list-footer {
+  display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 1px;
+}
+
+.chat-list-status {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.chat-list-unread {
+  font-size: 11px;
+  font-weight: 700;
+  background: #2563eb;
+  color: #fff;
+  border-radius: 20px;
+  padding: 1px 7px;
+  min-width: 20px;
+  text-align: center;
+  flex-shrink: 0;
 }
 
 .chat-bubble {
