@@ -1145,8 +1145,9 @@ function toggleChatsSearch() {
 
 function onChatsSearchInput() {
   const input = document.getElementById("chatsSearchInput");
-  chatsState.search = String(input?.value || "").trim().toLowerCase();
-  renderChatsList();
+  chatsState.search = String(input?.value || "").trim();
+  // Server-side search: reload from API with search parameter
+  loadChats();
 }
 
 function selectChatsSort(value) {
@@ -1906,21 +1907,12 @@ function renderMobileChatBackBtn() {
 
 function renderChatsList() {
   const all = Array.isArray(chatsState.items) ? chatsState.items : [];
-  // Apply client-side search filter
-  const query = String(chatsState.search || "").trim().toLowerCase();
-  const list = query
-    ? all.filter((item) => {
-        const name = String(item.customer_name || item.external_conversation_id || "").toLowerCase();
-        const text = String(item.message_text || "").toLowerCase();
-        return name.includes(query) || text.includes(query);
-      })
-    : all;
-  const emptyText = query
+  const emptyText = String(chatsState.search || "").trim()
     ? `По запросу «${chatsState.search}» ничего не найдено`
     : chatsState.bucket === "processed"
       ? "Нет обработанных чатов"
       : "Нет чатов, требующих ответа";
-  renderChatListGroup("chatsList", list, emptyText);
+  renderChatListGroup("chatsList", all, emptyText);
   // On mobile, if no active chat - show list panel
   if (isMobileChatView() && !chatsState.activeConversationUid) {
     showChatListPanel();
@@ -2238,7 +2230,10 @@ async function loadChats() {
   query.set("bucket", chatsState.bucket || "all");
   query.set("sort", sort);
   query.set("page", "1");
-  query.set("page_size", "100");
+  // When searching: load up to 500, otherwise 100
+  const hasSearch = String(chatsState.search || "").trim().length > 0;
+  query.set("page_size", hasSearch ? "500" : "100");
+  if (hasSearch) query.set("search", chatsState.search);
 
   const res = await fetch("/api/conversations?" + query.toString());
   const data = await res.json();

@@ -4110,6 +4110,7 @@ class ReviewRepository:
         page: int = 1,
         page_size: int = 30,
         bucket: str = "all",
+        search: str | None = None,
         account_permissions: dict[str, list[int]] | None = None,
     ) -> dict[str, Any]:
         base_clauses: list[str] = ["user_id = ?"]
@@ -4120,6 +4121,10 @@ class ReviewRepository:
         if kind:
             base_clauses.append("kind = ?")
             base_params.append(kind)
+        if search:
+            # Search by customer name (case-insensitive LIKE)
+            base_clauses.append("LOWER(COALESCE(customer_name, '')) LIKE ?")
+            base_params.append(f"%{search.strip().lower()}%")
         if date_from:
             if self.is_postgres:
                 base_clauses.append("updated_at::date >= ?::date")
@@ -4187,8 +4192,10 @@ class ReviewRepository:
         where_base = " AND ".join(base_clauses)
         where_view = " AND ".join(view_clauses)
         order_by_map = {
-            "newest": "updated_at DESC",
-            "oldest": "updated_at ASC",
+            # Sort by the actual last message timestamp from WB, not sync time.
+            # COALESCE falls back to updated_at if last_message_at is NULL.
+            "newest": "COALESCE(last_message_at, updated_at) DESC",
+            "oldest": "COALESCE(last_message_at, updated_at) ASC",
         }
         order_by = order_by_map.get(sort.strip().lower(), order_by_map["newest"])
 

@@ -1688,6 +1688,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         bucket: str = "new",
         page: int = 1,
         page_size: int = 30,
+        search: str | None = None,
     ) -> dict[str, object]:
         user = _require_user(request)
         normalized_source = (source or "").strip().lower()
@@ -1738,6 +1739,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             page=max(page, 1),
             page_size=normalized_page_size,
             bucket=normalized_bucket,
+            search=str(search).strip() if search else None,
             account_permissions=manager_conversation_scope,
         )
         source_options = repository.list_conversation_sources(user_id=int(user["id"]))
