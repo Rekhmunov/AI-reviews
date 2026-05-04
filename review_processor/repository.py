@@ -4258,6 +4258,40 @@ class ReviewRepository:
             ).fetchall()
         return [str(row["source"]) for row in rows if row["source"] is not None and str(row["source"]).strip()]
 
+    def delete_conversations_before_date(
+        self,
+        *,
+        user_id: int,
+        account_id: int | None = None,
+        kind: str | None = None,
+        before_date: str,
+    ) -> int:
+        """Remove conversations whose last_message_at is before ``before_date``.
+
+        Used to enforce the sync-start-date for WB chats: the WB chats list
+        endpoint has no date filter, so we sync everything and then prune rows
+        that are older than the configured cutoff.
+        """
+        clauses = ["user_id = ?"]
+        params: list[Any] = [user_id]
+        if account_id is not None:
+            clauses.append("account_id = ?")
+            params.append(int(account_id))
+        if kind:
+            clauses.append("kind = ?")
+            params.append(str(kind).strip().lower())
+        # Compare ISO strings lexicographically - works correctly for both
+        # full ISO datetimes and YYYY-MM-DD date strings.
+        clauses.append("last_message_at IS NOT NULL")
+        clauses.append("last_message_at < ?")
+        params.append(str(before_date))
+        where = " AND ".join(clauses)
+        with self._connect() as conn:
+            result = conn.execute(
+                f"DELETE FROM conversation_items WHERE {where}", tuple(params)
+            )
+        return int(result.rowcount or 0)
+
     def clear_conversations(self, *, user_id: int, kind: str | None = None) -> int:
         clauses = ["user_id = ?"]
         params: list[Any] = [user_id]

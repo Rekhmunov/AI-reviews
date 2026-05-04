@@ -1548,6 +1548,23 @@ class ReviewAutomationService:
                 except Exception:
                     pass
 
+        # WB /api/v1/seller/chats returns ALL chats with no date filter.
+        # Apply since_date client-side: remove chats whose last_message_at
+        # is older than the cutoff so only chats within the requested window
+        # remain in the database.
+        if since_date and account_id is not None:
+            since_iso = _normalize_timestamp(since_date)
+            if since_iso:
+                try:
+                    self.repository.delete_conversations_before_date(
+                        user_id=user_id,
+                        account_id=int(account_id),
+                        kind="chat",
+                        before_date=since_iso,
+                    )
+                except Exception:
+                    pass
+
         return loaded
 
     def _is_access_error(self, error: object) -> bool:

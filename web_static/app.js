@@ -2017,6 +2017,22 @@ async function deleteChatQuickTemplate(templateId) {
   await loadChatQuickTemplates();
 }
 
+function formatChatMessageTime(createdAt) {
+  if (!createdAt) return "";
+  try {
+    const d = new Date(createdAt);
+    if (isNaN(d.getTime())) return "";
+    const now = new Date();
+    const sameDay = d.toDateString() === now.toDateString();
+    const time = d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+    if (sameDay) return time;
+    const date = d.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
+    return `${date}, ${time}`;
+  } catch (_) {
+    return "";
+  }
+}
+
 function renderChatMessages(messages) {
   const thread = document.getElementById("chatMessages");
   if (!thread) return;
@@ -2026,16 +2042,32 @@ function renderChatMessages(messages) {
     return;
   }
   for (const message of messages) {
-    const direction = String(message.direction || "inbound").toLowerCase();
+    const rawDirection = message.direction;
+    const direction = rawDirection ? String(rawDirection).toLowerCase() : null;
     const outbound = direction === "outbound";
     const bubble = document.createElement("div");
-    bubble.className = `chat-bubble ${outbound ? "outbound" : "inbound"}`;
+    if (direction === null) {
+      bubble.className = "chat-bubble inbound";
+    } else {
+      bubble.className = `chat-bubble ${outbound ? "outbound" : "inbound"}`;
+    }
     const status = String(message.send_status || "").toLowerCase();
     const errorHint = status === "failed" ? String(message.send_error_message || "Ошибка отправки") : "";
     if (status === "failed") bubble.classList.add("failed");
+    const timeStr = formatChatMessageTime(message.created_at);
+    let senderLabel = "";
+    if (direction !== null) {
+      senderLabel = outbound
+        ? (message.operator_name || "Продавец")
+        : (message.operator_name || "Покупатель");
+    }
+    const metaParts = [];
+    if (senderLabel) metaParts.push(esc(senderLabel));
+    if (timeStr) metaParts.push(`<span class="chat-msg-time">${esc(timeStr)}</span>`);
+    if (errorHint) metaParts.push(`<span style="color:#b91c1c">${esc(errorHint)}</span>`);
     bubble.innerHTML = `
-      <div>${esc(message.message_text || "")}</div>
-      <div class="small">${esc(outbound ? (message.operator_name || "Оператор") : "Покупатель")}${errorHint ? ` · ${esc(errorHint)}` : ""}</div>
+      <div class="chat-bubble-text">${esc(message.message_text || "")}</div>
+      ${metaParts.length ? `<div class="chat-bubble-meta">${metaParts.join(" · ")}</div>` : ""}
     `;
     thread.appendChild(bubble);
   }
@@ -2062,17 +2094,22 @@ async function loadChatMessages(conversationUid) {
     renderChatsThreadPlaceholder(String(data.detail || "Не удалось загрузить переписку"));
     return;
   }
+  const dbMessages = Array.isArray(data.messages) ? data.messages : [];
   const merged = [];
-  const sourceText = String(data.conversation?.message_text || activeConversation?.message_text || "").trim();
-  if (sourceText) {
-    merged.push({
-      direction: "inbound",
-      message_text: sourceText,
-      operator_name: null,
-      send_status: "sent",
-    });
+  if (!dbMessages.length) {
+    // No history in DB yet — show the last message text as a fallback.
+    // We don't know the direction so we skip the label entirely.
+    const sourceText = String(data.conversation?.message_text || activeConversation?.message_text || "").trim();
+    if (sourceText) {
+      merged.push({
+        direction: null,
+        message_text: sourceText,
+        operator_name: null,
+        send_status: "sent",
+      });
+    }
   }
-  for (const row of data.messages || []) {
+  for (const row of dbMessages) {
     merged.push(row);
   }
   renderChatMessages(merged);
