@@ -103,6 +103,8 @@ let syncStopStatusTimer = null;
 let syncCapabilityCheckInProgress = false;
 let globalSyncPollTimer = null;
 let globalSyncProgressDots = 0;
+let chatAutoRefreshTimer = null;
+const CHAT_AUTO_REFRESH_MS = 30000; // refresh open chat every 30s
 const CHANNEL_ICONS = { "Отзывы": "⭐", "Вопросы": "❓", "Чаты": "💬" };
 const ACTIVE_SECTION_STORAGE_KEY = "feedpilot_active_section";
 const ACTIVE_SETTINGS_TAB_STORAGE_KEY = "feedpilot_active_settings_tab";
@@ -1902,6 +1904,7 @@ function showChatThreadPanel() {
 
 function goBackToChats() {
   chatsState.activeConversationUid = "";
+  stopChatAutoRefresh();
   showChatListPanel();
 }
 
@@ -2212,6 +2215,25 @@ async function loadChatMessages(conversationUid) {
   renderChatMessages(merged);
 }
 
+function startChatAutoRefresh(uid) {
+  stopChatAutoRefresh();
+  if (!uid) return;
+  chatAutoRefreshTimer = window.setInterval(async () => {
+    if (!chatsState.activeConversationUid) return;
+    // Silently reload messages and chat list to pick up new messages
+    await loadChatMessages(chatsState.activeConversationUid);
+    // Also reload the chat list to update bucket counts and ordering
+    loadChats();
+  }, CHAT_AUTO_REFRESH_MS);
+}
+
+function stopChatAutoRefresh() {
+  if (chatAutoRefreshTimer !== null) {
+    window.clearInterval(chatAutoRefreshTimer);
+    chatAutoRefreshTimer = null;
+  }
+}
+
 function selectChatConversation(conversationUid) {
   chatsState.activeConversationUid = String(conversationUid || "");
   renderChatsList();
@@ -2221,6 +2243,7 @@ function selectChatConversation(conversationUid) {
     renderMobileChatBackBtn();
   }
   loadChatMessages(chatsState.activeConversationUid);
+  startChatAutoRefresh(chatsState.activeConversationUid);
 }
 
 async function loadChats() {
