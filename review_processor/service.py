@@ -894,7 +894,7 @@ class WildberriesMarketplaceClient:
                 endpoint,
                 method="POST",
                 headers={"Authorization": self.api_key, "Content-Type": "application/json"},
-                data=json.dumps({"replySign": reply_sign, "text": response_text}).encode("utf-8"),
+                data=json.dumps({"replySign": reply_sign, "message": response_text}).encode("utf-8"),
             )
             raw = _request_json(request=request, timeout=self.timeout, source="wb", retries=1)
             _raise_if_error_payload(raw, source="wb")
