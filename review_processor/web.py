@@ -1859,11 +1859,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             conversation_uid=conversation_uid,
             limit=limit,
         )
-        # For WB chats: always try to fetch NEW events from WB API on-demand.
-        # This picks up messages sent outside our service (e.g. via WB personal cabinet).
-        # Uses the stored events cursor so only recent events are downloaded.
-        # Falls back to full scan if messages is empty.
-        if str(conversation.get("source") or "") == "wb":
+        # For WB chats with no messages in DB: do a targeted events fetch
+        # to populate history. Only run when messages table is empty to avoid
+        # expensive repeated scans on every 30s auto-refresh.
+        if not messages and str(conversation.get("source") or "") == "wb":
             try:
                 account_id = conversation.get("account_id")
                 ext_id = str(conversation.get("external_conversation_id") or "")
@@ -1881,41 +1880,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                             resume_cursor=resume_cursor,
                             stop_requested=None,
                         )
-                        # Update cursor in DB
-                        cursor_entry = sender_map.pop("_final_cursor", None)
-                        if isinstance(cursor_entry, dict) and cursor_entry.get("cursor"):
-                            try:
-                                repository.update_marketplace_account_extra_field(
-                                    user_id=int(user["id"]),
-                                    account_id=int(account_id),
-                                    key="_wb_events_cursor",
-                                    value=str(cursor_entry["cursor"]),
-                                )
-                            except Exception:
-                                pass
+                        # Cursor update is handled by sync_chats; skip here.
+                        sender_map.pop("_final_cursor", None)
                         entry = sender_map.get(ext_id, {})
                         wb_events = entry.get("events") or []
-                        # Also update conversation answered/new status
-                        last_sender = entry.get("sender")
-                        if last_sender:
-                            lm_ts = entry.get("ts")
-                            seller_replied_at = _normalize_timestamp(int(lm_ts)) if last_sender == "seller" and lm_ts else None
-                            if seller_replied_at or last_sender == "client":
-                                try:
-                                    repository.upsert_conversation(
-                                        user_id=int(user["id"]),
-                                        source="wb",
-                                        account_id=int(account_id),
-                                        external_conversation_id=ext_id,
-                                        kind="chat",
-                                        customer_name=str(conversation.get("customer_name") or "") or None,
-                                        message_text=str(conversation.get("message_text") or ""),
-                                        status=str(conversation.get("status") or "open"),
-                                        unread_count=int(conversation.get("unread_count") or 0),
-                                        seller_replied_at=seller_replied_at,
-                                    )
-                                except Exception:
-                                    pass
+                        # Status update is handled by the 60s auto-sync; skip here.
                         history: list[dict[str, object]] = []
                         for ev in wb_events:
                             if not isinstance(ev, dict):

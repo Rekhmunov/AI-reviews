@@ -2220,10 +2220,9 @@ function startChatAutoRefresh(uid) {
   if (!uid) return;
   chatAutoRefreshTimer = window.setInterval(async () => {
     if (!chatsState.activeConversationUid) return;
-    // Silently reload messages and chat list to pick up new messages
+    // Silently reload only the messages for the open chat.
+    // The 60s auto-sync updates DB and statuses; this just refreshes the UI.
     await loadChatMessages(chatsState.activeConversationUid);
-    // Also reload the chat list to update bucket counts and ordering
-    loadChats();
   }, CHAT_AUTO_REFRESH_MS);
 }
 
