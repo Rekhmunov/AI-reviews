@@ -2148,7 +2148,8 @@ button.secondary.danger:hover {
   }
 
   /* ── Mobile chat layout: one panel at a time ── */
-  #section-chats {
+  /* Use :not(.hidden) to avoid overriding the section visibility logic */
+  #section-chats:not(.hidden) {
     min-height: 0;
     display: flex;
     flex-direction: column;
