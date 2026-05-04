@@ -125,34 +125,43 @@ function hideSyncProgress() {
 }
 
 function updateSyncProgressUI(p) {
-  const bar = document.getElementById("syncProgressBar");
+  if (!p || !p.in_progress) return;
+
   const fill = document.getElementById("syncProgressFill");
-  const text = document.getElementById("syncProgressText");
-  const label = bar?.querySelector(".sync-progress-label");
+  const accountsText = document.getElementById("syncProgressAccountsText");
+  const pctEl = document.getElementById("syncProgressPct");
+  const detail = document.getElementById("syncProgressText");
 
-  if (!p || !p.in_progress) {
-    return;
+  // Row 1: accounts counter
+  const totalAcc = Number(p.total_accounts || 0);
+  const curAcc = Number(p.current_account || 0);
+  if (accountsText) {
+    accountsText.textContent = totalAcc > 0 ? `Кабинет ${curAcc} из ${totalAcc}` : "";
   }
 
-  globalSyncProgressDots = (globalSyncProgressDots + 1) % 4;
-  const dots = ".".repeat(globalSyncProgressDots + 1);
-  const step = p.step || "Синхронизация";
-  const account = p.account ? ` · ${p.account}` : "";
-  const channel = p.channel ? ` · ${CHANNEL_ICONS[p.channel] || ""} ${p.channel}` : "";
-  const loaded = p.loaded ? ` · загружено: ${p.loaded}` : "";
-  const accounts = p.total_accounts > 0
-    ? ` (${p.current_account || 0}/${p.total_accounts})`
-    : "";
+  // Row 2: detail — what exactly is being done right now
+  const step = String(p.step || "").trim();
+  const account = String(p.account || "").trim();
+  const channel = String(p.channel || "").trim();
+  const loaded = Number(p.loaded || 0);
+  const channelIcon = CHANNEL_ICONS[channel] || "📦";
 
-  if (text) text.textContent = `${step}${accounts}${account}${channel}${loaded}${dots}`;
+  let detailParts = [];
+  if (account) detailParts.push(account);
+  if (channel) detailParts.push(`${channelIcon} ${channel}`);
+  if (loaded > 0) detailParts.push(`загружено: ${loaded.toLocaleString("ru-RU")}`);
 
-  // Fill progress bar by account progress
-  if (fill && p.total_accounts > 0) {
-    const pct = Math.round(((p.current_account || 0) / p.total_accounts) * 100);
-    fill.style.width = `${Math.max(pct, 5)}%`;
-  } else if (fill) {
-    fill.style.width = "15%";
+  if (detail) {
+    detail.textContent = detailParts.length ? detailParts.join("  ·  ") : (step || "Синхронизация...");
   }
+
+  // Progress bar + percentage
+  let pct = 5;
+  if (totalAcc > 0 && curAcc > 0) {
+    pct = Math.min(Math.round((curAcc / totalAcc) * 100), 95);
+  }
+  if (fill) fill.style.width = `${pct}%`;
+  if (pctEl) pctEl.textContent = `${pct}%`;
 }
 
 async function pollGlobalSyncStatus() {
@@ -172,9 +181,13 @@ async function pollGlobalSyncStatus() {
       if (document.getElementById("syncProgressBar")?.style.display !== "none") {
         // Show completion briefly then hide
         const fill = document.getElementById("syncProgressFill");
-        const text = document.getElementById("syncProgressText");
+        const det = document.getElementById("syncProgressText");
+        const acc2 = document.getElementById("syncProgressAccountsText");
+        const pct2 = document.getElementById("syncProgressPct");
         if (fill) fill.style.width = "100%";
-        if (text) text.textContent = "✅ Синхронизация завершена";
+        if (det) det.textContent = "✅ Готово — данные загружены";
+        if (acc2) acc2.textContent = "";
+        if (pct2) pct2.textContent = "100%";
         window.setTimeout(hideSyncProgress, 4000);
         // Reload data
         const tasks = [loadReviews(), loadQuestions(), loadChats()];
@@ -1403,12 +1416,15 @@ async function confirmSyncPreview() {
     }
     if (data.cancelled) text += ", синхронизация остановлена администратором";
     if (syncInfo) syncInfo.textContent = text;
-    // Global poll will detect in_progress=false and show "✅ завершено" + hide bar
     stopGlobalSyncPoll();
     const fill = document.getElementById("syncProgressFill");
-    const progressText = document.getElementById("syncProgressText");
+    const detailEl = document.getElementById("syncProgressText");
+    const accEl = document.getElementById("syncProgressAccountsText");
+    const pctEl2 = document.getElementById("syncProgressPct");
     if (fill) fill.style.width = "100%";
-    if (progressText) progressText.textContent = "✅ Синхронизация завершена";
+    if (detailEl) detailEl.textContent = "✅ Готово — данные загружены";
+    if (accEl) accEl.textContent = "";
+    if (pctEl2) pctEl2.textContent = "100%";
     window.setTimeout(hideSyncProgress, 4000);
     const tasks = [loadReviews(), loadQuestions(), loadChats()];
     if (canViewSection("analytics")) tasks.push(loadAnalytics());
