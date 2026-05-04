@@ -2214,12 +2214,33 @@ button.secondary.danger:hover {
     display: none;
     flex: 1 1 0;
     min-height: 0;
-    grid-template-rows: auto minmax(0, 1fr) auto;
+    /* header | messages (grows) | compose (fixed) */
+    grid-template-rows: auto 1fr auto;
     height: 100%;
+    overflow: hidden;
   }
 
   .chats-thread-panel.mobile-visible {
     display: grid;
+  }
+
+  /* Messages area must scroll, not push compose off screen */
+  .chats-thread-panel .chat-messages {
+    min-height: 0;
+    overflow-y: auto;
+    max-height: none;
+  }
+
+  /* Compose area: fixed height, no overflow */
+  .chats-thread-panel .chat-compose {
+    min-height: 0;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 0 4px;
+    border-top: 1px solid #e5e7eb;
+    background: #fff;
   }
 
   /* List height: fill available space */
@@ -2235,12 +2256,7 @@ button.secondary.danger:hover {
     overflow: hidden;
   }
 
-  /* Thread header layout */
-  #chatThreadHeader {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
+  /* #chatThreadHeader row layout handled below in compose section */
 
   /* Sort select stays compact */
   #chatsSortFilter {
@@ -2276,39 +2292,69 @@ button.secondary.danger:hover {
     width: auto !important;
   }
 
-  /* Compose action buttons */
-  .chat-compose-actions {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    gap: 6px;
-    -webkit-overflow-scrolling: touch;
+  /* Textarea: compact on mobile, 2 rows */
+  #chatReplyInput {
+    width: 100% !important;
+    font-size: 14px;
+    resize: none;
+    min-height: 52px;
+    max-height: 80px;
   }
 
+  /* Compose action row: horizontal scrollable strip */
+  .chat-compose-actions {
+    flex-direction: row !important;   /* override .row column */
+    flex-wrap: nowrap !important;
+    overflow-x: auto;
+    overflow-y: hidden;
+    gap: 6px;
+    padding-bottom: 2px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    align-items: center;
+  }
+
+  .chat-compose-actions::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Every button in the actions row: compact, auto width */
   .chat-compose-actions button {
-    flex-shrink: 0;
-    white-space: nowrap;
+    flex-shrink: 0 !important;
+    white-space: nowrap !important;
     width: auto !important;
+    min-width: auto !important;
     font-size: 13px;
-    padding: 8px 12px;
+    padding: 8px 14px;
   }
 
   .chat-compose-actions .icon-btn {
-    min-width: 38px;
-    max-width: 38px;
-    padding: 0;
+    min-width: 38px !important;
+    max-width: 38px !important;
+    padding: 0 !important;
   }
 
-  /* Emoji picker full width on mobile */
+  /* Emoji picker */
   .chat-emoji-picker {
     max-width: 100%;
     grid-template-columns: repeat(10, minmax(0, 1fr));
   }
 
-  /* Make textarea comfortable on mobile */
-  #chatReplyInput {
-    width: 100% !important;
-    font-size: 15px;
-    resize: none;
+  /* Thread header: row with back btn + title */
+  #chatThreadHeader {
+    flex-direction: row !important;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0 6px;
+    flex-shrink: 0;
+  }
+
+  #chatThreadTitle {
+    font-size: 13px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .stats-grid {
