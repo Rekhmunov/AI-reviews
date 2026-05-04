@@ -1385,6 +1385,36 @@ button.secondary.danger:hover {
 .chat-thread-header {
   color: #1e3a8a;
   font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+#chatThreadTitle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+/* Back button: always auto-width */
+.chat-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  color: #2563eb;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 0;
+  width: auto !important;
+  min-width: 0;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .chat-messages {
@@ -2029,8 +2059,13 @@ button.secondary.danger:hover {
   input,
   select,
   textarea,
-  button:not(.icon-btn):not(.mobile-copy-key-btn):not([class*="emoji"]):not(.mobile-nav-toggle):not(.bucket-tab) {
+  button:not(.icon-btn):not(.mobile-copy-key-btn):not([class*="emoji"]):not(.mobile-nav-toggle):not(.bucket-tab):not(.small-btn):not(.chat-back-btn) {
     width: 100%;
+  }
+
+  .small-btn {
+    width: auto !important;
+    flex-shrink: 0;
   }
 
   .reviews-quick-controls {
@@ -2171,21 +2206,10 @@ button.secondary.danger:hover {
     min-height: 0;
   }
 
-  /* Back button in thread header */
-  .chat-back-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    background: none;
-    border: none;
-    color: #2563eb;
-    font-size: 14px;
-    font-weight: 600;
-    padding: 0;
-    width: auto !important;
+  /* Thread header: make back button + title fit cleanly */
+  .chat-thread-header {
     min-width: 0;
-    cursor: pointer;
-    margin-bottom: 6px;
+    overflow: hidden;
   }
 
   /* Thread header layout */

@@ -292,7 +292,10 @@
             <div id="chatsList" class="chats-list"></div>
           </aside>
           <section class="chats-thread-panel">
-            <div id="chatThreadHeader" class="chat-thread-header small">Выберите чат слева</div>
+            <div id="chatThreadHeader" class="chat-thread-header">
+              <button id="chatBackBtn" class="chat-back-btn hidden" type="button" onclick="goBackToChats()">← Все чаты</button>
+              <span id="chatThreadTitle" class="small">Выберите чат слева</span>
+            </div>
             <div id="chatMessages" class="chat-messages"></div>
             <div class="chat-compose">
               <textarea id="chatReplyInput" rows="3" placeholder="Введите ответ..." maxlength="4000"></textarea>

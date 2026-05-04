@@ -1814,24 +1814,23 @@ function showChatThreadPanel() {
   const threadPanel = document.querySelector(".chats-thread-panel");
   if (listPanel) listPanel.classList.add("mobile-hidden");
   if (threadPanel) threadPanel.classList.add("mobile-visible");
+  const backBtn = document.getElementById("chatBackBtn");
+  if (backBtn) backBtn.classList.remove("hidden");
+}
+
+function goBackToChats() {
+  chatsState.activeConversationUid = "";
+  showChatListPanel();
 }
 
 function renderMobileChatBackBtn() {
-  const header = document.getElementById("chatThreadHeader");
-  if (!header) return;
-  // Remove existing back button if any
-  const existing = header.querySelector(".chat-back-btn");
-  if (existing) existing.remove();
-  if (!isMobileChatView()) return;
-  const btn = document.createElement("button");
-  btn.className = "chat-back-btn";
-  btn.type = "button";
-  btn.innerHTML = "← Все чаты";
-  btn.addEventListener("click", () => {
-    chatsState.activeConversationUid = "";
-    showChatListPanel();
-  });
-  header.insertBefore(btn, header.firstChild);
+  const backBtn = document.getElementById("chatBackBtn");
+  if (!backBtn) return;
+  if (isMobileChatView()) {
+    backBtn.classList.remove("hidden");
+  } else {
+    backBtn.classList.add("hidden");
+  }
 }
 
 function renderChatsList() {
@@ -2086,10 +2085,10 @@ async function loadChatMessages(conversationUid) {
     renderChatsThreadPlaceholder("Выберите чат слева");
     return;
   }
-  const title = document.getElementById("chatThreadHeader");
+  const titleSpan = document.getElementById("chatThreadTitle");
   const activeConversation = findActiveChatConversation();
-  if (title) {
-    title.textContent = activeConversation
+  if (titleSpan) {
+    titleSpan.textContent = activeConversation
       ? `${activeConversation.customer_name || "Чат"} · ${String(activeConversation.source || "").toUpperCase()} · ${labelFromMap(conversationStatusLabels, activeConversation.status)}`
       : "Чат";
   }
@@ -2207,8 +2206,10 @@ async function loadChats() {
       showChatListPanel();
     }
     renderChatsThreadPlaceholder("Выберите чат слева");
-    const title = document.getElementById("chatThreadHeader");
-    if (title) title.textContent = "Чат не выбран";
+    const titleSpan2 = document.getElementById("chatThreadTitle");
+    if (titleSpan2) titleSpan2.textContent = "Чат не выбран";
+    const backBtn2 = document.getElementById("chatBackBtn");
+    if (backBtn2) backBtn2.classList.add("hidden");
   }
 }
 
