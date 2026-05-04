@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=11" />
+  <link rel="stylesheet" href="/static/style.css?v=13" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -275,9 +275,9 @@
 
       <section id="section-chats" class="hidden">
         <h3 class="section-title">Чаты</h3>
-        <div class="row reviews-sync-row">
-          <span id="chatsInfo" class="small"></span>
-          <button id="clearChatsBtn" type="button" class="secondary small-btn" title="Удалить все чаты из базы" onclick="clearAllChats()">🗑 Удалить все чаты</button>
+        <div class="chats-topbar">
+          <span id="chatsInfo" class="small chats-topbar-info"></span>
+          <button id="clearChatsBtn" type="button" class="secondary small-btn chats-clear-btn" title="Удалить все чаты из базы" onclick="clearAllChats()">🗑 Удалить</button>
         </div>
         <div class="panel chats-shell">
           <aside class="chats-list-panel">
@@ -635,6 +635,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=12"></script>
+  <script src="/static/app.js?v=13"></script>
 </body>
 </html>

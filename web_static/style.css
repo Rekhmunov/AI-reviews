@@ -961,6 +961,17 @@ button.secondary.danger:hover {
   align-items: center;
 }
 
+/* Chats top row: always horizontal, compact */
+.chats-topbar {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+  min-height: 20px;
+}
+
 .sync-preview-modal-card {
   width: min(560px, 96vw);
 }
@@ -2169,6 +2180,32 @@ button.secondary.danger:hover {
     min-width: 580px;
   }
 
+  /* ── Chats topbar: always a row on mobile ── */
+  .chats-topbar {
+    display: flex;
+    flex-direction: row !important;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 4px 0;
+    flex-shrink: 0;
+  }
+
+  .chats-topbar-info {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .chats-clear-btn {
+    flex-shrink: 0;
+    width: auto !important;
+    font-size: 12px;
+    padding: 6px 10px;
+  }
+
   /* ── Mobile chat layout: one panel at a time ── */
   /* Use :not(.hidden) to avoid overriding the section visibility logic */
   #section-chats:not(.hidden) {
@@ -2179,7 +2216,7 @@ button.secondary.danger:hover {
     overflow: hidden;
   }
 
-  #section-chats > .reviews-sync-row {
+  .chats-topbar {
     flex-shrink: 0;
   }
 
