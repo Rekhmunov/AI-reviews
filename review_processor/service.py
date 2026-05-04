@@ -727,6 +727,39 @@ class WildberriesMarketplaceClient:
             parsed_dt = parsed_dt.replace(tzinfo=UTC)
         return int(parsed_dt.astimezone(UTC).timestamp())
 
+    def _fetch_fresh_reply_sign(self, *, chat_id: str) -> str | None:
+        """Fetch the current replySign for a specific chat from /seller/chats.
+
+        replySign changes over time.  Calling this before sending ensures
+        we use the latest value rather than a potentially stale one from sync.
+        """
+        if not chat_id or not self.chats_path:
+            return None
+        try:
+            base = self.chats_api_url or self.api_url
+            endpoint = _compose_url(base, self.chats_path)
+            req = Request(endpoint, method="GET", headers={"Authorization": self.api_key})
+            payload = _request_json(request=req, timeout=self.timeout, source="wb")
+            if not isinstance(payload, dict):
+                return None
+            items = _extract_sequence(
+                payload,
+                keys=self.items_keys + ("questions", "chats", "dialogs", "messages", "result"),
+            )
+            if not items:
+                for nk in ("data", "result", "response"):
+                    nv = payload.get(nk)
+                    if isinstance(nv, (dict, list)):
+                        items = _extract_sequence(nv, keys=self.items_keys + ("chats", "result"))
+                        if items:
+                            break
+            for item in items:
+                if str(item.get("chatID") or "") == chat_id:
+                    return str(item.get("replySign") or "").strip() or None
+        except Exception:
+            pass
+        return None
+
     def count_pending(self, *, since_date: str | None = None) -> dict[str, int]:
         """Return approximate counts of items available to sync per channel.
 
@@ -829,6 +862,27 @@ class WildberriesMarketplaceClient:
     def send_conversation_reply(self, *, conversation: dict[str, object], response_text: str) -> bool:
         if not self.api_key:
             raise MarketplaceSyncError("wb", "Missing Wildberries api_key")
+        # WB Buyer Chat API uses POST /api/v1/seller/message with replySign.
+        # replySign is stored in conversation metadata.raw from the chat list.
+        meta = conversation.get("metadata") or {}
+        raw_data = meta.get("raw") or {} if isinstance(meta, Mapping) else {}
+        reply_sign = str(raw_data.get("replySign") or "").strip() if isinstance(raw_data, Mapping) else ""
+
+        if reply_sign and self.chats_api_url:
+            # Chat reply via buyer-chat-api
+            base_url = self.chats_api_url
+            endpoint = _compose_url(base_url, "/api/v1/seller/message")
+            request = Request(
+                endpoint,
+                method="POST",
+                headers={"Authorization": self.api_key, "Content-Type": "application/json"},
+                data=json.dumps({"replySign": reply_sign, "text": response_text}).encode("utf-8"),
+            )
+            raw = _request_json(request=request, timeout=self.timeout, source="wb", retries=1)
+            _raise_if_error_payload(raw, source="wb")
+            return True
+
+        # Fallback: legacy reply path (feedbacks/questions)
         if not self.reply_path:
             return False
         external_id = str(conversation.get("external_conversation_id") or conversation.get("external_id") or "").strip()
@@ -2467,10 +2521,26 @@ class ReviewAutomationService:
             return {"ok": False, "status": "failed", "error": error_message}
 
         client = self._build_client(account)
+        # For WB chats: refresh replySign from /seller/chats before sending
+        # because replySign changes over time and stale values cause auth errors.
+        conversation_with_fresh_sign = dict(conversation)
+        if source == "wb" and hasattr(client, "_fetch_fresh_reply_sign"):
+            try:
+                fresh_sign = client._fetch_fresh_reply_sign(  # type: ignore[attr-defined]
+                    chat_id=str(conversation.get("external_conversation_id") or ""),
+                )
+                if fresh_sign:
+                    meta = dict(conversation.get("metadata") or {})
+                    raw = dict(meta.get("raw") or {})
+                    raw["replySign"] = fresh_sign
+                    meta["raw"] = raw
+                    conversation_with_fresh_sign["metadata"] = meta
+            except Exception:
+                pass
         sent, send_error = self._send_conversation_reply_via_client(
             client=client,
             source=source,
-            conversation=conversation,
+            conversation=conversation_with_fresh_sign,
             response_text=clean_text,
         )
         if sent:
