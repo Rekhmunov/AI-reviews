@@ -485,31 +485,33 @@ body.landing-page {
 }
 
 /* Desktop: chats section fills viewport height, no overflow */
-#section-chats {
-  height: calc(100vh - 66px); /* account for .main padding-top */
+/* Desktop chats layout — only when visible (:not(.hidden) prevents
+   display:flex from overriding the .hidden { display:none } rule) */
+#section-chats:not(.hidden) {
+  height: calc(100vh - 66px);
   max-height: calc(100vh - 66px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 
-#section-chats .chats-topbar {
+#section-chats:not(.hidden) .chats-topbar {
   flex-shrink: 0;
 }
 
-#section-chats .chats-shell {
+#section-chats:not(.hidden) .chats-shell {
   flex: 1 1 0;
   min-height: 0;
   overflow: hidden;
 }
 
 /* List panel: fill available height, list scrolls */
-#section-chats .chats-list-panel {
+#section-chats:not(.hidden) .chats-list-panel {
   height: 100%;
   overflow: hidden;
 }
 
-#section-chats .chats-list {
+#section-chats:not(.hidden) .chats-list {
   flex: 1 1 0;
   min-height: 0;
   max-height: none;
@@ -517,14 +519,14 @@ body.landing-page {
 }
 
 /* Thread panel: fill height, messages scroll */
-#section-chats .chats-thread-panel {
+#section-chats:not(.hidden) .chats-thread-panel {
   height: 100%;
   overflow: hidden;
   display: grid;
   grid-template-rows: auto minmax(0,1fr) auto;
 }
 
-#section-chats .chat-messages {
+#section-chats:not(.hidden) .chat-messages {
   overflow-y: auto;
   min-height: 0;
 }
