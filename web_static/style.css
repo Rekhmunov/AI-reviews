@@ -1950,29 +1950,25 @@ button.secondary.danger:hover {
 #accountsTbody td.accounts-api-url-cell,
 #accountsTbody td.accounts-api-key-cell,
 #accountsTbody td.account-api-key-cell {
-  max-width: 0;
+  width: 100px;
+  max-width: 120px;
 }
 
 #accountsTbody .cell-break-anywhere {
-  white-space: normal;
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  white-space: nowrap;
 }
 
 #accountsTbody .account-api-key-wrap {
   display: flex;
   align-items: center;
   gap: 6px;
-  min-width: 0;
 }
 
 #accountsTbody .account-api-key-text {
-  display: block;
-  flex: 1 1 auto;
-  min-width: 0;
-  white-space: normal;
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  font-family: monospace;
+  font-size: 13px;
+  color: #475569;
+  white-space: nowrap;
 }
 
 #accountsTbody .account-key-copy-btn {

@@ -288,12 +288,9 @@ function labelFromMap(map, value) {
 function smartMaskSecret(value) {
   const clean = String(value || "");
   if (!clean) return "";
-  if (clean.length <= 4) return "*".repeat(clean.length);
+  // Show only first 2 chars + fixed 4 asterisks — compact, no long strings
   const start = clean.slice(0, 2);
-  const endLength = clean.length > 8 ? 3 : 1;
-  const end = clean.slice(-endLength);
-  const stars = "*".repeat(Math.max(clean.length - start.length - end.length, 1));
-  return `${start}${stars}${end}`;
+  return `${start}****`;
 }
 
 async function copyAccountApiKey(rawKey) {
