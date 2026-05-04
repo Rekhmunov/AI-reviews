@@ -2119,14 +2119,22 @@ async function loadChatMessages(conversationUid) {
   const merged = [];
   if (!dbMessages.length) {
     // No history in DB yet — show the last message text as a fallback.
-    // We don't know the direction so we skip the label entirely.
-    const sourceText = String(data.conversation?.message_text || activeConversation?.message_text || "").trim();
+    // Use last_message_at from conversation for the timestamp.
+    // last_sender from metadata tells us who wrote it.
+    const conv = data.conversation || activeConversation || {};
+    const sourceText = String(conv.message_text || "").trim();
     if (sourceText) {
+      const meta = conv.metadata || {};
+      const lastSender = String(meta.last_sender || "").toLowerCase();
+      // If we know the last sender, show it; otherwise show as inbound (buyer)
+      const direction = lastSender === "seller" ? "outbound" : "inbound";
+      const senderName = lastSender === "seller" ? "Продавец" : (conv.customer_name || "Покупатель");
       merged.push({
-        direction: null,
+        direction: direction,
         message_text: sourceText,
-        operator_name: null,
+        operator_name: senderName,
         send_status: "sent",
+        created_at: conv.last_message_at || conv.updated_at || null,
       });
     }
   }

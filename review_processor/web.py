@@ -2063,10 +2063,21 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         total_questions = 0
         total_chats = 0
         for account in accounts:
-            result = service.count_pending_for_account(
-                account=account,
-                since_date=since_date,
-            )
+            try:
+                result = service.count_pending_for_account(
+                    account=account,
+                    since_date=since_date,
+                )
+            except Exception:
+                result = {
+                    "account_id": int(account.get("id") or 0),
+                    "account_name": str(account.get("account_name") or ""),
+                    "marketplace": str(account.get("marketplace") or ""),
+                    "reviews": 0,
+                    "questions": 0,
+                    "chats": 0,
+                    "total": 0,
+                }
             items.append(result)
             total_reviews += int(result.get("reviews") or 0)
             total_questions += int(result.get("questions") or 0)
@@ -3622,7 +3633,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.post("/api/admin/sync-stop")
     def admin_stop_sync(request: Request) -> dict[str, object]:
-        _require_super_admin(request)
+        _require_admin(request)  # Any admin (not just super-admin) can stop sync
         was_running = False
         was_polling = False
         with sync_lock:
