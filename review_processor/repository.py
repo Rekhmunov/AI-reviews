@@ -1884,8 +1884,10 @@ class ReviewRepository:
         if super_admin_only:
             clauses.append("u.is_super_admin = TRUE")
         if owner_only:
+            # Include both tenant owners AND super-admins who have their own
+            # marketplace accounts.  Super-admins are self-owned (owner_user_id
+            # = id) so the owner_user_id check is enough.
             clauses.append("u.owner_user_id = u.id")
-            clauses.append("u.is_super_admin = FALSE")
         where_sql = " AND ".join(clauses)
         with self._connect() as conn:
             rows = conn.execute(
