@@ -253,6 +253,7 @@ def _is_protected_default_subgroup(group_id: str, subgroup: str) -> bool:
 class SyncRequest(BaseModel):
     account_id: int | None = Field(default=None, description="Specific marketplace account ID")
     all_accounts: bool = Field(default=True, description="Sync all active accounts")
+    account_ids: list[int] | None = Field(default=None, description="Specific account IDs to sync (from preview checkboxes)")
     total_expected: int | None = Field(default=None, ge=0, description="Expected total items from preview")
 
 
@@ -2110,10 +2111,18 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             if bool(user_sync_settings.get("use_sync_start_date"))
             else None
         )
-        if payload.all_accounts:
-            account_ids_snapshot = _snapshot_active_account_ids_for_user(user_id)
-            if not account_ids_snapshot:
+        if payload.all_accounts or payload.account_ids:
+            all_active = _snapshot_active_account_ids_for_user(user_id)
+            if not all_active:
                 raise HTTPException(status_code=400, detail="Нет активных кабинетов для синхронизации")
+            # Filter to selected accounts if checkboxes were used
+            if payload.account_ids:
+                selected = set(int(x) for x in payload.account_ids if x)
+                account_ids_snapshot = [aid for aid in all_active if aid in selected]
+                if not account_ids_snapshot:
+                    raise HTTPException(status_code=400, detail="Ни один из выбранных кабинетов не найден")
+            else:
+                account_ids_snapshot = all_active
             # Store expected total from preview for the progress bar
             if payload.total_expected is not None and payload.total_expected > 0:
                 with sync_lock:

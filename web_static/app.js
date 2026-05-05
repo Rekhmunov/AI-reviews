@@ -1322,6 +1322,20 @@ function renderRatingStars(value) {
   return `<span class="rating-stars" title="${rounded}/5">${full}${empty}</span>`;
 }
 
+function _updateSyncPreviewConfirmBtn() {
+  const confirmBtn = document.getElementById("syncPreviewConfirmBtn");
+  if (!confirmBtn) return;
+  const checks = document.querySelectorAll(".sync-preview-check");
+  const anyChecked = Array.from(checks).some((cb) => cb.checked);
+  confirmBtn.disabled = !anyChecked;
+}
+
+function _getSelectedSyncAccountIds() {
+  const checks = document.querySelectorAll(".sync-preview-check:checked");
+  const ids = Array.from(checks).map((cb) => Number(cb.value)).filter((n) => n > 0);
+  return ids.length > 0 ? ids : null;
+}
+
 function closeSyncPreviewModal() {
   setModalVisibility("syncPreviewModal", false);
 }
@@ -1390,10 +1404,16 @@ async function syncAll() {
       `<td class="sync-preview-count${n === 0 ? " zero" : ""}">${n.toLocaleString("ru-RU")}</td>`;
 
     let rows = items.map((item) => {
-      const name = String(item.account_name || `Кабинет #${item.account_id || "?"}`);
+      const aid = String(item.account_id || "");
+      const name = String(item.account_name || `Кабинет #${aid || "?"}`);
       const mp = String(item.marketplace || "").toUpperCase();
-      return `<tr>
-        <td>${name} <span class="small" style="color:#9ca3af">${mp}</span></td>
+      return `<tr data-account-id="${aid}">
+        <td>
+          <label class="sync-preview-check-label">
+            <input type="checkbox" class="sync-preview-check" value="${aid}" checked>
+            ${name} <span class="small" style="color:#9ca3af">${mp}</span>
+          </label>
+        </td>
         ${countCell(Number(item.reviews || 0))}
         ${countCell(Number(item.questions || 0))}
         ${countCell(Number(item.chats || 0))}
@@ -1401,8 +1421,8 @@ async function syncAll() {
     }).join("");
 
     if (items.length > 1) {
-      rows += `<tr class="total-row">
-        <td>Итого</td>
+      rows += `<tr class="total-row" id="syncPreviewTotalRow">
+        <td>Итого (выбрано)</td>
         ${countCell(Number(previewData.total_reviews || 0))}
         ${countCell(Number(previewData.total_questions || 0))}
         ${countCell(Number(previewData.total_chats || 0))}
@@ -1414,7 +1434,7 @@ async function syncAll() {
         <table class="sync-preview-table">
           <thead>
             <tr>
-              <th>Кабинет</th>
+              <th></th>
               <th>⭐ Отзывы</th>
               <th>❓ Вопросы</th>
               <th>💬 Чаты</th>
@@ -1422,6 +1442,10 @@ async function syncAll() {
           </thead>
           <tbody>${rows}</tbody>
         </table>`;
+      // Update confirm button state based on checkboxes
+      previewContent.querySelectorAll(".sync-preview-check").forEach((cb) => {
+        cb.addEventListener("change", _updateSyncPreviewConfirmBtn);
+      });
     }
     // Save total expected items for progress display
     if (previewOk && previewData) {
@@ -1463,7 +1487,13 @@ async function confirmSyncPreview() {
 
   try {
     const totalExpected = Number(sessionStorage.getItem("sync_total_items") || 0);
-    const payload = { all_accounts: true, account_id: null, total_expected: totalExpected || null };
+    const selectedIds = _getSelectedSyncAccountIds();
+    const payload = {
+      all_accounts: selectedIds === null,
+      account_id: null,
+      account_ids: selectedIds,
+      total_expected: totalExpected || null,
+    };
     const res = await fetch("/api/sync", {
       method: "POST",
       headers: jsonHeaders(),

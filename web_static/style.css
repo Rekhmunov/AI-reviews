@@ -1063,6 +1063,22 @@ button.secondary.danger:hover {
   font-size: 14px;
 }
 
+.sync-preview-check-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.sync-preview-check {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: #2563eb;
+  flex-shrink: 0;
+}
+
 .sync-progress-global {
   /* Fixed to top of main content area, not breaking the sidebar grid */
   position: fixed;
@@ -2386,6 +2402,11 @@ button.secondary.danger:hover {
 }
 
 @media (max-width: 768px) {
+  /* Hide emoji button in chat compose on mobile */
+  .chat-emoji-wrap {
+    display: none !important;
+  }
+
   .main {
     padding: 14px;
   }
