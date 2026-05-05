@@ -1567,14 +1567,14 @@ class ReviewAutomationService:
     ) -> int:
         """Sync chats from WB.
 
-        full_sync=True  (manual button): fetch chat list + full events history.
+        full_sync=True  (manual button): fetch chat list + full events history
+                        from the beginning (or resume_cursor if set).
                         Correctly assigns Answered/New buckets from the start.
-                        Takes 2-10 minutes depending on event history.
 
-        full_sync=False (60s auto-sync): fetch chat list ONLY (one request).
-                        Updates last_message_at so new buyer messages cause
-                        the chat to move back to New bucket within seconds.
-                        Takes ~1 second.
+        full_sync=False (60s auto-sync): fetch chat list (1 request) +
+                        incremental events since last cursor (1-2 requests).
+                        Determines last_sender per chat → correct New/Answered.
+                        Fast: only new events since last sync are downloaded.
         """
         fetch_chats = getattr(client, "fetch_chats", None)
         if not callable(fetch_chats):
@@ -1605,7 +1605,7 @@ class ReviewAutomationService:
                 enriched_rows = fetch_chats(
                     since_date=since_date,
                     stop_requested=stop_requested,
-                    enrich_with_events=full_sync,   # events only on manual sync
+                    enrich_with_events=full_sync,   # full history only on manual sync
                     page_progress_callback=_events_page_cb if full_sync else None,
                 )
             except TypeError:
@@ -1625,6 +1625,65 @@ class ReviewAutomationService:
                     },
                 )
             raise
+
+        # ── Incremental events fetch for auto-sync ────────────────────────────
+        # For 60s auto-sync (full_sync=False) fetch only NEW events since the
+        # last saved cursor.  This gives us the exact last_sender per chat
+        # so New/Answered bucket assignment is correct.
+        # Only 1-2 API calls needed because the cursor skips old events.
+        incremental_sender_map: dict[str, dict[str, object]] = {}
+        if not full_sync and hasattr(client, "_fetch_last_sender_map"):
+            resume_cursor = getattr(client, "_resume_events_cursor", None)
+            # Also try loading cursor from DB if not in memory
+            if not resume_cursor and account_id is not None:
+                try:
+                    acct = self.repository.get_marketplace_account(
+                        user_id=user_id,
+                        account_id=int(account_id),
+                        include_secrets=False,
+                    )
+                    if acct:
+                        extra = acct.get("extra_json") or acct.get("extra") or {}
+                        if isinstance(extra, str):
+                            import json as _json
+                            try:
+                                extra = _json.loads(extra)
+                            except Exception:
+                                extra = {}
+                        resume_cursor = str(extra.get("_wb_events_cursor") or "").strip() or None
+                        if resume_cursor:
+                            client._resume_events_cursor = resume_cursor  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+            _log.info(
+                "sync_chats auto-sync: fetching incremental events with cursor=%s",
+                resume_cursor,
+            )
+            try:
+                incremental_sender_map = client._fetch_last_sender_map(  # type: ignore[attr-defined]
+                    since_date=since_date,
+                    resume_cursor=resume_cursor,
+                    stop_requested=stop_requested,
+                )
+                # Update in-memory cursor and persist to DB
+                cursor_entry = incremental_sender_map.pop("_final_cursor", None)
+                if isinstance(cursor_entry, dict):
+                    new_cursor = str(cursor_entry.get("cursor") or "").strip()
+                    if new_cursor:
+                        client._resume_events_cursor = new_cursor  # type: ignore[attr-defined]
+                        if account_id is not None:
+                            try:
+                                self.repository.update_marketplace_account_extra_field(
+                                    user_id=user_id,
+                                    account_id=int(account_id),
+                                    key="_wb_events_cursor",
+                                    value=new_cursor,
+                                )
+                            except Exception:
+                                pass
+            except Exception as exc:
+                _log.warning("sync_chats auto-sync: incremental events fetch failed: %s", exc)
+                incremental_sender_map = {}
 
         # Compute date cutoff for filtering (only chats active on/after since_date)
         since_iso_filter: str | None = None
@@ -1660,18 +1719,28 @@ class ReviewAutomationService:
             if isinstance(meta, dict):
                 wb_events_row = list(meta.pop("_wb_events", None) or [])
 
-            # Determine bucket: seller replied → answered, buyer or unknown → new
+            # For auto-sync, override last_sender from incremental events map.
+            # This is the reliable source: /seller/events says exactly who sent
+            # the most recent message in each chat.
+            if incremental_sender_map and ext_id in incremental_sender_map:
+                ev_info = incremental_sender_map[ext_id]
+                ev_sender = str(ev_info.get("sender") or "").strip().lower()
+                if ev_sender:
+                    last_sender = ev_sender
+                    ev_ts = int(ev_info.get("ts") or 0)
+                    if ev_ts:
+                        last_msg_at = _normalize_timestamp(ev_ts) or last_msg_at
+
+            # Determine bucket based on last_sender from events
+            # seller replied last → Answered; buyer/unknown → New
             seller_replied_at: str | None = None
             if last_sender == "seller":
                 seller_replied_at = last_msg_at
 
-            # WB returns newMessages/unreadCount > 0 when the buyer has written
-            # and the seller has NOT replied yet.  Use this as the definitive
-            # "move to New" signal — more reliable than timestamp comparison.
-            # When last_sender is explicitly "seller" (from events), the seller
-            # replied last, so unread=0 even if the field is stale.
+            # buyer_has_unread: force "New" when events confirm buyer wrote last
+            # OR when WB's unread count says buyer has unseen messages.
             wb_unread = _to_positive_int(row.get("unread_count"), default=0)
-            buyer_has_unread = wb_unread > 0
+            buyer_has_unread = (last_sender == "client") or (wb_unread > 0 and last_sender != "seller")
 
             _log.info(
                 "sync_chats: chat %s customer=%r last_msg_at=%s last_sender=%s "
