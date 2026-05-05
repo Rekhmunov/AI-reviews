@@ -461,9 +461,13 @@ class OzonMarketplaceClient:
         if isinstance(nested_chat, dict):
             item = {**item, **nested_chat}
 
-        # Only process buyer-seller chats; skip support/system/promo chats.
+        # Only process buyer-seller chats.
+        # SELLER_SUPPORT = support tickets, SELLER_API_UPDATES = system notifications,
+        # UNSPECIFIED = Ozon system notifications (returns, payments, etc.) with
+        # user.type=NotificationUser — NOT real buyer messages.
+        # Only BUYER_SELLER contains real customer conversations.
         chat_type = str(item.get("chat_type") or "").upper()
-        if chat_type and chat_type not in ("BUYER_SELLER", "UNSPECIFIED", ""):
+        if chat_type and chat_type != "BUYER_SELLER":
             return None
 
         external_id = str(
