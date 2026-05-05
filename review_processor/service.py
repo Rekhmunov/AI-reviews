@@ -300,21 +300,32 @@ class OzonMarketplaceClient:
         except Exception:
             counts["reviews"] = 0
 
-        # Chats via v3/chat/list — total_unread_count is available in one request
+        # Chats: paginate v3/chat/list, count only BUYER_SELLER chats.
+        # Ozon API returns max 100 per page with no total_count field.
+        # Fetch up to 20 pages (~2000 chats) quickly for preview.
         if self.chats_path:
             try:
-                body = self._request_json(path=self.chats_path, payload={"limit": 1})
-                raw = body.get("result") if isinstance(body.get("result"), dict) else body
-                total_unread = int(raw.get("total_unread_count") or 0)
-                chats_list = raw.get("chats")
-                page_count = len(chats_list) if isinstance(chats_list, list) else 0
-                has_next = bool(raw.get("has_next") or raw.get("hasNext"))
-                if total_unread > 0:
-                    counts["chats"] = total_unread
-                elif has_next:
-                    counts["chats"] = page_count + 1
-                else:
-                    counts["chats"] = page_count
+                chat_total = 0
+                chat_cursor: str | None = None
+                for _pg in range(20):
+                    if _pg > 0:
+                        time.sleep(0.12)
+                    pg_payload: dict[str, object] = {"limit": 100}
+                    if chat_cursor:
+                        pg_payload["cursor"] = chat_cursor
+                    body = self._request_json(path=self.chats_path, payload=pg_payload)
+                    raw = body.get("result") if isinstance(body.get("result"), dict) else body
+                    chats_page = raw.get("chats") if isinstance(raw.get("chats"), list) else []
+                    for ch in chats_page:
+                        nested = ch.get("chat") if isinstance(ch.get("chat"), dict) else {}
+                        ct = str(nested.get("chat_type") or ch.get("chat_type") or "").upper()
+                        if ct in ("BUYER_SELLER", "UNSPECIFIED", ""):
+                            chat_total += 1
+                    has_next = bool(raw.get("has_next") or raw.get("hasNext"))
+                    chat_cursor = str(raw.get("cursor") or "").strip() or None
+                    if not has_next or not chat_cursor or len(chats_page) == 0:
+                        break
+                counts["chats"] = chat_total
             except Exception:
                 counts["chats"] = 0
 
@@ -365,11 +376,16 @@ class OzonMarketplaceClient:
     @staticmethod
     def _to_conversation(item: dict[str, object], *, kind: str) -> dict[str, object] | None:
         # Ozon v3/chat/list wraps chat info inside a nested "chat" object:
-        # {"chat": {"chat_id": "...", "chat_status": "OPENED", ...}, "unread_count": N}
+        # {"chat": {"chat_id": "...", "chat_status": "OPENED", "chat_type": "BUYER_SELLER"}, "unread_count": N}
         # Flatten it so the rest of the mapping works uniformly.
         nested_chat = item.get("chat")
         if isinstance(nested_chat, dict):
             item = {**item, **nested_chat}
+
+        # Only process buyer-seller chats; skip support/system/promo chats.
+        chat_type = str(item.get("chat_type") or "").upper()
+        if chat_type and chat_type not in ("BUYER_SELLER", "UNSPECIFIED", ""):
+            return None
 
         external_id = str(
             item.get("chat_id")
