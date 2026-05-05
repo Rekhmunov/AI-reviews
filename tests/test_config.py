@@ -10,7 +10,9 @@ class AppConfigTests(unittest.TestCase):
             "APP_ENV": os.environ.get("APP_ENV"),
             "APP_DB_URL": os.environ.get("APP_DB_URL"),
             "APP_SELF_REGISTRATION_ENABLED": os.environ.get("APP_SELF_REGISTRATION_ENABLED"),
+            "FEEDPILOT_TEST_MODE": os.environ.get("FEEDPILOT_TEST_MODE"),
         }
+        os.environ["FEEDPILOT_TEST_MODE"] = "1"
 
     def tearDown(self) -> None:
         for key, value in self._saved.items():
@@ -28,6 +30,13 @@ class AppConfigTests(unittest.TestCase):
         self.assertIsNone(cfg.db_url)
         self.assertFalse(cfg.self_registration_enabled)
         self.assertFalse(cfg.is_production)
+
+    def test_missing_db_url_raises_outside_test_mode(self) -> None:
+        os.environ.pop("FEEDPILOT_TEST_MODE", None)
+        os.environ.pop("APP_DB_URL", None)
+        with self.assertRaises(RuntimeError) as ctx:
+            load_app_config()
+        self.assertIn("APP_DB_URL", str(ctx.exception))
 
     def test_custom_values(self) -> None:
         os.environ["APP_ENV"] = "production"

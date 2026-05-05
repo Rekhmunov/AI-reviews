@@ -31,8 +31,14 @@ def load_app_config() -> AppConfig:
     app_env = (os.getenv("APP_ENV") or "development").strip().lower() or "development"
     db_url_raw = (os.getenv("APP_DB_URL") or "").strip()
     db_url = db_url_raw or None
-    if app_env == "production" and not db_url:
-        raise RuntimeError("APP_DB_URL must be set when APP_ENV=production (PostgreSQL-only production mode).")
+    # PostgreSQL is required in all environments except the test runner
+    # (tests pass db_path directly to ReviewRepository and never call
+    # load_app_config, so this guard does not break them).
+    if not db_url and os.getenv("FEEDPILOT_TEST_MODE") != "1":
+        raise RuntimeError(
+            "APP_DB_URL is required. Set it to a PostgreSQL DSN "
+            "(postgresql://user:password@host:5432/dbname)."
+        )
     self_registration_enabled = _env_bool("APP_SELF_REGISTRATION_ENABLED", False)
     return AppConfig(
         app_env=app_env,

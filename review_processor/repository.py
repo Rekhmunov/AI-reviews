@@ -1051,6 +1051,53 @@ class ReviewRepository:
                 ADD COLUMN IF NOT EXISTS last_sent_at TIMESTAMPTZ
                 """
             )
+            # Convert last_sent_at and last_send_attempt_at from TIMESTAMPTZ to
+            # TEXT so they are stored as ISO-8601 strings, consistent with
+            # last_message_at and all other timestamp columns.  This makes
+            # lexicographic comparisons correct and removes implicit type
+            # coercion surprises.
+            conn.execute(
+                """
+                DO $$
+                BEGIN
+                    IF EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'conversation_items'
+                          AND column_name = 'last_sent_at'
+                          AND data_type = 'timestamp with time zone'
+                    ) THEN
+                        ALTER TABLE conversation_items
+                            ALTER COLUMN last_sent_at TYPE TEXT
+                            USING CASE
+                                WHEN last_sent_at IS NULL THEN NULL
+                                ELSE to_char(last_sent_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"+00:00"')
+                            END;
+                    END IF;
+                END;
+                $$
+                """
+            )
+            conn.execute(
+                """
+                DO $$
+                BEGIN
+                    IF EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'conversation_items'
+                          AND column_name = 'last_send_attempt_at'
+                          AND data_type = 'timestamp with time zone'
+                    ) THEN
+                        ALTER TABLE conversation_items
+                            ALTER COLUMN last_send_attempt_at TYPE TEXT
+                            USING CASE
+                                WHEN last_send_attempt_at IS NULL THEN NULL
+                                ELSE to_char(last_send_attempt_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"+00:00"')
+                            END;
+                    END IF;
+                END;
+                $$
+                """
+            )
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS conversation_messages (
@@ -4159,10 +4206,16 @@ class ReviewRepository:
             else:
                 base_clauses.append("substr(updated_at, 1, 10) <= ?")
             base_params.append(date_to)
+        # Both last_sent_at and last_message_at are stored as ISO-8601 TEXT.
+        # ISO-8601 strings with timezone sort correctly lexicographically, so
+        # a plain TEXT comparison works on both SQLite and PostgreSQL.
+        # We cast explicitly to TEXT in PostgreSQL to avoid implicit type
+        # coercion (the column was altered to TIMESTAMPTZ in some migrations
+        # but data is inserted as TEXT strings).
         if self.is_postgres:
             processed_by_operator_clause = (
                 "last_sent_at IS NOT NULL "
-                "AND COALESCE(last_message_at, to_timestamp(0)) <= last_sent_at"
+                "AND (last_message_at IS NULL OR last_sent_at::text >= last_message_at::text)"
             )
         else:
             processed_by_operator_clause = (
