@@ -1145,70 +1145,82 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     auto_sync_stop_event.wait(AUTO_SYNC_INTERVAL_SECONDS)
                     if auto_sync_stop_event.is_set():
                         break
-                    with sync_lock:
-                        polling_enabled = bool(sync_state.get("polling_enabled"))
-                        polling_user_id_raw = sync_state.get("polling_user_id")
-                        polling_since_raw = sync_state.get("polling_since_date")
-                        polling_accounts_raw = sync_state.get("polling_account_ids")
-                    if not polling_enabled:
-                        continue
+                    # Read sync target from DB on every iteration so the loop
+                    # works even if in-memory sync_state was cleared (e.g. Stop
+                    # button pressed, then the next auto-sync still fires).
+                    # This makes polling resilient to manual Stop and restarts.
                     try:
-                        polling_user_id = int(polling_user_id_raw)
-                    except (TypeError, ValueError):
+                        owner_users_for_poll = repository.list_users(owner_only=True)
+                    except Exception:
                         continue
-                    if polling_user_id <= 0:
-                        continue
-                    account_ids: list[int] = []
-                    if isinstance(polling_accounts_raw, list):
-                        for value in polling_accounts_raw:
-                            try:
-                                parsed = int(value)
-                            except (TypeError, ValueError):
+                    for poll_user in owner_users_for_poll:
+                        try:
+                            polling_user_id = int(poll_user.get("id") or 0)
+                            if polling_user_id <= 0:
                                 continue
-                            if parsed > 0 and parsed not in account_ids:
-                                account_ids.append(parsed)
-                    if not account_ids:
-                        continue
-                    run_started_at = _now_iso()
-                    try:
-                        result = _run_sync_for_user(
-                            user_id=polling_user_id,
-                            since_date=str(polling_since_raw or "").strip() or None,
-                            account_ids=account_ids,
-                            run_started_at=run_started_at,
-                        )
-                        with sync_lock:
-                            sync_state["last_poll_at"] = _now_iso()
-                            sync_state["last_poll_result"] = {
-                                "ok": True,
-                                "run_started_at": run_started_at,
-                                "accounts": int(result.get("accounts") or 0),
-                                "success_accounts": int(result.get("success_accounts") or 0),
-                                "failed_accounts": int(result.get("failed_accounts") or 0),
-                                "loaded": int(result.get("loaded") or 0),
-                                "loaded_conversations": int(result.get("loaded_conversations") or 0),
-                                "account_ids": list(account_ids),
-                                "errors": _serialize_sync_error_details(result.get("errors")),
-                                "cancelled": bool(result.get("cancelled")),
-                            }
-                    except HTTPException as exc:
-                        with sync_lock:
-                            sync_state["last_poll_at"] = _now_iso()
-                            sync_state["last_poll_result"] = {
-                                "ok": False,
-                                "run_started_at": run_started_at,
-                                "error": str(exc.detail),
-                                "account_ids": list(account_ids),
-                            }
-                    except Exception as exc:  # pragma: no cover - defensive background guard
-                        with sync_lock:
-                            sync_state["last_poll_at"] = _now_iso()
-                            sync_state["last_poll_result"] = {
-                                "ok": False,
-                                "run_started_at": run_started_at,
-                                "error": str(exc),
-                                "account_ids": list(account_ids),
-                            }
+                            poll_accounts = [
+                                item for item in
+                                repository.list_marketplace_accounts(polling_user_id, include_secrets=False)
+                                if item.get("is_active")
+                            ]
+                            account_ids = [int(a["id"]) for a in poll_accounts if a.get("id")]
+                            if not account_ids:
+                                continue
+                            poll_sync_settings = repository.get_user_sync_settings(user_id=polling_user_id)
+                            polling_since_raw = (
+                                str(poll_sync_settings.get("sync_start_date") or "").strip()
+                                if bool(poll_sync_settings.get("use_sync_start_date"))
+                                else None
+                            )
+                            # Update in-memory state so UI can see polling is active
+                            with sync_lock:
+                                sync_state["polling_enabled"] = True
+                                sync_state["polling_user_id"] = polling_user_id
+                                sync_state["polling_account_ids"] = account_ids
+                                sync_state["polling_since_date"] = polling_since_raw
+                        except Exception:
+                            continue
+                        run_started_at = _now_iso()
+                        try:
+                            result = _run_sync_for_user(
+                                user_id=polling_user_id,
+                                since_date=polling_since_raw or None,
+                                account_ids=account_ids,
+                                run_started_at=run_started_at,
+                            )
+                            with sync_lock:
+                                sync_state["last_poll_at"] = _now_iso()
+                                sync_state["last_poll_result"] = {
+                                    "ok": True,
+                                    "run_started_at": run_started_at,
+                                    "accounts": int(result.get("accounts") or 0),
+                                    "success_accounts": int(result.get("success_accounts") or 0),
+                                    "failed_accounts": int(result.get("failed_accounts") or 0),
+                                    "loaded": int(result.get("loaded") or 0),
+                                    "loaded_conversations": int(result.get("loaded_conversations") or 0),
+                                    "account_ids": list(account_ids),
+                                    "errors": _serialize_sync_error_details(result.get("errors")),
+                                    "cancelled": bool(result.get("cancelled")),
+                                }
+                        except HTTPException as exc:
+                            with sync_lock:
+                                sync_state["last_poll_at"] = _now_iso()
+                                sync_state["last_poll_result"] = {
+                                    "ok": False,
+                                    "run_started_at": run_started_at,
+                                    "error": str(exc.detail),
+                                    "account_ids": list(account_ids),
+                                }
+                        except Exception as exc:
+                            with sync_lock:
+                                sync_state["last_poll_at"] = _now_iso()
+                                sync_state["last_poll_result"] = {
+                                    "ok": False,
+                                    "run_started_at": run_started_at,
+                                    "error": str(exc),
+                                    "account_ids": list(account_ids),
+                                }
+                        break  # one user per loop iteration
 
             worker = threading.Thread(
                 target=_auto_sync_loop,
