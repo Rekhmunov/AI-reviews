@@ -550,11 +550,21 @@ def _normalize_role(raw_role: object) -> str:
 
 
 def create_app(config: AppConfig | None = None) -> FastAPI:
-    # Configure our loggers to propagate at INFO level.
-    # Do NOT call basicConfig here — uvicorn owns the root handler setup.
-    # Instead set the level on our own package logger explicitly so messages
-    # always reach uvicorn's handler regardless of root logger configuration.
-    logging.getLogger("review_processor").setLevel(logging.INFO)
+    # Uvicorn sets the root logger level to WARNING, which silently drops our
+    # INFO messages even if the child logger level is INFO.
+    # Fix: attach a StreamHandler directly to our package logger and disable
+    # propagation to root.  This guarantees INFO output to stderr → journald
+    # regardless of uvicorn's root logger configuration.
+    _rp_logger = logging.getLogger("review_processor")
+    if not _rp_logger.handlers:
+        _h = logging.StreamHandler()
+        _h.setLevel(logging.DEBUG)
+        _h.setFormatter(logging.Formatter(
+            "%(asctime)s %(levelname)s %(name)s: %(message)s"
+        ))
+        _rp_logger.addHandler(_h)
+    _rp_logger.setLevel(logging.INFO)
+    _rp_logger.propagate = False  # bypass root logger whose level is WARNING
     app_config = config or load_app_config()
     repository = ReviewRepository(db_url=app_config.db_url)
     service = ReviewAutomationService(repository)
