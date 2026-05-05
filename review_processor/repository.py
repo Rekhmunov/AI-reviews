@@ -4430,6 +4430,26 @@ class ReviewRepository:
             )
         return int(result.rowcount or 0)
 
+    def update_conversation_customer_name(
+        self,
+        *,
+        user_id: int,
+        conversation_uid: str,
+        customer_name: str,
+    ) -> bool:
+        """Update customer_name for a conversation (used when API enriches name later)."""
+        with self._connect() as conn:
+            result = conn.execute(
+                """
+                UPDATE conversation_items
+                SET customer_name = ?, updated_at = ?
+                WHERE user_id = ? AND conversation_uid = ?
+                  AND (customer_name IS NULL OR TRIM(customer_name) = '')
+                """,
+                (customer_name, _utc_now(), user_id, conversation_uid),
+            )
+        return result.rowcount > 0
+
     def mark_conversation_answered(self, *, user_id: int, conversation_uid: str) -> bool:
         """Set last_sent_at = now so the chat moves to the 'answered' bucket.
 

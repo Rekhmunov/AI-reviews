@@ -1991,46 +1991,68 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                         include_secrets=True,
                     )
                     if account:
-                        client = service._build_client(account)
-                        if hasattr(client, "_request_json") and hasattr(client, "chats_history_path"):
-                            hist_body = client._request_json(  # type: ignore[attr-defined]
-                                path=client.chats_history_path,  # type: ignore[attr-defined]
-                                payload={"chat_id": ext_id, "limit": 100, "direction": "Backward"},
-                            )
-                            ozon_msgs = hist_body.get("messages") or []
-                            history_ozon: list[dict[str, object]] = []
-                            for msg in ozon_msgs:
-                                if not isinstance(msg, dict):
-                                    continue
-                                user_info = msg.get("user") or {}
-                                user_type = str(user_info.get("type") or "").lower()
-                                msg_id = str(msg.get("message_id") or "").strip()
-                                msg_ts = str(msg.get("created_at") or "")
-                                data_parts = msg.get("data") or []
-                                msg_text = " ".join(str(p) for p in data_parts if p) if isinstance(data_parts, list) else str(data_parts or "")
-                                if msg.get("is_image") and not msg_text:
-                                    msg_text = "[Фото]"
-                                if not msg_id or not msg_text:
-                                    continue
-                                direction = "inbound" if user_type == "customer" else "outbound"
-                                history_ozon.append({
-                                    "direction": direction,
-                                    "message_text": msg_text,
-                                    "idempotency_key": f"ozon-msg-{msg_id}",
-                                    "created_at": msg_ts,
-                                    "operator_name": "" if direction == "inbound" else "Продавец",
-                                })
-                            if history_ozon:
-                                repository.bulk_insert_chat_history_messages(
-                                    user_id=int(user["id"]),
-                                    conversation_uid=conversation_uid,
-                                    messages=history_ozon,
+                            client = service._build_client(account)
+                            if hasattr(client, "_request_json") and hasattr(client, "chats_history_path"):
+                                hist_body = client._request_json(  # type: ignore[attr-defined]
+                                    path=client.chats_history_path,  # type: ignore[attr-defined]
+                                    payload={"chat_id": ext_id, "limit": 100, "direction": "Backward"},
                                 )
-                                messages = repository.list_conversation_messages(
-                                    user_id=int(user["id"]),
-                                    conversation_uid=conversation_uid,
-                                    limit=limit,
-                                )
+                                ozon_msgs = hist_body.get("messages") or []
+                                history_ozon: list[dict[str, object]] = []
+                                buyer_uid_web: str = ""
+                                order_num_web: str = ""
+                                for msg in ozon_msgs:
+                                    if not isinstance(msg, dict):
+                                        continue
+                                    user_info = msg.get("user") or {}
+                                    user_type = str(user_info.get("type") or "").lower()
+                                    msg_id = str(msg.get("message_id") or "").strip()
+                                    msg_ts = str(msg.get("created_at") or "")
+                                    data_parts = msg.get("data") or []
+                                    msg_text = " ".join(str(p) for p in data_parts if p) if isinstance(data_parts, list) else str(data_parts or "")
+                                    if msg.get("is_image") and not msg_text:
+                                        msg_text = "[Фото]"
+                                    if user_type == "customer":
+                                        uid = str(user_info.get("id") or "").strip()
+                                        if uid and not buyer_uid_web:
+                                            buyer_uid_web = uid
+                                        ctx = msg.get("context") or {}
+                                        on = str(ctx.get("order_number") or "").strip()
+                                        if on and not order_num_web:
+                                            order_num_web = on
+                                    if not msg_id or not msg_text:
+                                        continue
+                                    direction = "inbound" if user_type == "customer" else "outbound"
+                                    history_ozon.append({
+                                        "direction": direction,
+                                        "message_text": msg_text,
+                                        "idempotency_key": f"ozon-msg-{msg_id}",
+                                        "created_at": msg_ts,
+                                        "operator_name": "" if direction == "inbound" else "Продавец",
+                                    })
+                                # Update customer_name if still missing
+                                if not conversation.get("customer_name"):
+                                    new_name = (
+                                        f"Заказ {order_num_web}" if order_num_web
+                                        else (f"Покупатель {buyer_uid_web}" if buyer_uid_web else None)
+                                    )
+                                    if new_name:
+                                        repository.update_conversation_customer_name(
+                                            user_id=int(user["id"]),
+                                            conversation_uid=conversation_uid,
+                                            customer_name=new_name,
+                                        )
+                                if history_ozon:
+                                    repository.bulk_insert_chat_history_messages(
+                                        user_id=int(user["id"]),
+                                        conversation_uid=conversation_uid,
+                                        messages=history_ozon,
+                                    )
+                                    messages = repository.list_conversation_messages(
+                                        user_id=int(user["id"]),
+                                        conversation_uid=conversation_uid,
+                                        limit=limit,
+                                    )
             except Exception:
                 pass
         return {

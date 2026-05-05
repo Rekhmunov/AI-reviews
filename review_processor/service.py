@@ -257,6 +257,8 @@ class OzonMarketplaceClient:
                 history_rows: list[dict[str, object]] = []
                 last_sender_type: str = ""
                 last_msg_ts: str = ""
+                buyer_user_id: str = ""
+                order_number: str = ""
                 for msg in messages:
                     if not isinstance(msg, dict):
                         continue
@@ -271,6 +273,15 @@ class OzonMarketplaceClient:
                     if not last_sender_type and user_type:
                         last_sender_type = user_type
                         last_msg_ts = msg_ts
+                    # Extract buyer user_id and order_number for customer_name
+                    if user_type == "customer":
+                        uid = str(user_info.get("id") or "").strip()
+                        if uid and not buyer_user_id:
+                            buyer_user_id = uid
+                        ctx = msg.get("context") or {}
+                        on = str(ctx.get("order_number") or "").strip()
+                        if on and not order_number:
+                            order_number = on
                     if msg_id and msg_text:
                         direction = "inbound" if user_type == "customer" else "outbound"
                         operator = "" if user_type == "customer" else "Продавец"
@@ -288,6 +299,12 @@ class OzonMarketplaceClient:
                     chat["last_sender"] = "seller"
                 if last_msg_ts and not chat.get("last_message_at"):
                     chat["last_message_at"] = last_msg_ts
+                # Ozon API does not provide buyer name — use order_number or user_id
+                if not chat.get("customer_name"):
+                    if order_number:
+                        chat["customer_name"] = f"Заказ {order_number}"
+                    elif buyer_user_id:
+                        chat["customer_name"] = f"Покупатель {buyer_user_id}"
                 meta = chat.get("metadata")
                 if isinstance(meta, dict) and history_rows:
                     meta["_ozon_history"] = history_rows
