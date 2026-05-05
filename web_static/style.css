@@ -2430,17 +2430,25 @@ button.secondary.danger:hover {
   }
 
   /* ── Mobile chat layout: one panel at a time ── */
-  /* Use :not(.hidden) to avoid overriding the section visibility logic */
+  /* Remove .main side padding for chats so it fills the full viewport width */
+  .main:has(#section-chats:not(.hidden)) {
+    padding-left: 0;
+    padding-right: 0;
+  }
+
   #section-chats:not(.hidden) {
     min-height: 0;
     display: flex;
     flex-direction: column;
-    height: calc(100dvh - var(--mobile-topbar-height, 62px) - 16px);
+    height: calc(100dvh - var(--mobile-topbar-height, 62px));
     overflow: hidden;
+    width: 100%;
+    max-width: 100%;
   }
 
   .chats-topbar {
     flex-shrink: 0;
+    padding: 0 12px;
   }
 
   #section-chats .chats-shell {
