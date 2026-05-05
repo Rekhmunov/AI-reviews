@@ -1979,6 +1979,60 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                             )
             except Exception:
                 pass
+        # For Ozon chats: fetch history from /v3/chat/history when empty or refresh=1
+        if _should_refresh and str(conversation.get("source") or "") == "ozon":
+            try:
+                account_id = conversation.get("account_id")
+                ext_id = str(conversation.get("external_conversation_id") or "")
+                if account_id and ext_id:
+                    account = repository.get_marketplace_account(
+                        user_id=int(user["id"]),
+                        account_id=int(account_id),
+                        include_secrets=True,
+                    )
+                    if account:
+                        client = service._build_client(account)
+                        if hasattr(client, "_request_json") and hasattr(client, "chats_history_path"):
+                            hist_body = client._request_json(  # type: ignore[attr-defined]
+                                path=client.chats_history_path,  # type: ignore[attr-defined]
+                                payload={"chat_id": ext_id, "limit": 100, "direction": "Backward"},
+                            )
+                            ozon_msgs = hist_body.get("messages") or []
+                            history_ozon: list[dict[str, object]] = []
+                            for msg in ozon_msgs:
+                                if not isinstance(msg, dict):
+                                    continue
+                                user_info = msg.get("user") or {}
+                                user_type = str(user_info.get("type") or "").lower()
+                                msg_id = str(msg.get("message_id") or "").strip()
+                                msg_ts = str(msg.get("created_at") or "")
+                                data_parts = msg.get("data") or []
+                                msg_text = " ".join(str(p) for p in data_parts if p) if isinstance(data_parts, list) else str(data_parts or "")
+                                if msg.get("is_image") and not msg_text:
+                                    msg_text = "[Фото]"
+                                if not msg_id or not msg_text:
+                                    continue
+                                direction = "inbound" if user_type == "customer" else "outbound"
+                                history_ozon.append({
+                                    "direction": direction,
+                                    "message_text": msg_text,
+                                    "idempotency_key": f"ozon-msg-{msg_id}",
+                                    "created_at": msg_ts,
+                                    "operator_name": "" if direction == "inbound" else "Продавец",
+                                })
+                            if history_ozon:
+                                repository.bulk_insert_chat_history_messages(
+                                    user_id=int(user["id"]),
+                                    conversation_uid=conversation_uid,
+                                    messages=history_ozon,
+                                )
+                                messages = repository.list_conversation_messages(
+                                    user_id=int(user["id"]),
+                                    conversation_uid=conversation_uid,
+                                    limit=limit,
+                                )
+            except Exception:
+                pass
         return {
             "conversation": conversation,
             "messages": messages,

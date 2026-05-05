@@ -133,6 +133,7 @@ class OzonMarketplaceClient:
     cursor_keys: tuple[str, ...] = ("last_id", "lastId", "next_last_id", "cursor")
     questions_path: str | None = None
     chats_path: str | None = None
+    chats_history_path: str = "/v3/chat/history"
     reply_path: str | None = "/v1/review/comment/create"
     reply_review_id_field: str = "review_id"
     reply_text_field: str = "text"
@@ -208,13 +209,91 @@ class OzonMarketplaceClient:
         *,
         since_date: str | None = None,
         stop_requested: Callable[[], bool] | None = None,
+        enrich_with_events: bool = False,
+        page_progress_callback: Callable[[int, int], None] | None = None,
     ) -> list[dict[str, object]]:
-        return self._fetch_conversation_stream(
+        """Fetch Ozon buyer-seller chats.
+
+        enrich_with_events=True (manual full sync): for each chat fetch the
+        last message via /v3/chat/history to determine last_sender and
+        populate message history.  Analogous to WB's _fetch_last_sender_map.
+
+        enrich_with_events=False (60s auto-sync): return chat list only.
+        last_sender is derived from unread_count (>0 → buyer wrote last).
+        """
+        chats = self._fetch_conversation_stream(
             path=self.chats_path,
             kind="chat",
             since_date=since_date,
             stop_requested=stop_requested,
         )
+        if not chats or not enrich_with_events:
+            return chats
+
+        # Enrich each chat with its last message to determine last_sender.
+        # Ozon /v3/chat/history returns messages newest-first (direction=Backward).
+        # user.type = "Customer" → buyer, "Seller" → seller.
+        total = len(chats)
+        for idx, chat in enumerate(chats):
+            _raise_if_stop_requested(stop_requested, source="ozon")
+            if idx > 0:
+                time.sleep(0.12)  # ≤10 req/s limit
+            if page_progress_callback:
+                try:
+                    page_progress_callback(idx + 1, total)
+                except Exception:
+                    pass
+            ext_id = str(chat.get("external_id") or "").strip()
+            if not ext_id:
+                continue
+            try:
+                hist_body = self._request_json(
+                    path=self.chats_history_path,
+                    payload={"chat_id": ext_id, "limit": 20, "direction": "Backward"},
+                )
+                messages = hist_body.get("messages") or []
+                if not isinstance(messages, list):
+                    continue
+                history_rows: list[dict[str, object]] = []
+                last_sender_type: str = ""
+                last_msg_ts: str = ""
+                for msg in messages:
+                    if not isinstance(msg, dict):
+                        continue
+                    user_info = msg.get("user") or {}
+                    user_type = str(user_info.get("type") or "").lower()
+                    msg_ts = str(msg.get("created_at") or "")
+                    msg_id = str(msg.get("message_id") or "")
+                    data_parts = msg.get("data") or []
+                    msg_text = " ".join(str(p) for p in data_parts if p) if isinstance(data_parts, list) else str(data_parts or "")
+                    if msg.get("is_image"):
+                        msg_text = msg_text or "[Фото]"
+                    if not last_sender_type and user_type:
+                        last_sender_type = user_type
+                        last_msg_ts = msg_ts
+                    if msg_id and msg_text:
+                        direction = "inbound" if user_type == "customer" else "outbound"
+                        operator = "" if user_type == "customer" else "Продавец"
+                        history_rows.append({
+                            "direction": direction,
+                            "message_text": msg_text,
+                            "idempotency_key": f"ozon-msg-{msg_id}",
+                            "created_at": msg_ts,
+                            "operator_name": operator,
+                        })
+                # Map Ozon user type to our sender labels
+                if last_sender_type == "customer":
+                    chat["last_sender"] = "client"
+                elif last_sender_type in ("seller", "crm"):
+                    chat["last_sender"] = "seller"
+                if last_msg_ts and not chat.get("last_message_at"):
+                    chat["last_message_at"] = last_msg_ts
+                meta = chat.get("metadata")
+                if isinstance(meta, dict) and history_rows:
+                    meta["_ozon_history"] = history_rows
+            except Exception:
+                continue
+        return chats
 
     def _fetch_conversation_stream(
         self,
@@ -1801,8 +1880,10 @@ class ReviewAutomationService:
             last_sender = str(row.get("last_sender") or "").strip().lower()
             meta = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
             wb_events_row: list[dict[str, object]] = []
+            ozon_history_row: list[dict[str, object]] = []
             if isinstance(meta, dict):
                 wb_events_row = list(meta.pop("_wb_events", None) or [])
+                ozon_history_row = list(meta.pop("_ozon_history", None) or [])
 
             # For auto-sync, override last_sender from incremental events map.
             # This is the reliable source: /seller/events says exactly who sent
@@ -1903,6 +1984,17 @@ class ReviewAutomationService:
                         )
                     except Exception:
                         pass
+
+            # Save Ozon message history (from /v3/chat/history enrichment)
+            if ozon_history_row:
+                try:
+                    self.repository.bulk_insert_chat_history_messages(
+                        user_id=user_id,
+                        conversation_uid=conv_uid,
+                        messages=ozon_history_row,
+                    )
+                except Exception:
+                    pass
 
         # Also delete any stale chats that survived from previous syncs
         if apply_date_filter and since_date and account_id is not None:
@@ -2400,6 +2492,7 @@ class ReviewAutomationService:
                 max_pages=_to_positive_int(extra.get("max_pages"), default=20),
                 questions_path=str(extra.get("questions_path")) if extra.get("questions_path") else None,
                 chats_path=str(extra.get("chats_path") or "/v3/chat/list"),
+                chats_history_path=str(extra.get("chats_history_path") or "/v3/chat/history"),
                 reply_path=str(extra.get("reply_path") or "/v1/review/comment/create"),
                 reply_review_id_field=str(extra.get("reply_review_id_field") or "review_id"),
                 reply_text_field=str(extra.get("reply_text_field") or "text"),
