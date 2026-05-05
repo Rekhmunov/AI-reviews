@@ -4405,6 +4405,22 @@ class ReviewRepository:
             )
         return result.rowcount > 0
 
+    def move_conversation_to_new(self, *, user_id: int, conversation_uid: str) -> bool:
+        """Clear last_sent_at so the chat moves to the 'New' bucket.
+
+        Used when the operator manually moves an answered chat back to New.
+        """
+        with self._connect() as conn:
+            result = conn.execute(
+                """
+                UPDATE conversation_items
+                SET last_sent_at = NULL, updated_at = ?
+                WHERE user_id = ? AND conversation_uid = ?
+                """,
+                (_utc_now(), user_id, conversation_uid),
+            )
+        return result.rowcount > 0
+
     def repair_chat_answered_status(self, *, user_id: int) -> int:
         """Fix chats where metadata says last_sender=seller but last_sent_at is NULL.
 

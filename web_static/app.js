@@ -582,6 +582,7 @@ function setChatBucket(bucket) {
   chatsState.bucket = bucket;
   document.getElementById("chats-tab-new")?.classList.toggle("active", bucket === "new");
   document.getElementById("chats-tab-processed")?.classList.toggle("active", bucket === "processed");
+  _updateChatBucketButtons();
   loadChats();
 }
 
@@ -2318,6 +2319,7 @@ function stopChatAutoRefresh() {
 function selectChatConversation(conversationUid) {
   chatsState.activeConversationUid = String(conversationUid || "");
   renderChatsList();
+  _updateChatBucketButtons();
   // On mobile: switch to thread panel when a chat is selected
   if (isMobileChatView() && chatsState.activeConversationUid) {
     showChatThreadPanel();
@@ -2610,6 +2612,22 @@ async function markChatClosed() {
   await setConversationStatus(uid, "closed", "chat");
 }
 
+function _updateChatBucketButtons() {
+  const bucket = chatsState.bucket || "new";
+  const toAnsweredBtn = document.getElementById("chatMoveToAnsweredBtn");
+  const toNewBtn = document.getElementById("chatMoveToNewBtn");
+  if (!toAnsweredBtn || !toNewBtn) return;
+  if (bucket === "processed") {
+    // In "Answered" tab → show "Move to New", hide "Move to Answered"
+    toAnsweredBtn.classList.add("hidden");
+    toNewBtn.classList.remove("hidden");
+  } else {
+    // In "New" tab (or "all") → show "Move to Answered", hide "Move to New"
+    toAnsweredBtn.classList.remove("hidden");
+    toNewBtn.classList.add("hidden");
+  }
+}
+
 async function markChatAnswered() {
   const uid = String(chatsState.activeConversationUid || "").trim();
   if (!uid) {
@@ -2632,6 +2650,31 @@ async function markChatAnswered() {
     await loadChats();
   } catch (err) {
     if (info) info.textContent = "Ошибка: не удалось перенести в отвеченные";
+  }
+}
+
+async function markChatNew() {
+  const uid = String(chatsState.activeConversationUid || "").trim();
+  if (!uid) {
+    alert("Сначала выберите чат");
+    return;
+  }
+  const info = document.getElementById("chatsInfo");
+  try {
+    const res = await fetch(`/api/conversations/${encodeURIComponent(uid)}/move-to-new`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({}),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      if (info) info.textContent = "Ошибка: " + (data.detail || "не удалось перенести в новые");
+      return;
+    }
+    if (info) info.textContent = "Чат перенесён в «Новые»";
+    await loadChats();
+  } catch (err) {
+    if (info) info.textContent = "Ошибка: не удалось перенести в новые";
   }
 }
 

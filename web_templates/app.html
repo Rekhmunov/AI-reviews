@@ -315,7 +315,8 @@
                 </div>
                 <button id="chatReplySendBtn" type="button" onclick="sendChatReply()">Отправить</button>
                 <button id="chatQuickTemplatesBtn" type="button" class="secondary" onclick="openChatQuickTemplatesModal()">Шаблоны</button>
-                <button type="button" class="secondary" onclick="markChatAnswered()">Перенести в отвеченные</button>
+                <button id="chatMoveToAnsweredBtn" type="button" class="secondary" onclick="markChatAnswered()">Перенести в отвеченные</button>
+                <button id="chatMoveToNewBtn" type="button" class="secondary hidden" onclick="markChatNew()">Перенести в новые</button>
               </div>
             </div>
           </section>
@@ -643,6 +644,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=34"></script>
+  <script src="/static/app.js?v=35"></script>
 </body>
 </html>

@@ -1857,6 +1857,39 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
         return {"ok": True}
 
+    @app.post("/api/conversations/{conversation_uid}/move-to-new")
+    def move_conversation_to_new(
+        conversation_uid: str,
+        request: Request,
+    ) -> dict[str, object]:
+        """Move a chat to the 'new' bucket by clearing last_sent_at.
+
+        Used when the operator manually moves an answered chat back to New,
+        e.g. if they want to re-process it.
+        """
+        user = _require_user(request)
+        _require_manager_scope_for_conversation(user, conversation_uid)
+        conversation = repository.get_conversation(
+            user_id=int(user["id"]),
+            conversation_uid=conversation_uid,
+        )
+        if conversation is None:
+            raise HTTPException(status_code=404, detail="Диалог не найден")
+        updated = repository.move_conversation_to_new(
+            user_id=int(user["id"]),
+            conversation_uid=conversation_uid,
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Диалог не найден")
+        repository.log_review_action(
+            user_id=int(user["id"]),
+            review_uid=conversation_uid,
+            action_type="conversation_move_to_new",
+            actor=str(user["email"]),
+            details={"manual": True},
+        )
+        return {"ok": True}
+
     @app.post("/api/conversations/{conversation_uid}/reply")
     def reply_conversation(
         conversation_uid: str,
