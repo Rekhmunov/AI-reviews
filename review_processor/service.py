@@ -1730,8 +1730,121 @@ class ReviewAutomationService:
                 except Exception:
                     pass
 
-        # Persist the final events cursor for the next incremental sync
-        if account_id is not None and hasattr(client, "_resume_events_cursor"):
+        # ── Fast-path incremental event fetch (auto-sync only) ───────────────
+        # For full_sync the events are already included in enriched_rows above.
+        # For the fast 60s auto-sync we fetch ONLY events newer than the stored
+        # cursor — typically just a handful of messages, completes in <1 second.
+        # This populates conversation_messages so new buyer messages appear in
+        # the thread and the correct bucket (New/Answered) is set immediately.
+        if not full_sync and account_id is not None and hasattr(client, "_fetch_last_sender_map"):
+            try:
+                resume_cursor = str(
+                    (getattr(client, "_resume_events_cursor", None) or "")
+                    or self.repository.get_marketplace_account(
+                        user_id=user_id, account_id=int(account_id), include_secrets=False
+                    ).get("extra", {}).get("_wb_events_cursor", "") or ""
+                ).strip() or None
+                incremental_map = client._fetch_last_sender_map(  # type: ignore[attr-defined]
+                    since_date=since_date,
+                    resume_cursor=resume_cursor,
+                    stop_requested=stop_requested,
+                )
+                cursor_entry = incremental_map.pop("_final_cursor", None)
+                # Save messages from new events into conversation_messages
+                for chat_id, chat_data in incremental_map.items():
+                    if not isinstance(chat_data, dict):
+                        continue
+                    ev_list = chat_data.get("events") or []
+                    if not ev_list:
+                        continue
+                    conv_uid = self.repository.make_conversation_uid(
+                        user_id=user_id, source=source,
+                        account_id=account_id, kind="chat",
+                        external_conversation_id=chat_id,
+                    )
+                    history_inc: list[dict[str, object]] = []
+                    for ev in ev_list:
+                        if not isinstance(ev, dict):
+                            continue
+                        ev_id = str(ev.get("eventID") or "").strip()
+                        ev_sender = str(ev.get("sender") or "").strip().lower()
+                        msg = ev.get("message") or {}
+                        ev_text = str(msg.get("text") or "").strip()
+                        attachments = msg.get("attachments") or {}
+                        images = attachments.get("images") or []
+                        if not ev_text and images:
+                            img_parts = [f"[img:{img.get('url','')}]" for img in images if img.get("url")]
+                            ev_text = " ".join(img_parts) if img_parts else f"[Фото: {len(images)} шт.]"
+                        elif not ev_text and attachments.get("goodCard"):
+                            ev_text = f"[Товар: {attachments['goodCard'].get('name', '')}]".strip()
+                        ev_ts_raw = ev.get("addTimestamp")
+                        ev_ts_ms = int(ev_ts_raw) if ev_ts_raw is not None else 0
+                        ev_iso = _normalize_timestamp(ev_ts_ms) or ""
+                        client_name = str(ev.get("clientName") or "").strip()
+                        if not ev_id or not ev_text:
+                            continue
+                        history_inc.append({
+                            "direction": "inbound" if ev_sender == "client" else "outbound",
+                            "message_text": ev_text,
+                            "idempotency_key": f"wb-event-{ev_id}",
+                            "created_at": ev_iso,
+                            "operator_name": client_name if ev_sender == "client" else "Продавец",
+                        })
+                    if history_inc:
+                        try:
+                            self.repository.bulk_insert_chat_history_messages(
+                                user_id=user_id,
+                                conversation_uid=conv_uid,
+                                messages=history_inc,
+                            )
+                        except Exception:
+                            pass
+                    # Update bucket status from incremental events
+                    last_sender_inc = str(chat_data.get("sender") or "").strip().lower()
+                    last_ts_inc = chat_data.get("ts")
+                    if last_sender_inc and last_ts_inc:
+                        seller_replied_inc: str | None = None
+                        if last_sender_inc == "seller":
+                            seller_replied_inc = _normalize_timestamp(int(last_ts_inc))
+                        try:
+                            existing = self.repository.get_conversation(
+                                user_id=user_id, conversation_uid=conv_uid,
+                            )
+                            if existing:
+                                self.repository.upsert_conversation(
+                                    user_id=user_id, source=source,
+                                    account_id=account_id,
+                                    external_conversation_id=chat_id,
+                                    kind="chat",
+                                    customer_name=str(existing.get("customer_name") or "") or None,
+                                    message_text=str(existing.get("message_text") or ""),
+                                    status=str(existing.get("status") or "open"),
+                                    unread_count=int(existing.get("unread_count") or 0),
+                                    metadata=existing.get("metadata") if isinstance(existing.get("metadata"), dict) else {},
+                                    last_message_at=str(existing.get("last_message_at") or "") or None,
+                                    seller_replied_at=seller_replied_inc,
+                                )
+                        except Exception:
+                            pass
+                # Persist updated cursor
+                if isinstance(cursor_entry, dict) and cursor_entry.get("cursor"):
+                    new_cursor_val = str(cursor_entry["cursor"])
+                    try:
+                        self.repository.update_marketplace_account_extra_field(
+                            user_id=user_id,
+                            account_id=int(account_id),
+                            key="_wb_events_cursor",
+                            value=new_cursor_val,
+                        )
+                        if hasattr(client, "_resume_events_cursor"):
+                            client._resume_events_cursor = new_cursor_val
+                    except Exception:
+                        pass
+            except Exception:
+                pass  # Non-critical: worst case messages appear on next full sync
+
+        # Persist cursor from full_sync events
+        if full_sync and account_id is not None and hasattr(client, "_resume_events_cursor"):
             new_cursor = getattr(client, "_resume_events_cursor", None)
             if new_cursor:
                 try:
