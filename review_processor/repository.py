@@ -4193,9 +4193,14 @@ class ReviewRepository:
             # Search by customer name (case-insensitive LIKE)
             base_clauses.append("LOWER(COALESCE(customer_name, '')) LIKE ?")
             base_params.append(f"%{search.strip().lower()}%")
-        # Exclude conversations with no message text (empty chats from WB)
+        # Exclude completely empty chats (no message text AND no unread messages).
+        # WB buyer-chat list returns empty text for some chats; Ozon v3/chat/list
+        # never returns message text — so we must not filter on text alone.
+        # A chat is shown if it has any text OR has unread messages from buyer.
         if kind == "chat":
-            base_clauses.append("(message_text IS NOT NULL AND TRIM(message_text) != '')")
+            base_clauses.append(
+                "(TRIM(COALESCE(message_text, '')) != '' OR unread_count > 0)"
+            )
         if date_from:
             if self.is_postgres:
                 base_clauses.append("updated_at::date >= ?::date")

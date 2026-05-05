@@ -408,7 +408,13 @@ class OzonMarketplaceClient:
             status = "open"
 
         unread_count = _to_positive_int(item.get("unread_count") or item.get("unread"), default=0)
-        updated_at = str(item.get("updated_at") or item.get("last_message_at") or item.get("created_at") or "")
+        # Ozon v3/chat/list does NOT return the last message timestamp —
+        # only created_at (chat creation date, can be 2023).
+        # Using created_at as last_message_at would cause the date filter
+        # to skip old chats that have recent buyer messages.
+        # Use updated_at if present; otherwise leave None so the chat is
+        # never excluded by the date filter (we rely on unread_count instead).
+        updated_at = str(item.get("updated_at") or item.get("last_message_at") or "")
         return {
             "external_id": external_id,
             "kind": kind,
