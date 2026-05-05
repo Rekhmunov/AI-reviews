@@ -21,6 +21,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .auth import create_session_token, hash_password, verify_password
+
+_log = logging.getLogger(__name__)
 from .config import AppConfig, load_app_config
 from .repository import ReviewRepository
 from .service import MarketplaceSyncError, ReviewAutomationService, _normalize_timestamp
@@ -548,10 +550,11 @@ def _normalize_role(raw_role: object) -> str:
 
 
 def create_app(config: AppConfig | None = None) -> FastAPI:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
+    # Configure our loggers to propagate at INFO level.
+    # Do NOT call basicConfig here — uvicorn owns the root handler setup.
+    # Instead set the level on our own package logger explicitly so messages
+    # always reach uvicorn's handler regardless of root logger configuration.
+    logging.getLogger("review_processor").setLevel(logging.INFO)
     app_config = config or load_app_config()
     repository = ReviewRepository(db_url=app_config.db_url)
     service = ReviewAutomationService(repository)
@@ -1146,17 +1149,20 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             auto_sync_stop_event.clear()
 
             def _auto_sync_loop() -> None:
+                _log.info("auto_sync_loop: started, first poll in %ds", AUTO_SYNC_INTERVAL_SECONDS)
                 while not auto_sync_stop_event.is_set():
                     auto_sync_stop_event.wait(AUTO_SYNC_INTERVAL_SECONDS)
                     if auto_sync_stop_event.is_set():
                         break
+                    _log.info("auto_sync_loop: poll iteration starting")
                     # Read sync target from DB on every iteration so the loop
                     # works even if in-memory sync_state was cleared (e.g. Stop
                     # button pressed, then the next auto-sync still fires).
                     # This makes polling resilient to manual Stop and restarts.
                     try:
                         owner_users_for_poll = repository.list_users(owner_only=True)
-                    except Exception:
+                    except Exception as exc:
+                        _log.warning("auto_sync_loop: list_users failed: %s", exc)
                         continue
                     for poll_user in owner_users_for_poll:
                         try:
@@ -3785,8 +3791,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         worker.  The first poll fires after AUTO_SYNC_INTERVAL_SECONDS (60 s)
         to avoid hammering the marketplace APIs right at startup.
         """
+        _log.info("restore_auto_sync_on_startup: starting")
         try:
             owner_users = repository.list_users(owner_only=True)
+            _log.info("restore_auto_sync_on_startup: found %d owner users", len(owner_users))
             for user in owner_users:
                 uid = int(user.get("id") or 0)
                 if uid <= 0:
@@ -3797,6 +3805,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                         for item in repository.list_marketplace_accounts(uid, include_secrets=False)
                         if item.get("is_active")
                     ]
+                    _log.info(
+                        "restore_auto_sync_on_startup: user %d has %d active accounts",
+                        uid, len(accounts),
+                    )
                     if not accounts:
                         continue
                     account_ids = [int(a["id"]) for a in accounts if a.get("id")]
@@ -3816,6 +3828,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                             sync_state["polling_account_ids"] = account_ids
                             sync_state["polling_since_date"] = since_date
                             sync_state["polling_started_at"] = _now_iso()
+                    _log.info(
+                        "restore_auto_sync_on_startup: starting auto-sync worker for user %d "
+                        "accounts=%s since=%s",
+                        uid, account_ids, since_date,
+                    )
                     _start_auto_sync_worker_if_needed()
                     # Repair any chats whose answered status got lost
                     try:
@@ -3823,10 +3840,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     except Exception:
                         pass
                     break
-                except Exception:
+                except Exception as _inner_exc:
+                    _log.warning("restore_auto_sync_on_startup: inner error: %s", _inner_exc)
                     continue
-        except Exception:
-            pass
+        except Exception as _outer_exc:
+            _log.error("restore_auto_sync_on_startup: fatal error: %s", _outer_exc)
 
     @app.on_event("shutdown")
     def stop_auto_sync_worker() -> None:
