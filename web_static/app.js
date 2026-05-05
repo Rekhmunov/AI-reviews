@@ -193,6 +193,12 @@ async function pollGlobalSyncStatus() {
       globalSyncPollTimer = window.setTimeout(pollGlobalSyncStatus, 2000);
     } else {
       // Sync just finished
+      syncInProgress = false;
+      const syncButton = document.getElementById("syncAllBtn");
+      if (syncButton) {
+        syncButton.disabled = false;
+        syncButton.textContent = "Синхронизировать все активные кабинеты";
+      }
       if (document.getElementById("syncProgressBar")?.style.display !== "none") {
         // Show completion briefly then hide
         const fill = document.getElementById("syncProgressFill");

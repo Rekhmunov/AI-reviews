@@ -3993,6 +3993,7 @@ class ReviewRepository:
         metadata: dict[str, Any] | None = None,
         last_message_at: str | None = None,
         seller_replied_at: str | None = None,
+        buyer_has_unread: bool = False,
     ) -> str:
         """Upsert a conversation record.
 
@@ -4003,6 +4004,11 @@ class ReviewRepository:
         last_sent_at >= last_message_at.
         Only update last_sent_at when the incoming value is newer than the
         stored one so that a manual reply from our app is never overwritten.
+
+        ``buyer_has_unread=True`` signals that the marketplace confirmed the
+        buyer has written new messages the seller has not replied to yet.
+        In this case last_sent_at is cleared so the chat moves to the "New"
+        bucket immediately, regardless of stored timestamps.
         """
         conversation_uid = self.make_conversation_uid(
             user_id=user_id,
@@ -4071,6 +4077,19 @@ class ReviewRepository:
                     now,
                 ),
             )
+            # When the marketplace confirms the buyer has unread messages
+            # (newMessages > 0), force the chat to the "New" bucket by clearing
+            # last_sent_at.  This is the most reliable signal — no timestamp
+            # comparison needed.
+            if buyer_has_unread:
+                conn.execute(
+                    """
+                    UPDATE conversation_items
+                    SET last_sent_at = NULL, updated_at = ?
+                    WHERE user_id = ? AND conversation_uid = ?
+                    """,
+                    (now, user_id, conversation_uid),
+                )
         return conversation_uid
 
     def list_conversations(

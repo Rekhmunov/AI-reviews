@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import logging
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -11,6 +12,8 @@ import time
 from urllib.parse import urlencode, urljoin, urlparse
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+
+_log = logging.getLogger(__name__)
 
 from .models import ReviewInput
 from .processor import ReviewProcessor
@@ -1629,6 +1632,12 @@ class ReviewAutomationService:
             since_iso_filter = _normalize_timestamp(since_date)
 
         loaded = 0
+        _log.debug(
+            "sync_chats: full_sync=%s, total rows from WB=%d, since_iso_filter=%s",
+            full_sync,
+            len(enriched_rows),
+            since_iso_filter,
+        )
         for row in enriched_rows:
             _raise_if_stop_requested(stop_requested, source=source)
             ext_id = str(row.get("external_id") or "").strip()
@@ -1639,6 +1648,10 @@ class ReviewAutomationService:
             # Apply date filter: skip chats with last activity before since_date.
             # This keeps stale chats out of the DB entirely.
             if since_iso_filter and last_msg_at and last_msg_at < since_iso_filter:
+                _log.debug(
+                    "sync_chats: SKIP chat %s – last_msg_at=%s < since_filter=%s",
+                    ext_id, last_msg_at, since_iso_filter,
+                )
                 continue
 
             last_sender = str(row.get("last_sender") or "").strip().lower()
@@ -1652,6 +1665,26 @@ class ReviewAutomationService:
             if last_sender == "seller":
                 seller_replied_at = last_msg_at
 
+            # WB returns newMessages/unreadCount > 0 when the buyer has written
+            # and the seller has NOT replied yet.  Use this as the definitive
+            # "move to New" signal — more reliable than timestamp comparison.
+            # When last_sender is explicitly "seller" (from events), the seller
+            # replied last, so unread=0 even if the field is stale.
+            wb_unread = _to_positive_int(row.get("unread_count"), default=0)
+            buyer_has_unread = wb_unread > 0
+
+            _log.info(
+                "sync_chats: chat %s customer=%r last_msg_at=%s last_sender=%s "
+                "unread=%d buyer_has_unread=%s seller_replied_at=%s",
+                ext_id,
+                str(row.get("customer_name") or "")[:30],
+                last_msg_at,
+                last_sender or "(empty)",
+                wb_unread,
+                buyer_has_unread,
+                seller_replied_at,
+            )
+
             conv_uid = self.repository.upsert_conversation(
                 user_id=user_id,
                 source=source,
@@ -1661,10 +1694,11 @@ class ReviewAutomationService:
                 customer_name=str(row.get("customer_name") or "") or None,
                 message_text=str(row.get("message_text") or ""),
                 status=str(row.get("status") or "open"),
-                unread_count=_to_positive_int(row.get("unread_count"), default=0),
+                unread_count=wb_unread,
                 metadata=meta,
                 last_message_at=last_msg_at,
                 seller_replied_at=seller_replied_at,
+                buyer_has_unread=buyer_has_unread,
             )
             self.repository.log_review_action(
                 user_id=user_id,

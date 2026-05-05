@@ -7,6 +7,7 @@ import json
 import ipaddress
 import io
 import csv
+import logging
 from pathlib import Path
 import re
 import secrets
@@ -547,6 +548,10 @@ def _normalize_role(raw_role: object) -> str:
 
 
 def create_app(config: AppConfig | None = None) -> FastAPI:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
     app_config = config or load_app_config()
     repository = ReviewRepository(db_url=app_config.db_url)
     service = ReviewAutomationService(repository)
