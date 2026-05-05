@@ -1140,6 +1140,12 @@ class ReviewRepository:
                 ON chat_quick_templates(user_id, updated_at DESC)
                 """
             )
+            conn.execute(
+                """
+                ALTER TABLE chat_quick_templates
+                ADD COLUMN IF NOT EXISTS template_name TEXT NOT NULL DEFAULT ''
+                """
+            )
             # Tariff plans are not auto-created by migration to avoid restoring
             # plans that were intentionally removed by super-admin.
             return
@@ -1323,6 +1329,11 @@ class ReviewRepository:
             ON chat_quick_templates(user_id, updated_at DESC)
             """
         )
+        tpl_columns = self._table_columns(conn, "chat_quick_templates")
+        if "template_name" not in tpl_columns:
+            conn.execute(
+                "ALTER TABLE chat_quick_templates ADD COLUMN template_name TEXT NOT NULL DEFAULT ''"
+            )
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS default_template_variants (
@@ -4488,7 +4499,7 @@ class ReviewRepository:
         with self._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT id, user_id, template_text, created_at, updated_at
+                SELECT id, user_id, template_name, template_text, created_at, updated_at
                 FROM chat_quick_templates
                 WHERE user_id = ?
                 ORDER BY updated_at DESC, id DESC
@@ -4497,23 +4508,28 @@ class ReviewRepository:
             ).fetchall()
         return [self._row_to_dict(row) for row in rows]
 
-    def add_chat_quick_template(self, *, user_id: int, template_text: str) -> dict[str, Any]:
+    def add_chat_quick_template(
+        self, *, user_id: int, template_text: str, template_name: str
+    ) -> dict[str, Any]:
         clean_text = str(template_text or "").strip()
+        clean_name = str(template_name or "").strip()
         if not clean_text:
             raise ValueError("template_text is required")
+        if not clean_name:
+            raise ValueError("template_name is required")
         now = _utc_now()
         with self._connect() as conn:
             template_id = self._insert_and_get_id(
                 conn,
                 """
-                INSERT INTO chat_quick_templates (user_id, template_text, created_at, updated_at)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO chat_quick_templates (user_id, template_name, template_text, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (user_id, clean_text, now, now),
+                (user_id, clean_name, clean_text, now, now),
             )
             row = conn.execute(
                 """
-                SELECT id, user_id, template_text, created_at, updated_at
+                SELECT id, user_id, template_name, template_text, created_at, updated_at
                 FROM chat_quick_templates
                 WHERE id = ? AND user_id = ?
                 """,
@@ -4522,6 +4538,40 @@ class ReviewRepository:
         if row is None:
             raise RuntimeError("Chat quick template creation failed")
         return self._row_to_dict(row)
+
+    def update_chat_quick_template(
+        self,
+        *,
+        user_id: int,
+        template_id: int,
+        template_name: str,
+        template_text: str,
+    ) -> dict[str, Any] | None:
+        clean_text = str(template_text or "").strip()
+        clean_name = str(template_name or "").strip()
+        if not clean_text:
+            raise ValueError("template_text is required")
+        if not clean_name:
+            raise ValueError("template_name is required")
+        now = _utc_now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE chat_quick_templates
+                SET template_name = ?, template_text = ?, updated_at = ?
+                WHERE id = ? AND user_id = ?
+                """,
+                (clean_name, clean_text, now, template_id, user_id),
+            )
+            row = conn.execute(
+                """
+                SELECT id, user_id, template_name, template_text, created_at, updated_at
+                FROM chat_quick_templates
+                WHERE id = ? AND user_id = ?
+                """,
+                (template_id, user_id),
+            ).fetchone()
+        return self._row_to_dict(row) if row else None
 
     def delete_chat_quick_template(self, *, user_id: int, template_id: int) -> bool:
         with self._connect() as conn:

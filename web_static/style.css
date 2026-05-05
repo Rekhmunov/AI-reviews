@@ -1616,15 +1616,67 @@ button.secondary.danger:hover {
   border: 1px solid rgba(147, 197, 253, 0.35);
   border-radius: 10px;
   background: rgba(248, 251, 255, 0.9);
-  padding: 8px;
-  display: grid;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 8px;
 }
 
-.chat-quick-template-text {
-  white-space: pre-wrap;
-  word-break: break-word;
+.chat-quick-template-name {
+  font-size: 14px;
+  font-weight: 500;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+
+.chat-quick-template-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.qt-btn {
+  width: 30px !important;
+  height: 30px;
+  min-width: 30px !important;
+  padding: 0 !important;
+  font-size: 16px;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid #e5e7eb;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #374151;
+}
+
+.qt-btn:hover { background: #f3f4f6; }
+.qt-btn.qt-delete:hover { background: #fee2e2; color: #dc2626; border-color: #fca5a5; }
+.qt-btn.qt-apply { font-size: 18px; }
+
+.qt-edit-form {
+  width: 100%;
+  display: grid;
+  gap: 6px;
+}
+
+.qt-edit-name,
+.qt-edit-text {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.qt-edit-text { resize: vertical; }
 
 .chats-thread-panel {
   border: 1px solid rgba(147, 197, 253, 0.35);

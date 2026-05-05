@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=36" />
+  <link rel="stylesheet" href="/static/style.css?v=37" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -624,9 +624,12 @@
         <h4 class="no-margin">Быстрые ответы для чатов</h4>
         <button type="button" class="secondary" onclick="closeChatQuickTemplatesModal()">Закрыть</button>
       </div>
-      <p class="small">Клик по шаблону подставляет текст в поле ответа чата. Можно добавлять и удалять шаблоны.</p>
+      <p class="small">В списке отображаются названия шаблонов. Иконка ↪ подставляет текст в поле ответа.</p>
       <div class="row">
-        <textarea id="chatQuickTemplateInput" rows="3" maxlength="2000" placeholder="Введите новый шаблон ответа"></textarea>
+        <input id="chatQuickTemplateNameInput" type="text" maxlength="200" placeholder="Название шаблона (обязательно)" style="flex:1">
+      </div>
+      <div class="row">
+        <textarea id="chatQuickTemplateInput" rows="3" maxlength="2000" placeholder="Текст ответа"></textarea>
       </div>
       <div class="row">
         <button type="button" onclick="createChatQuickTemplate()">Добавить шаблон</button>
@@ -644,6 +647,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=35"></script>
+  <script src="/static/app.js?v=36"></script>
 </body>
 </html>

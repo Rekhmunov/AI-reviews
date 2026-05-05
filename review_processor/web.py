@@ -262,6 +262,12 @@ class SyncCapabilitiesRequest(BaseModel):
 
 
 class ChatQuickTemplateCreateRequest(BaseModel):
+    template_name: str = Field(min_length=1, max_length=200)
+    template_text: str = Field(min_length=1, max_length=2000)
+
+
+class ChatQuickTemplateUpdateRequest(BaseModel):
+    template_name: str = Field(min_length=1, max_length=200)
     template_text: str = Field(min_length=1, max_length=2000)
 
 
@@ -2104,10 +2110,36 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.post("/api/chat-quick-templates")
     def create_chat_quick_template(request: Request, payload: ChatQuickTemplateCreateRequest) -> dict[str, object]:
         user = _require_user(request)
+        name = str(payload.template_name or "").strip()
         text = str(payload.template_text or "").strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Введите название шаблона")
         if not text:
             raise HTTPException(status_code=400, detail="Введите текст шаблона")
-        item = repository.add_chat_quick_template(user_id=int(user["id"]), template_text=text)
+        item = repository.add_chat_quick_template(
+            user_id=int(user["id"]), template_name=name, template_text=text
+        )
+        return {"ok": True, "item": item}
+
+    @app.put("/api/chat-quick-templates/{template_id}")
+    def update_chat_quick_template(
+        template_id: int, request: Request, payload: ChatQuickTemplateUpdateRequest
+    ) -> dict[str, object]:
+        user = _require_user(request)
+        name = str(payload.template_name or "").strip()
+        text = str(payload.template_text or "").strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Введите название шаблона")
+        if not text:
+            raise HTTPException(status_code=400, detail="Введите текст шаблона")
+        item = repository.update_chat_quick_template(
+            user_id=int(user["id"]),
+            template_id=int(template_id),
+            template_name=name,
+            template_text=text,
+        )
+        if item is None:
+            raise HTTPException(status_code=404, detail="Шаблон не найден")
         return {"ok": True, "item": item}
 
     @app.delete("/api/chat-quick-templates/{template_id}")

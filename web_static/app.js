@@ -2072,25 +2072,57 @@ function renderChatQuickTemplatesList() {
   for (const item of items) {
     const templateId = Number(item.id || 0);
     const text = String(item.template_text || "").trim();
+    const name = String(item.template_name || "").trim() || text.slice(0, 40);
     if (!templateId || !text) continue;
+
     const row = document.createElement("div");
     row.className = "chat-quick-template-item";
+    row.dataset.templateId = String(templateId);
+
+    // Normal view: name + three icon buttons
     row.innerHTML = `
-      <div class="chat-quick-template-text">${esc(text)}</div>
-      <div class="row">
-        <button type="button" class="secondary">Подставить</button>
-        <button type="button" class="secondary danger">Удалить</button>
+      <div class="chat-quick-template-name">${esc(name)}</div>
+      <div class="chat-quick-template-actions">
+        <button type="button" class="qt-btn qt-apply" title="Подставить в поле ответа">↪</button>
+        <button type="button" class="qt-btn qt-edit" title="Изменить">✏</button>
+        <button type="button" class="qt-btn qt-delete" title="Удалить">🗑</button>
       </div>
     `;
-    const [applyBtn, deleteBtn] = row.querySelectorAll("button");
-    applyBtn?.addEventListener("click", () => {
+
+    row.querySelector(".qt-apply")?.addEventListener("click", () => {
       appendTextToChatInput(text);
       setChatQuickTemplatesInfo("Шаблон подставлен в поле ответа.");
       closeChatQuickTemplatesModal();
     });
-    deleteBtn?.addEventListener("click", async () => {
+
+    row.querySelector(".qt-edit")?.addEventListener("click", () => {
+      // Replace row content with inline edit form
+      row.innerHTML = `
+        <div class="qt-edit-form">
+          <input type="text" class="qt-edit-name" maxlength="200" value="${esc(name)}" placeholder="Название">
+          <textarea class="qt-edit-text" rows="3" maxlength="2000">${esc(text)}</textarea>
+          <div class="row" style="gap:8px;margin-top:6px">
+            <button type="button" class="qt-save-btn">Сохранить</button>
+            <button type="button" class="secondary qt-cancel-btn">Отмена</button>
+          </div>
+        </div>
+      `;
+      row.querySelector(".qt-save-btn")?.addEventListener("click", async () => {
+        const newName = String(row.querySelector(".qt-edit-name")?.value || "").trim();
+        const newText = String(row.querySelector(".qt-edit-text")?.value || "").trim();
+        if (!newName) { setChatQuickTemplatesInfo("Введите название шаблона", true); return; }
+        if (!newText) { setChatQuickTemplatesInfo("Введите текст шаблона", true); return; }
+        await updateChatQuickTemplate(templateId, newName, newText);
+      });
+      row.querySelector(".qt-cancel-btn")?.addEventListener("click", () => {
+        renderChatQuickTemplatesList();
+      });
+    });
+
+    row.querySelector(".qt-delete")?.addEventListener("click", async () => {
       await deleteChatQuickTemplate(templateId);
     });
+
     container.appendChild(row);
   }
 }
@@ -2122,14 +2154,22 @@ function openChatQuickTemplatesModal() {
 
 function closeChatQuickTemplatesModal() {
   setModalVisibility("chatQuickTemplatesModal", false);
-  const input = document.getElementById("chatQuickTemplateInput");
-  if (input instanceof HTMLTextAreaElement) input.value = "";
+  const nameInput = document.getElementById("chatQuickTemplateNameInput");
+  const textInput = document.getElementById("chatQuickTemplateInput");
+  if (nameInput) nameInput.value = "";
+  if (textInput instanceof HTMLTextAreaElement) textInput.value = "";
   setChatQuickTemplatesInfo("");
 }
 
 async function createChatQuickTemplate() {
-  const input = document.getElementById("chatQuickTemplateInput");
-  const text = String(input?.value || "").trim();
+  const nameInput = document.getElementById("chatQuickTemplateNameInput");
+  const textInput = document.getElementById("chatQuickTemplateInput");
+  const name = String(nameInput?.value || "").trim();
+  const text = String(textInput?.value || "").trim();
+  if (!name) {
+    setChatQuickTemplatesInfo("Введите название шаблона", true);
+    return;
+  }
   if (!text) {
     setChatQuickTemplatesInfo("Введите текст шаблона", true);
     return;
@@ -2137,15 +2177,33 @@ async function createChatQuickTemplate() {
   const res = await fetch("/api/chat-quick-templates", {
     method: "POST",
     headers: jsonHeaders(),
-    body: JSON.stringify({ template_text: text }),
+    body: JSON.stringify({ template_name: name, template_text: text }),
   });
   const data = await res.json();
   if (!res.ok) {
     setChatQuickTemplatesInfo(data.detail || "Не удалось добавить шаблон", true);
     return;
   }
-  if (input) input.value = "";
+  if (nameInput) nameInput.value = "";
+  if (textInput) textInput.value = "";
   setChatQuickTemplatesInfo("Шаблон добавлен.");
+  await loadChatQuickTemplates();
+}
+
+async function updateChatQuickTemplate(templateId, newName, newText) {
+  const cleanId = Number(templateId || 0);
+  if (!cleanId) return;
+  const res = await fetch(`/api/chat-quick-templates/${cleanId}`, {
+    method: "PUT",
+    headers: jsonHeaders(),
+    body: JSON.stringify({ template_name: newName, template_text: newText }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    setChatQuickTemplatesInfo(data.detail || "Не удалось обновить шаблон", true);
+    return;
+  }
+  setChatQuickTemplatesInfo("Шаблон обновлён.");
   await loadChatQuickTemplates();
 }
 
