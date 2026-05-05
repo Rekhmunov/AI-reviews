@@ -1734,16 +1734,21 @@ class ReviewAutomationService:
         # For full_sync the events are already included in enriched_rows above.
         # For the fast 60s auto-sync we fetch ONLY events newer than the stored
         # cursor — typically just a handful of messages, completes in <1 second.
-        # This populates conversation_messages so new buyer messages appear in
-        # the thread and the correct bucket (New/Answered) is set immediately.
         if not full_sync and account_id is not None and hasattr(client, "_fetch_last_sender_map"):
             try:
-                resume_cursor = str(
-                    (getattr(client, "_resume_events_cursor", None) or "")
-                    or self.repository.get_marketplace_account(
+                # Get resume cursor: first try client attr, then DB
+                resume_cursor: str | None = None
+                client_cursor = getattr(client, "_resume_events_cursor", None)
+                if client_cursor:
+                    resume_cursor = str(client_cursor).strip() or None
+                if not resume_cursor:
+                    account_row = self.repository.get_marketplace_account(
                         user_id=user_id, account_id=int(account_id), include_secrets=False
-                    ).get("extra", {}).get("_wb_events_cursor", "") or ""
-                ).strip() or None
+                    )
+                    if account_row and isinstance(account_row.get("extra"), dict):
+                        db_cursor = account_row["extra"].get("_wb_events_cursor", "")
+                        if db_cursor:
+                            resume_cursor = str(db_cursor).strip() or None
                 incremental_map = client._fetch_last_sender_map(  # type: ignore[attr-defined]
                     since_date=since_date,
                     resume_cursor=resume_cursor,
