@@ -240,18 +240,24 @@ class OzonMarketplaceClient:
                 payload.setdefault("date_from", since_date)
                 payload.setdefault("dateFrom", since_date)
             if cursor:
+                # Ozon v3/chat/list uses "cursor" for pagination;
+                # older endpoints use "last_id" — send both so it works with either.
+                payload["cursor"] = cursor
                 payload["last_id"] = cursor
             body = self._request_json(path=path, payload=payload)
+            # Ozon v3/chat/list returns items at top level (no "result" wrapper)
             raw = body.get("result") if isinstance(body.get("result"), dict) else body
             _raise_if_error_payload(raw, source="ozon")
-            page_items = _extract_sequence(raw, keys=self.items_keys + ("questions", "chats", "dialogs", "messages"))
+            conv_keys = self.items_keys + ("questions", "chats", "dialogs", "messages")
+            page_items = _extract_sequence(raw, keys=conv_keys)
             if not page_items:
                 break
             for item in page_items:
                 mapped = self._to_conversation(item, kind=kind)
                 if mapped:
                     result_items.append(mapped)
-            next_cursor = _extract_str(raw, keys=self.cursor_keys)
+            # Ozon v3 returns "cursor" for next page; older APIs return "last_id"
+            next_cursor = _extract_str(raw, keys=("cursor",) + self.cursor_keys)
             has_next = bool(raw.get("has_next") or raw.get("hasNext"))
             if not has_next and len(page_items) < self.page_size:
                 break
@@ -277,6 +283,42 @@ class OzonMarketplaceClient:
         if not isinstance(payload, dict):
             raise MarketplaceSyncError("ozon", "Ozon API returned non-object payload")
         return payload
+
+    def count_pending(self, *, since_date: str | None = None) -> dict[str, int]:
+        """Return approximate counts of items available to sync per channel."""
+        counts: dict[str, int] = {"reviews": 0, "questions": 0, "chats": 0}
+
+        # Reviews
+        try:
+            req_payload: dict[str, object] = {"limit": 1, "sort_dir": "DESC"}
+            if since_date:
+                req_payload["date_from"] = since_date
+                req_payload["dateFrom"] = since_date
+            body = self._request_json(path=self.list_path, payload=req_payload)
+            raw = body.get("result") if isinstance(body.get("result"), dict) else body
+            counts["reviews"] = int(raw.get("total_count") or raw.get("totalCount") or 0)
+        except Exception:
+            counts["reviews"] = 0
+
+        # Chats via v3/chat/list — total_unread_count is available in one request
+        if self.chats_path:
+            try:
+                body = self._request_json(path=self.chats_path, payload={"limit": 1})
+                raw = body.get("result") if isinstance(body.get("result"), dict) else body
+                total_unread = int(raw.get("total_unread_count") or 0)
+                chats_list = raw.get("chats")
+                page_count = len(chats_list) if isinstance(chats_list, list) else 0
+                has_next = bool(raw.get("has_next") or raw.get("hasNext"))
+                if total_unread > 0:
+                    counts["chats"] = total_unread
+                elif has_next:
+                    counts["chats"] = page_count + 1
+                else:
+                    counts["chats"] = page_count
+            except Exception:
+                counts["chats"] = 0
+
+        return counts
 
     def send_review_reply(self, *, review: ReviewInput, response_text: str) -> bool:
         if not self.client_id or not self.api_key:
@@ -322,20 +364,41 @@ class OzonMarketplaceClient:
 
     @staticmethod
     def _to_conversation(item: dict[str, object], *, kind: str) -> dict[str, object] | None:
-        external_id = str(item.get("id") or item.get("chat_id") or item.get("question_id") or "").strip()
+        # Ozon v3/chat/list wraps chat info inside a nested "chat" object:
+        # {"chat": {"chat_id": "...", "chat_status": "OPENED", ...}, "unread_count": N}
+        # Flatten it so the rest of the mapping works uniformly.
+        nested_chat = item.get("chat")
+        if isinstance(nested_chat, dict):
+            item = {**item, **nested_chat}
+
+        external_id = str(
+            item.get("chat_id")
+            or item.get("id")
+            or item.get("question_id")
+            or ""
+        ).strip()
         if not external_id:
             return None
         text = str(item.get("text") or item.get("question") or item.get("message") or item.get("content") or "")
         customer_name = str(item.get("author") or item.get("user_name") or item.get("customer_name") or "") or None
-        status = str(item.get("status") or "open").lower()
+
+        # Ozon v3: chat_status = "OPENED" / "CLOSED"
+        raw_status = str(item.get("chat_status") or item.get("status") or "open").lower()
+        if raw_status in ("opened", "open"):
+            status = "open"
+        elif raw_status in ("closed",):
+            status = "closed"
+        else:
+            status = "open"
+
         unread_count = _to_positive_int(item.get("unread_count") or item.get("unread"), default=0)
-        updated_at = str(item.get("updated_at") or item.get("last_message_at") or "")
+        updated_at = str(item.get("updated_at") or item.get("last_message_at") or item.get("created_at") or "")
         return {
             "external_id": external_id,
             "kind": kind,
             "customer_name": customer_name,
             "message_text": text,
-            "status": status if status in {"open", "closed", "waiting"} else "open",
+            "status": status,
             "unread_count": unread_count,
             "last_message_at": updated_at or None,
             "metadata": {"raw": item, "marketplace": "ozon"},
@@ -2314,7 +2377,7 @@ class ReviewAutomationService:
                 page_size=_to_positive_int(extra.get("page_size"), default=50),
                 max_pages=_to_positive_int(extra.get("max_pages"), default=20),
                 questions_path=str(extra.get("questions_path")) if extra.get("questions_path") else None,
-                chats_path=str(extra.get("chats_path")) if extra.get("chats_path") else None,
+                chats_path=str(extra.get("chats_path") or "/v3/chat/list"),
                 reply_path=str(extra.get("reply_path") or "/v1/review/comment/create"),
                 reply_review_id_field=str(extra.get("reply_review_id_field") or "review_id"),
                 reply_text_field=str(extra.get("reply_text_field") or "text"),
