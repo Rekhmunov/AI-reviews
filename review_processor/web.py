@@ -14,6 +14,8 @@ import secrets
 import threading
 import time
 from urllib.parse import urlparse
+import urllib.error
+import urllib.request
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
