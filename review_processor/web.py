@@ -1131,7 +1131,20 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     ) -> dict[str, object]:
         with sync_lock:
             if bool(sync_state.get("in_progress")):
-                raise HTTPException(status_code=409, detail="Синхронизация уже выполняется")
+                # If an auto-sync is running and this is a manual request,
+                # cancel the auto-sync and let the manual one proceed after a short wait.
+                if apply_date_filter and not bool(sync_state.get("is_manual")):
+                    sync_stop_event.set()  # signal auto-sync to stop
+                    # Will retry after releasing lock; auto-sync checks stop_requested
+                else:
+                    raise HTTPException(status_code=409, detail="Синхронизация уже выполняется")
+        # Brief wait for auto-sync to see the stop signal before we acquire the slot
+        if apply_date_filter and sync_stop_event.is_set():
+            import time as _time
+            _time.sleep(2)
+        with sync_lock:
+            if bool(sync_state.get("in_progress")):
+                raise HTTPException(status_code=409, detail="Синхронизация уже выполняется. Попробуйте снова через несколько секунд.")
             sync_state["in_progress"] = True
             sync_state["is_manual"] = apply_date_filter  # True only for manual button clicks
             sync_state["cancel_requested"] = False
