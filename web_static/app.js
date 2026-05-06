@@ -1332,8 +1332,13 @@ function _updateSyncPreviewConfirmBtn() {
 }
 
 function _getSelectedSyncAccountIds() {
-  const checks = document.querySelectorAll(".sync-preview-check:checked");
-  const ids = Array.from(checks).map((cb) => Number(cb.value)).filter((n) => n > 0);
+  const allChecks = document.querySelectorAll(".sync-preview-check");
+  // If no checkboxes exist (preview failed to load), sync all accounts
+  if (allChecks.length === 0) return null;
+  const ids = Array.from(allChecks)
+    .filter((cb) => cb.checked)
+    .map((cb) => Number(cb.value))
+    .filter((n) => n > 0);
   return ids.length > 0 ? ids : null;
 }
 
