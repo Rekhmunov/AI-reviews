@@ -4802,16 +4802,25 @@ class ReviewRepository:
         Returns number of rows updated.
         """
         if self.is_postgres:
+            # Markdown: ![](url) — skip first 4 chars '![](' and last 1 char ')'
+            # Also fix previously broken '[img:(http...]' entries (from=4 bug)
             sql = """
                 UPDATE conversation_messages
-                SET message_text = '[img:' || substring(message_text from 4 for length(message_text)-4) || ']'
+                SET message_text =
+                    CASE
+                        WHEN message_text LIKE '![](%%)' THEN
+                            '[img:' || substring(message_text from 5 for length(message_text)-5) || ']'
+                        WHEN message_text LIKE '%%[img:(http%%' THEN
+                            regexp_replace(message_text, '\\[img:\\(([^)]+)\\)', '[img:\\1]', 'g')
+                        ELSE message_text
+                    END
                 WHERE user_id = %s AND conversation_uid = %s
-                  AND message_text LIKE '![](%%)'
+                  AND (message_text LIKE '![](%%)' OR message_text LIKE '%%[img:(http%%')
             """
         else:
             sql = """
                 UPDATE conversation_messages
-                SET message_text = '[img:' || substr(message_text, 4, length(message_text)-4) || ']'
+                SET message_text = '[img:' || substr(message_text, 5, length(message_text)-5) || ']'
                 WHERE user_id = ? AND conversation_uid = ?
                   AND message_text LIKE '![](%)'
             """
