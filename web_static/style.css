@@ -1948,8 +1948,30 @@ button.secondary.danger:hover {
   max-width: 260px;
   max-height: 300px;
   border-radius: 8px;
-  cursor: pointer;
+  cursor: zoom-in;
   object-fit: cover;
+  transition: opacity 0.15s;
+}
+.chat-bubble-img:hover { opacity: 0.85; }
+
+/* Lightbox overlay */
+#chatImgLightbox {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.85);
+  z-index: 9999;
+  align-items: center;
+  justify-content: center;
+  cursor: zoom-out;
+}
+#chatImgLightbox.active { display: flex; }
+#chatImgLightbox img {
+  max-width: 92vw;
+  max-height: 92vh;
+  border-radius: 10px;
+  object-fit: contain;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.6);
 }
 
 .chat-bubble-img:hover {

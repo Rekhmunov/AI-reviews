@@ -2298,7 +2298,7 @@ function renderChatMessages(messages, convMeta) {
             imgSrc = `/api/wb-image?id=${encodeURIComponent(uuidMatch[1])}&account_id=${convAccountId}`;
           }
         }
-        return `<img src="${esc(imgSrc)}" class="chat-bubble-img" alt="Фото" loading="lazy" />`;
+        return `<img src="${esc(imgSrc)}" class="chat-bubble-img" alt="Фото" loading="lazy" onclick="openChatImgLightbox(this.src)" />`;
       }).join("");
       // If there's also text outside [img:] tokens, show it too
       const textOnly = rawText.replace(imgRegex, "").trim();
@@ -2372,6 +2372,26 @@ async function loadChatMessages(conversationUid) {
   }
   const convMeta = data.conversation || activeConversation || {};
   renderChatMessages(merged, convMeta);
+}
+
+function openChatImgLightbox(src) {
+  const lb = document.getElementById("chatImgLightbox");
+  const img = document.getElementById("chatImgLightboxImg");
+  if (!lb || !img) return;
+  img.src = src;
+  lb.classList.add("active");
+  // Close on Escape key
+  document.addEventListener("keydown", _lbKeyClose);
+}
+
+function closeChatImgLightbox() {
+  const lb = document.getElementById("chatImgLightbox");
+  if (lb) lb.classList.remove("active");
+  document.removeEventListener("keydown", _lbKeyClose);
+}
+
+function _lbKeyClose(e) {
+  if (e.key === "Escape") closeChatImgLightbox();
 }
 
 function startChatAutoRefresh(uid) {
