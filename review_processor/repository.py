@@ -1515,11 +1515,11 @@ class ReviewRepository:
             for sg in new_subgroups:
                 sg_id = _build_subgroup_id(group_id, sg)
                 conn.execute(
-                    """
+                    self._sql("""
                     INSERT INTO default_template_subgroups (group_id, subgroup_id, subgroup, created_at, updated_at)
                     VALUES (?, ?, ?, ?, ?)
-                    ON CONFLICT (group_id, subgroup) DO NOTHING
-                    """,
+                    ON CONFLICT (group_id, subgroup) DO UPDATE SET subgroup_id = excluded.subgroup_id, updated_at = excluded.updated_at
+                    """),
                     (group_id, sg_id, sg, now, now),
                 )
             return
@@ -1546,11 +1546,11 @@ class ReviewRepository:
         for sg, templates in star_to_templates.items():
             sg_id = _build_subgroup_id(group_id, sg)
             conn.execute(
-                """
+                self._sql("""
                 INSERT INTO default_template_subgroups (group_id, subgroup_id, subgroup, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT (group_id, subgroup) DO NOTHING
-                """,
+                ON CONFLICT (group_id, subgroup) DO UPDATE SET subgroup_id = excluded.subgroup_id, updated_at = excluded.updated_at
+                """),
                 (group_id, sg_id, sg, now, now),
             )
             for tmpl_row in templates:
