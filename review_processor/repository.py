@@ -1555,13 +1555,14 @@ class ReviewRepository:
             )
             for tmpl_row in templates:
                 text = str(tmpl_row["template_text"] if hasattr(tmpl_row, "__getitem__") else tmpl_row[0])
+                is_active_val = self._bool_db(True)
                 conn.execute(
-                    """
+                    self._sql("""
                     INSERT INTO default_template_variants (group_id, subgroup, template_text, is_active, created_at, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?)
                     ON CONFLICT (group_id, subgroup, template_text) DO NOTHING
-                    """,
-                    (group_id, sg, text, 1, now, now),
+                    """),
+                    (group_id, sg, text, is_active_val, now, now),
                 )
 
         # Remove old subgroups and their templates
