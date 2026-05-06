@@ -400,6 +400,23 @@ function writeStoredUiState(key, value) {
   }
 }
 
+// Map section → parent nav-group id (for active state on group title)
+const SECTION_TO_NAV_GROUP = {
+  reviews: "feedback",
+  conversations: "feedback",
+  chats: "feedback",
+  settings: "feedback",
+};
+
+function toggleNavGroup(groupId) {
+  const group = document.getElementById("navgroup-" + groupId);
+  if (!group) return;
+  const isOpen = group.classList.contains("open");
+  // Close all groups first
+  document.querySelectorAll(".nav-group.open").forEach((g) => g.classList.remove("open"));
+  if (!isOpen) group.classList.add("open");
+}
+
 function showSection(section, options = {}) {
   if (!canViewSection(section)) return;
   const persist = options.persist !== false;
@@ -411,10 +428,18 @@ function showSection(section, options = {}) {
     if (sectionEl) sectionEl.classList.add("hidden");
     if (navEl) navEl.classList.remove("active");
   }
+  // Remove active from all nav-group-title elements
+  document.querySelectorAll(".nav-group-title").forEach((el) => el.classList.remove("active"));
   const targetSection = document.getElementById("section-" + section);
   const targetNav = document.getElementById("nav-" + section);
   if (targetSection) targetSection.classList.remove("hidden");
   if (targetNav) targetNav.classList.add("active");
+  // Highlight parent group if this section belongs to one
+  const parentGroup = SECTION_TO_NAV_GROUP[section];
+  if (parentGroup) {
+    const groupTitle = document.querySelector(`#navgroup-${parentGroup} .nav-group-title`);
+    if (groupTitle) groupTitle.classList.add("active");
+  }
   updateMobileCurrentSectionLabel(section);
   closeMobileNavMenu();
   if (persist) writeStoredUiState(ACTIVE_SECTION_STORAGE_KEY, section);

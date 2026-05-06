@@ -4234,7 +4234,7 @@ def build_app_html(user: dict[str, object]) -> str:
     safe_role = escape(role_labels.get(role, role))
     can_view_analytics = role in ROLE_CAN_ACCESS_ANALYTICS
     can_view_settings = role in ROLE_CAN_ACCESS_SETTINGS
-    admin_link = '<a class="navbtn" href="/admin">Админ-панель</a>' if role == ROLE_ADMIN else ""
+    admin_link = '<a class="navbtn nav-admin" href="/admin">Админ-панель</a>' if role == ROLE_ADMIN else ""
     nav_analytics = (
         '<a id="nav-analytics" class="navbtn" href="#" onclick="showSection(\'analytics\')">Аналитика</a>'
         if can_view_analytics
@@ -4253,6 +4253,10 @@ def build_app_html(user: dict[str, object]) -> str:
             "ADMIN_LINK": admin_link,
             "NAV_ANALYTICS": nav_analytics,
             "NAV_SETTINGS": nav_settings,
+            "NAV_SETTINGS_SUB": (
+                '<a id="nav-settings" class="navbtn nav-sub" href="#" onclick="showSection(\'settings\')">Настройки</a>'
+                if can_view_settings else ""
+            ),
             "CAN_VIEW_ANALYTICS": "true" if can_view_analytics else "false",
             "CAN_VIEW_SETTINGS": "true" if can_view_settings else "false",
             "IS_ADMIN": "true" if role == ROLE_ADMIN else "false",

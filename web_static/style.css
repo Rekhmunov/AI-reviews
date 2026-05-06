@@ -421,6 +421,75 @@ body.landing-page {
   border-top: 1px solid var(--line);
 }
 
+/* ── Nav groups (Обратная связь, Остатки) ── */
+.nav-group {
+  position: relative;
+}
+
+.nav-group-header {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  cursor: pointer;
+}
+
+.nav-group-title {
+  flex: 1;
+  font-weight: 600;
+}
+
+.nav-group-toggle {
+  background: none;
+  border: none;
+  color: #64748b;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+  transition: transform 0.2s;
+  /* only visible on mobile */
+  display: none;
+}
+
+.nav-group.open .nav-group-toggle {
+  transform: rotate(45deg);
+}
+
+/* Desktop: submenu shown on hover */
+.nav-group-items {
+  display: none;
+  flex-direction: column;
+  padding-left: 10px;
+  border-left: 2px solid var(--line);
+  margin-left: 6px;
+}
+
+.nav-group:hover > .nav-group-items {
+  display: flex;
+}
+
+/* Keep open when toggled on mobile */
+.nav-group.open > .nav-group-items {
+  display: flex;
+}
+
+.nav-sub {
+  font-size: 14px;
+  padding: 8px 12px;
+  font-weight: 400;
+}
+
+.nav-empty {
+  color: #9ca3af !important;
+  cursor: default;
+  pointer-events: none;
+}
+
+.nav-admin {
+  display: block;
+}
+
 .brand {
   font-weight: 800;
   font-size: 18px;
@@ -2902,6 +2971,29 @@ button.secondary.danger:hover {
 
   .layout > .sidebar .navbtn {
     width: 100%;
+    margin-bottom: 9px;
+  }
+
+  /* Mobile nav groups: show +/- button, hover disabled */
+  .nav-group-toggle {
+    display: block;
+  }
+
+  .nav-group:hover > .nav-group-items {
+    display: none; /* disable hover on mobile */
+  }
+
+  .nav-group.open > .nav-group-items {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .nav-group-title {
+    margin-bottom: 0;
+  }
+
+  .nav-group-header {
     margin-bottom: 9px;
   }
 
