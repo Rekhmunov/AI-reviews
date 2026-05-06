@@ -2459,7 +2459,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     account=account,
                     since_date=since_date,
                 )
-            except Exception:
+            except Exception as _exc:
+                _log.warning(
+                    "sync_preview: count_pending_for_account failed account_id=%s: %s",
+                    account.get("id"), _exc,
+                )
                 result = {
                     "account_id": int(account.get("id") or 0),
                     "account_name": str(account.get("account_name") or ""),

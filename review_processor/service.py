@@ -2237,8 +2237,11 @@ class ReviewAutomationService:
         if hasattr(client, "count_pending"):
             try:
                 counts = client.count_pending(since_date=since_date)  # type: ignore[call-arg]
-            except Exception:
-                pass
+            except Exception as _exc:
+                _log.warning(
+                    "count_pending_for_account: account_id=%d marketplace=%s error=%s",
+                    account_id, marketplace, _exc,
+                )
         return {
             "account_id": account_id,
             "account_name": account_name,
