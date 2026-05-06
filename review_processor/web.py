@@ -2119,17 +2119,22 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                                             conversation_uid=conversation_uid,
                                             customer_name=new_name,
                                         )
+                                # Fix any previously saved messages with old Markdown format
+                                repository.fix_ozon_photo_messages(
+                                    user_id=int(user["id"]),
+                                    conversation_uid=conversation_uid,
+                                )
                                 if history_ozon:
                                     repository.bulk_insert_chat_history_messages(
                                         user_id=int(user["id"]),
                                         conversation_uid=conversation_uid,
                                         messages=history_ozon,
                                     )
-                                    messages = repository.list_conversation_messages(
-                                        user_id=int(user["id"]),
-                                        conversation_uid=conversation_uid,
-                                        limit=limit,
-                                    )
+                                messages = repository.list_conversation_messages(
+                                    user_id=int(user["id"]),
+                                    conversation_uid=conversation_uid,
+                                    limit=limit,
+                                )
             except Exception:
                 pass
         return {

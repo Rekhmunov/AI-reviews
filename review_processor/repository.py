@@ -4658,6 +4658,32 @@ class ReviewRepository:
             return None
         return self._row_to_dict(row)
 
+    def fix_ozon_photo_messages(self, *, user_id: int, conversation_uid: str) -> int:
+        """Convert legacy Ozon photo messages stored as Markdown to [img:url] tokens.
+
+        Old format (before fix): ``![](https://api-seller.ozon.ru/...)``
+        New format: ``[img:https://api-seller.ozon.ru/...]``
+
+        Returns number of rows updated.
+        """
+        if self.is_postgres:
+            sql = """
+                UPDATE conversation_messages
+                SET message_text = '[img:' || substring(message_text from 4 for length(message_text)-4) || ']'
+                WHERE user_id = %s AND conversation_uid = %s
+                  AND message_text LIKE '![](%%)'
+            """
+        else:
+            sql = """
+                UPDATE conversation_messages
+                SET message_text = '[img:' || substr(message_text, 4, length(message_text)-4) || ']'
+                WHERE user_id = ? AND conversation_uid = ?
+                  AND message_text LIKE '![](%)'
+            """
+        with self._connect() as conn:
+            result = conn.execute(self._sql(sql), (user_id, conversation_uid))
+        return int(result.rowcount or 0)
+
     def bulk_insert_chat_history_messages(
         self,
         *,
