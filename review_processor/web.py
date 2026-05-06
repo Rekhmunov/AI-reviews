@@ -1945,6 +1945,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         api_key = str(account.get("api_key") or "").strip()
         extra = account.get("extra") if isinstance(account.get("extra"), dict) else {}
         client_id = str(extra.get("client_id") or "").strip()
+        _log.info(
+            "ozon_image_proxy: account_id=%d client_id=%r api_key_len=%d",
+            account_id, client_id, len(api_key),
+        )
         if not api_key or not client_id:
             raise HTTPException(status_code=400, detail="Ozon credentials missing")
         try:
@@ -1957,7 +1961,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 content = resp.read()
                 content_type = resp.headers.get("Content-Type", "image/jpeg")
             return _Response(content=content, media_type=content_type)
-        except Exception:
+        except urllib.error.HTTPError as exc:
+            _log.warning("ozon_image_proxy: HTTP %d for %s", exc.code, url[:80])
+            raise HTTPException(status_code=502, detail=f"Ozon returned HTTP {exc.code}")
+        except Exception as exc:
+            _log.warning("ozon_image_proxy: error %s for %s", exc, url[:80])
             raise HTTPException(status_code=502, detail="Failed to fetch Ozon image")
 
     @app.get("/api/conversations/{conversation_uid}/messages")
