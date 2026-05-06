@@ -1188,7 +1188,11 @@ class WildberriesMarketplaceClient:
 
     @staticmethod
     def _to_review(item: dict[str, object]) -> ReviewInput:
-        text = str(item.get("text") or item.get("pros") or item.get("cons") or "")
+        # Combine all text fields so nothing is lost when sent to Yandex GPT.
+        # WB uses separate fields: text (main review), pros (достоинства), cons (недостатки).
+        # If text is empty but pros/cons exist — treat as review with text (goes through GPT).
+        _parts = [str(item.get("text") or ""), str(item.get("pros") or ""), str(item.get("cons") or "")]
+        text = " ".join(p.strip() for p in _parts if p.strip())
         review_tags = _extract_review_tags_from_payload(item)
         return ReviewInput(
             review_id=str(item.get("id") or item.get("feedbackId") or item.get("review_id") or ""),
