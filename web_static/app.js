@@ -1927,7 +1927,7 @@ function renderChatListGroup(containerId, items, emptyText) {
         <div class="chat-list-meta">
           ${dateStr ? `<span class="chat-list-date">${esc(dateStr)}</span>` : ""}
           <span class="chat-list-badge">${source}</span>
-          ${unread > 0 ? `<span class="chat-list-unread">${unread}</span>` : ""}
+          ${unread > 0 && (item.source || "").toLowerCase() !== "ozon" ? `<span class="chat-list-unread">${unread}</span>` : ""}
         </div>
       </div>
     `;
