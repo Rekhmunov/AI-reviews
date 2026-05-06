@@ -4831,10 +4831,11 @@ class ReviewRepository:
                     send_attempts = 0,
                     last_send_attempt_at = NULL,
                     last_sent_at = ?,
+                    last_message_at = ?,
                     updated_at = ?
                 WHERE user_id = ? AND conversation_uid = ?
                 """,
-                (now, now, user_id, conversation_uid),
+                (now, now, now, user_id, conversation_uid),
             )
         return bool(message_result.rowcount)
 
