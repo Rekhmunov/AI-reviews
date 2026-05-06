@@ -139,7 +139,8 @@ class OzonMarketplaceClient:
     reply_text_field: str = "text"
     reply_payload: dict[str, object] | None = None
     page_size: int = 50
-    max_pages: int = 20
+    # 500 000 reviews / 50 per page = 10 000 pages max
+    max_pages: int = 10000
     timeout: int = 20
 
     def fetch_reviews(
@@ -562,7 +563,8 @@ class WildberriesMarketplaceClient:
     reply_text_field: str = "text"
     reply_payload: dict[str, object] | None = None
     page_size: int = 100
-    max_pages: int = 20
+    # 500 000 reviews / 100 per page = 5 000 pages max
+    max_pages: int = 5000
     timeout: int = 20
 
     def fetch_reviews(
@@ -2536,7 +2538,7 @@ class ReviewAutomationService:
                 list_path=str(extra.get("list_path") or "/v1/review/list"),
                 base_payload=extra.get("base_payload") if isinstance(extra.get("base_payload"), dict) else None,
                 page_size=_to_positive_int(extra.get("page_size"), default=50),
-                max_pages=_to_positive_int(extra.get("max_pages"), default=20),
+                max_pages=_to_positive_int(extra.get("max_pages"), default=10000),
                 questions_path=str(extra.get("questions_path")) if extra.get("questions_path") else None,
                 chats_path=str(extra.get("chats_path") or "/v3/chat/list"),
                 chats_history_path=str(extra.get("chats_history_path") or "/v3/chat/history"),
@@ -2556,7 +2558,7 @@ class ReviewAutomationService:
                 unanswered_param=str(extra.get("unanswered_param") or "isAnswered"),
                 unanswered_value=str(extra.get("unanswered_value") or "false"),
                 page_size=_to_positive_int(extra.get("page_size"), default=100),
-                max_pages=_to_positive_int(extra.get("max_pages"), default=20),
+                max_pages=_to_positive_int(extra.get("max_pages"), default=5000),
                 questions_path=str(extra.get("questions_path") or "/api/v1/questions"),
                 chats_path=str(extra.get("chats_path") or "/api/v1/seller/chats"),
                 chats_api_url=str(extra.get("chats_api_url") or "https://buyer-chat-api.wildberries.ru"),
