@@ -443,11 +443,25 @@ class OzonMarketplaceClient:
     def send_conversation_reply(self, *, conversation: dict[str, object], response_text: str) -> bool:
         if not self.client_id or not self.api_key:
             raise MarketplaceSyncError("ozon", "Missing Ozon credentials: client_id/api_key")
-        if not self.reply_path:
-            return False
         external_id = str(conversation.get("external_conversation_id") or conversation.get("external_id") or "").strip()
         if not external_id:
             raise MarketplaceSyncError("ozon", "Missing external conversation id for reply")
+        kind = str(conversation.get("kind") or "").lower()
+        if kind == "chat":
+            # Ozon buyer-seller chats use /v1/chat/send/message
+            result = self._request_json(
+                path="/v1/chat/send/message",
+                payload={"chat_id": external_id, "text": response_text},
+            )
+            # Success response: {"result": "success"}
+            if str(result.get("result") or "").lower() == "success":
+                return True
+            raw = result.get("result") if isinstance(result.get("result"), Mapping) else result
+            _raise_if_error_payload(raw, source="ozon")
+            return True
+        # Reviews / questions use the configured reply_path
+        if not self.reply_path:
+            return False
         payload: dict[str, object] = dict(self.reply_payload or {})
         payload[self.reply_review_id_field] = external_id
         payload[self.reply_text_field] = response_text
