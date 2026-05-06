@@ -3266,6 +3266,14 @@ class ReviewRepository:
             raise RuntimeError("Template variant creation failed")
         return self._row_to_dict(row)
 
+    def get_template_variant_by_id(self, *, user_id: int, template_id: int) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM response_template_variants WHERE user_id = ? AND id = ?",
+                (user_id, template_id),
+            ).fetchone()
+        return self._row_to_dict(row) if row else None
+
     def delete_template_variant(self, *, user_id: int, template_id: int) -> bool:
         with self._connect() as conn:
             result = conn.execute(

@@ -1267,6 +1267,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 return item
         return None
 
+    def _is_protected_subgroup(group_id: str, subgroup: str) -> bool:
+        """Return True if this subgroup must not be deleted by anyone.
+
+        The 'textless_ratings' group has fixed per-star subgroups that are
+        required for the review processing pipeline and cannot be removed.
+        """
+        from .service import ReviewAutomationService as _RAS
+        if str(group_id or "").strip() != _RAS.TEXTLESS_GROUP_ID:
+            return False
+        return str(subgroup or "").strip() in _RAS.TEXTLESS_SUBGROUPS
+
     def _base_subgroups_for_group(group_id: str) -> list[str]:
         group = _template_group_by_id(group_id)
         if group is None:
@@ -2806,6 +2817,16 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.delete("/api/template-subgroup/item/{template_id}")
     def delete_template_subgroup_item(template_id: int, request: Request) -> dict[str, object]:
         user = _require_settings_access(request)
+        # Check if the template belongs to a protected subgroup before deleting
+        existing = repository.get_template_variant_by_id(
+            user_id=int(user["id"]),
+            template_id=template_id,
+        )
+        if existing and _is_protected_subgroup(
+            str(existing.get("group_id") or ""),
+            str(existing.get("subgroup") or ""),
+        ):
+            raise HTTPException(status_code=403, detail="Шаблоны этой подгруппы защищены от удаления")
         deleted = repository.delete_template_variant(
             user_id=int(user["id"]),
             template_id=template_id,
@@ -3236,6 +3257,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         clean_subgroup = str(subgroup or "").strip()
         if _template_group_by_id(clean_group_id) is None:
             raise HTTPException(status_code=404, detail="Группа шаблонов не найдена")
+        if _is_protected_subgroup(clean_group_id, clean_subgroup):
+            raise HTTPException(status_code=403, detail="Эта подгруппа защищена и не может быть удалена")
         if not clean_subgroup:
             raise HTTPException(status_code=400, detail="Название подгруппы обязательно")
         if _is_protected_default_subgroup(clean_group_id, clean_subgroup):

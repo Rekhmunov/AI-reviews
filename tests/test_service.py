@@ -484,7 +484,7 @@ class ReviewAutomationServiceTests(unittest.TestCase):
         group_id = self.service._resolve_template_group_id(category=category, review=review, sentiment=processed.sentiment_label)
         subgroup = self.service._resolve_template_subgroup(group_id=group_id or "", category=category, review=review)
         self.assertEqual(group_id, "textless_ratings")
-        self.assertEqual(subgroup, "4-5 звезд")
+        self.assertEqual(subgroup, "5 звезд")
 
     def test_textless_with_tags_routes_to_rating_group(self) -> None:
         review = ReviewInput(
@@ -498,7 +498,7 @@ class ReviewAutomationServiceTests(unittest.TestCase):
         group_id = self.service._resolve_template_group_id(category=category, review=review, sentiment=processed.sentiment_label)
         subgroup = self.service._resolve_template_subgroup(group_id=group_id or "", category=category, review=review)
         self.assertEqual(group_id, "textless_ratings")
-        self.assertEqual(subgroup, "4-5 звезд")
+        self.assertEqual(subgroup, "4 звезды")
 
     def test_neutral_text_with_size_hint_routes_to_wrong_size(self) -> None:
         review = ReviewInput(
@@ -530,7 +530,7 @@ class ReviewAutomationServiceTests(unittest.TestCase):
             self.assertEqual(str(row.get("status") or ""), "queued_for_operator")
             self.assertEqual(str(metadata.get("ai_classification_status") or ""), "failed")
 
-    def test_textless_rating_uses_4_5_stars_subgroup_template(self) -> None:
+    def test_textless_rating_uses_5_stars_subgroup_template(self) -> None:
         self.repository.upsert_processing_rule(
             user_id=int(self.user["id"]),
             group_id="textless_ratings",
@@ -540,21 +540,21 @@ class ReviewAutomationServiceTests(unittest.TestCase):
         self.repository.replace_subgroup_templates(
             user_id=int(self.user["id"]),
             group_id="textless_ratings",
-            subgroup="4-5 звезд",
-            templates=["ТЕСТ: шаблон для 4-5 звезд"],
+            subgroup="5 звезд",
+            templates=["ТЕСТ: шаблон для 5 звезд"],
         )
         self.service.sync_reviews(
             user_id=int(self.user["id"]),
             source="test-market",
             account_id=None,
-            client=_TextlessClient(),
+            client=_TextlessClient(),  # rating=5
         )
         review = self.repository.list_reviews(user_id=int(self.user["id"]), category="textless_ratings", limit=1)[0]
         self.assertEqual(review["status"], "answered_auto")
-        self.assertIn("4-5 звезд", str((review.get("metadata") or {}).get("classified_subgroup") or ""))
-        self.assertIn("4-5", str(review.get("auto_reply") or ""))
+        self.assertIn("5 звезд", str((review.get("metadata") or {}).get("classified_subgroup") or ""))
+        self.assertIn("5", str(review.get("auto_reply") or ""))
 
-    def test_textless_rating_uses_1_3_stars_subgroup_template(self) -> None:
+    def test_textless_rating_uses_2_stars_subgroup_template(self) -> None:
         self.repository.upsert_processing_rule(
             user_id=int(self.user["id"]),
             group_id="textless_ratings",
@@ -564,19 +564,19 @@ class ReviewAutomationServiceTests(unittest.TestCase):
         self.repository.replace_subgroup_templates(
             user_id=int(self.user["id"]),
             group_id="textless_ratings",
-            subgroup="1-3 звезды",
-            templates=["ТЕСТ: шаблон для 1-3 звезд"],
+            subgroup="2 звезды",
+            templates=["ТЕСТ: шаблон для 2 звезд"],
         )
         self.service.sync_reviews(
             user_id=int(self.user["id"]),
             source="test-market",
             account_id=None,
-            client=_TextlessLowRatingClient(),
+            client=_TextlessLowRatingClient(),  # rating=2
         )
         review = self.repository.list_reviews(user_id=int(self.user["id"]), category="textless_ratings", limit=1)[0]
         self.assertEqual(review["status"], "answered_auto")
-        self.assertIn("1-3 звезды", str((review.get("metadata") or {}).get("classified_subgroup") or ""))
-        self.assertIn("1-3", str(review.get("auto_reply") or ""))
+        self.assertIn("2 звезды", str((review.get("metadata") or {}).get("classified_subgroup") or ""))
+        self.assertIn("2", str(review.get("auto_reply") or ""))
 
     def test_group_without_subgroup_fallbacks_to_general_subgroup(self) -> None:
         self.service._classify_with_yandex_target = mock.Mock(return_value=("delivery_problems", None))

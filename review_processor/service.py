@@ -1328,6 +1328,15 @@ class MockMarketplaceClient:
 
 class ReviewAutomationService:
     TEXTLESS_GROUP_ID = "textless_ratings"
+    # One subgroup per star rating — cannot be deleted by admins or users
+    TEXTLESS_SUBGROUPS: tuple[str, ...] = (
+        "1 звезда",
+        "2 звезды",
+        "3 звезды",
+        "4 звезды",
+        "5 звезд",
+    )
+    # Legacy constants kept for DB migration compatibility
     TEXTLESS_LOW_SUBGROUP = "1-3 звезды"
     TEXTLESS_HIGH_SUBGROUP = "4-5 звезд"
     GENERAL_SUBGROUP_TITLE = "Общий"
@@ -2648,7 +2657,7 @@ class ReviewAutomationService:
                 sentiment=sentiment,
             )
             rule = self.repository.get_processing_rule(user_id=user_id, group_id=group_id) if group_id else None
-            mode, auto_send, _template_text = self._resolve_processing_mode(processed, None, rule)
+            mode, auto_send, _template_text = self._resolve_processing_mode(review, None, rule)
             if mode == "template":
                 group_template = self._pick_group_template_text(
                     user_id=user_id,
@@ -3190,10 +3199,9 @@ class ReviewAutomationService:
                 return "Альтернативные измерения"
             return "Не подошел размер"
         if group_id == "textless_ratings":
-            rating = review.rating if review.rating is not None else 0
-            if rating <= 3:
-                return ReviewAutomationService.TEXTLESS_LOW_SUBGROUP
-            return ReviewAutomationService.TEXTLESS_HIGH_SUBGROUP
+            return ReviewAutomationService._textless_subgroup_for_rating(
+                review.rating if review.rating is not None else 0
+            )
         if group_id == "tagged_reviews":
             return "Общие теги"
         if group_id == "product_dissatisfaction":
@@ -3309,6 +3317,13 @@ class ReviewAutomationService:
         return result
 
     @staticmethod
+    @staticmethod
+    def _textless_subgroup_for_rating(rating: int) -> str:
+        """Return the textless-ratings subgroup name for a given star rating."""
+        clipped = max(1, min(int(rating or 1), 5))
+        return ReviewAutomationService.TEXTLESS_SUBGROUPS[clipped - 1]
+
+    @staticmethod
     def _review_has_media(review: ReviewInput) -> bool:
         metadata = review.metadata if isinstance(review.metadata, dict) else {}
 
@@ -3349,7 +3364,7 @@ class ReviewAutomationService:
         # категория и подгруппа определяются только по оценке.
         if not has_text and not has_media:
             rating = review.rating if review.rating is not None else 0
-            subgroup = self.TEXTLESS_LOW_SUBGROUP if rating <= 3 else self.TEXTLESS_HIGH_SUBGROUP
+            subgroup = self._textless_subgroup_for_rating(rating)
             return self.TEXTLESS_GROUP_ID, subgroup
 
         # Для отзывов с текстом или вложениями обязательно используем Яндекс.
@@ -3487,16 +3502,15 @@ class ReviewAutomationService:
                 for subgroup in defaults:
                     _push(group_id, subgroup)
 
-        # Закрепленная структура для отзывов без текста.
+        # Fixed structure for textless ratings — one subgroup per star (1-5).
+        # These subgroups cannot be deleted by admins or users.
         subgroup_items_by_group[cls.TEXTLESS_GROUP_ID] = [
             {
-                "subgroup_id": cls._build_subgroup_id(cls.TEXTLESS_GROUP_ID, cls.TEXTLESS_LOW_SUBGROUP),
-                "subgroup": cls.TEXTLESS_LOW_SUBGROUP,
-            },
-            {
-                "subgroup_id": cls._build_subgroup_id(cls.TEXTLESS_GROUP_ID, cls.TEXTLESS_HIGH_SUBGROUP),
-                "subgroup": cls.TEXTLESS_HIGH_SUBGROUP,
-            },
+                "subgroup_id": cls._build_subgroup_id(cls.TEXTLESS_GROUP_ID, sg),
+                "subgroup": sg,
+                "protected": True,  # marker: cannot be deleted
+            }
+            for sg in cls.TEXTLESS_SUBGROUPS
         ]
 
         items: list[dict[str, object]] = []
