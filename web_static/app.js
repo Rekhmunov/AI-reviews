@@ -187,7 +187,7 @@ async function pollGlobalSyncStatus() {
       return;
     }
     const p = await res.json();
-    if (p.in_progress) {
+    if (p.in_progress && p.is_manual) {
       showSyncProgress();
       updateSyncProgressUI(p);
       globalSyncPollTimer = window.setTimeout(pollGlobalSyncStatus, 2000);
@@ -3967,10 +3967,11 @@ document.addEventListener("DOMContentLoaded", () => {
   window.addEventListener("resize", closeMobileNavIfDesktop);
   document.getElementById("ruleCategory")?.addEventListener("change", syncRuleFormFromStore);
   document.getElementById("tplCategory")?.addEventListener("change", syncTemplateFormFromStore);
-  // On page load: check if a sync is already running (e.g. user navigated away
-  // and came back) - if so, show the progress bar and start polling immediately.
+  // On page load: check if a manual sync is already running (e.g. user navigated
+  // away and came back). Only show the progress bar for manual syncs — not for
+  // the background 60s auto-sync which runs silently.
   fetch("/api/sync/status").then((r) => r.ok ? r.json() : null).then((p) => {
-    if (p && p.in_progress) {
+    if (p && p.in_progress && p.is_manual) {
       syncInProgress = true;
       const syncButton = document.getElementById("syncAllBtn");
       if (syncButton) {

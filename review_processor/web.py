@@ -1131,6 +1131,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             if bool(sync_state.get("in_progress")):
                 raise HTTPException(status_code=409, detail="Синхронизация уже выполняется")
             sync_state["in_progress"] = True
+            sync_state["is_manual"] = apply_date_filter  # True only for manual button clicks
             sync_state["cancel_requested"] = False
             sync_state["last_started_at"] = run_started_at
             sync_state["progress_step"] = "Подготовка..."
@@ -2380,6 +2381,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         with sync_lock:
             return {
                 "in_progress": bool(sync_state.get("in_progress")),
+                "is_manual": bool(sync_state.get("is_manual")),
                 "cancel_requested": bool(sync_state.get("cancel_requested")),
                 "last_started_at": sync_state.get("last_started_at"),
                 "last_finished_at": sync_state.get("last_finished_at"),
