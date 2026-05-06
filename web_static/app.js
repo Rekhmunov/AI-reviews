@@ -2326,7 +2326,7 @@ async function loadChatMessages(conversationUid) {
   const activeConversation = findActiveChatConversation();
   if (titleSpan) {
     titleSpan.textContent = activeConversation
-      ? `${activeConversation.customer_name || "Чат"} · ${String(activeConversation.source || "").toUpperCase()} · ${labelFromMap(conversationStatusLabels, activeConversation.status)}`
+      ? `${activeConversation.customer_name || "Чат"} · ${String(activeConversation.source || "").toUpperCase()}`
       : "Чат";
   }
   // Only show loading placeholder on first open, not on 30s background refreshes
