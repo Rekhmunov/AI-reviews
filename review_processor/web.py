@@ -1251,7 +1251,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                                     "error": str(exc),
                                     "account_ids": list(account_ids),
                                 }
-                        break  # one user per loop iteration
+                        # Continue to next owner user (no break — all tenants polled)
 
             worker = threading.Thread(
                 target=_auto_sync_loop,

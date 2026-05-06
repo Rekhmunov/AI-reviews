@@ -189,6 +189,51 @@ class OzonMarketplaceClient:
 
         return [review for review in reviews if review.review_id]
 
+    def fetch_reviews_iter(
+        self,
+        *,
+        since_date: str | None = None,
+        stop_requested: Callable[[], bool] | None = None,
+    ):
+        """Generator version of fetch_reviews — yields one ReviewInput per item.
+
+        Pages are fetched and processed one at a time so peak memory
+        is O(page_size) regardless of total review count.
+        """
+        if not self.client_id or not self.api_key:
+            raise MarketplaceSyncError("ozon", "Missing Ozon credentials: client_id/api_key")
+        last_id: str | None = None
+        page = 0
+        while page < self.max_pages:
+            _raise_if_stop_requested(stop_requested, source="ozon")
+            if page > 0:
+                time.sleep(0.15)
+            payload: dict[str, object] = dict(self.base_payload or {})
+            payload["limit"] = self.page_size
+            if since_date:
+                payload.setdefault("date_from", since_date)
+                payload.setdefault("dateFrom", since_date)
+            if last_id:
+                payload["last_id"] = last_id
+            body = self._request_json(path=self.list_path, payload=payload)
+            result = body.get("result") if isinstance(body.get("result"), dict) else body
+            _raise_if_error_payload(result, source="ozon")
+            page_items = _extract_sequence(result, keys=self.items_keys)
+            if not page_items:
+                break
+            for item in page_items:
+                rv = self._to_review(item)
+                if rv.review_id:
+                    yield rv
+            next_last_id = _extract_str(result, keys=self.cursor_keys)
+            has_next = bool(result.get("has_next") or result.get("hasNext"))
+            page += 1
+            if not has_next and len(page_items) < self.page_size:
+                break
+            if not next_last_id or next_last_id == last_id:
+                break
+            last_id = next_last_id
+
     def fetch_conversations(self, *, stop_requested: Callable[[], bool] | None = None) -> list[dict[str, object]]:
         return self.fetch_questions(stop_requested=stop_requested) + self.fetch_chats(stop_requested=stop_requested)
 
@@ -604,6 +649,46 @@ class WildberriesMarketplaceClient:
             page += 1
 
         return [review for review in reviews if review.review_id]
+
+    def fetch_reviews_iter(
+        self,
+        *,
+        since_date: str | None = None,
+        stop_requested: Callable[[], bool] | None = None,
+    ):
+        """Generator version of fetch_reviews — yields one ReviewInput per item.
+
+        Pages are fetched and yielded immediately, so peak memory is O(page_size)
+        regardless of the total number of reviews. Critical for accounts with
+        100 000+ reviews.
+        """
+        if not self.api_key:
+            raise MarketplaceSyncError("wb", "Missing Wildberries api_key")
+        skip = 0
+        page = 0
+        while page < self.max_pages:
+            _raise_if_stop_requested(stop_requested, source="wb")
+            if page > 0:
+                time.sleep(0.4)
+            try:
+                payload = self._request_json(skip=skip, take=self.page_size, since_date=since_date)
+            except TypeError:
+                payload = self._request_json(skip=skip, take=self.page_size)
+            _raise_if_error_payload(payload, source="wb")
+            items = _extract_sequence(payload, keys=self.items_keys)
+            if not items and isinstance(payload.get("data"), dict):
+                _raise_if_error_payload(payload["data"], source="wb")
+                items = _extract_sequence(payload["data"], keys=self.items_keys)
+            if not items:
+                break
+            for item in items:
+                rv = self._to_review(item)
+                if rv.review_id:
+                    yield rv
+            if len(items) < self.page_size:
+                break
+            skip += self.page_size
+            page += 1
 
     def fetch_conversations(self, *, stop_requested: Callable[[], bool] | None = None) -> list[dict[str, object]]:
         return self.fetch_questions(stop_requested=stop_requested) + self.fetch_chats(stop_requested=stop_requested)
@@ -1070,9 +1155,14 @@ class WildberriesMarketplaceClient:
         except Exception:
             counts["questions"] = 0
 
-        # Chats: GET /api/v1/seller/chats returns the full list - just count items
+        # Chats: use cached count from last sync if fresh (within 5 min),
+        # otherwise fetch the chat list (1 request, same as sync list step).
         try:
-            if self.chats_path:
+            cached = getattr(self, "_cached_chats_count", None)
+            cached_at = getattr(self, "_cached_chats_count_at", 0.0)
+            if cached is not None and (time.time() - cached_at) < 300:
+                counts["chats"] = int(cached)
+            elif self.chats_path:
                 base = self.chats_api_url or self.api_url
                 endpoint = _compose_url(base, self.chats_path)
                 req = Request(endpoint, method="GET", headers={"Authorization": self.api_key})
@@ -1093,6 +1183,8 @@ class WildberriesMarketplaceClient:
                                 if items:
                                     break
                     counts["chats"] = len(items)
+                    self._cached_chats_count = counts["chats"]  # type: ignore[attr-defined]
+                    self._cached_chats_count_at = time.time()  # type: ignore[attr-defined]
         except Exception:
             counts["chats"] = 0
 
@@ -1441,11 +1533,20 @@ class ReviewAutomationService:
         since_date: str | None = None,
         stop_requested: Callable[[], bool] | None = None,
     ) -> int:
+        # Use streaming (page-by-page) fetcher if available to avoid holding
+        # 200k+ reviews in memory at once.  Falls back to bulk fetch_reviews.
+        _fetch_iter = getattr(client, "fetch_reviews_iter", None)
         try:
-            try:
-                reviews = client.fetch_reviews(since_date=since_date, stop_requested=stop_requested)
-            except TypeError:
-                reviews = client.fetch_reviews()
+            if callable(_fetch_iter):
+                try:
+                    reviews_iterable = _fetch_iter(since_date=since_date, stop_requested=stop_requested)
+                except TypeError:
+                    reviews_iterable = _fetch_iter()
+            else:
+                try:
+                    reviews_iterable = client.fetch_reviews(since_date=since_date, stop_requested=stop_requested)
+                except TypeError:
+                    reviews_iterable = client.fetch_reviews()
         except MarketplaceSyncError as exc:
             if not self._is_access_error(exc):
                 self.repository.log_review_action(
@@ -1456,6 +1557,7 @@ class ReviewAutomationService:
                     details={"source": source, "account_id": account_id, "error": str(exc), **exc.details},
                 )
             raise
+        reviews = reviews_iterable  # may be a list or a generator
         settings = self.repository.get_ai_settings(include_secrets=True)
         classification_options = self._list_group_subgroups_for_review_classification(
             repository=self.repository,
@@ -1497,10 +1599,12 @@ class ReviewAutomationService:
                 return lookup[normalized]
             return general_subgroup
 
+        loaded_count = 0
         for review in reviews:
             _raise_if_stop_requested(stop_requested, source=source)
             if not review.review_id:
                 continue
+            loaded_count += 1
             processed = self.processor.process(review)
             ai_classification_failed = False
             ai_classification_error = ""
@@ -1673,7 +1777,7 @@ class ReviewAutomationService:
                         "scope": "classification",
                     },
                 )
-        return len(reviews)
+        return loaded_count
 
     def sync_conversations(
         self,
@@ -1957,7 +2061,7 @@ class ReviewAutomationService:
             wb_unread = _to_positive_int(row.get("unread_count"), default=0)
             buyer_has_unread = (last_sender == "client") or (wb_unread > 0 and last_sender != "seller")
 
-            _log.info(
+            _log.debug(
                 "sync_chats: chat %s customer=%r last_msg_at=%s last_sender=%s "
                 "unread=%d buyer_has_unread=%s seller_replied_at=%s",
                 ext_id,
@@ -2073,6 +2177,10 @@ class ReviewAutomationService:
                 except Exception:
                     pass
 
+        _log.info(
+            "sync_chats: done — source=%s loaded=%d full_sync=%s",
+            source, loaded, full_sync,
+        )
         return loaded
 
     def _is_access_error(self, error: object) -> bool:

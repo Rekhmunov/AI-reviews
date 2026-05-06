@@ -4849,27 +4849,32 @@ class ReviewRepository:
         """
         if not messages:
             return 0
+        # Build the parameter list, skipping invalid rows
+        params: list[tuple] = []
+        for msg in messages:
+            direction = str(msg.get("direction") or "inbound").strip()
+            text = str(msg.get("message_text") or "").strip()
+            idem_key = str(msg.get("idempotency_key") or "").strip()
+            created = str(msg.get("created_at") or _utc_now()).strip()
+            op_name = str(msg.get("operator_name") or "").strip() or None
+            if not idem_key or not text:
+                continue
+            params.append((conversation_uid, user_id, direction, text, op_name, idem_key, created))
+        if not params:
+            return 0
+        sql = self._sql("""
+            INSERT INTO conversation_messages (
+                conversation_uid, user_id, direction, message_text,
+                operator_name, send_status, idempotency_key, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, 'sent', ?, ?)
+            ON CONFLICT(user_id, conversation_uid, idempotency_key) DO NOTHING
+        """)
+        # All rows in one transaction — the main performance gain vs separate transactions
         inserted = 0
         with self._connect() as conn:
-            for msg in messages:
-                direction = str(msg.get("direction") or "inbound").strip()
-                text = str(msg.get("message_text") or "").strip()
-                idem_key = str(msg.get("idempotency_key") or "").strip()
-                created = str(msg.get("created_at") or _utc_now()).strip()
-                op_name = str(msg.get("operator_name") or "").strip() or None
-                if not idem_key or not text:
-                    continue
-                result = conn.execute(
-                    """
-                    INSERT INTO conversation_messages (
-                        conversation_uid, user_id, direction, message_text,
-                        operator_name, send_status, idempotency_key, created_at
-                    )
-                    VALUES (?, ?, ?, ?, ?, 'sent', ?, ?)
-                    ON CONFLICT(user_id, conversation_uid, idempotency_key) DO NOTHING
-                    """,
-                    (conversation_uid, user_id, direction, text, op_name, idem_key, created),
-                )
+            for row_params in params:
+                result = conn.execute(sql, row_params)
                 inserted += int(result.rowcount or 0)
         return inserted
 
