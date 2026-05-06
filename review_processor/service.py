@@ -1991,7 +1991,7 @@ class ReviewAutomationService:
                     attachments = msg.get("attachments") or {}
                     images = attachments.get("images") or []
                     if not ev_text and images:
-                        img_parts = [f"[img:{img.get('url','')}]" for img in images if img.get("url")]
+                        img_parts = [f"[img:{_wb_image_url(img)}]" for img in images if img.get("url") or img.get("downloadID")]
                         ev_text = " ".join(img_parts) if img_parts else f"[Фото: {len(images)} шт.]"
                     elif not ev_text and attachments.get("goodCard"):
                         card = attachments["goodCard"]
@@ -4402,6 +4402,23 @@ def _extract_review_tags_from_payload(payload: object) -> list[str]:
         if nested_value is not None:
             _push(nested_value)
     return result
+
+
+def _wb_image_url(img: dict, *, chats_api_url: str = "https://buyer-chat-api.wildberries.ru") -> str:
+    """Return a publicly accessible URL for a WB chat image.
+
+    WB events return ``url`` as an internal K8s address (sellers-chat-inner.*)
+    that is not reachable from outside WB infrastructure.
+    The ``downloadID`` field can be used with the public API endpoint
+    ``GET /api/v1/seller/download/{id}`` which requires Authorization header.
+    We store this as ``[img:wb-download:downloadID]`` so the proxy endpoint
+    can distinguish it from regular public URLs.
+    """
+    download_id = str(img.get("downloadID") or "").strip()
+    if download_id:
+        return f"wb-download:{download_id}"
+    raw_url = str(img.get("url") or "").strip()
+    return raw_url
 
 
 def _parse_ozon_message_text(data_parts: object, is_image: bool) -> str:

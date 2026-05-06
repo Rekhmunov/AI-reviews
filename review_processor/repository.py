@@ -4658,6 +4658,33 @@ class ReviewRepository:
             return None
         return self._row_to_dict(row)
 
+    def fix_wb_internal_photo_urls(self, *, user_id: int, conversation_uid: str) -> int:
+        """Convert WB internal K8s image URLs to wb-download:id tokens.
+
+        Old format: [img:http://sellers-chat-inner.chat.k8s.cc-xs/internal/v1/file/{uuid}]
+        New format: [img:wb-download:{uuid}]
+
+        Returns number of rows updated.
+        """
+        if self.is_postgres:
+            sql = """
+                UPDATE conversation_messages
+                SET message_text = regexp_replace(
+                    message_text,
+                    '\\[img:http://sellers-chat-inner[^/]*/internal/v1/file/([^\\]]+)\\]',
+                    '[img:wb-download:\\1]',
+                    'g'
+                )
+                WHERE user_id = %s AND conversation_uid = %s
+                  AND message_text LIKE '%sellers-chat-inner%'
+            """
+        else:
+            # SQLite doesn't support regexp_replace — skip migration (rare case)
+            return 0
+        with self._connect() as conn:
+            result = conn.execute(self._sql(sql), (user_id, conversation_uid))
+        return int(result.rowcount or 0)
+
     def fix_ozon_photo_messages(self, *, user_id: int, conversation_uid: str) -> int:
         """Convert legacy Ozon photo messages stored as Markdown to [img:url] tokens.
 

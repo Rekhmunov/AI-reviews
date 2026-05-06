@@ -27,7 +27,7 @@ from .auth import create_session_token, hash_password, verify_password
 _log = logging.getLogger(__name__)
 from .config import AppConfig, load_app_config
 from .repository import ReviewRepository
-from .service import MarketplaceSyncError, ReviewAutomationService, _normalize_timestamp, _parse_ozon_message_text
+from .service import MarketplaceSyncError, ReviewAutomationService, _normalize_timestamp, _parse_ozon_message_text, _wb_image_url
 
 try:  # pragma: no cover - optional in sqlite-only environments
     import psycopg  # type: ignore
@@ -1925,6 +1925,49 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "idempotency_key": idempotency_key,
         }
 
+    @app.get("/api/wb-image")
+    def wb_image_proxy(request: Request, id: str, account_id: int) -> object:
+        """Proxy WB chat images via /api/v1/seller/download/{id}.
+
+        WB returns image URLs pointing to internal K8s addresses that are
+        not publicly reachable. The downloadID field allows fetching via
+        the public buyer-chat-api endpoint with Authorization header.
+        """
+        from fastapi.responses import Response as _Response
+        user = _require_user(request)
+        clean_id = str(id or "").strip()
+        if not clean_id:
+            raise HTTPException(status_code=400, detail="Missing image id")
+        account = repository.get_marketplace_account(
+            user_id=int(user["id"]),
+            account_id=account_id,
+            include_secrets=True,
+        )
+        if account is None or str(account.get("marketplace") or "") != "wb":
+            raise HTTPException(status_code=404, detail="WB account not found")
+        api_key = str(account.get("api_key") or "").strip()
+        extra = account.get("extra") if isinstance(account.get("extra"), dict) else {}
+        chats_api_url = str(extra.get("chats_api_url") or "https://buyer-chat-api.wildberries.ru").rstrip("/")
+        if not api_key:
+            raise HTTPException(status_code=400, detail="WB credentials missing")
+        download_url = f"{chats_api_url}/api/v1/seller/download/{clean_id}"
+        try:
+            req = urllib.request.Request(
+                download_url,
+                method="GET",
+                headers={"Authorization": api_key},
+            )
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                content = resp.read()
+                content_type = resp.headers.get("Content-Type", "image/jpeg")
+            return _Response(content=content, media_type=content_type)
+        except urllib.error.HTTPError as exc:
+            _log.warning("wb_image_proxy: HTTP %d for id=%s", exc.code, clean_id)
+            raise HTTPException(status_code=502, detail=f"WB returned HTTP {exc.code}")
+        except Exception as exc:
+            _log.warning("wb_image_proxy: error %s for id=%s", exc, clean_id)
+            raise HTTPException(status_code=502, detail="Failed to fetch WB image")
+
     @app.get("/api/ozon-image")
     def ozon_image_proxy(request: Request, url: str, account_id: int) -> object:
         """Proxy Ozon chat images that require Client-Id/Api-Key authentication.
@@ -2037,7 +2080,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                                 attachments = msg.get("attachments") or {}
                                 images = attachments.get("images") or []
                                 if images:
-                                    img_parts = [f"[img:{img.get('url','')}]" for img in images if img.get("url")]
+                                    img_parts = [f"[img:{_wb_image_url(img)}]" for img in images if img.get("url") or img.get("downloadID")]
                                     ev_text = " ".join(img_parts) if img_parts else f"[Фото: {len(images)} шт.]"
                                 elif attachments.get("goodCard"):
                                     ev_text = f"[Товар: {attachments['goodCard'].get('name', '')}]"
@@ -2054,6 +2097,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                                 "created_at": ev_iso,
                                 "operator_name": client_name if ev_sender == "client" else "Продавец",
                             })
+                        # Migrate old internal K8s URLs to wb-download tokens
+                        repository.fix_wb_internal_photo_urls(
+                            user_id=int(user["id"]),
+                            conversation_uid=conversation_uid,
+                        )
                         if history:
                             repository.bulk_insert_chat_history_messages(
                                 user_id=int(user["id"]),

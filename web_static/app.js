@@ -2281,11 +2281,16 @@ function renderChatMessages(messages, convMeta) {
     let contentHtml = "";
     const imgMatches = [...rawText.matchAll(imgRegex)];
     if (imgMatches.length > 0) {
-      // Show images; Ozon images need to be proxied through our backend
+      // Show images; Ozon and WB images need to be proxied through our backend
+      const convAccountId = Number((convMeta || {}).account_id || 0);
+      const convSource = String((convMeta || {}).source || "").toLowerCase();
       contentHtml = imgMatches.map((m) => {
         let imgSrc = m[1];
-        if (isOzon && ozonAccountId && imgSrc.includes("api-seller.ozon.ru")) {
-          imgSrc = `/api/ozon-image?url=${encodeURIComponent(imgSrc)}&account_id=${ozonAccountId}`;
+        if (convSource === "ozon" && convAccountId && imgSrc.includes("api-seller.ozon.ru")) {
+          imgSrc = `/api/ozon-image?url=${encodeURIComponent(imgSrc)}&account_id=${convAccountId}`;
+        } else if (imgSrc.startsWith("wb-download:") && convAccountId) {
+          const dlId = imgSrc.slice("wb-download:".length);
+          imgSrc = `/api/wb-image?id=${encodeURIComponent(dlId)}&account_id=${convAccountId}`;
         }
         return `<img src="${esc(imgSrc)}" class="chat-bubble-img" alt="Фото" loading="lazy" />`;
       }).join("");
