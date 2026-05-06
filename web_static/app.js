@@ -2291,6 +2291,12 @@ function renderChatMessages(messages, convMeta) {
         } else if (imgSrc.startsWith("wb-download:") && convAccountId) {
           const dlId = imgSrc.slice("wb-download:".length);
           imgSrc = `/api/wb-image?id=${encodeURIComponent(dlId)}&account_id=${convAccountId}`;
+        } else if (imgSrc.includes("sellers-chat-inner") && convAccountId) {
+          // Legacy internal WB K8s URL — extract UUID and proxy
+          const uuidMatch = imgSrc.match(/\/file\/([0-9a-f-]{36})/i);
+          if (uuidMatch) {
+            imgSrc = `/api/wb-image?id=${encodeURIComponent(uuidMatch[1])}&account_id=${convAccountId}`;
+          }
         }
         return `<img src="${esc(imgSrc)}" class="chat-bubble-img" alt="Фото" loading="lazy" />`;
       }).join("");
