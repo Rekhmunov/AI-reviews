@@ -25,7 +25,7 @@ from .auth import create_session_token, hash_password, verify_password
 _log = logging.getLogger(__name__)
 from .config import AppConfig, load_app_config
 from .repository import ReviewRepository
-from .service import MarketplaceSyncError, ReviewAutomationService, _normalize_timestamp
+from .service import MarketplaceSyncError, ReviewAutomationService, _normalize_timestamp, _parse_ozon_message_text
 
 try:  # pragma: no cover - optional in sqlite-only environments
     import psycopg  # type: ignore
@@ -1923,6 +1923,43 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "idempotency_key": idempotency_key,
         }
 
+    @app.get("/api/ozon-image")
+    def ozon_image_proxy(request: Request, url: str, account_id: int) -> object:
+        """Proxy Ozon chat images that require Client-Id/Api-Key authentication.
+
+        The browser cannot load Ozon image URLs directly (they return 401).
+        This endpoint fetches the image server-side using the stored credentials
+        and streams it back to the browser.
+        """
+        from fastapi.responses import Response as _Response
+        user = _require_user(request)
+        if not url.startswith("https://api-seller.ozon.ru/"):
+            raise HTTPException(status_code=400, detail="Invalid Ozon image URL")
+        account = repository.get_marketplace_account(
+            user_id=int(user["id"]),
+            account_id=account_id,
+            include_secrets=True,
+        )
+        if account is None or str(account.get("marketplace") or "") != "ozon":
+            raise HTTPException(status_code=404, detail="Ozon account not found")
+        api_key = str(account.get("api_key") or "").strip()
+        extra = account.get("extra") if isinstance(account.get("extra"), dict) else {}
+        client_id = str(extra.get("client_id") or "").strip()
+        if not api_key or not client_id:
+            raise HTTPException(status_code=400, detail="Ozon credentials missing")
+        try:
+            req = urllib.request.Request(
+                url,
+                method="GET",
+                headers={"Client-Id": client_id, "Api-Key": api_key},
+            )
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                content = resp.read()
+                content_type = resp.headers.get("Content-Type", "image/jpeg")
+            return _Response(content=content, media_type=content_type)
+        except Exception:
+            raise HTTPException(status_code=502, detail="Failed to fetch Ozon image")
+
     @app.get("/api/conversations/{conversation_uid}/messages")
     def conversation_messages(conversation_uid: str, request: Request, limit: int = 200, refresh: int = 0) -> dict[str, object]:
         user = _require_user(request)
@@ -2049,10 +2086,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                                     user_type = str(user_info.get("type") or "").lower()
                                     msg_id = str(msg.get("message_id") or "").strip()
                                     msg_ts = str(msg.get("created_at") or "")
-                                    data_parts = msg.get("data") or []
-                                    msg_text = " ".join(str(p) for p in data_parts if p) if isinstance(data_parts, list) else str(data_parts or "")
-                                    if msg.get("is_image") and not msg_text:
-                                        msg_text = "[Фото]"
+                                    msg_text = _parse_ozon_message_text(
+                                        msg.get("data"), bool(msg.get("is_image"))
+                                    )
                                     if user_type == "customer":
                                         uid = str(user_info.get("id") or "").strip()
                                         if uid and not buyer_uid_web:

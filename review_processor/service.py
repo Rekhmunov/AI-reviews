@@ -266,10 +266,9 @@ class OzonMarketplaceClient:
                     user_type = str(user_info.get("type") or "").lower()
                     msg_ts = str(msg.get("created_at") or "")
                     msg_id = str(msg.get("message_id") or "")
-                    data_parts = msg.get("data") or []
-                    msg_text = " ".join(str(p) for p in data_parts if p) if isinstance(data_parts, list) else str(data_parts or "")
-                    if msg.get("is_image"):
-                        msg_text = msg_text or "[Фото]"
+                    msg_text = _parse_ozon_message_text(
+                        msg.get("data"), bool(msg.get("is_image"))
+                    )
                     if not last_sender_type and user_type:
                         last_sender_type = user_type
                         last_msg_ts = msg_ts
@@ -4403,6 +4402,38 @@ def _extract_review_tags_from_payload(payload: object) -> list[str]:
         if nested_value is not None:
             _push(nested_value)
     return result
+
+
+def _parse_ozon_message_text(data_parts: object, is_image: bool) -> str:
+    """Convert Ozon message data list to our internal text format.
+
+    Ozon sends images as Markdown: ``![](https://api-seller.ozon.ru/...)``
+    We convert these to ``[img:url]`` tokens so the frontend can render
+    them via our proxy endpoint.
+    Plain text parts are joined with a space.
+    """
+    import re as _re
+    parts = data_parts if isinstance(data_parts, list) else []
+    text_parts: list[str] = []
+    img_parts: list[str] = []
+    md_img_re = _re.compile(r'!\[.*?\]\((https?://[^)]+)\)')
+    for part in parts:
+        raw = str(part or "").strip()
+        if not raw:
+            continue
+        md_match = md_img_re.search(raw)
+        if md_match:
+            img_parts.append(f"[img:{md_match.group(1)}]")
+        else:
+            text_parts.append(raw)
+    if img_parts:
+        combined = " ".join(img_parts)
+        if text_parts:
+            combined += " " + " ".join(text_parts)
+        return combined
+    if is_image and not text_parts:
+        return "[Фото]"
+    return " ".join(text_parts)
 
 
 def _normalize_timestamp(value: object) -> str | None:

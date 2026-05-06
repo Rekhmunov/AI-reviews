@@ -2239,7 +2239,7 @@ function formatChatMessageTime(createdAt) {
   }
 }
 
-function renderChatMessages(messages) {
+function renderChatMessages(messages, convMeta) {
   const thread = document.getElementById("chatMessages");
   if (!thread) return;
   thread.innerHTML = "";
@@ -2247,6 +2247,9 @@ function renderChatMessages(messages) {
     renderChatsThreadPlaceholder("Сообщений пока нет");
     return;
   }
+  // For Ozon chats, images require auth → proxy through our backend
+  const isOzon = String((convMeta || {}).source || "").toLowerCase() === "ozon";
+  const ozonAccountId = Number((convMeta || {}).account_id || 0);
   for (const message of messages) {
     const rawDirection = message.direction;
     const direction = rawDirection ? String(rawDirection).toLowerCase() : null;
@@ -2278,10 +2281,14 @@ function renderChatMessages(messages) {
     let contentHtml = "";
     const imgMatches = [...rawText.matchAll(imgRegex)];
     if (imgMatches.length > 0) {
-      // Show images
-      contentHtml = imgMatches
-        .map((m) => `<img src="${esc(m[1])}" class="chat-bubble-img" alt="Фото" loading="lazy" />`)
-        .join("");
+      // Show images; Ozon images need to be proxied through our backend
+      contentHtml = imgMatches.map((m) => {
+        let imgSrc = m[1];
+        if (isOzon && ozonAccountId && imgSrc.includes("api-seller.ozon.ru")) {
+          imgSrc = `/api/ozon-image?url=${encodeURIComponent(imgSrc)}&account_id=${ozonAccountId}`;
+        }
+        return `<img src="${esc(imgSrc)}" class="chat-bubble-img" alt="Фото" loading="lazy" />`;
+      }).join("");
       // If there's also text outside [img:] tokens, show it too
       const textOnly = rawText.replace(imgRegex, "").trim();
       if (textOnly) contentHtml += `<div class="chat-bubble-text">${esc(textOnly)}</div>`;
@@ -2352,7 +2359,8 @@ async function loadChatMessages(conversationUid) {
   for (const row of dbMessages) {
     merged.push(row);
   }
-  renderChatMessages(merged);
+  const convMeta = data.conversation || activeConversation || {};
+  renderChatMessages(merged, convMeta);
 }
 
 function startChatAutoRefresh(uid) {
