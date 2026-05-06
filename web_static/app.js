@@ -3919,6 +3919,9 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("adminClearReviewsBtn")?.classList.remove("hidden");
     document.getElementById("adminClearQuestionsBtn")?.classList.remove("hidden");
     document.getElementById("adminClearChatsBtn")?.classList.remove("hidden");
+    // Delete all chats button is only for admins — managers should not accidentally
+    // wipe all chat history
+    document.getElementById("clearChatsBtn")?.classList.remove("hidden");
   }
   document.getElementById("reviewsPageSize").value = String(reviewsState.page_size);
   document.getElementById("questionsPageSize").value = String(questionsState.page_size);
