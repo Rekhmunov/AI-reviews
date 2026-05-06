@@ -1511,17 +1511,21 @@ class ReviewRepository:
             (group_id, old_low, old_high),
         ).fetchall()
         if not old_rows:
-            # Already migrated — just ensure new subgroups exist
+            # Already migrated — just ensure new subgroups exist (upsert safely)
             for sg in new_subgroups:
                 sg_id = _build_subgroup_id(group_id, sg)
-                conn.execute(
-                    self._sql("""
-                    INSERT INTO default_template_subgroups (group_id, subgroup_id, subgroup, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?)
-                    ON CONFLICT (group_id, subgroup) DO UPDATE SET subgroup_id = excluded.subgroup_id, updated_at = excluded.updated_at
-                    """),
-                    (group_id, sg_id, sg, now, now),
-                )
+                existing = conn.execute(
+                    self._sql("SELECT id FROM default_template_subgroups WHERE group_id = ? AND subgroup = ?"),
+                    (group_id, sg),
+                ).fetchone()
+                if not existing:
+                    conn.execute(
+                        self._sql("""
+                        INSERT INTO default_template_subgroups (group_id, subgroup_id, subgroup, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?)
+                        """),
+                        (group_id, sg_id, sg, now, now),
+                    )
             return
 
         # Migrate templates from old low band (1-3) to stars 1, 2, 3
@@ -1545,11 +1549,19 @@ class ReviewRepository:
         }
         for sg, templates in star_to_templates.items():
             sg_id = _build_subgroup_id(group_id, sg)
+            # Delete first to avoid conflicts on both (group_id,subgroup) and subgroup_id indexes
+            conn.execute(
+                self._sql("DELETE FROM default_template_subgroups WHERE group_id = ? AND subgroup = ?"),
+                (group_id, sg),
+            )
+            conn.execute(
+                self._sql("DELETE FROM default_template_subgroups WHERE subgroup_id = ?"),
+                (sg_id,),
+            )
             conn.execute(
                 self._sql("""
                 INSERT INTO default_template_subgroups (group_id, subgroup_id, subgroup, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT (group_id, subgroup) DO UPDATE SET subgroup_id = excluded.subgroup_id, updated_at = excluded.updated_at
                 """),
                 (group_id, sg_id, sg, now, now),
             )
