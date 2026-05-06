@@ -3838,7 +3838,13 @@ class ReviewRepository:
         processing_mode: str,
         status: str,
         auto_reply: str | None = None,
+        _log_action: dict[str, object] | None = None,
     ) -> None:
+        """Upsert a processed review.
+
+        Pass ``_log_action`` to also write a review_action in the same
+        DB transaction (avoids opening a second connection per review).
+        """
         review_uid = self.make_review_uid(user_id, source, account_id, review.review_id)
         now = _utc_now()
         with self._connect() as conn:
@@ -3902,6 +3908,18 @@ class ReviewRepository:
                     now,
                 ),
             )
+            # Optionally write the review_action in the same transaction
+            if _log_action:
+                action_type = str(_log_action.get("action_type") or "sync_review")
+                details = _log_action.get("details") or {}
+                conn.execute(
+                    self._sql("""
+                    INSERT INTO review_actions (
+                        user_id, review_uid, action_type, actor, details_json, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """),
+                    (user_id, review_uid, action_type, "system", self._json_param(details), now),
+                )
 
     def list_reviews(
         self,
@@ -5085,6 +5103,27 @@ class ReviewRepository:
                 """,
                 (user_id, review_uid, action_type, actor, self._json_param(details or {}), _utc_now()),
             )
+
+    def purge_old_review_actions(self, *, keep_days: int = 90) -> int:
+        """Delete review_actions older than keep_days to prevent unbounded growth.
+
+        Keeps the most recent 90 days of action history by default.
+        Should be called periodically (e.g. on server startup) to avoid
+        the table growing to millions of rows with 200k+ reviews/syncs.
+        """
+        if self.is_postgres:
+            sql = self._sql(
+                "DELETE FROM review_actions WHERE created_at < NOW() - INTERVAL '? days'"
+            ).replace("'? days'", f"'{keep_days} days'")
+            with self._connect() as conn:
+                result = conn.execute(sql)
+        else:
+            with self._connect() as conn:
+                result = conn.execute(
+                    "DELETE FROM review_actions WHERE created_at < datetime('now', ? || ' days')",
+                    (f"-{keep_days}",),
+                )
+        return int(result.rowcount or 0)
 
     def count_recent_actions(self, *, user_id: int | None = None) -> int:
         clauses: list[str] = []

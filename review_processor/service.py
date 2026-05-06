@@ -1739,6 +1739,7 @@ class ReviewAutomationService:
                 status = "queued_for_operator"
                 auto_reply = None
 
+            # Upsert review + log sync_review action in one DB transaction
             self.repository.upsert_processed_review(
                 user_id=user_id,
                 source=source,
@@ -1749,22 +1750,19 @@ class ReviewAutomationService:
                 processing_mode=mode,
                 status=status,
                 auto_reply=auto_reply,
-            )
-            review_uid = self.repository.make_review_uid(user_id, source, account_id, review_for_processing.review_id)
-            self.repository.log_review_action(
-                user_id=user_id,
-                review_uid=review_uid,
-                action_type="sync_review",
-                actor="system",
-                details={
-                    "category": category,
-                    "group_id": group_id,
-                    "status": status,
-                    "action_mode": mode,
-                    "auto_send": auto_send,
-                    "source": source,
+                _log_action={
+                    "action_type": "sync_review",
+                    "details": {
+                        "category": category,
+                        "group_id": group_id,
+                        "status": status,
+                        "action_mode": mode,
+                        "auto_send": auto_send,
+                        "source": source,
+                    },
                 },
             )
+            review_uid = self.repository.make_review_uid(user_id, source, account_id, review_for_processing.review_id)
             if ai_classification_failed:
                 self.repository.log_review_action(
                     user_id=user_id,

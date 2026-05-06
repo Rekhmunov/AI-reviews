@@ -4123,6 +4123,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                         service.repair_all_chat_statuses(user_id=uid)
                     except Exception:
                         pass
+                    # Purge review_actions older than 90 days to prevent
+                    # unbounded table growth with 200k+ reviews per sync
+                    try:
+                        purged = repository.purge_old_review_actions(keep_days=90)
+                        if purged:
+                            _log.info("startup: purged %d old review_actions (>90 days)", purged)
+                    except Exception:
+                        pass
                     break
                 except Exception as _inner_exc:
                     _log.warning("restore_auto_sync_on_startup: inner error: %s", _inner_exc)
