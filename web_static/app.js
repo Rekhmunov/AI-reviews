@@ -1507,7 +1507,12 @@ async function confirmSyncPreview() {
     });
     const data = await res.json();
     if (!res.ok) {
-      if (syncInfo) syncInfo.textContent = "Ошибка: " + (data.detail || "синхронизация не выполнена");
+      const errMsg = res.status === 409
+        ? "Синхронизация уже выполняется (авто-синк). Подождите ~1 минуту и попробуйте снова."
+        : "Ошибка: " + (data.detail || "синхронизация не выполнена");
+      if (syncInfo) syncInfo.textContent = errMsg;
+      // Show error in a brief alert so it's visible regardless of current section
+      if (res.status === 409) alert(errMsg);
       stopGlobalSyncPoll();
       hideSyncProgress();
       return;
