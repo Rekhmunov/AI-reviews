@@ -1146,6 +1146,8 @@ class ReviewRepository:
                 ADD COLUMN IF NOT EXISTS template_name TEXT NOT NULL DEFAULT ''
                 """
             )
+            # Migrate textless_ratings subgroups
+            self._migrate_textless_subgroups(conn)
             # Tariff plans are not auto-created by migration to avoid restoring
             # plans that were intentionally removed by super-admin.
             return
@@ -1487,6 +1489,91 @@ class ReviewRepository:
 
         # Tariff plans are managed exclusively by super-admin and should not be
         # reseeded automatically during SQLite migrations.
+
+        # Migrate textless_ratings subgroups from old 2-band structure to 5 per-star.
+        self._migrate_textless_subgroups(conn)
+
+    def _migrate_textless_subgroups(self, conn) -> None:
+        """Replace legacy '1-3 звезды' / '4-5 звезд' subgroups with 5 per-star subgroups.
+
+        Safe to run multiple times — checks for old subgroup existence first.
+        Moves any templates from old subgroups to the appropriate new ones.
+        """
+        now = _utc_now()
+        old_low = "1-3 звезды"
+        old_high = "4-5 звезд"
+        group_id = "textless_ratings"
+        new_subgroups = ["1 звезда", "2 звезды", "3 звезды", "4 звезды", "5 звезд"]
+
+        # Check if migration is needed (old subgroups still exist)
+        old_rows = conn.execute(
+            "SELECT subgroup FROM default_template_subgroups WHERE group_id = ? AND subgroup IN (?, ?)",
+            (group_id, old_low, old_high),
+        ).fetchall()
+        if not old_rows:
+            # Already migrated — just ensure new subgroups exist
+            for sg in new_subgroups:
+                sg_id = _build_subgroup_id(group_id, sg)
+                conn.execute(
+                    """
+                    INSERT INTO default_template_subgroups (group_id, subgroup_id, subgroup, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT (group_id, subgroup) DO NOTHING
+                    """,
+                    (group_id, sg_id, sg, now, now),
+                )
+            return
+
+        # Migrate templates from old low band (1-3) to stars 1, 2, 3
+        low_templates = conn.execute(
+            "SELECT template_text, is_active FROM default_template_variants WHERE group_id = ? AND subgroup = ?",
+            (group_id, old_low),
+        ).fetchall()
+        # Migrate templates from old high band (4-5) to stars 4, 5
+        high_templates = conn.execute(
+            "SELECT template_text, is_active FROM default_template_variants WHERE group_id = ? AND subgroup = ?",
+            (group_id, old_high),
+        ).fetchall()
+
+        # Create new subgroups and copy templates
+        star_to_templates = {
+            "1 звезда": low_templates,
+            "2 звезды": low_templates,
+            "3 звезды": low_templates,
+            "4 звезды": high_templates,
+            "5 звезд": high_templates,
+        }
+        for sg, templates in star_to_templates.items():
+            sg_id = _build_subgroup_id(group_id, sg)
+            conn.execute(
+                """
+                INSERT INTO default_template_subgroups (group_id, subgroup_id, subgroup, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT (group_id, subgroup) DO NOTHING
+                """,
+                (group_id, sg_id, sg, now, now),
+            )
+            for tmpl_row in templates:
+                text = str(tmpl_row["template_text"] if hasattr(tmpl_row, "__getitem__") else tmpl_row[0])
+                conn.execute(
+                    """
+                    INSERT INTO default_template_variants (group_id, subgroup, template_text, is_active, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (group_id, subgroup, template_text) DO NOTHING
+                    """,
+                    (group_id, sg, text, 1, now, now),
+                )
+
+        # Remove old subgroups and their templates
+        for old_sg in (old_low, old_high):
+            conn.execute(
+                "DELETE FROM default_template_variants WHERE group_id = ? AND subgroup = ?",
+                (group_id, old_sg),
+            )
+            conn.execute(
+                "DELETE FROM default_template_subgroups WHERE group_id = ? AND subgroup = ?",
+                (group_id, old_sg),
+            )
 
     def _table_columns(self, conn, table: str) -> set[str]:
         if self.is_postgres:
