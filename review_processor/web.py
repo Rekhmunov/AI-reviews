@@ -2274,6 +2274,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Шаблон не найден")
         return {"ok": True, "deleted": True}
 
+    @app.post("/api/admin/actions-purge-sync")
+    def admin_purge_sync_actions(request: Request) -> dict[str, object]:
+        """Delete all sync_review and sync_conversation entries — they are no longer logged."""
+        _require_admin(request)
+        deleted = repository.purge_sync_action_logs()
+        _log.info("admin_purge_sync_actions: deleted %d rows", deleted)
+        return {"ok": True, "deleted": deleted}
+
     @app.post("/api/admin/conversations-clear")
     def admin_clear_conversations(request: Request, payload: ClearReviewsRequest) -> dict[str, object]:
         actor = _require_admin(request)

@@ -5121,6 +5121,20 @@ class ReviewRepository:
                 (user_id, review_uid, action_type, actor, self._json_param(details or {}), _utc_now()),
             )
 
+    def purge_sync_action_logs(self) -> int:
+        """Delete all sync_review and sync_conversation entries from review_actions.
+
+        These were created by old code for every synced item and are no longer
+        logged. Safe to delete — they have no operational value.
+        """
+        with self._connect() as conn:
+            result = conn.execute(
+                self._sql(
+                    "DELETE FROM review_actions WHERE action_type IN ('sync_review', 'sync_conversation')"
+                )
+            )
+        return int(result.rowcount or 0)
+
     def purge_old_review_actions(self, *, keep_days: int = 90) -> int:
         """Delete review_actions older than keep_days to prevent unbounded growth.
 
