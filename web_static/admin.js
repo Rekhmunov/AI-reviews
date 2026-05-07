@@ -1877,6 +1877,25 @@ async function loadMetrics() {
   document.getElementById("mStatuses").textContent = parts.join(" | ");
 }
 
+async function purgeSyncActionLogs() {
+  if (!confirm("Удалить из базы данных все записи sync_review и sync_conversation? Это освободит место и очистит ленту действий от лишних строк.")) return;
+  try {
+    const res = await fetch("/api/admin/actions-purge-sync", {
+      method: "POST",
+      headers: withCsrfHeaders(),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      alert("Ошибка: " + (data.detail || "не удалось очистить"));
+      return;
+    }
+    alert(`Удалено ${(data.deleted || 0).toLocaleString("ru-RU")} записей из базы данных.`);
+    await loadActions();
+  } catch (err) {
+    alert("Ошибка при очистке");
+  }
+}
+
 async function loadActions() {
   const page = Number(actionsState.page || 1);
   const pageSize = Number(actionsState.pageSize || 50);

@@ -199,7 +199,10 @@
     </div>
 
     <div class="panel">
-      <h3>Лента действий</h3>
+      <div class="row row-between">
+        <h3 class="no-margin">Лента действий</h3>
+        <button type="button" class="secondary small" onclick="purgeSyncActionLogs()" title="Удалить из базы все записи sync_review и sync_conversation">🗑 Очистить sync-логи из БД</button>
+      </div>
       <div class="row admin-actions-filters">
         <select id="actionsFilterActionType">
           <option value="all">Действие: все</option>
@@ -303,6 +306,6 @@
     </div>
   </div>
 
-  <script src="/static/admin.js?v=18"></script>
+  <script src="/static/admin.js?v=19"></script>
 </body>
 </html>
