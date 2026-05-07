@@ -1176,7 +1176,10 @@ class WildberriesMarketplaceClient:
         try:
             cached = getattr(self, "_cached_chats_count", None)
             cached_at = getattr(self, "_cached_chats_count_at", 0.0)
-            if cached is not None and (time.time() - cached_at) < 300:
+            # Note: cache is on the client object which is recreated per call.
+            # Cache will only hit if count_pending is called multiple times
+            # on the same client instance (e.g. probes). For preview, it always misses.
+            if cached is not None and (time.time() - cached_at) < 600:
                 counts["chats"] = int(cached)
             elif self.chats_path:
                 base = self.chats_api_url or self.api_url
@@ -1201,7 +1204,11 @@ class WildberriesMarketplaceClient:
                     counts["chats"] = len(items)
                     self._cached_chats_count = counts["chats"]  # type: ignore[attr-defined]
                     self._cached_chats_count_at = time.time()  # type: ignore[attr-defined]
-        except Exception:
+        except MarketplaceSyncError as _e:
+            _log.warning("count_pending chats: %s", _e)
+            counts["chats"] = 0
+        except Exception as _e:
+            _log.warning("count_pending chats unexpected: %s", _e)
             counts["chats"] = 0
 
         return counts
@@ -2241,16 +2248,40 @@ class ReviewAutomationService:
         account_id = int(account.get("id") or 0)
         account_name = str(account.get("account_name") or "")
         marketplace = str(account.get("marketplace") or "")
+        user_id = int(account.get("user_id") or 0)
         client = self._build_client(account)
+
+        # Load last-known counts from extra_json as fallback for 429 scenarios
+        extra = account.get("extra") if isinstance(account.get("extra"), dict) else {}
+        cached_counts: dict[str, int] = {
+            "reviews": int(extra.get("_last_count_reviews") or 0),
+            "questions": int(extra.get("_last_count_questions") or 0),
+            "chats": int(extra.get("_last_count_chats") or 0),
+        }
+
         counts: dict[str, int] = {"reviews": 0, "questions": 0, "chats": 0}
         if hasattr(client, "count_pending"):
             try:
                 counts = client.count_pending(since_date=since_date)  # type: ignore[call-arg]
+                # Persist successful counts so next preview can use them as fallback
+                if account_id and user_id and any(counts.values()):
+                    try:
+                        for key, val in counts.items():
+                            if val > 0:
+                                self.repository.update_marketplace_account_extra_field(
+                                    user_id=user_id,
+                                    account_id=account_id,
+                                    key=f"_last_count_{key}",
+                                    value=val,
+                                )
+                    except Exception:
+                        pass
             except Exception as _exc:
                 _log.warning(
-                    "count_pending_for_account: account_id=%d marketplace=%s error=%s",
+                    "count_pending_for_account: account_id=%d marketplace=%s error=%s — using cached counts",
                     account_id, marketplace, _exc,
                 )
+                counts = cached_counts  # use last-known values as fallback
         return {
             "account_id": account_id,
             "account_name": account_name,
