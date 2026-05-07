@@ -1150,13 +1150,24 @@ class WildberriesMarketplaceClient:
             req = Request(endpoint, method="GET", headers={"Authorization": self.api_key})
             payload = _request_json(request=req, timeout=_preview_timeout, source="wb", retries=1)
             if isinstance(payload, dict):
-                data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
-                counts["questions"] = int(
-                    data.get("countUnanswered")
-                    or data.get("count")
-                    or data.get("total")
-                    or 0
-                )
+                raw_data = payload.get("data")
+                # /api/v1/questions/count returns {"data": <int>} (raw number)
+                if isinstance(raw_data, (int, float)):
+                    counts["questions"] = int(raw_data)
+                elif isinstance(raw_data, dict):
+                    counts["questions"] = int(
+                        raw_data.get("countUnanswered")
+                        or raw_data.get("count")
+                        or raw_data.get("total")
+                        or 0
+                    )
+                else:
+                    counts["questions"] = int(
+                        payload.get("countUnanswered")
+                        or payload.get("count")
+                        or payload.get("total")
+                        or 0
+                    )
         except Exception:
             counts["questions"] = 0
 
