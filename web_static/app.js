@@ -1434,10 +1434,14 @@ async function syncAll() {
     }
 
     // Build table with per-account counts
-    const sinceDate = previewData.since_date
+    const hasWb = items.some((i) => String(i.marketplace || "").toLowerCase() === "wb");
+    const sinceDateText = previewData.since_date
       ? `Дата начала загрузки: <b>${previewData.since_date}</b>`
       : "Дата начала загрузки не ограничена — загрузятся все данные";
-    if (previewSince) previewSince.innerHTML = sinceDate;
+    const wbNote = hasWb && previewData.since_date
+      ? `<br><span class="small" style="color:#9ca3af">⚠️ WB не фильтрует отзывы по дате на стороне API — показано общее число неотвеченных. Реально сохранятся только отзывы, созданные с ${previewData.since_date}.</span>`
+      : "";
+    if (previewSince) previewSince.innerHTML = sinceDateText + wbNote;
 
     const countCell = (n) =>
       `<td class="sync-preview-count${n === 0 ? " zero" : ""}">${n.toLocaleString("ru-RU")}</td>`;

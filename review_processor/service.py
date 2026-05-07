@@ -1615,11 +1615,27 @@ class ReviewAutomationService:
                 return lookup[normalized]
             return general_subgroup
 
+        # Build an ISO cutoff for createdDate filtering.
+        # WB dateFrom param filters by update date (not creation date), so it
+        # cannot reliably exclude old reviews. We filter client-side by
+        # createdDate stored in review.metadata["raw"]["createdDate"].
+        since_iso_cutoff: str | None = _normalize_timestamp(since_date) if since_date else None
+
         loaded_count = 0
+        skipped_old = 0
         for review in reviews:
             _raise_if_stop_requested(stop_requested, source=source)
             if not review.review_id:
                 continue
+
+            # Skip reviews created before since_date (client-side createdDate filter)
+            if since_iso_cutoff:
+                raw = review.metadata.get("raw") if isinstance(review.metadata, dict) else {}
+                created_raw = str(raw.get("createdDate") or "").strip() if isinstance(raw, dict) else ""
+                if created_raw and created_raw < since_iso_cutoff:
+                    skipped_old += 1
+                    continue
+
             loaded_count += 1
             processed = self.processor.process(review)
             ai_classification_failed = False
@@ -1791,6 +1807,11 @@ class ReviewAutomationService:
                         "scope": "classification",
                     },
                 )
+        if skipped_old:
+            _log.info(
+                "sync_reviews: skipped %d reviews with createdDate < since_date=%s, saved %d",
+                skipped_old, since_date, loaded_count,
+            )
         return loaded_count
 
     def sync_conversations(
