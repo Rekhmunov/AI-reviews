@@ -1771,7 +1771,7 @@ class ReviewAutomationService:
                 status = "queued_for_operator"
                 auto_reply = None
 
-            # Upsert review + log sync_review action in one DB transaction
+            # Upsert review (no sync_review log — would create millions of rows)
             self.repository.upsert_processed_review(
                 user_id=user_id,
                 source=source,
@@ -1782,17 +1782,6 @@ class ReviewAutomationService:
                 processing_mode=mode,
                 status=status,
                 auto_reply=auto_reply,
-                _log_action={
-                    "action_type": "sync_review",
-                    "details": {
-                        "category": category,
-                        "group_id": group_id,
-                        "status": status,
-                        "action_mode": mode,
-                        "auto_send": auto_send,
-                        "source": source,
-                    },
-                },
             )
             review_uid = self.repository.make_review_uid(user_id, source, account_id, review_for_processing.review_id)
             if ai_classification_failed:
@@ -1893,13 +1882,6 @@ class ReviewAutomationService:
                 unread_count=_to_positive_int(row.get("unread_count"), default=0),
                 metadata=row.get("metadata") if isinstance(row.get("metadata"), dict) else {},
                 last_message_at=str(row.get("last_message_at") or "") or None,
-            )
-            self.repository.log_review_action(
-                user_id=user_id,
-                review_uid=conversation_uid,
-                action_type="sync_conversation",
-                actor="system",
-                details={"source": source, "kind": "question"},
             )
             loaded += 1
         return loaded
@@ -2122,13 +2104,6 @@ class ReviewAutomationService:
                 last_message_at=last_msg_at,
                 seller_replied_at=seller_replied_at,
                 buyer_has_unread=buyer_has_unread,
-            )
-            self.repository.log_review_action(
-                user_id=user_id,
-                review_uid=conv_uid,
-                action_type="sync_conversation",
-                actor="system",
-                details={"source": source, "kind": "chat"},
             )
             loaded += 1
 

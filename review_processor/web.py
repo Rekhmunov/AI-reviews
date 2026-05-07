@@ -4143,7 +4143,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     # Purge review_actions older than 90 days to prevent
                     # unbounded table growth with 200k+ reviews per sync
                     try:
-                        purged = repository.purge_old_review_actions(keep_days=90)
+                        purged = repository.purge_old_review_actions(keep_days=30)
                         if purged:
                             _log.info("startup: purged %d old review_actions (>90 days)", purged)
                     except Exception:
