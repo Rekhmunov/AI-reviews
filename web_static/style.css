@@ -1132,6 +1132,72 @@ button.secondary.danger:hover {
   font-size: 14px;
 }
 
+/* Sync report modal */
+.sync-report-card {
+  width: min(600px, 96vw);
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.sync-report-body {
+  display: grid;
+  gap: 12px;
+}
+
+.sync-report-account {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: #f9fafb;
+}
+
+.sync-report-account-name {
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+.sync-report-channels {
+  display: grid;
+  gap: 4px;
+}
+
+.sync-report-channel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.sync-report-channel-name {
+  width: 80px;
+  color: #6b7280;
+}
+
+.sync-report-channel-ok { color: #16a34a; }
+.sync-report-channel-err { color: #dc2626; }
+.sync-report-channel-skip { color: #6b7280; font-style: italic; }
+
+.sync-report-log-details {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+
+.sync-report-log {
+  font-size: 12px;
+  font-family: monospace;
+  color: #374151;
+  background: #f1f5f9;
+  padding: 8px;
+  border-radius: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin-top: 8px;
+}
+
 .sync-preview-check-label {
   display: flex;
   align-items: center;

@@ -2657,6 +2657,7 @@ class ReviewAutomationService:
                 account_channel_stats.append(
                     {
                         "account_id": account_id,
+                        "account_name": account_name,
                         "marketplace": marketplace,
                         "reviews": channel_outcomes.get("reviews") or {"ok": False, "loaded": 0},
                         "questions": channel_outcomes.get("questions") or {"ok": False, "loaded": 0},

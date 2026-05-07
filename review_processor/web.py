@@ -603,6 +603,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         "progress_total_items": 0,
         "progress_total_accounts": 0,
         "progress_current_account": 0,
+        # Sync result report (shown after completion)
+        "last_sync_report": None,  # populated after manual sync finishes
+        "sync_log": [],  # list of log lines accumulated during sync
     }
     auto_sync_stop_event = threading.Event()
     auto_sync_worker: dict[str, threading.Thread | None] = {"thread": None}
@@ -1120,6 +1123,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 sync_state["progress_total_accounts"] = total_accounts
             if current_account:
                 sync_state["progress_current_account"] = current_account
+            # Accumulate log line (keep last 200 lines)
+            if step or account or channel:
+                ts = _now_iso()[11:19]  # HH:MM:SS
+                parts = [p for p in [account, channel, step] if p]
+                line = f"{ts}  {' → '.join(parts)}"
+                log_lines = list(sync_state.get("sync_log") or [])
+                log_lines.append(line)
+                sync_state["sync_log"] = log_lines[-200:]
 
     def _run_sync_for_user(
         *,
@@ -1156,6 +1167,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             sync_state["progress_total_items"] = 0
             sync_state["progress_total_accounts"] = 0
             sync_state["progress_current_account"] = 0
+            sync_state["sync_log"] = []  # reset log for new sync
         sync_stop_event.clear()
         try:
             result = service.sync_all_accounts(
@@ -1166,6 +1178,38 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 progress_callback=_update_sync_progress,
                 apply_date_filter=apply_date_filter,
             )
+            # Build detailed sync report for the completion modal
+            if apply_date_filter and isinstance(result, dict):
+                report_accounts = []
+                for stat in (result.get("account_channel_stats") or []):
+                    acct_id = stat.get("account_id")
+                    acct_name = stat.get("account_name") or f"#{acct_id}"
+                    channels = {}
+                    for ch in ("reviews", "questions", "chats"):
+                        ch_data = stat.get(ch) or {}
+                        channels[ch] = {
+                            "ok": bool(ch_data.get("ok")),
+                            "loaded": int(ch_data.get("loaded") or 0),
+                            "skipped": int(ch_data.get("skipped_old") or 0),
+                            "error": str(ch_data.get("error") or ""),
+                        }
+                    report_accounts.append({
+                        "account_id": acct_id,
+                        "account_name": acct_name,
+                        "channels": channels,
+                    })
+                with sync_lock:
+                    sync_state["last_sync_report"] = {
+                        "started_at": run_started_at,
+                        "finished_at": _now_iso(),
+                        "accounts": report_accounts,
+                        "total_reviews": int(result.get("loaded_reviews") or result.get("loaded") or 0),
+                        "total_questions": int(result.get("loaded_questions") or 0),
+                        "total_chats": int(result.get("loaded_chats") or 0),
+                        "cancelled": bool(result.get("cancelled")),
+                        "errors": int(result.get("failed_accounts") or 0),
+                        "log": list(sync_state.get("sync_log") or []),
+                    }
             return result
         finally:
             with sync_lock:
@@ -2527,6 +2571,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 "total_items": int(sync_state.get("progress_total_items") or 0),
                 "total_accounts": int(sync_state.get("progress_total_accounts") or 0),
                 "current_account": int(sync_state.get("progress_current_account") or 0),
+                "last_sync_report": sync_state.get("last_sync_report"),
             }
 
     @app.get("/api/accounts")

@@ -1584,10 +1584,20 @@ async function confirmSyncPreview() {
     if (detailEl) detailEl.textContent = "✅ Готово — данные загружены";
     if (accEl) accEl.textContent = "";
     if (pctEl2) pctEl2.textContent = "100%";
-    window.setTimeout(hideSyncProgress, 4000);
+    window.setTimeout(hideSyncProgress, 2000);
     const tasks = [loadReviews(), loadQuestions(), loadChats()];
     if (canViewSection("analytics")) tasks.push(loadAnalytics());
     await Promise.all(tasks);
+    // Show detailed sync report modal
+    try {
+      const statusRes = await fetch("/api/sync/status");
+      if (statusRes.ok) {
+        const statusData = await statusRes.json();
+        if (statusData.last_sync_report) {
+          openSyncReportModal(statusData.last_sync_report);
+        }
+      }
+    } catch (_) {}
   } finally {
     syncInProgress = false;
     if (syncButton) {
@@ -2448,6 +2458,66 @@ async function loadChatMessages(conversationUid) {
   }
   const convMeta = data.conversation || activeConversation || {};
   renderChatMessages(merged, convMeta);
+}
+
+function closeSyncReportModal() {
+  setModalVisibility("syncReportModal", false);
+}
+
+function openSyncReportModal(report) {
+  if (!report) return;
+  const title = document.getElementById("syncReportTitle");
+  const body = document.getElementById("syncReportBody");
+  const logEl = document.getElementById("syncReportLog");
+  if (!title || !body) return;
+
+  const cancelled = report.cancelled;
+  title.textContent = cancelled ? "⚠️ Синхронизация остановлена" : "✅ Синхронизация завершена";
+
+  const CHANNEL_LABELS = { reviews: "⭐ Отзывы", questions: "❓ Вопросы", chats: "💬 Чаты" };
+
+  let html = "";
+  const accounts = Array.isArray(report.accounts) ? report.accounts : [];
+  for (const acct of accounts) {
+    const channels = acct.channels || {};
+    let chHtml = "";
+    for (const [ch, data] of Object.entries(channels)) {
+      const label = CHANNEL_LABELS[ch] || ch;
+      const loaded = Number(data.loaded || 0);
+      const skipped = Number(data.skipped || 0);
+      if (!data.ok && data.error) {
+        chHtml += `<div class="sync-report-channel">
+          <span class="sync-report-channel-name">${label}</span>
+          <span class="sync-report-channel-err">❌ Ошибка: ${esc(String(data.error).slice(0, 80))}</span>
+        </div>`;
+      } else if (data.ok || loaded > 0) {
+        const skipNote = skipped > 0 ? `, пропущено старых: ${skipped.toLocaleString("ru-RU")}` : "";
+        chHtml += `<div class="sync-report-channel">
+          <span class="sync-report-channel-name">${label}</span>
+          <span class="sync-report-channel-ok">✅ загружено: ${loaded.toLocaleString("ru-RU")}${skipNote}</span>
+        </div>`;
+      } else {
+        chHtml += `<div class="sync-report-channel">
+          <span class="sync-report-channel-name">${label}</span>
+          <span class="sync-report-channel-skip">— нет доступа или не настроен</span>
+        </div>`;
+      }
+    }
+    html += `<div class="sync-report-account">
+      <div class="sync-report-account-name">${esc(acct.account_name || `#${acct.account_id}`)}</div>
+      <div class="sync-report-channels">${chHtml}</div>
+    </div>`;
+  }
+  if (!html) {
+    html = `<p class="small" style="color:#6b7280">Нет данных о синхронизации.</p>`;
+  }
+  body.innerHTML = html;
+
+  // Log
+  const logLines = Array.isArray(report.log) ? report.log : [];
+  if (logEl) logEl.textContent = logLines.length ? logLines.join("\n") : "(лог пуст)";
+
+  setModalVisibility("syncReportModal", true);
 }
 
 function openChatImgLightbox(src) {

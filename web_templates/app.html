@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=40" />
+  <link rel="stylesheet" href="/static/style.css?v=41" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -601,6 +601,21 @@
     </main>
   </div>
   <!-- Sync confirmation modal -->
+  <!-- Sync report modal (shown after manual sync completes) -->
+  <div id="syncReportModal" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal-card sync-report-card">
+      <div class="row row-between">
+        <h4 class="no-margin" id="syncReportTitle">✅ Синхронизация завершена</h4>
+        <button type="button" class="secondary" onclick="closeSyncReportModal()">✕</button>
+      </div>
+      <div id="syncReportBody" class="sync-report-body mt-10"></div>
+      <details class="sync-report-log-details mt-10">
+        <summary class="small" style="cursor:pointer;color:#64748b">▶ Подробный лог</summary>
+        <pre id="syncReportLog" class="sync-report-log"></pre>
+      </details>
+    </div>
+  </div>
+
   <!-- Image lightbox for chat photos -->
   <div id="chatImgLightbox" role="dialog" aria-modal="true" onclick="closeChatImgLightbox()">
     <img id="chatImgLightboxImg" src="" alt="Фото" onclick="event.stopPropagation()">
@@ -677,6 +692,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=51"></script>
+  <script src="/static/app.js?v=52"></script>
 </body>
 </html>
