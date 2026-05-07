@@ -703,12 +703,29 @@ class WildberriesMarketplaceClient:
     ) -> list[dict[str, object]]:
         if not self.questions_path:
             return []
-        return self._fetch_conversation_endpoint(
+        # Fetch unanswered questions
+        unanswered = self._fetch_conversation_endpoint(
             path=self.questions_path,
             kind="question",
             since_date=since_date,
             stop_requested=stop_requested,
         )
+        # Also fetch answered questions so we can mark them as processed
+        # Temporarily swap unanswered_value to "true"
+        original_unanswered_value = self.unanswered_value
+        object.__setattr__(self, "unanswered_value", "true")
+        try:
+            answered = self._fetch_conversation_endpoint(
+                path=self.questions_path,
+                kind="question",
+                since_date=since_date,
+                stop_requested=stop_requested,
+            )
+        except Exception:
+            answered = []
+        finally:
+            object.__setattr__(self, "unanswered_value", original_unanswered_value)
+        return unanswered + answered
 
     def fetch_chats(
         self,
@@ -1351,7 +1368,16 @@ class WildberriesMarketplaceClient:
             or ""
         )
         customer_name = str(item.get("userName") or item.get("author") or item.get("clientName") or "") or None
-        status = str(item.get("status") or "open").lower()
+        # WB questions: determine answered status from 'answer' field and 'state' field.
+        # answer != null means the seller has already replied (via WB portal or API).
+        _answer = item.get("answer")
+        _state = str(item.get("state") or "").lower()
+        _has_answer = bool(_answer and isinstance(_answer, dict) and _answer.get("text"))
+        _is_answered_state = _state in ("wbru",)
+        if kind == "question" and (_has_answer or _is_answered_state):
+            status = "answered_manual"  # moves to Processed bucket
+        else:
+            status = str(item.get("status") or "open").lower()
         unread_raw = (
             item.get("unread_count")
             if item.get("unread_count") is not None
