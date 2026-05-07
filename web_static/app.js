@@ -1369,6 +1369,8 @@ function _getSelectedSyncAccountIds() {
 
 function closeSyncPreviewModal() {
   setModalVisibility("syncPreviewModal", false);
+  // Reset flag so user can open preview again after closing
+  syncCapabilityCheckInProgress = false;
 }
 
 function openSyncPreviewModal() {
@@ -1396,11 +1398,14 @@ async function syncAll() {
     if (confirmBtn) confirmBtn.disabled = true;
     openSyncPreviewModal();
 
-    // Load preview data (counts per channel)
+    // Load preview data (counts per channel) with 30s timeout
     let previewData = null;
     let previewOk = false;
     try {
-      const previewRes = await fetch("/api/sync/preview");
+      const previewController = new AbortController();
+      const previewTimeout = window.setTimeout(() => previewController.abort(), 30000);
+      const previewRes = await fetch("/api/sync/preview", { signal: previewController.signal });
+      window.clearTimeout(previewTimeout);
       previewData = await previewRes.json();
       previewOk = previewRes.ok;
     } catch (_fetchErr) {
