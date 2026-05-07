@@ -2240,12 +2240,20 @@ class ReviewAutomationService:
 
     def _is_channel_supported(self, *, client: MarketplaceClient, channel: str) -> tuple[bool, str]:
         if channel == "reviews":
-            return (callable(getattr(client, "fetch_reviews", None)), "Канал отзывов не поддерживается источником")
+            supported = callable(getattr(client, "fetch_reviews", None))
+            if not supported:
+                return False, "Канал отзывов не поддерживается источником"
+            # WB: requires list_path (feedbacks URL configured)
+            if hasattr(client, "list_path") and not bool(getattr(client, "list_path")):
+                _log.info("_is_channel_supported: reviews skipped — list_path empty for %s", type(client).__name__)
+                return False, "Канал отзывов не настроен (list_path пуст)"
+            return True, ""
         if channel == "questions":
             method = getattr(client, "fetch_questions", None)
             if not callable(method):
                 return False, "Канал вопросов не поддерживается источником"
             if hasattr(client, "questions_path") and not bool(getattr(client, "questions_path")):
+                _log.info("_is_channel_supported: questions skipped — questions_path empty for %s", type(client).__name__)
                 return False, "Канал вопросов не настроен для этого источника"
             return True, ""
         if channel == "chats":
