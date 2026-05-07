@@ -1375,9 +1375,10 @@ function renderDefaultTemplateGroups() {
         ["positive", "product_dissatisfaction", "delivery_problems", "wrong_size", "tagged_reviews"].includes(
           String(group.id || "")
         ) && String(subgroup.name || "") === "Общий";
+      const _PROTECTED_TEXTLESS = ["1 звезда", "2 звезды", "3 звезды", "4 звезды", "5 звезд", "1-3 звезды", "4-5 звезд"];
       const isProtectedTextlessSubgroup =
         String(group.id || "") === "textless_ratings" &&
-        (String(subgroup.name || "") === "1-3 звезды" || String(subgroup.name || "") === "4-5 звезд");
+        _PROTECTED_TEXTLESS.includes(String(subgroup.name || ""));
       const editButton = document.createElement("button");
       editButton.type = "button";
       editButton.className = "icon-btn modern-icon-btn template-subgroup-edit-btn";
