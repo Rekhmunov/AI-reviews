@@ -602,6 +602,8 @@ class WildberriesMarketplaceClient:
     chats_events_path: str | None = "/api/v1/seller/events"
     _resume_events_cursor: str | None = None
     _last_sent_add_time: int | None = None  # addTime from last /seller/message response
+    _cached_chats_count: int | None = None
+    _cached_chats_count_at: float = 0.0
     reply_path: str | None = "/api/v1/feedbacks/answer"
     reply_method: str = "POST"
     reply_review_id_field: str = "id"
