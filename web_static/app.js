@@ -1376,7 +1376,10 @@ function openSyncPreviewModal() {
 }
 
 async function syncAll() {
-  if (syncInProgress || syncCapabilityCheckInProgress) return;
+  if (syncCapabilityCheckInProgress) return;
+  // Allow opening the preview modal even if syncInProgress is true
+  // (user may have reloaded while sync was running and syncInProgress
+  // is stale). The actual sync POST will handle conflicts via 409.
   syncCapabilityCheckInProgress = true;
   const syncInfo = document.getElementById("syncInfo");
   const previewContent = document.getElementById("syncPreviewContent");
