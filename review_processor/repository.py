@@ -4236,7 +4236,12 @@ class ReviewRepository:
                         WHEN excluded.last_message_at <> conversation_items.last_message_at THEN NULL
                         ELSE conversation_items.last_send_attempt_at
                     END,
-                    last_message_at = excluded.last_message_at,
+                    last_message_at = CASE
+                        WHEN excluded.last_message_at IS NULL THEN conversation_items.last_message_at
+                        WHEN conversation_items.last_message_at IS NULL THEN excluded.last_message_at
+                        WHEN excluded.last_message_at > conversation_items.last_message_at THEN excluded.last_message_at
+                        ELSE conversation_items.last_message_at
+                    END,
                     last_sent_at = CASE
                         WHEN excluded.last_sent_at IS NULL THEN conversation_items.last_sent_at
                         WHEN conversation_items.last_sent_at IS NULL THEN excluded.last_sent_at

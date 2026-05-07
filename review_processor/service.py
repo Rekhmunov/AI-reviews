@@ -1122,9 +1122,10 @@ class WildberriesMarketplaceClient:
         counts: dict[str, int] = {"reviews": 0, "questions": 0, "chats": 0}
         wb_date_from = self._to_wb_unix_timestamp(since_date)
 
-        # For preview/count endpoints: retries=0 so 429 fails immediately
-        # (no 60s wait). The caller catches the exception and shows 0.
-        _preview_timeout = min(self.timeout, 10)  # max 10s per request for preview
+        # For preview/count endpoints: short timeout, retries=1 so single
+        # network hiccup is retried but 429 wait is only 60s × 1 = 60s max.
+        # The nginx proxy_read_timeout is now 300s so this is safe.
+        _preview_timeout = min(self.timeout, 10)  # max 10s per individual request
 
         # Reviews count via /api/v1/feedbacks/count-unanswered
         try:
@@ -1133,7 +1134,7 @@ class WildberriesMarketplaceClient:
             if wb_date_from is not None:
                 endpoint = f"{endpoint}?dateFrom={wb_date_from}"
             req = Request(endpoint, method="GET", headers={"Authorization": self.api_key})
-            payload = _request_json(request=req, timeout=_preview_timeout, source="wb", retries=0)
+            payload = _request_json(request=req, timeout=_preview_timeout, source="wb", retries=1)
             if isinstance(payload, dict):
                 data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
                 counts["reviews"] = int(data.get("countUnanswered") or 0)
@@ -1147,7 +1148,7 @@ class WildberriesMarketplaceClient:
             if wb_date_from is not None:
                 endpoint = f"{endpoint}?dateFrom={wb_date_from}"
             req = Request(endpoint, method="GET", headers={"Authorization": self.api_key})
-            payload = _request_json(request=req, timeout=_preview_timeout, source="wb", retries=0)
+            payload = _request_json(request=req, timeout=_preview_timeout, source="wb", retries=1)
             if isinstance(payload, dict):
                 data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
                 counts["questions"] = int(
@@ -1170,7 +1171,7 @@ class WildberriesMarketplaceClient:
                 base = self.chats_api_url or self.api_url
                 endpoint = _compose_url(base, self.chats_path)
                 req = Request(endpoint, method="GET", headers={"Authorization": self.api_key})
-                payload = _request_json(request=req, timeout=_preview_timeout, source="wb", retries=0)
+                payload = _request_json(request=req, timeout=_preview_timeout, source="wb", retries=1)
                 if isinstance(payload, dict):
                     items = _extract_sequence(
                         payload,
