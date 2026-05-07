@@ -1487,11 +1487,23 @@ class ReviewRepository:
             """
         )
 
+        # Remove tagged_reviews group — no longer supported.
+        conn.execute("DELETE FROM default_template_variants WHERE group_id = 'tagged_reviews'")
+        conn.execute("DELETE FROM default_template_subgroups WHERE group_id = 'tagged_reviews'")
+
         # Tariff plans are managed exclusively by super-admin and should not be
         # reseeded automatically during SQLite migrations.
 
         # Migrate textless_ratings subgroups from old 2-band structure to 5 per-star.
         self._migrate_textless_subgroups(conn)
+        # Remove tagged_reviews group — it is no longer supported.
+        # pros/cons fields are now merged into review.text before classification.
+        conn.execute(
+            self._sql("DELETE FROM default_template_variants WHERE group_id = 'tagged_reviews'")
+        )
+        conn.execute(
+            self._sql("DELETE FROM default_template_subgroups WHERE group_id = 'tagged_reviews'")
+        )
 
     def _migrate_textless_subgroups(self, conn) -> None:
         """Replace legacy '1-3 звезды' / '4-5 звезд' subgroups with 5 per-star subgroups.

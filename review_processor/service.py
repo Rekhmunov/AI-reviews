@@ -1448,7 +1448,6 @@ class ReviewAutomationService:
         "product_dissatisfaction",
         "delivery_problems",
         "wrong_size",
-        "tagged_reviews",
     )
     AI_UNCLASSIFIED_CATEGORY = "ai_unclassified"
     AI_UNCLASSIFIED_NOTE = "ИИ не смог корректно определить категорию."
@@ -1498,10 +1497,6 @@ class ReviewAutomationService:
             "Большемерит/маломерит",
             "Не подошел размер",
         ],
-        "tagged_reviews": [
-            GENERAL_SUBGROUP_TITLE,
-            "Общие теги",
-        ],
         TEXTLESS_GROUP_ID: [
             TEXTLESS_LOW_SUBGROUP,
             TEXTLESS_HIGH_SUBGROUP,
@@ -1512,7 +1507,6 @@ class ReviewAutomationService:
         "product_dissatisfaction": "Недовольство товаром",
         "delivery_problems": "Проблемы при доставке",
         "wrong_size": "Неправильный размер",
-        "tagged_reviews": "Отзывы с тегами",
         "textless_ratings": "Оценки без текста",
     }
     GROUP_PROCESSING_DEFAULTS: dict[str, str] = {
@@ -1520,7 +1514,6 @@ class ReviewAutomationService:
         "product_dissatisfaction": "yandex",
         "delivery_problems": "yandex",
         "wrong_size": "yandex",
-        "tagged_reviews": "program",
         "textless_ratings": "program",
     }
 
@@ -3358,7 +3351,6 @@ class ReviewAutomationService:
             "product_dissatisfaction",
             "delivery_problems",
             "wrong_size",
-            "tagged_reviews",
             "textless_ratings",
         }:
             return normalized
@@ -3368,8 +3360,9 @@ class ReviewAutomationService:
         has_tags = bool(tags)
 
         if not has_text:
-            if has_tags:
-                return "tagged_reviews"
+            # tagged_reviews group removed — tags (pros/cons) are now combined
+            # into review.text before classification, so no review should arrive
+            # here with tags but no text. Fall through to textless_ratings.
             return "textless_ratings"
 
         size_words = ("размер", "маломер", "большемер", "size", "мерит")
@@ -3639,7 +3632,6 @@ class ReviewAutomationService:
             "product_dissatisfaction",
             "delivery_problems",
             "wrong_size",
-            "tagged_reviews",
             cls.TEXTLESS_GROUP_ID,
         ]
         for group_id in ordered_group_ids:
@@ -4053,7 +4045,6 @@ class ReviewAutomationService:
                 "product_dissatisfaction",
                 "delivery_problems",
                 "wrong_size",
-                "tagged_reviews",
                 "textless_ratings",
             }
         aliases = {
