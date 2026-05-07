@@ -1335,6 +1335,13 @@ button.secondary.danger:hover {
   align-items: flex-start;
 }
 
+.question-date {
+  white-space: nowrap;
+  font-size: 13px;
+  color: #64748b;
+  min-width: 100px;
+}
+
 .users-actions-row {
   display: inline-flex;
   align-items: center;

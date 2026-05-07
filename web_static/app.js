@@ -1829,6 +1829,24 @@ function buildConversationErrorTitle(meta) {
   return pieces.join(" | ");
 }
 
+async function moveQuestionToProcessed(conversationUid) {
+  try {
+    const res = await fetch(`/api/conversations/${encodeURIComponent(conversationUid)}/mark-answered`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({}),
+    });
+    if (!res.ok) {
+      const data = await res.json();
+      alert("Ошибка: " + (data.detail || "не удалось перенести в обработанные"));
+      return;
+    }
+    await loadQuestions();
+  } catch (err) {
+    alert("Ошибка: не удалось перенести в обработанные");
+  }
+}
+
 async function replyToQuestion(conversationUid) {
   const text = window.prompt("Введите ответ на вопрос:");
   if (text === null) return;
@@ -1886,17 +1904,28 @@ async function loadQuestions() {
     const errorIcon = errorMeta.hasError
       ? `<span class="send-error-indicator" title="${esc(buildConversationErrorTitle(errorMeta))}">❗</span>`
       : "";
+    // Format date from last_message_at or updated_at
+    const qDateRaw = item.last_message_at || item.updated_at || "";
+    let qDateStr = "-";
+    if (qDateRaw) {
+      try {
+        const qd = new Date(qDateRaw);
+        if (!isNaN(qd.getTime())) {
+          qDateStr = qd.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit" })
+            + " " + qd.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+        }
+      } catch (_) {}
+    }
     tr.innerHTML = `
+      <td class="question-date">${esc(qDateStr)}</td>
       <td>${esc(item.source)}</td>
       <td>${esc(item.customer_name || "-")}</td>
       <td>${esc(item.message_text || "-")}</td>
-      <td>${esc(item.unread_count ?? 0)}</td>
       <td>${esc(labelFromMap(conversationStatusLabels, item.status))}</td>
       <td>
         <div class="actions-col">
           <button onclick="replyToQuestion('${esc(item.conversation_uid)}')">Ответить</button>
-          <button class="secondary" onclick="setConversationStatus('${esc(item.conversation_uid)}', 'waiting', 'question')">В ожидании</button>
-          <button class="secondary" onclick="setConversationStatus('${esc(item.conversation_uid)}', 'closed', 'question')">Закрыть</button>
+          <button class="secondary" onclick="moveQuestionToProcessed('${esc(item.conversation_uid)}')">В обработанные</button>
           ${errorIcon}
         </div>
       </td>
