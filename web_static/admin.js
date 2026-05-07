@@ -1882,7 +1882,7 @@ async function purgeSyncActionLogs() {
   try {
     const res = await fetch("/api/admin/actions-purge-sync", {
       method: "POST",
-      headers: withCsrfHeaders(),
+      headers: csrfHeaders({ "Content-Type": "application/json" }),
     });
     const data = await res.json();
     if (!res.ok) {
