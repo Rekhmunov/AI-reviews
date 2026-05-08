@@ -1783,23 +1783,30 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             bucket=normalized_bucket,
             account_ids=account_ids_filter,
         )
-        # Enrich each review with a suggested template text for the reply column
+        # Enrich each review with a suggested template text for the reply column.
+        # Uses a single batch query instead of N separate queries (eliminates N+1).
         user_id_int = int(user["id"])
-        for item in page_data.get("items") or []:
-            group_id = str(item.get("category") or "")
+        items = page_data.get("items") or []
+        # First pass: collect pairs and expose classified_subgroup
+        pairs: list[tuple[str, str | None]] = []
+        for item in items:
             meta = item.get("metadata") or {}
             subgroup = str(meta.get("classified_subgroup") or "")
-            item["classified_subgroup"] = subgroup  # expose at top level for JS
+            item["classified_subgroup"] = subgroup
+            group_id = str(item.get("category") or "")
             if group_id:
-                try:
-                    tmpl = repository.get_random_template_variant(
-                        user_id=user_id_int,
-                        group_id=group_id,
-                        subgroup=subgroup or None,
-                    )
-                    item["suggested_reply"] = str(tmpl.get("template_text") or "") if tmpl else ""
-                except Exception:
-                    item["suggested_reply"] = ""
+                pairs.append((group_id, subgroup or None))
+        # Single DB call for all templates
+        try:
+            tmpl_map = repository.get_random_template_for_reviews(user_id=user_id_int, pairs=pairs)
+        except Exception:
+            tmpl_map = {}
+        # Second pass: assign templates
+        for item in items:
+            group_id = str(item.get("category") or "")
+            subgroup = str(item.get("classified_subgroup") or "")
+            if group_id:
+                item["suggested_reply"] = tmpl_map.get((group_id, subgroup), tmpl_map.get((group_id, ""), ""))
             else:
                 item["suggested_reply"] = ""
 
