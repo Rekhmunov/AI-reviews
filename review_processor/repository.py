@@ -5628,15 +5628,14 @@ class ReviewRepository:
         return [self._row_to_dict(r) for r in rows]
 
     def purge_sync_action_logs(self) -> int:
-        """Delete all sync_review and sync_conversation entries from review_actions.
+        """Delete all bulk sync action log entries from review_actions.
 
-        These were created by old code for every synced item and are no longer
-        logged. Safe to delete — they have no operational value.
+        These have no operational value and should never grow the table.
         """
         with self._connect() as conn:
             result = conn.execute(
                 self._sql(
-                    "DELETE FROM review_actions WHERE action_type IN ('sync_review', 'sync_conversation')"
+                    "DELETE FROM review_actions WHERE action_type IN ('sync_review', 'sync_conversation', 'sync_conversation')"
                 )
             )
         return int(result.rowcount or 0)

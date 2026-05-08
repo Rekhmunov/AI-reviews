@@ -1754,21 +1754,6 @@ class ReviewAutomationService:
                         status=status,
                         auto_reply=auto_reply,
                     )
-                    review_uid = self.repository.make_review_uid(user_id, source, account_id, review_for_processing.review_id)
-                    self.repository.log_review_action(
-                        user_id=user_id,
-                        review_uid=review_uid,
-                        action_type="sync_review",
-                        actor="system",
-                        details={
-                            "category": category,
-                            "group_id": group_id,
-                            "status": status,
-                            "action_mode": mode,
-                            "auto_send": auto_send,
-                            "source": source,
-                        },
-                    )
                     continue
                 auto_reply = self._render_template(
                     selected_template,
