@@ -3199,6 +3199,28 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             )
         return {"ok": True, "items": items, "count": len(items)}
 
+    @app.get("/api/admin/ai-usage-stats")
+    def get_ai_usage_stats(request: Request, days: int = 30) -> dict[str, object]:
+        """Return daily Yandex GPT usage statistics for the last N days."""
+        user = _require_admin(request)
+        owner_id = _tenant_owner_id(user)
+        rows = repository.get_ai_usage_stats(user_id=owner_id, days=min(max(days, 1), 90))
+        # Estimate cost: Yandex YandexGPT Lite ≈ 0.20₽ per 1000 tokens input, 0.60₽ output
+        # (approximate — actual pricing may differ)
+        total_requests = sum(int(r.get("requests") or 0) for r in rows)
+        total_input = sum(int(r.get("input_tokens") or 0) for r in rows)
+        total_output = sum(int(r.get("output_tokens") or 0) for r in rows)
+        return {
+            "ok": True,
+            "rows": rows,
+            "totals": {
+                "requests": total_requests,
+                "input_tokens": total_input,
+                "output_tokens": total_output,
+                "total_tokens": total_input + total_output,
+            },
+        }
+
     @app.get("/api/admin/context")
     def get_admin_context(request: Request) -> dict[str, object]:
         user = _require_admin(request)

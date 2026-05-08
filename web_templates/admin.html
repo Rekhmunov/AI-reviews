@@ -26,6 +26,7 @@
         <button id="aiEditBtn" type="button" class="secondary" onclick="editAiSettings()">Изменить</button>
         <button id="aiTestBtn" type="button" class="secondary" onclick="testAiSettingsConnection()">Проверить</button>
         <button id="aiTestReviewBtn" type="button" class="secondary" onclick="openAiTestReviewModal()">Отправить тестовый отзыв</button>
+        <button id="aiStatsBtn" type="button" class="secondary" onclick="openAiStatsModal()">📊 Статистика запросов</button>
         <button id="aiCancelBtn" type="button" class="secondary hidden" onclick="cancelAiSettingsEdit()">Отмена</button>
       </div>
       <div class="row">
@@ -306,6 +307,22 @@
     </div>
   </div>
 
-  <script src="/static/admin.js?v=20"></script>
+  <!-- AI Statistics modal -->
+  <div id="aiStatsModal" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal-card" style="max-width:620px">
+      <div class="row row-between">
+        <h4 class="no-margin">📊 Статистика запросов к Яндекс GPT</h4>
+        <button type="button" class="secondary" onclick="closeAiStatsModal()">✕</button>
+      </div>
+      <p class="small" style="margin:8px 0 12px;color:#64748b">
+        Каждый отзыв с текстом = 1 запрос. Отзывы без текста обрабатываются без Яндекс (бесплатно).
+      </p>
+      <div id="aiStatsContent" style="min-height:80px">
+        <p class="small" style="color:#9ca3af">Загрузка...</p>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/admin.js?v=21"></script>
 </body>
 </html>

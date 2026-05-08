@@ -4052,6 +4052,20 @@ class ReviewAutomationService:
         text = ""
         result = payload.get("result") if isinstance(payload, Mapping) else None
         if isinstance(result, dict):
+            # Log token usage for admin statistics
+            usage = result.get("usage") or {}
+            input_tokens = int(usage.get("inputTextTokens") or 0)
+            output_tokens = int(usage.get("completionTokens") or 0)
+            if (input_tokens or output_tokens) and user_id:
+                try:
+                    self.repository.log_ai_usage(
+                        user_id=user_id,
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                        model_uri=model_uri,
+                    )
+                except Exception:
+                    pass
             alternatives = result.get("alternatives")
             if isinstance(alternatives, list) and alternatives:
                 first = alternatives[0]

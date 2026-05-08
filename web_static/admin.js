@@ -443,6 +443,66 @@ async function testAiSettingsConnection() {
   }
 }
 
+async function openAiStatsModal() {
+  setModalVisibility("aiStatsModal", true);
+  const content = document.getElementById("aiStatsContent");
+  if (!content) return;
+  content.innerHTML = '<p class="small" style="color:#9ca3af">Загрузка...</p>';
+  try {
+    const res = await fetch("/api/admin/ai-usage-stats?days=30");
+    if (!res.ok) { content.innerHTML = '<p class="small" style="color:#dc2626">Ошибка загрузки</p>'; return; }
+    const data = await res.json();
+    const rows = data.rows || [];
+    const totals = data.totals || {};
+
+    const totalRow = `
+      <tr style="font-weight:600;background:#f0f9ff">
+        <td>Итого (30 дней)</td>
+        <td style="text-align:right">${(totals.requests||0).toLocaleString("ru-RU")}</td>
+        <td style="text-align:right">${(totals.input_tokens||0).toLocaleString("ru-RU")}</td>
+        <td style="text-align:right">${(totals.output_tokens||0).toLocaleString("ru-RU")}</td>
+        <td style="text-align:right">${(totals.total_tokens||0).toLocaleString("ru-RU")}</td>
+      </tr>`;
+
+    const tableRows = rows.length ? rows.map(r => `
+      <tr>
+        <td>${esc(r.log_date || "")}</td>
+        <td style="text-align:right">${(r.requests||0).toLocaleString("ru-RU")}</td>
+        <td style="text-align:right">${(r.input_tokens||0).toLocaleString("ru-RU")}</td>
+        <td style="text-align:right">${(r.output_tokens||0).toLocaleString("ru-RU")}</td>
+        <td style="text-align:right">${((r.input_tokens||0)+(r.output_tokens||0)).toLocaleString("ru-RU")}</td>
+      </tr>`).join("") : '<tr><td colspan="5" style="color:#9ca3af;text-align:center">Данных нет — статистика накапливается при синхронизации отзывов</td></tr>';
+
+    content.innerHTML = `
+      <div style="max-height:400px;overflow-y:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead>
+            <tr style="background:#f8fafc;color:#64748b;font-size:12px">
+              <th style="padding:8px;text-align:left;border-bottom:1px solid #e2e8f0">Дата</th>
+              <th style="padding:8px;text-align:right;border-bottom:1px solid #e2e8f0">Запросов</th>
+              <th style="padding:8px;text-align:right;border-bottom:1px solid #e2e8f0">Вход. токены</th>
+              <th style="padding:8px;text-align:right;border-bottom:1px solid #e2e8f0">Исх. токены</th>
+              <th style="padding:8px;text-align:right;border-bottom:1px solid #e2e8f0">Всего токенов</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${totalRow}
+            ${tableRows}
+          </tbody>
+        </table>
+      </div>
+      <p class="small" style="margin-top:10px;color:#94a3b8">
+        💡 Отзывы без текста (оценка без комментария) не отправляются в Яндекс — 0 токенов.
+      </p>`;
+  } catch (_) {
+    content.innerHTML = '<p class="small" style="color:#dc2626">Ошибка загрузки статистики</p>';
+  }
+}
+
+function closeAiStatsModal() {
+  setModalVisibility("aiStatsModal", false);
+}
+
 function openAiTestReviewModal() {
   const modal = document.getElementById("aiTestReviewModal");
   if (!modal) return;
