@@ -3,18 +3,13 @@ from __future__ import annotations
 import json
 import hashlib
 import re
-import sqlite3
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
 
-try:  # pragma: no cover - imported lazily in most tests
-    import psycopg  # type: ignore
-    from psycopg import rows as psycopg_rows  # type: ignore
-except Exception:  # pragma: no cover - optional dependency in some environments
-    psycopg = None
-    psycopg_rows = None
+import psycopg  # type: ignore
+from psycopg import rows as psycopg_rows  # type: ignore
 
 from .models import ProcessedReview, ReviewInput
 from .security import decrypt_secret, encrypt_secret, mask_secret
@@ -161,46 +156,28 @@ class _PgCompatConnection:
 class ReviewRepository:
     """Repository for auth, settings, and marketplace reviews."""
 
-    def __init__(self, db_url: str | None = None, db_path: str = "reviews.db") -> None:
+    def __init__(self, db_url: str | None = None) -> None:
         self.db_url = str(db_url or "").strip() or None
-        self.is_postgres = bool(self.db_url and self.db_url.startswith("postgres"))
-        if self.db_url and not self.is_postgres:
+        if not self.db_url:
+            raise RuntimeError("APP_DB_URL is required (postgresql://...)")
+        if not self.db_url.startswith("postgres"):
             raise RuntimeError("APP_DB_URL must be a PostgreSQL DSN (postgresql://...)")
-        self.db_path = db_path
-        if self.is_postgres:
-            if psycopg is None or psycopg_rows is None:
-                raise RuntimeError("psycopg[binary] is required when APP_DB_URL points to PostgreSQL")
-        else:
-            self._ensure_db_dir()
         self._init_schema()
 
-    def _ensure_db_dir(self) -> None:
-        db_file = Path(self.db_path)
-        if db_file.parent != Path("."):
-            db_file.parent.mkdir(parents=True, exist_ok=True)
-
     def _connect(self):
-        if self.is_postgres:
-            assert psycopg is not None and psycopg_rows is not None
-            conn = psycopg.connect(self.db_url, row_factory=psycopg_rows.dict_row, autocommit=True)
-            return _PgCompatConnection(conn)
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
-        return conn
+        conn = psycopg.connect(self.db_url, row_factory=psycopg_rows.dict_row, autocommit=True)
+        return _PgCompatConnection(conn)
 
     def _sql(self, query: str) -> str:
-        if self.is_postgres:
-            return _replace_qmark_placeholders(query)
-        return query
+        return _replace_qmark_placeholders(query)
 
-    def _bool_db(self, value: bool | None) -> bool | int | None:
+    def _bool_db(self, value: bool | None) -> bool | None:
         if value is None:
             return None
-        return bool(value) if self.is_postgres else int(bool(value))
+        return bool(value)
 
     def _bool_true_literal(self) -> str:
-        return "TRUE" if self.is_postgres else "1"
+        return "TRUE"
 
     def _json_param(self, value: object) -> object:
         return json.dumps(value, ensure_ascii=False)
@@ -221,940 +198,501 @@ class ReviewRepository:
         return normalized in {"paid", "succeeded", "success", "completed"}
 
     def _init_schema(self) -> None:
-        if self.is_postgres:
-            sql_path = Path(__file__).resolve().parent.parent / "deploy" / "postgres" / "schema_v1.sql"
-            if not sql_path.exists():
-                raise RuntimeError(f"PostgreSQL schema file not found: {sql_path}")
-            schema_sql = sql_path.read_text(encoding="utf-8")
-            # psycopg interprets "%" markers in query text as placeholders even
-            # when executing raw SQL scripts. Escape percent literals such as
-            # %BRAND%/%NAME% used in seed data to keep bootstrap stable.
-            schema_sql = schema_sql.replace("%", "%%")
-            with self._connect() as conn:
-                conn.execute(schema_sql)
-                self._migrate_schema(conn)
-            return
-
+        sql_path = Path(__file__).resolve().parent.parent / "deploy" / "postgres" / "schema_v1.sql"
+        if not sql_path.exists():
+            raise RuntimeError(f"PostgreSQL schema file not found: {sql_path}")
+        schema_sql = sql_path.read_text(encoding="utf-8")
+        # psycopg interprets "%" markers in query text as placeholders even
+        # when executing raw SQL scripts. Escape percent literals such as
+        # %BRAND%/%NAME% used in seed data to keep bootstrap stable.
+        schema_sql = schema_sql.replace("%", "%%")
         with self._connect() as conn:
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS users (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    email TEXT NOT NULL UNIQUE,
-                    full_name TEXT,
-                    password_hash TEXT NOT NULL,
-                    role TEXT NOT NULL,
-                    owner_user_id INTEGER,
-                    is_super_admin INTEGER NOT NULL DEFAULT 0,
-                    is_blocked INTEGER NOT NULL DEFAULT 0,
-                    blocked_reason TEXT,
-                    blocked_at TEXT,
-                    is_deleted INTEGER NOT NULL DEFAULT 0,
-                    deleted_at TEXT,
-                    plan_code TEXT NOT NULL DEFAULT 'starter',
-                    limits_override_json TEXT NOT NULL DEFAULT '{}',
-                    created_at TEXT NOT NULL,
-                    FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE SET NULL
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS sessions (
-                    token TEXT PRIMARY KEY,
-                    user_id INTEGER NOT NULL,
-                    expires_at TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS ai_settings (
-                    id INTEGER PRIMARY KEY CHECK (id = 1),
-                    provider TEXT NOT NULL,
-                    yandex_api_key_encrypted TEXT,
-                    yandex_folder_id TEXT,
-                    yandex_model_uri TEXT,
-                    group_processors_json TEXT NOT NULL DEFAULT '{}',
-                    use_sync_start_date INTEGER NOT NULL DEFAULT 0,
-                    sync_start_date TEXT,
-                    updated_at TEXT NOT NULL
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS marketplace_accounts (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER NOT NULL,
-                    marketplace TEXT NOT NULL,
-                    account_name TEXT NOT NULL,
-                    api_url TEXT NOT NULL,
-                    api_key_encrypted TEXT,
-                    extra_json TEXT NOT NULL DEFAULT '{}',
-                    is_active INTEGER NOT NULL DEFAULT 1,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS manager_permissions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    manager_user_id INTEGER NOT NULL,
-                    account_id INTEGER NOT NULL,
-                    can_reviews INTEGER NOT NULL DEFAULT 0,
-                    can_questions INTEGER NOT NULL DEFAULT 0,
-                    can_chats INTEGER NOT NULL DEFAULT 0,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    UNIQUE(manager_user_id, account_id),
-                    FOREIGN KEY (manager_user_id) REFERENCES users(id) ON DELETE CASCADE,
-                    FOREIGN KEY (account_id) REFERENCES marketplace_accounts(id) ON DELETE CASCADE
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS response_templates (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER NOT NULL,
-                    category TEXT NOT NULL,
-                    mode TEXT NOT NULL,
-                    is_enabled INTEGER NOT NULL DEFAULT 0,
-                    template_text TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    UNIQUE(user_id, category),
-                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS response_template_variants (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER NOT NULL,
-                    group_id TEXT NOT NULL,
-                    subgroup TEXT NOT NULL,
-                    template_text TEXT NOT NULL,
-                    is_active INTEGER NOT NULL DEFAULT 1,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS default_template_variants (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    group_id TEXT NOT NULL,
-                    subgroup TEXT NOT NULL,
-                    template_text TEXT NOT NULL,
-                    is_active INTEGER NOT NULL DEFAULT 1,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    UNIQUE(group_id, subgroup, template_text)
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS default_template_subgroups (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    group_id TEXT NOT NULL,
-                    subgroup TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    UNIQUE(group_id, subgroup)
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS processing_rules (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER NOT NULL,
-                    group_id TEXT NOT NULL,
-                    action_mode TEXT NOT NULL,
-                    auto_send INTEGER NOT NULL DEFAULT 0,
-                    updated_at TEXT NOT NULL,
-                    UNIQUE(user_id, group_id),
-                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS product_recommendations (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER NOT NULL,
-                    source_article TEXT NOT NULL,
-                    target_article TEXT NOT NULL,
-                    is_active INTEGER NOT NULL DEFAULT 1,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    UNIQUE(user_id, source_article, target_article),
-                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS review_items (
-                    review_uid TEXT PRIMARY KEY,
-                    user_id INTEGER NOT NULL,
-                    external_review_id TEXT NOT NULL,
-                    source TEXT NOT NULL,
-                    account_id INTEGER,
-                    text TEXT NOT NULL,
-                    author TEXT,
-                    rating INTEGER,
-                    metadata_json TEXT NOT NULL,
-                    normalized_text TEXT NOT NULL,
-                    sentiment_score INTEGER NOT NULL,
-                    sentiment_label TEXT NOT NULL,
-                    is_spam INTEGER NOT NULL,
-                    is_toxic INTEGER NOT NULL,
-                    priority TEXT NOT NULL,
-                    tags_json TEXT NOT NULL,
-                    recommended_action TEXT NOT NULL,
-                    category TEXT NOT NULL,
-                    processing_mode TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    auto_reply TEXT,
-                    manual_reply TEXT,
-                    operator_name TEXT,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-                    FOREIGN KEY (account_id) REFERENCES marketplace_accounts(id) ON DELETE SET NULL
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS review_actions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER NOT NULL,
-                    review_uid TEXT,
-                    action_type TEXT NOT NULL,
-                    actor TEXT NOT NULL,
-                    details_json TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS conversation_items (
-                    conversation_uid TEXT PRIMARY KEY,
-                    user_id INTEGER NOT NULL,
-                    source TEXT NOT NULL,
-                    account_id INTEGER,
-                    external_conversation_id TEXT NOT NULL,
-                    kind TEXT NOT NULL,
-                    customer_name TEXT,
-                    message_text TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    unread_count INTEGER NOT NULL DEFAULT 0,
-                    metadata_json TEXT NOT NULL,
-                    send_error_code TEXT,
-                    send_error_message TEXT,
-                    send_attempts INTEGER NOT NULL DEFAULT 0,
-                    last_send_attempt_at TEXT,
-                    last_sent_at TEXT,
-                    last_message_at TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-                    FOREIGN KEY (account_id) REFERENCES marketplace_accounts(id) ON DELETE SET NULL
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS conversation_messages (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    conversation_uid TEXT NOT NULL,
-                    user_id INTEGER NOT NULL,
-                    direction TEXT NOT NULL,
-                    message_text TEXT NOT NULL,
-                    operator_name TEXT,
-                    send_status TEXT NOT NULL DEFAULT 'sent',
-                    send_error_code TEXT,
-                    send_error_message TEXT,
-                    idempotency_key TEXT,
-                    external_message_id TEXT,
-                    created_at TEXT NOT NULL,
-                    UNIQUE(user_id, conversation_uid, idempotency_key),
-                    FOREIGN KEY (conversation_uid) REFERENCES conversation_items(conversation_uid) ON DELETE CASCADE,
-                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS chat_quick_templates (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER NOT NULL,
-                    template_text TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS platform_settings (
-                    id INTEGER PRIMARY KEY CHECK (id = 1),
-                    payment_provider TEXT NOT NULL DEFAULT 'manual',
-                    payment_api_key_encrypted TEXT,
-                    updated_at TEXT NOT NULL
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS tariff_plans (
-                    code TEXT PRIMARY KEY,
-                    title TEXT NOT NULL,
-                    monthly_price REAL NOT NULL DEFAULT 0,
-                    limits_json TEXT NOT NULL DEFAULT '{}',
-                    is_active INTEGER NOT NULL DEFAULT 1,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS payment_records (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    owner_user_id INTEGER NOT NULL,
-                    amount REAL NOT NULL,
-                    currency TEXT NOT NULL DEFAULT 'RUB',
-                    status TEXT NOT NULL,
-                    external_payment_id TEXT,
-                    details_json TEXT NOT NULL DEFAULT '{}',
-                    paid_at TEXT,
-                    created_at TEXT NOT NULL,
-                    FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS template_variables (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    var_key TEXT NOT NULL UNIQUE,
-                    title TEXT NOT NULL,
-                    description TEXT,
-                    is_user_editable INTEGER NOT NULL DEFAULT 0,
-                    source_type TEXT NOT NULL DEFAULT 'manual',
-                    source_path TEXT,
-                    default_value TEXT,
-                    is_active INTEGER NOT NULL DEFAULT 1,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS user_template_variable_values (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER NOT NULL,
-                    variable_id INTEGER NOT NULL,
-                    value TEXT,
-                    updated_at TEXT NOT NULL,
-                    UNIQUE(user_id, variable_id),
-                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-                    FOREIGN KEY (variable_id) REFERENCES template_variables(id) ON DELETE CASCADE
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_review_actions_user_created
-                ON review_actions(user_id, created_at DESC)
-                """
-            )
-            conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_conversation_user_updated
-                ON conversation_items(user_id, updated_at DESC)
-                """
-            )
-            conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_conversation_messages_conversation_created
-                ON conversation_messages(conversation_uid, created_at ASC)
-                """
-            )
-            conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_chat_quick_templates_user
-                ON chat_quick_templates(user_id, updated_at DESC)
-                """
-            )
-            conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_template_variants_user_group_sub
-                ON response_template_variants(user_id, group_id, subgroup, is_active)
-                """
-            )
-            conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_default_template_variants_group_sub
-                ON default_template_variants(group_id, subgroup, is_active)
-                """
-            )
-            conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_default_template_subgroups_group_sub
-                ON default_template_subgroups(group_id, subgroup)
-                """
-            )
-            conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_processing_rules_user_group
-                ON processing_rules(user_id, group_id)
-                """
-            )
-            conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_recommendations_user_source
-                ON product_recommendations(user_id, source_article, is_active)
-                """
-            )
-            conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_template_variables_active
-                ON template_variables(is_active, var_key)
-                """
-            )
-            conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_user_template_values_user
-                ON user_template_variable_values(user_id, variable_id)
-                """
-            )
+            conn.execute(schema_sql)
             self._migrate_schema(conn)
-            conn.execute(
-                """
-                INSERT INTO ai_settings (
-                    id, provider, yandex_api_key_encrypted, yandex_folder_id, yandex_model_uri,
-                    group_processors_json, use_sync_start_date, sync_start_date, updated_at
-                )
-                VALUES (1, 'rules', NULL, NULL, NULL, ?, 0, NULL, ?)
-                ON CONFLICT (id) DO NOTHING
-                """,
-                (self._json_param(DEFAULT_GROUP_PROCESSORS), _utc_now()),
-            )
-            conn.execute(
-                """
-                INSERT INTO platform_settings (id, payment_provider, payment_api_key_encrypted, updated_at)
-                VALUES (1, 'manual', NULL, ?)
-                ON CONFLICT (id) DO NOTHING
-                """,
-                (_utc_now(),),
-            )
-            # Tariffs are fully managed by super-admin in UI/API.
-            # Do not auto-seed built-in plans here: deleted plans must stay deleted.
-        # Template variables are fully managed by super-admin (no hardcoded defaults).
-
     def _migrate_schema(self, conn) -> None:
-        if self.is_postgres:
-            conn.execute(
-                """
-                ALTER TABLE users
-                ADD COLUMN IF NOT EXISTS owner_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL
-                """
-            )
-            conn.execute(
-                """
-                ALTER TABLE users
-                ADD COLUMN IF NOT EXISTS is_super_admin BOOLEAN NOT NULL DEFAULT FALSE
-                """
-            )
-            conn.execute(
-                """
-                ALTER TABLE users
-                ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN NOT NULL DEFAULT FALSE
-                """
-            )
-            conn.execute(
-                """
-                ALTER TABLE users
-                ADD COLUMN IF NOT EXISTS blocked_reason TEXT
-                """
-            )
-            conn.execute(
-                """
-                ALTER TABLE users
-                ADD COLUMN IF NOT EXISTS blocked_at TIMESTAMPTZ
-                """
-            )
-            conn.execute(
-                """
-                ALTER TABLE users
-                ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT NULL DEFAULT FALSE
-                """
-            )
-            conn.execute(
-                """
-                ALTER TABLE users
-                ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ
-                """
-            )
-            conn.execute(
-                """
-                ALTER TABLE users
-                ADD COLUMN IF NOT EXISTS plan_code TEXT NOT NULL DEFAULT 'starter'
-                """
-            )
-            conn.execute(
-                """
-                ALTER TABLE users
-                ADD COLUMN IF NOT EXISTS limits_override_json JSONB NOT NULL DEFAULT '{}'::jsonb
-                """
-            )
-            conn.execute(
-                """
-                ALTER TABLE users
-                ADD COLUMN IF NOT EXISTS use_sync_start_date BOOLEAN NOT NULL DEFAULT FALSE
-                """
-            )
-            conn.execute(
-                """
-                ALTER TABLE users
-                ADD COLUMN IF NOT EXISTS sync_start_date DATE
-                """
-            )
-            conn.execute(
-                """
-                UPDATE users
-                SET owner_user_id = id
-                WHERE owner_user_id IS NULL
-                """
-            )
-            super_admin_row = conn.execute("SELECT COUNT(*) AS c FROM users WHERE is_super_admin = TRUE").fetchone()
-            has_super_admin = int(super_admin_row["c"]) > 0 if super_admin_row else False
-            if not has_super_admin:
-                candidate = conn.execute(
-                    "SELECT id FROM users WHERE role = 'admin' AND is_deleted = FALSE ORDER BY id ASC LIMIT 1"
-                ).fetchone()
-                if candidate is not None:
-                    conn.execute(
-                        "UPDATE users SET is_super_admin = TRUE WHERE id = ?",
-                        (int(candidate["id"]),),
-                    )
-
-            conn.execute(
-                """
-                ALTER TABLE ai_settings
-                ADD COLUMN IF NOT EXISTS group_processors_json JSONB NOT NULL DEFAULT '{}'::jsonb
-                """
-            )
-            conn.execute(
-                """
-                ALTER TABLE ai_settings
-                ADD COLUMN IF NOT EXISTS use_sync_start_date BOOLEAN NOT NULL DEFAULT FALSE
-                """
-            )
-            conn.execute(
-                """
-                ALTER TABLE ai_settings
-                ADD COLUMN IF NOT EXISTS sync_start_date DATE
-                """
-            )
-
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS platform_settings (
-                    id SMALLINT PRIMARY KEY CHECK (id = 1),
-                    payment_provider TEXT NOT NULL DEFAULT 'manual',
-                    payment_api_key_encrypted TEXT,
-                    updated_at TIMESTAMPTZ NOT NULL
-                )
-                """
-            )
-            conn.execute(
-                """
-                ALTER TABLE platform_settings
-                ADD COLUMN IF NOT EXISTS default_sync_lookback_days INTEGER NOT NULL DEFAULT 7
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS tariff_plans (
-                    code TEXT PRIMARY KEY,
-                    title TEXT NOT NULL,
-                    monthly_price NUMERIC(14,2) NOT NULL DEFAULT 0,
-                    limits_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-                    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-                    created_at TIMESTAMPTZ NOT NULL,
-                    updated_at TIMESTAMPTZ NOT NULL
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS payment_records (
-                    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-                    owner_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                    amount NUMERIC(14,2) NOT NULL,
-                    currency TEXT NOT NULL DEFAULT 'RUB',
-                    status TEXT NOT NULL,
-                    external_payment_id TEXT,
-                    details_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-                    paid_at TIMESTAMPTZ,
-                    created_at TIMESTAMPTZ NOT NULL
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS tenant_subscriptions (
-                    owner_user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-                    status TEXT NOT NULL DEFAULT 'inactive',
-                    active_from TIMESTAMPTZ,
-                    paid_until TIMESTAMPTZ,
-                    grace_until TIMESTAMPTZ,
-                    updated_at TIMESTAMPTZ NOT NULL
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS manager_permissions (
-                    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-                    manager_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                    account_id BIGINT NOT NULL REFERENCES marketplace_accounts(id) ON DELETE CASCADE,
-                    can_reviews BOOLEAN NOT NULL DEFAULT FALSE,
-                    can_questions BOOLEAN NOT NULL DEFAULT FALSE,
-                    can_chats BOOLEAN NOT NULL DEFAULT FALSE,
-                    created_at TIMESTAMPTZ NOT NULL,
-                    updated_at TIMESTAMPTZ NOT NULL,
-                    UNIQUE(manager_user_id, account_id)
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_manager_permissions_manager
-                ON manager_permissions(manager_user_id)
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS default_template_variants (
-                    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-                    group_id TEXT NOT NULL,
-                    subgroup TEXT NOT NULL,
-                    template_text TEXT NOT NULL,
-                    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-                    created_at TIMESTAMPTZ NOT NULL,
-                    updated_at TIMESTAMPTZ NOT NULL,
-                    UNIQUE(group_id, subgroup, template_text)
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS default_template_subgroups (
-                    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-                    group_id TEXT NOT NULL,
-                    subgroup_id TEXT,
-                    subgroup TEXT NOT NULL,
-                    created_at TIMESTAMPTZ NOT NULL,
-                    updated_at TIMESTAMPTZ NOT NULL,
-                    UNIQUE(group_id, subgroup)
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_default_template_variants_group_sub
-                ON default_template_variants(group_id, subgroup, is_active)
-                """
-            )
-            conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_default_template_subgroups_group_sub
-                ON default_template_subgroups(group_id, subgroup)
-                """
-            )
-            subgroup_columns = self._table_columns(conn, "default_template_subgroups")
-            if "subgroup_id" not in subgroup_columns:
-                conn.execute("ALTER TABLE default_template_subgroups ADD COLUMN subgroup_id TEXT")
-            conn.execute(
-                """
-                CREATE UNIQUE INDEX IF NOT EXISTS idx_default_template_subgroups_subgroup_id
-                ON default_template_subgroups(subgroup_id)
-                WHERE subgroup_id IS NOT NULL
-                """
-            )
-            conn.execute(
-                """
-                INSERT INTO default_template_subgroups (group_id, subgroup, created_at, updated_at)
-                SELECT DISTINCT group_id, subgroup, NOW(), NOW()
-                FROM default_template_variants
-                WHERE TRIM(group_id) <> '' AND TRIM(subgroup) <> ''
-                ON CONFLICT (group_id, subgroup) DO NOTHING
-                """
-            )
-            rows = conn.execute(
-                """
-                SELECT group_id, subgroup
-                FROM default_template_subgroups
-                WHERE subgroup_id IS NULL OR TRIM(subgroup_id) = ''
-                ORDER BY group_id ASC, subgroup ASC
-                """
-            ).fetchall()
-            for row in rows:
-                subgroup_id = _build_subgroup_id(str(row["group_id"] or ""), str(row["subgroup"] or ""))
+        conn.execute(
+            """
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS owner_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS is_super_admin BOOLEAN NOT NULL DEFAULT FALSE
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN NOT NULL DEFAULT FALSE
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS blocked_reason TEXT
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS blocked_at TIMESTAMPTZ
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT NULL DEFAULT FALSE
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS plan_code TEXT NOT NULL DEFAULT 'starter'
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS limits_override_json JSONB NOT NULL DEFAULT '{}'::jsonb
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS use_sync_start_date BOOLEAN NOT NULL DEFAULT FALSE
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS sync_start_date DATE
+            """
+        )
+        conn.execute(
+            """
+            UPDATE users
+            SET owner_user_id = id
+            WHERE owner_user_id IS NULL
+            """
+        )
+        super_admin_row = conn.execute("SELECT COUNT(*) AS c FROM users WHERE is_super_admin = TRUE").fetchone()
+        has_super_admin = int(super_admin_row["c"]) > 0 if super_admin_row else False
+        if not has_super_admin:
+            candidate = conn.execute(
+                "SELECT id FROM users WHERE role = 'admin' AND is_deleted = FALSE ORDER BY id ASC LIMIT 1"
+            ).fetchone()
+            if candidate is not None:
                 conn.execute(
-                    """
-                    UPDATE default_template_subgroups
-                    SET subgroup_id = ?, updated_at = NOW()
-                    WHERE group_id = ? AND subgroup = ?
-                    """,
-                    (subgroup_id, str(row["group_id"] or ""), str(row["subgroup"] or "")),
+                    "UPDATE users SET is_super_admin = TRUE WHERE id = ?",
+                    (int(candidate["id"]),),
                 )
+
+        conn.execute(
+            """
+            ALTER TABLE ai_settings
+            ADD COLUMN IF NOT EXISTS group_processors_json JSONB NOT NULL DEFAULT '{}'::jsonb
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE ai_settings
+            ADD COLUMN IF NOT EXISTS use_sync_start_date BOOLEAN NOT NULL DEFAULT FALSE
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE ai_settings
+            ADD COLUMN IF NOT EXISTS sync_start_date DATE
+            """
+        )
+
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS platform_settings (
+                id SMALLINT PRIMARY KEY CHECK (id = 1),
+                payment_provider TEXT NOT NULL DEFAULT 'manual',
+                payment_api_key_encrypted TEXT,
+                updated_at TIMESTAMPTZ NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE platform_settings
+            ADD COLUMN IF NOT EXISTS default_sync_lookback_days INTEGER NOT NULL DEFAULT 7
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tariff_plans (
+                code TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                monthly_price NUMERIC(14,2) NOT NULL DEFAULT 0,
+                limits_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+                is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMPTZ NOT NULL,
+                updated_at TIMESTAMPTZ NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS payment_records (
+                id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                owner_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                amount NUMERIC(14,2) NOT NULL,
+                currency TEXT NOT NULL DEFAULT 'RUB',
+                status TEXT NOT NULL,
+                external_payment_id TEXT,
+                details_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+                paid_at TIMESTAMPTZ,
+                created_at TIMESTAMPTZ NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tenant_subscriptions (
+                owner_user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                status TEXT NOT NULL DEFAULT 'inactive',
+                active_from TIMESTAMPTZ,
+                paid_until TIMESTAMPTZ,
+                grace_until TIMESTAMPTZ,
+                updated_at TIMESTAMPTZ NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS manager_permissions (
+                id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                manager_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                account_id BIGINT NOT NULL REFERENCES marketplace_accounts(id) ON DELETE CASCADE,
+                can_reviews BOOLEAN NOT NULL DEFAULT FALSE,
+                can_questions BOOLEAN NOT NULL DEFAULT FALSE,
+                can_chats BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at TIMESTAMPTZ NOT NULL,
+                updated_at TIMESTAMPTZ NOT NULL,
+                UNIQUE(manager_user_id, account_id)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_manager_permissions_manager
+            ON manager_permissions(manager_user_id)
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS default_template_variants (
+                id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                group_id TEXT NOT NULL,
+                subgroup TEXT NOT NULL,
+                template_text TEXT NOT NULL,
+                is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMPTZ NOT NULL,
+                updated_at TIMESTAMPTZ NOT NULL,
+                UNIQUE(group_id, subgroup, template_text)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS default_template_subgroups (
+                id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                group_id TEXT NOT NULL,
+                subgroup_id TEXT,
+                subgroup TEXT NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL,
+                updated_at TIMESTAMPTZ NOT NULL,
+                UNIQUE(group_id, subgroup)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_default_template_variants_group_sub
+            ON default_template_variants(group_id, subgroup, is_active)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_default_template_subgroups_group_sub
+            ON default_template_subgroups(group_id, subgroup)
+            """
+        )
+        subgroup_columns = self._table_columns(conn, "default_template_subgroups")
+        if "subgroup_id" not in subgroup_columns:
+            conn.execute("ALTER TABLE default_template_subgroups ADD COLUMN subgroup_id TEXT")
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_default_template_subgroups_subgroup_id
+            ON default_template_subgroups(subgroup_id)
+            WHERE subgroup_id IS NOT NULL
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO default_template_subgroups (group_id, subgroup, created_at, updated_at)
+            SELECT DISTINCT group_id, subgroup, NOW(), NOW()
+            FROM default_template_variants
+            WHERE TRIM(group_id) <> '' AND TRIM(subgroup) <> ''
+            ON CONFLICT (group_id, subgroup) DO NOTHING
+            """
+        )
+        rows = conn.execute(
+            """
+            SELECT group_id, subgroup
+            FROM default_template_subgroups
+            WHERE subgroup_id IS NULL OR TRIM(subgroup_id) = ''
+            ORDER BY group_id ASC, subgroup ASC
+            """
+        ).fetchall()
+        for row in rows:
+            subgroup_id = _build_subgroup_id(str(row["group_id"] or ""), str(row["subgroup"] or ""))
             conn.execute(
                 """
-                CREATE TABLE IF NOT EXISTS template_variables (
-                    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-                    var_key TEXT NOT NULL UNIQUE,
-                    title TEXT NOT NULL,
-                    description TEXT,
-                    is_user_editable BOOLEAN NOT NULL DEFAULT FALSE,
-                    source_type TEXT NOT NULL DEFAULT 'manual',
-                    source_path TEXT,
-                    default_value TEXT,
-                    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-                    created_at TIMESTAMPTZ NOT NULL,
-                    updated_at TIMESTAMPTZ NOT NULL
-                )
-                """
+                UPDATE default_template_subgroups
+                SET subgroup_id = ?, updated_at = NOW()
+                WHERE group_id = ? AND subgroup = ?
+                """,
+                (subgroup_id, str(row["group_id"] or ""), str(row["subgroup"] or "")),
             )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS user_template_variable_values (
-                    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-                    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                    variable_id BIGINT NOT NULL REFERENCES template_variables(id) ON DELETE CASCADE,
-                    value TEXT,
-                    updated_at TIMESTAMPTZ NOT NULL,
-                    UNIQUE(user_id, variable_id)
-                )
-                """
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS template_variables (
+                id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                var_key TEXT NOT NULL UNIQUE,
+                title TEXT NOT NULL,
+                description TEXT,
+                is_user_editable BOOLEAN NOT NULL DEFAULT FALSE,
+                source_type TEXT NOT NULL DEFAULT 'manual',
+                source_path TEXT,
+                default_value TEXT,
+                is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMPTZ NOT NULL,
+                updated_at TIMESTAMPTZ NOT NULL
             )
-            conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_template_variables_active
-                ON template_variables(is_active, var_key)
-                """
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_template_variable_values (
+                id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                variable_id BIGINT NOT NULL REFERENCES template_variables(id) ON DELETE CASCADE,
+                value TEXT,
+                updated_at TIMESTAMPTZ NOT NULL,
+                UNIQUE(user_id, variable_id)
             )
-            conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_user_template_values_user
-                ON user_template_variable_values(user_id, variable_id)
-                """
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_template_variables_active
+            ON template_variables(is_active, var_key)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_user_template_values_user
+            ON user_template_variable_values(user_id, variable_id)
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO platform_settings (id, payment_provider, payment_api_key_encrypted, updated_at)
+            VALUES (1, 'manual', NULL, NOW())
+            ON CONFLICT (id) DO NOTHING
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS use_sync_start_date BOOLEAN NOT NULL DEFAULT FALSE
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS sync_start_date DATE
+            """
+        )
+        conn.execute(
+            """
+            UPDATE users
+            SET use_sync_start_date = TRUE
+            WHERE use_sync_start_date IS DISTINCT FROM TRUE
+            """
+        )
+        conn.execute(
+            """
+            UPDATE users
+            SET sync_start_date = ((created_at AT TIME ZONE 'UTC')::date - COALESCE((SELECT default_sync_lookback_days FROM platform_settings WHERE id = 1), 7))
+            WHERE sync_start_date IS NULL
+            """
+        )
+        conn.execute(
+            """
+            UPDATE platform_settings
+            SET default_sync_lookback_days = COALESCE(default_sync_lookback_days, 7)
+            WHERE id = 1
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO tenant_subscriptions (owner_user_id, status, active_from, paid_until, grace_until, updated_at)
+            SELECT u.id, 'active', u.created_at, NULL, NULL, NOW()
+            FROM users u
+            WHERE u.owner_user_id = u.id
+              AND u.is_super_admin = FALSE
+              AND u.is_deleted = FALSE
+            ON CONFLICT (owner_user_id) DO NOTHING
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE conversation_items
+            ADD COLUMN IF NOT EXISTS send_error_code TEXT
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE conversation_items
+            ADD COLUMN IF NOT EXISTS send_error_message TEXT
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE conversation_items
+            ADD COLUMN IF NOT EXISTS send_attempts INTEGER NOT NULL DEFAULT 0
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE conversation_items
+            ADD COLUMN IF NOT EXISTS last_send_attempt_at TIMESTAMPTZ
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE conversation_items
+            ADD COLUMN IF NOT EXISTS last_sent_at TIMESTAMPTZ
+            """
+        )
+        # Convert last_sent_at and last_send_attempt_at from TIMESTAMPTZ to
+        # TEXT so they are stored as ISO-8601 strings, consistent with
+        # last_message_at and all other timestamp columns.  This makes
+        # lexicographic comparisons correct and removes implicit type
+        # coercion surprises.
+        conn.execute(
+            """
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'conversation_items'
+                      AND column_name = 'last_sent_at'
+                      AND data_type = 'timestamp with time zone'
+                ) THEN
+                    ALTER TABLE conversation_items
+                        ALTER COLUMN last_sent_at TYPE TEXT
+                        USING CASE
+                            WHEN last_sent_at IS NULL THEN NULL
+                            ELSE to_char(last_sent_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"+00:00"')
+                        END;
+                END IF;
+            END;
+            $$
+            """
+        )
+        conn.execute(
+            """
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'conversation_items'
+                      AND column_name = 'last_send_attempt_at'
+                      AND data_type = 'timestamp with time zone'
+                ) THEN
+                    ALTER TABLE conversation_items
+                        ALTER COLUMN last_send_attempt_at TYPE TEXT
+                        USING CASE
+                            WHEN last_send_attempt_at IS NULL THEN NULL
+                            ELSE to_char(last_send_attempt_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"+00:00"')
+                        END;
+                END IF;
+            END;
+            $$
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS conversation_messages (
+                id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                conversation_uid TEXT NOT NULL REFERENCES conversation_items(conversation_uid) ON DELETE CASCADE,
+                user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                direction TEXT NOT NULL,
+                message_text TEXT NOT NULL,
+                operator_name TEXT,
+                send_status TEXT NOT NULL DEFAULT 'sent',
+                send_error_code TEXT,
+                send_error_message TEXT,
+                idempotency_key TEXT,
+                external_message_id TEXT,
+                created_at TIMESTAMPTZ NOT NULL,
+                UNIQUE (user_id, conversation_uid, idempotency_key)
             )
-            conn.execute(
-                """
-                INSERT INTO platform_settings (id, payment_provider, payment_api_key_encrypted, updated_at)
-                VALUES (1, 'manual', NULL, NOW())
-                ON CONFLICT (id) DO NOTHING
-                """
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS chat_quick_templates (
+                id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                template_text TEXT NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL,
+                updated_at TIMESTAMPTZ NOT NULL
             )
-            conn.execute(
-                """
-                ALTER TABLE users
-                ADD COLUMN IF NOT EXISTS use_sync_start_date BOOLEAN NOT NULL DEFAULT FALSE
-                """
-            )
-            conn.execute(
-                """
-                ALTER TABLE users
-                ADD COLUMN IF NOT EXISTS sync_start_date DATE
-                """
-            )
-            conn.execute(
-                """
-                UPDATE users
-                SET use_sync_start_date = TRUE
-                WHERE use_sync_start_date IS DISTINCT FROM TRUE
-                """
-            )
-            conn.execute(
-                """
-                UPDATE users
-                SET sync_start_date = ((created_at AT TIME ZONE 'UTC')::date - COALESCE((SELECT default_sync_lookback_days FROM platform_settings WHERE id = 1), 7))
-                WHERE sync_start_date IS NULL
-                """
-            )
-            conn.execute(
-                """
-                UPDATE platform_settings
-                SET default_sync_lookback_days = COALESCE(default_sync_lookback_days, 7)
-                WHERE id = 1
-                """
-            )
-            conn.execute(
-                """
-                INSERT INTO tenant_subscriptions (owner_user_id, status, active_from, paid_until, grace_until, updated_at)
-                SELECT u.id, 'active', u.created_at, NULL, NULL, NOW()
-                FROM users u
-                WHERE u.owner_user_id = u.id
-                  AND u.is_super_admin = FALSE
-                  AND u.is_deleted = FALSE
-                ON CONFLICT (owner_user_id) DO NOTHING
-                """
-            )
-            conn.execute(
-                """
-                ALTER TABLE conversation_items
-                ADD COLUMN IF NOT EXISTS send_error_code TEXT
-                """
-            )
-            conn.execute(
-                """
-                ALTER TABLE conversation_items
-                ADD COLUMN IF NOT EXISTS send_error_message TEXT
-                """
-            )
-            conn.execute(
-                """
-                ALTER TABLE conversation_items
-                ADD COLUMN IF NOT EXISTS send_attempts INTEGER NOT NULL DEFAULT 0
-                """
-            )
-            conn.execute(
-                """
-                ALTER TABLE conversation_items
-                ADD COLUMN IF NOT EXISTS last_send_attempt_at TIMESTAMPTZ
-                """
-            )
-            conn.execute(
-                """
-                ALTER TABLE conversation_items
-                ADD COLUMN IF NOT EXISTS last_sent_at TIMESTAMPTZ
-                """
-            )
-            # Convert last_sent_at and last_send_attempt_at from TIMESTAMPTZ to
-            # TEXT so they are stored as ISO-8601 strings, consistent with
-            # last_message_at and all other timestamp columns.  This makes
-            # lexicographic comparisons correct and removes implicit type
-            # coercion surprises.
-            conn.execute(
-                """
-                DO $$
-                BEGIN
-                    IF EXISTS (
-                        SELECT 1 FROM information_schema.columns
-                        WHERE table_name = 'conversation_items'
-                          AND column_name = 'last_sent_at'
-                          AND data_type = 'timestamp with time zone'
-                    ) THEN
-                        ALTER TABLE conversation_items
-                            ALTER COLUMN last_sent_at TYPE TEXT
-                            USING CASE
-                                WHEN last_sent_at IS NULL THEN NULL
-                                ELSE to_char(last_sent_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"+00:00"')
-                            END;
-                    END IF;
-                END;
-                $$
-                """
-            )
-            conn.execute(
-                """
-                DO $$
-                BEGIN
-                    IF EXISTS (
-                        SELECT 1 FROM information_schema.columns
-                        WHERE table_name = 'conversation_items'
-                          AND column_name = 'last_send_attempt_at'
-                          AND data_type = 'timestamp with time zone'
-                    ) THEN
-                        ALTER TABLE conversation_items
-                            ALTER COLUMN last_send_attempt_at TYPE TEXT
-                            USING CASE
-                                WHEN last_send_attempt_at IS NULL THEN NULL
-                                ELSE to_char(last_send_attempt_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"+00:00"')
-                            END;
-                    END IF;
-                END;
-                $$
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS conversation_messages (
-                    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-                    conversation_uid TEXT NOT NULL REFERENCES conversation_items(conversation_uid) ON DELETE CASCADE,
-                    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                    direction TEXT NOT NULL,
-                    message_text TEXT NOT NULL,
-                    operator_name TEXT,
-                    send_status TEXT NOT NULL DEFAULT 'sent',
-                    send_error_code TEXT,
-                    send_error_message TEXT,
-                    idempotency_key TEXT,
-                    external_message_id TEXT,
-                    created_at TIMESTAMPTZ NOT NULL,
-                    UNIQUE (user_id, conversation_uid, idempotency_key)
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS chat_quick_templates (
-                    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-                    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                    template_text TEXT NOT NULL,
-                    created_at TIMESTAMPTZ NOT NULL,
-                    updated_at TIMESTAMPTZ NOT NULL
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_conversation_messages_conversation_created
-                ON conversation_messages(conversation_uid, created_at ASC)
-                """
-            )
-            conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_chat_quick_templates_user
-                ON chat_quick_templates(user_id, updated_at DESC)
-                """
-            )
-            conn.execute(
-                """
-                ALTER TABLE chat_quick_templates
-                ADD COLUMN IF NOT EXISTS template_name TEXT NOT NULL DEFAULT ''
-                """
-            )
-            # Migrate textless_ratings subgroups
-            self._migrate_textless_subgroups(conn)
-            # AI tables + stock tables
-            self._migrate_ai_request_log_table(conn)
-            self._migrate_ai_usage_table(conn)
-            self._migrate_stock_tables(conn)
-            # Tariff plans are not auto-created by migration to avoid restoring
-            # plans that were intentionally removed by super-admin.
-            return
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_conversation_messages_conversation_created
+            ON conversation_messages(conversation_uid, created_at ASC)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_chat_quick_templates_user
+            ON chat_quick_templates(user_id, updated_at DESC)
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE chat_quick_templates
+            ADD COLUMN IF NOT EXISTS template_name TEXT NOT NULL DEFAULT ''
+            """
+        )
+        # Migrate textless_ratings subgroups
+        self._migrate_textless_subgroups(conn)
+        # AI tables + stock tables
+        self._migrate_ai_request_log_table(conn)
+        self._migrate_ai_usage_table(conn)
+        self._migrate_stock_tables(conn)
+        # Tariff plans are not auto-created by migration to avoid restoring
+        # plans that were intentionally removed by super-admin.
+        return
 
         user_columns = self._table_columns(conn, "users")
         if "owner_user_id" not in user_columns:
@@ -1517,175 +1055,95 @@ class ReviewRepository:
 
     def _migrate_ai_request_log_table(self, conn) -> None:
         """Create ai_request_log table for Yandex GPT request/response debugging."""
-        if self.is_postgres:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS ai_request_log (
-                    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-                    user_id BIGINT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    prompt_system TEXT NOT NULL DEFAULT '',
-                    prompt_user TEXT NOT NULL DEFAULT '',
-                    response_text TEXT NOT NULL DEFAULT '',
-                    input_tokens INTEGER NOT NULL DEFAULT 0,
-                    output_tokens INTEGER NOT NULL DEFAULT 0,
-                    model_uri TEXT NOT NULL DEFAULT '',
-                    review_rating INTEGER,
-                    classified_group TEXT NOT NULL DEFAULT '',
-                    classified_subgroup TEXT NOT NULL DEFAULT ''
-                )
-            """)
-        else:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS ai_request_log (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER NOT NULL,
-                    created_at TEXT NOT NULL,
-                    prompt_system TEXT NOT NULL DEFAULT '',
-                    prompt_user TEXT NOT NULL DEFAULT '',
-                    response_text TEXT NOT NULL DEFAULT '',
-                    input_tokens INTEGER NOT NULL DEFAULT 0,
-                    output_tokens INTEGER NOT NULL DEFAULT 0,
-                    model_uri TEXT NOT NULL DEFAULT '',
-                    review_rating INTEGER,
-                    classified_group TEXT NOT NULL DEFAULT '',
-                    classified_subgroup TEXT NOT NULL DEFAULT ''
-                )
-            """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ai_request_log (
+                id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                created_at TEXT NOT NULL,
+                prompt_system TEXT NOT NULL DEFAULT '',
+                prompt_user TEXT NOT NULL DEFAULT '',
+                response_text TEXT NOT NULL DEFAULT '',
+                input_tokens INTEGER NOT NULL DEFAULT 0,
+                output_tokens INTEGER NOT NULL DEFAULT 0,
+                model_uri TEXT NOT NULL DEFAULT '',
+                review_rating INTEGER,
+                classified_group TEXT NOT NULL DEFAULT '',
+                classified_subgroup TEXT NOT NULL DEFAULT ''
+            )
+        """)
+
         conn.execute(self._sql(
             "CREATE INDEX IF NOT EXISTS idx_ai_request_log_user_date ON ai_request_log(user_id, created_at DESC)"
         ))
 
     def _migrate_ai_usage_table(self, conn) -> None:
         """Create ai_usage_log table for Yandex token statistics."""
-        if self.is_postgres:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS ai_usage_log (
-                    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-                    user_id BIGINT NOT NULL,
-                    log_date TEXT NOT NULL,
-                    input_tokens INTEGER NOT NULL DEFAULT 0,
-                    output_tokens INTEGER NOT NULL DEFAULT 0,
-                    requests INTEGER NOT NULL DEFAULT 1,
-                    model_uri TEXT NOT NULL DEFAULT '',
-                    created_at TEXT NOT NULL
-                )
-            """)
-        else:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS ai_usage_log (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER NOT NULL,
-                    log_date TEXT NOT NULL,
-                    input_tokens INTEGER NOT NULL DEFAULT 0,
-                    output_tokens INTEGER NOT NULL DEFAULT 0,
-                    requests INTEGER NOT NULL DEFAULT 1,
-                    model_uri TEXT NOT NULL DEFAULT '',
-                    created_at TEXT NOT NULL
-                )
-            """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ai_usage_log (
+                id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                log_date TEXT NOT NULL,
+                input_tokens INTEGER NOT NULL DEFAULT 0,
+                output_tokens INTEGER NOT NULL DEFAULT 0,
+                requests INTEGER NOT NULL DEFAULT 1,
+                model_uri TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL
+            )
+        """)
+
         conn.execute(self._sql(
             "CREATE INDEX IF NOT EXISTS idx_ai_usage_user_date ON ai_usage_log(user_id, log_date DESC)"
         ))
 
     def _migrate_stock_tables(self, conn) -> None:
         """Create stock module tables if they don't exist yet."""
-        if self.is_postgres:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS stock_sources (
-                    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-                    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                    marketplace TEXT NOT NULL,
-                    account_name TEXT NOT NULL,
-                    api_url TEXT NOT NULL DEFAULT '',
-                    api_key_encrypted TEXT NOT NULL DEFAULT '',
-                    extra_json TEXT NOT NULL DEFAULT '{}',
-                    interval_hours INTEGER NOT NULL DEFAULT 24,
-                    retention_days INTEGER NOT NULL DEFAULT 30,
-                    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-                    last_synced_at TEXT,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                )
-            """)
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS stock_reports (
-                    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-                    source_id BIGINT NOT NULL REFERENCES stock_sources(id) ON DELETE CASCADE,
-                    user_id BIGINT NOT NULL,
-                    downloaded_at TEXT NOT NULL,
-                    file_path TEXT NOT NULL DEFAULT '',
-                    file_size INTEGER NOT NULL DEFAULT 0,
-                    rows_count INTEGER NOT NULL DEFAULT 0,
-                    status TEXT NOT NULL DEFAULT 'ok',
-                    error_message TEXT,
-                    created_at TEXT NOT NULL
-                )
-            """)
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS stock_data (
-                    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-                    source_id BIGINT NOT NULL REFERENCES stock_sources(id) ON DELETE CASCADE,
-                    report_id BIGINT REFERENCES stock_reports(id) ON DELETE CASCADE,
-                    user_id BIGINT NOT NULL,
-                    report_date TEXT NOT NULL,
-                    wb_article TEXT NOT NULL DEFAULT '',
-                    seller_article TEXT NOT NULL DEFAULT '',
-                    barcode TEXT NOT NULL DEFAULT '',
-                    warehouse_name TEXT NOT NULL DEFAULT '',
-                    current_stock INTEGER NOT NULL DEFAULT 0,
-                    created_at TEXT NOT NULL
-                )
-            """)
-        else:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS stock_sources (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER NOT NULL,
-                    marketplace TEXT NOT NULL,
-                    account_name TEXT NOT NULL,
-                    api_url TEXT NOT NULL DEFAULT '',
-                    api_key_encrypted TEXT NOT NULL DEFAULT '',
-                    extra_json TEXT NOT NULL DEFAULT '{}',
-                    interval_hours INTEGER NOT NULL DEFAULT 24,
-                    retention_days INTEGER NOT NULL DEFAULT 30,
-                    is_active INTEGER NOT NULL DEFAULT 1,
-                    last_synced_at TEXT,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-                )
-            """)
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS stock_reports (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    source_id INTEGER NOT NULL,
-                    user_id INTEGER NOT NULL,
-                    downloaded_at TEXT NOT NULL,
-                    file_path TEXT NOT NULL DEFAULT '',
-                    file_size INTEGER NOT NULL DEFAULT 0,
-                    rows_count INTEGER NOT NULL DEFAULT 0,
-                    status TEXT NOT NULL DEFAULT 'ok',
-                    error_message TEXT,
-                    created_at TEXT NOT NULL,
-                    FOREIGN KEY (source_id) REFERENCES stock_sources(id) ON DELETE CASCADE
-                )
-            """)
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS stock_data (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    source_id INTEGER NOT NULL,
-                    report_id INTEGER,
-                    user_id INTEGER NOT NULL,
-                    report_date TEXT NOT NULL,
-                    wb_article TEXT NOT NULL DEFAULT '',
-                    seller_article TEXT NOT NULL DEFAULT '',
-                    barcode TEXT NOT NULL DEFAULT '',
-                    warehouse_name TEXT NOT NULL DEFAULT '',
-                    current_stock INTEGER NOT NULL DEFAULT 0,
-                    created_at TEXT NOT NULL,
-                    FOREIGN KEY (source_id) REFERENCES stock_sources(id) ON DELETE CASCADE
-                )
-            """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS stock_sources (
+                id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                marketplace TEXT NOT NULL,
+                account_name TEXT NOT NULL,
+                api_url TEXT NOT NULL DEFAULT '',
+                api_key_encrypted TEXT NOT NULL DEFAULT '',
+                extra_json TEXT NOT NULL DEFAULT '{}',
+                interval_hours INTEGER NOT NULL DEFAULT 24,
+                retention_days INTEGER NOT NULL DEFAULT 30,
+                is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                last_synced_at TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS stock_reports (
+                id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                source_id BIGINT NOT NULL REFERENCES stock_sources(id) ON DELETE CASCADE,
+                user_id BIGINT NOT NULL,
+                downloaded_at TEXT NOT NULL,
+                file_path TEXT NOT NULL DEFAULT '',
+                file_size INTEGER NOT NULL DEFAULT 0,
+                rows_count INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'ok',
+                error_message TEXT,
+                created_at TEXT NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS stock_data (
+                id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                source_id BIGINT NOT NULL REFERENCES stock_sources(id) ON DELETE CASCADE,
+                report_id BIGINT REFERENCES stock_reports(id) ON DELETE CASCADE,
+                user_id BIGINT NOT NULL,
+                report_date TEXT NOT NULL,
+                wb_article TEXT NOT NULL DEFAULT '',
+                seller_article TEXT NOT NULL DEFAULT '',
+                barcode TEXT NOT NULL DEFAULT '',
+                warehouse_name TEXT NOT NULL DEFAULT '',
+                current_stock INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            )
+        """)
+
         for idx_sql in [
             "CREATE INDEX IF NOT EXISTS idx_stock_sources_user ON stock_sources(user_id)",
             "CREATE INDEX IF NOT EXISTS idx_stock_reports_source ON stock_reports(source_id)",
@@ -1790,31 +1248,31 @@ class ReviewRepository:
             )
 
     def _table_columns(self, conn, table: str) -> set[str]:
-        if self.is_postgres:
-            rows = conn.execute(
-                """
-                SELECT column_name
-                FROM information_schema.columns
-                WHERE table_schema = 'public' AND table_name = ?
-                """,
-                (table,),
-            ).fetchall()
-            result: set[str] = set()
-            for row in rows:
-                if isinstance(row, Mapping):
-                    result.add(str(row.get("column_name") or ""))
-                else:
-                    result.add(str(row["column_name"]))
-            return {item for item in result if item}
+        rows = conn.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = ?
+            """,
+            (table,),
+        ).fetchall()
+        result: set[str] = set()
+        for row in rows:
+            if isinstance(row, Mapping):
+                result.add(str(row.get("column_name") or ""))
+            else:
+                result.add(str(row["column_name"]))
+        return {item for item in result if item}
+
         rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
         return {str(row["name"]) for row in rows}
 
     def _insert_and_get_id(self, conn, query: str, params: tuple[Any, ...]) -> int:
-        if self.is_postgres:
-            row = conn.execute(self._sql(query + " RETURNING id"), params).fetchone()
-            if row is None:
-                raise RuntimeError("Insert did not return id")
-            return int(row["id"]) if isinstance(row, Mapping) else int(row[0])
+        row = conn.execute(self._sql(query + " RETURNING id"), params).fetchone()
+        if row is None:
+            raise RuntimeError("Insert did not return id")
+        return int(row["id"]) if isinstance(row, Mapping) else int(row[0])
+
         cursor = conn.execute(self._sql(query), params)
         return int(cursor.lastrowid)
 
@@ -4284,16 +3742,12 @@ class ReviewRepository:
             base_clauses.append(f"account_id IN ({placeholders})")
             base_params.extend(normalized_account_ids)
         if date_from:
-            if self.is_postgres:
-                base_clauses.append("updated_at::date >= ?::date")
-            else:
-                base_clauses.append("substr(updated_at, 1, 10) >= ?")
+            base_clauses.append("updated_at::date >= ?::date")
+
             base_params.append(date_from)
         if date_to:
-            if self.is_postgres:
-                base_clauses.append("updated_at::date <= ?::date")
-            else:
-                base_clauses.append("substr(updated_at, 1, 10) <= ?")
+            base_clauses.append("updated_at::date <= ?::date")
+
             base_params.append(date_to)
 
         view_clauses = list(base_clauses)
@@ -4320,10 +3774,8 @@ class ReviewRepository:
         # Sort by actual review creation date (metadata_json.raw.createdDate) with fallback
         # to review_uid (always unique). updated_at = sync timestamp — all reviews from one
         # batch share the same value, making it useless as a sort key.
-        if self.is_postgres:
-            _cd_expr = "COALESCE(metadata_json::jsonb->'raw'->>'createdDate', '')"
-        else:
-            _cd_expr = "COALESCE(json_extract(metadata_json, '$.raw.createdDate'), '')"
+        _cd_expr = "COALESCE(metadata_json::jsonb->'raw'->>'createdDate', '')"
+
         order_by_map = {
             "newest": f"{_cd_expr} DESC, review_uid DESC",
             "oldest": f"{_cd_expr} ASC, review_uid ASC",
@@ -4643,16 +4095,12 @@ class ReviewRepository:
                 "(TRIM(COALESCE(message_text, '')) != '' OR unread_count > 0 OR last_sent_at IS NOT NULL)"
             )
         if date_from:
-            if self.is_postgres:
-                base_clauses.append("updated_at::date >= ?::date")
-            else:
-                base_clauses.append("substr(updated_at, 1, 10) >= ?")
+            base_clauses.append("updated_at::date >= ?::date")
+
             base_params.append(date_from)
         if date_to:
-            if self.is_postgres:
-                base_clauses.append("updated_at::date <= ?::date")
-            else:
-                base_clauses.append("substr(updated_at, 1, 10) <= ?")
+            base_clauses.append("updated_at::date <= ?::date")
+
             base_params.append(date_to)
         # Both last_sent_at and last_message_at are stored as ISO-8601 TEXT.
         # ISO-8601 strings with timezone sort correctly lexicographically, so
@@ -4660,16 +4108,10 @@ class ReviewRepository:
         # We cast explicitly to TEXT in PostgreSQL to avoid implicit type
         # coercion (the column was altered to TIMESTAMPTZ in some migrations
         # but data is inserted as TEXT strings).
-        if self.is_postgres:
-            processed_by_operator_clause = (
-                "last_sent_at IS NOT NULL "
-                "AND (last_message_at IS NULL OR last_sent_at::text >= last_message_at::text)"
-            )
-        else:
-            processed_by_operator_clause = (
-                "last_sent_at IS NOT NULL "
-                "AND (last_message_at IS NULL OR last_sent_at >= last_message_at)"
-            )
+        processed_by_operator_clause = (
+            "last_sent_at IS NOT NULL "
+            "AND (last_message_at IS NULL OR last_sent_at::text >= last_message_at::text)"
+        )
 
         if account_permissions:
             permission_clauses: list[str] = []
@@ -5095,21 +4537,18 @@ class ReviewRepository:
 
         Returns number of rows updated.
         """
-        if self.is_postgres:
-            sql = """
-                UPDATE conversation_messages
-                SET message_text = regexp_replace(
-                    message_text,
-                    '\\[img:http://sellers-chat-inner[^/]*/internal/v1/file/([^\\]]+)\\]',
-                    '[img:wb-download:\\1]',
-                    'g'
-                )
-                WHERE user_id = %s AND conversation_uid = %s
-                  AND message_text LIKE '%sellers-chat-inner%'
-            """
-        else:
-            # SQLite doesn't support regexp_replace — skip migration (rare case)
-            return 0
+        sql = """
+            UPDATE conversation_messages
+            SET message_text = regexp_replace(
+                message_text,
+                '\\[img:http://sellers-chat-inner[^/]*/internal/v1/file/([^\\]]+)\\]',
+                '[img:wb-download:\\1]',
+                'g'
+            )
+            WHERE user_id = %s AND conversation_uid = %s
+              AND message_text LIKE '%sellers-chat-inner%'
+        """
+
         with self._connect() as conn:
             result = conn.execute(self._sql(sql), (user_id, conversation_uid))
         return int(result.rowcount or 0)
@@ -5122,29 +4561,22 @@ class ReviewRepository:
 
         Returns number of rows updated.
         """
-        if self.is_postgres:
-            # Markdown: ![](url) — skip first 4 chars '![](' and last 1 char ')'
-            # Also fix previously broken '[img:(http...]' entries (from=4 bug)
-            sql = """
-                UPDATE conversation_messages
-                SET message_text =
-                    CASE
-                        WHEN message_text LIKE '![](%%)' THEN
-                            '[img:' || substring(message_text from 5 for length(message_text)-5) || ']'
-                        WHEN message_text LIKE '%%[img:(http%%' THEN
-                            regexp_replace(message_text, '\\[img:\\(([^)]+)\\)', '[img:\\1]', 'g')
-                        ELSE message_text
-                    END
-                WHERE user_id = %s AND conversation_uid = %s
-                  AND (message_text LIKE '![](%%)' OR message_text LIKE '%%[img:(http%%')
-            """
-        else:
-            sql = """
-                UPDATE conversation_messages
-                SET message_text = '[img:' || substr(message_text, 5, length(message_text)-5) || ']'
-                WHERE user_id = ? AND conversation_uid = ?
-                  AND message_text LIKE '![](%)'
-            """
+        # Markdown: ![](url) — skip first 4 chars '![](' and last 1 char ')'
+        # Also fix previously broken '[img:(http...]' entries (from=4 bug)
+        sql = """
+            UPDATE conversation_messages
+            SET message_text =
+                CASE
+                    WHEN message_text LIKE '![](%%)' THEN
+                        '[img:' || substring(message_text from 5 for length(message_text)-5) || ']'
+                    WHEN message_text LIKE '%%[img:(http%%' THEN
+                        regexp_replace(message_text, '\\[img:\\(([^)]+)\\)', '[img:\\1]', 'g')
+                    ELSE message_text
+                END
+            WHERE user_id = %s AND conversation_uid = %s
+              AND (message_text LIKE '![](%%)' OR message_text LIKE '%%[img:(http%%')
+        """
+
         with self._connect() as conn:
             result = conn.execute(self._sql(sql), (user_id, conversation_uid))
         return int(result.rowcount or 0)
@@ -5341,10 +4773,8 @@ class ReviewRepository:
         already-classified reviews of this user. Used to skip redundant Yandex calls.
         Uses the `category` column (always populated) and json_extract on metadata_json
         for the subgroup."""
-        if self.is_postgres:
-            sub_expr = "metadata_json::jsonb->>'classified_subgroup'"
-        else:
-            sub_expr = "json_extract(metadata_json, '$.classified_subgroup')"
+        sub_expr = "metadata_json::jsonb->>'classified_subgroup'"
+
         sql = self._sql(f"""
             SELECT review_uid,
                    category AS grp,
@@ -5571,16 +5001,12 @@ class ReviewRepository:
     def purge_old_stock_data(self, *, user_id: int, source_id: int, retention_days: int) -> int:
         if retention_days <= 0:
             return 0
-        if self.is_postgres:
-            cutoff = f"NOW() - INTERVAL '{retention_days} days'"
-            sql = f"DELETE FROM stock_data WHERE user_id = %s AND source_id = %s AND created_at::timestamp < {cutoff}"
-        else:
-            sql = "DELETE FROM stock_data WHERE user_id = ? AND source_id = ? AND created_at < datetime('now', ? || ' days')"
+        cutoff = f"NOW() - INTERVAL '{retention_days} days'"
+        sql = f"DELETE FROM stock_data WHERE user_id = %s AND source_id = %s AND created_at::timestamp < {cutoff}"
+
         with self._connect() as conn:
-            if self.is_postgres:
-                result = conn.execute(self._sql(sql), (user_id, source_id))
-            else:
-                result = conn.execute(sql, (user_id, source_id, f"-{retention_days}"))
+            result = conn.execute(self._sql(sql), (user_id, source_id))
+
         return int(result.rowcount or 0)
 
     def delete_all_stock_reports(self, *, user_id: int, source_id: int | None = None) -> int:
@@ -5750,12 +5176,10 @@ class ReviewRepository:
 
     def purge_old_ai_request_logs(self, *, user_id: Optional[int] = None) -> int:
         """Delete AI request logs older than 1 day."""
-        if self.is_postgres:
-            clause = "created_at < NOW() - INTERVAL '1 day'"
-        else:
-            clause = "created_at < datetime('now', '-1 day')"
+        clause = "created_at < NOW() - INTERVAL '1 day'"
+
         if user_id:
-            where = f"WHERE user_id = %s AND {clause}" if self.is_postgres else f"WHERE user_id = ? AND {clause}"
+            where = f"WHERE user_id = %s AND {clause}"
             params: tuple = (user_id,)
         else:
             where = f"WHERE {clause}"
@@ -5786,30 +5210,19 @@ class ReviewRepository:
 
     def get_ai_usage_stats(self, *, user_id: int, days: int = 30) -> list[dict[str, Any]]:
         """Return daily AI usage aggregated over the last N days."""
-        if self.is_postgres:
-            cutoff = f"(NOW() - INTERVAL '{days} days')::date"
-            sql = f"""
-                SELECT log_date, SUM(requests) AS requests,
-                       SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens,
-                       MAX(model_uri) AS model_uri
-                FROM ai_usage_log
-                WHERE user_id = %s AND log_date >= {cutoff}::text
-                GROUP BY log_date ORDER BY log_date DESC LIMIT 60
-            """
-        else:
-            sql = """
-                SELECT log_date, SUM(requests) AS requests,
-                       SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens,
-                       MAX(model_uri) AS model_uri
-                FROM ai_usage_log
-                WHERE user_id = ? AND log_date >= date('now', ? || ' days')
-                GROUP BY log_date ORDER BY log_date DESC LIMIT 60
-            """
+        cutoff = f"(NOW() - INTERVAL '{days} days')::date"
+        sql = f"""
+            SELECT log_date, SUM(requests) AS requests,
+                   SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens,
+                   MAX(model_uri) AS model_uri
+            FROM ai_usage_log
+            WHERE user_id = %s AND log_date >= {cutoff}::text
+            GROUP BY log_date ORDER BY log_date DESC LIMIT 60
+        """
+
         with self._connect() as conn:
-            if self.is_postgres:
-                rows = conn.execute(self._sql(sql), (user_id,)).fetchall()
-            else:
-                rows = conn.execute(sql, (user_id, f"-{days}")).fetchall()
+            rows = conn.execute(self._sql(sql), (user_id,)).fetchall()
+
         return [self._row_to_dict(r) for r in rows]
 
     def purge_sync_action_logs(self) -> int:
@@ -5832,18 +5245,12 @@ class ReviewRepository:
         Should be called periodically (e.g. on server startup) to avoid
         the table growing to millions of rows with 200k+ reviews/syncs.
         """
-        if self.is_postgres:
-            sql = self._sql(
-                "DELETE FROM review_actions WHERE created_at < NOW() - INTERVAL '? days'"
-            ).replace("'? days'", f"'{keep_days} days'")
-            with self._connect() as conn:
-                result = conn.execute(sql)
-        else:
-            with self._connect() as conn:
-                result = conn.execute(
-                    "DELETE FROM review_actions WHERE created_at < datetime('now', ? || ' days')",
-                    (f"-{keep_days}",),
-                )
+        sql = self._sql(
+            "DELETE FROM review_actions WHERE created_at < NOW() - INTERVAL '? days'"
+        ).replace("'? days'", f"'{keep_days} days'")
+        with self._connect() as conn:
+            result = conn.execute(sql)
+
         return int(result.rowcount or 0)
 
     def count_recent_actions(self, *, user_id: int | None = None) -> int:
@@ -5885,20 +5292,16 @@ class ReviewRepository:
             clauses.append("LOWER(actor) LIKE ?")
             filter_params.append(f"%{normalized_actor.lower()}%")
         if date_from:
-            if self.is_postgres:
-                clauses.append("created_at::date >= ?::date")
-            else:
-                clauses.append("substr(created_at, 1, 10) >= ?")
+            clauses.append("created_at::date >= ?::date")
+
             filter_params.append(date_from)
         if date_to:
-            if self.is_postgres:
-                clauses.append("created_at::date <= ?::date")
-            else:
-                clauses.append("substr(created_at, 1, 10) <= ?")
+            clauses.append("created_at::date <= ?::date")
+
             filter_params.append(date_to)
         normalized_search = str(search or "").strip().lower()
         if normalized_search:
-            details_expr = "COALESCE(details_json::text, '')" if self.is_postgres else "COALESCE(details_json, '')"
+            details_expr = "COALESCE(details_json::text, '')"
             clauses.append(
                 f"""(
                     LOWER(COALESCE(actor, '')) LIKE ?
@@ -5976,16 +5379,8 @@ class ReviewRepository:
 
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         where_and = f"{where} AND" if where else "WHERE"
-        avg_expr = (
-            "AVG(EXTRACT(EPOCH FROM (updated_at - created_at)) / 60.0)"
-            if self.is_postgres
-            else "AVG((julianday(updated_at) - julianday(created_at)) * 24.0 * 60.0)"
-        )
-        overdue_expr = (
-            "EXTRACT(EPOCH FROM (NOW() - updated_at)) / 3600.0 > 24"
-            if self.is_postgres
-            else "(julianday('now') - julianday(updated_at)) * 24.0 > 24"
-        )
+        avg_expr = "AVG(EXTRACT(EPOCH FROM (updated_at - created_at)) / 60.0)"
+        overdue_expr = "EXTRACT(EPOCH FROM (NOW() - updated_at)) / 3600.0 > 24"
 
         with self._connect() as conn:
             total_row = conn.execute(f"SELECT COUNT(*) AS c FROM review_items {where}", tuple(params)).fetchone()
