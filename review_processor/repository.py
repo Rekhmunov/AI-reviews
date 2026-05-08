@@ -4317,12 +4317,19 @@ class ReviewRepository:
         where_base = " AND ".join(base_clauses)
         where_view = " AND ".join(view_clauses)
         sort_key = sort.strip().lower()
+        # Sort by actual review creation date (metadata.raw.createdDate) with fallback to id.
+        # updated_at = sync timestamp — all reviews from one batch share the same value,
+        # making it useless as a sort key for intra-batch ordering.
+        if self.is_postgres:
+            _cd_expr = "COALESCE(metadata::jsonb->'raw'->>'createdDate', '')"
+        else:
+            _cd_expr = "COALESCE(json_extract(metadata, '$.raw.createdDate'), '')"
         order_by_map = {
-            "newest": "updated_at DESC",
-            "oldest": "updated_at ASC",
-            "rating_asc": "COALESCE(rating, 0) ASC, updated_at DESC",
-            "rating_desc": "COALESCE(rating, 0) DESC, updated_at DESC",
-            "category": "category ASC, updated_at DESC",
+            "newest": f"{_cd_expr} DESC, id DESC",
+            "oldest": f"{_cd_expr} ASC, id ASC",
+            "rating_asc": f"COALESCE(rating, 0) ASC, {_cd_expr} DESC, id DESC",
+            "rating_desc": f"COALESCE(rating, 0) DESC, {_cd_expr} DESC, id DESC",
+            "category": f"category ASC, {_cd_expr} DESC, id DESC",
         }
         order_by = order_by_map.get(sort_key, order_by_map["newest"])
 
