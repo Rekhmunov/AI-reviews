@@ -521,6 +521,25 @@ class RecommendationsSaveRequest(BaseModel):
     rows: list[RecommendationRowRequest] = Field(default_factory=list)
 
 
+class StockSourceCreateRequest(BaseModel):
+    marketplace: str = Field(min_length=1, max_length=20)
+    account_name: str = Field(min_length=1, max_length=200)
+    api_url: str = Field(default="", max_length=500)
+    api_key: str = Field(default="", max_length=2000)
+    client_id: str = Field(default="", max_length=200)
+    interval_hours: int = Field(default=24, ge=1, le=24)
+    retention_days: int = Field(default=30, ge=1, le=365)
+
+
+class StockSourceUpdateRequest(BaseModel):
+    account_name: str | None = None
+    api_key: str | None = None
+    client_id: str | None = None
+    interval_hours: int | None = Field(default=None, ge=1, le=24)
+    retention_days: int | None = Field(default=None, ge=1, le=365)
+    is_active: bool | None = None
+
+
 ROLE_ADMIN = "admin"
 ROLE_USER = "user"
 ROLE_FEEDBACK_MANAGER = "feedback_manager"
@@ -4311,23 +4330,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             _log.warning("restore_auto_sync_on_startup: stock_scheduler start failed: %s", _exc)
 
     # ── Stock module endpoints ────────────────────────────────────────────────
-
-    class StockSourceCreateRequest(BaseModel):
-        marketplace: str = Field(min_length=1, max_length=20)
-        account_name: str = Field(min_length=1, max_length=200)
-        api_url: str = Field(default="", max_length=500)
-        api_key: str = Field(default="", max_length=2000)
-        client_id: str = Field(default="", max_length=200)
-        interval_hours: int = Field(default=24, ge=1, le=24)
-        retention_days: int = Field(default=30, ge=1, le=365)
-
-    class StockSourceUpdateRequest(BaseModel):
-        account_name: str | None = None
-        api_key: str | None = None
-        client_id: str | None = None
-        interval_hours: int | None = Field(default=None, ge=1, le=24)
-        retention_days: int | None = Field(default=None, ge=1, le=365)
-        is_active: bool | None = None
 
     @app.get("/api/stock/sources")
     def list_stock_sources(request: Request) -> dict[str, object]:

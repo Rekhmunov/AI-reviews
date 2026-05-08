@@ -1148,6 +1148,9 @@ class ReviewRepository:
             )
             # Migrate textless_ratings subgroups
             self._migrate_textless_subgroups(conn)
+            # AI usage + stock tables
+            self._migrate_ai_usage_table(conn)
+            self._migrate_stock_tables(conn)
             # Tariff plans are not auto-created by migration to avoid restoring
             # plans that were intentionally removed by super-admin.
             return
