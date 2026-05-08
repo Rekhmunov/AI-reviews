@@ -4007,21 +4007,33 @@ class ReviewAutomationService:
                 options_lines.append(
                     f"  - {subgroup_id}: {subgroup_title}"
                 )
-        prompt = (
-            "Определи одну категорию и одну подгруппу для отзыва.\n"
-            f"Отзыв: {review.text or '(без текста)'}\n"
-            f"Оценка: {review.rating if review.rating is not None else 'unknown'}\n"
+        # System prompt: static instruction + groups list (cached by Yandex on repeated calls)
+        system_text = (
+            "Ты классификатор отзывов. Определи одну категорию и одну подгруппу.\n"
             "Список допустимых вариантов group_id/subgroup_id:\n"
             f"{chr(10).join(options_lines)}\n"
             "Ответ строго в JSON-формате без пояснений: "
-            '{"group_id":"<group_id>","subgroup_id":"<subgroup_id>"}.\n'
+            '{"group_id":"<group_id>","subgroup_id":"<subgroup_id>"}. '
             "Нельзя возвращать значения, которых нет в списке."
+        )
+
+        # User prompt: only variable part — review text truncated to 400 chars
+        _MAX_TEXT = 400
+        review_text = (review.text or "(без текста)")
+        if len(review_text) > _MAX_TEXT:
+            review_text = review_text[:_MAX_TEXT] + "…"
+        user_text = (
+            f"Отзыв: {review_text}\n"
+            f"Оценка: {review.rating if review.rating is not None else 'неизвестно'}"
         )
 
         body = {
             "modelUri": model_uri,
             "completionOptions": {"stream": False, "temperature": 0.0, "maxTokens": 80},
-            "messages": [{"role": "user", "text": prompt}],
+            "messages": [
+                {"role": "system", "text": system_text},
+                {"role": "user", "text": user_text},
+            ],
         }
         request = Request(
             "https://llm.api.cloud.yandex.net/foundationModels/v1/completion",
@@ -4044,7 +4056,7 @@ class ReviewAutomationService:
                         "model_uri": model_uri,
                         "expected_format": '{"group_id":"<group_id>","subgroup_id":"<subgroup_id>"}',
                         "allowed_pairs": allowed_pairs,
-                        "prompt_preview": prompt[:8000],
+                        "prompt_preview": (system_text[:4000] + "\n---\n" + user_text)[:8000],
                     },
                 ) from exc
             return {"group_id": "", "subgroup_id": "", "subgroup": None, "raw_response": "", "model_uri": model_uri}
