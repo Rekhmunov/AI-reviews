@@ -4317,13 +4317,13 @@ class ReviewRepository:
         where_base = " AND ".join(base_clauses)
         where_view = " AND ".join(view_clauses)
         sort_key = sort.strip().lower()
-        # Sort by actual review creation date (metadata.raw.createdDate) with fallback to id.
+        # Sort by actual review creation date (metadata_json.raw.createdDate) with fallback to id.
         # updated_at = sync timestamp — all reviews from one batch share the same value,
         # making it useless as a sort key for intra-batch ordering.
         if self.is_postgres:
-            _cd_expr = "COALESCE(metadata::jsonb->'raw'->>'createdDate', '')"
+            _cd_expr = "COALESCE(metadata_json::jsonb->'raw'->>'createdDate', '')"
         else:
-            _cd_expr = "COALESCE(json_extract(metadata, '$.raw.createdDate'), '')"
+            _cd_expr = "COALESCE(json_extract(metadata_json, '$.raw.createdDate'), '')"
         order_by_map = {
             "newest": f"{_cd_expr} DESC, id DESC",
             "oldest": f"{_cd_expr} ASC, id ASC",
@@ -5337,28 +5337,25 @@ class ReviewRepository:
         return self._row_to_dict(row)
 
     def get_existing_classifications(self, *, user_id: int) -> dict[str, tuple[str, str]]:
-        """Return {review_uid: (classified_group_id, classified_subgroup)} for all
-        already-classified reviews of this user. Used to skip redundant Yandex calls."""
+        """Return {review_uid: (category/group, classified_subgroup)} for all
+        already-classified reviews of this user. Used to skip redundant Yandex calls.
+        Uses the `category` column (always populated) and json_extract on metadata_json
+        for the subgroup."""
+        # metadata column may be named metadata_json in older schemas
+        meta_col = "metadata_json" if not self.is_postgres else "metadata_json"
         if self.is_postgres:
-            sql = self._sql("""
-                SELECT review_uid,
-                       metadata::jsonb->>'classified_group_id' AS grp,
-                       metadata::jsonb->>'classified_subgroup'  AS sub
-                FROM review_items
-                WHERE user_id = ?
-                  AND metadata::jsonb->>'classified_group_id' IS NOT NULL
-                  AND metadata::jsonb->>'classified_group_id' != ''
-            """)
+            sub_expr = f"{meta_col}::jsonb->>'classified_subgroup'"
         else:
-            sql = self._sql("""
-                SELECT review_uid,
-                       json_extract(metadata, '$.classified_group_id') AS grp,
-                       json_extract(metadata, '$.classified_subgroup')  AS sub
-                FROM review_items
-                WHERE user_id = ?
-                  AND json_extract(metadata, '$.classified_group_id') IS NOT NULL
-                  AND json_extract(metadata, '$.classified_group_id') != ''
-            """)
+            sub_expr = f"json_extract({meta_col}, '$.classified_subgroup')"
+        sql = self._sql(f"""
+            SELECT review_uid,
+                   category AS grp,
+                   {sub_expr} AS sub
+            FROM review_items
+            WHERE user_id = ?
+              AND category IS NOT NULL
+              AND category != ''
+        """)
         with self._connect() as conn:
             rows = conn.execute(sql, (user_id,)).fetchall()
         result: dict[str, tuple[str, str]] = {}
