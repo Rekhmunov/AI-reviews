@@ -1268,6 +1268,13 @@ button.secondary.danger:hover {
 }
 
 /* ── Stock module ── */
+#section-stock-work {
+  display: flex !important;
+  flex-direction: column;
+  gap: 0 !important;
+  width: 100%;
+}
+
 .stock-work-tabs {
   display: flex;
   gap: 6px;
@@ -1280,8 +1287,10 @@ button.secondary.danger:hover {
 .stock-work-panel {
   margin-top: 0 !important;
   border-top-left-radius: 0;
-  overflow-x: auto;
+  overflow: hidden;
   padding: 0 !important;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .stock-tab-group {
@@ -1333,8 +1342,9 @@ button.secondary.danger:hover {
 /* Table container with sticky first 2 columns */
 .stock-table-outer {
   overflow-x: auto;
-  max-height: 70vh;
   overflow-y: auto;
+  height: calc(100vh - 130px);
+  width: 100%;
 }
 
 .stock-data-table {
@@ -1342,6 +1352,7 @@ button.secondary.danger:hover {
   border-spacing: 0;
   font-size: 13px;
   table-layout: fixed;
+  min-width: 100%;
 }
 
 .stock-data-table th,
