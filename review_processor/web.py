@@ -4461,11 +4461,132 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.get("/api/stock/data")
     def get_stock_data(request: Request, source_id: int) -> dict[str, object]:
-        """Return pivot stock data for the work-with-stocks table."""
+        """Return pivot stock data enriched with product catalog names and zero-fill."""
         user = _require_user(request)
-        dates = repository.get_stock_data_dates(user_id=int(user["id"]), source_id=source_id)
-        rows = repository.get_stock_data_pivot(user_id=int(user["id"]), source_id=source_id)
+        user_id = int(user["id"])
+        owner_id = _tenant_owner_id(user)
+        dates = repository.get_stock_data_dates(user_id=user_id, source_id=source_id)
+        rows = repository.get_stock_data_pivot(user_id=user_id, source_id=source_id)
+        # Load product catalog for name substitution and zero-fill
+        catalog = repository.get_product_catalog_map(user_id=owner_id)
+        if catalog:
+            # Build existing (warehouse, wb_article) pairs from report
+            existing: set[tuple[str, str]] = {
+                (r["warehouse_name"], r["wb_article"]) for r in rows
+            }
+            # Substitute product names
+            for r in rows:
+                art = r.get("wb_article", "")
+                if art in catalog:
+                    r["seller_article"] = catalog[art]["product_name"] or art
+            # Zero-fill: for each warehouse that has data, add missing catalog articles
+            warehouses: list[str] = []
+            seen_wh: set[str] = set()
+            for r in rows:
+                wh = r["warehouse_name"]
+                if wh not in seen_wh:
+                    warehouses.append(wh)
+                    seen_wh.add(wh)
+            for wh in warehouses:
+                for wb_art, cat_item in catalog.items():
+                    if (wh, wb_art) not in existing:
+                        rows.append({
+                            "warehouse_name": wh,
+                            "wb_article": wb_art,
+                            "seller_article": cat_item["product_name"] or wb_art,
+                            "dates": {d: 0 for d in dates},
+                        })
         return {"dates": dates, "rows": rows, "count": len(rows)}
+
+    # ── Product catalog endpoints ─────────────────────────────────────────────
+
+    class ProductCatalogItemRequest(BaseModel):
+        product_name: str = ""
+        wb_article: str = ""
+        ozon_article: str = ""
+
+    @app.get("/api/stock/products")
+    def list_products(request: Request) -> dict[str, object]:
+        user = _require_user(request)
+        owner_id = _tenant_owner_id(user)
+        items = repository.list_product_catalog(user_id=owner_id)
+        return {"ok": True, "items": items, "count": len(items)}
+
+    @app.post("/api/stock/products")
+    def upsert_product(request: Request, payload: ProductCatalogItemRequest) -> dict[str, object]:
+        user = _require_user(request)
+        owner_id = _tenant_owner_id(user)
+        if not str(payload.wb_article or "").strip():
+            raise HTTPException(status_code=400, detail="wb_article is required")
+        item = repository.upsert_product_catalog_item(
+            user_id=owner_id,
+            wb_article=payload.wb_article,
+            product_name=payload.product_name,
+            ozon_article=payload.ozon_article,
+        )
+        return {"ok": True, "item": item}
+
+    @app.delete("/api/stock/products/{item_id}")
+    def delete_product(request: Request, item_id: int) -> dict[str, object]:
+        user = _require_user(request)
+        owner_id = _tenant_owner_id(user)
+        deleted = repository.delete_product_catalog_item(user_id=owner_id, item_id=item_id)
+        return {"ok": deleted}
+
+    @app.post("/api/stock/products/import")
+    async def import_products_excel(
+        request: Request,
+        file: UploadFile = File(...),
+    ) -> dict[str, object]:
+        """Import product catalog from Excel. Columns: Наименование товара, Артикул ВБ, Артикул ОЗОН."""
+        user = _require_user(request)
+        owner_id = _tenant_owner_id(user)
+        try:
+            import openpyxl  # type: ignore
+            data = await file.read()
+            import io
+            wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+            ws = wb.active
+            rows_iter = ws.iter_rows(values_only=True)
+            # Detect header row
+            header = None
+            col_name = col_wb = col_ozon = None
+            for row in rows_iter:
+                cells = [str(c or "").strip().lower() for c in row]
+                for i, c in enumerate(cells):
+                    if any(x in c for x in ("наименование", "название", "name", "товар")):
+                        col_name = i
+                    elif any(x in c for x in ("артикул вб", "wb_article", "wb article", "артикул wb", "артикул ВБ".lower())):
+                        col_wb = i
+                    elif any(x in c for x in ("артикул ozon", "артикул озон", "ozon_article", "ozon article")):
+                        col_ozon = i
+                if col_name is not None or col_wb is not None:
+                    break
+            # Fallback: assume columns 0=name, 1=wb, 2=ozon
+            if col_name is None: col_name = 0
+            if col_wb is None: col_wb = 1
+            if col_ozon is None: col_ozon = 2
+            imported = 0
+            for row in rows_iter:
+                if not row or all(c is None for c in row):
+                    continue
+                def _cell(idx: int) -> str:
+                    if idx >= len(row): return ""
+                    return str(row[idx] or "").strip()
+                wb_art = _cell(col_wb)
+                if not wb_art:
+                    continue
+                repository.upsert_product_catalog_item(
+                    user_id=owner_id,
+                    wb_article=wb_art,
+                    product_name=_cell(col_name),
+                    ozon_article=_cell(col_ozon),
+                )
+                imported += 1
+            return {"ok": True, "imported": imported}
+        except Exception as exc:
+            _log.warning("import_products_excel error: %s", exc)
+            raise HTTPException(status_code=400, detail=f"Ошибка парсинга файла: {exc}")
 
     # ── End stock endpoints ───────────────────────────────────────────────────
 

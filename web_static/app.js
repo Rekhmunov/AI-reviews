@@ -2286,6 +2286,91 @@ function _toggleWhVisibility(wh) {
   openStockSettings(_stockSettingsSourceId);
 }
 
+// ── Product catalog ───────────────────────────────────────────────────────────
+
+let _productCatalogItems = [];
+
+function openProductCatalogModal() {
+  document.getElementById("productCatalogModal")?.classList.remove("hidden");
+  loadProductCatalog();
+}
+
+function closeProductCatalogModal() {
+  document.getElementById("productCatalogModal")?.classList.add("hidden");
+}
+
+async function loadProductCatalog() {
+  const tbody = document.getElementById("productCatalogTableBody");
+  if (tbody) tbody.innerHTML = '<tr><td colspan="4" style="padding:16px;color:#9ca3af;text-align:center">Загрузка...</td></tr>';
+  try {
+    const res = await fetch("/api/stock/products");
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    _productCatalogItems = data.items || [];
+    renderProductCatalog();
+    const status = document.getElementById("productCatalogStatus");
+    if (status) status.textContent = `Товаров в каталоге: ${_productCatalogItems.length}`;
+  } catch (e) {
+    const tbody = document.getElementById("productCatalogTableBody");
+    if (tbody) tbody.innerHTML = `<tr><td colspan="4" style="padding:16px;color:#dc2626;text-align:center">Ошибка: ${esc(String(e))}</td></tr>`;
+  }
+}
+
+function renderProductCatalog() {
+  const tbody = document.getElementById("productCatalogTableBody");
+  if (!tbody) return;
+  if (!_productCatalogItems.length) {
+    tbody.innerHTML = '<tr><td colspan="4" style="padding:16px;color:#9ca3af;text-align:center">Каталог пуст. Загрузите файл Excel.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = _productCatalogItems.map(item => `
+    <tr style="border-bottom:1px solid #f1f5f9">
+      <td style="padding:7px 10px">${esc(item.product_name || "")}</td>
+      <td style="padding:7px 10px;font-family:monospace;font-size:12px">${esc(item.wb_article || "")}</td>
+      <td style="padding:7px 10px;font-family:monospace;font-size:12px">${esc(item.ozon_article || "")}</td>
+      <td style="padding:4px 6px;text-align:center">
+        <button type="button" class="secondary" style="padding:2px 8px;font-size:11px" onclick="deleteProductCatalogItem(${item.id})" title="Удалить">✕</button>
+      </td>
+    </tr>`).join("");
+}
+
+async function deleteProductCatalogItem(id) {
+  const res = await fetch(`/api/stock/products/${id}`, { method: "DELETE", headers: withCsrfHeaders() });
+  if (res.ok) {
+    _productCatalogItems = _productCatalogItems.filter(i => i.id !== id);
+    renderProductCatalog();
+    const status = document.getElementById("productCatalogStatus");
+    if (status) status.textContent = `Товаров в каталоге: ${_productCatalogItems.length}`;
+  }
+}
+
+async function clearProductCatalog() {
+  if (!confirm("Очистить весь каталог товаров?")) return;
+  await fetch("/api/stock/products/clear", { method: "DELETE", headers: withCsrfHeaders() });
+  await loadProductCatalog();
+}
+
+async function importProductCatalogExcel(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const status = document.getElementById("productCatalogStatus");
+  if (status) status.textContent = "Импорт...";
+  const formData = new FormData();
+  formData.append("file", file);
+  try {
+    const res = await fetch("/api/stock/products/import", { method: "POST", headers: withCsrfHeaders(), body: formData });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Ошибка");
+    if (status) status.textContent = `✓ Импортировано ${data.imported} товаров`;
+    await loadProductCatalog();
+    // Reload stock table if source is active
+    if (stockSourcesState.activeSourceId) loadStockWorkData(stockSourcesState.activeSourceId);
+  } catch (e) {
+    if (status) status.textContent = `Ошибка: ${esc(String(e))}`;
+  }
+  input.value = "";
+}
+
 function applyStockSettings() {
   if (!_stockSettingsSourceId) return;
   const thr = Number(document.getElementById("stockSettingsThreshold")?.value || 0);
