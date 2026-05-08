@@ -394,7 +394,12 @@ body.landing-page {
 }
 
 .sidebar {
-  position: relative;
+  /* Stick to viewport — never scrolls with page content */
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  overflow-x: visible;
   border-right: 1px solid var(--line);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.84) 0%, rgba(243, 248, 255, 0.76) 100%);
   backdrop-filter: blur(12px);
@@ -404,7 +409,6 @@ body.landing-page {
   flex-direction: column;
   /* Ensure flyout submenus appear above main content */
   z-index: 100;
-  overflow: visible;
 }
 
 .sidebar::before {
@@ -1257,8 +1261,16 @@ button.secondary.danger:hover {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
-  padding: 12px 0 0;
-  margin-bottom: -1px;
+  padding: 0;
+  margin-bottom: 0;
+}
+
+/* Panel that directly follows tabs — flush top border to match tabs */
+.stock-work-panel {
+  margin-top: 0 !important;
+  border-top-left-radius: 0;
+  overflow-x: auto;
+  padding: 0 !important;
 }
 
 .stock-tab-group {
@@ -1268,16 +1280,18 @@ button.secondary.danger:hover {
 }
 
 .stock-source-tab {
-  padding: 8px 16px;
-  border-radius: 8px 0 0 0;
-  border: 1px solid #e5e7eb;
-  border-bottom: none;
+  padding: 9px 18px;
+  border-radius: 10px 0 0 0;
+  border: 1px solid #e2e8f0;
+  border-bottom: 1px solid #fff;
   border-right: none;
-  background: #f9fafb;
+  background: #f8fafc;
   color: #374151;
   cursor: pointer;
   font-size: 14px;
   width: auto !important;
+  position: relative;
+  bottom: -1px;
 }
 
 .stock-source-tab.active {
@@ -1285,19 +1299,22 @@ button.secondary.danger:hover {
   color: #2563eb;
   font-weight: 600;
   border-color: #93c5fd;
+  border-bottom-color: #fff;
 }
 
 .stock-tab-gear {
-  padding: 8px 10px;
-  border-radius: 0 8px 0 0;
-  border: 1px solid #e5e7eb;
-  border-bottom: none;
-  border-left: 1px solid #e5e7eb;
-  background: #f9fafb;
+  padding: 9px 10px;
+  border-radius: 0 10px 0 0;
+  border: 1px solid #e2e8f0;
+  border-bottom: 1px solid #fff;
+  border-left: 1px solid #e2e8f0;
+  background: #f8fafc;
   color: #64748b;
   cursor: pointer;
   font-size: 14px;
   width: auto !important;
+  position: relative;
+  bottom: -1px;
 }
 
 .stock-tab-gear:hover { background: #f1f5f9; color: #374151; }
