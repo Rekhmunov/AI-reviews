@@ -2342,11 +2342,62 @@ let _productCatalogItems = [];
 
 function openProductCatalogModal() {
   document.getElementById("productCatalogModal")?.classList.remove("hidden");
+  // Reset add form
+  document.getElementById("addProductForm")?.classList.add("hidden");
+  document.getElementById("addProductError")?.classList.add("hidden");
+  if (document.getElementById("addProductName")) document.getElementById("addProductName").value = "";
+  if (document.getElementById("addProductWbArticle")) document.getElementById("addProductWbArticle").value = "";
+  if (document.getElementById("addProductOzonArticle")) document.getElementById("addProductOzonArticle").value = "";
   loadProductCatalog();
 }
 
 function closeProductCatalogModal() {
   document.getElementById("productCatalogModal")?.classList.add("hidden");
+}
+
+function toggleAddProductForm() {
+  const form = document.getElementById("addProductForm");
+  if (!form) return;
+  const isHidden = form.classList.contains("hidden");
+  form.classList.toggle("hidden", !isHidden);
+  if (isHidden) {
+    document.getElementById("addProductName")?.focus();
+    document.getElementById("addProductError")?.classList.add("hidden");
+  }
+}
+
+async function saveNewProduct() {
+  const name = String(document.getElementById("addProductName")?.value || "").trim();
+  const wb = String(document.getElementById("addProductWbArticle")?.value || "").trim();
+  const ozon = String(document.getElementById("addProductOzonArticle")?.value || "").trim();
+  const errEl = document.getElementById("addProductError");
+
+  if (!wb) {
+    if (errEl) { errEl.textContent = "Артикул ВБ обязателен"; errEl.classList.remove("hidden"); }
+    document.getElementById("addProductWbArticle")?.focus();
+    return;
+  }
+  if (errEl) errEl.classList.add("hidden");
+
+  try {
+    const res = await fetch("/api/stock/products", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ product_name: name, wb_article: wb, ozon_article: ozon }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Ошибка");
+    // Clear form and hide
+    document.getElementById("addProductName").value = "";
+    document.getElementById("addProductWbArticle").value = "";
+    document.getElementById("addProductOzonArticle").value = "";
+    document.getElementById("addProductForm")?.classList.add("hidden");
+    await loadProductCatalog();
+    // Reload stock table if active
+    if (stockSourcesState.activeSourceId) loadStockWorkData(stockSourcesState.activeSourceId);
+  } catch (e) {
+    if (errEl) { errEl.textContent = `Ошибка: ${esc(String(e))}`; errEl.classList.remove("hidden"); }
+  }
 }
 
 async function loadProductCatalog() {
