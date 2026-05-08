@@ -3243,6 +3243,52 @@ class ReviewRepository:
             )
         return result.rowcount > 0
 
+    def reset_templates_to_defaults(self, *, user_id: int) -> int:
+        """Delete all user templates and replace with current admin defaults.
+
+        Used when admin clicks 'Reset to defaults' in Settings → Templates.
+        All user-created variants are removed and replaced with the current
+        default_template_variants from the admin panel.
+        """
+        with self._connect() as conn:
+            # Delete all existing user templates
+            conn.execute(
+                "DELETE FROM response_template_variants WHERE user_id = ?",
+                (user_id,),
+            )
+            # Copy fresh from defaults
+            defaults = conn.execute(
+                f"""
+                SELECT group_id, subgroup, template_text
+                FROM default_template_variants
+                WHERE is_active = {self._bool_true_literal()}
+                ORDER BY group_id ASC, subgroup ASC, id ASC
+                """
+            ).fetchall()
+            if not defaults:
+                return 0
+            now = _utc_now()
+            inserted = 0
+            for row in defaults:
+                conn.execute(
+                    self._sql("""
+                    INSERT INTO response_template_variants (
+                        user_id, group_id, subgroup, template_text, is_active, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """),
+                    (
+                        user_id,
+                        str(row["group_id"] or ""),
+                        str(row["subgroup"] or ""),
+                        str(row["template_text"] or ""),
+                        self._bool_db(True),
+                        now,
+                        now,
+                    ),
+                )
+                inserted += 1
+        return inserted
+
     def copy_default_templates_to_user(self, *, user_id: int, only_if_empty: bool = True) -> int:
         with self._connect() as conn:
             if only_if_empty:

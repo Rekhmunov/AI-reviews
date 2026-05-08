@@ -111,14 +111,6 @@ TEMPLATE_GROUPS: list[dict[str, object]] = [
         ],
     },
     {
-        "id": "tagged_reviews",
-        "title": "Отзывы с тегами",
-        "subgroups": [
-            "Общий",
-            "Общие теги",
-        ],
-    },
-    {
         "id": "textless_ratings",
         "title": "Оценки без текста",
         "subgroups": [
@@ -136,7 +128,6 @@ GENERAL_LOCKED_GROUP_IDS: tuple[str, ...] = (
     "product_dissatisfaction",
     "delivery_problems",
     "wrong_size",
-    "tagged_reviews",
 )
 
 DEFAULT_TEMPLATE_CONTENT: dict[str, list[str]] = {
@@ -2974,6 +2965,18 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not deleted:
             raise HTTPException(status_code=404, detail="Шаблон не найден")
         return {"ok": True}
+
+    @app.post("/api/templates/reset-to-defaults")
+    def reset_templates_to_defaults(request: Request) -> dict[str, object]:
+        """Reset all user templates to the current admin defaults.
+
+        Only available to admin/owner — not managers.
+        Deletes all existing user templates and copies from default_template_variants.
+        """
+        user = _require_admin(request)
+        owner_id = _tenant_owner_id(user)
+        deleted_and_replaced = repository.reset_templates_to_defaults(user_id=owner_id)
+        return {"ok": True, "replaced": deleted_and_replaced}
 
     @app.put("/api/templates")
     def upsert_template(request: Request, payload: TemplateUpsertRequest) -> dict[str, object]:

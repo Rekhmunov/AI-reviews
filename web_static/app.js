@@ -2593,6 +2593,38 @@ function openSyncReportModal(report) {
   setModalVisibility("syncReportModal", true);
 }
 
+function openResetTemplatesModal() {
+  document.getElementById("resetTemplatesInfo").textContent = "";
+  setModalVisibility("resetTemplatesModal", true);
+}
+
+function closeResetTemplatesModal() {
+  setModalVisibility("resetTemplatesModal", false);
+}
+
+async function confirmResetTemplates() {
+  const info = document.getElementById("resetTemplatesInfo");
+  if (info) info.textContent = "Обновляем...";
+  try {
+    const res = await fetch("/api/templates/reset-to-defaults", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({}),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      if (info) info.textContent = "Ошибка: " + (data.detail || "не удалось сбросить");
+      return;
+    }
+    closeResetTemplatesModal();
+    // Reload templates
+    if (typeof loadTemplates === "function") await loadTemplates();
+    if (typeof loadProcessingRules === "function") await loadProcessingRules();
+  } catch (err) {
+    if (info) info.textContent = "Ошибка при сбросе шаблонов";
+  }
+}
+
 function openChatImgLightbox(src) {
   const lb = document.getElementById("chatImgLightbox");
   const img = document.getElementById("chatImgLightboxImg");
@@ -4141,6 +4173,8 @@ document.addEventListener("DOMContentLoaded", () => {
     // Delete all chats button is only for admins — managers should not accidentally
     // wipe all chat history
     document.getElementById("clearChatsBtn")?.classList.remove("hidden");
+    // Reset templates button — admins only
+    document.getElementById("resetTemplatesToDefaultsBtn")?.classList.remove("hidden");
   }
   document.getElementById("reviewsPageSize").value = String(reviewsState.page_size);
   document.getElementById("questionsPageSize").value = String(questionsState.page_size);
