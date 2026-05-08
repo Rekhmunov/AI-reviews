@@ -414,10 +414,26 @@ function toggleNavGroup(groupId) {
   const group = document.getElementById("navgroup-" + groupId);
   if (!group) return;
   const isOpen = group.classList.contains("open");
-  // Close all groups first
   document.querySelectorAll(".nav-group.open").forEach((g) => g.classList.remove("open"));
   if (!isOpen) group.classList.add("open");
 }
+
+// Position flyout submenus using fixed positioning so they escape
+// any overflow:hidden/auto ancestor and appear above .main content.
+function _positionNavFlyout(navGroup) {
+  const items = navGroup.querySelector(".nav-group-items");
+  if (!items || items.style.display === "none") return;
+  const rect = navGroup.getBoundingClientRect();
+  items.style.left = (rect.right + 4) + "px";
+  items.style.top = rect.top + "px";
+}
+
+// Apply positioning on hover for all desktop nav groups
+document.addEventListener("DOMContentLoaded", () => {
+  document.querySelectorAll(".nav-group").forEach(group => {
+    group.addEventListener("mouseenter", () => _positionNavFlyout(group));
+  });
+});
 
 function showSection(section, options = {}) {
   if (!canViewSection(section)) return;

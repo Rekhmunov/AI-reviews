@@ -398,8 +398,10 @@ body.landing-page {
   position: sticky;
   top: 0;
   height: 100vh;
-  overflow-y: auto;
-  overflow-x: visible;
+  /* Do NOT use overflow:auto here — it creates a stacking context
+     that clips position:absolute flyout submenus.
+     The sidebar content is short enough to not need scroll. */
+  overflow: visible;
   border-right: 1px solid var(--line);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.84) 0%, rgba(243, 248, 255, 0.76) 100%);
   backdrop-filter: blur(12px);
@@ -407,7 +409,6 @@ body.landing-page {
   padding: 18px 14px;
   display: flex;
   flex-direction: column;
-  /* Ensure flyout submenus appear above main content */
   z-index: 100;
 }
 
@@ -469,20 +470,23 @@ body.landing-page {
 .nav-group:not(.open) .nav-group-toggle::before { content: "+"; }
 .nav-group-toggle { font-size: 16px; }
 
-/* Desktop: submenu flies out to the RIGHT — does not push content down */
+/* Desktop: submenu flies out to the RIGHT using position:fixed
+   so it escapes any overflow:hidden/auto ancestor and always appears
+   above the main content area */
 .nav-group-items {
   display: none;
   flex-direction: column;
-  position: absolute;
-  left: calc(100% + 4px);
+  position: fixed;
+  /* left/top set by JS via updateNavGroupFlyoutPos() */
+  left: 300px;
   top: 0;
   background: #fff;
   border: 1px solid #e2e8f0;
   border-radius: 10px;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.10);
-  min-width: 160px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+  min-width: 170px;
   padding: 6px 0;
-  z-index: 500;
+  z-index: 9999;
   white-space: nowrap;
 }
 
