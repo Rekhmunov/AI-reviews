@@ -4389,13 +4389,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         return {"ok": True}
 
     @app.post("/api/stock/sync")
-    def sync_stock_sources(request: Request, source_ids: list[int] | None = None) -> dict[str, object]:
-        """Manually trigger stock sync for selected (or all) sources."""
+    def sync_stock_sources(request: Request) -> dict[str, object]:
+        """Manually trigger stock sync for all active sources."""
         user = _require_settings_access(request)
         uid = int(user["id"])
         sources = repository.list_stock_sources(user_id=uid, include_secrets=True)
-        if source_ids:
-            sources = [s for s in sources if int(s.get("id") or 0) in source_ids]
         results = []
         for source in sources:
             if not source.get("is_active"):
