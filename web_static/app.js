@@ -2034,6 +2034,18 @@ function _getCollapsed(sourceId) {
   catch (_) { return new Set(); }
 }
 
+function _getAllKnownWarehouses(sourceId) {
+  try { return JSON.parse(localStorage.getItem(_stockKey(sourceId, "all_wh")) || "[]"); }
+  catch (_) { return []; }
+}
+
+function _saveAllKnownWarehouses(sourceId, warehouses) {
+  // Merge with existing known warehouses to preserve even if data changes
+  const existing = _getAllKnownWarehouses(sourceId);
+  const merged = [...new Set([...existing, ...warehouses])];
+  localStorage.setItem(_stockKey(sourceId, "all_wh"), JSON.stringify(merged));
+}
+
 function _setCollapsed(sourceId, set) {
   localStorage.setItem(_stockKey(sourceId, "collapsed_wh"), JSON.stringify([...set]));
 }
@@ -2064,6 +2076,11 @@ function renderStockWorkTabs() {
   if (!items.length) {
     container.innerHTML = '<p class="small" style="padding:12px;color:#9ca3af">Нет активных источников. Добавьте источник в Настройки.</p>';
     return;
+  }
+  // Auto-select first source if none is active
+  if (!stockSourcesState.activeSourceId) {
+    stockSourcesState.activeSourceId = items[0].id;
+    setTimeout(() => loadStockWorkData(items[0].id), 0);
   }
   container.innerHTML = items.map(s => `
     <div class="stock-tab-group">
@@ -2112,6 +2129,8 @@ function renderStockDataTable(sourceId, dates, rows, wrap) {
     if (!byWarehouse.has(wh)) byWarehouse.set(wh, []);
     byWarehouse.get(wh).push(r);
   }
+  // Save all warehouse names (before filtering) so settings can show them even when hidden
+  _saveAllKnownWarehouses(sourceId, [...byWarehouse.keys()]);
 
   // Build header
   const dateHeaders = dates.map(d =>
@@ -2223,33 +2242,29 @@ function openStockSettings(sourceId) {
   const hidden = _getHiddenWarehouses(sourceId);
   const threshold = _getStockThreshold(sourceId);
 
-  // Collect all warehouses from current data
-  const tableEl = document.getElementById(`stockDataTable_${sourceId}`);
-  const warehouses = [];
-  if (tableEl) {
-    tableEl.querySelectorAll(".stock-warehouse-row").forEach(r => {
-      const wh = r.getAttribute("data-wh");
-      if (wh) warehouses.push(wh);
-    });
-  }
+  // Use persisted full list of warehouses (includes hidden ones)
+  let warehouses = _getAllKnownWarehouses(sourceId);
 
-  // Also collect from all active rows in stockSourcesState cache
+  // Also merge any currently visible warehouse rows from DOM (in case not yet saved)
   const wrap = document.getElementById("stockWorkTableWrap");
-  if (wrap && !warehouses.length) {
+  if (wrap) {
     wrap.querySelectorAll("[data-wh]").forEach(r => {
       const wh = r.getAttribute("data-wh");
       if (wh && !warehouses.includes(wh)) warehouses.push(wh);
     });
   }
 
-  const whList = warehouses.length ? warehouses.map(wh => `
+  const whList = warehouses.length ? warehouses.map(wh => {
+    const isHidden = hidden.has(wh);
+    return `
     <div class="stock-settings-wh-row">
-      <button type="button" class="stock-eye-btn ${hidden.has(wh) ? 'hidden-wh' : ''}"
-        onclick="_toggleWhVisibility('${esc(wh)}')" title="${hidden.has(wh) ? 'Показать' : 'Скрыть'}">
-        ${hidden.has(wh) ? '👁️‍🗨️' : '👁️'}
+      <button type="button" class="stock-eye-btn ${isHidden ? 'hidden-wh' : ''}"
+        onclick="_toggleWhVisibility('${esc(wh)}')" title="${isHidden ? 'Показать склад' : 'Скрыть склад'}">
+        ${isHidden ? '🚫' : '👁️'}
       </button>
-      <span class="stock-wh-label">${esc(wh)}</span>
-    </div>`).join("") : '<p class="small" style="color:#9ca3af">Загрузите данные сначала</p>';
+      <span class="stock-wh-label${isHidden ? '" style="color:#94a3b8;text-decoration:line-through' : ''}">${esc(wh)}</span>
+    </div>`;
+  }).join("") : '<p class="small" style="color:#9ca3af">Загрузите данные сначала</p>';
 
   const modal = document.getElementById("stockSettingsModal");
   if (!modal) return;
