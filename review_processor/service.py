@@ -1649,8 +1649,18 @@ class ReviewAutomationService:
         # createdDate stored in review.metadata["raw"]["createdDate"].
         since_iso_cutoff: str | None = _normalize_timestamp(since_date) if since_date else None
 
+        # Load already-classified reviews to avoid re-sending to Yandex on repeated syncs.
+        existing_classifications: dict[str, tuple[str, str]] = {}
+        if user_id:
+            try:
+                existing_classifications = self.repository.get_existing_classifications(user_id=user_id)
+                _log.info("sync_reviews: loaded %d existing classifications (will skip Yandex for these)", len(existing_classifications))
+            except Exception as _exc:
+                _log.warning("sync_reviews: could not load existing classifications: %s", _exc)
+
         loaded_count = 0
         skipped_old = 0
+        skipped_already_classified = 0
         for review in reviews:
             _raise_if_stop_requested(stop_requested, source=source)
             if not review.review_id:
@@ -1668,22 +1678,34 @@ class ReviewAutomationService:
             processed = self.processor.process(review)
             ai_classification_failed = False
             ai_classification_error = ""
-            try:
-                category, classified_subgroup = self._classify_category_and_subgroup(
-                    review,
-                    processed,
-                    settings=settings,
-                    user_id=user_id,
-                )
-            except MarketplaceSyncError as exc:
-                details = exc.details if isinstance(exc.details, Mapping) else {}
-                if str(details.get("scope") or "").strip().lower() == "classification":
-                    category = self.AI_UNCLASSIFIED_CATEGORY
-                    classified_subgroup = None
-                    ai_classification_failed = True
-                    ai_classification_error = str(exc)
-                else:
-                    raise
+
+            # Check if this review was already classified in a previous sync —
+            # reuse the existing result to avoid wasteful Yandex API calls.
+            review_uid = self.repository.make_review_uid(
+                user_id or 0, source, account_id, str(review.review_id)
+            )
+            if review_uid in existing_classifications:
+                existing_group, existing_sub = existing_classifications[review_uid]
+                category = existing_group
+                classified_subgroup: str | None = existing_sub or None
+                skipped_already_classified += 1
+            else:
+                try:
+                    category, classified_subgroup = self._classify_category_and_subgroup(
+                        review,
+                        processed,
+                        settings=settings,
+                        user_id=user_id,
+                    )
+                except MarketplaceSyncError as exc:
+                    details = exc.details if isinstance(exc.details, Mapping) else {}
+                    if str(details.get("scope") or "").strip().lower() == "classification":
+                        category = self.AI_UNCLASSIFIED_CATEGORY
+                        classified_subgroup = None
+                        ai_classification_failed = True
+                        ai_classification_error = str(exc)
+                    else:
+                        raise
             if not ai_classification_failed:
                 category = str(category or "").strip()
                 if not category:
@@ -1813,6 +1835,11 @@ class ReviewAutomationService:
             _log.info(
                 "sync_reviews: skipped %d reviews with createdDate < since_date=%s, saved %d",
                 skipped_old, since_date, loaded_count,
+            )
+        if skipped_already_classified:
+            _log.info(
+                "sync_reviews: skipped Yandex for %d already-classified reviews (no tokens wasted)",
+                skipped_already_classified,
             )
         return loaded_count
 

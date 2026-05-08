@@ -5329,6 +5329,41 @@ class ReviewRepository:
             return None
         return self._row_to_dict(row)
 
+    def get_existing_classifications(self, *, user_id: int) -> dict[str, tuple[str, str]]:
+        """Return {review_uid: (classified_group_id, classified_subgroup)} for all
+        already-classified reviews of this user. Used to skip redundant Yandex calls."""
+        if self.is_postgres:
+            sql = self._sql("""
+                SELECT review_uid,
+                       metadata::jsonb->>'classified_group_id' AS grp,
+                       metadata::jsonb->>'classified_subgroup'  AS sub
+                FROM review_items
+                WHERE user_id = ?
+                  AND metadata::jsonb->>'classified_group_id' IS NOT NULL
+                  AND metadata::jsonb->>'classified_group_id' != ''
+            """)
+        else:
+            sql = self._sql("""
+                SELECT review_uid,
+                       json_extract(metadata, '$.classified_group_id') AS grp,
+                       json_extract(metadata, '$.classified_subgroup')  AS sub
+                FROM review_items
+                WHERE user_id = ?
+                  AND json_extract(metadata, '$.classified_group_id') IS NOT NULL
+                  AND json_extract(metadata, '$.classified_group_id') != ''
+            """)
+        with self._connect() as conn:
+            rows = conn.execute(sql, (user_id,)).fetchall()
+        result: dict[str, tuple[str, str]] = {}
+        for row in rows:
+            d = self._row_to_dict(row)
+            uid = str(d.get("review_uid") or "").strip()
+            grp = str(d.get("grp") or "").strip()
+            sub = str(d.get("sub") or "").strip()
+            if uid and grp:
+                result[uid] = (grp, sub)
+        return result
+
     # ── Stock module repository methods ──────────────────────────────────────
 
     def create_stock_source(
