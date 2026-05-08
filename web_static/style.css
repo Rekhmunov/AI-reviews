@@ -402,6 +402,9 @@ body.landing-page {
   padding: 18px 14px;
   display: flex;
   flex-direction: column;
+  /* Ensure flyout submenus appear above main content */
+  z-index: 100;
+  overflow: visible;
 }
 
 .sidebar::before {
@@ -475,7 +478,7 @@ body.landing-page {
   box-shadow: 0 4px 16px rgba(0,0,0,0.10);
   min-width: 160px;
   padding: 6px 0;
-  z-index: 200;
+  z-index: 500;
   white-space: nowrap;
 }
 
