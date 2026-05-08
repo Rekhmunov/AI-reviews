@@ -1741,7 +1741,7 @@ async function loadReviews() {
   tbody.innerHTML = "";
   if (!res.ok) {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td colspan="6" class="small">Ошибка: ${esc(data.detail || "не удалось загрузить отзывы")}</td>`;
+    tr.innerHTML = `<td colspan="7" class="small">Ошибка: ${esc(data.detail || "не удалось загрузить отзывы")}</td>`;
     tbody.appendChild(tr);
     return;
   }
@@ -1753,7 +1753,20 @@ async function loadReviews() {
     const sendErrorIcon = hasSendError
       ? `<span class="send-error-indicator" title="${esc(sendErrorMessage)}">❗</span>`
       : "";
+    // Format review date from created_at or metadata.raw.createdDate
+    let reviewDateStr = "-";
+    const rDateRaw = review.created_at || "";
+    if (rDateRaw) {
+      try {
+        const rd = new Date(rDateRaw);
+        if (!isNaN(rd.getTime())) {
+          reviewDateStr = rd.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit" })
+            + " " + rd.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+        }
+      } catch (_) {}
+    }
     tr.innerHTML = `
+      <td class="question-date">${esc(reviewDateStr)}</td>
       <td>${esc(review.source)}</td>
       <td>
         <div>${esc(review.text)}</div>
