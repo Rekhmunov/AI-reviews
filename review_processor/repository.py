@@ -4874,12 +4874,21 @@ class ReviewRepository:
         return int(result.rowcount or 0)
 
     def get_product_catalog_map(self, *, user_id: int) -> dict[str, dict[str, str]]:
-        """Return {wb_article: {product_name, ozon_article}} for fast lookup."""
+        """Return {wb_article: {product_name, ozon_article}} for fast lookup by WB article."""
         rows = self.list_product_catalog(user_id=user_id)
         return {
             r["wb_article"]: {"product_name": r["product_name"], "ozon_article": r["ozon_article"]}
             for r in rows
             if r.get("wb_article")
+        }
+
+    def get_product_catalog_map_ozon(self, *, user_id: int) -> dict[str, dict[str, str]]:
+        """Return {ozon_article: {product_name, wb_article}} for fast lookup by Ozon article."""
+        rows = self.list_product_catalog(user_id=user_id)
+        return {
+            r["ozon_article"]: {"product_name": r["product_name"], "wb_article": r["wb_article"]}
+            for r in rows
+            if r.get("ozon_article")
         }
 
     # ── Stock module repository methods ──────────────────────────────────────

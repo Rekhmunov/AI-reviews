@@ -4467,16 +4467,27 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         owner_id = _tenant_owner_id(user)
         dates = repository.get_stock_data_dates(user_id=user_id, source_id=source_id)
         rows = repository.get_stock_data_pivot(user_id=user_id, source_id=source_id)
-        # Load product catalog for name substitution and zero-fill
-        catalog = repository.get_product_catalog_map(user_id=owner_id)
+
+        # Determine source marketplace to choose correct catalog lookup key
+        source = repository.get_stock_source(user_id=user_id, source_id=source_id)
+        is_ozon = str((source or {}).get("marketplace") or "").lower() == "ozon"
+
+        if is_ozon:
+            catalog = repository.get_product_catalog_map_ozon(user_id=owner_id)
+            # For Ozon: match by wb_article field which stores ozon seller article
+            art_key = "wb_article"
+        else:
+            catalog = repository.get_product_catalog_map(user_id=owner_id)
+            art_key = "wb_article"
+
         if catalog:
-            # Build existing (warehouse, wb_article) pairs from report
+            # Build existing (warehouse, article) pairs from report
             existing: set[tuple[str, str]] = {
-                (r["warehouse_name"], r["wb_article"]) for r in rows
+                (r["warehouse_name"], r.get(art_key, "")) for r in rows
             }
             # Substitute product names
             for r in rows:
-                art = r.get("wb_article", "")
+                art = r.get(art_key, "")
                 if art in catalog:
                     r["seller_article"] = catalog[art]["product_name"] or art
             # Zero-fill: for each warehouse that has data, add missing catalog articles
@@ -4488,12 +4499,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     warehouses.append(wh)
                     seen_wh.add(wh)
             for wh in warehouses:
-                for wb_art, cat_item in catalog.items():
-                    if (wh, wb_art) not in existing:
+                for art, cat_item in catalog.items():
+                    if (wh, art) not in existing:
                         rows.append({
                             "warehouse_name": wh,
-                            "wb_article": wb_art,
-                            "seller_article": cat_item["product_name"] or wb_art,
+                            "wb_article": art,
+                            "seller_article": cat_item["product_name"] or art,
                             "dates": {d: 0 for d in dates},
                         })
         return {"dates": dates, "rows": rows, "count": len(rows)}
