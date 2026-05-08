@@ -2029,6 +2029,15 @@ function _setColWidth(sourceId, w) {
   localStorage.setItem(_stockKey(sourceId, "col_width"), String(w));
 }
 
+function _getFixedColWidth(sourceId, col) {
+  const defaults = { product: 220, wbid: 110 };
+  return Number(localStorage.getItem(_stockKey(sourceId, `fixed_col_${col}`)) || defaults[col] || 120);
+}
+
+function _setFixedColWidth(sourceId, col, w) {
+  localStorage.setItem(_stockKey(sourceId, `fixed_col_${col}`), String(w));
+}
+
 function _getCollapsed(sourceId) {
   try { return new Set(JSON.parse(localStorage.getItem(_stockKey(sourceId, "collapsed_wh")) || "[]")); }
   catch (_) { return new Set(); }
@@ -2121,6 +2130,8 @@ function renderStockDataTable(sourceId, dates, rows, wrap) {
   const collapsed = _getCollapsed(sourceId);
   const threshold = _getStockThreshold(sourceId);
   const colW = _getColWidth(sourceId);
+  const colWProduct = _getFixedColWidth(sourceId, "product");
+  const colWWbid = _getFixedColWidth(sourceId, "wbid");
 
   // Group rows by warehouse
   const byWarehouse = new Map();
@@ -2177,14 +2188,18 @@ function renderStockDataTable(sourceId, dates, rows, wrap) {
       <table class="stock-data-table" id="stockDataTable_${sourceId}">
         <thead>
           <tr>
-            <th class="stock-fixed-col stock-col-product">Склад / Артикул продавца</th>
-            <th class="stock-fixed-col stock-col-wbid">Артикул ВБ</th>
+            <th class="stock-fixed-col stock-col-product stock-resizable" data-col="product"
+                style="width:${colWProduct}px;min-width:${colWProduct}px;left:0">Склад / Артикул продавца</th>
+            <th class="stock-fixed-col stock-col-wbid stock-resizable" data-col="wbid"
+                style="width:${colWWbid}px;min-width:${colWWbid}px;left:${colWProduct}px">Артикул ВБ</th>
             ${dateHeaders}
           </tr>
         </thead>
         <tbody>${tbody}</tbody>
       </table>
     </div>`;
+  // Update sticky offsets for body cells
+  _applyStockStickyOffsets(sourceId, colWProduct, colWWbid);
 
   // Add column resize listeners
   _initStockColResize(sourceId);
@@ -2199,12 +2214,30 @@ function toggleStockWarehouse(wh, sourceId) {
 
 // ── Column resize ─────────────────────────────────────────────────────────────
 
+function _applyStockStickyOffsets(sourceId, colWProduct, colWWbid) {
+  const table = document.getElementById(`stockDataTable_${sourceId}`);
+  if (!table) return;
+  // Update left offset for wbid header
+  const wbidTh = table.querySelector("th[data-col='wbid']");
+  if (wbidTh) wbidTh.style.left = colWProduct + "px";
+  // Update sticky body cells
+  table.querySelectorAll("tbody tr:not(.stock-warehouse-row)").forEach(tr => {
+    const cells = tr.querySelectorAll("td");
+    if (cells.length >= 2) {
+      cells[0].style.width = colWProduct + "px";
+      cells[0].style.minWidth = colWProduct + "px";
+      cells[1].style.left = colWProduct + "px";
+      cells[1].style.width = colWWbid + "px";
+      cells[1].style.minWidth = colWWbid + "px";
+    }
+  });
+}
+
 function _initStockColResize(sourceId) {
   const table = document.getElementById(`stockDataTable_${sourceId}`);
   if (!table) return;
   const headers = table.querySelectorAll(".stock-resizable");
   headers.forEach(th => {
-    // Add resize handle
     const handle = document.createElement("div");
     handle.className = "stock-resize-handle";
     th.style.position = "relative";
@@ -2214,14 +2247,31 @@ function _initStockColResize(sourceId) {
       e.preventDefault();
       startX = e.clientX;
       startW = th.offsetWidth;
+      const col = th.dataset.col; // "product", "wbid", or undefined (date col)
       const onMove = ev => {
-        const newW = Math.max(60, startW + ev.clientX - startX);
-        // Apply same width to ALL date columns
-        table.querySelectorAll(".stock-resizable").forEach(h => {
-          h.style.width = newW + "px";
-          h.style.minWidth = newW + "px";
-        });
-        _setColWidth(sourceId, newW);
+        const newW = Math.max(50, startW + ev.clientX - startX);
+        if (col === "product") {
+          // Resize first fixed column, update wbid left offset
+          th.style.width = newW + "px";
+          th.style.minWidth = newW + "px";
+          _setFixedColWidth(sourceId, "product", newW);
+          const wbW = _getFixedColWidth(sourceId, "wbid");
+          _applyStockStickyOffsets(sourceId, newW, wbW);
+        } else if (col === "wbid") {
+          // Resize second fixed column
+          th.style.width = newW + "px";
+          th.style.minWidth = newW + "px";
+          _setFixedColWidth(sourceId, "wbid", newW);
+          const prodW = _getFixedColWidth(sourceId, "product");
+          _applyStockStickyOffsets(sourceId, prodW, newW);
+        } else {
+          // Date columns — all resize together
+          table.querySelectorAll(".stock-resizable:not([data-col])").forEach(h => {
+            h.style.width = newW + "px";
+            h.style.minWidth = newW + "px";
+          });
+          _setColWidth(sourceId, newW);
+        }
       };
       const onUp = () => {
         document.removeEventListener("mousemove", onMove);
