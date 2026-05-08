@@ -1799,7 +1799,7 @@ async function loadReviews() {
         <div class="review-stars">${renderRatingStars(review.rating)}</div>
         ${textParts.join("")}
         ${subgroup ? `<div class="review-subgroup-tag">${subgroup}</div>` : ""}
-        <div class="review-meta-small">${esc(review.author || "")} · ${esc(review.created_at ? review.created_at.slice(0, 10) : "")}</div>
+        <div class="review-meta-small">${esc(review.author || "")} · ${esc(_toMsk((meta.raw || {}).createdDate || review.created_at || ""))}</div>
       </td>
       <td class="review-col-reply">
         <textarea class="review-reply-textarea" id="reply-${reviewUid}" readonly>${esc(suggestedText)}</textarea>
