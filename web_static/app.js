@@ -1788,10 +1788,18 @@ async function loadReviews() {
 
     // --- Column 3: Product ---
     const productName = esc(rawProduct.productName || rawItem.productName || "");
-    const barcode = esc(String(rawProduct.lastOrderShkId || rawItem.lastOrderShkId || review.metadata?.raw?.lastOrderShkId || ""));
     const article = esc(rawProduct.supplierArticle || rawItem.supplierArticle || "");
     const brand = esc(rawProduct.brand || rawItem.brand || "");
     const seller = esc(rawProduct.seller || rawItem.seller || "");
+    // Build marketplace link for product name
+    const nmId = rawProduct.nmId || rawItem.nmId || rawItem.nmID || rawItem.productId || null;
+    const ozonProductId = rawItem.product_id || rawItem.productId || rawItem.item_id || null;
+    let productUrl = "";
+    if (review.source === "ozon" || String(review.source || "").toLowerCase().includes("ozon")) {
+      if (ozonProductId) productUrl = `https://www.ozon.ru/product/${ozonProductId}/`;
+    } else if (nmId) {
+      productUrl = `https://www.wildberries.ru/catalog/${nmId}/detail.aspx`;
+    }
 
     tr.innerHTML = `
       <td class="review-col-review">
@@ -1811,8 +1819,11 @@ async function loadReviews() {
         </div>
       </td>
       <td class="review-col-product">
-        ${productName ? `<div class="review-product-name">${productName}</div>` : ""}
-        ${barcode ? `<div class="review-product-detail small">Штрихкод: ${barcode}</div>` : ""}
+        ${productName
+          ? productUrl
+            ? `<div class="review-product-name"><a href="${productUrl}" target="_blank" rel="noopener noreferrer" class="review-product-link">${productName}</a></div>`
+            : `<div class="review-product-name">${productName}</div>`
+          : ""}
         ${article ? `<div class="review-product-detail small">Артикул: ${article}</div>` : ""}
         ${brand ? `<div class="review-product-detail small">Бренд: ${brand}</div>` : ""}
         ${seller ? `<div class="review-product-detail small">Продавец: ${seller}</div>` : ""}

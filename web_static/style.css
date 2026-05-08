@@ -1254,6 +1254,13 @@ button.secondary.danger:hover {
   margin-bottom: 6px;
   word-break: break-word;
 }
+.review-product-link {
+  color: #1d4ed8;
+  text-decoration: none;
+}
+.review-product-link:hover {
+  text-decoration: underline;
+}
 
 .review-product-detail {
   color: #64748b;
