@@ -2243,10 +2243,6 @@ class ReviewAutomationService:
             supported = callable(getattr(client, "fetch_reviews", None))
             if not supported:
                 return False, "Канал отзывов не поддерживается источником"
-            # WB: requires list_path (feedbacks URL configured)
-            if hasattr(client, "list_path") and not bool(getattr(client, "list_path")):
-                _log.info("_is_channel_supported: reviews skipped — list_path empty for %s", type(client).__name__)
-                return False, "Канал отзывов не настроен (list_path пуст)"
             return True, ""
         if channel == "questions":
             method = getattr(client, "fetch_questions", None)
