@@ -4317,19 +4317,19 @@ class ReviewRepository:
         where_base = " AND ".join(base_clauses)
         where_view = " AND ".join(view_clauses)
         sort_key = sort.strip().lower()
-        # Sort by actual review creation date (metadata_json.raw.createdDate) with fallback to id.
-        # updated_at = sync timestamp — all reviews from one batch share the same value,
-        # making it useless as a sort key for intra-batch ordering.
+        # Sort by actual review creation date (metadata_json.raw.createdDate) with fallback
+        # to review_uid (always unique). updated_at = sync timestamp — all reviews from one
+        # batch share the same value, making it useless as a sort key.
         if self.is_postgres:
             _cd_expr = "COALESCE(metadata_json::jsonb->'raw'->>'createdDate', '')"
         else:
             _cd_expr = "COALESCE(json_extract(metadata_json, '$.raw.createdDate'), '')"
         order_by_map = {
-            "newest": f"{_cd_expr} DESC, id DESC",
-            "oldest": f"{_cd_expr} ASC, id ASC",
-            "rating_asc": f"COALESCE(rating, 0) ASC, {_cd_expr} DESC, id DESC",
-            "rating_desc": f"COALESCE(rating, 0) DESC, {_cd_expr} DESC, id DESC",
-            "category": f"category ASC, {_cd_expr} DESC, id DESC",
+            "newest": f"{_cd_expr} DESC, review_uid DESC",
+            "oldest": f"{_cd_expr} ASC, review_uid ASC",
+            "rating_asc": f"COALESCE(rating, 0) ASC, {_cd_expr} DESC, review_uid DESC",
+            "rating_desc": f"COALESCE(rating, 0) DESC, {_cd_expr} DESC, review_uid DESC",
+            "category": f"category ASC, {_cd_expr} DESC, review_uid DESC",
         }
         order_by = order_by_map.get(sort_key, order_by_map["newest"])
 
@@ -5341,12 +5341,10 @@ class ReviewRepository:
         already-classified reviews of this user. Used to skip redundant Yandex calls.
         Uses the `category` column (always populated) and json_extract on metadata_json
         for the subgroup."""
-        # metadata column may be named metadata_json in older schemas
-        meta_col = "metadata_json" if not self.is_postgres else "metadata_json"
         if self.is_postgres:
-            sub_expr = f"{meta_col}::jsonb->>'classified_subgroup'"
+            sub_expr = "metadata_json::jsonb->>'classified_subgroup'"
         else:
-            sub_expr = f"json_extract({meta_col}, '$.classified_subgroup')"
+            sub_expr = "json_extract(metadata_json, '$.classified_subgroup')"
         sql = self._sql(f"""
             SELECT review_uid,
                    category AS grp,
