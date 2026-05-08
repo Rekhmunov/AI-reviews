@@ -4070,6 +4070,21 @@ class ReviewAutomationService:
                     message = first.get("message")
                     if isinstance(message, dict):
                         text = str(message.get("text") or "")
+            # Log full request/response for 1-day debug window (after text is extracted)
+            if user_id:
+                try:
+                    self.repository.log_ai_request(
+                        user_id=user_id,
+                        prompt_system=system_text,
+                        prompt_user=user_text,
+                        response_text=(text or "")[:1000],
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                        model_uri=model_uri,
+                        review_rating=review.rating,
+                    )
+                except Exception:
+                    pass
 
         raw_response = str(text or "").strip()
         parsed = self._parse_yandex_target_response(text, options=options_for_prompt)

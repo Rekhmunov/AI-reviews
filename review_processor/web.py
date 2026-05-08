@@ -3247,6 +3247,19 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             },
         }
 
+    @app.get("/api/admin/ai-request-log")
+    def get_ai_request_log(request: Request, limit: int = 200) -> dict[str, object]:
+        """Return recent Yandex GPT requests (last 1 day) for debugging."""
+        user = _require_admin(request)
+        owner_id = _tenant_owner_id(user)
+        # Purge stale entries first, then return fresh ones
+        try:
+            repository.purge_old_ai_request_logs(user_id=owner_id)
+        except Exception:
+            pass
+        logs = repository.list_ai_request_logs(user_id=owner_id, limit=min(max(limit, 1), 500))
+        return {"ok": True, "logs": logs, "count": len(logs)}
+
     @app.get("/api/admin/context")
     def get_admin_context(request: Request) -> dict[str, object]:
         user = _require_admin(request)
@@ -4316,12 +4329,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                         service.repair_all_chat_statuses(user_id=uid)
                     except Exception:
                         pass
-                    # Purge review_actions older than 90 days to prevent
+                    # Purge review_actions older than 30 days to prevent
                     # unbounded table growth with 200k+ reviews per sync
                     try:
                         purged = repository.purge_old_review_actions(keep_days=30)
                         if purged:
-                            _log.info("startup: purged %d old review_actions (>90 days)", purged)
+                            _log.info("startup: purged %d old review_actions (>30 days)", purged)
+                    except Exception:
+                        pass
+                    # Purge AI request debug logs older than 1 day
+                    try:
+                        repository.purge_old_ai_request_logs()
                     except Exception:
                         pass
                     break

@@ -446,6 +446,14 @@ async function testAiSettingsConnection() {
 async function openAiStatsModal() {
   const modal = document.getElementById("aiStatsModal");
   if (modal) modal.classList.remove("hidden");
+  // Reset detail log state
+  _aiReqLogLoaded = false;
+  const det = document.getElementById("aiRequestLogDetails");
+  if (det) det.removeAttribute("open");
+  const arrow = document.getElementById("aiReqLogArrow");
+  if (arrow) { arrow.style.transform = ""; arrow.textContent = "▶"; }
+  const logContent = document.getElementById("aiRequestLogContent");
+  if (logContent) logContent.innerHTML = '<p class="small" style="color:#9ca3af;padding:10px 14px">Нажмите, чтобы загрузить...</p>';
   const content = document.getElementById("aiStatsContent");
   if (!content) return;
   content.innerHTML = '<p class="small" style="color:#9ca3af">Загрузка...</p>';
@@ -475,7 +483,7 @@ async function openAiStatsModal() {
       </tr>`).join("") : '<tr><td colspan="5" style="color:#9ca3af;text-align:center">Данных нет — статистика накапливается при синхронизации отзывов</td></tr>';
 
     content.innerHTML = `
-      <div style="max-height:400px;overflow-y:auto">
+      <div style="max-height:280px;overflow-y:auto">
         <table style="width:100%;border-collapse:collapse;font-size:13px">
           <thead>
             <tr style="background:#f8fafc;color:#64748b;font-size:12px">
@@ -491,10 +499,7 @@ async function openAiStatsModal() {
             ${tableRows}
           </tbody>
         </table>
-      </div>
-      <p class="small" style="margin-top:10px;color:#94a3b8">
-        💡 Отзывы без текста (оценка без комментария) не отправляются в Яндекс — 0 токенов.
-      </p>`;
+      </div>`;
   } catch (_) {
     content.innerHTML = '<p class="small" style="color:#dc2626">Ошибка загрузки статистики</p>';
   }
@@ -503,6 +508,78 @@ async function openAiStatsModal() {
 function closeAiStatsModal() {
   const modal = document.getElementById("aiStatsModal");
   if (modal) modal.classList.add("hidden");
+  // Collapse request log details
+  const det = document.getElementById("aiRequestLogDetails");
+  if (det) det.removeAttribute("open");
+  const arrow = document.getElementById("aiReqLogArrow");
+  if (arrow) { arrow.style.transform = ""; arrow.textContent = "▶"; }
+}
+
+let _aiReqLogLoaded = false;
+async function loadAiRequestLog() {
+  const det = document.getElementById("aiRequestLogDetails");
+  const arrow = document.getElementById("aiReqLogArrow");
+  const content = document.getElementById("aiRequestLogContent");
+  if (!det || !content) return;
+  // Toggle arrow based on open state (details not yet toggled at this point)
+  const willBeOpen = !det.hasAttribute("open");
+  if (arrow) { arrow.style.transform = willBeOpen ? "rotate(90deg)" : ""; arrow.textContent = "▶"; }
+  if (!willBeOpen) return; // collapsing — no fetch needed
+  if (_aiReqLogLoaded) return; // already loaded
+  _aiReqLogLoaded = true;
+  content.innerHTML = '<p class="small" style="color:#9ca3af;padding:10px 14px">Загрузка...</p>';
+  try {
+    const res = await fetch("/api/admin/ai-request-log?limit=200");
+    if (!res.ok) { content.innerHTML = '<p class="small" style="color:#dc2626;padding:10px 14px">Ошибка загрузки</p>'; return; }
+    const data = await res.json();
+    const logs = data.logs || [];
+    if (!logs.length) {
+      content.innerHTML = '<p class="small" style="color:#9ca3af;padding:10px 14px">Нет данных за последние 24 часа. Запросы появятся после синхронизации отзывов.</p>';
+      return;
+    }
+    const rows = logs.map((log, idx) => {
+      const dt = _fmtLogDate(log.created_at);
+      const rating = log.review_rating ? `★${log.review_rating}` : "";
+      const tokens = `${log.input_tokens||0}↑ ${log.output_tokens||0}↓`;
+      const rowId = `aiReqRow${idx}`;
+      const detId = `aiReqDet${idx}`;
+      return `<div class="ai-req-row" onclick="toggleAiReqDetail('${detId}', this)" id="${rowId}" style="cursor:pointer;padding:6px 12px;border-bottom:1px solid #e2e8f0;display:flex;gap:10px;align-items:center;font-size:12px;user-select:none">
+        <span style="color:#94a3b8;min-width:130px">${esc(dt)}</span>
+        <span style="color:#64748b;min-width:36px">${rating}</span>
+        <span style="color:#94a3b8;font-size:11px">${tokens}</span>
+        <span style="margin-left:auto;color:#cbd5e1;font-size:11px">▼</span>
+      </div>
+      <div id="${detId}" class="ai-req-detail hidden" style="background:#fff;border-bottom:1px solid #e2e8f0;padding:10px 14px;font-size:11.5px;font-family:monospace;white-space:pre-wrap;word-break:break-word">
+<b style="color:#475569">— СИСТЕМНЫЙ ПРОМПТ —</b>
+${esc(log.prompt_system || "(пусто)")}
+
+<b style="color:#475569">— ТЕКСТ ОТЗЫВА —</b>
+${esc(log.prompt_user || "(пусто)")}
+
+<b style="color:#475569">— ОТВЕТ ЯНДЕКСА —</b>
+${esc(log.response_text || "(пусто)")}</div>`;
+    }).join("");
+    content.innerHTML = rows;
+  } catch (_) {
+    content.innerHTML = '<p class="small" style="color:#dc2626;padding:10px 14px">Ошибка загрузки</p>';
+  }
+}
+
+function toggleAiReqDetail(detId, rowEl) {
+  const det = document.getElementById(detId);
+  if (!det) return;
+  const arrow = rowEl ? rowEl.querySelector("span:last-child") : null;
+  const isHidden = det.classList.contains("hidden");
+  det.classList.toggle("hidden", !isHidden);
+  if (arrow) arrow.textContent = isHidden ? "▲" : "▼";
+}
+
+function _fmtLogDate(iso) {
+  if (!iso) return "";
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString("ru-RU", { timeZone: "Europe/Moscow", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }) + " МСК";
+  } catch (_) { return iso; }
 }
 
 function openAiTestReviewModal() {

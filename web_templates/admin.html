@@ -309,20 +309,34 @@
 
   <!-- AI Statistics modal -->
   <div id="aiStatsModal" class="modal-overlay hidden" role="dialog" aria-modal="true">
-    <div class="modal-card" style="max-width:620px">
+    <div class="modal-card" style="max-width:680px">
       <div class="row row-between">
         <h4 class="no-margin">📊 Статистика запросов к Яндекс GPT</h4>
         <button type="button" class="secondary" onclick="closeAiStatsModal()">✕</button>
       </div>
-      <p class="small" style="margin:8px 0 12px;color:#64748b">
+      <p class="small" style="margin:8px 0 4px;color:#64748b">
         Каждый отзыв с текстом = 1 запрос. Отзывы без текста обрабатываются без Яндекс (бесплатно).
+      </p>
+      <p class="small" style="margin:0 0 12px;color:#64748b;background:#f0fdf4;border-left:3px solid #22c55e;padding:6px 10px;border-radius:4px">
+        💡 Отзывы без текста (оценка без комментария) не отправляются в Яндекс — 0 токенов.
       </p>
       <div id="aiStatsContent" style="min-height:80px">
         <p class="small" style="color:#9ca3af">Загрузка...</p>
       </div>
+
+      <details id="aiRequestLogDetails" style="margin-top:16px;border-top:1px solid #e2e8f0;padding-top:12px">
+        <summary style="cursor:pointer;font-size:0.85rem;font-weight:600;color:#475569;user-select:none;list-style:none;display:flex;align-items:center;gap:6px" onclick="loadAiRequestLog()">
+          <span id="aiReqLogArrow" style="display:inline-block;transition:transform .2s">▶</span>
+          Детализация запросов
+          <span class="small" style="font-weight:400;color:#94a3b8">(последние 24 ч., только для отладки)</span>
+        </summary>
+        <div id="aiRequestLogContent" style="margin-top:10px;max-height:340px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:6px;background:#f8fafc">
+          <p class="small" style="color:#9ca3af;padding:10px 14px">Нажмите, чтобы загрузить...</p>
+        </div>
+      </details>
     </div>
   </div>
 
-  <script src="/static/admin.js?v=22"></script>
+  <script src="/static/admin.js?v=23"></script>
 </body>
 </html>
