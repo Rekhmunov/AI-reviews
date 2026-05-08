@@ -652,45 +652,73 @@ class WildberriesMarketplaceClient:
 
         return [review for review in reviews if review.review_id]
 
+    def _fetch_reviews_iter_with_answered(
+        self,
+        *,
+        since_date: str | None = None,
+        stop_requested: Callable[[], bool] | None = None,
+        answered_value: str,
+    ):
+        """Internal generator: fetch one pass of reviews with a specific isAnswered value."""
+        original = self.unanswered_value
+        object.__setattr__(self, "unanswered_value", answered_value)
+        try:
+            skip = 0
+            page = 0
+            while page < self.max_pages:
+                _raise_if_stop_requested(stop_requested, source="wb")
+                if page > 0:
+                    time.sleep(0.4)
+                try:
+                    payload = self._request_json(skip=skip, take=self.page_size, since_date=since_date)
+                except TypeError:
+                    payload = self._request_json(skip=skip, take=self.page_size)
+                _raise_if_error_payload(payload, source="wb")
+                items = _extract_sequence(payload, keys=self.items_keys)
+                if not items and isinstance(payload.get("data"), dict):
+                    _raise_if_error_payload(payload["data"], source="wb")
+                    items = _extract_sequence(payload["data"], keys=self.items_keys)
+                if not items:
+                    break
+                for item in items:
+                    rv = self._to_review(item)
+                    if rv.review_id:
+                        yield rv
+                if len(items) < self.page_size:
+                    break
+                skip += self.page_size
+                page += 1
+        finally:
+            object.__setattr__(self, "unanswered_value", original)
+
     def fetch_reviews_iter(
         self,
         *,
         since_date: str | None = None,
         stop_requested: Callable[[], bool] | None = None,
     ):
-        """Generator version of fetch_reviews — yields one ReviewInput per item.
+        """Generator: yields all reviews (unanswered + answered) from the given date.
 
-        Pages are fetched and yielded immediately, so peak memory is O(page_size)
-        regardless of the total number of reviews. Critical for accounts with
-        100 000+ reviews.
+        Two passes — isAnswered=false then isAnswered=true — so reviews answered
+        directly on the marketplace portal are also captured and marked answered_manual.
+        Pages are fetched one at a time for O(page_size) peak memory.
         """
         if not self.api_key:
             raise MarketplaceSyncError("wb", "Missing Wildberries api_key")
-        skip = 0
-        page = 0
-        while page < self.max_pages:
-            _raise_if_stop_requested(stop_requested, source="wb")
-            if page > 0:
-                time.sleep(0.4)
-            try:
-                payload = self._request_json(skip=skip, take=self.page_size, since_date=since_date)
-            except TypeError:
-                payload = self._request_json(skip=skip, take=self.page_size)
-            _raise_if_error_payload(payload, source="wb")
-            items = _extract_sequence(payload, keys=self.items_keys)
-            if not items and isinstance(payload.get("data"), dict):
-                _raise_if_error_payload(payload["data"], source="wb")
-                items = _extract_sequence(payload["data"], keys=self.items_keys)
-            if not items:
-                break
-            for item in items:
-                rv = self._to_review(item)
-                if rv.review_id:
-                    yield rv
-            if len(items) < self.page_size:
-                break
-            skip += self.page_size
-            page += 1
+        # Pass 1: unanswered reviews
+        yield from self._fetch_reviews_iter_with_answered(
+            since_date=since_date,
+            stop_requested=stop_requested,
+            answered_value="false",
+        )
+        # Pass 2: answered reviews (replied on portal or via API)
+        # A brief pause between passes to respect rate limits
+        time.sleep(0.5)
+        yield from self._fetch_reviews_iter_with_answered(
+            since_date=since_date,
+            stop_requested=stop_requested,
+            answered_value="true",
+        )
 
     def fetch_conversations(self, *, stop_requested: Callable[[], bool] | None = None) -> list[dict[str, object]]:
         return self.fetch_questions(stop_requested=stop_requested) + self.fetch_chats(stop_requested=stop_requested)
