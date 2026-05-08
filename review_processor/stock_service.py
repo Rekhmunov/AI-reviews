@@ -17,8 +17,11 @@ from .repository import ReviewRepository
 
 _log = logging.getLogger(__name__)
 
-# Directory where downloaded report files are stored
-STOCK_FILES_DIR = Path(os.getenv("STOCK_FILES_DIR", "stock_reports"))
+# Directory where downloaded report files are stored.
+# Defaults to a subdirectory inside the app working directory.
+# Can be overridden via STOCK_FILES_DIR env variable.
+_default_files_dir = Path(__file__).resolve().parent.parent / "stock_reports"
+STOCK_FILES_DIR = Path(os.getenv("STOCK_FILES_DIR", str(_default_files_dir)))
 
 
 def _utc_now_iso() -> str:
