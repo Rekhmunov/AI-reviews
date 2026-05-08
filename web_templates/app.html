@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=42" />
+  <link rel="stylesheet" href="/static/style.css?v=43" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -42,8 +42,8 @@
             <button class="nav-group-toggle" aria-label="Раскрыть" type="button">＋</button>
           </div>
           <div class="nav-group-items" id="navgroup-stock-items">
-            <a class="navbtn nav-sub nav-empty" href="#">Работа с остатками</a>
-            <a class="navbtn nav-sub nav-empty" href="#">Настройки</a>
+            <a id="nav-stock-work" class="navbtn nav-sub" href="#" onclick="showSection('stock-work')">Работа с остатками</a>
+            <a id="nav-stock-settings" class="navbtn nav-sub" href="#" onclick="showSection('stock-settings')">Настройки</a>
           </div>
         </div>
 
@@ -574,6 +574,95 @@
         </div>
       </section>
 
+      <!-- ── Остатки: Настройки ── -->
+      <section id="section-stock-settings" class="hidden">
+        <h3 class="section-title">Остатки — Настройки</h3>
+        <div class="panel">
+          <div class="row row-between" style="margin-bottom:12px">
+            <h4 class="no-margin">Источники данных</h4>
+            <button type="button" onclick="openAddStockSourceModal()">+ Добавить источник</button>
+          </div>
+          <!-- Sync settings -->
+          <div class="row" style="gap:16px;margin-bottom:16px;flex-wrap:wrap">
+            <div style="display:flex;align-items:center;gap:8px">
+              <label class="small" for="stockSyncInterval">Интервал скачивания:</label>
+              <select id="stockSyncInterval" style="width:120px">
+                <option value="1">1 час</option>
+                <option value="3">3 часа</option>
+                <option value="6">6 часов</option>
+                <option value="12">12 часов</option>
+                <option value="24" selected>24 часа</option>
+              </select>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <label class="small" for="stockRetentionDays">Хранить отчёты (дней):</label>
+              <input id="stockRetentionDays" type="number" min="1" max="365" value="30" style="width:70px">
+            </div>
+            <button type="button" onclick="saveStockSourceSettings()">Сохранить</button>
+            <button type="button" class="secondary" onclick="deleteAllStockReports()">Удалить все отчёты</button>
+          </div>
+          <!-- Sources table -->
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>№</th><th>Маркетплейс</th><th>Название</th><th>Ключ</th><th>Интервал</th><th>Активен</th><th>Последний синк</th><th>Действия</th>
+              </tr></thead>
+              <tbody id="stockSourcesTbody"></tbody>
+            </table>
+          </div>
+          <!-- Sync button -->
+          <div class="row" style="margin-top:16px;gap:10px">
+            <button type="button" onclick="syncStockSources()">🔄 Синхронизировать</button>
+            <span id="stockSyncInfo" class="small"></span>
+          </div>
+          <!-- Reports log -->
+          <h4 style="margin-top:24px;margin-bottom:8px">Лог скачанных отчётов</h4>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Источник</th><th>Дата скачивания</th><th>Строк</th><th>Статус</th><th>Скачать</th>
+              </tr></thead>
+              <tbody id="stockReportsTbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Остатки: Работа с остатками ── -->
+      <section id="section-stock-work" class="hidden">
+        <h3 class="section-title">Остатки — Работа с остатками</h3>
+        <div id="stockWorkSources" class="stock-work-tabs"></div>
+        <div class="panel" style="overflow-x:auto;margin-top:0">
+          <div id="stockWorkTableWrap"></div>
+        </div>
+      </section>
+
+      <!-- Add stock source modal -->
+      <div id="addStockSourceModal" class="modal-overlay hidden" role="dialog" aria-modal="true">
+        <div class="modal-card" style="max-width:480px">
+          <div class="row row-between"><h4 class="no-margin">Добавить источник остатков</h4>
+            <button class="secondary" type="button" onclick="closeAddStockSourceModal()">✕</button></div>
+          <div class="row mt-10">
+            <select id="addStockMarketplace" style="width:140px">
+              <option value="wb">Wildberries</option>
+              <option value="ozon">Ozon</option>
+            </select>
+            <input id="addStockName" type="text" placeholder="Название кабинета" style="flex:1">
+          </div>
+          <div id="addStockOzonClientRow" class="row mt-10" style="display:none">
+            <input id="addStockClientId" type="text" placeholder="Client-Id" style="flex:1">
+          </div>
+          <div class="row mt-10">
+            <input id="addStockApiKey" type="text" placeholder="API-ключ" style="flex:1">
+          </div>
+          <div class="row mt-10" style="gap:10px">
+            <button type="button" onclick="confirmAddStockSource()">Добавить</button>
+            <button type="button" class="secondary" onclick="closeAddStockSourceModal()">Отмена</button>
+            <span id="addStockInfo" class="small"></span>
+          </div>
+        </div>
+      </div>
+
       <section id="section-profile" class="hidden">
         <div class="panel">
           <h3>Мой профиль</h3>
@@ -712,6 +801,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=55"></script>
+  <script src="/static/app.js?v=56"></script>
 </body>
 </html>

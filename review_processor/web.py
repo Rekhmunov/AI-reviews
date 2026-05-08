@@ -29,6 +29,7 @@ from .config import AppConfig, load_app_config
 from .repository import ReviewRepository
 from .service import MarketplaceSyncError, ReviewAutomationService, _normalize_timestamp, _parse_ozon_message_text, _wb_image_url
 from .models import ReviewInput
+from .stock_service import StockScheduler, sync_stock_source
 
 try:  # pragma: no cover - optional in sqlite-only environments
     import psycopg  # type: ignore
@@ -604,6 +605,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     rate_limit_lock = threading.Lock()
     rate_buckets: dict[str, list[float]] = {}
     failed_login_attempts: dict[str, list[float]] = {}
+    stock_scheduler = StockScheduler(repository)
 
     def _client_ip(request: Request) -> str:
         forwarded = str(request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
@@ -4280,10 +4282,147 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     continue
         except Exception as _outer_exc:
             _log.error("restore_auto_sync_on_startup: fatal error: %s", _outer_exc)
+        # Start stock scheduler
+        try:
+            stock_scheduler.start()
+        except Exception as _exc:
+            _log.warning("restore_auto_sync_on_startup: stock_scheduler start failed: %s", _exc)
+
+    # ── Stock module endpoints ────────────────────────────────────────────────
+
+    class StockSourceCreateRequest(BaseModel):
+        marketplace: str = Field(min_length=1, max_length=20)
+        account_name: str = Field(min_length=1, max_length=200)
+        api_url: str = Field(default="", max_length=500)
+        api_key: str = Field(default="", max_length=2000)
+        client_id: str = Field(default="", max_length=200)
+        interval_hours: int = Field(default=24, ge=1, le=24)
+        retention_days: int = Field(default=30, ge=1, le=365)
+
+    class StockSourceUpdateRequest(BaseModel):
+        account_name: str | None = None
+        api_key: str | None = None
+        client_id: str | None = None
+        interval_hours: int | None = Field(default=None, ge=1, le=24)
+        retention_days: int | None = Field(default=None, ge=1, le=365)
+        is_active: bool | None = None
+
+    @app.get("/api/stock/sources")
+    def list_stock_sources(request: Request) -> dict[str, object]:
+        user = _require_user(request)
+        sources = repository.list_stock_sources(user_id=int(user["id"]))
+        return {"items": sources, "count": len(sources)}
+
+    @app.post("/api/stock/sources")
+    def create_stock_source(request: Request, payload: StockSourceCreateRequest) -> dict[str, object]:
+        user = _require_settings_access(request)
+        extra = {}
+        if payload.client_id:
+            extra["client_id"] = payload.client_id
+        source = repository.create_stock_source(
+            user_id=int(user["id"]),
+            marketplace=payload.marketplace.lower().strip(),
+            account_name=payload.account_name.strip(),
+            api_url=payload.api_url.strip(),
+            api_key=payload.api_key.strip(),
+            extra=extra,
+            interval_hours=payload.interval_hours,
+            retention_days=payload.retention_days,
+        )
+        return {"ok": True, "item": source}
+
+    @app.put("/api/stock/sources/{source_id}")
+    def update_stock_source(source_id: int, request: Request, payload: StockSourceUpdateRequest) -> dict[str, object]:
+        user = _require_settings_access(request)
+        uid = int(user["id"])
+        extra_update = None
+        if payload.client_id is not None:
+            src = repository.get_stock_source(user_id=uid, source_id=source_id, include_secrets=False)
+            if src:
+                ex = dict(src.get("extra") or {})
+                ex["client_id"] = payload.client_id
+                extra_update = ex
+        updated = repository.update_stock_source(
+            user_id=uid,
+            source_id=source_id,
+            account_name=payload.account_name,
+            api_key=payload.api_key,
+            interval_hours=payload.interval_hours,
+            retention_days=payload.retention_days,
+            is_active=payload.is_active,
+            extra=extra_update,
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Источник не найден")
+        return {"ok": True}
+
+    @app.delete("/api/stock/sources/{source_id}")
+    def delete_stock_source(source_id: int, request: Request) -> dict[str, object]:
+        user = _require_settings_access(request)
+        deleted = repository.delete_stock_source(user_id=int(user["id"]), source_id=source_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Источник не найден")
+        return {"ok": True}
+
+    @app.post("/api/stock/sync")
+    def sync_stock_sources(request: Request, source_ids: list[int] | None = None) -> dict[str, object]:
+        """Manually trigger stock sync for selected (or all) sources."""
+        user = _require_settings_access(request)
+        uid = int(user["id"])
+        sources = repository.list_stock_sources(user_id=uid, include_secrets=True)
+        if source_ids:
+            sources = [s for s in sources if int(s.get("id") or 0) in source_ids]
+        results = []
+        for source in sources:
+            if not source.get("is_active"):
+                continue
+            result = sync_stock_source(source, repository)
+            results.append(result)
+        return {
+            "ok": True,
+            "synced": len(results),
+            "results": results,
+        }
+
+    @app.get("/api/stock/reports")
+    def list_stock_reports(request: Request, source_id: int | None = None) -> dict[str, object]:
+        user = _require_user(request)
+        reports = repository.list_stock_reports(user_id=int(user["id"]), source_id=source_id, limit=100)
+        return {"items": reports, "count": len(reports)}
+
+    @app.delete("/api/stock/reports")
+    def delete_stock_reports(request: Request, source_id: int | None = None) -> dict[str, object]:
+        user = _require_settings_access(request)
+        deleted = repository.delete_all_stock_reports(user_id=int(user["id"]), source_id=source_id)
+        return {"ok": True, "deleted": deleted}
+
+    @app.get("/api/stock/reports/{report_id}/download")
+    def download_stock_report(report_id: int, request: Request) -> object:
+        from fastapi.responses import FileResponse as _FileResp
+        user = _require_user(request)
+        reports = repository.list_stock_reports(user_id=int(user["id"]), limit=1000)
+        report = next((r for r in reports if int(r.get("id") or 0) == report_id), None)
+        if not report:
+            raise HTTPException(status_code=404, detail="Отчёт не найден")
+        file_path = str(report.get("file_path") or "")
+        if not file_path or not Path(file_path).exists():
+            raise HTTPException(status_code=404, detail="Файл отчёта не найден на сервере")
+        return _FileResp(file_path, filename=Path(file_path).name, media_type="application/json")
+
+    @app.get("/api/stock/data")
+    def get_stock_data(request: Request, source_id: int) -> dict[str, object]:
+        """Return pivot stock data for the work-with-stocks table."""
+        user = _require_user(request)
+        dates = repository.get_stock_data_dates(user_id=int(user["id"]), source_id=source_id)
+        rows = repository.get_stock_data_pivot(user_id=int(user["id"]), source_id=source_id)
+        return {"dates": dates, "rows": rows, "count": len(rows)}
+
+    # ── End stock endpoints ───────────────────────────────────────────────────
 
     @app.on_event("shutdown")
     def stop_auto_sync_worker() -> None:
         auto_sync_stop_event.set()
+        stock_scheduler.stop()
         worker = auto_sync_worker.get("thread")
         if isinstance(worker, threading.Thread) and worker.is_alive():
             worker.join(timeout=1.5)

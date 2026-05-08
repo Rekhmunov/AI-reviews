@@ -110,7 +110,7 @@ const UI_REFRESH_MS = 60000;        // refresh chat list from DB every 60s (afte
 const CHANNEL_ICONS = { "Отзывы": "⭐", "Вопросы": "❓", "Чаты": "💬" };
 const ACTIVE_SECTION_STORAGE_KEY = "feedpilot_active_section";
 const ACTIVE_SETTINGS_TAB_STORAGE_KEY = "feedpilot_active_settings_tab";
-const SECTION_IDS = ["reviews", "conversations", "chats", "analytics", "settings", "profile"];
+const SECTION_IDS = ["reviews", "conversations", "chats", "analytics", "settings", "stock-settings", "stock-work", "profile"];
 const SETTINGS_TAB_IDS = ["sources", "rules", "templates", "recommendations", "team", "template-variables"];
 const APP_BOOT_HIDE_CLASS = "app-boot-hidden";
 const MOBILE_NAV_BREAKPOINT_PX = 900;
@@ -406,6 +406,8 @@ const SECTION_TO_NAV_GROUP = {
   conversations: "feedback",
   chats: "feedback",
   settings: "feedback",
+  "stock-settings": "stock",
+  "stock-work": "stock",
 };
 
 function toggleNavGroup(groupId) {
@@ -1831,6 +1833,202 @@ async function loadReviews() {
   document.getElementById("reviewsPrevPageBtn").disabled = reviewsState.page <= 1;
   document.getElementById("reviewsNextPageBtn").disabled = reviewsState.page >= reviewsState.pages;
 }
+
+// ── Stock module ─────────────────────────────────────────────────────────────
+
+let stockSourcesState = { items: [], activeSourceId: null };
+
+function openAddStockSourceModal() {
+  document.getElementById("addStockInfo").textContent = "";
+  document.getElementById("addStockName").value = "";
+  document.getElementById("addStockApiKey").value = "";
+  document.getElementById("addStockClientId").value = "";
+  const mp = document.getElementById("addStockMarketplace");
+  if (mp) mp.value = "wb";
+  toggleOzonClientIdRow();
+  setModalVisibility("addStockSourceModal", true);
+}
+
+function closeAddStockSourceModal() {
+  setModalVisibility("addStockSourceModal", false);
+}
+
+function toggleOzonClientIdRow() {
+  const mp = document.getElementById("addStockMarketplace")?.value;
+  const row = document.getElementById("addStockOzonClientRow");
+  if (row) row.style.display = mp === "ozon" ? "flex" : "none";
+}
+
+async function confirmAddStockSource() {
+  const info = document.getElementById("addStockInfo");
+  const marketplace = document.getElementById("addStockMarketplace")?.value || "wb";
+  const name = String(document.getElementById("addStockName")?.value || "").trim();
+  const apiKey = String(document.getElementById("addStockApiKey")?.value || "").trim();
+  const clientId = String(document.getElementById("addStockClientId")?.value || "").trim();
+  if (!name) { if (info) info.textContent = "Введите название"; return; }
+  if (!apiKey) { if (info) info.textContent = "Введите API-ключ"; return; }
+  try {
+    const res = await fetch("/api/stock/sources", {
+      method: "POST", headers: jsonHeaders(),
+      body: JSON.stringify({ marketplace, account_name: name, api_key: apiKey, client_id: clientId }),
+    });
+    const data = await res.json();
+    if (!res.ok) { if (info) info.textContent = "Ошибка: " + (data.detail || "не удалось добавить"); return; }
+    closeAddStockSourceModal();
+    await loadStockSources();
+  } catch (_) { if (info) info.textContent = "Ошибка соединения"; }
+}
+
+async function loadStockSources() {
+  const res = await fetch("/api/stock/sources");
+  if (!res.ok) return;
+  const data = await res.json();
+  stockSourcesState.items = data.items || [];
+  renderStockSources();
+  renderStockWorkTabs();
+}
+
+function renderStockSources() {
+  const tbody = document.getElementById("stockSourcesTbody");
+  if (!tbody) return;
+  const items = stockSourcesState.items;
+  if (!items.length) {
+    tbody.innerHTML = '<tr><td colspan="8" class="small">Источников нет</td></tr>';
+    return;
+  }
+  tbody.innerHTML = items.map((s, i) => `
+    <tr>
+      <td>${i + 1}</td>
+      <td>${esc(String(s.marketplace || "").toUpperCase())}</td>
+      <td>${esc(s.account_name || "")}</td>
+      <td><code>${esc(s.api_key || "")}</code></td>
+      <td>${esc(String(s.interval_hours || 24))} ч</td>
+      <td>${s.is_active ? "Да" : "Нет"}</td>
+      <td class="small">${esc(s.last_synced_at ? s.last_synced_at.slice(0, 16).replace("T", " ") : "—")}</td>
+      <td>
+        <button class="secondary" onclick="deleteStockSource(${s.id})">Удалить</button>
+      </td>
+    </tr>
+  `).join("");
+}
+
+async function deleteStockSource(sourceId) {
+  if (!confirm("Удалить этот источник остатков?")) return;
+  const res = await fetch(`/api/stock/sources/${sourceId}`, { method: "DELETE", headers: withCsrfHeaders() });
+  if (res.ok) await loadStockSources();
+}
+
+async function saveStockSourceSettings() {
+  const interval = Number(document.getElementById("stockSyncInterval")?.value || 24);
+  const retention = Number(document.getElementById("stockRetentionDays")?.value || 30);
+  const info = document.getElementById("stockSyncInfo");
+  // Save per-source (apply to all active sources)
+  for (const src of stockSourcesState.items) {
+    await fetch(`/api/stock/sources/${src.id}`, {
+      method: "PUT", headers: jsonHeaders(),
+      body: JSON.stringify({ interval_hours: interval, retention_days: retention }),
+    });
+  }
+  if (info) info.textContent = "Сохранено";
+  setTimeout(() => { if (info) info.textContent = ""; }, 3000);
+}
+
+async function syncStockSources() {
+  const info = document.getElementById("stockSyncInfo");
+  if (info) info.textContent = "Синхронизация...";
+  try {
+    const res = await fetch("/api/stock/sync", { method: "POST", headers: jsonHeaders(), body: JSON.stringify({}) });
+    const data = await res.json();
+    if (info) info.textContent = res.ok ? `Готово. Синхронизировано: ${data.synced}` : "Ошибка";
+    await loadStockReports();
+    await loadStockSources();
+    if (stockSourcesState.activeSourceId) await loadStockWorkData(stockSourcesState.activeSourceId);
+  } catch (_) { if (info) info.textContent = "Ошибка соединения"; }
+}
+
+async function deleteAllStockReports() {
+  if (!confirm("Удалить все скачанные отчёты остатков?")) return;
+  await fetch("/api/stock/reports", { method: "DELETE", headers: withCsrfHeaders() });
+  await loadStockReports();
+}
+
+async function loadStockReports() {
+  const res = await fetch("/api/stock/reports");
+  if (!res.ok) return;
+  const data = await res.json();
+  const tbody = document.getElementById("stockReportsTbody");
+  if (!tbody) return;
+  const items = data.items || [];
+  if (!items.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="small">Отчётов нет</td></tr>';
+    return;
+  }
+  tbody.innerHTML = items.map(r => {
+    const src = stockSourcesState.items.find(s => s.id === r.source_id);
+    const srcName = src ? esc(src.account_name) : `#${r.source_id}`;
+    const date = esc((r.downloaded_at || "").slice(0, 16).replace("T", " "));
+    const status = r.status === "ok" ? "✅" : `❌ ${esc(r.error_message || "")}`;
+    const dl = r.file_path ? `<a href="/api/stock/reports/${r.id}/download" target="_blank">⬇ Скачать</a>` : "—";
+    return `<tr><td>${srcName}</td><td>${date}</td><td>${r.rows_count || 0}</td><td>${status}</td><td>${dl}</td></tr>`;
+  }).join("");
+}
+
+function renderStockWorkTabs() {
+  const container = document.getElementById("stockWorkSources");
+  if (!container) return;
+  const items = stockSourcesState.items.filter(s => s.is_active);
+  if (!items.length) {
+    container.innerHTML = '<p class="small" style="padding:12px;color:#9ca3af">Нет активных источников. Добавьте источник в Настройки.</p>';
+    return;
+  }
+  container.innerHTML = items.map(s =>
+    `<button type="button" class="stock-source-tab ${stockSourcesState.activeSourceId === s.id ? 'active' : ''}"
+      onclick="selectStockSource(${s.id})">${esc(s.account_name)}</button>`
+  ).join("");
+}
+
+async function selectStockSource(sourceId) {
+  stockSourcesState.activeSourceId = sourceId;
+  renderStockWorkTabs();
+  await loadStockWorkData(sourceId);
+}
+
+async function loadStockWorkData(sourceId) {
+  const wrap = document.getElementById("stockWorkTableWrap");
+  if (!wrap) return;
+  wrap.innerHTML = '<p class="small" style="padding:16px;color:#9ca3af">⏳ Загрузка...</p>';
+  const res = await fetch(`/api/stock/data?source_id=${sourceId}`);
+  if (!res.ok) { wrap.innerHTML = '<p class="small" style="padding:16px;color:#dc2626">Ошибка загрузки данных</p>'; return; }
+  const data = await res.json();
+  const dates = data.dates || [];
+  const rows = data.rows || [];
+  if (!dates.length || !rows.length) {
+    wrap.innerHTML = '<p class="small" style="padding:16px;color:#9ca3af">Данных нет. Нажмите «Синхронизировать» для скачивания отчёта.</p>';
+    return;
+  }
+  const headerCols = dates.map(d => `<th class="stock-date-col">${esc(d.slice(0, 16).replace("T", " "))}</th>`).join("");
+  const bodyRows = rows.map(r =>
+    `<tr>
+      <td>${esc(r.wb_article)}</td>
+      <td>${esc(r.seller_article)}</td>
+      <td>${esc(r.warehouse_name)}</td>
+      ${dates.map(d => `<td class="stock-num">${r.dates[d] !== undefined ? r.dates[d] : "—"}</td>`).join("")}
+    </tr>`
+  ).join("");
+  wrap.innerHTML = `
+    <table class="stock-data-table">
+      <thead><tr>
+        <th>Артикул WB</th>
+        <th>Артикул продавца</th>
+        <th>Склад / Кластер</th>
+        ${headerCols}
+      </tr></thead>
+      <tbody>${bodyRows}</tbody>
+    </table>`;
+}
+
+// Initialize stock module when entering stock sections
+const _origShowSection = typeof showSection === "function" ? showSection : null;
 
 // ── Review reply actions ─────────────────────────────────────────────────────
 
@@ -4293,6 +4491,10 @@ document.addEventListener("DOMContentLoaded", () => {
     loadUserTemplateVariables();
     loadRecommendations();
   }
+  // Load stock sources/reports lazily
+  loadStockSources().then(() => loadStockReports()).catch(() => {});
+  // Hook ozon client-id toggle
+  document.getElementById("addStockMarketplace")?.addEventListener("change", toggleOzonClientIdRow);
   requestAnimationFrame(() => {
     document.body.classList.remove(APP_BOOT_HIDE_CLASS);
   });
