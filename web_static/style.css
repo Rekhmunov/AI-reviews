@@ -441,28 +441,55 @@ body.landing-page {
 .nav-group-toggle {
   background: none;
   border: none;
-  color: #64748b;
-  font-size: 18px;
+  color: #94a3b8;
+  font-size: 13px;
+  font-weight: 300;
   line-height: 1;
   cursor: pointer;
-  padding: 4px 6px;
-  border-radius: 6px;
-  transition: transform 0.2s;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: color 0.15s;
+  width: 20px !important;
+  text-align: center;
   /* only visible on mobile */
   display: none;
 }
 
-.nav-group.open .nav-group-toggle {
-  transform: rotate(45deg);
-}
+.nav-group-toggle:hover { color: #475569; }
 
-/* Desktop: submenu shown on hover */
+/* ＋ → − when open */
+.nav-group.open .nav-group-toggle::before { content: "−"; }
+.nav-group:not(.open) .nav-group-toggle::before { content: "+"; }
+.nav-group-toggle { font-size: 16px; }
+
+/* Desktop: submenu flies out to the RIGHT — does not push content down */
 .nav-group-items {
   display: none;
   flex-direction: column;
-  padding-left: 10px;
-  border-left: 2px solid var(--line);
-  margin-left: 6px;
+  position: absolute;
+  left: calc(100% + 4px);
+  top: 0;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.10);
+  min-width: 160px;
+  padding: 6px 0;
+  z-index: 200;
+  white-space: nowrap;
+}
+
+.nav-group-items .navbtn,
+.nav-group-items .nav-sub {
+  padding: 9px 16px;
+  border-radius: 0;
+  margin-bottom: 0;
+}
+
+.nav-group-items .navbtn:hover,
+.nav-group-items .nav-sub:hover {
+  background: #f1f5f9;
+  border-radius: 0;
 }
 
 .nav-group:hover > .nav-group-items {
@@ -3192,9 +3219,17 @@ button.secondary.danger:hover {
     margin-bottom: 9px;
   }
 
-  /* Mobile nav groups: show +/- button, hover disabled */
+  /* Mobile nav groups: +/- toggle, no flyout */
   .nav-group-toggle {
-    display: block;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px !important;
+    height: 28px;
+    background: #f1f5f9;
+    border-radius: 6px;
+    color: #475569;
+    font-size: 18px;
   }
 
   .nav-group:hover > .nav-group-items {
@@ -3205,6 +3240,22 @@ button.secondary.danger:hover {
     display: flex;
     flex-direction: column;
     width: 100%;
+    /* override desktop flyout styles */
+    position: static;
+    background: none;
+    border: none;
+    box-shadow: none;
+    border-radius: 0;
+    padding: 0 0 0 10px;
+    border-left: 2px solid var(--line);
+    margin-left: 6px;
+    min-width: unset;
+  }
+
+  .nav-group.open > .nav-group-items .navbtn,
+  .nav-group.open > .nav-group-items .nav-sub {
+    padding: 8px 12px;
+    border-radius: 8px;
   }
 
   .nav-group-title {
