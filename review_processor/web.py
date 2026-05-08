@@ -3252,12 +3252,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         """Return recent Yandex GPT requests (last 1 day) for debugging."""
         user = _require_admin(request)
         owner_id = _tenant_owner_id(user)
-        # Purge stale entries first, then return fresh ones
         try:
             repository.purge_old_ai_request_logs(user_id=owner_id)
         except Exception:
             pass
-        logs = repository.list_ai_request_logs(user_id=owner_id, limit=min(max(limit, 1), 500))
+        try:
+            logs = repository.list_ai_request_logs(user_id=owner_id, limit=min(max(limit, 1), 500))
+        except Exception as exc:
+            _log.warning("ai-request-log: table not ready yet: %s", exc)
+            logs = []
         return {"ok": True, "logs": logs, "count": len(logs)}
 
     @app.get("/api/admin/context")

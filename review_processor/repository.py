@@ -7,7 +7,7 @@ import sqlite3
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 try:  # pragma: no cover - imported lazily in most tests
     import psycopg  # type: ignore
@@ -5711,7 +5711,7 @@ class ReviewRepository:
             ).fetchall()
         return [self._row_to_dict(r) for r in rows]
 
-    def purge_old_ai_request_logs(self, *, user_id: int | None = None) -> int:
+    def purge_old_ai_request_logs(self, *, user_id: Optional[int] = None) -> int:
         """Delete AI request logs older than 1 day."""
         if self.is_postgres:
             clause = "created_at < NOW() - INTERVAL '1 day'"
