@@ -1132,6 +1132,96 @@ button.secondary.danger:hover {
   font-size: 14px;
 }
 
+/* ── Reviews 3-column table ── */
+.review-col-review { width: 38%; vertical-align: top; padding: 12px 10px; }
+.review-col-reply  { width: 34%; vertical-align: top; padding: 12px 10px; }
+.review-col-product{ width: 28%; vertical-align: top; padding: 12px 10px; }
+
+.review-group-title {
+  font-weight: 700;
+  font-size: 13px;
+  color: #1e40af;
+  margin-bottom: 4px;
+}
+
+.review-stars { margin-bottom: 6px; }
+
+.review-text {
+  font-size: 14px;
+  margin-bottom: 6px;
+  word-break: break-word;
+}
+
+.review-pros, .review-cons { margin-bottom: 4px; }
+
+.review-subgroup-tag {
+  display: inline-block;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.review-meta-small {
+  font-size: 12px;
+  color: #94a3b8;
+  margin-top: 6px;
+}
+
+.review-reply-textarea {
+  width: 100%;
+  min-height: 90px;
+  resize: vertical;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 8px;
+  font-size: 13px;
+  font-family: inherit;
+  box-sizing: border-box;
+  background: #f9fafb;
+  transition: border-color 0.15s;
+}
+
+.review-reply-textarea:not([readonly]) {
+  background: #fff;
+  border-color: #2563eb;
+}
+
+.review-reply-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  align-items: center;
+}
+
+.review-icon-btn {
+  background: none;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 16px;
+  cursor: pointer;
+  width: auto !important;
+  min-width: 34px;
+}
+
+.review-icon-btn:hover { background: #f3f4f6; }
+
+.review-product-name {
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 6px;
+  word-break: break-word;
+}
+
+.review-product-detail {
+  color: #64748b;
+  margin-bottom: 3px;
+}
+
 /* Sync report modal */
 .sync-report-card {
   width: min(600px, 96vw);

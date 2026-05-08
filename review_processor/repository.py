@@ -5050,6 +5050,26 @@ class ReviewRepository:
             return None
         return self._row_to_dict(row)
 
+    def update_review_manual_reply(
+        self,
+        *,
+        user_id: int,
+        review_uid: str,
+        operator_name: str,
+        reply_text: str,
+    ) -> bool:
+        now = _utc_now()
+        with self._connect() as conn:
+            result = conn.execute(
+                self._sql("""
+                UPDATE review_items
+                SET manual_reply = ?, operator_name = ?, status = 'answered_manual', updated_at = ?
+                WHERE user_id = ? AND review_uid = ?
+                """),
+                (reply_text, operator_name, now, user_id, review_uid),
+            )
+        return result.rowcount > 0
+
     def get_conversation(self, *, user_id: int, conversation_uid: str) -> dict[str, Any] | None:
         with self._connect() as conn:
             row = conn.execute(

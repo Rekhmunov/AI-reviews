@@ -28,6 +28,7 @@ _log = logging.getLogger(__name__)
 from .config import AppConfig, load_app_config
 from .repository import ReviewRepository
 from .service import MarketplaceSyncError, ReviewAutomationService, _normalize_timestamp, _parse_ozon_message_text, _wb_image_url
+from .models import ReviewInput
 
 try:  # pragma: no cover - optional in sqlite-only environments
     import psycopg  # type: ignore
@@ -1770,6 +1771,26 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             bucket=normalized_bucket,
             account_ids=account_ids_filter,
         )
+        # Enrich each review with a suggested template text for the reply column
+        user_id_int = int(user["id"])
+        for item in page_data.get("items") or []:
+            group_id = str(item.get("category") or "")
+            meta = item.get("metadata") or {}
+            subgroup = str(meta.get("classified_subgroup") or "")
+            item["classified_subgroup"] = subgroup  # expose at top level for JS
+            if group_id:
+                try:
+                    tmpl = repository.get_random_template_variant(
+                        user_id=user_id_int,
+                        group_id=group_id,
+                        subgroup=subgroup or None,
+                    )
+                    item["suggested_reply"] = str(tmpl.get("template_text") or "") if tmpl else ""
+                except Exception:
+                    item["suggested_reply"] = ""
+            else:
+                item["suggested_reply"] = ""
+
         source_options = service.list_review_sources(user_id=int(user["id"]))
         return {
             "items": page_data["items"],
@@ -1788,6 +1809,55 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "status": status_key or "all",
             "source_options": source_options,
         }
+
+    @app.get("/api/reviews/random-template")
+    def reviews_random_template(request: Request, group_id: str, subgroup: str = "") -> dict[str, object]:
+        """Return a random template for the given group/subgroup — used by the reply refresh button."""
+        user = _require_user(request)
+        tmpl = repository.get_random_template_variant(
+            user_id=int(user["id"]),
+            group_id=group_id.strip(),
+            subgroup=subgroup.strip() or None,
+        )
+        return {"template_text": str(tmpl.get("template_text") or "") if tmpl else ""}
+
+    @app.post("/api/reviews/{review_uid}/reply")
+    def reply_to_review(review_uid: str, request: Request, payload: ConversationReplyRequest) -> dict[str, object]:
+        """Send a reply to a WB review directly from the review table."""
+        user = _require_user(request)
+        review_obj = repository.get_review(user_id=int(user["id"]), review_uid=review_uid)
+        if review_obj is None:
+            raise HTTPException(status_code=404, detail="Отзыв не найден")
+        response_text = str(payload.response_text or "").strip()
+        if not response_text:
+            raise HTTPException(status_code=400, detail="Текст ответа не может быть пустым")
+        account_id = review_obj.get("account_id")
+        account = repository.get_marketplace_account(
+            user_id=int(user["id"]),
+            account_id=int(account_id),
+            include_secrets=True,
+        ) if account_id else None
+        if account is None:
+            raise HTTPException(status_code=404, detail="Кабинет не найден")
+        client = service._build_client(account)
+        review_input = ReviewInput(
+            review_id=str(review_obj.get("external_review_id") or ""),
+            text=str(review_obj.get("text") or ""),
+            metadata=review_obj.get("metadata") or {},
+        )
+        try:
+            sent = client.send_review_reply(review=review_input, response_text=response_text)
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Не удалось отправить ответ: {exc}")
+        if not sent:
+            raise HTTPException(status_code=502, detail="Ответ не был отправлен")
+        repository.update_review_manual_reply(
+            user_id=int(user["id"]),
+            review_uid=review_uid,
+            operator_name=str(user.get("full_name") or user.get("email") or "Оператор"),
+            reply_text=response_text,
+        )
+        return {"ok": True}
 
     @app.get("/api/conversations")
     def list_conversations(

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=41" />
+  <link rel="stylesheet" href="/static/style.css?v=42" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -170,7 +170,9 @@
             <table>
             <thead>
               <tr>
-                <th>Дата</th><th>Источник</th><th>Отзыв</th><th>Ответ</th><th>Приоритет</th><th>Статус</th><th>Действия</th>
+                <th class="review-col-review">Отзыв</th>
+                <th class="review-col-reply">Ответ</th>
+                <th class="review-col-product">Товар</th>
               </tr>
             </thead>
             <tbody id="reviewsTbody"></tbody>
@@ -692,6 +694,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=53"></script>
+  <script src="/static/app.js?v=54"></script>
 </body>
 </html>

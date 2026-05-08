@@ -1741,7 +1741,7 @@ async function loadReviews() {
   tbody.innerHTML = "";
   if (!res.ok) {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td colspan="7" class="small">Ошибка: ${esc(data.detail || "не удалось загрузить отзывы")}</td>`;
+    tr.innerHTML = `<td colspan="3" class="small">Ошибка: ${esc(data.detail || "не удалось загрузить отзывы")}</td>`;
     tbody.appendChild(tr);
     return;
   }
@@ -1753,38 +1753,51 @@ async function loadReviews() {
     const sendErrorIcon = hasSendError
       ? `<span class="send-error-indicator" title="${esc(sendErrorMessage)}">❗</span>`
       : "";
-    // Format review date from created_at or metadata.raw.createdDate
-    let reviewDateStr = "-";
-    const rDateRaw = review.created_at || "";
-    if (rDateRaw) {
-      try {
-        const rd = new Date(rDateRaw);
-        if (!isNaN(rd.getTime())) {
-          reviewDateStr = rd.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit" })
-            + " " + rd.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
-        }
-      } catch (_) {}
-    }
+    // --- Column 1: Review ---
+    const meta = review.metadata || {};
+    const rawProduct = (meta.raw || {}).productDetails || {};
+    const groupTitle = labelFromMap(categoryLabels, review.category) || esc(review.category || "");
+    const subgroup = esc(review.classified_subgroup || "");
+    const textParts = [];
+    if (review.text) textParts.push(`<div class="review-text">${esc(review.text)}</div>`);
+    const rawItem = meta.raw || {};
+    if (rawItem.pros) textParts.push(`<div class="review-pros small"><b>Достоинства:</b> ${esc(rawItem.pros)}</div>`);
+    if (rawItem.cons) textParts.push(`<div class="review-cons small"><b>Недостатки:</b> ${esc(rawItem.cons)}</div>`);
+
+    // --- Column 2: Reply ---
+    const suggestedText = String(review.suggested_reply || review.auto_reply || "");
+    const reviewUid = esc(review.review_uid);
+
+    // --- Column 3: Product ---
+    const productName = esc(rawProduct.productName || rawItem.productName || "");
+    const barcode = esc(String(rawProduct.lastOrderShkId || rawItem.lastOrderShkId || review.metadata?.raw?.lastOrderShkId || ""));
+    const article = esc(rawProduct.supplierArticle || rawItem.supplierArticle || "");
+    const brand = esc(rawProduct.brand || rawItem.brand || "");
+    const seller = esc(rawProduct.seller || rawItem.seller || "");
+
     tr.innerHTML = `
-      <td class="question-date">${esc(reviewDateStr)}</td>
-      <td>${esc(review.source)}</td>
-      <td>
-        <div>${esc(review.text)}</div>
-        <div class="small">автор: ${esc(review.author || "-")} | рейтинг: ${renderRatingStars(review.rating)} | категория: ${esc(labelFromMap(categoryLabels, review.category))}</div>
+      <td class="review-col-review">
+        <div class="review-group-title">${groupTitle}</div>
+        <div class="review-stars">${renderRatingStars(review.rating)}</div>
+        ${textParts.join("")}
+        ${subgroup ? `<div class="review-subgroup-tag">${subgroup}</div>` : ""}
+        <div class="review-meta-small">${esc(review.author || "")} · ${esc(review.created_at ? review.created_at.slice(0, 10) : "")}</div>
       </td>
-      <td>
-        <div class="small">автоответ: ${esc(review.auto_reply || "-")}</div>
-        <div class="small">ответ оператора: ${esc(review.manual_reply || "-")}</div>
-      </td>
-      <td><span class="pill ${esc(review.priority)}">${esc(labelFromMap(priorityLabels, review.priority))}</span></td>
-      <td>${esc(labelFromMap(reviewStatusLabels, review.status))}</td>
-      <td>
-        <div class="actions-col">
-          <button onclick="autoReply('${esc(review.review_uid)}')">Автоответ</button>
-          <button class="secondary" onclick="queueManual('${esc(review.review_uid)}')">Вручную</button>
-          <button class="secondary" onclick="manualReply('${esc(review.review_uid)}')">Ответ оператора</button>
+      <td class="review-col-reply">
+        <textarea class="review-reply-textarea" id="reply-${reviewUid}" readonly>${esc(suggestedText)}</textarea>
+        <div class="review-reply-actions">
+          <button type="button" class="review-icon-btn" title="Отправить ответ" onclick="sendReviewReply('${reviewUid}')">📤</button>
+          <button type="button" class="review-icon-btn" title="Другой шаблон" onclick="refreshReviewTemplate('${reviewUid}', '${esc(review.category || "")}', '${esc(review.classified_subgroup || "")}')">🔄</button>
+          <button type="button" class="review-icon-btn" title="Редактировать" onclick="editReviewReply('${reviewUid}')">✏️</button>
           ${sendErrorIcon}
         </div>
+      </td>
+      <td class="review-col-product">
+        ${productName ? `<div class="review-product-name">${productName}</div>` : ""}
+        ${barcode ? `<div class="review-product-detail small">Штрихкод: ${barcode}</div>` : ""}
+        ${article ? `<div class="review-product-detail small">Артикул: ${article}</div>` : ""}
+        ${brand ? `<div class="review-product-detail small">Бренд: ${brand}</div>` : ""}
+        ${seller ? `<div class="review-product-detail small">Продавец: ${seller}</div>` : ""}
       </td>
     `;
     tbody.appendChild(tr);
@@ -1817,6 +1830,53 @@ async function loadReviews() {
   document.getElementById("reviewsPageInfo").textContent = `Страница ${reviewsState.page} из ${reviewsState.pages}`;
   document.getElementById("reviewsPrevPageBtn").disabled = reviewsState.page <= 1;
   document.getElementById("reviewsNextPageBtn").disabled = reviewsState.page >= reviewsState.pages;
+}
+
+// ── Review reply actions ─────────────────────────────────────────────────────
+
+async function sendReviewReply(reviewUid) {
+  const textarea = document.getElementById(`reply-${reviewUid}`);
+  const text = String(textarea?.value || "").trim();
+  if (!text) { alert("Введите текст ответа"); return; }
+  try {
+    const res = await fetch(`/api/reviews/${encodeURIComponent(reviewUid)}/reply`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ response_text: text }),
+    });
+    const data = await res.json();
+    if (!res.ok) { alert("Ошибка: " + (data.detail || "не удалось отправить")); return; }
+    await loadReviews();
+  } catch (err) {
+    alert("Ошибка при отправке ответа");
+  }
+}
+
+async function refreshReviewTemplate(reviewUid, groupId, subgroup) {
+  if (!groupId) return;
+  try {
+    const q = new URLSearchParams({ group_id: groupId, subgroup: subgroup || "" });
+    const res = await fetch(`/api/reviews/random-template?${q}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const textarea = document.getElementById(`reply-${reviewUid}`);
+    if (textarea && data.template_text) {
+      textarea.value = data.template_text;
+    }
+  } catch (_) {}
+}
+
+function editReviewReply(reviewUid) {
+  const textarea = document.getElementById(`reply-${reviewUid}`);
+  if (!textarea) return;
+  if (textarea.readOnly) {
+    textarea.readOnly = false;
+    textarea.focus();
+    textarea.style.borderColor = "#2563eb";
+  } else {
+    textarea.readOnly = true;
+    textarea.style.borderColor = "";
+  }
 }
 
 async function sendConversationReply(conversationUid, responseText, idempotencyKey = null) {
