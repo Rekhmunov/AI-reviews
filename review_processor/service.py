@@ -1675,6 +1675,42 @@ class ReviewAutomationService:
                     continue
 
             loaded_count += 1
+
+            # Check if this review was already answered on the marketplace portal.
+            # WB: replyText or reply.text. Ozon: comment.text or answer.
+            # If a reply exists → mark answered_manual and skip the template pipeline.
+            _raw = review.metadata.get("raw") if isinstance(review.metadata, dict) else {}
+            _raw = _raw if isinstance(_raw, dict) else {}
+            _reply_text = (
+                str(_raw.get("replyText") or "").strip()
+                or str((_raw.get("reply") or {}).get("text") or "").strip()
+                or str((_raw.get("answer") or {}).get("text") or "").strip()
+                or str((_raw.get("comment") or {}).get("text") or "").strip()
+            )
+            if _reply_text:
+                review_uid = self.repository.make_review_uid(
+                    user_id or 0, source, account_id, str(review.review_id)
+                )
+                review_metadata = dict(review.metadata) if isinstance(review.metadata, dict) else {}
+                self.repository.upsert_processed_review(
+                    user_id=user_id,
+                    source=source,
+                    account_id=account_id,
+                    review=ReviewInput(
+                        review_id=review.review_id,
+                        text=review.text,
+                        author=review.author,
+                        rating=review.rating,
+                        metadata=review_metadata,
+                    ),
+                    processed=self.processor.process(review),
+                    category=str(review_metadata.get("classified_group_id") or self.AI_UNCLASSIFIED_CATEGORY),
+                    processing_mode="manual",
+                    status="answered_manual",
+                    auto_reply=_reply_text,
+                )
+                continue
+
             processed = self.processor.process(review)
             ai_classification_failed = False
             ai_classification_error = ""
