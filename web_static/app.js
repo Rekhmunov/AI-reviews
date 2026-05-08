@@ -1973,6 +1973,61 @@ async function loadStockReports() {
   }).join("");
 }
 
+// ── Stock settings helpers ────────────────────────────────────────────────────
+
+function _stockKey(sourceId, key) { return `stock_${sourceId}_${key}`; }
+
+function _getHiddenWarehouses(sourceId) {
+  try { return new Set(JSON.parse(localStorage.getItem(_stockKey(sourceId, "hidden_wh")) || "[]")); }
+  catch (_) { return new Set(); }
+}
+
+function _setHiddenWarehouses(sourceId, set) {
+  localStorage.setItem(_stockKey(sourceId, "hidden_wh"), JSON.stringify([...set]));
+}
+
+function _getStockThreshold(sourceId) {
+  return Number(localStorage.getItem(_stockKey(sourceId, "threshold")) || 0);
+}
+
+function _setStockThreshold(sourceId, val) {
+  localStorage.setItem(_stockKey(sourceId, "threshold"), String(Number(val) || 0));
+}
+
+function _getColWidth(sourceId) {
+  return Number(localStorage.getItem(_stockKey(sourceId, "col_width")) || 120);
+}
+
+function _setColWidth(sourceId, w) {
+  localStorage.setItem(_stockKey(sourceId, "col_width"), String(w));
+}
+
+function _getCollapsed(sourceId) {
+  try { return new Set(JSON.parse(localStorage.getItem(_stockKey(sourceId, "collapsed_wh")) || "[]")); }
+  catch (_) { return new Set(); }
+}
+
+function _setCollapsed(sourceId, set) {
+  localStorage.setItem(_stockKey(sourceId, "collapsed_wh"), JSON.stringify([...set]));
+}
+
+// Convert UTC ISO date string to Moscow time (UTC+3) label
+function _toMsk(isoStr) {
+  if (!isoStr) return "—";
+  try {
+    const d = new Date(isoStr + (isoStr.includes("+") ? "" : "Z"));
+    const msk = new Date(d.getTime() + 3 * 3600 * 1000);
+    const dd = String(msk.getUTCDate()).padStart(2, "0");
+    const mm = String(msk.getUTCMonth() + 1).padStart(2, "0");
+    const yy = String(msk.getUTCFullYear()).slice(-2);
+    const hh = String(msk.getUTCHours()).padStart(2, "0");
+    const min = String(msk.getUTCMinutes()).padStart(2, "0");
+    return `${dd}.${mm}.${yy} ${hh}:${min}`;
+  } catch (_) { return isoStr.slice(0, 16); }
+}
+
+// ── Tab rendering ─────────────────────────────────────────────────────────────
+
 function renderStockWorkTabs() {
   const container = document.getElementById("stockWorkSources");
   if (!container) return;
@@ -1981,9 +2036,13 @@ function renderStockWorkTabs() {
     container.innerHTML = '<p class="small" style="padding:12px;color:#9ca3af">Нет активных источников. Добавьте источник в Настройки.</p>';
     return;
   }
-  container.innerHTML = items.map(s =>
-    `<button type="button" class="stock-source-tab ${stockSourcesState.activeSourceId === s.id ? 'active' : ''}"
-      onclick="selectStockSource(${s.id})">${esc(s.account_name)}</button>`
+  container.innerHTML = items.map(s => `
+    <div class="stock-tab-group">
+      <button type="button" class="stock-source-tab ${stockSourcesState.activeSourceId === s.id ? 'active' : ''}"
+        onclick="selectStockSource(${s.id})">${esc(s.account_name)}</button>
+      <button type="button" class="stock-tab-gear" title="Настройки отображения"
+        onclick="openStockSettings(${s.id})">⚙</button>
+    </div>`
   ).join("");
 }
 
@@ -1992,6 +2051,8 @@ async function selectStockSource(sourceId) {
   renderStockWorkTabs();
   await loadStockWorkData(sourceId);
 }
+
+// ── Main data loader ──────────────────────────────────────────────────────────
 
 async function loadStockWorkData(sourceId) {
   const wrap = document.getElementById("stockWorkTableWrap");
@@ -2006,25 +2067,187 @@ async function loadStockWorkData(sourceId) {
     wrap.innerHTML = '<p class="small" style="padding:16px;color:#9ca3af">Данных нет. Нажмите «Синхронизировать» для скачивания отчёта.</p>';
     return;
   }
-  const headerCols = dates.map(d => `<th class="stock-date-col">${esc(d.slice(0, 16).replace("T", " "))}</th>`).join("");
-  const bodyRows = rows.map(r =>
-    `<tr>
-      <td>${esc(r.wb_article)}</td>
-      <td>${esc(r.seller_article)}</td>
-      <td>${esc(r.warehouse_name)}</td>
-      ${dates.map(d => `<td class="stock-num">${r.dates[d] !== undefined ? r.dates[d] : "—"}</td>`).join("")}
-    </tr>`
+  renderStockDataTable(sourceId, dates, rows, wrap);
+}
+
+function renderStockDataTable(sourceId, dates, rows, wrap) {
+  const hidden = _getHiddenWarehouses(sourceId);
+  const collapsed = _getCollapsed(sourceId);
+  const threshold = _getStockThreshold(sourceId);
+  const colW = _getColWidth(sourceId);
+
+  // Group rows by warehouse
+  const byWarehouse = new Map();
+  for (const r of rows) {
+    const wh = r.warehouse_name || "Без склада";
+    if (!byWarehouse.has(wh)) byWarehouse.set(wh, []);
+    byWarehouse.get(wh).push(r);
+  }
+
+  // Build header
+  const dateHeaders = dates.map(d =>
+    `<th class="stock-date-col stock-resizable" style="width:${colW}px;min-width:${colW}px" data-date="${esc(d)}">${esc(_toMsk(d))}</th>`
   ).join("");
+
+  let tbody = "";
+  for (const [wh, whRows] of byWarehouse) {
+    if (hidden.has(wh)) continue;
+    const isCollapsed = collapsed.has(wh);
+    tbody += `<tr class="stock-warehouse-row" data-wh="${esc(wh)}" data-sid="${sourceId}">
+      <td colspan="${2 + dates.length}" class="stock-warehouse-cell">
+        <button type="button" class="stock-collapse-btn" onclick="toggleStockWarehouse('${esc(wh)}',${sourceId})">${isCollapsed ? "▶" : "▼"}</button>
+        <span class="stock-warehouse-name">${esc(wh)}</span>
+      </td>
+    </tr>`;
+    if (!isCollapsed) {
+      for (const r of whRows) {
+        // Determine if any date value is below threshold
+        let highlight = false;
+        if (threshold > 0) {
+          for (const d of dates) {
+            const v = r.dates[d];
+            if (v !== undefined && v < threshold) { highlight = true; break; }
+          }
+        }
+        const rowClass = highlight ? " class=\"stock-row-low\"" : "";
+        const dateCells = dates.map(d => {
+          const v = r.dates[d];
+          const low = threshold > 0 && v !== undefined && v < threshold;
+          return `<td class="stock-num${low ? " stock-cell-low" : ""}">${v !== undefined ? v : "—"}</td>`;
+        }).join("");
+        tbody += `<tr${rowClass}>
+          <td class="stock-product-cell">&nbsp;&nbsp;&nbsp;${esc(r.seller_article)}</td>
+          <td class="stock-num">${esc(r.wb_article)}</td>
+          ${dateCells}
+        </tr>`;
+      }
+    }
+  }
+
   wrap.innerHTML = `
-    <table class="stock-data-table">
-      <thead><tr>
-        <th>Артикул WB</th>
-        <th>Артикул продавца</th>
-        <th>Склад / Кластер</th>
-        ${headerCols}
-      </tr></thead>
-      <tbody>${bodyRows}</tbody>
-    </table>`;
+    <div class="stock-table-outer">
+      <table class="stock-data-table" id="stockDataTable_${sourceId}">
+        <thead>
+          <tr>
+            <th class="stock-fixed-col stock-col-product">Склад / Артикул продавца</th>
+            <th class="stock-fixed-col stock-col-wbid">Артикул ВБ</th>
+            ${dateHeaders}
+          </tr>
+        </thead>
+        <tbody>${tbody}</tbody>
+      </table>
+    </div>`;
+
+  // Add column resize listeners
+  _initStockColResize(sourceId);
+}
+
+function toggleStockWarehouse(wh, sourceId) {
+  const collapsed = _getCollapsed(sourceId);
+  if (collapsed.has(wh)) collapsed.delete(wh); else collapsed.add(wh);
+  _setCollapsed(sourceId, collapsed);
+  loadStockWorkData(sourceId);
+}
+
+// ── Column resize ─────────────────────────────────────────────────────────────
+
+function _initStockColResize(sourceId) {
+  const table = document.getElementById(`stockDataTable_${sourceId}`);
+  if (!table) return;
+  const headers = table.querySelectorAll(".stock-resizable");
+  headers.forEach(th => {
+    // Add resize handle
+    const handle = document.createElement("div");
+    handle.className = "stock-resize-handle";
+    th.style.position = "relative";
+    th.appendChild(handle);
+    let startX = 0, startW = 0;
+    handle.addEventListener("mousedown", e => {
+      e.preventDefault();
+      startX = e.clientX;
+      startW = th.offsetWidth;
+      const onMove = ev => {
+        const newW = Math.max(60, startW + ev.clientX - startX);
+        // Apply same width to ALL date columns
+        table.querySelectorAll(".stock-resizable").forEach(h => {
+          h.style.width = newW + "px";
+          h.style.minWidth = newW + "px";
+        });
+        _setColWidth(sourceId, newW);
+      };
+      const onUp = () => {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+      };
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
+  });
+}
+
+// ── Settings modal ────────────────────────────────────────────────────────────
+
+let _stockSettingsSourceId = null;
+
+function openStockSettings(sourceId) {
+  _stockSettingsSourceId = sourceId;
+  const hidden = _getHiddenWarehouses(sourceId);
+  const threshold = _getStockThreshold(sourceId);
+
+  // Collect all warehouses from current data
+  const tableEl = document.getElementById(`stockDataTable_${sourceId}`);
+  const warehouses = [];
+  if (tableEl) {
+    tableEl.querySelectorAll(".stock-warehouse-row").forEach(r => {
+      const wh = r.getAttribute("data-wh");
+      if (wh) warehouses.push(wh);
+    });
+  }
+
+  // Also collect from all active rows in stockSourcesState cache
+  const wrap = document.getElementById("stockWorkTableWrap");
+  if (wrap && !warehouses.length) {
+    wrap.querySelectorAll("[data-wh]").forEach(r => {
+      const wh = r.getAttribute("data-wh");
+      if (wh && !warehouses.includes(wh)) warehouses.push(wh);
+    });
+  }
+
+  const whList = warehouses.length ? warehouses.map(wh => `
+    <div class="stock-settings-wh-row">
+      <button type="button" class="stock-eye-btn ${hidden.has(wh) ? 'hidden-wh' : ''}"
+        onclick="_toggleWhVisibility('${esc(wh)}')" title="${hidden.has(wh) ? 'Показать' : 'Скрыть'}">
+        ${hidden.has(wh) ? '👁️‍🗨️' : '👁️'}
+      </button>
+      <span class="stock-wh-label">${esc(wh)}</span>
+    </div>`).join("") : '<p class="small" style="color:#9ca3af">Загрузите данные сначала</p>';
+
+  const modal = document.getElementById("stockSettingsModal");
+  if (!modal) return;
+  document.getElementById("stockSettingsWhList").innerHTML = whList;
+  document.getElementById("stockSettingsThreshold").value = threshold || "";
+  modal.classList.remove("hidden");
+}
+
+function closeStockSettingsModal() {
+  document.getElementById("stockSettingsModal")?.classList.add("hidden");
+}
+
+function _toggleWhVisibility(wh) {
+  if (!_stockSettingsSourceId) return;
+  const hidden = _getHiddenWarehouses(_stockSettingsSourceId);
+  if (hidden.has(wh)) hidden.delete(wh); else hidden.add(wh);
+  _setHiddenWarehouses(_stockSettingsSourceId, hidden);
+  // Update button in modal
+  openStockSettings(_stockSettingsSourceId);
+}
+
+function applyStockSettings() {
+  if (!_stockSettingsSourceId) return;
+  const thr = Number(document.getElementById("stockSettingsThreshold")?.value || 0);
+  _setStockThreshold(_stockSettingsSourceId, thr);
+  closeStockSettingsModal();
+  loadStockWorkData(_stockSettingsSourceId);
 }
 
 // Initialize stock module when entering stock sections

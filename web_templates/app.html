@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=45" />
+  <link rel="stylesheet" href="/static/style.css?v=46" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -637,7 +637,28 @@
         </div>
       </section>
 
-      <!-- Add stock source modal -->
+      <!-- Stock display settings modal -->
+  <div id="stockSettingsModal" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal-card" style="max-width:460px">
+      <div class="row row-between">
+        <h4 class="no-margin">⚙ Настройки отображения</h4>
+        <button type="button" class="secondary" onclick="closeStockSettingsModal()">✕</button>
+      </div>
+      <p class="small" style="margin:8px 0 4px;font-weight:600">Склады / Кластеры</p>
+      <div id="stockSettingsWhList" style="max-height:260px;overflow-y:auto;margin-bottom:12px"></div>
+      <div class="row" style="gap:8px;align-items:center;margin-bottom:16px">
+        <label class="small" style="white-space:nowrap">Выделять красным если менее</label>
+        <input id="stockSettingsThreshold" type="number" min="0" style="width:70px" placeholder="0">
+        <span class="small">шт.</span>
+      </div>
+      <div class="row" style="gap:10px">
+        <button type="button" onclick="applyStockSettings()">Применить</button>
+        <button type="button" class="secondary" onclick="closeStockSettingsModal()">Отмена</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add stock source modal -->
       <div id="addStockSourceModal" class="modal-overlay hidden" role="dialog" aria-modal="true">
         <div class="modal-card" style="max-width:480px">
           <div class="row row-between"><h4 class="no-margin">Добавить источник остатков</h4>
@@ -801,6 +822,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=56"></script>
+  <script src="/static/app.js?v=57"></script>
 </body>
 </html>

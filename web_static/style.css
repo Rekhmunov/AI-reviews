@@ -1255,17 +1255,24 @@ button.secondary.danger:hover {
 /* ── Stock module ── */
 .stock-work-tabs {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
   padding: 12px 0 0;
   margin-bottom: -1px;
 }
 
+.stock-tab-group {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+}
+
 .stock-source-tab {
-  padding: 8px 18px;
-  border-radius: 8px 8px 0 0;
+  padding: 8px 16px;
+  border-radius: 8px 0 0 0;
   border: 1px solid #e5e7eb;
   border-bottom: none;
+  border-right: none;
   background: #f9fafb;
   color: #374151;
   cursor: pointer;
@@ -1280,11 +1287,33 @@ button.secondary.danger:hover {
   border-color: #93c5fd;
 }
 
+.stock-tab-gear {
+  padding: 8px 10px;
+  border-radius: 0 8px 0 0;
+  border: 1px solid #e5e7eb;
+  border-bottom: none;
+  border-left: 1px solid #e5e7eb;
+  background: #f9fafb;
+  color: #64748b;
+  cursor: pointer;
+  font-size: 14px;
+  width: auto !important;
+}
+
+.stock-tab-gear:hover { background: #f1f5f9; color: #374151; }
+
+/* Table container with sticky first 2 columns */
+.stock-table-outer {
+  overflow-x: auto;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
 .stock-data-table {
-  width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 13px;
-  min-width: 600px;
+  table-layout: fixed;
 }
 
 .stock-data-table th,
@@ -1293,6 +1322,7 @@ button.secondary.danger:hover {
   border-bottom: 1px solid #f1f5f9;
   white-space: nowrap;
   text-align: left;
+  border-right: 1px solid #f1f5f9;
 }
 
 .stock-data-table th {
@@ -1302,10 +1332,97 @@ button.secondary.danger:hover {
   font-size: 12px;
   position: sticky;
   top: 0;
+  z-index: 3;
 }
 
-.stock-date-col { text-align: center; min-width: 110px; }
+/* Sticky first two columns */
+.stock-fixed-col {
+  position: sticky;
+  z-index: 4;
+  background: #f8fafc;
+}
+.stock-data-table td.stock-product-cell,
+.stock-data-table td.stock-num:first-of-type {
+  position: sticky;
+  background: #fff;
+  z-index: 2;
+}
+.stock-col-product { left: 0; min-width: 220px; width: 220px; }
+.stock-col-wbid    { left: 220px; min-width: 110px; width: 110px; border-right: 2px solid #e2e8f0 !important; }
+.stock-data-table td.stock-product-cell { left: 0; min-width: 220px; width: 220px; }
+.stock-data-table tbody td:nth-child(2) { left: 220px; position: sticky; background: #fff; z-index: 2; border-right: 2px solid #e2e8f0 !important; }
+
+.stock-date-col { text-align: center; }
 .stock-num { text-align: center; font-variant-numeric: tabular-nums; }
+
+/* Warehouse header rows */
+.stock-warehouse-row td {
+  background: #f1f5f9 !important;
+  font-weight: 600;
+  font-size: 13px;
+  padding: 8px 10px;
+  border-top: 2px solid #e2e8f0;
+}
+
+.stock-warehouse-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stock-collapse-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 10px;
+  color: #64748b;
+  width: auto !important;
+  padding: 2px 4px;
+}
+
+.stock-warehouse-name { font-weight: 600; color: #1e3a5f; }
+
+/* Product rows */
+.stock-product-cell { color: #374151; }
+
+/* Low stock highlight */
+.stock-row-low { background: #fff5f5 !important; }
+.stock-cell-low { color: #dc2626 !important; font-weight: 600; }
+
+/* Column resize handle */
+.stock-resize-handle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 5px;
+  cursor: col-resize;
+  background: transparent;
+}
+.stock-resize-handle:hover { background: #93c5fd; }
+
+/* Settings modal warehouse list */
+.stock-settings-wh-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.stock-eye-btn {
+  background: none;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 3px 6px;
+  cursor: pointer;
+  font-size: 14px;
+  width: auto !important;
+}
+
+.stock-eye-btn.hidden-wh { opacity: 0.35; }
+.stock-wh-label { font-size: 13px; flex: 1; }
 
 /* Sync report modal */
 .sync-report-card {
