@@ -2021,21 +2021,21 @@ function _setStockThreshold(sourceId, val) {
   localStorage.setItem(_stockKey(sourceId, "threshold"), String(Number(val) || 0));
 }
 
-function _getColWidth(sourceId) {
-  return Number(localStorage.getItem(_stockKey(sourceId, "col_width")) || 120);
-}
-
-function _setColWidth(sourceId, w) {
-  localStorage.setItem(_stockKey(sourceId, "col_width"), String(w));
-}
-
 function _getFixedColWidth(sourceId, col) {
-  const defaults = { product: 220, wbid: 110 };
-  return Number(localStorage.getItem(_stockKey(sourceId, `fixed_col_${col}`)) || defaults[col] || 120);
+  const defaults = { product: 200, wbid: 110 };
+  return Number(localStorage.getItem(_stockKey(sourceId, `fixed_col_${col}`)) || defaults[col] || 100);
 }
 
 function _setFixedColWidth(sourceId, col, w) {
   localStorage.setItem(_stockKey(sourceId, `fixed_col_${col}`), String(w));
+}
+
+function _getDateColWidth(sourceId, colIdx) {
+  return Number(localStorage.getItem(_stockKey(sourceId, `date_col_${colIdx}`)) || 110);
+}
+
+function _setDateColWidth(sourceId, colIdx, w) {
+  localStorage.setItem(_stockKey(sourceId, `date_col_${colIdx}`), String(w));
 }
 
 function _getCollapsed(sourceId) {
@@ -2129,7 +2129,6 @@ function renderStockDataTable(sourceId, dates, rows, wrap) {
   const hidden = _getHiddenWarehouses(sourceId);
   const collapsed = _getCollapsed(sourceId);
   const threshold = _getStockThreshold(sourceId);
-  const colW = _getColWidth(sourceId);
   const colWProduct = _getFixedColWidth(sourceId, "product");
   const colWWbid = _getFixedColWidth(sourceId, "wbid");
 
@@ -2143,9 +2142,16 @@ function renderStockDataTable(sourceId, dates, rows, wrap) {
   // Save all warehouse names (before filtering) so settings can show them even when hidden
   _saveAllKnownWarehouses(sourceId, [...byWarehouse.keys()]);
 
-  // Build header
-  const dateHeaders = dates.map(d =>
-    `<th class="stock-date-col stock-resizable" style="width:${colW}px;min-width:${colW}px" data-date="${esc(d)}">${esc(_toMsk(d))}</th>`
+  // Build colgroup for reliable fixed-layout width control
+  const colgroup = `<colgroup>
+    <col data-col="product" style="width:${colWProduct}px">
+    <col data-col="wbid" style="width:${colWWbid}px">
+    ${dates.map((_, i) => `<col data-colidx="${i}" style="width:${_getDateColWidth(sourceId, i)}px">`).join("")}
+  </colgroup>`;
+
+  // Build header — each date column independent
+  const dateHeaders = dates.map((d, i) =>
+    `<th class="stock-date-col stock-resizable" data-col-type="date" data-colidx="${i}" data-date="${esc(d)}">${esc(_toMsk(d))}</th>`
   ).join("");
 
   let tbody = "";
@@ -2186,19 +2192,17 @@ function renderStockDataTable(sourceId, dates, rows, wrap) {
   wrap.innerHTML = `
     <div class="stock-table-outer">
       <table class="stock-data-table" id="stockDataTable_${sourceId}">
+        ${colgroup}
         <thead>
           <tr>
-            <th class="stock-fixed-col stock-col-product stock-resizable" data-col="product"
-                style="width:${colWProduct}px;min-width:${colWProduct}px;left:0">Склад / Артикул продавца</th>
-            <th class="stock-fixed-col stock-col-wbid stock-resizable" data-col="wbid"
-                style="width:${colWWbid}px;min-width:${colWWbid}px;left:${colWProduct}px">Артикул ВБ</th>
+            <th class="stock-fixed-col stock-col-product stock-resizable" data-col="product" style="left:0">Склад / Артикул продавца</th>
+            <th class="stock-fixed-col stock-col-wbid stock-resizable" data-col="wbid" style="left:${colWProduct}px">Артикул ВБ</th>
             ${dateHeaders}
           </tr>
         </thead>
         <tbody>${tbody}</tbody>
       </table>
     </div>`;
-  // Update sticky offsets for body cells
   _applyStockStickyOffsets(sourceId, colWProduct, colWWbid);
 
   // Add column resize listeners
@@ -2217,60 +2221,50 @@ function toggleStockWarehouse(wh, sourceId) {
 function _applyStockStickyOffsets(sourceId, colWProduct, colWWbid) {
   const table = document.getElementById(`stockDataTable_${sourceId}`);
   if (!table) return;
-  // Update left offset for wbid header
+  // Update wbid header left
   const wbidTh = table.querySelector("th[data-col='wbid']");
   if (wbidTh) wbidTh.style.left = colWProduct + "px";
-  // Update sticky body cells
+  // Update colgroup cols
+  const cols = table.querySelectorAll("colgroup col");
+  if (cols[0]) cols[0].style.width = colWProduct + "px";
+  if (cols[1]) cols[1].style.width = colWWbid + "px";
+  // Update body cell sticky positions
   table.querySelectorAll("tbody tr:not(.stock-warehouse-row)").forEach(tr => {
     const cells = tr.querySelectorAll("td");
-    if (cells.length >= 2) {
-      cells[0].style.width = colWProduct + "px";
-      cells[0].style.minWidth = colWProduct + "px";
-      cells[1].style.left = colWProduct + "px";
-      cells[1].style.width = colWWbid + "px";
-      cells[1].style.minWidth = colWWbid + "px";
-    }
+    if (cells[1]) cells[1].style.left = colWProduct + "px";
   });
 }
 
 function _initStockColResize(sourceId) {
   const table = document.getElementById(`stockDataTable_${sourceId}`);
   if (!table) return;
-  const headers = table.querySelectorAll(".stock-resizable");
-  headers.forEach(th => {
+  table.querySelectorAll(".stock-resizable").forEach(th => {
     const handle = document.createElement("div");
     handle.className = "stock-resize-handle";
-    th.style.position = "relative";
     th.appendChild(handle);
     let startX = 0, startW = 0;
     handle.addEventListener("mousedown", e => {
       e.preventDefault();
       startX = e.clientX;
       startW = th.offsetWidth;
-      const col = th.dataset.col; // "product", "wbid", or undefined (date col)
+      const col = th.dataset.col;
+      const colIdx = th.dataset.colidx !== undefined ? Number(th.dataset.colidx) : -1;
       const onMove = ev => {
-        const newW = Math.max(50, startW + ev.clientX - startX);
+        const newW = Math.max(40, startW + ev.clientX - startX);
+        // Update colgroup col width (most reliable with table-layout:fixed)
+        const cols = table.querySelectorAll("colgroup col");
         if (col === "product") {
-          // Resize first fixed column, update wbid left offset
-          th.style.width = newW + "px";
-          th.style.minWidth = newW + "px";
+          if (cols[0]) cols[0].style.width = newW + "px";
           _setFixedColWidth(sourceId, "product", newW);
-          const wbW = _getFixedColWidth(sourceId, "wbid");
-          _applyStockStickyOffsets(sourceId, newW, wbW);
+          _applyStockStickyOffsets(sourceId, newW, _getFixedColWidth(sourceId, "wbid"));
         } else if (col === "wbid") {
-          // Resize second fixed column
-          th.style.width = newW + "px";
-          th.style.minWidth = newW + "px";
+          if (cols[1]) cols[1].style.width = newW + "px";
           _setFixedColWidth(sourceId, "wbid", newW);
-          const prodW = _getFixedColWidth(sourceId, "product");
-          _applyStockStickyOffsets(sourceId, prodW, newW);
-        } else {
-          // Date columns — all resize together
-          table.querySelectorAll(".stock-resizable:not([data-col])").forEach(h => {
-            h.style.width = newW + "px";
-            h.style.minWidth = newW + "px";
-          });
-          _setColWidth(sourceId, newW);
+          _applyStockStickyOffsets(sourceId, _getFixedColWidth(sourceId, "product"), newW);
+        } else if (colIdx >= 0) {
+          // Individual date column
+          if (cols[2 + colIdx]) cols[2 + colIdx].style.width = newW + "px";
+          _setDateColWidth(sourceId, colIdx, newW);
         }
       };
       const onUp = () => {

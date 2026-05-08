@@ -1389,10 +1389,10 @@ button.secondary.danger:hover {
   background: #fff;
   z-index: 2;
 }
-.stock-col-product { left: 0; min-width: 80px; width: 220px; }
-.stock-col-wbid    { min-width: 60px; width: 110px; border-right: 2px solid #e2e8f0 !important; }
-.stock-data-table td.stock-product-cell { left: 0; min-width: 80px; width: 220px; }
-.stock-data-table tbody td:nth-child(2) { left: 220px; position: sticky; background: #fff; z-index: 2; border-right: 2px solid #e2e8f0 !important; }
+.stock-col-product { left: 0; }
+.stock-col-wbid    { border-right: 2px solid #e2e8f0 !important; }
+.stock-data-table td.stock-product-cell { left: 0; }
+.stock-data-table tbody td:nth-child(2) { position: sticky; background: #fff; z-index: 2; border-right: 2px solid #e2e8f0 !important; }
 
 .stock-date-col { text-align: center; }
 .stock-num { text-align: center; font-variant-numeric: tabular-nums; }
