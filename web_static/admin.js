@@ -444,7 +444,8 @@ async function testAiSettingsConnection() {
 }
 
 async function openAiStatsModal() {
-  setModalVisibility("aiStatsModal", true);
+  const modal = document.getElementById("aiStatsModal");
+  if (modal) modal.classList.remove("hidden");
   const content = document.getElementById("aiStatsContent");
   if (!content) return;
   content.innerHTML = '<p class="small" style="color:#9ca3af">Загрузка...</p>';
@@ -500,7 +501,8 @@ async function openAiStatsModal() {
 }
 
 function closeAiStatsModal() {
-  setModalVisibility("aiStatsModal", false);
+  const modal = document.getElementById("aiStatsModal");
+  if (modal) modal.classList.add("hidden");
 }
 
 function openAiTestReviewModal() {
