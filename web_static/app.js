@@ -2031,7 +2031,9 @@ function _setCollapsed(sourceId, set) {
 function _toMsk(isoStr) {
   if (!isoStr) return "—";
   try {
-    const d = new Date(isoStr + (isoStr.includes("+") ? "" : "Z"));
+    const normalized = isoStr.includes("+") || isoStr.endsWith("Z") ? isoStr : isoStr + "Z";
+    const d = new Date(normalized);
+    if (isNaN(d.getTime())) return isoStr.slice(0, 16);
     const msk = new Date(d.getTime() + 3 * 3600 * 1000);
     const dd = String(msk.getUTCDate()).padStart(2, "0");
     const mm = String(msk.getUTCMonth() + 1).padStart(2, "0");
