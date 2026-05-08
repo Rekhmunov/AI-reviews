@@ -1269,10 +1269,13 @@ button.secondary.danger:hover {
 
 /* ── Stock module ── */
 #section-stock-work {
-  display: flex !important;
   flex-direction: column;
-  gap: 0 !important;
+  gap: 0;
   width: 100%;
+}
+
+#section-stock-work:not(.hidden) {
+  display: flex;
 }
 
 .stock-work-tabs {
