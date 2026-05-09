@@ -2582,6 +2582,147 @@ function buildConversationErrorTitle(meta) {
   return pieces.join(" | ");
 }
 
+// ── Question reply & templates ────────────────────────────────────────────────
+
+let _questionSendUid = null;
+
+function openQuestionSendConfirm(uid) {
+  const ta = document.getElementById(`qreply-${uid}`);
+  const text = String(ta?.value || "").trim();
+  if (!text) {
+    alert("Введите текст ответа");
+    ta?.focus();
+    return;
+  }
+  _questionSendUid = uid;
+  const confirmTextEl = document.getElementById("questionSendConfirmText");
+  if (confirmTextEl) confirmTextEl.textContent = text;
+  document.getElementById("questionSendConfirmModal")?.classList.remove("hidden");
+}
+
+function closeQuestionSendConfirmModal() {
+  document.getElementById("questionSendConfirmModal")?.classList.add("hidden");
+  _questionSendUid = null;
+}
+
+async function _doSendQuestionReply() {
+  if (!_questionSendUid) return;
+  const uid = _questionSendUid;
+  const ta = document.getElementById(`qreply-${uid}`);
+  const text = String(ta?.value || "").trim();
+  const btn = document.getElementById("questionSendConfirmBtn");
+  if (btn) { btn.disabled = true; btn.textContent = "Отправка..."; }
+  try {
+    await sendConversationReply(uid, text, `${uid}:${Date.now()}`);
+    closeQuestionSendConfirmModal();
+    await loadQuestions();
+  } catch (error) {
+    alert(error instanceof Error ? error.message : "Не удалось отправить ответ");
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "Отправить"; }
+  }
+}
+
+// Question templates
+
+let questionTemplatesState = { items: [], targetUid: null };
+
+function openQuestionTemplatesModal(uid) {
+  questionTemplatesState.targetUid = uid;
+  document.getElementById("questionQuickTemplatesModal")?.classList.remove("hidden");
+  document.getElementById("questionTemplateNameInput") && (document.getElementById("questionTemplateNameInput").value = "");
+  document.getElementById("questionTemplateInput") && (document.getElementById("questionTemplateInput").value = "");
+  loadQuestionTemplates();
+}
+
+function closeQuestionTemplatesModal() {
+  document.getElementById("questionQuickTemplatesModal")?.classList.add("hidden");
+  questionTemplatesState.targetUid = null;
+}
+
+async function loadQuestionTemplates() {
+  const listEl = document.getElementById("questionTemplatesList");
+  const infoEl = document.getElementById("questionTemplatesInfo");
+  if (listEl) listEl.innerHTML = '<p class="small" style="color:#9ca3af">Загрузка...</p>';
+  try {
+    const res = await fetch("/api/question-quick-templates");
+    const data = await res.json();
+    if (!res.ok) { if (infoEl) infoEl.textContent = data.detail || "Ошибка"; return; }
+    questionTemplatesState.items = data.items || [];
+    renderQuestionTemplatesList();
+  } catch (_) {
+    if (infoEl) infoEl.textContent = "Ошибка загрузки шаблонов";
+  }
+}
+
+function renderQuestionTemplatesList() {
+  const listEl = document.getElementById("questionTemplatesList");
+  if (!listEl) return;
+  const items = questionTemplatesState.items;
+  if (!items.length) {
+    listEl.innerHTML = '<p class="small" style="color:#9ca3af">Шаблонов нет. Добавьте первый.</p>';
+    return;
+  }
+  listEl.innerHTML = items.map(t => `
+    <div class="chat-quick-template-item">
+      <div style="flex:1;cursor:pointer" onclick="selectQuestionTemplate(${t.id})">
+        <div class="chat-quick-template-name">${esc(t.template_name)}</div>
+        <div class="chat-quick-template-text">${esc(t.template_text)}</div>
+      </div>
+      <div class="chat-quick-template-actions">
+        <button type="button" class="secondary" style="font-size:11px;padding:2px 8px"
+          onclick="deleteQuestionTemplate(${t.id})">✕</button>
+      </div>
+    </div>`).join("");
+}
+
+function selectQuestionTemplate(templateId) {
+  const tpl = questionTemplatesState.items.find(t => t.id === templateId);
+  if (!tpl || !questionTemplatesState.targetUid) return;
+  const uid = questionTemplatesState.targetUid;
+  const ta = document.getElementById(`qreply-${uid}`);
+  if (ta) {
+    ta.value = tpl.template_text;
+    ta.removeAttribute("readonly");
+    ta.focus();
+  }
+  closeQuestionTemplatesModal();
+}
+
+async function saveQuestionTemplate() {
+  const name = String(document.getElementById("questionTemplateNameInput")?.value || "").trim();
+  const text = String(document.getElementById("questionTemplateInput")?.value || "").trim();
+  const infoEl = document.getElementById("questionTemplatesInfo");
+  if (!name || !text) {
+    if (infoEl) infoEl.textContent = "Заполните название и текст";
+    return;
+  }
+  try {
+    const res = await fetch("/api/question-quick-templates", {
+      method: "POST", headers: jsonHeaders(),
+      body: JSON.stringify({ template_name: name, template_text: text }),
+    });
+    const data = await res.json();
+    if (!res.ok) { if (infoEl) infoEl.textContent = data.detail || "Ошибка"; return; }
+    if (infoEl) infoEl.textContent = "";
+    document.getElementById("questionTemplateNameInput").value = "";
+    document.getElementById("questionTemplateInput").value = "";
+    await loadQuestionTemplates();
+  } catch (_) {
+    if (infoEl) infoEl.textContent = "Ошибка сохранения";
+  }
+}
+
+async function deleteQuestionTemplate(templateId) {
+  if (!confirm("Удалить шаблон?")) return;
+  try {
+    await fetch(`/api/question-quick-templates/${templateId}`, {
+      method: "DELETE", headers: withCsrfHeaders(),
+    });
+    await loadQuestionTemplates();
+  } catch (_) {}
+}
+
 async function moveQuestionToProcessed(conversationUid) {
   try {
     const res = await fetch(`/api/conversations/${encodeURIComponent(conversationUid)}/mark-answered`, {
@@ -2652,37 +2793,84 @@ async function loadQuestions() {
 
   for (const item of data.items || []) {
     const tr = document.createElement("tr");
-    const errorMeta = conversationErrorInfo(item);
-    if (errorMeta.hasError) tr.classList.add("review-row-send-error");
-    const errorIcon = errorMeta.hasError
-      ? `<span class="send-error-indicator" title="${esc(buildConversationErrorTitle(errorMeta))}">❗</span>`
-      : "";
-    // Format date from last_message_at or updated_at
-    const qDateRaw = item.last_message_at || item.updated_at || "";
-    let qDateStr = "-";
-    if (qDateRaw) {
-      try {
-        const qd = new Date(qDateRaw);
-        if (!isNaN(qd.getTime())) {
-          qDateStr = qd.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit" })
-            + " " + qd.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
-        }
-      } catch (_) {}
+    const uid = esc(item.conversation_uid);
+    const meta = item.metadata || {};
+    const rawItem = meta.raw || {};
+    const isOzon = String(item.source || "").toLowerCase().includes("ozon");
+    const isProcessed = questionsState.bucket === "processed";
+
+    // Source icon (same as chats)
+    const sourceIcon = isOzon
+      ? `<img src="/static/ozon_icon.png" alt="Ozon" style="width:16px;height:16px;vertical-align:middle;margin-left:4px" onerror="this.style.display='none'">`
+      : `<img src="/static/wb_icon.png" alt="WB" style="width:16px;height:16px;vertical-align:middle;margin-left:4px" onerror="this.style.display='none'">`;
+
+    // Date/time MSK
+    const qDateRaw = rawItem.createdDate || item.last_message_at || item.updated_at || "";
+    const qDateStr = qDateRaw ? _toMsk(qDateRaw) : "—";
+
+    // Column 1: Question
+    const questionText = item.message_text || rawItem.text || "";
+
+    // Column 2: Reply
+    let replyContent;
+    if (isProcessed) {
+      // Show actual reply — our system reply OR portal reply (raw.answer.text for WB)
+      const ourReply = String(item.last_sent_text || "").trim();
+      const portalReply = String((rawItem.answer || {}).text || "").trim();
+      const actualReply = ourReply || portalReply;
+      let replyText;
+      if (actualReply) {
+        replyText = actualReply;
+      } else if (isOzon) {
+        replyText = "Ответ предоставлен напрямую через портал ОЗОНа или другой сервис";
+      } else {
+        replyText = "";
+      }
+      replyContent = `<textarea class="review-reply-textarea review-reply-answered" readonly>${esc(replyText)}</textarea>`;
+    } else {
+      replyContent = `
+        <textarea class="review-reply-textarea" id="qreply-${uid}" placeholder="Введите ответ на вопрос..." readonly></textarea>
+        <div class="review-reply-actions">
+          <button type="button" class="review-icon-btn" title="Отправить ответ"
+            onclick="openQuestionSendConfirm('${uid}')">📤</button>
+          <button type="button" class="review-icon-btn" title="Шаблоны"
+            onclick="openQuestionTemplatesModal('${uid}')">📋</button>
+          <button type="button" class="review-icon-btn" title="Перенести в обработанные"
+            onclick="moveQuestionToProcessed('${uid}')">✅</button>
+        </div>`;
     }
+
+    // Column 3: Product (from WB raw data)
+    const productName = esc(rawItem.productName || rawItem.subjectName || "");
+    const nmId = rawItem.nmId || rawItem.nmID || null;
+    const productUrl = nmId ? `https://www.wildberries.ru/catalog/${nmId}/detail.aspx` : "";
+    const productCell = productName
+      ? `<div class="review-product-name">${productUrl
+          ? `<a href="${productUrl}" target="_blank" rel="noopener noreferrer" class="review-product-link">${productName}</a>`
+          : productName}</div>`
+      : "";
+
     tr.innerHTML = `
-      <td class="question-date">${esc(qDateStr)}</td>
-      <td>${esc(item.source)}</td>
-      <td>${esc(item.customer_name || "-")}</td>
-      <td>${esc(item.message_text || "-")}</td>
-      <td>${esc(labelFromMap(conversationStatusLabels, item.status))}</td>
-      <td>
-        <div class="actions-col">
-          <button onclick="replyToQuestion('${esc(item.conversation_uid)}')">Ответить</button>
-          <button class="secondary" onclick="moveQuestionToProcessed('${esc(item.conversation_uid)}')">В обработанные</button>
-          ${errorIcon}
+      <td class="review-col-review">
+        <div class="review-group-title" style="display:flex;align-items:center;gap:4px">
+          Вопрос от покупателя${sourceIcon}
         </div>
+        ${questionText ? `<div class="review-text">${esc(questionText)}</div>` : ""}
+        <div class="review-meta-small">${esc(item.customer_name || "")}${item.customer_name && qDateStr !== "—" ? " · " : ""}${qDateStr !== "—" ? qDateStr : ""}</div>
       </td>
+      <td class="review-col-reply">${replyContent}</td>
+      <td class="review-col-product">${productCell}</td>
     `;
+
+    // Make textarea editable on click for new questions
+    if (!isProcessed) {
+      const ta = tr.querySelector(`#qreply-${uid}`);
+      if (ta) {
+        ta.addEventListener("focus", () => { ta.removeAttribute("readonly"); });
+        ta.addEventListener("blur", () => { if (!ta.value.trim()) ta.setAttribute("readonly", ""); });
+      }
+    }
+
     tbody?.appendChild(tr);
   }
 

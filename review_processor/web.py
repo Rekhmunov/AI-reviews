@@ -1945,9 +1945,28 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             account_permissions=manager_conversation_scope,
         )
         source_options = repository.list_conversation_sources(user_id=int(user["id"]))
+        # For answered questions: enrich with last sent text from conversation_messages
+        # (text answered via our system) and portal reply from metadata.raw.answer.text
+        items = page_data["items"]
+        if normalized_kind == "question" and normalized_bucket == "processed":
+            answered_uids = [
+                item["conversation_uid"] for item in items
+                if item.get("processed_by_operator") or item.get("last_sent_at")
+            ]
+            if answered_uids:
+                try:
+                    sent_texts = repository.get_last_sent_text_for_conversations(
+                        user_id=int(user["id"]), conversation_uids=answered_uids
+                    )
+                    for item in items:
+                        uid = item["conversation_uid"]
+                        # Priority: our system reply > portal reply (metadata.raw.answer.text)
+                        item["last_sent_text"] = sent_texts.get(uid, "")
+                except Exception:
+                    pass
         return {
-            "items": page_data["items"],
-            "count": len(page_data["items"]),
+            "items": items,
+            "count": len(items),
             "total": page_data["total"],
             "page": page_data["page"],
             "page_size": page_data["page_size"],
@@ -2403,6 +2422,59 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     def delete_chat_quick_template(template_id: int, request: Request) -> dict[str, object]:
         user = _require_user(request)
         deleted = repository.delete_chat_quick_template(user_id=int(user["id"]), template_id=int(template_id))
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Шаблон не найден")
+        return {"ok": True, "deleted": True}
+
+    # ── Question quick templates endpoints ───────────────────────────────────
+
+    @app.get("/api/question-quick-templates")
+    def list_question_quick_templates(request: Request) -> dict[str, object]:
+        user = _require_user(request)
+        items = repository.list_question_quick_templates(user_id=int(user["id"]))
+        return {"items": items, "count": len(items)}
+
+    @app.post("/api/question-quick-templates")
+    def create_question_quick_template(request: Request, payload: ChatQuickTemplateCreateRequest) -> dict[str, object]:
+        user = _require_user(request)
+        name = str(payload.template_name or "").strip()
+        text = str(payload.template_text or "").strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Введите название шаблона")
+        if not text:
+            raise HTTPException(status_code=400, detail="Введите текст шаблона")
+        item = repository.add_question_quick_template(
+            user_id=int(user["id"]), template_name=name, template_text=text
+        )
+        return {"ok": True, "item": item}
+
+    @app.put("/api/question-quick-templates/{template_id}")
+    def update_question_quick_template(
+        template_id: int, request: Request, payload: ChatQuickTemplateUpdateRequest
+    ) -> dict[str, object]:
+        user = _require_user(request)
+        name = str(payload.template_name or "").strip()
+        text = str(payload.template_text or "").strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Введите название шаблона")
+        if not text:
+            raise HTTPException(status_code=400, detail="Введите текст шаблона")
+        item = repository.update_question_quick_template(
+            user_id=int(user["id"]),
+            template_id=int(template_id),
+            template_name=name,
+            template_text=text,
+        )
+        if item is None:
+            raise HTTPException(status_code=404, detail="Шаблон не найден")
+        return {"ok": True, "item": item}
+
+    @app.delete("/api/question-quick-templates/{template_id}")
+    def delete_question_quick_template(template_id: int, request: Request) -> dict[str, object]:
+        user = _require_user(request)
+        deleted = repository.delete_question_quick_template(
+            user_id=int(user["id"]), template_id=int(template_id)
+        )
         if not deleted:
             raise HTTPException(status_code=404, detail="Шаблон не найден")
         return {"ok": True, "deleted": True}

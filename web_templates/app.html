@@ -270,18 +270,20 @@
             </div>
           </div>
         </div>
-        <div class="panel">
-          <div class="table-wrap">
-            <table>
-            <thead>
-              <tr>
-                <th>Дата</th><th>Источник</th><th>Покупатель</th><th>Вопрос</th><th>Статус</th><th>Ошибка</th><th>Действия</th>
-              </tr>
-            </thead>
-            <tbody id="questionsTbody"></tbody>
+        <div class="panel" style="padding:0;overflow:hidden">
+          <div class="table-wrap" style="overflow-x:auto">
+            <table class="reviews-table">
+              <thead>
+                <tr>
+                  <th class="review-col-review">Вопрос</th>
+                  <th class="review-col-reply">Ответ</th>
+                  <th class="review-col-product">Товар</th>
+                </tr>
+              </thead>
+              <tbody id="questionsTbody"></tbody>
             </table>
           </div>
-          <div class="row reviews-pagination-row">
+          <div class="row reviews-pagination-row" style="padding:10px 16px">
             <div class="row">
               <span class="small">Показывать на странице:</span>
               <select id="questionsPageSize" onchange="onQuestionsPageSizeChange()">
@@ -299,6 +301,40 @@
           </div>
         </div>
       </section>
+
+  <!-- Question send confirmation modal -->
+  <div id="questionSendConfirmModal" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal-card" style="max-width:480px">
+      <h4 class="no-margin" style="margin-bottom:12px">Подтвердите отправку ответа</h4>
+      <p class="small" style="color:#475569;margin-bottom:8px">Вы точно хотите отправить этот ответ?</p>
+      <div id="questionSendConfirmText" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:10px 12px;font-size:13px;margin-bottom:16px;max-height:160px;overflow-y:auto;white-space:pre-wrap;word-break:break-word"></div>
+      <div class="row" style="gap:10px">
+        <button type="button" id="questionSendConfirmBtn" onclick="_doSendQuestionReply()">Отправить</button>
+        <button type="button" class="secondary" onclick="closeQuestionSendConfirmModal()">Отмена</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Question quick templates modal -->
+  <div id="questionQuickTemplatesModal" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal-card chat-quick-templates-modal-card">
+      <div class="row row-between" style="margin-bottom:12px">
+        <h4 class="no-margin">Шаблоны ответов на вопросы</h4>
+        <button type="button" class="secondary" onclick="closeQuestionTemplatesModal()">✕</button>
+      </div>
+      <div id="questionTemplatesInfo" class="small" style="color:#dc2626;min-height:18px"></div>
+      <div id="questionTemplatesList" class="chat-quick-templates-list"></div>
+      <div style="border-top:1px solid #e2e8f0;padding-top:12px;margin-top:12px">
+        <p class="small" style="font-weight:600;margin-bottom:8px">Добавить шаблон</p>
+        <input id="questionTemplateNameInput" type="text" placeholder="Название шаблона" style="width:100%;box-sizing:border-box;margin-bottom:8px">
+        <textarea id="questionTemplateInput" rows="3" placeholder="Текст шаблона..." style="width:100%;box-sizing:border-box;resize:vertical"></textarea>
+        <div class="row" style="gap:8px;margin-top:8px">
+          <button type="button" onclick="saveQuestionTemplate()">Сохранить</button>
+          <button type="button" class="secondary" onclick="closeQuestionTemplatesModal()">Закрыть</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
       <section id="section-chats" class="hidden">
         <h3 class="section-title">Чаты</h3>
@@ -888,6 +924,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=67"></script>
+  <script src="/static/app.js?v=68"></script>
 </body>
 </html>
