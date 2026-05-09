@@ -2900,9 +2900,10 @@ async function loadQuestions() {
         </div>`;
     }
 
-    // Column 3: Product (from WB raw data)
-    const productName = esc(rawItem.productName || rawItem.subjectName || "");
-    const nmId = rawItem.nmId || rawItem.nmID || null;
+    // Column 3: Product (WB questions store product info inside productDetails)
+    const pd = (rawItem.productDetails && typeof rawItem.productDetails === "object") ? rawItem.productDetails : {};
+    const productName = esc(pd.productName || rawItem.productName || rawItem.subjectName || pd.subjectName || "");
+    const nmId = pd.nmId || pd.nmID || rawItem.nmId || rawItem.nmID || null;
     const productUrl = nmId ? `https://www.wildberries.ru/catalog/${nmId}/detail.aspx` : "";
     const productCell = productName
       ? `<div class="review-product-name">${productUrl
