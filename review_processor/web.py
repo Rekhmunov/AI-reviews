@@ -1884,6 +1884,50 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
         return {"ok": True}
 
+    @app.post("/api/reviews/{review_uid}/retry-send")
+    def retry_review_send(review_uid: str, request: Request) -> dict[str, object]:
+        """Retry a previously failed auto-reply using the saved auto_reply text."""
+        user = _require_user(request)
+        review_obj = repository.get_review(user_id=int(user["id"]), review_uid=review_uid)
+        if review_obj is None:
+            raise HTTPException(status_code=404, detail="Отзыв не найден")
+        auto_reply_text = str(review_obj.get("auto_reply") or "").strip()
+        if not auto_reply_text:
+            raise HTTPException(status_code=400, detail="Нет сохранённого текста для повторной отправки")
+        account_id = review_obj.get("account_id")
+        account = repository.get_marketplace_account(
+            user_id=int(user["id"]),
+            account_id=int(account_id),
+            include_secrets=True,
+        ) if account_id else None
+        if account is None:
+            raise HTTPException(status_code=404, detail="Кабинет не найден")
+        client = service._build_client(account)
+        review_input = ReviewInput(
+            review_id=str(review_obj.get("external_review_id") or ""),
+            text=str(review_obj.get("text") or ""),
+            metadata=review_obj.get("metadata") or {},
+        )
+        try:
+            sent = client.send_review_reply(review=review_input, response_text=auto_reply_text)
+        except Exception as exc:
+            repository.mark_review_send_error(
+                user_id=int(user["id"]),
+                review_uid=review_uid,
+                error_message=str(exc),
+            )
+            raise HTTPException(status_code=502, detail=f"Не удалось отправить ответ: {exc}")
+        if not sent:
+            raise HTTPException(status_code=502, detail="Ответ не был отправлен")
+        repository.clear_review_send_error(user_id=int(user["id"]), review_uid=review_uid)
+        repository.update_review_processing_result(
+            user_id=int(user["id"]),
+            review_uid=review_uid,
+            status="answered_auto",
+            auto_reply=auto_reply_text,
+        )
+        return {"ok": True}
+
     @app.get("/api/conversations")
     def list_conversations(
         request: Request,

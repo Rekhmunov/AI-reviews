@@ -692,6 +692,8 @@ class ReviewRepository:
         self._migrate_stock_tables(conn)
         # Question quick templates
         self._migrate_question_quick_templates(conn)
+        # Review send error tracking
+        self._migrate_review_send_error_columns(conn)
         # Tariff plans are not auto-created by migration to avoid restoring
         # plans that were intentionally removed by super-admin.
         return
@@ -1046,6 +1048,10 @@ class ReviewRepository:
         self._migrate_ai_usage_table(conn)
         # Stock module tables
         self._migrate_stock_tables(conn)
+        # Question quick templates
+        self._migrate_question_quick_templates(conn)
+        # Review send error tracking
+        self._migrate_review_send_error_columns(conn)
         # Remove tagged_reviews group — it is no longer supported.
         # pros/cons fields are now merged into review.text before classification.
         conn.execute(
@@ -1190,6 +1196,17 @@ class ReviewRepository:
             "CREATE INDEX IF NOT EXISTS idx_question_quick_templates_user "
             "ON question_quick_templates(user_id, updated_at DESC)"
         ))
+
+    def _migrate_review_send_error_columns(self, conn) -> None:
+        """Add send_error_message and send_attempts columns to review_items."""
+        conn.execute("""
+            ALTER TABLE review_items
+            ADD COLUMN IF NOT EXISTS send_error_message TEXT
+        """)
+        conn.execute("""
+            ALTER TABLE review_items
+            ADD COLUMN IF NOT EXISTS send_attempts INTEGER NOT NULL DEFAULT 0
+        """)
 
     def _migrate_textless_subgroups(self, conn) -> None:
         """Replace legacy '1-3 звезды' / '4-5 звезд' subgroups with 5 per-star subgroups.
@@ -4921,6 +4938,72 @@ class ReviewRepository:
         if row is None:
             return None
         return self._row_to_dict(row)
+
+    def mark_review_send_error(
+        self,
+        *,
+        user_id: int,
+        review_uid: str,
+        error_message: str,
+        auto_reply: str | None = None,
+    ) -> None:
+        """Record a failed auto-reply attempt. Keeps auto_reply so retry can use it."""
+        now = _utc_now()
+        with self._connect() as conn:
+            conn.execute(
+                self._sql("""
+                UPDATE review_items
+                SET send_error_message = ?,
+                    send_attempts = COALESCE(send_attempts, 0) + 1,
+                    status = 'queued_for_operator',
+                    auto_reply = CASE WHEN ? IS NOT NULL THEN ? ELSE auto_reply END,
+                    updated_at = ?
+                WHERE user_id = ? AND review_uid = ?
+                """),
+                (error_message, auto_reply, auto_reply, now, user_id, review_uid),
+            )
+
+    def clear_review_send_error(self, *, user_id: int, review_uid: str) -> None:
+        """Clear error state after successful send."""
+        with self._connect() as conn:
+            conn.execute(
+                self._sql("""
+                UPDATE review_items
+                SET send_error_message = NULL,
+                    send_attempts = 0,
+                    updated_at = ?
+                WHERE user_id = ? AND review_uid = ?
+                """),
+                (_utc_now(), user_id, review_uid),
+            )
+
+    def get_pending_retry_reviews(
+        self, *, user_id: int, max_attempts: int = 3
+    ) -> list[dict[str, Any]]:
+        """Return reviews that failed auto-reply and should be retried (attempts < max)."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                self._sql("""
+                SELECT *
+                FROM review_items
+                WHERE user_id = ?
+                  AND status = 'queued_for_operator'
+                  AND auto_reply IS NOT NULL
+                  AND auto_reply != ''
+                  AND COALESCE(send_attempts, 0) > 0
+                  AND COALESCE(send_attempts, 0) < ?
+                ORDER BY updated_at ASC
+                LIMIT 50
+                """),
+                (user_id, max_attempts),
+            ).fetchall()
+        items = []
+        for row in rows:
+            data = dict(row)
+            if "metadata_json" in data:
+                data["metadata"] = _json_load(data.pop("metadata_json"), {})
+            items.append(data)
+        return items
 
     def get_existing_classifications(self, *, user_id: int) -> dict[str, tuple[str, str]]:
         """Return {review_uid: (category/group, classified_subgroup)} for all

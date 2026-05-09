@@ -1667,6 +1667,66 @@ class ReviewAutomationService:
                 )
             raise
         reviews = reviews_iterable  # may be a list or a generator
+
+        # ── Auto-retry failed sends ────────────────────────────────────────────
+        # Before processing new reviews, retry any previously failed auto-replies
+        # that still have auto_reply text saved and haven't exceeded max attempts.
+        if user_id:
+            try:
+                pending_retries = self.repository.get_pending_retry_reviews(
+                    user_id=user_id, max_attempts=3
+                )
+                if pending_retries:
+                    _log.info(
+                        "sync_reviews: retrying %d failed auto-replies (account_id=%s source=%s)",
+                        len(pending_retries), account_id, source,
+                    )
+                for pr in pending_retries:
+                    _raise_if_stop_requested(stop_requested, source=source)
+                    pr_uid = str(pr.get("review_uid") or "").strip()
+                    pr_text = str(pr.get("auto_reply") or "").strip()
+                    pr_account = pr.get("account_id")
+                    pr_source = str(pr.get("source") or "").strip()
+                    # Only retry if same source/account as current sync run
+                    if not pr_uid or not pr_text or pr_source != source:
+                        continue
+                    if pr_account is not None and account_id is not None and int(pr_account) != int(account_id):
+                        continue
+                    pr_review = ReviewInput(
+                        review_id=str(pr.get("external_review_id") or ""),
+                        text=str(pr.get("text") or ""),
+                        author=str(pr.get("author") or "") or None,
+                        rating=pr.get("rating"),
+                        metadata=pr.get("metadata") or {},
+                    )
+                    if not pr_review.review_id:
+                        continue
+                    retry_sent, retry_error = self._send_reply_via_client(
+                        client=client,
+                        source=source,
+                        review=pr_review,
+                        response_text=pr_text,
+                    )
+                    if retry_sent:
+                        self.repository.clear_review_send_error(user_id=user_id, review_uid=pr_uid)
+                        self.repository.update_review_processing_result(
+                            user_id=user_id,
+                            review_uid=pr_uid,
+                            status="answered_auto",
+                            auto_reply=pr_text,
+                        )
+                        _log.info("sync_reviews: retry SUCCESS for %s", pr_uid[:40])
+                    else:
+                        self.repository.mark_review_send_error(
+                            user_id=user_id,
+                            review_uid=pr_uid,
+                            error_message=str(retry_error or "Retry failed"),
+                        )
+                        _log.info("sync_reviews: retry FAILED for %s: %s", pr_uid[:40], retry_error)
+            except Exception as _retry_exc:
+                _log.warning("sync_reviews: retry step error: %s", _retry_exc)
+        # ── End auto-retry ────────────────────────────────────────────────────
+
         settings = self.repository.get_ai_settings(include_secrets=True)
         classification_options = self._list_group_subgroups_for_review_classification(
             repository=self.repository,
@@ -1779,6 +1839,7 @@ class ReviewAutomationService:
             processed = self.processor.process(review)
             ai_classification_failed = False
             ai_classification_error = ""
+            send_error: str | None = None
 
             # Check if this review was already classified in a previous sync —
             # reuse the existing result to avoid wasteful Yandex API calls.
@@ -1895,14 +1956,19 @@ class ReviewAutomationService:
                     status = "answered_auto"
                 else:
                     status = "queued_for_operator"
-                    auto_reply = None
+                    # Keep auto_reply — operator needs to see what was tried;
+                    # retry logic also uses this text on next sync
+                    review_uid_for_error = self.repository.make_review_uid(
+                        user_id, source, account_id, review.review_id
+                    )
                     self.repository.log_review_action(
                         user_id=user_id,
-                        review_uid=self.repository.make_review_uid(user_id, source, account_id, review.review_id),
+                        review_uid=review_uid_for_error,
                         action_type="send_reply_error",
                         actor="system",
                         details={"source": source, "error": send_error or "Не удалось отправить ответ"},
                     )
+                    # Will be recorded via mark_review_send_error after upsert
             else:
                 status = "queued_for_operator"
                 auto_reply = None
@@ -1919,6 +1985,17 @@ class ReviewAutomationService:
                 status=status,
                 auto_reply=auto_reply,
             )
+            # After upsert: if send failed and we have auto_reply, record the error details
+            if status == "queued_for_operator" and auto_reply and send_error is not None:
+                review_uid_err = self.repository.make_review_uid(
+                    user_id, source, account_id, review_for_processing.review_id
+                )
+                self.repository.mark_review_send_error(
+                    user_id=user_id,
+                    review_uid=review_uid_err,
+                    error_message=str(send_error or "Не удалось отправить ответ"),
+                    auto_reply=auto_reply,
+                )
             review_uid = self.repository.make_review_uid(user_id, source, account_id, review_for_processing.review_id)
             if ai_classification_failed:
                 self.repository.log_review_action(

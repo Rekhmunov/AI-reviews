@@ -1267,6 +1267,8 @@ button.secondary.danger:hover {
 }
 
 .review-icon-btn:hover { background: #f3f4f6; }
+.review-retry-btn { border-color: #fbbf24; color: #92400e; }
+.review-retry-btn:hover { background: #fffbeb; border-color: #f59e0b; }
 
 .review-product-name {
   font-weight: 600;

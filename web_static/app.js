@@ -1759,9 +1759,13 @@ async function loadReviews() {
     const tr = document.createElement("tr");
     const sendErrorMessage = String(review.send_error_message || "").trim();
     const hasSendError = review.status === "queued_for_operator" && Boolean(sendErrorMessage);
+    const hasSavedReply = Boolean(String(review.auto_reply || "").trim()) && hasSendError;
     if (hasSendError) tr.classList.add("review-row-send-error");
     const sendErrorIcon = hasSendError
-      ? `<span class="send-error-indicator" title="${esc(sendErrorMessage)}">❗</span>`
+      ? `<span class="send-error-indicator" title="Ошибка отправки: ${esc(sendErrorMessage)}">❗</span>`
+      : "";
+    const retryBtn = hasSavedReply
+      ? `<button type="button" class="review-icon-btn review-retry-btn" title="Повторить отправку" onclick="retryReviewSend('${esc(review.review_uid)}')">🔄</button>`
       : "";
     // --- Column 1: Review ---
     const meta = review.metadata || {};
@@ -1827,6 +1831,7 @@ async function loadReviews() {
             <button type="button" class="review-icon-btn" title="Отправить ответ" onclick="sendReviewReply('${reviewUid}')">📤</button>
             <button type="button" class="review-icon-btn" title="Другой шаблон" onclick="refreshReviewTemplate('${reviewUid}', '${esc(review.category || "")}', '${esc(review.classified_subgroup || "")}')">🔄</button>
             <button type="button" class="review-icon-btn" title="Редактировать" onclick="editReviewReply('${reviewUid}')">✏️</button>
+            ${retryBtn}
             ${sendErrorIcon}
           </div>
         `}
@@ -2491,6 +2496,27 @@ function applyStockSettings() {
 const _origShowSection = typeof showSection === "function" ? showSection : null;
 
 // ── Review reply actions ─────────────────────────────────────────────────────
+
+async function retryReviewSend(reviewUid) {
+  const btn = document.querySelector(`button.review-retry-btn[onclick*="${reviewUid}"]`);
+  if (btn) { btn.disabled = true; btn.textContent = "⏳"; }
+  try {
+    const res = await fetch(`/api/reviews/${encodeURIComponent(reviewUid)}/retry-send`, {
+      method: "POST",
+      headers: jsonHeaders(),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      alert(`Ошибка повторной отправки: ${data.detail || "Неизвестная ошибка"}`);
+      if (btn) { btn.disabled = false; btn.textContent = "🔄"; }
+      return;
+    }
+    await loadReviews();
+  } catch (e) {
+    alert(`Ошибка: ${e}`);
+    if (btn) { btn.disabled = false; btn.textContent = "🔄"; }
+  }
+}
 
 async function sendReviewReply(reviewUid) {
   const textarea = document.getElementById(`reply-${reviewUid}`);
