@@ -2587,7 +2587,7 @@ function buildConversationErrorTitle(meta) {
 let _questionSendUid = null;
 
 function openQuestionSendConfirm(uid) {
-  const ta = document.getElementById(`qreply-${uid}`);
+  const ta = document.querySelector(`textarea[data-uid="${CSS.escape(uid)}"]`);
   const text = String(ta?.value || "").trim();
   if (!text) {
     alert("Введите текст ответа");
@@ -2608,7 +2608,7 @@ function closeQuestionSendConfirmModal() {
 async function _doSendQuestionReply() {
   if (!_questionSendUid) return;
   const uid = _questionSendUid;
-  const ta = document.getElementById(`qreply-${uid}`);
+  const ta = document.querySelector(`textarea[data-uid="${CSS.escape(uid)}"]`);
   const text = String(ta?.value || "").trim();
   const btn = document.getElementById("questionSendConfirmBtn");
   if (btn) { btn.disabled = true; btn.textContent = "Отправка..."; }
@@ -2828,15 +2828,16 @@ async function loadQuestions() {
       }
       replyContent = `<textarea class="review-reply-textarea review-reply-answered" readonly>${esc(replyText)}</textarea>`;
     } else {
+      // Use data-uid attribute instead of id to avoid ':' in CSS selectors
       replyContent = `
-        <textarea class="review-reply-textarea" id="qreply-${uid}" placeholder="Введите ответ на вопрос..." readonly></textarea>
+        <textarea class="review-reply-textarea" data-uid="${uid}" placeholder="Введите ответ на вопрос..." readonly></textarea>
         <div class="review-reply-actions">
           <button type="button" class="review-icon-btn" title="Отправить ответ"
-            onclick="openQuestionSendConfirm('${uid}')">📤</button>
+            data-action="q-send" data-uid="${uid}">📤</button>
           <button type="button" class="review-icon-btn" title="Шаблоны"
-            onclick="openQuestionTemplatesModal('${uid}')">📋</button>
+            data-action="q-templates" data-uid="${uid}">📋</button>
           <button type="button" class="review-icon-btn" title="Перенести в обработанные"
-            onclick="moveQuestionToProcessed('${uid}')">✅</button>
+            data-action="q-move" data-uid="${uid}">✅</button>
         </div>`;
     }
 
@@ -2863,8 +2864,9 @@ async function loadQuestions() {
     `;
 
     // Make textarea editable on click for new questions
+    // NOTE: uid may contain ':' which is invalid in CSS selectors
     if (!isProcessed) {
-      const ta = tr.querySelector(`#qreply-${uid}`);
+      const ta = tr.querySelector("textarea.review-reply-textarea");
       if (ta) {
         ta.addEventListener("focus", () => { ta.removeAttribute("readonly"); });
         ta.addEventListener("blur", () => { if (!ta.value.trim()) ta.setAttribute("readonly", ""); });
@@ -2872,6 +2874,19 @@ async function loadQuestions() {
     }
 
     tbody?.appendChild(tr);
+  }
+
+  // Event delegation for question action buttons (avoids ':' in onclick attributes)
+  if (tbody) {
+    tbody.onclick = (e) => {
+      const btn = e.target.closest("[data-action]");
+      if (!btn) return;
+      const btnUid = btn.dataset.uid;
+      const action = btn.dataset.action;
+      if (action === "q-send") openQuestionSendConfirm(btnUid);
+      else if (action === "q-templates") openQuestionTemplatesModal(btnUid);
+      else if (action === "q-move") moveQuestionToProcessed(btnUid);
+    };
   }
 
   const newCount = Number(data.new_count || 0);
