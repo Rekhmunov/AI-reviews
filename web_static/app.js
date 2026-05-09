@@ -456,6 +456,11 @@ function showSection(section, options = {}) {
   if (section === "profile") {
     loadProfile();
   }
+  // Refresh chat list when navigating back to chats so Dmitry's message
+  // doesn't disappear due to stale background-timer data.
+  if (section === "chats" && !syncInProgress) {
+    loadChats();
+  }
 }
 
 function showSettingsTab(tab, options = {}) {

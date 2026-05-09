@@ -4054,8 +4054,14 @@ class ReviewRepository:
                         ELSE conversation_items.last_message_at
                     END,
                     last_sent_at = CASE
+                        -- Keep existing if incoming is NULL (no new seller reply detected)
                         WHEN excluded.last_sent_at IS NULL THEN conversation_items.last_sent_at
-                        WHEN conversation_items.last_sent_at IS NULL THEN excluded.last_sent_at
+                        -- current IS NULL means buyer wrote last and is waiting — do NOT
+                        -- restore an old seller reply timestamp from events. NULL must
+                        -- remain until seller explicitly replies (via mark_conversation_answered)
+                        -- or a full sync re-inserts the row with a fresh seller timestamp.
+                        WHEN conversation_items.last_sent_at IS NULL THEN NULL
+                        -- Both set: advance only if incoming is newer
                         WHEN excluded.last_sent_at > conversation_items.last_sent_at THEN excluded.last_sent_at
                         ELSE conversation_items.last_sent_at
                     END,
