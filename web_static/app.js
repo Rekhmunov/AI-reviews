@@ -1783,8 +1783,25 @@ async function loadReviews() {
     if (rawItem.cons) textParts.push(`<div class="review-cons small"><b>Недостатки:</b> ${esc(rawItem.cons)}</div>`);
 
     // --- Column 2: Reply ---
-    const suggestedText = String(review.suggested_reply || review.auto_reply || "");
     const reviewUid = esc(review.review_uid);
+    const isAnswered = review.status === "answered_auto" || review.status === "answered_manual";
+    const isOzon = String(review.source || "").toLowerCase().includes("ozon");
+
+    let replyText;
+    if (isAnswered) {
+      // Show the ACTUAL sent reply, not the AI suggestion
+      const actualReply = String(review.manual_reply || review.auto_reply || "").trim();
+      if (actualReply) {
+        replyText = actualReply;
+      } else if (isOzon) {
+        replyText = "Ответ предоставлен напрямую через портал ОЗОНа или другой сервис";
+      } else {
+        replyText = "";
+      }
+    } else {
+      // New/queued review — show suggestion for editing
+      replyText = String(review.suggested_reply || review.auto_reply || "");
+    }
 
     // --- Column 3: Product ---
     const productName = esc(rawProduct.productName || rawItem.productName || "");
@@ -1810,13 +1827,17 @@ async function loadReviews() {
         <div class="review-meta-small">${esc(review.author || "")} · ${esc(_toMsk((meta.raw || {}).createdDate || review.created_at || ""))}</div>
       </td>
       <td class="review-col-reply">
-        <textarea class="review-reply-textarea" id="reply-${reviewUid}" readonly>${esc(suggestedText)}</textarea>
-        <div class="review-reply-actions">
-          <button type="button" class="review-icon-btn" title="Отправить ответ" onclick="sendReviewReply('${reviewUid}')">📤</button>
-          <button type="button" class="review-icon-btn" title="Другой шаблон" onclick="refreshReviewTemplate('${reviewUid}', '${esc(review.category || "")}', '${esc(review.classified_subgroup || "")}')">🔄</button>
-          <button type="button" class="review-icon-btn" title="Редактировать" onclick="editReviewReply('${reviewUid}')">✏️</button>
-          ${sendErrorIcon}
-        </div>
+        ${isAnswered ? `
+          <textarea class="review-reply-textarea review-reply-answered" id="reply-${reviewUid}" readonly>${esc(replyText)}</textarea>
+        ` : `
+          <textarea class="review-reply-textarea" id="reply-${reviewUid}" readonly>${esc(replyText)}</textarea>
+          <div class="review-reply-actions">
+            <button type="button" class="review-icon-btn" title="Отправить ответ" onclick="sendReviewReply('${reviewUid}')">📤</button>
+            <button type="button" class="review-icon-btn" title="Другой шаблон" onclick="refreshReviewTemplate('${reviewUid}', '${esc(review.category || "")}', '${esc(review.classified_subgroup || "")}')">🔄</button>
+            <button type="button" class="review-icon-btn" title="Редактировать" onclick="editReviewReply('${reviewUid}')">✏️</button>
+            ${sendErrorIcon}
+          </div>
+        `}
       </td>
       <td class="review-col-product">
         ${productName

@@ -1228,6 +1228,14 @@ button.secondary.danger:hover {
   border-color: #2563eb;
 }
 
+.review-reply-answered {
+  background: #f1f5f9;
+  color: #475569;
+  border-color: #e2e8f0;
+  cursor: default;
+  resize: none;
+}
+
 .review-reply-actions {
   display: flex;
   gap: 6px;
