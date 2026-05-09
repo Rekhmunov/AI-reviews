@@ -2586,8 +2586,18 @@ function buildConversationErrorTitle(meta) {
 
 let _questionSendUid = null;
 
+function _findQuestionTextarea(uid) {
+  // Cannot use getElementById or CSS.escape inside attribute selector quotes safely.
+  // Iterate all question textareas and compare dataset.uid directly.
+  let found = null;
+  document.querySelectorAll("textarea.review-reply-textarea[data-uid]").forEach(el => {
+    if (el.dataset.uid === uid) found = el;
+  });
+  return found;
+}
+
 function openQuestionSendConfirm(uid) {
-  const ta = document.querySelector(`textarea[data-uid="${CSS.escape(uid)}"]`);
+  const ta = _findQuestionTextarea(uid);
   const text = String(ta?.value || "").trim();
   if (!text) {
     alert("Введите текст ответа");
@@ -2608,7 +2618,7 @@ function closeQuestionSendConfirmModal() {
 async function _doSendQuestionReply() {
   if (!_questionSendUid) return;
   const uid = _questionSendUid;
-  const ta = document.querySelector(`textarea[data-uid="${CSS.escape(uid)}"]`);
+  const ta = _findQuestionTextarea(uid);
   const text = String(ta?.value || "").trim();
   const btn = document.getElementById("questionSendConfirmBtn");
   if (btn) { btn.disabled = true; btn.textContent = "Отправка..."; }
@@ -2638,6 +2648,7 @@ function openQuestionTemplatesModal(uid) {
 function closeQuestionTemplatesModal() {
   document.getElementById("questionQuickTemplatesModal")?.classList.add("hidden");
   questionTemplatesState.targetUid = null;
+  _editingQuestionTemplateId = null;
 }
 
 async function loadQuestionTemplates() {
@@ -2655,6 +2666,8 @@ async function loadQuestionTemplates() {
   }
 }
 
+let _editingQuestionTemplateId = null;
+
 function renderQuestionTemplatesList() {
   const listEl = document.getElementById("questionTemplatesList");
   if (!listEl) return;
@@ -2663,24 +2676,70 @@ function renderQuestionTemplatesList() {
     listEl.innerHTML = '<p class="small" style="color:#9ca3af">Шаблонов нет. Добавьте первый.</p>';
     return;
   }
-  listEl.innerHTML = items.map(t => `
-    <div class="chat-quick-template-item">
-      <div style="flex:1;cursor:pointer" onclick="selectQuestionTemplate(${t.id})">
-        <div class="chat-quick-template-name">${esc(t.template_name)}</div>
-        <div class="chat-quick-template-text">${esc(t.template_text)}</div>
-      </div>
-      <div class="chat-quick-template-actions">
-        <button type="button" class="secondary" style="font-size:11px;padding:2px 8px"
+  listEl.innerHTML = items.map(t => {
+    const isEditing = _editingQuestionTemplateId === t.id;
+    return `
+    <div class="chat-quick-template-item" style="flex-direction:column;align-items:stretch;gap:6px">
+      <div style="display:flex;align-items:center;gap:6px">
+        <div style="flex:1;cursor:pointer;font-size:13px;font-weight:500;padding:4px 0"
+          onclick="selectQuestionTemplate(${t.id})" title="${esc(t.template_text)}">${esc(t.template_name)}</div>
+        <button type="button" class="secondary" style="font-size:11px;padding:2px 8px" title="Редактировать"
+          onclick="toggleEditQuestionTemplate(${t.id})">✏️</button>
+        <button type="button" class="secondary" style="font-size:11px;padding:2px 8px" title="Удалить"
           onclick="deleteQuestionTemplate(${t.id})">✕</button>
       </div>
-    </div>`).join("");
+      ${isEditing ? `
+      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:8px">
+        <input id="editQTplName_${t.id}" type="text" value="${esc(t.template_name)}"
+          placeholder="Название" style="width:100%;box-sizing:border-box;margin-bottom:6px">
+        <textarea id="editQTplText_${t.id}" rows="3"
+          style="width:100%;box-sizing:border-box;resize:vertical"
+          placeholder="Текст шаблона...">${esc(t.template_text)}</textarea>
+        <div class="row" style="gap:6px;margin-top:6px">
+          <button type="button" style="font-size:12px" onclick="saveEditQuestionTemplate(${t.id})">Сохранить</button>
+          <button type="button" class="secondary" style="font-size:12px" onclick="toggleEditQuestionTemplate(${t.id})">Отмена</button>
+        </div>
+      </div>` : ""}
+    </div>`;
+  }).join("");
+}
+
+function toggleEditQuestionTemplate(id) {
+  _editingQuestionTemplateId = _editingQuestionTemplateId === id ? null : id;
+  renderQuestionTemplatesList();
+  if (_editingQuestionTemplateId === id) {
+    document.getElementById(`editQTplName_${id}`)?.focus();
+  }
+}
+
+async function saveEditQuestionTemplate(id) {
+  const name = String(document.getElementById(`editQTplName_${id}`)?.value || "").trim();
+  const text = String(document.getElementById(`editQTplText_${id}`)?.value || "").trim();
+  const infoEl = document.getElementById("questionTemplatesInfo");
+  if (!name || !text) {
+    if (infoEl) infoEl.textContent = "Заполните название и текст";
+    return;
+  }
+  try {
+    const res = await fetch(`/api/question-quick-templates/${id}`, {
+      method: "PUT", headers: jsonHeaders(),
+      body: JSON.stringify({ template_name: name, template_text: text }),
+    });
+    const data = await res.json();
+    if (!res.ok) { if (infoEl) infoEl.textContent = data.detail || "Ошибка"; return; }
+    _editingQuestionTemplateId = null;
+    if (infoEl) infoEl.textContent = "";
+    await loadQuestionTemplates();
+  } catch (_) {
+    if (infoEl) infoEl.textContent = "Ошибка сохранения";
+  }
 }
 
 function selectQuestionTemplate(templateId) {
   const tpl = questionTemplatesState.items.find(t => t.id === templateId);
   if (!tpl || !questionTemplatesState.targetUid) return;
   const uid = questionTemplatesState.targetUid;
-  const ta = document.getElementById(`qreply-${uid}`);
+  const ta = _findQuestionTextarea(uid);
   if (ta) {
     ta.value = tpl.template_text;
     ta.removeAttribute("readonly");
