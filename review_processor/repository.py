@@ -3655,7 +3655,16 @@ class ReviewRepository:
                     text = excluded.text,
                     author = excluded.author,
                     rating = excluded.rating,
-                    metadata_json = excluded.metadata_json,
+                    metadata_json = CASE
+                        WHEN review_items.metadata_json::jsonb->>'classified_group_id' IS NOT NULL
+                         AND review_items.metadata_json::jsonb->>'classified_group_id' != ''
+                         AND review_items.metadata_json::jsonb->>'classified_group_id' != 'ai_unclassified'
+                        THEN excluded.metadata_json::jsonb || jsonb_build_object(
+                            'classified_group_id', review_items.metadata_json::jsonb->>'classified_group_id',
+                            'classified_subgroup', review_items.metadata_json::jsonb->>'classified_subgroup'
+                        )
+                        ELSE excluded.metadata_json
+                    END,
                     normalized_text = excluded.normalized_text,
                     sentiment_score = excluded.sentiment_score,
                     sentiment_label = excluded.sentiment_label,
@@ -3664,7 +3673,13 @@ class ReviewRepository:
                     priority = excluded.priority,
                     tags_json = excluded.tags_json,
                     recommended_action = excluded.recommended_action,
-                    category = excluded.category,
+                    category = CASE
+                        WHEN review_items.category IS NOT NULL
+                         AND review_items.category != ''
+                         AND review_items.category != 'ai_unclassified'
+                        THEN review_items.category
+                        ELSE excluded.category
+                    END,
                     processing_mode = excluded.processing_mode,
                     status = CASE
                         WHEN review_items.status = 'answered_manual' THEN review_items.status
