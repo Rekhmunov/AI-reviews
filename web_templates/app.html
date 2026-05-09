@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=55" />
+  <link rel="stylesheet" href="/static/style.css?v=56" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -18,42 +18,51 @@
   <div class="layout">
     <aside id="mobileNavMenu" class="sidebar">
       <div class="sidebar-main">
-        <div class="brand">FEEDPILOT</div>
-        <div class="meta">пользователь: {{SAFE_EMAIL}}<br/>роль: {{SAFE_ROLE}}</div>
-
-        <!-- Группа: Обратная связь -->
-        <div class="nav-group" id="navgroup-feedback">
-          <div class="nav-group-header" onclick="toggleNavGroup('feedback')">
-            <a class="navbtn nav-group-title" href="#" onclick="showSection('reviews');event.stopPropagation()">Обратная связь</a>
-            <button class="nav-group-toggle" aria-label="Раскрыть" type="button"></button>
-          </div>
-          <div class="nav-group-items" id="navgroup-feedback-items">
-            <a id="nav-reviews" class="navbtn nav-sub active" href="#" onclick="showSection('reviews')">Отзывы</a>
-            <a id="nav-conversations" class="navbtn nav-sub" href="#" onclick="showSection('conversations')">Вопросы</a>
-            <a id="nav-chats" class="navbtn nav-sub" href="#" onclick="showSection('chats')">Чаты</a>
-            {{NAV_SETTINGS_SUB}}
-          </div>
+        <!-- Brand -->
+        <div class="sidebar-brand">
+          <span class="sidebar-brand-icon">◈</span>
+          <span class="sidebar-brand-name">FEEDPILOT</span>
         </div>
 
-        <!-- Группа: Остатки -->
-        <div class="nav-group" id="navgroup-stock">
-          <div class="nav-group-header" onclick="toggleNavGroup('stock')">
-            <span class="navbtn nav-group-title">Остатки</span>
-            <button class="nav-group-toggle" aria-label="Раскрыть" type="button"></button>
-          </div>
-          <div class="nav-group-items" id="navgroup-stock-items">
-            <a id="nav-stock-work" class="navbtn nav-sub" href="#" onclick="showSection('stock-work')">Работа с остатками</a>
-            <a id="nav-stock-settings" class="navbtn nav-sub" href="#" onclick="showSection('stock-settings')">Настройки</a>
-          </div>
+        <!-- User info -->
+        <div class="sidebar-user">
+          <div class="sidebar-user-email">{{SAFE_EMAIL}}</div>
+          <div class="sidebar-user-role">{{SAFE_ROLE}}</div>
         </div>
 
-        <!-- Аналитика -->
-        {{NAV_ANALYTICS}}
+        <!-- Nav sections -->
+        <nav class="sidebar-nav">
 
+          <div class="nav-section-label">Обратная связь</div>
+          <a id="nav-reviews" class="nav-item active" href="#" onclick="showSection('reviews')">
+            <span class="nav-item-icon">★</span> Отзывы
+          </a>
+          <a id="nav-conversations" class="nav-item" href="#" onclick="showSection('conversations')">
+            <span class="nav-item-icon">?</span> Вопросы
+          </a>
+          <a id="nav-chats" class="nav-item" href="#" onclick="showSection('chats')">
+            <span class="nav-item-icon">◎</span> Чаты
+          </a>
+          {{NAV_SETTINGS_SUB}}
+
+          <div class="nav-section-label" style="margin-top:8px">Остатки</div>
+          <a id="nav-stock-work" class="nav-item" href="#" onclick="showSection('stock-work')">
+            <span class="nav-item-icon">⊞</span> Работа с остатками
+          </a>
+          <a id="nav-stock-settings" class="nav-item" href="#" onclick="showSection('stock-settings')">
+            <span class="nav-item-icon">≡</span> Настройки
+          </a>
+
+          {{NAV_ANALYTICS}}
+
+        </nav>
       </div>
+
       <div class="sidebar-bottom">
         {{ADMIN_LINK}}
-        <a id="nav-profile" class="navbtn" href="#" onclick="showSection('profile')">Мой профиль</a>
+        <a id="nav-profile" class="nav-item nav-item-bottom" href="#" onclick="showSection('profile')">
+          <span class="nav-item-icon">○</span> Мой профиль
+        </a>
       </div>
     </aside>
 
@@ -924,6 +933,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=73"></script>
+  <script src="/static/app.js?v=74"></script>
 </body>
 </html>
