@@ -1413,8 +1413,11 @@ class WildberriesMarketplaceClient:
             if item.get("unreadCount") is not None
             else item.get("newMessages")
         )
+        # WB questions use `createdDate` as the question's timestamp.
+        # Include it first so questions sort by creation date, not sync time.
         last_message_at_raw = (
-            item.get("updatedAt")
+            item.get("createdDate")
+            or item.get("updatedAt")
             or item.get("updated_at")
             or item.get("last_message_at")
             or item.get("lastMessageAt")
@@ -1423,14 +1426,23 @@ class WildberriesMarketplaceClient:
             or (last_message.get("dateTime") if isinstance(last_message, Mapping) else None)
         )
         last_message_at = _normalize_timestamp(last_message_at_raw)
+        # For questions answered on the WB portal, set seller_replied_at so that
+        # last_sent_at is populated → question moves to "Processed" bucket.
+        # We use createdDate as the best available timestamp (WB doesn't return
+        # the answer timestamp in the question list endpoint).
+        seller_replied_at: str | None = None
+        if kind == "question" and (_has_answer or _is_answered_state):
+            seller_replied_at = _normalize_timestamp(item.get("createdDate")) or _normalize_timestamp(None)
         return {
             "external_id": external_id,
             "kind": kind,
             "customer_name": customer_name,
             "message_text": text,
-            "status": status if status in {"open", "closed", "waiting"} else "open",
+            # Allow "answered_manual" to pass — it signals portal-answered questions.
+            "status": status if status in {"open", "closed", "waiting", "answered_manual"} else "open",
             "unread_count": _to_positive_int(unread_raw, default=0),
             "last_message_at": last_message_at,
+            "seller_replied_at": seller_replied_at,
             "metadata": {"raw": item, "marketplace": "wb"},
         }
 
@@ -1986,6 +1998,7 @@ class ReviewAutomationService:
                 unread_count=_to_positive_int(row.get("unread_count"), default=0),
                 metadata=row.get("metadata") if isinstance(row.get("metadata"), dict) else {},
                 last_message_at=str(row.get("last_message_at") or "") or None,
+                seller_replied_at=str(row.get("seller_replied_at") or "") or None,
             )
             loaded += 1
         return loaded

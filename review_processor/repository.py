@@ -4195,11 +4195,18 @@ class ReviewRepository:
         safe_page_size = min(max(page_size, 1), 2000)
         where_base = " AND ".join(base_clauses)
         where_view = " AND ".join(view_clauses)
+        # For questions, use createdDate from raw metadata for accurate sort.
+        # WB questions have createdDate in metadata_json.raw; chats use last_message_at.
+        if kind == "question":
+            _date_expr = (
+                "COALESCE(metadata_json::jsonb->'raw'->>'createdDate', "
+                "last_message_at, updated_at)"
+            )
+        else:
+            _date_expr = "COALESCE(last_message_at, updated_at)"
         order_by_map = {
-            # Sort by the actual last message timestamp from WB, not sync time.
-            # COALESCE falls back to updated_at if last_message_at is NULL.
-            "newest": "COALESCE(last_message_at, updated_at) DESC",
-            "oldest": "COALESCE(last_message_at, updated_at) ASC",
+            "newest": f"{_date_expr} DESC",
+            "oldest": f"{_date_expr} ASC",
         }
         order_by = order_by_map.get(sort.strip().lower(), order_by_map["newest"])
 
