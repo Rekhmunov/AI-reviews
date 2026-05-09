@@ -3575,7 +3575,7 @@ function _lbKeyClose(e) {
 
 function startChatAutoRefresh(uid) {
   stopChatAutoRefresh();
-  if (!uid) return;
+  if (!uid || String(uid).includes(":question:")) return;
   chatAutoRefreshTimer = window.setInterval(async () => {
     if (!chatsState.activeConversationUid) return;
     // Reload messages from DB (auto-sync keeps DB up to date).
@@ -3688,13 +3688,19 @@ async function loadChats() {
   if (panelStatusFilter) panelStatusFilter.value = chatsState.status || "all";
   updateChatsDateFilterButton();
 
+  // Guard: never set a question UID as active chat conversation
+  const isValidChatUid = (uid) => uid && !String(uid).includes(":question:");
+  if (!isValidChatUid(chatsState.activeConversationUid)) {
+    chatsState.activeConversationUid = "";
+  }
   const hasActive = chatsState.items.some((item) => item.conversation_uid === chatsState.activeConversationUid);
   if (!hasActive) {
     // On mobile: don't auto-select first chat — show the list instead
     if (isMobileChatView()) {
       chatsState.activeConversationUid = "";
     } else {
-      chatsState.activeConversationUid = chatsState.items.length ? String(chatsState.items[0].conversation_uid || "") : "";
+      const firstChat = chatsState.items.find(item => isValidChatUid(item.conversation_uid));
+      chatsState.activeConversationUid = firstChat ? String(firstChat.conversation_uid) : "";
     }
   }
   renderChatsList();

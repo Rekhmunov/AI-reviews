@@ -4137,15 +4137,22 @@ class ReviewRepository:
         # We cast explicitly to TEXT in PostgreSQL to avoid implicit type
         # coercion (the column was altered to TIMESTAMPTZ in some migrations
         # but data is inserted as TEXT strings).
-        # A conversation is "processed" if:
-        # 1. Seller replied via our system (last_sent_at set and >= last message), OR
-        # 2. For questions: status was explicitly set to answered_manual/answered_auto
-        #    (covers WB portal answers where last_sent_at may be older than last_message_at)
-        processed_by_operator_clause = (
-            "(last_sent_at IS NOT NULL "
-            "AND (last_message_at IS NULL OR last_sent_at::text >= last_message_at::text)) "
-            "OR (kind = 'question' AND status IN ('answered_manual', 'answered_auto'))"
-        )
+        # A conversation is "processed" if seller replied via our system,
+        # OR (for questions only) the status was set to answered by sync.
+        # The kind guard ensures questions never bleed into chat queries and vice versa.
+        if kind == "question":
+            processed_by_operator_clause = (
+                "("
+                "(last_sent_at IS NOT NULL "
+                " AND (last_message_at IS NULL OR last_sent_at::text >= last_message_at::text))"
+                " OR status IN ('answered_manual', 'answered_auto')"
+                ")"
+            )
+        else:
+            processed_by_operator_clause = (
+                "(last_sent_at IS NOT NULL "
+                "AND (last_message_at IS NULL OR last_sent_at::text >= last_message_at::text))"
+            )
 
         if account_permissions:
             permission_clauses: list[str] = []
