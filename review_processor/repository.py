@@ -4137,9 +4137,14 @@ class ReviewRepository:
         # We cast explicitly to TEXT in PostgreSQL to avoid implicit type
         # coercion (the column was altered to TIMESTAMPTZ in some migrations
         # but data is inserted as TEXT strings).
+        # A conversation is "processed" if:
+        # 1. Seller replied via our system (last_sent_at set and >= last message), OR
+        # 2. For questions: status was explicitly set to answered_manual/answered_auto
+        #    (covers WB portal answers where last_sent_at may be older than last_message_at)
         processed_by_operator_clause = (
-            "last_sent_at IS NOT NULL "
-            "AND (last_message_at IS NULL OR last_sent_at::text >= last_message_at::text)"
+            "(last_sent_at IS NOT NULL "
+            "AND (last_message_at IS NULL OR last_sent_at::text >= last_message_at::text)) "
+            "OR (kind = 'question' AND status IN ('answered_manual', 'answered_auto'))"
         )
 
         if account_permissions:
@@ -4186,14 +4191,17 @@ class ReviewRepository:
         where_base = " AND ".join(base_clauses)
         where_view = " AND ".join(view_clauses)
         # For questions, use createdDate from raw metadata for accurate sort.
-        # WB questions have createdDate in metadata_json.raw; chats use last_message_at.
+        # Cast all to TEXT so COALESCE works regardless of column type (TEXT vs TIMESTAMPTZ).
         if kind == "question":
             _date_expr = (
-                "COALESCE(metadata_json::jsonb->'raw'->>'createdDate', "
-                "last_message_at, updated_at)"
+                "COALESCE("
+                "metadata_json::jsonb->'raw'->>'createdDate',"
+                "last_message_at::text,"
+                "updated_at::text"
+                ")"
             )
         else:
-            _date_expr = "COALESCE(last_message_at, updated_at)"
+            _date_expr = "COALESCE(last_message_at::text, updated_at::text)"
         order_by_map = {
             "newest": f"{_date_expr} DESC",
             "oldest": f"{_date_expr} ASC",
