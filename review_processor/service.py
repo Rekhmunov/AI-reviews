@@ -1332,8 +1332,15 @@ class WildberriesMarketplaceClient:
         # WB reviews (feedbacks) use POST /api/v1/feedbacks/answer with flat payload.
         kind = str(conversation.get("kind") or "").lower()
         if kind == "question":
+            # WB Questions API: PATCH /api/v1/questions
+            # Requires "state": "wbRu" (answered by seller) in addition to answer text.
             endpoint = _compose_url(self.api_url, "/api/v1/questions")
-            payload_q: dict[str, object] = {"id": external_id, "answer": {"text": response_text}}
+            payload_q: dict[str, object] = {
+                "id": external_id,
+                "state": "wbRu",
+                "wasViewed": True,
+                "answer": {"text": response_text},
+            }
             request = Request(
                 endpoint,
                 method="PATCH",
@@ -1341,7 +1348,6 @@ class WildberriesMarketplaceClient:
                 data=json.dumps(payload_q).encode("utf-8"),
             )
             raw = _request_json(request=request, timeout=self.timeout, source="wb", retries=1)
-            # WB PATCH may return empty body on success — treat as OK
             if isinstance(raw, dict):
                 _raise_if_error_payload(raw, source="wb")
             return True
