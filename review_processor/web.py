@@ -1796,17 +1796,23 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             group_id = str(item.get("category") or "")
             if group_id:
                 pairs.append((group_id, subgroup or None))
-        # Single DB call for all templates
+        # Single DB call — load ALL templates for relevant groups
+        # Each review picks independently so different reviews get different templates
+        import random as _rnd
+        group_ids_needed = list({p[0] for p in pairs if p[0]})
         try:
-            tmpl_map = repository.get_random_template_for_reviews(user_id=user_id_int, pairs=pairs)
+            tmpl_pool = repository.get_template_pool_for_reviews(
+                user_id=user_id_int, group_ids=group_ids_needed
+            )
         except Exception:
-            tmpl_map = {}
-        # Second pass: assign templates
+            tmpl_pool = {}
+        # Second pass: each review gets its own random pick from the pool
         for item in items:
             group_id = str(item.get("category") or "")
             subgroup = str(item.get("classified_subgroup") or "")
             if group_id:
-                item["suggested_reply"] = tmpl_map.get((group_id, subgroup), tmpl_map.get((group_id, ""), ""))
+                texts = tmpl_pool.get((group_id, subgroup)) or tmpl_pool.get((group_id, "")) or []
+                item["suggested_reply"] = _rnd.choice(texts) if texts else ""
             else:
                 item["suggested_reply"] = ""
 

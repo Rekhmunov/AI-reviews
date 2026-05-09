@@ -3129,26 +3129,22 @@ class ReviewRepository:
             )
         return result.rowcount > 0
 
-    def get_random_template_for_reviews(
+    def get_template_pool_for_reviews(
         self,
         *,
         user_id: int,
-        pairs: list[tuple[str, str | None]],
-    ) -> dict[tuple[str, str], str]:
-        """Return one random template text per (group_id, subgroup) pair.
+        group_ids: list[str],
+    ) -> dict[tuple[str, str], list[str]]:
+        """Return ALL active template texts per (group_id, subgroup) for the given groups.
 
-        Loads all templates for all needed groups in ONE query instead of
-        N separate queries — eliminates the N+1 problem on reviews page load.
-
-        Returns dict keyed by (group_id, subgroup_or_empty).
+        Returns dict keyed by (group_id, subgroup_or_empty) → list of template texts.
+        The caller must call random.choice() per review to ensure each review
+        gets an independently random template (not one shared pick per group).
         """
-        if not pairs:
-            return {}
-        # Get all active templates for this user in relevant groups
-        group_ids = list({p[0] for p in pairs if p[0]})
         if not group_ids:
             return {}
-        placeholders = ", ".join("?" for _ in group_ids)
+        unique_groups = list(set(group_ids))
+        placeholders = ", ".join("?" for _ in unique_groups)
         with self._connect() as conn:
             rows = conn.execute(
                 f"""
@@ -3157,21 +3153,15 @@ class ReviewRepository:
                 WHERE user_id = ? AND group_id IN ({placeholders})
                   AND is_active = {self._bool_true_literal()}
                 """,
-                [user_id, *group_ids],
+                [user_id, *unique_groups],
             ).fetchall()
-        # Build map: (group_id, subgroup) -> [template_texts]
         from collections import defaultdict
         pool: dict[tuple[str, str], list[str]] = defaultdict(list)
         for r in rows:
-            pool[(str(r["group_id"] or ""), str(r["subgroup"] or ""))].append(str(r["template_text"] or ""))
-        # Pick random for each requested pair
-        import random as _random
-        result: dict[tuple[str, str], str] = {}
-        for group_id, subgroup in pairs:
-            key = (group_id, subgroup or "")
-            texts = pool.get(key) or pool.get((group_id, "")) or []
-            result[key] = _random.choice(texts) if texts else ""
-        return result
+            text = str(r["template_text"] or "").strip()
+            if text:
+                pool[(str(r["group_id"] or ""), str(r["subgroup"] or ""))].append(text)
+        return pool
 
     def get_random_template_variant(
         self,
