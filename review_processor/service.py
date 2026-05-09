@@ -1324,12 +1324,31 @@ class WildberriesMarketplaceClient:
                         self._last_sent_add_time = int(wb_add_time)
             return True
 
-        # Fallback: legacy reply path (feedbacks/questions)
-        if not self.reply_path:
-            return False
         external_id = str(conversation.get("external_conversation_id") or conversation.get("external_id") or "").strip()
         if not external_id:
             raise MarketplaceSyncError("wb", "Missing external conversation id for reply")
+
+        # For WB questions, use PATCH /api/v1/questions with nested answer payload.
+        # WB reviews (feedbacks) use POST /api/v1/feedbacks/answer with flat payload.
+        kind = str(conversation.get("kind") or "").lower()
+        if kind == "question":
+            endpoint = _compose_url(self.api_url, "/api/v1/questions")
+            payload_q: dict[str, object] = {"id": external_id, "answer": {"text": response_text}}
+            request = Request(
+                endpoint,
+                method="PATCH",
+                headers={"Authorization": self.api_key, "Content-Type": "application/json"},
+                data=json.dumps(payload_q).encode("utf-8"),
+            )
+            raw = _request_json(request=request, timeout=self.timeout, source="wb", retries=1)
+            # WB PATCH may return empty body on success — treat as OK
+            if isinstance(raw, dict):
+                _raise_if_error_payload(raw, source="wb")
+            return True
+
+        # Fallback: legacy reply path for other conversation types
+        if not self.reply_path:
+            return False
         payload: dict[str, object] = dict(self.reply_payload or {})
         payload[self.reply_review_id_field] = external_id
         payload[self.reply_text_field] = response_text
@@ -4913,7 +4932,11 @@ def _request_json(*, request: Request, timeout: int, source: str, retries: int =
     while True:
         try:
             with urlopen(request, timeout=timeout) as response:
-                return json.loads(response.read().decode("utf-8"))
+                body = response.read()
+                if not body:
+                    # Some PATCH/POST endpoints return empty body on success (HTTP 200/204)
+                    return {}
+                return json.loads(body.decode("utf-8"))
         except HTTPError as exc:
             if exc.code == 429:
                 # Rate-limited: wait and retry up to ``retries`` times.
