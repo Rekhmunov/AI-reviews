@@ -1290,6 +1290,101 @@ button.secondary.danger:hover {
 }
 
 /* ── Stock module ── */
+/* ── Stock settings page layout ── */
+.stock-settings-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.stock-settings-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0 0 4px;
+  letter-spacing: -0.01em;
+}
+
+.stock-settings-subtitle {
+  font-size: 13px;
+  color: #64748b;
+  margin: 0;
+}
+
+.stock-settings-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+  align-items: center;
+}
+
+.stock-settings-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+.stock-settings-card-header {
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.stock-settings-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0;
+}
+
+.stock-settings-card .table-wrap {
+  padding: 0;
+}
+
+.stock-settings-card .table-wrap table {
+  border-radius: 0;
+}
+
+.stock-settings-params {
+  display: flex;
+  gap: 32px;
+  padding: 16px 20px;
+  flex-wrap: wrap;
+}
+
+.stock-settings-param {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stock-settings-param-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.stock-settings-card-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  border-top: 1px solid #f1f5f9;
+  background: #f8fafc;
+  flex-wrap: wrap;
+}
+
+/* Stock work header */
+.stock-work-header {
+  padding: 4px 0 12px;
+}
+
 #section-stock-work {
   flex-direction: column;
   gap: 0;

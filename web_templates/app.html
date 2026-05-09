@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=57" />
+  <link rel="stylesheet" href="/static/style.css?v=58" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -621,35 +621,22 @@
 
       <!-- ── Остатки: Настройки ── -->
       <section id="section-stock-settings" class="hidden">
-        <h3 class="section-title">Остатки — Настройки</h3>
-        <div class="panel">
-          <div class="row row-between" style="margin-bottom:12px">
-            <h4 class="no-margin">Источники данных</h4>
-            <div class="row" style="gap:8px">
-              <button type="button" onclick="openProductCatalogModal()">📦 Товары</button>
-              <button type="button" onclick="openAddStockSourceModal()">+ Добавить источник</button>
-            </div>
+        <div class="stock-settings-header">
+          <div>
+            <h2 class="stock-settings-title">Настройки остатков</h2>
+            <p class="stock-settings-subtitle">Источники данных, расписание синхронизации, каталог товаров</p>
           </div>
-          <!-- Sync settings -->
-          <div class="row" style="gap:16px;margin-bottom:16px;flex-wrap:wrap">
-            <div style="display:flex;align-items:center;gap:8px">
-              <label class="small" for="stockSyncInterval">Интервал скачивания:</label>
-              <select id="stockSyncInterval" style="width:120px">
-                <option value="1">1 час</option>
-                <option value="3">3 часа</option>
-                <option value="6">6 часов</option>
-                <option value="12">12 часов</option>
-                <option value="24" selected>24 часа</option>
-              </select>
-            </div>
-            <div style="display:flex;align-items:center;gap:8px">
-              <label class="small" for="stockRetentionDays">Хранить отчёты (дней):</label>
-              <input id="stockRetentionDays" type="number" min="1" max="365" value="30" style="width:70px">
-            </div>
-            <button type="button" onclick="saveStockSourceSettings()">Сохранить</button>
-            <button type="button" class="secondary" onclick="deleteAllStockReports()">Удалить все отчёты</button>
+          <div class="stock-settings-actions">
+            <button type="button" class="secondary" onclick="openProductCatalogModal()">📦 Каталог товаров</button>
+            <button type="button" onclick="openAddStockSourceModal()">+ Добавить источник</button>
           </div>
-          <!-- Sources table -->
+        </div>
+
+        <!-- Sources block -->
+        <div class="stock-settings-card">
+          <div class="stock-settings-card-header">
+            <h4 class="stock-settings-card-title">Источники данных</h4>
+          </div>
           <div class="table-wrap">
             <table>
               <thead><tr>
@@ -658,13 +645,45 @@
               <tbody id="stockSourcesTbody"></tbody>
             </table>
           </div>
-          <!-- Sync button -->
-          <div class="row" style="margin-top:16px;gap:10px">
-            <button type="button" onclick="syncStockSources()">🔄 Синхронизировать</button>
-            <span id="stockSyncInfo" class="small"></span>
+        </div>
+
+        <!-- Sync settings block -->
+        <div class="stock-settings-card">
+          <div class="stock-settings-card-header">
+            <h4 class="stock-settings-card-title">Параметры синхронизации</h4>
           </div>
-          <!-- Reports log -->
-          <h4 style="margin-top:24px;margin-bottom:8px">Лог скачанных отчётов</h4>
+          <div class="stock-settings-params">
+            <div class="stock-settings-param">
+              <label class="stock-settings-param-label" for="stockSyncInterval">Интервал скачивания</label>
+              <select id="stockSyncInterval">
+                <option value="1">1 час</option>
+                <option value="3">3 часа</option>
+                <option value="6">6 часов</option>
+                <option value="12">12 часов</option>
+                <option value="24" selected>24 часа</option>
+              </select>
+            </div>
+            <div class="stock-settings-param">
+              <label class="stock-settings-param-label" for="stockRetentionDays">Хранить отчёты</label>
+              <div style="display:flex;align-items:center;gap:8px">
+                <input id="stockRetentionDays" type="number" min="1" max="365" value="30" style="width:72px">
+                <span class="small" style="color:#64748b">дней</span>
+              </div>
+            </div>
+          </div>
+          <div class="stock-settings-card-footer">
+            <button type="button" onclick="saveStockSourceSettings()">Сохранить настройки</button>
+            <button type="button" class="secondary" onclick="syncStockSources()">🔄 Синхронизировать сейчас</button>
+            <span id="stockSyncInfo" class="small" style="color:#64748b"></span>
+            <button type="button" class="secondary" style="margin-left:auto;color:#dc2626;border-color:#fecaca" onclick="deleteAllStockReports()">Удалить все отчёты</button>
+          </div>
+        </div>
+
+        <!-- Reports log -->
+        <div class="stock-settings-card">
+          <div class="stock-settings-card-header">
+            <h4 class="stock-settings-card-title">Лог отчётов</h4>
+          </div>
           <div class="table-wrap">
             <table>
               <thead><tr>
@@ -678,6 +697,9 @@
 
       <!-- ── Остатки: Работа с остатками ── -->
       <section id="section-stock-work" class="hidden">
+        <div class="stock-work-header">
+          <h2 class="stock-settings-title">Работа с остатками</h2>
+        </div>
         <div id="stockWorkSources" class="stock-work-tabs"></div>
         <div class="panel stock-work-panel">
           <div id="stockWorkTableWrap"></div>
