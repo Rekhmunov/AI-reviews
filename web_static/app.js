@@ -2921,12 +2921,14 @@ async function loadQuestions() {
     // Column 3: Product (WB questions store product info inside productDetails)
     const pd = (rawItem.productDetails && typeof rawItem.productDetails === "object") ? rawItem.productDetails : {};
     const productName = esc(pd.productName || rawItem.productName || rawItem.subjectName || pd.subjectName || "");
+    const article = esc(pd.supplierArticle || rawItem.supplierArticle || "");
     const nmId = pd.nmId || pd.nmID || rawItem.nmId || rawItem.nmID || null;
     const productUrl = nmId ? `https://www.wildberries.ru/catalog/${nmId}/detail.aspx` : "";
     const productCell = productName
       ? `<div class="review-product-name">${productUrl
           ? `<a href="${productUrl}" target="_blank" rel="noopener noreferrer" class="review-product-link">${productName}</a>`
-          : productName}</div>`
+          : productName}</div>
+         ${article ? `<div class="review-product-detail small">Артикул: ${article}</div>` : ""}`
       : "";
 
     tr.innerHTML = `
