@@ -2912,7 +2912,7 @@ async function loadQuestions() {
 
     tr.innerHTML = `
       <td class="review-col-review">
-        <div class="review-group-title" style="display:flex;align-items:center;gap:4px">
+        <div class="review-group-title">
           Вопрос от покупателя${sourceIcon}
         </div>
         ${questionText ? `<div class="review-text">${esc(questionText)}</div>` : ""}

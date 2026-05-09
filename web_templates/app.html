@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=54" />
+  <link rel="stylesheet" href="/static/style.css?v=55" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -270,9 +270,9 @@
             </div>
           </div>
         </div>
-        <div class="panel" style="padding:0;overflow:hidden">
-          <div class="table-wrap" style="overflow-x:auto">
-            <table class="reviews-table">
+        <div class="panel">
+          <div class="table-wrap">
+            <table>
               <thead>
                 <tr>
                   <th class="review-col-review">Вопрос</th>
@@ -283,7 +283,7 @@
               <tbody id="questionsTbody"></tbody>
             </table>
           </div>
-          <div class="row reviews-pagination-row" style="padding:10px 16px">
+          <div class="row reviews-pagination-row">
             <div class="row">
               <span class="small">Показывать на странице:</span>
               <select id="questionsPageSize" onchange="onQuestionsPageSizeChange()">
@@ -924,6 +924,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=70"></script>
+  <script src="/static/app.js?v=71"></script>
 </body>
 </html>

@@ -1180,6 +1180,10 @@ button.secondary.danger:hover {
   font-size: 13px;
   color: #1e40af;
   margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
 }
 
 .review-stars { margin-bottom: 6px; }
