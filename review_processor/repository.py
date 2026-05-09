@@ -4086,15 +4086,23 @@ class ReviewRepository:
                 ),
             )
             # When the marketplace confirms the buyer has unread messages
-            # (newMessages > 0), force the chat to the "New" bucket by clearing
-            # last_sent_at.  This is the most reliable signal — no timestamp
-            # comparison needed.
+            # force the chat to "New" bucket — but ONLY if the buyer's message
+            # is actually newer than the seller's last reply.
+            # Without this guard, stale WB unread_count (API cache lag) after
+            # seller replies would incorrectly move the chat back to "New".
             if buyer_has_unread:
                 conn.execute(
                     """
                     UPDATE conversation_items
                     SET last_sent_at = NULL, updated_at = ?
                     WHERE user_id = ? AND conversation_uid = ?
+                      AND (
+                          last_sent_at IS NULL
+                          OR (
+                              last_message_at IS NOT NULL
+                              AND last_message_at::text > last_sent_at::text
+                          )
+                      )
                     """,
                     (now, user_id, conversation_uid),
                 )

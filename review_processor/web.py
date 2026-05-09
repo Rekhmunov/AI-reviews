@@ -2253,8 +2253,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
         # For WB chats: fetch events from WB API when:
         # - messages table is empty (first load), OR
-        # - refresh=1 parameter passed (force reload of full history)
+        # - refresh=1 parameter passed (force reload of full history), OR
+        # - conversation.last_message_at is newer than the newest message in DB
+        #   (buyer sent a new message that auto-sync didn't save to conversation_messages)
         _should_refresh = not messages or bool(refresh)
+        if not _should_refresh and messages and str(conversation.get("source") or "") == "wb":
+            conv_last_msg = str(conversation.get("last_message_at") or "").strip()
+            db_newest = str(messages[-1].get("created_at") or "").strip() if messages else ""
+            # messages are ordered ASC by created_at; last element is newest
+            # If conversation updated more recently than newest DB message → refresh
+            if conv_last_msg and db_newest and conv_last_msg > db_newest:
+                _should_refresh = True
         if _should_refresh and str(conversation.get("source") or "") == "wb":
             try:
                 account_id = conversation.get("account_id")
