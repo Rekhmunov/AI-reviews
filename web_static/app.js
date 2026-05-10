@@ -1235,10 +1235,12 @@ function onChatsSearchInput() {
 
 function selectChatsSort(value) {
   chatsState.sort = value;
-  // Update active state on options
+  // Keep the select element in sync
+  const sortSelect = document.getElementById("chatsSortSelect");
+  if (sortSelect) sortSelect.value = value;
+  // Update legacy active state on dropdown options (if any remain)
   const options = document.querySelectorAll(".chats-sort-option");
   options.forEach((opt) => opt.classList.toggle("active", opt.getAttribute("data-value") === value));
-  // Close dropdown
   const dd = document.getElementById("chatsSortDropdown");
   if (dd) dd.classList.add("hidden");
   loadChats();
@@ -3723,7 +3725,9 @@ async function loadChats() {
   chatsState.status = String(data.status || chatsState.status || "all");
   setChatSourceFilterOptions(data.source_options || []);
 
-  // Update sort dropdown active state
+  // Update sort select
+  const chatsSortSelect = document.getElementById("chatsSortSelect");
+  if (chatsSortSelect) chatsSortSelect.value = chatsState.sort || "newest";
   const sortOptions = document.querySelectorAll(".chats-sort-option");
   sortOptions.forEach((opt) => opt.classList.toggle("active", opt.getAttribute("data-value") === (chatsState.sort || "newest")));
   const panelSourceFilter = document.getElementById("chatPanelSourceFilter");

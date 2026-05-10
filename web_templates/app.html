@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=59" />
+  <link rel="stylesheet" href="/static/style.css?v=60" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -341,29 +341,33 @@
 
       <section id="section-chats" class="hidden">
         <h3 class="section-title">Чаты</h3>
-        <div class="chats-topbar">
+        <div class="row reviews-sync-row">
           <span id="chatsInfo" class="small chats-topbar-info"></span>
-          <button id="clearChatsBtn" type="button" class="secondary small-btn chats-clear-btn hidden" title="Удалить все чаты из базы" onclick="clearAllChats()">Удалить все</button>
+        </div>
+        <div class="panel reviews-toolbar-panel">
+          <div class="reviews-top-controls">
+            <div class="reviews-buckets">
+              <button id="chats-tab-new" class="bucket-tab active" onclick="setChatBucket('new')">Новые чаты (0)</button>
+              <button id="chats-tab-processed" class="bucket-tab" onclick="setChatBucket('processed')">Отвеченные чаты (0)</button>
+              <button id="clearChatsBtn" type="button" class="secondary hidden" onclick="clearAllChats()">Удалить чаты</button>
+            </div>
+            <div class="reviews-quick-controls">
+              <select id="chatPanelSourceFilter">
+                <option value="all">Источник: все</option>
+              </select>
+              <select id="chatsSortSelect" onchange="selectChatsSort(this.value)">
+                <option value="newest">Сначала новые</option>
+                <option value="oldest">Сначала старые</option>
+              </select>
+              <div id="chatsSortDropdown" class="chats-sort-dropdown hidden"></div>
+              <div class="reviews-date-wrap">
+                <input type="text" id="chatsSearchInput" class="chats-search-input" placeholder="🔍 Поиск по имени..." oninput="onChatsSearchInput()" style="width:180px" />
+              </div>
+            </div>
+          </div>
         </div>
         <div class="chats-shell">
           <aside class="chats-list-panel">
-            <div class="chats-list-head">
-              <div class="chats-buckets-row">
-                <button id="chats-tab-new" class="bucket-tab active" onclick="setChatBucket('new')">Новые (0)</button>
-                <button id="chats-tab-processed" class="bucket-tab" onclick="setChatBucket('processed')">Отвеченные (0)</button>
-                <div class="chats-sort-wrap" title="Сортировка">
-                  <button type="button" class="icon-btn chats-sort-btn" onclick="toggleChatsSortDropdown()" aria-label="Сортировка">⇅</button>
-                  <div id="chatsSortDropdown" class="chats-sort-dropdown hidden">
-                    <button type="button" class="chats-sort-option active" data-value="newest" onclick="selectChatsSort('newest')">Сначала новые</button>
-                    <button type="button" class="chats-sort-option" data-value="oldest" onclick="selectChatsSort('oldest')">Сначала старые</button>
-                  </div>
-                </div>
-                <button type="button" class="icon-btn chats-search-btn" id="chatsSearchToggle" onclick="toggleChatsSearch()" aria-label="Поиск">🔍</button>
-              </div>
-              <div id="chatsSearchRow" class="chats-search-row hidden">
-                <input type="text" id="chatsSearchInput" class="chats-search-input" placeholder="Поиск по имени покупателя..." oninput="onChatsSearchInput()" />
-              </div>
-            </div>
             <div id="chatsList" class="chats-list"></div>
           </aside>
           <section class="chats-thread-panel">
@@ -949,6 +953,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=78"></script>
+  <script src="/static/app.js?v=79"></script>
 </body>
 </html>
