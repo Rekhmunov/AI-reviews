@@ -5876,7 +5876,7 @@ class ReviewRepository:
                     SUM(CASE WHEN sentiment_label = 'positive' THEN 1 ELSE 0 END) AS positive_count,
                     SUM(CASE WHEN sentiment_label = 'negative' THEN 1 ELSE 0 END) AS negative_count,
                     SUM(CASE WHEN rating >= 4 THEN 1 ELSE 0 END) AS high_rating_count,
-                    SUM(CASE WHEN rating <= 2 THEN 1 ELSE 0 END) AS low_rating_count
+                    SUM(CASE WHEN rating <= 3 THEN 1 ELSE 0 END) AS low_rating_count
                 FROM review_items
                 WHERE user_id = ?{filter_clause}
                 """,
