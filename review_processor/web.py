@@ -2356,6 +2356,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                                 conversation_uid=conversation_uid,
                                 messages=history,
                             )
+                            # Move chat to "New" bucket if buyer replied after our last reply
+                            try:
+                                repository.move_chat_to_new_if_buyer_replied(
+                                    user_id=int(user["id"]),
+                                    conversation_uid=conversation_uid,
+                                )
+                            except Exception:
+                                pass
                             messages = repository.list_conversation_messages(
                                 user_id=int(user["id"]),
                                 conversation_uid=conversation_uid,

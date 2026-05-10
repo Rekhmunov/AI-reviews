@@ -2370,6 +2370,11 @@ class ReviewAutomationService:
                                 conversation_uid=conv_uid,
                                 messages=inc_history,
                             )
+                            # Move chat to "New" if buyer's saved message is newer than our reply
+                            self.repository.move_chat_to_new_if_buyer_replied(
+                                user_id=user_id,
+                                conversation_uid=conv_uid,
+                            )
                         except Exception:
                             pass
 

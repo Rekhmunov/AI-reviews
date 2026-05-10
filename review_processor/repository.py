@@ -4831,6 +4831,48 @@ class ReviewRepository:
                 inserted += int(result.rowcount or 0)
         return inserted
 
+    def move_chat_to_new_if_buyer_replied(
+        self,
+        *,
+        user_id: int,
+        conversation_uid: str,
+    ) -> bool:
+        """If the newest inbound message in conversation_messages is more recent
+        than last_sent_at, clear last_sent_at so the chat moves to 'New' bucket.
+
+        Called after saving WB chat history messages to ensure the bucket
+        reflects the true state: buyer replied after seller → needs response.
+        Returns True if last_sent_at was cleared (chat moved to New).
+        """
+        now = _utc_now()
+        with self._connect() as conn:
+            # Find the newest inbound (buyer) message
+            row = conn.execute(
+                self._sql("""
+                SELECT created_at FROM conversation_messages
+                WHERE user_id = ? AND conversation_uid = ? AND direction = 'inbound'
+                ORDER BY created_at DESC LIMIT 1
+                """),
+                (user_id, conversation_uid),
+            ).fetchone()
+            if row is None:
+                return False
+            newest_inbound = str(dict(row).get("created_at") or "").strip()
+            if not newest_inbound:
+                return False
+            # Clear last_sent_at only if buyer's message is newer than our last reply
+            result = conn.execute(
+                self._sql("""
+                UPDATE conversation_items
+                SET last_sent_at = NULL, updated_at = ?
+                WHERE user_id = ? AND conversation_uid = ?
+                  AND last_sent_at IS NOT NULL
+                  AND last_sent_at::text < ?
+                """),
+                (now, user_id, conversation_uid, newest_inbound),
+            )
+            return bool(result.rowcount)
+
     def upsert_conversation_outbound_message(
         self,
         *,
