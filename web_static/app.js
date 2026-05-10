@@ -747,6 +747,22 @@ function setChatSourceFilterOptions(options) {
   }
 }
 
+function populateCategoryFilter() {
+  const categorySelect = document.getElementById("categoryFilter");
+  if (!categorySelect) return;
+  const current = categorySelect.value;
+  categorySelect.innerHTML = '<option value="">Категория: все</option>';
+  const categories = Object.keys(templateStore).sort();
+  for (const cat of categories) {
+    const label = labelFromMap(categoryLabels, cat) || cat;
+    const opt = document.createElement("option");
+    opt.value = cat;
+    opt.textContent = label;
+    categorySelect.appendChild(opt);
+  }
+  categorySelect.value = categories.includes(current) ? current : "";
+}
+
 function toggleReviewsFiltersPanel(forceOpen) {
   const panel = document.getElementById("reviewsFiltersPanel");
   if (!panel) return;
@@ -758,6 +774,7 @@ function toggleReviewsFiltersPanel(forceOpen) {
   panel.classList.toggle("hidden", !shouldOpen);
   if (!shouldOpen) return;
   toggleReviewsDateFilterPanel(false);
+  populateCategoryFilter();
   const sourceSelect = document.getElementById("sourceFilter");
   const statusSelect = document.getElementById("statusFilter");
   const prioritySelect = document.getElementById("priorityFilter");
@@ -4543,6 +4560,7 @@ async function loadTemplates() {
     }
   }
   syncRuleFormFromStore();
+  populateCategoryFilter();
   await loadTemplateGroups();
 }
 
