@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=61" />
+  <link rel="stylesheet" href="/static/style.css?v=62" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -425,20 +425,10 @@
             <div class="an-kpi-sub" id="anProcessedPct"></div>
           </div>
           <div class="an-kpi-card an-kpi-positive">
-            <div class="an-kpi-value" id="anPositive">—</div>
-            <div class="an-kpi-label">Позитивных</div>
-            <div class="an-kpi-sub" id="anPositiveCount"></div>
-          </div>
-          <div class="an-kpi-card an-kpi-negative">
-            <div class="an-kpi-value" id="anNegative">—</div>
-            <div class="an-kpi-label">Негативных</div>
-            <div class="an-kpi-sub" id="anNegativeCount"></div>
-          </div>
-          <div class="an-kpi-card">
             <div class="an-kpi-value" id="anHighRating">—</div>
             <div class="an-kpi-label">Оценка 4–5 ★</div>
           </div>
-          <div class="an-kpi-card">
+          <div class="an-kpi-card an-kpi-negative">
             <div class="an-kpi-value" id="anLowRating">—</div>
             <div class="an-kpi-label">Оценка 1–2 ★</div>
           </div>
@@ -455,10 +445,10 @@
         <!-- Charts row -->
         <div class="an-charts-row">
           <div class="panel an-chart-card">
-            <div class="an-chart-title">Тональность отзывов</div>
+            <div class="an-chart-title">Оценка отзывов</div>
             <div class="an-chart-body">
-              <svg id="anSentimentChart" class="an-donut" viewBox="0 0 120 120"></svg>
-              <div class="an-legend" id="anSentimentLegend"></div>
+              <svg id="anRatingChart" class="an-donut" viewBox="0 0 120 120"></svg>
+              <div class="an-legend" id="anRatingLegend"></div>
             </div>
           </div>
           <div class="panel an-chart-card">
@@ -1034,6 +1024,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=80"></script>
+  <script src="/static/app.js?v=81"></script>
 </body>
 </html>

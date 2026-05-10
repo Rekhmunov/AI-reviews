@@ -5878,6 +5878,19 @@ class ReviewRepository:
                 (user_id, *source_params),
             ).fetchone()
 
+            # Rating breakdown (1–5 stars)
+            rating_rows = conn.execute(
+                f"""
+                SELECT rating, COUNT(*) AS cnt
+                FROM review_items
+                WHERE user_id = ?{source_clause}
+                  AND rating IS NOT NULL
+                GROUP BY rating
+                ORDER BY rating
+                """,
+                (user_id, *source_params),
+            ).fetchall()
+
             # Category breakdown
             cat_rows = conn.execute(
                 f"""
@@ -5918,6 +5931,7 @@ class ReviewRepository:
         negative_percent = round((negative_count / total_reviews) * 100, 1) if total_reviews else 0.0
         processed_percent = round((processed_reviews / total_reviews) * 100, 1) if total_reviews else 0.0
 
+        by_rating = {int(r["rating"]): int(r["cnt"] or 0) for r in rating_rows if r["rating"]}
         by_category = [
             {"category": str(r["category"] or ""), "count": int(r["cnt"] or 0)}
             for r in cat_rows
@@ -5946,6 +5960,7 @@ class ReviewRepository:
             "conversation_total": int(conversation_totals["total_items"] or 0) if conversation_totals else 0,
             "questions_count": int(conversation_totals["questions_count"] or 0) if conversation_totals else 0,
             "chats_count": int(conversation_totals["chats_count"] or 0) if conversation_totals else 0,
+            "by_rating": by_rating,
             "by_category": by_category,
             "by_source": by_source,
         }

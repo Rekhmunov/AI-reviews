@@ -4077,26 +4077,22 @@ async function loadAnalytics() {
   document.getElementById("anProcessed").textContent = (data.processed_reviews || 0).toLocaleString("ru");
   const pctEl = document.getElementById("anProcessedPct");
   if (pctEl) pctEl.textContent = total ? `${data.processed_percent || 0}% обработано` : "";
-  document.getElementById("anPositive").textContent = `${data.positive_percent || 0}%`;
-  const posEl = document.getElementById("anPositiveCount");
-  if (posEl) posEl.textContent = (data.positive_count || 0).toLocaleString("ru") + " отзывов";
-  document.getElementById("anNegative").textContent = `${data.negative_percent || 0}%`;
-  const negEl = document.getElementById("anNegativeCount");
-  if (negEl) negEl.textContent = (data.negative_count || 0).toLocaleString("ru") + " отзывов";
   document.getElementById("anHighRating").textContent = (data.high_rating_count || 0).toLocaleString("ru");
   document.getElementById("anLowRating").textContent = (data.low_rating_count || 0).toLocaleString("ru");
   document.getElementById("anQuestions").textContent = (data.questions_count || 0).toLocaleString("ru");
   document.getElementById("anChats").textContent = (data.chats_count || 0).toLocaleString("ru");
 
-  // Sentiment donut
-  const neutral = Math.max(0, total - (data.positive_count || 0) - (data.negative_count || 0));
-  const sentSegments = [
-    { value: data.positive_count || 0, color: "#16a34a", label: "Позитивные" },
-    { value: data.negative_count || 0, color: "#dc2626", label: "Негативные" },
-    { value: neutral,                  color: "#94a3b8", label: "Нейтральные" },
-  ];
-  _anDonut("anSentimentChart", sentSegments);
-  _anLegend("anSentimentLegend", sentSegments, total);
+  // Rating donut (1–5 stars)
+  const byRating = data.by_rating || {};
+  const ratingColors = { 5: "#16a34a", 4: "#65a30d", 3: "#d97706", 2: "#ea580c", 1: "#dc2626" };
+  const ratingSegments = [5, 4, 3, 2, 1].map(s => ({
+    value: byRating[s] || 0,
+    color: ratingColors[s],
+    label: `${s} ★`,
+  }));
+  const ratingTotal = ratingSegments.reduce((sum, s) => sum + s.value, 0);
+  _anDonut("anRatingChart", ratingSegments);
+  _anLegend("anRatingLegend", ratingSegments, ratingTotal);
 
   // Category donut
   const catLabels = { positive: "Позитив", product_dissatisfaction: "Недовольство", delivery_problems: "Доставка", wrong_size: "Размер", textless_ratings: "Без текста", tagged_reviews: "С тегами", ai_unclassified: "Не определено" };
