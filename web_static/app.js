@@ -4008,21 +4008,131 @@ async function markChatNew() {
   }
 }
 
-async function loadAnalytics() {
-  const res = await fetch("/api/analytics");
-  const data = await res.json();
-  if (!res.ok) {
-    document.getElementById("analyticsInfo").textContent = data.detail || "Ошибка загрузки аналитики";
+// ── Analytics ────────────────────────────────────────────────────────────────
+
+function _anDonut(svgId, segments) {
+  // segments: [{value, color, label}]
+  const svg = document.getElementById(svgId);
+  if (!svg) return;
+  svg.innerHTML = "";
+  const total = segments.reduce((s, x) => s + x.value, 0);
+  if (!total) {
+    const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    circle.setAttribute("cx", "60"); circle.setAttribute("cy", "60");
+    circle.setAttribute("r", "44"); circle.setAttribute("fill", "none");
+    circle.setAttribute("stroke", "#e2e8f0"); circle.setAttribute("stroke-width", "20");
+    svg.appendChild(circle);
     return;
   }
-  document.getElementById("anTotal").textContent = String(data.total_reviews || 0);
-  document.getElementById("anProcessed").textContent = String(data.processed_reviews || 0);
-  document.getElementById("anPositive").textContent = String(data.positive_percent || 0) + "%";
-  document.getElementById("anNegative").textContent = String(data.negative_percent || 0) + "%";
-  document.getElementById("anQuestions").textContent = String(data.questions_count || 0);
-  document.getElementById("anChats").textContent = String(data.chats_count || 0);
-  document.getElementById("analyticsInfo").textContent =
-    `Позитивных: ${data.positive_count || 0}, негативных: ${data.negative_count || 0}, всего диалогов: ${data.conversation_total || 0}`;
+  const cx = 60, cy = 60, r = 44, sw = 20;
+  const circumference = 2 * Math.PI * r;
+  let offset = 0;
+  // Start from top (-90deg)
+  for (const seg of segments) {
+    if (!seg.value) continue;
+    const frac = seg.value / total;
+    const dash = frac * circumference;
+    const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    circle.setAttribute("cx", cx); circle.setAttribute("cy", cy);
+    circle.setAttribute("r", r); circle.setAttribute("fill", "none");
+    circle.setAttribute("stroke", seg.color); circle.setAttribute("stroke-width", sw);
+    circle.setAttribute("stroke-dasharray", `${dash} ${circumference - dash}`);
+    circle.setAttribute("stroke-dashoffset", circumference * 0.25 - offset * circumference);
+    circle.setAttribute("transform", `rotate(-90 ${cx} ${cy})`);
+    circle.setAttribute("stroke-linecap", "butt");
+    svg.appendChild(circle);
+    offset += frac;
+  }
+}
+
+function _anLegend(containerId, segments, total) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  el.innerHTML = segments.filter(s => s.value > 0).map(s => {
+    const pct = total ? Math.round(s.value / total * 100) : 0;
+    return `<div class="an-legend-item">
+      <span class="an-legend-dot" style="background:${s.color}"></span>
+      <span class="an-legend-text">${esc(s.label)}</span>
+      <span class="an-legend-val">${s.value} <span class="an-legend-pct">${pct}%</span></span>
+    </div>`;
+  }).join("");
+}
+
+async function loadAnalytics() {
+  const source = String(document.getElementById("analyticsSourceFilter")?.value || "");
+  const url = "/api/analytics" + (source ? `?source=${encodeURIComponent(source)}` : "");
+  const res = await fetch(url);
+  const data = await res.json();
+  const info = document.getElementById("analyticsInfo");
+  if (!res.ok) {
+    if (info) info.textContent = data.detail || "Ошибка загрузки аналитики";
+    return;
+  }
+  if (info) info.textContent = "";
+
+  const total = data.total_reviews || 0;
+
+  // KPI cards
+  document.getElementById("anTotal").textContent = total.toLocaleString("ru");
+  document.getElementById("anProcessed").textContent = (data.processed_reviews || 0).toLocaleString("ru");
+  const pctEl = document.getElementById("anProcessedPct");
+  if (pctEl) pctEl.textContent = total ? `${data.processed_percent || 0}% обработано` : "";
+  document.getElementById("anPositive").textContent = `${data.positive_percent || 0}%`;
+  const posEl = document.getElementById("anPositiveCount");
+  if (posEl) posEl.textContent = (data.positive_count || 0).toLocaleString("ru") + " отзывов";
+  document.getElementById("anNegative").textContent = `${data.negative_percent || 0}%`;
+  const negEl = document.getElementById("anNegativeCount");
+  if (negEl) negEl.textContent = (data.negative_count || 0).toLocaleString("ru") + " отзывов";
+  document.getElementById("anHighRating").textContent = (data.high_rating_count || 0).toLocaleString("ru");
+  document.getElementById("anLowRating").textContent = (data.low_rating_count || 0).toLocaleString("ru");
+  document.getElementById("anQuestions").textContent = (data.questions_count || 0).toLocaleString("ru");
+  document.getElementById("anChats").textContent = (data.chats_count || 0).toLocaleString("ru");
+
+  // Sentiment donut
+  const neutral = Math.max(0, total - (data.positive_count || 0) - (data.negative_count || 0));
+  const sentSegments = [
+    { value: data.positive_count || 0, color: "#16a34a", label: "Позитивные" },
+    { value: data.negative_count || 0, color: "#dc2626", label: "Негативные" },
+    { value: neutral,                  color: "#94a3b8", label: "Нейтральные" },
+  ];
+  _anDonut("anSentimentChart", sentSegments);
+  _anLegend("anSentimentLegend", sentSegments, total);
+
+  // Category donut
+  const catLabels = { positive: "Позитив", product_dissatisfaction: "Недовольство", delivery_problems: "Доставка", wrong_size: "Размер", textless_ratings: "Без текста", tagged_reviews: "С тегами", ai_unclassified: "Не определено" };
+  const catColors = ["#2563eb","#16a34a","#d97706","#7c3aed","#0891b2","#db2777","#94a3b8","#64748b","#f59e0b","#10b981"];
+  const byCategory = Array.isArray(data.by_category) ? data.by_category : [];
+  const catTotal = byCategory.reduce((s, x) => s + x.count, 0);
+  const catSegments = byCategory.slice(0, 9).map((c, i) => ({
+    value: c.count,
+    color: catColors[i % catColors.length],
+    label: catLabels[c.category] || c.category,
+  }));
+  if (byCategory.length > 9) {
+    const rest = byCategory.slice(9).reduce((s, x) => s + x.count, 0);
+    catSegments.push({ value: rest, color: "#cbd5e1", label: "Прочие" });
+  }
+  _anDonut("anCategoryChart", catSegments);
+  _anLegend("anCategoryLegend", catSegments, catTotal);
+
+  // Source table
+  const tbody = document.getElementById("anSourceTbody");
+  if (tbody) {
+    const rows = Array.isArray(data.by_source) ? data.by_source : [];
+    const srcLabels = { wb: "Wildberries", ozon: "Ozon" };
+    tbody.innerHTML = rows.map(r => {
+      const pct = r.total ? Math.round(r.processed / r.total * 100) : 0;
+      const pp = r.total ? Math.round(r.positive / r.total * 100) : 0;
+      const np = r.total ? Math.round(r.negative / r.total * 100) : 0;
+      return `<tr>
+        <td><strong>${esc(srcLabels[r.source] || r.source.toUpperCase())}</strong></td>
+        <td>${r.total.toLocaleString("ru")}</td>
+        <td>${r.processed.toLocaleString("ru")} <span class="an-pct">${pct}%</span></td>
+        <td class="an-positive">${r.positive.toLocaleString("ru")} <span class="an-pct">${pp}%</span></td>
+        <td class="an-negative">${r.negative.toLocaleString("ru")} <span class="an-pct">${np}%</span></td>
+      </tr>`;
+    }).join("") || '<tr><td colspan="5" class="small" style="color:#94a3b8;padding:16px">Нет данных</td></tr>';
+  }
 }
 
 async function loadAccounts() {

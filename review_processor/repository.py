@@ -5846,51 +5846,108 @@ class ReviewRepository:
             "overdue_manual_queue_24h": int(overdue_row["c"]) if overdue_row else 0,
         }
 
-    def get_user_analytics(self, *, user_id: int) -> dict[str, Any]:
+    def get_user_analytics(self, *, user_id: int, source: str | None = None) -> dict[str, Any]:
+        source_clause = " AND source = ?" if source else ""
+        source_params: list[Any] = [source] if source else []
+
         with self._connect() as conn:
             totals = conn.execute(
-                """
+                f"""
                 SELECT
+                    COUNT(*) AS total,
+                    SUM(CASE WHEN status IN ('answered_auto', 'answered_manual', 'ignored') THEN 1 ELSE 0 END) AS processed,
+                    SUM(CASE WHEN sentiment_label = 'positive' THEN 1 ELSE 0 END) AS positive_count,
+                    SUM(CASE WHEN sentiment_label = 'negative' THEN 1 ELSE 0 END) AS negative_count,
+                    SUM(CASE WHEN rating >= 4 THEN 1 ELSE 0 END) AS high_rating_count,
+                    SUM(CASE WHEN rating <= 2 THEN 1 ELSE 0 END) AS low_rating_count
+                FROM review_items
+                WHERE user_id = ?{source_clause}
+                """,
+                (user_id, *source_params),
+            ).fetchone()
+
+            conversation_totals = conn.execute(
+                f"""
+                SELECT
+                    COUNT(*) AS total_items,
+                    SUM(CASE WHEN kind = 'question' THEN 1 ELSE 0 END) AS questions_count,
+                    SUM(CASE WHEN kind = 'chat' THEN 1 ELSE 0 END) AS chats_count
+                FROM conversation_items
+                WHERE user_id = ?{source_clause}
+                """,
+                (user_id, *source_params),
+            ).fetchone()
+
+            # Category breakdown
+            cat_rows = conn.execute(
+                f"""
+                SELECT category, COUNT(*) AS cnt
+                FROM review_items
+                WHERE user_id = ?{source_clause}
+                  AND category IS NOT NULL AND TRIM(category) != ''
+                GROUP BY category
+                ORDER BY cnt DESC
+                """,
+                (user_id, *source_params),
+            ).fetchall()
+
+            # Per-source breakdown (always unfiltered for the source comparison table)
+            source_rows = conn.execute(
+                """
+                SELECT source,
                     COUNT(*) AS total,
                     SUM(CASE WHEN status IN ('answered_auto', 'answered_manual', 'ignored') THEN 1 ELSE 0 END) AS processed,
                     SUM(CASE WHEN sentiment_label = 'positive' THEN 1 ELSE 0 END) AS positive_count,
                     SUM(CASE WHEN sentiment_label = 'negative' THEN 1 ELSE 0 END) AS negative_count
                 FROM review_items
                 WHERE user_id = ?
+                GROUP BY source
+                ORDER BY total DESC
                 """,
                 (user_id,),
-            ).fetchone()
-
-            conversation_totals = conn.execute(
-                """
-                SELECT
-                    COUNT(*) AS total_items,
-                    SUM(CASE WHEN kind = 'question' THEN 1 ELSE 0 END) AS questions_count,
-                    SUM(CASE WHEN kind = 'chat' THEN 1 ELSE 0 END) AS chats_count
-                FROM conversation_items
-                WHERE user_id = ?
-                """,
-                (user_id,),
-            ).fetchone()
+            ).fetchall()
 
         total_reviews = int(totals["total"] or 0) if totals else 0
         processed_reviews = int(totals["processed"] or 0) if totals else 0
         positive_count = int(totals["positive_count"] or 0) if totals else 0
         negative_count = int(totals["negative_count"] or 0) if totals else 0
+        high_rating = int(totals["high_rating_count"] or 0) if totals else 0
+        low_rating = int(totals["low_rating_count"] or 0) if totals else 0
 
-        positive_percent = round((positive_count / total_reviews) * 100, 2) if total_reviews else 0.0
-        negative_percent = round((negative_count / total_reviews) * 100, 2) if total_reviews else 0.0
+        positive_percent = round((positive_count / total_reviews) * 100, 1) if total_reviews else 0.0
+        negative_percent = round((negative_count / total_reviews) * 100, 1) if total_reviews else 0.0
+        processed_percent = round((processed_reviews / total_reviews) * 100, 1) if total_reviews else 0.0
+
+        by_category = [
+            {"category": str(r["category"] or ""), "count": int(r["cnt"] or 0)}
+            for r in cat_rows
+        ]
+        by_source = [
+            {
+                "source": str(r["source"] or ""),
+                "total": int(r["total"] or 0),
+                "processed": int(r["processed"] or 0),
+                "positive": int(r["positive_count"] or 0),
+                "negative": int(r["negative_count"] or 0),
+            }
+            for r in source_rows
+        ]
 
         return {
             "total_reviews": total_reviews,
             "processed_reviews": processed_reviews,
+            "processed_percent": processed_percent,
             "positive_count": positive_count,
             "negative_count": negative_count,
             "positive_percent": positive_percent,
             "negative_percent": negative_percent,
+            "high_rating_count": high_rating,
+            "low_rating_count": low_rating,
             "conversation_total": int(conversation_totals["total_items"] or 0) if conversation_totals else 0,
             "questions_count": int(conversation_totals["questions_count"] or 0) if conversation_totals else 0,
             "chats_count": int(conversation_totals["chats_count"] or 0) if conversation_totals else 0,
+            "by_category": by_category,
+            "by_source": by_source,
         }
 
     def raw_fetch(self, query: str, params: tuple[Any, ...] = ()) -> list[Mapping[str, Any]]:

@@ -2583,9 +2583,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         return {"ok": True, "deleted": deleted, "user_id": target_user_id}
 
     @app.get("/api/analytics")
-    def user_analytics(request: Request) -> dict[str, object]:
+    def user_analytics(request: Request, source: str = "") -> dict[str, object]:
         user = _require_analytics_access(request)
-        return repository.get_user_analytics(user_id=int(user["id"]))
+        return repository.get_user_analytics(
+            user_id=int(user["id"]),
+            source=source.strip() or None,
+        )
 
     @app.post("/api/sync")
     def sync_reviews(request: Request, payload: SyncRequest) -> dict[str, object]:

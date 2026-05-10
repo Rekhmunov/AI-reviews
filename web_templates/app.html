@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=60" />
+  <link rel="stylesheet" href="/static/style.css?v=61" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -395,17 +395,98 @@
 
       <section id="section-analytics" class="hidden">
         <h3 class="section-title">Аналитика</h3>
-        <div class="row reviews-sync-row"></div>
-        <div class="panel">
-          <div class="stats-grid">
-            <div class="stat"><div id="anTotal" class="value">0</div><div class="small">Всего отзывов</div></div>
-            <div class="stat"><div id="anProcessed" class="value">0</div><div class="small">Обработано</div></div>
-            <div class="stat"><div id="anPositive" class="value">0%</div><div class="small">Позитивные</div></div>
-            <div class="stat"><div id="anNegative" class="value">0%</div><div class="small">Негативные</div></div>
-            <div class="stat"><div id="anQuestions" class="value">0</div><div class="small">Вопросы</div></div>
-            <div class="stat"><div id="anChats" class="value">0</div><div class="small">Чаты</div></div>
+
+        <!-- Toolbar -->
+        <div class="panel reviews-toolbar-panel">
+          <div class="reviews-top-controls">
+            <div class="reviews-buckets">
+              <span class="small" style="color:#64748b;align-self:center">Источник:</span>
+              <select id="analyticsSourceFilter" onchange="loadAnalytics()" style="width:auto">
+                <option value="">Все источники</option>
+                <option value="wb">Wildberries</option>
+                <option value="ozon">Ozon</option>
+              </select>
+            </div>
+            <div class="reviews-quick-controls">
+              <span id="analyticsInfo" class="small" style="color:#64748b"></span>
+            </div>
           </div>
-          <div class="small mt-10" id="analyticsInfo"></div>
+        </div>
+
+        <!-- KPI cards -->
+        <div class="an-kpi-grid">
+          <div class="an-kpi-card">
+            <div class="an-kpi-value" id="anTotal">—</div>
+            <div class="an-kpi-label">Всего отзывов</div>
+          </div>
+          <div class="an-kpi-card">
+            <div class="an-kpi-value" id="anProcessed">—</div>
+            <div class="an-kpi-label">Обработано</div>
+            <div class="an-kpi-sub" id="anProcessedPct"></div>
+          </div>
+          <div class="an-kpi-card an-kpi-positive">
+            <div class="an-kpi-value" id="anPositive">—</div>
+            <div class="an-kpi-label">Позитивных</div>
+            <div class="an-kpi-sub" id="anPositiveCount"></div>
+          </div>
+          <div class="an-kpi-card an-kpi-negative">
+            <div class="an-kpi-value" id="anNegative">—</div>
+            <div class="an-kpi-label">Негативных</div>
+            <div class="an-kpi-sub" id="anNegativeCount"></div>
+          </div>
+          <div class="an-kpi-card">
+            <div class="an-kpi-value" id="anHighRating">—</div>
+            <div class="an-kpi-label">Оценка 4–5 ★</div>
+          </div>
+          <div class="an-kpi-card">
+            <div class="an-kpi-value" id="anLowRating">—</div>
+            <div class="an-kpi-label">Оценка 1–2 ★</div>
+          </div>
+          <div class="an-kpi-card">
+            <div class="an-kpi-value" id="anQuestions">—</div>
+            <div class="an-kpi-label">Вопросов</div>
+          </div>
+          <div class="an-kpi-card">
+            <div class="an-kpi-value" id="anChats">—</div>
+            <div class="an-kpi-label">Чатов</div>
+          </div>
+        </div>
+
+        <!-- Charts row -->
+        <div class="an-charts-row">
+          <div class="panel an-chart-card">
+            <div class="an-chart-title">Тональность отзывов</div>
+            <div class="an-chart-body">
+              <svg id="anSentimentChart" class="an-donut" viewBox="0 0 120 120"></svg>
+              <div class="an-legend" id="anSentimentLegend"></div>
+            </div>
+          </div>
+          <div class="panel an-chart-card">
+            <div class="an-chart-title">Категории отзывов</div>
+            <div class="an-chart-body">
+              <svg id="anCategoryChart" class="an-donut" viewBox="0 0 120 120"></svg>
+              <div class="an-legend" id="anCategoryLegend"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Per-source table -->
+        <div class="panel" id="anSourceTableWrap">
+          <div class="an-chart-title">По источникам</div>
+          <div class="table-wrap">
+            <table id="anSourceTable" class="an-source-table">
+              <thead>
+                <tr>
+                  <th>Источник</th>
+                  <th>Отзывов</th>
+                  <th>Обработано</th>
+                  <th>Позитивных</th>
+                  <th>Негативных</th>
+                </tr>
+              </thead>
+              <tbody id="anSourceTbody"></tbody>
+            </table>
+          </div>
         </div>
       </section>
 
@@ -953,6 +1034,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=79"></script>
+  <script src="/static/app.js?v=80"></script>
 </body>
 </html>
