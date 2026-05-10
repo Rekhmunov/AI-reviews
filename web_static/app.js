@@ -3389,8 +3389,9 @@ function renderChatMessages(messages, convMeta) {
     if (errorHint) metaParts.push(`<span style="color:#b91c1c">${esc(errorHint)}</span>`);
 
     // Render message content: parse [img:url] tokens as images
+    // Matches: [img:https://...], [img:wb-download:uuid], [img:http://...]
     const rawText = String(message.message_text || "");
-    const imgRegex = /\[img:(https?:\/\/[^\]]+)\]/g;
+    const imgRegex = /\[img:([^\]]+)\]/g;
     let contentHtml = "";
     const imgMatches = [...rawText.matchAll(imgRegex)];
     if (imgMatches.length > 0) {

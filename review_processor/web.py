@@ -2334,7 +2334,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                                     ev_text = f"[Товар: {attachments['goodCard'].get('name', '')}]"
                             ev_ts_raw = ev.get("addTimestamp")
                             ev_ts_ms = int(ev_ts_raw) if ev_ts_raw is not None else 0
-                            ev_iso = _normalize_timestamp(ev_ts_ms) or datetime.now(UTC).isoformat()
+                            # Fallback: images[0]['date'] if addTimestamp is 0
+                            if not ev_ts_ms and images and images[0].get("date"):
+                                ev_iso = _normalize_timestamp(str(images[0]["date"])) or datetime.now(UTC).isoformat()
+                            else:
+                                ev_iso = _normalize_timestamp(ev_ts_ms) or datetime.now(UTC).isoformat()
                             client_name = str(ev.get("clientName") or "").strip()
                             if not ev_id or not ev_text:
                                 continue
