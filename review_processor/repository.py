@@ -5927,8 +5927,8 @@ class ReviewRepository:
                 SELECT source,
                     COUNT(*) AS total,
                     SUM(CASE WHEN status IN ('answered_auto', 'answered_manual', 'ignored') THEN 1 ELSE 0 END) AS processed,
-                    SUM(CASE WHEN sentiment_label = 'positive' THEN 1 ELSE 0 END) AS positive_count,
-                    SUM(CASE WHEN sentiment_label = 'negative' OR rating = 3 THEN 1 ELSE 0 END) AS negative_count
+                    SUM(CASE WHEN rating >= 4 THEN 1 ELSE 0 END) AS positive_count,
+                    SUM(CASE WHEN rating <= 3 THEN 1 ELSE 0 END) AS negative_count
                 FROM review_items
                 WHERE user_id = ?{date_clause}
                 GROUP BY source
