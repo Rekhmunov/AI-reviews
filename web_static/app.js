@@ -4108,15 +4108,23 @@ async function loadAnalytics() {
   _anDonut("anRatingChart", ratingSegments);
   _anLegend("anRatingLegend", ratingSegments, ratingTotal);
 
-  // Category donut
-  const catLabels = { positive: "Позитив", product_dissatisfaction: "Недовольство", delivery_problems: "Доставка", wrong_size: "Размер", textless_ratings: "Без текста", tagged_reviews: "С тегами", ai_unclassified: "Не определено" };
+  // Category donut — titles from templateGroupsState (same as Settings → Templates page)
+  const groupTitleMap = {};
+  for (const g of (templateGroupsState.items || [])) {
+    const gid = String(g.group_id || g.id || "");
+    const gtitle = String(g.title || g.group_title || "");
+    if (gid && gtitle) groupTitleMap[gid] = gtitle;
+  }
+  const _catLabel = (cat) =>
+    groupTitleMap[cat] || labelFromMap(categoryLabels, cat) || cat;
+
   const catColors = ["#2563eb","#16a34a","#d97706","#7c3aed","#0891b2","#db2777","#94a3b8","#64748b","#f59e0b","#10b981"];
   const byCategory = Array.isArray(data.by_category) ? data.by_category : [];
   const catTotal = byCategory.reduce((s, x) => s + x.count, 0);
   const catSegments = byCategory.slice(0, 9).map((c, i) => ({
     value: c.count,
     color: catColors[i % catColors.length],
-    label: catLabels[c.category] || c.category,
+    label: _catLabel(c.category),
   }));
   if (byCategory.length > 9) {
     const rest = byCategory.slice(9).reduce((s, x) => s + x.count, 0);
