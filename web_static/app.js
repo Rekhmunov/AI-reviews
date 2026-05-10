@@ -3715,9 +3715,9 @@ async function loadChats() {
   const newCount = Number(data.new_count || 0);
   const processedCount = Number(data.processed_count || 0);
   const chatsTabNew = document.getElementById("chats-tab-new");
-  if (chatsTabNew) chatsTabNew.textContent = `Новые (${newCount})`;
+  if (chatsTabNew) chatsTabNew.textContent = `Новые чаты (${newCount})`;
   const chatsTabProcessed = document.getElementById("chats-tab-processed");
-  if (chatsTabProcessed) chatsTabProcessed.textContent = `Отвеченные (${processedCount})`;
+  if (chatsTabProcessed) chatsTabProcessed.textContent = `Обработанные чаты (${processedCount})`;
 
   chatsState.date_from = data.date_from || chatsState.date_from || null;
   chatsState.date_to = data.date_to || chatsState.date_to || null;
