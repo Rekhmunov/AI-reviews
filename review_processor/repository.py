@@ -4027,7 +4027,13 @@ class ReviewRepository:
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, 0, NULL, ?, ?, ?, ?)
                 ON CONFLICT(conversation_uid) DO UPDATE SET
                     customer_name = excluded.customer_name,
-                    message_text = excluded.message_text,
+                    -- Preserve previous message_text when the incoming value is empty.
+                    -- WB omits lastMessage for photo-only messages, so message_text=""
+                    -- would overwrite a meaningful previous text (e.g. "Ок").
+                    message_text = CASE
+                        WHEN TRIM(COALESCE(excluded.message_text, '')) != '' THEN excluded.message_text
+                        ELSE conversation_items.message_text
+                    END,
                     status = excluded.status,
                     unread_count = excluded.unread_count,
                     metadata_json = excluded.metadata_json,
@@ -4161,13 +4167,18 @@ class ReviewRepository:
             base_clauses.append("LOWER(COALESCE(customer_name, '')) LIKE ?")
             base_params.append(f"%{search.strip().lower()}%")
         # Exclude completely empty chats with no activity at all.
-        # WB buyer-chat list returns empty text for some chats; Ozon v3/chat/list
-        # never returns message text — so we must not filter on text alone.
+        # WB buyer-chat list returns empty text for some chats (e.g. photo-only
+        # messages — WB omits lastMessage entirely); Ozon v3/chat/list never
+        # returns message text — so we must not filter on text alone.
         # A chat is shown if it has any text OR has unread messages OR has been
-        # replied to (last_sent_at IS NOT NULL = seller replied at some point).
+        # replied to OR has a recorded last_message_at (any real activity).
+        # The last_message_at guard prevents photo-only chats from disappearing:
+        # WB does not include the photo in lastMessage summary, so message_text
+        # stays empty, but last_message_at is set from the events cursor.
         if kind == "chat":
             base_clauses.append(
-                "(TRIM(COALESCE(message_text, '')) != '' OR unread_count > 0 OR last_sent_at IS NOT NULL)"
+                "(TRIM(COALESCE(message_text, '')) != '' OR unread_count > 0"
+                " OR last_sent_at IS NOT NULL OR last_message_at IS NOT NULL)"
             )
         if date_from:
             base_clauses.append("updated_at::date >= ?::date")
