@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=62" />
+  <link rel="stylesheet" href="/static/style.css?v=63" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -408,6 +408,11 @@
               </select>
             </div>
             <div class="reviews-quick-controls">
+              <label class="small" style="color:#64748b;align-self:center;white-space:nowrap">С</label>
+              <input type="date" id="analyticsDateFrom" onchange="loadAnalytics()" style="width:140px" />
+              <label class="small" style="color:#64748b;align-self:center;white-space:nowrap">По</label>
+              <input type="date" id="analyticsDateTo" onchange="loadAnalytics()" style="width:140px" />
+              <button type="button" class="secondary" onclick="resetAnalyticsDates()">Сбросить</button>
               <span id="analyticsInfo" class="small" style="color:#64748b"></span>
             </div>
           </div>
@@ -1024,6 +1029,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=82"></script>
+  <script src="/static/app.js?v=83"></script>
 </body>
 </html>

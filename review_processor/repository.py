@@ -5846,9 +5846,26 @@ class ReviewRepository:
             "overdue_manual_queue_24h": int(overdue_row["c"]) if overdue_row else 0,
         }
 
-    def get_user_analytics(self, *, user_id: int, source: str | None = None) -> dict[str, Any]:
+    def get_user_analytics(
+        self,
+        *,
+        user_id: int,
+        source: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> dict[str, Any]:
         source_clause = " AND source = ?" if source else ""
         source_params: list[Any] = [source] if source else []
+        date_clause = ""
+        date_params: list[Any] = []
+        if date_from:
+            date_clause += " AND created_at::date >= ?::date"
+            date_params.append(date_from)
+        if date_to:
+            date_clause += " AND created_at::date <= ?::date"
+            date_params.append(date_to)
+        filter_clause = source_clause + date_clause
+        filter_params = source_params + date_params
 
         with self._connect() as conn:
             totals = conn.execute(
@@ -5861,9 +5878,9 @@ class ReviewRepository:
                     SUM(CASE WHEN rating >= 4 THEN 1 ELSE 0 END) AS high_rating_count,
                     SUM(CASE WHEN rating <= 2 THEN 1 ELSE 0 END) AS low_rating_count
                 FROM review_items
-                WHERE user_id = ?{source_clause}
+                WHERE user_id = ?{filter_clause}
                 """,
-                (user_id, *source_params),
+                (user_id, *filter_params),
             ).fetchone()
 
             conversation_totals = conn.execute(
@@ -5873,9 +5890,9 @@ class ReviewRepository:
                     SUM(CASE WHEN kind = 'question' THEN 1 ELSE 0 END) AS questions_count,
                     SUM(CASE WHEN kind = 'chat' THEN 1 ELSE 0 END) AS chats_count
                 FROM conversation_items
-                WHERE user_id = ?{source_clause}
+                WHERE user_id = ?{filter_clause}
                 """,
-                (user_id, *source_params),
+                (user_id, *filter_params),
             ).fetchone()
 
             # Rating breakdown (1–5 stars)
@@ -5883,12 +5900,12 @@ class ReviewRepository:
                 f"""
                 SELECT rating, COUNT(*) AS cnt
                 FROM review_items
-                WHERE user_id = ?{source_clause}
+                WHERE user_id = ?{filter_clause}
                   AND rating IS NOT NULL
                 GROUP BY rating
                 ORDER BY rating
                 """,
-                (user_id, *source_params),
+                (user_id, *filter_params),
             ).fetchall()
 
             # Category breakdown
@@ -5896,28 +5913,28 @@ class ReviewRepository:
                 f"""
                 SELECT category, COUNT(*) AS cnt
                 FROM review_items
-                WHERE user_id = ?{source_clause}
+                WHERE user_id = ?{filter_clause}
                   AND category IS NOT NULL AND TRIM(category) != ''
                 GROUP BY category
                 ORDER BY cnt DESC
                 """,
-                (user_id, *source_params),
+                (user_id, *filter_params),
             ).fetchall()
 
-            # Per-source breakdown (always unfiltered for the source comparison table)
+            # Per-source breakdown (respects date filter, always covers all sources)
             source_rows = conn.execute(
-                """
+                f"""
                 SELECT source,
                     COUNT(*) AS total,
                     SUM(CASE WHEN status IN ('answered_auto', 'answered_manual', 'ignored') THEN 1 ELSE 0 END) AS processed,
                     SUM(CASE WHEN sentiment_label = 'positive' THEN 1 ELSE 0 END) AS positive_count,
                     SUM(CASE WHEN sentiment_label = 'negative' THEN 1 ELSE 0 END) AS negative_count
                 FROM review_items
-                WHERE user_id = ?
+                WHERE user_id = ?{date_clause}
                 GROUP BY source
                 ORDER BY total DESC
                 """,
-                (user_id,),
+                (user_id, *date_params),
             ).fetchall()
 
         total_reviews = int(totals["total"] or 0) if totals else 0

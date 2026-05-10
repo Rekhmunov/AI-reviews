@@ -4058,9 +4058,23 @@ function _anLegend(containerId, segments, total) {
   }).join("");
 }
 
+function resetAnalyticsDates() {
+  const f = document.getElementById("analyticsDateFrom");
+  const t = document.getElementById("analyticsDateTo");
+  if (f) f.value = "";
+  if (t) t.value = "";
+  loadAnalytics();
+}
+
 async function loadAnalytics() {
   const source = String(document.getElementById("analyticsSourceFilter")?.value || "");
-  const url = "/api/analytics" + (source ? `?source=${encodeURIComponent(source)}` : "");
+  const dateFrom = String(document.getElementById("analyticsDateFrom")?.value || "");
+  const dateTo = String(document.getElementById("analyticsDateTo")?.value || "");
+  const q = new URLSearchParams();
+  if (source) q.set("source", source);
+  if (dateFrom) q.set("date_from", dateFrom);
+  if (dateTo) q.set("date_to", dateTo);
+  const url = "/api/analytics" + (q.toString() ? "?" + q.toString() : "");
   const res = await fetch(url);
   const data = await res.json();
   const info = document.getElementById("analyticsInfo");
