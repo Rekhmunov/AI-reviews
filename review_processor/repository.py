@@ -4854,7 +4854,7 @@ class ReviewRepository:
                         AND cm.direction = 'inbound'
                         AND cm.created_at IS NOT NULL
                         AND cm.created_at::text != ''
-                        AND cm.created_at::text > ci.last_sent_at::text
+                        AND cm.created_at > ci.last_sent_at::timestamptz
                   )
                 """),
                 (now, user_id),
