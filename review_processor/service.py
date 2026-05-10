@@ -2352,7 +2352,7 @@ class ReviewAutomationService:
                             ev_text_i = f"[Товар: {attachments_i['goodCard'].get('name', '')}]".strip()
                         ev_ts_raw_i = ev.get("addTimestamp")
                         ev_ts_ms_i = int(ev_ts_raw_i) if ev_ts_raw_i is not None else 0
-                        ev_iso_i = _normalize_timestamp(ev_ts_ms_i) or ""
+                        ev_iso_i = _normalize_timestamp(ev_ts_ms_i) or _utc_now()
                         client_name_i = str(ev.get("clientName") or "").strip()
                         if not ev_id or not ev_text_i:
                             continue

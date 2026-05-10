@@ -4851,6 +4851,7 @@ class ReviewRepository:
                 self._sql("""
                 SELECT created_at FROM conversation_messages
                 WHERE user_id = ? AND conversation_uid = ? AND direction = 'inbound'
+                  AND created_at IS NOT NULL AND created_at != ''
                 ORDER BY created_at DESC LIMIT 1
                 """),
                 (user_id, conversation_uid),
