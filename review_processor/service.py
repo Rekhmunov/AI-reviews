@@ -2458,6 +2458,17 @@ class ReviewAutomationService:
                 except Exception:
                     pass
 
+        # After processing all chats: fix any chats that are in "Answered" bucket
+        # but have a buyer message in conversation_messages that is newer than
+        # last_sent_at. This handles the case where messages arrived in DB via
+        # a refresh but the bucket was never updated (one-shot calls may have failed).
+        # Runs once per sync cycle — fast batch SQL, no extra API calls.
+        if user_id:
+            try:
+                self.repository.batch_move_chats_to_new_if_buyer_replied(user_id=user_id)
+            except Exception as _e:
+                _log.debug("sync_chats: batch bucket fix failed: %s", _e)
+
         _log.info(
             "sync_chats: done — source=%s loaded=%d full_sync=%s",
             source, loaded, full_sync,

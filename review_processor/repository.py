@@ -4831,6 +4831,40 @@ class ReviewRepository:
                 inserted += int(result.rowcount or 0)
         return inserted
 
+    def batch_move_chats_to_new_if_buyer_replied(self, *, user_id: int) -> int:
+        """Batch version: fix ALL chats in 'Answered' bucket that have a newer
+        inbound message in conversation_messages than last_sent_at.
+
+        Runs once per sync cycle. Uses a single SQL statement — no extra WB API
+        calls, no per-chat loop. Returns number of chats moved to 'New'.
+        """
+        now = _utc_now()
+        with self._connect() as conn:
+            result = conn.execute(
+                self._sql("""
+                UPDATE conversation_items ci
+                SET last_sent_at = NULL, updated_at = ?
+                WHERE ci.user_id = ?
+                  AND ci.kind = 'chat'
+                  AND ci.last_sent_at IS NOT NULL
+                  AND EXISTS (
+                      SELECT 1 FROM conversation_messages cm
+                      WHERE cm.user_id = ci.user_id
+                        AND cm.conversation_uid = ci.conversation_uid
+                        AND cm.direction = 'inbound'
+                        AND cm.created_at IS NOT NULL
+                        AND cm.created_at != ''
+                        AND cm.created_at::text > ci.last_sent_at::text
+                  )
+                """),
+                (now, user_id),
+            )
+        moved = int(result.rowcount or 0)
+        if moved:
+            from . import _log as _repo_log  # avoid circular import
+            pass  # caller logs if needed
+        return moved
+
     def move_chat_to_new_if_buyer_replied(
         self,
         *,
