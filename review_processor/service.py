@@ -2326,6 +2326,53 @@ class ReviewAutomationService:
             )
             loaded += 1
 
+            # For auto-sync: save incremental event texts to conversation_messages.
+            # wb_events_row is only populated on full_sync (manual button), but
+            # incremental_sender_map has the new events detected by the cursor.
+            # Without saving them here, buyer messages like "УУУ" are seen by the
+            # cursor (changing bucket) but their text is never stored — only the
+            # last message summary in conversation_items.message_text is updated.
+            if not wb_events_row and incremental_sender_map and ext_id in incremental_sender_map:
+                inc_events = incremental_sender_map[ext_id].get("events") or []
+                if inc_events:
+                    inc_history: list[dict[str, object]] = []
+                    for ev in inc_events:
+                        if not isinstance(ev, dict):
+                            continue
+                        ev_id = str(ev.get("eventID") or "").strip()
+                        ev_sender_i = str(ev.get("sender") or "").strip().lower()
+                        msg_i = ev.get("message") or {}
+                        ev_text_i = str(msg_i.get("text") or "").strip()
+                        attachments_i = msg_i.get("attachments") or {}
+                        images_i = attachments_i.get("images") or []
+                        if not ev_text_i and images_i:
+                            img_parts_i = [f"[img:{_wb_image_url(img)}]" for img in images_i if img.get("url") or img.get("downloadID")]
+                            ev_text_i = " ".join(img_parts_i) if img_parts_i else f"[Фото: {len(images_i)} шт.]"
+                        elif not ev_text_i and attachments_i.get("goodCard"):
+                            ev_text_i = f"[Товар: {attachments_i['goodCard'].get('name', '')}]".strip()
+                        ev_ts_raw_i = ev.get("addTimestamp")
+                        ev_ts_ms_i = int(ev_ts_raw_i) if ev_ts_raw_i is not None else 0
+                        ev_iso_i = _normalize_timestamp(ev_ts_ms_i) or ""
+                        client_name_i = str(ev.get("clientName") or "").strip()
+                        if not ev_id or not ev_text_i:
+                            continue
+                        inc_history.append({
+                            "direction": "inbound" if ev_sender_i == "client" else "outbound",
+                            "message_text": ev_text_i,
+                            "idempotency_key": f"wb-event-{ev_id}",
+                            "created_at": ev_iso_i,
+                            "operator_name": client_name_i if ev_sender_i == "client" else "Продавец",
+                        })
+                    if inc_history:
+                        try:
+                            self.repository.bulk_insert_chat_history_messages(
+                                user_id=user_id,
+                                conversation_uid=conv_uid,
+                                messages=inc_history,
+                            )
+                        except Exception:
+                            pass
+
             # Save message history from events
             if wb_events_row:
                 history: list[dict[str, object]] = []
