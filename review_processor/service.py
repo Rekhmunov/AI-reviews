@@ -2465,9 +2465,13 @@ class ReviewAutomationService:
         # Runs once per sync cycle — fast batch SQL, no extra API calls.
         if user_id:
             try:
-                self.repository.batch_move_chats_to_new_if_buyer_replied(user_id=user_id)
+                moved = self.repository.batch_move_chats_to_new_if_buyer_replied(user_id=user_id)
+                if moved:
+                    _log.info("sync_chats: batch moved %d chat(s) to New bucket (inbound > last_sent_at)", moved)
+                else:
+                    _log.debug("sync_chats: batch check — no chats needed moving")
             except Exception as _e:
-                _log.debug("sync_chats: batch bucket fix failed: %s", _e)
+                _log.warning("sync_chats: batch bucket fix failed: %s", _e)
 
         _log.info(
             "sync_chats: done — source=%s loaded=%d full_sync=%s",

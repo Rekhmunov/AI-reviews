@@ -4859,11 +4859,7 @@ class ReviewRepository:
                 """),
                 (now, user_id),
             )
-        moved = int(result.rowcount or 0)
-        if moved:
-            from . import _log as _repo_log  # avoid circular import
-            pass  # caller logs if needed
-        return moved
+        return int(result.rowcount or 0)
 
     def move_chat_to_new_if_buyer_replied(
         self,
