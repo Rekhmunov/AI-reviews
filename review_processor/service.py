@@ -1797,6 +1797,13 @@ class ReviewAutomationService:
         # ── End auto-retry ────────────────────────────────────────────────────
 
         settings = self.repository.get_ai_settings(include_secrets=True)
+        # Load contradiction rules once for all reviews in this sync
+        contradiction_map: dict[str, set[int]] = {}
+        if user_id:
+            try:
+                contradiction_map = self.repository.get_review_contradiction_map(user_id=user_id)
+            except Exception:
+                contradiction_map = {}
         classification_options = self._list_group_subgroups_for_review_classification(
             repository=self.repository,
             user_id=user_id,
@@ -1961,6 +1968,21 @@ class ReviewAutomationService:
                 rating=review.rating,
                 metadata=review_metadata,
             )
+            # Check contradiction rule: if Yandex category + rating matches a
+            # user-configured rule, flag for manual review (no auto-reply).
+            rating_val = review.rating if review.rating is not None else 0
+            contradiction_ratings = contradiction_map.get(category, set())
+            has_contradiction = bool(
+                contradiction_ratings and int(rating_val) in contradiction_ratings
+            )
+            if has_contradiction:
+                group_title = self.REVIEW_GROUP_TITLES.get(category, category)
+                review_metadata["rating_contradiction"] = {
+                    "yandex_group": category,
+                    "yandex_group_title": group_title,
+                    "rating": int(rating_val),
+                }
+
             category_for_template = category
             if category_for_template == self.AI_UNCLASSIFIED_CATEGORY:
                 category_for_template = "product_dissatisfaction"
@@ -1972,7 +1994,7 @@ class ReviewAutomationService:
             )
             rule = self.repository.get_processing_rule(user_id=user_id, group_id=group_id) if group_id else None
             mode, auto_send, template_text = self._resolve_processing_mode(processed, template, rule)
-            if ai_classification_failed:
+            if ai_classification_failed or has_contradiction:
                 mode = "manual"
                 auto_send = False
                 template_text = ""

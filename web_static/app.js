@@ -1800,6 +1800,11 @@ async function loadReviews() {
     const sendErrorIcon = hasSendError
       ? `<span class="send-error-indicator" title="Ошибка отправки: ${esc(sendErrorMessage)}">❗</span>`
       : "";
+    // Contradiction warning icon
+    const contradiction = (review.metadata || {}).rating_contradiction;
+    const contradictionIcon = contradiction
+      ? `<span title="${esc(`Яндекс определил «${contradiction.yandex_group_title || contradiction.yandex_group}», но оценка ${contradiction.rating} ★\nТребует проверки`)}" style="cursor:help;margin-left:4px">⚠️</span>`
+      : "";
     const retryBtn = hasSavedReply
       ? `<button type="button" class="review-icon-btn review-retry-btn" title="Повторить отправку" onclick="retryReviewSend('${esc(review.review_uid)}')">🔄</button>`
       : "";
@@ -1852,7 +1857,7 @@ async function loadReviews() {
 
     tr.innerHTML = `
       <td class="review-col-review">
-        <div class="review-group-title">${groupTitle}</div>
+        <div class="review-group-title">${groupTitle}${contradictionIcon}</div>
         <div class="review-stars">${renderRatingStars(review.rating)}</div>
         ${textParts.join("")}
         ${subgroup ? `<div class="review-subgroup-tag">${subgroup}</div>` : ""}
@@ -3948,6 +3953,90 @@ async function clearAllConversations(scope = "all") {
   await Promise.all([loadQuestions(), loadChats()]);
 }
 
+// ── Contradiction rules modal ─────────────────────────────────────────────────
+
+async function openContradictionRulesModal() {
+  document.getElementById("contradictionRulesModal")?.classList.remove("hidden");
+  // Populate group select from templateStore
+  const sel = document.getElementById("contradictionGroupSelect");
+  if (sel) {
+    sel.innerHTML = '<option value="">Выберите категорию...</option>';
+    for (const cat of Object.keys(templateStore).sort()) {
+      const label = labelFromMap(categoryLabels, cat) || cat;
+      const opt = document.createElement("option");
+      opt.value = cat;
+      opt.textContent = label;
+      sel.appendChild(opt);
+    }
+  }
+  await loadContradictionRules();
+}
+
+function closeContradictionRulesModal() {
+  document.getElementById("contradictionRulesModal")?.classList.add("hidden");
+}
+
+async function loadContradictionRules() {
+  const list = document.getElementById("contradictionRulesModalList");
+  const summary = document.getElementById("contradictionRulesList");
+  try {
+    const res = await fetch("/api/contradiction-rules");
+    const data = await res.json();
+    const items = data.items || [];
+    if (list) {
+      if (!items.length) {
+        list.innerHTML = '<div class="small" style="color:#94a3b8">Нет правил. Добавьте условие ниже.</div>';
+      } else {
+        list.innerHTML = items.map(item => {
+          const groupLabel = labelFromMap(categoryLabels, item.group_id) || item.group_id;
+          const ratingsStr = (item.ratings || []).map(r => `${r}★`).join(", ");
+          return `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;border:1px solid #e2e8f0;border-radius:6px">
+            <span><strong>${esc(groupLabel)}</strong> → оценки: ${esc(ratingsStr)}</span>
+            <button type="button" class="secondary" style="padding:4px 10px;font-size:12px" onclick="deleteContradictionRule('${esc(item.group_id)}')">Удалить</button>
+          </div>`;
+        }).join("");
+      }
+    }
+    // Update inline summary in settings pane
+    if (summary) {
+      summary.textContent = items.length
+        ? items.map(i => `${labelFromMap(categoryLabels, i.group_id) || i.group_id}: ${(i.ratings||[]).join(",")}★`).join(" · ")
+        : "Правила не настроены";
+    }
+  } catch (e) {
+    if (list) list.textContent = "Ошибка загрузки";
+  }
+}
+
+async function addContradictionRule() {
+  const groupId = document.getElementById("contradictionGroupSelect")?.value;
+  const checkedRatings = Array.from(document.querySelectorAll(".cr-rating:checked")).map(cb => Number(cb.value));
+  const info = document.getElementById("contradictionRulesModalInfo");
+  if (!groupId) { if (info) info.textContent = "Выберите категорию"; return; }
+  if (!checkedRatings.length) { if (info) info.textContent = "Выберите хотя бы одну оценку"; return; }
+  if (info) info.textContent = "";
+  try {
+    const res = await fetch(`/api/contradiction-rules?group_id=${encodeURIComponent(groupId)}&ratings=${encodeURIComponent(JSON.stringify(checkedRatings))}`, {
+      method: "POST", headers: withCsrfHeaders(),
+    });
+    const data = await res.json();
+    if (!res.ok) { if (info) info.textContent = data.detail || "Ошибка"; return; }
+    // Reset checkboxes
+    document.querySelectorAll(".cr-rating").forEach(cb => cb.checked = false);
+    await loadContradictionRules();
+  } catch (e) { if (info) info.textContent = "Ошибка"; }
+}
+
+async function deleteContradictionRule(groupId) {
+  if (!confirm("Удалить правило?")) return;
+  try {
+    await fetch(`/api/contradiction-rules?group_id=${encodeURIComponent(groupId)}`, {
+      method: "DELETE", headers: withCsrfHeaders(),
+    });
+    await loadContradictionRules();
+  } catch (e) { alert("Ошибка удаления"); }
+}
+
 // ── Clear questions by source modal ──────────────────────────────────────────
 
 let _clearQuestionsSelectedSource = null;
@@ -5514,6 +5603,7 @@ document.addEventListener("DOMContentLoaded", () => {
     loadTemplates();
     loadUserTemplateVariables();
     loadRecommendations();
+    loadContradictionRules();
   }
   // Load stock sources/reports lazily
   loadStockSources().then(() => loadStockReports()).catch(() => {});

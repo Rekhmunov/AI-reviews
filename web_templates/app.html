@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=66" />
+  <link rel="stylesheet" href="/static/style.css?v=67" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -339,6 +339,35 @@
     </div>
   </div>
 
+  <!-- Modal: contradiction rules -->
+  <div id="contradictionRulesModal" class="modal-overlay hidden" onclick="if(event.target===this)closeContradictionRulesModal()">
+    <div class="modal-card" style="max-width:520px">
+      <h3 class="modal-title" style="margin-bottom:4px">Условия ручной проверки</h3>
+      <p class="small" style="color:#64748b;margin-bottom:16px">Если Яндекс определил категорию с указанными оценками — шаблон не подставляется, отзыв помечается ⚠️</p>
+      <div id="contradictionRulesModalList" style="display:flex;flex-direction:column;gap:12px;margin-bottom:16px;max-height:50vh;overflow-y:auto"></div>
+      <div style="border-top:1px solid #e2e8f0;padding-top:12px;margin-bottom:16px">
+        <div style="font-weight:600;margin-bottom:8px;font-size:14px">Добавить условие</div>
+        <div class="row" style="gap:8px;flex-wrap:wrap">
+          <select id="contradictionGroupSelect" style="flex:1;min-width:160px">
+            <option value="">Выберите категорию...</option>
+          </select>
+          <div style="display:flex;gap:6px;align-items:center">
+            <label style="display:flex;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" class="cr-rating" value="1"> 1★</label>
+            <label style="display:flex;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" class="cr-rating" value="2"> 2★</label>
+            <label style="display:flex;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" class="cr-rating" value="3"> 3★</label>
+            <label style="display:flex;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" class="cr-rating" value="4"> 4★</label>
+            <label style="display:flex;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" class="cr-rating" value="5"> 5★</label>
+          </div>
+          <button type="button" onclick="addContradictionRule()" style="white-space:nowrap">Добавить</button>
+        </div>
+        <div id="contradictionRulesModalInfo" class="small" style="margin-top:6px;color:#64748b"></div>
+      </div>
+      <div class="row" style="gap:8px">
+        <button type="button" class="secondary" onclick="closeContradictionRulesModal()">Закрыть</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Modal: clear questions by source -->
   <div id="clearQuestionsModal" class="modal-overlay hidden" onclick="if(event.target===this)closeClearQuestionsModal()">
     <div class="modal-card" style="max-width:400px">
@@ -584,6 +613,16 @@
               <span id="processingRulesInfo" class="small"></span>
               <button id="processingRulesApplyBtn" onclick="applyProcessingRules()">Применить</button>
             </div>
+          </div>
+          <div class="panel" style="margin-top:12px">
+            <div class="row row-between" style="margin-bottom:8px">
+              <div>
+                <div style="font-weight:600;font-size:15px">Условия ручной проверки</div>
+                <div class="small" style="color:#64748b;margin-top:2px">Если Яндекс определил категорию, но оценка противоречит — отзыв уходит на ручную обработку</div>
+              </div>
+              <button type="button" class="secondary" onclick="openContradictionRulesModal()">Настроить</button>
+            </div>
+            <div id="contradictionRulesList" class="small" style="color:#64748b">Загрузка...</div>
           </div>
         </div>
 
@@ -1042,6 +1081,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=92"></script>
+  <script src="/static/app.js?v=93"></script>
 </body>
 </html>

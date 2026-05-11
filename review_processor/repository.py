@@ -1052,6 +1052,8 @@ class ReviewRepository:
         self._migrate_question_quick_templates(conn)
         # Review send error tracking
         self._migrate_review_send_error_columns(conn)
+        # Review contradiction rules
+        self._migrate_review_contradiction_rules(conn)
         # Remove tagged_reviews group — it is no longer supported.
         # pros/cons fields are now merged into review.text before classification.
         conn.execute(
@@ -6016,6 +6018,66 @@ class ReviewRepository:
             "by_category": by_category,
             "by_source": by_source,
         }
+
+    # ── Review contradiction rules ────────────────────────────────────────────
+
+    def _migrate_review_contradiction_rules(self, conn) -> None:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS review_contradiction_rules (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                group_id TEXT NOT NULL,
+                ratings_json TEXT NOT NULL DEFAULT '[]',
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                UNIQUE(user_id, group_id)
+            )
+            """
+        )
+
+    def list_review_contradiction_rules(self, *, user_id: int) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM review_contradiction_rules WHERE user_id = ? ORDER BY group_id ASC",
+                (user_id,),
+            ).fetchall()
+        result = []
+        for row in rows:
+            d = self._row_to_dict(row)
+            try:
+                import json as _json
+                d["ratings"] = _json.loads(str(d.get("ratings_json") or "[]"))
+            except Exception:
+                d["ratings"] = []
+            result.append(d)
+        return result
+
+    def save_review_contradiction_rule(self, *, user_id: int, group_id: str, ratings: list[int]) -> None:
+        import json as _json
+        ratings_json = _json.dumps(sorted({int(r) for r in ratings if 1 <= int(r) <= 5}))
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO review_contradiction_rules (user_id, group_id, ratings_json, created_at)
+                VALUES (?, ?, ?, NOW())
+                ON CONFLICT (user_id, group_id) DO UPDATE SET
+                    ratings_json = excluded.ratings_json
+                """,
+                (user_id, group_id.strip(), ratings_json),
+            )
+
+    def delete_review_contradiction_rule(self, *, user_id: int, group_id: str) -> bool:
+        with self._connect() as conn:
+            result = conn.execute(
+                "DELETE FROM review_contradiction_rules WHERE user_id = ? AND group_id = ?",
+                (user_id, group_id.strip()),
+            )
+        return bool(result.rowcount)
+
+    def get_review_contradiction_map(self, *, user_id: int) -> dict[str, set[int]]:
+        """Return {group_id: {rating_ints}} for fast lookup during sync."""
+        rules = self.list_review_contradiction_rules(user_id=user_id)
+        return {r["group_id"]: set(r["ratings"]) for r in rules if r.get("ratings")}
 
     def raw_fetch(self, query: str, params: tuple[Any, ...] = ()) -> list[Mapping[str, Any]]:
         with self._connect() as conn:

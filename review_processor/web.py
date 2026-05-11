@@ -2517,6 +2517,46 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Шаблон не найден")
         return {"ok": True, "deleted": True}
 
+    # ── Review contradiction rules endpoints ─────────────────────────────────
+
+    @app.get("/api/contradiction-rules")
+    def list_contradiction_rules(request: Request) -> dict[str, object]:
+        user = _require_settings_access(request)
+        items = repository.list_review_contradiction_rules(user_id=int(user["id"]))
+        return {"items": items}
+
+    @app.post("/api/contradiction-rules")
+    def save_contradiction_rule(
+        request: Request,
+        group_id: str,
+        ratings: str,
+    ) -> dict[str, object]:
+        user = _require_settings_access(request)
+        try:
+            import json as _json
+            ratings_list = [int(r) for r in _json.loads(ratings) if 1 <= int(r) <= 5]
+        except Exception:
+            raise HTTPException(status_code=400, detail="ratings must be JSON array of ints 1-5")
+        if not group_id.strip():
+            raise HTTPException(status_code=400, detail="group_id is required")
+        repository.save_review_contradiction_rule(
+            user_id=int(user["id"]),
+            group_id=group_id.strip(),
+            ratings=ratings_list,
+        )
+        return {"ok": True}
+
+    @app.delete("/api/contradiction-rules")
+    def delete_contradiction_rule(request: Request, group_id: str) -> dict[str, object]:
+        user = _require_settings_access(request)
+        deleted = repository.delete_review_contradiction_rule(
+            user_id=int(user["id"]),
+            group_id=group_id.strip(),
+        )
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Правило не найдено")
+        return {"ok": True}
+
     # ── Question quick templates endpoints ───────────────────────────────────
 
     @app.get("/api/question-quick-templates")
