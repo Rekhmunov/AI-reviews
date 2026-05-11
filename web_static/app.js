@@ -1872,6 +1872,7 @@ async function loadReviews() {
           <div class="review-reply-actions">
             <button type="button" class="review-icon-btn" title="Отправить ответ" onclick="sendReviewReply('${reviewUid}')">📤</button>
             <button type="button" class="review-icon-btn" title="${contradiction ? "Шаблон недоступен: требует ручной проверки" : "Другой шаблон"}" ${contradiction ? "disabled" : ""} onclick="refreshReviewTemplate('${reviewUid}', '${esc(review.category || "")}', '${esc(review.classified_subgroup || "")}')">🔄</button>
+            <button type="button" class="review-icon-btn" title="Шаблоны" onclick="openReviewTemplatesModal('${reviewUid}')">📋</button>
             <button type="button" class="review-icon-btn" title="Редактировать" onclick="editReviewReply('${reviewUid}')">✏️</button>
             ${retryBtn}
             ${sendErrorIcon}
@@ -3952,6 +3953,105 @@ async function clearAllConversations(scope = "all") {
   if (questionsInfo) questionsInfo.textContent = `Удалено: ${data.deleted || 0}`;
   if (chatsInfo) chatsInfo.textContent = `Удалено: ${data.deleted || 0}`;
   await Promise.all([loadQuestions(), loadChats()]);
+}
+
+// ── Review quick templates modal ──────────────────────────────────────────────
+
+let _reviewTemplatesActiveUid = null;
+
+function openReviewTemplatesModal(reviewUid) {
+  _reviewTemplatesActiveUid = reviewUid || null;
+  document.getElementById("reviewQuickTemplatesModal")?.classList.remove("hidden");
+  document.getElementById("reviewTemplatesInfo").textContent = "";
+  document.getElementById("reviewQuickTemplateNameInput").value = "";
+  document.getElementById("reviewQuickTemplateInput").value = "";
+  loadReviewTemplates();
+}
+
+function closeReviewTemplatesModal() {
+  document.getElementById("reviewQuickTemplatesModal")?.classList.add("hidden");
+  _reviewTemplatesActiveUid = null;
+}
+
+async function loadReviewTemplates() {
+  const list = document.getElementById("reviewTemplatesList");
+  const info = document.getElementById("reviewTemplatesInfo");
+  if (!list) return;
+  try {
+    const res = await fetch("/api/review-quick-templates");
+    const data = await res.json();
+    const items = data.items || [];
+    list.innerHTML = "";
+    if (!items.length) {
+      const empty = document.createElement("div");
+      empty.className = "small";
+      empty.style.color = "#94a3b8";
+      empty.textContent = "Нет шаблонов. Добавьте первый ниже.";
+      list.appendChild(empty);
+      return;
+    }
+    for (const tpl of items) {
+      const item = document.createElement("div");
+      item.className = "chat-quick-template-item";
+      item.innerHTML = `
+        <span class="chat-quick-template-name" title="${esc(tpl.template_text)}">${esc(tpl.template_name || tpl.template_text)}</span>
+        <div class="chat-quick-template-actions">
+          <button type="button" class="secondary" onclick="selectReviewTemplate(${tpl.id})">Вставить</button>
+          <button type="button" class="secondary danger" onclick="deleteReviewTemplate(${tpl.id})">✕</button>
+        </div>`;
+      list.appendChild(item);
+    }
+  } catch (e) {
+    if (info) info.textContent = "Ошибка загрузки шаблонов";
+  }
+}
+
+async function selectReviewTemplate(templateId) {
+  if (!_reviewTemplatesActiveUid) return;
+  const res = await fetch("/api/review-quick-templates");
+  const data = await res.json();
+  const tpl = (data.items || []).find(t => t.id === templateId);
+  if (!tpl) return;
+  const textarea = document.getElementById(`reply-${_reviewTemplatesActiveUid}`);
+  if (textarea) {
+    textarea.value = tpl.template_text;
+    textarea.removeAttribute("readonly");
+    textarea.dispatchEvent(new Event("input"));
+  }
+  closeReviewTemplatesModal();
+}
+
+async function saveReviewQuickTemplate() {
+  const name = String(document.getElementById("reviewQuickTemplateNameInput")?.value || "").trim();
+  const text = String(document.getElementById("reviewQuickTemplateInput")?.value || "").trim();
+  const info = document.getElementById("reviewTemplatesInfo");
+  if (!name) { if (info) info.textContent = "Введите название"; return; }
+  if (!text) { if (info) info.textContent = "Введите текст"; return; }
+  if (info) info.textContent = "";
+  try {
+    const res = await fetch("/api/review-quick-templates", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ template_name: name, template_text: text }),
+    });
+    const data = await res.json();
+    if (!res.ok) { if (info) info.textContent = data.detail || "Ошибка"; return; }
+    document.getElementById("reviewQuickTemplateNameInput").value = "";
+    document.getElementById("reviewQuickTemplateInput").value = "";
+    await loadReviewTemplates();
+  } catch (e) { if (info) info.textContent = "Ошибка сохранения"; }
+}
+
+async function deleteReviewTemplate(templateId) {
+  if (!confirm("Удалить шаблон?")) return;
+  const info = document.getElementById("reviewTemplatesInfo");
+  try {
+    const res = await fetch(`/api/review-quick-templates/${templateId}`, {
+      method: "DELETE", headers: withCsrfHeaders(),
+    });
+    if (!res.ok) { if (info) info.textContent = "Ошибка удаления"; return; }
+    await loadReviewTemplates();
+  } catch (e) { if (info) info.textContent = "Ошибка удаления"; }
 }
 
 // ── Contradiction rules modal ─────────────────────────────────────────────────

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=70" />
+  <link rel="stylesheet" href="/static/style.css?v=71" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -334,6 +334,26 @@
         <div class="row" style="gap:8px;margin-top:8px">
           <button type="button" onclick="saveQuestionTemplate()">Сохранить</button>
           <button type="button" class="secondary" onclick="closeQuestionTemplatesModal()">Закрыть</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: review quick templates -->
+  <div id="reviewQuickTemplatesModal" class="modal-overlay hidden" onclick="if(event.target===this)closeReviewTemplatesModal()">
+    <div class="modal-card chat-quick-templates-modal-card">
+      <h3 class="modal-title" style="margin-bottom:8px">Шаблоны ответов на отзывы</h3>
+      <div id="reviewTemplatesInfo" class="small" style="color:#dc2626;min-height:18px"></div>
+      <div id="reviewTemplatesList" class="chat-quick-templates-list"></div>
+      <div style="margin-top:12px;border-top:1px solid #e2e8f0;padding-top:12px">
+        <div style="font-weight:600;margin-bottom:8px;font-size:14px">Добавить шаблон</div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <input type="text" id="reviewQuickTemplateNameInput" placeholder="Название шаблона" style="width:100%" />
+          <textarea id="reviewQuickTemplateInput" placeholder="Текст шаблона" style="width:100%;min-height:80px"></textarea>
+        </div>
+        <div class="row" style="gap:8px;margin-top:8px">
+          <button type="button" onclick="saveReviewQuickTemplate()">Сохранить</button>
+          <button type="button" class="secondary" onclick="closeReviewTemplatesModal()">Закрыть</button>
         </div>
       </div>
     </div>
@@ -1081,6 +1101,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=100"></script>
+  <script src="/static/app.js?v=101"></script>
 </body>
 </html>

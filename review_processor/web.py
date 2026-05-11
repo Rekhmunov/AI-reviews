@@ -2630,6 +2630,38 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Шаблон не найден")
         return {"ok": True, "deleted": True}
 
+    # ── Review quick templates ────────────────────────────────────────────────
+
+    @app.get("/api/review-quick-templates")
+    def list_review_quick_templates(request: Request) -> dict[str, object]:
+        user = _require_user(request)
+        items = repository.list_review_quick_templates(user_id=int(user["id"]))
+        return {"items": items, "count": len(items)}
+
+    @app.post("/api/review-quick-templates")
+    def create_review_quick_template(request: Request, payload: ChatQuickTemplateCreateRequest) -> dict[str, object]:
+        user = _require_user(request)
+        name = str(payload.template_name or "").strip()
+        text = str(payload.template_text or "").strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Введите название шаблона")
+        if not text:
+            raise HTTPException(status_code=400, detail="Введите текст шаблона")
+        item = repository.add_review_quick_template(
+            user_id=int(user["id"]), template_name=name, template_text=text
+        )
+        return {"ok": True, "item": item}
+
+    @app.delete("/api/review-quick-templates/{template_id}")
+    def delete_review_quick_template(template_id: int, request: Request) -> dict[str, object]:
+        user = _require_user(request)
+        deleted = repository.delete_review_quick_template(
+            user_id=int(user["id"]), template_id=int(template_id)
+        )
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Шаблон не найден")
+        return {"ok": True, "deleted": True}
+
     @app.post("/api/admin/actions-purge-sync")
     def admin_purge_sync_actions(request: Request) -> dict[str, object]:
         """Delete all sync_review and sync_conversation entries — they are no longer logged."""
