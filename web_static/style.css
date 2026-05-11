@@ -769,6 +769,13 @@ button:hover {
   box-shadow: 0 11px 20px rgba(37, 99, 235, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.22);
 }
 
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
 button.secondary {
   color: #1e40af;
   border-color: rgba(147, 197, 253, 0.7);
