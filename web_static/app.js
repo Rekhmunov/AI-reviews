@@ -2912,10 +2912,10 @@ async function loadQuestions() {
     const isOzon = String(item.source || "").toLowerCase().includes("ozon");
     const isProcessed = questionsState.bucket === "processed";
 
-    // Source icon (same as chats)
+    // Source badge
     const sourceIcon = isOzon
-      ? `<img src="/static/ozon_icon.png" alt="Ozon" style="width:16px;height:16px;vertical-align:middle;margin-left:4px" onerror="this.style.display='none'">`
-      : `<img src="/static/wb_icon.png" alt="WB" style="width:16px;height:16px;vertical-align:middle;margin-left:4px" onerror="this.style.display='none'">`;
+      ? `<span class="chat-list-badge" style="margin-left:6px;vertical-align:middle">OZON</span>`
+      : `<span class="chat-list-badge" style="margin-left:6px;vertical-align:middle">WB</span>`;
 
     // Date/time MSK
     const qDateRaw = rawItem.createdDate || item.last_message_at || item.updated_at || "";
