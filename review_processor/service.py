@@ -441,6 +441,24 @@ class OzonMarketplaceClient:
         except Exception:
             counts["reviews"] = 0
 
+        # Questions: fetch first page to estimate count.
+        # Ozon /v1/question/list has no total_count field — use has_next heuristic.
+        if self.questions_path:
+            try:
+                q_body = self._request_json(
+                    path=self.questions_path,
+                    payload={"page": 1, "page_size": 100},
+                )
+                q_raw = q_body.get("result") if isinstance(q_body.get("result"), dict) else q_body
+                q_items = q_raw.get("questions") if isinstance(q_raw.get("questions"), list) else []
+                q_count = len(q_items)
+                if bool(q_raw.get("has_next") or q_raw.get("hasNext")):
+                    # More pages exist — use conservative estimate
+                    q_count = max(q_count, 100)
+                counts["questions"] = q_count
+            except Exception:
+                counts["questions"] = 0
+
         # Chats: paginate v3/chat/list, count only BUYER_SELLER chats.
         # Ozon API returns max 100 per page with no total_count field.
         # Fetch up to 5 pages (~500 chats) for preview — fast enough.
