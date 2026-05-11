@@ -65,6 +65,7 @@ const chatsState = {
   date_from: null,
   date_to: null,
   source: "all",
+  accountId: "all",
   status: "all",
   search: "",
   items: [],
@@ -730,26 +731,28 @@ function setQuestionSourceFilterOptions(options) {
 }
 
 function setChatSourceFilterOptions(options) {
+  // Legacy stub — superseded by setChatAccountFilterOptions
+}
+
+function setChatAccountFilterOptions(accounts) {
   const select = document.getElementById("chatPanelSourceFilter");
   if (!select) return;
-  const current = String(chatsState.source || "all");
+  const current = String(chatsState.accountId || "all");
   select.innerHTML = "";
   const defaultOption = document.createElement("option");
   defaultOption.value = "all";
   defaultOption.textContent = "Источник: все";
   select.appendChild(defaultOption);
-  for (const item of options || []) {
-    const value = String(item || "").trim();
-    if (!value) continue;
+  for (const acc of accounts || []) {
     const opt = document.createElement("option");
-    opt.value = value;
-    opt.textContent = `Источник: ${value.toUpperCase()}`;
+    opt.value = String(acc.account_id);
+    opt.textContent = String(acc.name || acc.source || acc.account_id);
     select.appendChild(opt);
   }
   select.value = current;
-  if (!Array.from(select.options).some((item) => item.value === current)) {
+  if (!Array.from(select.options).some((o) => o.value === current)) {
     select.value = "all";
-    chatsState.source = "all";
+    chatsState.accountId = "all";
   }
 }
 
@@ -3671,9 +3674,9 @@ async function loadChats() {
     }
   }
 
-  const source = String(document.getElementById("chatPanelSourceFilter")?.value || chatsState.source || "all");
+  const accountIdRaw = String(document.getElementById("chatPanelSourceFilter")?.value || chatsState.accountId || "all");
   const status = String(document.getElementById("chatPanelStatusFilter")?.value || chatsState.status || "all");
-  chatsState.source = source;
+  chatsState.accountId = accountIdRaw;
   chatsState.status = status;
   const sort = String(chatsState.sort || "newest");
   chatsState.sort = sort;
@@ -3683,7 +3686,7 @@ async function loadChats() {
   const buildQuery = (page) => {
     const q = new URLSearchParams();
     q.set("kind", "chat");
-    if (source && source !== "all") q.set("source", source);
+    if (accountIdRaw && accountIdRaw !== "all") q.set("account_id", accountIdRaw);
     if (status && status !== "all") q.set("status", status);
     if (chatsState.date_from) q.set("date_from", chatsState.date_from);
     if (chatsState.date_to) q.set("date_to", chatsState.date_to);
@@ -3736,9 +3739,8 @@ async function loadChats() {
 
   chatsState.date_from = data.date_from || chatsState.date_from || null;
   chatsState.date_to = data.date_to || chatsState.date_to || null;
-  chatsState.source = String(data.source || chatsState.source || "all");
   chatsState.status = String(data.status || chatsState.status || "all");
-  setChatSourceFilterOptions(data.source_options || []);
+  setChatAccountFilterOptions(data.account_options || []);
 
   // Update sort select
   const chatsSortSelect = document.getElementById("chatsSortSelect");
@@ -3746,7 +3748,9 @@ async function loadChats() {
   const sortOptions = document.querySelectorAll(".chats-sort-option");
   sortOptions.forEach((opt) => opt.classList.toggle("active", opt.getAttribute("data-value") === (chatsState.sort || "newest")));
   const panelSourceFilter = document.getElementById("chatPanelSourceFilter");
-  if (panelSourceFilter) panelSourceFilter.value = chatsState.source || "all";
+  if (panelSourceFilter && !Array.from(panelSourceFilter.options).some((o) => o.value === chatsState.accountId)) {
+    panelSourceFilter.value = "all";
+  }
   const panelStatusFilter = document.getElementById("chatPanelStatusFilter");
   if (panelStatusFilter) panelStatusFilter.value = chatsState.status || "all";
   updateChatsDateFilterButton();
