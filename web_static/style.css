@@ -830,6 +830,24 @@ tr.review-row-contradiction:hover td {
   background: rgba(253, 246, 178, 0.70);
 }
 
+.review-contradiction-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #dc2626;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  margin-left: 6px;
+  vertical-align: middle;
+  cursor: help;
+  flex-shrink: 0;
+}
+
 .pill {
   border-radius: 999px;
   padding: 3px 8px;

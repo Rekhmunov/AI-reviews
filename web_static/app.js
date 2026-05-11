@@ -1796,15 +1796,15 @@ async function loadReviews() {
     const sendErrorMessage = String(review.send_error_message || "").trim();
     const hasSendError = review.status === "queued_for_operator" && Boolean(sendErrorMessage);
     const hasSavedReply = Boolean(String(review.auto_reply || "").trim()) && hasSendError;
+    // Contradiction — must be declared before use
+    const contradiction = (review.metadata || {}).rating_contradiction;
     if (hasSendError) tr.classList.add("review-row-send-error");
     if (contradiction) tr.classList.add("review-row-contradiction");
     const sendErrorIcon = hasSendError
       ? `<span class="send-error-indicator" title="Ошибка отправки: ${esc(sendErrorMessage)}">❗</span>`
       : "";
-    // Contradiction warning icon
-    const contradiction = (review.metadata || {}).rating_contradiction;
     const contradictionIcon = contradiction
-      ? `<span title="${esc(`Яндекс определил «${contradiction.yandex_group_title || contradiction.yandex_group}», но оценка ${contradiction.rating} ★\nТребует проверки`)}" style="cursor:help;margin-left:4px">⚠️</span>`
+      ? `<span class="review-contradiction-badge" title="${esc("Яндекс определил «" + (contradiction.yandex_group_title || contradiction.yandex_group) + "», но оценка " + contradiction.rating + " ★. Требует проверки")}">!</span>`
       : "";
     const retryBtn = hasSavedReply
       ? `<button type="button" class="review-icon-btn review-retry-btn" title="Повторить отправку" onclick="retryReviewSend('${esc(review.review_uid)}')">🔄</button>`
