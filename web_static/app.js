@@ -3957,11 +3957,16 @@ async function clearAllConversations(scope = "all") {
 
 async function openContradictionRulesModal() {
   document.getElementById("contradictionRulesModal")?.classList.remove("hidden");
-  // Populate group select from templateStore
+  // Populate group select: use templateStore if loaded, else fall back to categoryLabels
   const sel = document.getElementById("contradictionGroupSelect");
   if (sel) {
     sel.innerHTML = '<option value="">Выберите категорию...</option>';
-    for (const cat of Object.keys(templateStore).sort()) {
+    // Prefer actual user templates; fall back to built-in labels
+    const cats = Object.keys(templateStore).length
+      ? Object.keys(templateStore)
+      : Object.keys(categoryLabels);
+    for (const cat of cats.sort()) {
+      if (cat === "textless_ratings") continue; // textless handled separately
       const label = labelFromMap(categoryLabels, cat) || cat;
       const opt = document.createElement("option");
       opt.value = cat;
