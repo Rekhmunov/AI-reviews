@@ -504,7 +504,21 @@ class OzonMarketplaceClient:
             raw = result.get("result") if isinstance(result.get("result"), Mapping) else result
             _raise_if_error_payload(raw, source="ozon")
             return True
-        # Reviews / questions use the configured reply_path
+        if kind == "question":
+            # Ozon question answer requires question_id + sku + text
+            meta = conversation.get("metadata") if isinstance(conversation.get("metadata"), dict) else {}
+            raw_meta = meta.get("raw") if isinstance(meta.get("raw"), dict) else {}
+            sku = int(raw_meta.get("sku") or 0)
+            if not sku:
+                raise MarketplaceSyncError("ozon", "Cannot reply to Ozon question: sku missing in metadata")
+            result = self._request_json(
+                path="/v1/question/answer/create",
+                payload={"question_id": external_id, "sku": sku, "text": response_text},
+            )
+            raw = result.get("result") if isinstance(result.get("result"), Mapping) else result
+            _raise_if_error_payload(raw, source="ozon")
+            return True
+        # Reviews use the configured reply_path
         if not self.reply_path:
             return False
         payload: dict[str, object] = dict(self.reply_payload or {})
