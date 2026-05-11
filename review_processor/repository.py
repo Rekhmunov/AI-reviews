@@ -4350,7 +4350,7 @@ class ReviewRepository:
             rows = conn.execute(
                 f"""
                 SELECT DISTINCT ci.account_id, ci.source,
-                       COALESCE(ma.name, ci.source) AS name
+                       COALESCE(ma.account_name, ci.source) AS name
                 FROM conversation_items ci
                 LEFT JOIN marketplace_accounts ma
                        ON ma.id = ci.account_id AND ma.user_id = ci.user_id
