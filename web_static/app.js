@@ -1797,6 +1797,7 @@ async function loadReviews() {
     const hasSendError = review.status === "queued_for_operator" && Boolean(sendErrorMessage);
     const hasSavedReply = Boolean(String(review.auto_reply || "").trim()) && hasSendError;
     if (hasSendError) tr.classList.add("review-row-send-error");
+    if (contradiction) tr.classList.add("review-row-contradiction");
     const sendErrorIcon = hasSendError
       ? `<span class="send-error-indicator" title="Ошибка отправки: ${esc(sendErrorMessage)}">❗</span>`
       : "";

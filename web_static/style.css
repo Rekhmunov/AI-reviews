@@ -822,6 +822,14 @@ tr.review-row-send-error:hover td {
   background: rgba(254, 226, 226, 0.72);
 }
 
+tr.review-row-contradiction td {
+  background: rgba(254, 249, 195, 0.55);
+}
+
+tr.review-row-contradiction:hover td {
+  background: rgba(253, 246, 178, 0.70);
+}
+
 .pill {
   border-radius: 999px;
   padding: 3px 8px;
