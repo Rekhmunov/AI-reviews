@@ -1807,11 +1807,26 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             )
         except Exception:
             tmpl_pool = {}
+        # Load contradiction rules once for dynamic check on existing reviews
+        try:
+            contradiction_map = repository.get_review_contradiction_map(user_id=user_id_int)
+        except Exception:
+            contradiction_map = {}
         # Second pass: each review gets its own random pick from the pool
         for item in items:
             group_id = str(item.get("category") or "")
             subgroup = str(item.get("classified_subgroup") or "")
-            if group_id:
+            rating_val = item.get("rating")
+            # Skip template if contradiction rule matches (flag in metadata OR dynamic check)
+            meta = item.get("metadata") or {}
+            has_contradiction_flag = bool(meta.get("rating_contradiction"))
+            has_contradiction_rule = bool(
+                group_id and rating_val is not None
+                and int(rating_val) in contradiction_map.get(group_id, set())
+            )
+            if has_contradiction_flag or has_contradiction_rule:
+                item["suggested_reply"] = ""
+            elif group_id:
                 texts = tmpl_pool.get((group_id, subgroup)) or tmpl_pool.get((group_id, "")) or []
                 item["suggested_reply"] = _rnd.choice(texts) if texts else ""
             else:
