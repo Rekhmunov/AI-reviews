@@ -2578,14 +2578,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         return {"ok": True, "deleted": deleted}
 
     @app.post("/api/admin/conversations-clear")
-    def admin_clear_conversations(request: Request, payload: ClearReviewsRequest) -> dict[str, object]:
+    def admin_clear_conversations(request: Request, payload: ClearConversationsRequest) -> dict[str, object]:
         actor = _require_admin(request)
         if payload.user_id is None:
             target_user_id = _tenant_owner_id(actor) if not _is_super_admin(actor) else int(actor["id"])
         else:
             target_user_id = int(payload.user_id)
             _target_user_for_admin_scope(actor=actor, target_user_id=target_user_id)
-        deleted = repository.clear_conversations(user_id=target_user_id)
+        deleted = repository.clear_conversations(user_id=target_user_id, kind=payload.kind)
         return {"ok": True, "deleted": deleted, "user_id": target_user_id}
 
     @app.get("/api/analytics")
@@ -4793,14 +4793,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         return {"ok": True, "deleted": deleted, "user_id": target_user_id}
 
     @app.post("/api/admin/conversations-clear")
-    def admin_clear_conversations(request: Request, payload: ClearReviewsRequest) -> dict[str, object]:
+    def admin_clear_conversations_v2(request: Request, payload: ClearConversationsRequest) -> dict[str, object]:
         actor = _require_admin(request)
         if payload.user_id is None:
             target_user_id = _tenant_owner_id(actor) if not _is_super_admin(actor) else int(actor["id"])
         else:
             target_user_id = int(payload.user_id)
             _target_user_for_admin_scope(actor=actor, target_user_id=target_user_id)
-        deleted = repository.clear_conversations(user_id=target_user_id)
+        deleted = repository.clear_conversations(user_id=target_user_id, kind=payload.kind)
         return {"ok": True, "deleted": deleted, "user_id": target_user_id}
 
     @app.exception_handler(HTTPException)
