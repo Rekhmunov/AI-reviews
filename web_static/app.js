@@ -2744,9 +2744,9 @@ function renderQuestionTemplatesList() {
       <div style="display:flex;align-items:center;gap:6px">
         <div style="flex:1;cursor:pointer;font-size:13px;font-weight:500;padding:4px 0"
           onclick="selectQuestionTemplate(${t.id})" title="${esc(t.template_text)}">${esc(t.template_name)}</div>
-        <button type="button" class="secondary" style="font-size:11px;padding:2px 8px" title="Редактировать"
-          onclick="toggleEditQuestionTemplate(${t.id})">✏️</button>
-        <button type="button" class="secondary" style="font-size:11px;padding:2px 8px" title="Удалить"
+        <button type="button" class="qt-btn qt-edit" title="Редактировать"
+          onclick="toggleEditQuestionTemplate(${t.id})">✏</button>
+        <button type="button" class="qt-btn qt-delete" title="Удалить"
           onclick="deleteQuestionTemplate(${t.id})">✕</button>
       </div>
       ${isEditing ? `
@@ -3247,9 +3247,9 @@ function renderChatQuickTemplatesList() {
     row.innerHTML = `
       <div class="chat-quick-template-name">${esc(name)}</div>
       <div class="chat-quick-template-actions">
-        <button type="button" class="qt-btn qt-apply" title="Подставить в поле ответа">↪</button>
-        <button type="button" class="qt-btn qt-edit" title="Изменить">✏</button>
-        <button type="button" class="qt-btn qt-delete" title="Удалить">🗑</button>
+        <button type="button" class="qt-btn qt-apply" title="Вставить в поле ответа">↪</button>
+        <button type="button" class="qt-btn qt-edit" title="Редактировать">✏</button>
+        <button type="button" class="qt-btn qt-delete" title="Удалить">✕</button>
       </div>
     `;
 
@@ -3996,8 +3996,8 @@ async function loadReviewTemplates() {
       item.innerHTML = `
         <span class="chat-quick-template-name" title="${esc(tpl.template_text)}">${esc(tpl.template_name || tpl.template_text)}</span>
         <div class="chat-quick-template-actions">
-          <button type="button" class="secondary" onclick="selectReviewTemplate(${tpl.id})">Вставить</button>
-          <button type="button" class="secondary danger" onclick="deleteReviewTemplate(${tpl.id})">✕</button>
+          <button type="button" class="qt-btn qt-apply" title="Вставить в поле ответа" onclick="selectReviewTemplate(${tpl.id})">↪</button>
+          <button type="button" class="qt-btn qt-delete" title="Удалить" onclick="deleteReviewTemplate(${tpl.id})">✕</button>
         </div>`;
       list.appendChild(item);
     }
