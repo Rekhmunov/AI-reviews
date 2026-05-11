@@ -2954,18 +2954,31 @@ async function loadQuestions() {
         </div>`;
     }
 
-    // Column 3: Product (WB questions store product info inside productDetails)
-    const pd = (rawItem.productDetails && typeof rawItem.productDetails === "object") ? rawItem.productDetails : {};
-    const productName = esc(pd.productName || rawItem.productName || rawItem.subjectName || pd.subjectName || "");
-    const article = esc(pd.supplierArticle || rawItem.supplierArticle || "");
-    const nmId = pd.nmId || pd.nmID || rawItem.nmId || rawItem.nmID || null;
-    const productUrl = nmId ? `https://www.wildberries.ru/catalog/${nmId}/detail.aspx` : "";
-    const productCell = productName
-      ? `<div class="review-product-name">${productUrl
-          ? `<a href="${productUrl}" target="_blank" rel="noopener noreferrer" class="review-product-link">${productName}</a>`
-          : productName}</div>
-         ${article ? `<div class="review-product-detail small">Артикул: ${article}</div>` : ""}`
-      : "";
+    // Column 3: Product
+    // WB: product info in productDetails; Ozon: sku + product_url in rawItem directly
+    let productCell = "";
+    if (isOzon) {
+      const ozonSku = rawItem.sku || null;
+      const ozonUrl = rawItem.product_url || (ozonSku ? `https://www.ozon.ru/product/${ozonSku}/` : "");
+      if (ozonUrl || ozonSku) {
+        productCell = `<div class="review-product-name">${
+          ozonUrl
+            ? `<a href="${esc(ozonUrl)}" target="_blank" rel="noopener noreferrer" class="review-product-link">Смотреть на Ozon</a>`
+            : "Ozon"
+        }</div>${ozonSku ? `<div class="review-product-detail small">SKU: ${esc(String(ozonSku))}</div>` : ""}`;
+      }
+    } else {
+      const pd = (rawItem.productDetails && typeof rawItem.productDetails === "object") ? rawItem.productDetails : {};
+      const productName = esc(pd.productName || rawItem.productName || rawItem.subjectName || pd.subjectName || "");
+      const article = esc(pd.supplierArticle || rawItem.supplierArticle || "");
+      const nmId = pd.nmId || pd.nmID || rawItem.nmId || rawItem.nmID || null;
+      const productUrl = nmId ? `https://www.wildberries.ru/catalog/${nmId}/detail.aspx` : "";
+      if (productName) {
+        productCell = `<div class="review-product-name">${productUrl
+            ? `<a href="${productUrl}" target="_blank" rel="noopener noreferrer" class="review-product-link">${productName}</a>`
+            : productName}</div>${article ? `<div class="review-product-detail small">Артикул: ${article}</div>` : ""}`;
+      }
+    }
 
     tr.innerHTML = `
       <td class="review-col-review">
