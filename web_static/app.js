@@ -1804,7 +1804,7 @@ async function loadReviews() {
       ? `<span class="send-error-indicator" title="Ошибка отправки: ${esc(sendErrorMessage)}">❗</span>`
       : "";
     const contradictionIcon = contradiction
-      ? `<span class="review-contradiction-badge" title="${esc("Яндекс определил «" + (contradiction.yandex_group_title || contradiction.yandex_group) + "», но оценка " + contradiction.rating + " ★. Требует проверки")}">!</span>`
+      ? `<span class="review-contradiction-badge" data-tip="${esc("Яндекс определил \u00AB" + (contradiction.yandex_group_title || contradiction.yandex_group) + "\u00BB, но оценка " + contradiction.rating + " \u2605. Требует проверки")}">!</span>`
       : "";
     const retryBtn = hasSavedReply
       ? `<button type="button" class="review-icon-btn review-retry-btn" title="Повторить отправку" onclick="retryReviewSend('${esc(review.review_uid)}')">🔄</button>`

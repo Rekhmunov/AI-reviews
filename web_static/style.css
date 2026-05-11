@@ -823,11 +823,11 @@ tr.review-row-send-error:hover td {
 }
 
 tr.review-row-contradiction td {
-  background: rgba(254, 249, 195, 0.55);
+  background: rgba(254, 249, 195, 0.20);
 }
 
 tr.review-row-contradiction:hover td {
-  background: rgba(253, 246, 178, 0.70);
+  background: rgba(254, 249, 195, 0.30);
 }
 
 .review-contradiction-badge {
@@ -846,6 +846,34 @@ tr.review-row-contradiction:hover td {
   vertical-align: middle;
   cursor: help;
   flex-shrink: 0;
+  position: relative;
+}
+
+.review-contradiction-badge[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1e293b;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 400;
+  white-space: nowrap;
+  padding: 5px 10px;
+  border-radius: 6px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 100;
+  max-width: 320px;
+  white-space: normal;
+  text-align: center;
+  width: max-content;
+}
+
+.review-contradiction-badge[data-tip]:hover::after {
+  opacity: 1;
 }
 
 .pill {
