@@ -368,6 +368,19 @@ class OzonMarketplaceClient:
         if not path:
             return []
 
+        # For Ozon questions: normalize since_date to YYYY-MM-DD for client-side
+        # early exit. Questions are returned newest-first by published_at, so once
+        # the last item on a page is older than since_date we can stop paginating.
+        # Ozon ignores date_from server-side, but the sort order lets us stop early.
+        since_date_ymd: str | None = None
+        if kind == "question" and since_date:
+            try:
+                since_date_ymd = str(since_date).strip()[:10]  # "YYYY-MM-DD"
+                if len(since_date_ymd) != 10 or since_date_ymd[4] != "-":
+                    since_date_ymd = None
+            except Exception:
+                since_date_ymd = None
+
         cursor: str | None = None
         page = 0
         result_items: list[dict[str, object]] = []
@@ -377,7 +390,8 @@ class OzonMarketplaceClient:
                 time.sleep(0.15)
             payload: dict[str, object] = {"limit": self.page_size}
             if since_date:
-                # Ozon uses date_from / dateFrom for filtering by date
+                # Ozon ignores date_from for questions, but send it anyway
+                # in case a future API version starts respecting it.
                 payload.setdefault("date_from", since_date)
                 payload.setdefault("dateFrom", since_date)
             if cursor:
@@ -393,6 +407,29 @@ class OzonMarketplaceClient:
             page_items = _extract_sequence(raw, keys=conv_keys)
             if not page_items:
                 break
+
+            # Ozon questions early exit: questions are sorted newest-first by
+            # published_at.  Once the last item on a page is older than since_date
+            # there cannot be any newer questions on subsequent pages — stop.
+            if since_date_ymd and kind == "question":
+                last_pub = str(page_items[-1].get("published_at") or "").strip()[:10]
+                if last_pub and last_pub < since_date_ymd:
+                    # Keep only items within the date range, then stop.
+                    page_items = [
+                        i for i in page_items
+                        if str(i.get("published_at") or "").strip()[:10] >= since_date_ymd
+                    ]
+                    for item in page_items:
+                        mapped = self._to_conversation(item, kind=kind)
+                        if mapped:
+                            result_items.append(mapped)
+                    _log.info(
+                        "ozon _fetch_conversation_stream: early exit at page %d"
+                        " — last published_at=%s < since_date=%s",
+                        page + 1, last_pub, since_date_ymd,
+                    )
+                    break
+
             for item in page_items:
                 mapped = self._to_conversation(item, kind=kind)
                 if mapped:
