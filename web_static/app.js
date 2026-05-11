@@ -459,6 +459,9 @@ function showSection(section, options = {}) {
   // Refresh chat list when navigating back to chats so Dmitry's message
   // doesn't disappear due to stale background-timer data.
   if (section === "chats" && !syncInProgress) {
+    // Clear search input to prevent browser autofill from filtering chats
+    const _si = document.getElementById("chatsSearchInput");
+    if (_si && _si.value) { _si.value = ""; chatsState.search = ""; }
     loadChats();
   }
 }
@@ -3655,6 +3658,16 @@ async function loadChats() {
   // Don't update the chat list while a sync is in progress — wait for sync to finish
   // so the list is only shown once with correct Answered/New bucket assignment.
   if (syncInProgress) return;
+
+  // Guard: if browser autofilled the search input with an email/unrelated value,
+  // clear it so chats are not inadvertently filtered.
+  const _searchEl = document.getElementById("chatsSearchInput");
+  if (_searchEl) {
+    const _autofilled = _searchEl.value && _searchEl.value !== chatsState.search;
+    if (_autofilled && !chatsState.search) {
+      _searchEl.value = "";
+    }
+  }
 
   const source = String(document.getElementById("chatPanelSourceFilter")?.value || chatsState.source || "all");
   const status = String(document.getElementById("chatPanelStatusFilter")?.value || chatsState.status || "all");

@@ -361,7 +361,7 @@
               </select>
               <div id="chatsSortDropdown" class="chats-sort-dropdown hidden"></div>
               <div class="reviews-date-wrap">
-                <input type="text" id="chatsSearchInput" class="chats-search-input" placeholder="🔍 Поиск по имени..." oninput="onChatsSearchInput()" autocomplete="off" style="width:180px" />
+                <input type="search" id="chatsSearchInput" class="chats-search-input" placeholder="🔍 Поиск по имени..." oninput="onChatsSearchInput()" autocomplete="off" name="chats-search-no-fill" style="width:180px" />
               </div>
             </div>
           </div>
@@ -1029,6 +1029,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=84"></script>
+  <script src="/static/app.js?v=85"></script>
 </body>
 </html>
