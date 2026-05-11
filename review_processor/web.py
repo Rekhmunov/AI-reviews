@@ -2522,7 +2522,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.get("/api/contradiction-rules")
     def list_contradiction_rules(request: Request) -> dict[str, object]:
         user = _require_settings_access(request)
-        items = repository.list_review_contradiction_rules(user_id=int(user["id"]))
+        try:
+            repository._ensure_contradiction_rules_table()
+            items = repository.list_review_contradiction_rules(user_id=int(user["id"]))
+        except Exception:
+            items = []
         return {"items": items}
 
     @app.post("/api/contradiction-rules")
@@ -2539,6 +2543,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="ratings must be JSON array of ints 1-5")
         if not group_id.strip():
             raise HTTPException(status_code=400, detail="group_id is required")
+        repository._ensure_contradiction_rules_table()
         repository.save_review_contradiction_rule(
             user_id=int(user["id"]),
             group_id=group_id.strip(),

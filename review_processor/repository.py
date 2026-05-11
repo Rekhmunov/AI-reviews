@@ -6035,6 +6035,11 @@ class ReviewRepository:
             """
         )
 
+    def _ensure_contradiction_rules_table(self) -> None:
+        """Create table on demand if migration didn't run yet."""
+        with self._connect() as conn:
+            self._migrate_review_contradiction_rules(conn)
+
     def list_review_contradiction_rules(self, *, user_id: int) -> list[dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(
