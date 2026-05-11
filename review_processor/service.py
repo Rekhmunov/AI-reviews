@@ -2993,7 +2993,7 @@ class ReviewAutomationService:
                 base_payload=extra.get("base_payload") if isinstance(extra.get("base_payload"), dict) else None,
                 page_size=_to_positive_int(extra.get("page_size"), default=50),
                 max_pages=_to_positive_int(extra.get("max_pages"), default=10000),
-                questions_path=str(extra.get("questions_path")) if extra.get("questions_path") else None,
+                questions_path=str(extra.get("questions_path") or "/v1/question/list"),
                 chats_path=str(extra.get("chats_path") or "/v3/chat/list"),
                 chats_history_path=str(extra.get("chats_history_path") or "/v3/chat/history"),
                 reply_path=str(extra.get("reply_path") or "/v1/review/comment/create"),
