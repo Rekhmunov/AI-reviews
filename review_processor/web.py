@@ -2632,15 +2632,24 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     # ── Review quick templates ────────────────────────────────────────────────
 
+    def _ensure_review_quick_templates_table() -> None:
+        try:
+            with repository._connect() as conn:
+                repository._migrate_review_quick_templates(conn)
+        except Exception:
+            pass
+
     @app.get("/api/review-quick-templates")
     def list_review_quick_templates(request: Request) -> dict[str, object]:
         user = _require_user(request)
+        _ensure_review_quick_templates_table()
         items = repository.list_review_quick_templates(user_id=int(user["id"]))
         return {"items": items, "count": len(items)}
 
     @app.post("/api/review-quick-templates")
     def create_review_quick_template(request: Request, payload: ChatQuickTemplateCreateRequest) -> dict[str, object]:
         user = _require_user(request)
+        _ensure_review_quick_templates_table()
         name = str(payload.template_name or "").strip()
         text = str(payload.template_text or "").strip()
         if not name:
