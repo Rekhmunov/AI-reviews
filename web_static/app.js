@@ -1237,8 +1237,13 @@ function toggleChatsSearch() {
 
 function onChatsSearchInput() {
   const input = document.getElementById("chatsSearchInput");
-  chatsState.search = String(input?.value || "").trim();
-  // Server-side search: reload from API with search parameter
+  const val = String(input?.value || "").trim();
+  // Ignore browser-autofilled email addresses
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) {
+    input.value = "";
+    return;
+  }
+  chatsState.search = val;
   loadChats();
 }
 
