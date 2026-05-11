@@ -56,6 +56,7 @@ const questionsState = {
   date_from: null,
   date_to: null,
   source: "all",
+  accountId: "all",
   status: "all",
 };
 const chatsState = {
@@ -702,28 +703,30 @@ function setSourceFilterOptions(options) {
   }
 }
 
-function setQuestionSourceFilterOptions(options) {
+function setQuestionAccountFilterOptions(accounts) {
   const select = document.getElementById("questionPanelSourceFilter");
   if (!select) return;
-  const current = String(questionsState.source || "all");
+  const current = String(questionsState.accountId || "all");
   select.innerHTML = "";
   const defaultOption = document.createElement("option");
   defaultOption.value = "all";
   defaultOption.textContent = "Источник: все";
   select.appendChild(defaultOption);
-  for (const item of options || []) {
-    const value = String(item || "").trim();
-    if (!value) continue;
+  for (const acc of accounts || []) {
     const opt = document.createElement("option");
-    opt.value = value;
-    opt.textContent = `Источник: ${value.toUpperCase()}`;
+    opt.value = String(acc.account_id);
+    opt.textContent = String(acc.name || acc.source || acc.account_id);
     select.appendChild(opt);
   }
   select.value = current;
-  if (!Array.from(select.options).some((item) => item.value === current)) {
+  if (!Array.from(select.options).some((o) => o.value === current)) {
     select.value = "all";
-    questionsState.source = "all";
+    questionsState.accountId = "all";
   }
+}
+
+function setQuestionSourceFilterOptions(options) {
+  // Legacy: kept for compatibility, now superseded by setQuestionAccountFilterOptions
 }
 
 function setChatSourceFilterOptions(options) {
@@ -2862,20 +2865,20 @@ async function replyToQuestion(conversationUid) {
 }
 
 async function loadQuestions() {
-  const source = String(
-    document.getElementById("questionPanelSourceFilter")?.value || questionsState.source || "all",
+  const accountIdRaw = String(
+    document.getElementById("questionPanelSourceFilter")?.value || questionsState.accountId || "all",
   );
   const status = String(
     document.getElementById("questionPanelStatusFilter")?.value || questionsState.status || "all",
   );
-  questionsState.source = source;
+  questionsState.accountId = accountIdRaw;
   questionsState.status = status;
   const sort = String(document.getElementById("questionSortFilter")?.value || questionsState.sort || "newest");
   questionsState.sort = sort;
 
   const query = new URLSearchParams();
   query.set("kind", "question");
-  if (source && source !== "all") query.set("source", source);
+  if (accountIdRaw && accountIdRaw !== "all") query.set("account_id", accountIdRaw);
   if (status && status !== "all") query.set("status", status);
   if (questionsState.date_from) query.set("date_from", questionsState.date_from);
   if (questionsState.date_to) query.set("date_to", questionsState.date_to);
@@ -3006,9 +3009,8 @@ async function loadQuestions() {
   questionsState.sort = String(data.sort || questionsState.sort || "newest");
   questionsState.date_from = data.date_from || questionsState.date_from || null;
   questionsState.date_to = data.date_to || questionsState.date_to || null;
-  questionsState.source = String(data.source || questionsState.source || "all");
   questionsState.status = String(data.status || questionsState.status || "all");
-  setQuestionSourceFilterOptions(data.source_options || []);
+  setQuestionAccountFilterOptions(data.account_options || []);
 
   const sortFilter = document.getElementById("questionSortFilter");
   if (sortFilter) sortFilter.value = questionsState.sort || "newest";

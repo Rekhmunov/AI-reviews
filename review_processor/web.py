@@ -1932,6 +1932,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     def list_conversations(
         request: Request,
         source: str | None = None,
+        account_id: int | None = None,
         kind: str | None = None,
         status: str | None = None,
         date_from: str | None = None,
@@ -1982,6 +1983,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         page_data = repository.list_conversations_paginated(
             user_id=int(user["id"]),
             source=normalized_source,
+            account_id=account_id,
             kind=normalized_kind,
             status=normalized_status,
             statuses=None,
@@ -1995,6 +1997,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             account_permissions=manager_conversation_scope,
         )
         source_options = repository.list_conversation_sources(user_id=int(user["id"]))
+        account_options = repository.list_conversation_accounts(
+            user_id=int(user["id"]), kind=normalized_kind
+        )
         # For answered questions: enrich with last sent text from conversation_messages
         # (text answered via our system) and portal reply from metadata.raw.answer.text
         items = page_data["items"]
@@ -2031,6 +2036,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "status": status_key,
             "kind": normalized_kind or "all",
             "source_options": source_options,
+            "account_options": account_options,
         }
 
     @app.post("/api/conversations/{conversation_uid}/status")

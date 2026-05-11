@@ -4142,6 +4142,7 @@ class ReviewRepository:
         *,
         user_id: int,
         source: str | None = None,
+        account_id: int | None = None,
         kind: str | None = None,
         status: str | None = None,
         statuses: list[str] | None = None,
@@ -4156,7 +4157,10 @@ class ReviewRepository:
     ) -> dict[str, Any]:
         base_clauses: list[str] = ["user_id = ?"]
         base_params: list[Any] = [user_id]
-        if source:
+        if account_id is not None:
+            base_clauses.append("account_id = ?")
+            base_params.append(account_id)
+        elif source:
             base_clauses.append("source = ?")
             base_params.append(source)
         if kind:
@@ -4337,6 +4341,33 @@ class ReviewRepository:
                 (user_id,),
             ).fetchall()
         return [str(row["source"]) for row in rows if row["source"] is not None and str(row["source"]).strip()]
+
+    def list_conversation_accounts(self, *, user_id: int, kind: str | None = None) -> list[dict[str, Any]]:
+        """Return distinct (account_id, source, name) pairs that have conversations."""
+        kind_clause = " AND ci.kind = ?" if kind else ""
+        kind_params: list[Any] = [kind] if kind else []
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT DISTINCT ci.account_id, ci.source,
+                       COALESCE(ma.name, ci.source) AS name
+                FROM conversation_items ci
+                LEFT JOIN marketplace_accounts ma
+                       ON ma.id = ci.account_id AND ma.user_id = ci.user_id
+                WHERE ci.user_id = ?{kind_clause}
+                  AND ci.account_id IS NOT NULL
+                ORDER BY name ASC
+                """,
+                (user_id, *kind_params),
+            ).fetchall()
+        return [
+            {
+                "account_id": int(row["account_id"]),
+                "source": str(row["source"] or ""),
+                "name": str(row["name"] or row["source"] or ""),
+            }
+            for row in rows
+        ]
 
     def delete_conversations_before_date(
         self,
