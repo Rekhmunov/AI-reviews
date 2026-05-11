@@ -4403,13 +4403,17 @@ class ReviewRepository:
             )
         return int(result.rowcount or 0)
 
-    def clear_conversations(self, *, user_id: int, kind: str | None = None) -> int:
+    def clear_conversations(self, *, user_id: int, kind: str | None = None, source: str | None = None) -> int:
         clauses = ["user_id = ?"]
         params: list[Any] = [user_id]
         normalized_kind = str(kind or "").strip().lower()
         if normalized_kind in {"question", "chat"}:
             clauses.append("kind = ?")
             params.append(normalized_kind)
+        normalized_source = str(source or "").strip().lower()
+        if normalized_source:
+            clauses.append("source = ?")
+            params.append(normalized_source)
         where = " AND ".join(clauses)
         with self._connect() as conn:
             result = conn.execute(f"DELETE FROM conversation_items WHERE {where}", tuple(params))

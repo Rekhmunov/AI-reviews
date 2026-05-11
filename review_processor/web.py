@@ -463,6 +463,7 @@ class ClearReviewsRequest(BaseModel):
 class ClearConversationsRequest(BaseModel):
     user_id: int | None = None
     kind: str | None = None
+    source: str | None = None
 
 
 class TemplateSubgroupSaveRequest(BaseModel):
@@ -2585,7 +2586,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         else:
             target_user_id = int(payload.user_id)
             _target_user_for_admin_scope(actor=actor, target_user_id=target_user_id)
-        deleted = repository.clear_conversations(user_id=target_user_id, kind=payload.kind)
+        deleted = repository.clear_conversations(user_id=target_user_id, kind=payload.kind, source=payload.source)
         return {"ok": True, "deleted": deleted, "user_id": target_user_id}
 
     @app.get("/api/analytics")
@@ -4800,7 +4801,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         else:
             target_user_id = int(payload.user_id)
             _target_user_for_admin_scope(actor=actor, target_user_id=target_user_id)
-        deleted = repository.clear_conversations(user_id=target_user_id, kind=payload.kind)
+        deleted = repository.clear_conversations(user_id=target_user_id, kind=payload.kind, source=payload.source)
         return {"ok": True, "deleted": deleted, "user_id": target_user_id}
 
     @app.exception_handler(HTTPException)

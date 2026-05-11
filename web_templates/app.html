@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=65" />
+  <link rel="stylesheet" href="/static/style.css?v=66" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -335,6 +335,19 @@
           <button type="button" onclick="saveQuestionTemplate()">Сохранить</button>
           <button type="button" class="secondary" onclick="closeQuestionTemplatesModal()">Закрыть</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: clear questions by source -->
+  <div id="clearQuestionsModal" class="modal-overlay hidden" onclick="if(event.target===this)closeClearQuestionsModal()">
+    <div class="modal-card" style="max-width:400px">
+      <h3 class="modal-title" style="margin-bottom:12px">Очистить вопросы</h3>
+      <p class="small" style="color:#64748b;margin-bottom:16px">Выберите источник для удаления вопросов:</p>
+      <div id="clearQuestionsSourceList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px"></div>
+      <div class="row" style="gap:8px">
+        <button id="clearQuestionsConfirmBtn" type="button" onclick="confirmClearQuestions()">Удалить</button>
+        <button type="button" class="secondary" onclick="closeClearQuestionsModal()">Отмена</button>
       </div>
     </div>
   </div>
@@ -1029,6 +1042,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=89"></script>
+  <script src="/static/app.js?v=90"></script>
 </body>
 </html>

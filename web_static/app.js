@@ -3016,6 +3016,7 @@ async function loadQuestions() {
   questionsState.date_from = data.date_from || questionsState.date_from || null;
   questionsState.date_to = data.date_to || questionsState.date_to || null;
   questionsState.status = String(data.status || questionsState.status || "all");
+  window._questionAccountOptions = data.account_options || [];
   setQuestionAccountFilterOptions(data.account_options || []);
 
   const sortFilter = document.getElementById("questionSortFilter");
@@ -3934,8 +3935,83 @@ async function clearAllConversations(scope = "all") {
   await Promise.all([loadQuestions(), loadChats()]);
 }
 
+// ── Clear questions by source modal ──────────────────────────────────────────
+
+let _clearQuestionsSelectedSource = null;
+
+function openClearQuestionsModal() {
+  const modal = document.getElementById("clearQuestionsModal");
+  if (!modal) return;
+  const list = document.getElementById("clearQuestionsSourceList");
+  if (!list) return;
+
+  // Build source options from account_options loaded by loadQuestions()
+  const accounts = Array.isArray(window._questionAccountOptions) ? window._questionAccountOptions : [];
+  list.innerHTML = "";
+  _clearQuestionsSelectedSource = null;
+
+  // "All sources" option
+  const allLabel = document.createElement("label");
+  allLabel.style.cssText = "display:flex;align-items:center;gap:8px;cursor:pointer";
+  allLabel.innerHTML = `<input type="radio" name="clearQSrc" value="__all__"> <span>Все источники</span>`;
+  list.appendChild(allLabel);
+
+  for (const acc of accounts) {
+    const label = document.createElement("label");
+    label.style.cssText = "display:flex;align-items:center;gap:8px;cursor:pointer";
+    label.innerHTML = `<input type="radio" name="clearQSrc" value="${esc(String(acc.source || ""))}"> <span>${esc(acc.name || acc.source || String(acc.account_id))}</span>`;
+    list.appendChild(label);
+  }
+
+  // Default: select first option
+  const first = list.querySelector("input[type=radio]");
+  if (first) first.checked = true;
+
+  modal.classList.remove("hidden");
+}
+
+function closeClearQuestionsModal() {
+  document.getElementById("clearQuestionsModal")?.classList.add("hidden");
+  _clearQuestionsSelectedSource = null;
+}
+
+async function confirmClearQuestions() {
+  const selected = document.querySelector("input[name=clearQSrc]:checked");
+  const sourceVal = selected ? selected.value : "__all__";
+  const sourceLabel = selected?.parentElement?.querySelector("span")?.textContent || "все источники";
+
+  if (!confirm(`Удалить вопросы (${sourceLabel}) из базы?`)) return;
+
+  const btn = document.getElementById("clearQuestionsConfirmBtn");
+  if (btn) btn.disabled = true;
+
+  const payload = { kind: "question" };
+  if (sourceVal && sourceVal !== "__all__") payload.source = sourceVal;
+
+  try {
+    const res = await fetch("/api/admin/conversations-clear", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.detail || "Не удалось очистить вопросы");
+      return;
+    }
+    const info = document.getElementById("questionsInfo");
+    if (info) info.textContent = `Удалено: ${data.deleted || 0}`;
+    closeClearQuestionsModal();
+    await loadQuestions();
+  } catch (e) {
+    alert("Ошибка при удалении");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 async function clearAllQuestions() {
-  await clearAllConversations("questions");
+  openClearQuestionsModal();
 }
 
 async function clearAllChats() {
