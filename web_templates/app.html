@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=72" />
+  <link rel="stylesheet" href="/static/style.css?v=73" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -319,19 +319,19 @@
   </div>
 
   <!-- Question quick templates modal -->
-  <div id="questionQuickTemplatesModal" class="modal-overlay hidden" role="dialog" aria-modal="true">
-    <div class="modal-card chat-quick-templates-modal-card">
-      <div class="row row-between" style="margin-bottom:12px">
-        <h4 class="no-margin">Шаблоны ответов на вопросы</h4>
-        <button type="button" class="secondary" onclick="closeQuestionTemplatesModal()">✕</button>
+  <div id="questionQuickTemplatesModal" class="modal-overlay hidden" role="dialog" aria-modal="true" onclick="if(event.target===this)closeQuestionTemplatesModal()">
+    <div class="modal-card qtempl-modal-card">
+      <div class="qtempl-header">
+        <span class="qtempl-title">Шаблоны ответов на вопросы</span>
+        <button type="button" class="qtempl-close" onclick="closeQuestionTemplatesModal()" aria-label="Закрыть">✕</button>
       </div>
-      <div id="questionTemplatesInfo" class="small" style="color:#dc2626;min-height:18px"></div>
-      <div id="questionTemplatesList" class="chat-quick-templates-list"></div>
-      <div style="border-top:1px solid #e2e8f0;padding-top:12px;margin-top:12px">
-        <p class="small" style="font-weight:600;margin-bottom:8px">Добавить шаблон</p>
-        <input id="questionTemplateNameInput" type="text" placeholder="Название шаблона" style="width:100%;box-sizing:border-box;margin-bottom:8px">
-        <textarea id="questionTemplateInput" rows="3" placeholder="Текст шаблона..." style="width:100%;box-sizing:border-box;resize:vertical"></textarea>
-        <div class="row" style="gap:8px;margin-top:8px">
+      <div id="questionTemplatesInfo" class="qtempl-info"></div>
+      <div id="questionTemplatesList" class="qtempl-list"></div>
+      <div class="qtempl-add-section">
+        <div class="qtempl-add-title">Добавить шаблон</div>
+        <input id="questionTemplateNameInput" type="text" placeholder="Название шаблона" class="qtempl-input" />
+        <textarea id="questionTemplateInput" rows="3" placeholder="Текст шаблона..." class="qtempl-textarea"></textarea>
+        <div class="qtempl-actions">
           <button type="button" onclick="saveQuestionTemplate()">Сохранить</button>
           <button type="button" class="secondary" onclick="closeQuestionTemplatesModal()">Закрыть</button>
         </div>
@@ -341,17 +341,18 @@
 
   <!-- Modal: review quick templates -->
   <div id="reviewQuickTemplatesModal" class="modal-overlay hidden" onclick="if(event.target===this)closeReviewTemplatesModal()">
-    <div class="modal-card chat-quick-templates-modal-card">
-      <h3 class="modal-title" style="margin-bottom:8px">Шаблоны ответов на отзывы</h3>
-      <div id="reviewTemplatesInfo" class="small" style="color:#dc2626;min-height:18px"></div>
-      <div id="reviewTemplatesList" class="chat-quick-templates-list"></div>
-      <div style="margin-top:12px;border-top:1px solid #e2e8f0;padding-top:12px">
-        <div style="font-weight:600;margin-bottom:8px;font-size:14px">Добавить шаблон</div>
-        <div style="display:flex;flex-direction:column;gap:6px">
-          <input type="text" id="reviewQuickTemplateNameInput" placeholder="Название шаблона" style="width:100%" />
-          <textarea id="reviewQuickTemplateInput" placeholder="Текст шаблона" style="width:100%;min-height:80px"></textarea>
-        </div>
-        <div class="row" style="gap:8px;margin-top:8px">
+    <div class="modal-card qtempl-modal-card">
+      <div class="qtempl-header">
+        <span class="qtempl-title">Шаблоны ответов на отзывы</span>
+        <button type="button" class="qtempl-close" onclick="closeReviewTemplatesModal()" aria-label="Закрыть">✕</button>
+      </div>
+      <div id="reviewTemplatesInfo" class="qtempl-info"></div>
+      <div id="reviewTemplatesList" class="qtempl-list"></div>
+      <div class="qtempl-add-section">
+        <div class="qtempl-add-title">Добавить шаблон</div>
+        <input type="text" id="reviewQuickTemplateNameInput" placeholder="Название шаблона" class="qtempl-input" />
+        <textarea id="reviewQuickTemplateInput" rows="3" placeholder="Текст шаблона..." class="qtempl-textarea"></textarea>
+        <div class="qtempl-actions">
           <button type="button" onclick="saveReviewQuickTemplate()">Сохранить</button>
           <button type="button" class="secondary" onclick="closeReviewTemplatesModal()">Закрыть</button>
         </div>
@@ -1072,24 +1073,23 @@
       </div>
     </div>
   </div>
-  <div id="chatQuickTemplatesModal" class="modal-overlay hidden" aria-hidden="true">
-    <div class="modal-card chat-quick-templates-modal-card">
-      <div class="row row-between">
-        <h4 class="no-margin">Быстрые ответы для чатов</h4>
-        <button type="button" class="secondary" onclick="closeChatQuickTemplatesModal()">Закрыть</button>
+  <div id="chatQuickTemplatesModal" class="modal-overlay hidden" aria-hidden="true" onclick="if(event.target===this)closeChatQuickTemplatesModal()">
+    <div class="modal-card qtempl-modal-card">
+      <div class="qtempl-header">
+        <span class="qtempl-title">Быстрые ответы для чатов</span>
+        <button type="button" class="qtempl-close" onclick="closeChatQuickTemplatesModal()" aria-label="Закрыть">✕</button>
       </div>
-      <p class="small">В списке отображаются названия шаблонов. Иконка ↪ подставляет текст в поле ответа.</p>
-      <div class="row">
-        <input id="chatQuickTemplateNameInput" type="text" maxlength="200" placeholder="Название шаблона (обязательно)" style="flex:1">
+      <div id="chatQuickTemplatesInfo" class="qtempl-info"></div>
+      <div id="chatQuickTemplatesList" class="qtempl-list"></div>
+      <div class="qtempl-add-section">
+        <div class="qtempl-add-title">Добавить шаблон</div>
+        <input id="chatQuickTemplateNameInput" type="text" maxlength="200" placeholder="Название шаблона" class="qtempl-input" />
+        <textarea id="chatQuickTemplateInput" rows="3" maxlength="2000" placeholder="Текст шаблона..." class="qtempl-textarea"></textarea>
+        <div class="qtempl-actions">
+          <button type="button" onclick="createChatQuickTemplate()">Сохранить</button>
+          <button type="button" class="secondary" onclick="closeChatQuickTemplatesModal()">Закрыть</button>
+        </div>
       </div>
-      <div class="row">
-        <textarea id="chatQuickTemplateInput" rows="3" maxlength="2000" placeholder="Текст ответа"></textarea>
-      </div>
-      <div class="row">
-        <button type="button" onclick="createChatQuickTemplate()">Добавить шаблон</button>
-        <span id="chatQuickTemplatesInfo" class="small"></span>
-      </div>
-      <div id="chatQuickTemplatesList" class="chat-quick-templates-list mt-10"></div>
     </div>
   </div>
   <script>
