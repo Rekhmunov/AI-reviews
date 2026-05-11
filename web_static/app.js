@@ -1871,7 +1871,7 @@ async function loadReviews() {
           <textarea class="review-reply-textarea" id="reply-${reviewUid}" readonly>${esc(replyText)}</textarea>
           <div class="review-reply-actions">
             <button type="button" class="review-icon-btn" title="Отправить ответ" onclick="sendReviewReply('${reviewUid}')">📤</button>
-            <button type="button" class="review-icon-btn" title="Другой шаблон" onclick="refreshReviewTemplate('${reviewUid}', '${esc(review.category || "")}', '${esc(review.classified_subgroup || "")}')">🔄</button>
+            <button type="button" class="review-icon-btn" title="${contradiction ? "Шаблон недоступен: требует ручной проверки" : "Другой шаблон"}" ${contradiction ? "disabled" : ""} onclick="refreshReviewTemplate('${reviewUid}', '${esc(review.category || "")}', '${esc(review.classified_subgroup || "")}')">🔄</button>
             <button type="button" class="review-icon-btn" title="Редактировать" onclick="editReviewReply('${reviewUid}')">✏️</button>
             ${retryBtn}
             ${sendErrorIcon}
