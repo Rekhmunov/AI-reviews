@@ -3957,22 +3957,23 @@ async function clearAllConversations(scope = "all") {
 
 async function openContradictionRulesModal() {
   document.getElementById("contradictionRulesModal")?.classList.remove("hidden");
-  // Ensure templates are loaded so we get the user's real categories
-  if (!Object.keys(templateStore).length) {
-    await loadTemplates();
+  // Ensure template groups are loaded (same source as Шаблоны tab)
+  if (!templateGroupsState.items.length) {
+    await loadTemplateGroups();
   }
   const sel = document.getElementById("contradictionGroupSelect");
   if (sel) {
     sel.innerHTML = '<option value="">Выберите категорию...</option>';
-    // Use actual user template groups; fall back to built-in labels
-    const cats = Object.keys(templateStore).length
-      ? Object.keys(templateStore)
-      : Object.keys(categoryLabels);
-    for (const cat of cats.sort()) {
-      if (cat === "textless_ratings") continue;
-      const label = labelFromMap(categoryLabels, cat) || cat;
+    // Use templateGroupsState — exactly the same groups shown in Шаблоны tab
+    const groups = templateGroupsState.items.filter(g => {
+      const gid = String(g.group_id || g.id || "");
+      return gid && gid !== "textless_ratings";
+    });
+    for (const g of groups) {
+      const gid = String(g.group_id || g.id || "");
+      const label = String(g.title || g.group_title || labelFromMap(categoryLabels, gid) || gid);
       const opt = document.createElement("option");
-      opt.value = cat;
+      opt.value = gid;
       opt.textContent = label;
       sel.appendChild(opt);
     }
