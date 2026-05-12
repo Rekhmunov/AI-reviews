@@ -2992,10 +2992,15 @@ async function loadQuestions() {
       const ozonSku = rawItem.sku || null;
       const ozonUrl = rawItem.product_url || (ozonSku ? `https://www.ozon.ru/product/${ozonSku}/` : "");
       if (ozonUrl || ozonSku) {
+        // Try to find product name from catalog by SKU
+        const catalogProduct = ozonSku
+          ? (_productsCache || []).find(p => String(p.ozon_sku || "").trim() === String(ozonSku).trim())
+          : null;
+        const linkLabel = catalogProduct?.name ? esc(catalogProduct.name) : "Смотреть на Ozon";
         productCell = `<div class="review-product-name">${
           ozonUrl
-            ? `<a href="${esc(ozonUrl)}" target="_blank" rel="noopener noreferrer" class="review-product-link">Смотреть на Ozon</a>`
-            : "Ozon"
+            ? `<a href="${esc(ozonUrl)}" target="_blank" rel="noopener noreferrer" class="review-product-link">${linkLabel}</a>`
+            : linkLabel
         }</div>${ozonSku ? `<div class="review-product-detail small">SKU: ${esc(String(ozonSku))}</div>` : ""}`;
       }
     } else {
