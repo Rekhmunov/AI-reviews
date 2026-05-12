@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=73" />
+  <link rel="stylesheet" href="/static/style.css?v=74" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -327,14 +327,14 @@
       </div>
       <div id="questionTemplatesInfo" class="qtempl-info"></div>
       <div id="questionTemplatesList" class="qtempl-list"></div>
-      <div class="qtempl-add-section">
-        <div class="qtempl-add-title">Добавить шаблон</div>
+      <div id="questionAddForm" class="qtempl-add-form hidden">
         <input id="questionTemplateNameInput" type="text" placeholder="Название шаблона" class="qtempl-input" />
         <textarea id="questionTemplateInput" rows="3" placeholder="Текст шаблона..." class="qtempl-textarea"></textarea>
-        <div class="qtempl-actions">
-          <button type="button" onclick="saveQuestionTemplate()">Сохранить</button>
-          <button type="button" class="secondary" onclick="closeQuestionTemplatesModal()">Закрыть</button>
-        </div>
+      </div>
+      <div class="qtempl-footer">
+        <button type="button" id="questionSaveBtn" class="hidden" onclick="saveQuestionTemplate()">Сохранить</button>
+        <button type="button" class="secondary" onclick="qtemplToggleAdd('question')">Добавить шаблон</button>
+        <button type="button" class="secondary" onclick="closeQuestionTemplatesModal()">Закрыть</button>
       </div>
     </div>
   </div>
@@ -348,14 +348,14 @@
       </div>
       <div id="reviewTemplatesInfo" class="qtempl-info"></div>
       <div id="reviewTemplatesList" class="qtempl-list"></div>
-      <div class="qtempl-add-section">
-        <div class="qtempl-add-title">Добавить шаблон</div>
+      <div id="reviewAddForm" class="qtempl-add-form hidden">
         <input type="text" id="reviewQuickTemplateNameInput" placeholder="Название шаблона" class="qtempl-input" />
         <textarea id="reviewQuickTemplateInput" rows="3" placeholder="Текст шаблона..." class="qtempl-textarea"></textarea>
-        <div class="qtempl-actions">
-          <button type="button" onclick="saveReviewQuickTemplate()">Сохранить</button>
-          <button type="button" class="secondary" onclick="closeReviewTemplatesModal()">Закрыть</button>
-        </div>
+      </div>
+      <div class="qtempl-footer">
+        <button type="button" id="reviewSaveBtn" class="hidden" onclick="saveReviewQuickTemplate()">Сохранить</button>
+        <button type="button" class="secondary" onclick="qtemplToggleAdd('review')">Добавить шаблон</button>
+        <button type="button" class="secondary" onclick="closeReviewTemplatesModal()">Закрыть</button>
       </div>
     </div>
   </div>
@@ -1081,14 +1081,14 @@
       </div>
       <div id="chatQuickTemplatesInfo" class="qtempl-info"></div>
       <div id="chatQuickTemplatesList" class="qtempl-list"></div>
-      <div class="qtempl-add-section">
-        <div class="qtempl-add-title">Добавить шаблон</div>
+      <div id="chatAddForm" class="qtempl-add-form hidden">
         <input id="chatQuickTemplateNameInput" type="text" maxlength="200" placeholder="Название шаблона" class="qtempl-input" />
         <textarea id="chatQuickTemplateInput" rows="3" maxlength="2000" placeholder="Текст шаблона..." class="qtempl-textarea"></textarea>
-        <div class="qtempl-actions">
-          <button type="button" onclick="createChatQuickTemplate()">Сохранить</button>
-          <button type="button" class="secondary" onclick="closeChatQuickTemplatesModal()">Закрыть</button>
-        </div>
+      </div>
+      <div class="qtempl-footer">
+        <button type="button" id="chatSaveBtn" class="hidden" onclick="createChatQuickTemplate()">Сохранить</button>
+        <button type="button" class="secondary" onclick="qtemplToggleAdd('chat')">Добавить шаблон</button>
+        <button type="button" class="secondary" onclick="closeChatQuickTemplatesModal()">Закрыть</button>
       </div>
     </div>
   </div>
@@ -1101,6 +1101,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=102"></script>
+  <script src="/static/app.js?v=103"></script>
 </body>
 </html>

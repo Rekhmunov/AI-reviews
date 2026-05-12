@@ -2382,26 +2382,35 @@ button.secondary.danger:hover {
   border-bottom: none;
 }
 
+.qtempl-list .chat-quick-template-item {
+  cursor: pointer;
+}
+
 .qtempl-list .chat-quick-template-item:hover {
-  background: #f8fafc;
+  background: #eff6ff;
+  border-bottom-color: #dbeafe;
   margin: 0 -8px;
   padding-left: 8px;
   padding-right: 8px;
 }
 
-.qtempl-add-section {
+.qtempl-add-form {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 16px 24px 20px;
+  padding: 12px 24px;
   border-top: 1px solid #e2e8f0;
   background: #f8fafc;
 }
 
-.qtempl-add-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: #374151;
+.qtempl-add-form.hidden { display: none !important; }
+
+.qtempl-footer {
+  display: flex;
+  gap: 8px;
+  padding: 12px 24px 16px;
+  border-top: 1px solid #e2e8f0;
+  align-items: center;
 }
 
 .qtempl-input {

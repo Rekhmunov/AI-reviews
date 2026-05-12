@@ -2703,6 +2703,8 @@ function openQuestionTemplatesModal(uid) {
   document.getElementById("questionQuickTemplatesModal")?.classList.remove("hidden");
   document.getElementById("questionTemplateNameInput") && (document.getElementById("questionTemplateNameInput").value = "");
   document.getElementById("questionTemplateInput") && (document.getElementById("questionTemplateInput").value = "");
+  document.getElementById("questionAddForm")?.classList.add("hidden");
+  document.getElementById("questionSaveBtn")?.classList.add("hidden");
   loadQuestionTemplates();
 }
 
@@ -3243,17 +3245,16 @@ function renderChatQuickTemplatesList() {
     row.className = "chat-quick-template-item";
     row.dataset.templateId = String(templateId);
 
-    // Normal view: name + three icon buttons
+    // Normal view: name (clickable) + edit + delete buttons
     row.innerHTML = `
-      <div class="chat-quick-template-name">${esc(name)}</div>
+      <div class="chat-quick-template-name" style="cursor:pointer" title="Нажмите чтобы вставить">${esc(name)}</div>
       <div class="chat-quick-template-actions">
-        <button type="button" class="qt-btn qt-apply" title="Вставить в поле ответа">↪</button>
         <button type="button" class="qt-btn qt-edit" title="Редактировать">✏</button>
         <button type="button" class="qt-btn qt-delete" title="Удалить">✕</button>
       </div>
     `;
 
-    row.querySelector(".qt-apply")?.addEventListener("click", () => {
+    row.querySelector(".chat-quick-template-name")?.addEventListener("click", () => {
       appendTextToChatInput(text);
       setChatQuickTemplatesInfo("Шаблон подставлен в поле ответа.");
       closeChatQuickTemplatesModal();
@@ -3313,6 +3314,8 @@ function openChatQuickTemplatesModal() {
   setModalVisibility("chatQuickTemplatesModal", true);
   setChatQuickTemplatesInfo("");
   toggleChatEmojiPicker(false);
+  document.getElementById("chatAddForm")?.classList.add("hidden");
+  document.getElementById("chatSaveBtn")?.classList.add("hidden");
   loadChatQuickTemplates();
 }
 
@@ -3955,6 +3958,23 @@ async function clearAllConversations(scope = "all") {
   await Promise.all([loadQuestions(), loadChats()]);
 }
 
+// ── Shared template modal helpers ────────────────────────────────────────────
+
+function qtemplToggleAdd(scope) {
+  const formId = scope === "chat" ? "chatAddForm" : scope === "review" ? "reviewAddForm" : "questionAddForm";
+  const saveId = scope === "chat" ? "chatSaveBtn" : scope === "review" ? "reviewSaveBtn" : "questionSaveBtn";
+  const form = document.getElementById(formId);
+  const saveBtn = document.getElementById(saveId);
+  if (!form) return;
+  const isHidden = form.classList.contains("hidden");
+  form.classList.toggle("hidden", !isHidden);
+  if (saveBtn) saveBtn.classList.toggle("hidden", !isHidden);
+  if (isHidden) {
+    // Focus the name input when opening
+    form.querySelector("input")?.focus();
+  }
+}
+
 // ── Review quick templates modal ──────────────────────────────────────────────
 
 let _reviewTemplatesActiveUid = null;
@@ -3965,6 +3985,9 @@ function openReviewTemplatesModal(reviewUid) {
   document.getElementById("reviewTemplatesInfo").textContent = "";
   document.getElementById("reviewQuickTemplateNameInput").value = "";
   document.getElementById("reviewQuickTemplateInput").value = "";
+  // Reset add form to hidden
+  document.getElementById("reviewAddForm")?.classList.add("hidden");
+  document.getElementById("reviewSaveBtn")?.classList.add("hidden");
   loadReviewTemplates();
 }
 
@@ -3994,9 +4017,8 @@ async function loadReviewTemplates() {
       const item = document.createElement("div");
       item.className = "chat-quick-template-item";
       item.innerHTML = `
-        <span class="chat-quick-template-name" title="${esc(tpl.template_text)}">${esc(tpl.template_name || tpl.template_text)}</span>
+        <span class="chat-quick-template-name" title="${esc(tpl.template_text)}" style="cursor:pointer" onclick="selectReviewTemplate(${tpl.id})">${esc(tpl.template_name || tpl.template_text)}</span>
         <div class="chat-quick-template-actions">
-          <button type="button" class="qt-btn qt-apply" title="Вставить в поле ответа" onclick="selectReviewTemplate(${tpl.id})">↪</button>
           <button type="button" class="qt-btn qt-delete" title="Удалить" onclick="deleteReviewTemplate(${tpl.id})">✕</button>
         </div>`;
       list.appendChild(item);
