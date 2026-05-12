@@ -1769,8 +1769,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             status_values = [status_key]
 
         account_ids_filter = _manager_allowed_review_account_ids(user)
+        # Use owner's user_id for data queries — managers share owner's data
+        owner_user_id = _tenant_owner_id(user)
         page_data = service.list_reviews_paginated(
-            user_id=int(user["id"]),
+            user_id=owner_user_id,
             source=normalized_source,
             priority=priority,
             status=None,
@@ -1786,7 +1788,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
         # Enrich each review with a suggested template text for the reply column.
         # Uses a single batch query instead of N separate queries (eliminates N+1).
-        user_id_int = int(user["id"])
+        user_id_int = owner_user_id
         items = page_data.get("items") or []
         # First pass: collect pairs and expose classified_subgroup
         pairs: list[tuple[str, str | None]] = []
@@ -1832,7 +1834,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             else:
                 item["suggested_reply"] = ""
 
-        source_options = service.list_review_sources(user_id=int(user["id"]))
+        source_options = service.list_review_sources(user_id=owner_user_id)
         return {
             "items": page_data["items"],
             "count": len(page_data["items"]),
@@ -1996,8 +1998,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             normalized_bucket = "new"
         normalized_page_size = page_size if page_size in {10, 30, 50, 100, 200, 500, 1000} else 30
         manager_conversation_scope = _manager_allowed_conversation_accounts(user)
+        # Use owner's user_id for data queries — managers share owner's data
+        conv_owner_user_id = _tenant_owner_id(user)
         page_data = repository.list_conversations_paginated(
-            user_id=int(user["id"]),
+            user_id=conv_owner_user_id,
             source=normalized_source,
             account_id=account_id,
             kind=normalized_kind,
@@ -2012,9 +2016,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             search=str(search).strip() if search else None,
             account_permissions=manager_conversation_scope,
         )
-        source_options = repository.list_conversation_sources(user_id=int(user["id"]))
+        source_options = repository.list_conversation_sources(user_id=conv_owner_user_id)
         account_options = repository.list_conversation_accounts(
-            user_id=int(user["id"]), kind=normalized_kind
+            user_id=conv_owner_user_id, kind=normalized_kind
         )
         # For answered questions: enrich with last sent text from conversation_messages
         # (text answered via our system) and portal reply from metadata.raw.answer.text
@@ -2027,7 +2031,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             if answered_uids:
                 try:
                     sent_texts = repository.get_last_sent_text_for_conversations(
-                        user_id=int(user["id"]), conversation_uids=answered_uids
+                        user_id=conv_owner_user_id, conversation_uids=answered_uids
                     )
                     for item in items:
                         uid = item["conversation_uid"]
