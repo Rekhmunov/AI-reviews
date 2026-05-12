@@ -4907,6 +4907,9 @@ class ReviewAutomationService:
         text = text.replace("%%RECO%%", reco)
         for key, value in variables_context.items():
             text = text.replace(str(key), str(value or ""))
+        # Remove any remaining unreplaced %VARIABLE% placeholders
+        import re as _re
+        text = _re.sub(r'%[A-Z0-9_]{2,50}%', '', text)
         return self._cleanup_rendered_text(text)
 
     @staticmethod

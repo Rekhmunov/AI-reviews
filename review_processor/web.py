@@ -1834,7 +1834,28 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 item["suggested_reply"] = ""
             elif group_id:
                 texts = tmpl_pool.get((group_id, subgroup)) or tmpl_pool.get((group_id, "")) or []
-                item["suggested_reply"] = _rnd.choice(texts) if texts else ""
+                raw_tpl = _rnd.choice(texts) if texts else ""
+                if raw_tpl:
+                    try:
+                        from review_processor.models import ReviewInput as _RI
+                        _meta = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+                        _rv = _RI(
+                            review_id=str(item.get("external_review_id") or ""),
+                            text=str(item.get("text") or ""),
+                            author=str(item.get("author") or ""),
+                            rating=item.get("rating"),
+                            metadata=_meta,
+                        )
+                        raw_tpl = service._render_template(
+                            raw_tpl,
+                            user_id=user_id_int,
+                            review=_rv,
+                            category=group_id,
+                            sentiment=str((_meta.get("raw") or {}).get("sentiment") or ""),
+                        )
+                    except Exception:
+                        pass
+                item["suggested_reply"] = raw_tpl
             else:
                 item["suggested_reply"] = ""
 
