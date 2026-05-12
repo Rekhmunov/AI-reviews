@@ -1836,25 +1836,29 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 texts = tmpl_pool.get((group_id, subgroup)) or tmpl_pool.get((group_id, "")) or []
                 raw_tpl = _rnd.choice(texts) if texts else ""
                 if raw_tpl:
+                    # Apply basic variable substitution for UI display
+                    _author = str(item.get("author") or "").strip()
+                    # %USER% and %AUTHOR% → buyer name (empty if unknown)
+                    raw_tpl = raw_tpl.replace("%USER%", _author)
+                    raw_tpl = raw_tpl.replace("%AUTHOR%", _author)
+                    # Apply user-defined template variables context
                     try:
-                        from review_processor.models import ReviewInput as _RI
-                        _meta = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
-                        _rv = _RI(
-                            review_id=str(item.get("external_review_id") or ""),
-                            text=str(item.get("text") or ""),
-                            author=str(item.get("author") or ""),
-                            rating=item.get("rating"),
-                            metadata=_meta,
-                        )
-                        raw_tpl = service._render_template(
-                            raw_tpl,
+                        _vars_ctx = repository.build_template_variables_context(
                             user_id=user_id_int,
-                            review=_rv,
-                            category=group_id,
-                            sentiment=str((_meta.get("raw") or {}).get("sentiment") or ""),
+                            review_author=_author,
+                            review_rating=item.get("rating"),
+                            review_category=group_id,
+                            review_sentiment="",
+                            review_tags=None,
+                            review_metadata=item.get("metadata") if isinstance(item.get("metadata"), dict) else {},
                         )
+                        for _vk, _vv in _vars_ctx.items():
+                            raw_tpl = raw_tpl.replace(str(_vk), str(_vv or ""))
                     except Exception:
                         pass
+                    # Remove any remaining unreplaced %VAR% placeholders
+                    import re as _re2
+                    raw_tpl = _re2.sub(r'%[A-Z0-9_]{2,50}%', '', raw_tpl)
                 item["suggested_reply"] = raw_tpl
             else:
                 item["suggested_reply"] = ""
