@@ -1883,15 +1883,46 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         }
 
     @app.get("/api/reviews/random-template")
-    def reviews_random_template(request: Request, group_id: str, subgroup: str = "") -> dict[str, object]:
+    def reviews_random_template(
+        request: Request,
+        group_id: str,
+        subgroup: str = "",
+        review_uid: str = "",
+    ) -> dict[str, object]:
         """Return a random template for the given group/subgroup — used by the reply refresh button."""
         user = _require_user(request)
+        owner_uid = _tenant_owner_id(user)
         tmpl = repository.get_random_template_variant(
-            user_id=int(user["id"]),
+            user_id=owner_uid,
             group_id=group_id.strip(),
             subgroup=subgroup.strip() or None,
         )
-        return {"template_text": str(tmpl.get("template_text") or "") if tmpl else ""}
+        raw_text = str(tmpl.get("template_text") or "") if tmpl else ""
+        if raw_text and review_uid.strip():
+            # Apply variable substitution using the specific review's data
+            review_obj = repository.get_review(user_id=owner_uid, review_uid=review_uid.strip())
+            if review_obj:
+                _author = str(review_obj.get("author") or "").strip()
+                raw_text = raw_text.replace("%USER%", _author)
+                raw_text = raw_text.replace("%AUTHOR%", _author)
+                try:
+                    _vars_ctx = repository.build_template_variables_context(
+                        user_id=owner_uid,
+                        review_author=_author,
+                        review_rating=review_obj.get("rating"),
+                        review_category=group_id.strip(),
+                        review_sentiment="",
+                        review_tags=None,
+                        review_metadata=review_obj.get("metadata") if isinstance(review_obj.get("metadata"), dict) else {},
+                    )
+                    for _vk, _vv in _vars_ctx.items():
+                        raw_text = raw_text.replace(str(_vk), str(_vv or ""))
+                except Exception:
+                    pass
+        # Remove any remaining unreplaced %VAR% placeholders
+        import re as _re_tpl
+        raw_text = _re_tpl.sub(r'%[A-Z0-9_]{2,50}%', '', raw_text)
+        return {"template_text": raw_text}
 
     @app.post("/api/reviews/{review_uid}/reply")
     def reply_to_review(review_uid: str, request: Request, payload: ConversationReplyRequest) -> dict[str, object]:

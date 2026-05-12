@@ -2600,7 +2600,7 @@ async function sendReviewReply(reviewUid) {
 async function refreshReviewTemplate(reviewUid, groupId, subgroup) {
   if (!groupId) return;
   try {
-    const q = new URLSearchParams({ group_id: groupId, subgroup: subgroup || "" });
+    const q = new URLSearchParams({ group_id: groupId, subgroup: subgroup || "", review_uid: reviewUid || "" });
     const res = await fetch(`/api/reviews/random-template?${q}`);
     if (!res.ok) return;
     const data = await res.json();
