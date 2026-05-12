@@ -464,6 +464,7 @@ function showSection(section, options = {}) {
     // Clear search input to prevent browser autofill from filtering chats
     const _si = document.getElementById("chatsSearchInput");
     if (_si && _si.value) { _si.value = ""; chatsState.search = ""; }
+    chatsState._searchUserTyped = false;
     loadChats();
   }
 }
@@ -1238,11 +1239,12 @@ function toggleChatsSearch() {
 function onChatsSearchInput() {
   const input = document.getElementById("chatsSearchInput");
   const val = String(input?.value || "").trim();
-  // Ignore browser-autofilled email addresses
-  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) {
+  // Ignore browser-autofilled values: emails or long text (>40 chars without user intent)
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val) || (val.length > 40 && !chatsState._searchUserTyped)) {
     input.value = "";
     return;
   }
+  chatsState._searchUserTyped = val.length > 0;
   chatsState.search = val;
   loadChats();
 }

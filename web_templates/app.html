@@ -424,7 +424,7 @@
               </select>
               <div id="chatsSortDropdown" class="chats-sort-dropdown hidden"></div>
               <div class="reviews-date-wrap">
-                <input type="search" id="chatsSearchInput" class="chats-search-input" placeholder="🔍 Поиск по имени..." oninput="onChatsSearchInput()" autocomplete="off" name="chats-search-no-fill" style="width:180px" />
+                <input type="search" id="chatsSearchInput" class="chats-search-input" placeholder="🔍 Поиск по имени..." oninput="onChatsSearchInput()" autocomplete="off" style="width:180px" />
               </div>
             </div>
           </div>
@@ -440,7 +440,7 @@
             </div>
             <div id="chatMessages" class="chat-messages"></div>
             <div class="chat-compose">
-              <textarea id="chatReplyInput" rows="3" placeholder="Введите ответ..." maxlength="4000"></textarea>
+              <textarea id="chatReplyInput" rows="3" placeholder="Введите ответ..." maxlength="4000" autocomplete="off"></textarea>
               <div class="row chat-compose-actions">
                 <div class="chat-emoji-wrap">
                   <button id="chatEmojiBtn" type="button" class="chat-emoji-btn" title="Смайлы" aria-label="Смайлы">🙂</button>
@@ -1101,6 +1101,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=106"></script>
+  <script src="/static/app.js?v=107"></script>
 </body>
 </html>
