@@ -2772,8 +2772,8 @@ function renderQuestionTemplatesList() {
       ${isEditing ? `
       <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:8px">
         <input id="editQTplName_${t.id}" type="text" value="${esc(t.template_name)}"
-          placeholder="Название" style="width:100%;box-sizing:border-box;margin-bottom:6px">
-        <textarea id="editQTplText_${t.id}" rows="3"
+          autocomplete="off" placeholder="Название" style="width:100%;box-sizing:border-box;margin-bottom:6px">
+        <textarea id="editQTplText_${t.id}" rows="3" autocomplete="off"
           style="width:100%;box-sizing:border-box;resize:vertical"
           placeholder="Текст шаблона...">${esc(t.template_text)}</textarea>
         <div class="row" style="gap:6px;margin-top:6px">
@@ -3282,8 +3282,8 @@ function renderChatQuickTemplatesList() {
       // Replace row content with inline edit form
       row.innerHTML = `
         <div class="qt-edit-form">
-          <input type="text" class="qt-edit-name" maxlength="200" value="${esc(name)}" placeholder="Название">
-          <textarea class="qt-edit-text" rows="3" maxlength="2000">${esc(text)}</textarea>
+          <input type="text" class="qt-edit-name" maxlength="200" value="${esc(name)}" placeholder="Название" autocomplete="off">
+          <textarea class="qt-edit-text" rows="3" maxlength="2000" autocomplete="off">${esc(text)}</textarea>
           <div class="row" style="gap:8px;margin-top:6px">
             <button type="button" class="qt-save-btn">Сохранить</button>
             <button type="button" class="secondary qt-cancel-btn">Отмена</button>

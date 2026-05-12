@@ -431,7 +431,7 @@
               </select>
               <div id="chatsSortDropdown" class="chats-sort-dropdown hidden"></div>
               <div class="reviews-date-wrap">
-                <input type="search" id="chatsSearchInput" class="chats-search-input" placeholder="🔍 Поиск по имени..." oninput="onChatsSearchInput()" autocomplete="off" style="width:180px" />
+                <input type="search" id="chatsSearchInput" class="chats-search-input" placeholder="🔍 Поиск по имени..." oninput="onChatsSearchInput()" autocomplete="off" readonly onfocus="this.removeAttribute('readonly')" onblur="if(!this.value.trim())this.setAttribute('readonly','')" style="width:180px" />
               </div>
             </div>
           </div>
@@ -1089,8 +1089,8 @@
       <div id="chatQuickTemplatesInfo" class="qtempl-info"></div>
       <div id="chatQuickTemplatesList" class="qtempl-list"></div>
       <div id="chatAddForm" class="qtempl-add-form hidden">
-        <input id="chatQuickTemplateNameInput" type="text" maxlength="200" placeholder="Название шаблона" class="qtempl-input" />
-        <textarea id="chatQuickTemplateInput" rows="3" maxlength="2000" placeholder="Текст шаблона..." class="qtempl-textarea"></textarea>
+        <input id="chatQuickTemplateNameInput" type="text" maxlength="200" placeholder="Название шаблона" class="qtempl-input" autocomplete="off" />
+        <textarea id="chatQuickTemplateInput" rows="3" maxlength="2000" placeholder="Текст шаблона..." class="qtempl-textarea" autocomplete="off"></textarea>
       </div>
       <div class="qtempl-footer">
         <button type="button" id="chatSaveBtn" class="hidden" onclick="createChatQuickTemplate()">Сохранить</button>
@@ -1108,6 +1108,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=109"></script>
+  <script src="/static/app.js?v=110"></script>
 </body>
 </html>
