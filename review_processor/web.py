@@ -1867,6 +1867,24 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 item["suggested_reply"] = ""
 
         source_options = service.list_review_sources(user_id=owner_user_id)
+        # Enrich with product photo URLs
+        try:
+            _photo_map = repository.get_product_photo_map(user_id=owner_user_id)
+            if _photo_map:
+                for _item in page_data["items"]:
+                    _meta = _item.get("metadata") or {}
+                    _raw = _meta.get("raw") or {} if isinstance(_meta, dict) else {}
+                    _pd = (_raw.get("productDetails") or {}) if isinstance(_raw, dict) else {}
+                    _keys = [
+                        str(_pd.get("supplierArticle") or "").strip(),
+                        str(_pd.get("nmId") or "").strip(),
+                        str(_raw.get("supplierArticle") or "").strip(),
+                    ]
+                    _item["product_photo_url"] = next(
+                        (_photo_map[k] for k in _keys if k and k in _photo_map), None
+                    )
+        except Exception:
+            pass
         return {
             "items": page_data["items"],
             "count": len(page_data["items"]),
@@ -2107,6 +2125,18 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                         item["last_sent_text"] = sent_texts.get(uid, "")
                 except Exception:
                     pass
+        # Enrich questions with product photo URLs
+        if normalized_kind == "question":
+            try:
+                _photo_map = repository.get_product_photo_map(user_id=conv_owner_user_id)
+                if _photo_map:
+                    for _item in items:
+                        _meta = _item.get("metadata") or {}
+                        _raw = (_meta.get("raw") or {}) if isinstance(_meta, dict) else {}
+                        _sku = str(_raw.get("sku") or "").strip()
+                        _item["product_photo_url"] = _photo_map.get(_sku) or None
+            except Exception:
+                pass
         return {
             "items": items,
             "count": len(items),
@@ -2706,6 +2736,122 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not deleted:
             raise HTTPException(status_code=404, detail="Шаблон не найден")
         return {"ok": True, "deleted": True}
+
+    # ── Product photos catalog ────────────────────────────────────────────────
+
+    import os as _os
+    _PHOTO_DIR = str(_os.path.join(_os.path.dirname(__file__), "..", "product_photos")).rstrip("/")
+
+    @app.get("/api/products")
+    def list_products(request: Request) -> dict[str, object]:
+        user = _require_settings_access(request)
+        items = repository.list_product_photos(user_id=_tenant_owner_id(user))
+        # Add photo_url for each item
+        for item in items:
+            item["photo_url"] = f"/api/products/photo/{item['id']}" if item.get("photo_path") else None
+        return {"items": items}
+
+    @app.post("/api/products")
+    async def add_product(
+        request: Request,
+        name: str = Form(""),
+        supplier_article: str = Form(""),
+        wb_nmid: str = Form(""),
+        ozon_sku: str = Form(""),
+        photo: UploadFile | None = File(None),
+    ) -> dict[str, object]:
+        user = _require_settings_access(request)
+        owner_uid = _tenant_owner_id(user)
+        photo_path: str | None = None
+        if photo and photo.filename:
+            import io as _io
+            try:
+                from PIL import Image as _PilImage
+                content = await photo.read()
+                img = _PilImage.open(_io.BytesIO(content)).convert("RGB")
+                img.thumbnail((200, 200), _PilImage.LANCZOS)
+                _os.makedirs(_PHOTO_DIR, exist_ok=True)
+                import uuid as _uuid
+                fname = f"{_uuid.uuid4().hex}.webp"
+                fpath = _os.path.join(_PHOTO_DIR, fname)
+                img.save(fpath, "WEBP", quality=85)
+                photo_path = fname
+            except Exception as _e:
+                _log.warning("add_product: photo processing failed: %s", _e)
+        item = repository.add_product_photo(
+            user_id=owner_uid, name=name.strip(), supplier_article=supplier_article.strip(),
+            wb_nmid=wb_nmid.strip(), ozon_sku=ozon_sku.strip(), photo_path=photo_path,
+        )
+        if item:
+            item["photo_url"] = f"/api/products/photo/{item['id']}" if item.get("photo_path") else None
+        return {"ok": True, "item": item}
+
+    @app.put("/api/products/{product_id}")
+    async def update_product(
+        product_id: int,
+        request: Request,
+        name: str = Form(""),
+        supplier_article: str = Form(""),
+        wb_nmid: str = Form(""),
+        ozon_sku: str = Form(""),
+        photo: UploadFile | None = File(None),
+    ) -> dict[str, object]:
+        user = _require_settings_access(request)
+        owner_uid = _tenant_owner_id(user)
+        new_photo_path: str | None = None
+        if photo and photo.filename:
+            import io as _io
+            try:
+                from PIL import Image as _PilImage
+                content = await photo.read()
+                img = _PilImage.open(_io.BytesIO(content)).convert("RGB")
+                img.thumbnail((200, 200), _PilImage.LANCZOS)
+                _os.makedirs(_PHOTO_DIR, exist_ok=True)
+                import uuid as _uuid
+                fname = f"{_uuid.uuid4().hex}.webp"
+                fpath = _os.path.join(_PHOTO_DIR, fname)
+                img.save(fpath, "WEBP", quality=85)
+                new_photo_path = fname
+            except Exception as _e:
+                _log.warning("update_product: photo processing failed: %s", _e)
+        ok = repository.update_product_photo(
+            user_id=owner_uid, product_id=product_id, name=name.strip(),
+            supplier_article=supplier_article.strip(), wb_nmid=wb_nmid.strip(),
+            ozon_sku=ozon_sku.strip(), photo_path=new_photo_path,
+        )
+        if not ok:
+            raise HTTPException(status_code=404, detail="Товар не найден")
+        return {"ok": True}
+
+    @app.delete("/api/products/{product_id}")
+    def delete_product(product_id: int, request: Request) -> dict[str, object]:
+        user = _require_settings_access(request)
+        deleted = repository.delete_product_photo(user_id=_tenant_owner_id(user), product_id=product_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Товар не найден")
+        # Delete physical file
+        if deleted.get("photo_path"):
+            try:
+                _os.remove(_os.path.join(_PHOTO_DIR, deleted["photo_path"]))
+            except Exception:
+                pass
+        return {"ok": True}
+
+    @app.get("/api/products/photo/{product_id}")
+    def product_photo(product_id: int, request: Request) -> object:
+        from fastapi.responses import FileResponse as _FileResp
+        _require_user(request)
+        items = repository.list_product_photos(user_id=_tenant_owner_id(_require_user(request)))
+        item = next((i for i in items if i.get("id") == product_id), None)
+        if not item or not item.get("photo_path"):
+            raise HTTPException(status_code=404, detail="Фото не найдено")
+        fpath = _os.path.join(_PHOTO_DIR, item["photo_path"])
+        if not _os.path.exists(fpath):
+            raise HTTPException(status_code=404, detail="Файл не найден")
+        return _FileResp(fpath, media_type="image/webp")
+
+    # Enrich /api/reviews and /api/conversations with product_photo_url
+    # (done inline in list_reviews and list_conversations endpoints)
 
     # ── Review quick templates ────────────────────────────────────────────────
 

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=75" />
+  <link rel="stylesheet" href="/static/style.css?v=76" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -564,6 +564,7 @@
             <button id="settings-tab-rules" class="settings-tab-btn" onclick="showSettingsTab('rules')">Правила обработки</button>
             <button id="settings-tab-templates" class="settings-tab-btn" onclick="showSettingsTab('templates')">Шаблоны</button>
             <button id="settings-tab-recommendations" class="settings-tab-btn" onclick="showSettingsTab('recommendations')">Рекомендации</button>
+            <button id="settings-tab-products" class="settings-tab-btn" onclick="showSettingsTab('products')">Товары</button>
             <button id="settings-tab-team" class="settings-tab-btn hidden" onclick="showSettingsTab('team')">Команда</button>
           </div>
           <div class="settings-mobile-tab-switch">
@@ -735,6 +736,52 @@
             </div>
           </div>
         </div>
+        <div id="settings-pane-products" class="hidden">
+          <div class="panel">
+            <div class="row row-between" style="margin-bottom:12px">
+              <div style="font-weight:600;font-size:15px">Каталог товаров</div>
+              <button type="button" onclick="openAddProductForm()">+ Добавить товар</button>
+            </div>
+            <!-- Add form (hidden by default) -->
+            <div id="productAddForm" class="hidden" style="border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin-bottom:16px;background:#f8fafc">
+              <div style="font-weight:600;margin-bottom:12px">Новый товар</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+                <input type="text" id="productFormName" placeholder="Наименование товара" autocomplete="off" />
+                <input type="text" id="productFormSupplierArticle" placeholder="Артикул продавца" autocomplete="off" />
+                <input type="text" id="productFormWbNmid" placeholder="Артикул WB (nmId)" autocomplete="off" />
+                <input type="text" id="productFormOzonSku" placeholder="SKU Ozon" autocomplete="off" />
+              </div>
+              <div class="row" style="gap:8px;align-items:center;margin-bottom:12px">
+                <label style="font-size:13px;color:#64748b">Фото (jpg/png/webp):</label>
+                <input type="file" id="productFormPhoto" accept="image/*" style="font-size:13px" />
+              </div>
+              <input type="hidden" id="productFormEditId" value="" />
+              <div class="row" style="gap:8px">
+                <button type="button" onclick="saveProduct()">Сохранить</button>
+                <button type="button" class="secondary" onclick="closeAddProductForm()">Отмена</button>
+              </div>
+              <div id="productFormInfo" class="small" style="margin-top:6px"></div>
+            </div>
+            <!-- Products table -->
+            <div id="productsInfo" class="small" style="color:#64748b;margin-bottom:8px"></div>
+            <div class="table-wrap">
+              <table id="productsTable" class="products-table">
+                <thead>
+                  <tr>
+                    <th style="width:60px">Фото</th>
+                    <th>Наименование</th>
+                    <th>Артикул продавца</th>
+                    <th>Артикул WB</th>
+                    <th>SKU Ozon</th>
+                    <th style="width:120px">Действия</th>
+                  </tr>
+                </thead>
+                <tbody id="productsTbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
         <div id="settings-pane-team" class="hidden">
           <div class="panel">
             <div class="row row-between">
@@ -1108,6 +1155,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=110"></script>
+  <script src="/static/app.js?v=111"></script>
 </body>
 </html>

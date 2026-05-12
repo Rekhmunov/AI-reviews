@@ -1898,6 +1898,7 @@ async function loadReviews() {
         `}
       </td>
       <td class="review-col-product">
+        ${review.product_photo_url ? `<img src="${esc(review.product_photo_url)}" class="product-thumb" alt="" onerror="this.style.display='none'" style="margin-bottom:4px">` : ""}
         ${productName
           ? productUrl
             ? `<div class="review-product-name"><a href="${productUrl}" target="_blank" rel="noopener noreferrer" class="review-product-link">${productName}</a></div>`
@@ -3016,7 +3017,7 @@ async function loadQuestions() {
         <div class="review-meta-small">${esc(item.customer_name || "")}${item.customer_name && qDateStr !== "—" ? " · " : ""}${qDateStr !== "—" ? qDateStr : ""}</div>
       </td>
       <td class="review-col-reply">${replyContent}</td>
-      <td class="review-col-product">${productCell}</td>
+      <td class="review-col-product">${item.product_photo_url ? `<img src="${esc(item.product_photo_url)}" class="product-thumb" alt="" onerror="this.style.display='none'" style="margin-bottom:4px">` : ""}${productCell}</td>
     `;
 
     // Make textarea editable on click for new questions
@@ -5427,6 +5428,98 @@ function removeRecommendationRow(index) {
   renderRecommendationsRows();
 }
 
+// ── Product photos catalog ────────────────────────────────────────────────────
+
+let _productsCache = [];
+
+function openAddProductForm(editItem = null) {
+  document.getElementById("productAddForm")?.classList.remove("hidden");
+  document.getElementById("productFormInfo").textContent = "";
+  document.getElementById("productFormEditId").value = editItem ? String(editItem.id) : "";
+  document.getElementById("productFormName").value = editItem?.name || "";
+  document.getElementById("productFormSupplierArticle").value = editItem?.supplier_article || "";
+  document.getElementById("productFormWbNmid").value = editItem?.wb_nmid || "";
+  document.getElementById("productFormOzonSku").value = editItem?.ozon_sku || "";
+  document.getElementById("productFormPhoto").value = "";
+  document.getElementById("productFormName").focus();
+}
+
+function closeAddProductForm() {
+  document.getElementById("productAddForm")?.classList.add("hidden");
+}
+
+async function loadProducts() {
+  const tbody = document.getElementById("productsTbody");
+  const info = document.getElementById("productsInfo");
+  if (!tbody) return;
+  try {
+    const res = await fetch("/api/products");
+    const data = await res.json();
+    _productsCache = data.items || [];
+    if (info) info.textContent = `Товаров: ${_productsCache.length}`;
+    tbody.innerHTML = "";
+    if (!_productsCache.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="small" style="color:#94a3b8;padding:16px">Нет товаров. Нажмите «+ Добавить товар»</td></tr>';
+      return;
+    }
+    for (const item of _productsCache) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${item.photo_url ? `<img src="${esc(item.photo_url)}" class="product-thumb" alt="" onerror="this.style.display='none'">` : '<div class="product-thumb-empty"></div>'}</td>
+        <td>${esc(item.name || "")}</td>
+        <td>${esc(item.supplier_article || "—")}</td>
+        <td>${esc(item.wb_nmid || "—")}</td>
+        <td>${esc(item.ozon_sku || "—")}</td>
+        <td>
+          <button type="button" class="secondary" style="font-size:12px;padding:4px 8px" onclick="editProduct(${item.id})">✏</button>
+          <button type="button" class="secondary danger" style="font-size:12px;padding:4px 8px" onclick="deleteProduct(${item.id})">✕</button>
+        </td>`;
+      tbody.appendChild(tr);
+    }
+  } catch (e) {
+    if (info) info.textContent = "Ошибка загрузки";
+  }
+}
+
+function editProduct(id) {
+  const item = _productsCache.find(p => p.id === id);
+  if (item) openAddProductForm(item);
+}
+
+async function saveProduct() {
+  const editId = String(document.getElementById("productFormEditId")?.value || "").trim();
+  const name = String(document.getElementById("productFormName")?.value || "").trim();
+  const supplierArticle = String(document.getElementById("productFormSupplierArticle")?.value || "").trim();
+  const wbNmid = String(document.getElementById("productFormWbNmid")?.value || "").trim();
+  const ozonSku = String(document.getElementById("productFormOzonSku")?.value || "").trim();
+  const photoFile = document.getElementById("productFormPhoto")?.files?.[0];
+  const info = document.getElementById("productFormInfo");
+  if (!name) { if (info) info.textContent = "Введите наименование"; return; }
+  const fd = new FormData();
+  fd.append("name", name);
+  fd.append("supplier_article", supplierArticle);
+  fd.append("wb_nmid", wbNmid);
+  fd.append("ozon_sku", ozonSku);
+  if (photoFile) fd.append("photo", photoFile);
+  try {
+    const url = editId ? `/api/products/${editId}` : "/api/products";
+    const method = editId ? "PUT" : "POST";
+    const res = await fetch(url, { method, body: fd });
+    const data = await res.json();
+    if (!res.ok) { if (info) info.textContent = data.detail || "Ошибка"; return; }
+    closeAddProductForm();
+    await loadProducts();
+  } catch (e) { if (info) info.textContent = "Ошибка сохранения"; }
+}
+
+async function deleteProduct(id) {
+  if (!confirm("Удалить товар?")) return;
+  try {
+    await fetch(`/api/products/${id}`, { method: "DELETE", headers: withCsrfHeaders() });
+    await loadProducts();
+  } catch (e) { alert("Ошибка удаления"); }
+}
+
 async function loadRecommendations() {
   const res = await fetch("/api/recommendations");
   const data = await res.json();
@@ -5793,6 +5886,7 @@ document.addEventListener("DOMContentLoaded", () => {
     loadUserTemplateVariables();
     loadRecommendations();
     loadContradictionRules();
+    loadProducts();
   }
   // Load stock sources/reports lazily
   loadStockSources().then(() => loadStockReports()).catch(() => {});
