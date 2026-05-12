@@ -4026,7 +4026,7 @@ async function loadReviewTemplates() {
           <button type="button" class="qt-btn qt-edit" title="Редактировать" onclick="toggleEditReviewTemplate(${tpl.id})">✏</button>
           <button type="button" class="qt-btn qt-delete" title="Удалить" onclick="deleteReviewTemplate(${tpl.id})">✕</button>
         </div>
-        <div id="editRTpl_${tpl.id}" class="hidden" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:8px;display:flex;flex-direction:column;gap:6px">
+        <div id="editRTpl_${tpl.id}" class="hidden" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:8px;flex-direction:column;gap:6px">
           <input id="editRTplName_${tpl.id}" type="text" value="${esc(tpl.template_name)}" placeholder="Название" style="width:100%;box-sizing:border-box">
           <textarea id="editRTplText_${tpl.id}" rows="3" style="width:100%;box-sizing:border-box;resize:vertical">${esc(tpl.template_text)}</textarea>
           <div style="display:flex;gap:6px">
@@ -4045,6 +4045,7 @@ function toggleEditReviewTemplate(id) {
   const el = document.getElementById(`editRTpl_${id}`);
   if (!el) return;
   const hidden = el.classList.toggle("hidden");
+  el.style.display = hidden ? "none" : "flex";
   if (!hidden) document.getElementById(`editRTplName_${id}`)?.focus();
 }
 
