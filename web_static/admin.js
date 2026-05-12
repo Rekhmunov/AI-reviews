@@ -1330,20 +1330,61 @@ function normalizeTemplateVariableKey(value) {
   return "";
 }
 
+function onTemplateVarSourceChange(value) {
+  const manualInput = document.getElementById("templateVarManualValue");
+  if (!manualInput) return;
+  if (value === "manual:") {
+    manualInput.classList.remove("hidden");
+    manualInput.focus();
+  } else {
+    manualInput.classList.add("hidden");
+    manualInput.value = "";
+  }
+}
+
+function _sourcePathToSelectValue(sourceType, sourcePath, defaultValue) {
+  if (sourceType === "manual") return "manual:";
+  if (sourceType === "review_field" || sourceType === "system") {
+    const path = String(sourcePath || "").trim();
+    if (path === "author_name" || path === "author" || path === "author_name_ozon") {
+      return `review_field:${path}`;
+    }
+    return `review_field:${path}`;
+  }
+  return "";
+}
+
 function fillTemplateVariableForm(item = null) {
   const payload = item && typeof item === "object" ? item : {};
   const varKeyInput = document.getElementById("templateVarKey");
   if (varKeyInput) varKeyInput.value = String(payload.var_key || "");
   const titleInput = document.getElementById("templateVarTitle");
   if (titleInput) titleInput.value = String(payload.title || "");
+  // hidden fields
   const descriptionInput = document.getElementById("templateVarDescription");
   if (descriptionInput) descriptionInput.value = String(payload.description || "");
   const sourceTypeInput = document.getElementById("templateVarSourceType");
   if (sourceTypeInput) sourceTypeInput.value = String(payload.source_type || "manual");
-  const sourcePathInput = document.getElementById("templateVarSourcePath");
-  if (sourcePathInput) sourcePathInput.value = String(payload.source_path || "");
   const defaultValueInput = document.getElementById("templateVarDefaultValue");
   if (defaultValueInput) defaultValueInput.value = String(payload.default_value || "");
+  // new source path select
+  const sourcePathSelect = document.getElementById("templateVarSourcePath");
+  const manualInput = document.getElementById("templateVarManualValue");
+  const sType = String(payload.source_type || "manual");
+  const sPath = String(payload.source_path || "");
+  const dVal = String(payload.default_value || "");
+  if (sourcePathSelect) {
+    if (sType === "manual") {
+      sourcePathSelect.value = "manual:";
+      if (manualInput) { manualInput.classList.remove("hidden"); manualInput.value = dVal; }
+    } else {
+      const optVal = `${sType}:${sPath}`;
+      // Check if option exists
+      const exists = Array.from(sourcePathSelect.options).some(o => o.value === optVal);
+      sourcePathSelect.value = exists ? optVal : "";
+      if (manualInput) manualInput.classList.add("hidden");
+    }
+  }
   const userEditableInput = document.getElementById("templateVarUserEditable");
   if (userEditableInput) userEditableInput.checked = Boolean(payload.is_user_editable);
   const activeInput = document.getElementById("templateVarIsActive");
@@ -1369,14 +1410,17 @@ function renderTemplateVariablesList() {
   for (const item of items) {
     const varKey = String(item.var_key || "");
     const tr = document.createElement("tr");
+    const paramLabel = item.source_type === "manual"
+      ? (item.default_value ? `Вручную: ${item.default_value}` : "Вручную")
+      : item.source_path === "author_name_ozon" ? "Имя покупателя (Ozon)"
+      : (item.source_path === "author_name" || item.source_path === "author") ? "Имя покупателя (WB)"
+      : esc(item.source_path || item.source_type || "-");
     tr.innerHTML = `
       <td>${esc(varKey)}</td>
       <td>${esc(item.title || "")}</td>
-      <td>${esc(item.source_type || "manual")}</td>
-      <td>${esc(item.source_path || "-")}</td>
+      <td>${paramLabel}</td>
       <td>${item.is_user_editable ? "да" : "нет"}</td>
       <td>${item.is_active ? "да" : "нет"}</td>
-      <td>${esc(item.default_value || "")}</td>
       <td>
         <div class="row">
           <button class="secondary" type="button" onclick="editTemplateVariableByKey('${esc(varKey)}')">Изменить</button>
@@ -1414,20 +1458,29 @@ async function loadTemplateVariables() {
 
 async function saveTemplateVariable() {
   if (!isSuperAdmin()) return;
-  const sourceTypeValue = String(document.getElementById("templateVarSourceType")?.value || "manual")
-    .trim()
-    .toLowerCase();
-  const sourcePathInput = document.getElementById("templateVarSourcePath");
-  const sourcePathValue = String(sourcePathInput?.value || "").trim();
+  // Derive source_type and source_path from the new combined select
+  const sourceSelectValue = String(document.getElementById("templateVarSourcePath")?.value || "");
+  let sourceTypeValue = "manual";
+  let sourcePathValue = "";
+  let defaultValueValue = "";
+  if (sourceSelectValue === "manual:") {
+    sourceTypeValue = "manual";
+    sourcePathValue = "";
+    defaultValueValue = String(document.getElementById("templateVarManualValue")?.value || "").trim();
+  } else if (sourceSelectValue.includes(":")) {
+    const [sType, sPath] = sourceSelectValue.split(":", 2);
+    sourceTypeValue = sType;
+    sourcePathValue = sPath;
+  }
   const keyValue = normalizeTemplateVariableKey(document.getElementById("templateVarKey")?.value || "");
   const payload = {
     var_key: keyValue,
     title: String(document.getElementById("templateVarTitle")?.value || "").trim(),
-    description: String(document.getElementById("templateVarDescription")?.value || "").trim() || null,
+    description: null,
     is_user_editable: Boolean(document.getElementById("templateVarUserEditable")?.checked),
     source_type: sourceTypeValue,
     source_path: sourcePathValue || null,
-    default_value: String(document.getElementById("templateVarDefaultValue")?.value || "").trim() || null,
+    default_value: defaultValueValue || null,
     is_active: Boolean(document.getElementById("templateVarIsActive")?.checked ?? true),
   };
   if (!payload.var_key) {

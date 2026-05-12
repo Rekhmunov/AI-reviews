@@ -3577,7 +3577,7 @@ class ReviewRepository:
             default_value = str(item.get("default_value") or "").strip()
             resolved = ""
             if source_type == "review_field":
-                if source_path in {"author", "name", "author_name"}:
+                if source_path in {"author", "name", "author_name", "author_name_ozon"}:
                     resolved = str(review_author or "").strip()
                 elif source_path in {"rating"}:
                     resolved = str(review_rating if review_rating is not None else "").strip()
