@@ -1838,7 +1838,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 if raw_tpl:
                     # Apply basic variable substitution for UI display
                     _author = str(item.get("author") or "").strip()
-                    # %USER% and %AUTHOR% → buyer name (empty if unknown)
+                    # If author is empty — remove preceding comma/space to avoid ", !" artifacts
+                    if not _author:
+                        for _ph in ("%USER%", "%AUTHOR%"):
+                            raw_tpl = raw_tpl.replace(f", {_ph}", "").replace(f" {_ph}", "")
                     raw_tpl = raw_tpl.replace("%USER%", _author)
                     raw_tpl = raw_tpl.replace("%AUTHOR%", _author)
                     # Apply user-defined template variables context
@@ -1903,6 +1906,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             review_obj = repository.get_review(user_id=owner_uid, review_uid=review_uid.strip())
             if review_obj:
                 _author = str(review_obj.get("author") or "").strip()
+                if not _author:
+                    for _ph in ("%USER%", "%AUTHOR%"):
+                        raw_text = raw_text.replace(f", {_ph}", "").replace(f" {_ph}", "")
                 raw_text = raw_text.replace("%USER%", _author)
                 raw_text = raw_text.replace("%AUTHOR%", _author)
                 try:

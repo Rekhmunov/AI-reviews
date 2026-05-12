@@ -4902,6 +4902,9 @@ class ReviewAutomationService:
             review_tags=self._extract_review_tags(review),
             review_metadata=review.metadata if isinstance(review.metadata, dict) else {},
         )
+        if not author_raw:
+            for _ph in ("%USER%", "%AUTHOR%"):
+                text = text.replace(f", {_ph}", "").replace(f" {_ph}", "")
         text = text.replace("%USER%", author_raw)
         text = text.replace("%RECO%", reco)
         text = text.replace("%%RECO%%", reco)
