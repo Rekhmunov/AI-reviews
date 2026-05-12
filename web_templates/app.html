@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=74" />
+  <link rel="stylesheet" href="/static/style.css?v=75" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -446,10 +446,10 @@
                   <button id="chatEmojiBtn" type="button" class="chat-emoji-btn" title="Смайлы" aria-label="Смайлы">🙂</button>
                   <div id="chatEmojiPicker" class="chat-emoji-picker" aria-hidden="true"></div>
                 </div>
-                <button id="chatReplySendBtn" type="button" onclick="sendChatReply()">Отправить</button>
-                <button id="chatQuickTemplatesBtn" type="button" class="secondary" onclick="openChatQuickTemplatesModal()">Шаблоны</button>
-                <button id="chatMoveToAnsweredBtn" type="button" class="secondary" onclick="markChatAnswered()">Перенести в отвеченные</button>
-                <button id="chatMoveToNewBtn" type="button" class="secondary hidden" onclick="markChatNew()">Перенести в новые</button>
+                <button id="chatReplySendBtn" type="button" class="review-icon-btn" title="Отправить ответ" onclick="sendChatReply()">📤</button>
+                <button id="chatQuickTemplatesBtn" type="button" class="review-icon-btn" title="Шаблоны" onclick="openChatQuickTemplatesModal()">📋</button>
+                <button id="chatMoveToAnsweredBtn" type="button" class="review-icon-btn" title="Перенести в отвеченные" onclick="markChatAnswered()">✅</button>
+                <button id="chatMoveToNewBtn" type="button" class="review-icon-btn hidden" title="Перенести в новые" onclick="markChatNew()"><span style="position:relative;display:inline-flex;align-items:center;justify-content:center">↩<span style="position:absolute;top:-6px;right:-10px;font-size:8px;font-weight:700;background:#2563eb;color:#fff;border-radius:3px;padding:0 2px;line-height:1.4">new</span></span></button>
               </div>
             </div>
           </section>
