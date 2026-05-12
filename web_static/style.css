@@ -4447,6 +4447,17 @@ button.secondary.danger:hover {
   border-radius: 6px;
   border: 1px solid #e2e8f0;
   margin: 8px auto 0;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  cursor: zoom-in;
+}
+
+@media (min-width: 769px) {
+  .product-thumb:hover {
+    transform: scale(2);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.18);
+    position: relative;
+    z-index: 10;
+  }
 }
 
 .product-thumb-empty {
