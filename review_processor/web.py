@@ -2742,11 +2742,18 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     import os as _os
     _PHOTO_DIR = str(_os.path.join(_os.path.dirname(__file__), "..", "product_photos")).rstrip("/")
 
+    def _ensure_product_photos_table() -> None:
+        try:
+            with repository._connect() as conn:
+                repository._migrate_product_photos(conn)
+        except Exception:
+            pass
+
     @app.get("/api/products")
-    def list_products(request: Request) -> dict[str, object]:
+    def _list_products_ensure(request: Request) -> dict[str, object]:
+        _ensure_product_photos_table()
         user = _require_settings_access(request)
         items = repository.list_product_photos(user_id=_tenant_owner_id(user))
-        # Add photo_url for each item
         for item in items:
             item["photo_url"] = f"/api/products/photo/{item['id']}" if item.get("photo_path") else None
         return {"items": items}
@@ -2761,6 +2768,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         photo: UploadFile | None = File(None),
     ) -> dict[str, object]:
         user = _require_settings_access(request)
+        _ensure_product_photos_table()
         owner_uid = _tenant_owner_id(user)
         photo_path: str | None = None
         if photo and photo.filename:
