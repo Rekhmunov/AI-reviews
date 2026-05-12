@@ -5507,7 +5507,7 @@ async function saveProduct() {
   try {
     const url = editId ? `/api/products/${editId}` : "/api/products";
     const method = editId ? "PUT" : "POST";
-    const res = await fetch(url, { method, body: fd });
+    const res = await fetch(url, { method, body: fd, headers: withCsrfHeaders() });
     const data = await res.json();
     if (!res.ok) { if (info) info.textContent = data.detail || "Ошибка"; return; }
     closeAddProductForm();
