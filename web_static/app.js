@@ -115,7 +115,7 @@ const CHANNEL_ICONS = { "Отзывы": "⭐", "Вопросы": "❓", "Чат�
 const ACTIVE_SECTION_STORAGE_KEY = "feedpilot_active_section";
 const ACTIVE_SETTINGS_TAB_STORAGE_KEY = "feedpilot_active_settings_tab";
 const SECTION_IDS = ["reviews", "conversations", "chats", "analytics", "settings", "stock-settings", "stock-work", "profile"];
-const SETTINGS_TAB_IDS = ["sources", "rules", "templates", "recommendations", "team", "template-variables"];
+const SETTINGS_TAB_IDS = ["sources", "rules", "templates", "recommendations", "products", "team", "template-variables"];
 const APP_BOOT_HIDE_CLASS = "app-boot-hidden";
 const MOBILE_NAV_BREAKPOINT_PX = 900;
 
@@ -486,6 +486,9 @@ function showSettingsTab(tab, options = {}) {
   if (persist) writeStoredUiState(ACTIVE_SETTINGS_TAB_STORAGE_KEY, tab);
   if (tab === "recommendations") {
     loadRecommendations();
+  }
+  if (tab === "products") {
+    loadProducts();
   }
   if (tab === "team") {
     loadTeam();
