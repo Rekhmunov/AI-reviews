@@ -4723,6 +4723,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                         repository.purge_old_ai_request_logs()
                     except Exception:
                         pass
+                    # Purge AI usage stats older than 30 days
+                    try:
+                        repository.purge_old_ai_usage_logs(keep_days=30)
+                    except Exception:
+                        pass
                     break
                 except Exception as _inner_exc:
                     _log.warning("restore_auto_sync_on_startup: inner error: %s", _inner_exc)

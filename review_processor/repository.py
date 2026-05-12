@@ -5732,6 +5732,16 @@ class ReviewRepository:
             ).fetchall()
         return [self._row_to_dict(r) for r in rows]
 
+    def purge_old_ai_usage_logs(self, *, keep_days: int = 30) -> int:
+        """Delete ai_usage_log entries older than keep_days days."""
+        with self._connect() as conn:
+            result = conn.execute(
+                self._sql(
+                    f"DELETE FROM ai_usage_log WHERE log_date < (NOW() - INTERVAL '{keep_days} days')::date::text"
+                )
+            )
+        return int(result.rowcount or 0)
+
     def purge_old_ai_request_logs(self, *, user_id: Optional[int] = None) -> int:
         """Delete AI request logs older than 1 day."""
         clause = "created_at < NOW() - INTERVAL '1 day'"
