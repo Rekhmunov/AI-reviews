@@ -3149,6 +3149,8 @@ class ReviewAutomationService:
         page_size: int = 30,
         bucket: str = "all",
         account_ids: list[int] | None = None,
+        product_search: str | None = None,
+        has_contradiction: bool = False,
     ) -> dict[str, object]:
         return self.repository.list_reviews_paginated(
             user_id=user_id,
@@ -3164,6 +3166,8 @@ class ReviewAutomationService:
             page_size=page_size,
             bucket=bucket,
             account_ids=account_ids,
+            product_search=product_search,
+            has_contradiction=has_contradiction,
         )
 
     def list_review_sources(self, *, user_id: int) -> list[str]:

@@ -157,9 +157,16 @@
                 <option value="medium">Средний</option>
                 <option value="low">Низкий</option>
               </select>
-              <select id="categoryFilter">
+              <select id="categoryFilter" class="hidden" aria-hidden="true">
                 <option value="">Категория: все</option>
               </select>
+              <input type="text" id="reviewProductSearch" placeholder="Товар или артикул..." autocomplete="off" style="min-width:200px" />
+            </div>
+            <div class="row" style="align-items:center;gap:12px">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px">
+                <input type="checkbox" id="reviewContradictionFilter" style="width:16px;height:16px;accent-color:#dc2626" />
+                <span>Только с <span class="review-contradiction-badge" style="pointer-events:none">!</span> противоречиями</span>
+              </label>
             </div>
             <div class="row">
               <button type="button" onclick="applyReviewsFilters()">Применить фильтры</button>
@@ -1101,6 +1108,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=107"></script>
+  <script src="/static/app.js?v=108"></script>
 </body>
 </html>

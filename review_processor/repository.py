@@ -3785,6 +3785,8 @@ class ReviewRepository:
         page_size: int = 30,
         bucket: str = "all",
         account_ids: list[int] | None = None,
+        product_search: str | None = None,
+        has_contradiction: bool = False,
     ) -> dict[str, Any]:
         base_clauses: list[str] = ["user_id = ?"]
         base_params: list[Any] = [user_id]
@@ -3797,6 +3799,27 @@ class ReviewRepository:
         if category:
             base_clauses.append("category = ?")
             base_params.append(category)
+        if product_search:
+            q = f"%{product_search.strip()}%"
+            base_clauses.append(
+                "(metadata_json::jsonb->'raw'->'productDetails'->>'productName' ILIKE ?"
+                " OR metadata_json::jsonb->'raw'->'productDetails'->>'supplierArticle' ILIKE ?"
+                " OR metadata_json::jsonb->'raw'->>'supplierArticle' ILIKE ?"
+                " OR metadata_json::jsonb->'raw'->'productDetails'->>'nmId'::text ILIKE ?)"
+            )
+            base_params.extend([q, q, q, q])
+        if has_contradiction:
+            # Reviews where rating_contradiction flag set OR rating matches contradiction rules
+            base_clauses.append(
+                "(metadata_json::jsonb->'rating_contradiction' IS NOT NULL"
+                " OR EXISTS ("
+                "  SELECT 1 FROM review_contradiction_rules rcr"
+                "  WHERE rcr.user_id = review_items.user_id"
+                "  AND rcr.group_id = review_items.category"
+                "  AND review_items.rating IS NOT NULL"
+                "  AND rcr.ratings_json::jsonb @> to_jsonb(review_items.rating)"
+                " ))"
+            )
         normalized_account_ids = sorted(
             {
                 int(value)

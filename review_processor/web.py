@@ -1727,6 +1727,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         page: int = 1,
         page_size: int = 30,
         bucket: str = "all",
+        product_search: str = "",
+        has_contradiction: int = 0,
     ) -> dict[str, object]:
         user = _require_user(request)
         allowed_page_sizes = {10, 30, 50, 100}
@@ -1785,6 +1787,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             page_size=normalized_page_size,
             bucket=normalized_bucket,
             account_ids=account_ids_filter,
+            product_search=product_search.strip() or None,
+            has_contradiction=bool(has_contradiction),
         )
         # Enrich each review with a suggested template text for the reply column.
         # Uses a single batch query instead of N separate queries (eliminates N+1).

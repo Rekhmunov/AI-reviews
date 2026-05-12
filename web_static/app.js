@@ -46,6 +46,8 @@ const reviewsState = {
   status: "all",
   priority: "",
   category: "",
+  product_search: "",
+  has_contradiction: false,
 };
 const questionsState = {
   page: 1,
@@ -793,6 +795,10 @@ function toggleReviewsFiltersPanel(forceOpen) {
   if (statusSelect) statusSelect.value = reviewsState.status || "all";
   if (prioritySelect) prioritySelect.value = reviewsState.priority || "";
   if (categorySelect) categorySelect.value = reviewsState.category || "";
+  const productSearch = document.getElementById("reviewProductSearch");
+  if (productSearch) productSearch.value = reviewsState.product_search || "";
+  const contradictionCheck = document.getElementById("reviewContradictionFilter");
+  if (contradictionCheck) contradictionCheck.checked = Boolean(reviewsState.has_contradiction);
 }
 
 function toggleReviewsDateFilterPanel(forceOpen) {
@@ -821,6 +827,8 @@ function applyReviewsFilters() {
   reviewsState.status = String(statusSelect?.value || "all");
   reviewsState.priority = String(prioritySelect?.value || "");
   reviewsState.category = String(categorySelect?.value || "");
+  reviewsState.product_search = String(document.getElementById("reviewProductSearch")?.value || "").trim();
+  reviewsState.has_contradiction = Boolean(document.getElementById("reviewContradictionFilter")?.checked);
   reviewsState.page = 1;
   toggleReviewsFiltersPanel(false);
   loadReviews();
@@ -831,6 +839,8 @@ function resetReviewsFilters() {
   reviewsState.status = "all";
   reviewsState.priority = "";
   reviewsState.category = "";
+  reviewsState.product_search = "";
+  reviewsState.has_contradiction = false;
   const sourceSelect = document.getElementById("sourceFilter");
   const statusSelect = document.getElementById("statusFilter");
   const prioritySelect = document.getElementById("priorityFilter");
@@ -839,6 +849,10 @@ function resetReviewsFilters() {
   if (statusSelect) statusSelect.value = "all";
   if (prioritySelect) prioritySelect.value = "";
   if (categorySelect) categorySelect.value = "";
+  const ps = document.getElementById("reviewProductSearch");
+  if (ps) ps.value = "";
+  const cc = document.getElementById("reviewContradictionFilter");
+  if (cc) cc.checked = false;
   reviewsState.page = 1;
   loadReviews();
 }
@@ -1776,6 +1790,8 @@ async function loadReviews() {
   if (priority) query.set("priority", priority);
   if (status && status !== "all") query.set("status", status);
   if (category) query.set("category", category);
+  if (reviewsState.product_search) query.set("product_search", reviewsState.product_search);
+  if (reviewsState.has_contradiction) query.set("has_contradiction", "1");
   if (reviewsState.date_from) query.set("date_from", reviewsState.date_from);
   if (reviewsState.date_to) query.set("date_to", reviewsState.date_to);
   query.set("sort", reviewsState.sort);
