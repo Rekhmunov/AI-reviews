@@ -2661,6 +2661,33 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
         return {"ok": True, "item": item}
 
+    @app.put("/api/review-quick-templates/{template_id}")
+    def update_review_quick_template(
+        template_id: int, request: Request, payload: ChatQuickTemplateUpdateRequest
+    ) -> dict[str, object]:
+        user = _require_user(request)
+        name = str(payload.template_name or "").strip()
+        text = str(payload.template_text or "").strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Введите название шаблона")
+        if not text:
+            raise HTTPException(status_code=400, detail="Введите текст шаблона")
+        _ensure_review_quick_templates_table()
+        with repository._connect() as conn:
+            conn.execute(
+                repository._sql("""
+                UPDATE review_quick_templates
+                SET template_name = ?, template_text = ?, updated_at = ?
+                WHERE id = ? AND user_id = ?
+                """),
+                (name, text, _now_iso(), int(template_id), int(user["id"])),
+            )
+        items = repository.list_review_quick_templates(user_id=int(user["id"]))
+        updated = next((i for i in items if i["id"] == int(template_id)), None)
+        if updated is None:
+            raise HTTPException(status_code=404, detail="Шаблон не найден")
+        return {"ok": True, "item": updated}
+
     @app.delete("/api/review-quick-templates/{template_id}")
     def delete_review_quick_template(template_id: int, request: Request) -> dict[str, object]:
         user = _require_user(request)

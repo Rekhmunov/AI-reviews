@@ -4016,16 +4016,54 @@ async function loadReviewTemplates() {
     for (const tpl of items) {
       const item = document.createElement("div");
       item.className = "chat-quick-template-item";
+      item.style.flexDirection = "column";
+      item.style.alignItems = "stretch";
+      item.style.gap = "6px";
+      item.dataset.tplId = tpl.id;
       item.innerHTML = `
-        <span class="chat-quick-template-name" title="${esc(tpl.template_text)}" style="cursor:pointer" onclick="selectReviewTemplate(${tpl.id})">${esc(tpl.template_name || tpl.template_text)}</span>
-        <div class="chat-quick-template-actions">
+        <div style="display:flex;align-items:center;gap:6px">
+          <span class="chat-quick-template-name" style="cursor:pointer;flex:1" title="${esc(tpl.template_text)}" onclick="selectReviewTemplate(${tpl.id})">${esc(tpl.template_name || tpl.template_text)}</span>
+          <button type="button" class="qt-btn qt-edit" title="Редактировать" onclick="toggleEditReviewTemplate(${tpl.id})">✏</button>
           <button type="button" class="qt-btn qt-delete" title="Удалить" onclick="deleteReviewTemplate(${tpl.id})">✕</button>
+        </div>
+        <div id="editRTpl_${tpl.id}" class="hidden" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:8px;display:flex;flex-direction:column;gap:6px">
+          <input id="editRTplName_${tpl.id}" type="text" value="${esc(tpl.template_name)}" placeholder="Название" style="width:100%;box-sizing:border-box">
+          <textarea id="editRTplText_${tpl.id}" rows="3" style="width:100%;box-sizing:border-box;resize:vertical">${esc(tpl.template_text)}</textarea>
+          <div style="display:flex;gap:6px">
+            <button type="button" style="font-size:12px" onclick="saveEditReviewTemplate(${tpl.id})">Сохранить</button>
+            <button type="button" class="secondary" style="font-size:12px" onclick="toggleEditReviewTemplate(${tpl.id})">Отмена</button>
+          </div>
         </div>`;
       list.appendChild(item);
     }
   } catch (e) {
     if (info) info.textContent = "Ошибка загрузки шаблонов";
   }
+}
+
+function toggleEditReviewTemplate(id) {
+  const el = document.getElementById(`editRTpl_${id}`);
+  if (!el) return;
+  const hidden = el.classList.toggle("hidden");
+  if (!hidden) document.getElementById(`editRTplName_${id}`)?.focus();
+}
+
+async function saveEditReviewTemplate(id) {
+  const name = String(document.getElementById(`editRTplName_${id}`)?.value || "").trim();
+  const text = String(document.getElementById(`editRTplText_${id}`)?.value || "").trim();
+  const info = document.getElementById("reviewTemplatesInfo");
+  if (!name || !text) { if (info) info.textContent = "Заполните название и текст"; return; }
+  try {
+    const res = await fetch(`/api/review-quick-templates/${id}`, {
+      method: "PUT",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ template_name: name, template_text: text }),
+    });
+    const data = await res.json();
+    if (!res.ok) { if (info) info.textContent = data.detail || "Ошибка"; return; }
+    if (info) info.textContent = "";
+    await loadReviewTemplates();
+  } catch (e) { if (info) info.textContent = "Ошибка сохранения"; }
 }
 
 async function selectReviewTemplate(templateId) {
