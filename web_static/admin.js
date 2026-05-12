@@ -1331,15 +1331,7 @@ function normalizeTemplateVariableKey(value) {
 }
 
 function onTemplateVarSourceChange(value) {
-  const manualInput = document.getElementById("templateVarManualValue");
-  if (!manualInput) return;
-  if (value === "manual:") {
-    manualInput.classList.remove("hidden");
-    manualInput.focus();
-  } else {
-    manualInput.classList.add("hidden");
-    manualInput.value = "";
-  }
+  // No-op: kept for compatibility
 }
 
 function _sourcePathToSelectValue(sourceType, sourcePath, defaultValue) {
@@ -1367,24 +1359,9 @@ function fillTemplateVariableForm(item = null) {
   if (sourceTypeInput) sourceTypeInput.value = String(payload.source_type || "manual");
   const defaultValueInput = document.getElementById("templateVarDefaultValue");
   if (defaultValueInput) defaultValueInput.value = String(payload.default_value || "");
-  // new source path select
-  const sourcePathSelect = document.getElementById("templateVarSourcePath");
   const manualInput = document.getElementById("templateVarManualValue");
-  const sType = String(payload.source_type || "manual");
-  const sPath = String(payload.source_path || "");
   const dVal = String(payload.default_value || "");
-  if (sourcePathSelect) {
-    if (sType === "manual") {
-      sourcePathSelect.value = "manual:";
-      if (manualInput) { manualInput.classList.remove("hidden"); manualInput.value = dVal; }
-    } else {
-      const optVal = `${sType}:${sPath}`;
-      // Check if option exists
-      const exists = Array.from(sourcePathSelect.options).some(o => o.value === optVal);
-      sourcePathSelect.value = exists ? optVal : "";
-      if (manualInput) manualInput.classList.add("hidden");
-    }
-  }
+  if (manualInput) manualInput.value = dVal;
   const userEditableInput = document.getElementById("templateVarUserEditable");
   if (userEditableInput) userEditableInput.checked = Boolean(payload.is_user_editable);
   const activeInput = document.getElementById("templateVarIsActive");
@@ -1410,15 +1387,10 @@ function renderTemplateVariablesList() {
   for (const item of items) {
     const varKey = String(item.var_key || "");
     const tr = document.createElement("tr");
-    const paramLabel = item.source_type === "manual"
-      ? (item.default_value ? `Вручную: ${item.default_value}` : "Вручную")
-      : item.source_path === "author_name_ozon" ? "Имя покупателя (Ozon)"
-      : (item.source_path === "author_name" || item.source_path === "author") ? "Имя покупателя (WB)"
-      : esc(item.source_path || item.source_type || "-");
     tr.innerHTML = `
       <td>${esc(varKey)}</td>
       <td>${esc(item.title || "")}</td>
-      <td>${paramLabel}</td>
+      <td>${esc(item.default_value || "—")}</td>
       <td>${item.is_user_editable ? "да" : "нет"}</td>
       <td>${item.is_active ? "да" : "нет"}</td>
       <td>
@@ -1458,20 +1430,10 @@ async function loadTemplateVariables() {
 
 async function saveTemplateVariable() {
   if (!isSuperAdmin()) return;
-  // Derive source_type and source_path from the new combined select
-  const sourceSelectValue = String(document.getElementById("templateVarSourcePath")?.value || "");
-  let sourceTypeValue = "manual";
-  let sourcePathValue = "";
-  let defaultValueValue = "";
-  if (sourceSelectValue === "manual:") {
-    sourceTypeValue = "manual";
-    sourcePathValue = "";
-    defaultValueValue = String(document.getElementById("templateVarManualValue")?.value || "").trim();
-  } else if (sourceSelectValue.includes(":")) {
-    const [sType, sPath] = sourceSelectValue.split(":", 2);
-    sourceTypeValue = sType;
-    sourcePathValue = sPath;
-  }
+  // All custom variables are manual type with a fixed value
+  const sourceTypeValue = "manual";
+  const sourcePathValue = "";
+  const defaultValueValue = String(document.getElementById("templateVarManualValue")?.value || "").trim();
   const keyValue = normalizeTemplateVariableKey(document.getElementById("templateVarKey")?.value || "");
   const payload = {
     var_key: keyValue,
