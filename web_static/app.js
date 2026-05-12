@@ -1901,7 +1901,7 @@ async function loadReviews() {
         `}
       </td>
       <td class="review-col-product">
-        ${review.product_photo_url ? `<img src="${esc(review.product_photo_url)}" class="product-thumb" alt="" onerror="this.style.display='none'" style="margin-bottom:4px">` : ""}
+        ${review.product_photo_url ? `<img src="${esc(review.product_photo_url)}" class="product-thumb" alt="" onerror="this.style.display='none'" >` : ""}
         ${productName
           ? productUrl
             ? `<div class="review-product-name"><a href="${productUrl}" target="_blank" rel="noopener noreferrer" class="review-product-link">${productName}</a></div>`
@@ -3020,7 +3020,7 @@ async function loadQuestions() {
         <div class="review-meta-small">${esc(item.customer_name || "")}${item.customer_name && qDateStr !== "—" ? " · " : ""}${qDateStr !== "—" ? qDateStr : ""}</div>
       </td>
       <td class="review-col-reply">${replyContent}</td>
-      <td class="review-col-product">${item.product_photo_url ? `<img src="${esc(item.product_photo_url)}" class="product-thumb" alt="" onerror="this.style.display='none'" style="margin-bottom:4px">` : ""}${productCell}</td>
+      <td class="review-col-product">${item.product_photo_url ? `<img src="${esc(item.product_photo_url)}" class="product-thumb" alt="" onerror="this.style.display='none'" >` : ""}${productCell}</td>
     `;
 
     // Make textarea editable on click for new questions

@@ -4441,11 +4441,12 @@ button.secondary.danger:hover {
 /* ── Product catalog ─────────────────────────────────────────────────────── */
 .product-thumb {
   display: block;
-  width: 48px;
-  height: 48px;
+  width: 96px;
+  height: 96px;
   object-fit: cover;
-  border-radius: 4px;
+  border-radius: 6px;
   border: 1px solid #e2e8f0;
+  margin: 8px auto 0;
 }
 
 .product-thumb-empty {
