@@ -2069,18 +2069,19 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     ) -> dict[str, object]:
         user = _require_user(request)
         _require_manager_scope_for_conversation(user, conversation_uid)
+        owner_uid = _tenant_owner_id(user)
         status_value = payload.status.strip().lower()
         if status_value not in {"open", "waiting", "closed"}:
             raise HTTPException(status_code=400, detail="Статус должен быть: открыт, ожидает или закрыт")
         updated = repository.update_conversation_status(
-            user_id=int(user["id"]),
+            user_id=owner_uid,
             conversation_uid=conversation_uid,
             status=status_value,
         )
         if not updated:
             raise HTTPException(status_code=404, detail="Диалог не найден")
         repository.log_review_action(
-            user_id=int(user["id"]),
+            user_id=owner_uid,
             review_uid=conversation_uid,
             action_type="conversation_status",
             actor=str(user["email"]),
@@ -2100,19 +2101,20 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         """
         user = _require_user(request)
         _require_manager_scope_for_conversation(user, conversation_uid)
+        owner_uid = _tenant_owner_id(user)
         conversation = repository.get_conversation(
-            user_id=int(user["id"]), conversation_uid=conversation_uid
+            user_id=owner_uid, conversation_uid=conversation_uid
         )
         if conversation is None:
             raise HTTPException(status_code=404, detail="Диалог не найден")
         updated = repository.mark_conversation_answered(
-            user_id=int(user["id"]),
+            user_id=owner_uid,
             conversation_uid=conversation_uid,
         )
         if not updated:
             raise HTTPException(status_code=404, detail="Диалог не найден")
         repository.log_review_action(
-            user_id=int(user["id"]),
+            user_id=owner_uid,
             review_uid=conversation_uid,
             action_type="conversation_mark_answered",
             actor=str(user["email"]),
@@ -2132,20 +2134,21 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         """
         user = _require_user(request)
         _require_manager_scope_for_conversation(user, conversation_uid)
+        owner_uid = _tenant_owner_id(user)
         conversation = repository.get_conversation(
-            user_id=int(user["id"]),
+            user_id=owner_uid,
             conversation_uid=conversation_uid,
         )
         if conversation is None:
             raise HTTPException(status_code=404, detail="Диалог не найден")
         updated = repository.move_conversation_to_new(
-            user_id=int(user["id"]),
+            user_id=owner_uid,
             conversation_uid=conversation_uid,
         )
         if not updated:
             raise HTTPException(status_code=404, detail="Диалог не найден")
         repository.log_review_action(
-            user_id=int(user["id"]),
+            user_id=owner_uid,
             review_uid=conversation_uid,
             action_type="conversation_move_to_new",
             actor=str(user["email"]),
@@ -2161,10 +2164,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     ) -> dict[str, object]:
         user = _require_user(request)
         _require_manager_scope_for_conversation(user, conversation_uid)
+        owner_uid = _tenant_owner_id(user)
         operator_name = str(user.get("full_name") or user.get("email") or "").strip() or "Продавец"
         idempotency_key = (payload.idempotency_key or "").strip() or f"{conversation_uid}:{int(time.time() * 1000)}"
         result = service.send_conversation_reply(
-            user_id=int(user["id"]),
+            user_id=owner_uid,
             conversation_uid=conversation_uid,
             response_text=payload.response_text,
             operator_name=operator_name,
@@ -2193,7 +2197,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not clean_id:
             raise HTTPException(status_code=400, detail="Missing image id")
         account = repository.get_marketplace_account(
-            user_id=int(user["id"]),
+            user_id=_tenant_owner_id(user),
             account_id=account_id,
             include_secrets=True,
         )
@@ -2235,7 +2239,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not url.startswith("https://api-seller.ozon.ru/"):
             raise HTTPException(status_code=400, detail="Invalid Ozon image URL")
         account = repository.get_marketplace_account(
-            user_id=int(user["id"]),
+            user_id=_tenant_owner_id(user),
             account_id=account_id,
             include_secrets=True,
         )
