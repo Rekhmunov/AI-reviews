@@ -961,7 +961,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         allowed = set(_manager_allowed_review_account_ids(user) or [])
         if not allowed:
             raise HTTPException(status_code=403, detail="Менеджеру не назначены доступы к отзывам")
-        review = repository.get_review(user_id=int(user["id"]), review_uid=review_uid)
+        review = repository.get_review(user_id=_tenant_owner_id(user), review_uid=review_uid)
         if review is None:
             raise HTTPException(status_code=404, detail="Отзыв не найден")
         try:
@@ -975,7 +975,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if str(user.get("role") or "").strip().lower() != TENANT_ROLE_MANAGER:
             return
         scope = _manager_allowed_conversation_accounts(user) or {"question": [], "chat": []}
-        conversation = repository.get_conversation(user_id=int(user["id"]), conversation_uid=conversation_uid)
+        conversation = repository.get_conversation(user_id=_tenant_owner_id(user), conversation_uid=conversation_uid)
         if conversation is None:
             raise HTTPException(status_code=404, detail="Диалог не найден")
         kind = str(conversation.get("kind") or "").strip().lower()
@@ -2275,11 +2275,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     def conversation_messages(conversation_uid: str, request: Request, limit: int = 200, refresh: int = 0) -> dict[str, object]:
         user = _require_user(request)
         _require_manager_scope_for_conversation(user, conversation_uid)
-        conversation = repository.get_conversation(user_id=int(user["id"]), conversation_uid=conversation_uid)
+        owner_uid = _tenant_owner_id(user)
+        conversation = repository.get_conversation(user_id=owner_uid, conversation_uid=conversation_uid)
         if conversation is None:
             raise HTTPException(status_code=404, detail="Диалог не найден")
         messages = repository.list_conversation_messages(
-            user_id=int(user["id"]),
+            user_id=owner_uid,
             conversation_uid=conversation_uid,
             limit=limit,
         )
@@ -2315,7 +2316,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 ext_id = str(conversation.get("external_conversation_id") or "")
                 if account_id and ext_id:
                     account = repository.get_marketplace_account(
-                        user_id=int(user["id"]),
+                        user_id=owner_uid,
                         account_id=int(account_id),
                         include_secrets=True,
                     )
@@ -2324,7 +2325,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                         # Fetch events starting from since_date (or 30 days ago fallback).
                         # This gives only RECENT events — fast (1-2 requests instead of 83).
                         # Use sync_start_date from user settings as the start cursor.
-                        user_sync_settings = repository.get_user_sync_settings(user_id=int(user["id"]))
+                        user_sync_settings = repository.get_user_sync_settings(user_id=owner_uid)
                         event_since = (
                             str(user_sync_settings.get("sync_start_date") or "").strip()
                             if bool(user_sync_settings.get("use_sync_start_date"))
@@ -2383,25 +2384,25 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                             })
                         # Migrate old internal K8s URLs to wb-download tokens
                         repository.fix_wb_internal_photo_urls(
-                            user_id=int(user["id"]),
+                            user_id=owner_uid,
                             conversation_uid=conversation_uid,
                         )
                         if history:
                             repository.bulk_insert_chat_history_messages(
-                                user_id=int(user["id"]),
+                                user_id=owner_uid,
                                 conversation_uid=conversation_uid,
                                 messages=history,
                             )
                             # Move chat to "New" bucket if buyer replied after our last reply
                             try:
                                 repository.move_chat_to_new_if_buyer_replied(
-                                    user_id=int(user["id"]),
+                                    user_id=owner_uid,
                                     conversation_uid=conversation_uid,
                                 )
                             except Exception:
                                 pass
                             messages = repository.list_conversation_messages(
-                                user_id=int(user["id"]),
+                                user_id=owner_uid,
                                 conversation_uid=conversation_uid,
                                 limit=limit,
                             )
@@ -2414,7 +2415,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 ext_id = str(conversation.get("external_conversation_id") or "")
                 if account_id and ext_id:
                     account = repository.get_marketplace_account(
-                        user_id=int(user["id"]),
+                        user_id=owner_uid,
                         account_id=int(account_id),
                         include_secrets=True,
                     )
@@ -2465,23 +2466,23 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                                     )
                                     if new_name:
                                         repository.update_conversation_customer_name(
-                                            user_id=int(user["id"]),
+                                            user_id=owner_uid,
                                             conversation_uid=conversation_uid,
                                             customer_name=new_name,
                                         )
                                 # Fix any previously saved messages with old Markdown format
                                 repository.fix_ozon_photo_messages(
-                                    user_id=int(user["id"]),
+                                    user_id=owner_uid,
                                     conversation_uid=conversation_uid,
                                 )
                                 if history_ozon:
                                     repository.bulk_insert_chat_history_messages(
-                                        user_id=int(user["id"]),
+                                        user_id=owner_uid,
                                         conversation_uid=conversation_uid,
                                         messages=history_ozon,
                                     )
                                 messages = repository.list_conversation_messages(
-                                    user_id=int(user["id"]),
+                                    user_id=owner_uid,
                                     conversation_uid=conversation_uid,
                                     limit=limit,
                                 )
