@@ -3353,7 +3353,7 @@ async function createChatQuickTemplate() {
   }
   if (nameInput) nameInput.value = "";
   if (textInput) textInput.value = "";
-  setChatQuickTemplatesInfo("Шаблон добавлен.");
+  setChatQuickTemplatesInfo("");
   await loadChatQuickTemplates();
 }
 
@@ -3370,7 +3370,7 @@ async function updateChatQuickTemplate(templateId, newName, newText) {
     setChatQuickTemplatesInfo(data.detail || "Не удалось обновить шаблон", true);
     return;
   }
-  setChatQuickTemplatesInfo("Шаблон обновлён.");
+  setChatQuickTemplatesInfo("");
   await loadChatQuickTemplates();
 }
 
@@ -3386,7 +3386,7 @@ async function deleteChatQuickTemplate(templateId) {
     setChatQuickTemplatesInfo(data.detail || "Не удалось удалить шаблон", true);
     return;
   }
-  setChatQuickTemplatesInfo("Шаблон удален.");
+  setChatQuickTemplatesInfo("");
   await loadChatQuickTemplates();
 }
 
