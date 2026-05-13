@@ -5481,6 +5481,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                                 supply_sync_state["message"] = (
                                     f"«{src['name']}»: найдено {len(items)} поставок, загрузка деталей…"
                                 )
+                            item_errors = 0
                             for item in items:
                                 supply_wb_id = int(item.get("supplyID") or 0)
                                 if not supply_wb_id:
@@ -5488,35 +5489,46 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                                 status_id = int(item.get("statusID") or 0)
                                 if status_id not in active_statuses:
                                     continue
-                                # For active supplies (1,2,4): always fetch details
-                                # For accepted (5): fetch only if not already cached
-                                need_details = status_id in {1, 2, 4}
-                                if not need_details:
-                                    existing = repository.get_supply_item_row(
-                                        user_id=owner_id, supply_id=supply_wb_id
-                                    )
-                                    need_details = not (existing and existing.get("warehouse_name"))
-                                if need_details:
-                                    det_status, det_data = _wb_request(
-                                        "GET",
-                                        f"https://supplies-api.wildberries.ru/api/v1/supplies/{supply_wb_id}",
-                                        api_key,
-                                    )
-                                    if det_status == 200 and isinstance(det_data, dict):
-                                        item.update({k: v for k, v in det_data.items() if v is not None})
-                                    _time.sleep(0.15)
-                                item["supplyID"] = supply_wb_id
-                                repository.upsert_supply_item(source_id=source_id, data=item)
-                                synced_this_source += 1
-                                with supply_sync_lock:
-                                    supply_sync_state["synced"] = total_synced + synced_this_source
+                                try:
+                                    # For active (1,2,4): always fetch details
+                                    # For accepted (5): fetch only if not already cached
+                                    need_details = status_id in {1, 2, 4}
+                                    if not need_details:
+                                        existing = repository.get_supply_item_row(
+                                            user_id=owner_id, supply_id=supply_wb_id
+                                        )
+                                        need_details = not (existing and existing.get("warehouse_name"))
+                                    if need_details:
+                                        det_status, det_data = _wb_request(
+                                            "GET",
+                                            f"https://supplies-api.wildberries.ru/api/v1/supplies/{supply_wb_id}",
+                                            api_key,
+                                        )
+                                        if det_status == 200 and isinstance(det_data, dict):
+                                            item.update({k: v for k, v in det_data.items() if v is not None})
+                                        _time.sleep(0.15)
+                                    item["supplyID"] = supply_wb_id
+                                    repository.upsert_supply_item(source_id=source_id, data=item)
+                                    synced_this_source += 1
+                                    with supply_sync_lock:
+                                        supply_sync_state["synced"] = total_synced + synced_this_source
+                                except Exception as item_exc:
+                                    item_errors += 1
+                                    err_msg = f"{type(item_exc).__name__}: {item_exc}"
+                                    _log.error("supply upsert error supply_id=%s: %s", supply_wb_id, err_msg, exc_info=True)
+                                    if item_errors == 1:
+                                        # Show first error in status
+                                        with supply_sync_lock:
+                                            supply_sync_state["message"] = f"Ошибка поставки {supply_wb_id}: {err_msg}"
+                                        errors.append(f"Поставка {supply_wb_id}: {err_msg}")
                             repository.mark_supply_source_synced(source_id=source_id)
                             total_synced += synced_this_source
                     except Exception as exc:
                         _log.error("supply sync source %d: %s", source_id, exc, exc_info=True)
-                        errors.append(f"«{src['name']}»: {type(exc).__name__}: {exc}")
+                        err_msg = f"{type(exc).__name__}: {exc}"
+                        errors.append(f"«{src['name']}»: {err_msg}")
                         with supply_sync_lock:
-                            supply_sync_state["message"] = f"Ошибка: {type(exc).__name__}: {exc}"
+                            supply_sync_state["message"] = f"Ошибка: {err_msg}"
             finally:
                 with supply_sync_lock:
                     supply_sync_state.update({
