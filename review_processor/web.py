@@ -5301,13 +5301,23 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         try:
             import urllib.request as _ul, json as _jm, ssl as _sl
             def _wb_get(url: str, key: str):
-                req = _ul.Request(url, headers={"Authorization": key}, method="GET")
+                req = _ul.Request(url, headers={
+                    "Authorization": key,
+                    "Content-Type": "application/json",
+                    "User-Agent": "FeedPilot/1.0",
+                }, method="GET")
                 ctx = _sl.create_default_context()
-                try:
-                    with _ul.urlopen(req, timeout=15, context=ctx) as r:
-                        return r.status, _jm.loads(r.read() or b"{}")
-                except Exception as e:
-                    return (getattr(e, "code", 0) or 0), {}
+                for attempt in range(3):
+                    try:
+                        with _ul.urlopen(req, timeout=15, context=ctx) as r:
+                            return r.status, _jm.loads(r.read() or b"{}")
+                    except Exception as e:
+                        code = getattr(e, "code", None)
+                        if code in (429, 503):
+                            import time as _t; _t.sleep((attempt + 1) * 2)
+                            continue
+                        return (int(code) if code else 0), {}
+                return 0, {}
 
             row = repository.get_supply_item_row(user_id=owner_id, supply_id=supply_id)
             if not row:
@@ -5390,14 +5400,28 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
         def _wb_request(method: str, url: str, api_key: str, body: dict | None = None):
             data = _json_mod.dumps(body).encode() if body else None
-            headers = {"Authorization": api_key, "Content-Type": "application/json"}
+            headers = {
+                "Authorization": api_key,
+                "Content-Type": "application/json",
+                "User-Agent": "FeedPilot/1.0",
+            }
             req = _urllib.Request(url, data=data, headers=headers, method=method)
             ctx = _ssl.create_default_context()
-            try:
-                with _urllib.urlopen(req, timeout=30, context=ctx) as r:
-                    return r.status, _json_mod.loads(r.read() or b"{}")
-            except Exception as e:
-                return (getattr(e, "code", 0) or 0), {}
+            # Retry up to 3 times with backoff: handles 429, 503, network errors
+            for attempt in range(3):
+                try:
+                    with _urllib.urlopen(req, timeout=30, context=ctx) as r:
+                        return r.status, _json_mod.loads(r.read() or b"{}")
+                except Exception as e:
+                    code = getattr(e, "code", None)
+                    if code in (429, 503):
+                        # Rate limited or service unavailable — wait and retry
+                        wait = (attempt + 1) * 2  # 2s, 4s, 6s
+                        _log.warning("WB supplies API %d, retry %d in %ds", code, attempt + 1, wait)
+                        _time.sleep(wait)
+                        continue
+                    return (int(code) if code else 0), {}
+            return 0, {}
 
         def _wb_post(url: str, api_key: str, body: dict):
             s, d = _wb_request("POST", url, api_key, body)
