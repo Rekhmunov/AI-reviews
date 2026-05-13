@@ -5439,7 +5439,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 supply_sync_state.update({
                     "in_progress": True, "page": 0, "synced": 0, "total": 0,
                     "errors": [], "message": "Запуск…",
-                    "started_at": _utc_now(), "finished_at": None,
+                    "started_at": _dt.now(_tz.utc).isoformat(), "finished_at": None,
                 })
 
             try:
@@ -5538,7 +5538,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                         "message": f"Готово. Загружено {total_synced} поставок." + (
                             f" Ошибки: {'; '.join(errors)}" if errors else ""
                         ),
-                        "finished_at": _utc_now(),
+                        "finished_at": _dt.now(_tz.utc).isoformat(),
                     })
 
         t = threading.Thread(target=_run_sync, daemon=True)
