@@ -6634,6 +6634,23 @@ class ReviewRepository:
             items.append(d)
         return {"items": items, "total": total, "page": page, "page_size": page_size}
 
+    def get_supply_item_row(self, *, user_id: int, supply_id: int) -> dict[str, Any] | None:
+        """Get supply_items row verifying ownership."""
+        with self._connect() as conn:
+            row = conn.execute(
+                self._sql(
+                    """
+                    SELECT si.*
+                    FROM supply_items si
+                    JOIN supply_sources ss ON ss.id = si.source_id
+                    WHERE ss.user_id = ? AND si.supply_id = ?
+                    LIMIT 1
+                    """
+                ),
+                (user_id, supply_id),
+            ).fetchone()
+        return self._row_to_dict(row) if row else None
+
     def get_supply_goods(self, *, user_id: int, supply_id: int) -> list[dict[str, Any]]:
         """Get goods for a supply, verifying ownership via source."""
         with self._connect() as conn:

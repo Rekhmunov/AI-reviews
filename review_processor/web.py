@@ -5280,7 +5280,48 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not _can_view_supplies(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
         owner_id = _supply_owner_id(user)
-        return repository.get_supply_goods(user_id=owner_id, supply_id=supply_id)
+        # Check if we have goods cached; if not, fetch from WB and cache
+        cached = repository.get_supply_goods(user_id=owner_id, supply_id=supply_id)
+        if cached:
+            return cached
+        # Lazy-fetch from WB API
+        try:
+            import urllib.request as _ul, json as _jm, ssl as _sl
+            def _wb_get(url: str, key: str):
+                req = _ul.Request(url, headers={"Authorization": key}, method="GET")
+                ctx = _sl.create_default_context()
+                try:
+                    with _ul.urlopen(req, timeout=15, context=ctx) as r:
+                        return r.status, _jm.loads(r.read() or b"{}")
+                except Exception as e:
+                    return (getattr(e, "code", 0) or 0), {}
+
+            row = repository.get_supply_item_row(user_id=owner_id, supply_id=supply_id)
+            if not row:
+                return []
+            src = repository.get_supply_source_with_key(user_id=owner_id, source_id=int(row["source_id"]))
+            if not src or not src.get("api_key"):
+                return []
+            api_key = str(src["api_key"])
+            # Fetch details (warehouse, quantity)
+            det_status, det_data = _wb_get(
+                f"https://supplies-api.wildberries.ru/api/v1/supplies/{supply_id}", api_key
+            )
+            if det_status == 200 and isinstance(det_data, dict):
+                det_data["supplyID"] = supply_id
+                repository.upsert_supply_item(source_id=int(row["source_id"]), data=det_data)
+            # Fetch goods
+            g_status, goods = _wb_get(
+                f"https://supplies-api.wildberries.ru/api/v1/supplies/{supply_id}/goods", api_key
+            )
+            if g_status == 200 and isinstance(goods, list):
+                item_row = repository.get_supply_item_row(user_id=owner_id, supply_id=supply_id)
+                if item_row:
+                    repository.upsert_supply_goods(supply_item_id=int(item_row["id"]), goods=goods)
+                    return repository.get_supply_goods(user_id=owner_id, supply_id=supply_id)
+        except Exception as exc:
+            _log.warning("lazy supply goods fetch error supply_id=%d: %s", supply_id, exc)
+        return []
 
     @app.post("/api/supplies/sync")
     def sync_supplies(request: Request, payload: SyncSuppliesRequest) -> dict[str, object]:
@@ -5352,25 +5393,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                         supply_wb_id = int(item.get("supplyID") or 0)
                         if not supply_wb_id:
                             continue
-                        # Skip statuses not in our target set
                         if int(item.get("statusID") or 0) not in _active_statuses:
                             continue
-                        det_status, detail_data = _wb_request(
-                            "GET",
-                            f"https://supplies-api.wildberries.ru/api/v1/supplies/{supply_wb_id}",
-                            api_key,
-                        )
-                        if det_status == 200 and isinstance(detail_data, dict):
-                            item.update({k: v for k, v in detail_data.items() if v is not None})
                         item["supplyID"] = supply_wb_id
-                        supply_item_id = repository.upsert_supply_item(source_id=source_id, data=item)
-                        goods_status, goods = _wb_request(
-                            "GET",
-                            f"https://supplies-api.wildberries.ru/api/v1/supplies/{supply_wb_id}/goods",
-                            api_key,
-                        )
-                        if goods_status == 200 and isinstance(goods, list):
-                            repository.upsert_supply_goods(supply_item_id=supply_item_id, goods=goods)
+                        repository.upsert_supply_item(source_id=source_id, data=item)
                         synced_this_source += 1
                     if len(items) < page_size:
                         break
