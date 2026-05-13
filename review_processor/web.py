@@ -4209,6 +4209,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         for item in items:
             if str(item.get("role") or "").strip().lower() == TENANT_ROLE_MANAGER:
                 item["manager_permissions"] = repository.list_manager_permissions(manager_user_id=int(item["id"]))
+                item["can_supplies"] = bool(item.get("can_supplies"))
         return {"items": items, "count": len(items)}
 
     @app.post("/api/tenant/team")
@@ -4312,6 +4313,25 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "saved": saved,
             "items": repository.list_manager_permissions(manager_user_id=target_user_id),
         }
+
+    class ManagerSuppliesAccessRequest(BaseModel):
+        can_supplies: bool = False
+
+    @app.put("/api/tenant/team/{target_user_id}/supplies-access")
+    def tenant_set_manager_supplies_access(
+        target_user_id: int,
+        payload: ManagerSuppliesAccessRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        owner = _require_tenant_owner(request)
+        target = _target_user_for_admin_scope(actor=owner, target_user_id=target_user_id)
+        if int(target["id"]) == int(owner["id"]):
+            raise HTTPException(status_code=400, detail="Для владельца права не меняются")
+        if str(target.get("role") or "").strip().lower() != TENANT_ROLE_MANAGER:
+            raise HTTPException(status_code=400, detail="Применимо только для менеджера")
+        repository._ensure_supply_tables()
+        repository.set_user_can_supplies(user_id=target_user_id, can_supplies=payload.can_supplies)
+        return {"ok": True, "can_supplies": payload.can_supplies}
 
     @app.post("/api/tenant/team/{target_user_id}/role")
     def tenant_update_team_role(
@@ -5152,6 +5172,203 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     # ── End stock endpoints ───────────────────────────────────────────────────
 
+    # ── Supply module endpoints ───────────────────────────────────────────────
+
+    def _supply_owner_id(user: dict[str, object]) -> int:
+        """Return the owner's user_id for supply queries (same tenant logic)."""
+        return _tenant_owner_id(user)
+
+    def _can_view_supplies(user: dict[str, object]) -> bool:
+        role = str(user.get("role") or ROLE_USER)
+        if role in ROLE_CAN_ACCESS_SETTINGS:
+            return True
+        return bool(user.get("can_supplies"))
+
+    @app.get("/api/supply-sources")
+    def list_supply_sources(request: Request) -> list[dict[str, object]]:
+        user = _require_auth(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        repository._ensure_supply_tables()
+        return repository.list_supply_sources(user_id=owner_id)
+
+    class CreateSupplySourceRequest(BaseModel):
+        name: str
+        api_key: str
+
+    @app.post("/api/supply-sources")
+    def create_supply_source(request: Request, payload: CreateSupplySourceRequest) -> dict[str, object]:
+        user = _require_auth(request)
+        if str(user.get("role") or "") not in ROLE_CAN_ACCESS_SETTINGS:
+            raise HTTPException(status_code=403, detail="Только владелец может добавлять источники")
+        if not payload.name.strip():
+            raise HTTPException(status_code=400, detail="Название не может быть пустым")
+        if not payload.api_key.strip():
+            raise HTTPException(status_code=400, detail="API-ключ не может быть пустым")
+        repository._ensure_supply_tables()
+        return repository.create_supply_source(
+            user_id=int(user["id"]),
+            name=payload.name.strip(),
+            api_key=payload.api_key.strip(),
+        )
+
+    class ToggleSupplySourceRequest(BaseModel):
+        is_enabled: bool = True
+
+    @app.patch("/api/supply-sources/{source_id}/toggle")
+    def toggle_supply_source(request: Request, source_id: int, payload: ToggleSupplySourceRequest) -> dict[str, object]:
+        user = _require_auth(request)
+        if str(user.get("role") or "") not in ROLE_CAN_ACCESS_SETTINGS:
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        ok = repository.toggle_supply_source(
+            user_id=int(user["id"]), source_id=source_id, is_enabled=payload.is_enabled
+        )
+        if not ok:
+            raise HTTPException(status_code=404, detail="Источник не найден")
+        return {"ok": True, "source_id": source_id, "is_enabled": payload.is_enabled}
+
+    @app.delete("/api/supply-sources/{source_id}")
+    def delete_supply_source(request: Request, source_id: int) -> dict[str, object]:
+        user = _require_auth(request)
+        if str(user.get("role") or "") not in ROLE_CAN_ACCESS_SETTINGS:
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        ok = repository.delete_supply_source(user_id=int(user["id"]), source_id=source_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Источник не найден")
+        return {"ok": True}
+
+    @app.get("/api/supplies")
+    def list_supplies(
+        request: Request,
+        source_id: int | None = None,
+        status_id: int | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> dict[str, object]:
+        user = _require_auth(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        repository._ensure_supply_tables()
+        return repository.list_supply_items(
+            user_id=owner_id,
+            source_id=source_id,
+            status_id=status_id,
+            date_from=date_from,
+            date_to=date_to,
+            page=page,
+            page_size=page_size,
+        )
+
+    @app.get("/api/supplies/{supply_id}/goods")
+    def get_supply_goods(request: Request, supply_id: int) -> list[dict[str, object]]:
+        user = _require_auth(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        return repository.get_supply_goods(user_id=owner_id, supply_id=supply_id)
+
+    class SyncSuppliesRequest(BaseModel):
+        source_id: int | None = None
+
+    @app.post("/api/supplies/sync")
+    def sync_supplies(request: Request, payload: SyncSuppliesRequest) -> dict[str, object]:
+        user = _require_auth(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        repository._ensure_supply_tables()
+        sources = repository.list_supply_sources(user_id=owner_id)
+        if payload.source_id:
+            sources = [s for s in sources if s["id"] == payload.source_id]
+        active_sources = [s for s in sources if s.get("is_enabled")]
+        if not active_sources:
+            return {"ok": True, "synced": 0, "message": "Нет активных источников"}
+
+        import httpx
+        total_synced = 0
+        errors: list[str] = []
+
+        for src in active_sources:
+            src_full = repository.get_supply_source_with_key(user_id=owner_id, source_id=int(src["id"]))
+            if not src_full:
+                continue
+            api_key = str(src_full.get("api_key") or "")
+            if not api_key:
+                errors.append(f"Источник «{src['name']}»: нет API-ключа")
+                continue
+            source_id = int(src["id"])
+            try:
+                # Fetch all supplies from WB API (paginated)
+                page = 1
+                page_size = 50
+                synced_this_source = 0
+                while True:
+                    resp = httpx.post(
+                        "https://supplies-api.wildberries.ru/api/v1/supplies",
+                        headers={"Authorization": api_key},
+                        json={
+                            "dateFrom": "2020-01-01",
+                            "dateTo": "2099-12-31",
+                            "status": "ALL",
+                            "page": page,
+                            "pageSize": page_size,
+                        },
+                        timeout=30,
+                    )
+                    if resp.status_code == 401:
+                        errors.append(f"Источник «{src['name']}»: неверный API-ключ (401)")
+                        break
+                    resp.raise_for_status()
+                    items = resp.json()
+                    if not isinstance(items, list) or not items:
+                        break
+                    for item in items:
+                        supply_wb_id = int(item.get("supplyID") or 0)
+                        if not supply_wb_id:
+                            continue
+                        # Fetch details from /api/v1/supplies/{ID}
+                        det_resp = httpx.get(
+                            f"https://supplies-api.wildberries.ru/api/v1/supplies/{supply_wb_id}",
+                            headers={"Authorization": api_key},
+                            timeout=15,
+                        )
+                        if det_resp.status_code == 200:
+                            detail_data = det_resp.json()
+                            item.update({k: v for k, v in detail_data.items() if v is not None})
+                        item["supplyID"] = supply_wb_id
+                        supply_item_id = repository.upsert_supply_item(source_id=source_id, data=item)
+                        # Fetch goods for this supply
+                        goods_resp = httpx.get(
+                            f"https://supplies-api.wildberries.ru/api/v1/supplies/{supply_wb_id}/goods",
+                            headers={"Authorization": api_key},
+                            timeout=15,
+                        )
+                        if goods_resp.status_code == 200:
+                            goods = goods_resp.json()
+                            if isinstance(goods, list):
+                                repository.upsert_supply_goods(supply_item_id=supply_item_id, goods=goods)
+                        synced_this_source += 1
+                    if len(items) < page_size:
+                        break
+                    page += 1
+                repository.mark_supply_source_synced(source_id=source_id)
+                total_synced += synced_this_source
+            except Exception as exc:
+                _log.warning("supply sync error for source %d: %s", source_id, exc)
+                errors.append(f"Источник «{src['name']}»: {exc}")
+
+        return {
+            "ok": True,
+            "synced": total_synced,
+            "errors": errors,
+        }
+
+    # ── End supply module endpoints ───────────────────────────────────────────
+
     @app.on_event("shutdown")
     def stop_auto_sync_worker() -> None:
         auto_sync_stop_event.set()
@@ -5232,6 +5449,10 @@ def build_app_html(user: dict[str, object]) -> str:
     safe_role = escape(role_labels.get(role, role))
     can_view_analytics = role in ROLE_CAN_ACCESS_ANALYTICS
     can_view_settings = role in ROLE_CAN_ACCESS_SETTINGS
+    can_view_supplies = (
+        role in ROLE_CAN_ACCESS_SETTINGS
+        or bool(user.get("can_supplies"))
+    )
     admin_link = '<a class="navbtn nav-admin" href="/admin"><span class="nav-item-icon">○</span> Админ-панель</a>' if role == ROLE_ADMIN else ""
     nav_analytics = (
         '<a id="nav-analytics" class="nav-item" href="#" onclick="showSection(\'analytics\')"><span class="nav-item-icon">∑</span> Аналитика</a>'
@@ -5242,6 +5463,14 @@ def build_app_html(user: dict[str, object]) -> str:
         '<a id="nav-settings" class="navbtn" href="#" onclick="showSection(\'settings\')">Настройки</a>'
         if can_view_settings
         else ""
+    )
+    nav_supplies_wb = (
+        '<a id="nav-supplies-wb" class="nav-item" href="#" onclick="showSection(\'supplies-wb\')"><span class="nav-item-icon">▦</span> WB</a>'
+        if can_view_supplies else ""
+    )
+    nav_supplies_settings = (
+        '<a id="nav-supplies-settings" class="nav-item" href="#" onclick="showSection(\'supplies-settings\')"><span class="nav-item-icon">≡</span> Настройки</a>'
+        if can_view_settings else ""
     )
     return _render_template(
         "app.html",
@@ -5255,8 +5484,11 @@ def build_app_html(user: dict[str, object]) -> str:
                 '<a id="nav-settings" class="nav-item" href="#" onclick="showSection(\'settings\')"><span class="nav-item-icon">≡</span> Настройки</a>'
                 if can_view_settings else ""
             ),
+            "NAV_SUPPLIES_WB": nav_supplies_wb,
+            "NAV_SUPPLIES_SETTINGS": nav_supplies_settings,
             "CAN_VIEW_ANALYTICS": "true" if can_view_analytics else "false",
             "CAN_VIEW_SETTINGS": "true" if can_view_settings else "false",
+            "CAN_VIEW_SUPPLIES": "true" if can_view_supplies else "false",
             "IS_ADMIN": "true" if role == ROLE_ADMIN else "false",
             "IS_SUPER_ADMIN": "true" if is_super_admin else "false",
             "IS_TENANT_OWNER": "true" if is_tenant_owner else "false",

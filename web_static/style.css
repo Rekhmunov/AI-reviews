@@ -4549,3 +4549,72 @@ button.secondary.danger:hover {
 }
 
 .products-table tr:last-child td { border-bottom: none; }
+
+/* ── Supply module ─────────────────────────────────────────────── */
+
+.supply-expand-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 10px;
+  color: #94a3b8;
+  padding: 2px 4px;
+  border-radius: 3px;
+  transition: color 0.15s, background 0.15s;
+  line-height: 1;
+}
+.supply-expand-btn:hover { color: #334155; background: #f1f5f9; }
+.supply-expand-btn.expanded { color: #6366f1; }
+
+.supply-expand-cell { width: 32px; text-align: center; }
+
+.supply-goods-row td { padding: 0 !important; background: #f8fafc; }
+.supply-goods-container {
+  padding: 10px 16px 10px 48px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.supply-goods-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.supply-goods-table th {
+  text-align: left;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid #e2e8f0;
+}
+.supply-goods-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid #f1f5f9;
+  color: #374151;
+}
+.supply-goods-table tr:last-child td { border-bottom: none; }
+
+.supply-id { font-weight: 600; color: #1e293b; font-family: monospace; }
+
+.supply-status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.supply-status-badge.status-1 { background: #fef3c7; color: #92400e; }
+.supply-status-badge.status-2 { background: #dbeafe; color: #1d4ed8; }
+.supply-status-badge.status-5 { background: #dcfce7; color: #166534; }
+
+.filters-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+.filters-left { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.filters-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

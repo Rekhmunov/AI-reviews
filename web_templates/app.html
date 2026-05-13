@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=83" />
+  <link rel="stylesheet" href="/static/style.css?v=84" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -45,6 +45,10 @@
           </a>
           {{NAV_SETTINGS_SUB}}
           {{NAV_ANALYTICS}}
+
+          <div id="nav-section-supplies" class="nav-section-label" style="margin-top:8px;display:none">Поставки</div>
+          {{NAV_SUPPLIES_WB}}
+          {{NAV_SUPPLIES_SETTINGS}}
 
           <div class="nav-section-label" style="margin-top:8px;display:none">Остатки</div>
           <a id="nav-stock-work" class="nav-item" href="#" onclick="showSection('stock-work')" style="display:none">
@@ -1021,6 +1025,95 @@
         </div>
       </div>
 
+      <!-- ── Поставки: WB ── -->
+      <section id="section-supplies-wb" class="hidden">
+        <h3 class="section-title">Поставки — WB</h3>
+        <div class="panel">
+          <div class="filters-bar">
+            <div class="filters-left">
+              <button id="suppliesSyncBtn" onclick="syncSupplies()">🔄 Синхронизировать</button>
+              <select id="suppliesSourceFilter" onchange="loadSupplies()" style="width:auto">
+                <option value="">Все источники</option>
+              </select>
+              <select id="suppliesStatusFilter" onchange="loadSupplies()" style="width:auto">
+                <option value="">Все статусы</option>
+                <option value="1">Новые</option>
+                <option value="2">Подтверждённые</option>
+                <option value="5">Принятые</option>
+              </select>
+            </div>
+            <div class="filters-right">
+              <input type="date" id="suppliesDateFrom" onchange="loadSupplies()" style="width:140px" />
+              <input type="date" id="suppliesDateTo" onchange="loadSupplies()" style="width:140px" />
+              <button class="secondary icon-btn" id="suppliesFilterBtn" onclick="toggleSuppliesFilter()" title="Фильтры">⊟</button>
+            </div>
+          </div>
+          <div id="suppliesSyncInfo" class="small" style="color:#64748b;margin-top:6px"></div>
+        </div>
+        <div class="panel" style="margin-top:0;padding-top:0">
+          <div class="table-wrap">
+            <table id="suppliesTable">
+              <thead>
+                <tr>
+                  <th style="width:32px"></th>
+                  <th>№ поставки</th>
+                  <th>Склад</th>
+                  <th>Дата поставки</th>
+                  <th>Кол-во (шт)</th>
+                  <th>Статус</th>
+                  <th>Ссылки</th>
+                </tr>
+              </thead>
+              <tbody id="suppliesTbody"></tbody>
+            </table>
+          </div>
+          <div id="suppliesInfo" class="small" style="color:#64748b;margin-top:8px"></div>
+          <div class="row" style="margin-top:12px;gap:8px;align-items:center">
+            <button class="secondary" id="suppliesPrevBtn" onclick="suppliesChangePage(-1)">← Назад</button>
+            <span id="suppliesPageInfo" class="small"></span>
+            <button class="secondary" id="suppliesNextBtn" onclick="suppliesChangePage(1)">Вперёд →</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Поставки: Настройки ── -->
+      <section id="section-supplies-settings" class="hidden">
+        <h3 class="section-title">Поставки — Настройки</h3>
+        <div class="settings-tabs">
+          <button id="supplies-settings-tab-sources" class="settings-tab-btn active" onclick="showSuppliesSettingsTab('sources')">Источники</button>
+        </div>
+        <div id="supplies-settings-pane-sources">
+          <div class="panel">
+            <div class="row row-between">
+              <h4 class="no-margin">Подключённые источники</h4>
+              <button onclick="toggleAddSupplySourceForm(true)">+ Добавить источник</button>
+            </div>
+            <div id="supplySourcesInfo" class="small"></div>
+            <div id="addSupplySourceForm" class="source-form hidden" style="margin-top:12px">
+              <div class="row">
+                <input id="newSupplySourceName" type="text" placeholder="Название источника (например, ИП Иванов)" />
+              </div>
+              <div class="row">
+                <textarea id="newSupplySourceApiKey" class="textarea-compact" placeholder="Токен WB Поставки" rows="3" autocomplete="off"></textarea>
+              </div>
+              <div class="row">
+                <button onclick="createSupplySource()">Сохранить источник</button>
+                <button class="secondary" onclick="toggleAddSupplySourceForm(false)">Отмена</button>
+                <span id="addSupplySourceInfo" class="small"></span>
+              </div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>№</th><th>Название</th><th>Ключ</th><th>Активен</th><th>Последняя синхр.</th><th>Действия</th></tr></thead>
+                <tbody id="supplySourcesTbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section id="section-profile" class="hidden">
         <div class="panel">
           <h3>Мой профиль</h3>
@@ -1124,6 +1217,11 @@
           <tbody id="managerPermissionsTbody"></tbody>
         </table>
       </div>
+      <div class="row" style="margin-top:12px;align-items:center;gap:8px">
+        <label style="font-weight:500">Раздел Поставки:</label>
+        <input type="checkbox" id="managerCanSupplies" />
+        <span class="small" style="color:#64748b">Разрешить просмотр раздела Поставки</span>
+      </div>
       <div class="row">
         <button id="managerPermissionsSaveBtn" type="button" onclick="applyManagerPermissionsSelection()">Применить разрешения</button>
         <span id="managerPermissionsInfo" class="small"></span>
@@ -1153,11 +1251,12 @@
     window.APP_PERMISSIONS = {
       can_view_analytics: {{CAN_VIEW_ANALYTICS}},
       can_view_settings: {{CAN_VIEW_SETTINGS}},
+      can_view_supplies: {{CAN_VIEW_SUPPLIES}},
       is_admin: {{IS_ADMIN}},
       is_super_admin: {{IS_SUPER_ADMIN}},
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=123"></script>
+  <script src="/static/app.js?v=124"></script>
 </body>
 </html>

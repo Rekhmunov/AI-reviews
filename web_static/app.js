@@ -101,6 +101,7 @@ const teamState = {
   managerModalUserId: null,
   pendingCreate: null,
   pendingPermissions: [],
+  pendingCanSupplies: false,
 };
 let syncInProgress = false;
 let syncStopStatusTimer = null;
@@ -114,7 +115,7 @@ const UI_REFRESH_MS = 60000;        // refresh chat list from DB every 60s (afte
 const CHANNEL_ICONS = { "Отзывы": "⭐", "Вопросы": "❓", "Чаты": "💬" };
 const ACTIVE_SECTION_STORAGE_KEY = "feedpilot_active_section";
 const ACTIVE_SETTINGS_TAB_STORAGE_KEY = "feedpilot_active_settings_tab";
-const SECTION_IDS = ["reviews", "conversations", "chats", "analytics", "settings", "stock-settings", "stock-work", "profile"];
+const SECTION_IDS = ["reviews", "conversations", "chats", "analytics", "settings", "stock-settings", "stock-work", "supplies-wb", "supplies-settings", "profile"];
 const SETTINGS_TAB_IDS = ["sources", "rules", "templates", "recommendations", "products", "team", "template-variables"];
 const APP_BOOT_HIDE_CLASS = "app-boot-hidden";
 const MOBILE_NAV_BREAKPOINT_PX = 900;
@@ -355,7 +356,7 @@ async function copyAccountApiKey(rawKey) {
 }
 
 function getPermissions() {
-  const defaults = { can_view_analytics: true, can_view_settings: true, is_admin: false };
+  const defaults = { can_view_analytics: true, can_view_settings: true, can_view_supplies: false, is_admin: false };
   const fromWindow = window.APP_PERMISSIONS || {};
   return {
     can_view_analytics: Boolean(
@@ -367,6 +368,11 @@ function getPermissions() {
       fromWindow.can_view_settings !== undefined
         ? fromWindow.can_view_settings
         : defaults.can_view_settings,
+    ),
+    can_view_supplies: Boolean(
+      fromWindow.can_view_supplies !== undefined
+        ? fromWindow.can_view_supplies
+        : defaults.can_view_supplies,
     ),
     is_admin: Boolean(
       fromWindow.is_admin !== undefined
@@ -385,6 +391,8 @@ function canViewSection(section) {
   const permissions = getPermissions();
   if (section === "analytics") return permissions.can_view_analytics;
   if (section === "settings") return permissions.can_view_settings;
+  if (section === "supplies-wb") return permissions.can_view_supplies;
+  if (section === "supplies-settings") return permissions.can_view_settings;
   return true;
 }
 
@@ -509,6 +517,8 @@ function sectionLabel(section) {
     chats: "Чаты",
     analytics: "Аналитика",
     settings: "Настройки",
+    "supplies-wb": "Поставки — WB",
+    "supplies-settings": "Поставки — Настройки",
     profile: "Мой профиль",
   };
   return labels[String(section || "")] || "Раздел";
@@ -1942,6 +1952,275 @@ async function loadReviews() {
   document.getElementById("reviewsPageInfo").textContent = `Страница ${reviewsState.page} из ${reviewsState.pages}`;
   document.getElementById("reviewsPrevPageBtn").disabled = reviewsState.page <= 1;
   document.getElementById("reviewsNextPageBtn").disabled = reviewsState.page >= reviewsState.pages;
+}
+
+// ── Supply module (Поставки) ──────────────────────────────────────────────────
+
+const SUPPLY_STATUS_LABELS = { 1: "Новая", 2: "Подтверждена", 5: "Принята" };
+
+let suppliesState = {
+  items: [],
+  total: 0,
+  page: 1,
+  page_size: 50,
+  sources: [],
+};
+
+function toggleAddSupplySourceForm(show) {
+  const form = document.getElementById("addSupplySourceForm");
+  if (!form) return;
+  form.classList.toggle("hidden", !show);
+  form.style.display = show ? "" : "none";
+  if (!show) {
+    const nameEl = document.getElementById("newSupplySourceName");
+    const keyEl = document.getElementById("newSupplySourceApiKey");
+    if (nameEl) nameEl.value = "";
+    if (keyEl) keyEl.value = "";
+  }
+}
+
+async function loadSupplySources() {
+  const res = await fetch("/api/supply-sources").catch(() => null);
+  if (!res || !res.ok) return;
+  const data = await res.json();
+  suppliesState.sources = Array.isArray(data) ? data : [];
+  renderSupplySourcesTable();
+  updateSuppliesSourceFilter();
+}
+
+function updateSuppliesSourceFilter() {
+  const sel = document.getElementById("suppliesSourceFilter");
+  if (!sel) return;
+  while (sel.options.length > 1) sel.remove(1);
+  for (const src of suppliesState.sources) {
+    const opt = document.createElement("option");
+    opt.value = String(src.id);
+    opt.textContent = String(src.name || `Источник #${src.id}`);
+    sel.appendChild(opt);
+  }
+}
+
+function renderSupplySourcesTable() {
+  const tbody = document.getElementById("supplySourcesTbody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+  const sources = suppliesState.sources;
+  if (!sources.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-cell">Источники не добавлены</td></tr>';
+    return;
+  }
+  sources.forEach((src, idx) => {
+    const tr = document.createElement("tr");
+    const lastSync = src.last_synced_at
+      ? new Date(src.last_synced_at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" })
+      : "—";
+    tr.innerHTML = `
+      <td>${idx + 1}</td>
+      <td>${esc(src.name || "")}</td>
+      <td class="small" style="font-family:monospace">${esc(src.api_key_preview || "—")}</td>
+      <td>${src.is_enabled ? "✓" : "—"}</td>
+      <td class="small">${lastSync}</td>
+      <td>
+        <button class="secondary small-btn" onclick="toggleSupplySource(${src.id}, ${!src.is_enabled})">${src.is_enabled ? "Отключить" : "Включить"}</button>
+        <button class="secondary small-btn danger-btn" onclick="deleteSupplySource(${src.id})">Удалить</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+async function createSupplySource() {
+  const nameEl = document.getElementById("newSupplySourceName");
+  const keyEl = document.getElementById("newSupplySourceApiKey");
+  const info = document.getElementById("addSupplySourceInfo");
+  const name = (nameEl?.value || "").trim();
+  const api_key = (keyEl?.value || "").trim();
+  if (!name) { if (info) { info.textContent = "Введите название"; info.style.color = "#b91c1c"; } return; }
+  if (!api_key) { if (info) { info.textContent = "Введите API-ключ"; info.style.color = "#b91c1c"; } return; }
+  if (info) { info.textContent = "Сохранение..."; info.style.color = ""; }
+  const res = await fetch("/api/supply-sources", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, api_key }),
+  }).catch(() => null);
+  if (!res) { if (info) { info.textContent = "Ошибка сети"; info.style.color = "#b91c1c"; } return; }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    if (info) { info.textContent = err.detail || "Ошибка"; info.style.color = "#b91c1c"; }
+    return;
+  }
+  if (info) { info.textContent = "Сохранено"; info.style.color = "#16a34a"; }
+  toggleAddSupplySourceForm(false);
+  await loadSupplySources();
+}
+
+async function toggleSupplySource(sourceId, isEnabled) {
+  await fetch(`/api/supply-sources/${sourceId}/toggle`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ is_enabled: isEnabled }),
+  }).catch(() => null);
+  await loadSupplySources();
+}
+
+async function deleteSupplySource(sourceId) {
+  if (!confirm("Удалить источник? Все данные о поставках из него будут удалены.")) return;
+  await fetch(`/api/supply-sources/${sourceId}`, { method: "DELETE" }).catch(() => null);
+  await loadSupplySources();
+}
+
+async function loadSupplies(resetPage = false) {
+  if (resetPage) suppliesState.page = 1;
+  const sourceId = document.getElementById("suppliesSourceFilter")?.value || "";
+  const statusId = document.getElementById("suppliesStatusFilter")?.value || "";
+  const dateFrom = document.getElementById("suppliesDateFrom")?.value || "";
+  const dateTo = document.getElementById("suppliesDateTo")?.value || "";
+  const params = new URLSearchParams({ page: suppliesState.page, page_size: suppliesState.page_size });
+  if (sourceId) params.set("source_id", sourceId);
+  if (statusId) params.set("status_id", statusId);
+  if (dateFrom) params.set("date_from", dateFrom);
+  if (dateTo) params.set("date_to", dateTo);
+  const info = document.getElementById("suppliesInfo");
+  if (info) info.textContent = "Загрузка...";
+  const res = await fetch("/api/supplies?" + params.toString()).catch(() => null);
+  if (!res || !res.ok) {
+    if (info) info.textContent = "Ошибка загрузки";
+    return;
+  }
+  const data = await res.json();
+  suppliesState.items = data.items || [];
+  suppliesState.total = data.total || 0;
+  suppliesState.page = data.page || 1;
+  renderSuppliesTable();
+  if (info) info.textContent = `Всего: ${suppliesState.total}`;
+  const pageInfo = document.getElementById("suppliesPageInfo");
+  const totalPages = Math.max(1, Math.ceil(suppliesState.total / suppliesState.page_size));
+  if (pageInfo) pageInfo.textContent = `Стр. ${suppliesState.page} / ${totalPages}`;
+  const prevBtn = document.getElementById("suppliesPrevBtn");
+  const nextBtn = document.getElementById("suppliesNextBtn");
+  if (prevBtn) prevBtn.disabled = suppliesState.page <= 1;
+  if (nextBtn) nextBtn.disabled = suppliesState.page >= totalPages;
+}
+
+function suppliesChangePage(delta) {
+  const totalPages = Math.max(1, Math.ceil(suppliesState.total / suppliesState.page_size));
+  const newPage = Math.max(1, Math.min(totalPages, suppliesState.page + delta));
+  if (newPage === suppliesState.page) return;
+  suppliesState.page = newPage;
+  loadSupplies();
+}
+
+function renderSuppliesTable() {
+  const tbody = document.getElementById("suppliesTbody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+  if (!suppliesState.items.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-cell">Нет данных. Нажмите «Синхронизировать».</td></tr>';
+    return;
+  }
+  for (const item of suppliesState.items) {
+    const supplyDate = item.supply_date
+      ? new Date(item.supply_date).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" })
+      : "—";
+    const statusLabel = SUPPLY_STATUS_LABELS[item.status_id] || `${item.status_id || "—"}`;
+    const tr = document.createElement("tr");
+    tr.className = "supply-row";
+    tr.dataset.supplyId = String(item.supply_id);
+    tr.innerHTML = `
+      <td class="supply-expand-cell">
+        <button class="supply-expand-btn" title="Показать товары" onclick="toggleSupplyGoods(this, ${item.supply_id})">▶</button>
+      </td>
+      <td><span class="supply-id">${item.supply_id}</span></td>
+      <td>${esc(item.warehouse_name || "—")}</td>
+      <td>${supplyDate}</td>
+      <td>${item.quantity ?? "—"}</td>
+      <td><span class="supply-status-badge status-${item.status_id}">${statusLabel}</span></td>
+      <td>—</td>
+    `;
+    tbody.appendChild(tr);
+    // Goods row (hidden initially)
+    const goodsTr = document.createElement("tr");
+    goodsTr.className = "supply-goods-row hidden";
+    goodsTr.dataset.supplyId = String(item.supply_id);
+    goodsTr.innerHTML = `<td colspan="7"><div class="supply-goods-container" id="supply-goods-${item.supply_id}"><span class="small" style="color:#94a3b8">Загрузка...</span></div></td>`;
+    tbody.appendChild(goodsTr);
+  }
+}
+
+async function toggleSupplyGoods(btn, supplyId) {
+  const goodsRow = document.querySelector(`.supply-goods-row[data-supply-id="${supplyId}"]`);
+  if (!goodsRow) return;
+  const isOpen = !goodsRow.classList.contains("hidden");
+  if (isOpen) {
+    goodsRow.classList.add("hidden");
+    btn.textContent = "▶";
+    btn.classList.remove("expanded");
+    return;
+  }
+  goodsRow.classList.remove("hidden");
+  btn.textContent = "▼";
+  btn.classList.add("expanded");
+  const container = document.getElementById(`supply-goods-${supplyId}`);
+  if (!container || container.dataset.loaded) return;
+  const res = await fetch(`/api/supplies/${supplyId}/goods`).catch(() => null);
+  if (!res || !res.ok) {
+    container.innerHTML = '<span class="small" style="color:#b91c1c">Ошибка загрузки товаров</span>';
+    return;
+  }
+  const goods = await res.json();
+  container.dataset.loaded = "1";
+  if (!goods.length) {
+    container.innerHTML = '<span class="small" style="color:#94a3b8">Нет товаров</span>';
+    return;
+  }
+  let html = '<table class="supply-goods-table"><thead><tr><th>Арт. WB (nmID)</th><th>Арт. поставщика</th><th>Цвет / размер</th><th>Кол-во</th></tr></thead><tbody>';
+  for (const g of goods) {
+    html += `<tr>
+      <td>${g.nm_id || "—"}</td>
+      <td>${esc(g.vendor_code || "—")}</td>
+      <td>${esc([g.color, g.tech_size].filter(Boolean).join(" / ") || "—")}</td>
+      <td>${g.quantity ?? "—"}</td>
+    </tr>`;
+  }
+  html += "</tbody></table>";
+  container.innerHTML = html;
+}
+
+function toggleSuppliesFilter() {
+  const fromEl = document.getElementById("suppliesDateFrom");
+  const toEl = document.getElementById("suppliesDateTo");
+  if (!fromEl) return;
+  const hidden = fromEl.style.display === "none";
+  fromEl.style.display = hidden ? "" : "none";
+  if (toEl) toEl.style.display = hidden ? "" : "none";
+}
+
+async function syncSupplies() {
+  const btn = document.getElementById("suppliesSyncBtn");
+  const info = document.getElementById("suppliesSyncInfo");
+  if (btn) { btn.disabled = true; btn.textContent = "⏳ Синхронизация..."; }
+  if (info) { info.textContent = "Загрузка данных с WB..."; info.style.color = ""; }
+  const sourceId = document.getElementById("suppliesSourceFilter")?.value || "";
+  const body = sourceId ? { source_id: parseInt(sourceId) } : {};
+  const res = await fetch("/api/supplies/sync", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  }).catch(() => null);
+  if (btn) { btn.disabled = false; btn.textContent = "🔄 Синхронизировать"; }
+  if (!res) { if (info) { info.textContent = "Ошибка сети"; info.style.color = "#b91c1c"; } return; }
+  const data = await res.json().catch(() => ({}));
+  if (info) {
+    if (data.errors && data.errors.length) {
+      info.textContent = `Синхронизировано: ${data.synced}. Ошибки: ${data.errors.join("; ")}`;
+      info.style.color = "#b45309";
+    } else {
+      info.textContent = `Готово. Обновлено поставок: ${data.synced}`;
+      info.style.color = "#16a34a";
+    }
+  }
+  await loadSupplies(true);
+  await loadSupplySources();
 }
 
 // ── Stock module ─────────────────────────────────────────────────────────────
@@ -5028,7 +5307,9 @@ async function openManagerPermissionsModalForCreate() {
 
 function applyManagerPermissionsSelection() {
   const permissions = collectManagerPermissionsFromModal();
-  if (!permissions.length) {
+  const canSuppliesEl = document.getElementById("managerCanSupplies");
+  teamState.pendingCanSupplies = canSuppliesEl ? Boolean(canSuppliesEl.checked) : false;
+  if (!permissions.length && !teamState.pendingCanSupplies) {
     const info = document.getElementById("managerPermissionsInfo");
     if (info) {
       info.textContent = "Нужно выбрать хотя бы один доступ";
@@ -5073,10 +5354,19 @@ async function saveNewManager() {
     setTeamInfo("Ошибка: " + (data.detail || "не удалось создать менеджера"), true);
     return;
   }
+  // Set can_supplies if checked
+  if (teamState.pendingCanSupplies && data.id) {
+    await fetch(`/api/tenant/team/${data.id}/supplies-access`, {
+      method: "PUT",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ can_supplies: true }),
+    }).catch(() => {});
+  }
   document.getElementById("teamManagerEmail").value = "";
   document.getElementById("teamManagerPassword").value = "";
   document.getElementById("teamManagerFullName").value = "";
   teamState.pendingPermissions = [];
+  teamState.pendingCanSupplies = false;
   updateTeamPermissionsPreview();
   setTeamInfo("Менеджер создан");
   await loadTeam();
@@ -5776,6 +6066,10 @@ document.addEventListener("DOMContentLoaded", () => {
   if (!permissions.can_view_analytics) {
     document.getElementById("section-analytics")?.classList.add("hidden");
   }
+  if (!permissions.can_view_supplies) {
+    document.getElementById("section-supplies-wb")?.classList.add("hidden");
+    document.getElementById("section-supplies-settings")?.classList.add("hidden");
+  }
   const savedSettingsTab = readStoredUiState(ACTIVE_SETTINGS_TAB_STORAGE_KEY);
   let initialSettingsTab = SETTINGS_TAB_IDS.includes(savedSettingsTab) ? savedSettingsTab : "sources";
   if (!permissions.can_view_settings) {
@@ -5918,6 +6212,12 @@ document.addEventListener("DOMContentLoaded", () => {
     loadContradictionRules();
     loadProducts();
   }
+  // Supplies module
+  if (permissions.can_view_supplies) {
+    const suppliesNavLabel = document.getElementById("nav-section-supplies");
+    if (suppliesNavLabel) suppliesNavLabel.style.display = "";
+    loadSupplySources().then(() => loadSupplies()).catch(() => {});
+  }
   // Load stock sources/reports lazily
   loadStockSources().then(() => loadStockReports()).catch(() => {});
   // Hook ozon client-id toggle
@@ -5939,3 +6239,20 @@ window.toggleChatEmojiPicker = toggleChatEmojiPicker;
 window.openChatQuickTemplatesModal = openChatQuickTemplatesModal;
 window.closeChatQuickTemplatesModal = closeChatQuickTemplatesModal;
 window.createChatQuickTemplate = createChatQuickTemplate;
+// Supplies module
+window.toggleAddSupplySourceForm = toggleAddSupplySourceForm;
+window.createSupplySource = createSupplySource;
+window.toggleSupplySource = toggleSupplySource;
+window.deleteSupplySource = deleteSupplySource;
+window.syncSupplies = syncSupplies;
+window.loadSupplies = loadSupplies;
+window.suppliesChangePage = suppliesChangePage;
+window.toggleSupplyGoods = toggleSupplyGoods;
+window.toggleSuppliesFilter = toggleSuppliesFilter;
+window.showSuppliesSettingsTab = function(tab) {
+  document.querySelectorAll("#section-supplies-settings .settings-tab-btn").forEach((b) => b.classList.remove("active"));
+  document.getElementById(`supplies-settings-tab-${tab}`)?.classList.add("active");
+  document.querySelectorAll("[id^='supplies-settings-pane-']").forEach((p) => { p.classList.add("hidden"); p.style.display = "none"; });
+  const pane = document.getElementById(`supplies-settings-pane-${tab}`);
+  if (pane) { pane.classList.remove("hidden"); pane.style.display = ""; }
+};
