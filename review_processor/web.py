@@ -5353,7 +5353,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
         with supply_sync_lock:
             if supply_sync_state.get("in_progress"):
-                return {"ok": False, "message": "Синхронизация уже запущена"}
+                # Reset if stuck (thread died without cleanup)
+                started = str(supply_sync_state.get("started_at") or "")
+                if started:
+                    from datetime import datetime as _dt2, timezone as _tz2
+                    try:
+                        age = (_dt2.now(_tz2.utc) - _dt2.fromisoformat(started.replace("Z", "+00:00"))).seconds
+                        if age < 600:  # allow reset after 10 min
+                            return {"ok": False, "message": "Синхронизация уже запущена"}
+                    except Exception:
+                        pass
+                supply_sync_state["in_progress"] = False
 
         sources = repository.list_supply_sources(user_id=owner_id)
         if payload.source_id:
@@ -5437,22 +5447,31 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                                 supply_wb_id = int(item.get("supplyID") or 0)
                                 if not supply_wb_id:
                                     continue
-                                if int(item.get("statusID") or 0) not in active_statuses:
+                                status_id = int(item.get("statusID") or 0)
+                                if status_id not in active_statuses:
                                     continue
-                                # Fetch details: warehouse, quantity, costs
-                                det_status, det_data = _wb_request(
-                                    "GET",
-                                    f"https://supplies-api.wildberries.ru/api/v1/supplies/{supply_wb_id}",
-                                    api_key,
-                                )
-                                if det_status == 200 and isinstance(det_data, dict):
-                                    item.update({k: v for k, v in det_data.items() if v is not None})
+                                # For active supplies (1,2,4): always fetch details
+                                # For accepted (5): fetch only if not already cached
+                                need_details = status_id in {1, 2, 4}
+                                if not need_details:
+                                    existing = repository.get_supply_item_row(
+                                        user_id=owner_id, supply_id=supply_wb_id
+                                    )
+                                    need_details = not (existing and existing.get("warehouse_name"))
+                                if need_details:
+                                    det_status, det_data = _wb_request(
+                                        "GET",
+                                        f"https://supplies-api.wildberries.ru/api/v1/supplies/{supply_wb_id}",
+                                        api_key,
+                                    )
+                                    if det_status == 200 and isinstance(det_data, dict):
+                                        item.update({k: v for k, v in det_data.items() if v is not None})
+                                    _time.sleep(0.15)
                                 item["supplyID"] = supply_wb_id
                                 repository.upsert_supply_item(source_id=source_id, data=item)
                                 synced_this_source += 1
                                 with supply_sync_lock:
                                     supply_sync_state["synced"] = total_synced + synced_this_source
-                                _time.sleep(0.15)  # ~6 rps, well within WB limit
                             if len(items) < page_size:
                                 break
                             page += 1
