@@ -5330,8 +5330,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 _now = _dt.now(_tz.utc)
                 date_from = (_now - _td(days=30)).strftime("%Y-%m-%d")
                 date_to = (_now + _td(days=1)).strftime("%Y-%m-%d")
-                # Only active statuses: 1=новая, 2=подтверждена, 4=на приёмке
-                _active_statuses = {1, 2, 4}
+                # Statuses to sync: 1=новая, 2=подтверждена, 4=на приёмке, 5=принята
+                _active_statuses = {1, 2, 4, 5}
                 page = 1
                 page_size = 50
                 synced_this_source = 0
