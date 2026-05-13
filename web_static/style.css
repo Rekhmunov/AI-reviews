@@ -2292,6 +2292,45 @@ button.secondary.danger:hover {
   width: 300px;
 }
 
+/* Chat order badge */
+.chat-order-badge {
+  font-size: 12px;
+  font-weight: 500;
+  color: #2563eb;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 4px;
+  padding: 1px 7px;
+  cursor: help;
+  white-space: nowrap;
+  position: relative;
+  display: inline-block;
+}
+
+.chat-order-badge[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  background: #1e293b;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 400;
+  padding: 6px 10px;
+  border-radius: 6px;
+  white-space: pre-line;
+  width: max-content;
+  max-width: 280px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 200;
+}
+
+.chat-order-badge[data-tip]:hover::after {
+  opacity: 1;
+}
+
 /* Invisible bridge between button and picker to prevent hover gap */
 .chat-emoji-wrap:hover .chat-emoji-picker::after,
 .chat-emoji-wrap.emoji-open .chat-emoji-picker::after {
