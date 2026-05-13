@@ -1032,6 +1032,7 @@
           <div class="supplies-top-controls">
             <div class="supplies-actions">
               <button id="suppliesSyncBtn" onclick="syncSupplies()">🔄 Синхронизировать</button>
+              <button id="suppliesClearBtn" class="secondary" onclick="clearSupplies()" style="color:#b91c1c;border-color:#fca5a5">Удалить поставки</button>
               <select id="suppliesSourceFilter" onchange="loadSupplies()">
                 <option value="">Все источники</option>
               </select>
@@ -1268,6 +1269,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=133"></script>
+  <script src="/static/app.js?v=134"></script>
 </body>
 </html>

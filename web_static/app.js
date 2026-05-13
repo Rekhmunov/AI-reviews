@@ -2217,7 +2217,8 @@ async function syncSupplies() {
   const sourceId = document.getElementById("suppliesSourceFilter")?.value || "";
   const body = sourceId ? { source_id: parseInt(sourceId) } : {};
 
-  if (btn) { btn.disabled = true; btn.textContent = "⏳ Запуск…"; }
+  _setSuppliesSyncingUI(true);
+  if (btn) btn.textContent = "⏳ Запуск…";
   if (info) { info.textContent = "Подключение к WB…"; info.style.color = "#64748b"; }
 
   const res = await fetch("/api/supplies/sync", {
@@ -2230,7 +2231,7 @@ async function syncSupplies() {
     const rawText = await res?.text().catch(() => "") || "";
     let detail = `Ошибка ${res?.status || "сети"}`;
     try { detail = JSON.parse(rawText).detail || detail; } catch (_) {}
-    if (btn) { btn.disabled = false; btn.textContent = "🔄 Синхронизировать"; }
+    _setSuppliesSyncingUI(false);
     if (info) { info.textContent = detail; info.style.color = "#b91c1c"; }
     return;
   }
@@ -2238,6 +2239,14 @@ async function syncSupplies() {
   // Start polling for progress
   if (_suppliesSyncPollTimer) clearInterval(_suppliesSyncPollTimer);
   _suppliesSyncPollTimer = setInterval(_pollSupplySyncStatus, 800);
+}
+
+function _setSuppliesSyncingUI(isSyncing) {
+  const syncBtn = document.getElementById("suppliesSyncBtn");
+  const clearBtn = document.getElementById("suppliesClearBtn");
+  if (syncBtn) syncBtn.disabled = isSyncing;
+  if (clearBtn) clearBtn.disabled = isSyncing;
+  if (!isSyncing && syncBtn) syncBtn.textContent = "🔄 Синхронизировать";
 }
 
 async function _pollSupplySyncStatus() {
@@ -2248,26 +2257,49 @@ async function _pollSupplySyncStatus() {
   if (!res || !res.ok) return;
   const state = await res.json().catch(() => ({}));
 
-  const synced = state.synced ?? 0;
-  const page = state.page ?? 0;
-  const msg = state.message || "";
+  const synced = Number(state.synced ?? 0);
+  const total = Number(state.total ?? 0);
 
   if (state.in_progress) {
-    if (btn) btn.textContent = `⏳ Стр. ${page} · ${synced} поставок`;
-    if (info) { info.textContent = msg; info.style.color = "#64748b"; }
+    const progressText = total > 0
+      ? `Загружено ${synced} из ${total} поставок`
+      : synced > 0 ? `Загружено ${synced} поставок…` : "Загрузка списка…";
+    if (btn) btn.textContent = `⏳ ${synced}${total > 0 ? "/" + total : ""}`;
+    if (info) { info.textContent = progressText; info.style.color = "#64748b"; }
   } else {
-    // Done
     clearInterval(_suppliesSyncPollTimer);
     _suppliesSyncPollTimer = null;
-    if (btn) { btn.disabled = false; btn.textContent = "🔄 Синхронизировать"; }
+    _setSuppliesSyncingUI(false);
     const hasErrors = Array.isArray(state.errors) && state.errors.length;
     if (info) {
-      info.textContent = msg;
+      const finalText = total > 0
+        ? `Готово. Загружено ${synced} из ${total} поставок.` + (hasErrors ? ` Ошибки: ${state.errors.join("; ")}` : "")
+        : (state.message || `Готово. Загружено ${synced} поставок.`);
+      info.textContent = finalText;
       info.style.color = hasErrors ? "#b45309" : "#16a34a";
     }
     await loadSupplies(true);
     await loadSupplySources();
   }
+}
+
+async function clearSupplies() {
+  if (!confirm("Удалить все поставки из таблицы и базы данных?")) return;
+  const btn = document.getElementById("suppliesClearBtn");
+  if (btn) { btn.disabled = true; btn.textContent = "Удаление…"; }
+  const res = await fetch("/api/supplies", {
+    method: "DELETE",
+    headers: jsonHeaders(),
+  }).catch(() => null);
+  if (btn) { btn.disabled = false; btn.textContent = "Удалить поставки"; }
+  if (!res || !res.ok) {
+    alert("Ошибка при удалении");
+    return;
+  }
+  const data = await res.json().catch(() => ({}));
+  const info = document.getElementById("suppliesSyncInfo");
+  if (info) { info.textContent = `Удалено ${data.deleted ?? 0} поставок`; info.style.color = "#64748b"; }
+  await loadSupplies(true);
 }
 
 // ── Stock module ─────────────────────────────────────────────────────────────
@@ -6292,6 +6324,7 @@ window.createSupplySource = createSupplySource;
 window.toggleSupplySource = toggleSupplySource;
 window.deleteSupplySource = deleteSupplySource;
 window.syncSupplies = syncSupplies;
+window.clearSupplies = clearSupplies;
 window.loadSupplies = loadSupplies;
 window.suppliesChangePage = suppliesChangePage;
 window.toggleSupplyGoods = toggleSupplyGoods;

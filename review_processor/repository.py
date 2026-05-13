@@ -6634,6 +6634,20 @@ class ReviewRepository:
             items.append(d)
         return {"items": items, "total": total, "page": page, "page_size": page_size}
 
+    def clear_supply_items(self, *, user_id: int) -> int:
+        """Delete all supply items (and cascaded goods) for this user. Returns deleted count."""
+        with self._connect() as conn:
+            result = conn.execute(
+                self._sql(
+                    """
+                    DELETE FROM supply_items
+                    WHERE source_id IN (SELECT id FROM supply_sources WHERE user_id = ?)
+                    """
+                ),
+                (user_id,),
+            )
+        return int(result.rowcount or 0)
+
     def get_supply_item_row(self, *, user_id: int, supply_id: int) -> dict[str, Any] | None:
         """Get supply_items row verifying ownership."""
         with self._connect() as conn:

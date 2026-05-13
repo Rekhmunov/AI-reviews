@@ -618,6 +618,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         "in_progress": False,
         "page": 0,
         "synced": 0,
+        "total": 0,
         "errors": [],
         "message": "",
         "started_at": None,
@@ -5335,6 +5336,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             _log.warning("lazy supply goods fetch error supply_id=%d: %s", supply_id, exc)
         return []
 
+    @app.delete("/api/supplies")
+    def clear_supplies(request: Request) -> dict[str, object]:
+        user = _require_user(request)
+        if str(user.get("role") or "") not in ROLE_CAN_ACCESS_SETTINGS:
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        deleted = repository.clear_supply_items(user_id=owner_id)
+        return {"ok": True, "deleted": deleted}
+
     @app.get("/api/supplies/sync/status")
     def get_supply_sync_status(request: Request) -> dict[str, object]:
         user = _require_user(request)
@@ -5403,7 +5413,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
             with supply_sync_lock:
                 supply_sync_state.update({
-                    "in_progress": True, "page": 0, "synced": 0,
+                    "in_progress": True, "page": 0, "synced": 0, "total": 0,
                     "errors": [], "message": "Запуск…",
                     "started_at": _utc_now(), "finished_at": None,
                 })
@@ -5443,8 +5453,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                                 and int(x.get("statusID") or 0) in active_statuses
                             ]
                             with supply_sync_lock:
+                                supply_sync_state["total"] = len(items)
                                 supply_sync_state["message"] = (
-                                    f"«{src['name']}»: отфильтровано {len(items)} поставок, загрузка деталей…"
+                                    f"«{src['name']}»: найдено {len(items)} поставок, загрузка деталей…"
                                 )
                             for item in items:
                                 supply_wb_id = int(item.get("supplyID") or 0)
