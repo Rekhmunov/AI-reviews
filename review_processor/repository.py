@@ -6427,17 +6427,19 @@ class ReviewRepository:
     def create_supply_source(self, *, user_id: int, name: str, api_key: str) -> dict[str, Any]:
         now = _utc_now()
         with self._connect() as conn:
-            row = conn.execute(
-                self._sql(
-                    """
-                    INSERT INTO supply_sources (user_id, name, api_key_encrypted, is_enabled, created_at)
-                    VALUES (?, ?, ?, TRUE, ?)
-                    RETURNING *
-                    """
-                ),
+            source_id = self._insert_and_get_id(
+                conn,
+                """
+                INSERT INTO supply_sources (user_id, name, api_key_encrypted, is_enabled, created_at)
+                VALUES (?, ?, ?, TRUE, ?)
+                """,
                 (user_id, name.strip(), encrypt_secret(api_key.strip()), now),
+            )
+            row = conn.execute(
+                self._sql("SELECT * FROM supply_sources WHERE id = ?"),
+                (source_id,),
             ).fetchone()
-        d = self._row_to_dict(row)
+        d = self._row_to_dict(row) if row else {"id": source_id}
         d.pop("api_key_encrypted", None)
         d["api_key_preview"] = mask_secret(api_key.strip())
         d["has_api_key"] = True
@@ -6497,7 +6499,7 @@ class ReviewRepository:
                         quantity, accepted_quantity, ready_for_sale_quantity,
                         acceptance_cost, storage_coef, delivery_coef, supplier_name,
                         raw_json, synced_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT (source_id, supply_id) DO UPDATE SET
                         status_id = excluded.status_id,
                         box_type_id = excluded.box_type_id,
@@ -6591,10 +6593,10 @@ class ReviewRepository:
             conditions.append("si.status_id = ?")
             params.append(status_id)
         if date_from:
-            conditions.append("si.supply_date >= ?::timestamptz")
+            conditions.append("si.supply_date >= ?")
             params.append(date_from)
         if date_to:
-            conditions.append("si.supply_date <= ?::timestamptz")
+            conditions.append("si.supply_date <= ?")
             params.append(date_to)
         where = "WHERE " + " AND ".join(conditions)
         offset = (max(1, page) - 1) * page_size

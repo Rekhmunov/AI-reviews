@@ -2045,11 +2045,16 @@ async function createSupplySource() {
   }).catch(() => null);
   if (!res) { if (info) { info.textContent = "Ошибка сети"; info.style.color = "#b91c1c"; } return; }
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    const detail = err.detail;
-    const msg = Array.isArray(detail)
-      ? detail.map((e) => e.msg || JSON.stringify(e)).join("; ")
-      : String(detail || "Ошибка");
+    const rawText = await res.text().catch(() => "");
+    console.error("supply-sources POST error:", res.status, rawText);
+    let msg = "Ошибка " + res.status;
+    try {
+      const err = JSON.parse(rawText);
+      const detail = err.detail;
+      msg = Array.isArray(detail)
+        ? detail.map((e) => e.msg || JSON.stringify(e)).join("; ")
+        : String(detail || msg);
+    } catch (_) {}
     if (info) { info.textContent = msg; info.style.color = "#b91c1c"; }
     return;
   }
