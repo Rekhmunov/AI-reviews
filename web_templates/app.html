@@ -443,8 +443,10 @@
           <section class="chats-thread-panel">
             <div id="chatThreadHeader" class="chat-thread-header">
               <button id="chatBackBtn" class="chat-back-btn hidden" type="button" onclick="goBackToChats()">‹ Все чаты</button>
-              <span id="chatThreadTitle" class="small">Выберите чат слева</span>
-              <span id="chatOrderBadgeWrap"></span>
+              <div style="flex:1;min-width:0;display:flex;align-items:center;gap:0;overflow:visible">
+                <span id="chatThreadTitle" class="small" style="flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Выберите чат слева</span>
+                <span id="chatOrderBadgeWrap" style="flex-shrink:0"></span>
+              </div>
             </div>
             <div id="chatMessages" class="chat-messages"></div>
             <div class="chat-compose">
@@ -1157,6 +1159,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=118"></script>
+  <script src="/static/app.js?v=119"></script>
 </body>
 </html>
