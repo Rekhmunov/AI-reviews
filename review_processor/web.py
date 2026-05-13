@@ -5296,7 +5296,23 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not active_sources:
             return {"ok": True, "synced": 0, "message": "Нет активных источников"}
 
-        import httpx
+        import urllib.request as _urllib
+        import json as _json_mod
+        import ssl as _ssl
+
+        def _wb_request(method: str, url: str, api_key: str, body: dict | None = None):
+            data = _json_mod.dumps(body).encode() if body else None
+            headers = {"Authorization": api_key, "Content-Type": "application/json"}
+            req = _urllib.Request(url, data=data, headers=headers, method=method)
+            ctx = _ssl.create_default_context()
+            try:
+                with _urllib.urlopen(req, timeout=30, context=ctx) as r:
+                    raw = r.read()
+                    return r.status, _json_mod.loads(raw) if raw else {}
+            except Exception as e:
+                code = getattr(e, "code", None) or getattr(getattr(e, "reason", None), "code", None)
+                return (int(code) if code else 0), {}
+
         total_synced = 0
         errors: list[str] = []
 
@@ -5310,55 +5326,42 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 continue
             source_id = int(src["id"])
             try:
-                # Fetch all supplies from WB API (paginated)
                 page = 1
                 page_size = 50
                 synced_this_source = 0
                 while True:
-                    resp = httpx.post(
+                    status, items = _wb_request(
+                        "POST",
                         "https://supplies-api.wildberries.ru/api/v1/supplies",
-                        headers={"Authorization": api_key},
-                        json={
-                            "dateFrom": "2020-01-01",
-                            "dateTo": "2099-12-31",
-                            "status": "ALL",
-                            "page": page,
-                            "pageSize": page_size,
-                        },
-                        timeout=30,
+                        api_key,
+                        {"dateFrom": "2020-01-01", "dateTo": "2099-12-31",
+                         "status": "ALL", "page": page, "pageSize": page_size},
                     )
-                    if resp.status_code == 401:
+                    if status == 401:
                         errors.append(f"Источник «{src['name']}»: неверный API-ключ (401)")
                         break
-                    resp.raise_for_status()
-                    items = resp.json()
                     if not isinstance(items, list) or not items:
                         break
                     for item in items:
                         supply_wb_id = int(item.get("supplyID") or 0)
                         if not supply_wb_id:
                             continue
-                        # Fetch details from /api/v1/supplies/{ID}
-                        det_resp = httpx.get(
+                        det_status, detail_data = _wb_request(
+                            "GET",
                             f"https://supplies-api.wildberries.ru/api/v1/supplies/{supply_wb_id}",
-                            headers={"Authorization": api_key},
-                            timeout=15,
+                            api_key,
                         )
-                        if det_resp.status_code == 200:
-                            detail_data = det_resp.json()
+                        if det_status == 200 and isinstance(detail_data, dict):
                             item.update({k: v for k, v in detail_data.items() if v is not None})
                         item["supplyID"] = supply_wb_id
                         supply_item_id = repository.upsert_supply_item(source_id=source_id, data=item)
-                        # Fetch goods for this supply
-                        goods_resp = httpx.get(
+                        goods_status, goods = _wb_request(
+                            "GET",
                             f"https://supplies-api.wildberries.ru/api/v1/supplies/{supply_wb_id}/goods",
-                            headers={"Authorization": api_key},
-                            timeout=15,
+                            api_key,
                         )
-                        if goods_resp.status_code == 200:
-                            goods = goods_resp.json()
-                            if isinstance(goods, list):
-                                repository.upsert_supply_goods(supply_item_id=supply_item_id, goods=goods)
+                        if goods_status == 200 and isinstance(goods, list):
+                            repository.upsert_supply_goods(supply_item_id=supply_item_id, goods=goods)
                         synced_this_source += 1
                     if len(items) < page_size:
                         break
@@ -5366,7 +5369,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 repository.mark_supply_source_synced(source_id=source_id)
                 total_synced += synced_this_source
             except Exception as exc:
-                _log.warning("supply sync error for source %d: %s", source_id, exc)
+                _log.warning("supply sync error for source %d: %s", source_id, exc, exc_info=True)
                 errors.append(f"Источник «{src['name']}»: {exc}")
 
         return {

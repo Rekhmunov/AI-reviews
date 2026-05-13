@@ -2224,13 +2224,22 @@ async function syncSupplies() {
   }).catch(() => null);
   if (btn) { btn.disabled = false; btn.textContent = "🔄 Синхронизировать"; }
   if (!res) { if (info) { info.textContent = "Ошибка сети"; info.style.color = "#b91c1c"; } return; }
-  const data = await res.json().catch(() => ({}));
+  const rawText = await res.text().catch(() => "");
+  let data = {};
+  try { data = JSON.parse(rawText); } catch (_) {}
+  if (!res.ok) {
+    const msg = data.detail ? String(data.detail) : `Ошибка ${res.status}`;
+    if (info) { info.textContent = msg; info.style.color = "#b91c1c"; }
+    console.error("sync error:", res.status, rawText);
+    return;
+  }
   if (info) {
-    if (data.errors && data.errors.length) {
-      info.textContent = `Синхронизировано: ${data.synced}. Ошибки: ${data.errors.join("; ")}`;
+    const synced = data.synced ?? 0;
+    if (Array.isArray(data.errors) && data.errors.length) {
+      info.textContent = `Синхронизировано: ${synced}. Ошибки: ${data.errors.join("; ")}`;
       info.style.color = "#b45309";
     } else {
-      info.textContent = `Готово. Обновлено поставок: ${data.synced}`;
+      info.textContent = `Готово. Обновлено поставок: ${synced}`;
       info.style.color = "#16a34a";
     }
   }
