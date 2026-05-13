@@ -6534,7 +6534,7 @@ class ReviewRepository:
                     int(data.get("quantity") or 0),
                     int(data.get("acceptedQuantity") or 0),
                     int(data.get("readyForSaleQuantity") or 0),
-                    data.get("acceptanceCost"),
+                    str(data.get("acceptanceCost")) if data.get("acceptanceCost") is not None else None,
                     str(data.get("storageCoef") or "") or None,
                     str(data.get("deliveryCoef") or "") or None,
                     str(data.get("supplierAssignName") or "") or None,

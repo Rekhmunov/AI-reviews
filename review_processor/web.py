@@ -5513,8 +5513,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                             repository.mark_supply_source_synced(source_id=source_id)
                             total_synced += synced_this_source
                     except Exception as exc:
-                        _log.warning("supply sync source %d: %s", source_id, exc, exc_info=True)
-                        errors.append(f"«{src['name']}»: {exc}")
+                        _log.error("supply sync source %d: %s", source_id, exc, exc_info=True)
+                        errors.append(f"«{src['name']}»: {type(exc).__name__}: {exc}")
+                        with supply_sync_lock:
+                            supply_sync_state["message"] = f"Ошибка: {type(exc).__name__}: {exc}"
             finally:
                 with supply_sync_lock:
                     supply_sync_state.update({
