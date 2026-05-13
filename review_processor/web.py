@@ -5216,12 +5216,16 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="Название не может быть пустым")
         if not payload.api_key.strip():
             raise HTTPException(status_code=400, detail="API-ключ не может быть пустым")
-        repository._ensure_supply_tables()
-        return repository.create_supply_source(
-            user_id=int(user["id"]),
-            name=payload.name.strip(),
-            api_key=payload.api_key.strip(),
-        )
+        try:
+            repository._ensure_supply_tables()
+            return repository.create_supply_source(
+                user_id=int(user["id"]),
+                name=payload.name.strip(),
+                api_key=payload.api_key.strip(),
+            )
+        except Exception as exc:
+            _log.error("create_supply_source error: %s", exc, exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Ошибка сервера: {exc}")
 
     @app.patch("/api/supply-sources/{source_id}/toggle")
     def toggle_supply_source(request: Request, source_id: int, payload: ToggleSupplySourceRequest) -> dict[str, object]:
