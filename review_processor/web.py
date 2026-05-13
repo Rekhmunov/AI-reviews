@@ -612,6 +612,18 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     app = FastAPI(title="Marketplace Reviews Assistant", version="1.0.0")
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     sync_stop_event = threading.Event()
+    # Supply sync state — separate from main feedback sync
+    supply_sync_lock = threading.Lock()
+    supply_sync_state: dict[str, object] = {
+        "in_progress": False,
+        "page": 0,
+        "synced": 0,
+        "errors": [],
+        "message": "",
+        "started_at": None,
+        "finished_at": None,
+    }
+
     sync_lock = threading.Lock()
     sync_state: dict[str, object] = {
         "in_progress": False,
@@ -5323,6 +5335,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             _log.warning("lazy supply goods fetch error supply_id=%d: %s", supply_id, exc)
         return []
 
+    @app.get("/api/supplies/sync/status")
+    def get_supply_sync_status(request: Request) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        with supply_sync_lock:
+            return dict(supply_sync_state)
+
     @app.post("/api/supplies/sync")
     def sync_supplies(request: Request, payload: SyncSuppliesRequest) -> dict[str, object]:
         user = _require_user(request)
@@ -5330,6 +5350,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=403, detail="Нет доступа")
         owner_id = _supply_owner_id(user)
         repository._ensure_supply_tables()
+
+        with supply_sync_lock:
+            if supply_sync_state.get("in_progress"):
+                return {"ok": False, "message": "Синхронизация уже запущена"}
+
         sources = repository.list_supply_sources(user_id=owner_id)
         if payload.source_id:
             sources = [s for s in sources if s["id"] == payload.source_id]
@@ -5340,78 +5365,105 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         import urllib.request as _urllib
         import json as _json_mod
         import ssl as _ssl
+        import time as _time
+        from datetime import datetime as _dt, timezone as _tz, timedelta as _td
 
-        def _wb_request(method: str, url: str, api_key: str, body: dict | None = None):
-            data = _json_mod.dumps(body).encode() if body else None
+        def _wb_post(url: str, api_key: str, body: dict):
+            data = _json_mod.dumps(body).encode()
             headers = {"Authorization": api_key, "Content-Type": "application/json"}
-            req = _urllib.Request(url, data=data, headers=headers, method=method)
+            req = _urllib.Request(url, data=data, headers=headers, method="POST")
             ctx = _ssl.create_default_context()
             try:
                 with _urllib.urlopen(req, timeout=30, context=ctx) as r:
-                    raw = r.read()
-                    return r.status, _json_mod.loads(raw) if raw else {}
+                    return r.status, _json_mod.loads(r.read() or b"[]")
             except Exception as e:
-                code = getattr(e, "code", None) or getattr(getattr(e, "reason", None), "code", None)
-                return (int(code) if code else 0), {}
+                return (getattr(e, "code", 0) or 0), []
 
-        total_synced = 0
-        errors: list[str] = []
+        def _run_sync():
+            _now = _dt.now(_tz.utc)
+            date_from = (_now - _td(days=30)).strftime("%Y-%m-%d")
+            date_to = (_now + _td(days=1)).strftime("%Y-%m-%d")
+            active_statuses = {1, 2, 4, 5}
+            total_synced = 0
+            errors: list[str] = []
 
-        for src in active_sources:
-            src_full = repository.get_supply_source_with_key(user_id=owner_id, source_id=int(src["id"]))
-            if not src_full:
-                continue
-            api_key = str(src_full.get("api_key") or "")
-            if not api_key:
-                errors.append(f"Источник «{src['name']}»: нет API-ключа")
-                continue
-            source_id = int(src["id"])
+            with supply_sync_lock:
+                supply_sync_state.update({
+                    "in_progress": True, "page": 0, "synced": 0,
+                    "errors": [], "message": "Запуск…",
+                    "started_at": _utc_now(), "finished_at": None,
+                })
+
             try:
-                from datetime import datetime as _dt, timezone as _tz, timedelta as _td
-                _now = _dt.now(_tz.utc)
-                date_from = (_now - _td(days=30)).strftime("%Y-%m-%d")
-                date_to = (_now + _td(days=1)).strftime("%Y-%m-%d")
-                # Statuses to sync: 1=новая, 2=подтверждена, 4=на приёмке, 5=принята
-                _active_statuses = {1, 2, 4, 5}
-                page = 1
-                page_size = 50
-                synced_this_source = 0
-                while True:
-                    status, items = _wb_request(
-                        "POST",
-                        "https://supplies-api.wildberries.ru/api/v1/supplies",
-                        api_key,
-                        {"dateFrom": date_from, "dateTo": date_to,
-                         "status": "ALL", "page": page, "pageSize": page_size},
+                for src in active_sources:
+                    src_full = repository.get_supply_source_with_key(
+                        user_id=owner_id, source_id=int(src["id"])
                     )
-                    if status == 401:
-                        errors.append(f"Источник «{src['name']}»: неверный API-ключ (401)")
-                        break
-                    if not isinstance(items, list) or not items:
-                        break
-                    for item in items:
-                        supply_wb_id = int(item.get("supplyID") or 0)
-                        if not supply_wb_id:
-                            continue
-                        if int(item.get("statusID") or 0) not in _active_statuses:
-                            continue
-                        item["supplyID"] = supply_wb_id
-                        repository.upsert_supply_item(source_id=source_id, data=item)
-                        synced_this_source += 1
-                    if len(items) < page_size:
-                        break
-                    page += 1
-                repository.mark_supply_source_synced(source_id=source_id)
-                total_synced += synced_this_source
-            except Exception as exc:
-                _log.warning("supply sync error for source %d: %s", source_id, exc, exc_info=True)
-                errors.append(f"Источник «{src['name']}»: {exc}")
+                    if not src_full:
+                        continue
+                    api_key = str(src_full.get("api_key") or "")
+                    if not api_key:
+                        errors.append(f"Источник «{src['name']}»: нет API-ключа")
+                        continue
+                    source_id = int(src["id"])
+                    page, page_size = 1, 50
+                    synced_this_source = 0
+                    with supply_sync_lock:
+                        supply_sync_state["message"] = f"Источник «{src['name']}»…"
+                    try:
+                        while True:
+                            with supply_sync_lock:
+                                supply_sync_state["page"] = page
+                                supply_sync_state["message"] = (
+                                    f"«{src['name']}» — страница {page}, "
+                                    f"загружено {total_synced + synced_this_source} поставок"
+                                )
+                            http_status, items = _wb_post(
+                                "https://supplies-api.wildberries.ru/api/v1/supplies",
+                                api_key,
+                                {"dateFrom": date_from, "dateTo": date_to,
+                                 "status": "ALL", "page": page, "pageSize": page_size},
+                            )
+                            if http_status == 401:
+                                errors.append(f"«{src['name']}»: неверный API-ключ")
+                                break
+                            if not isinstance(items, list) or not items:
+                                break
+                            for item in items:
+                                supply_wb_id = int(item.get("supplyID") or 0)
+                                if not supply_wb_id:
+                                    continue
+                                if int(item.get("statusID") or 0) not in active_statuses:
+                                    continue
+                                item["supplyID"] = supply_wb_id
+                                repository.upsert_supply_item(source_id=source_id, data=item)
+                                synced_this_source += 1
+                                with supply_sync_lock:
+                                    supply_sync_state["synced"] = total_synced + synced_this_source
+                            if len(items) < page_size:
+                                break
+                            page += 1
+                            _time.sleep(0.2)  # WB rate limit: ~5 rps
+                        repository.mark_supply_source_synced(source_id=source_id)
+                        total_synced += synced_this_source
+                    except Exception as exc:
+                        _log.warning("supply sync source %d: %s", source_id, exc, exc_info=True)
+                        errors.append(f"«{src['name']}»: {exc}")
+            finally:
+                with supply_sync_lock:
+                    supply_sync_state.update({
+                        "in_progress": False,
+                        "synced": total_synced,
+                        "errors": errors,
+                        "message": f"Готово. Загружено {total_synced} поставок." + (
+                            f" Ошибки: {'; '.join(errors)}" if errors else ""
+                        ),
+                        "finished_at": _utc_now(),
+                    })
 
-        return {
-            "ok": True,
-            "synced": total_synced,
-            "errors": errors,
-        }
+        t = threading.Thread(target=_run_sync, daemon=True)
+        t.start()
+        return {"ok": True, "started": True, "message": "Синхронизация запущена"}
 
     # ── End supply module endpoints ───────────────────────────────────────────
 

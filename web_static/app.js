@@ -2209,41 +2209,65 @@ function toggleSuppliesFilter() {
   if (toEl) toEl.style.display = hidden ? "" : "none";
 }
 
+let _suppliesSyncPollTimer = null;
+
 async function syncSupplies() {
   const btn = document.getElementById("suppliesSyncBtn");
   const info = document.getElementById("suppliesSyncInfo");
-  if (btn) { btn.disabled = true; btn.textContent = "⏳ Синхронизация..."; }
-  if (info) { info.textContent = "Загрузка данных с WB..."; info.style.color = ""; }
   const sourceId = document.getElementById("suppliesSourceFilter")?.value || "";
   const body = sourceId ? { source_id: parseInt(sourceId) } : {};
+
+  if (btn) { btn.disabled = true; btn.textContent = "⏳ Запуск…"; }
+  if (info) { info.textContent = "Подключение к WB…"; info.style.color = "#64748b"; }
+
   const res = await fetch("/api/supplies/sync", {
     method: "POST",
     headers: jsonHeaders(),
     body: JSON.stringify(body),
   }).catch(() => null);
-  if (btn) { btn.disabled = false; btn.textContent = "🔄 Синхронизировать"; }
-  if (!res) { if (info) { info.textContent = "Ошибка сети"; info.style.color = "#b91c1c"; } return; }
-  const rawText = await res.text().catch(() => "");
-  let data = {};
-  try { data = JSON.parse(rawText); } catch (_) {}
-  if (!res.ok) {
-    const msg = data.detail ? String(data.detail) : `Ошибка ${res.status}`;
-    if (info) { info.textContent = msg; info.style.color = "#b91c1c"; }
-    console.error("sync error:", res.status, rawText);
+
+  if (!res || !res.ok) {
+    const rawText = await res?.text().catch(() => "") || "";
+    let detail = `Ошибка ${res?.status || "сети"}`;
+    try { detail = JSON.parse(rawText).detail || detail; } catch (_) {}
+    if (btn) { btn.disabled = false; btn.textContent = "🔄 Синхронизировать"; }
+    if (info) { info.textContent = detail; info.style.color = "#b91c1c"; }
     return;
   }
-  if (info) {
-    const synced = data.synced ?? 0;
-    if (Array.isArray(data.errors) && data.errors.length) {
-      info.textContent = `Синхронизировано: ${synced}. Ошибки: ${data.errors.join("; ")}`;
-      info.style.color = "#b45309";
-    } else {
-      info.textContent = `Готово. Обновлено поставок: ${synced}`;
-      info.style.color = "#16a34a";
+
+  // Start polling for progress
+  if (_suppliesSyncPollTimer) clearInterval(_suppliesSyncPollTimer);
+  _suppliesSyncPollTimer = setInterval(_pollSupplySyncStatus, 800);
+}
+
+async function _pollSupplySyncStatus() {
+  const btn = document.getElementById("suppliesSyncBtn");
+  const info = document.getElementById("suppliesSyncInfo");
+
+  const res = await fetch("/api/supplies/sync/status", { headers: jsonHeaders() }).catch(() => null);
+  if (!res || !res.ok) return;
+  const state = await res.json().catch(() => ({}));
+
+  const synced = state.synced ?? 0;
+  const page = state.page ?? 0;
+  const msg = state.message || "";
+
+  if (state.in_progress) {
+    if (btn) btn.textContent = `⏳ Стр. ${page} · ${synced} поставок`;
+    if (info) { info.textContent = msg; info.style.color = "#64748b"; }
+  } else {
+    // Done
+    clearInterval(_suppliesSyncPollTimer);
+    _suppliesSyncPollTimer = null;
+    if (btn) { btn.disabled = false; btn.textContent = "🔄 Синхронизировать"; }
+    const hasErrors = Array.isArray(state.errors) && state.errors.length;
+    if (info) {
+      info.textContent = msg;
+      info.style.color = hasErrors ? "#b45309" : "#16a34a";
     }
+    await loadSupplies(true);
+    await loadSupplySources();
   }
-  await loadSupplies(true);
-  await loadSupplySources();
 }
 
 // ── Stock module ─────────────────────────────────────────────────────────────
