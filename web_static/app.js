@@ -2014,14 +2014,13 @@ function renderSupplySourcesTable() {
     const lastSync = src.last_synced_at
       ? new Date(src.last_synced_at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" })
       : "—";
-    const keyPreview = esc(src.api_key_preview || "—");
+    const fullPreview = src.api_key_preview || "—";
+    const shortPreview = fullPreview.length > 18 ? fullPreview.slice(0, 14) + "…" : fullPreview;
     tr.innerHTML = `
       <td>${idx + 1}</td>
       <td>${esc(src.name || "")}</td>
       <td class="supply-src-key-cell">
-        <div class="supply-src-key-wrap">
-          <span class="supply-src-key-text" title="${keyPreview}">${keyPreview}</span>
-        </div>
+        <span class="supply-src-key-text" title="${esc(fullPreview)}">${esc(shortPreview)}</span>
       </td>
       <td>${src.is_enabled ? '<span style="color:#16a34a;font-weight:600">Да</span>' : '<span style="color:#9ca3af">Нет</span>'}</td>
       <td class="small" style="color:#64748b">${lastSync}</td>
