@@ -5368,16 +5368,20 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         import time as _time
         from datetime import datetime as _dt, timezone as _tz, timedelta as _td
 
-        def _wb_post(url: str, api_key: str, body: dict):
-            data = _json_mod.dumps(body).encode()
+        def _wb_request(method: str, url: str, api_key: str, body: dict | None = None):
+            data = _json_mod.dumps(body).encode() if body else None
             headers = {"Authorization": api_key, "Content-Type": "application/json"}
-            req = _urllib.Request(url, data=data, headers=headers, method="POST")
+            req = _urllib.Request(url, data=data, headers=headers, method=method)
             ctx = _ssl.create_default_context()
             try:
                 with _urllib.urlopen(req, timeout=30, context=ctx) as r:
-                    return r.status, _json_mod.loads(r.read() or b"[]")
+                    return r.status, _json_mod.loads(r.read() or b"{}")
             except Exception as e:
-                return (getattr(e, "code", 0) or 0), []
+                return (getattr(e, "code", 0) or 0), {}
+
+        def _wb_post(url: str, api_key: str, body: dict):
+            s, d = _wb_request("POST", url, api_key, body)
+            return s, d if isinstance(d, list) else []
 
         def _run_sync():
             _now = _dt.now(_tz.utc)
@@ -5435,11 +5439,20 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                                     continue
                                 if int(item.get("statusID") or 0) not in active_statuses:
                                     continue
+                                # Fetch details: warehouse, quantity, costs
+                                det_status, det_data = _wb_request(
+                                    "GET",
+                                    f"https://supplies-api.wildberries.ru/api/v1/supplies/{supply_wb_id}",
+                                    api_key,
+                                )
+                                if det_status == 200 and isinstance(det_data, dict):
+                                    item.update({k: v for k, v in det_data.items() if v is not None})
                                 item["supplyID"] = supply_wb_id
                                 repository.upsert_supply_item(source_id=source_id, data=item)
                                 synced_this_source += 1
                                 with supply_sync_lock:
                                     supply_sync_state["synced"] = total_synced + synced_this_source
+                                _time.sleep(0.15)  # ~6 rps, well within WB limit
                             if len(items) < page_size:
                                 break
                             page += 1
