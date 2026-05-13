@@ -1060,6 +1060,8 @@ class ReviewRepository:
         self._migrate_review_contradiction_rules(conn)
         # Product photos catalog
         self._migrate_product_photos(conn)
+        # manually_closed_at for chat conversations
+        self._migrate_manually_closed_at(conn)
         # Remove tagged_reviews group — it is no longer supported.
         # pros/cons fields are now merged into review.text before classification.
         conn.execute(
@@ -4131,13 +4133,20 @@ class ReviewRepository:
                 conn.execute(
                     """
                     UPDATE conversation_items
-                    SET last_sent_at = NULL, updated_at = ?
+                    SET last_sent_at = NULL, manually_closed_at = NULL, updated_at = ?
                     WHERE user_id = ? AND conversation_uid = ?
                       AND (
                           last_sent_at IS NULL
                           OR (
                               last_message_at IS NOT NULL
                               AND last_message_at::text > last_sent_at::text
+                          )
+                      )
+                      AND (
+                          manually_closed_at IS NULL
+                          OR (
+                              last_message_at IS NOT NULL
+                              AND last_message_at::text > manually_closed_at::text
                           )
                       )
                     """,
@@ -4463,15 +4472,12 @@ class ReviewRepository:
         return result.rowcount > 0
 
     def move_conversation_to_new(self, *, user_id: int, conversation_uid: str) -> bool:
-        """Clear last_sent_at so the chat moves to the 'New' bucket.
-
-        Used when the operator manually moves an answered chat back to New.
-        """
+        """Clear last_sent_at and manually_closed_at so the chat moves to 'New'."""
         with self._connect() as conn:
             result = conn.execute(
                 """
                 UPDATE conversation_items
-                SET last_sent_at = NULL, updated_at = ?
+                SET last_sent_at = NULL, manually_closed_at = NULL, updated_at = ?
                 WHERE user_id = ? AND conversation_uid = ?
                 """,
                 (_utc_now(), user_id, conversation_uid),
@@ -4524,20 +4530,20 @@ class ReviewRepository:
         return result.rowcount > 0
 
     def mark_conversation_answered(self, *, user_id: int, conversation_uid: str) -> bool:
-        """Set last_sent_at = now so the chat moves to the 'answered' bucket.
+        """Set last_sent_at = now and manually_closed_at = now.
 
-        Used for ad/promo chats where the seller does not need to reply but
-        wants to remove them from the 'needs reply' queue.
+        manually_closed_at prevents auto-sync from moving this chat back to
+        'New' as long as no newer buyer message arrives after this timestamp.
         """
         now = _utc_now()
         with self._connect() as conn:
             result = conn.execute(
                 """
                 UPDATE conversation_items
-                SET last_sent_at = ?, updated_at = ?
+                SET last_sent_at = ?, manually_closed_at = ?, updated_at = ?
                 WHERE user_id = ? AND conversation_uid = ?
                 """,
-                (now, now, user_id, conversation_uid),
+                (now, now, now, user_id, conversation_uid),
             )
         return result.rowcount > 0
 
@@ -4989,7 +4995,7 @@ class ReviewRepository:
             result = conn.execute(
                 self._sql("""
                 UPDATE conversation_items ci
-                SET last_sent_at = NULL, updated_at = ?
+                SET last_sent_at = NULL, manually_closed_at = NULL, updated_at = ?
                 WHERE ci.user_id = ?
                   AND ci.kind = 'chat'
                   AND ci.last_sent_at IS NOT NULL
@@ -5001,6 +5007,10 @@ class ReviewRepository:
                         AND cm.created_at IS NOT NULL
                         AND cm.created_at::text != ''
                         AND cm.created_at > ci.last_sent_at::timestamptz
+                        AND (
+                            ci.manually_closed_at IS NULL
+                            OR cm.created_at > ci.manually_closed_at::timestamptz
+                        )
                   )
                 """),
                 (now, user_id),
@@ -6235,6 +6245,14 @@ class ReviewRepository:
                 if val:
                     result[val] = url
         return result
+
+    def _migrate_manually_closed_at(self, conn) -> None:
+        """Add manually_closed_at column to conversation_items."""
+        cols = self._table_columns(conn, "conversation_items")
+        if "manually_closed_at" not in cols:
+            conn.execute(
+                "ALTER TABLE conversation_items ADD COLUMN manually_closed_at TEXT"
+            )
 
     def _ensure_contradiction_rules_table(self) -> None:
         """Create table on demand if migration didn't run yet."""

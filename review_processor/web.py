@@ -4882,6 +4882,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                         repository.purge_old_ai_usage_logs(keep_days=30)
                     except Exception:
                         pass
+                    # Add manually_closed_at column if missing
+                    try:
+                        with repository._connect() as _conn:
+                            repository._migrate_manually_closed_at(_conn)
+                    except Exception:
+                        pass
                     break
                 except Exception as _inner_exc:
                     _log.warning("restore_auto_sync_on_startup: inner error: %s", _inner_exc)
