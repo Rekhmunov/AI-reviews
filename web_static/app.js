@@ -2040,7 +2040,7 @@ async function createSupplySource() {
   if (info) { info.textContent = "Сохранение..."; info.style.color = ""; }
   const res = await fetch("/api/supply-sources", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: jsonHeaders(),
     body: JSON.stringify({ name, api_key }),
   }).catch(() => null);
   if (!res) { if (info) { info.textContent = "Ошибка сети"; info.style.color = "#b91c1c"; } return; }
@@ -2057,7 +2057,7 @@ async function createSupplySource() {
 async function toggleSupplySource(sourceId, isEnabled) {
   await fetch(`/api/supply-sources/${sourceId}/toggle`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers: jsonHeaders(),
     body: JSON.stringify({ is_enabled: isEnabled }),
   }).catch(() => null);
   await loadSupplySources();
@@ -2065,7 +2065,7 @@ async function toggleSupplySource(sourceId, isEnabled) {
 
 async function deleteSupplySource(sourceId) {
   if (!confirm("Удалить источник? Все данные о поставках из него будут удалены.")) return;
-  await fetch(`/api/supply-sources/${sourceId}`, { method: "DELETE" }).catch(() => null);
+  await fetch(`/api/supply-sources/${sourceId}`, { method: "DELETE", headers: jsonHeaders() }).catch(() => null);
   await loadSupplySources();
 }
 
@@ -2204,7 +2204,7 @@ async function syncSupplies() {
   const body = sourceId ? { source_id: parseInt(sourceId) } : {};
   const res = await fetch("/api/supplies/sync", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: jsonHeaders(),
     body: JSON.stringify(body),
   }).catch(() => null);
   if (btn) { btn.disabled = false; btn.textContent = "🔄 Синхронизировать"; }
