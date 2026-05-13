@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=84" />
+  <link rel="stylesheet" href="/static/style.css?v=85" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1105,8 +1105,17 @@
           </div>
           <div class="panel">
             <div class="table-wrap">
-              <table>
-                <thead><tr><th>№</th><th>Название</th><th>Ключ</th><th>Активен</th><th>Последняя синхр.</th><th>Действия</th></tr></thead>
+              <table class="supply-sources-table">
+                <thead>
+                  <tr>
+                    <th style="width:36px">№</th>
+                    <th>Название</th>
+                    <th>Ключ</th>
+                    <th style="width:60px">Активен</th>
+                    <th style="width:130px">Последняя синхр.</th>
+                    <th style="width:160px">Действия</th>
+                  </tr>
+                </thead>
                 <tbody id="supplySourcesTbody"></tbody>
               </table>
             </div>
@@ -1257,6 +1266,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=128"></script>
+  <script src="/static/app.js?v=129"></script>
 </body>
 </html>

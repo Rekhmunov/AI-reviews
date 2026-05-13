@@ -2014,15 +2014,22 @@ function renderSupplySourcesTable() {
     const lastSync = src.last_synced_at
       ? new Date(src.last_synced_at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" })
       : "—";
+    const keyPreview = esc(src.api_key_preview || "—");
     tr.innerHTML = `
       <td>${idx + 1}</td>
       <td>${esc(src.name || "")}</td>
-      <td class="small" style="font-family:monospace">${esc(src.api_key_preview || "—")}</td>
-      <td>${src.is_enabled ? "✓" : "—"}</td>
-      <td class="small">${lastSync}</td>
+      <td class="supply-src-key-cell">
+        <div class="supply-src-key-wrap">
+          <span class="supply-src-key-text" title="${keyPreview}">${keyPreview}</span>
+        </div>
+      </td>
+      <td>${src.is_enabled ? '<span style="color:#16a34a;font-weight:600">Да</span>' : '<span style="color:#9ca3af">Нет</span>'}</td>
+      <td class="small" style="color:#64748b">${lastSync}</td>
       <td>
-        <button class="secondary small-btn" onclick="toggleSupplySource(${src.id}, ${!src.is_enabled})">${src.is_enabled ? "Отключить" : "Включить"}</button>
-        <button class="secondary small-btn danger-btn" onclick="deleteSupplySource(${src.id})">Удалить</button>
+        <div class="row" style="gap:6px;flex-wrap:nowrap">
+          <button class="secondary small-btn" onclick="toggleSupplySource(${src.id}, ${!src.is_enabled})">${src.is_enabled ? "Отключить" : "Включить"}</button>
+          <button class="secondary small-btn" style="color:#b91c1c;border-color:#fca5a5" onclick="deleteSupplySource(${src.id})">Удалить</button>
+        </div>
       </td>
     `;
     tbody.appendChild(tr);

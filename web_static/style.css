@@ -4618,3 +4618,38 @@ button.secondary.danger:hover {
 }
 .filters-left { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .filters-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* Supply sources table */
+.supply-sources-table { width: 100%; table-layout: fixed; }
+.supply-sources-table th, .supply-sources-table td {
+  padding: 8px 12px;
+  text-align: left;
+  font-size: 13px;
+  border-bottom: 1px solid #f1f5f9;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.supply-sources-table thead th {
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+.supply-sources-table tr:last-child td { border-bottom: none; }
+
+.supply-src-key-cell { width: 220px; max-width: 220px; }
+.supply-src-key-wrap { display: flex; align-items: center; gap: 6px; }
+.supply-src-key-text {
+  font-family: monospace;
+  font-size: 12px;
+  color: #475569;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+  display: block;
+}
