@@ -2125,6 +2125,14 @@ function suppliesChangePage(delta) {
   loadSupplies();
 }
 
+function _supplyWarehouseLabel(item) {
+  const dest = (item.warehouse_name || "").trim();
+  const transit = (item.transit_warehouse_name || "").trim();
+  if (transit && dest) return `${esc(transit)} → ${esc(dest)}`;
+  if (dest) return esc(dest);
+  return "—";
+}
+
 function renderSuppliesTable() {
   const tbody = document.getElementById("suppliesTbody");
   if (!tbody) return;
@@ -2146,7 +2154,7 @@ function renderSuppliesTable() {
         <button class="supply-expand-btn" title="Показать товары" onclick="toggleSupplyGoods(this, ${item.supply_id})" aria-label="Развернуть">▶</button>
       </td>
       <td><span class="supply-id-text">${item.supply_id}</span></td>
-      <td class="supply-wh-cell">${esc(item.warehouse_name || "—")}</td>
+      <td class="supply-wh-cell">${_supplyWarehouseLabel(item)}</td>
       <td class="supply-date-cell">${supplyDate}</td>
       <td class="supply-qty-cell">${item.quantity ?? "—"}</td>
       <td><span class="supply-status-badge supply-status-${item.status_id}">${statusLabel}</span></td>

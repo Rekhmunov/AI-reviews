@@ -6388,6 +6388,13 @@ class ReviewRepository:
         conn.execute(
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS can_supplies BOOLEAN NOT NULL DEFAULT FALSE"
         )
+        # Add transit/actual warehouse columns (idempotent)
+        conn.execute(
+            "ALTER TABLE supply_items ADD COLUMN IF NOT EXISTS transit_warehouse_name TEXT"
+        )
+        conn.execute(
+            "ALTER TABLE supply_items ADD COLUMN IF NOT EXISTS actual_warehouse_name TEXT"
+        )
 
     def _ensure_supply_tables(self) -> None:
         with self._connect() as conn:
@@ -6496,16 +6503,19 @@ class ReviewRepository:
                     """
                     INSERT INTO supply_items (
                         source_id, supply_id, preorder_id, status_id, box_type_id,
-                        warehouse_id, warehouse_name, create_date, supply_date, fact_date,
+                        warehouse_id, warehouse_name, transit_warehouse_name, actual_warehouse_name,
+                        create_date, supply_date, fact_date,
                         quantity, accepted_quantity, ready_for_sale_quantity,
                         acceptance_cost, storage_coef, delivery_coef, supplier_name,
                         raw_json, synced_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT (source_id, supply_id) DO UPDATE SET
                         status_id = excluded.status_id,
                         box_type_id = excluded.box_type_id,
                         warehouse_id = excluded.warehouse_id,
                         warehouse_name = excluded.warehouse_name,
+                        transit_warehouse_name = excluded.transit_warehouse_name,
+                        actual_warehouse_name = excluded.actual_warehouse_name,
                         supply_date = excluded.supply_date,
                         fact_date = excluded.fact_date,
                         quantity = excluded.quantity,
@@ -6527,7 +6537,9 @@ class ReviewRepository:
                     int(data.get("statusID") or 0) or None,
                     int(data.get("boxTypeID") or 0) or None,
                     int(data.get("warehouseID") or 0) or None,
-                    str(data.get("warehouseName") or ""),
+                    str(data.get("warehouseName") or "") or None,
+                    str(data.get("transitWarehouseName") or "") or None,
+                    str(data.get("actualWarehouseName") or "") or None,
                     _ts(data.get("createDate")),
                     _ts(data.get("supplyDate")),
                     _ts(data.get("factDate")),
