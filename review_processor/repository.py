@@ -6432,7 +6432,7 @@ class ReviewRepository:
                 conn,
                 """
                 INSERT INTO supply_sources (user_id, name, api_key_encrypted, is_enabled, created_at)
-                VALUES (?, ?, ?, TRUE, ?)
+                VALUES (?, ?, ?, 1, ?)
                 """,
                 (user_id, name.strip(), encrypt_secret(api_key.strip()), now),
             )
