@@ -396,6 +396,23 @@ class TemplateVariableDeleteRequest(BaseModel):
     var_key: str = Field(min_length=3, max_length=120)
 
 
+class CreateSupplySourceRequest(BaseModel):
+    name: str
+    api_key: str
+
+
+class ToggleSupplySourceRequest(BaseModel):
+    is_enabled: bool = True
+
+
+class SyncSuppliesRequest(BaseModel):
+    source_id: int | None = None
+
+
+class ManagerSuppliesAccessRequest(BaseModel):
+    can_supplies: bool = False
+
+
 class UserTemplateVariableValuesSaveRequest(BaseModel):
     values: dict[str, str] = Field(default_factory=dict)
 
@@ -4314,9 +4331,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "items": repository.list_manager_permissions(manager_user_id=target_user_id),
         }
 
-    class ManagerSuppliesAccessRequest(BaseModel):
-        can_supplies: bool = False
-
     @app.put("/api/tenant/team/{target_user_id}/supplies-access")
     def tenant_set_manager_supplies_access(
         target_user_id: int,
@@ -5193,10 +5207,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         repository._ensure_supply_tables()
         return repository.list_supply_sources(user_id=owner_id)
 
-    class CreateSupplySourceRequest(BaseModel):
-        name: str
-        api_key: str
-
     @app.post("/api/supply-sources")
     def create_supply_source(request: Request, payload: CreateSupplySourceRequest) -> dict[str, object]:
         user = _require_auth(request)
@@ -5212,9 +5222,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             name=payload.name.strip(),
             api_key=payload.api_key.strip(),
         )
-
-    class ToggleSupplySourceRequest(BaseModel):
-        is_enabled: bool = True
 
     @app.patch("/api/supply-sources/{source_id}/toggle")
     def toggle_supply_source(request: Request, source_id: int, payload: ToggleSupplySourceRequest) -> dict[str, object]:
@@ -5270,9 +5277,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=403, detail="Нет доступа")
         owner_id = _supply_owner_id(user)
         return repository.get_supply_goods(user_id=owner_id, supply_id=supply_id)
-
-    class SyncSuppliesRequest(BaseModel):
-        source_id: int | None = None
 
     @app.post("/api/supplies/sync")
     def sync_supplies(request: Request, payload: SyncSuppliesRequest) -> dict[str, object]:

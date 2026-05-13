@@ -2046,7 +2046,11 @@ async function createSupplySource() {
   if (!res) { if (info) { info.textContent = "Ошибка сети"; info.style.color = "#b91c1c"; } return; }
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    if (info) { info.textContent = err.detail || "Ошибка"; info.style.color = "#b91c1c"; }
+    const detail = err.detail;
+    const msg = Array.isArray(detail)
+      ? detail.map((e) => e.msg || JSON.stringify(e)).join("; ")
+      : String(detail || "Ошибка");
+    if (info) { info.textContent = msg; info.style.color = "#b91c1c"; }
     return;
   }
   if (info) { info.textContent = "Сохранено"; info.style.color = "#16a34a"; }
