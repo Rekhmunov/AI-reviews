@@ -3518,24 +3518,28 @@ async function loadChatMessages(conversationUid) {
     return;
   }
   const titleSpan = document.getElementById("chatThreadTitle");
+  const badgeWrap = document.getElementById("chatOrderBadgeWrap");
   const activeConversation = findActiveChatConversation();
   if (titleSpan) {
+    titleSpan.textContent = activeConversation
+      ? `${activeConversation.customer_name || "Чат"} · ${String(activeConversation.source || "").toUpperCase()}`
+      : "Чат";
+  }
+  if (badgeWrap) {
     if (activeConversation) {
-      const name = esc(activeConversation.customer_name || "Чат");
-      const src = esc(String(activeConversation.source || "").toUpperCase());
-      // Extract goodCard from metadata
       const _meta = activeConversation.metadata || {};
       const _raw = (_meta.raw || _meta) || {};
       const _gc = _raw.goodCard || {};
       const _productName = String(_gc.name || "").trim();
       const _nmId = String(_gc.nmID || _gc.nmId || "").trim();
-      const _hasOrder = _productName || _nmId;
-      const orderBadge = _hasOrder
-        ? `<span class="chat-order-badge" data-tip="${esc((_productName ? _productName : "") + (_productName && _nmId ? "\nАртикул WB: " + _nmId : _nmId ? "Артикул WB: " + _nmId : ""))}">Данные заказа</span>`
-        : "";
-      titleSpan.innerHTML = `${name} · ${src}${orderBadge ? " · " + orderBadge : ""}`;
+      if (_productName || _nmId) {
+        const tipLines = [_productName, _nmId ? "Артикул WB: " + _nmId : ""].filter(Boolean).join("\n");
+        badgeWrap.innerHTML = ` · <span class="chat-order-badge" data-tip="${tipLines.replace(/"/g, "&quot;")}">Данные заказа</span>`;
+      } else {
+        badgeWrap.innerHTML = "";
+      }
     } else {
-      titleSpan.textContent = "Чат";
+      badgeWrap.innerHTML = "";
     }
   }
   // Only show loading placeholder on first open, not on 30s background refreshes
