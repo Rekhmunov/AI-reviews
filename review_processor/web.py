@@ -5326,6 +5326,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 continue
             source_id = int(src["id"])
             try:
+                from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+                _now = _dt.now(_tz.utc)
+                date_from = (_now - _td(days=30)).strftime("%Y-%m-%d")
+                date_to = (_now + _td(days=1)).strftime("%Y-%m-%d")
+                # Only active statuses: 1=новая, 2=подтверждена, 4=на приёмке
+                _active_statuses = {1, 2, 4}
                 page = 1
                 page_size = 50
                 synced_this_source = 0
@@ -5334,7 +5340,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                         "POST",
                         "https://supplies-api.wildberries.ru/api/v1/supplies",
                         api_key,
-                        {"dateFrom": "2020-01-01", "dateTo": "2099-12-31",
+                        {"dateFrom": date_from, "dateTo": date_to,
                          "status": "ALL", "page": page, "pageSize": page_size},
                     )
                     if status == 401:
@@ -5345,6 +5351,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     for item in items:
                         supply_wb_id = int(item.get("supplyID") or 0)
                         if not supply_wb_id:
+                            continue
+                        # Skip statuses not in our target set
+                        if int(item.get("statusID") or 0) not in _active_statuses:
                             continue
                         det_status, detail_data = _wb_request(
                             "GET",
