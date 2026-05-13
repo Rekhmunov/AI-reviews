@@ -5420,29 +5420,32 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                         errors.append(f"Источник «{src['name']}»: нет API-ключа")
                         continue
                     source_id = int(src["id"])
-                    page, page_size = 1, 50
                     synced_this_source = 0
                     with supply_sync_lock:
-                        supply_sync_state["message"] = f"Источник «{src['name']}»…"
+                        supply_sync_state["message"] = f"«{src['name']}»: загрузка списка…"
+                        supply_sync_state["page"] = 1
                     try:
-                        while True:
+                        # WB API ignores dateFrom/dateTo — always returns ALL supplies.
+                        # Fetch once (API also ignores pagination) and filter client-side.
+                        http_status, items = _wb_post(
+                            "https://supplies-api.wildberries.ru/api/v1/supplies",
+                            api_key,
+                            {"dateFrom": "2020-01-01", "dateTo": "2099-12-31",
+                             "status": "ALL", "page": 1, "pageSize": 1000},
+                        )
+                        if http_status == 401:
+                            errors.append(f"«{src['name']}»: неверный API-ключ")
+                        elif isinstance(items, list):
+                            # Client-side filter: supplyDate >= last 30 days
+                            items = [
+                                x for x in items
+                                if (x.get("supplyDate") or "")[:10] >= date_from
+                                and int(x.get("statusID") or 0) in active_statuses
+                            ]
                             with supply_sync_lock:
-                                supply_sync_state["page"] = page
                                 supply_sync_state["message"] = (
-                                    f"«{src['name']}» — страница {page}, "
-                                    f"загружено {total_synced + synced_this_source} поставок"
+                                    f"«{src['name']}»: отфильтровано {len(items)} поставок, загрузка деталей…"
                                 )
-                            http_status, items = _wb_post(
-                                "https://supplies-api.wildberries.ru/api/v1/supplies",
-                                api_key,
-                                {"dateFrom": date_from, "dateTo": date_to,
-                                 "status": "ALL", "page": page, "pageSize": page_size},
-                            )
-                            if http_status == 401:
-                                errors.append(f"«{src['name']}»: неверный API-ключ")
-                                break
-                            if not isinstance(items, list) or not items:
-                                break
                             for item in items:
                                 supply_wb_id = int(item.get("supplyID") or 0)
                                 if not supply_wb_id:
@@ -5472,12 +5475,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                                 synced_this_source += 1
                                 with supply_sync_lock:
                                     supply_sync_state["synced"] = total_synced + synced_this_source
-                            if len(items) < page_size:
-                                break
-                            page += 1
-                            _time.sleep(0.2)  # WB rate limit: ~5 rps
-                        repository.mark_supply_source_synced(source_id=source_id)
-                        total_synced += synced_this_source
+                            repository.mark_supply_source_synced(source_id=source_id)
+                            total_synced += synced_this_source
                     except Exception as exc:
                         _log.warning("supply sync source %d: %s", source_id, exc, exc_info=True)
                         errors.append(f"«{src['name']}»: {exc}")
