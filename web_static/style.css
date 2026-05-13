@@ -2307,28 +2307,29 @@ button.secondary.danger:hover {
   display: inline-block;
 }
 
-.chat-order-badge[data-tip]::after {
-  content: attr(data-tip);
+.chat-order-tooltip {
+  display: none;
   position: absolute;
-  top: calc(100% + 6px);
+  top: calc(100% + 4px);
   left: 0;
   background: #1e293b;
   color: #fff;
   font-size: 12px;
   font-weight: 400;
-  padding: 6px 10px;
+  padding: 8px 12px;
   border-radius: 6px;
   white-space: pre-line;
   width: max-content;
-  max-width: 280px;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.15s;
+  max-width: 300px;
   z-index: 200;
+  cursor: text;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
-.chat-order-badge[data-tip]:hover::after {
-  opacity: 1;
+.chat-order-badge:hover .chat-order-tooltip,
+.chat-order-tooltip:hover {
+  display: block;
 }
 
 /* Invisible bridge between button and picker to prevent hover gap */

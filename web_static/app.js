@@ -3534,7 +3534,7 @@ async function loadChatMessages(conversationUid) {
       const _nmId = String(_gc.nmID || _gc.nmId || "").trim();
       if (_productName || _nmId) {
         const tipLines = [_productName, _nmId ? "Артикул WB: " + _nmId : ""].filter(Boolean).join("\n");
-        badgeWrap.innerHTML = `<span class="chat-order-badge" style="margin-left:8px" data-tip="${tipLines.replace(/"/g, "&quot;")}">Данные заказа</span>`;
+        badgeWrap.innerHTML = `<span class="chat-order-badge" style="margin-left:8px;position:relative">Данные заказа<div class="chat-order-tooltip">${esc(tipLines)}</div></span>`;
       } else {
         badgeWrap.innerHTML = "";
       }
