@@ -2133,8 +2133,16 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     for _item in items:
                         _meta = _item.get("metadata") or {}
                         _raw = (_meta.get("raw") or {}) if isinstance(_meta, dict) else {}
-                        _sku = str(_raw.get("sku") or "").strip()
-                        _item["product_photo_url"] = _photo_map.get(_sku) or None
+                        _pd = (_raw.get("productDetails") or {}) if isinstance(_raw, dict) else {}
+                        _keys = [
+                            str(_raw.get("sku") or "").strip(),           # Ozon SKU
+                            str(_pd.get("supplierArticle") or "").strip(), # WB supplier article
+                            str(_pd.get("nmId") or "").strip(),            # WB nmId
+                            str(_raw.get("supplierArticle") or "").strip(),# WB supplier article alt
+                        ]
+                        _item["product_photo_url"] = next(
+                            (_photo_map[k] for k in _keys if k and k in _photo_map), None
+                        )
             except Exception:
                 pass
         return {
