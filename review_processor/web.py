@@ -5234,7 +5234,7 @@ def build_app_html(user: dict[str, object]) -> str:
     can_view_settings = role in ROLE_CAN_ACCESS_SETTINGS
     admin_link = '<a class="navbtn nav-admin" href="/admin"><span class="nav-item-icon">○</span> Админ-панель</a>' if role == ROLE_ADMIN else ""
     nav_analytics = (
-        '<a id="nav-analytics" class="navbtn" href="#" onclick="showSection(\'analytics\')">Аналитика</a>'
+        '<a id="nav-analytics" class="nav-item" href="#" onclick="showSection(\'analytics\')"><span class="nav-item-icon">∑</span> Аналитика</a>'
         if can_view_analytics
         else ""
     )
