@@ -5200,7 +5200,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.get("/api/supply-sources")
     def list_supply_sources(request: Request) -> list[dict[str, object]]:
-        user = _require_auth(request)
+        user = _require_user(request)
         if not _can_view_supplies(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
         owner_id = _supply_owner_id(user)
@@ -5209,7 +5209,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.post("/api/supply-sources")
     def create_supply_source(request: Request, payload: CreateSupplySourceRequest) -> dict[str, object]:
-        user = _require_auth(request)
+        user = _require_user(request)
         if str(user.get("role") or "") not in ROLE_CAN_ACCESS_SETTINGS:
             raise HTTPException(status_code=403, detail="Только владелец может добавлять источники")
         if not payload.name.strip():
@@ -5229,7 +5229,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.patch("/api/supply-sources/{source_id}/toggle")
     def toggle_supply_source(request: Request, source_id: int, payload: ToggleSupplySourceRequest) -> dict[str, object]:
-        user = _require_auth(request)
+        user = _require_user(request)
         if str(user.get("role") or "") not in ROLE_CAN_ACCESS_SETTINGS:
             raise HTTPException(status_code=403, detail="Нет доступа")
         ok = repository.toggle_supply_source(
@@ -5241,7 +5241,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.delete("/api/supply-sources/{source_id}")
     def delete_supply_source(request: Request, source_id: int) -> dict[str, object]:
-        user = _require_auth(request)
+        user = _require_user(request)
         if str(user.get("role") or "") not in ROLE_CAN_ACCESS_SETTINGS:
             raise HTTPException(status_code=403, detail="Нет доступа")
         ok = repository.delete_supply_source(user_id=int(user["id"]), source_id=source_id)
@@ -5259,7 +5259,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         page: int = 1,
         page_size: int = 50,
     ) -> dict[str, object]:
-        user = _require_auth(request)
+        user = _require_user(request)
         if not _can_view_supplies(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
         owner_id = _supply_owner_id(user)
@@ -5276,7 +5276,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.get("/api/supplies/{supply_id}/goods")
     def get_supply_goods(request: Request, supply_id: int) -> list[dict[str, object]]:
-        user = _require_auth(request)
+        user = _require_user(request)
         if not _can_view_supplies(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
         owner_id = _supply_owner_id(user)
@@ -5284,7 +5284,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.post("/api/supplies/sync")
     def sync_supplies(request: Request, payload: SyncSuppliesRequest) -> dict[str, object]:
-        user = _require_auth(request)
+        user = _require_user(request)
         if not _can_view_supplies(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
         owner_id = _supply_owner_id(user)
