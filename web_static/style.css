@@ -2318,13 +2318,13 @@ button.secondary.danger:hover {
   font-weight: 400;
   padding: 8px 12px;
   border-radius: 6px;
-  white-space: pre-line;
   width: max-content;
   max-width: 300px;
   z-index: 200;
-  cursor: text;
+  cursor: default;
   user-select: text;
   -webkit-user-select: text;
+  line-height: 1.5;
 }
 
 .chat-order-badge:hover .chat-order-tooltip,

@@ -3534,7 +3534,11 @@ async function loadChatMessages(conversationUid) {
       const _nmId = String(_gc.nmID || _gc.nmId || "").trim();
       if (_productName || _nmId) {
         const tipLines = [_productName, _nmId ? "Артикул WB: " + _nmId : ""].filter(Boolean).join("\n");
-        badgeWrap.innerHTML = `<span class="chat-order-badge" style="margin-left:8px;position:relative">Данные заказа<div class="chat-order-tooltip">${esc(tipLines)}</div></span>`;
+        const _productLine = _nmId
+          ? `<a href="https://www.wildberries.ru/catalog/${esc(_nmId)}/detail.aspx" target="_blank" rel="noopener noreferrer" style="color:#93c5fd;text-decoration:underline">${esc(_productName || "Товар WB")}</a>`
+          : esc(_productName);
+        const _articleLine = _nmId ? `<div style="margin-top:4px;color:#94a3b8;font-size:11px">Артикул WB: ${esc(_nmId)}</div>` : "";
+        badgeWrap.innerHTML = `<span class="chat-order-badge" style="margin-left:8px;position:relative">Данные заказа<div class="chat-order-tooltip">${_productLine}${_articleLine}</div></span>`;
       } else {
         badgeWrap.innerHTML = "";
       }
