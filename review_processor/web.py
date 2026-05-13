@@ -5431,7 +5431,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             _now = _dt.now(_tz.utc)
             date_from = (_now - _td(days=30)).strftime("%Y-%m-%d")
             date_to = (_now + _td(days=1)).strftime("%Y-%m-%d")
-            active_statuses = {1, 2, 4, 5}
+            active_statuses = {1, 2, 3, 4, 5}  # 3 = Отгрузка разрешена
             total_synced = 0
             errors: list[str] = []
 
@@ -5492,7 +5492,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                                 try:
                                     # For active (1,2,4): always fetch details
                                     # For accepted (5): fetch only if not already cached
-                                    need_details = status_id in {1, 2, 4}
+                                    need_details = status_id in {1, 2, 3, 4}
                                     if not need_details:
                                         existing = repository.get_supply_item_row(
                                             user_id=owner_id, supply_id=supply_wb_id

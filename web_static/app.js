@@ -1956,7 +1956,7 @@ async function loadReviews() {
 
 // ── Supply module (Поставки) ──────────────────────────────────────────────────
 
-const SUPPLY_STATUS_LABELS = { 1: "Новая", 2: "Подтверждена", 5: "Принята" };
+const SUPPLY_STATUS_LABELS = { 1: "Новая", 2: "Подтверждена", 3: "Отгрузка разрешена", 4: "На приёмке", 5: "Принята" };
 
 let suppliesState = {
   items: [],
