@@ -6323,14 +6323,14 @@ class ReviewRepository:
                 user_id BIGINT NOT NULL,
                 name TEXT NOT NULL,
                 api_key_encrypted TEXT,
-                is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
-                created_at TIMESTAMPTZ NOT NULL,
-                last_synced_at TIMESTAMPTZ
+                is_enabled INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                last_synced_at TEXT
             )
             """
         )
         conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_supply_sources_user ON supply_sources(user_id)"
+            self._sql("CREATE INDEX IF NOT EXISTS idx_supply_sources_user ON supply_sources(user_id)")
         )
         conn.execute(
             """
@@ -6343,27 +6343,27 @@ class ReviewRepository:
                 box_type_id INTEGER,
                 warehouse_id INTEGER,
                 warehouse_name TEXT,
-                create_date TIMESTAMPTZ,
-                supply_date TIMESTAMPTZ,
-                fact_date TIMESTAMPTZ,
+                create_date TEXT,
+                supply_date TEXT,
+                fact_date TEXT,
                 quantity INTEGER NOT NULL DEFAULT 0,
                 accepted_quantity INTEGER NOT NULL DEFAULT 0,
                 ready_for_sale_quantity INTEGER NOT NULL DEFAULT 0,
-                acceptance_cost NUMERIC,
+                acceptance_cost TEXT,
                 storage_coef TEXT,
                 delivery_coef TEXT,
                 supplier_name TEXT,
-                raw_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-                synced_at TIMESTAMPTZ NOT NULL,
+                raw_json TEXT NOT NULL DEFAULT '{}',
+                synced_at TEXT NOT NULL,
                 UNIQUE(source_id, supply_id)
             )
             """
         )
         conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_supply_items_source ON supply_items(source_id)"
+            self._sql("CREATE INDEX IF NOT EXISTS idx_supply_items_source ON supply_items(source_id)")
         )
         conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_supply_items_date ON supply_items(supply_date DESC NULLS LAST)"
+            self._sql("CREATE INDEX IF NOT EXISTS idx_supply_items_supply ON supply_items(supply_date, source_id)")
         )
         conn.execute(
             """
@@ -6382,7 +6382,7 @@ class ReviewRepository:
             """
         )
         conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_supply_goods_item ON supply_goods(supply_item_id)"
+            self._sql("CREATE INDEX IF NOT EXISTS idx_supply_goods_item ON supply_goods(supply_item_id)")
         )
         # Add can_supplies flag to users for manager access control
         conn.execute(
@@ -6408,6 +6408,7 @@ class ReviewRepository:
             key = decrypt_secret(encrypted) if encrypted else None
             d["api_key_preview"] = mask_secret(key)
             d["has_api_key"] = bool(key)
+            d["is_enabled"] = bool(d.get("is_enabled"))
             result.append(d)
         return result
 
@@ -6449,7 +6450,7 @@ class ReviewRepository:
         with self._connect() as conn:
             result = conn.execute(
                 self._sql("UPDATE supply_sources SET is_enabled = ? WHERE user_id = ? AND id = ?"),
-                (self._bool_db(is_enabled), user_id, source_id),
+                (1 if is_enabled else 0, user_id, source_id),
             )
         return bool(result.rowcount)
 
@@ -6464,8 +6465,8 @@ class ReviewRepository:
     def mark_supply_source_synced(self, *, source_id: int) -> None:
         with self._connect() as conn:
             conn.execute(
-                self._sql("UPDATE supply_sources SET last_synced_at = NOW() WHERE id = ?"),
-                (source_id,),
+                self._sql("UPDATE supply_sources SET last_synced_at = ? WHERE id = ?"),
+                (_utc_now(), source_id),
             )
 
     # ── Supply Items CRUD ──
@@ -6620,7 +6621,7 @@ class ReviewRepository:
                     FROM supply_items si
                     JOIN supply_sources ss ON ss.id = si.source_id
                     {where}
-                    ORDER BY si.supply_date DESC NULLS LAST, si.supply_id DESC
+                    ORDER BY si.supply_date DESC, si.supply_id DESC
                     LIMIT ? OFFSET ?
                     """
                 ),
