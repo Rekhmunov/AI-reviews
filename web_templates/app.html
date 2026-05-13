@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=86" />
+  <link rel="stylesheet" href="/static/style.css?v=87" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1028,50 +1028,52 @@
       <!-- ── Поставки: WB ── -->
       <section id="section-supplies-wb" class="hidden">
         <h3 class="section-title">Поставки — WB</h3>
-        <div class="panel">
-          <div class="filters-bar">
-            <div class="filters-left">
+        <div class="panel supplies-toolbar-panel">
+          <div class="supplies-top-controls">
+            <div class="supplies-actions">
               <button id="suppliesSyncBtn" onclick="syncSupplies()">🔄 Синхронизировать</button>
-              <select id="suppliesSourceFilter" onchange="loadSupplies()" style="width:auto">
+              <select id="suppliesSourceFilter" onchange="loadSupplies()">
                 <option value="">Все источники</option>
               </select>
-              <select id="suppliesStatusFilter" onchange="loadSupplies()" style="width:auto">
+              <select id="suppliesStatusFilter" onchange="loadSupplies()">
                 <option value="">Все статусы</option>
                 <option value="1">Новые</option>
                 <option value="2">Подтверждённые</option>
+                <option value="4">На приёмке</option>
                 <option value="5">Принятые</option>
               </select>
             </div>
-            <div class="filters-right">
-              <input type="date" id="suppliesDateFrom" onchange="loadSupplies()" style="width:140px" />
-              <input type="date" id="suppliesDateTo" onchange="loadSupplies()" style="width:140px" />
-              <button class="secondary icon-btn" id="suppliesFilterBtn" onclick="toggleSuppliesFilter()" title="Фильтры">⊟</button>
+            <div class="supplies-date-wrap">
+              <input type="date" id="suppliesDateFrom" onchange="loadSupplies()" />
+              <input type="date" id="suppliesDateTo" onchange="loadSupplies()" />
             </div>
           </div>
-          <div id="suppliesSyncInfo" class="small" style="color:#64748b;margin-top:6px"></div>
+          <div id="suppliesSyncInfo" class="supplies-sync-info"></div>
         </div>
-        <div class="panel" style="margin-top:0;padding-top:0">
+        <div class="panel supplies-table-panel">
           <div class="table-wrap">
             <table id="suppliesTable">
               <thead>
                 <tr>
-                  <th style="width:32px"></th>
-                  <th>№ поставки</th>
-                  <th>Склад</th>
-                  <th>Дата поставки</th>
-                  <th>Кол-во (шт)</th>
-                  <th>Статус</th>
-                  <th>Ссылки</th>
+                  <th class="supplies-col-expand"></th>
+                  <th class="supplies-col-id">№ поставки</th>
+                  <th class="supplies-col-wh">Склад</th>
+                  <th class="supplies-col-date">Дата поставки</th>
+                  <th class="supplies-col-qty">Кол-во</th>
+                  <th class="supplies-col-status">Статус</th>
+                  <th class="supplies-col-links">Ссылки</th>
                 </tr>
               </thead>
               <tbody id="suppliesTbody"></tbody>
             </table>
           </div>
-          <div id="suppliesInfo" class="small" style="color:#64748b;margin-top:8px"></div>
-          <div class="row" style="margin-top:12px;gap:8px;align-items:center">
-            <button class="secondary" id="suppliesPrevBtn" onclick="suppliesChangePage(-1)">← Назад</button>
-            <span id="suppliesPageInfo" class="small"></span>
-            <button class="secondary" id="suppliesNextBtn" onclick="suppliesChangePage(1)">Вперёд →</button>
+          <div class="supplies-footer">
+            <span id="suppliesInfo" class="small supplies-total"></span>
+            <div class="supplies-pagination">
+              <button class="secondary" id="suppliesPrevBtn" onclick="suppliesChangePage(-1)">← Назад</button>
+              <span id="suppliesPageInfo" class="small"></span>
+              <button class="secondary" id="suppliesNextBtn" onclick="suppliesChangePage(1)">Вперёд →</button>
+            </div>
           </div>
         </div>
       </section>
@@ -1266,6 +1268,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=131"></script>
+  <script src="/static/app.js?v=132"></script>
 </body>
 </html>

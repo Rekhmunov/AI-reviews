@@ -2107,10 +2107,10 @@ async function loadSupplies(resetPage = false) {
   suppliesState.total = data.total || 0;
   suppliesState.page = data.page || 1;
   renderSuppliesTable();
-  if (info) info.textContent = `Всего: ${suppliesState.total}`;
-  const pageInfo = document.getElementById("suppliesPageInfo");
   const totalPages = Math.max(1, Math.ceil(suppliesState.total / suppliesState.page_size));
-  if (pageInfo) pageInfo.textContent = `Стр. ${suppliesState.page} / ${totalPages}`;
+  if (info) info.textContent = `Поставок: ${suppliesState.total}`;
+  const pageInfo = document.getElementById("suppliesPageInfo");
+  if (pageInfo) pageInfo.textContent = `${suppliesState.page} / ${totalPages}`;
   const prevBtn = document.getElementById("suppliesPrevBtn");
   const nextBtn = document.getElementById("suppliesNextBtn");
   if (prevBtn) prevBtn.disabled = suppliesState.page <= 1;
@@ -2137,27 +2137,26 @@ function renderSuppliesTable() {
     const supplyDate = item.supply_date
       ? new Date(item.supply_date).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" })
       : "—";
-    const statusLabel = SUPPLY_STATUS_LABELS[item.status_id] || `${item.status_id || "—"}`;
+    const statusLabel = SUPPLY_STATUS_LABELS[item.status_id] || String(item.status_id || "—");
     const tr = document.createElement("tr");
     tr.className = "supply-row";
     tr.dataset.supplyId = String(item.supply_id);
     tr.innerHTML = `
       <td class="supply-expand-cell">
-        <button class="supply-expand-btn" title="Показать товары" onclick="toggleSupplyGoods(this, ${item.supply_id})">▶</button>
+        <button class="supply-expand-btn" title="Показать товары" onclick="toggleSupplyGoods(this, ${item.supply_id})" aria-label="Развернуть">▶</button>
       </td>
-      <td><span class="supply-id">${item.supply_id}</span></td>
-      <td>${esc(item.warehouse_name || "—")}</td>
-      <td>${supplyDate}</td>
-      <td>${item.quantity ?? "—"}</td>
-      <td><span class="supply-status-badge status-${item.status_id}">${statusLabel}</span></td>
-      <td>—</td>
+      <td><span class="supply-id-text">${item.supply_id}</span></td>
+      <td class="supply-wh-cell">${esc(item.warehouse_name || "—")}</td>
+      <td class="supply-date-cell">${supplyDate}</td>
+      <td class="supply-qty-cell">${item.quantity ?? "—"}</td>
+      <td><span class="supply-status-badge supply-status-${item.status_id}">${statusLabel}</span></td>
+      <td class="supply-links-cell">—</td>
     `;
     tbody.appendChild(tr);
-    // Goods row (hidden initially)
     const goodsTr = document.createElement("tr");
     goodsTr.className = "supply-goods-row hidden";
     goodsTr.dataset.supplyId = String(item.supply_id);
-    goodsTr.innerHTML = `<td colspan="7"><div class="supply-goods-container" id="supply-goods-${item.supply_id}"><span class="small" style="color:#94a3b8">Загрузка...</span></div></td>`;
+    goodsTr.innerHTML = `<td colspan="7"><div class="supply-goods-container" id="supply-goods-${item.supply_id}"><span class="small" style="color:#94a3b8">Загрузка…</span></div></td>`;
     tbody.appendChild(goodsTr);
   }
 }

@@ -4552,28 +4552,100 @@ button.secondary.danger:hover {
 
 /* ── Supply module ─────────────────────────────────────────────── */
 
+/* Toolbar panel */
+.supplies-toolbar-panel { padding: 12px 16px; }
+.supplies-top-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+.supplies-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.supplies-date-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.supplies-date-wrap input[type="date"] { width: 136px; }
+.supplies-sync-info {
+  margin-top: 8px;
+  font-size: 13px;
+  color: #64748b;
+  min-height: 18px;
+}
+
+/* Table panel */
+.supplies-table-panel { padding: 0; overflow: hidden; }
+.supplies-table-panel .table-wrap { border-radius: 0; }
+
+/* Column widths */
+.supplies-col-expand { width: 36px; text-align: center; }
+.supplies-col-id     { width: 130px; }
+.supplies-col-wh     { }
+.supplies-col-date   { width: 120px; }
+.supplies-col-qty    { width: 90px; text-align: right; }
+.supplies-col-status { width: 140px; }
+.supplies-col-links  { width: 80px; }
+
+/* Expand button */
 .supply-expand-btn {
   background: none;
   border: none;
   cursor: pointer;
-  font-size: 10px;
+  font-size: 9px;
   color: #94a3b8;
-  padding: 2px 4px;
-  border-radius: 3px;
-  transition: color 0.15s, background 0.15s;
+  padding: 4px 6px;
+  border-radius: 4px;
+  transition: color 0.12s, background 0.12s;
   line-height: 1;
 }
-.supply-expand-btn:hover { color: #334155; background: #f1f5f9; }
+.supply-expand-btn:hover { color: #475569; background: #f1f5f9; }
 .supply-expand-btn.expanded { color: #6366f1; }
 
-.supply-expand-cell { width: 32px; text-align: center; }
-
-.supply-goods-row td { padding: 0 !important; background: #f8fafc; }
-.supply-goods-container {
-  padding: 10px 16px 10px 48px;
-  border-top: 1px solid #e2e8f0;
+/* Supply ID */
+.supply-id-text {
+  font-family: monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e293b;
 }
 
+/* Cell alignment */
+.supply-qty-cell { text-align: right; font-variant-numeric: tabular-nums; }
+.supply-date-cell { color: #475569; }
+.supply-wh-cell { color: #374151; }
+.supply-links-cell { color: #94a3b8; font-size: 12px; }
+
+/* Status badges */
+.supply-status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.supply-status-1 { background: #fef9c3; color: #854d0e; }
+.supply-status-2 { background: #dbeafe; color: #1d4ed8; }
+.supply-status-4 { background: #fce7f3; color: #9d174d; }
+.supply-status-5 { background: #dcfce7; color: #166534; }
+
+/* Goods expand row */
+.supply-goods-row td { padding: 0 !important; background: #f8fafc; }
+.supply-goods-container {
+  padding: 12px 16px 12px 52px;
+  border-top: 1px solid #e9f0fb;
+}
+
+/* Goods inner table */
 .supply-goods-table {
   width: 100%;
   border-collapse: collapse;
@@ -4581,7 +4653,7 @@ button.secondary.danger:hover {
 }
 .supply-goods-table th {
   text-align: left;
-  padding: 6px 10px;
+  padding: 5px 10px;
   font-size: 11px;
   font-weight: 600;
   color: #64748b;
@@ -4596,28 +4668,19 @@ button.secondary.danger:hover {
 }
 .supply-goods-table tr:last-child td { border-bottom: none; }
 
-.supply-id { font-weight: 600; color: #1e293b; font-family: monospace; }
-
-.supply-status-badge {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 10px;
-  font-size: 12px;
-  font-weight: 500;
-}
-.supply-status-badge.status-1 { background: #fef3c7; color: #92400e; }
-.supply-status-badge.status-2 { background: #dbeafe; color: #1d4ed8; }
-.supply-status-badge.status-5 { background: #dcfce7; color: #166534; }
-
-.filters-bar {
+/* Footer with total + pagination */
+.supplies-footer {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
   justify-content: space-between;
+  padding: 10px 16px;
+  border-top: 1px solid rgba(147,175,224,0.2);
+  background: #f8fafc;
+  border-radius: 0 0 var(--radius-lg, 12px) var(--radius-lg, 12px);
 }
-.filters-left { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.filters-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.supplies-total { color: #64748b; font-size: 13px; }
+.supplies-pagination { display: flex; align-items: center; gap: 8px; }
+.supplies-pagination .small { font-size: 13px; color: #64748b; min-width: 60px; text-align: center; }
 
 /* Supply sources table */
 .supply-sources-table {
