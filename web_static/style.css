@@ -2310,21 +2310,27 @@ button.secondary.danger:hover {
 .chat-order-tooltip {
   display: none;
   position: absolute;
-  top: calc(100% + 4px);
+  top: 100%;
   left: 0;
+  padding-top: 4px;
+  width: max-content;
+  max-width: 300px;
+  z-index: 200;
   background: #1e293b;
   color: #fff;
   font-size: 12px;
   font-weight: 400;
-  padding: 8px 12px;
+  padding: 4px 0 0;
   border-radius: 6px;
-  width: max-content;
-  max-width: 300px;
-  z-index: 200;
+  overflow: hidden;
   cursor: default;
   user-select: text;
   -webkit-user-select: text;
   line-height: 1.5;
+}
+
+.chat-order-tooltip-content {
+  padding: 8px 12px;
 }
 
 .chat-order-badge:hover .chat-order-tooltip,

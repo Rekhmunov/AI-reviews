@@ -3538,7 +3538,7 @@ async function loadChatMessages(conversationUid) {
           ? `<a href="https://www.wildberries.ru/catalog/${esc(_nmId)}/detail.aspx" target="_blank" rel="noopener noreferrer" style="color:#93c5fd;text-decoration:underline">${esc(_productName || "Товар WB")}</a>`
           : esc(_productName);
         const _articleLine = _nmId ? `<div style="margin-top:4px;color:#94a3b8;font-size:11px">Артикул WB: ${esc(_nmId)}</div>` : "";
-        badgeWrap.innerHTML = `<span class="chat-order-badge" style="margin-left:8px;position:relative">Данные заказа<div class="chat-order-tooltip">${_productLine}${_articleLine}</div></span>`;
+        badgeWrap.innerHTML = `<span class="chat-order-badge" style="margin-left:8px;position:relative">Данные заказа<div class="chat-order-tooltip"><div class="chat-order-tooltip-content">${_productLine}${_articleLine}</div></div></span>`;
       } else {
         badgeWrap.innerHTML = "";
       }
