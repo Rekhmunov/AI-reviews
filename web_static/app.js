@@ -2128,7 +2128,7 @@ function suppliesChangePage(delta) {
 function _supplyWarehouseLabel(item) {
   const dest = (item.warehouse_name || "").trim();
   const transit = (item.transit_warehouse_name || "").trim();
-  if (transit && dest) return `${esc(transit)} → ${esc(dest)}`;
+  if (transit && dest) return `${esc(transit)} → <b>${esc(dest)}</b>`;
   if (dest) return esc(dest);
   return "—";
 }
