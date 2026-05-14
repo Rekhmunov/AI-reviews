@@ -5392,6 +5392,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="Имя не может быть пустым")
         owner_id = int(user["id"])
         repository._ensure_supply_tables()
+        if repository.driver_exists(user_id=owner_id, full_name=name):
+            raise HTTPException(status_code=409, detail=f"Водитель «{name}» уже существует")
         return repository.create_supply_driver(user_id=owner_id, full_name=name)
 
     @app.delete("/api/supply-drivers/{driver_id}")

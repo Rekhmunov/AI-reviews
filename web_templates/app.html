@@ -1324,8 +1324,8 @@
             <div style="display:flex;gap:8px;align-items:center">
               <input id="sdNewDriverName" type="text" class="supply-detail-input"
                      placeholder="Имя и фамилия" autocomplete="off" style="flex:1" />
-              <button type="button" onclick="addDriverFromModal()" style="white-space:nowrap">Добавить</button>
-              <button type="button" class="secondary" onclick="cancelNewDriverInModal()" style="padding:0 8px">✕</button>
+              <button type="button" class="secondary" onclick="addDriverFromModal()" style="white-space:nowrap;padding:0 12px">Добавить</button>
+              <button type="button" class="secondary icon-btn" onclick="cancelNewDriverInModal()" title="Отмена" style="flex-shrink:0">✕</button>
             </div>
           </div>
           <div class="supply-detail-row">
@@ -1371,6 +1371,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=143"></script>
+  <script src="/static/app.js?v=144"></script>
 </body>
 </html>

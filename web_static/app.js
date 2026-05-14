@@ -2289,21 +2289,30 @@ function toggleAddDriverForm(show) {
   }
 }
 
-async function saveSupplyDriver() {
-  const inp = document.getElementById("newDriverName");
-  const info = document.getElementById("addDriverInfo");
-  const name = (inp?.value || "").trim();
-  if (!name) { if (info) { info.textContent = "Введите имя"; info.style.color = "#b91c1c"; } return; }
-  if (info) { info.textContent = "Сохранение…"; info.style.color = ""; }
+async function _createDriverRequest(name, infoEl) {
+  if (infoEl) { infoEl.textContent = "Сохранение…"; infoEl.style.color = ""; }
   const res = await fetch("/api/supply-drivers", {
     method: "POST", headers: jsonHeaders(),
     body: JSON.stringify({ full_name: name }),
   }).catch(() => null);
   if (!res || !res.ok) {
     const err = await res?.json().catch(() => ({})) || {};
-    if (info) { info.textContent = err.detail || "Ошибка"; info.style.color = "#b91c1c"; }
-    return;
+    const msg = res?.status === 409
+      ? `Водитель «${name}» уже существует`
+      : (err.detail || "Ошибка сохранения");
+    if (infoEl) { infoEl.textContent = msg; infoEl.style.color = "#b91c1c"; }
+    return false;
   }
+  return true;
+}
+
+async function saveSupplyDriver() {
+  const inp = document.getElementById("newDriverName");
+  const info = document.getElementById("addDriverInfo");
+  const name = (inp?.value || "").trim();
+  if (!name) { if (info) { info.textContent = "Введите имя"; info.style.color = "#b91c1c"; } return; }
+  const ok = await _createDriverRequest(name, info);
+  if (!ok) return;
   if (info) { info.textContent = "Добавлен"; info.style.color = "#16a34a"; }
   toggleAddDriverForm(false);
   await loadSupplyDrivers();
@@ -2342,22 +2351,17 @@ async function addDriverFromModal() {
   const info = document.getElementById("sdNewDriverInfo");
   const name = (inp?.value || "").trim();
   if (!name) { if (info) { info.textContent = "Введите имя"; info.style.color = "#b91c1c"; } return; }
-  const res = await fetch("/api/supply-drivers", {
-    method: "POST", headers: jsonHeaders(),
-    body: JSON.stringify({ full_name: name }),
-  }).catch(() => null);
-  if (!res || !res.ok) {
-    const err = await res?.json().catch(() => ({})) || {};
-    if (info) { info.textContent = err.detail || "Ошибка"; info.style.color = "#b91c1c"; }
-    return;
-  }
+  const ok = await _createDriverRequest(name, info);
+  if (!ok) return;
+  // Refresh cache + settings table
   await loadSupplyDrivers();
-  // Select the newly added driver
+  // Select the new driver in the dropdown
   _populateDriverSelect(name);
   const sel = document.getElementById("sdDriverSelect");
   if (sel) sel.value = name;
-  // Hide the inline form
+  // Hide inline form and clear
   cancelNewDriverInModal();
+  if (inp) inp.value = "";
   if (info) { info.textContent = ""; }
 }
 
