@@ -2368,6 +2368,19 @@ function openSupplyDetailsModal(supplyId) {
 
   document.getElementById("supplyDetailsTitle").textContent = `Детали поставки № ${item.supply_id}`;
   document.getElementById("sdSupplyId").textContent = item.supply_id;
+
+  // Supply date — formatted same as table column
+  const supplyDateEl = document.getElementById("sdSupplyDate");
+  if (supplyDateEl) {
+    supplyDateEl.textContent = item.supply_date
+      ? new Date(item.supply_date).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" })
+      : "—";
+  }
+
+  // Warehouse — same logic as table column (transit → **dest**)
+  const whEl = document.getElementById("sdWarehouse");
+  if (whEl) whEl.innerHTML = _supplyWarehouseLabel(item);
+
   document.getElementById("sdQuantity").textContent = item.quantity != null ? `${item.quantity} шт.` : "—";
   document.getElementById("sdBoxType").textContent = SUPPLY_BOX_TYPE_LABELS[item.box_type_id] || `тип ${item.box_type_id || "—"}`;
   document.getElementById("sdSupplier").textContent = item.supplier_name || "—";
