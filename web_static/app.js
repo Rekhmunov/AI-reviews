@@ -2170,8 +2170,8 @@ function renderSuppliesTable() {
       <td class="supply-qty-cell">${item.quantity ?? "—"}</td>
       <td><span class="supply-status-badge supply-status-${item.status_id}">${statusLabel}</span></td>
       <td class="supply-links-cell">
-        <button class="supply-detail-link" onclick="openSupplyDetailsModal(${item.supply_id})">Детали поставки</button>
-        ${_isWbGiCode(item.pass_number) ? `<button class="supply-detail-link supply-barcode-link" onclick="downloadSupplyBarcode('${esc(item.pass_number || '')}')" title="Скачать штрихкод поставки">Скачать ШК поставки</button>` : ""}
+        <button class="supply-detail-link" onclick="openSupplyDetailsModal(${item.supply_id})">☰ Детали</button>
+        ${_isWbGiCode(item.pass_number) ? `<button class="supply-detail-link supply-barcode-link" onclick="downloadSupplyBarcode('${esc(item.pass_number || '')}')" title="Скачать штрихкод поставки">⬇ ШК поставки</button>` : ""}
       </td>
     `;
     tbody.appendChild(tr);

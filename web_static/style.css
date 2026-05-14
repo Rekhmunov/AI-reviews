@@ -4828,23 +4828,32 @@ button.secondary.danger:hover {
 .supply-details-footer .small { margin-left: 4px; }
 
 /* Детали link button in table */
+/* Supply action buttons in table */
 .supply-detail-link {
-  background: none;
-  border: none;
-  color: #6366f1;
-  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #fff;
+  border: 1px solid #c7d2fe;
+  color: #4f46e5;
+  font-size: 12px;
   font-weight: 500;
   cursor: pointer;
-  padding: 2px 4px;
-  border-radius: 4px;
-  text-decoration: underline;
-  text-decoration-color: transparent;
-  transition: color 0.12s, text-decoration-color 0.12s, background 0.12s;
+  padding: 4px 10px;
+  border-radius: 6px;
+  white-space: nowrap;
+  transition: background 0.12s, border-color 0.12s, color 0.12s, box-shadow 0.12s;
+  line-height: 1.4;
 }
 .supply-detail-link:hover {
-  color: #4f46e5;
-  text-decoration-color: #4f46e5;
-  background: rgba(99,102,241,0.06);
+  background: #eef2ff;
+  border-color: #818cf8;
+  color: #3730a3;
+  box-shadow: 0 1px 4px rgba(99,102,241,0.15);
+}
+.supply-detail-link:active {
+  background: #e0e7ff;
+  box-shadow: none;
 }
 
 .supplies-col-prod { width: 120px; }
@@ -4906,8 +4915,14 @@ button.secondary.danger:hover {
 }
 
 .supply-barcode-link {
-  display: block;
-  margin-top: 4px;
-  color: #059669;
+  background: #ecfdf5 !important;
+  border-color: #6ee7b7 !important;
+  color: #047857 !important;
+  margin-top: 6px;
 }
-.supply-barcode-link:hover { color: #047857; }
+.supply-barcode-link:hover {
+  background: #d1fae5 !important;
+  border-color: #34d399 !important;
+  color: #065f46 !important;
+  box-shadow: 0 1px 4px rgba(16,185,129,0.15) !important;
+}
