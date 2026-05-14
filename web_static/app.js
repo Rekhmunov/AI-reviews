@@ -2511,6 +2511,8 @@ async function saveSupplyManualFields() {
     item.notes         = notes;
     item.production    = production;
   }
+  // Re-render table so columns (Производство, etc.) update immediately
+  renderSuppliesTable();
 }
 
 function toggleSuppliesFilter() {
