@@ -2148,7 +2148,7 @@ function renderSuppliesTable() {
   if (!tbody) return;
   tbody.innerHTML = "";
   if (!suppliesState.items.length) {
-    tbody.innerHTML = '<tr><td colspan="7" class="empty-cell">Нет данных. Нажмите «Синхронизировать».</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="empty-cell">Нет данных. Нажмите «Синхронизировать».</td></tr>';
     return;
   }
   for (const item of suppliesState.items) {
@@ -2164,6 +2164,7 @@ function renderSuppliesTable() {
         <button class="supply-expand-btn" title="Показать товары" onclick="toggleSupplyGoods(this, ${item.supply_id})" aria-label="Развернуть">▶</button>
       </td>
       <td><span class="supply-id-text">${item.supply_id}</span></td>
+      <td class="supply-legal-cell">${esc(item.supplier_name || "—")}</td>
       <td class="supply-wh-cell">${_supplyWarehouseLabel(item)}</td>
       <td class="supply-prod-cell">${item.production ? esc(item.production) : '<span class="supply-prod-empty">Требует заполнения</span>'}</td>
       <td class="supply-date-cell">${supplyDate}</td>
@@ -2179,7 +2180,7 @@ function renderSuppliesTable() {
     const goodsTr = document.createElement("tr");
     goodsTr.className = "supply-goods-row hidden";
     goodsTr.dataset.supplyId = String(item.supply_id);
-    goodsTr.innerHTML = `<td colspan="7"><div class="supply-goods-container" id="supply-goods-${item.supply_id}"><span class="small" style="color:#94a3b8">Загрузка…</span></div></td>`;
+    goodsTr.innerHTML = `<td colspan="9"><div class="supply-goods-container" id="supply-goods-${item.supply_id}"><span class="small" style="color:#94a3b8">Загрузка…</span></div></td>`;
     tbody.appendChild(goodsTr);
   }
 }
@@ -2907,8 +2908,8 @@ function downloadSupplyBarcode(passNumber, supplyId) {
 
 // ── Supplies column resizer ──
 const SUPPLIES_COL_WIDTHS_KEY = "supplies_col_widths";
-// Default widths as percentages (8 columns: expand, id, wh, prod, date, qty, status, links)
-const SUPPLIES_DEFAULT_WIDTHS = [3, 10, 23, 11, 10, 7, 13, 7];
+// Default widths as percentages (9 columns: expand, id, legal, wh, prod, date, qty, status, links)
+const SUPPLIES_DEFAULT_WIDTHS = [3, 9, 14, 18, 10, 9, 7, 13, 7];
 
 function initSuppliesColumnResizer() {
   const table = document.getElementById("suppliesTable");
@@ -2916,7 +2917,9 @@ function initSuppliesColumnResizer() {
   let widths = SUPPLIES_DEFAULT_WIDTHS.slice();
   try {
     const saved = JSON.parse(localStorage.getItem(SUPPLIES_COL_WIDTHS_KEY) || "null");
+    // Only restore if saved widths match current column count
     if (Array.isArray(saved) && saved.length === widths.length) widths = saved;
+    else if (Array.isArray(saved)) localStorage.removeItem(SUPPLIES_COL_WIDTHS_KEY);
   } catch (_) {}
   _applySuppliesColWidths(widths);
 
