@@ -4735,6 +4735,9 @@ button.secondary.danger:hover {
 .supply-details-modal-card {
   width: 100%;
   max-width: 480px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
   border-radius: var(--radius-lg, 12px);
   background: #fff;
   box-shadow: 0 8px 32px rgba(15,23,42,0.18);
@@ -4745,9 +4748,10 @@ button.secondary.danger:hover {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 20px;
+  padding: 14px 20px;
   border-bottom: 1px solid #e2e8f0;
   background: #f8fafc;
+  flex-shrink: 0;
 }
 
 .modal-close-btn {
@@ -4764,10 +4768,12 @@ button.secondary.danger:hover {
 .modal-close-btn:hover { color: #334155; background: #f1f5f9; }
 
 .supply-details-body {
-  padding: 20px;
+  padding: 16px 20px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
+  overflow-y: auto;
+  flex: 1 1 auto;
 }
 
 .supply-detail-row {
@@ -4813,8 +4819,10 @@ button.secondary.danger:hover {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 20px 16px;
-  border-top: 1px solid #f1f5f9;
+  padding: 12px 20px 14px;
+  border-top: 1px solid #e2e8f0;
+  flex-shrink: 0;
+  background: #fff;
 }
 .supply-details-footer .small { margin-left: 4px; }
 
