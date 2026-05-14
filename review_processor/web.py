@@ -1642,7 +1642,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         user = _get_current_user(request)
         if user is None:
             return RedirectResponse("/login", status_code=302)
-        return HTMLResponse(build_app_html(user))
+        return HTMLResponse(build_app_html(user, repository=repository))
 
     @app.get("/admin", response_class=HTMLResponse)
     def admin_page(request: Request) -> HTMLResponse:
@@ -5820,7 +5820,7 @@ def build_register_html(error: str | None = None) -> str:
     return _render_template("register.html", {"ERROR_HTML": error_html})
 
 
-def build_app_html(user: dict[str, object]) -> str:
+def build_app_html(user: dict[str, object], repository=None) -> str:
     safe_email = escape(str(user["email"]))
     role = str(user.get("role") or ROLE_USER)
     is_super_admin = bool(user.get("is_super_admin"))
@@ -5845,13 +5845,15 @@ def build_app_html(user: dict[str, object]) -> str:
     )
     if role in ROLE_CAN_ACCESS_SETTINGS:
         can_view_feedback = True
-    else:
+    elif repository is not None:
         # Manager: feedback sections visible only if they have at least one permission
         _perms = repository.list_manager_permissions(manager_user_id=user_id)
         can_view_feedback = any(
             bool(p.get("can_reviews")) or bool(p.get("can_questions")) or bool(p.get("can_chats"))
             for p in _perms
         )
+    else:
+        can_view_feedback = True  # safe fallback
     admin_link = '<a class="navbtn nav-admin" href="/admin"><span class="nav-item-icon">○</span> Админ-панель</a>' if role == ROLE_ADMIN else ""
     nav_analytics = (
         '<a id="nav-analytics" class="nav-item" href="#" onclick="showSection(\'analytics\')"><span class="nav-item-icon">∑</span> Аналитика</a>'

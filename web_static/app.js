@@ -6041,9 +6041,11 @@ function collectManagerPermissionsFromModal() {
   return Array.from(map.values()).filter((item) => item.can_reviews || item.can_questions || item.can_chats);
 }
 
-function formatManagerPermissionsText(permissions) {
+function formatManagerPermissionsText(permissions, canSupplies) {
   const rows = Array.isArray(permissions) ? permissions : [];
-  if (!rows.length) return "Доступы не назначены";
+  const suppliesText = canSupplies ? "Поставки" : "";
+  if (!rows.length && !suppliesText) return "Доступы не назначены";
+  if (!rows.length) return suppliesText;
   const accountById = new Map((teamState.accounts || []).map((item) => [Number(item.id || 0), item]));
   return rows
     .map((perm) => {
@@ -6056,7 +6058,7 @@ function formatManagerPermissionsText(permissions) {
       if (perm.can_chats) scopes.push("чаты");
       return `${accountName}: ${scopes.join(", ") || "нет"}`;
     })
-    .join("; ");
+    .join("; ") + (suppliesText ? "; " + suppliesText : "");
 }
 
 async function loadTeam() {
@@ -6090,7 +6092,7 @@ async function loadTeam() {
   } else {
     for (const member of teamState.items) {
       const memberId = Number(member.id || 0);
-      const permsText = formatManagerPermissionsText(member.manager_permissions || []);
+      const permsText = formatManagerPermissionsText(member.manager_permissions || [], member.can_supplies);
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td>${esc(member.id)}</td>
