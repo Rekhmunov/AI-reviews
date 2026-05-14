@@ -3199,12 +3199,17 @@ class ReviewAutomationService:
                 continue
             category = str(row.get("category") or "")
             sentiment = str(row.get("sentiment_label") or "")
+            review_metadata = dict(row.get("metadata") or {}) if isinstance(row.get("metadata"), dict) else {}
+            # Skip reviews flagged as contradictions — they must stay in manual review.
+            if review_metadata.get("rating_contradiction"):
+                ignored += 1
+                continue
             review = ReviewInput(
                 review_id=str(row.get("external_review_id") or ""),
                 text=str(row.get("text") or ""),
                 author=str(row.get("author")) if row.get("author") else None,
                 rating=int(row["rating"]) if row.get("rating") is not None else None,
-                metadata=dict(row.get("metadata") or {}) if isinstance(row.get("metadata"), dict) else {},
+                metadata=review_metadata,
             )
             group_id = self._resolve_template_group_id(
                 category=category,
