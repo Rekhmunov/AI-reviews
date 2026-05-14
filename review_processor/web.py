@@ -5871,7 +5871,7 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
     )
     nav_supplies_settings = (
         '<a id="nav-supplies-settings" class="nav-item" href="#" onclick="showSection(\'supplies-settings\')"><span class="nav-item-icon">≡</span> Настройки</a>'
-        if can_view_settings else ""
+        if (can_view_settings or can_view_supplies) else ""
     )
     return _render_template(
         "app.html",

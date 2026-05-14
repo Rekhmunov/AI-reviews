@@ -397,7 +397,7 @@ function canViewSection(section) {
   if (section === "analytics") return permissions.can_view_analytics;
   if (section === "settings") return permissions.can_view_settings;
   if (section === "supplies-wb") return permissions.can_view_supplies;
-  if (section === "supplies-settings") return permissions.can_view_settings;
+  if (section === "supplies-settings") return permissions.can_view_settings || permissions.can_view_supplies;
   if (section === "reviews" || section === "conversations" || section === "chats") {
     return permissions.can_view_feedback;
   }
