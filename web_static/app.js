@@ -5723,8 +5723,9 @@ async function saveNewManager() {
     return;
   }
   const permissions = Array.isArray(teamState.pendingPermissions) ? teamState.pendingPermissions : [];
-  if (!permissions.length) {
-    setTeamInfo("Сначала нажмите «Разрешения» и сохраните доступы менеджера.", true);
+  const canSupplies = Boolean(teamState.pendingCanSupplies);
+  if (!permissions.length && !canSupplies) {
+    setTeamInfo("Сначала нажмите «Разрешения» и выберите хотя бы один доступ.", true);
     return;
   }
   const payload = {
@@ -6607,6 +6608,14 @@ document.addEventListener("DOMContentLoaded", () => {
   if (permissions.can_view_supplies) {
     const suppliesNavLabel = document.getElementById("nav-section-supplies");
     if (suppliesNavLabel) suppliesNavLabel.style.display = "";
+    // "Удалить поставки" — только для владельцев, не для менеджеров
+    if (!permissions.can_view_settings) {
+      const clearBtn = document.getElementById("suppliesClearBtn");
+      if (clearBtn) clearBtn.style.display = "none";
+      // Скрыть вкладку "Источники" в настройках поставок — только водители
+      const sourcesTab = document.getElementById("supplies-settings-tab-sources");
+      if (sourcesTab) sourcesTab.style.display = "none";
+    }
     Promise.all([
       loadSupplySources(),
       loadSupplyDrivers(),
@@ -6655,6 +6664,9 @@ window.openSupplyDetailsModal = openSupplyDetailsModal;
 window.closeSupplyDetailsModal = closeSupplyDetailsModal;
 window.saveSupplyManualFields = saveSupplyManualFields;
 window.showSuppliesSettingsTab = function(tab) {
+  const permissions = getPermissions();
+  // Redirect manager (no settings access) away from sources tab to drivers
+  if (tab === "sources" && !permissions.can_view_settings) tab = "drivers";
   document.querySelectorAll("#section-supplies-settings .settings-tab-btn").forEach((b) => b.classList.remove("active"));
   document.getElementById(`supplies-settings-tab-${tab}`)?.classList.add("active");
   document.querySelectorAll("[id^='supplies-settings-pane-']").forEach((p) => { p.classList.add("hidden"); p.style.display = "none"; });

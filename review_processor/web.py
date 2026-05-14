@@ -5387,12 +5387,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.post("/api/supply-drivers")
     def create_supply_driver(request: Request, payload: CreateSupplyDriverRequest) -> dict[str, object]:
         user = _require_user(request)
-        if str(user.get("role") or "") not in ROLE_CAN_ACCESS_SETTINGS:
+        # Drivers: accessible to owners AND managers with can_supplies
+        if not _can_view_supplies(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
         name = payload.full_name.strip()
         if not name:
             raise HTTPException(status_code=400, detail="Имя не может быть пустым")
-        owner_id = int(user["id"])
+        # Always save under owner's user_id so drivers are shared across team
+        owner_id = _supply_owner_id(user)
         repository._ensure_supply_tables()
         if repository.driver_exists(user_id=owner_id, full_name=name):
             raise HTTPException(status_code=409, detail=f"Водитель «{name}» уже существует")
@@ -5401,9 +5403,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.delete("/api/supply-drivers/{driver_id}")
     def delete_supply_driver(request: Request, driver_id: int) -> dict[str, object]:
         user = _require_user(request)
-        if str(user.get("role") or "") not in ROLE_CAN_ACCESS_SETTINGS:
+        if not _can_view_supplies(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
-        ok = repository.delete_supply_driver(user_id=int(user["id"]), driver_id=driver_id)
+        owner_id = _supply_owner_id(user)
+        ok = repository.delete_supply_driver(user_id=owner_id, driver_id=driver_id)
         if not ok:
             raise HTTPException(status_code=404, detail="Водитель не найден")
         return {"ok": True}
