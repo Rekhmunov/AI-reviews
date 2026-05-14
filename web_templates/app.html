@@ -1044,6 +1044,11 @@
                 <option value="4">На приёмке</option>
                 <option value="5">Принятые</option>
               </select>
+              <select id="suppliesProductionFilter" onchange="loadSupplies()">
+                <option value="">Все производства</option>
+                <option value="Кинешма">Кинешма</option>
+                <option value="Нерль">Нерль</option>
+              </select>
             </div>
             <div class="supplies-date-wrap">
               <input type="date" id="suppliesDateFrom" onchange="loadSupplies()" />
@@ -1387,6 +1392,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=148"></script>
+  <script src="/static/app.js?v=149"></script>
 </body>
 </html>

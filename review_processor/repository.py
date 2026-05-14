@@ -6710,6 +6710,7 @@ class ReviewRepository:
         status_id: int | None = None,
         date_from: str | None = None,
         date_to: str | None = None,
+        production: str | None = None,
         page: int = 1,
         page_size: int = 50,
     ) -> dict[str, Any]:
@@ -6727,6 +6728,9 @@ class ReviewRepository:
         if date_to:
             conditions.append("si.supply_date <= ?")
             params.append(date_to)
+        if production:
+            conditions.append("si.production = ?")
+            params.append(production)
         where = "WHERE " + " AND ".join(conditions)
         offset = (max(1, page) - 1) * page_size
         with self._connect() as conn:

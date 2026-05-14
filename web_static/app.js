@@ -2088,11 +2088,13 @@ async function loadSupplies(resetPage = false) {
   if (resetPage) suppliesState.page = 1;
   const sourceId = document.getElementById("suppliesSourceFilter")?.value || "";
   const statusId = document.getElementById("suppliesStatusFilter")?.value || "";
+  const productionFilter = document.getElementById("suppliesProductionFilter")?.value || "";
   const dateFrom = document.getElementById("suppliesDateFrom")?.value || "";
   const dateTo = document.getElementById("suppliesDateTo")?.value || "";
   const params = new URLSearchParams({ page: suppliesState.page, page_size: suppliesState.page_size });
   if (sourceId) params.set("source_id", sourceId);
   if (statusId) params.set("status_id", statusId);
+  if (productionFilter) params.set("production", productionFilter);
   if (dateFrom) params.set("date_from", dateFrom);
   if (dateTo) params.set("date_to", dateTo);
   const info = document.getElementById("suppliesInfo");
