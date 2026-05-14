@@ -635,6 +635,19 @@ class OzonMarketplaceClient:
         else:
             status = "open"
 
+        # Ozon questions: status="PROCESSED" or answers_count>0 means the seller
+        # has already replied. Map to "answered_manual" so the question moves to
+        # the "Processed" bucket and is not shown as unanswered.
+        seller_replied_at: str | None = None
+        if kind == "question":
+            answers_count = _to_positive_int(item.get("answers_count"), default=0)
+            if raw_status == "processed" or answers_count > 0:
+                status = "answered_manual"
+                # Use published_at as the best available answer timestamp proxy.
+                seller_replied_at = _normalize_timestamp(
+                    item.get("published_at") or item.get("updated_at")
+                )
+
         unread_count = _to_positive_int(item.get("unread_count") or item.get("unread"), default=0)
         # Ozon v3/chat/list does NOT return the last message timestamp —
         # only created_at (chat creation date, can be 2023).
@@ -651,6 +664,7 @@ class OzonMarketplaceClient:
             "status": status,
             "unread_count": unread_count,
             "last_message_at": updated_at or None,
+            "seller_replied_at": seller_replied_at,
             "metadata": {"raw": item, "marketplace": "ozon"},
         }
 
