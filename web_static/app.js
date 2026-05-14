@@ -2909,7 +2909,8 @@ function downloadSupplyBarcode(passNumber, supplyId) {
 // ── Supplies column resizer ──
 const SUPPLIES_COL_WIDTHS_KEY = "supplies_col_widths";
 // Default widths as percentages (9 columns: expand, id, legal, wh, prod, date, qty, status, links)
-const SUPPLIES_DEFAULT_WIDTHS = [3, 9, 14, 18, 10, 9, 7, 13, 7];
+// Must sum to 100
+const SUPPLIES_DEFAULT_WIDTHS = [3, 9, 14, 19, 10, 9, 7, 13, 16];
 
 function initSuppliesColumnResizer() {
   const table = document.getElementById("suppliesTable");
