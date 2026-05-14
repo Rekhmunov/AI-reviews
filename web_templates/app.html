@@ -1342,6 +1342,7 @@
       </div>
       <div class="supply-details-footer">
         <button id="sdSaveBtn" type="button" onclick="saveSupplyManualFields()">Сохранить</button>
+        <button type="button" class="secondary" onclick="copySupplyDetails()" title="Скопировать в буфер обмена">📋 Скопировать</button>
         <button type="button" class="secondary" onclick="closeSupplyDetailsModal()">Закрыть</button>
         <span id="sdInfo" class="small"></span>
       </div>
@@ -1377,6 +1378,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=145"></script>
+  <script src="/static/app.js?v=146"></script>
 </body>
 </html>

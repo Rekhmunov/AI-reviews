@@ -2413,6 +2413,56 @@ function openSupplyDetailsModal(supplyId) {
   if (modal) { modal.classList.remove("hidden"); modal.removeAttribute("aria-hidden"); }
 }
 
+function copySupplyDetails() {
+  const get = (id) => (document.getElementById(id)?.textContent || "").trim();
+  const val = (id) => (document.getElementById(id)?.value || "").trim();
+
+  const driverSel = document.getElementById("sdDriverSelect");
+  const driverVal = driverSel
+    ? Array.from(driverSel.options).find((o) => o.value === driverSel.value && o.value !== "__new__")?.text || ""
+    : "";
+
+  const lines = [
+    `Поставка №: ${get("sdSupplyId")}`,
+    `Дата поставки: ${get("sdSupplyDate")}`,
+    `Поставщик: ${get("sdSupplier")}`,
+    `Пропуск №: ${val("sdPassNumber") || "—"}`,
+    `Склад: ${document.getElementById("sdWarehouse")?.innerText || get("sdWarehouse") || "—"}`,
+    `Количество: ${get("sdQuantity")}`,
+    `Паллет: ${val("sdPalletsCount") || "—"}`,
+    `Тип поставки: ${get("sdBoxType")}`,
+    `Водитель: ${driverVal || "—"}`,
+    `Примечание: ${val("sdNotes") || "—"}`,
+  ];
+  const text = lines.join("\n");
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => {
+      const info = document.getElementById("sdInfo");
+      if (info) {
+        info.textContent = "Скопировано";
+        info.style.color = "#16a34a";
+        setTimeout(() => { if (info.textContent === "Скопировано") info.textContent = ""; }, 2000);
+      }
+    }).catch(() => _copyFallback(text));
+  } else {
+    _copyFallback(text);
+  }
+}
+
+function _copyFallback(text) {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.cssText = "position:fixed;opacity:0;top:0;left:0";
+  document.body.appendChild(ta);
+  ta.focus(); ta.select();
+  try { document.execCommand("copy"); } catch (_) {}
+  document.body.removeChild(ta);
+  const info = document.getElementById("sdInfo");
+  if (info) { info.textContent = "Скопировано"; info.style.color = "#16a34a";
+    setTimeout(() => { if (info.textContent === "Скопировано") info.textContent = ""; }, 2000); }
+}
+
 function closeSupplyDetailsModal() {
   const modal = document.getElementById("supplyDetailsModal");
   if (modal) { modal.classList.add("hidden"); modal.setAttribute("aria-hidden", "true"); }
@@ -6594,6 +6644,7 @@ window.loadSupplies = loadSupplies;
 window.suppliesChangePage = suppliesChangePage;
 window.toggleSupplyGoods = toggleSupplyGoods;
 window.toggleSuppliesFilter = toggleSuppliesFilter;
+window.copySupplyDetails = copySupplyDetails;
 window.openSupplyDetailsModal = openSupplyDetailsModal;
 window.closeSupplyDetailsModal = closeSupplyDetailsModal;
 window.saveSupplyManualFields = saveSupplyManualFields;
