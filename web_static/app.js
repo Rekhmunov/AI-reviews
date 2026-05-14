@@ -2170,7 +2170,7 @@ function renderSuppliesTable() {
       <td class="supply-qty-cell">${item.quantity ?? "—"}</td>
       <td><span class="supply-status-badge supply-status-${item.status_id}">${statusLabel}</span></td>
       <td class="supply-links-cell">
-        <button class="supply-detail-link" onclick="openSupplyDetailsModal(${item.supply_id})">☰ Детали</button>
+        <button class="supply-detail-link" onclick="openSupplyDetailsModal(${item.supply_id})">☰ Детали заказа</button>
         ${_isWbGiCode(item.pass_number) ? `<button class="supply-detail-link supply-barcode-link" onclick="downloadSupplyBarcode('${esc(item.pass_number || '')}',${item.supply_id})" title="Скачать штрихкод поставки">⬇ ШК поставки</button>` : ""}
       </td>
     `;
