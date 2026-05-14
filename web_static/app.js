@@ -2690,7 +2690,7 @@ function downloadPackingList(supplyId) {
 </style>
 </head>
 <body>
-<h1>Упаковочный лист <span style="background:yellow">${esc(supplierName)}</span></h1>
+<h1>Упаковочный лист ${esc(supplierName)}</h1>
 <h1>(поставка №${esc(item.supply_id || "")}, ${esc(passNumber)})</h1>
 <h2>${esc(boxTypeLabel)}</h2>
 <table>
@@ -2699,7 +2699,7 @@ function downloadPackingList(supplyId) {
   <tr><td>Количество коробок на паллете</td><td></td></tr>
   <tr><td>Склад</td><td>${esc(whForPickup)}</td></tr>
   <tr><td>Склад назначения</td><td>${esc(whForDest)}</td></tr>
-  <tr><td>Наименование юридического лица</td><td><span style="background:yellow">${esc(fullLegalName)}</span></td></tr>
+  <tr><td>Наименование юридического лица</td><td>${esc(fullLegalName)}</td></tr>
   <tr><td>Дата поставки</td><td>${esc(dateDisplay)}</td></tr>
   <tr><td>Штрих-код поставки</td><td class="barcode-cell">${barcodeImgTag}</td></tr>
 </table>
