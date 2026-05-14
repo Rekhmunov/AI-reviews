@@ -5293,10 +5293,18 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not _can_view_supplies(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
         owner_id = _supply_owner_id(user)
+        name_map = repository.get_product_name_by_article(user_id=owner_id)
+
+        def _enrich_goods(goods: list[dict]) -> list[dict]:
+            for g in goods:
+                vc = str(g.get("vendor_code") or "").strip()
+                g["product_name"] = name_map.get(vc) or vc or ""
+            return goods
+
         # Check if we have goods cached; if not, fetch from WB and cache
         cached = repository.get_supply_goods(user_id=owner_id, supply_id=supply_id)
         if cached:
-            return cached
+            return _enrich_goods(cached)
         # Lazy-fetch from WB API
         try:
             import urllib.request as _ul, json as _jm, ssl as _sl
@@ -5341,7 +5349,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 item_row = repository.get_supply_item_row(user_id=owner_id, supply_id=supply_id)
                 if item_row:
                     repository.upsert_supply_goods(supply_item_id=int(item_row["id"]), goods=goods)
-                    return repository.get_supply_goods(user_id=owner_id, supply_id=supply_id)
+                    return _enrich_goods(repository.get_supply_goods(user_id=owner_id, supply_id=supply_id))
         except Exception as exc:
             _log.warning("lazy supply goods fetch error supply_id=%d: %s", supply_id, exc)
         return []

@@ -6233,6 +6233,17 @@ class ReviewRepository:
                 )
         return self._row_to_dict(row) if row else None
 
+    def get_product_name_by_article(self, *, user_id: int) -> dict[str, str]:
+        """Return {supplier_article: name} for fast lookup in supply goods."""
+        rows = self.list_product_photos(user_id=user_id)
+        result: dict[str, str] = {}
+        for r in rows:
+            article = str(r.get("supplier_article") or "").strip()
+            name = str(r.get("name") or "").strip()
+            if article and name:
+                result[article] = name
+        return result
+
     def get_product_photo_map(self, *, user_id: int) -> dict[str, str]:
         """Return {key: photo_url} for fast lookup. Keys are supplier_article, wb_nmid, ozon_sku."""
         rows = self.list_product_photos(user_id=user_id)

@@ -2195,12 +2195,13 @@ async function toggleSupplyGoods(btn, supplyId) {
     container.innerHTML = '<span class="small" style="color:#94a3b8">Нет товаров</span>';
     return;
   }
-  let html = '<table class="supply-goods-table"><thead><tr><th>Арт. WB (nmID)</th><th>Арт. поставщика</th><th>Цвет / размер</th><th>Кол-во</th></tr></thead><tbody>';
+  let html = '<table class="supply-goods-table"><thead><tr><th>Арт. WB (nmID)</th><th>Наименование</th><th>Арт. поставщика</th><th>Кол-во</th></tr></thead><tbody>';
   for (const g of goods) {
+    const name = g.product_name || esc(g.vendor_code || "—");
     html += `<tr>
       <td>${g.nm_id || "—"}</td>
+      <td>${esc(name)}</td>
       <td>${esc(g.vendor_code || "—")}</td>
-      <td>${esc([g.color, g.tech_size].filter(Boolean).join(" / ") || "—")}</td>
       <td>${g.quantity ?? "—"}</td>
     </tr>`;
   }
