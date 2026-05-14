@@ -2161,7 +2161,10 @@ function renderSuppliesTable() {
       <td class="supply-date-cell">${supplyDate}</td>
       <td class="supply-qty-cell">${item.quantity ?? "—"}</td>
       <td><span class="supply-status-badge supply-status-${item.status_id}">${statusLabel}</span></td>
-      <td class="supply-links-cell"><button class="supply-detail-link" onclick="openSupplyDetailsModal(${item.supply_id})">Детали поставки</button></td>
+      <td class="supply-links-cell">
+        <button class="supply-detail-link" onclick="openSupplyDetailsModal(${item.supply_id})">Детали поставки</button>
+        ${_isWbGiCode(item.pass_number) ? `<button class="supply-detail-link supply-barcode-link" onclick="downloadSupplyBarcode('${esc(item.pass_number || '')}')" title="Скачать штрихкод поставки">Скачать ШК поставки</button>` : ""}
+      </td>
     `;
     tbody.appendChild(tr);
     const goodsTr = document.createElement("tr");
@@ -2513,6 +2516,75 @@ async function saveSupplyManualFields() {
   }
   // Re-render table so columns (Производство, etc.) update immediately
   renderSuppliesTable();
+}
+
+// ── Supply barcode PDF ──
+
+function _isWbGiCode(val) {
+  return Boolean(val && /^WB-GI-\d+$/.test(String(val).trim()));
+}
+
+function downloadSupplyBarcode(passNumber) {
+  if (!_isWbGiCode(passNumber)) return;
+
+  // Check libraries loaded
+  if (typeof JsBarcode === "undefined" || typeof window.jspdf === "undefined") {
+    alert("Библиотеки для генерации штрихкода загружаются. Попробуйте через секунду.");
+    return;
+  }
+
+  // Render barcode to hidden canvas
+  const canvas = document.createElement("canvas");
+  try {
+    JsBarcode(canvas, passNumber, {
+      format: "CODE128",
+      width: 3,
+      height: 100,
+      displayValue: false,
+      margin: 0,
+      background: "#ffffff",
+      lineColor: "#000000",
+    });
+  } catch (e) {
+    alert("Ошибка генерации штрихкода: " + e.message);
+    return;
+  }
+
+  const barcodeDataUrl = canvas.toDataURL("image/png");
+  const barcodeAspect = canvas.height / canvas.width; // h/w ratio
+
+  // Create PDF: 58×40mm label
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({
+    orientation: "landscape",
+    unit: "mm",
+    format: [40, 58], // jsPDF uses [height, width] in landscape
+  });
+
+  const pageW = 58;
+  const pageH = 40;
+  const pad = 1.5; // border padding from edge
+
+  // Dashed border around entire label
+  doc.setLineDashPattern([1.2, 0.8], 0);
+  doc.setDrawColor(180, 180, 180);
+  doc.setLineWidth(0.35);
+  doc.rect(pad, pad, pageW - pad * 2, pageH - pad * 2);
+
+  // Text: WB-GI-XXXXXXXXX at top, centered, orange color
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(210, 105, 0);
+  doc.text(passNumber, pageW / 2, pad + 5, { align: "center" });
+
+  // Barcode image: centered, fills most of width
+  const barcodeX = pad + 2;
+  const barcodeW = pageW - pad * 2 - 4;
+  const barcodeH = Math.min(barcodeW * barcodeAspect, pageH - pad - 7 - 3);
+  const barcodeY = pad + 7;
+  doc.addImage(barcodeDataUrl, "PNG", barcodeX, barcodeY, barcodeW, barcodeH);
+
+  doc.save(`${passNumber}.pdf`);
 }
 
 // ── Supplies column resizer ──
@@ -6737,6 +6809,7 @@ window.clearSupplies = clearSupplies;
 window.loadSupplies = loadSupplies;
 window.suppliesChangePage = suppliesChangePage;
 window.toggleSupplyGoods = toggleSupplyGoods;
+window.downloadSupplyBarcode = downloadSupplyBarcode;
 window.initSuppliesColumnResizer = initSuppliesColumnResizer;
 window.toggleSuppliesFilter = toggleSuppliesFilter;
 window.copySupplyDetails = copySupplyDetails;

@@ -4904,3 +4904,10 @@ button.secondary.danger:hover {
 .col-resize-handle:active {
   background: rgba(99,102,241,0.35);
 }
+
+.supply-barcode-link {
+  display: block;
+  margin-top: 4px;
+  color: #059669;
+}
+.supply-barcode-link:hover { color: #047857; }
