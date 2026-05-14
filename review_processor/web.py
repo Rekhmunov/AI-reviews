@@ -409,6 +409,12 @@ class SyncSuppliesRequest(BaseModel):
     source_id: int | None = None
 
 
+class SupplyManualFieldsRequest(BaseModel):
+    pass_number: str | None = None
+    pallets_count: str | None = None
+    driver_name: str | None = None
+
+
 class ManagerSuppliesAccessRequest(BaseModel):
     can_supplies: bool = False
 
@@ -5362,6 +5368,27 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         owner_id = _supply_owner_id(user)
         deleted = repository.clear_supply_items(user_id=owner_id)
         return {"ok": True, "deleted": deleted}
+
+    @app.patch("/api/supplies/{supply_id}/manual-fields")
+    def update_supply_manual_fields(
+        request: Request,
+        supply_id: int,
+        payload: SupplyManualFieldsRequest,
+    ) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        ok = repository.update_supply_manual_fields(
+            user_id=owner_id,
+            supply_id=supply_id,
+            pass_number=payload.pass_number,
+            pallets_count=payload.pallets_count,
+            driver_name=payload.driver_name,
+        )
+        if not ok:
+            raise HTTPException(status_code=404, detail="Поставка не найдена")
+        return {"ok": True}
 
     @app.get("/api/supplies/sync/status")
     def get_supply_sync_status(request: Request) -> dict[str, object]:

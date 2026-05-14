@@ -6406,6 +6406,16 @@ class ReviewRepository:
         conn.execute(
             "ALTER TABLE supply_items ADD COLUMN IF NOT EXISTS actual_warehouse_name TEXT"
         )
+        # Manual-entry fields (filled by user in UI, not from WB API)
+        conn.execute(
+            "ALTER TABLE supply_items ADD COLUMN IF NOT EXISTS pass_number TEXT"
+        )
+        conn.execute(
+            "ALTER TABLE supply_items ADD COLUMN IF NOT EXISTS pallets_count TEXT"
+        )
+        conn.execute(
+            "ALTER TABLE supply_items ADD COLUMN IF NOT EXISTS driver_name TEXT"
+        )
 
     def _ensure_supply_tables(self) -> None:
         with self._connect() as conn:
@@ -6670,6 +6680,36 @@ class ReviewRepository:
                 (user_id,),
             )
         return int(result.rowcount or 0)
+
+    def update_supply_manual_fields(
+        self,
+        *,
+        user_id: int,
+        supply_id: int,
+        pass_number: str | None,
+        pallets_count: str | None,
+        driver_name: str | None,
+    ) -> bool:
+        """Update user-editable fields for a supply item."""
+        with self._connect() as conn:
+            result = conn.execute(
+                self._sql(
+                    """
+                    UPDATE supply_items
+                    SET pass_number = ?, pallets_count = ?, driver_name = ?
+                    WHERE supply_id = ?
+                      AND source_id IN (SELECT id FROM supply_sources WHERE user_id = ?)
+                    """
+                ),
+                (
+                    (pass_number or "").strip() or None,
+                    (pallets_count or "").strip() or None,
+                    (driver_name or "").strip() or None,
+                    supply_id,
+                    user_id,
+                ),
+            )
+        return bool(result.rowcount)
 
     def get_supply_item_row(self, *, user_id: int, supply_id: int) -> dict[str, Any] | None:
         """Get supply_items row verifying ownership."""

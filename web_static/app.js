@@ -2158,7 +2158,7 @@ function renderSuppliesTable() {
       <td class="supply-date-cell">${supplyDate}</td>
       <td class="supply-qty-cell">${item.quantity ?? "—"}</td>
       <td><span class="supply-status-badge supply-status-${item.status_id}">${statusLabel}</span></td>
-      <td class="supply-links-cell">—</td>
+      <td class="supply-links-cell"><button class="supply-detail-link" onclick="openSupplyDetailsModal(${item.supply_id})">Детали</button></td>
     `;
     tbody.appendChild(tr);
     const goodsTr = document.createElement("tr");
@@ -2208,6 +2208,77 @@ async function toggleSupplyGoods(btn, supplyId) {
   }
   html += "</tbody></table>";
   container.innerHTML = html;
+}
+
+const SUPPLY_BOX_TYPE_LABELS = {
+  0: "Не указан",
+  1: "Короба",
+  2: "Короба",
+  5: "Монопаллеты / СГТ",
+  6: "Паллеты",
+};
+
+let _supplyDetailsCurrentId = null;
+
+function openSupplyDetailsModal(supplyId) {
+  const item = suppliesState.items.find((x) => x.supply_id === supplyId || x.supply_id === Number(supplyId));
+  if (!item) return;
+  _supplyDetailsCurrentId = item.supply_id;
+
+  document.getElementById("supplyDetailsTitle").textContent = `Детали поставки № ${item.supply_id}`;
+  document.getElementById("sdSupplyId").textContent = item.supply_id;
+  document.getElementById("sdQuantity").textContent = item.quantity != null ? `${item.quantity} шт.` : "—";
+  document.getElementById("sdBoxType").textContent = SUPPLY_BOX_TYPE_LABELS[item.box_type_id] || `тип ${item.box_type_id || "—"}`;
+  document.getElementById("sdSupplier").textContent = item.supplier_name || "—";
+
+  // Editable fields — from saved values or empty
+  document.getElementById("sdPassNumber").value = item.pass_number || "";
+  document.getElementById("sdPalletsCount").value = item.pallets_count || "";
+  document.getElementById("sdDriverName").value = item.driver_name || "";
+
+  const info = document.getElementById("sdInfo");
+  if (info) { info.textContent = ""; info.style.color = ""; }
+
+  const modal = document.getElementById("supplyDetailsModal");
+  if (modal) { modal.classList.remove("hidden"); modal.removeAttribute("aria-hidden"); }
+}
+
+function closeSupplyDetailsModal() {
+  const modal = document.getElementById("supplyDetailsModal");
+  if (modal) { modal.classList.add("hidden"); modal.setAttribute("aria-hidden", "true"); }
+  _supplyDetailsCurrentId = null;
+}
+
+async function saveSupplyManualFields() {
+  if (!_supplyDetailsCurrentId) return;
+  const btn = document.getElementById("sdSaveBtn");
+  const info = document.getElementById("sdInfo");
+  const passNumber = document.getElementById("sdPassNumber")?.value.trim() || null;
+  const palletsCount = document.getElementById("sdPalletsCount")?.value.trim() || null;
+  const driverName = document.getElementById("sdDriverName")?.value.trim() || null;
+
+  if (btn) { btn.disabled = true; btn.textContent = "Сохранение…"; }
+  const res = await fetch(`/api/supplies/${_supplyDetailsCurrentId}/manual-fields`, {
+    method: "PATCH",
+    headers: jsonHeaders(),
+    body: JSON.stringify({ pass_number: passNumber, pallets_count: palletsCount, driver_name: driverName }),
+  }).catch(() => null);
+  if (btn) { btn.disabled = false; btn.textContent = "Сохранить"; }
+
+  if (!res || !res.ok) {
+    const err = await res?.json().catch(() => ({})) || {};
+    if (info) { info.textContent = err.detail || "Ошибка сохранения"; info.style.color = "#b91c1c"; }
+    return;
+  }
+  if (info) { info.textContent = "Сохранено"; info.style.color = "#16a34a"; }
+
+  // Update local state so reopening the modal shows fresh values
+  const item = suppliesState.items.find((x) => x.supply_id === _supplyDetailsCurrentId);
+  if (item) {
+    item.pass_number = passNumber;
+    item.pallets_count = palletsCount;
+    item.driver_name = driverName;
+  }
 }
 
 function toggleSuppliesFilter() {
@@ -6262,6 +6333,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (event.key !== "Escape") return;
     closeManagerPermissionsModal();
     closeChatQuickTemplatesModal();
+    closeSupplyDetailsModal();
     toggleChatEmojiPicker(false);
     closeMobileNavMenu();
   });
@@ -6339,6 +6411,9 @@ window.loadSupplies = loadSupplies;
 window.suppliesChangePage = suppliesChangePage;
 window.toggleSupplyGoods = toggleSupplyGoods;
 window.toggleSuppliesFilter = toggleSuppliesFilter;
+window.openSupplyDetailsModal = openSupplyDetailsModal;
+window.closeSupplyDetailsModal = closeSupplyDetailsModal;
+window.saveSupplyManualFields = saveSupplyManualFields;
 window.showSuppliesSettingsTab = function(tab) {
   document.querySelectorAll("#section-supplies-settings .settings-tab-btn").forEach((b) => b.classList.remove("active"));
   document.getElementById(`supplies-settings-tab-${tab}`)?.classList.add("active");

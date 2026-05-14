@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=89" />
+  <link rel="stylesheet" href="/static/style.css?v=90" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1241,6 +1241,54 @@
       </div>
     </div>
   </div>
+  <!-- ── Supply Details Modal ── -->
+  <div id="supplyDetailsModal" class="modal-overlay hidden" aria-hidden="true" onclick="if(event.target===this)closeSupplyDetailsModal()">
+    <div class="modal-card supply-details-modal-card">
+      <div class="modal-card-header">
+        <h4 class="no-margin" id="supplyDetailsTitle">Детали поставки</h4>
+        <button type="button" class="modal-close-btn" onclick="closeSupplyDetailsModal()" aria-label="Закрыть">✕</button>
+      </div>
+      <div class="supply-details-body">
+        <div class="supply-detail-row">
+          <span class="supply-detail-label">Поставка №</span>
+          <span class="supply-detail-value" id="sdSupplyId">—</span>
+        </div>
+        <div class="supply-detail-row">
+          <span class="supply-detail-label">Пропуск №</span>
+          <input id="sdPassNumber" type="text" class="supply-detail-input"
+                 placeholder="WB-GI-XXXXXXX (требует заполнения)" autocomplete="off" />
+        </div>
+        <div class="supply-detail-row">
+          <span class="supply-detail-label">Количество</span>
+          <span class="supply-detail-value" id="sdQuantity">—</span>
+        </div>
+        <div class="supply-detail-row">
+          <span class="supply-detail-label">Паллет</span>
+          <input id="sdPalletsCount" type="text" class="supply-detail-input"
+                 placeholder="Требует заполнения" autocomplete="off" />
+        </div>
+        <div class="supply-detail-row">
+          <span class="supply-detail-label">Тип поставки</span>
+          <span class="supply-detail-value" id="sdBoxType">—</span>
+        </div>
+        <div class="supply-detail-row">
+          <span class="supply-detail-label">Поставщик</span>
+          <span class="supply-detail-value" id="sdSupplier">—</span>
+        </div>
+        <div class="supply-detail-row">
+          <span class="supply-detail-label">Водитель</span>
+          <input id="sdDriverName" type="text" class="supply-detail-input"
+                 placeholder="Требует заполнения" autocomplete="off" />
+        </div>
+      </div>
+      <div class="supply-details-footer">
+        <button id="sdSaveBtn" type="button" onclick="saveSupplyManualFields()">Сохранить</button>
+        <button type="button" class="secondary" onclick="closeSupplyDetailsModal()">Закрыть</button>
+        <span id="sdInfo" class="small"></span>
+      </div>
+    </div>
+  </div>
+
   <div id="chatQuickTemplatesModal" class="modal-overlay hidden" aria-hidden="true" onclick="if(event.target===this)closeChatQuickTemplatesModal()">
     <div class="modal-card qtempl-modal-card">
       <div class="qtempl-header">
@@ -1270,6 +1318,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=140"></script>
+  <script src="/static/app.js?v=141"></script>
 </body>
 </html>
