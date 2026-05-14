@@ -2878,29 +2878,53 @@ function downloadSupplyBarcode(passNumber, supplyId) {
   doc.setLineWidth(0.3);
   doc.rect(pad, pad, pageW - pad * 2, pageH - pad * 2);
 
-  // Top: pass number — bold, orange
+  // Top: pass number — bold, orange (ASCII only, no Cyrillic issue)
   doc.setFont("helvetica", "bold");
   doc.setFontSize(9);
   doc.setTextColor(200, 100, 0);
-  doc.text(passNumber, pageW / 2, pad + 4.5, { align: "center" });
+  doc.text(passNumber, pageW / 2, pad + 5, { align: "center" });
 
-  // Barcode: from y=7 to ~mid label (~y=26), height up to ~19mm
+  // Barcode: shifted down for more spacing after top text
   const barcodeX = pad + 1.5;
   const barcodeW = pageW - pad * 2 - 3;
   const barcodeH = Math.min(barcodeW * barcodeAspect, 19);
-  const barcodeY = pad + 6;
+  const barcodeY = pad + 8;  // more gap from top text
   doc.addImage(barcodeDataUrl, "PNG", barcodeX, barcodeY, barcodeW, barcodeH);
 
-  // Bottom text: date, warehouse, quantity — same style as top
+  // Bottom text: render Cyrillic via canvas (jsPDF default fonts don't support Russian)
   if (bottomText) {
-    const bottomY = barcodeY + barcodeH + 4.5;
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(8);
-    doc.setTextColor(200, 100, 0);
-    // If text is too long, reduce font size
-    const textW = doc.getTextWidth(bottomText);
-    if (textW > pageW - pad * 2 - 4) doc.setFontSize(7);
-    doc.text(bottomText, pageW / 2, bottomY, { align: "center" });
+    const bottomY = barcodeY + barcodeH + 3; // more gap from barcode
+    const availableH = pageH - pad - bottomY;
+    // Render text to canvas so Cyrillic displays correctly
+    const textCanvas = document.createElement("canvas");
+    const DPI = 3; // scale factor for sharpness
+    const pxW = Math.round((pageW - pad * 2 - 4) * DPI * 3.78); // mm→px approx
+    const pxH = Math.round(availableH * DPI * 3.78);
+    textCanvas.width = pxW;
+    textCanvas.height = Math.max(pxH, 40);
+    const ctx = textCanvas.getContext("2d");
+    ctx.clearRect(0, 0, pxW, pxH);
+    ctx.fillStyle = "rgb(200,100,0)";
+    ctx.font = `bold ${11 * DPI}px Arial`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    // Word-wrap the text
+    const words = bottomText.split(/\s{2,}|\s+/);
+    const maxW = pxW - 8;
+    const lines = [];
+    let cur = "";
+    for (const w of words) {
+      const test = cur ? cur + "  " + w : w;
+      if (ctx.measureText(test).width > maxW && cur) { lines.push(cur); cur = w; }
+      else cur = test;
+    }
+    if (cur) lines.push(cur);
+    const lineH = 13 * DPI;
+    lines.forEach((line, i) => ctx.fillText(line, pxW / 2, i * lineH));
+    const imgData = textCanvas.toDataURL("image/png");
+    const imgH = (lines.length * lineH / (DPI * 3.78));
+    const imgW = pageW - pad * 2 - 4;
+    doc.addImage(imgData, "PNG", pad + 2, bottomY, imgW, Math.min(imgH, availableH));
   }
 
   doc.save(`${fileName}.pdf`);
