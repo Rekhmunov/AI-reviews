@@ -2701,7 +2701,7 @@ function downloadPackingList(supplyId) {
   const blob = new Blob(["\uFEFF" + html], { type: "application/msword" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  const fn = [passNumber, dateDisplay.replace(/\./g,""), destWarehouse].filter(Boolean).join(", ");
+  const fn = [passNumber, dateDisplay.replace(/\./g,""), destWarehouse, item.quantity != null ? `${item.quantity} шт.` : ""].filter(Boolean).join(", ");
   a.href = url; a.download = `Упаковочный лист ${fn}.doc`; a.target = "_blank"; a.click();
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
