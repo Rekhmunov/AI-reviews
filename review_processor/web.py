@@ -426,9 +426,23 @@ class CreateSupplyWarehouseRequest(BaseModel):
     address: str = ""
 
 
+class UpdateSupplyWarehouseRequest(BaseModel):
+    warehouse_name: str
+    address: str = ""
+
+
 class CreateSupplyLegalEntityRequest(BaseModel):
     short_name: str
     full_name: str = ""
+
+
+class UpdateSupplyLegalEntityRequest(BaseModel):
+    short_name: str
+    full_name: str = ""
+
+
+class UpdateSupplyDriverRequest(BaseModel):
+    full_name: str
 
 
 class ManagerSuppliesAccessRequest(BaseModel):
@@ -5412,6 +5426,19 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=409, detail=f"Водитель «{name}» уже существует")
         return repository.create_supply_driver(user_id=owner_id, full_name=name)
 
+    @app.patch("/api/supply-drivers/{driver_id}")
+    def update_supply_driver_endpoint(request: Request, driver_id: int, payload: UpdateSupplyDriverRequest) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        name = payload.full_name.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Имя не может быть пустым")
+        ok = repository.update_supply_driver(user_id=_supply_owner_id(user), driver_id=driver_id, full_name=name)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Водитель не найден")
+        return {"ok": True}
+
     @app.delete("/api/supply-drivers/{driver_id}")
     def delete_supply_driver(request: Request, driver_id: int) -> dict[str, object]:
         user = _require_user(request)
@@ -5444,6 +5471,19 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         repository._ensure_supply_tables()
         return repository.create_supply_warehouse(user_id=owner_id, warehouse_name=name, address=payload.address.strip())
 
+    @app.patch("/api/supply-warehouses/{warehouse_id}")
+    def update_supply_warehouse_endpoint(request: Request, warehouse_id: int, payload: UpdateSupplyWarehouseRequest) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        name = payload.warehouse_name.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Название не может быть пустым")
+        ok = repository.update_supply_warehouse(user_id=_supply_owner_id(user), warehouse_id=warehouse_id, warehouse_name=name, address=payload.address.strip())
+        if not ok:
+            raise HTTPException(status_code=404, detail="Склад не найден")
+        return {"ok": True}
+
     @app.delete("/api/supply-warehouses/{warehouse_id}")
     def delete_supply_warehouse(request: Request, warehouse_id: int) -> dict[str, object]:
         user = _require_user(request)
@@ -5474,6 +5514,19 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         owner_id = _supply_owner_id(user)
         repository._ensure_supply_tables()
         return repository.create_supply_legal_entity(user_id=owner_id, short_name=name, full_name=payload.full_name.strip())
+
+    @app.patch("/api/supply-legal-entities/{entity_id}")
+    def update_supply_legal_entity_endpoint(request: Request, entity_id: int, payload: UpdateSupplyLegalEntityRequest) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        name = payload.short_name.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Короткое наименование не может быть пустым")
+        ok = repository.update_supply_legal_entity(user_id=_supply_owner_id(user), entity_id=entity_id, short_name=name, full_name=payload.full_name.strip())
+        if not ok:
+            raise HTTPException(status_code=404, detail="Юридическое лицо не найдено")
+        return {"ok": True}
 
     @app.delete("/api/supply-legal-entities/{entity_id}")
     def delete_supply_legal_entity(request: Request, entity_id: int) -> dict[str, object]:

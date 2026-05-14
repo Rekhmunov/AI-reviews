@@ -6546,6 +6546,14 @@ class ReviewRepository:
             ).fetchone()
         return self._row_to_dict(row) if row else {"id": driver_id, "full_name": full_name}
 
+    def update_supply_driver(self, *, user_id: int, driver_id: int, full_name: str) -> bool:
+        with self._connect() as conn:
+            result = conn.execute(
+                self._sql("UPDATE supply_drivers SET full_name = ? WHERE user_id = ? AND id = ?"),
+                (full_name.strip(), user_id, driver_id),
+            )
+        return bool(result.rowcount)
+
     def delete_supply_driver(self, *, user_id: int, driver_id: int) -> bool:
         with self._connect() as conn:
             result = conn.execute(
@@ -6574,6 +6582,14 @@ class ReviewRepository:
             )
             row = conn.execute(self._sql("SELECT * FROM supply_warehouses WHERE id = ?"), (wid,)).fetchone()
         return self._row_to_dict(row) if row else {"id": wid}
+
+    def update_supply_warehouse(self, *, user_id: int, warehouse_id: int, warehouse_name: str, address: str) -> bool:
+        with self._connect() as conn:
+            result = conn.execute(
+                self._sql("UPDATE supply_warehouses SET warehouse_name = ?, address = ? WHERE user_id = ? AND id = ?"),
+                (warehouse_name.strip(), address.strip(), user_id, warehouse_id),
+            )
+        return bool(result.rowcount)
 
     def delete_supply_warehouse(self, *, user_id: int, warehouse_id: int) -> bool:
         with self._connect() as conn:
@@ -6608,6 +6624,14 @@ class ReviewRepository:
             )
             row = conn.execute(self._sql("SELECT * FROM supply_legal_entities WHERE id = ?"), (eid,)).fetchone()
         return self._row_to_dict(row) if row else {"id": eid}
+
+    def update_supply_legal_entity(self, *, user_id: int, entity_id: int, short_name: str, full_name: str) -> bool:
+        with self._connect() as conn:
+            result = conn.execute(
+                self._sql("UPDATE supply_legal_entities SET short_name = ?, full_name = ? WHERE user_id = ? AND id = ?"),
+                (short_name.strip(), full_name.strip(), user_id, entity_id),
+            )
+        return bool(result.rowcount)
 
     def delete_supply_legal_entity(self, *, user_id: int, entity_id: int) -> bool:
         with self._connect() as conn:

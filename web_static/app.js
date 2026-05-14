@@ -2256,12 +2256,16 @@ function renderSupplyDriversTable() {
   }
   _supplyDriversCache.forEach((d, idx) => {
     const tr = document.createElement("tr");
+    tr.dataset.id = d.id;
     tr.innerHTML = `
       <td>${idx + 1}</td>
-      <td>${esc(d.full_name || "")}</td>
+      <td class="editable-cell">${esc(d.full_name || "")}</td>
       <td>
-        <button class="secondary small-btn" style="color:#b91c1c;border-color:#fca5a5"
-          onclick="deleteSupplyDriver(${d.id})">Удалить</button>
+        <div class="row" style="gap:4px;flex-wrap:nowrap">
+          <button class="secondary small-btn" onclick="startEditDriver(${d.id})">✏</button>
+          <button class="secondary small-btn" style="color:#b91c1c;border-color:#fca5a5"
+            onclick="deleteSupplyDriver(${d.id})">Удалить</button>
+        </div>
       </td>
     `;
     tbody.appendChild(tr);
@@ -2330,6 +2334,29 @@ async function saveSupplyDriver() {
   if (!ok) return;
   if (info) { info.textContent = "Добавлен"; info.style.color = "#16a34a"; }
   toggleAddDriverForm(false);
+  await loadSupplyDrivers();
+}
+
+async function startEditDriver(id) {
+  const item = _supplyDriversCache.find((x) => x.id === id);
+  if (!item) return;
+  const tr = document.querySelector(`#supplyDriversTbody tr[data-id="${id}"]`);
+  if (!tr) return;
+  tr.querySelector(".editable-cell").innerHTML = `<input class="edit-inline-input" value="${esc(item.full_name||"")}" />`;
+  const actionCell = tr.cells[tr.cells.length - 1];
+  actionCell.innerHTML = `<div class="row" style="gap:4px;flex-wrap:nowrap">
+    <button class="secondary small-btn" style="color:#16a34a;border-color:#86efac" onclick="saveEditDriver(${id})">Сохранить</button>
+    <button class="secondary small-btn" onclick="loadSupplyDrivers()">Отмена</button>
+  </div>`;
+  tr.querySelector(".edit-inline-input")?.focus();
+}
+
+async function saveEditDriver(id) {
+  const tr = document.querySelector(`#supplyDriversTbody tr[data-id="${id}"]`);
+  if (!tr) return;
+  const name = tr.querySelector(".edit-inline-input")?.value.trim() || "";
+  if (!name) return;
+  await fetch(`/api/supply-drivers/${id}`, { method: "PATCH", headers: jsonHeaders(), body: JSON.stringify({ full_name: name }) }).catch(() => null);
   await loadSupplyDrivers();
 }
 
@@ -2547,10 +2574,42 @@ function renderSupplyWarehousesTbody() {
   }
   _supplyWarehousesCache.forEach((w, i) => {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${i+1}</td><td>${esc(w.warehouse_name||"")}</td><td>${esc(w.address||"")}</td>
-      <td><button class="secondary small-btn" style="color:#b91c1c;border-color:#fca5a5" onclick="deleteSupplyWarehouse(${w.id})">Удалить</button></td>`;
+    tr.dataset.id = w.id;
+    tr.innerHTML = `<td>${i+1}</td><td class="editable-cell">${esc(w.warehouse_name||"")}</td><td class="editable-cell">${esc(w.address||"")}</td>
+      <td>
+        <div class="row" style="gap:4px;flex-wrap:nowrap">
+          <button class="secondary small-btn" onclick="startEditWarehouse(${w.id})">✏</button>
+          <button class="secondary small-btn" style="color:#b91c1c;border-color:#fca5a5" onclick="deleteSupplyWarehouse(${w.id})">Удалить</button>
+        </div>
+      </td>`;
     tbody.appendChild(tr);
   });
+}
+
+async function startEditWarehouse(id) {
+  const item = _supplyWarehousesCache.find((x) => x.id === id);
+  if (!item) return;
+  const tr = document.querySelector(`#supplyWarehousesTbody tr[data-id="${id}"]`);
+  if (!tr) return;
+  const cells = tr.querySelectorAll(".editable-cell");
+  cells[0].innerHTML = `<input class="edit-inline-input" value="${esc(item.warehouse_name||"")}" />`;
+  cells[1].innerHTML = `<input class="edit-inline-input" value="${esc(item.address||"")}" />`;
+  const actionCell = tr.cells[tr.cells.length - 1];
+  actionCell.innerHTML = `<div class="row" style="gap:4px;flex-wrap:nowrap">
+    <button class="secondary small-btn" style="color:#16a34a;border-color:#86efac" onclick="saveEditWarehouse(${id})">Сохранить</button>
+    <button class="secondary small-btn" onclick="loadSupplyWarehouses()">Отмена</button>
+  </div>`;
+}
+
+async function saveEditWarehouse(id) {
+  const tr = document.querySelector(`#supplyWarehousesTbody tr[data-id="${id}"]`);
+  if (!tr) return;
+  const inputs = tr.querySelectorAll(".edit-inline-input");
+  const name = inputs[0]?.value.trim() || "";
+  const addr = inputs[1]?.value.trim() || "";
+  if (!name) return;
+  await fetch(`/api/supply-warehouses/${id}`, { method: "PATCH", headers: jsonHeaders(), body: JSON.stringify({ warehouse_name: name, address: addr }) }).catch(() => null);
+  await loadSupplyWarehouses();
 }
 
 function toggleAddWarehouseForm(show) {
@@ -2598,10 +2657,42 @@ function renderSupplyLegalEntitiesTbody() {
   }
   _supplyLegalEntitiesCache.forEach((e, i) => {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${i+1}</td><td>${esc(e.short_name||"")}</td><td>${esc(e.full_name||"")}</td>
-      <td><button class="secondary small-btn" style="color:#b91c1c;border-color:#fca5a5" onclick="deleteSupplyLegalEntity(${e.id})">Удалить</button></td>`;
+    tr.dataset.id = e.id;
+    tr.innerHTML = `<td>${i+1}</td><td class="editable-cell">${esc(e.short_name||"")}</td><td class="editable-cell">${esc(e.full_name||"")}</td>
+      <td>
+        <div class="row" style="gap:4px;flex-wrap:nowrap">
+          <button class="secondary small-btn" onclick="startEditLegalEntity(${e.id})">✏</button>
+          <button class="secondary small-btn" style="color:#b91c1c;border-color:#fca5a5" onclick="deleteSupplyLegalEntity(${e.id})">Удалить</button>
+        </div>
+      </td>`;
     tbody.appendChild(tr);
   });
+}
+
+async function startEditLegalEntity(id) {
+  const item = _supplyLegalEntitiesCache.find((x) => x.id === id);
+  if (!item) return;
+  const tr = document.querySelector(`#supplyLegalEntitiesTbody tr[data-id="${id}"]`);
+  if (!tr) return;
+  const cells = tr.querySelectorAll(".editable-cell");
+  cells[0].innerHTML = `<input class="edit-inline-input" value="${esc(item.short_name||"")}" />`;
+  cells[1].innerHTML = `<input class="edit-inline-input" value="${esc(item.full_name||"")}" />`;
+  const actionCell = tr.cells[tr.cells.length - 1];
+  actionCell.innerHTML = `<div class="row" style="gap:4px;flex-wrap:nowrap">
+    <button class="secondary small-btn" style="color:#16a34a;border-color:#86efac" onclick="saveEditLegalEntity(${id})">Сохранить</button>
+    <button class="secondary small-btn" onclick="loadSupplyLegalEntities()">Отмена</button>
+  </div>`;
+}
+
+async function saveEditLegalEntity(id) {
+  const tr = document.querySelector(`#supplyLegalEntitiesTbody tr[data-id="${id}"]`);
+  if (!tr) return;
+  const inputs = tr.querySelectorAll(".edit-inline-input");
+  const short = inputs[0]?.value.trim() || "";
+  const full = inputs[1]?.value.trim() || "";
+  if (!short) return;
+  await fetch(`/api/supply-legal-entities/${id}`, { method: "PATCH", headers: jsonHeaders(), body: JSON.stringify({ short_name: short, full_name: full }) }).catch(() => null);
+  await loadSupplyLegalEntities();
 }
 
 function toggleAddLegalEntityForm(show) {
@@ -7051,6 +7142,12 @@ window.clearSupplies = clearSupplies;
 window.loadSupplies = loadSupplies;
 window.suppliesChangePage = suppliesChangePage;
 window.toggleSupplyGoods = toggleSupplyGoods;
+window.startEditDriver = startEditDriver;
+window.saveEditDriver = saveEditDriver;
+window.startEditWarehouse = startEditWarehouse;
+window.saveEditWarehouse = saveEditWarehouse;
+window.startEditLegalEntity = startEditLegalEntity;
+window.saveEditLegalEntity = saveEditLegalEntity;
 window.toggleAddWarehouseForm = toggleAddWarehouseForm;
 window.saveSupplyWarehouse = saveSupplyWarehouse;
 window.deleteSupplyWarehouse = deleteSupplyWarehouse;
