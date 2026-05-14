@@ -356,7 +356,7 @@ async function copyAccountApiKey(rawKey) {
 }
 
 function getPermissions() {
-  const defaults = { can_view_analytics: true, can_view_settings: true, can_view_supplies: false, is_admin: false };
+  const defaults = { can_view_analytics: true, can_view_settings: true, can_view_supplies: false, can_view_feedback: true, is_admin: false };
   const fromWindow = window.APP_PERMISSIONS || {};
   return {
     can_view_analytics: Boolean(
@@ -373,6 +373,11 @@ function getPermissions() {
       fromWindow.can_view_supplies !== undefined
         ? fromWindow.can_view_supplies
         : defaults.can_view_supplies,
+    ),
+    can_view_feedback: Boolean(
+      fromWindow.can_view_feedback !== undefined
+        ? fromWindow.can_view_feedback
+        : defaults.can_view_feedback,
     ),
     is_admin: Boolean(
       fromWindow.is_admin !== undefined
@@ -393,6 +398,9 @@ function canViewSection(section) {
   if (section === "settings") return permissions.can_view_settings;
   if (section === "supplies-wb") return permissions.can_view_supplies;
   if (section === "supplies-settings") return permissions.can_view_settings;
+  if (section === "reviews" || section === "conversations" || section === "chats") {
+    return permissions.can_view_feedback;
+  }
   return true;
 }
 
@@ -5896,8 +5904,8 @@ async function saveNewManager() {
     return;
   }
   // Set can_supplies if checked
-  if (teamState.pendingCanSupplies && data.id) {
-    await fetch(`/api/tenant/team/${data.id}/supplies-access`, {
+  if (teamState.pendingCanSupplies && data.item?.id) {
+    await fetch(`/api/tenant/team/${data.item.id}/supplies-access`, {
       method: "PUT",
       headers: jsonHeaders(),
       body: JSON.stringify({ can_supplies: true }),
@@ -6610,6 +6618,19 @@ document.addEventListener("DOMContentLoaded", () => {
   if (!permissions.can_view_supplies) {
     document.getElementById("section-supplies-wb")?.classList.add("hidden");
     document.getElementById("section-supplies-settings")?.classList.add("hidden");
+  }
+  if (!permissions.can_view_feedback) {
+    ["section-reviews", "section-conversations", "section-chats"].forEach((id) => {
+      document.getElementById(id)?.classList.add("hidden");
+    });
+    // Hide feedback nav items
+    ["nav-reviews", "nav-conversations", "nav-chats"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = "none";
+    });
+    // Also hide the nav section label if all feedback items are hidden
+    const feedbackLabel = document.querySelector(".sidebar-nav .nav-section-label");
+    if (feedbackLabel) feedbackLabel.style.display = "none";
   }
   const savedSettingsTab = readStoredUiState(ACTIVE_SETTINGS_TAB_STORAGE_KEY);
   let initialSettingsTab = SETTINGS_TAB_IDS.includes(savedSettingsTab) ? savedSettingsTab : "sources";

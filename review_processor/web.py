@@ -5718,6 +5718,15 @@ def build_app_html(user: dict[str, object]) -> str:
         role in ROLE_CAN_ACCESS_SETTINGS
         or bool(user.get("can_supplies"))
     )
+    if role in ROLE_CAN_ACCESS_SETTINGS:
+        can_view_feedback = True
+    else:
+        # Manager: feedback sections visible only if they have at least one permission
+        _perms = repository.list_manager_permissions(manager_user_id=user_id)
+        can_view_feedback = any(
+            bool(p.get("can_reviews")) or bool(p.get("can_questions")) or bool(p.get("can_chats"))
+            for p in _perms
+        )
     admin_link = '<a class="navbtn nav-admin" href="/admin"><span class="nav-item-icon">○</span> Админ-панель</a>' if role == ROLE_ADMIN else ""
     nav_analytics = (
         '<a id="nav-analytics" class="nav-item" href="#" onclick="showSection(\'analytics\')"><span class="nav-item-icon">∑</span> Аналитика</a>'
@@ -5754,6 +5763,7 @@ def build_app_html(user: dict[str, object]) -> str:
             "CAN_VIEW_ANALYTICS": "true" if can_view_analytics else "false",
             "CAN_VIEW_SETTINGS": "true" if can_view_settings else "false",
             "CAN_VIEW_SUPPLIES": "true" if can_view_supplies else "false",
+            "CAN_VIEW_FEEDBACK": "true" if can_view_feedback else "false",
             "IS_ADMIN": "true" if role == ROLE_ADMIN else "false",
             "IS_SUPER_ADMIN": "true" if is_super_admin else "false",
             "IS_TENANT_OWNER": "true" if is_tenant_owner else "false",
