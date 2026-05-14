@@ -4733,8 +4733,9 @@ button.secondary.danger:hover {
 /* ── Supply Details Modal ──────────────────────────────────────── */
 
 .supply-details-modal-card {
-  width: 100%;
-  max-width: 480px;
+  width: 50vw;
+  min-width: 320px;
+  max-width: 900px;
   max-height: 90vh;
   display: flex;
   flex-direction: column;
