@@ -6419,6 +6419,9 @@ class ReviewRepository:
         conn.execute(
             "ALTER TABLE supply_items ADD COLUMN IF NOT EXISTS notes TEXT"
         )
+        conn.execute(
+            "ALTER TABLE supply_items ADD COLUMN IF NOT EXISTS production TEXT"
+        )
         # Permanent store for user-entered supply data — survives clear_supply_items
         conn.execute(
             """
@@ -6442,6 +6445,9 @@ class ReviewRepository:
         )
         conn.execute(
             "ALTER TABLE supply_manual_data ADD COLUMN IF NOT EXISTS notes TEXT"
+        )
+        conn.execute(
+            "ALTER TABLE supply_manual_data ADD COLUMN IF NOT EXISTS production TEXT"
         )
         # Drivers catalog for supply deliveries
         conn.execute(
@@ -6779,6 +6785,7 @@ class ReviewRepository:
         pallets_count: str | None,
         driver_name: str | None,
         notes: str | None = None,
+        production: str | None = None,
     ) -> bool:
         """Update user-editable fields in supply_items AND persist to supply_manual_data."""
         now = _utc_now()
@@ -6786,33 +6793,35 @@ class ReviewRepository:
         pc = (pallets_count or "").strip() or None
         dn = (driver_name or "").strip() or None
         nt = (notes or "").strip() or None
+        pr = (production or "").strip() or None
         with self._connect() as conn:
             result = conn.execute(
                 self._sql(
                     """
                     UPDATE supply_items
-                    SET pass_number = ?, pallets_count = ?, driver_name = ?, notes = ?
+                    SET pass_number = ?, pallets_count = ?, driver_name = ?, notes = ?, production = ?
                     WHERE supply_id = ?
                       AND source_id IN (SELECT id FROM supply_sources WHERE user_id = ?)
                     """
                 ),
-                (pn, pc, dn, nt, supply_id, user_id),
+                (pn, pc, dn, nt, pr, supply_id, user_id),
             )
             conn.execute(
                 self._sql(
                     """
                     INSERT INTO supply_manual_data
-                        (user_id, supply_id, pass_number, pallets_count, driver_name, notes, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                        (user_id, supply_id, pass_number, pallets_count, driver_name, notes, production, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT (user_id, supply_id) DO UPDATE SET
                         pass_number   = excluded.pass_number,
                         pallets_count = excluded.pallets_count,
                         driver_name   = excluded.driver_name,
                         notes         = excluded.notes,
+                        production    = excluded.production,
                         updated_at    = excluded.updated_at
                     """
                 ),
-                (user_id, supply_id, pn, pc, dn, nt, now),
+                (user_id, supply_id, pn, pc, dn, nt, pr, now),
             )
         return bool(result.rowcount)
 
@@ -6828,7 +6837,8 @@ class ReviewRepository:
                         pass_number   = smd.pass_number,
                         pallets_count = smd.pallets_count,
                         driver_name   = smd.driver_name,
-                        notes         = smd.notes
+                        notes         = smd.notes,
+                        production    = smd.production
                     FROM supply_manual_data smd
                     WHERE smd.user_id   = ?
                       AND smd.supply_id = si.supply_id
@@ -6840,6 +6850,7 @@ class ReviewRepository:
                        OR smd.pallets_count IS NOT NULL
                        OR smd.driver_name   IS NOT NULL
                        OR smd.notes         IS NOT NULL
+                       OR smd.production    IS NOT NULL
                       )
                     """
                 ),

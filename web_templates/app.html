@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=91" />
+  <link rel="stylesheet" href="/static/style.css?v=92" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1060,6 +1060,7 @@
                   <th class="supplies-col-expand"></th>
                   <th class="supplies-col-id">№ поставки</th>
                   <th class="supplies-col-wh">Склад</th>
+                  <th class="supplies-col-prod">Производство</th>
                   <th class="supplies-col-date">Дата поставки</th>
                   <th class="supplies-col-qty">Кол-во</th>
                   <th class="supplies-col-status">Статус</th>
@@ -1290,6 +1291,14 @@
           <span class="supply-detail-value" id="sdSupplier">—</span>
         </div>
         <div class="supply-detail-row">
+          <span class="supply-detail-label">Производство</span>
+          <select id="sdProduction" class="supply-detail-input" style="height:36px">
+            <option value="">— Не выбрано —</option>
+            <option value="Кинешма">Кинешма</option>
+            <option value="Нерль">Нерль</option>
+          </select>
+        </div>
+        <div class="supply-detail-row">
           <span class="supply-detail-label">Пропуск №</span>
           <input id="sdPassNumber" type="text" class="supply-detail-input"
                  placeholder="WB-GI-XXXXXXX (требует заполнения)" autocomplete="off" />
@@ -1378,6 +1387,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=146"></script>
+  <script src="/static/app.js?v=147"></script>
 </body>
 </html>

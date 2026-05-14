@@ -4837,3 +4837,7 @@ button.secondary.danger:hover {
   text-decoration-color: #4f46e5;
   background: rgba(99,102,241,0.06);
 }
+
+.supplies-col-prod { width: 120px; }
+.supply-prod-cell { color: #374151; }
+.supply-prod-empty { color: #f59e0b; font-style: italic; font-size: 12px; }

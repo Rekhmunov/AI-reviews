@@ -2155,6 +2155,7 @@ function renderSuppliesTable() {
       </td>
       <td><span class="supply-id-text">${item.supply_id}</span></td>
       <td class="supply-wh-cell">${_supplyWarehouseLabel(item)}</td>
+      <td class="supply-prod-cell">${item.production ? esc(item.production) : '<span class="supply-prod-empty">Требует заполнения</span>'}</td>
       <td class="supply-date-cell">${supplyDate}</td>
       <td class="supply-qty-cell">${item.quantity ?? "—"}</td>
       <td><span class="supply-status-badge supply-status-${item.status_id}">${statusLabel}</span></td>
@@ -2394,6 +2395,8 @@ function openSupplyDetailsModal(supplyId) {
   document.getElementById("sdPalletsCount").value = item.pallets_count || "";
   const notesEl = document.getElementById("sdNotes");
   if (notesEl) notesEl.value = item.notes || "";
+  const prodSel = document.getElementById("sdProduction");
+  if (prodSel) prodSel.value = item.production || "";
 
   // Driver dropdown
   _populateDriverSelect(item.driver_name || "");
@@ -2426,6 +2429,7 @@ function copySupplyDetails() {
     `Поставка №: ${get("sdSupplyId")}`,
     `Дата поставки: ${get("sdSupplyDate")}`,
     `Поставщик: ${get("sdSupplier")}`,
+    `Производство: ${document.getElementById("sdProduction")?.value || "—"}`,
     `Пропуск №: ${val("sdPassNumber") || "—"}`,
     `Склад: ${document.getElementById("sdWarehouse")?.innerText || get("sdWarehouse") || "—"}`,
     `Количество: ${get("sdQuantity")}`,
@@ -2479,12 +2483,13 @@ async function saveSupplyManualFields() {
   const driverRaw = driverSel?.value || "";
   const driverName = (driverRaw && driverRaw !== "__new__") ? driverRaw : null;
   const notes = document.getElementById("sdNotes")?.value.trim() || null;
+  const production = document.getElementById("sdProduction")?.value || null;
 
   if (btn) { btn.disabled = true; btn.textContent = "Сохранение…"; }
   const res = await fetch(`/api/supplies/${_supplyDetailsCurrentId}/manual-fields`, {
     method: "PATCH",
     headers: jsonHeaders(),
-    body: JSON.stringify({ pass_number: passNumber, pallets_count: palletsCount, driver_name: driverName, notes }),
+    body: JSON.stringify({ pass_number: passNumber, pallets_count: palletsCount, driver_name: driverName, notes, production }),
   }).catch(() => null);
   if (btn) { btn.disabled = false; btn.textContent = "Сохранить"; }
 
@@ -2502,6 +2507,7 @@ async function saveSupplyManualFields() {
     item.pallets_count = palletsCount;
     item.driver_name   = driverName;
     item.notes         = notes;
+    item.production    = production;
   }
 }
 
