@@ -4926,3 +4926,16 @@ button.secondary.danger:hover {
   color: #065f46 !important;
   box-shadow: 0 1px 4px rgba(16,185,129,0.15) !important;
 }
+
+.supply-packing-link {
+  background: #fefce8 !important;
+  border-color: #fde047 !important;
+  color: #854d0e !important;
+  margin-top: 6px;
+}
+.supply-packing-link:hover {
+  background: #fef9c3 !important;
+  border-color: #facc15 !important;
+  color: #713f12 !important;
+  box-shadow: 0 1px 4px rgba(234,179,8,0.15) !important;
+}

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=97" />
+  <link rel="stylesheet" href="/static/style.css?v=98" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1097,6 +1097,8 @@
         <div class="settings-tabs">
           <button id="supplies-settings-tab-sources" class="settings-tab-btn active" onclick="showSuppliesSettingsTab('sources')">Источники</button>
           <button id="supplies-settings-tab-drivers" class="settings-tab-btn" onclick="showSuppliesSettingsTab('drivers')">Водители</button>
+          <button id="supplies-settings-tab-warehouses" class="settings-tab-btn" onclick="showSuppliesSettingsTab('warehouses')">Склады</button>
+          <button id="supplies-settings-tab-legal" class="settings-tab-btn" onclick="showSuppliesSettingsTab('legal')">Юридические лица</button>
         </div>
         <div id="supplies-settings-pane-drivers" class="hidden">
           <div class="panel">
@@ -1125,6 +1127,70 @@
             </div>
           </div>
         </div>
+        <!-- ── Склады ── -->
+        <div id="supplies-settings-pane-warehouses" class="hidden">
+          <div class="panel">
+            <div class="row row-between">
+              <h4 class="no-margin">Склады</h4>
+              <button onclick="toggleAddWarehouseForm(true)">+ Добавить склад</button>
+            </div>
+            <div id="addWarehouseForm" class="source-form hidden" style="margin-top:12px">
+              <div class="row">
+                <input id="newWarehouseName" type="text" placeholder="Название склада (напр. Электросталь)" autocomplete="off" />
+              </div>
+              <div class="row">
+                <input id="newWarehouseAddress" type="text" placeholder="Адрес склада" autocomplete="off" />
+              </div>
+              <div class="row">
+                <button onclick="saveSupplyWarehouse()">Сохранить</button>
+                <button class="secondary" onclick="toggleAddWarehouseForm(false)">Отмена</button>
+                <span id="addWarehouseInfo" class="small"></span>
+              </div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="table-wrap">
+              <table class="supply-sources-table">
+                <colgroup><col style="width:5%"/><col style="width:25%"/><col/><col style="width:120px"/></colgroup>
+                <thead><tr><th>№</th><th>Склад</th><th>Адрес</th><th>Действия</th></tr></thead>
+                <tbody id="supplyWarehousesTbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Юридические лица ── -->
+        <div id="supplies-settings-pane-legal" class="hidden">
+          <div class="panel">
+            <div class="row row-between">
+              <h4 class="no-margin">Юридические лица</h4>
+              <button onclick="toggleAddLegalEntityForm(true)">+ Добавить</button>
+            </div>
+            <div id="addLegalEntityForm" class="source-form hidden" style="margin-top:12px">
+              <div class="row">
+                <input id="newLegalShortName" type="text" placeholder="Короткое наименование (напр. ООО ВарФабрик)" autocomplete="off" />
+              </div>
+              <div class="row">
+                <input id="newLegalFullName" type="text" placeholder="Полное наименование для документов" autocomplete="off" />
+              </div>
+              <div class="row">
+                <button onclick="saveSupplyLegalEntity()">Сохранить</button>
+                <button class="secondary" onclick="toggleAddLegalEntityForm(false)">Отмена</button>
+                <span id="addLegalEntityInfo" class="small"></span>
+              </div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="table-wrap">
+              <table class="supply-sources-table">
+                <colgroup><col style="width:5%"/><col style="width:30%"/><col/><col style="width:120px"/></colgroup>
+                <thead><tr><th>№</th><th>Короткое</th><th>Полное наименование</th><th>Действия</th></tr></thead>
+                <tbody id="supplyLegalEntitiesTbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
         <div id="supplies-settings-pane-sources">
           <div class="panel">
             <div class="row row-between">
@@ -1400,6 +1466,6 @@
   </script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=157"></script>
+  <script src="/static/app.js?v=158"></script>
 </body>
 </html>

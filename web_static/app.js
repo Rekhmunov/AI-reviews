@@ -2172,6 +2172,7 @@ function renderSuppliesTable() {
       <td class="supply-links-cell">
         <button class="supply-detail-link" onclick="openSupplyDetailsModal(${item.supply_id})">☰ Детали заказа</button>
         ${_isWbGiCode(item.pass_number) ? `<button class="supply-detail-link supply-barcode-link" onclick="downloadSupplyBarcode('${esc(item.pass_number || '')}',${item.supply_id})" title="Скачать штрихкод поставки">⬇ ШК поставки</button>` : ""}
+        ${_isWbGiCode(item.pass_number) ? `<button class="supply-detail-link supply-packing-link" onclick="downloadPackingList(${item.supply_id})" title="Скачать упаковочный лист">⬇ Упаковочный лист</button>` : ""}
       </td>
     `;
     tbody.appendChild(tr);
@@ -2524,6 +2525,192 @@ async function saveSupplyManualFields() {
   }
   // Re-render table so columns (Производство, etc.) update immediately
   renderSuppliesTable();
+}
+
+// ── Supply warehouses ──
+let _supplyWarehousesCache = [];
+
+async function loadSupplyWarehouses() {
+  const res = await fetch("/api/supply-warehouses").catch(() => null);
+  if (!res || !res.ok) return;
+  _supplyWarehousesCache = await res.json().catch(() => []);
+  renderSupplyWarehousesTbody();
+}
+
+function renderSupplyWarehousesTbody() {
+  const tbody = document.getElementById("supplyWarehousesTbody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+  if (!_supplyWarehousesCache.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="empty-cell">Склады не добавлены</td></tr>';
+    return;
+  }
+  _supplyWarehousesCache.forEach((w, i) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${i+1}</td><td>${esc(w.warehouse_name||"")}</td><td>${esc(w.address||"")}</td>
+      <td><button class="secondary small-btn" style="color:#b91c1c;border-color:#fca5a5" onclick="deleteSupplyWarehouse(${w.id})">Удалить</button></td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function toggleAddWarehouseForm(show) {
+  const form = document.getElementById("addWarehouseForm");
+  if (!form) return;
+  form.classList.toggle("hidden", !show); form.style.display = show ? "" : "none";
+  if (!show) { document.getElementById("newWarehouseName").value = ""; document.getElementById("newWarehouseAddress").value = ""; }
+}
+
+async function saveSupplyWarehouse() {
+  const name = document.getElementById("newWarehouseName")?.value.trim();
+  const addr = document.getElementById("newWarehouseAddress")?.value.trim() || "";
+  const info = document.getElementById("addWarehouseInfo");
+  if (!name) { if (info) { info.textContent = "Введите название"; info.style.color = "#b91c1c"; } return; }
+  const res = await fetch("/api/supply-warehouses", { method: "POST", headers: jsonHeaders(), body: JSON.stringify({ warehouse_name: name, address: addr }) }).catch(() => null);
+  if (!res || !res.ok) { const e = await res?.json().catch(()=>({})) || {}; if (info) { info.textContent = e.detail||"Ошибка"; info.style.color = "#b91c1c"; } return; }
+  if (info) { info.textContent = "Сохранено"; info.style.color = "#16a34a"; }
+  toggleAddWarehouseForm(false);
+  await loadSupplyWarehouses();
+}
+
+async function deleteSupplyWarehouse(id) {
+  if (!confirm("Удалить склад?")) return;
+  await fetch(`/api/supply-warehouses/${id}`, { method: "DELETE", headers: jsonHeaders() }).catch(() => null);
+  await loadSupplyWarehouses();
+}
+
+// ── Supply legal entities ──
+let _supplyLegalEntitiesCache = [];
+
+async function loadSupplyLegalEntities() {
+  const res = await fetch("/api/supply-legal-entities").catch(() => null);
+  if (!res || !res.ok) return;
+  _supplyLegalEntitiesCache = await res.json().catch(() => []);
+  renderSupplyLegalEntitiesTbody();
+}
+
+function renderSupplyLegalEntitiesTbody() {
+  const tbody = document.getElementById("supplyLegalEntitiesTbody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+  if (!_supplyLegalEntitiesCache.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="empty-cell">Юридические лица не добавлены</td></tr>';
+    return;
+  }
+  _supplyLegalEntitiesCache.forEach((e, i) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${i+1}</td><td>${esc(e.short_name||"")}</td><td>${esc(e.full_name||"")}</td>
+      <td><button class="secondary small-btn" style="color:#b91c1c;border-color:#fca5a5" onclick="deleteSupplyLegalEntity(${e.id})">Удалить</button></td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function toggleAddLegalEntityForm(show) {
+  const form = document.getElementById("addLegalEntityForm");
+  if (!form) return;
+  form.classList.toggle("hidden", !show); form.style.display = show ? "" : "none";
+  if (!show) { document.getElementById("newLegalShortName").value = ""; document.getElementById("newLegalFullName").value = ""; }
+}
+
+async function saveSupplyLegalEntity() {
+  const short = document.getElementById("newLegalShortName")?.value.trim();
+  const full = document.getElementById("newLegalFullName")?.value.trim() || "";
+  const info = document.getElementById("addLegalEntityInfo");
+  if (!short) { if (info) { info.textContent = "Введите короткое название"; info.style.color = "#b91c1c"; } return; }
+  const res = await fetch("/api/supply-legal-entities", { method: "POST", headers: jsonHeaders(), body: JSON.stringify({ short_name: short, full_name: full }) }).catch(() => null);
+  if (!res || !res.ok) { const e = await res?.json().catch(()=>({})) || {}; if (info) { info.textContent = e.detail||"Ошибка"; info.style.color = "#b91c1c"; } return; }
+  if (info) { info.textContent = "Сохранено"; info.style.color = "#16a34a"; }
+  toggleAddLegalEntityForm(false);
+  await loadSupplyLegalEntities();
+}
+
+async function deleteSupplyLegalEntity(id) {
+  if (!confirm("Удалить юридическое лицо?")) return;
+  await fetch(`/api/supply-legal-entities/${id}`, { method: "DELETE", headers: jsonHeaders() }).catch(() => null);
+  await loadSupplyLegalEntities();
+}
+
+// ── Packing list (Word docx via HTML) ──
+function downloadPackingList(supplyId) {
+  const item = suppliesState.items.find((x) => x.supply_id === supplyId || x.supply_id === Number(supplyId));
+  if (!item) return;
+
+  // Resolve data
+  const passNumber = item.pass_number || "";
+  const supplierName = item.supplier_name || "";
+  const palletsCount = item.pallets_count || "";
+  const boxTypeLabel = SUPPLY_BOX_TYPE_LABELS[item.box_type_id] || "";
+  const destWarehouse = (item.warehouse_name || "").trim();
+  const transitWarehouse = (item.transit_warehouse_name || "").trim();
+  const supplyDateRaw = item.supply_date || "";
+  let dateDisplay = "";
+  if (supplyDateRaw) {
+    try { dateDisplay = new Date(supplyDateRaw).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit" }); } catch (_) {}
+  }
+
+  // Warehouse address lookup
+  const whMap = Object.fromEntries(_supplyWarehousesCache.map((w) => [w.warehouse_name, w.address]));
+  // Transit: "Склад" = address of transit warehouse (before arrow), "Склад назначения" = address of destination
+  let whForPickup, whForDest;
+  if (transitWarehouse) {
+    whForPickup = whMap[transitWarehouse] || transitWarehouse;
+    whForDest = whMap[destWarehouse] || destWarehouse;
+  } else {
+    whForPickup = whMap[destWarehouse] || destWarehouse;
+    whForDest = whForPickup;
+  }
+
+  // Legal entity full name
+  const leMap = Object.fromEntries(_supplyLegalEntitiesCache.map((e) => [e.short_name, e.full_name]));
+  const fullLegalName = leMap[supplierName] || supplierName;
+
+  // Barcode as base64 image (if pass number is valid WB-GI-)
+  let barcodeImgTag = "";
+  if (_isWbGiCode(passNumber) && typeof JsBarcode !== "undefined") {
+    try {
+      const canvas = document.createElement("canvas");
+      JsBarcode(canvas, passNumber, { format: "CODE128", width: 2, height: 80, displayValue: true, margin: 4 });
+      barcodeImgTag = `<img src="${canvas.toDataURL("image/png")}" style="width:200px;height:auto;max-width:100%" />`;
+    } catch (_) {}
+  }
+
+  // Build HTML for Word
+  const html = `
+<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="utf-8">
+<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View></w:WordDocument></xml><![endif]-->
+<style>
+  @page { size: 210mm 297mm; margin: 20mm 15mm 20mm 25mm; }
+  body { font-family: "Times New Roman", serif; font-size: 12pt; }
+  h1 { text-align: center; font-size: 13pt; font-weight: bold; margin: 0 0 4pt; }
+  h2 { text-align: center; font-size: 22pt; font-weight: bold; margin: 12pt 0 8pt; text-transform: uppercase; }
+  table { width: 100%; border-collapse: collapse; margin-top: 8pt; }
+  td { border: 1px solid #000; padding: 6pt 8pt; vertical-align: middle; font-size: 11pt; }
+  .label-col { width: 40%; }
+  .barcode-cell { height: 80pt; text-align: center; vertical-align: middle; }
+</style>
+</head>
+<body>
+<h1>Упаковочный лист <span style="background:yellow">${esc(supplierName)}</span></h1>
+<h1>(поставка №${esc(item.supply_id || "")}, ${esc(passNumber)})</h1>
+<h2>${esc(boxTypeLabel)}</h2>
+<table>
+  <tr><td class="label-col">Порядковый номер паллеты</td><td></td></tr>
+  <tr><td>Количество паллет</td><td>${esc(palletsCount)}</td></tr>
+  <tr><td>Количество коробок на паллете</td><td></td></tr>
+  <tr><td>Склад</td><td>${esc(whForPickup)}</td></tr>
+  <tr><td>Склад назначения</td><td>${esc(whForDest)}</td></tr>
+  <tr><td>Наименование юридического лица</td><td><span style="background:yellow">${esc(fullLegalName)}</span></td></tr>
+  <tr><td>Дата поставки</td><td>${esc(dateDisplay)}</td></tr>
+  <tr><td>Штрих-код поставки</td><td class="barcode-cell">${barcodeImgTag}</td></tr>
+</table>
+</body></html>`;
+
+  const blob = new Blob(["\uFEFF" + html], { type: "application/msword" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const fn = [passNumber, dateDisplay.replace(/\./g,""), destWarehouse].filter(Boolean).join(", ");
+  a.href = url; a.download = `Упаковочный лист ${fn}.doc`; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
 // ── Supply barcode PDF ──
@@ -6829,6 +7016,8 @@ document.addEventListener("DOMContentLoaded", () => {
     Promise.all([
       loadSupplySources(),
       loadSupplyDrivers(),
+      loadSupplyWarehouses(),
+      loadSupplyLegalEntities(),
     ]).then(() => loadSupplies()).catch(() => {});
     initSuppliesColumnResizer();
   }
@@ -6869,6 +7058,13 @@ window.clearSupplies = clearSupplies;
 window.loadSupplies = loadSupplies;
 window.suppliesChangePage = suppliesChangePage;
 window.toggleSupplyGoods = toggleSupplyGoods;
+window.toggleAddWarehouseForm = toggleAddWarehouseForm;
+window.saveSupplyWarehouse = saveSupplyWarehouse;
+window.deleteSupplyWarehouse = deleteSupplyWarehouse;
+window.toggleAddLegalEntityForm = toggleAddLegalEntityForm;
+window.saveSupplyLegalEntity = saveSupplyLegalEntity;
+window.deleteSupplyLegalEntity = deleteSupplyLegalEntity;
+window.downloadPackingList = downloadPackingList;
 window.downloadSupplyBarcode = downloadSupplyBarcode;
 window.initSuppliesColumnResizer = initSuppliesColumnResizer;
 window.toggleSuppliesFilter = toggleSuppliesFilter;
