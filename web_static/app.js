@@ -2171,7 +2171,7 @@ function renderSuppliesTable() {
       <td><span class="supply-status-badge supply-status-${item.status_id}">${statusLabel}</span></td>
       <td class="supply-links-cell">
         <button class="supply-detail-link" onclick="openSupplyDetailsModal(${item.supply_id})">☰ Детали</button>
-        ${_isWbGiCode(item.pass_number) ? `<button class="supply-detail-link supply-barcode-link" onclick="downloadSupplyBarcode('${esc(item.pass_number || '')}')" title="Скачать штрихкод поставки">⬇ ШК поставки</button>` : ""}
+        ${_isWbGiCode(item.pass_number) ? `<button class="supply-detail-link supply-barcode-link" onclick="downloadSupplyBarcode('${esc(item.pass_number || '')}',${item.supply_id})" title="Скачать штрихкод поставки">⬇ ШК поставки</button>` : ""}
       </td>
     `;
     tbody.appendChild(tr);
@@ -2532,22 +2532,54 @@ function _isWbGiCode(val) {
   return Boolean(val && /^WB-GI-\d+$/.test(String(val).trim()));
 }
 
-function downloadSupplyBarcode(passNumber) {
+function downloadSupplyBarcode(passNumber, supplyId) {
   if (!_isWbGiCode(passNumber)) return;
 
-  // Check libraries loaded
   if (typeof JsBarcode === "undefined" || typeof window.jspdf === "undefined") {
     alert("Библиотеки для генерации штрихкода загружаются. Попробуйте через секунду.");
     return;
   }
 
-  // Render barcode to hidden canvas
+  // Get supply data for filename and bottom label text
+  const item = suppliesState.items.find((x) => x.supply_id === supplyId || x.supply_id === Number(supplyId));
+  const warehouseName = (item?.warehouse_name || "").trim();  // destination (bold)
+  const quantity = item?.quantity != null ? `${item.quantity} шт` : "";
+  const supplyDateRaw = item?.supply_date || "";
+  let dateStr = "";
+  if (supplyDateRaw) {
+    try {
+      const d = new Date(supplyDateRaw);
+      const dd = String(d.getDate()).padStart(2, "0");
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const yyyy = d.getFullYear();
+      dateStr = `${dd}${mm}${yyyy}`;
+    } catch (_) {}
+  }
+
+  // File name: "WB-GI-XXXXXXX, DDMMYYYY, Склад, N шт"
+  const nameParts = [passNumber];
+  if (dateStr) nameParts.push(dateStr);
+  if (warehouseName) nameParts.push(warehouseName);
+  if (quantity) nameParts.push(quantity);
+  const fileName = nameParts.join(", ");
+
+  // Bottom label info line
+  const bottomParts = [];
+  if (dateStr) {
+    // Format date nicely for display: DD.MM.YYYY
+    bottomParts.push(`${dateStr.slice(0,2)}.${dateStr.slice(2,4)}.${dateStr.slice(4)}`);
+  }
+  if (warehouseName) bottomParts.push(warehouseName);
+  if (quantity) bottomParts.push(quantity);
+  const bottomText = bottomParts.join("   ");
+
+  // Render barcode to canvas — tall lines
   const canvas = document.createElement("canvas");
   try {
     JsBarcode(canvas, passNumber, {
       format: "CODE128",
       width: 3,
-      height: 100,
+      height: 140,  // taller bars
       displayValue: false,
       margin: 0,
       background: "#ffffff",
@@ -2559,40 +2591,47 @@ function downloadSupplyBarcode(passNumber) {
   }
 
   const barcodeDataUrl = canvas.toDataURL("image/png");
-  const barcodeAspect = canvas.height / canvas.width; // h/w ratio
+  const barcodeAspect = canvas.height / canvas.width;
 
-  // Create PDF: 58×40mm label
   const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({
-    orientation: "landscape",
-    unit: "mm",
-    format: [40, 58], // jsPDF uses [height, width] in landscape
-  });
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: [40, 58] });
 
   const pageW = 58;
   const pageH = 40;
-  const pad = 1.5; // border padding from edge
+  const pad = 1.5;
 
-  // Dashed border around entire label
+  // Dashed border
   doc.setLineDashPattern([1.2, 0.8], 0);
-  doc.setDrawColor(180, 180, 180);
-  doc.setLineWidth(0.35);
+  doc.setDrawColor(190, 190, 190);
+  doc.setLineWidth(0.3);
   doc.rect(pad, pad, pageW - pad * 2, pageH - pad * 2);
 
-  // Text: WB-GI-XXXXXXXXX at top, centered, orange color
-  doc.setFontSize(9);
+  // Top: pass number — bold, orange
   doc.setFont("helvetica", "bold");
-  doc.setTextColor(210, 105, 0);
-  doc.text(passNumber, pageW / 2, pad + 5, { align: "center" });
+  doc.setFontSize(9);
+  doc.setTextColor(200, 100, 0);
+  doc.text(passNumber, pageW / 2, pad + 4.5, { align: "center" });
 
-  // Barcode image: centered, fills most of width
-  const barcodeX = pad + 2;
-  const barcodeW = pageW - pad * 2 - 4;
-  const barcodeH = Math.min(barcodeW * barcodeAspect, pageH - pad - 7 - 3);
-  const barcodeY = pad + 7;
+  // Barcode: from y=7 to ~mid label (~y=26), height up to ~19mm
+  const barcodeX = pad + 1.5;
+  const barcodeW = pageW - pad * 2 - 3;
+  const barcodeH = Math.min(barcodeW * barcodeAspect, 19);
+  const barcodeY = pad + 6;
   doc.addImage(barcodeDataUrl, "PNG", barcodeX, barcodeY, barcodeW, barcodeH);
 
-  doc.save(`${passNumber}.pdf`);
+  // Bottom text: date, warehouse, quantity — same style as top
+  if (bottomText) {
+    const bottomY = barcodeY + barcodeH + 4.5;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    doc.setTextColor(200, 100, 0);
+    // If text is too long, reduce font size
+    const textW = doc.getTextWidth(bottomText);
+    if (textW > pageW - pad * 2 - 4) doc.setFontSize(7);
+    doc.text(bottomText, pageW / 2, bottomY, { align: "center" });
+  }
+
+  doc.save(`${fileName}.pdf`);
 }
 
 // ── Supplies column resizer ──
