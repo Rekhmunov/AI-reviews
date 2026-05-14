@@ -2161,7 +2161,7 @@ function renderSuppliesTable() {
       <td class="supply-date-cell">${supplyDate}</td>
       <td class="supply-qty-cell">${item.quantity ?? "—"}</td>
       <td><span class="supply-status-badge supply-status-${item.status_id}">${statusLabel}</span></td>
-      <td class="supply-links-cell"><button class="supply-detail-link" onclick="openSupplyDetailsModal(${item.supply_id})">Детали</button></td>
+      <td class="supply-links-cell"><button class="supply-detail-link" onclick="openSupplyDetailsModal(${item.supply_id})">Детали поставки</button></td>
     `;
     tbody.appendChild(tr);
     const goodsTr = document.createElement("tr");
@@ -2432,7 +2432,7 @@ function copySupplyDetails() {
     `Дата поставки: ${get("sdSupplyDate")}`,
     `Поставщик: ${get("sdSupplier")}`,
     `Производство: ${document.getElementById("sdProduction")?.value || "—"}`,
-    `Пропуск №: ${val("sdPassNumber") || "—"}`,
+    `ШК поставки: ${val("sdPassNumber") || "—"}`,
     `Склад: ${document.getElementById("sdWarehouse")?.innerText || get("sdWarehouse") || "—"}`,
     `Количество: ${get("sdQuantity")}`,
     `Паллет: ${val("sdPalletsCount") || "—"}`,
