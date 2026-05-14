@@ -5558,6 +5558,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                                         errors.append(f"Поставка {supply_wb_id}: {err_msg}")
                             repository.mark_supply_source_synced(source_id=source_id)
                             total_synced += synced_this_source
+                            # Restore manually-entered fields (pass, pallets, driver)
+                            # that survived a previous clear_supply_items call.
+                            try:
+                                repository.restore_supply_manual_fields(user_id=owner_id)
+                            except Exception:
+                                pass
                     except Exception as exc:
                         _log.error("supply sync source %d: %s", source_id, exc, exc_info=True)
                         err_msg = f"{type(exc).__name__}: {exc}"
