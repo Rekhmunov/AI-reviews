@@ -2219,6 +2219,147 @@ const SUPPLY_BOX_TYPE_LABELS = {
 };
 
 let _supplyDetailsCurrentId = null;
+let _supplyDriversCache = [];
+
+// ── Supply drivers ──
+
+async function loadSupplyDrivers() {
+  const res = await fetch("/api/supply-drivers").catch(() => null);
+  if (!res || !res.ok) return;
+  _supplyDriversCache = await res.json().catch(() => []);
+  renderSupplyDriversTable();
+  _populateDriverSelect();
+}
+
+function renderSupplyDriversTable() {
+  const tbody = document.getElementById("supplyDriversTbody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+  if (!_supplyDriversCache.length) {
+    tbody.innerHTML = '<tr><td colspan="3" class="empty-cell">Водители не добавлены</td></tr>';
+    return;
+  }
+  _supplyDriversCache.forEach((d, idx) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${idx + 1}</td>
+      <td>${esc(d.full_name || "")}</td>
+      <td>
+        <button class="secondary small-btn" style="color:#b91c1c;border-color:#fca5a5"
+          onclick="deleteSupplyDriver(${d.id})">Удалить</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function _populateDriverSelect(currentValue) {
+  const sel = document.getElementById("sdDriverSelect");
+  if (!sel) return;
+  const prev = currentValue !== undefined ? currentValue : sel.value;
+  // Keep only first option (placeholder) and __new__
+  while (sel.options.length > 1) sel.remove(1);
+  // Insert drivers before __new__ option
+  for (const d of _supplyDriversCache) {
+    const opt = document.createElement("option");
+    opt.value = d.full_name;
+    opt.textContent = d.full_name;
+    sel.insertBefore(opt, sel.options[sel.options.length - 1]);
+  }
+  // Add __new__ at end if not present
+  if (!Array.from(sel.options).find((o) => o.value === "__new__")) {
+    const newOpt = document.createElement("option");
+    newOpt.value = "__new__"; newOpt.textContent = "＋ Новый водитель…";
+    sel.appendChild(newOpt);
+  }
+  // Restore selection
+  if (prev) sel.value = prev;
+}
+
+function toggleAddDriverForm(show) {
+  const form = document.getElementById("addDriverForm");
+  if (!form) return;
+  form.classList.toggle("hidden", !show);
+  form.style.display = show ? "" : "none";
+  if (!show) {
+    const inp = document.getElementById("newDriverName");
+    if (inp) inp.value = "";
+    const info = document.getElementById("addDriverInfo");
+    if (info) { info.textContent = ""; info.style.color = ""; }
+  }
+}
+
+async function saveSupplyDriver() {
+  const inp = document.getElementById("newDriverName");
+  const info = document.getElementById("addDriverInfo");
+  const name = (inp?.value || "").trim();
+  if (!name) { if (info) { info.textContent = "Введите имя"; info.style.color = "#b91c1c"; } return; }
+  if (info) { info.textContent = "Сохранение…"; info.style.color = ""; }
+  const res = await fetch("/api/supply-drivers", {
+    method: "POST", headers: jsonHeaders(),
+    body: JSON.stringify({ full_name: name }),
+  }).catch(() => null);
+  if (!res || !res.ok) {
+    const err = await res?.json().catch(() => ({})) || {};
+    if (info) { info.textContent = err.detail || "Ошибка"; info.style.color = "#b91c1c"; }
+    return;
+  }
+  if (info) { info.textContent = "Добавлен"; info.style.color = "#16a34a"; }
+  toggleAddDriverForm(false);
+  await loadSupplyDrivers();
+}
+
+async function deleteSupplyDriver(driverId) {
+  if (!confirm("Удалить водителя?")) return;
+  await fetch(`/api/supply-drivers/${driverId}`, { method: "DELETE", headers: jsonHeaders() }).catch(() => null);
+  await loadSupplyDrivers();
+}
+
+// Called when user selects "＋ Новый водитель…" in the modal dropdown
+function onDriverSelectChange() {
+  const sel = document.getElementById("sdDriverSelect");
+  const form = document.getElementById("sdNewDriverForm");
+  if (!sel || !form) return;
+  if (sel.value === "__new__") {
+    form.classList.remove("hidden"); form.style.display = "";
+    document.getElementById("sdNewDriverName")?.focus();
+  } else {
+    form.classList.add("hidden"); form.style.display = "none";
+  }
+}
+
+function cancelNewDriverInModal() {
+  const form = document.getElementById("sdNewDriverForm");
+  if (form) { form.classList.add("hidden"); form.style.display = "none"; }
+  const inp = document.getElementById("sdNewDriverName");
+  if (inp) inp.value = "";
+  const sel = document.getElementById("sdDriverSelect");
+  if (sel) sel.value = "";
+}
+
+async function addDriverFromModal() {
+  const inp = document.getElementById("sdNewDriverName");
+  const info = document.getElementById("sdNewDriverInfo");
+  const name = (inp?.value || "").trim();
+  if (!name) { if (info) { info.textContent = "Введите имя"; info.style.color = "#b91c1c"; } return; }
+  const res = await fetch("/api/supply-drivers", {
+    method: "POST", headers: jsonHeaders(),
+    body: JSON.stringify({ full_name: name }),
+  }).catch(() => null);
+  if (!res || !res.ok) {
+    const err = await res?.json().catch(() => ({})) || {};
+    if (info) { info.textContent = err.detail || "Ошибка"; info.style.color = "#b91c1c"; }
+    return;
+  }
+  await loadSupplyDrivers();
+  // Select the newly added driver
+  _populateDriverSelect(name);
+  const sel = document.getElementById("sdDriverSelect");
+  if (sel) sel.value = name;
+  // Hide the inline form
+  cancelNewDriverInModal();
+  if (info) { info.textContent = ""; }
+}
 
 function openSupplyDetailsModal(supplyId) {
   const item = suppliesState.items.find((x) => x.supply_id === supplyId || x.supply_id === Number(supplyId));
@@ -2234,7 +2375,17 @@ function openSupplyDetailsModal(supplyId) {
   // Editable fields — from saved values or empty
   document.getElementById("sdPassNumber").value = item.pass_number || "";
   document.getElementById("sdPalletsCount").value = item.pallets_count || "";
-  document.getElementById("sdDriverName").value = item.driver_name || "";
+
+  // Driver dropdown
+  _populateDriverSelect(item.driver_name || "");
+  const driverSel = document.getElementById("sdDriverSelect");
+  if (driverSel) {
+    driverSel.value = item.driver_name || "";
+    driverSel.onchange = onDriverSelectChange;
+  }
+  // Hide inline add form
+  const newDriverForm = document.getElementById("sdNewDriverForm");
+  if (newDriverForm) { newDriverForm.classList.add("hidden"); newDriverForm.style.display = "none"; }
 
   const info = document.getElementById("sdInfo");
   if (info) { info.textContent = ""; info.style.color = ""; }
@@ -2255,7 +2406,9 @@ async function saveSupplyManualFields() {
   const info = document.getElementById("sdInfo");
   const passNumber = document.getElementById("sdPassNumber")?.value.trim() || null;
   const palletsCount = document.getElementById("sdPalletsCount")?.value.trim() || null;
-  const driverName = document.getElementById("sdDriverName")?.value.trim() || null;
+  const driverSel = document.getElementById("sdDriverSelect");
+  const driverRaw = driverSel?.value || "";
+  const driverName = (driverRaw && driverRaw !== "__new__") ? driverRaw : null;
 
   if (btn) { btn.disabled = true; btn.textContent = "Сохранение…"; }
   const res = await fetch(`/api/supplies/${_supplyDetailsCurrentId}/manual-fields`, {
@@ -2275,9 +2428,9 @@ async function saveSupplyManualFields() {
   // Update local state so reopening the modal shows fresh values
   const item = suppliesState.items.find((x) => x.supply_id === _supplyDetailsCurrentId);
   if (item) {
-    item.pass_number = passNumber;
+    item.pass_number   = passNumber;
     item.pallets_count = palletsCount;
-    item.driver_name = driverName;
+    item.driver_name   = driverName;
   }
 }
 
@@ -6377,7 +6530,10 @@ document.addEventListener("DOMContentLoaded", () => {
   if (permissions.can_view_supplies) {
     const suppliesNavLabel = document.getElementById("nav-section-supplies");
     if (suppliesNavLabel) suppliesNavLabel.style.display = "";
-    loadSupplySources().then(() => loadSupplies()).catch(() => {});
+    Promise.all([
+      loadSupplySources(),
+      loadSupplyDrivers(),
+    ]).then(() => loadSupplies()).catch(() => {});
   }
   // Load stock sources/reports lazily
   loadStockSources().then(() => loadStockReports()).catch(() => {});
@@ -6401,6 +6557,12 @@ window.openChatQuickTemplatesModal = openChatQuickTemplatesModal;
 window.closeChatQuickTemplatesModal = closeChatQuickTemplatesModal;
 window.createChatQuickTemplate = createChatQuickTemplate;
 // Supplies module
+window.toggleAddDriverForm = toggleAddDriverForm;
+window.saveSupplyDriver = saveSupplyDriver;
+window.deleteSupplyDriver = deleteSupplyDriver;
+window.addDriverFromModal = addDriverFromModal;
+window.cancelNewDriverInModal = cancelNewDriverInModal;
+window.onDriverSelectChange = onDriverSelectChange;
 window.toggleAddSupplySourceForm = toggleAddSupplySourceForm;
 window.createSupplySource = createSupplySource;
 window.toggleSupplySource = toggleSupplySource;

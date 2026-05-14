@@ -415,6 +415,10 @@ class SupplyManualFieldsRequest(BaseModel):
     driver_name: str | None = None
 
 
+class CreateSupplyDriverRequest(BaseModel):
+    full_name: str
+
+
 class ManagerSuppliesAccessRequest(BaseModel):
     can_supplies: bool = False
 
@@ -5368,6 +5372,37 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         owner_id = _supply_owner_id(user)
         deleted = repository.clear_supply_items(user_id=owner_id)
         return {"ok": True, "deleted": deleted}
+
+    @app.get("/api/supply-drivers")
+    def list_supply_drivers(request: Request) -> list[dict[str, object]]:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        repository._ensure_supply_tables()
+        return repository.list_supply_drivers(user_id=owner_id)
+
+    @app.post("/api/supply-drivers")
+    def create_supply_driver(request: Request, payload: CreateSupplyDriverRequest) -> dict[str, object]:
+        user = _require_user(request)
+        if str(user.get("role") or "") not in ROLE_CAN_ACCESS_SETTINGS:
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        name = payload.full_name.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Имя не может быть пустым")
+        owner_id = int(user["id"])
+        repository._ensure_supply_tables()
+        return repository.create_supply_driver(user_id=owner_id, full_name=name)
+
+    @app.delete("/api/supply-drivers/{driver_id}")
+    def delete_supply_driver(request: Request, driver_id: int) -> dict[str, object]:
+        user = _require_user(request)
+        if str(user.get("role") or "") not in ROLE_CAN_ACCESS_SETTINGS:
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        ok = repository.delete_supply_driver(user_id=int(user["id"]), driver_id=driver_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Водитель не найден")
+        return {"ok": True}
 
     @app.patch("/api/supplies/{supply_id}/manual-fields")
     def update_supply_manual_fields(

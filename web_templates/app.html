@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=90" />
+  <link rel="stylesheet" href="/static/style.css?v=91" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1085,6 +1085,34 @@
         <h3 class="section-title">Поставки — Настройки</h3>
         <div class="settings-tabs">
           <button id="supplies-settings-tab-sources" class="settings-tab-btn active" onclick="showSuppliesSettingsTab('sources')">Источники</button>
+          <button id="supplies-settings-tab-drivers" class="settings-tab-btn" onclick="showSuppliesSettingsTab('drivers')">Водители</button>
+        </div>
+        <div id="supplies-settings-pane-drivers" class="hidden">
+          <div class="panel">
+            <div class="row row-between">
+              <h4 class="no-margin">Водители</h4>
+              <button onclick="toggleAddDriverForm(true)">+ Добавить водителя</button>
+            </div>
+            <div id="addDriverForm" class="source-form hidden" style="margin-top:12px">
+              <div class="row">
+                <input id="newDriverName" type="text" placeholder="Имя и фамилия водителя" autocomplete="off" />
+              </div>
+              <div class="row">
+                <button onclick="saveSupplyDriver()">Сохранить</button>
+                <button class="secondary" onclick="toggleAddDriverForm(false)">Отмена</button>
+                <span id="addDriverInfo" class="small"></span>
+              </div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="table-wrap">
+              <table class="supply-sources-table">
+                <colgroup><col style="width:6%"/><col/><col style="width:160px"/></colgroup>
+                <thead><tr><th>№</th><th>Имя и фамилия</th><th>Действия</th></tr></thead>
+                <tbody id="supplyDriversTbody"></tbody>
+              </table>
+            </div>
+          </div>
         </div>
         <div id="supplies-settings-pane-sources">
           <div class="panel">
@@ -1277,8 +1305,25 @@
         </div>
         <div class="supply-detail-row">
           <span class="supply-detail-label">Водитель</span>
-          <input id="sdDriverName" type="text" class="supply-detail-input"
-                 placeholder="Требует заполнения" autocomplete="off" />
+          <select id="sdDriverSelect" class="supply-detail-input" style="height:36px">
+            <option value="">— Требует заполнения —</option>
+            <option value="__new__">＋ Новый водитель…</option>
+          </select>
+        </div>
+        <div id="sdNewDriverForm" class="hidden" style="margin-top:4px">
+          <div class="supply-detail-row">
+            <span class="supply-detail-label"></span>
+            <div style="display:flex;gap:8px;align-items:center">
+              <input id="sdNewDriverName" type="text" class="supply-detail-input"
+                     placeholder="Имя и фамилия" autocomplete="off" style="flex:1" />
+              <button type="button" onclick="addDriverFromModal()" style="white-space:nowrap">Добавить</button>
+              <button type="button" class="secondary" onclick="cancelNewDriverInModal()" style="padding:0 8px">✕</button>
+            </div>
+          </div>
+          <div class="supply-detail-row">
+            <span></span>
+            <span id="sdNewDriverInfo" class="small"></span>
+          </div>
         </div>
       </div>
       <div class="supply-details-footer">
@@ -1318,6 +1363,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=141"></script>
+  <script src="/static/app.js?v=142"></script>
 </body>
 </html>
