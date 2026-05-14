@@ -413,6 +413,7 @@ class SupplyManualFieldsRequest(BaseModel):
     pass_number: str | None = None
     pallets_count: str | None = None
     driver_name: str | None = None
+    notes: str | None = None
 
 
 class CreateSupplyDriverRequest(BaseModel):
@@ -5422,6 +5423,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             pass_number=payload.pass_number,
             pallets_count=payload.pallets_count,
             driver_name=payload.driver_name,
+            notes=payload.notes,
         )
         if not ok:
             raise HTTPException(status_code=404, detail="Поставка не найдена")

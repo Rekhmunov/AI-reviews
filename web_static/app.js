@@ -2392,6 +2392,8 @@ function openSupplyDetailsModal(supplyId) {
   // Editable fields — from saved values or empty
   document.getElementById("sdPassNumber").value = item.pass_number || "";
   document.getElementById("sdPalletsCount").value = item.pallets_count || "";
+  const notesEl = document.getElementById("sdNotes");
+  if (notesEl) notesEl.value = item.notes || "";
 
   // Driver dropdown
   _populateDriverSelect(item.driver_name || "");
@@ -2426,12 +2428,13 @@ async function saveSupplyManualFields() {
   const driverSel = document.getElementById("sdDriverSelect");
   const driverRaw = driverSel?.value || "";
   const driverName = (driverRaw && driverRaw !== "__new__") ? driverRaw : null;
+  const notes = document.getElementById("sdNotes")?.value.trim() || null;
 
   if (btn) { btn.disabled = true; btn.textContent = "Сохранение…"; }
   const res = await fetch(`/api/supplies/${_supplyDetailsCurrentId}/manual-fields`, {
     method: "PATCH",
     headers: jsonHeaders(),
-    body: JSON.stringify({ pass_number: passNumber, pallets_count: palletsCount, driver_name: driverName }),
+    body: JSON.stringify({ pass_number: passNumber, pallets_count: palletsCount, driver_name: driverName, notes }),
   }).catch(() => null);
   if (btn) { btn.disabled = false; btn.textContent = "Сохранить"; }
 
@@ -2448,6 +2451,7 @@ async function saveSupplyManualFields() {
     item.pass_number   = passNumber;
     item.pallets_count = palletsCount;
     item.driver_name   = driverName;
+    item.notes         = notes;
   }
 }
 
