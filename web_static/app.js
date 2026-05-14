@@ -2709,7 +2709,7 @@ function downloadPackingList(supplyId) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   const fn = [passNumber, dateDisplay.replace(/\./g,""), destWarehouse].filter(Boolean).join(", ");
-  a.href = url; a.download = `Упаковочный лист ${fn}.doc`; a.click();
+  a.href = url; a.download = `Упаковочный лист ${fn}.doc`; a.target = "_blank"; a.click();
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
