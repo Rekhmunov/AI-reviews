@@ -2663,15 +2663,8 @@ function downloadPackingList(supplyId) {
   const leMap = Object.fromEntries(_supplyLegalEntitiesCache.map((e) => [e.short_name, e.full_name]));
   const fullLegalName = leMap[supplierName] || supplierName;
 
-  // Barcode as base64 image (if pass number is valid WB-GI-)
-  let barcodeImgTag = "";
-  if (_isWbGiCode(passNumber) && typeof JsBarcode !== "undefined") {
-    try {
-      const canvas = document.createElement("canvas");
-      JsBarcode(canvas, passNumber, { format: "CODE128", width: 2, height: 80, displayValue: true, margin: 4 });
-      barcodeImgTag = `<img src="${canvas.toDataURL("image/png")}" style="width:200px;height:auto;max-width:100%" />`;
-    } catch (_) {}
-  }
+  // Barcode cell is left empty — user will paste the barcode label (58×40mm) manually
+  const barcodeImgTag = "";
 
   // Build HTML for Word
   const html = `
@@ -2686,7 +2679,7 @@ function downloadPackingList(supplyId) {
   table { width: 100%; border-collapse: collapse; margin-top: 8pt; }
   td { border: 1px solid #000; padding: 6pt 8pt; vertical-align: middle; font-size: 11pt; }
   .label-col { width: 40%; }
-  .barcode-cell { height: 80pt; text-align: center; vertical-align: middle; }
+  .barcode-cell { height: 120pt; min-height: 120pt; text-align: center; vertical-align: middle; width: 60%; }
 </style>
 </head>
 <body>
