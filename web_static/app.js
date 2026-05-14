@@ -2893,38 +2893,49 @@ function downloadSupplyBarcode(passNumber, supplyId) {
 
   // Bottom text: render Cyrillic via canvas (jsPDF default fonts don't support Russian)
   if (bottomText) {
-    const bottomY = barcodeY + barcodeH + 3; // more gap from barcode
-    const availableH = pageH - pad - bottomY;
-    // Render text to canvas so Cyrillic displays correctly
+    const bottomY = barcodeY + barcodeH + 3;
+    // Use a large canvas to render at high quality, then scale down to PDF
+    const SCALE = 4;
+    const fontSize = 10 * SCALE;  // 10pt × SCALE
+    const lineGap = 14 * SCALE;
+    const canvasW = Math.round((pageW - pad * 2 - 4) * SCALE * 3.78);
+    // First pass: measure how many lines we need
+    const tmpCanvas = document.createElement("canvas");
+    tmpCanvas.width = canvasW;
+    tmpCanvas.height = 100;
+    const tmpCtx = tmpCanvas.getContext("2d");
+    tmpCtx.font = `bold ${fontSize}px Arial`;
+    const parts = bottomText.split(/\s{2,}/);
+    const lines = [];
+    for (const part of parts) {
+      const words = part.split(" ");
+      let line = "";
+      for (const w of words) {
+        const test = line ? line + " " + w : w;
+        if (tmpCtx.measureText(test).width > canvasW - 10 && line) { lines.push(line); line = w; }
+        else line = test;
+      }
+      if (line) lines.push(line);
+    }
+    // Second pass: render on correctly-sized canvas
+    const canvasH = lines.length * lineGap + 8 * SCALE;
     const textCanvas = document.createElement("canvas");
-    const DPI = 3; // scale factor for sharpness
-    const pxW = Math.round((pageW - pad * 2 - 4) * DPI * 3.78); // mm→px approx
-    const pxH = Math.round(availableH * DPI * 3.78);
-    textCanvas.width = pxW;
-    textCanvas.height = Math.max(pxH, 40);
+    textCanvas.width = canvasW;
+    textCanvas.height = canvasH;
     const ctx = textCanvas.getContext("2d");
-    ctx.clearRect(0, 0, pxW, pxH);
+    ctx.clearRect(0, 0, canvasW, canvasH);
     ctx.fillStyle = "rgb(200,100,0)";
-    ctx.font = `bold ${11 * DPI}px Arial`;
+    ctx.font = `bold ${fontSize}px Arial`;
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
-    // Word-wrap the text
-    const words = bottomText.split(/\s{2,}|\s+/);
-    const maxW = pxW - 8;
-    const lines = [];
-    let cur = "";
-    for (const w of words) {
-      const test = cur ? cur + "  " + w : w;
-      if (ctx.measureText(test).width > maxW && cur) { lines.push(cur); cur = w; }
-      else cur = test;
-    }
-    if (cur) lines.push(cur);
-    const lineH = 13 * DPI;
-    lines.forEach((line, i) => ctx.fillText(line, pxW / 2, i * lineH));
-    const imgData = textCanvas.toDataURL("image/png");
-    const imgH = (lines.length * lineH / (DPI * 3.78));
+    lines.forEach((line, i) => ctx.fillText(line, canvasW / 2, i * lineGap + 4));
+    // Add to PDF at natural size (not squished)
     const imgW = pageW - pad * 2 - 4;
-    doc.addImage(imgData, "PNG", pad + 2, bottomY, imgW, Math.min(imgH, availableH));
+    const imgH = (canvasH / (SCALE * 3.78));  // convert px back to mm
+    const maxBottom = pageH - pad;
+    if (bottomY + imgH <= maxBottom) {
+      doc.addImage(textCanvas.toDataURL("image/png"), "PNG", pad + 2, bottomY, imgW, imgH);
+    }
   }
 
   doc.save(`${fileName}.pdf`);
