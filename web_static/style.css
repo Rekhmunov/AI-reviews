@@ -4849,3 +4849,57 @@ button.secondary.danger:hover {
 .supplies-col-prod { width: 120px; }
 .supply-prod-cell { color: #374151; }
 .supply-prod-empty { color: #f59e0b; font-style: italic; font-size: 12px; }
+
+/* ── Supplies main table overrides ────────────────────────────── */
+.supplies-table-wrap {
+  width: 100%;
+  overflow: hidden; /* no horizontal scroll */
+}
+
+.supplies-main-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 15px; /* +2pt from default 13px */
+}
+
+.supplies-main-table th,
+.supplies-main-table td {
+  text-align: left;
+  border-bottom: 1px solid rgba(147,175,224,0.25);
+  padding: 9px 8px;
+  vertical-align: middle;
+  /* wrap text instead of overflow */
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  white-space: normal;
+}
+
+.supplies-main-table th {
+  position: relative;
+  color: #4a607f;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: rgba(239,246,255,0.5);
+  white-space: nowrap; /* headers stay on one line */
+  overflow: hidden;
+}
+
+.supplies-main-table tbody tr:hover { background: rgba(239,246,255,0.62); }
+
+/* Column resize handle */
+.col-resize-handle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  background: transparent;
+  z-index: 1;
+}
+.col-resize-handle:hover,
+.col-resize-handle:active {
+  background: rgba(99,102,241,0.35);
+}

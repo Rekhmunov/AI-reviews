@@ -2515,6 +2515,80 @@ async function saveSupplyManualFields() {
   renderSuppliesTable();
 }
 
+// ── Supplies column resizer ──
+const SUPPLIES_COL_WIDTHS_KEY = "supplies_col_widths";
+// Default widths as percentages (8 columns: expand, id, wh, prod, date, qty, status, links)
+const SUPPLIES_DEFAULT_WIDTHS = [3, 10, 23, 11, 10, 7, 13, 7];
+
+function initSuppliesColumnResizer() {
+  const table = document.getElementById("suppliesTable");
+  if (!table) return;
+  let widths = SUPPLIES_DEFAULT_WIDTHS.slice();
+  try {
+    const saved = JSON.parse(localStorage.getItem(SUPPLIES_COL_WIDTHS_KEY) || "null");
+    if (Array.isArray(saved) && saved.length === widths.length) widths = saved;
+  } catch (_) {}
+  _applySuppliesColWidths(widths);
+
+  // Attach drag handlers to resize handles
+  table.querySelectorAll("th .col-resize-handle").forEach((handle) => {
+    let startX = 0, colIdx = 0, startWidths = [];
+    handle.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      const th = handle.parentElement;
+      colIdx = parseInt(th.getAttribute("data-col") || "0");
+      startX = e.clientX;
+      startWidths = _getSuppliesColWidths();
+      document.addEventListener("mousemove", onMouseMove);
+      document.addEventListener("mouseup", onMouseUp);
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+    });
+    function onMouseMove(e) {
+      const tableEl = document.getElementById("suppliesTable");
+      if (!tableEl) return;
+      const tableW = tableEl.offsetWidth || 1;
+      const deltaPct = ((e.clientX - startX) / tableW) * 100;
+      const newWidths = startWidths.slice();
+      const minPct = 3;
+      const nextIdx = colIdx < newWidths.length - 1 ? colIdx + 1 : colIdx - 1;
+      let newCur = Math.max(minPct, startWidths[colIdx] + deltaPct);
+      let newNext = Math.max(minPct, startWidths[nextIdx] - deltaPct);
+      // Clamp so total stays stable
+      const diff = newCur - startWidths[colIdx];
+      if (newNext < minPct) {
+        newCur = startWidths[colIdx] + (startWidths[nextIdx] - minPct);
+        newNext = minPct;
+      }
+      newWidths[colIdx] = Math.round(newCur * 10) / 10;
+      newWidths[nextIdx] = Math.round(newNext * 10) / 10;
+      _applySuppliesColWidths(newWidths);
+    }
+    function onMouseUp() {
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      // Save current widths
+      try {
+        localStorage.setItem(SUPPLIES_COL_WIDTHS_KEY, JSON.stringify(_getSuppliesColWidths()));
+      } catch (_) {}
+    }
+  });
+}
+
+function _applySuppliesColWidths(widths) {
+  const cols = document.querySelectorAll("#suppliesColgroup col");
+  cols.forEach((col, i) => {
+    if (widths[i] !== undefined) col.style.width = widths[i] + "%";
+  });
+}
+
+function _getSuppliesColWidths() {
+  const cols = document.querySelectorAll("#suppliesColgroup col");
+  return Array.from(cols).map((col) => parseFloat(col.style.width) || SUPPLIES_DEFAULT_WIDTHS[0]);
+}
+
 function toggleSuppliesFilter() {
   const fromEl = document.getElementById("suppliesDateFrom");
   const toEl = document.getElementById("suppliesDateTo");
@@ -6624,6 +6698,7 @@ document.addEventListener("DOMContentLoaded", () => {
       loadSupplySources(),
       loadSupplyDrivers(),
     ]).then(() => loadSupplies()).catch(() => {});
+    initSuppliesColumnResizer();
   }
   // Load stock sources/reports lazily
   loadStockSources().then(() => loadStockReports()).catch(() => {});
@@ -6662,6 +6737,7 @@ window.clearSupplies = clearSupplies;
 window.loadSupplies = loadSupplies;
 window.suppliesChangePage = suppliesChangePage;
 window.toggleSupplyGoods = toggleSupplyGoods;
+window.initSuppliesColumnResizer = initSuppliesColumnResizer;
 window.toggleSuppliesFilter = toggleSuppliesFilter;
 window.copySupplyDetails = copySupplyDetails;
 window.openSupplyDetailsModal = openSupplyDetailsModal;

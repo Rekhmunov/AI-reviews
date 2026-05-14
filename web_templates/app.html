@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=93" />
+  <link rel="stylesheet" href="/static/style.css?v=94" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1058,18 +1058,23 @@
           <div id="suppliesSyncInfo" class="supplies-sync-info"></div>
         </div>
         <div class="panel supplies-table-panel">
-          <div class="table-wrap">
-            <table id="suppliesTable">
+          <div class="supplies-table-wrap">
+            <table id="suppliesTable" class="supplies-main-table">
+              <colgroup id="suppliesColgroup">
+                <col data-col="0" /><col data-col="1" /><col data-col="2" />
+                <col data-col="3" /><col data-col="4" /><col data-col="5" />
+                <col data-col="6" /><col data-col="7" />
+              </colgroup>
               <thead>
                 <tr>
-                  <th class="supplies-col-expand"></th>
-                  <th class="supplies-col-id">№ поставки</th>
-                  <th class="supplies-col-wh">Склад</th>
-                  <th class="supplies-col-prod">Производство</th>
-                  <th class="supplies-col-date">Дата поставки</th>
-                  <th class="supplies-col-qty">Кол-во</th>
-                  <th class="supplies-col-status">Статус</th>
-                  <th class="supplies-col-links">Ссылки</th>
+                  <th class="supplies-col-expand" data-col="0"></th>
+                  <th data-col="1">№ поставки<span class="col-resize-handle"></span></th>
+                  <th data-col="2">Склад<span class="col-resize-handle"></span></th>
+                  <th data-col="3">Производство<span class="col-resize-handle"></span></th>
+                  <th data-col="4">Дата поставки<span class="col-resize-handle"></span></th>
+                  <th data-col="5">Кол-во<span class="col-resize-handle"></span></th>
+                  <th data-col="6">Статус<span class="col-resize-handle"></span></th>
+                  <th data-col="7">Ссылки<span class="col-resize-handle"></span></th>
                 </tr>
               </thead>
               <tbody id="suppliesTbody"></tbody>
@@ -1392,6 +1397,6 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <script src="/static/app.js?v=150"></script>
+  <script src="/static/app.js?v=151"></script>
 </body>
 </html>
