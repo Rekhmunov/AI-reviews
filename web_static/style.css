@@ -5010,3 +5010,34 @@ button.secondary.danger:hover {
   color: #3b0764 !important;
   box-shadow: 0 1px 4px rgba(139,92,246,0.15) !important;
 }
+
+/* Supplies date range panel */
+.supplies-date-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(15,23,42,0.12);
+  padding: 12px;
+  z-index: 200;
+  min-width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.supplies-date-panel-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.supplies-date-panel-row label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: #374151;
+}
+.supplies-date-panel-row input[type="date"] { width: 130px; }

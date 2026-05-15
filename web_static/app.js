@@ -2097,12 +2097,14 @@ async function loadSupplies(resetPage = false) {
   const sourceId = document.getElementById("suppliesSourceFilter")?.value || "";
   const statusId = document.getElementById("suppliesStatusFilter")?.value || "";
   const productionFilter = document.getElementById("suppliesProductionFilter")?.value || "";
+  const searchFilter = document.getElementById("suppliesSearchFilter")?.value.trim() || "";
   const dateFrom = document.getElementById("suppliesDateFrom")?.value || "";
   const dateTo = document.getElementById("suppliesDateTo")?.value || "";
   const params = new URLSearchParams({ page: suppliesState.page, page_size: suppliesState.page_size });
   if (sourceId) params.set("source_id", sourceId);
   if (statusId) params.set("status_id", statusId);
   if (productionFilter) params.set("production", productionFilter);
+  if (searchFilter) params.set("search", searchFilter);
   if (dateFrom) params.set("date_from", dateFrom);
   if (dateTo) params.set("date_to", dateTo);
   const info = document.getElementById("suppliesInfo");
@@ -3223,13 +3225,48 @@ function _getSuppliesColWidths() {
   return Array.from(cols).map((col) => parseFloat(col.style.width) || SUPPLIES_DEFAULT_WIDTHS[0]);
 }
 
-function toggleSuppliesFilter() {
-  const fromEl = document.getElementById("suppliesDateFrom");
-  const toEl = document.getElementById("suppliesDateTo");
-  if (!fromEl) return;
-  const hidden = fromEl.style.display === "none";
-  fromEl.style.display = hidden ? "" : "none";
-  if (toEl) toEl.style.display = hidden ? "" : "none";
+function toggleSuppliesFilter() { /* legacy stub */ }
+
+function toggleSuppliesDatePanel(show) {
+  const panel = document.getElementById("suppliesDatePanel");
+  if (!panel) return;
+  const isHidden = panel.classList.contains("hidden");
+  const shouldShow = show !== undefined ? show : isHidden;
+  panel.classList.toggle("hidden", !shouldShow);
+  panel.style.display = shouldShow ? "" : "none";
+  // Update button label
+  const btn = document.getElementById("suppliesDateBtn");
+  if (!btn) return;
+  const from = document.getElementById("suppliesDateFrom")?.value || "";
+  const to = document.getElementById("suppliesDateTo")?.value || "";
+  if (from || to) {
+    const fmt = (d) => d ? new Date(d).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" }) : "…";
+    btn.textContent = `${fmt(from)}–${fmt(to)}`;
+  } else {
+    btn.textContent = "📅";
+  }
+}
+
+function applySuppliesDateFilter() {
+  loadSupplies(true);
+  const btn = document.getElementById("suppliesDateBtn");
+  const from = document.getElementById("suppliesDateFrom")?.value || "";
+  const to = document.getElementById("suppliesDateTo")?.value || "";
+  if (btn) {
+    const fmt = (d) => d ? new Date(d).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" }) : "…";
+    btn.textContent = (from || to) ? `${fmt(from)}–${fmt(to)}` : "📅";
+  }
+}
+
+function clearSuppliesDateFilter() {
+  const from = document.getElementById("suppliesDateFrom");
+  const to = document.getElementById("suppliesDateTo");
+  if (from) from.value = "";
+  if (to) to.value = "";
+  const btn = document.getElementById("suppliesDateBtn");
+  if (btn) btn.textContent = "📅";
+  toggleSuppliesDatePanel(false);
+  loadSupplies(true);
 }
 
 let _suppliesSyncPollTimer = null;
@@ -7239,6 +7276,13 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!(target instanceof Element)) return;
     hideChatEmojiPickerIfOutside(target);
     // Close sort dropdown when clicking outside
+    // Close supplies date panel on outside click
+    const datePanel = document.getElementById("suppliesDatePanel");
+    const dateBtn = document.getElementById("suppliesDateBtn");
+    if (datePanel && !datePanel.classList.contains("hidden") &&
+        !datePanel.contains(target) && dateBtn && !dateBtn.contains(target)) {
+      toggleSuppliesDatePanel(false);
+    }
     const sortWrap = document.querySelector(".chats-sort-wrap");
     const sortDd = document.getElementById("chatsSortDropdown");
     if (sortDd && !sortDd.classList.contains("hidden") && sortWrap && !sortWrap.contains(target)) {
@@ -7405,6 +7449,9 @@ window.downloadPoA = downloadPoA;
 window.downloadSupplyBarcode = downloadSupplyBarcode;
 window.initSuppliesColumnResizer = initSuppliesColumnResizer;
 window.toggleSuppliesFilter = toggleSuppliesFilter;
+window.toggleSuppliesDatePanel = toggleSuppliesDatePanel;
+window.applySuppliesDateFilter = applySuppliesDateFilter;
+window.clearSuppliesDateFilter = clearSuppliesDateFilter;
 window.copySupplyDetails = copySupplyDetails;
 window.openSupplyDetailsModal = openSupplyDetailsModal;
 window.closeSupplyDetailsModal = closeSupplyDetailsModal;

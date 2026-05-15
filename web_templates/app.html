@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=104" />
+  <link rel="stylesheet" href="/static/style.css?v=105" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1032,7 +1032,7 @@
           <div class="supplies-top-controls">
             <div class="supplies-actions">
               <button id="suppliesSyncBtn" onclick="syncSupplies()">🔄 Синхронизировать</button>
-              <button id="suppliesClearBtn" class="secondary" onclick="clearSupplies()" style="color:#b91c1c;border-color:#fca5a5">Удалить поставки</button>
+              <button id="suppliesClearBtn" class="secondary icon-btn" onclick="clearSupplies()" style="color:#b91c1c;border-color:#fca5a5" title="Удалить поставки">🗑</button>
               <select id="suppliesSourceFilter" onchange="loadSupplies()">
                 <option value="">Все источники</option>
               </select>
@@ -1049,10 +1049,21 @@
                 <option value="Кинешма">Кинешма</option>
                 <option value="Нерль">Нерль</option>
               </select>
+              <input id="suppliesSearchFilter" type="text" placeholder="🔍 Поиск..." autocomplete="off"
+                     style="width:160px" oninput="loadSupplies(true)" />
             </div>
-            <div class="supplies-date-wrap">
-              <input type="date" id="suppliesDateFrom" onchange="loadSupplies()" />
-              <input type="date" id="suppliesDateTo" onchange="loadSupplies()" />
+            <div class="supplies-date-wrap" style="position:relative">
+              <button id="suppliesDateBtn" type="button" class="secondary" onclick="toggleSuppliesDatePanel()" style="padding:0 10px;height:34px" title="Фильтр по дате">📅</button>
+              <div id="suppliesDatePanel" class="supplies-date-panel hidden">
+                <div class="supplies-date-panel-row">
+                  <label>С <input type="date" id="suppliesDateFrom" onchange="applySuppliesDateFilter()" /></label>
+                  <label>По <input type="date" id="suppliesDateTo" onchange="applySuppliesDateFilter()" /></label>
+                </div>
+                <div class="supplies-date-panel-row">
+                  <button type="button" onclick="applySuppliesDateFilter();toggleSuppliesDatePanel(false)">Применить</button>
+                  <button type="button" class="secondary" onclick="clearSuppliesDateFilter()">Сбросить</button>
+                </div>
+              </div>
             </div>
           </div>
           <div id="suppliesSyncInfo" class="supplies-sync-info"></div>
@@ -1471,6 +1482,6 @@
   </script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=177"></script>
+  <script src="/static/app.js?v=178"></script>
 </body>
 </html>

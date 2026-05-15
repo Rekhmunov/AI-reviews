@@ -5310,6 +5310,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         date_from: str | None = None,
         date_to: str | None = None,
         production: str | None = None,
+        search: str | None = None,
         page: int = 1,
         page_size: int = 50,
     ) -> dict[str, object]:
@@ -5324,6 +5325,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             status_id=status_id,
             date_from=date_from,
             production=production or None,
+            search=search or None,
             date_to=date_to,
             page=page,
             page_size=page_size,
