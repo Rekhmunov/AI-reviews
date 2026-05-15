@@ -7291,10 +7291,10 @@ document.addEventListener("DOMContentLoaded", () => {
     hideChatEmojiPickerIfOutside(target);
     // Close sort dropdown when clicking outside
     // Close supplies date panel on outside click
-    const datePanel = document.getElementById("suppliesDatePanel");
-    const dateBtn = document.getElementById("suppliesDateBtn");
-    if (datePanel && !datePanel.classList.contains("hidden") &&
-        !datePanel.contains(target) && dateBtn && !dateBtn.contains(target)) {
+    const suppliesDatePanelEl = document.getElementById("suppliesDatePanel");
+    const suppliesDateBtnEl = document.getElementById("suppliesDateBtn");
+    if (suppliesDatePanelEl && !suppliesDatePanelEl.classList.contains("hidden") &&
+        !suppliesDatePanelEl.contains(target) && suppliesDateBtnEl && !suppliesDateBtnEl.contains(target)) {
       toggleSuppliesDatePanel(false);
     }
     const sortWrap = document.querySelector(".chats-sort-wrap");
