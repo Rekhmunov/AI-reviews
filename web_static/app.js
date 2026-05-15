@@ -2851,7 +2851,7 @@ function downloadSupplyBarcode(passNumber, supplyId) {
     JsBarcode(canvas, passNumber, {
       format: "CODE128",
       width: 3,
-      height: 140,  // taller bars
+      height: 168,  // +20%
       displayValue: false,
       margin: 0,
       background: "#ffffff",
@@ -2881,13 +2881,13 @@ function downloadSupplyBarcode(passNumber, supplyId) {
   // Top: pass number — bold, orange (ASCII only, no Cyrillic issue)
   doc.setFont("helvetica", "bold");
   doc.setFontSize(9);
-  doc.setTextColor(200, 100, 0);
+  doc.setTextColor(0, 0, 0);
   doc.text(passNumber, pageW / 2, pad + 5, { align: "center" });
 
   // Barcode: shifted down for more spacing after top text
   const barcodeX = pad + 1.5;
   const barcodeW = pageW - pad * 2 - 3;
-  const barcodeH = Math.min(barcodeW * barcodeAspect, 19);
+  const barcodeH = Math.min(barcodeW * barcodeAspect, 23);  // +20%
   const barcodeY = pad + 8;  // more gap from top text
   doc.addImage(barcodeDataUrl, "PNG", barcodeX, barcodeY, barcodeW, barcodeH);
 
@@ -2916,7 +2916,7 @@ function downloadSupplyBarcode(passNumber, supplyId) {
     // Resize canvas to exact height needed
     textCanvas.height = lines.length * lineH + 4;
     ctx.clearRect(0, 0, canvasW, textCanvas.height);
-    ctx.fillStyle = "rgb(200,100,0)";
+    ctx.fillStyle = "rgb(0,0,0)";
     ctx.font = `bold ${fontSize}px Arial`;
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
