@@ -3132,12 +3132,7 @@ async function downloadTTN(supplyId) {
   docXml = rpl(docXml, "{{ORG_FULL}}",   orgLine);
   docXml = rpl(docXml, "{{SUPPLIER}}",   orgLine);
   docXml = rpl(docXml, "{{PAYER}}",      orgLine);
-  const _now = new Date();
-  const _dd = String(_now.getDate()).padStart(2,"0");
-  const _mm = String(_now.getMonth()+1).padStart(2,"0");
-  const _yyyy = _now.getFullYear();
-  const orderDate = `${_dd}${_mm}${_yyyy}`;
-  docXml = rpl(docXml, "{{ORDER_DATE}}",  orderDate);
+  docXml = rpl(docXml, "{{ORDER_DATE}}",  supplyId_);
   docXml = rpl(docXml, "{{DOC_NUM_VAL}}",supplyId_);
   docXml = rpl(docXml, "{{DOC_DATE_VAL}}",dateDisp);
   docXml = rpl(docXml, "{{GOODS_NAME}}", `Текстильные товары (${pallets} ${palletsWord})`);
