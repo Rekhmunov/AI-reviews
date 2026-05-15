@@ -3110,12 +3110,6 @@ async function downloadTTN(supplyId) {
     ? new Date(item.supply_date).toLocaleDateString("ru-RU", { day:"2-digit", month:"2-digit", year:"numeric" })
     : dateDisp;
 
-  // Fetch TTN sequential number for today (server-side daily counter)
-  let ttnNumber = 1;
-  try {
-    const numRes = await fetch("/api/ttn/next-number", { method: "POST", headers: jsonHeaders() });
-    if (numRes.ok) { const nd = await numRes.json(); ttnNumber = nd.number || 1; }
-  } catch(_) {}
 
   // Fetch template and fill placeholders
   let tplData;
@@ -3134,7 +3128,7 @@ async function downloadTTN(supplyId) {
   // Replace all placeholders with actual values
   const rpl = (xml, ph, val) => xml.split(ph).join(val.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"));
 
-  docXml = rpl(docXml, "{{TTN_NUMBER}}", String(ttnNumber));
+  docXml = rpl(docXml, "{{TTN_NUMBER}}", supplyId_);
   docXml = rpl(docXml, "{{ORG_FULL}}",   orgLine);
   docXml = rpl(docXml, "{{SUPPLIER}}",   orgLine);
   docXml = rpl(docXml, "{{PAYER}}",      orgLine);
