@@ -666,6 +666,20 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         "started_at": None,
         "finished_at": None,
     }
+    # TTN daily sequential counter — resets at midnight, shared across all users
+    _ttn_counter_lock = threading.Lock()
+    _ttn_counter: dict[str, object] = {"date": None, "n": 0}
+
+    @app.post("/api/ttn/next-number")
+    def ttn_next_number(request: Request) -> dict[str, object]:
+        _require_user(request)
+        today = _dt.now(_tz.utc).strftime("%Y-%m-%d")
+        with _ttn_counter_lock:
+            if _ttn_counter["date"] != today:
+                _ttn_counter["date"] = today
+                _ttn_counter["n"] = 0
+            _ttn_counter["n"] = int(_ttn_counter["n"]) + 1
+            return {"number": _ttn_counter["n"]}
 
     sync_lock = threading.Lock()
     sync_state: dict[str, object] = {
