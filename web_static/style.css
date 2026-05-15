@@ -4553,7 +4553,7 @@ button.secondary.danger:hover {
 /* ── Supply module ─────────────────────────────────────────────── */
 
 /* Toolbar panel */
-.supplies-toolbar-panel { padding: 12px 16px; }
+.supplies-toolbar-panel { padding: 10px 16px 8px; position: relative; z-index: 10; }
 .supplies-top-controls {
   display: flex;
   align-items: center;
@@ -4575,10 +4575,10 @@ button.secondary.danger:hover {
 }
 .supplies-date-wrap input[type="date"] { width: 136px; }
 .supplies-sync-info {
-  margin-top: 8px;
-  font-size: 13px;
+  margin-top: 4px;
+  font-size: 12px;
   color: #64748b;
-  min-height: 18px;
+  min-height: 0;
 }
 
 /* Table panel */
@@ -5017,9 +5017,9 @@ button.secondary.danger:hover {
   background: #fff;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(15,23,42,0.12);
+  box-shadow: 0 8px 24px rgba(15,23,42,0.18);
   padding: 12px;
-  z-index: 200;
+  z-index: 9999;
   min-width: 260px;
   display: flex;
   flex-direction: column;

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=106" />
+  <link rel="stylesheet" href="/static/style.css?v=107" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1049,7 +1049,8 @@
                 <option value="Кинешма">Кинешма</option>
                 <option value="Нерль">Нерль</option>
               </select>
-              <input id="suppliesSearchFilter" type="text" placeholder="🔍 Поиск..." autocomplete="off"
+              <input id="suppliesSearchFilter" type="search" placeholder="🔍 Поиск..."
+                     autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
                      style="width:160px" oninput="loadSupplies(true)" />
             </div>
             <div class="supplies-date-wrap" style="position:relative">
