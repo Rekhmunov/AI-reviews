@@ -4050,7 +4050,12 @@ class ReviewRepository:
             external_conversation_id=external_conversation_id,
         )
         now = _utc_now()
-        last_message_ts = last_message_at or now
+        # Do NOT fallback to `now` when last_message_at is unknown.
+        # Using `now` as fallback causes the manually_closed_at guard to fail:
+        # now > manually_closed_at is always TRUE, incorrectly resetting
+        # chats that were manually moved to "Answered".
+        # When None, the SQL CASE preserves the existing stored value.
+        last_message_ts = last_message_at
         with self._connect() as conn:
             conn.execute(
                 """
