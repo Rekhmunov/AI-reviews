@@ -3005,7 +3005,12 @@ ${driverDocs ? `<p>${esc(driverDocs)}</p>` : ""}
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `Доверенность №${seqNum} от ${dateDisplay} ${supplierShort}.doc`;
+  const supplyDateDisp = item.supply_date
+    ? new Date(item.supply_date).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" })
+    : dateDisplay;
+  const destWh = (item.warehouse_name || "").trim();
+  const poaFileName = `Доверенность №${seqNum}, ${supplierShort} от ${supplyDateDisp}, ${destWh}, ${driverName}.doc`;
+  a.download = poaFileName;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
