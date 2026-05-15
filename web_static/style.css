@@ -5048,20 +5048,35 @@ button.secondary.danger:hover {
 #supplies-settings-pane-warehouses .table-wrap,
 #supplies-settings-pane-legal .table-wrap {
   overflow: hidden;
+  width: 100%;
 }
 #supplies-settings-pane-drivers .table-wrap .supply-sources-table,
 #supplies-settings-pane-warehouses .table-wrap .supply-sources-table,
 #supplies-settings-pane-legal .table-wrap .supply-sources-table {
   min-width: 0 !important;
   width: 100%;
+  table-layout: fixed !important;
 }
-/* Icon-only action cells don't overflow */
-.supply-sources-table td:last-child,
-.supply-sources-table th:last-child {
-  width: 72px;
-  min-width: 60px;
+/* Allow text to wrap in data cells so long content doesn't push table wider */
+#supplies-settings-pane-drivers .supply-sources-table td,
+#supplies-settings-pane-warehouses .supply-sources-table td,
+#supplies-settings-pane-legal .supply-sources-table td {
+  white-space: normal !important;
+  word-break: break-word;
+  overflow: hidden;
+}
+/* Icon-only action cells — fixed width, always visible */
+#supplies-settings-pane-drivers .supply-sources-table td:last-child,
+#supplies-settings-pane-warehouses .supply-sources-table td:last-child,
+#supplies-settings-pane-legal .supply-sources-table td:last-child,
+#supplies-settings-pane-drivers .supply-sources-table th:last-child,
+#supplies-settings-pane-warehouses .supply-sources-table th:last-child,
+#supplies-settings-pane-legal .supply-sources-table th:last-child {
+  width: 72px !important;
+  min-width: 72px;
+  max-width: 72px;
   text-align: center;
-  overflow: visible;
+  white-space: nowrap !important;
 }
 
 /* ── Date range calendar ──────────────────────────────────────── */
