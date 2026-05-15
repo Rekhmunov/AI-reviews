@@ -3259,18 +3259,16 @@ function _calRender() {
   const { viewYear: y, viewMonth: m, startDate: s, endDate: e, hoveredDate: h } = _cal;
   const firstDay = new Date(y, m, 1);
   const lastDay = new Date(y, m + 1, 0);
-  // Week offset (Mon=0)
   let startOffset = (firstDay.getDay() + 6) % 7;
   const today = new Date(); today.setHours(0,0,0,0);
-  const fmtIso = (d) => d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}` : "";
   const fmtDisp = (d) => d ? `${String(d.getDate()).padStart(2,"0")}.${String(d.getMonth()+1).padStart(2,"0")}.${d.getFullYear()}` : "";
 
-  let html = `<div class="cal-header">
-    <button type="button" class="cal-nav" onclick="_calPrevMonth()">◄</button>
+  let html = `<div class="cal-header" onclick="event.stopPropagation()">
+    <button type="button" class="cal-nav" onclick="event.stopPropagation();_calPrevMonth()">◄</button>
     <span class="cal-title">${_calMonths[m]} ${y}</span>
-    <button type="button" class="cal-nav" onclick="_calNextMonth()">►</button>
+    <button type="button" class="cal-nav" onclick="event.stopPropagation();_calNextMonth()">►</button>
   </div>
-  <div class="cal-grid">`;
+  <div class="cal-grid" onmouseleave="_calClearHover()">`;
   _calDays.forEach((d) => { html += `<div class="cal-cell cal-dow">${d}</div>`; });
   for (let i = 0; i < startOffset; i++) html += `<div class="cal-cell cal-empty"></div>`;
   for (let d = 1; d <= lastDay.getDate(); d++) {
@@ -3286,15 +3284,15 @@ function _calRender() {
     if (isEnd) cls += " cal-range-end";
     if (inRange) cls += " cal-in-range";
     if (isToday) cls += " cal-today";
-    html += `<div class="${cls}" onclick="_calPickDate(${y},${m},${d})" onmouseenter="_calHover(${y},${m},${d})">${d}</div>`;
+    // stopPropagation prevents the document click handler from closing the panel
+    html += `<div class="${cls}" onclick="event.stopPropagation();_calPickDate(${y},${m},${d})" onmouseenter="_calHover(${y},${m},${d})">${d}</div>`;
   }
   html += `</div>`;
-  // Range label
   if (s || e) {
-    html += `<div class="cal-range-label">${fmtDisp(s) || "…"} — ${fmtDisp(e) || "…"}</div>`;
+    html += `<div class="cal-range-label" onclick="event.stopPropagation()">${fmtDisp(s) || "…"} — ${fmtDisp(e) || "…"}</div>`;
   }
-  html += `<div class="cal-footer">
-    <button type="button" class="secondary" onclick="clearSuppliesDateFilter()">Сбросить</button>
+  html += `<div class="cal-footer" onclick="event.stopPropagation()">
+    <button type="button" class="secondary" onclick="event.stopPropagation();clearSuppliesDateFilter()">Сбросить</button>
   </div>`;
   container.innerHTML = html;
 }
@@ -3327,6 +3325,9 @@ function _calHover(y, m, d) {
     _cal.hoveredDate = new Date(y, m, d);
     _calRender();
   }
+}
+function _calClearHover() {
+  if (_cal.hoveredDate) { _cal.hoveredDate = null; _calRender(); }
 }
 
 function _calPrevMonth() {
@@ -7572,6 +7573,7 @@ window._calPrevMonth = _calPrevMonth;
 window._calNextMonth = _calNextMonth;
 window._calPickDate = _calPickDate;
 window._calHover = _calHover;
+window._calClearHover = _calClearHover;
 window.copySupplyDetails = copySupplyDetails;
 window.openSupplyDetailsModal = openSupplyDetailsModal;
 window.closeSupplyDetailsModal = closeSupplyDetailsModal;
