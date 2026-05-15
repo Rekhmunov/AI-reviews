@@ -3114,7 +3114,7 @@ function downloadTTN(supplyId) {
 <head><meta charset="utf-8">
 <!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View></w:WordDocument></xml><![endif]-->
 <style>
-  @page { size: 297mm 210mm; margin: 10mm 8mm 10mm 15mm; }
+  @page { size: A4 landscape; margin: 10mm 8mm 10mm 15mm; }
   body { font-family: "Times New Roman", serif; font-size: 9pt; }
   table { width: 100%; border-collapse: collapse; }
   td, th { border: 1px solid #000; padding: 2pt 3pt; vertical-align: middle; }
