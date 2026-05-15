@@ -6519,6 +6519,14 @@ class ReviewRepository:
         conn.execute(
             "ALTER TABLE supply_legal_entities ADD COLUMN IF NOT EXISTS signatories TEXT"
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ttn_counter (
+                date TEXT PRIMARY KEY,
+                n    INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
 
     def _ensure_supply_tables(self) -> None:
         with self._connect() as conn:
@@ -6655,6 +6663,22 @@ class ReviewRepository:
                 (user_id, entity_id),
             )
         return bool(result.rowcount)
+
+    def next_ttn_number(self) -> int:
+        """Return next sequential TTN number for today; resets to 1 each new day."""
+        today = _utc_now()[:10]  # YYYY-MM-DD
+        with self._connect() as conn:
+            conn.execute(
+                self._sql(
+                    "INSERT INTO ttn_counter (date, n) VALUES (?, 1) "
+                    "ON CONFLICT(date) DO UPDATE SET n = ttn_counter.n + 1"
+                ),
+                (today,),
+            )
+            row = conn.execute(
+                self._sql("SELECT n FROM ttn_counter WHERE date = ?"), (today,)
+            ).fetchone()
+        return int(row[0]) if row else 1
 
     def get_legal_entity_map(self, *, user_id: int) -> dict[str, str]:
         """Return {short_name: full_name} for lookups."""
