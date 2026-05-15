@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=109" />
+  <link rel="stylesheet" href="/static/style.css?v=110" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1052,15 +1052,11 @@
             </div>
             <div class="supplies-date-wrap" style="position:relative">
               <button id="suppliesDateBtn" type="button" class="secondary" onclick="toggleSuppliesDatePanel()" style="padding:0 10px;height:34px" title="Фильтр по дате">📅</button>
+              <!-- Hidden inputs store the selected dates for API calls -->
+              <input type="hidden" id="suppliesDateFrom" />
+              <input type="hidden" id="suppliesDateTo" />
               <div id="suppliesDatePanel" class="supplies-date-panel hidden">
-                <div class="supplies-date-panel-row">
-                  <label>С <input type="date" id="suppliesDateFrom" onchange="applySuppliesDateFilter()" /></label>
-                  <label>По <input type="date" id="suppliesDateTo" onchange="applySuppliesDateFilter()" /></label>
-                </div>
-                <div class="supplies-date-panel-row">
-                  <button type="button" onclick="applySuppliesDateFilter();toggleSuppliesDatePanel(false)">Применить</button>
-                  <button type="button" class="secondary" onclick="clearSuppliesDateFilter()">Сбросить</button>
-                </div>
+                <div id="suppliesCalendar"></div>
               </div>
             </div>
           </div>
@@ -1480,6 +1476,6 @@
   </script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=183"></script>
+  <script src="/static/app.js?v=184"></script>
 </body>
 </html>

@@ -3241,6 +3241,105 @@ function _getSuppliesColWidths() {
 
 function toggleSuppliesFilter() { /* legacy stub */ }
 
+// ── Supplies date range calendar ──
+const _cal = {
+  viewYear: new Date().getFullYear(),
+  viewMonth: new Date().getMonth(), // 0-11
+  startDate: null, // Date or null
+  endDate: null,   // Date or null
+  hoveredDate: null,
+};
+const _calMonths = ["Январь","Февраль","Март","Апрель","Май","Июнь",
+  "Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"];
+const _calDays = ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"];
+
+function _calRender() {
+  const container = document.getElementById("suppliesCalendar");
+  if (!container) return;
+  const { viewYear: y, viewMonth: m, startDate: s, endDate: e, hoveredDate: h } = _cal;
+  const firstDay = new Date(y, m, 1);
+  const lastDay = new Date(y, m + 1, 0);
+  // Week offset (Mon=0)
+  let startOffset = (firstDay.getDay() + 6) % 7;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const fmtIso = (d) => d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}` : "";
+  const fmtDisp = (d) => d ? `${String(d.getDate()).padStart(2,"0")}.${String(d.getMonth()+1).padStart(2,"0")}.${d.getFullYear()}` : "";
+
+  let html = `<div class="cal-header">
+    <button type="button" class="cal-nav" onclick="_calPrevMonth()">◄</button>
+    <span class="cal-title">${_calMonths[m]} ${y}</span>
+    <button type="button" class="cal-nav" onclick="_calNextMonth()">►</button>
+  </div>
+  <div class="cal-grid">`;
+  _calDays.forEach((d) => { html += `<div class="cal-cell cal-dow">${d}</div>`; });
+  for (let i = 0; i < startOffset; i++) html += `<div class="cal-cell cal-empty"></div>`;
+  for (let d = 1; d <= lastDay.getDate(); d++) {
+    const date = new Date(y, m, d);
+    const isToday = date.getTime() === today.getTime();
+    const isStart = s && date.getTime() === s.getTime();
+    const isEnd = e && date.getTime() === e.getTime();
+    const rangeEnd = e || h;
+    const inRange = s && rangeEnd && date > (s < rangeEnd ? s : rangeEnd) && date < (s < rangeEnd ? rangeEnd : s);
+    let cls = "cal-cell cal-day";
+    if (isStart || isEnd) cls += " cal-selected";
+    if (isStart) cls += " cal-range-start";
+    if (isEnd) cls += " cal-range-end";
+    if (inRange) cls += " cal-in-range";
+    if (isToday) cls += " cal-today";
+    html += `<div class="${cls}" onclick="_calPickDate(${y},${m},${d})" onmouseenter="_calHover(${y},${m},${d})">${d}</div>`;
+  }
+  html += `</div>`;
+  // Range label
+  if (s || e) {
+    html += `<div class="cal-range-label">${fmtDisp(s) || "…"} — ${fmtDisp(e) || "…"}</div>`;
+  }
+  html += `<div class="cal-footer">
+    <button type="button" class="secondary" onclick="clearSuppliesDateFilter()">Сбросить</button>
+  </div>`;
+  container.innerHTML = html;
+}
+
+function _calPickDate(y, m, d) {
+  const date = new Date(y, m, d);
+  date.setHours(0, 0, 0, 0);
+  if (!_cal.startDate || (_cal.startDate && _cal.endDate)) {
+    _cal.startDate = date; _cal.endDate = null;
+  } else {
+    if (date < _cal.startDate) { _cal.endDate = _cal.startDate; _cal.startDate = date; }
+    else if (date.getTime() === _cal.startDate.getTime()) { _cal.startDate = null; }
+    else { _cal.endDate = date; }
+  }
+  _calRender();
+  if (_cal.startDate && _cal.endDate) {
+    const fmt = (dt) => `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`;
+    const f = document.getElementById("suppliesDateFrom");
+    const t = document.getElementById("suppliesDateTo");
+    if (f) f.value = fmt(_cal.startDate);
+    if (t) t.value = fmt(_cal.endDate);
+    loadSupplies(true);
+    _updateDateBtn();
+    setTimeout(() => toggleSuppliesDatePanel(false), 300);
+  }
+}
+
+function _calHover(y, m, d) {
+  if (_cal.startDate && !_cal.endDate) {
+    _cal.hoveredDate = new Date(y, m, d);
+    _calRender();
+  }
+}
+
+function _calPrevMonth() {
+  if (_cal.viewMonth === 0) { _cal.viewMonth = 11; _cal.viewYear--; }
+  else _cal.viewMonth--;
+  _calRender();
+}
+function _calNextMonth() {
+  if (_cal.viewMonth === 11) { _cal.viewMonth = 0; _cal.viewYear++; }
+  else _cal.viewMonth++;
+  _calRender();
+}
+
 function toggleSuppliesDatePanel(show) {
   const panel = document.getElementById("suppliesDatePanel");
   if (!panel) return;
@@ -3248,37 +3347,31 @@ function toggleSuppliesDatePanel(show) {
   const shouldShow = show !== undefined ? show : isHidden;
   panel.classList.toggle("hidden", !shouldShow);
   panel.style.display = shouldShow ? "" : "none";
-  // Update button label
+  if (shouldShow) _calRender();
+  _updateDateBtn();
+}
+
+function _updateDateBtn() {
   const btn = document.getElementById("suppliesDateBtn");
   if (!btn) return;
-  const from = document.getElementById("suppliesDateFrom")?.value || "";
-  const to = document.getElementById("suppliesDateTo")?.value || "";
-  if (from || to) {
-    const fmt = (d) => d ? new Date(d).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" }) : "…";
-    btn.textContent = `${fmt(from)}–${fmt(to)}`;
+  if (_cal.startDate && _cal.endDate) {
+    const fmt = (d) => d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
+    btn.textContent = `${fmt(_cal.startDate)}–${fmt(_cal.endDate)}`;
   } else {
     btn.textContent = "📅";
   }
 }
 
-function applySuppliesDateFilter() {
-  loadSupplies(true);
-  const btn = document.getElementById("suppliesDateBtn");
-  const from = document.getElementById("suppliesDateFrom")?.value || "";
-  const to = document.getElementById("suppliesDateTo")?.value || "";
-  if (btn) {
-    const fmt = (d) => d ? new Date(d).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" }) : "…";
-    btn.textContent = (from || to) ? `${fmt(from)}–${fmt(to)}` : "📅";
-  }
-}
+function applySuppliesDateFilter() { loadSupplies(true); _updateDateBtn(); }
 
 function clearSuppliesDateFilter() {
+  _cal.startDate = null; _cal.endDate = null; _cal.hoveredDate = null;
   const from = document.getElementById("suppliesDateFrom");
   const to = document.getElementById("suppliesDateTo");
   if (from) from.value = "";
   if (to) to.value = "";
-  const btn = document.getElementById("suppliesDateBtn");
-  if (btn) btn.textContent = "📅";
+  _calRender();
+  _updateDateBtn();
   toggleSuppliesDatePanel(false);
   loadSupplies(true);
 }
@@ -7475,6 +7568,10 @@ window.toggleSuppliesFilter = toggleSuppliesFilter;
 window.toggleSuppliesDatePanel = toggleSuppliesDatePanel;
 window.applySuppliesDateFilter = applySuppliesDateFilter;
 window.clearSuppliesDateFilter = clearSuppliesDateFilter;
+window._calPrevMonth = _calPrevMonth;
+window._calNextMonth = _calNextMonth;
+window._calPickDate = _calPickDate;
+window._calHover = _calHover;
 window.copySupplyDetails = copySupplyDetails;
 window.openSupplyDetailsModal = openSupplyDetailsModal;
 window.closeSupplyDetailsModal = closeSupplyDetailsModal;

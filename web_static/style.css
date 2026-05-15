@@ -5062,3 +5062,24 @@ button.secondary.danger:hover {
   text-align: center;
   overflow: visible;
 }
+
+/* ── Date range calendar ──────────────────────────────────────── */
+.supplies-date-panel { min-width: 260px; }
+.cal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.cal-title { font-size: 14px; font-weight: 600; color: #1e293b; }
+.cal-nav { background: none; border: none; cursor: pointer; font-size: 14px; color: #64748b;
+  padding: 2px 6px; border-radius: 4px; transition: background 0.12s; }
+.cal-nav:hover { background: #f1f5f9; color: #334155; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.cal-cell { display: flex; align-items: center; justify-content: center;
+  height: 30px; font-size: 13px; border-radius: 4px; user-select: none; }
+.cal-dow { font-size: 11px; font-weight: 600; color: #94a3b8; height: 24px; }
+.cal-day { cursor: pointer; color: #374151; transition: background 0.1s, color 0.1s; }
+.cal-day:hover { background: #e0e7ff; color: #3730a3; }
+.cal-today { font-weight: 700; color: #6366f1; }
+.cal-selected { background: #6366f1 !important; color: #fff !important; border-radius: 50% !important; font-weight: 700; }
+.cal-in-range { background: #e0e7ff; color: #3730a3; border-radius: 0; }
+.cal-range-start { border-radius: 50% 0 0 50% !important; }
+.cal-range-end { border-radius: 0 50% 50% 0 !important; }
+.cal-range-label { text-align: center; font-size: 12px; color: #475569; margin: 6px 0 2px; font-weight: 500; }
+.cal-footer { display: flex; justify-content: center; margin-top: 6px; }
