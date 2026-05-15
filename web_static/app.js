@@ -6250,7 +6250,12 @@ function updateTeamPermissionsPreview() {
   const preview = document.getElementById("teamPermissionsPreview");
   if (!preview) return;
   const permissions = Array.isArray(teamState.pendingPermissions) ? teamState.pendingPermissions : [];
-  preview.textContent = permissions.length ? formatManagerPermissionsText(permissions) : "Разрешения не выбраны";
+  const canSupplies = Boolean(teamState.pendingCanSupplies);
+  if (!permissions.length && !canSupplies) {
+    preview.textContent = "Разрешения не выбраны";
+  } else {
+    preview.textContent = formatManagerPermissionsText(permissions, canSupplies);
+  }
 }
 
 function closeManagerPermissionsModal() {
@@ -6507,7 +6512,11 @@ async function saveNewManager() {
   });
   const data = await res.json();
   if (!res.ok) {
-    setTeamInfo("Ошибка: " + (data.detail || "не удалось создать менеджера"), true);
+    const detail = data.detail;
+    const msg = Array.isArray(detail)
+      ? detail.map((e) => e.msg || JSON.stringify(e)).join("; ")
+      : String(detail || "не удалось создать менеджера");
+    setTeamInfo("Ошибка: " + msg, true);
     return;
   }
   // Set can_supplies if checked
