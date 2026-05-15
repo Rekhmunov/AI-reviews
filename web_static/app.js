@@ -3416,7 +3416,7 @@ ${sectPr}
   const a = document.createElement("a");
   a.href = url; a.download = ttnFileName; a.click();
   setTimeout(() => URL.revokeObjectURL(url), 5000);
-
+}
 
 // ── Supply barcode PDF ──
 
