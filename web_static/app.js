@@ -3149,9 +3149,14 @@ async function downloadTTN(supplyId) {
   docXml = rpl(docXml, "{{GOODS_NAME}}", `Текстильные товары (${pallets} ${palletsWord})`);
   docXml = rpl(docXml, "{{QTY}}",        String(pallets));
   docXml = rpl(docXml, "{{QTY_SHT}}",    `${pallets} шт`);
-  docXml = rpl(docXml, "{{PRICE}}",      "100 000,00");
-  docXml = rpl(docXml, "{{AMOUNT}}",     `${am},00`);
-  docXml = rpl(docXml, "{{AMOUNT_WORDS}}",amountWords);
+  const vatSum = Math.round(totalAmount * 0.22);
+  const amountWithVat = totalAmount + vatSum;
+  const fmtNum = (n) => Math.round(n).toLocaleString("ru-RU") + ",00";
+  docXml = rpl(docXml, "{{PRICE}}",           "100 000,00");
+  docXml = rpl(docXml, "{{AMOUNT}}",          fmtNum(totalAmount));
+  docXml = rpl(docXml, "{{VAT_SUM}}",         fmtNum(vatSum));
+  docXml = rpl(docXml, "{{AMOUNT_WITH_VAT}}", fmtNum(amountWithVat));
+  docXml = rpl(docXml, "{{AMOUNT_WORDS}}",    amountWords);
   docXml = rpl(docXml, "{{SIGN_SUPPLIER}}",supplierShort);
   docXml = rpl(docXml, "{{SIGN_DRIVER}}", driverName);
 
