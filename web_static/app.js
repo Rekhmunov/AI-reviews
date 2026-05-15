@@ -3128,7 +3128,6 @@ async function downloadTTN(supplyId) {
   const rpl = (xml, ph, val) => xml.split(ph).join(val.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"));
 
   docXml = rpl(docXml, "{{ORG_FULL}}",   orgLine);
-  docXml = rpl(docXml, "{{RECIPIENT}}",  recipientLine);
   docXml = rpl(docXml, "{{SUPPLIER}}",   orgLine);
   docXml = rpl(docXml, "{{PAYER}}",      orgLine);
   docXml = rpl(docXml, "{{DOC_NUM}}",    supplyId_);
