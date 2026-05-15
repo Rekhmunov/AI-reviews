@@ -5013,6 +5013,7 @@ button.secondary.danger:hover {
 
 /* Supplies date range panel */
 .supplies-date-panel {
+  display: none; /* hidden by default — only shown via JS */
   position: absolute;
   top: calc(100% + 4px);
   right: 0;

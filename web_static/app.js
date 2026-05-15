@@ -3285,7 +3285,8 @@ function _calRender() {
     if (inRange) cls += " cal-in-range";
     if (isToday) cls += " cal-today";
     // stopPropagation prevents the document click handler from closing the panel
-    html += `<div class="${cls}" onclick="event.stopPropagation();_calPickDate(${y},${m},${d})" onmouseenter="_calHover(${y},${m},${d})">${d}</div>`;
+    const iso = `${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+    html += `<div class="${cls}" data-date="${iso}" onclick="event.stopPropagation();_calPickDate(${y},${m},${d})" onmouseenter="_calHover(${y},${m},${d})">${d}</div>`;
   }
   html += `</div>`;
   if (s || e) {
@@ -3321,13 +3322,24 @@ function _calPickDate(y, m, d) {
 }
 
 function _calHover(y, m, d) {
-  if (_cal.startDate && !_cal.endDate) {
-    _cal.hoveredDate = new Date(y, m, d);
-    _calRender();
-  }
+  if (!_cal.startDate || _cal.endDate) return;
+  const hovered = new Date(y, m, d);
+  _cal.hoveredDate = hovered;
+  // Update only CSS classes — no full re-render (avoids infinite mouseenter loop)
+  const s = _cal.startDate;
+  document.querySelectorAll("#suppliesCalendar .cal-day[data-date]").forEach((el) => {
+    const dt = new Date(el.dataset.date + "T00:00:00");
+    const inRange = s && hovered && dt > (s < hovered ? s : hovered) && dt < (s < hovered ? hovered : s);
+    el.classList.toggle("cal-in-range", inRange);
+  });
 }
 function _calClearHover() {
-  if (_cal.hoveredDate) { _cal.hoveredDate = null; _calRender(); }
+  if (_cal.hoveredDate) {
+    _cal.hoveredDate = null;
+    document.querySelectorAll("#suppliesCalendar .cal-day.cal-in-range").forEach((el) => {
+      el.classList.remove("cal-in-range");
+    });
+  }
 }
 
 function _calPrevMonth() {
@@ -3344,10 +3356,9 @@ function _calNextMonth() {
 function toggleSuppliesDatePanel(show) {
   const panel = document.getElementById("suppliesDatePanel");
   if (!panel) return;
-  const isHidden = panel.classList.contains("hidden");
-  const shouldShow = show !== undefined ? show : isHidden;
-  panel.classList.toggle("hidden", !shouldShow);
-  panel.style.display = shouldShow ? "" : "none";
+  const isVisible = panel.style.display === "flex";
+  const shouldShow = show !== undefined ? Boolean(show) : !isVisible;
+  panel.style.display = shouldShow ? "flex" : "none";
   if (shouldShow) _calRender();
   _updateDateBtn();
 }
@@ -7396,7 +7407,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Close supplies date panel on outside click
     const suppliesDatePanelEl = document.getElementById("suppliesDatePanel");
     const suppliesDateBtnEl = document.getElementById("suppliesDateBtn");
-    if (suppliesDatePanelEl && !suppliesDatePanelEl.classList.contains("hidden") &&
+    if (suppliesDatePanelEl && suppliesDatePanelEl.style.display === "flex" &&
         !suppliesDatePanelEl.contains(target) && suppliesDateBtnEl && !suppliesDateBtnEl.contains(target)) {
       toggleSuppliesDatePanel(false);
     }
