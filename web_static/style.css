@@ -4970,3 +4970,31 @@ button.secondary.danger:hover {
   gap: 4px;
   width: 100%;
 }
+
+/* ── Supplies table row distinction ───────────────────────────── */
+.supplies-main-table tbody tr:nth-child(4n+1) td,
+.supplies-main-table tbody tr:nth-child(4n+2) td {
+  background: #f8fafc;
+}
+.supplies-main-table tbody tr:nth-child(4n+3) td,
+.supplies-main-table tbody tr:nth-child(4n+4) td {
+  background: #fff;
+}
+/* Goods rows inherit parent's background */
+.supplies-main-table tbody tr.supply-goods-row td {
+  background: #f1f5f9 !important;
+}
+/* Stronger hover */
+.supplies-main-table tbody tr.supply-row:hover td {
+  background: #eef2ff !important;
+  transition: background 0.1s;
+}
+/* Slightly more visible row separator */
+.supplies-main-table th,
+.supplies-main-table td {
+  border-bottom: 1px solid rgba(100, 116, 139, 0.18);
+}
+/* Group rows by pairs — thicker line every 2 data rows */
+.supplies-main-table tbody tr.supply-row:nth-child(4n+1) td {
+  border-top: 2px solid rgba(100, 116, 139, 0.15);
+}
