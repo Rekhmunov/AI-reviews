@@ -2736,7 +2736,7 @@ function downloadPackingList(supplyId) {
   const supplyDateRaw = item.supply_date || "";
   let dateDisplay = "";
   if (supplyDateRaw) {
-    try { dateDisplay = new Date(supplyDateRaw).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit" }); } catch (_) {}
+    try { dateDisplay = new Date(supplyDateRaw).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" }); } catch (_) {}
   }
 
   // Warehouse address lookup
@@ -2784,6 +2784,7 @@ function downloadPackingList(supplyId) {
   <tr><td>Количество коробок на паллете</td><td></td></tr>
   <tr><td>Склад</td><td>${esc(whForPickup)}</td></tr>
   <tr><td>Склад назначения</td><td>${esc(whForDest)}</td></tr>
+  <tr><td>Тип поставки</td><td><b>${esc(boxTypeLabel)}</b></td></tr>
   <tr><td>Наименование юридического лица</td><td>${esc(fullLegalName)}</td></tr>
   <tr><td>Дата поставки</td><td>${esc(dateDisplay)}</td></tr>
   <tr><td>Штрих-код поставки</td><td class="barcode-cell">${barcodeImgTag}</td></tr>
