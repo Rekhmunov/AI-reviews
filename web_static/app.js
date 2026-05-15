@@ -3075,7 +3075,8 @@ function _rublesInWords(amount) {
   return parts.join(" ") + " рублей 00 коп";
 }
 
-function downloadTTN(supplyId) {
+async function downloadTTN(supplyId) {
+  if (typeof JSZip === "undefined") { alert("JSZip не загружен. Перезагрузите страницу."); return; }
   const item = suppliesState.items.find((x) => x.supply_id === supplyId || x.supply_id === Number(supplyId));
   if (!item) return;
 
@@ -3109,187 +3110,313 @@ function downloadTTN(supplyId) {
     : dateDisp;
 
   const am = totalAmount.toLocaleString("ru-RU");
-  const html = `
-<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"
-  xmlns="http://www.w3.org/TR/REC-html40">
-<head><meta charset="utf-8">
-<!--[if gte mso 9]><xml>
-<w:WordDocument><w:View>Print</w:View></w:WordDocument>
-</xml><![endif]-->
-<style>
-  @page Section1 { size:841.9pt 595.3pt; mso-page-orientation:landscape;
-    margin:20pt 20pt 20pt 30pt; mso-header-margin:14pt; mso-footer-margin:14pt; }
-  div.Section1 { page:Section1; }
-  body { font-family:"Times New Roman",serif; font-size:8pt; margin:0; }
-  @page { size:297mm 210mm; margin:7mm 7mm 7mm 10mm; }
-  table { border-collapse:collapse; }
-  td,th { border:1px solid #000; padding:1pt 2pt; vertical-align:middle; font-size:8pt; }
-  .nb td,.nb th { border:none; }
-  .c { text-align:center; } .r { text-align:right; } .b { font-weight:bold; }
-  .xs { font-size:6pt; color:#444; text-align:center; }
-  .ul { border-bottom:1px solid #000; display:inline-block; }
-  p { margin:1pt 0; font-size:8pt; }
-</style>
-</head><body>
-<div class="Section1">
+  // ── Build proper OpenXML DOCX ──
+  // twips: 1mm ≈ 56.7, A4 landscape: 16838 × 11906 twips
+  const DXA = (mm) => Math.round(mm * 56.7);
+  // Page: 297×210mm landscape, margins L=15mm R=8mm T=10mm B=10mm
+  const PW = 16838, PH = 11906;
+  const ML = DXA(15), MR = DXA(8), MT = DXA(10), MB = DXA(10);
+  const TW = PW - ML - MR; // usable width in twips = ~15533
 
-<!-- TOP: org left, form right -->
-<table width="100%" class="nb" style="margin-bottom:2pt">
-<tr>
-  <td width="55%" style="vertical-align:top">
-    <b>${esc(orgFull)}</b>${orgReq ? "<br/>" + esc(orgReq) : ""}
-    <br/><span class="xs">организация – грузоотправитель, адрес, номер телефона, факса, банковские реквизиты</span>
-  </td>
-  <td width="2%"></td>
-  <td width="43%" style="vertical-align:top;text-align:right;font-size:7pt">
-    Унифицированная форма № ТОРГ-12<br/>
-    Утверждена постановлением Госкомстата России от 25.12.98 №132
-    <table style="float:right;margin-top:2pt">
-      <tr><td colspan="2" class="c b" style="font-size:7pt">Код</td></tr>
-      <tr><td style="font-size:7pt">Форма по ОКУД</td><td style="font-size:7pt">0330212</td></tr>
-      <tr><td style="font-size:7pt">по ОКПО</td><td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td></tr>
-      <tr><td style="font-size:7pt">Вид деятельности по ОКДП</td><td>&nbsp;</td></tr>
-    </table>
-  </td>
-</tr>
-</table>
+  // Helper: XML-safe text
+  const X = (s) => String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 
-<!-- Fields -->
-<table width="100%" class="nb" style="margin-bottom:2pt">
-  <tr>
-    <td width="20%" class="nb b">Грузополучатель</td>
-    <td class="nb" style="border-bottom:1px solid #000">${esc(recipientLine)}</td>
-    <td width="8%" class="nb" style="text-align:right;font-size:7pt">по ОКПО</td>
-    <td width="12%" class="nb" style="border-bottom:1px solid #000"></td>
-  </tr>
-  <tr><td colspan="4" class="nb xs">наименование организации, адрес, номер телефона, банковские реквизиты</td></tr>
-  <tr>
-    <td class="nb b">Поставщик</td>
-    <td class="nb" style="border-bottom:1px solid #000">${esc(orgLine)}</td>
-    <td class="nb" style="text-align:right;font-size:7pt">по ОКПО</td>
-    <td class="nb" style="border-bottom:1px solid #000"></td>
-  </tr>
-  <tr><td colspan="4" class="nb xs">наименование организации, адрес, номер телефона, банковские реквизиты</td></tr>
-  <tr>
-    <td class="nb b">Плательщик</td>
-    <td class="nb" style="border-bottom:1px solid #000">${esc(orgLine)}</td>
-    <td class="nb" style="text-align:right;font-size:7pt">по ОКПО</td>
-    <td class="nb" style="border-bottom:1px solid #000"></td>
-  </tr>
-  <tr><td colspan="4" class="nb xs">наименование организации, адрес, номер телефона, банковские реквизиты</td></tr>
-  <tr>
-    <td class="nb b">Основание</td>
-    <td class="nb" style="border-bottom:1px solid #000">Заказ № ${esc(String(supplyId_))}</td>
-    <td colspan="2" class="nb">
-      <table style="float:right;font-size:7pt">
-        <tr><td>Транспортная накладная</td><td>номер</td><td>дата</td></tr>
-        <tr><td>Вид операции</td><td colspan="2">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td></tr>
-      </table>
-    </td>
-  </tr>
-  <tr><td colspan="4" class="nb xs">наименование документа (договор, контракт, заказ-наряд)</td></tr>
-</table>
+  // Helper: table cell
+  const cell = ({text="",bold=false,size=16,halign="left",valign="center",rowspan=1,colspan=1,w=0,borders="all",shd=""} = {}) => {
+    const pPr = `<w:pPr><w:jc w:val="${halign}"/><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/></w:pPr>`;
+    const rPr = `<w:rPr>${bold?`<w:b/><w:bCs/>`:""}${size?`<w:sz w:val="${size}"/><w:szCs w:val="${size}"/>`:""}${`<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/>`}</w:rPr>`;
+    const tcPr = [
+      `<w:tcW w:w="${w||100}" w:type="${w?"dxa":"auto"}"/>`,
+      rowspan>1?`<w:vMerge w:val="restart"/>`:"",
+      colspan>1?`<w:gridSpan w:val="${colspan}"/>`:"",
+      `<w:vAlign w:val="${valign}"/>`,
+      borders==="all"?`<w:tcBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:left w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:right w:val="single" w:sz="4" w:space="0" w:color="000000"/></w:tcBorders>`:
+      borders==="none"?`<w:tcBorders><w:top w:val="none" w:sz="0"/><w:left w:val="none" w:sz="0"/><w:bottom w:val="none" w:sz="0"/><w:right w:val="none" w:sz="0"/></w:tcBorders>`:
+      borders==="bottom"?`<w:tcBorders><w:top w:val="none" w:sz="0"/><w:left w:val="none" w:sz="0"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:right w:val="none" w:sz="0"/></w:tcBorders>`:"",
+      shd?`<w:shd w:val="clear" w:color="auto" w:fill="${shd}"/>`:"",
+      `<w:tcMar><w:top w:w="28" w:type="dxa"/><w:left w:w="57" w:type="dxa"/><w:bottom w:w="28" w:type="dxa"/><w:right w:w="57" w:type="dxa"/></w:tcMar>`,
+    ].filter(Boolean).join("");
+    return `<w:tc><w:tcPr>${tcPr}</w:tcPr><w:p>${pPr}<w:r>${rPr}<w:t xml:space="preserve">${X(text)}</w:t></w:r></w:p></w:tc>`;
+  };
+  const vcell = ({text="",bold=false,size=16,halign="center",valign="center",w=0,borders="all"}={}) =>
+    `<w:tc><w:tcPr><w:tcW w:w="${w||100}" w:type="${w?"dxa":"auto"}"/><w:vAlign w:val="${valign}"/><w:vMerge/>${borders==="all"?`<w:tcBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:left w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:right w:val="single" w:sz="4" w:space="0" w:color="000000"/></w:tcBorders>`:""}<w:tcMar><w:top w:w="28" w:type="dxa"/><w:left w:w="57" w:type="dxa"/><w:bottom w:w="28" w:type="dxa"/><w:right w:w="57" w:type="dxa"/></w:tcMar></w:tcPr><w:p><w:pPr><w:jc w:val="${halign}"/><w:spacing w:before="0" w:after="0"/></w:pPr></w:p></w:tc>`;
 
-<!-- Title + doc number -->
-<table width="100%" class="nb" style="margin-bottom:2pt">
-<tr>
-  <td width="65%" class="nb" style="text-align:center;font-size:13pt;font-weight:bold">ТОВАРНАЯ НАКЛАДНАЯ</td>
-  <td width="35%" class="nb">
-    <table>
-      <tr><td class="c">Номер документа</td><td class="c">Дата составления</td></tr>
-      <tr><td class="c b">${esc(String(supplyId_))}</td><td class="c b">${dateDisp}</td></tr>
-    </table>
-  </td>
-</tr>
-</table>
+  const row = (cells, height=0) =>
+    `<w:tr>${height?`<w:trPr><w:trHeight w:val="${height}" w:hRule="atLeast"/></w:trPr>`:""}${cells}</w:tr>`;
 
-<!-- Goods table -->
-<table width="100%" style="margin-bottom:2pt;font-size:7pt">
-  <tr class="c b">
-    <td rowspan="3" width="3%">Номер по порядку</td>
-    <td rowspan="3" width="18%">Товар (наименование, характеристика, сорт, артикул товара)</td>
-    <td rowspan="3" width="3%">код</td>
-    <td colspan="2">Единица измерения</td>
-    <td rowspan="3" width="3%">Вид упаковки</td>
-    <td colspan="2">Количество</td>
-    <td rowspan="3" width="4%">Масса брутто</td>
-    <td rowspan="3" width="5%">Кол-во (масса нетто)</td>
-    <td rowspan="3" width="6%">Цена, руб. коп.</td>
-    <td rowspan="3" width="7%">Сумма без учёта НДС, руб. коп.</td>
-    <td colspan="2">НДС</td>
-    <td rowspan="3" width="7%">Сумма с учётом НДС, руб. коп.</td>
-  </tr>
-  <tr class="c b">
-    <td>наимено-вание</td><td>код по ОКЕИ</td>
-    <td>в одном месте</td><td>мест, штук</td>
-    <td>ставка, %</td><td>сумма, руб. коп.</td>
-  </tr>
-  <tr class="c"><td>4</td><td>5</td><td>7</td><td>8</td><td>13</td><td>14</td></tr>
-  <tr class="c b xs"><td>1</td><td>2</td><td>3</td><td>4</td><td>5</td><td>6</td><td>7</td><td>8</td><td>9</td><td>10</td><td>11</td><td>12</td><td>13</td><td>14</td><td>15</td></tr>
-  <tr class="c">
-    <td>1</td>
-    <td style="text-align:left">Текстильные товары (${pallets} ${palletsWord})</td>
-    <td>—</td><td>шт.</td><td>—</td><td>—</td>
-    <td>1</td><td class="b">${pallets}</td>
-    <td>—</td><td class="b">${pallets} шт</td>
-    <td class="b">100&nbsp;000,00</td>
-    <td class="b">${am},00</td>
-    <td>Без НДС</td><td>—</td>
-    <td class="b">${am},00</td>
-  </tr>
-  <tr class="c">
-    <td colspan="7" style="text-align:right"><b>Всего по накладной</b></td>
-    <td class="b">${pallets}</td><td>—</td>
-    <td class="b">${pallets} шт</td><td>х</td>
-    <td class="b">${am},00</td><td>х</td><td>—</td>
-    <td class="b">${am},00</td>
-  </tr>
-</table>
+  const tblProps = (w=TW) =>
+    `<w:tblPr><w:tblW w:w="${w}" w:type="dxa"/><w:tblBorders><w:insideH w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:insideV w:val="single" w:sz="4" w:space="0" w:color="000000"/></w:tblBorders><w:tblCellMar><w:top w:w="28" w:type="dxa"/><w:left w:w="57" w:type="dxa"/><w:bottom w:w="28" w:type="dxa"/><w:right w:w="57" w:type="dxa"/></w:tblCellMar></w:tblPr>`;
 
-<p>Товарная накладная имеет приложение на <span class="ul">&nbsp;одном&nbsp;</span> листах
-и содержит <span class="ul">&nbsp;одну&nbsp;</span> порядковых номеров записей</p>
-<p>Всего отпущено на сумму <b><u>${esc(_rublesInWords(totalAmount))}</u></b></p>
+  const tbl = (grid, rows) => `<w:tbl>${tblProps()}<w:tblGrid>${grid}</w:tblGrid>${rows}</w:tbl>`;
+  const gridCol = (w) => `<w:gridCol w:w="${w}"/>`;
 
-<!-- Signatures -->
-<table width="100%" class="nb" style="margin-top:4pt">
-<tr>
-  <td width="48%" class="nb">
-    <p>Отпуск разрешил <span class="ul">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span> <span class="ul">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span> <b>${esc(supplierShort)}</b></p>
-    <p class="xs">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;должность&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;подпись&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;расшифровка</p>
-    <p>Главный бухгалтер <span class="ul">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span> <b>${esc(supplierShort)}</b></p>
-    <p class="xs">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;подпись&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;расшифровка</p>
-    <p>Отпуск груза произвел <span class="ul">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span> <span class="ul">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span> <b>${esc(supplierShort)}</b></p>
-    <p class="xs">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;должность&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;подпись&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;расшифровка</p>
-  </td>
-  <td width="4%" class="nb"></td>
-  <td width="48%" class="nb">
-    <p>Груз принял <span class="ul">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span> <span class="ul">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span> <b>${esc(driverName)}</b></p>
-    <p class="xs">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;должность&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;подпись&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;расшифровка</p>
-    <p>Груз получил грузополучатель <span class="ul">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span> <span class="ul">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span> <b>${esc(driverName)}</b></p>
-    <p class="xs">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;должность&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;подпись&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;расшифровка</p>
-    <p style="margin-top:3pt">"<span class="ul">&nbsp;&nbsp;&nbsp;&nbsp;</span>" <span class="ul">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span> ${yyyy} г.</p>
-  </td>
-</tr>
-</table>
+  const para = (text, {bold=false,size=18,halign="left",spacing=0}={}) =>
+    `<w:p><w:pPr><w:jc w:val="${halign}"/><w:spacing w:before="${spacing}" w:after="${spacing}"/></w:pPr><w:r><w:rPr>${bold?"<w:b/><w:bCs/>":""}<w:sz w:val="${size}"/><w:szCs w:val="${size}"/><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/></w:rPr><w:t xml:space="preserve">${X(text)}</w:t></w:r></w:p>`;
 
-</div>
-</body></html>`;
+  // Column widths for goods table (15 cols) in dxa — must sum to TW
+  const GW = [
+    DXA(7),  // 1. №
+    DXA(34), // 2. Товар
+    DXA(7),  // 3. код
+    DXA(10), // 4. наим ед
+    DXA(8),  // 5. код ОКЕИ
+    DXA(8),  // 6. упаковка
+    DXA(9),  // 7. в 1 месте
+    DXA(9),  // 8. мест
+    DXA(9),  // 9. масса брутто
+    DXA(9),  // 10. масса нетто
+    DXA(11), // 11. цена
+    DXA(14), // 12. сумма без НДС
+    DXA(9),  // 13. НДС ставка
+    DXA(11), // 14. НДС сумма
+    DXA(14), // 15. сумма с НДС
+  ];
+  // Adjust last column to fill exactly TW
+  const gwSum = GW.reduce((a,b)=>a+b,0);
+  GW[GW.length-1] += (TW - gwSum);
 
-  const blob = new Blob(["\uFEFF" + html], { type: "application/msword" });
+  // Header table column widths
+  const HW1 = Math.round(TW*0.55), HW2 = Math.round(TW*0.05), HW3 = TW-HW1-HW2;
+  // Code table inside header: ОКУД/ОКПО columns
+  const CW1 = Math.round(HW3*0.65), CW2 = HW3-CW1;
+  // Fields table
+  const FW1=DXA(30), FW2=TW-FW1-DXA(14)-DXA(20), FW3=DXA(14), FW4=DXA(20);
+  // Signature table
+  const SW1=Math.round(TW*0.47), SW2=Math.round(TW*0.06), SW3=TW-SW1-SW2;
+
+  // ── TABLE 1: Header ──
+  const t1 = `<w:tbl>${tblProps()}<w:tblGrid>${gridCol(HW1)}${gridCol(HW2)}${gridCol(HW3)}</w:tblGrid>
+${row(
+  cell({text:`${orgFull} ${orgReq}`,size:14,w:HW1,borders:"none"})+
+  cell({text:"",w:HW2,borders:"none"})+
+  `<w:tc><w:tcPr><w:tcW w:w="${HW3}" w:type="dxa"/><w:tcBorders><w:top w:val="none" w:sz="0"/><w:left w:val="none" w:sz="0"/><w:bottom w:val="none" w:sz="0"/><w:right w:val="none" w:sz="0"/></w:tcBorders></w:tcPr>
+<w:p><w:pPr><w:jc w:val="right"/><w:spacing w:before="0" w:after="0"/></w:pPr><w:r><w:rPr><w:sz w:val="12"/><w:szCs w:val="12"/><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/></w:rPr><w:t>Унифицированная форма № ТОРГ-12 Утверждена постановлением Госкомстата России от 25.12.98 №132</w:t></w:r></w:p>
+<w:tbl><w:tblPr><w:tblW w:w="${HW3}" w:type="dxa"/><w:jc w:val="right"/></w:tblPr><w:tblGrid>${gridCol(CW1)}${gridCol(CW2)}</w:tblGrid>
+${row(cell({text:"Код",bold:true,halign:"center",size:14,w:CW1,colspan:2,borders:"all"})+"<w:tc><w:tcPr><w:tcW w:w=\"1\" w:type=\"dxa\"/><w:vMerge w:val=\"restart\"/></w:tcPr><w:p/></w:tc>")}
+${row(cell({text:"Форма по ОКУД",size:14,w:CW1,borders:"all"})+cell({text:"0330212",size:14,halign:"center",w:CW2,borders:"all"}))}
+${row(cell({text:"по ОКПО",size:14,w:CW1,borders:"all"})+cell({text:"",size:14,w:CW2,borders:"all"}))}
+${row(cell({text:"Вид деятельности по ОКДП",size:14,w:CW1,borders:"all"})+cell({text:"",size:14,w:CW2,borders:"all"}))}
+</w:tbl></w:tc>`,300)}
+${row(cell({text:"организация – грузоотправитель, адрес, номер телефона, факса, банковские реквизиты",size:12,halign:"center",w:HW1,borders:"none"})+cell({text:"",w:HW2,borders:"none"})+cell({text:"",w:HW3,borders:"none"}))}
+${row(cell({text:"структурное подразделение",size:12,halign:"center",w:HW1,borders:"none"})+cell({text:"",w:HW2,borders:"none"})+cell({text:"",w:HW3,borders:"none"}))}
+</w:tbl>`;
+
+  // ── TABLE 2: Fields ──
+  const fieldRow = (label, value, xs_label) => [
+    row(
+      cell({text:label,bold:true,size:14,w:FW1,borders:"none"})+
+      cell({text:value,size:14,w:FW2,borders:"bottom"})+
+      cell({text:"по ОКПО",size:12,halign:"right",w:FW3,borders:"none"})+
+      cell({text:"",size:14,w:FW4,borders:"bottom"})
+    ),
+    row(
+      cell({text:"",w:FW1,borders:"none"})+
+      cell({text:xs_label,size:12,halign:"center",w:FW2+FW3+FW4,colspan:3,borders:"none"})
+    ),
+  ].join("");
+
+  const t2 = `<w:tbl>${tblProps()}<w:tblGrid>${gridCol(FW1)}${gridCol(FW2)}${gridCol(FW3)}${gridCol(FW4)}</w:tblGrid>
+${fieldRow("Грузополучатель",recipientLine,"наименование организации, адрес, номер телефона, банковские реквизиты")}
+${fieldRow("Поставщик",orgLine,"наименование организации, адрес, номер телефона, банковские реквизиты")}
+${fieldRow("Плательщик",orgLine,"наименование организации, адрес, номер телефона, банковские реквизиты")}
+${row(
+  cell({text:"Основание",bold:true,size:14,w:FW1,borders:"none"})+
+  cell({text:`Заказ № ${supplyId_}`,size:14,w:FW2,borders:"bottom"})+
+  `<w:tc><w:tcPr><w:tcW w:w="${FW3+FW4}" w:type="dxa"/><w:gridSpan w:val="2"/><w:tcBorders><w:top w:val="none" w:sz="0"/><w:left w:val="none" w:sz="0"/><w:bottom w:val="none" w:sz="0"/><w:right w:val="none" w:sz="0"/></w:tcBorders></w:tcPr>
+<w:tbl><w:tblPr><w:tblW w:w="${FW3+FW4}" w:type="dxa"/><w:jc w:val="right"/></w:tblPr><w:tblGrid>${gridCol(Math.round((FW3+FW4)/3))}${gridCol(Math.round((FW3+FW4)/3))}${gridCol(FW3+FW4-2*Math.round((FW3+FW4)/3))}</w:tblGrid>
+${row(cell({text:"Транспортная накладная",size:12,halign:"center",borders:"all"})+cell({text:"номер",size:12,halign:"center",borders:"all"})+cell({text:"дата",size:12,halign:"center",borders:"all"}))}
+${row(cell({text:"Вид операции",size:12,halign:"center",colspan:3,borders:"all"})+`<w:tc><w:tcPr><w:tcW w:w="1" w:type="dxa"/><w:vMerge/></w:tcPr><w:p/></w:tc><w:tc><w:tcPr><w:tcW w:w="1" w:type="dxa"/><w:vMerge/></w:tcPr><w:p/></w:tc>`)}
+</w:tbl></w:tc>`
+)}
+${row(cell({text:"",w:FW1,borders:"none"})+cell({text:"наименование документа (договор, контракт, заказ-наряд)",size:12,halign:"center",w:FW2+FW3+FW4,colspan:3,borders:"none"}))}
+</w:tbl>`;
+
+  // ── TITLE + NUMBER TABLE ──
+  const TW2 = Math.round(TW*0.35);
+  const t3 = `<w:tbl>${tblProps()}<w:tblGrid>${gridCol(TW-TW2)}${gridCol(TW2)}</w:tblGrid>
+${row(
+  `<w:tc><w:tcPr><w:tcW w:w="${TW-TW2}" w:type="dxa"/><w:vAlign w:val="center"/><w:tcBorders><w:top w:val="none" w:sz="0"/><w:left w:val="none" w:sz="0"/><w:bottom w:val="none" w:sz="0"/><w:right w:val="none" w:sz="0"/></w:tcBorders></w:tcPr><w:p><w:pPr><w:jc w:val="center"/><w:spacing w:before="0" w:after="0"/></w:pPr><w:r><w:rPr><w:b/><w:bCs/><w:sz w:val="28"/><w:szCs w:val="28"/><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/></w:rPr><w:t>ТОВАРНАЯ НАКЛАДНАЯ</w:t></w:r></w:p></w:tc>`+
+  `<w:tc><w:tcPr><w:tcW w:w="${TW2}" w:type="dxa"/><w:tcBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:left w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:right w:val="single" w:sz="4" w:space="0" w:color="000000"/></w:tcBorders></w:tcPr>
+<w:tbl><w:tblPr><w:tblW w:w="${TW2}" w:type="dxa"/></w:tblPr><w:tblGrid>${gridCol(Math.round(TW2/2))}${gridCol(TW2-Math.round(TW2/2))}</w:tblGrid>
+${row(cell({text:"Номер документа",size:14,halign:"center",w:Math.round(TW2/2),borders:"all"})+cell({text:"Дата составления",size:14,halign:"center",w:TW2-Math.round(TW2/2),borders:"all"}))}
+${row(cell({text:String(supplyId_),bold:true,size:16,halign:"center",w:Math.round(TW2/2),borders:"all"})+cell({text:dateDisp,bold:true,size:16,halign:"center",w:TW2-Math.round(TW2/2),borders:"all"}))}
+</w:tbl></w:tc>`
+,500)}
+</w:tbl>`;
+
+  // ── TABLE 4: Goods ──
+  const g = (...args) => cell({...args[0], borders:"all"});
+  const gGrid = GW.map(w=>gridCol(w)).join("");
+  const t4 = `<w:tbl>${tblProps()}<w:tblGrid>${gGrid}</w:tblGrid>
+${row(
+  cell({text:"Номер по порядку",size:14,halign:"center",valign:"center",w:GW[0],rowspan:3,borders:"all"})+
+  cell({text:"Товар (наименование, характеристика, сорт, артикул товара)",size:14,halign:"center",valign:"center",w:GW[1],rowspan:3,borders:"all"})+
+  cell({text:"код",size:14,halign:"center",valign:"center",w:GW[2],rowspan:3,borders:"all"})+
+  cell({text:"Единица измерения",size:14,halign:"center",w:GW[3]+GW[4],colspan:2,borders:"all"})+
+  cell({text:"Вид упаковки",size:14,halign:"center",valign:"center",w:GW[5],rowspan:3,borders:"all"})+
+  cell({text:"Количество",size:14,halign:"center",w:GW[6]+GW[7],colspan:2,borders:"all"})+
+  cell({text:"Масса брутто",size:14,halign:"center",valign:"center",w:GW[8],rowspan:3,borders:"all"})+
+  cell({text:"Количество (масса нетто)",size:14,halign:"center",valign:"center",w:GW[9],rowspan:3,borders:"all"})+
+  cell({text:"Цена, руб. коп.",size:14,halign:"center",valign:"center",w:GW[10],rowspan:3,borders:"all"})+
+  cell({text:"Сумма без учёта НДС, руб. коп.",size:14,halign:"center",valign:"center",w:GW[11],rowspan:3,borders:"all"})+
+  cell({text:"НДС",size:14,halign:"center",w:GW[12]+GW[13],colspan:2,borders:"all"})+
+  cell({text:"Сумма с учётом НДС, руб. коп.",size:14,halign:"center",valign:"center",w:GW[14],rowspan:3,borders:"all"})
+,350)}
+${row(
+  vcell({w:GW[0]})+vcell({w:GW[1]})+vcell({w:GW[2]})+
+  cell({text:"наименование",size:14,halign:"center",w:GW[3],borders:"all"})+
+  cell({text:"код по ОКЕИ",size:14,halign:"center",w:GW[4],borders:"all"})+
+  vcell({w:GW[5]})+
+  cell({text:"в одном месте",size:14,halign:"center",w:GW[6],borders:"all"})+
+  cell({text:"мест, штук",size:14,halign:"center",w:GW[7],borders:"all"})+
+  vcell({w:GW[8]})+vcell({w:GW[9]})+vcell({w:GW[10]})+vcell({w:GW[11]})+
+  cell({text:"ставка, %",size:14,halign:"center",w:GW[12],borders:"all"})+
+  cell({text:"сумма, руб. коп.",size:14,halign:"center",w:GW[13],borders:"all"})+
+  vcell({w:GW[14]})
+)}
+${row(
+  vcell({w:GW[0]})+vcell({w:GW[1]})+vcell({w:GW[2]})+
+  cell({text:"4",size:14,halign:"center",w:GW[3],borders:"all"})+
+  cell({text:"5",size:14,halign:"center",w:GW[4],borders:"all"})+
+  vcell({w:GW[5]})+
+  cell({text:"7",size:14,halign:"center",w:GW[6],borders:"all"})+
+  cell({text:"8",size:14,halign:"center",w:GW[7],borders:"all"})+
+  vcell({w:GW[8]})+vcell({w:GW[9]})+vcell({w:GW[10]})+vcell({w:GW[11]})+
+  cell({text:"13",size:14,halign:"center",w:GW[12],borders:"all"})+
+  cell({text:"14",size:14,halign:"center",w:GW[13],borders:"all"})+
+  vcell({w:GW[14]})
+)}
+${row([1,2,3,4,5,6,7,8,9,10,11,12,13,14,15].map((n,i)=>cell({text:String(n),size:12,halign:"center",w:GW[i],borders:"all"})).join(""))}
+${row(
+  cell({text:"1",size:14,halign:"center",w:GW[0],borders:"all"})+
+  cell({text:`Текстильные товары (${pallets} ${palletsWord})`,size:14,w:GW[1],borders:"all"})+
+  cell({text:"",size:14,halign:"center",w:GW[2],borders:"all"})+
+  cell({text:"шт.",size:14,halign:"center",w:GW[3],borders:"all"})+
+  cell({text:"",size:14,halign:"center",w:GW[4],borders:"all"})+
+  cell({text:"",size:14,halign:"center",w:GW[5],borders:"all"})+
+  cell({text:"1",size:14,halign:"center",w:GW[6],borders:"all"})+
+  cell({text:String(pallets),bold:true,size:14,halign:"center",w:GW[7],borders:"all"})+
+  cell({text:"",size:14,halign:"center",w:GW[8],borders:"all"})+
+  cell({text:`${pallets} шт`,bold:true,size:14,halign:"center",w:GW[9],borders:"all"})+
+  cell({text:"100 000,00",bold:true,size:14,halign:"right",w:GW[10],borders:"all"})+
+  cell({text:`${am},00`,bold:true,size:14,halign:"right",w:GW[11],borders:"all"})+
+  cell({text:"Без НДС",size:14,halign:"center",w:GW[12],borders:"all"})+
+  cell({text:"",size:14,halign:"center",w:GW[13],borders:"all"})+
+  cell({text:`${am},00`,bold:true,size:14,halign:"right",w:GW[14],borders:"all"})
+,400)}
+${row(
+  cell({text:"Всего по накладной",bold:true,size:14,halign:"right",w:GW.slice(0,7).reduce((a,b)=>a+b,0),colspan:7,borders:"all"})+
+  cell({text:String(pallets),bold:true,size:14,halign:"center",w:GW[7],borders:"all"})+
+  cell({text:"",size:14,halign:"center",w:GW[8],borders:"all"})+
+  cell({text:`${pallets} шт`,bold:true,size:14,halign:"center",w:GW[9],borders:"all"})+
+  cell({text:"х",size:14,halign:"center",w:GW[10],borders:"all"})+
+  cell({text:`${am},00`,bold:true,size:14,halign:"right",w:GW[11],borders:"all"})+
+  cell({text:"х",size:14,halign:"center",w:GW[12],borders:"all"})+
+  cell({text:"",size:14,halign:"center",w:GW[13],borders:"all"})+
+  cell({text:`${am},00`,bold:true,size:14,halign:"right",w:GW[14],borders:"all"})
+)}
+</w:tbl>`;
+
+  // ── Footer text paragraphs ──
+  const fText = [
+    `<w:p><w:pPr><w:spacing w:before="40" w:after="40"/></w:pPr><w:r><w:rPr><w:sz w:val="14"/><w:szCs w:val="14"/><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/></w:rPr><w:t xml:space="preserve">Товарная накладная имеет приложение на </w:t></w:r><w:r><w:rPr><w:u w:val="single"/><w:sz w:val="14"/><w:szCs w:val="14"/><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/></w:rPr><w:t>одном</w:t></w:r><w:r><w:rPr><w:sz w:val="14"/><w:szCs w:val="14"/><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/></w:rPr><w:t xml:space="preserve"> листах и содержит </w:t></w:r><w:r><w:rPr><w:u w:val="single"/><w:sz w:val="14"/><w:szCs w:val="14"/><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/></w:rPr><w:t>одну</w:t></w:r><w:r><w:rPr><w:sz w:val="14"/><w:szCs w:val="14"/><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/></w:rPr><w:t xml:space="preserve"> порядковых номеров записей</w:t></w:r></w:p>`,
+    para(`Всего отпущено на сумму ${_rublesInWords(totalAmount)}`,{size:14}),
+  ].join("");
+
+  // ── TABLE 5: Signatures ──
+  const sigLine = (label, value) =>
+    `<w:p><w:pPr><w:spacing w:before="0" w:after="60"/></w:pPr><w:r><w:rPr><w:sz w:val="14"/><w:szCs w:val="14"/><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/></w:rPr><w:t xml:space="preserve">${X(label)} </w:t></w:r><w:r><w:rPr><w:b/><w:bCs/><w:sz w:val="14"/><w:szCs w:val="14"/><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/></w:rPr><w:t>${X(value)}</w:t></w:r></w:p><w:p><w:pPr><w:spacing w:before="0" w:after="80"/></w:pPr><w:r><w:rPr><w:sz w:val="12"/><w:szCs w:val="12"/><w:color w:val="555555"/><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/></w:rPr><w:t>должность                            подпись                     расшифровка подписи</w:t></w:r></w:p>`;
+
+  const t5 = `<w:tbl>${tblProps()}<w:tblGrid>${gridCol(SW1)}${gridCol(SW2)}${gridCol(SW3)}</w:tblGrid>
+${row(
+  `<w:tc><w:tcPr><w:tcW w:w="${SW1}" w:type="dxa"/><w:tcBorders><w:top w:val="none" w:sz="0"/><w:left w:val="none" w:sz="0"/><w:bottom w:val="none" w:sz="0"/><w:right w:val="none" w:sz="0"/></w:tcBorders></w:tcPr>${sigLine("Отпуск разрешил",supplierShort)}${sigLine("Главный (старший) бухгалтер",supplierShort)}${sigLine("Отпуск груза произвел",supplierShort)}</w:tc>`+
+  cell({text:"",w:SW2,borders:"none"})+
+  `<w:tc><w:tcPr><w:tcW w:w="${SW3}" w:type="dxa"/><w:tcBorders><w:top w:val="none" w:sz="0"/><w:left w:val="none" w:sz="0"/><w:bottom w:val="none" w:sz="0"/><w:right w:val="none" w:sz="0"/></w:tcBorders></w:tcPr>${sigLine("Груз принял",driverName)}${sigLine("Груз получил грузополучатель",driverName)}<w:p><w:pPr><w:spacing w:before="60" w:after="0"/></w:pPr><w:r><w:rPr><w:sz w:val="14"/><w:szCs w:val="14"/><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/></w:rPr><w:t xml:space="preserve">"____" _______________ ${yyyy} г.</w:t></w:r></w:p></w:tc>`
+)}
+</w:tbl>`;
+
+  // ── Assemble document.xml ──
+  const sectPr = `<w:sectPr><w:pgSz w:w="${PW}" w:h="${PH}" w:orient="landscape"/><w:pgMar w:top="${MT}" w:right="${MR}" w:bottom="${MB}" w:left="${ML}" w:header="709" w:footer="709" w:gutter="0"/></w:sectPr>`;
+  const docXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:wpc="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas"
+  xmlns:cx="http://schemas.microsoft.com/office/drawing/2014/chartex"
+  xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+  xmlns:aink="http://schemas.microsoft.com/office/drawing/2016/ink"
+  xmlns:am3d="http://schemas.microsoft.com/office/drawing/2017/model3d"
+  xmlns:o="urn:schemas-microsoft-com:office:office"
+  xmlns:oel="http://schemas.microsoft.com/office/2019/extlst"
+  xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+  xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"
+  xmlns:v="urn:schemas-microsoft-com:vml"
+  xmlns:wp14="http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing"
+  xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+  xmlns:w10="urn:schemas-microsoft-com:office:word"
+  xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+  xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml"
+  xmlns:w15="http://schemas.microsoft.com/office/word/2012/wordml"
+  xmlns:w16cex="http://schemas.microsoft.com/office/word/2018/wordml/cex"
+  xmlns:w16cid="http://schemas.microsoft.com/office/word/2016/wordml/cid"
+  xmlns:w16="http://schemas.microsoft.com/office/word/2018/wordml"
+  xmlns:w16sdtdh="http://schemas.microsoft.com/office/word/2020/wordml/sdtdatahash"
+  xmlns:w16se="http://schemas.microsoft.com/office/word/2015/wordml/symex"
+  xmlns:wpg="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup"
+  xmlns:wpi="http://schemas.microsoft.com/office/word/2010/wordprocessingInk"
+  xmlns:wne="http://schemas.microsoft.com/office/word/2006/wordml"
+  xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape" mc:Ignorable="w14 w15 w16se w16cid w16 w16cex w16sdtdh wp14">
+<w:body>
+${para("",{size:14,spacing:0})}
+${t1}
+${para("",{size:14,spacing:0})}
+${t2}
+${para("",{size:14,spacing:0})}
+${t3}
+${para("",{size:14,spacing:0})}
+${t4}
+${fText}
+${para("",{size:14,spacing:0})}
+${t5}
+${sectPr}
+</w:body>
+</w:document>`;
+
+  // ── Build DOCX zip ──
+  const zip = new JSZip();
+  zip.file("[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+  <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
+  <Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/>
+</Types>`);
+  zip.file("_rels/.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>`);
+  zip.file("word/_rels/document.xml.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/>
+</Relationships>`);
+  zip.file("word/styles.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Times New Roman" w:eastAsia="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:sz w:val="16"/><w:szCs w:val="16"/><w:lang w:val="ru-RU" w:eastAsia="ru-RU" w:bidi="ar-SA"/></w:rPr></w:rPrDefault></w:docDefaults>
+  <w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/></w:pPr></w:style>
+</w:styles>`);
+  zip.file("word/settings.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:defaultTabStop w:val="709"/>
+  <w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat>
+</w:settings>`);
+  zip.file("word/document.xml", docXml);
+
+  const ttnFileName = `ТТН ${supplierShort} от ${supplyDateDisp}, ${destWh}, ${pallets} палл..docx`;
+  const blob = await zip.generateAsync({type:"blob", mimeType:"application/vnd.openxmlformats-officedocument.wordprocessingml.document"});
   const url = URL.createObjectURL(blob);
-  const ttnFileName = `ТТН ${supplierShort} от ${supplyDateDisp}, ${destWh}, ${pallets} палл..doc`;
-  const win = window.open("", "_blank");
-  if (win) {
-    const a = win.document.createElement("a");
-    a.href = url; a.download = ttnFileName;
-    win.document.body.appendChild(a); a.click();
-    setTimeout(() => { try { win.close(); } catch(_){} URL.revokeObjectURL(url); }, 1500);
-  } else {
-    const a = document.createElement("a");
-    a.href = url; a.download = ttnFileName; a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 5000);
-  }
-}
+  const a = document.createElement("a");
+  a.href = url; a.download = ttnFileName; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+
 
 // ── Supply barcode PDF ──
 
