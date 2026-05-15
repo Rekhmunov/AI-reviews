@@ -3112,6 +3112,17 @@ async function downloadTTN(supplyId) {
   const amountWords = _rublesInWords(totalAmount);
   const supplyId_ = String(item.supply_id || "");
 
+  // Fetch actual goods list for this supply
+  let goodsNames = [];
+  try {
+    const gr = await fetch(`/api/supplies/${supplyId_}/goods`).catch(() => null);
+    if (gr && gr.ok) {
+      const glist = await gr.json().catch(() => []);
+      goodsNames = glist.map(g => g.product_name || g.vendor_code || "Товар").filter(Boolean);
+    }
+  } catch(_) {}
+  if (!goodsNames.length) goodsNames = [`Текстильные товары (${pallets} ${palletsWord})`];
+
   const supplyDateDisp = item.supply_date
     ? new Date(item.supply_date).toLocaleDateString("ru-RU", { day:"2-digit", month:"2-digit", year:"numeric" })
     : dateDisp;
@@ -3141,7 +3152,17 @@ async function downloadTTN(supplyId) {
   docXml = rpl(docXml, "{{ORDER_DATE}}",  supplyId_);
   docXml = rpl(docXml, "{{DOC_NUM_VAL}}",supplyId_);
   docXml = rpl(docXml, "{{DOC_DATE_VAL}}",dateDisp);
-  docXml = rpl(docXml, "{{GOODS_NAME}}", `Текстильные товары (${pallets} ${palletsWord})`);
+  // Duplicate data row for each good — find the row containing {{GOODS_NAME}}
+  const dataRowRx = /(<w:tr[\s>](?:(?!<\/w:tr>).)*?\{\{GOODS_NAME\}\}.*?<\/w:tr>)/s;
+  const dataRowMatch = docXml.match(dataRowRx);
+  if (dataRowMatch) {
+    const rowTpl = dataRowMatch[1];
+    const esc_ = (s) => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    const multiRows = goodsNames.map(name => rowTpl.replace("{{GOODS_NAME}}", esc_(name))).join("");
+    docXml = docXml.replace(rowTpl, multiRows);
+  } else {
+    docXml = rpl(docXml, "{{GOODS_NAME}}", goodsNames[0] || "Товар");
+  }
   docXml = rpl(docXml, "{{QTY}}",        String(pallets));
   docXml = rpl(docXml, "{{QTY_SHT}}",    `${pallets} шт`);
   const vatSum = Math.round(totalAmount * 0.22);
