@@ -3161,40 +3161,66 @@ async function downloadTTN(supplyId) {
   // Duplicate data row for each good — substituting {{GOODS_NAME}} and {{PRICE}} per row
   const dataRowRx = /(<w:tr[\s>](?:(?!<\/w:tr>).)*?\{\{GOODS_NAME\}\}.*?<\/w:tr>)/s;
   const dataRowMatch = docXml.match(dataRowRx);
-  const fmtPrice = (p) => Number(p).toLocaleString("ru-RU", {minimumFractionDigits:2, maximumFractionDigits:2});
+  const VAT_RATE = 0.22;
+  // fmt helpers
+  const fmt2 = (n) => Number(n).toLocaleString("ru-RU", {minimumFractionDigits:2, maximumFractionDigits:2});
   const esc_ = (s) => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
   // Calculate total quantity from actual goods
   const totalGoodsQty = goodsList.reduce((s, g) => s + (parseInt(g.quantity) || 0), 0);
   const qtyTotal = totalGoodsQty || pallets;
+
+  // Per-row amounts accumulator for totals
+  let totalExcl = 0, totalVat = 0, totalIncl = 0;
 
   if (dataRowMatch) {
     const rowTpl = dataRowMatch[1];
     const multiRows = goodsList.map((g) => {
       const name = g.product_name || g.vendor_code || "Товар";
       const nm = String(g.nm_id || "");
-      const rowPrice = (nm && nmPrices[nm]) ? fmtPrice(nmPrices[nm]) : "{{PRICE}}";
-      const rowQty = String(parseInt(g.quantity) || 0);
+      const qty = parseInt(g.quantity) || 0;
+      // discountedPrice from WB is price WITH VAT (22% inclusive)
+      const priceIncl = (nm && nmPrices[nm]) ? parseFloat(nmPrices[nm]) : null;
+      // Price without VAT (Цена в ТОРГ-12 = без НДС)
+      const priceExcl  = priceIncl != null ? priceIncl / (1 + VAT_RATE) : null;
+      const rowAmtExcl = priceExcl  != null ? priceExcl  * qty : null;
+      const rowVat     = rowAmtExcl != null ? rowAmtExcl * VAT_RATE : null;
+      const rowAmtIncl = rowAmtExcl != null ? rowAmtExcl + rowVat : null;
+      if (rowAmtExcl != null) { totalExcl += rowAmtExcl; totalVat += rowVat; totalIncl += rowAmtIncl; }
       return rowTpl
-        .replace("{{GOODS_NAME}}", esc_(name))
-        .replace("{{PRICE}}", esc_(rowPrice))
-        .split("{{ROW_QTY}}").join(rowQty);
+        .replace("{{GOODS_NAME}}",      esc_(name))
+        .replace("{{PRICE}}",           esc_(priceExcl != null ? fmt2(priceExcl) : "—"))
+        .split("{{ROW_QTY}}").join(String(qty))
+        .replace("{{ROW_AMOUNT_EXCL}}", esc_(rowAmtExcl != null ? fmt2(rowAmtExcl) : "—"))
+        .replace("{{ROW_VAT_SUM}}",     esc_(rowVat     != null ? fmt2(rowVat)     : "—"))
+        .replace("{{ROW_AMOUNT_INCL}}", esc_(rowAmtIncl != null ? fmt2(rowAmtIncl) : "—"));
     }).join("") || rowTpl.replace("{{GOODS_NAME}}", esc_(goodsNames[0] || "Товар"));
     docXml = docXml.replace(rowTpl, multiRows);
   } else {
     docXml = rpl(docXml, "{{GOODS_NAME}}", goodsNames[0] || "Товар");
   }
-  // Any remaining {{ROW_QTY}} (fallback if no goodsList)
+
+  // Fallback replacements (in case no goods)
   docXml = docXml.split("{{ROW_QTY}}").join(String(qtyTotal));
-  docXml = rpl(docXml, "{{QTY}}",        String(qtyTotal));
-  docXml = rpl(docXml, "{{QTY_SHT}}",    `${qtyTotal} шт`);
-  const vatSum = Math.round(totalAmount * 0.22);
-  const amountWithVat = totalAmount + vatSum;
-  const fmtNum = (n) => Math.round(n).toLocaleString("ru-RU") + ",00";
-  docXml = rpl(docXml, "{{PRICE}}",           "100 000,00");
-  docXml = rpl(docXml, "{{AMOUNT}}",          fmtNum(totalAmount));
-  docXml = rpl(docXml, "{{VAT_SUM}}",         fmtNum(vatSum));
-  docXml = rpl(docXml, "{{AMOUNT_WITH_VAT}}", fmtNum(amountWithVat));
-  docXml = rpl(docXml, "{{AMOUNT_WORDS}}",    amountWords);
+  docXml = docXml.split("{{ROW_AMOUNT_EXCL}}").join("—");
+  docXml = docXml.split("{{ROW_VAT_SUM}}").join("—");
+  docXml = docXml.split("{{ROW_AMOUNT_INCL}}").join("—");
+  docXml = docXml.split("{{PRICE}}").join("—");
+
+  docXml = rpl(docXml, "{{QTY}}",       String(qtyTotal));
+  docXml = rpl(docXml, "{{QTY_SHT}}",   `${qtyTotal} шт`);
+  const fmtNum = (n) => fmt2(n);
+  const totalExclFmt  = totalExcl  > 0 ? fmtNum(totalExcl)  : fmtNum(totalAmount);
+  const totalVatFmt   = totalVat   > 0 ? fmtNum(totalVat)   : fmtNum(Math.round(totalAmount * VAT_RATE));
+  const totalInclFmt  = totalIncl  > 0 ? fmtNum(totalIncl)  : fmtNum(totalAmount + Math.round(totalAmount * VAT_RATE));
+  docXml = rpl(docXml, "{{TOTAL_EXCL}}", totalExclFmt);
+  docXml = rpl(docXml, "{{TOTAL_VAT}}",  totalVatFmt);
+  docXml = rpl(docXml, "{{TOTAL_INCL}}", totalInclFmt);
+  // Legacy fallbacks
+  docXml = rpl(docXml, "{{AMOUNT}}",          totalExclFmt);
+  docXml = rpl(docXml, "{{VAT_SUM}}",         totalVatFmt);
+  docXml = rpl(docXml, "{{AMOUNT_WITH_VAT}}", totalInclFmt);
+  const finalTotalIncl = totalIncl > 0 ? totalIncl : (totalAmount + Math.round(totalAmount * VAT_RATE));
+  docXml = rpl(docXml, "{{AMOUNT_WORDS}}",    _rublesInWords(Math.round(finalTotalIncl)));
   docXml = rpl(docXml, "{{SIGN_SUPPLIER}}",supplierShort);
   docXml = rpl(docXml, "{{SIGN_DRIVER}}", driverName);
 
