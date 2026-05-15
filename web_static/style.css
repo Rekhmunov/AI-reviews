@@ -5084,3 +5084,15 @@ button.secondary.danger:hover {
 .cal-range-end { border-radius: 0 50% 50% 0 !important; }
 .cal-range-label { text-align: center; font-size: 12px; color: #475569; margin: 6px 0 2px; font-weight: 500; }
 .cal-footer { display: flex; justify-content: center; margin-top: 6px; }
+
+.supply-ttn-link {
+  background: #eff6ff !important;
+  border-color: #93c5fd !important;
+  color: #1d4ed8 !important;
+}
+.supply-ttn-link:hover {
+  background: #dbeafe !important;
+  border-color: #60a5fa !important;
+  color: #1e40af !important;
+  box-shadow: 0 1px 4px rgba(59,130,246,0.15) !important;
+}

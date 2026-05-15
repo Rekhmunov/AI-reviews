@@ -2178,6 +2178,7 @@ function renderSuppliesTable() {
           ${_isWbGiCode(item.pass_number) ? `<button class="supply-detail-link supply-barcode-link" onclick="downloadSupplyBarcode('${esc(item.pass_number || '')}',${item.supply_id})">⬇ ШК поставки</button>` : ""}
           ${_isWbGiCode(item.pass_number) ? `<button class="supply-detail-link supply-packing-link" onclick="downloadPackingList(${item.supply_id})">⬇ Упаковочный лист</button>` : ""}
           ${_isWbGiCode(item.pass_number) ? `<button class="supply-detail-link supply-poa-link" onclick="downloadPoA(${item.supply_id})">⬇ Доверенность</button>` : ""}
+          ${(_isWbGiCode(item.pass_number) && item.pallets_count && item.driver_name) ? `<button class="supply-detail-link supply-ttn-link" onclick="downloadTTN(${item.supply_id})">⬇ ТТН</button>` : ""}
         </div>
       </td>
     `;
@@ -3027,6 +3028,267 @@ ${driverDocs ? `<p>${esc(driverDocs)}</p>` : ""}
   } else {
     const a = document.createElement("a");
     a.href = url; a.download = poaFileName; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }
+}
+
+// ── TTN (ТОРГ-12) ──
+
+function _rublesInWords(amount) {
+  if (!amount || amount <= 0) return "ноль рублей 00 коп";
+  const ones1 = ["","один","два","три","четыре","пять","шесть","семь","восемь","девять"];
+  const ones2 = ["","одна","две","три","четыре","пять","шесть","семь","восемь","девять"]; // feminine for тысяча
+  const teens = ["десять","одиннадцать","двенадцать","тринадцать","четырнадцать","пятнадцать","шестнадцать","семнадцать","восемнадцать","девятнадцать"];
+  const tens = ["","","двадцать","тридцать","сорок","пятьдесят","шестьдесят","семьдесят","восемьдесят","девяносто"];
+  const hundreds = ["","сто","двести","триста","четыреста","пятьсот","шестьсот","семьсот","восемьсот","девятьсот"];
+
+  function threeDigits(n, feminine) {
+    let r = "";
+    if (n >= 100) { r += hundreds[Math.floor(n/100)] + " "; n %= 100; }
+    if (n >= 10 && n <= 19) { r += teens[n-10]; return r.trim(); }
+    if (n >= 20) { r += tens[Math.floor(n/10)] + " "; n %= 10; }
+    if (n > 0) r += (feminine ? ones2[n] : ones1[n]);
+    return r.trim();
+  }
+  function millionWord(n) {
+    const last2 = n % 100; const last1 = n % 10;
+    if (last2 >= 11 && last2 <= 19) return "миллионов";
+    if (last1 === 1) return "миллион";
+    if (last1 >= 2 && last1 <= 4) return "миллиона";
+    return "миллионов";
+  }
+  function thousandWord(n) {
+    const last2 = n % 100; const last1 = n % 10;
+    if (last2 >= 11 && last2 <= 19) return "тысяч";
+    if (last1 === 1) return "тысяча";
+    if (last1 >= 2 && last1 <= 4) return "тысячи";
+    return "тысяч";
+  }
+
+  let parts = [];
+  const mil = Math.floor(amount / 1000000);
+  const tho = Math.floor((amount % 1000000) / 1000);
+  const rem = amount % 1000;
+  if (mil > 0) parts.push(threeDigits(mil, false) + " " + millionWord(mil));
+  if (tho > 0) parts.push(threeDigits(tho, true) + " " + thousandWord(tho));
+  if (rem > 0) parts.push(threeDigits(rem, false));
+  return parts.join(" ") + " рублей 00 коп";
+}
+
+function downloadTTN(supplyId) {
+  const item = suppliesState.items.find((x) => x.supply_id === supplyId || x.supply_id === Number(supplyId));
+  if (!item) return;
+
+  const now = new Date();
+  const dd = String(now.getDate()).padStart(2,"0"), mm = String(now.getMonth()+1).padStart(2,"0"), yyyy = now.getFullYear();
+  const dateDisp = `${dd}.${mm}.${yyyy}`;
+
+  const supplierShort = item.supplier_name || "";
+  const le = _supplyLegalEntitiesCache.find((e) => e.short_name === supplierShort) || {};
+  const orgFull = le.full_name || supplierShort;
+  const orgReq = le.requisites || "";
+  const orgLine = [orgFull, orgReq].filter(Boolean).join(" ");
+
+  // Warehouse (destination)
+  const destWh = (item.warehouse_name || "").trim();
+  const whMap = Object.fromEntries(_supplyWarehousesCache.map((w) => [w.warehouse_name, w.address]));
+  const whAddress = whMap[destWh] || "";
+  const recipientLine = [destWh, whAddress].filter(Boolean).join(", ");
+
+  const driverName = item.driver_name || "";
+  const pallets = parseInt(item.pallets_count) || 0;
+  const priceEach = 100000;
+  const totalAmount = pallets * priceEach;
+  const totalAmountFmt = (n) => n.toLocaleString("ru-RU") + ",00";
+  const palletsWord = _numToRussianWords(pallets);
+  const amountWords = _rublesInWords(totalAmount);
+  const supplyId_ = item.supply_id || "";
+
+  const supplyDateDisp = item.supply_date
+    ? new Date(item.supply_date).toLocaleDateString("ru-RU", { day:"2-digit", month:"2-digit", year:"numeric" })
+    : dateDisp;
+
+  const html = `
+<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"
+  xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="utf-8">
+<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View></w:WordDocument></xml><![endif]-->
+<style>
+  @page { size: 297mm 210mm; margin: 10mm 8mm 10mm 15mm; }
+  body { font-family: "Times New Roman", serif; font-size: 9pt; }
+  table { width: 100%; border-collapse: collapse; }
+  td, th { border: 1px solid #000; padding: 2pt 3pt; vertical-align: middle; }
+  .noborder td, .noborder th { border: none; }
+  .center { text-align: center; }
+  .right { text-align: right; }
+  .bold { font-weight: bold; }
+  .small { font-size: 7pt; text-align: center; color: #444; }
+  .title { text-align: center; font-size: 14pt; font-weight: bold; margin: 6pt 0 4pt; }
+  .underline { text-decoration: underline; }
+  .dotline { border-bottom: 1px solid #000; display: inline-block; min-width: 80pt; }
+  p { margin: 2pt 0; }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<table class="noborder" style="margin-bottom:4pt">
+  <tr>
+    <td style="width:60%;vertical-align:top;font-size:9pt">
+      <b>${esc(orgFull)}</b><br/>
+      ${esc(orgReq)}<br/>
+      <span class="small">организация – грузоотправитель, адрес, номер телефона, факса, банковские реквизиты</span>
+    </td>
+    <td style="width:40%;vertical-align:top;font-size:8pt;text-align:right">
+      Унифицированная форма № ТОРГ-12<br/>
+      Утверждена постановлением Госкомстата России от 25.12.98 №132<br/>
+      <table style="float:right;margin-top:4pt;font-size:8pt;width:auto">
+        <tr><td style="text-align:center;font-weight:bold" colspan="2">Код</td></tr>
+        <tr><td>Форма по ОКУД</td><td>0330212</td></tr>
+        <tr><td>по ОКПО</td><td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td></tr>
+      </table>
+    </td>
+  </tr>
+</table>
+
+<!-- Fields table -->
+<table style="margin-bottom:3pt;font-size:9pt">
+  <tr>
+    <td style="width:22%;border:none"><b>Грузополучатель</b></td>
+    <td style="border-bottom:1px solid #000;border-top:none;border-left:none;border-right:none">
+      ${esc(recipientLine)}
+    </td>
+    <td style="width:10%;border:none;text-align:right">по ОКПО</td>
+    <td style="width:15%;border-bottom:1px solid #000;border-top:none;border-left:none;border-right:none"></td>
+  </tr>
+  <tr><td colspan="4" style="border:none;padding:0"><span class="small">наименование организации, адрес, номер телефона, банковские реквизиты</span></td></tr>
+  <tr>
+    <td style="border:none"><b>Поставщик</b></td>
+    <td style="border-bottom:1px solid #000;border-top:none;border-left:none;border-right:none">${esc(orgLine)}</td>
+    <td style="border:none;text-align:right">по ОКПО</td>
+    <td style="border-bottom:1px solid #000;border-top:none;border-left:none;border-right:none"></td>
+  </tr>
+  <tr><td colspan="4" style="border:none;padding:0"><span class="small">наименование организации, адрес, номер телефона, банковские реквизиты</span></td></tr>
+  <tr>
+    <td style="border:none"><b>Плательщик</b></td>
+    <td style="border-bottom:1px solid #000;border-top:none;border-left:none;border-right:none">${esc(orgLine)}</td>
+    <td style="border:none;text-align:right">по ОКПО</td>
+    <td style="border-bottom:1px solid #000;border-top:none;border-left:none;border-right:none"></td>
+  </tr>
+  <tr><td colspan="4" style="border:none;padding:0"><span class="small">наименование организации, адрес, номер телефона, банковские реквизиты</span></td></tr>
+  <tr>
+    <td style="border:none"><b>Основание</b></td>
+    <td style="border-bottom:1px solid #000;border-top:none;border-left:none;border-right:none">Заказ № ${esc(String(supplyId_))}</td>
+    <td colspan="2" style="border:none">
+      <table style="float:right;width:auto;border-collapse:collapse;font-size:8pt">
+        <tr><td style="border:1px solid #000">Транспортная<br/>накладная</td><td style="border:1px solid #000">номер<br/>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td><td style="border:1px solid #000">дата<br/>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td></tr>
+        <tr><td style="border:1px solid #000">Вид операции</td><td colspan="2" style="border:1px solid #000">&nbsp;</td></tr>
+      </table>
+    </td>
+  </tr>
+  <tr><td colspan="4" style="border:none;padding:0"><span class="small">наименование документа (договор, контракт, заказ-наряд)</span></td></tr>
+</table>
+
+<div class="title">ТОВАРНАЯ НАКЛАДНАЯ</div>
+<table style="margin-bottom:4pt;font-size:9pt;width:auto;margin-left:auto;margin-right:auto">
+  <tr>
+    <td class="center">Номер документа</td>
+    <td class="center">Дата составления</td>
+  </tr>
+  <tr>
+    <td class="center bold">${esc(String(supplyId_))}</td>
+    <td class="center bold">${dateDisp}</td>
+  </tr>
+</table>
+
+<!-- Goods table -->
+<table style="font-size:8pt;margin-bottom:3pt">
+  <tr class="center bold">
+    <td rowspan="2" style="width:4%">Номер по порядку</td>
+    <td rowspan="2" style="width:22%">Товар (наименование, характеристика, сорт, артикул товара)</td>
+    <td rowspan="2" style="width:4%">код</td>
+    <td colspan="2" class="center">Единица измерения</td>
+    <td rowspan="2" style="width:4%">Вид упаковки</td>
+    <td colspan="2" class="center">Количество</td>
+    <td rowspan="2" style="width:5%">Масса брутто</td>
+    <td rowspan="2" style="width:5%">Кол-во (масса нетто)</td>
+    <td rowspan="2" style="width:7%">Цена, руб. коп.</td>
+    <td rowspan="2" style="width:8%">Сумма без учёта НДС, руб. коп.</td>
+    <td colspan="2" class="center">НДС</td>
+    <td rowspan="2" style="width:8%">Сумма с учётом НДС, руб. коп.</td>
+  </tr>
+  <tr class="center">
+    <td>наименование</td><td>код по ОКЕИ</td>
+    <td>в одном месте</td><td>мест, штук</td>
+    <td>ставка, %</td><td>сумма, руб. коп.</td>
+  </tr>
+  <tr class="center small bold">
+    <td>1</td><td>2</td><td>3</td><td>4</td><td>5</td><td>6</td><td>7</td><td>8</td><td>9</td><td>10</td><td>11</td><td>12</td><td>13</td><td>14</td><td>15</td>
+  </tr>
+  <tr class="center">
+    <td>1</td>
+    <td style="text-align:left">Текстильные товары (${pallets} ${palletsWord})</td>
+    <td>—</td>
+    <td>шт.</td><td>—</td><td>—</td>
+    <td>1</td><td class="bold">${pallets}</td>
+    <td>—</td>
+    <td class="bold">${pallets}шт</td>
+    <td class="bold">${(100000).toLocaleString("ru-RU")},00</td>
+    <td class="bold">${totalAmount.toLocaleString("ru-RU")},00</td>
+    <td>Без НДС</td><td>—</td>
+    <td class="bold">${totalAmount.toLocaleString("ru-RU")},00</td>
+  </tr>
+  <tr class="center">
+    <td colspan="7" style="text-align:right"><b>Всего по накладной</b></td>
+    <td class="bold">${pallets}</td>
+    <td>—</td>
+    <td class="bold">${pallets}шт</td>
+    <td>х</td>
+    <td class="bold">${totalAmount.toLocaleString("ru-RU")},00</td>
+    <td>х</td><td>—</td>
+    <td class="bold">${totalAmount.toLocaleString("ru-RU")},00</td>
+  </tr>
+</table>
+
+<p>Товарная накладная имеет приложение на <span class="dotline">&nbsp;&nbsp;одном&nbsp;&nbsp;</span> листах</p>
+<p>и содержит <span class="dotline">&nbsp;&nbsp;одну&nbsp;&nbsp;</span> порядковых номеров записей</p>
+<p style="margin-top:4pt">Всего отпущено на сумму <b><u>${esc(_rublesInWords(totalAmount))}</u></b></p>
+
+<table class="noborder" style="margin-top:12pt;font-size:9pt">
+  <tr>
+    <td style="width:48%">
+      <p>Отпуск разрешил <span class="dotline">${esc(supplierShort)}</span></p>
+      <p class="small">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;должность&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;подпись&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;расшифровка подписи</p>
+      <p>Главный (старший) бухгалтер <span class="dotline">${esc(supplierShort)}</span></p>
+      <p class="small">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;подпись&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;расшифровка подписи</p>
+      <p>Отпуск груза произвел <span class="dotline">${esc(supplierShort)}</span></p>
+      <p class="small">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;должность&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;подпись&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;расшифровка подписи</p>
+    </td>
+    <td style="width:4%"></td>
+    <td style="width:48%">
+      <p>Груз принял <span class="dotline">${esc(driverName)}</span></p>
+      <p class="small">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;должность&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;подпись&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;расшифровка подписи</p>
+      <p>Груз получил грузополучатель <span class="dotline">${esc(driverName)}</span></p>
+      <p class="small">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;должность&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;подпись&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;расшифровка подписи</p>
+      <p>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"<span class="dotline">&nbsp;&nbsp;&nbsp;&nbsp;</span>" <span class="dotline">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span> ${yyyy} г.</p>
+    </td>
+  </tr>
+</table>
+
+</body></html>`;
+
+  const blob = new Blob(["\uFEFF" + html], { type: "application/msword" });
+  const url = URL.createObjectURL(blob);
+  const ttnFileName = `ТТН ${supplierShort} от ${supplyDateDisp}, ${destWh}, ${pallets} палл..doc`;
+  const win = window.open("", "_blank");
+  if (win) {
+    const a = win.document.createElement("a");
+    a.href = url; a.download = ttnFileName;
+    win.document.body.appendChild(a); a.click();
+    setTimeout(() => { try { win.close(); } catch(_){} URL.revokeObjectURL(url); }, 1500);
+  } else {
+    const a = document.createElement("a");
+    a.href = url; a.download = ttnFileName; a.click();
     setTimeout(() => URL.revokeObjectURL(url), 5000);
   }
 }
@@ -7574,6 +7836,7 @@ window.saveSupplyLegalEntity = saveSupplyLegalEntity;
 window.deleteSupplyLegalEntity = deleteSupplyLegalEntity;
 window.downloadPackingList = downloadPackingList;
 window.downloadPoA = downloadPoA;
+window.downloadTTN = downloadTTN;
 window.downloadSupplyBarcode = downloadSupplyBarcode;
 window.initSuppliesColumnResizer = initSuppliesColumnResizer;
 window.toggleSuppliesFilter = toggleSuppliesFilter;
