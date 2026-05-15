@@ -1176,6 +1176,9 @@
                 <input id="newLegalFullName" type="text" placeholder="Полное наименование для документов" autocomplete="off" />
               </div>
               <div class="row">
+                <input id="newLegalRequisites" type="text" placeholder="Реквизиты (ИНН, адрес и т.д.)" autocomplete="off" />
+              </div>
+              <div class="row">
                 <button onclick="saveSupplyLegalEntity()">Сохранить</button>
                 <button class="secondary" onclick="toggleAddLegalEntityForm(false)">Отмена</button>
                 <span id="addLegalEntityInfo" class="small"></span>
@@ -1185,8 +1188,8 @@
           <div class="panel">
             <div class="table-wrap">
               <table class="supply-sources-table">
-                <colgroup><col style="width:5%"/><col style="width:30%"/><col/><col style="width:120px"/></colgroup>
-                <thead><tr><th>№</th><th>Короткое</th><th>Полное наименование</th><th>Действия</th></tr></thead>
+                <colgroup><col style="width:4%"/><col style="width:22%"/><col style="width:30%"/><col/><col style="width:100px"/></colgroup>
+                <thead><tr><th>№</th><th>Короткое</th><th>Полное наименование</th><th>Реквизиты</th><th>Действия</th></tr></thead>
                 <tbody id="supplyLegalEntitiesTbody"></tbody>
               </table>
             </div>
@@ -1468,6 +1471,6 @@
   </script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=174"></script>
+  <script src="/static/app.js?v=175"></script>
 </body>
 </html>

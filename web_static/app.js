@@ -2668,7 +2668,7 @@ function renderSupplyLegalEntitiesTbody() {
   _supplyLegalEntitiesCache.forEach((e, i) => {
     const tr = document.createElement("tr");
     tr.dataset.id = e.id;
-    tr.innerHTML = `<td>${i+1}</td><td class="editable-cell">${esc(e.short_name||"")}</td><td class="editable-cell">${esc(e.full_name||"")}</td>
+    tr.innerHTML = `<td>${i+1}</td><td class="editable-cell">${esc(e.short_name||"")}</td><td class="editable-cell">${esc(e.full_name||"")}</td><td class="editable-cell">${esc(e.requisites||"")}</td>
       <td>
         <div class="row" style="gap:4px;flex-wrap:nowrap">
           <button class="secondary small-btn" onclick="startEditLegalEntity(${e.id})">✏</button>
@@ -2687,6 +2687,7 @@ async function startEditLegalEntity(id) {
   const cells = tr.querySelectorAll(".editable-cell");
   cells[0].innerHTML = `<input class="edit-inline-input" value="${esc(item.short_name||"")}" />`;
   cells[1].innerHTML = `<input class="edit-inline-input" value="${esc(item.full_name||"")}" />`;
+  cells[2].innerHTML = `<input class="edit-inline-input" value="${esc(item.requisites||"")}" />`;
   const actionCell = tr.cells[tr.cells.length - 1];
   actionCell.innerHTML = `<div class="row" style="gap:4px;flex-wrap:nowrap">
     <button class="secondary small-btn" style="color:#16a34a;border-color:#86efac" onclick="saveEditLegalEntity(${id})">Сохранить</button>
@@ -2700,8 +2701,9 @@ async function saveEditLegalEntity(id) {
   const inputs = tr.querySelectorAll(".edit-inline-input");
   const short = inputs[0]?.value.trim() || "";
   const full = inputs[1]?.value.trim() || "";
+  const req = inputs[2]?.value.trim() || "";
   if (!short) return;
-  await fetch(`/api/supply-legal-entities/${id}`, { method: "PATCH", headers: jsonHeaders(), body: JSON.stringify({ short_name: short, full_name: full }) }).catch(() => null);
+  await fetch(`/api/supply-legal-entities/${id}`, { method: "PATCH", headers: jsonHeaders(), body: JSON.stringify({ short_name: short, full_name: full, requisites: req }) }).catch(() => null);
   await loadSupplyLegalEntities();
 }
 
@@ -2709,15 +2711,18 @@ function toggleAddLegalEntityForm(show) {
   const form = document.getElementById("addLegalEntityForm");
   if (!form) return;
   form.classList.toggle("hidden", !show); form.style.display = show ? "" : "none";
-  if (!show) { document.getElementById("newLegalShortName").value = ""; document.getElementById("newLegalFullName").value = ""; }
+  if (!show) {
+    ["newLegalShortName","newLegalFullName","newLegalRequisites"].forEach((id) => { const el = document.getElementById(id); if(el) el.value=""; });
+  }
 }
 
 async function saveSupplyLegalEntity() {
   const short = document.getElementById("newLegalShortName")?.value.trim();
   const full = document.getElementById("newLegalFullName")?.value.trim() || "";
+  const req = document.getElementById("newLegalRequisites")?.value.trim() || "";
   const info = document.getElementById("addLegalEntityInfo");
   if (!short) { if (info) { info.textContent = "Введите короткое название"; info.style.color = "#b91c1c"; } return; }
-  const res = await fetch("/api/supply-legal-entities", { method: "POST", headers: jsonHeaders(), body: JSON.stringify({ short_name: short, full_name: full }) }).catch(() => null);
+  const res = await fetch("/api/supply-legal-entities", { method: "POST", headers: jsonHeaders(), body: JSON.stringify({ short_name: short, full_name: full, requisites: req }) }).catch(() => null);
   if (!res || !res.ok) { const e = await res?.json().catch(()=>({})) || {}; if (info) { info.textContent = e.detail||"Ошибка"; info.style.color = "#b91c1c"; } return; }
   if (info) { info.textContent = "Сохранено"; info.style.color = "#16a34a"; }
   toggleAddLegalEntityForm(false);

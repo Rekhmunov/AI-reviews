@@ -6508,6 +6508,9 @@ class ReviewRepository:
                 "ON supply_legal_entities(user_id)"
             )
         )
+        conn.execute(
+            "ALTER TABLE supply_legal_entities ADD COLUMN IF NOT EXISTS requisites TEXT"
+        )
 
     def _ensure_supply_tables(self) -> None:
         with self._connect() as conn:
@@ -6617,24 +6620,25 @@ class ReviewRepository:
             ).fetchall()
         return [self._row_to_dict(row) for row in rows]
 
-    def create_supply_legal_entity(self, *, user_id: int, short_name: str, full_name: str) -> dict[str, Any]:
+    def update_supply_legal_entity(self, *, user_id: int, entity_id: int, short_name: str, full_name: str, requisites: str = "") -> bool:
+        with self._connect() as conn:
+            result = conn.execute(
+                self._sql("UPDATE supply_legal_entities SET short_name = ?, full_name = ?, requisites = ? WHERE user_id = ? AND id = ?"),
+                (short_name.strip(), full_name.strip(), (requisites or "").strip() or None, user_id, entity_id),
+            )
+        return bool(result.rowcount)
+
+    def create_supply_legal_entity(self, *, user_id: int, short_name: str, full_name: str, requisites: str = "") -> dict[str, Any]:
         now = _utc_now()
         with self._connect() as conn:
             eid = self._insert_and_get_id(
                 conn,
-                "INSERT INTO supply_legal_entities (user_id, short_name, full_name, created_at) VALUES (?, ?, ?, ?)",
-                (user_id, short_name.strip(), full_name.strip(), now),
+                "INSERT INTO supply_legal_entities (user_id, short_name, full_name, requisites, created_at) VALUES (?, ?, ?, ?, ?)",
+                (user_id, short_name.strip(), full_name.strip(), (requisites or "").strip() or None, now),
             )
             row = conn.execute(self._sql("SELECT * FROM supply_legal_entities WHERE id = ?"), (eid,)).fetchone()
         return self._row_to_dict(row) if row else {"id": eid}
 
-    def update_supply_legal_entity(self, *, user_id: int, entity_id: int, short_name: str, full_name: str) -> bool:
-        with self._connect() as conn:
-            result = conn.execute(
-                self._sql("UPDATE supply_legal_entities SET short_name = ?, full_name = ? WHERE user_id = ? AND id = ?"),
-                (short_name.strip(), full_name.strip(), user_id, entity_id),
-            )
-        return bool(result.rowcount)
 
     def delete_supply_legal_entity(self, *, user_id: int, entity_id: int) -> bool:
         with self._connect() as conn:
