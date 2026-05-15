@@ -2552,8 +2552,6 @@ async function saveSupplyManualFields() {
     if (info) { info.textContent = err.detail || "Ошибка сохранения"; info.style.color = "#b91c1c"; }
     return;
   }
-  if (info) { info.textContent = "Сохранено"; info.style.color = "#16a34a"; }
-
   // Update local state so reopening the modal shows fresh values
   const item = suppliesState.items.find((x) => x.supply_id === _supplyDetailsCurrentId);
   if (item) {
@@ -2565,6 +2563,8 @@ async function saveSupplyManualFields() {
   }
   // Re-render table so columns (Производство, etc.) update immediately
   renderSuppliesTable();
+  // Close modal after successful save
+  closeSupplyDetailsModal();
 }
 
 // ── Supply warehouses ──
