@@ -419,6 +419,7 @@ class SupplyManualFieldsRequest(BaseModel):
 
 class CreateSupplyDriverRequest(BaseModel):
     full_name: str
+    documents: str = ""
 
 
 class CreateSupplyWarehouseRequest(BaseModel):
@@ -443,6 +444,7 @@ class UpdateSupplyLegalEntityRequest(BaseModel):
 
 class UpdateSupplyDriverRequest(BaseModel):
     full_name: str
+    documents: str = ""
 
 
 class ManagerSuppliesAccessRequest(BaseModel):
@@ -5424,7 +5426,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         repository._ensure_supply_tables()
         if repository.driver_exists(user_id=owner_id, full_name=name):
             raise HTTPException(status_code=409, detail=f"Водитель «{name}» уже существует")
-        return repository.create_supply_driver(user_id=owner_id, full_name=name)
+        return repository.create_supply_driver(user_id=owner_id, full_name=name, documents=payload.documents)
 
     @app.patch("/api/supply-drivers/{driver_id}")
     def update_supply_driver_endpoint(request: Request, driver_id: int, payload: UpdateSupplyDriverRequest) -> dict[str, object]:
@@ -5434,7 +5436,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         name = payload.full_name.strip()
         if not name:
             raise HTTPException(status_code=400, detail="Имя не может быть пустым")
-        ok = repository.update_supply_driver(user_id=_supply_owner_id(user), driver_id=driver_id, full_name=name)
+        ok = repository.update_supply_driver(user_id=_supply_owner_id(user), driver_id=driver_id, full_name=name, documents=payload.documents)
         if not ok:
             raise HTTPException(status_code=404, detail="Водитель не найден")
         return {"ok": True}

@@ -1110,6 +1110,7 @@
             <div id="addDriverForm" class="source-form hidden" style="margin-top:12px">
               <div class="row">
                 <input id="newDriverName" type="text" placeholder="Имя и фамилия водителя" autocomplete="off" />
+                <input id="newDriverDocuments" type="text" placeholder="Документы (серия, номер)" autocomplete="off" />
               </div>
               <div class="row">
                 <button onclick="saveSupplyDriver()">Сохранить</button>
@@ -1121,8 +1122,8 @@
           <div class="panel">
             <div class="table-wrap">
               <table class="supply-sources-table">
-                <colgroup><col style="width:6%"/><col/><col style="width:160px"/></colgroup>
-                <thead><tr><th>№</th><th>Имя и фамилия</th><th>Действия</th></tr></thead>
+                <colgroup><col style="width:5%"/><col style="width:30%"/><col/><col style="width:160px"/></colgroup>
+                <thead><tr><th>№</th><th>Имя и фамилия</th><th>Документы</th><th>Действия</th></tr></thead>
                 <tbody id="supplyDriversTbody"></tbody>
               </table>
             </div>
@@ -1467,6 +1468,6 @@
   </script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=173"></script>
+  <script src="/static/app.js?v=174"></script>
 </body>
 </html>

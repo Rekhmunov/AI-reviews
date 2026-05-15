@@ -6467,6 +6467,9 @@ class ReviewRepository:
                 "ON supply_drivers(user_id)"
             )
         )
+        conn.execute(
+            "ALTER TABLE supply_drivers ADD COLUMN IF NOT EXISTS documents TEXT"
+        )
         # Warehouses catalog (name → address lookup)
         conn.execute(
             """
@@ -6532,13 +6535,13 @@ class ReviewRepository:
             ).fetchone()
         return row is not None
 
-    def create_supply_driver(self, *, user_id: int, full_name: str) -> dict[str, Any]:
+    def create_supply_driver(self, *, user_id: int, full_name: str, documents: str = "") -> dict[str, Any]:
         now = _utc_now()
         with self._connect() as conn:
             driver_id = self._insert_and_get_id(
                 conn,
-                "INSERT INTO supply_drivers (user_id, full_name, created_at) VALUES (?, ?, ?)",
-                (user_id, full_name.strip(), now),
+                "INSERT INTO supply_drivers (user_id, full_name, documents, created_at) VALUES (?, ?, ?, ?)",
+                (user_id, full_name.strip(), (documents or "").strip() or None, now),
             )
             row = conn.execute(
                 self._sql("SELECT * FROM supply_drivers WHERE id = ?"),
@@ -6546,11 +6549,11 @@ class ReviewRepository:
             ).fetchone()
         return self._row_to_dict(row) if row else {"id": driver_id, "full_name": full_name}
 
-    def update_supply_driver(self, *, user_id: int, driver_id: int, full_name: str) -> bool:
+    def update_supply_driver(self, *, user_id: int, driver_id: int, full_name: str, documents: str = "") -> bool:
         with self._connect() as conn:
             result = conn.execute(
-                self._sql("UPDATE supply_drivers SET full_name = ? WHERE user_id = ? AND id = ?"),
-                (full_name.strip(), user_id, driver_id),
+                self._sql("UPDATE supply_drivers SET full_name = ?, documents = ? WHERE user_id = ? AND id = ?"),
+                (full_name.strip(), (documents or "").strip() or None, user_id, driver_id),
             )
         return bool(result.rowcount)
 

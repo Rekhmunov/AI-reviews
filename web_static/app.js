@@ -2263,6 +2263,7 @@ function renderSupplyDriversTable() {
     tr.innerHTML = `
       <td>${idx + 1}</td>
       <td class="editable-cell">${esc(d.full_name || "")}</td>
+      <td class="editable-cell">${esc(d.documents || "")}</td>
       <td>
         <div class="row" style="gap:4px;flex-wrap:nowrap">
           <button class="secondary small-btn" onclick="startEditDriver(${d.id})">✏</button>
@@ -2306,16 +2307,18 @@ function toggleAddDriverForm(show) {
   if (!show) {
     const inp = document.getElementById("newDriverName");
     if (inp) inp.value = "";
+    const docs = document.getElementById("newDriverDocuments");
+    if (docs) docs.value = "";
     const info = document.getElementById("addDriverInfo");
     if (info) { info.textContent = ""; info.style.color = ""; }
   }
 }
 
-async function _createDriverRequest(name, infoEl) {
+async function _createDriverRequest(name, infoEl, documents) {
   if (infoEl) { infoEl.textContent = "Сохранение…"; infoEl.style.color = ""; }
   const res = await fetch("/api/supply-drivers", {
     method: "POST", headers: jsonHeaders(),
-    body: JSON.stringify({ full_name: name }),
+    body: JSON.stringify({ full_name: name, documents: documents || "" }),
   }).catch(() => null);
   if (!res || !res.ok) {
     const err = await res?.json().catch(() => ({})) || {};
@@ -2332,8 +2335,9 @@ async function saveSupplyDriver() {
   const inp = document.getElementById("newDriverName");
   const info = document.getElementById("addDriverInfo");
   const name = (inp?.value || "").trim();
+  const docs = document.getElementById("newDriverDocuments")?.value.trim() || "";
   if (!name) { if (info) { info.textContent = "Введите имя"; info.style.color = "#b91c1c"; } return; }
-  const ok = await _createDriverRequest(name, info);
+  const ok = await _createDriverRequest(name, info, docs);
   if (!ok) return;
   if (info) { info.textContent = "Добавлен"; info.style.color = "#16a34a"; }
   toggleAddDriverForm(false);
@@ -2345,21 +2349,24 @@ async function startEditDriver(id) {
   if (!item) return;
   const tr = document.querySelector(`#supplyDriversTbody tr[data-id="${id}"]`);
   if (!tr) return;
-  tr.querySelector(".editable-cell").innerHTML = `<input class="edit-inline-input" value="${esc(item.full_name||"")}" />`;
+  const cells = tr.querySelectorAll(".editable-cell");
+  cells[0].innerHTML = `<input class="edit-inline-input" data-field="name" value="${esc(item.full_name||"")}" />`;
+  cells[1].innerHTML = `<input class="edit-inline-input" data-field="docs" value="${esc(item.documents||"")}" />`;
   const actionCell = tr.cells[tr.cells.length - 1];
   actionCell.innerHTML = `<div class="row" style="gap:4px;flex-wrap:nowrap">
     <button class="secondary small-btn" style="color:#16a34a;border-color:#86efac" onclick="saveEditDriver(${id})">Сохранить</button>
     <button class="secondary small-btn" onclick="loadSupplyDrivers()">Отмена</button>
   </div>`;
-  tr.querySelector(".edit-inline-input")?.focus();
+  cells[0].querySelector("input")?.focus();
 }
 
 async function saveEditDriver(id) {
   const tr = document.querySelector(`#supplyDriversTbody tr[data-id="${id}"]`);
   if (!tr) return;
-  const name = tr.querySelector(".edit-inline-input")?.value.trim() || "";
+  const name = tr.querySelector("[data-field='name']")?.value.trim() || "";
+  const docs = tr.querySelector("[data-field='docs']")?.value.trim() || "";
   if (!name) return;
-  await fetch(`/api/supply-drivers/${id}`, { method: "PATCH", headers: jsonHeaders(), body: JSON.stringify({ full_name: name }) }).catch(() => null);
+  await fetch(`/api/supply-drivers/${id}`, { method: "PATCH", headers: jsonHeaders(), body: JSON.stringify({ full_name: name, documents: docs }) }).catch(() => null);
   await loadSupplyDrivers();
 }
 
