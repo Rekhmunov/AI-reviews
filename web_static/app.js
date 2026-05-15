@@ -3196,7 +3196,7 @@ ${row(cell({text:"Код",bold:true,halign:"center",size:14,w:CW1,colspan:2,bord
 ${row(cell({text:"Форма по ОКУД",size:14,w:CW1,borders:"all"})+cell({text:"0330212",size:14,halign:"center",w:CW2,borders:"all"}))}
 ${row(cell({text:"по ОКПО",size:14,w:CW1,borders:"all"})+cell({text:"",size:14,w:CW2,borders:"all"}))}
 ${row(cell({text:"Вид деятельности по ОКДП",size:14,w:CW1,borders:"all"})+cell({text:"",size:14,w:CW2,borders:"all"}))}
-</w:tbl></w:tc>`,300)}
+</w:tbl><w:p/></w:tc>`,300)}
 ${row(cell({text:"организация – грузоотправитель, адрес, номер телефона, факса, банковские реквизиты",size:12,halign:"center",w:HW1,borders:"none"})+cell({text:"",w:HW2,borders:"none"})+cell({text:"",w:HW3,borders:"none"}))}
 ${row(cell({text:"структурное подразделение",size:12,halign:"center",w:HW1,borders:"none"})+cell({text:"",w:HW2,borders:"none"})+cell({text:"",w:HW3,borders:"none"}))}
 </w:tbl>`;
@@ -3226,7 +3226,7 @@ ${row(
 <w:tbl><w:tblPr><w:tblW w:w="${FW3+FW4}" w:type="dxa"/><w:jc w:val="right"/></w:tblPr><w:tblGrid>${gridCol(Math.round((FW3+FW4)/3))}${gridCol(Math.round((FW3+FW4)/3))}${gridCol(FW3+FW4-2*Math.round((FW3+FW4)/3))}</w:tblGrid>
 ${row(cell({text:"Транспортная накладная",size:12,halign:"center",borders:"all"})+cell({text:"номер",size:12,halign:"center",borders:"all"})+cell({text:"дата",size:12,halign:"center",borders:"all"}))}
 ${row(cell({text:"Вид операции",size:12,halign:"center",colspan:3,borders:"all"})+`<w:tc><w:tcPr><w:tcW w:w="1" w:type="dxa"/><w:vMerge/></w:tcPr><w:p/></w:tc><w:tc><w:tcPr><w:tcW w:w="1" w:type="dxa"/><w:vMerge/></w:tcPr><w:p/></w:tc>`)}
-</w:tbl></w:tc>`
+</w:tbl><w:p/></w:tc>`
 )}
 ${row(cell({text:"",w:FW1,borders:"none"})+cell({text:"наименование документа (договор, контракт, заказ-наряд)",size:12,halign:"center",w:FW2+FW3+FW4,colspan:3,borders:"none"}))}
 </w:tbl>`;
@@ -3240,7 +3240,7 @@ ${row(
 <w:tbl><w:tblPr><w:tblW w:w="${TW2}" w:type="dxa"/></w:tblPr><w:tblGrid>${gridCol(Math.round(TW2/2))}${gridCol(TW2-Math.round(TW2/2))}</w:tblGrid>
 ${row(cell({text:"Номер документа",size:14,halign:"center",w:Math.round(TW2/2),borders:"all"})+cell({text:"Дата составления",size:14,halign:"center",w:TW2-Math.round(TW2/2),borders:"all"}))}
 ${row(cell({text:String(supplyId_),bold:true,size:16,halign:"center",w:Math.round(TW2/2),borders:"all"})+cell({text:dateDisp,bold:true,size:16,halign:"center",w:TW2-Math.round(TW2/2),borders:"all"}))}
-</w:tbl></w:tc>`
+</w:tbl><w:p/></w:tc>`
 ,500)}
 </w:tbl>`;
 
