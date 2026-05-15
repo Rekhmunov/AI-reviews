@@ -4929,7 +4929,6 @@ button.secondary.danger:hover {
   background: #ecfdf5 !important;
   border-color: #6ee7b7 !important;
   color: #047857 !important;
-  margin-top: 6px;
 }
 .supply-barcode-link:hover {
   background: #d1fae5 !important;
@@ -4942,7 +4941,6 @@ button.secondary.danger:hover {
   background: #fefce8 !important;
   border-color: #fde047 !important;
   color: #854d0e !important;
-  margin-top: 6px;
 }
 .supply-packing-link:hover {
   background: #fef9c3 !important;

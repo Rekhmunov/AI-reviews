@@ -2810,10 +2810,18 @@ function downloadPackingList(supplyId) {
 
   const blob = new Blob(["\uFEFF" + html], { type: "application/msword" });
   const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
   const fn = [passNumber, dateDisplay.replace(/\./g,""), destWarehouse, item.quantity != null ? `${item.quantity} шт.` : ""].filter(Boolean).join(", ");
-  a.href = url; a.download = `Упаковочный лист ${fn}.doc`; a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  const win = window.open("", "_blank");
+  if (win) {
+    const a = win.document.createElement("a");
+    a.href = url; a.download = `Упаковочный лист ${fn}.doc`;
+    win.document.body.appendChild(a); a.click();
+    setTimeout(() => { try { win.close(); } catch(_){} URL.revokeObjectURL(url); }, 1500);
+  } else {
+    const a = document.createElement("a");
+    a.href = url; a.download = `Упаковочный лист ${fn}.doc`; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }
 }
 
 // ── Power of Attorney (Доверенность М-2) ──
@@ -3005,16 +3013,22 @@ ${driverDocs ? `<p>${esc(driverDocs)}</p>` : ""}
 
   const blob = new Blob(["\uFEFF" + html], { type: "application/msword" });
   const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
   const supplyDateDisp = item.supply_date
     ? new Date(item.supply_date).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" })
     : dateDisplay;
   const destWh = (item.warehouse_name || "").trim();
   const poaFileName = `Доверенность №${seqNum}, ${supplierShort} от ${supplyDateDisp}, ${destWh}, ${driverName}.doc`;
-  a.download = poaFileName;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  const winPoa = window.open("", "_blank");
+  if (winPoa) {
+    const a = winPoa.document.createElement("a");
+    a.href = url; a.download = poaFileName;
+    winPoa.document.body.appendChild(a); a.click();
+    setTimeout(() => { try { winPoa.close(); } catch(_){} URL.revokeObjectURL(url); }, 1500);
+  } else {
+    const a = document.createElement("a");
+    a.href = url; a.download = poaFileName; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }
 }
 
 // ── Supply barcode PDF ──
