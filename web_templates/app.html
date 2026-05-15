@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=108" />
+  <link rel="stylesheet" href="/static/style.css?v=109" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1033,9 +1033,6 @@
             <div class="supplies-actions">
               <button id="suppliesSyncBtn" onclick="syncSupplies()">🔄 Синхронизировать</button>
               <button id="suppliesClearBtn" class="secondary icon-btn" onclick="clearSupplies()" style="color:#b91c1c;border-color:#fca5a5" title="Удалить поставки">🗑</button>
-              <select id="suppliesSourceFilter" onchange="loadSupplies()">
-                <option value="">Все источники</option>
-              </select>
               <select id="suppliesStatusFilter" onchange="loadSupplies()">
                 <option value="">Все статусы</option>
                 <option value="1">Новые</option>

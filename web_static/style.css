@@ -5041,3 +5041,24 @@ button.secondary.danger:hover {
   color: #374151;
 }
 .supplies-date-panel-row input[type="date"] { width: 130px; }
+
+/* Settings tables (drivers/warehouses/legal) — no overflow */
+#supplies-settings-pane-drivers .table-wrap,
+#supplies-settings-pane-warehouses .table-wrap,
+#supplies-settings-pane-legal .table-wrap {
+  overflow: hidden;
+}
+#supplies-settings-pane-drivers .table-wrap .supply-sources-table,
+#supplies-settings-pane-warehouses .table-wrap .supply-sources-table,
+#supplies-settings-pane-legal .table-wrap .supply-sources-table {
+  min-width: 0 !important;
+  width: 100%;
+}
+/* Icon-only action cells don't overflow */
+.supply-sources-table td:last-child,
+.supply-sources-table th:last-child {
+  width: 72px;
+  min-width: 60px;
+  text-align: center;
+  overflow: visible;
+}
