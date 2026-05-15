@@ -4998,3 +4998,15 @@ button.secondary.danger:hover {
 .supplies-main-table tbody tr.supply-row:nth-child(4n+1) td {
   border-top: 2px solid rgba(100, 116, 139, 0.15);
 }
+
+.supply-poa-link {
+  background: #f5f3ff !important;
+  border-color: #c4b5fd !important;
+  color: #5b21b6 !important;
+}
+.supply-poa-link:hover {
+  background: #ede9fe !important;
+  border-color: #a78bfa !important;
+  color: #3b0764 !important;
+  box-shadow: 0 1px 4px rgba(139,92,246,0.15) !important;
+}

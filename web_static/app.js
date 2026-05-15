@@ -2175,6 +2175,7 @@ function renderSuppliesTable() {
           <button class="supply-detail-link" onclick="openSupplyDetailsModal(${item.supply_id})">☰ Детали заказа</button>
           ${_isWbGiCode(item.pass_number) ? `<button class="supply-detail-link supply-barcode-link" onclick="downloadSupplyBarcode('${esc(item.pass_number || '')}',${item.supply_id})">⬇ ШК поставки</button>` : ""}
           ${_isWbGiCode(item.pass_number) ? `<button class="supply-detail-link supply-packing-link" onclick="downloadPackingList(${item.supply_id})">⬇ Упаковочный лист</button>` : ""}
+          ${_isWbGiCode(item.pass_number) ? `<button class="supply-detail-link supply-poa-link" onclick="downloadPoA(${item.supply_id})">⬇ Доверенность</button>` : ""}
         </div>
       </td>
     `;
@@ -2810,6 +2811,202 @@ function downloadPackingList(supplyId) {
   const a = document.createElement("a");
   const fn = [passNumber, dateDisplay.replace(/\./g,""), destWarehouse, item.quantity != null ? `${item.quantity} шт.` : ""].filter(Boolean).join(", ");
   a.href = url; a.download = `Упаковочный лист ${fn}.doc`; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+// ── Power of Attorney (Доверенность М-2) ──
+
+function _getPoaSequenceNumber() {
+  const today = new Date().toISOString().slice(0, 10);
+  let stored = {};
+  try { stored = JSON.parse(localStorage.getItem("poa_counter") || "{}"); } catch (_) {}
+  const count = (stored.date === today ? (stored.count || 0) : 0) + 1;
+  try { localStorage.setItem("poa_counter", JSON.stringify({ date: today, count })); } catch (_) {}
+  return count;
+}
+
+function _numToRussianWords(n) {
+  n = parseInt(n) || 0;
+  if (n <= 0) return "ноль";
+  const ones = ["", "один", "два", "три", "четыре", "пять", "шесть", "семь", "восемь", "девять"];
+  const teens = ["десять", "одиннадцать", "двенадцать", "тринадцать", "четырнадцать", "пятнадцать",
+    "шестнадцать", "семнадцать", "восемнадцать", "девятнадцать"];
+  const tens = ["", "", "двадцать", "тридцать", "сорок", "пятьдесят", "шестьдесят", "семьдесят", "восемьдесят", "девяносто"];
+  const hundreds = ["", "сто", "двести", "триста", "четыреста", "пятьсот", "шестьсот", "семьсот", "восемьсот", "девятьсот"];
+  let result = "";
+  if (n >= 100) { result += hundreds[Math.floor(n / 100)] + " "; n %= 100; }
+  if (n >= 10 && n <= 19) return (result + teens[n - 10]).trim();
+  if (n >= 20) { result += tens[Math.floor(n / 10)] + " "; n %= 10; }
+  if (n > 0) result += ones[n];
+  return result.trim();
+}
+
+function downloadPoA(supplyId) {
+  const item = suppliesState.items.find((x) => x.supply_id === supplyId || x.supply_id === Number(supplyId));
+  if (!item) return;
+
+  const seqNum = _getPoaSequenceNumber();
+
+  // Current date
+  const now = new Date();
+  const dd = String(now.getDate()).padStart(2, "0");
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const yyyy = now.getFullYear();
+  const dateDisplay = `${dd}.${mm}.${yyyy}`;
+  const dateNoSep = `${dd}${mm}${yyyy}`;
+
+  // Legal entity lookup by supplier_name (short_name)
+  const supplierShort = item.supplier_name || "";
+  const le = _supplyLegalEntitiesCache.find((e) => e.short_name === supplierShort) || {};
+  const orgFull = le.full_name || supplierShort;
+  const orgReq = le.requisites || "";
+  const orgLine = [orgFull, orgReq].filter(Boolean).join(", ");
+
+  // Driver lookup
+  const driverName = item.driver_name || "";
+  const driverObj = _supplyDriversCache.find((d) => d.full_name === driverName) || {};
+  const driverDocs = driverObj.documents || "";
+
+  // Pallets
+  const palletsRaw = parseInt(item.pallets_count) || 0;
+  const palletsWords = palletsRaw > 0 ? `${palletsRaw} (${_numToRussianWords(palletsRaw)})` : "— (—)";
+
+  const html = `
+<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"
+  xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="utf-8">
+<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View></w:WordDocument></xml><![endif]-->
+<style>
+  @page { size: 210mm 297mm; margin: 15mm 10mm 15mm 25mm; }
+  body { font-family: "Times New Roman", serif; font-size: 11pt; line-height: 1.4; }
+  .small { font-size: 8pt; text-align: center; }
+  .underline { text-decoration: underline; }
+  .center { text-align: center; }
+  .right { text-align: right; }
+  .bold { font-weight: bold; }
+  table.outer { width: 100%; border-collapse: collapse; margin-bottom: 8pt; }
+  table.codes { border-collapse: collapse; margin-left: auto; font-size: 9pt; }
+  table.codes td { border: 1px solid #000; padding: 2pt 6pt; }
+  table.mat { width: 100%; border-collapse: collapse; margin-top: 6pt; font-size: 10pt; }
+  table.mat td, table.mat th { border: 1px solid #000; padding: 3pt 5pt; text-align: center; }
+  .sig-row { width: 100%; margin-top: 10pt; }
+  .dotline { display: inline-block; border-bottom: 1px solid #000; min-width: 120pt; }
+  p { margin: 3pt 0; }
+</style>
+</head>
+<body>
+
+<!-- Header: org left, form codes right -->
+<table class="outer">
+  <tr>
+    <td style="width:55%;vertical-align:top;font-size:11pt">
+      Организация <span class="underline">${esc(orgFull)}</span>
+    </td>
+    <td style="width:45%;vertical-align:top;text-align:right;font-size:8pt">
+      Типовая межотраслевая форма № М-2<br>
+      Утверждена постановлением Госстата России от 30.10.97 № 71а<br><br>
+      <table class="codes">
+        <tr><td colspan="2" class="bold center">Коды</td></tr>
+        <tr><td>Форма по ОКУД</td><td>0315001</td></tr>
+        <tr><td>по ОКПО</td><td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td></tr>
+      </table>
+    </td>
+  </tr>
+</table>
+
+<p class="center bold" style="font-size:14pt;margin:10pt 0 4pt">Доверенность № ${seqNum}</p>
+
+<p>Дата выдачи <span class="underline bold">${dateDisplay}</span></p>
+<p>Доверенность действительна 14 дней с даты подписания.</p>
+<p style="margin-top:6pt">${esc(orgLine)}</p>
+<p class="small">наименование потребителя и его адрес</p>
+<p style="margin-top:4pt">${esc(orgLine)}</p>
+<p class="small">наименование плательщика и его адрес</p>
+
+<p style="margin-top:8pt">
+  Доверенность выдана &nbsp;&nbsp;
+  <span class="underline" style="min-width:60pt;display:inline-block">водителю</span>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <span class="underline">${esc(driverName)}</span>
+</p>
+<p class="small" style="padding-left:120pt">должность &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; фамилия, имя, отчество</p>
+
+${driverDocs ? `<p>${esc(driverDocs)}</p>` : ""}
+
+<p style="margin-top:6pt">
+  На отправку груза от &nbsp;&nbsp;
+  <span class="underline">&nbsp;&nbsp;&nbsp;&nbsp;${esc(supplierShort)}&nbsp;&nbsp;&nbsp;&nbsp;</span>
+</p>
+<p class="small" style="text-align:center">наименование поставщика</p>
+
+<p style="margin-top:4pt">
+  материальных ценностей по транспортной накладной &nbsp;
+  <span class="underline bold">${dateNoSep}</span>
+  &nbsp; от &nbsp;
+  <span class="underline bold">${dateDisplay}</span>
+</p>
+<p class="small">наименование, номер и дата документа</p>
+
+<p style="margin-top:10pt">Перечень материальных ценностей, подлежащих доставке</p>
+<table class="mat">
+  <tr>
+    <th style="width:8%">Номер по порядку</th>
+    <th style="width:36%">Материальные ценности</th>
+    <th style="width:20%">Единица измерения</th>
+    <th style="width:36%">Количество (прописью)</th>
+  </tr>
+  <tr>
+    <td>1</td>
+    <td>Текстильные товары</td>
+    <td>палет</td>
+    <td>${palletsWords}</td>
+  </tr>
+</table>
+
+<p style="margin-top:18pt">
+  Подпись лица, получившего доверенность удостоверяем.
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <span class="dotline">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
+  &nbsp;&nbsp;
+  (${esc(driverName)})
+</p>
+
+<table style="width:100%;margin-top:18pt;border-collapse:collapse">
+  <tr>
+    <td style="width:25%;vertical-align:bottom">Руководитель<br><span style="font-size:8pt">М.П.</span></td>
+    <td style="width:30%;vertical-align:bottom;text-align:center">
+      <span class="dotline">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><br>
+      <span class="small">подпись</span>
+    </td>
+    <td style="width:45%;vertical-align:bottom;text-align:center">
+      (${esc(supplierShort)})<br>
+      <span class="small">расшифровка подписи</span>
+    </td>
+  </tr>
+</table>
+
+<table style="width:100%;margin-top:14pt;border-collapse:collapse">
+  <tr>
+    <td style="width:25%;vertical-align:bottom">Главный бухгалтер</td>
+    <td style="width:30%;vertical-align:bottom;text-align:center">
+      <span class="dotline">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><br>
+      <span class="small">подпись</span>
+    </td>
+    <td style="width:45%;vertical-align:bottom;text-align:center">
+      (${esc(supplierShort)})<br>
+      <span class="small">расшифровка подписи</span>
+    </td>
+  </tr>
+</table>
+
+</body></html>`;
+
+  const blob = new Blob(["\uFEFF" + html], { type: "application/msword" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `Доверенность №${seqNum} от ${dateDisplay} ${supplierShort}.doc`;
+  a.click();
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
@@ -7199,6 +7396,7 @@ window.toggleAddLegalEntityForm = toggleAddLegalEntityForm;
 window.saveSupplyLegalEntity = saveSupplyLegalEntity;
 window.deleteSupplyLegalEntity = deleteSupplyLegalEntity;
 window.downloadPackingList = downloadPackingList;
+window.downloadPoA = downloadPoA;
 window.downloadSupplyBarcode = downloadSupplyBarcode;
 window.initSuppliesColumnResizer = initSuppliesColumnResizer;
 window.toggleSuppliesFilter = toggleSuppliesFilter;
