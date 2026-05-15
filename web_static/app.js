@@ -3163,20 +3163,30 @@ async function downloadTTN(supplyId) {
   const dataRowMatch = docXml.match(dataRowRx);
   const fmtPrice = (p) => Number(p).toLocaleString("ru-RU", {minimumFractionDigits:2, maximumFractionDigits:2});
   const esc_ = (s) => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  // Calculate total quantity from actual goods
+  const totalGoodsQty = goodsList.reduce((s, g) => s + (parseInt(g.quantity) || 0), 0);
+  const qtyTotal = totalGoodsQty || pallets;
+
   if (dataRowMatch) {
     const rowTpl = dataRowMatch[1];
-    const multiRows = goodsList.map((g, i) => {
+    const multiRows = goodsList.map((g) => {
       const name = g.product_name || g.vendor_code || "Товар";
       const nm = String(g.nm_id || "");
       const rowPrice = (nm && nmPrices[nm]) ? fmtPrice(nmPrices[nm]) : "{{PRICE}}";
-      return rowTpl.replace("{{GOODS_NAME}}", esc_(name)).replace("{{PRICE}}", esc_(rowPrice));
+      const rowQty = String(parseInt(g.quantity) || 0);
+      return rowTpl
+        .replace("{{GOODS_NAME}}", esc_(name))
+        .replace("{{PRICE}}", esc_(rowPrice))
+        .split("{{ROW_QTY}}").join(rowQty);
     }).join("") || rowTpl.replace("{{GOODS_NAME}}", esc_(goodsNames[0] || "Товар"));
     docXml = docXml.replace(rowTpl, multiRows);
   } else {
     docXml = rpl(docXml, "{{GOODS_NAME}}", goodsNames[0] || "Товар");
   }
-  docXml = rpl(docXml, "{{QTY}}",        String(pallets));
-  docXml = rpl(docXml, "{{QTY_SHT}}",    `${pallets} шт`);
+  // Any remaining {{ROW_QTY}} (fallback if no goodsList)
+  docXml = docXml.split("{{ROW_QTY}}").join(String(qtyTotal));
+  docXml = rpl(docXml, "{{QTY}}",        String(qtyTotal));
+  docXml = rpl(docXml, "{{QTY_SHT}}",    `${qtyTotal} шт`);
   const vatSum = Math.round(totalAmount * 0.22);
   const amountWithVat = totalAmount + vatSum;
   const fmtNum = (n) => Math.round(n).toLocaleString("ru-RU") + ",00";
