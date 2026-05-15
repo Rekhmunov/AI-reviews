@@ -4830,8 +4830,11 @@ button.secondary.danger:hover {
 /* Детали link button in table */
 /* Supply action buttons in table */
 .supply-detail-link {
-  display: inline-flex;
+  display: flex;
   align-items: center;
+  justify-content: center;
+  width: 100%;
+  box-sizing: border-box;
   gap: 4px;
   background: #fff;
   border: 1px solid #c7d2fe;
@@ -4839,7 +4842,7 @@ button.secondary.danger:hover {
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
-  padding: 4px 10px;
+  padding: 4px 6px;
   border-radius: 6px;
   white-space: nowrap;
   transition: background 0.12s, border-color 0.12s, color 0.12s, box-shadow 0.12s;
@@ -4960,3 +4963,10 @@ button.secondary.danger:hover {
 .edit-inline-input:focus { outline: none; box-shadow: 0 0 0 2px rgba(99,102,241,0.2); }
 
 .supply-legal-cell { color: #374151; font-size: 14px; }
+
+.supply-links-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
