@@ -3083,12 +3083,18 @@ async function downloadTTN(supplyId) {
   const item = suppliesState.items.find((x) => x.supply_id === supplyId || x.supply_id === Number(supplyId));
   if (!item) return;
 
+  // Ensure legal entities cache is loaded
+  if (!_supplyLegalEntitiesCache.length) await loadSupplyLegalEntities();
+
   const now = new Date();
   const dd = String(now.getDate()).padStart(2,"0"), mm = String(now.getMonth()+1).padStart(2,"0"), yyyy = now.getFullYear();
   const dateDisp = `${dd}.${mm}.${yyyy}`;
 
   const supplierShort = item.supplier_name || "";
-  const le = _supplyLegalEntitiesCache.find((e) => e.short_name === supplierShort) || {};
+  // Match by short_name, fallback to first legal entity, then to WB supplier name
+  const le = _supplyLegalEntitiesCache.find((e) => e.short_name === supplierShort)
+          || _supplyLegalEntitiesCache[0]
+          || {};
   const orgFull = le.full_name || supplierShort;
   const orgReq  = le.requisites || "";
   const orgLine = [orgFull, orgReq].filter(Boolean).join(", ");
