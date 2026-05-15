@@ -5405,6 +5405,46 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             _log.warning("lazy supply goods fetch error supply_id=%d: %s", supply_id, exc)
         return []
 
+    @app.get("/api/supplies/{supply_id}/nm-prices")
+    def get_supply_nm_prices(request: Request, supply_id: int) -> dict[str, object]:
+        """Return {nmID: discountedPrice} for all goods using the source api_key (same token, prices scope)."""
+        import urllib.request as _ul, json as _jm, ssl as _sl
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        row = repository.get_supply_item_row(user_id=owner_id, supply_id=supply_id)
+        if not row:
+            return {"prices": {}}
+        src = repository.get_supply_source_with_key(user_id=owner_id, source_id=int(row["source_id"]))
+        if not src or not src.get("api_key"):
+            return {"prices": {}}
+        api_key = str(src["api_key"])
+        ctx = _sl.create_default_context()
+        prices: dict[str, float] = {}
+        offset = 0
+        try:
+            while True:
+                url = f"https://discounts-prices-api.wildberries.ru/api/v2/list/goods/filter?limit=1000&offset={offset}"
+                req = _ul.Request(url, method="GET", headers={
+                    "Authorization": api_key, "User-Agent": "Mozilla/5.0"
+                })
+                with _ul.urlopen(req, context=ctx, timeout=15) as r:
+                    data = _jm.loads(r.read())
+                page = data.get("data", {}).get("listGoods", [])
+                for g in page:
+                    nm = g.get("nmID")
+                    sizes = g.get("sizes") or []
+                    dp = float(sizes[0].get("discountedPrice", 0)) if sizes else 0.0
+                    if nm and dp > 0:
+                        prices[str(nm)] = dp
+                offset += len(page)
+                if len(page) < 1000:
+                    break
+        except Exception as exc:
+            _log.warning("nm-prices fetch error supply_id=%d: %s", supply_id, exc)
+        return {"prices": prices}
+
     @app.delete("/api/supplies")
     def clear_supplies(request: Request) -> dict[str, object]:
         user = _require_user(request)

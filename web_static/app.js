@@ -3113,15 +3113,23 @@ async function downloadTTN(supplyId) {
   const supplyId_ = String(item.supply_id || "");
 
   // Fetch actual goods list for this supply
+  let goodsList = [];
   let goodsNames = [];
   try {
     const gr = await fetch(`/api/supplies/${supplyId_}/goods`).catch(() => null);
     if (gr && gr.ok) {
-      const glist = await gr.json().catch(() => []);
-      goodsNames = glist.map(g => g.product_name || g.vendor_code || "Товар").filter(Boolean);
+      goodsList = await gr.json().catch(() => []);
+      goodsNames = goodsList.map(g => g.product_name || g.vendor_code || "Товар").filter(Boolean);
     }
   } catch(_) {}
   if (!goodsNames.length) goodsNames = [`Текстильные товары (${pallets} ${palletsWord})`];
+
+  // Fetch prices (discountedPrice) keyed by nmID using same source token
+  let nmPrices = {};
+  try {
+    const pr = await fetch(`/api/supplies/${supplyId_}/nm-prices`).catch(() => null);
+    if (pr && pr.ok) { const pd = await pr.json().catch(() => ({})); nmPrices = pd.prices || {}; }
+  } catch(_) {}
 
   const supplyDateDisp = item.supply_date
     ? new Date(item.supply_date).toLocaleDateString("ru-RU", { day:"2-digit", month:"2-digit", year:"numeric" })
@@ -3152,13 +3160,19 @@ async function downloadTTN(supplyId) {
   docXml = rpl(docXml, "{{ORDER_DATE}}",  supplyId_);
   docXml = rpl(docXml, "{{DOC_NUM_VAL}}",supplyId_);
   docXml = rpl(docXml, "{{DOC_DATE_VAL}}",dateDisp);
-  // Duplicate data row for each good — find the row containing {{GOODS_NAME}}
+  // Duplicate data row for each good — substituting {{GOODS_NAME}} and {{PRICE}} per row
   const dataRowRx = /(<w:tr[\s>](?:(?!<\/w:tr>).)*?\{\{GOODS_NAME\}\}.*?<\/w:tr>)/s;
   const dataRowMatch = docXml.match(dataRowRx);
+  const fmtPrice = (p) => Number(p).toLocaleString("ru-RU", {minimumFractionDigits:2, maximumFractionDigits:2});
+  const esc_ = (s) => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
   if (dataRowMatch) {
     const rowTpl = dataRowMatch[1];
-    const esc_ = (s) => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-    const multiRows = goodsNames.map(name => rowTpl.replace("{{GOODS_NAME}}", esc_(name))).join("");
+    const multiRows = goodsList.map((g, i) => {
+      const name = g.product_name || g.vendor_code || "Товар";
+      const nm = String(g.nm_id || "");
+      const rowPrice = (nm && nmPrices[nm]) ? fmtPrice(nmPrices[nm]) : "{{PRICE}}";
+      return rowTpl.replace("{{GOODS_NAME}}", esc_(name)).replace("{{PRICE}}", esc_(rowPrice));
+    }).join("") || rowTpl.replace("{{GOODS_NAME}}", esc_(goodsNames[0] || "Товар"));
     docXml = docXml.replace(rowTpl, multiRows);
   } else {
     docXml = rpl(docXml, "{{GOODS_NAME}}", goodsNames[0] || "Товар");
