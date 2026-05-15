@@ -3108,179 +3108,168 @@ function downloadTTN(supplyId) {
     ? new Date(item.supply_date).toLocaleDateString("ru-RU", { day:"2-digit", month:"2-digit", year:"numeric" })
     : dateDisp;
 
+  const am = totalAmount.toLocaleString("ru-RU");
   const html = `
 <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"
   xmlns="http://www.w3.org/TR/REC-html40">
 <head><meta charset="utf-8">
 <!--[if gte mso 9]><xml>
-<w:WordDocument>
-  <w:View>Print</w:View>
-  <w:Zoom>90</w:Zoom>
-</w:WordDocument>
+<w:WordDocument><w:View>Print</w:View></w:WordDocument>
 </xml><![endif]-->
 <style>
-  @page Section1 { size: 841.9pt 595.3pt; mso-page-orientation: landscape;
-                   margin: 28.35pt 22.7pt 28.35pt 42.5pt; }
-  div.Section1 { page: Section1; }
-  body { font-family: "Times New Roman", serif; font-size: 9pt; }
-  @page { size: 297mm 210mm; margin: 10mm 8mm 10mm 15mm; }
-  table { width: 100%; border-collapse: collapse; }
-  td, th { border: 1px solid #000; padding: 2pt 3pt; vertical-align: middle; }
-  .noborder td, .noborder th { border: none; }
-  .center { text-align: center; }
-  .right { text-align: right; }
-  .bold { font-weight: bold; }
-  .small { font-size: 7pt; text-align: center; color: #444; }
-  .title { text-align: center; font-size: 14pt; font-weight: bold; margin: 6pt 0 4pt; }
-  .underline { text-decoration: underline; }
-  .dotline { border-bottom: 1px solid #000; display: inline-block; min-width: 80pt; }
-  p { margin: 2pt 0; }
+  @page Section1 { size:841.9pt 595.3pt; mso-page-orientation:landscape;
+    margin:20pt 20pt 20pt 30pt; mso-header-margin:14pt; mso-footer-margin:14pt; }
+  div.Section1 { page:Section1; }
+  body { font-family:"Times New Roman",serif; font-size:8pt; margin:0; }
+  @page { size:297mm 210mm; margin:7mm 7mm 7mm 10mm; }
+  table { border-collapse:collapse; }
+  td,th { border:1px solid #000; padding:1pt 2pt; vertical-align:middle; font-size:8pt; }
+  .nb td,.nb th { border:none; }
+  .c { text-align:center; } .r { text-align:right; } .b { font-weight:bold; }
+  .xs { font-size:6pt; color:#444; text-align:center; }
+  .ul { border-bottom:1px solid #000; display:inline-block; }
+  p { margin:1pt 0; font-size:8pt; }
 </style>
-</head>
-<body>
+</head><body>
 <div class="Section1">
-<!-- Header -->
-<table class="noborder" style="margin-bottom:4pt">
+
+<!-- TOP: org left, form right -->
+<table width="100%" class="nb" style="margin-bottom:2pt">
+<tr>
+  <td width="55%" style="vertical-align:top">
+    <b>${esc(orgFull)}</b>${orgReq ? "<br/>" + esc(orgReq) : ""}
+    <br/><span class="xs">организация – грузоотправитель, адрес, номер телефона, факса, банковские реквизиты</span>
+  </td>
+  <td width="2%"></td>
+  <td width="43%" style="vertical-align:top;text-align:right;font-size:7pt">
+    Унифицированная форма № ТОРГ-12<br/>
+    Утверждена постановлением Госкомстата России от 25.12.98 №132
+    <table style="float:right;margin-top:2pt">
+      <tr><td colspan="2" class="c b" style="font-size:7pt">Код</td></tr>
+      <tr><td style="font-size:7pt">Форма по ОКУД</td><td style="font-size:7pt">0330212</td></tr>
+      <tr><td style="font-size:7pt">по ОКПО</td><td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td></tr>
+      <tr><td style="font-size:7pt">Вид деятельности по ОКДП</td><td>&nbsp;</td></tr>
+    </table>
+  </td>
+</tr>
+</table>
+
+<!-- Fields -->
+<table width="100%" class="nb" style="margin-bottom:2pt">
   <tr>
-    <td style="width:60%;vertical-align:top;font-size:9pt">
-      <b>${esc(orgFull)}</b><br/>
-      ${esc(orgReq)}<br/>
-      <span class="small">организация – грузоотправитель, адрес, номер телефона, факса, банковские реквизиты</span>
-    </td>
-    <td style="width:40%;vertical-align:top;font-size:8pt;text-align:right">
-      Унифицированная форма № ТОРГ-12<br/>
-      Утверждена постановлением Госкомстата России от 25.12.98 №132<br/>
-      <table style="float:right;margin-top:4pt;font-size:8pt;width:auto">
-        <tr><td style="text-align:center;font-weight:bold" colspan="2">Код</td></tr>
-        <tr><td>Форма по ОКУД</td><td>0330212</td></tr>
-        <tr><td>по ОКПО</td><td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td></tr>
+    <td width="20%" class="nb b">Грузополучатель</td>
+    <td class="nb" style="border-bottom:1px solid #000">${esc(recipientLine)}</td>
+    <td width="8%" class="nb" style="text-align:right;font-size:7pt">по ОКПО</td>
+    <td width="12%" class="nb" style="border-bottom:1px solid #000"></td>
+  </tr>
+  <tr><td colspan="4" class="nb xs">наименование организации, адрес, номер телефона, банковские реквизиты</td></tr>
+  <tr>
+    <td class="nb b">Поставщик</td>
+    <td class="nb" style="border-bottom:1px solid #000">${esc(orgLine)}</td>
+    <td class="nb" style="text-align:right;font-size:7pt">по ОКПО</td>
+    <td class="nb" style="border-bottom:1px solid #000"></td>
+  </tr>
+  <tr><td colspan="4" class="nb xs">наименование организации, адрес, номер телефона, банковские реквизиты</td></tr>
+  <tr>
+    <td class="nb b">Плательщик</td>
+    <td class="nb" style="border-bottom:1px solid #000">${esc(orgLine)}</td>
+    <td class="nb" style="text-align:right;font-size:7pt">по ОКПО</td>
+    <td class="nb" style="border-bottom:1px solid #000"></td>
+  </tr>
+  <tr><td colspan="4" class="nb xs">наименование организации, адрес, номер телефона, банковские реквизиты</td></tr>
+  <tr>
+    <td class="nb b">Основание</td>
+    <td class="nb" style="border-bottom:1px solid #000">Заказ № ${esc(String(supplyId_))}</td>
+    <td colspan="2" class="nb">
+      <table style="float:right;font-size:7pt">
+        <tr><td>Транспортная накладная</td><td>номер</td><td>дата</td></tr>
+        <tr><td>Вид операции</td><td colspan="2">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td></tr>
       </table>
     </td>
   </tr>
+  <tr><td colspan="4" class="nb xs">наименование документа (договор, контракт, заказ-наряд)</td></tr>
 </table>
 
-<!-- Fields table -->
-<table style="margin-bottom:3pt;font-size:9pt">
-  <tr>
-    <td style="width:22%;border:none"><b>Грузополучатель</b></td>
-    <td style="border-bottom:1px solid #000;border-top:none;border-left:none;border-right:none">
-      ${esc(recipientLine)}
-    </td>
-    <td style="width:10%;border:none;text-align:right">по ОКПО</td>
-    <td style="width:15%;border-bottom:1px solid #000;border-top:none;border-left:none;border-right:none"></td>
-  </tr>
-  <tr><td colspan="4" style="border:none;padding:0"><span class="small">наименование организации, адрес, номер телефона, банковские реквизиты</span></td></tr>
-  <tr>
-    <td style="border:none"><b>Поставщик</b></td>
-    <td style="border-bottom:1px solid #000;border-top:none;border-left:none;border-right:none">${esc(orgLine)}</td>
-    <td style="border:none;text-align:right">по ОКПО</td>
-    <td style="border-bottom:1px solid #000;border-top:none;border-left:none;border-right:none"></td>
-  </tr>
-  <tr><td colspan="4" style="border:none;padding:0"><span class="small">наименование организации, адрес, номер телефона, банковские реквизиты</span></td></tr>
-  <tr>
-    <td style="border:none"><b>Плательщик</b></td>
-    <td style="border-bottom:1px solid #000;border-top:none;border-left:none;border-right:none">${esc(orgLine)}</td>
-    <td style="border:none;text-align:right">по ОКПО</td>
-    <td style="border-bottom:1px solid #000;border-top:none;border-left:none;border-right:none"></td>
-  </tr>
-  <tr><td colspan="4" style="border:none;padding:0"><span class="small">наименование организации, адрес, номер телефона, банковские реквизиты</span></td></tr>
-  <tr>
-    <td style="border:none"><b>Основание</b></td>
-    <td style="border-bottom:1px solid #000;border-top:none;border-left:none;border-right:none">Заказ № ${esc(String(supplyId_))}</td>
-    <td colspan="2" style="border:none">
-      <table style="float:right;width:auto;border-collapse:collapse;font-size:8pt">
-        <tr><td style="border:1px solid #000">Транспортная<br/>накладная</td><td style="border:1px solid #000">номер<br/>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td><td style="border:1px solid #000">дата<br/>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td></tr>
-        <tr><td style="border:1px solid #000">Вид операции</td><td colspan="2" style="border:1px solid #000">&nbsp;</td></tr>
-      </table>
-    </td>
-  </tr>
-  <tr><td colspan="4" style="border:none;padding:0"><span class="small">наименование документа (договор, контракт, заказ-наряд)</span></td></tr>
-</table>
-
-<div class="title">ТОВАРНАЯ НАКЛАДНАЯ</div>
-<table style="margin-bottom:4pt;font-size:9pt;width:auto;margin-left:auto;margin-right:auto">
-  <tr>
-    <td class="center">Номер документа</td>
-    <td class="center">Дата составления</td>
-  </tr>
-  <tr>
-    <td class="center bold">${esc(String(supplyId_))}</td>
-    <td class="center bold">${dateDisp}</td>
-  </tr>
+<!-- Title + doc number -->
+<table width="100%" class="nb" style="margin-bottom:2pt">
+<tr>
+  <td width="65%" class="nb" style="text-align:center;font-size:13pt;font-weight:bold">ТОВАРНАЯ НАКЛАДНАЯ</td>
+  <td width="35%" class="nb">
+    <table>
+      <tr><td class="c">Номер документа</td><td class="c">Дата составления</td></tr>
+      <tr><td class="c b">${esc(String(supplyId_))}</td><td class="c b">${dateDisp}</td></tr>
+    </table>
+  </td>
+</tr>
 </table>
 
 <!-- Goods table -->
-<table style="font-size:8pt;margin-bottom:3pt">
-  <tr class="center bold">
-    <td rowspan="2" style="width:4%">Номер по порядку</td>
-    <td rowspan="2" style="width:22%">Товар (наименование, характеристика, сорт, артикул товара)</td>
-    <td rowspan="2" style="width:4%">код</td>
-    <td colspan="2" class="center">Единица измерения</td>
-    <td rowspan="2" style="width:4%">Вид упаковки</td>
-    <td colspan="2" class="center">Количество</td>
-    <td rowspan="2" style="width:5%">Масса брутто</td>
-    <td rowspan="2" style="width:5%">Кол-во (масса нетто)</td>
-    <td rowspan="2" style="width:7%">Цена, руб. коп.</td>
-    <td rowspan="2" style="width:8%">Сумма без учёта НДС, руб. коп.</td>
-    <td colspan="2" class="center">НДС</td>
-    <td rowspan="2" style="width:8%">Сумма с учётом НДС, руб. коп.</td>
+<table width="100%" style="margin-bottom:2pt;font-size:7pt">
+  <tr class="c b">
+    <td rowspan="3" width="3%">Номер по порядку</td>
+    <td rowspan="3" width="18%">Товар (наименование, характеристика, сорт, артикул товара)</td>
+    <td rowspan="3" width="3%">код</td>
+    <td colspan="2">Единица измерения</td>
+    <td rowspan="3" width="3%">Вид упаковки</td>
+    <td colspan="2">Количество</td>
+    <td rowspan="3" width="4%">Масса брутто</td>
+    <td rowspan="3" width="5%">Кол-во (масса нетто)</td>
+    <td rowspan="3" width="6%">Цена, руб. коп.</td>
+    <td rowspan="3" width="7%">Сумма без учёта НДС, руб. коп.</td>
+    <td colspan="2">НДС</td>
+    <td rowspan="3" width="7%">Сумма с учётом НДС, руб. коп.</td>
   </tr>
-  <tr class="center">
-    <td>наименование</td><td>код по ОКЕИ</td>
+  <tr class="c b">
+    <td>наимено-вание</td><td>код по ОКЕИ</td>
     <td>в одном месте</td><td>мест, штук</td>
     <td>ставка, %</td><td>сумма, руб. коп.</td>
   </tr>
-  <tr class="center small bold">
-    <td>1</td><td>2</td><td>3</td><td>4</td><td>5</td><td>6</td><td>7</td><td>8</td><td>9</td><td>10</td><td>11</td><td>12</td><td>13</td><td>14</td><td>15</td>
-  </tr>
-  <tr class="center">
+  <tr class="c"><td>4</td><td>5</td><td>7</td><td>8</td><td>13</td><td>14</td></tr>
+  <tr class="c b xs"><td>1</td><td>2</td><td>3</td><td>4</td><td>5</td><td>6</td><td>7</td><td>8</td><td>9</td><td>10</td><td>11</td><td>12</td><td>13</td><td>14</td><td>15</td></tr>
+  <tr class="c">
     <td>1</td>
     <td style="text-align:left">Текстильные товары (${pallets} ${palletsWord})</td>
-    <td>—</td>
-    <td>шт.</td><td>—</td><td>—</td>
-    <td>1</td><td class="bold">${pallets}</td>
-    <td>—</td>
-    <td class="bold">${pallets}шт</td>
-    <td class="bold">${(100000).toLocaleString("ru-RU")},00</td>
-    <td class="bold">${totalAmount.toLocaleString("ru-RU")},00</td>
+    <td>—</td><td>шт.</td><td>—</td><td>—</td>
+    <td>1</td><td class="b">${pallets}</td>
+    <td>—</td><td class="b">${pallets} шт</td>
+    <td class="b">100&nbsp;000,00</td>
+    <td class="b">${am},00</td>
     <td>Без НДС</td><td>—</td>
-    <td class="bold">${totalAmount.toLocaleString("ru-RU")},00</td>
+    <td class="b">${am},00</td>
   </tr>
-  <tr class="center">
+  <tr class="c">
     <td colspan="7" style="text-align:right"><b>Всего по накладной</b></td>
-    <td class="bold">${pallets}</td>
-    <td>—</td>
-    <td class="bold">${pallets}шт</td>
-    <td>х</td>
-    <td class="bold">${totalAmount.toLocaleString("ru-RU")},00</td>
-    <td>х</td><td>—</td>
-    <td class="bold">${totalAmount.toLocaleString("ru-RU")},00</td>
+    <td class="b">${pallets}</td><td>—</td>
+    <td class="b">${pallets} шт</td><td>х</td>
+    <td class="b">${am},00</td><td>х</td><td>—</td>
+    <td class="b">${am},00</td>
   </tr>
 </table>
 
-<p>Товарная накладная имеет приложение на <span class="dotline">&nbsp;&nbsp;одном&nbsp;&nbsp;</span> листах</p>
-<p>и содержит <span class="dotline">&nbsp;&nbsp;одну&nbsp;&nbsp;</span> порядковых номеров записей</p>
-<p style="margin-top:4pt">Всего отпущено на сумму <b><u>${esc(_rublesInWords(totalAmount))}</u></b></p>
+<p>Товарная накладная имеет приложение на <span class="ul">&nbsp;одном&nbsp;</span> листах
+и содержит <span class="ul">&nbsp;одну&nbsp;</span> порядковых номеров записей</p>
+<p>Всего отпущено на сумму <b><u>${esc(_rublesInWords(totalAmount))}</u></b></p>
 
-<table class="noborder" style="margin-top:12pt;font-size:9pt">
-  <tr>
-    <td style="width:48%">
-      <p>Отпуск разрешил <span class="dotline">${esc(supplierShort)}</span></p>
-      <p class="small">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;должность&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;подпись&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;расшифровка подписи</p>
-      <p>Главный (старший) бухгалтер <span class="dotline">${esc(supplierShort)}</span></p>
-      <p class="small">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;подпись&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;расшифровка подписи</p>
-      <p>Отпуск груза произвел <span class="dotline">${esc(supplierShort)}</span></p>
-      <p class="small">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;должность&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;подпись&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;расшифровка подписи</p>
-    </td>
-    <td style="width:4%"></td>
-    <td style="width:48%">
-      <p>Груз принял <span class="dotline">${esc(driverName)}</span></p>
-      <p class="small">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;должность&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;подпись&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;расшифровка подписи</p>
-      <p>Груз получил грузополучатель <span class="dotline">${esc(driverName)}</span></p>
-      <p class="small">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;должность&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;подпись&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;расшифровка подписи</p>
-      <p>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"<span class="dotline">&nbsp;&nbsp;&nbsp;&nbsp;</span>" <span class="dotline">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span> ${yyyy} г.</p>
-    </td>
-  </tr>
+<!-- Signatures -->
+<table width="100%" class="nb" style="margin-top:4pt">
+<tr>
+  <td width="48%" class="nb">
+    <p>Отпуск разрешил <span class="ul">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span> <span class="ul">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span> <b>${esc(supplierShort)}</b></p>
+    <p class="xs">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;должность&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;подпись&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;расшифровка</p>
+    <p>Главный бухгалтер <span class="ul">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span> <b>${esc(supplierShort)}</b></p>
+    <p class="xs">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;подпись&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;расшифровка</p>
+    <p>Отпуск груза произвел <span class="ul">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span> <span class="ul">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span> <b>${esc(supplierShort)}</b></p>
+    <p class="xs">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;должность&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;подпись&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;расшифровка</p>
+  </td>
+  <td width="4%" class="nb"></td>
+  <td width="48%" class="nb">
+    <p>Груз принял <span class="ul">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span> <span class="ul">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span> <b>${esc(driverName)}</b></p>
+    <p class="xs">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;должность&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;подпись&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;расшифровка</p>
+    <p>Груз получил грузополучатель <span class="ul">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span> <span class="ul">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span> <b>${esc(driverName)}</b></p>
+    <p class="xs">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;должность&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;подпись&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;расшифровка</p>
+    <p style="margin-top:3pt">"<span class="ul">&nbsp;&nbsp;&nbsp;&nbsp;</span>" <span class="ul">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span> ${yyyy} г.</p>
+  </td>
+</tr>
 </table>
 
 </div>
