@@ -436,12 +436,14 @@ class CreateSupplyLegalEntityRequest(BaseModel):
     short_name: str
     full_name: str = ""
     requisites: str = ""
+    signatories: str = ""
 
 
 class UpdateSupplyLegalEntityRequest(BaseModel):
     short_name: str
     full_name: str = ""
     requisites: str = ""
+    signatories: str = ""
 
 
 class UpdateSupplyDriverRequest(BaseModel):
@@ -5519,7 +5521,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="Короткое наименование не может быть пустым")
         owner_id = _supply_owner_id(user)
         repository._ensure_supply_tables()
-        return repository.create_supply_legal_entity(user_id=owner_id, short_name=name, full_name=payload.full_name.strip(), requisites=payload.requisites)
+        return repository.create_supply_legal_entity(user_id=owner_id, short_name=name, full_name=payload.full_name.strip(), requisites=payload.requisites, signatories=payload.signatories)
 
     @app.patch("/api/supply-legal-entities/{entity_id}")
     def update_supply_legal_entity_endpoint(request: Request, entity_id: int, payload: UpdateSupplyLegalEntityRequest) -> dict[str, object]:
@@ -5529,7 +5531,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         name = payload.short_name.strip()
         if not name:
             raise HTTPException(status_code=400, detail="Короткое наименование не может быть пустым")
-        ok = repository.update_supply_legal_entity(user_id=_supply_owner_id(user), entity_id=entity_id, short_name=name, full_name=payload.full_name.strip(), requisites=payload.requisites)
+        ok = repository.update_supply_legal_entity(user_id=_supply_owner_id(user), entity_id=entity_id, short_name=name, full_name=payload.full_name.strip(), requisites=payload.requisites, signatories=payload.signatories)
         if not ok:
             raise HTTPException(status_code=404, detail="Юридическое лицо не найдено")
         return {"ok": True}

@@ -1184,6 +1184,9 @@
                 <input id="newLegalRequisites" type="text" placeholder="Реквизиты (ИНН, адрес и т.д.)" autocomplete="off" />
               </div>
               <div class="row">
+                <input id="newLegalSignatories" type="text" placeholder="Подписанты (ФИО руководителя, бухгалтера и т.д.)" autocomplete="off" />
+              </div>
+              <div class="row">
                 <button onclick="saveSupplyLegalEntity()">Сохранить</button>
                 <button class="secondary" onclick="toggleAddLegalEntityForm(false)">Отмена</button>
                 <span id="addLegalEntityInfo" class="small"></span>
@@ -1193,8 +1196,8 @@
           <div class="panel">
             <div class="table-wrap">
               <table class="supply-sources-table">
-                <colgroup><col style="width:4%"/><col style="width:19%"/><col style="width:26%"/><col/><col style="width:9%"/></colgroup>
-                <thead><tr><th>№</th><th>Короткое</th><th>Полное наименование</th><th>Реквизиты</th><th></th></tr></thead>
+                <colgroup><col style="width:4%"/><col style="width:15%"/><col style="width:21%"/><col style="width:22%"/><col/><col style="width:9%"/></colgroup>
+                <thead><tr><th>№</th><th>Короткое</th><th>Полное наименование</th><th>Реквизиты</th><th>Подписанты</th><th></th></tr></thead>
                 <tbody id="supplyLegalEntitiesTbody"></tbody>
               </table>
             </div>
