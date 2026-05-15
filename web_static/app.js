@@ -3112,10 +3112,18 @@ function downloadTTN(supplyId) {
 <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"
   xmlns="http://www.w3.org/TR/REC-html40">
 <head><meta charset="utf-8">
-<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View></w:WordDocument></xml><![endif]-->
+<!--[if gte mso 9]><xml>
+<w:WordDocument>
+  <w:View>Print</w:View>
+  <w:Zoom>90</w:Zoom>
+</w:WordDocument>
+</xml><![endif]-->
 <style>
-  @page { size: A4 landscape; margin: 10mm 8mm 10mm 15mm; }
+  @page Section1 { size: 841.9pt 595.3pt; mso-page-orientation: landscape;
+                   margin: 28.35pt 22.7pt 28.35pt 42.5pt; }
+  div.Section1 { page: Section1; }
   body { font-family: "Times New Roman", serif; font-size: 9pt; }
+  @page { size: 297mm 210mm; margin: 10mm 8mm 10mm 15mm; }
   table { width: 100%; border-collapse: collapse; }
   td, th { border: 1px solid #000; padding: 2pt 3pt; vertical-align: middle; }
   .noborder td, .noborder th { border: none; }
@@ -3130,7 +3138,7 @@ function downloadTTN(supplyId) {
 </style>
 </head>
 <body>
-
+<div class="Section1">
 <!-- Header -->
 <table class="noborder" style="margin-bottom:4pt">
   <tr>
@@ -3275,6 +3283,7 @@ function downloadTTN(supplyId) {
   </tr>
 </table>
 
+</div>
 </body></html>`;
 
   const blob = new Blob(["\uFEFF" + html], { type: "application/msword" });
