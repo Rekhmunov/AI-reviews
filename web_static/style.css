@@ -5043,40 +5043,36 @@ button.secondary.danger:hover {
 }
 .supplies-date-panel-row input[type="date"] { width: 130px; }
 
-/* Settings tables (drivers/warehouses/legal) — no overflow */
+/* Settings tables (drivers/warehouses/legal) — match Sources tab behaviour */
 #supplies-settings-pane-drivers .table-wrap,
 #supplies-settings-pane-warehouses .table-wrap,
 #supplies-settings-pane-legal .table-wrap {
   overflow: hidden;
   width: 100%;
 }
-#supplies-settings-pane-drivers .table-wrap .supply-sources-table,
-#supplies-settings-pane-warehouses .table-wrap .supply-sources-table,
-#supplies-settings-pane-legal .table-wrap .supply-sources-table {
+#supplies-settings-pane-drivers .supply-sources-table,
+#supplies-settings-pane-warehouses .supply-sources-table,
+#supplies-settings-pane-legal .supply-sources-table {
   min-width: 0 !important;
-  width: 100%;
+  width: 100% !important;
   table-layout: fixed !important;
 }
-/* Allow text to wrap in data cells so long content doesn't push table wider */
+/* Text cells wrap so long content stays inside the column */
 #supplies-settings-pane-drivers .supply-sources-table td,
 #supplies-settings-pane-warehouses .supply-sources-table td,
 #supplies-settings-pane-legal .supply-sources-table td {
   white-space: normal !important;
   word-break: break-word;
   overflow: hidden;
+  text-overflow: clip;
 }
-/* Icon-only action cells — fixed width, always visible */
+/* Action column — no wrap, centered */
 #supplies-settings-pane-drivers .supply-sources-table td:last-child,
 #supplies-settings-pane-warehouses .supply-sources-table td:last-child,
-#supplies-settings-pane-legal .supply-sources-table td:last-child,
-#supplies-settings-pane-drivers .supply-sources-table th:last-child,
-#supplies-settings-pane-warehouses .supply-sources-table th:last-child,
-#supplies-settings-pane-legal .supply-sources-table th:last-child {
-  width: 72px !important;
-  min-width: 72px;
-  max-width: 72px;
+#supplies-settings-pane-legal .supply-sources-table td:last-child {
   text-align: center;
   white-space: nowrap !important;
+  word-break: normal;
 }
 
 /* ── Date range calendar ──────────────────────────────────────── */
