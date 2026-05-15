@@ -2271,7 +2271,7 @@ function renderSupplyDriversTable() {
         <div class="row" style="gap:4px;flex-wrap:nowrap">
           <button class="secondary small-btn" onclick="startEditDriver(${d.id})">✏</button>
           <button class="secondary small-btn" style="color:#b91c1c;border-color:#fca5a5"
-            onclick="deleteSupplyDriver(${d.id})">Удалить</button>
+            onclick="deleteSupplyDriver(${d.id})" title="Удалить">🗑</button>
         </div>
       </td>
     `;
@@ -2591,8 +2591,8 @@ function renderSupplyWarehousesTbody() {
     tr.innerHTML = `<td>${i+1}</td><td class="editable-cell">${esc(w.warehouse_name||"")}</td><td class="editable-cell">${esc(w.address||"")}</td>
       <td>
         <div class="row" style="gap:4px;flex-wrap:nowrap">
-          <button class="secondary small-btn" onclick="startEditWarehouse(${w.id})">✏</button>
-          <button class="secondary small-btn" style="color:#b91c1c;border-color:#fca5a5" onclick="deleteSupplyWarehouse(${w.id})">Удалить</button>
+          <button class="secondary small-btn icon-btn" onclick="startEditWarehouse(${w.id})" title="Редактировать">✏</button>
+          <button class="secondary small-btn icon-btn" style="color:#b91c1c;border-color:#fca5a5" onclick="deleteSupplyWarehouse(${w.id})" title="Удалить">🗑</button>
         </div>
       </td>`;
     tbody.appendChild(tr);
@@ -2675,7 +2675,7 @@ function renderSupplyLegalEntitiesTbody() {
       <td>
         <div class="row" style="gap:4px;flex-wrap:nowrap">
           <button class="secondary small-btn" onclick="startEditLegalEntity(${e.id})">✏</button>
-          <button class="secondary small-btn" style="color:#b91c1c;border-color:#fca5a5" onclick="deleteSupplyLegalEntity(${e.id})">Удалить</button>
+          <button class="secondary small-btn icon-btn" style="color:#b91c1c;border-color:#fca5a5" onclick="deleteSupplyLegalEntity(${e.id})" title="Удалить">🗑</button>
         </div>
       </td>`;
     tbody.appendChild(tr);
