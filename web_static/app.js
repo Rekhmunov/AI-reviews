@@ -3174,7 +3174,7 @@ async function downloadTTN(supplyId) {
 
   if (dataRowMatch) {
     const rowTpl = dataRowMatch[1];
-    const multiRows = goodsList.map((g) => {
+    const multiRows = goodsList.map((g, rowIdx) => {
       const name = g.product_name || g.vendor_code || "Товар";
       const nm = String(g.nm_id || "");
       const qty = parseInt(g.quantity) || 0;
@@ -3187,6 +3187,7 @@ async function downloadTTN(supplyId) {
       const rowAmtIncl = rowAmtExcl != null ? rowAmtExcl + rowVat : null;
       if (rowAmtExcl != null) { totalExcl += rowAmtExcl; totalVat += rowVat; totalIncl += rowAmtIncl; }
       return rowTpl
+        .replace("{{ROW_NUM}}",         String(rowIdx + 1))
         .replace("{{GOODS_NAME}}",      esc_(name))
         .replace("{{PRICE}}",           esc_(priceExcl != null ? fmt2(priceExcl) : "—"))
         .split("{{ROW_QTY}}").join(String(qty))
@@ -3200,6 +3201,7 @@ async function downloadTTN(supplyId) {
   }
 
   // Fallback replacements (in case no goods)
+  docXml = docXml.split("{{ROW_NUM}}").join("1");
   docXml = docXml.split("{{ROW_QTY}}").join(String(qtyTotal));
   docXml = docXml.split("{{ROW_AMOUNT_EXCL}}").join("—");
   docXml = docXml.split("{{ROW_VAT_SUM}}").join("—");
