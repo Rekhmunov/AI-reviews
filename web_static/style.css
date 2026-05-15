@@ -4553,7 +4553,7 @@ button.secondary.danger:hover {
 /* ── Supply module ─────────────────────────────────────────────── */
 
 /* Toolbar panel */
-.supplies-toolbar-panel { padding: 10px 16px 8px; position: relative; z-index: 10; }
+.supplies-toolbar-panel { padding: 10px 16px 8px; position: relative; z-index: 10; overflow: visible !important; }
 .supplies-top-controls {
   display: flex;
   align-items: center;
@@ -4572,6 +4572,8 @@ button.secondary.danger:hover {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  position: relative;
+  z-index: 100;
 }
 .supplies-date-wrap input[type="date"] { width: 136px; }
 .supplies-sync-info {
