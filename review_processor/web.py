@@ -5583,10 +5583,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
         e = _hm.escape
         goods_rows = "".join(
-            f'<tr><td style="border:1px solid black;padding:3pt 5pt;text-align:center">{i+1}</td>'
-            f'<td style="border:1px solid black;padding:3pt 5pt">{e(g.get("product_name") or "Товар")}</td>'
-            f'<td style="border:1px solid black;padding:3pt 5pt;text-align:center">шт.</td>'
-            f'<td style="border:1px solid black;padding:3pt 5pt;text-align:center">{g.get("quantity") or "—"}</td></tr>'
+            f'<tr style="page-break-inside:avoid">'
+            f'<td style="border:1px solid black;padding:2pt 4pt;text-align:center;font-size:9pt;white-space:nowrap">{i+1}</td>'
+            f'<td style="border:1px solid black;padding:2pt 4pt;font-size:9pt">{e(g.get("product_name") or "Товар")}</td>'
+            f'<td style="border:1px solid black;padding:2pt 4pt;text-align:center;font-size:9pt;white-space:nowrap">шт.</td>'
+            f'<td style="border:1px solid black;padding:2pt 4pt;text-align:center;font-size:9pt;white-space:nowrap">{g.get("quantity") or "—"}</td></tr>'
             for i, g in enumerate(goods_list)
         )
 
@@ -5597,8 +5598,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         html_content = f"""<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>
 @page {{ size: 210mm 297mm; margin: 15mm 10mm 15mm 25mm; }}
-body {{ font-family: "Times New Roman", serif; font-size: 11pt; line-height: 1.4; }}
-p {{ margin: 3pt 0; }}
+body {{ font-family: "Times New Roman", serif; font-size: 11pt; line-height: 1.3; }}
+p {{ margin: 2pt 0; }}
+tr {{ page-break-inside: avoid; }}
 </style>
 </head>
 <body>
@@ -5638,11 +5640,11 @@ p {{ margin: 3pt 0; }}
 
 <p style="margin-top:6pt">Перечень материальных ценностей, подлежащих доставке</p>
 <table border="1" cellspacing="0" cellpadding="4" width="100%" style="font-size:10pt">
-  <tr>
-    <th width="8%" align="center">Номер по порядку</th>
-    <th width="44%" align="center">Материальные ценности</th>
-    <th width="16%" align="center">Единица измерения</th>
-    <th width="32%" align="center">Количество</th>
+  <tr style="page-break-inside:avoid">
+    <th width="8%" align="center" style="font-size:9pt;padding:2pt 4pt">Номер по порядку</th>
+    <th width="44%" align="center" style="font-size:9pt;padding:2pt 4pt">Материальные ценности</th>
+    <th width="16%" align="center" style="font-size:9pt;padding:2pt 4pt">Единица измерения</th>
+    <th width="32%" align="center" style="font-size:9pt;padding:2pt 4pt">Количество</th>
   </tr>
   {goods_rows}
 </table>
