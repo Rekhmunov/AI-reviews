@@ -2175,7 +2175,7 @@ function renderSuppliesTable() {
       <td class="supply-links-cell">
         <div class="supply-links-col">
           <button class="supply-detail-link" onclick="openSupplyDetailsModal(${item.supply_id})">☰ Детали заказа</button>
-          ${_isWbGiCode(item.pass_number) ? `<button class="supply-detail-link supply-barcode-link" onclick="downloadSupplyBarcode('${esc(item.pass_number || '')}',${item.supply_id})">⬇ ШК поставки</button>` : ""}
+          ${_isWbGiCode(item.pass_number) ? `<div style="display:flex;gap:4px;align-items:center"><button class="supply-detail-link supply-barcode-link" style="flex:1" onclick="downloadSupplyBarcode('${esc(item.pass_number || '')}',${item.supply_id})">⬇ ШК поставки</button><button class="supply-detail-link supply-print-btn" onclick="printSupplyBarcode('${esc(item.pass_number || '')}',${item.supply_id})" title="Печать ШК поставки">🖨</button></div>` : ""}
           ${_isWbGiCode(item.pass_number) ? `<button class="supply-detail-link supply-packing-link" onclick="downloadPackingList(${item.supply_id})">⬇ Упаковочный лист</button>` : ""}
           ${_isWbGiCode(item.pass_number) ? `<button class="supply-detail-link supply-poa-link" onclick="downloadPoA(${item.supply_id})">⬇ Доверенность</button>` : ""}
           ${(_isWbGiCode(item.pass_number) && item.pallets_count && item.driver_name) ? `<div style="display:flex;gap:4px;align-items:center"><button class="supply-detail-link supply-ttn-link" style="flex:1" onclick="downloadTTN(${item.supply_id})">⬇ ТТН</button><button class="supply-detail-link supply-print-btn" onclick="printTTN(${item.supply_id})" title="Печать ТТН">🖨</button></div>` : ""}
@@ -3385,6 +3385,35 @@ function downloadSupplyBarcode(passNumber, supplyId) {
 
   doc.save(`${fileName}.pdf`);
 }
+
+function printSupplyBarcode(passNumber, supplyId) {
+  if (!_isWbGiCode(passNumber)) return;
+  if (typeof JsBarcode === "undefined" || typeof window.jspdf === "undefined") {
+    alert("Библиотеки для генерации штрихкода загружаются. Попробуйте через секунду.");
+    return;
+  }
+  // Generate same PDF as downloadSupplyBarcode but open in new tab for printing
+  const _orig = window._barcodeDownloadMode;
+  window._barcodeDownloadMode = "print";
+  // We call the same function but intercept doc.save
+  const item = suppliesState.items.find((x) => x.supply_id === supplyId || x.supply_id === Number(supplyId));
+  if (!item) return;
+
+  // Patch jsPDF save to open in tab instead
+  const { jsPDF } = window.jspdf;
+  const origProto = jsPDF.prototype.save;
+  jsPDF.prototype.save = function(filename) {
+    const blob = this.output("blob");
+    const url = URL.createObjectURL(blob);
+    const win = window.open(url, "_blank");
+    if (!win) alert("Разрешите всплывающие окна для печати");
+    else setTimeout(() => { win.print(); URL.revokeObjectURL(url); }, 600);
+    jsPDF.prototype.save = origProto; // restore
+  };
+  downloadSupplyBarcode(passNumber, supplyId);
+}
+
+window.printSupplyBarcode = printSupplyBarcode;
 
 // ── Supplies column resizer ──
 const SUPPLIES_COL_WIDTHS_KEY = "supplies_col_widths";
