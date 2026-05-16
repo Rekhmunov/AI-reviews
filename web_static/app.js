@@ -8204,11 +8204,11 @@ async function _printTTN_html_fallback(supplyId) {
       <td class="c">${qty}</td>
       <td class="c">—</td>
       <td class="c">${qty}</td>
-      <td class="r">${priceExcl!=null?fmt2(priceExcl):"—"}</td>
-      <td class="r">${amtExcl!=null?fmt2(amtExcl):"—"}</td>
+      <td class="c">${priceExcl!=null?fmt2(priceExcl):"—"}</td>
+      <td class="c">${amtExcl!=null?fmt2(amtExcl):"—"}</td>
       <td class="c">22%</td>
-      <td class="r">${vatAmt!=null?fmt2(vatAmt):"—"}</td>
-      <td class="r">${amtIncl!=null?fmt2(amtIncl):"—"}</td>
+      <td class="c">${vatAmt!=null?fmt2(vatAmt):"—"}</td>
+      <td class="c">${amtIncl!=null?fmt2(amtIncl):"—"}</td>
     </tr>`;
   }).join("");
 
@@ -8344,10 +8344,10 @@ body{font-family:"Times New Roman",serif;font-size:7.5pt;color:#000}
       <td class="c">—</td>
       <td class="c fw">${qtyTotal}</td>
       <td class="c">—</td>
-      <td class="r fw">${totalExclFmt}</td>
+      <td class="c fw">${totalExclFmt}</td>
       <td class="c">×</td>
-      <td class="r fw">${totalVatFmt}</td>
-      <td class="r fw">${totalInclFmt}</td>
+      <td class="c fw">${totalVatFmt}</td>
+      <td class="c fw">${totalInclFmt}</td>
     </tr>
   </tbody>
 </table>
