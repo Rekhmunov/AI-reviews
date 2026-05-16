@@ -3388,36 +3388,69 @@ function downloadSupplyBarcode(passNumber, supplyId) {
 
 function printSupplyBarcode(passNumber, supplyId) {
   if (!_isWbGiCode(passNumber)) return;
-  if (typeof JsBarcode === "undefined" || typeof window.jspdf === "undefined") {
-    alert("Библиотеки для генерации штрихкода загружаются. Попробуйте через секунду.");
+  if (typeof JsBarcode === "undefined") {
+    alert("Библиотека штрихкодов загружается. Попробуйте через секунду.");
     return;
   }
-  // Patch jsPDF save: instead of downloading, embed in hidden iframe and print
-  const { jsPDF } = window.jspdf;
-  const origProto = jsPDF.prototype.save;
-  jsPDF.prototype.save = function() {
-    const blobUrl = this.output("bloburl");
-    // Open in iframe for print preview
-    const iframe = document.createElement("iframe");
-    iframe.style.cssText = "position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;border:none";
-    iframe.src = blobUrl;
-    document.body.appendChild(iframe);
-    iframe.onload = function() {
-      try {
-        iframe.contentWindow.focus();
-        iframe.contentWindow.print();
-      } catch(_) {
-        // Fallback: open in new tab for user to print manually
-        window.open(blobUrl, "_blank");
-      }
-      setTimeout(() => {
-        document.body.removeChild(iframe);
-        URL.revokeObjectURL(blobUrl);
-      }, 10000);
-    };
-    jsPDF.prototype.save = origProto; // restore
-  };
-  downloadSupplyBarcode(passNumber, supplyId);
+
+  const item = suppliesState.items.find((x) => x.supply_id === supplyId || x.supply_id === Number(supplyId));
+  if (!item) return;
+
+  // Collect label text (same as in downloadSupplyBarcode)
+  const qty = item.quantity != null ? `${item.quantity} шт.` : "";
+  const whRaw = (item.warehouse_name || "").trim();
+  const destWh = whRaw.includes("→") ? whRaw.split("→").pop().trim() : whRaw;
+  const supplyDateRaw = item.supply_date || "";
+  let dateLabel = "";
+  if (supplyDateRaw) {
+    try {
+      const d = new Date(supplyDateRaw);
+      const dd = String(d.getDate()).padStart(2,"0");
+      const mm = String(d.getMonth()+1).padStart(2,"0");
+      const yyyy = d.getFullYear();
+      dateLabel = `${dd}${mm}${yyyy}`;
+    } catch(_) {}
+  }
+  const bottomParts = [dateLabel, destWh, qty].filter(Boolean);
+
+  // Build HTML for printing — @page 58x40mm, barcode via JsBarcode SVG
+  const win = window.open("", "_blank", "width=400,height=300");
+  if (!win) { alert("Разрешите всплывающие окна для печати"); return; }
+
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>
+@page { size: 58mm 40mm; margin: 0; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { width: 58mm; height: 40mm; display: flex; flex-direction: column;
+       align-items: center; justify-content: space-between;
+       padding: 1.5mm 2mm; font-family: "Times New Roman", serif; }
+.top-text { font-size: 7.5pt; font-weight: bold; text-align: center; line-height: 1.2; }
+svg { width: 54mm; height: 18mm; }
+.border { border: 0.3mm dashed #aaa; padding: 0.5mm; width: 54mm; }
+.bottom-text { font-size: 6.5pt; text-align: center; line-height: 1.3; }
+</style>
+</head><body>
+<div class="top-text">${passNumber}</div>
+<div class="border"><svg id="bc"></svg></div>
+<div class="bottom-text">${bottomParts.join("<br>")}</div>
+<script>
+function loaded() {
+  JsBarcode(document.getElementById("bc"), ${JSON.stringify(passNumber)}, {
+    format: "CODE128", displayValue: false, margin: 0,
+    width: 1.5, height: 55
+  });
+  window.focus();
+  setTimeout(() => window.print(), 300);
+}
+<\/script>
+</body></html>`);
+  win.document.close();
+
+  // Load JsBarcode in the new window then run
+  const script = win.document.createElement("script");
+  script.src = "/static/jsbarcode.min.js";
+  script.onload = () => win.loaded();
+  win.document.head.appendChild(script);
 }
 
 window.printSupplyBarcode = printSupplyBarcode;
