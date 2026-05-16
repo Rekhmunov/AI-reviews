@@ -3225,6 +3225,12 @@ async function downloadTTN(supplyId) {
   docXml = rpl(docXml, "{{AMOUNT_WORDS}}",    _rublesInWords(Math.round(finalTotalIncl)));
   docXml = rpl(docXml, "{{PAGES_COUNT}}", "1");
   docXml = rpl(docXml, "{{ITEMS_COUNT}}", String(goodsList.length || goodsNames.length || 1));
+  const _n = new Date();
+  const _docDateFull = `«${String(_n.getDate()).padStart(2,"0")}» ${["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"][_n.getMonth()]} ${_n.getFullYear()}`;
+  const _issuedBy = [le.full_name || supplierShort, le.requisites].filter(Boolean).join(", ");
+  docXml = rpl(docXml, "{{SUPPLY_ID}}",      supplyId_);
+  docXml = rpl(docXml, "{{DOC_DATE_FULL}}",  _docDateFull);
+  docXml = rpl(docXml, "{{ISSUED_BY}}",      _issuedBy || supplierShort || "—");
   docXml = rpl(docXml, "{{SIGN_SUPPLIER}}",supplierShort);
   docXml = rpl(docXml, "{{SIGN_DRIVER}}", driverName);
 

@@ -5652,6 +5652,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             ("{{AMOUNT_WORDS}}",    amt_words),
             ("{{PAGES_COUNT}}",     "1"),
             ("{{ITEMS_COUNT}}",     str(len(rows_data) or 1)),
+            ("{{SUPPLY_ID}}",       supply_id_str),
+            ("{{DOC_DATE_FULL}}",   f"«{now.strftime('%d')}» {['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'][now.month-1]} {now.year}"),
+            ("{{ISSUED_BY}}",       org_line or supplier_short or "—"),
             ("{{SIGN_SUPPLIER}}",   supplier_short),
             ("{{SIGN_DRIVER}}",     driver_name),
         ]:
