@@ -2854,11 +2854,12 @@ function _numToRussianWords(n) {
   return result.trim();
 }
 
-function downloadPoA(supplyId) {
+async function downloadPoA(supplyId) {
   const item = suppliesState.items.find((x) => x.supply_id === supplyId || x.supply_id === Number(supplyId));
   if (!item) return;
 
-  const seqNum = _getPoaSequenceNumber();
+  // 1. PoA number = supply ID (not sequential counter)
+  const seqNum = String(item.supply_id || "");
 
   // Current date
   const now = new Date();
@@ -2880,9 +2881,16 @@ function downloadPoA(supplyId) {
   const driverObj = _supplyDriversCache.find((d) => d.full_name === driverName) || {};
   const driverDocs = driverObj.documents || "";
 
-  // Pallets
+  // Pallets (kept for fallback)
   const palletsRaw = parseInt(item.pallets_count) || 0;
-  const palletsWords = palletsRaw > 0 ? `${palletsRaw} (${_numToRussianWords(palletsRaw)})` : "— (—)";
+
+  // 2. Fetch real goods for the goods table
+  let poaGoods = [];
+  try {
+    const gr = await fetch(`/api/supplies/${supplyId}/goods`).catch(()=>null);
+    if (gr && gr.ok) poaGoods = await gr.json().catch(()=>[]);
+  } catch(_) {}
+  if (!poaGoods.length) poaGoods = [{ product_name: "Текстильные товары", vendor_code: "", quantity: palletsRaw }];
 
   const html = `
 <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"
@@ -2954,7 +2962,7 @@ ${driverDocs ? `<p>${esc(driverDocs)}</p>` : ""}
 
 <p style="margin-top:4pt">
   материальных ценностей по транспортной накладной &nbsp;
-  <span class="underline bold">${dateNoSep}</span>
+  <span class="underline bold">${seqNum}</span>
   &nbsp; от &nbsp;
   <span class="underline bold">${dateDisplay}</span>
 </p>
@@ -2964,16 +2972,16 @@ ${driverDocs ? `<p>${esc(driverDocs)}</p>` : ""}
 <table class="mat">
   <tr>
     <th style="width:8%">Номер по порядку</th>
-    <th style="width:36%">Материальные ценности</th>
-    <th style="width:20%">Единица измерения</th>
-    <th style="width:36%">Количество (прописью)</th>
+    <th style="width:44%">Материальные ценности</th>
+    <th style="width:16%">Единица измерения</th>
+    <th style="width:32%">Количество</th>
   </tr>
-  <tr>
-    <td>1</td>
-    <td>Текстильные товары</td>
-    <td>палет</td>
-    <td>${palletsWords}</td>
-  </tr>
+  ${poaGoods.map((g, i) => `<tr>
+    <td>${i+1}</td>
+    <td>${esc(g.product_name || g.vendor_code || "Товар")}</td>
+    <td>шт.</td>
+    <td>${g.quantity ?? "—"}</td>
+  </tr>`).join("")}
 </table>
 
 <p style="margin-top:18pt">
