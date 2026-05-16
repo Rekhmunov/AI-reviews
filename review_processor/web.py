@@ -5469,7 +5469,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
         td = 'style="border:1px solid black;padding:6pt 8pt;vertical-align:middle;font-size:11pt"'
         td_lbl = 'style="border:1px solid black;padding:6pt 8pt;vertical-align:middle;font-size:11pt;width:40%"'
-        td_tall = 'style="border:1px solid black;padding:6pt 8pt;vertical-align:middle;font-size:11pt;height:80pt;width:60%"'
+        td_tall = 'style="border:1px solid black;padding:6pt 8pt;vertical-align:middle;font-size:11pt;height:240pt;width:60%"'
 
         html_content = f"""<!DOCTYPE html>
 <html>
