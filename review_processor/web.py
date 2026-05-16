@@ -5450,7 +5450,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         """Generate TTN DOCX from template, convert to PDF via LibreOffice, return as download."""
         import subprocess as _sp, tempfile as _tf, zipfile as _zf, io as _io
         import urllib.request as _ul, json as _jm, ssl as _sl
-        import re as _re, pathlib as _pl
+        import re as _re, pathlib as _pl, traceback as _tb
         from fastapi.responses import FileResponse
 
         user = _require_user(request)
@@ -5696,7 +5696,21 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             media_type="application/pdf",
             filename=f"TTN_{supply_id}.pdf",
             headers={"Content-Disposition": f'inline; filename="TTN_{supply_id}.pdf"'},
+            background=None,
         )
+
+    @app.get("/api/supplies/{supply_id}/ttn-error-test")
+    def ttn_error_test(request: Request, supply_id: int) -> dict[str, object]:
+        """Debug: run ttn.pdf and return error detail instead of 500."""
+        import subprocess as _sp, tempfile as _tf, zipfile as _zf, io as _io
+        import re as _re, pathlib as _pl, traceback as _tb
+        from fastapi.responses import FileResponse
+        try:
+            return get_ttn_pdf(request, supply_id)
+        except HTTPException as e:
+            return {"ok": False, "status": e.status_code, "detail": e.detail}
+        except Exception as ex:
+            return {"ok": False, "error": str(ex), "trace": _tb.format_exc()[-2000:]}
 
     @app.delete("/api/supplies")
     def clear_supplies(request: Request) -> dict[str, object]:
