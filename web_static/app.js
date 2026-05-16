@@ -3392,22 +3392,29 @@ function printSupplyBarcode(passNumber, supplyId) {
     alert("Библиотеки для генерации штрихкода загружаются. Попробуйте через секунду.");
     return;
   }
-  // Generate same PDF as downloadSupplyBarcode but open in new tab for printing
-  const _orig = window._barcodeDownloadMode;
-  window._barcodeDownloadMode = "print";
-  // We call the same function but intercept doc.save
-  const item = suppliesState.items.find((x) => x.supply_id === supplyId || x.supply_id === Number(supplyId));
-  if (!item) return;
-
-  // Patch jsPDF save to open in tab instead
+  // Patch jsPDF save: instead of downloading, embed in hidden iframe and print
   const { jsPDF } = window.jspdf;
   const origProto = jsPDF.prototype.save;
-  jsPDF.prototype.save = function(filename) {
-    const blob = this.output("blob");
-    const url = URL.createObjectURL(blob);
-    const win = window.open(url, "_blank");
-    if (!win) alert("Разрешите всплывающие окна для печати");
-    else setTimeout(() => { win.print(); URL.revokeObjectURL(url); }, 600);
+  jsPDF.prototype.save = function() {
+    const blobUrl = this.output("bloburl");
+    // Open in iframe for print preview
+    const iframe = document.createElement("iframe");
+    iframe.style.cssText = "position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;border:none";
+    iframe.src = blobUrl;
+    document.body.appendChild(iframe);
+    iframe.onload = function() {
+      try {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+      } catch(_) {
+        // Fallback: open in new tab for user to print manually
+        window.open(blobUrl, "_blank");
+      }
+      setTimeout(() => {
+        document.body.removeChild(iframe);
+        URL.revokeObjectURL(blobUrl);
+      }, 10000);
+    };
     jsPDF.prototype.save = origProto; // restore
   };
   downloadSupplyBarcode(passNumber, supplyId);
