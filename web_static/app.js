@@ -3234,6 +3234,7 @@ async function downloadTTN(supplyId) {
   docXml = rpl(docXml, "{{SUPPLY_ID}}",      supplyId_);
   docXml = rpl(docXml, "{{DOC_DATE_FULL}}",  _docDateFull);
   docXml = rpl(docXml, "{{ISSUED_BY}}",      supplierShort || "—");
+  docXml = rpl(docXml, "{{SIGNATORIES}}", le.signatories || supplierShort || "—");
   docXml = rpl(docXml, "{{SIGN_SUPPLIER}}",supplierShort);
   docXml = rpl(docXml, "{{SIGN_DRIVER}}", driverName);
 

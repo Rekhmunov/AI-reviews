@@ -5657,6 +5657,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             ("{{SUPPLY_ID}}",       supply_id_str),
             ("{{DOC_DATE_FULL}}",   f"«{now.strftime('%d')}» {['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'][now.month-1]} {now.year}"),
             ("{{ISSUED_BY}}",       supplier_short or "—"),
+            ("{{SIGNATORIES}}",      le.get("signatories") or supplier_short or "—"),
             ("{{SIGN_SUPPLIER}}",   supplier_short),
             ("{{SIGN_DRIVER}}",     driver_name),
         ]:
