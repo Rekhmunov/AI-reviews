@@ -5582,12 +5582,16 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             goods_list = [{"product_name": "Текстильные товары", "quantity": pallets_raw}]
 
         e = _hm.escape
+        # Each row is a separate table so LibreOffice never splits it across pages
+        _td = 'style="border:1px solid black;padding:2pt 4pt;font-size:9pt"'
         goods_rows = "".join(
-            f'<tr style="page-break-inside:avoid">'
-            f'<td style="border:1px solid black;padding:2pt 4pt;text-align:center;font-size:9pt;white-space:nowrap">{i+1}</td>'
-            f'<td style="border:1px solid black;padding:2pt 4pt;font-size:9pt">{e(g.get("product_name") or "Товар")}</td>'
-            f'<td style="border:1px solid black;padding:2pt 4pt;text-align:center;font-size:9pt;white-space:nowrap">шт.</td>'
-            f'<td style="border:1px solid black;padding:2pt 4pt;text-align:center;font-size:9pt;white-space:nowrap">{g.get("quantity") or "—"}</td></tr>'
+            f'<table border="1" cellspacing="-1" width="100%" style="font-size:9pt;border-collapse:collapse;margin:0;page-break-inside:avoid">'
+            f'<tr>'
+            f'<td width="8%" align="center" {_td}>{i+1}</td>'
+            f'<td width="44%" {_td}>{e(g.get("product_name") or "Товар")}</td>'
+            f'<td width="16%" align="center" {_td}>шт.</td>'
+            f'<td width="32%" align="center" {_td}>{g.get("quantity") or "—"}</td>'
+            f'</tr></table>'
             for i, g in enumerate(goods_list)
         )
 
@@ -5639,15 +5643,15 @@ tr {{ page-break-inside: avoid; }}
 <p style="font-size:8pt">наименование, номер и дата документа</p>
 
 <p style="margin-top:6pt">Перечень материальных ценностей, подлежащих доставке</p>
-<table border="1" cellspacing="0" cellpadding="4" width="100%" style="font-size:10pt">
-  <tr style="page-break-inside:avoid">
-    <th width="8%" align="center" style="font-size:9pt;padding:2pt 4pt">Номер по порядку</th>
-    <th width="44%" align="center" style="font-size:9pt;padding:2pt 4pt">Материальные ценности</th>
-    <th width="16%" align="center" style="font-size:9pt;padding:2pt 4pt">Единица измерения</th>
-    <th width="32%" align="center" style="font-size:9pt;padding:2pt 4pt">Количество</th>
+<table border="1" cellspacing="0" width="100%" style="font-size:9pt;border-collapse:collapse;margin:0">
+  <tr>
+    <th width="8%" align="center" style="padding:2pt 4pt;border:1px solid black">Номер по порядку</th>
+    <th width="44%" align="center" style="padding:2pt 4pt;border:1px solid black">Материальные ценности</th>
+    <th width="16%" align="center" style="padding:2pt 4pt;border:1px solid black">Единица измерения</th>
+    <th width="32%" align="center" style="padding:2pt 4pt;border:1px solid black">Количество</th>
   </tr>
-  {goods_rows}
 </table>
+{goods_rows}
 
 <p style="margin-top:8pt">Подпись лица, получившего доверенность удостоверяем. &nbsp;&nbsp;&nbsp;&nbsp; {UL} &nbsp;&nbsp; ({e(driver_name)})</p>
 <table width="100%" cellspacing="0" cellpadding="2" style="margin-top:8pt">
