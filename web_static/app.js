@@ -2448,6 +2448,7 @@ function openSupplyDetailsModal(supplyId) {
   document.getElementById("sdPalletsCount").value = item.pallets_count || "";
   const notesEl = document.getElementById("sdNotes");
   if (notesEl) notesEl.value = item.notes || "";
+  _populateProductionSelects();
   const prodSel = document.getElementById("sdProduction");
   if (prodSel) prodSel.value = item.production || "";
 
@@ -7802,6 +7803,25 @@ async function loadSupplyProductions() {
   if (!res || !res.ok) return;
   _supplyProductionsCache = await res.json().catch(() => []);
   renderSupplyProductionsTbody();
+  _populateProductionSelects();
+}
+
+function _populateProductionSelects() {
+  const names = _supplyProductionsCache.map(p => p.name);
+  // Filter dropdown (top of table)
+  const filterSel = document.getElementById("suppliesProductionFilter");
+  if (filterSel) {
+    const cur = filterSel.value;
+    filterSel.innerHTML = '<option value="">Все производства</option>' +
+      names.map(n => `<option value="${esc(n)}"${n===cur?' selected':''}>${esc(n)}</option>`).join("");
+  }
+  // Modal dropdown
+  const modalSel = document.getElementById("sdProduction");
+  if (modalSel) {
+    const cur = modalSel.value;
+    modalSel.innerHTML = '<option value="">— Не выбрано —</option>' +
+      names.map(n => `<option value="${esc(n)}"${n===cur?' selected':''}>${esc(n)}</option>`).join("");
+  }
 }
 
 function renderSupplyProductionsTbody() {
