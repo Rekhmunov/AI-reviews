@@ -5466,12 +5466,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         item = dict(item_row)
         supply_id_str = str(supply_id)
 
-        # Manual fields
-        manual = repository.get_supply_manual_data(user_id=owner_id, supply_id=supply_id) or {}
-        for k in ("pass_number","pallets_count","driver_name","notes","production"):
-            if manual.get(k) is not None:
-                item[k] = manual[k]
-
         # ── Legal entity ───────────────────────────────────────────────────
         entities = repository.list_supply_legal_entities(user_id=owner_id)
         supplier_short = str(item.get("supplier_name") or "")
