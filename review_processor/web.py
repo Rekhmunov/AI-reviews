@@ -5467,39 +5467,34 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
         e = _hm.escape
 
+        td = 'style="border:1px solid black;padding:6pt 8pt;vertical-align:middle;font-size:11pt"'
+        td_lbl = 'style="border:1px solid black;padding:6pt 8pt;vertical-align:middle;font-size:11pt;width:40%"'
+        td_tall = 'style="border:1px solid black;padding:6pt 8pt;vertical-align:middle;font-size:11pt;height:80pt;width:60%"'
+
         html_content = f"""<!DOCTYPE html>
-<html xmlns:o="urn:schemas-microsoft-com:office:office"
-      xmlns:w="urn:schemas-microsoft-com:office:word"
-      xmlns="http://www.w3.org/TR/REC-html40">
+<html>
 <head><meta charset="utf-8">
 <style>
   @page {{ size: 210mm 297mm; margin: 20mm 15mm 20mm 25mm; }}
   body {{ font-family: "Times New Roman", serif; font-size: 12pt; }}
   h1 {{ text-align: center; font-size: 13pt; font-weight: bold; margin: 0 0 4pt; }}
   h2 {{ text-align: center; font-size: 22pt; font-weight: bold; margin: 12pt 0 8pt; text-transform: uppercase; }}
-  table {{ width: 100%; border-collapse: collapse; border-spacing: 0; margin-top: 8pt;
-           border: 1px solid #000; }}
-  td {{ border-top: 1px solid #000; border-bottom: 1px solid #000;
-        border-left: 1px solid #000; border-right: 1px solid #000;
-        padding: 6pt 8pt; vertical-align: middle; font-size: 11pt; }}
-  .label-col {{ width: 40%; }}
-  .barcode-cell {{ height: 120pt; min-height: 120pt; text-align: center; vertical-align: middle; width: 60%; }}
 </style>
 </head>
 <body>
 <h1>Упаковочный лист {e(supplier_short)}</h1>
 <h1>(поставка №{e(supply_id_str)}, {e(pass_number)})</h1>
 <h2>{e(box_label)}</h2>
-<table>
-  <tr><td class="label-col">Порядковый номер паллеты</td><td></td></tr>
-  <tr><td>Количество паллет</td><td>{e(pallets_count)}</td></tr>
-  <tr><td>Количество коробок на паллете</td><td></td></tr>
-  <tr><td>Склад</td><td>{e(wh_for_pickup)}</td></tr>
-  <tr><td>Склад назначения</td><td>{e(wh_for_dest)}</td></tr>
-  <tr><td>Тип поставки</td><td><b>{e(box_label)}</b></td></tr>
-  <tr><td>Наименование юридического лица</td><td>{e(full_legal_name)}</td></tr>
-  <tr><td>Дата поставки</td><td>{e(date_display)}</td></tr>
-  <tr><td>Штрих-код поставки</td><td class="barcode-cell"></td></tr>
+<table border="1" cellspacing="0" cellpadding="0" style="width:100%;border-collapse:collapse;margin-top:8pt">
+  <tr><td {td_lbl}>Порядковый номер паллеты</td><td {td}>&nbsp;</td></tr>
+  <tr><td {td_lbl}>Количество паллет</td><td {td}>{e(pallets_count)}</td></tr>
+  <tr><td {td_lbl}>Количество коробок на паллете</td><td {td}>&nbsp;</td></tr>
+  <tr><td {td_lbl}>Склад</td><td {td}>{e(wh_for_pickup)}</td></tr>
+  <tr><td {td_lbl}>Склад назначения</td><td {td}>{e(wh_for_dest)}</td></tr>
+  <tr><td {td_lbl}>Тип поставки</td><td {td}><b>{e(box_label)}</b></td></tr>
+  <tr><td {td_lbl}>Наименование юридического лица</td><td {td}>{e(full_legal_name)}</td></tr>
+  <tr><td {td_lbl}>Дата поставки</td><td {td}>{e(date_display)}</td></tr>
+  <tr><td {td_lbl}>Штрих-код поставки</td><td {td_tall}>&nbsp;</td></tr>
 </table>
 </body></html>"""
 
