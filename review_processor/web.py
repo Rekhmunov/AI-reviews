@@ -336,6 +336,10 @@ class AdminUserPasswordUpdateRequest(BaseModel):
     password: str = Field(min_length=8, max_length=255)
 
 
+class TeamMemberProfileUpdateRequest(BaseModel):
+    full_name: str = ""
+
+
 class TenantUserCreateRequest(BaseModel):
     email: str = Field(min_length=5, max_length=255)
     password: str = Field(min_length=8, max_length=255)
@@ -4431,6 +4435,20 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         updated = repository.update_user_role(user_id=target_user_id, role=role)
         if not updated:
             raise HTTPException(status_code=404, detail="Пользователь не найден")
+        return {"ok": True}
+
+    @app.patch("/api/tenant/team/{target_user_id}/profile")
+    def tenant_update_team_profile(
+        target_user_id: int,
+        payload: TeamMemberProfileUpdateRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        owner = _require_tenant_owner(request)
+        _target_user_for_admin_scope(actor=owner, target_user_id=target_user_id)
+        repository.update_user_profile(
+            user_id=target_user_id,
+            full_name=payload.full_name.strip() or None,
+        )
         return {"ok": True}
 
     @app.post("/api/tenant/team/{target_user_id}/password")

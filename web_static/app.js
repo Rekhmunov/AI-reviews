@@ -6838,7 +6838,8 @@ async function loadTeam() {
         <td>${esc(roleLabels[member.role] || member.role || "-")}</td>
         <td>${esc(permsText)}</td>
         <td>
-          <div class="row">
+          <div class="row" style="gap:4px">
+            <button class="icon-btn" title="Редактировать" onclick="openEditTeamMember(${memberId})">✏</button>
             <button class="icon-btn danger" title="Удалить менеджера" onclick="deleteTeamMember(${memberId})">🗑</button>
           </div>
         </td>
@@ -6880,6 +6881,95 @@ function closeTeamManagerModal() {
   teamState.pendingPermissions = [];
   updateTeamPermissionsPreview();
 }
+
+// ── Edit team member ────────────────────────────────────────────────────────
+let _editingMemberId = null;
+
+async function openEditTeamMember(userId) {
+  _editingMemberId = userId;
+  const member = teamState.items.find(m => Number(m.id) === userId);
+  if (!member) return;
+  document.getElementById("editMemberFullName").value = member.full_name || "";
+  document.getElementById("editMemberPassword").value = "";
+  document.getElementById("editMemberInfo").textContent = "";
+  // Show current permissions
+  const permText = formatManagerPermissionsText(member.manager_permissions || [], member.can_supplies);
+  document.getElementById("editMemberPermissionsPreview").textContent = permText || "Нет доступов";
+  // Pre-load permissions into the shared permissions modal state
+  _pendingManagerPermissions = (member.manager_permissions || []).map(p => ({...p}));
+  _pendingManagerCanSupplies = Boolean(member.can_supplies);
+  const modal = document.getElementById("editTeamMemberModal");
+  if (modal) { modal.classList.remove("hidden"); modal.style.display = ""; }
+}
+
+function closeEditTeamMember() {
+  const modal = document.getElementById("editTeamMemberModal");
+  if (modal) { modal.classList.add("hidden"); modal.style.display = "none"; }
+  _editingMemberId = null;
+}
+
+async function openManagerPermissionsModalForEdit() {
+  if (!Array.isArray(teamState.accounts) || !teamState.accounts.length) await loadAccounts();
+  const member = teamState.items.find(m => Number(m.id) === _editingMemberId);
+  if (!member) return;
+  // Pre-load member's current permissions into the shared modal state
+  teamState.pendingPermissions = (member.manager_permissions || []).map(p => ({...p}));
+  teamState.pendingCanSupplies = Boolean(member.can_supplies);
+  const info = document.getElementById("managerPermissionsInfo");
+  if (info) { info.textContent = ""; info.style.color = ""; }
+  const saveBtn = document.getElementById("managerPermissionsSaveBtn");
+  if (saveBtn) saveBtn.textContent = "Применить разрешения";
+  renderManagerPermissionsRows(teamState.accounts, teamState.pendingPermissions);
+  setModalVisibility("managerPermissionsModal", true);
+}
+
+async function saveEditTeamMember() {
+  if (!_editingMemberId) return;
+  const uid = _editingMemberId;
+  const fullName = document.getElementById("editMemberFullName")?.value.trim() || "";
+  const password = document.getElementById("editMemberPassword")?.value || "";
+  const info = document.getElementById("editMemberInfo");
+  if (info) { info.textContent = "Сохранение..."; info.style.color = ""; }
+  try {
+    // Update full name
+    await fetch(`/api/tenant/team/${uid}/profile`, {
+      method: "PATCH", headers: jsonHeaders(), body: JSON.stringify({ full_name: fullName })
+    });
+    // Update password if provided
+    if (password) {
+      if (password.length < 8) {
+        if (info) { info.textContent = "Пароль минимум 8 символов"; info.style.color = "#b91c1c"; }
+        return;
+      }
+      const pr = await fetch(`/api/tenant/team/${uid}/password`, {
+        method: "POST", headers: jsonHeaders(), body: JSON.stringify({ password })
+      });
+      if (!pr.ok) {
+        const e = await pr.json().catch(() => ({}));
+        if (info) { info.textContent = e.detail || "Ошибка смены пароля"; info.style.color = "#b91c1c"; }
+        return;
+      }
+    }
+    // Update permissions
+    const permsPayload = (teamState.pendingPermissions || []).filter(p => p.can_reviews || p.can_questions || p.can_chats);
+    await fetch(`/api/tenant/team/${uid}/permissions`, {
+      method: "PUT", headers: jsonHeaders(), body: JSON.stringify({ permissions: permsPayload })
+    });
+    await fetch(`/api/tenant/team/${uid}/supplies-access`, {
+      method: "PUT", headers: jsonHeaders(), body: JSON.stringify({ can_supplies: Boolean(teamState.pendingCanSupplies) })
+    });
+    if (info) { info.textContent = "Сохранено"; info.style.color = "#16a34a"; }
+    await loadTeamUsers();
+    setTimeout(closeEditTeamMember, 800);
+  } catch(e) {
+    if (info) { info.textContent = "Ошибка: " + e.message; info.style.color = "#b91c1c"; }
+  }
+}
+
+window.openEditTeamMember = openEditTeamMember;
+window.closeEditTeamMember = closeEditTeamMember;
+window.openManagerPermissionsModalForEdit = openManagerPermissionsModalForEdit;
+window.saveEditTeamMember = saveEditTeamMember;
 
 async function deleteTeamMember(userId) {
   if (!confirm("Удалить менеджера из команды?")) return;
@@ -6946,6 +7036,12 @@ function applyManagerPermissionsSelection() {
   closeManagerPermissionsModal();
   updateTeamPermissionsPreview();
   setTeamInfo("Разрешения менеджера выбраны");
+  // Update preview in edit modal if open
+  const editPreview = document.getElementById("editMemberPermissionsPreview");
+  if (editPreview && _editingMemberId) {
+    const txt = formatManagerPermissionsText(permissions, teamState.pendingCanSupplies);
+    editPreview.textContent = txt || "Нет доступов";
+  }
 }
 
 async function saveNewManager() {

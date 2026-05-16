@@ -792,7 +792,7 @@
         <div id="settings-pane-team" class="hidden">
           <div class="panel">
             <div class="row row-between">
-              <h4 class="no-margin">Команда кабинета</h4>
+              <h4 class="no-margin">Команда</h4>
             </div>
             <div class="row">
               <input id="teamManagerEmail" type="email" placeholder="Эл. почта менеджера" />
@@ -1354,6 +1354,35 @@
         <button id="syncPreviewConfirmBtn" type="button" onclick="confirmSyncPreview()">Синхронизировать</button>
         <button class="secondary" type="button" onclick="closeSyncPreviewModal()">Отмена</button>
         <span id="syncPreviewInfo" class="small"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit team member modal -->
+  <div id="editTeamMemberModal" class="modal-overlay hidden" onclick="if(event.target===this)closeEditTeamMember()">
+    <div class="modal-card" style="max-width:480px;width:90%">
+      <div class="row row-between">
+        <h4 class="no-margin">Редактировать менеджера</h4>
+        <button class="icon-btn" onclick="closeEditTeamMember()">✕</button>
+      </div>
+      <div style="margin-top:12px;display:flex;flex-direction:column;gap:10px">
+        <div>
+          <label class="small" style="display:block;margin-bottom:4px">ФИО</label>
+          <input id="editMemberFullName" type="text" placeholder="ФИО" style="width:100%" />
+        </div>
+        <div>
+          <label class="small" style="display:block;margin-bottom:4px">Новый пароль (оставьте пустым чтобы не менять)</label>
+          <input id="editMemberPassword" type="password" placeholder="Минимум 8 символов" style="width:100%" autocomplete="new-password" />
+        </div>
+        <div>
+          <button class="secondary" type="button" onclick="openManagerPermissionsModalForEdit()">Разрешения</button>
+          <span id="editMemberPermissionsPreview" class="small" style="margin-left:8px">Загрузка...</span>
+        </div>
+        <div id="editMemberInfo" class="small"></div>
+        <div class="row" style="justify-content:flex-end;gap:8px">
+          <button class="secondary" onclick="closeEditTeamMember()">Отмена</button>
+          <button onclick="saveEditTeamMember()">Сохранить</button>
+        </div>
       </div>
     </div>
   </div>
