@@ -2177,7 +2177,7 @@ function renderSuppliesTable() {
           <button class="supply-detail-link" onclick="openSupplyDetailsModal(${item.supply_id})">☰ Детали заказа</button>
           ${_isWbGiCode(item.pass_number) ? `<div style="display:flex;gap:4px;align-items:center"><button class="supply-detail-link supply-barcode-link" style="flex:1" onclick="downloadSupplyBarcode('${esc(item.pass_number || '')}',${item.supply_id})">⬇ ШК поставки</button><button class="supply-detail-link supply-print-btn" onclick="printSupplyBarcode('${esc(item.pass_number || '')}',${item.supply_id})" title="Печать ШК поставки">🖨</button></div>` : ""}
           ${_isWbGiCode(item.pass_number) ? `<div style="display:flex;gap:4px;align-items:center"><button class="supply-detail-link supply-packing-link" style="flex:1" onclick="downloadPackingList(${item.supply_id})">⬇ Упаковочный лист</button><button class="supply-detail-link supply-print-btn" onclick="printPackingList(${item.supply_id})" title="Печать упаковочного листа">🖨</button></div>` : ""}
-          ${_isWbGiCode(item.pass_number) ? `<button class="supply-detail-link supply-poa-link" onclick="downloadPoA(${item.supply_id})">⬇ Доверенность</button>` : ""}
+          ${_isWbGiCode(item.pass_number) ? `<div style="display:flex;gap:4px;align-items:center"><button class="supply-detail-link supply-poa-link" style="flex:1" onclick="downloadPoA(${item.supply_id})">⬇ Доверенность</button><button class="supply-detail-link supply-print-btn" onclick="printPoA(${item.supply_id})" title="Печать доверенности">🖨</button></div>` : ""}
           ${(_isWbGiCode(item.pass_number) && item.pallets_count && item.driver_name) ? `<div style="display:flex;gap:4px;align-items:center"><button class="supply-detail-link supply-ttn-link" style="flex:1" onclick="downloadTTN(${item.supply_id})">⬇ ТТН</button><button class="supply-detail-link supply-print-btn" onclick="printTTN(${item.supply_id})" title="Печать ТТН">🖨</button></div>` : ""}
         </div>
       </td>
@@ -3000,7 +3000,7 @@ ${driverDocs ? `<p>${esc(driverDocs)}</p>` : ""}
       <span class="small">подпись</span>
     </td>
     <td style="width:45%;vertical-align:bottom;text-align:center">
-      (${esc(supplierShort)})<br>
+      (${esc(le.signatories || supplierShort)})<br>
       <span class="small">расшифровка подписи</span>
     </td>
   </tr>
@@ -3014,7 +3014,7 @@ ${driverDocs ? `<p>${esc(driverDocs)}</p>` : ""}
       <span class="small">подпись</span>
     </td>
     <td style="width:45%;vertical-align:bottom;text-align:center">
-      (${esc(supplierShort)})<br>
+      (${esc(le.signatories || supplierShort)})<br>
       <span class="small">расшифровка подписи</span>
     </td>
   </tr>
@@ -3514,6 +3514,13 @@ function printPackingList(supplyId) {
   if (!win) alert("Разрешите всплывающие окна для печати");
 }
 window.printPackingList = printPackingList;
+
+function printPoA(supplyId) {
+  const url = `/api/supplies/${supplyId}/poa.pdf`;
+  const win = window.open(url, "_blank");
+  if (!win) alert("Разрешите всплывающие окна для печати");
+}
+window.printPoA = printPoA;
 
 // ── Supplies column resizer ──
 const SUPPLIES_COL_WIDTHS_KEY = "supplies_col_widths";

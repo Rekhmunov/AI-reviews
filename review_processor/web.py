@@ -5537,6 +5537,203 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             headers={"Content-Disposition": f'inline; filename="PackingList_{supply_id}.pdf"'},
         )
 
+    @app.get("/api/supplies/{supply_id}/poa.pdf")
+    def get_poa_pdf(request: Request, supply_id: int):
+        """Generate Power of Attorney HTML → PDF via LibreOffice."""
+        import subprocess as _sp, tempfile as _tf, pathlib as _pl, os as _os
+        import html as _hm
+        from fastapi.responses import Response
+        from datetime import datetime as _dtt
+
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+
+        item_row = repository.get_supply_item_row(user_id=owner_id, supply_id=supply_id)
+        if not item_row:
+            raise HTTPException(status_code=404, detail="Поставка не найдена")
+        item = dict(item_row)
+
+        entities = repository.list_supply_legal_entities(user_id=owner_id)
+        supplier_short = str(item.get("supplier_name") or "")
+        le = next((e for e in entities if e.get("short_name") == supplier_short), None) or (entities[0] if entities else {})
+        org_full = le.get("full_name") or supplier_short
+        org_req  = le.get("requisites") or ""
+        org_line = ", ".join(filter(None, [org_full, org_req]))
+        signatories = le.get("signatories") or supplier_short
+
+        drivers = repository.list_supply_drivers(user_id=owner_id)
+        driver_name = str(item.get("driver_name") or "")
+        driver_obj  = next((d for d in drivers if d.get("full_name") == driver_name), {})
+        driver_docs = driver_obj.get("documents") or ""
+
+        now = _dtt.now()
+        date_display = now.strftime("%d.%m.%Y")
+        supply_id_str = str(supply_id)
+
+        goods_list = repository.get_supply_goods(user_id=owner_id, supply_id=supply_id)
+        name_map = repository.get_product_name_by_article(user_id=owner_id)
+        for g in goods_list:
+            vc = str(g.get("vendor_code") or "")
+            g["product_name"] = name_map.get(vc) or vc or ""
+        if not goods_list:
+            pallets_raw = int(item.get("pallets_count") or 0)
+            goods_list = [{"product_name": "Текстильные товары", "quantity": pallets_raw}]
+
+        e = _hm.escape
+        goods_rows = "".join(
+            f'<tr><td style="border:1px solid black;padding:3pt 5pt;text-align:center">{i+1}</td>'
+            f'<td style="border:1px solid black;padding:3pt 5pt">{e(g.get("product_name") or "Товар")}</td>'
+            f'<td style="border:1px solid black;padding:3pt 5pt;text-align:center">шт.</td>'
+            f'<td style="border:1px solid black;padding:3pt 5pt;text-align:center">{g.get("quantity") or "—"}</td></tr>'
+            for i, g in enumerate(goods_list)
+        )
+
+        dotline = 'style="display:inline-block;border-bottom:1px solid #000;min-width:120pt"'
+
+        html_content = f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>
+@page {{ size: 210mm 297mm; margin: 15mm 10mm 15mm 25mm; }}
+body {{ font-family: "Times New Roman", serif; font-size: 11pt; line-height: 1.4; }}
+.small {{ font-size: 8pt; text-align: center; }}
+.underline {{ text-decoration: underline; }}
+.center {{ text-align: center; }}
+.bold {{ font-weight: bold; }}
+p {{ margin: 3pt 0; }}
+</style>
+</head>
+<body>
+<table style="width:100%;border-collapse:collapse;margin-bottom:8pt">
+  <tr>
+    <td style="width:55%;vertical-align:top;font-size:11pt">
+      Организация <span class="underline">{e(org_full)}</span>
+    </td>
+    <td style="width:45%;vertical-align:top;text-align:right;font-size:8pt">
+      Типовая межотраслевая форма № М-2<br>
+      Утверждена постановлением Госстата России от 30.10.97 № 71а<br><br>
+      <table border="1" cellspacing="0" style="margin-left:auto;font-size:9pt;border-collapse:collapse">
+        <tr><td colspan="2" style="padding:2pt 6pt;text-align:center;font-weight:bold">Коды</td></tr>
+        <tr><td style="padding:2pt 6pt">Форма по ОКУД</td><td style="padding:2pt 6pt">0315001</td></tr>
+        <tr><td style="padding:2pt 6pt">по ОКПО</td><td style="padding:2pt 6pt">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td></tr>
+      </table>
+    </td>
+  </tr>
+</table>
+
+<p class="center bold" style="font-size:14pt;margin:10pt 0 4pt">Доверенность № {e(supply_id_str)}</p>
+<p>Дата выдачи <span class="underline bold">{e(date_display)}</span></p>
+<p>Доверенность действительна 14 дней с даты подписания.</p>
+<p style="margin-top:6pt">{e(org_line)}</p>
+<p class="small">наименование потребителя и его адрес</p>
+<p style="margin-top:4pt">{e(org_line)}</p>
+<p class="small">наименование плательщика и его адрес</p>
+
+<p style="margin-top:8pt">
+  Доверенность выдана &nbsp;&nbsp;
+  <span class="underline" style="min-width:60pt;display:inline-block">водителю</span>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <span class="underline">{e(driver_name)}</span>
+</p>
+<p class="small" style="padding-left:120pt">должность &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; фамилия, имя, отчество</p>
+
+{f'<p>{e(driver_docs)}</p>' if driver_docs else ''}
+
+<p style="margin-top:6pt">
+  На отправку груза от &nbsp;&nbsp;
+  <span class="underline">&nbsp;&nbsp;&nbsp;&nbsp;{e(supplier_short)}&nbsp;&nbsp;&nbsp;&nbsp;</span>
+</p>
+<p class="small" style="text-align:center">наименование поставщика</p>
+
+<p style="margin-top:4pt">
+  материальных ценностей по транспортной накладной &nbsp;
+  <span class="underline bold">{e(supply_id_str)}</span>
+  &nbsp; от &nbsp;
+  <span class="underline bold">{e(date_display)}</span>
+</p>
+<p class="small">наименование, номер и дата документа</p>
+
+<p style="margin-top:10pt">Перечень материальных ценностей, подлежащих доставке</p>
+<table border="1" cellspacing="0" style="width:100%;border-collapse:collapse;margin-top:6pt;font-size:10pt">
+  <tr>
+    <th style="border:1px solid black;padding:3pt 5pt;width:8%;text-align:center">Номер по порядку</th>
+    <th style="border:1px solid black;padding:3pt 5pt;width:44%;text-align:center">Материальные ценности</th>
+    <th style="border:1px solid black;padding:3pt 5pt;width:16%;text-align:center">Единица измерения</th>
+    <th style="border:1px solid black;padding:3pt 5pt;width:32%;text-align:center">Количество</th>
+  </tr>
+  {goods_rows}
+</table>
+
+<p style="margin-top:18pt">
+  Подпись лица, получившего доверенность удостоверяем.
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <span {dotline}>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
+  &nbsp;&nbsp;
+  ({e(driver_name)})
+</p>
+
+<table style="width:100%;margin-top:18pt;border-collapse:collapse">
+  <tr>
+    <td style="width:25%;vertical-align:bottom">Руководитель<br><span style="font-size:8pt">М.П.</span></td>
+    <td style="width:30%;vertical-align:bottom;text-align:center">
+      <span {dotline}>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><br>
+      <span style="font-size:8pt">подпись</span>
+    </td>
+    <td style="width:45%;vertical-align:bottom;text-align:center">
+      ({e(signatories)})<br>
+      <span style="font-size:8pt">расшифровка подписи</span>
+    </td>
+  </tr>
+</table>
+
+<table style="width:100%;margin-top:14pt;border-collapse:collapse">
+  <tr>
+    <td style="width:25%;vertical-align:bottom">Главный бухгалтер</td>
+    <td style="width:30%;vertical-align:bottom;text-align:center">
+      <span {dotline}>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><br>
+      <span style="font-size:8pt">подпись</span>
+    </td>
+    <td style="width:45%;vertical-align:bottom;text-align:center">
+      ({e(signatories)})<br>
+      <span style="font-size:8pt">расшифровка подписи</span>
+    </td>
+  </tr>
+</table>
+</body></html>"""
+
+        tmp_dir   = _tf.mkdtemp()
+        html_path = _pl.Path(tmp_dir) / f"poa_{supply_id}.html"
+        pdf_path  = _pl.Path(tmp_dir) / f"poa_{supply_id}.pdf"
+        html_path.write_text(html_content, encoding="utf-8")
+
+        lo_env = dict(_os.environ)
+        for k,v in [("HOME",tmp_dir),("XDG_CACHE_HOME",tmp_dir),("XDG_CONFIG_HOME",tmp_dir),
+                    ("XDG_RUNTIME_DIR",tmp_dir),("DCONF_PROFILE","/dev/null")]:
+            lo_env[k] = v
+
+        lo_ok = False
+        for binary in ("/usr/bin/soffice","/usr/lib/libreoffice/program/soffice","soffice","libreoffice"):
+            try:
+                r = _sp.run([binary,"--headless","--norestore",
+                             f"-env:UserInstallation=file://{tmp_dir}/lo_profile",
+                             "--convert-to","pdf","--outdir",tmp_dir,str(html_path)],
+                            capture_output=True,timeout=60,env=lo_env)
+                if r.returncode == 0 and pdf_path.exists():
+                    lo_ok = True; break
+            except FileNotFoundError:
+                continue
+            except _sp.TimeoutExpired:
+                raise HTTPException(status_code=504, detail="Таймаут конвертации")
+
+        if not lo_ok:
+            raise HTTPException(status_code=500, detail="Ошибка конвертации доверенности в PDF")
+
+        return Response(
+            content=pdf_path.read_bytes(),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'inline; filename="PoA_{supply_id}.pdf"'},
+        )
+
     @app.get("/api/supplies/{supply_id}/nm-prices")
     def get_supply_nm_prices(request: Request, supply_id: int) -> dict[str, object]:
         """Return {nmID: discountedPrice} for all goods using the source api_key (same token, prices scope)."""
