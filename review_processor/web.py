@@ -5582,15 +5582,18 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             goods_list = [{"product_name": "Текстильные товары", "quantity": pallets_raw}]
 
         e = _hm.escape
-        # Each row is a separate table so LibreOffice never splits it across pages
-        _td = 'style="border:1px solid black;padding:2pt 4pt;font-size:9pt"'
+        # Each row is a separate table — LibreOffice never splits it across pages
+        # Proportions: 15% | 45% | 20% | 20%
+        _t  = 'border="1" cellspacing="0" width="100%" style="border-collapse:collapse;margin:0;table-layout:fixed;font-size:9pt"'
+        _p  = 'style="border:1px solid black;padding:2pt 4pt;font-size:9pt"'
         goods_rows = "".join(
-            f'<table border="1" cellspacing="-1" width="100%" style="font-size:9pt;border-collapse:collapse;margin:0;page-break-inside:avoid">'
+            f'<table {_t}>'
+            f'<colgroup><col width="15%"><col width="45%"><col width="20%"><col width="20%"></colgroup>'
             f'<tr>'
-            f'<td width="8%" align="center" {_td}>{i+1}</td>'
-            f'<td width="44%" {_td}>{e(g.get("product_name") or "Товар")}</td>'
-            f'<td width="16%" align="center" {_td}>шт.</td>'
-            f'<td width="32%" align="center" {_td}>{g.get("quantity") or "—"}</td>'
+            f'<td {_p} align="center">{i+1}</td>'
+            f'<td {_p}>{e(g.get("product_name") or "Товар")}</td>'
+            f'<td {_p} align="center">шт.</td>'
+            f'<td {_p} align="center">{g.get("quantity") or "—"}</td>'
             f'</tr></table>'
             for i, g in enumerate(goods_list)
         )
@@ -5643,12 +5646,13 @@ tr {{ page-break-inside: avoid; }}
 <p style="font-size:8pt">наименование, номер и дата документа</p>
 
 <p style="margin-top:6pt">Перечень материальных ценностей, подлежащих доставке</p>
-<table border="1" cellspacing="0" width="100%" style="font-size:9pt;border-collapse:collapse;margin:0">
+<table border="1" cellspacing="0" width="100%" style="border-collapse:collapse;margin:0;table-layout:fixed;font-size:9pt">
+  <colgroup><col width="15%"><col width="45%"><col width="20%"><col width="20%"></colgroup>
   <tr>
-    <th width="8%" align="center" style="padding:2pt 4pt;border:1px solid black">Номер по порядку</th>
-    <th width="44%" align="center" style="padding:2pt 4pt;border:1px solid black">Материальные ценности</th>
-    <th width="16%" align="center" style="padding:2pt 4pt;border:1px solid black">Единица измерения</th>
-    <th width="32%" align="center" style="padding:2pt 4pt;border:1px solid black">Количество</th>
+    <th style="padding:2pt 4pt;border:1px solid black" align="center">Номер по порядку</th>
+    <th style="padding:2pt 4pt;border:1px solid black" align="center">Материальные ценности</th>
+    <th style="padding:2pt 4pt;border:1px solid black" align="center">Единица измерения</th>
+    <th style="padding:2pt 4pt;border:1px solid black" align="center">Количество</th>
   </tr>
 </table>
 {goods_rows}
