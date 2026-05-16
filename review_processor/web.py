@@ -5447,11 +5447,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.get("/api/supplies/{supply_id}/ttn.pdf")
     def get_ttn_pdf(request: Request, supply_id: int):
-        """Generate TTN DOCX from template, convert to PDF via LibreOffice, return as download."""
-        import subprocess as _sp, tempfile as _tf, zipfile as _zf, io as _io
+        """Generate TTN as PDF using weasyprint (HTML→PDF), return inline."""
+        import tempfile as _tf, pathlib as _pl
         import urllib.request as _ul, json as _jm, ssl as _sl
-        import re as _re, pathlib as _pl, traceback as _tb
-        from fastapi.responses import FileResponse
+        import html as _html_mod
+        from fastapi.responses import Response
 
         user = _require_user(request)
         if not _can_view_supplies(user):
@@ -5599,104 +5599,149 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         t_incl = fmt2(total_incl) if total_incl else "—"
         amt_words = _rubles_in_words(round(total_incl)) if total_incl else "—"
 
-        # ── Load + fill template ───────────────────────────────────────────
-        tpl_path = STATIC_DIR / "torg12_tpl.docx"
-        with open(tpl_path, "rb") as f:
-            tpl_bytes = f.read()
+        esc = _html_mod.escape
+        yyyy = str(_dtt.now().year)
 
-        with _zf.ZipFile(_io.BytesIO(tpl_bytes)) as zin:
-            all_files = {name: zin.read(name) for name in zin.namelist()}
+        # Column widths (exact from torg12_tpl.docx tblGrid)
+        cw = ["3.6%","19.9%","4.7%","4.7%","4.7%","4.7%","4.7%","4.7%","4.7%","4.7%","7.2%","9.0%","4.7%","9.0%","9.0%"]
+        colgroup = "".join(f'<col style="width:{w}">' for w in cw)
 
-        doc_xml = all_files["word/document.xml"].decode("utf-8")
+        goods_rows_html = ""
+        for rd in rows_data:
+            goods_rows_html += f"""<tr>
+              <td class="c">{rd["num"]}</td>
+              <td>{esc(rd["name"])}</td>
+              <td class="c">—</td><td class="c">шт.</td><td class="c">—</td><td class="c">—</td>
+              <td class="c">1</td><td class="c fw">{rd["qty"]}</td>
+              <td class="c">—</td><td class="c fw">{rd["qty"]}</td>
+              <td class="r">{esc(rd["price_excl"])}</td>
+              <td class="r">{esc(rd["amt_excl"])}</td>
+              <td class="c">22%</td>
+              <td class="r">{esc(rd["vat_amt"])}</td>
+              <td class="r">{esc(rd["amt_incl"])}</td>
+            </tr>"""
 
-        def rpl(xml: str, ph: str, val: str) -> str:
-            import html as _html
-            return xml.replace(ph, _html.escape(val))
+        html_content = f"""<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8">
+<style>
+@page{{size:A4 landscape;margin:10mm 8mm}}
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{font-family:"Times New Roman",serif;font-size:7.5pt;color:#000}}
+.t-hdr{{width:100%;border-collapse:collapse;margin-bottom:2pt;font-size:7.5pt}}
+.t-hdr td{{border:none;padding:1.5pt 2pt;vertical-align:top}}
+.td-org{{width:57%;border-bottom:1px solid #555}}
+.td-codes{{width:43%;vertical-align:top;text-align:right;font-size:7pt;padding-left:4pt}}
+.t-codes{{border-collapse:collapse;font-size:6.5pt;margin-top:2pt;margin-left:auto}}
+.t-codes th,.t-codes td{{border:1px solid #000;padding:1pt 3pt}}
+.t-codes th{{text-align:center;background:#f0f0f0}}
+.t-title{{width:100%;border-collapse:collapse;margin:3pt 0 2pt;font-size:8pt}}
+.t-title th,.t-title td{{border:1px solid #000;padding:1.5pt 3pt;text-align:center}}
+.title-cell{{font-size:12pt;font-weight:bold;border:none;text-align:center;padding:3pt 0}}
+.t-goods{{width:100%;border-collapse:collapse;font-size:6.5pt;table-layout:fixed}}
+.t-goods th,.t-goods td{{border:1px solid #000;padding:1pt 1.5pt;vertical-align:middle;overflow:hidden;word-break:break-word}}
+.t-goods th{{text-align:center;background:#f5f5f5;line-height:1.2}}
+.c{{text-align:center}}.r{{text-align:right}}.fw{{font-weight:bold}}
+.footer-line{{margin-top:4pt;font-size:7pt;border-top:1px solid #000;padding-top:2pt}}
+.sig-wrap{{display:flex;justify-content:space-between;margin-top:6pt;font-size:7pt}}
+.sig-block{{width:49%}}
+.sig-row{{margin-top:5pt}}
+.sig-row span{{display:inline-block;min-width:140pt;border-bottom:1px solid #000}}
+.sig-label{{font-size:6pt;color:#555;margin-top:1pt}}
+</style></head><body>
+<table class="t-hdr"><tr>
+  <td class="td-org" rowspan="5">
+    <div><b>Организация–грузоотправитель:</b> ООО «РВБ», Ногинский район, г.Электросталь, посёлок Случайный, д.5</div>
+    <div style="font-size:6pt;color:#555;margin-top:1pt">организация–грузоотправитель, адрес, номер телефона, банковские реквизиты</div>
+    <div style="margin-top:3pt"><b>Поставщик:</b> {esc(org_line or "—")}</div>
+    <div style="font-size:6pt;color:#555;margin-top:1pt">наименование организации, адрес, номер телефона, банковские реквизиты</div>
+    <div style="margin-top:3pt"><b>Плательщик:</b> {esc(org_line or "—")}</div>
+    <div style="font-size:6pt;color:#555;margin-top:1pt">наименование организации, адрес, номер телефона, банковские реквизиты</div>
+    <div style="margin-top:3pt"><b>Основание:</b> Заказ № {supply_id_str}</div>
+    <div style="margin-top:2pt;font-size:6.5pt">Транспортная накладная № _______ от _______ &nbsp;&nbsp; Вид операции: _______</div>
+  </td>
+  <td class="td-codes">
+    Унифицированная форма № ТОРГ-12<br>Утверждена постановлением Госкомстата России от 25.12.98 №132
+    <table class="t-codes" style="margin-top:3pt">
+      <tr><th colspan="2">Код</th></tr>
+      <tr><td>Форма по ОКУД</td><td class="c">0330212</td></tr>
+      <tr><td>по ОКПО</td><td class="c"></td></tr>
+      <tr><td>Вид деятельности по ОКДП</td><td class="c"></td></tr>
+    </table>
+  </td>
+</tr></table>
+<table class="t-title">
+  <tr><td class="title-cell" colspan="2">ТОВАРНАЯ НАКЛАДНАЯ &nbsp; №&nbsp;{supply_id_str}</td></tr>
+  <tr><th style="width:50%">Номер документа</th><th style="width:50%">Дата составления</th></tr>
+  <tr><td class="c">{supply_id_str}</td><td class="c">{supply_date_disp}</td></tr>
+</table>
+<table class="t-goods"><colgroup>{colgroup}</colgroup>
+  <thead>
+    <tr>
+      <th rowspan="3">Номер<br>по<br>порядку</th>
+      <th rowspan="3">Товар (наименование, характеристика, сорт, артикул товара)</th>
+      <th rowspan="3">код</th>
+      <th colspan="2">Единица измерения</th>
+      <th rowspan="3">Вид<br>упаковки</th>
+      <th colspan="2">Количество</th>
+      <th rowspan="3">Масса<br>брутто</th>
+      <th rowspan="3">Кол-во<br>(масса<br>нетто)</th>
+      <th rowspan="3">Цена,<br>руб.,&nbsp;коп.</th>
+      <th rowspan="3">Сумма без<br>учёта НДС,<br>руб.,&nbsp;коп.</th>
+      <th colspan="2">НДС</th>
+      <th rowspan="3">Сумма с<br>учётом НДС,<br>руб.,&nbsp;коп.</th>
+    </tr>
+    <tr>
+      <th>наиме-<br>нование</th><th>код по ОКЕИ</th>
+      <th>в одном<br>месте</th><th>мест,<br>штук</th>
+      <th>ставка,&nbsp;%</th><th>сумма,<br>руб.,&nbsp;коп.</th>
+    </tr>
+    <tr><th>4</th><th>5</th><th>7</th><th>8</th><th>13</th><th>14</th></tr>
+    <tr><td class="c">1</td><td class="c">2</td><td class="c">3</td><td class="c">4</td><td class="c">5</td><td class="c">6</td><td class="c">7</td><td class="c">8</td><td class="c">9</td><td class="c">10</td><td class="c">11</td><td class="c">12</td><td class="c">13</td><td class="c">14</td><td class="c">15</td></tr>
+  </thead>
+  <tbody>
+    {goods_rows_html or '<tr><td colspan="15" class="c">—</td></tr>'}
+    <tr class="fw">
+      <td colspan="7" class="r">Всего по накладной</td>
+      <td class="c">{qty_total}</td><td class="c">—</td><td class="c">{qty_total}</td>
+      <td class="c">×</td><td class="r">{t_excl}</td><td class="c">×</td>
+      <td class="r">{t_vat}</td><td class="r">{t_incl}</td>
+    </tr>
+  </tbody>
+</table>
+<div class="footer-line">
+  Товарная накладная имеет приложение на _____ листах и содержит _____ порядковых номеров записей.<br>
+  Всего отпущено на сумму: <b>{esc(amt_words)}</b>
+</div>
+<div class="sig-wrap">
+  <div class="sig-block">
+    <div class="sig-row">Отпуск разрешил &nbsp;<span>&nbsp;{esc(supplier_short)}</span></div>
+    <div class="sig-label">должность &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; подпись &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; расшифровка подписи</div>
+    <div class="sig-row">Главный бухгалтер &nbsp;<span>&nbsp;{esc(supplier_short)}</span></div>
+    <div class="sig-label">должность &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; подпись &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; расшифровка подписи</div>
+    <div class="sig-row">Отпуск груза произвел &nbsp;<span>&nbsp;{esc(supplier_short)}</span></div>
+    <div class="sig-label">должность &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; подпись &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; расшифровка подписи</div>
+  </div>
+  <div class="sig-block">
+    <div class="sig-row">Груз принял &nbsp;<span>&nbsp;{esc(driver_name)}</span></div>
+    <div class="sig-label">должность &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; подпись &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; расшифровка подписи</div>
+    <div class="sig-row">Груз получил грузополучатель &nbsp;<span>&nbsp;</span></div>
+    <div class="sig-label">должность &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; подпись &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; расшифровка подписи</div>
+    <div style="margin-top:8pt">«&nbsp;&nbsp;&nbsp;»&nbsp;______________&nbsp;{yyyy}&nbsp;г.</div>
+  </div>
+</div>
+</body></html>"""
 
-        # Find and duplicate data row containing {{GOODS_NAME}}
-        row_rx = _re.compile(r'(<w:tr[\s>](?:(?!</w:tr>).)*?\{\{GOODS_NAME\}\}.*?</w:tr>)', _re.DOTALL)
-        m = row_rx.search(doc_xml)
-        if m and rows_data:
-            row_tpl = m.group(1)
-            import html as _html
-            multi = ""
-            for rd in rows_data:
-                r = row_tpl
-                r = r.replace("{{ROW_NUM}}",            str(rd["num"]))
-                r = r.replace("{{GOODS_NAME}}",          _html.escape(rd["name"]))
-                r = r.replace("{{PRICE}}",               _html.escape(rd["price_excl"]))
-                r = r.replace("{{ROW_AMOUNT_EXCL}}",     _html.escape(rd["amt_excl"]))
-                r = r.replace("{{ROW_VAT_SUM}}",         _html.escape(rd["vat_amt"]))
-                r = r.replace("{{ROW_AMOUNT_INCL}}",     _html.escape(rd["amt_incl"]))
-                r = r.replace("{{ROW_QTY}}",             str(rd["qty"]))
-                multi += r
-            doc_xml = doc_xml.replace(row_tpl, multi, 1)
-
-        # Scalar replacements
-        for ph, val in [
-            ("{{TTN_NUMBER}}",   supply_id_str),
-            ("{{ORG_FULL}}",     org_line),
-            ("{{SUPPLIER}}",     org_line),
-            ("{{PAYER}}",        org_line),
-            ("{{ORDER_DATE}}",   supply_id_str),
-            ("{{DOC_NUM_VAL}}", supply_id_str),
-            ("{{DOC_DATE_VAL}}", supply_date_disp),
-            ("{{GOODS_NAME}}",   rows_data[0]["name"] if rows_data else "Товар"),
-            ("{{ROW_NUM}}",      "1"),
-            ("{{PRICE}}",        rows_data[0]["price_excl"] if rows_data else "—"),
-            ("{{ROW_AMOUNT_EXCL}}", rows_data[0]["amt_excl"] if rows_data else "—"),
-            ("{{ROW_VAT_SUM}}",  rows_data[0]["vat_amt"] if rows_data else "—"),
-            ("{{ROW_AMOUNT_INCL}}", rows_data[0]["amt_incl"] if rows_data else "—"),
-            ("{{QTY}}",          str(qty_total)),
-            ("{{QTY_SHT}}",      f"{qty_total} шт"),
-            ("{{TOTAL_EXCL}}",   t_excl),
-            ("{{TOTAL_VAT}}",    t_vat),
-            ("{{TOTAL_INCL}}",   t_incl),
-            ("{{AMOUNT}}",       t_excl),
-            ("{{VAT_SUM}}",      t_vat),
-            ("{{AMOUNT_WITH_VAT}}", t_incl),
-            ("{{AMOUNT_WORDS}}", amt_words),
-            ("{{SIGN_SUPPLIER}}", supplier_short),
-            ("{{SIGN_DRIVER}}",  driver_name),
-        ]:
-            doc_xml = doc_xml.replace(ph, val)
-        # ROW_QTY fallback (if no goods list)
-        doc_xml = doc_xml.replace("{{ROW_QTY}}", str(qty_total))
-
-        all_files["word/document.xml"] = doc_xml.encode("utf-8")
-
-        # Write DOCX to temp file
-        tmp_dir  = _tf.mkdtemp()
-        docx_path = _pl.Path(tmp_dir) / f"ttn_{supply_id}.docx"
-        pdf_path  = _pl.Path(tmp_dir) / f"ttn_{supply_id}.pdf"
-
-        buf = _io.BytesIO()
-        with _zf.ZipFile(buf, "w", _zf.ZIP_DEFLATED) as zout:
-            for name, data in all_files.items():
-                zout.writestr(name, data)
-        docx_path.write_bytes(buf.getvalue())
-
-        # Convert DOCX → PDF using LibreOffice
+        # Convert HTML → PDF using weasyprint
         try:
-            result = _sp.run(
-                ["soffice", "--headless", "--convert-to", "pdf", "--outdir", tmp_dir, str(docx_path)],
-                capture_output=True, timeout=60
-            )
-            if result.returncode != 0:
-                _log.error("soffice error: %s", result.stderr.decode())
-                raise HTTPException(status_code=500, detail="Ошибка конвертации PDF")
-        except _sp.TimeoutExpired:
-            raise HTTPException(status_code=504, detail="Таймаут конвертации PDF")
+            import weasyprint as _wp
+            pdf_bytes = _wp.HTML(string=html_content).write_pdf()
+        except Exception as ex:
+            _log.error("weasyprint error supply_id=%d: %s", supply_id, ex)
+            raise HTTPException(status_code=500, detail=f"Ошибка генерации PDF: {ex}")
 
-        if not pdf_path.exists():
-            raise HTTPException(status_code=500, detail="PDF не создан")
-
-        return FileResponse(
-            path=str(pdf_path),
+        return Response(
+            content=pdf_bytes,
             media_type="application/pdf",
-            filename=f"TTN_{supply_id}.pdf",
             headers={"Content-Disposition": f'inline; filename="TTN_{supply_id}.pdf"'},
-            background=None,
         )
 
     @app.get("/api/supplies/{supply_id}/ttn-error-test")
