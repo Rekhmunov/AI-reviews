@@ -5617,7 +5617,7 @@ p {{ margin: 3pt 0; }}
   </td>
 </tr></table>
 
-<p align="center" style="font-size:14pt;font-weight:bold;margin:10pt 0 4pt">Доверенность № {e(supply_id_str)}</p>
+<p align="center" style="font-size:14pt;margin:10pt 0 4pt"><b>Доверенность № {e(supply_id_str)}</b></p>
 <p>Дата выдачи <b><u>{e(date_display)}</u></b></p>
 <p>Доверенность действительна 14 дней с даты подписания.</p>
 <p style="margin-top:6pt">{e(org_line)}</p>

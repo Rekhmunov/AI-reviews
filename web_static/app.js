@@ -2935,7 +2935,7 @@ async function downloadPoA(supplyId) {
   </tr>
 </table>
 
-<p class="center bold" style="font-size:14pt;margin:10pt 0 4pt">Доверенность № ${seqNum}</p>
+<p style="text-align:center;font-size:14pt;font-weight:bold;margin:10pt 0 4pt"><b>Доверенность № ${seqNum}</b></p>
 
 <p>Дата выдачи <span class="underline bold">${dateDisplay}</span></p>
 <p>Доверенность действительна 14 дней с даты подписания.</p>
