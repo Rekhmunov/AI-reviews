@@ -1105,6 +1105,7 @@
           <button id="supplies-settings-tab-drivers" class="settings-tab-btn" onclick="showSuppliesSettingsTab('drivers')">Водители</button>
           <button id="supplies-settings-tab-warehouses" class="settings-tab-btn" onclick="showSuppliesSettingsTab('warehouses')">Склады</button>
           <button id="supplies-settings-tab-legal" class="settings-tab-btn" onclick="showSuppliesSettingsTab('legal')">Юридические лица</button>
+          <button id="supplies-settings-tab-productions" class="settings-tab-btn" onclick="showSuppliesSettingsTab('productions')">Производства</button>
         </div>
         <div id="supplies-settings-pane-drivers" class="hidden">
           <div class="panel">
@@ -1199,6 +1200,37 @@
                 <colgroup><col style="width:4%"/><col style="width:15%"/><col style="width:21%"/><col style="width:22%"/><col/><col style="width:9%"/></colgroup>
                 <thead><tr><th>№</th><th>Короткое</th><th>Полное наименование</th><th>Реквизиты</th><th>Подписанты</th><th></th></tr></thead>
                 <tbody id="supplyLegalEntitiesTbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div id="supplies-settings-pane-productions" class="hidden">
+          <div class="panel">
+            <div class="row row-between">
+              <h4 class="no-margin">Производства</h4>
+              <button onclick="toggleAddProductionForm(true)">+ Добавить</button>
+            </div>
+            <div id="addProductionForm" class="source-form hidden" style="margin-top:12px">
+              <div class="row">
+                <input id="newProductionName" type="text" placeholder="Наименование производства" autocomplete="off" />
+              </div>
+              <div class="row">
+                <input id="newProductionHead" type="text" placeholder="Начальник производства" autocomplete="off" />
+              </div>
+              <div class="row">
+                <button onclick="saveSupplyProduction()">Сохранить</button>
+                <button class="secondary" onclick="toggleAddProductionForm(false)">Отмена</button>
+                <span id="addProductionInfo" class="small"></span>
+              </div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="table-wrap">
+              <table class="supply-sources-table">
+                <colgroup><col style="width:5%"/><col/><col style="width:30%"/><col style="width:9%"/></colgroup>
+                <thead><tr><th>№</th><th>Наименование производства</th><th>Начальник производства</th><th></th></tr></thead>
+                <tbody id="supplyProductionsTbody"></tbody>
               </table>
             </div>
           </div>

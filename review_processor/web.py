@@ -396,6 +396,16 @@ class TemplateVariableDeleteRequest(BaseModel):
     var_key: str = Field(min_length=3, max_length=120)
 
 
+class CreateSupplyProductionRequest(BaseModel):
+    name: str
+    head_name: str = ""
+
+
+class UpdateSupplyProductionRequest(BaseModel):
+    name: str
+    head_name: str = ""
+
+
 class CreateSupplySourceRequest(BaseModel):
     name: str
     api_key: str
@@ -5890,6 +5900,52 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         ok = repository.delete_supply_legal_entity(user_id=_supply_owner_id(user), entity_id=entity_id)
         if not ok:
             raise HTTPException(status_code=404, detail="Юридическое лицо не найдено")
+        return {"ok": True}
+
+    @app.get("/api/supply-productions")
+    def list_supply_productions(request: Request) -> list[dict[str, object]]:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        repository._ensure_supply_tables()
+        return repository.list_supply_productions(user_id=_supply_owner_id(user))
+
+    @app.post("/api/supply-productions")
+    def create_supply_production(request: Request, payload: CreateSupplyProductionRequest) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        if not payload.name.strip():
+            raise HTTPException(status_code=400, detail="Название не может быть пустым")
+        return repository.create_supply_production(
+            user_id=_supply_owner_id(user), name=payload.name, head_name=payload.head_name
+        )
+
+    @app.patch("/api/supply-productions/{production_id}")
+    def update_supply_production(request: Request, production_id: int, payload: UpdateSupplyProductionRequest) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        if not payload.name.strip():
+            raise HTTPException(status_code=400, detail="Название не может быть пустым")
+        ok = repository.update_supply_production(
+            user_id=_supply_owner_id(user), production_id=production_id,
+            name=payload.name, head_name=payload.head_name
+        )
+        if not ok:
+            raise HTTPException(status_code=404, detail="Производство не найдено")
+        return {"ok": True}
+
+    @app.delete("/api/supply-productions/{production_id}")
+    def delete_supply_production(request: Request, production_id: int) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        ok = repository.delete_supply_production(
+            user_id=_supply_owner_id(user), production_id=production_id
+        )
+        if not ok:
+            raise HTTPException(status_code=404, detail="Производство не найдено")
         return {"ok": True}
 
     @app.patch("/api/supplies/{supply_id}/manual-fields")

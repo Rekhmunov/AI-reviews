@@ -7740,6 +7740,7 @@ document.addEventListener("DOMContentLoaded", () => {
       loadSupplyDrivers(),
       loadSupplyWarehouses(),
       loadSupplyLegalEntities(),
+      loadSupplyProductions(),
     ]).then(() => loadSupplies()).catch(() => {});
     initSuppliesColumnResizer();
   }
@@ -7792,6 +7793,101 @@ window.deleteSupplyWarehouse = deleteSupplyWarehouse;
 window.toggleAddLegalEntityForm = toggleAddLegalEntityForm;
 window.saveSupplyLegalEntity = saveSupplyLegalEntity;
 window.deleteSupplyLegalEntity = deleteSupplyLegalEntity;
+
+// ── Supply Productions ──────────────────────────────────────────────────────
+let _supplyProductionsCache = [];
+
+async function loadSupplyProductions() {
+  const res = await fetch("/api/supply-productions").catch(() => null);
+  if (!res || !res.ok) return;
+  _supplyProductionsCache = await res.json().catch(() => []);
+  renderSupplyProductionsTbody();
+}
+
+function renderSupplyProductionsTbody() {
+  const tbody = document.getElementById("supplyProductionsTbody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+  if (!_supplyProductionsCache.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="empty-cell">Производства не добавлены</td></tr>';
+    return;
+  }
+  _supplyProductionsCache.forEach((p, i) => {
+    const tr = document.createElement("tr");
+    tr.dataset.id = p.id;
+    tr.innerHTML = `<td>${i+1}</td>
+      <td class="editable-cell">${esc(p.name||"")}</td>
+      <td class="editable-cell">${esc(p.head_name||"")}</td>
+      <td>
+        <div class="row" style="gap:4px;flex-wrap:nowrap">
+          <button class="secondary small-btn" onclick="startEditProduction(${p.id})">✏</button>
+          <button class="secondary small-btn icon-btn" style="color:#b91c1c;border-color:#fca5a5" onclick="deleteSupplyProduction(${p.id})" title="Удалить">🗑</button>
+        </div>
+      </td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+async function startEditProduction(id) {
+  const item = _supplyProductionsCache.find(x => x.id === id);
+  if (!item) return;
+  const tr = document.querySelector(`#supplyProductionsTbody tr[data-id="${id}"]`);
+  if (!tr) return;
+  const cells = tr.querySelectorAll(".editable-cell");
+  cells[0].innerHTML = `<input class="edit-inline-input" value="${esc(item.name||"")}" />`;
+  cells[1].innerHTML = `<input class="edit-inline-input" value="${esc(item.head_name||"")}" />`;
+  tr.cells[tr.cells.length-1].innerHTML = `<div class="row" style="gap:4px;flex-wrap:nowrap">
+    <button class="secondary small-btn" style="color:#16a34a;border-color:#86efac" onclick="saveEditProduction(${id})">Сохранить</button>
+    <button class="secondary small-btn" onclick="loadSupplyProductions()">Отмена</button>
+  </div>`;
+}
+
+async function saveEditProduction(id) {
+  const tr = document.querySelector(`#supplyProductionsTbody tr[data-id="${id}"]`);
+  if (!tr) return;
+  const inputs = tr.querySelectorAll(".edit-inline-input");
+  const name = inputs[0]?.value.trim() || "";
+  const head_name = inputs[1]?.value.trim() || "";
+  if (!name) return;
+  await fetch(`/api/supply-productions/${id}`, { method: "PATCH", headers: jsonHeaders(), body: JSON.stringify({ name, head_name }) }).catch(() => null);
+  await loadSupplyProductions();
+}
+
+function toggleAddProductionForm(show) {
+  const form = document.getElementById("addProductionForm");
+  if (!form) return;
+  form.classList.toggle("hidden", !show); form.style.display = show ? "" : "none";
+  if (!show) {
+    ["newProductionName","newProductionHead"].forEach(id => { const el = document.getElementById(id); if(el) el.value=""; });
+  }
+}
+
+async function saveSupplyProduction() {
+  const name = document.getElementById("newProductionName")?.value.trim();
+  const head_name = document.getElementById("newProductionHead")?.value.trim() || "";
+  const info = document.getElementById("addProductionInfo");
+  if (!name) { if (info) { info.textContent = "Введите название"; info.style.color = "#b91c1c"; } return; }
+  if (info) { info.textContent = "Сохранение..."; info.style.color = ""; }
+  const res = await fetch("/api/supply-productions", { method: "POST", headers: jsonHeaders(), body: JSON.stringify({ name, head_name }) }).catch(() => null);
+  if (!res || !res.ok) { const e = await res?.json().catch(()=>({})) || {}; if (info) { info.textContent = e.detail||"Ошибка"; info.style.color = "#b91c1c"; } return; }
+  if (info) { info.textContent = "Сохранено"; info.style.color = "#16a34a"; }
+  toggleAddProductionForm(false);
+  await loadSupplyProductions();
+}
+
+async function deleteSupplyProduction(id) {
+  if (!confirm("Удалить производство?")) return;
+  await fetch(`/api/supply-productions/${id}`, { method: "DELETE", headers: jsonHeaders() }).catch(() => null);
+  await loadSupplyProductions();
+}
+
+window.toggleAddProductionForm = toggleAddProductionForm;
+window.saveSupplyProduction = saveSupplyProduction;
+window.deleteSupplyProduction = deleteSupplyProduction;
+window.startEditProduction = startEditProduction;
+window.saveEditProduction = saveEditProduction;
+window.loadSupplyProductions = loadSupplyProductions;
+
 async function printTTN(supplyId) {
   // Open PDF generated server-side (LibreOffice converts DOCX→PDF, browser prints it)
   const url = `/api/supplies/${supplyId}/ttn.pdf`;
