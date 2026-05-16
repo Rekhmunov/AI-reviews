@@ -5649,10 +5649,10 @@ tr {{ page-break-inside: avoid; }}
 <table border="1" cellspacing="0" width="100%" style="border-collapse:collapse;margin:0;table-layout:fixed;font-size:9pt">
   <colgroup><col width="15%"><col width="45%"><col width="20%"><col width="20%"></colgroup>
   <tr>
-    <th style="padding:2pt 4pt;border:1px solid black" align="center">Номер по порядку</th>
-    <th style="padding:2pt 4pt;border:1px solid black" align="center">Материальные ценности</th>
-    <th style="padding:2pt 4pt;border:1px solid black" align="center">Единица измерения</th>
-    <th style="padding:2pt 4pt;border:1px solid black" align="center">Количество</th>
+    <th style="padding:2pt 4pt;border:1px solid black;font-size:8pt;font-weight:bold;font-family:'Times New Roman',serif" align="center">Номер по порядку</th>
+    <th style="padding:2pt 4pt;border:1px solid black;font-size:8pt;font-weight:bold;font-family:'Times New Roman',serif" align="center">Материальные ценности</th>
+    <th style="padding:2pt 4pt;border:1px solid black;font-size:8pt;font-weight:bold;font-family:'Times New Roman',serif" align="center">Единица измерения</th>
+    <th style="padding:2pt 4pt;border:1px solid black;font-size:8pt;font-weight:bold;font-family:'Times New Roman',serif" align="center">Количество</th>
   </tr>
 </table>
 {goods_rows}
