@@ -5650,6 +5650,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             ("{{VAT_SUM}}",         t_vat),
             ("{{AMOUNT_WITH_VAT}}", t_incl),
             ("{{AMOUNT_WORDS}}",    amt_words),
+            ("{{PAGES_COUNT}}",     "1"),
+            ("{{ITEMS_COUNT}}",     str(len(rows_data) or 1)),
             ("{{SIGN_SUPPLIER}}",   supplier_short),
             ("{{SIGN_DRIVER}}",     driver_name),
         ]:

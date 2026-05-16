@@ -3223,6 +3223,8 @@ async function downloadTTN(supplyId) {
   docXml = rpl(docXml, "{{AMOUNT_WITH_VAT}}", totalInclFmt);
   const finalTotalIncl = totalIncl > 0 ? totalIncl : (totalAmount + Math.round(totalAmount * VAT_RATE));
   docXml = rpl(docXml, "{{AMOUNT_WORDS}}",    _rublesInWords(Math.round(finalTotalIncl)));
+  docXml = rpl(docXml, "{{PAGES_COUNT}}", "1");
+  docXml = rpl(docXml, "{{ITEMS_COUNT}}", String(goodsList.length || goodsNames.length || 1));
   docXml = rpl(docXml, "{{SIGN_SUPPLIER}}",supplierShort);
   docXml = rpl(docXml, "{{SIGN_DRIVER}}", driverName);
 
