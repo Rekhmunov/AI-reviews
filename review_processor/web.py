@@ -5477,8 +5477,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
   body {{ font-family: "Times New Roman", serif; font-size: 12pt; }}
   h1 {{ text-align: center; font-size: 13pt; font-weight: bold; margin: 0 0 4pt; }}
   h2 {{ text-align: center; font-size: 22pt; font-weight: bold; margin: 12pt 0 8pt; text-transform: uppercase; }}
-  table {{ width: 100%; border-collapse: collapse; margin-top: 8pt; }}
-  td {{ border: 1px solid #000; padding: 6pt 8pt; vertical-align: middle; font-size: 11pt; }}
+  table {{ width: 100%; border-collapse: collapse; border-spacing: 0; margin-top: 8pt;
+           border: 1px solid #000; }}
+  td {{ border-top: 1px solid #000; border-bottom: 1px solid #000;
+        border-left: 1px solid #000; border-right: 1px solid #000;
+        padding: 6pt 8pt; vertical-align: middle; font-size: 11pt; }}
   .label-col {{ width: 40%; }}
   .barcode-cell {{ height: 120pt; min-height: 120pt; text-align: center; vertical-align: middle; width: 60%; }}
 </style>
