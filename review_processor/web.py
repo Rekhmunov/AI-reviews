@@ -5672,11 +5672,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
         # Try soffice / libreoffice
         import os as _os
-        # LibreOffice needs a writable HOME; set to tmp_dir if not available
+        # LibreOffice requires writable XDG dirs — force all to tmp_dir
         lo_env = dict(_os.environ)
-        if not lo_env.get("HOME") or lo_env.get("HOME") == "/":
-            lo_env["HOME"] = tmp_dir
-        lo_env["TMPDIR"] = tmp_dir
+        lo_env["HOME"]            = tmp_dir
+        lo_env["TMPDIR"]          = tmp_dir
+        lo_env["XDG_CACHE_HOME"]  = tmp_dir
+        lo_env["XDG_CONFIG_HOME"] = tmp_dir
+        lo_env["XDG_RUNTIME_DIR"] = tmp_dir
+        lo_env["DCONF_PROFILE"]   = "/dev/null"
+        lo_env["UserInstallation"] = f"file://{tmp_dir}/lo_profile"
 
         _lo_binaries = (
             "/usr/bin/soffice",
@@ -5690,7 +5694,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         for binary in _lo_binaries:
             try:
                 result = _sp.run(
-                    [binary, "--headless", "--norestore", "--convert-to", "pdf",
+                    [binary, "--headless", "--norestore", "--noplugins",
+                     f"-env:UserInstallation=file://{tmp_dir}/lo_profile",
+                     "--convert-to", "pdf",
                      "--outdir", tmp_dir, str(docx_path)],
                     capture_output=True, timeout=60, env=lo_env
                 )
