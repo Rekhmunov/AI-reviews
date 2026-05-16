@@ -5668,6 +5668,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             ("{{DOC_DATE_FULL}}",   f"«{now.strftime('%d')}» {['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'][now.month-1]} {now.year}"),
             ("{{ISSUED_BY}}",       supplier_short or "—"),
             ("{{SIGNATORIES}}",      le.get("signatories") or supplier_short or "—"),
+            ("{{PROD_HEAD}}",        next((p.get("head_name") or p.get("name") for p in repository.list_supply_productions(user_id=owner_id) if p.get("name") == str(item.get("production") or "")), "—")),
             ("{{SIGN_SUPPLIER}}",   supplier_short),
             ("{{SIGN_DRIVER}}",     driver_name),
         ]:

@@ -3236,6 +3236,9 @@ async function downloadTTN(supplyId) {
   docXml = rpl(docXml, "{{DOC_DATE_FULL}}",  _docDateFull);
   docXml = rpl(docXml, "{{ISSUED_BY}}",      supplierShort || "—");
   docXml = rpl(docXml, "{{SIGNATORIES}}", le.signatories || supplierShort || "—");
+  const _prodName = item.production || "";
+  const _prodObj = _supplyProductionsCache.find(p => p.name === _prodName) || {};
+  docXml = rpl(docXml, "{{PROD_HEAD}}", _prodObj.head_name || _prodName || "—");
   docXml = rpl(docXml, "{{SIGN_SUPPLIER}}",supplierShort);
   docXml = rpl(docXml, "{{SIGN_DRIVER}}", driverName);
 
