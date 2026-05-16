@@ -5671,21 +5671,43 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         docx_path.write_bytes(buf.getvalue())
 
         # Try soffice / libreoffice
-        for binary in ("soffice", "libreoffice", "/usr/bin/soffice", "/usr/bin/libreoffice"):
+        import os as _os
+        # LibreOffice needs a writable HOME; set to tmp_dir if not available
+        lo_env = dict(_os.environ)
+        if not lo_env.get("HOME") or lo_env.get("HOME") == "/":
+            lo_env["HOME"] = tmp_dir
+        lo_env["TMPDIR"] = tmp_dir
+
+        _lo_binaries = (
+            "/usr/bin/soffice",
+            "/usr/lib/libreoffice/program/soffice",
+            "/usr/local/bin/soffice",
+            "soffice",
+            "/usr/bin/libreoffice",
+            "libreoffice",
+        )
+        lo_ok = False
+        for binary in _lo_binaries:
             try:
                 result = _sp.run(
-                    [binary, "--headless", "--convert-to", "pdf", "--outdir", tmp_dir, str(docx_path)],
-                    capture_output=True, timeout=60
+                    [binary, "--headless", "--norestore", "--convert-to", "pdf",
+                     "--outdir", tmp_dir, str(docx_path)],
+                    capture_output=True, timeout=60, env=lo_env
                 )
+                _log.info("soffice %s exit=%d stdout=%s stderr=%s",
+                          binary, result.returncode,
+                          result.stdout.decode()[:200], result.stderr.decode()[:200])
                 if result.returncode == 0 and pdf_path.exists():
+                    lo_ok = True
                     break
-                _log.warning("soffice attempt %s code=%d", binary, result.returncode)
             except FileNotFoundError:
                 continue
             except _sp.TimeoutExpired:
                 raise HTTPException(status_code=504, detail="Таймаут конвертации PDF")
-        else:
-            raise HTTPException(status_code=500, detail="LibreOffice не найден на сервере")
+
+        if not lo_ok:
+            raise HTTPException(status_code=500,
+                detail=f"LibreOffice не смог конвертировать DOCX в PDF. Убедитесь что libreoffice-writer установлен")
 
         if not pdf_path.exists():
             raise HTTPException(status_code=500, detail="PDF не создан")
