@@ -5487,7 +5487,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
         td = 'style="border:1px solid black;padding:6pt 8pt;vertical-align:middle;font-size:11pt"'
         td_lbl = 'style="border:1px solid black;padding:6pt 8pt;vertical-align:middle;font-size:11pt;width:40%"'
-        td_tall = 'height="320" style="border:1px solid black;padding:6pt 8pt;vertical-align:top;font-size:11pt;width:60%"'
+        td_tall = 'height="240" style="border:1px solid black;padding:6pt 8pt;vertical-align:top;font-size:11pt;width:60%"'
 
         html_content = f"""<!DOCTYPE html>
 <html>
@@ -5512,7 +5512,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
   <tr><td {td_lbl}>Тип поставки</td><td {td}><b>{e(box_label)}</b></td></tr>
   <tr><td {td_lbl}>Наименование юридического лица</td><td {td}>{e(full_legal_name)}</td></tr>
   <tr><td {td_lbl}>Дата поставки</td><td {td}>{e(date_display)}</td></tr>
-  <tr height="320"><td {td_lbl} style="border:1px solid black;padding:6pt 8pt;vertical-align:middle;font-size:11pt;width:40%">Штрих-код поставки</td><td {td_tall}><div style="height:300px;min-height:300px">&nbsp;</div></td></tr>
+  <tr height="240"><td {td_lbl} style="border:1px solid black;padding:6pt 8pt;vertical-align:middle;font-size:11pt;width:40%">Штрих-код поставки</td><td {td_tall}><div style="height:240px;min-height:240px">&nbsp;</div></td></tr>
 </table>
 </body></html>"""
 
