@@ -3396,61 +3396,106 @@ function printSupplyBarcode(passNumber, supplyId) {
   const item = suppliesState.items.find((x) => x.supply_id === supplyId || x.supply_id === Number(supplyId));
   if (!item) return;
 
-  // Collect label text (same as in downloadSupplyBarcode)
-  const qty = item.quantity != null ? `${item.quantity} шт.` : "";
-  const whRaw = (item.warehouse_name || "").trim();
-  const destWh = whRaw.includes("→") ? whRaw.split("→").pop().trim() : whRaw;
+  // === Exact same data as downloadSupplyBarcode ===
+  const warehouseName = (item.warehouse_name || "").trim();
+  const quantity = item.quantity != null ? `${item.quantity} шт` : "";
   const supplyDateRaw = item.supply_date || "";
-  let dateLabel = "";
+  let dateStr = "";
   if (supplyDateRaw) {
     try {
       const d = new Date(supplyDateRaw);
-      const dd = String(d.getDate()).padStart(2,"0");
-      const mm = String(d.getMonth()+1).padStart(2,"0");
-      const yyyy = d.getFullYear();
-      dateLabel = `${dd}${mm}${yyyy}`;
+      dateStr = String(d.getDate()).padStart(2,"0") + String(d.getMonth()+1).padStart(2,"0") + d.getFullYear();
     } catch(_) {}
   }
-  const bottomParts = [dateLabel, destWh, qty].filter(Boolean);
+  const bottomParts = [];
+  if (dateStr) bottomParts.push(`${dateStr.slice(0,2)}.${dateStr.slice(2,4)}.${dateStr.slice(4)}`);
+  if (warehouseName) bottomParts.push(warehouseName);
+  if (quantity) bottomParts.push(quantity);
+  const bottomText = bottomParts.join("   ");
 
-  // Build HTML for printing — @page 58x40mm, barcode via JsBarcode SVG
-  const win = window.open("", "_blank", "width=400,height=300");
-  if (!win) { alert("Разрешите всплывающие окна для печати"); return; }
+  // === Render barcode to canvas (same settings) ===
+  const bcCanvas = document.createElement("canvas");
+  JsBarcode(bcCanvas, passNumber, { format:"CODE128", width:3, height:168, displayValue:false, margin:0, background:"#ffffff", lineColor:"#000000" });
+  const bcDataUrl = bcCanvas.toDataURL("image/png");
+  const bcAspect = bcCanvas.height / bcCanvas.width;
 
-  win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8">
+  // === Render bottom text to canvas (same Cyrillic workaround) ===
+  let textDataUrl = "", textImgH = 0;
+  if (bottomText) {
+    const PAD = 1.5, PAGE_W = 58, SCALE = 4;
+    const fontSize = 9 * SCALE;
+    const canvasW = Math.round((PAGE_W - PAD * 2 - 4) * SCALE * 3.78);
+    const lineH = 12 * SCALE;
+    const tCanvas = document.createElement("canvas");
+    tCanvas.width = canvasW; tCanvas.height = 4 * lineH;
+    const ctx = tCanvas.getContext("2d");
+    ctx.font = `bold ${fontSize}px Arial`;
+    const words = bottomText.split(/\s+/);
+    const lines = []; let cur = "";
+    for (const w of words) {
+      const test = cur ? cur + " " + w : w;
+      if (ctx.measureText(test).width > canvasW - 8 && cur) { lines.push(cur); cur = w; }
+      else cur = test;
+    }
+    if (cur) lines.push(cur);
+    tCanvas.height = lines.length * lineH + 4;
+    ctx.clearRect(0, 0, canvasW, tCanvas.height);
+    ctx.fillStyle = "#000"; ctx.font = `bold ${fontSize}px Arial`;
+    ctx.textAlign = "center"; ctx.textBaseline = "top";
+    lines.forEach((l,i) => ctx.fillText(l, canvasW/2, i*lineH+2));
+    textDataUrl = tCanvas.toDataURL("image/png");
+    textImgH = lines.length * lineH / (SCALE * 3.78);
+  }
+
+  // === Build print window ===
+  // Convert mm to px at 96dpi: 1mm = 3.7795px
+  const MMpx = 3.7795;
+  const PAD = 1.5, PAGE_W = 58, PAGE_H = 40;
+  const bcX = PAD + 1.5, bcW = PAGE_W - PAD*2 - 3;
+  const bcH = Math.min(bcW * bcAspect, 23);
+  const bcY = PAD + 8;
+  const txtY = bcY + bcH + 2.5;
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>
 @page { size: 58mm 40mm; margin: 0; }
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { width: 58mm; height: 40mm; display: flex; flex-direction: column;
-       align-items: center; justify-content: space-between;
-       padding: 1.5mm 2mm; font-family: "Times New Roman", serif; }
-.top-text { font-size: 7.5pt; font-weight: bold; text-align: center; line-height: 1.2; }
-svg { width: 54mm; height: 18mm; }
-.border { border: 0.3mm dashed #aaa; padding: 0.5mm; width: 54mm; }
-.bottom-text { font-size: 6.5pt; text-align: center; line-height: 1.3; }
-</style>
-</head><body>
-<div class="top-text">${passNumber}</div>
-<div class="border"><svg id="bc"></svg></div>
-<div class="bottom-text">${bottomParts.join("<br>")}</div>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { width: 58mm; height: 40mm; overflow: hidden; position: relative; background: #fff; }
+canvas, img { position: absolute; display: block; }
+</style></head><body>
+<canvas id="c" width="${Math.round(PAGE_W*MMpx)}" height="${Math.round(PAGE_H*MMpx)}"></canvas>
 <script>
-function loaded() {
-  JsBarcode(document.getElementById("bc"), ${JSON.stringify(passNumber)}, {
-    format: "CODE128", displayValue: false, margin: 0,
-    width: 1.5, height: 55
-  });
-  window.focus();
-  setTimeout(() => window.print(), 300);
-}
+(function(){
+  const c = document.getElementById("c");
+  const ctx = c.getContext("2d");
+  const mm = ${MMpx};
+  // Dashed border
+  ctx.setLineDash([1.2*mm, 0.8*mm]);
+  ctx.strokeStyle = "rgb(190,190,190)"; ctx.lineWidth = 0.3*mm;
+  ctx.strokeRect(${PAD}*mm, ${PAD}*mm, ${PAGE_W-PAD*2}*mm, ${PAGE_H-PAD*2}*mm);
+  ctx.setLineDash([]);
+  // Top text
+  ctx.font = "bold " + 9*(mm*0.352778*2.835) + "px Helvetica, Arial";
+  ctx.fillStyle = "#000"; ctx.textAlign = "center"; ctx.textBaseline = "top";
+  ctx.fillText(${JSON.stringify(passNumber)}, ${PAGE_W/2}*mm, (${PAD}+2)*mm);
+  // Barcode
+  const bc = new Image(); bc.onload = function() {
+    ctx.drawImage(bc, ${bcX}*mm, ${bcY}*mm, ${bcW}*mm, ${bcH}*mm);
+    ${textDataUrl ? `
+    const bt = new Image(); bt.onload = function() {
+      ctx.drawImage(bt, (${PAD}+2)*mm, ${txtY}*mm, (${PAGE_W-PAD*2-4})*mm, ${textImgH}*mm);
+      window.print();
+    }; bt.src = ${JSON.stringify(textDataUrl)};
+    ` : "window.print();"}
+  }; bc.src = ${JSON.stringify(bcDataUrl)};
+})();
 <\/script>
-</body></html>`);
-  win.document.close();
+</body></html>`;
 
-  // Load JsBarcode in the new window then run
-  const script = win.document.createElement("script");
-  script.src = "/static/jsbarcode.min.js";
-  script.onload = () => win.loaded();
-  win.document.head.appendChild(script);
+  const win = window.open("", "_blank", "width=300,height=250");
+  if (!win) { alert("Разрешите всплывающие окна для печати"); return; }
+  win.document.write(html);
+  win.document.close();
 }
 
 window.printSupplyBarcode = printSupplyBarcode;
