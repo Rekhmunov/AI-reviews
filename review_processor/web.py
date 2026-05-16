@@ -5445,6 +5445,265 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             _log.warning("nm-prices fetch error supply_id=%d: %s", supply_id, exc)
         return {"prices": prices}
 
+    @app.get("/api/supplies/{supply_id}/ttn.pdf")
+    def get_ttn_pdf(request: Request, supply_id: int):
+        """Generate TTN DOCX from template, convert to PDF via LibreOffice, return as download."""
+        import subprocess as _sp, tempfile as _tf, zipfile as _zf, io as _io
+        import urllib.request as _ul, json as _jm, ssl as _sl
+        import re as _re, pathlib as _pl
+        from fastapi.responses import FileResponse
+
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+
+        # ── Fetch supply data ──────────────────────────────────────────────
+        item_row = repository.get_supply_item_row(user_id=owner_id, supply_id=supply_id)
+        if not item_row:
+            raise HTTPException(status_code=404, detail="Поставка не найдена")
+
+        item = dict(item_row)
+        supply_id_str = str(supply_id)
+
+        # Manual fields
+        manual = repository.get_supply_manual_data(user_id=owner_id, supply_id=supply_id) or {}
+        for k in ("pass_number","pallets_count","driver_name","notes","production"):
+            if manual.get(k) is not None:
+                item[k] = manual[k]
+
+        # ── Legal entity ───────────────────────────────────────────────────
+        entities = repository.list_supply_legal_entities(user_id=owner_id)
+        supplier_short = str(item.get("supplier_name") or "")
+        le = next((e for e in entities if e.get("short_name") == supplier_short), None) or (entities[0] if entities else {})
+        org_full = le.get("full_name") or supplier_short
+        org_req  = le.get("requisites") or ""
+        org_line = ", ".join(filter(None, [org_full, org_req]))
+
+        # ── Dates ──────────────────────────────────────────────────────────
+        from datetime import datetime as _dtt
+        now = _dtt.now()
+        date_disp = now.strftime("%d.%m.%Y")
+        raw_sd = str(item.get("supply_date") or "")
+        try:
+            sd = _dtt.fromisoformat(raw_sd.replace("Z","").split("T")[0]) if raw_sd else now
+            supply_date_disp = sd.strftime("%d.%m.%Y")
+        except Exception:
+            supply_date_disp = date_disp
+
+        driver_name     = str(item.get("driver_name") or "")
+        pallets         = int(item.get("pallets_count") or 0)
+        VAT_RATE        = 0.22
+        wh              = str(item.get("warehouse_name") or "").strip()
+
+        # ── Goods list ─────────────────────────────────────────────────────
+        goods_list = repository.get_supply_goods(user_id=owner_id, supply_id=supply_id)
+        name_map = repository.get_product_name_by_article(user_id=owner_id)
+        for g in goods_list:
+            vc = str(g.get("vendor_code") or "")
+            g["product_name"] = name_map.get(vc) or vc or ""
+
+        # ── Prices from WB ─────────────────────────────────────────────────
+        nm_prices: dict[int, float] = {}
+        try:
+            src = repository.get_supply_source_with_key(user_id=owner_id, source_id=int(item_row["source_id"]))
+            if src and src.get("api_key"):
+                api_key = str(src["api_key"])
+                ctx = _sl.create_default_context()
+                offset = 0
+                while True:
+                    url = f"https://discounts-prices-api.wildberries.ru/api/v2/list/goods/filter?limit=1000&offset={offset}"
+                    req = _ul.Request(url, method="GET", headers={"Authorization": api_key, "User-Agent": "Mozilla/5.0"})
+                    with _ul.urlopen(req, context=ctx, timeout=15) as r:
+                        data = _jm.loads(r.read())
+                    page = data.get("data", {}).get("listGoods", [])
+                    for g in page:
+                        nm = int(g.get("nmID") or 0)
+                        sizes = g.get("sizes") or []
+                        dp = float(sizes[0].get("discountedPrice", 0)) if sizes else 0.0
+                        if nm and dp > 0:
+                            nm_prices[nm] = dp
+                    offset += len(page)
+                    if len(page) < 1000:
+                        break
+        except Exception as ex:
+            _log.warning("ttn-pdf prices fetch: %s", ex)
+
+        # ── Number to Russian words ────────────────────────────────────────
+        def _rubles_in_words(n: int) -> str:
+            ones_m = ["","один","два","три","четыре","пять","шесть","семь","восемь","девять"]
+            ones_f = ["","одна","две","три","четыре","пять","шесть","семь","восемь","девять"]
+            teens  = ["десять","одиннадцать","двенадцать","тринадцать","четырнадцать",
+                      "пятнадцать","шестнадцать","семнадцать","восемнадцать","девятнадцать"]
+            tens   = ["","","двадцать","тридцать","сорок","пятьдесят","шестьдесят","семьдесят","восемьдесят","девяносто"]
+            hunds  = ["","сто","двести","триста","четыреста","пятьсот","шестьсот","семьсот","восемьсот","девятьсот"]
+            def chunk(x, fem):
+                r,w = x%100,[]
+                h = x//100
+                if h: w.append(hunds[h])
+                if r>=10 and r<=19: w.append(teens[r-10])
+                else:
+                    if r//10: w.append(tens[r//10])
+                    d = r%10
+                    if d: w.append((ones_f if fem else ones_m)[d])
+                return w
+            if n==0: return "ноль рублей 00 копеек"
+            w=[]
+            bn = n//1000000000
+            mn = (n//1000000)%1000
+            th = (n//1000)%1000
+            ru = n%1000
+            if bn:
+                bw=chunk(bn,False)
+                w.extend(bw)
+                w.append(["миллиардов","миллиард","миллиарда","миллиардов"][1 if bn%10==1 and bn%100!=11 else 2 if bn%10 in(2,3,4) and bn%100 not in range(12,15) else 0 if bn==0 else 3])
+            if mn:
+                mw=chunk(mn,False)
+                w.extend(mw)
+                w.append(["миллионов","миллион","миллиона","миллионов"][1 if mn%10==1 and mn%100!=11 else 2 if mn%10 in(2,3,4) and mn%100 not in range(12,15) else 0 if mn==0 else 3])
+            if th:
+                tw2=chunk(th,True)
+                w.extend(tw2)
+                w.append(["тысяч","тысяча","тысячи","тысяч"][1 if th%10==1 and th%100!=11 else 2 if th%10 in(2,3,4) and th%100 not in range(12,15) else 0 if th==0 else 3])
+            if ru:
+                w.extend(chunk(ru,False))
+            rub_w = ["рублей","рубль","рубля","рублей"][1 if ru%10==1 and ru%100!=11 else 2 if ru%10 in(2,3,4) and ru%100 not in range(12,15) else 0 if ru==0 else 3]
+            w.append(rub_w)
+            w.append("00 копеек")
+            return " ".join(w)
+
+        def fmt2(x: float) -> str:
+            return f"{x:,.2f}".replace(",", " ").replace(".", ",")
+
+        # ── Build per-row data ─────────────────────────────────────────────
+        total_excl = total_vat = total_incl = 0.0
+        qty_total = sum(int(g.get("quantity") or 0) for g in goods_list) or pallets
+
+        rows_data = []
+        for i, g in enumerate(goods_list):
+            qty = int(g.get("quantity") or 0)
+            nm  = int(g.get("nm_id") or 0)
+            price_incl = nm_prices.get(nm)
+            price_excl = price_incl / (1 + VAT_RATE) if price_incl else None
+            amt_excl   = price_excl * qty if price_excl is not None else None
+            vat_amt    = amt_excl * VAT_RATE if amt_excl is not None else None
+            amt_incl   = amt_excl + vat_amt if amt_excl is not None else None
+            if amt_excl is not None:
+                total_excl += amt_excl; total_vat += vat_amt; total_incl += amt_incl
+            rows_data.append({
+                "num": i + 1,
+                "name": g.get("product_name") or g.get("vendor_code") or "Товар",
+                "qty": qty,
+                "price_excl": fmt2(price_excl) if price_excl is not None else "—",
+                "amt_excl":   fmt2(amt_excl)   if amt_excl   is not None else "—",
+                "vat_amt":    fmt2(vat_amt)     if vat_amt    is not None else "—",
+                "amt_incl":   fmt2(amt_incl)    if amt_incl   is not None else "—",
+            })
+
+        t_excl = fmt2(total_excl) if total_excl else "—"
+        t_vat  = fmt2(total_vat)  if total_vat  else "—"
+        t_incl = fmt2(total_incl) if total_incl else "—"
+        amt_words = _rubles_in_words(round(total_incl)) if total_incl else "—"
+
+        # ── Load + fill template ───────────────────────────────────────────
+        tpl_path = STATIC_DIR / "torg12_tpl.docx"
+        with open(tpl_path, "rb") as f:
+            tpl_bytes = f.read()
+
+        with _zf.ZipFile(_io.BytesIO(tpl_bytes)) as zin:
+            all_files = {name: zin.read(name) for name in zin.namelist()}
+
+        doc_xml = all_files["word/document.xml"].decode("utf-8")
+
+        def rpl(xml: str, ph: str, val: str) -> str:
+            import html as _html
+            return xml.replace(ph, _html.escape(val))
+
+        # Find and duplicate data row containing {{GOODS_NAME}}
+        row_rx = _re.compile(r'(<w:tr[\s>](?:(?!</w:tr>).)*?\{\{GOODS_NAME\}\}.*?</w:tr>)', _re.DOTALL)
+        m = row_rx.search(doc_xml)
+        if m and rows_data:
+            row_tpl = m.group(1)
+            import html as _html
+            multi = ""
+            for rd in rows_data:
+                r = row_tpl
+                r = r.replace("{{ROW_NUM}}",            str(rd["num"]))
+                r = r.replace("{{GOODS_NAME}}",          _html.escape(rd["name"]))
+                r = r.replace("{{PRICE}}",               _html.escape(rd["price_excl"]))
+                r = r.replace("{{ROW_AMOUNT_EXCL}}",     _html.escape(rd["amt_excl"]))
+                r = r.replace("{{ROW_VAT_SUM}}",         _html.escape(rd["vat_amt"]))
+                r = r.replace("{{ROW_AMOUNT_INCL}}",     _html.escape(rd["amt_incl"]))
+                r = r.replace("{{ROW_QTY}}",             str(rd["qty"]))
+                multi += r
+            doc_xml = doc_xml.replace(row_tpl, multi, 1)
+
+        # Scalar replacements
+        for ph, val in [
+            ("{{TTN_NUMBER}}",   supply_id_str),
+            ("{{ORG_FULL}}",     org_line),
+            ("{{SUPPLIER}}",     org_line),
+            ("{{PAYER}}",        org_line),
+            ("{{ORDER_DATE}}",   supply_id_str),
+            ("{{DOC_NUM_VAL}}", supply_id_str),
+            ("{{DOC_DATE_VAL}}", supply_date_disp),
+            ("{{GOODS_NAME}}",   rows_data[0]["name"] if rows_data else "Товар"),
+            ("{{ROW_NUM}}",      "1"),
+            ("{{PRICE}}",        rows_data[0]["price_excl"] if rows_data else "—"),
+            ("{{ROW_AMOUNT_EXCL}}", rows_data[0]["amt_excl"] if rows_data else "—"),
+            ("{{ROW_VAT_SUM}}",  rows_data[0]["vat_amt"] if rows_data else "—"),
+            ("{{ROW_AMOUNT_INCL}}", rows_data[0]["amt_incl"] if rows_data else "—"),
+            ("{{QTY}}",          str(qty_total)),
+            ("{{QTY_SHT}}",      f"{qty_total} шт"),
+            ("{{TOTAL_EXCL}}",   t_excl),
+            ("{{TOTAL_VAT}}",    t_vat),
+            ("{{TOTAL_INCL}}",   t_incl),
+            ("{{AMOUNT}}",       t_excl),
+            ("{{VAT_SUM}}",      t_vat),
+            ("{{AMOUNT_WITH_VAT}}", t_incl),
+            ("{{AMOUNT_WORDS}}", amt_words),
+            ("{{SIGN_SUPPLIER}}", supplier_short),
+            ("{{SIGN_DRIVER}}",  driver_name),
+        ]:
+            doc_xml = doc_xml.replace(ph, val)
+        # ROW_QTY fallback (if no goods list)
+        doc_xml = doc_xml.replace("{{ROW_QTY}}", str(qty_total))
+
+        all_files["word/document.xml"] = doc_xml.encode("utf-8")
+
+        # Write DOCX to temp file
+        tmp_dir  = _tf.mkdtemp()
+        docx_path = _pl.Path(tmp_dir) / f"ttn_{supply_id}.docx"
+        pdf_path  = _pl.Path(tmp_dir) / f"ttn_{supply_id}.pdf"
+
+        buf = _io.BytesIO()
+        with _zf.ZipFile(buf, "w", _zf.ZIP_DEFLATED) as zout:
+            for name, data in all_files.items():
+                zout.writestr(name, data)
+        docx_path.write_bytes(buf.getvalue())
+
+        # Convert DOCX → PDF using LibreOffice
+        try:
+            result = _sp.run(
+                ["soffice", "--headless", "--convert-to", "pdf", "--outdir", tmp_dir, str(docx_path)],
+                capture_output=True, timeout=60
+            )
+            if result.returncode != 0:
+                _log.error("soffice error: %s", result.stderr.decode())
+                raise HTTPException(status_code=500, detail="Ошибка конвертации PDF")
+        except _sp.TimeoutExpired:
+            raise HTTPException(status_code=504, detail="Таймаут конвертации PDF")
+
+        if not pdf_path.exists():
+            raise HTTPException(status_code=500, detail="PDF не создан")
+
+        return FileResponse(
+            path=str(pdf_path),
+            media_type="application/pdf",
+            filename=f"TTN_{supply_id}.pdf",
+            headers={"Content-Disposition": f'inline; filename="TTN_{supply_id}.pdf"'},
+        )
+
     @app.delete("/api/supplies")
     def clear_supplies(request: Request) -> dict[str, object]:
         user = _require_user(request)

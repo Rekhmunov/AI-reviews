@@ -7781,6 +7781,13 @@ window.toggleAddLegalEntityForm = toggleAddLegalEntityForm;
 window.saveSupplyLegalEntity = saveSupplyLegalEntity;
 window.deleteSupplyLegalEntity = deleteSupplyLegalEntity;
 async function printTTN(supplyId) {
+  // Open PDF generated server-side (LibreOffice converts DOCX→PDF, browser prints it)
+  const url = `/api/supplies/${supplyId}/ttn.pdf`;
+  const win = window.open(url, "_blank");
+  if (!win) alert("Разрешите всплывающие окна для печати");
+}
+
+async function _printTTN_html_fallback(supplyId) {
   const item = suppliesState.items.find((x) => x.supply_id === supplyId || x.supply_id === Number(supplyId));
   if (!item) return;
 
