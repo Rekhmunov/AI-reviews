@@ -5107,3 +5107,17 @@ button.secondary.danger:hover {
   color: #1e40af !important;
   box-shadow: 0 1px 4px rgba(59,130,246,0.15) !important;
 }
+.supply-print-btn {
+  background: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+  color: #475569 !important;
+  font-size: 15px !important;
+  padding: 2px 8px !important;
+  min-width: unset !important;
+  width: auto !important;
+}
+.supply-print-btn:hover {
+  background: #f1f5f9 !important;
+  border-color: #64748b !important;
+  color: #0f172a !important;
+}
