@@ -2178,8 +2178,7 @@ function renderSuppliesTable() {
           ${_isWbGiCode(item.pass_number) ? `<button class="supply-detail-link supply-barcode-link" onclick="downloadSupplyBarcode('${esc(item.pass_number || '')}',${item.supply_id})">⬇ ШК поставки</button>` : ""}
           ${_isWbGiCode(item.pass_number) ? `<button class="supply-detail-link supply-packing-link" onclick="downloadPackingList(${item.supply_id})">⬇ Упаковочный лист</button>` : ""}
           ${_isWbGiCode(item.pass_number) ? `<button class="supply-detail-link supply-poa-link" onclick="downloadPoA(${item.supply_id})">⬇ Доверенность</button>` : ""}
-          ${(_isWbGiCode(item.pass_number) && item.pallets_count && item.driver_name) ? `<button class="supply-detail-link supply-ttn-link" onclick="downloadTTN(${item.supply_id})">⬇ ТТН</button>` : ""}
-          ${(_isWbGiCode(item.pass_number) && item.pallets_count && item.driver_name) ? `<button class="supply-detail-link supply-print-btn" onclick="printTTN(${item.supply_id})" title="Печать ТТН">🖨</button>` : ""}
+          ${(_isWbGiCode(item.pass_number) && item.pallets_count && item.driver_name) ? `<div style="display:flex;gap:4px;align-items:center"><button class="supply-detail-link supply-ttn-link" style="flex:1" onclick="downloadTTN(${item.supply_id})">⬇ ТТН</button><button class="supply-detail-link supply-print-btn" onclick="printTTN(${item.supply_id})" title="Печать ТТН">🖨</button></div>` : ""}
         </div>
       </td>
     `;
@@ -7848,111 +7847,161 @@ async function printTTN(supplyId) {
   const totalInclFmt = totalIncl>0?fmt2(totalIncl):"—";
   const amtWords = totalIncl>0 ? _rublesInWords(Math.round(totalIncl)) : "—";
 
+  // Exact column widths from torg12_tpl.docx (twips → %)
+  // Total: 15709 tw. Cols: 567,3121,737,737,737,737,737,737,737,737,1134,1418,737,1418,1418
+  const CW = [3.6,19.9,4.7,4.7,4.7,4.7,4.7,4.7,4.7,4.7,7.2,9.0,4.7,9.0,9.0].map(p=>p+"%");
+
+  const colgroupHtml = CW.map(w=>`<col style="width:${w}">`).join("");
+
   const html = `<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"/>
 <title>ТТН № ${supplyId_}</title>
 <style>
-@page{size:A4 landscape;margin:10mm}
-*{box-sizing:border-box}
-body{font-family:"Times New Roman",serif;font-size:8pt;margin:0;color:#000}
-h3{font-size:11pt;text-align:center;margin:6pt 0 4pt}
-.hdr{display:flex;justify-content:space-between;margin-bottom:4pt}
-.hdr-left{width:60%;font-size:8pt}
-.hdr-right{width:38%;font-size:7pt;text-align:right}
-.hdr-right p{margin:1pt 0}
-table{width:100%;border-collapse:collapse;font-size:7pt}
-th,td{border:1px solid #000;padding:1pt 2pt;vertical-align:middle}
-th{background:#f5f5f5;font-weight:bold;text-align:center;font-size:6.5pt}
-.c{text-align:center}
-.r{text-align:right}
-.info-tbl td{border:none;border-bottom:1px solid #888;padding:1pt 3pt;font-size:7.5pt}
-.info-tbl td:first-child{font-weight:bold;width:22%;white-space:nowrap}
-.totals td{font-weight:bold;background:#fafafa}
-.sig{margin-top:8pt;display:flex;justify-content:space-between;font-size:7.5pt}
-.sig-col{width:48%}
-.sig-line{border-bottom:1px solid #000;margin-top:10pt;margin-bottom:2pt}
-.footer-note{font-size:7pt;margin-top:6pt}
+@page{size:A4 landscape;margin:10mm 8mm}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"Times New Roman",serif;font-size:7.5pt;color:#000}
+/* Header table (org info + codes) */
+.t-hdr{width:100%;border-collapse:collapse;margin-bottom:2pt;font-size:7.5pt}
+.t-hdr td{border:none;padding:1.5pt 2pt;vertical-align:top}
+.t-hdr .td-org{width:58%;border-bottom:1px solid #555}
+.t-hdr .td-codes{width:42%;vertical-align:top}
+.t-codes{width:100%;border-collapse:collapse;font-size:7pt;margin-top:1pt}
+.t-codes th,.t-codes td{border:1px solid #000;padding:1pt 3pt}
+.t-codes th{text-align:center;background:#f0f0f0}
+/* Title table */
+.t-title{width:100%;border-collapse:collapse;margin:3pt 0 2pt;font-size:8pt}
+.t-title td,.t-title th{border:1px solid #000;padding:1.5pt 3pt;text-align:center}
+.t-title .title-cell{font-size:12pt;font-weight:bold;border:none;text-align:center;padding:3pt 0}
+/* Main goods table */
+.t-goods{width:100%;border-collapse:collapse;font-size:6.5pt;table-layout:fixed}
+.t-goods th,.t-goods td{border:1px solid #000;padding:1pt 1.5pt;vertical-align:middle;overflow:hidden;word-break:break-word}
+.t-goods th{text-align:center;background:#f5f5f5;line-height:1.2}
+.c{text-align:center}.r{text-align:right}
+.fw{font-weight:bold}
+/* Footer */
+.footer-line{margin-top:4pt;font-size:7pt;border-top:1px solid #000;padding-top:2pt}
+.sig-wrap{display:flex;justify-content:space-between;margin-top:6pt;font-size:7pt}
+.sig-block{width:49%}
+.sig-row{margin-top:5pt}
+.sig-row span{display:inline-block;min-width:140pt;border-bottom:1px solid #000}
+.sig-label{font-size:6pt;color:#555;margin-top:1pt}
 </style></head><body>
-<div class="hdr">
-  <div class="hdr-left">
-    <b>Грузоотправитель:</b> ООО «РВБ», Ногинский район, г.Электросталь, поселок Случайный, д.5<br/>
-    <b>Поставщик:</b> ${esc(orgLine||"—")}<br/>
-    <b>Плательщик:</b> ${esc(orgLine||"—")}<br/>
-    <b>Основание:</b> Заказ № ${supplyId_}
-  </div>
-  <div class="hdr-right">
-    <p>Унифицированная форма № ТОРГ-12</p>
-    <p>Утверждена постановлением Госкомстата России от 25.12.98 №132</p>
-    <table style="width:auto;margin-left:auto;margin-top:4pt;font-size:6.5pt">
+
+<!-- HEADER: org info left, codes right -->
+<table class="t-hdr"><tr>
+  <td class="td-org">
+    <div><b>Организация–грузоотправитель:</b> ООО «РВБ», Ногинский район, г.Электросталь, посёлок Случайный, д.5</div>
+    <div style="font-size:6pt;color:#555">организация–грузоотправитель, адрес, номер телефона, банковские реквизиты / структурное подразделение</div>
+  </td>
+  <td class="td-codes" rowspan="5">
+    <div style="text-align:right;font-size:7pt">Унифицированная форма № ТОРГ-12<br/>Утверждена постановлением Госкомстата России от 25.12.98 №132</div>
+    <table class="t-codes" style="margin-top:3pt">
       <tr><th colspan="2">Код</th></tr>
       <tr><td>Форма по ОКУД</td><td class="c">0330212</td></tr>
       <tr><td>по ОКПО</td><td class="c"></td></tr>
       <tr><td>Вид деятельности по ОКДП</td><td class="c"></td></tr>
     </table>
-  </div>
-</div>
-<h3>ТОВАРНАЯ НАКЛАДНАЯ №${supplyId_}</h3>
-<table style="width:auto;margin:0 auto 6pt;font-size:8pt">
-  <tr><th>Номер документа</th><th>Дата составления</th></tr>
-  <tr><td class="c">${supplyId_}</td><td class="c">${supplyDate}</td></tr>
+  </td>
+</tr><tr>
+  <td class="td-org" style="padding-top:3pt">
+    <div><b>Грузоотправитель:</b> ООО «РВБ», Ногинский район, г.Электросталь, посёлок Случайный, д.5</div>
+    <div style="font-size:6pt;color:#555">наименование организации, адрес, номер телефона, банковские реквизиты</div>
+  </td>
+</tr><tr>
+  <td class="td-org" style="padding-top:3pt">
+    <div><b>Поставщик:</b> ${esc(orgLine||"—")}</div>
+    <div style="font-size:6pt;color:#555">наименование организации, адрес, номер телефона, банковские реквизиты</div>
+  </td>
+</tr><tr>
+  <td class="td-org" style="padding-top:3pt">
+    <div><b>Плательщик:</b> ${esc(orgLine||"—")}</div>
+    <div style="font-size:6pt;color:#555">наименование организации, адрес, номер телефона, банковские реквизиты</div>
+  </td>
+</tr><tr>
+  <td class="td-org" style="padding-top:3pt">
+    <div><b>Основание:</b> Заказ № ${supplyId_}</div>
+    <div style="margin-top:2pt;font-size:6.5pt;display:flex;gap:20pt">
+      <span>Транспортная накладная № _______ от _______</span>
+      <span>Вид операции: _______</span>
+    </div>
+  </td>
+</tr></table>
+
+<!-- TITLE -->
+<table class="t-title">
+  <tr>
+    <td class="title-cell" colspan="2">ТОВАРНАЯ НАКЛАДНАЯ &nbsp; №&nbsp;${supplyId_}</td>
+  </tr>
+  <tr>
+    <th style="width:50%">Номер документа</th>
+    <th style="width:50%">Дата составления</th>
+  </tr>
+  <tr>
+    <td>${supplyId_}</td>
+    <td>${supplyDate}</td>
+  </tr>
 </table>
-<table>
+
+<!-- GOODS TABLE -->
+<table class="t-goods"><colgroup>${colgroupHtml}</colgroup>
   <thead>
     <tr>
-      <th rowspan="3" style="width:3%">№<br/>п/п</th>
-      <th rowspan="3" style="width:18%">Наименование,<br/>характеристика,<br/>сорт, артикул товара</th>
-      <th rowspan="3" style="width:3%">Код</th>
-      <th colspan="2" style="width:7%">Единица<br/>измерения</th>
-      <th rowspan="3" style="width:4%">Вид<br/>упаков-<br/>ки</th>
-      <th colspan="2" style="width:7%">Количество</th>
-      <th rowspan="3" style="width:5%">Масса<br/>брутто</th>
-      <th rowspan="3" style="width:5%">Кол-во<br/>(масса<br/>нетто)</th>
-      <th rowspan="3" style="width:7%">Цена,<br/>руб.коп.</th>
-      <th rowspan="3" style="width:9%">Сумма без<br/>учёта НДС,<br/>руб.коп.</th>
-      <th colspan="2" style="width:9%">НДС</th>
-      <th rowspan="3" style="width:9%">Сумма с<br/>учётом НДС,<br/>руб.коп.</th>
+      <th rowspan="3">Номер<br/>по<br/>порядку</th>
+      <th rowspan="3">Товар (наименование, характеристика, сорт, артикул товара)</th>
+      <th rowspan="3">код</th>
+      <th colspan="2">Единица измерения</th>
+      <th rowspan="3">Вид<br/>упаковки</th>
+      <th colspan="2">Количество</th>
+      <th rowspan="3">Масса<br/>брутто</th>
+      <th rowspan="3">Кол-во<br/>(масса<br/>нетто)</th>
+      <th rowspan="3">Цена,<br/>руб.,&nbsp;коп.</th>
+      <th rowspan="3">Сумма без<br/>учёта НДС,<br/>руб.,&nbsp;коп.</th>
+      <th colspan="2">НДС</th>
+      <th rowspan="3">Сумма с<br/>учётом НДС,<br/>руб.,&nbsp;коп.</th>
     </tr>
     <tr>
-      <th>наиме-<br/>нование</th><th>код<br/>ОКЕИ</th>
+      <th>наиме-<br/>нование</th><th>код по ОКЕИ</th>
       <th>в одном<br/>месте</th><th>мест,<br/>штук</th>
-      <th>став-<br/>ка,%</th><th>сумма,<br/>руб.коп.</th>
+      <th>ставка,&nbsp;%</th><th>сумма,<br/>руб.,&nbsp;коп.</th>
     </tr>
     <tr><th>4</th><th>5</th><th>7</th><th>8</th><th>13</th><th>14</th></tr>
-    <tr class="c" style="font-size:6pt"><td>1</td><td>2</td><td>3</td><td>4</td><td>5</td><td>6</td><td>7</td><td>8</td><td>9</td><td>10</td><td>11</td><td>12</td><td>13</td><td>14</td><td>15</td></tr>
+    <tr><td class="c">1</td><td class="c">2</td><td class="c">3</td><td class="c">4</td><td class="c">5</td><td class="c">6</td><td class="c">7</td><td class="c">8</td><td class="c">9</td><td class="c">10</td><td class="c">11</td><td class="c">12</td><td class="c">13</td><td class="c">14</td><td class="c">15</td></tr>
   </thead>
   <tbody>
     ${goodsRows||`<tr><td colspan="15" class="c">—</td></tr>`}
-    <tr class="totals">
-      <td colspan="7" class="r">Всего по накладной</td>
-      <td class="c">${qtyTotal}</td>
+    <tr class="fw">
+      <td colspan="7" class="r" style="font-weight:bold">Всего по накладной</td>
+      <td class="c fw">${qtyTotal}</td>
       <td class="c">—</td>
-      <td class="c">${qtyTotal}</td>
+      <td class="c fw">${qtyTotal}</td>
       <td class="c">×</td>
-      <td class="r">${totalExclFmt}</td>
+      <td class="r fw">${totalExclFmt}</td>
       <td class="c">×</td>
-      <td class="r">${totalVatFmt}</td>
-      <td class="r">${totalInclFmt}</td>
+      <td class="r fw">${totalVatFmt}</td>
+      <td class="r fw">${totalInclFmt}</td>
     </tr>
   </tbody>
 </table>
-<div class="footer-note">
+
+<div class="footer-line">
   Товарная накладная имеет приложение на _____ листах и содержит _____ порядковых номеров записей.<br/>
   Всего отпущено на сумму: <b>${amtWords}</b>
 </div>
-<div class="sig">
-  <div class="sig-col">
-    <div>Отпуск разрешил: <span style="display:inline-block;width:180pt;border-bottom:1px solid #000">&nbsp;${esc(supplierShort)}</span></div>
-    <div style="font-size:6.5pt;color:#555">должность &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; подпись &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; расшифровка подписи</div>
-    <div style="margin-top:8pt">Главный бухгалтер: <span style="display:inline-block;width:160pt;border-bottom:1px solid #000">&nbsp;${esc(supplierShort)}</span></div>
-    <div style="font-size:6.5pt;color:#555">должность &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; подпись &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; расшифровка подписи</div>
-    <div style="margin-top:8pt">Отпуск груза произвел: <span style="display:inline-block;width:148pt;border-bottom:1px solid #000">&nbsp;${esc(supplierShort)}</span></div>
-    <div style="font-size:6.5pt;color:#555">должность &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; подпись &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; расшифровка подписи</div>
+
+<div class="sig-wrap">
+  <div class="sig-block">
+    <div class="sig-row">Отпуск разрешил &nbsp;<span>&nbsp;${esc(supplierShort)}</span></div>
+    <div class="sig-label">должность &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; подпись &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; расшифровка подписи</div>
+    <div class="sig-row">Главный бухгалтер &nbsp;<span>&nbsp;${esc(supplierShort)}</span></div>
+    <div class="sig-label">должность &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; подпись &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; расшифровка подписи</div>
+    <div class="sig-row">Отпуск груза произвел &nbsp;<span>&nbsp;${esc(supplierShort)}</span></div>
+    <div class="sig-label">должность &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; подпись &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; расшифровка подписи</div>
   </div>
-  <div class="sig-col">
-    <div>Груз принял: <span style="display:inline-block;width:180pt;border-bottom:1px solid #000">&nbsp;${esc(driverName)}</span></div>
-    <div style="font-size:6.5pt;color:#555">должность &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; подпись &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; расшифровка подписи</div>
-    <div style="margin-top:8pt">Груз получил грузополучатель: <span style="display:inline-block;width:128pt;border-bottom:1px solid #000">&nbsp;</span></div>
-    <div style="font-size:6.5pt;color:#555">должность &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; подпись &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; расшифровка подписи</div>
-    <div style="margin-top:10pt">&laquo;&nbsp;&nbsp;&nbsp;&raquo; __________ ${yyyy} г.</div>
+  <div class="sig-block">
+    <div class="sig-row">Груз принял &nbsp;<span>&nbsp;${esc(driverName)}</span></div>
+    <div class="sig-label">должность &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; подпись &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; расшифровка подписи</div>
+    <div class="sig-row">Груз получил грузополучатель &nbsp;<span>&nbsp;</span></div>
+    <div class="sig-label">должность &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; подпись &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; расшифровка подписи</div>
+    <div style="margin-top:8pt">«&nbsp;&nbsp;&nbsp;»&nbsp;______________&nbsp;${yyyy}&nbsp;г.</div>
   </div>
 </div>
 </body></html>`;
