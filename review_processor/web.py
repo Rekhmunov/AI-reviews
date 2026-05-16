@@ -5590,113 +5590,79 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             for i, g in enumerate(goods_list)
         )
 
-        dotline = 'style="display:inline-block;border-bottom:1px solid #000;min-width:120pt"'
+        # Use underscores for signature lines — LibreOffice renders these reliably
+        UL = "_" * 30  # underline substitute
+        sig_name = e(signatories) if signatories and signatories != "—" else ""
 
         html_content = f"""<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>
 @page {{ size: 210mm 297mm; margin: 15mm 10mm 15mm 25mm; }}
 body {{ font-family: "Times New Roman", serif; font-size: 11pt; line-height: 1.4; }}
-.small {{ font-size: 8pt; text-align: center; }}
-.underline {{ text-decoration: underline; }}
-.center {{ text-align: center; }}
-.bold {{ font-weight: bold; }}
 p {{ margin: 3pt 0; }}
 </style>
 </head>
 <body>
-<table style="width:100%;border-collapse:collapse;margin-bottom:8pt">
-  <tr>
-    <td style="width:55%;vertical-align:top;font-size:11pt">
-      Организация <span class="underline">{e(org_full)}</span>
-    </td>
-    <td style="width:45%;vertical-align:top;text-align:right;font-size:8pt">
-      Типовая межотраслевая форма № М-2<br>
-      Утверждена постановлением Госстата России от 30.10.97 № 71а<br><br>
-      <table border="1" cellspacing="0" style="margin-left:auto;font-size:9pt;border-collapse:collapse">
-        <tr><td colspan="2" style="padding:2pt 6pt;text-align:center;font-weight:bold">Коды</td></tr>
-        <tr><td style="padding:2pt 6pt">Форма по ОКУД</td><td style="padding:2pt 6pt">0315001</td></tr>
-        <tr><td style="padding:2pt 6pt">по ОКПО</td><td style="padding:2pt 6pt">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td></tr>
-      </table>
-    </td>
-  </tr>
-</table>
+<table width="100%" cellspacing="0" cellpadding="0"><tr>
+  <td width="55%" valign="top" style="font-size:11pt">
+    Организация <u>{e(org_full)}</u>
+  </td>
+  <td width="45%" valign="top" align="right" style="font-size:8pt">
+    Типовая межотраслевая форма № М-2<br>
+    Утверждена постановлением Госстата России от 30.10.97 № 71а
+    <table border="1" cellspacing="0" cellpadding="4" align="right" style="font-size:9pt;margin-top:4pt">
+      <tr><td colspan="2" align="center"><b>Коды</b></td></tr>
+      <tr><td>Форма по ОКУД</td><td>0315001</td></tr>
+      <tr><td>по ОКПО</td><td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td></tr>
+    </table>
+  </td>
+</tr></table>
 
-<p class="center bold" style="font-size:14pt;margin:10pt 0 4pt">Доверенность № {e(supply_id_str)}</p>
-<p>Дата выдачи <span class="underline bold">{e(date_display)}</span></p>
+<p align="center" style="font-size:14pt;font-weight:bold;margin:10pt 0 4pt">Доверенность № {e(supply_id_str)}</p>
+<p>Дата выдачи <b><u>{e(date_display)}</u></b></p>
 <p>Доверенность действительна 14 дней с даты подписания.</p>
 <p style="margin-top:6pt">{e(org_line)}</p>
-<p class="small">наименование потребителя и его адрес</p>
+<p style="font-size:8pt;text-align:center">наименование потребителя и его адрес</p>
 <p style="margin-top:4pt">{e(org_line)}</p>
-<p class="small">наименование плательщика и его адрес</p>
+<p style="font-size:8pt;text-align:center">наименование плательщика и его адрес</p>
 
-<p style="margin-top:8pt">
-  Доверенность выдана &nbsp;&nbsp;
-  <span class="underline" style="min-width:60pt;display:inline-block">водителю</span>
-  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-  <span class="underline">{e(driver_name)}</span>
-</p>
-<p class="small" style="padding-left:120pt">должность &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; фамилия, имя, отчество</p>
+<p style="margin-top:8pt">Доверенность выдана &nbsp; <u>водителю</u> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <u>{e(driver_name)}</u></p>
+<p style="font-size:8pt">должность &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; фамилия, имя, отчество</p>
 
-{f'<p>{e(driver_docs)}</p>' if driver_docs else ''}
+{f"<p>{e(driver_docs)}</p>" if driver_docs else ""}
 
-<p style="margin-top:6pt">
-  На отправку груза от &nbsp;&nbsp;
-  <span class="underline">&nbsp;&nbsp;&nbsp;&nbsp;{e(supplier_short)}&nbsp;&nbsp;&nbsp;&nbsp;</span>
-</p>
-<p class="small" style="text-align:center">наименование поставщика</p>
+<p style="margin-top:6pt">На отправку груза от &nbsp;&nbsp; <u>&nbsp;{e(supplier_short)}&nbsp;</u></p>
+<p style="font-size:8pt;text-align:center">наименование поставщика</p>
 
-<p style="margin-top:4pt">
-  материальных ценностей по транспортной накладной &nbsp;
-  <span class="underline bold">{e(supply_id_str)}</span>
-  &nbsp; от &nbsp;
-  <span class="underline bold">{e(date_display)}</span>
-</p>
-<p class="small">наименование, номер и дата документа</p>
+<p style="margin-top:4pt">материальных ценностей по транспортной накладной &nbsp; <b><u>{e(supply_id_str)}</u></b> &nbsp; от &nbsp; <b><u>{e(date_display)}</u></b></p>
+<p style="font-size:8pt">наименование, номер и дата документа</p>
 
 <p style="margin-top:10pt">Перечень материальных ценностей, подлежащих доставке</p>
-<table border="1" cellspacing="0" style="width:100%;border-collapse:collapse;margin-top:6pt;font-size:10pt">
+<table border="1" cellspacing="0" cellpadding="4" width="100%" style="font-size:10pt">
   <tr>
-    <th style="border:1px solid black;padding:3pt 5pt;width:8%;text-align:center">Номер по порядку</th>
-    <th style="border:1px solid black;padding:3pt 5pt;width:44%;text-align:center">Материальные ценности</th>
-    <th style="border:1px solid black;padding:3pt 5pt;width:16%;text-align:center">Единица измерения</th>
-    <th style="border:1px solid black;padding:3pt 5pt;width:32%;text-align:center">Количество</th>
+    <th width="8%" align="center">Номер по порядку</th>
+    <th width="44%" align="center">Материальные ценности</th>
+    <th width="16%" align="center">Единица измерения</th>
+    <th width="32%" align="center">Количество</th>
   </tr>
   {goods_rows}
 </table>
 
-<p style="margin-top:18pt">
-  Подпись лица, получившего доверенность удостоверяем.
-  &nbsp;&nbsp;&nbsp;&nbsp;
-  <span {dotline}>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
-  &nbsp;&nbsp;
-  ({e(driver_name)})
-</p>
+<p style="margin-top:18pt">Подпись лица, получившего доверенность удостоверяем. &nbsp;&nbsp;&nbsp;&nbsp; {UL} &nbsp;&nbsp; ({e(driver_name)})</p>
 
-<table style="width:100%;margin-top:18pt;border-collapse:collapse">
+<br>
+<table width="100%" cellspacing="0" cellpadding="4" style="margin-top:18pt">
   <tr>
-    <td style="width:25%;vertical-align:bottom">Руководитель<br><span style="font-size:8pt">М.П.</span></td>
-    <td style="width:30%;vertical-align:bottom;text-align:center">
-      <span {dotline}>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><br>
-      <span style="font-size:8pt">подпись</span>
-    </td>
-    <td style="width:45%;vertical-align:bottom;text-align:center">
-      ({e(signatories)})<br>
-      <span style="font-size:8pt">расшифровка подписи</span>
-    </td>
+    <td width="25%" valign="bottom">Руководитель<br><small>М.П.</small></td>
+    <td width="30%" valign="bottom" align="center">{UL}<br><small>подпись</small></td>
+    <td width="45%" valign="bottom" align="center">{sig_name}<br><small>расшифровка подписи</small></td>
   </tr>
 </table>
 
-<table style="width:100%;margin-top:14pt;border-collapse:collapse">
+<table width="100%" cellspacing="0" cellpadding="4" style="margin-top:14pt">
   <tr>
-    <td style="width:25%;vertical-align:bottom">Главный бухгалтер</td>
-    <td style="width:30%;vertical-align:bottom;text-align:center">
-      <span {dotline}>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><br>
-      <span style="font-size:8pt">подпись</span>
-    </td>
-    <td style="width:45%;vertical-align:bottom;text-align:center">
-      ({e(signatories)})<br>
-      <span style="font-size:8pt">расшифровка подписи</span>
-    </td>
+    <td width="25%" valign="bottom">Главный бухгалтер</td>
+    <td width="30%" valign="bottom" align="center">{UL}<br><small>подпись</small></td>
+    <td width="45%" valign="bottom" align="center">{sig_name}<br><small>расшифровка подписи</small></td>
   </tr>
 </table>
 </body></html>"""
