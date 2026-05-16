@@ -3230,7 +3230,7 @@ async function downloadTTN(supplyId) {
   const _issuedBy = [le.full_name || supplierShort, le.requisites].filter(Boolean).join(", ");
   docXml = rpl(docXml, "{{SUPPLY_ID}}",      supplyId_);
   docXml = rpl(docXml, "{{DOC_DATE_FULL}}",  _docDateFull);
-  docXml = rpl(docXml, "{{ISSUED_BY}}",      _issuedBy || supplierShort || "—");
+  docXml = rpl(docXml, "{{ISSUED_BY}}",      supplierShort || "—");
   docXml = rpl(docXml, "{{SIGN_SUPPLIER}}",supplierShort);
   docXml = rpl(docXml, "{{SIGN_DRIVER}}", driverName);
 
