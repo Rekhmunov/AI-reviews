@@ -5694,7 +5694,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         for binary in _lo_binaries:
             try:
                 result = _sp.run(
-                    [binary, "--headless", "--norestore", "--noplugins",
+                    [binary, "--headless", "--norestore",
                      f"-env:UserInstallation=file://{tmp_dir}/lo_profile",
                      "--convert-to", "pdf",
                      "--outdir", tmp_dir, str(docx_path)],
