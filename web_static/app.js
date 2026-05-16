@@ -7980,7 +7980,7 @@ body{font-family:"Times New Roman",serif;font-size:7.5pt;color:#000}
       <td class="c fw">${qtyTotal}</td>
       <td class="c">—</td>
       <td class="c fw">${qtyTotal}</td>
-      <td class="c">×</td>
+      <td class="c">—</td>
       <td class="r fw">${totalExclFmt}</td>
       <td class="c">×</td>
       <td class="r fw">${totalVatFmt}</td>
