@@ -5415,6 +5415,130 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             _log.warning("lazy supply goods fetch error supply_id=%d: %s", supply_id, exc)
         return []
 
+    @app.get("/api/supplies/{supply_id}/packing-list.pdf")
+    def get_packing_list_pdf(request: Request, supply_id: int):
+        """Generate packing list HTML → PDF via LibreOffice."""
+        import subprocess as _sp, tempfile as _tf, pathlib as _pl, os as _os
+        import html as _hm
+        from fastapi.responses import Response
+        from datetime import datetime as _dtt
+
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+
+        item_row = repository.get_supply_item_row(user_id=owner_id, supply_id=supply_id)
+        if not item_row:
+            raise HTTPException(status_code=404, detail="Поставка не найдена")
+        item = dict(item_row)
+
+        # Legal entity full name
+        entities = repository.list_supply_legal_entities(user_id=owner_id)
+        supplier_short = str(item.get("supplier_name") or "")
+        le = next((e for e in entities if e.get("short_name") == supplier_short), None) or {}
+        full_legal_name = le.get("full_name") or supplier_short
+
+        # Warehouse address
+        warehouses = repository.list_supply_warehouses(user_id=owner_id)
+        wh_map = {w["warehouse_name"]: w.get("address","") for w in warehouses if w.get("warehouse_name")}
+        dest_wh = str(item.get("warehouse_name") or "").strip()
+        transit_wh = str(item.get("transit_warehouse_name") or "").strip()
+        if transit_wh:
+            wh_for_pickup = wh_map.get(transit_wh, transit_wh)
+            wh_for_dest   = wh_map.get(dest_wh, dest_wh)
+        else:
+            wh_for_pickup = wh_map.get(dest_wh, dest_wh)
+            wh_for_dest   = wh_for_pickup
+
+        box_labels = {0:"Не указан",1:"Короба",2:"Короба",5:"Монопаллеты / СГТ",6:"Паллеты"}
+        box_label = box_labels.get(int(item.get("box_type_id") or 0), "")
+
+        pass_number   = str(item.get("pass_number") or "")
+        pallets_count = str(item.get("pallets_count") or "")
+        supply_id_str = str(supply_id)
+
+        raw_sd = str(item.get("supply_date") or "")
+        try:
+            sd = _dtt.fromisoformat(raw_sd.replace("Z","").split("T")[0]) if raw_sd else _dtt.now()
+            date_display = sd.strftime("%d.%m.%Y")
+        except Exception:
+            date_display = ""
+
+        e = _hm.escape
+
+        html_content = f"""<!DOCTYPE html>
+<html xmlns:o="urn:schemas-microsoft-com:office:office"
+      xmlns:w="urn:schemas-microsoft-com:office:word"
+      xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="utf-8">
+<style>
+  @page {{ size: 210mm 297mm; margin: 20mm 15mm 20mm 25mm; }}
+  body {{ font-family: "Times New Roman", serif; font-size: 12pt; }}
+  h1 {{ text-align: center; font-size: 13pt; font-weight: bold; margin: 0 0 4pt; }}
+  h2 {{ text-align: center; font-size: 22pt; font-weight: bold; margin: 12pt 0 8pt; text-transform: uppercase; }}
+  table {{ width: 100%; border-collapse: collapse; margin-top: 8pt; }}
+  td {{ border: 1px solid #000; padding: 6pt 8pt; vertical-align: middle; font-size: 11pt; }}
+  .label-col {{ width: 40%; }}
+  .barcode-cell {{ height: 120pt; min-height: 120pt; text-align: center; vertical-align: middle; width: 60%; }}
+</style>
+</head>
+<body>
+<h1>Упаковочный лист {e(supplier_short)}</h1>
+<h1>(поставка №{e(supply_id_str)}, {e(pass_number)})</h1>
+<h2>{e(box_label)}</h2>
+<table>
+  <tr><td class="label-col">Порядковый номер паллеты</td><td></td></tr>
+  <tr><td>Количество паллет</td><td>{e(pallets_count)}</td></tr>
+  <tr><td>Количество коробок на паллете</td><td></td></tr>
+  <tr><td>Склад</td><td>{e(wh_for_pickup)}</td></tr>
+  <tr><td>Склад назначения</td><td>{e(wh_for_dest)}</td></tr>
+  <tr><td>Тип поставки</td><td><b>{e(box_label)}</b></td></tr>
+  <tr><td>Наименование юридического лица</td><td>{e(full_legal_name)}</td></tr>
+  <tr><td>Дата поставки</td><td>{e(date_display)}</td></tr>
+  <tr><td>Штрих-код поставки</td><td class="barcode-cell"></td></tr>
+</table>
+</body></html>"""
+
+        tmp_dir  = _tf.mkdtemp()
+        html_path = _pl.Path(tmp_dir) / f"pl_{supply_id}.html"
+        pdf_path  = _pl.Path(tmp_dir) / f"pl_{supply_id}.pdf"
+        html_path.write_text(html_content, encoding="utf-8")
+
+        lo_env = dict(_os.environ)
+        lo_env["HOME"] = tmp_dir
+        lo_env["XDG_CACHE_HOME"]  = tmp_dir
+        lo_env["XDG_CONFIG_HOME"] = tmp_dir
+        lo_env["XDG_RUNTIME_DIR"] = tmp_dir
+        lo_env["DCONF_PROFILE"]   = "/dev/null"
+
+        lo_ok = False
+        for binary in ("/usr/bin/soffice", "/usr/lib/libreoffice/program/soffice", "soffice", "libreoffice"):
+            try:
+                result = _sp.run(
+                    [binary, "--headless", "--norestore",
+                     f"-env:UserInstallation=file://{tmp_dir}/lo_profile",
+                     "--convert-to", "pdf",
+                     "--outdir", tmp_dir, str(html_path)],
+                    capture_output=True, timeout=60, env=lo_env
+                )
+                if result.returncode == 0 and pdf_path.exists():
+                    lo_ok = True
+                    break
+            except FileNotFoundError:
+                continue
+            except _sp.TimeoutExpired:
+                raise HTTPException(status_code=504, detail="Таймаут конвертации")
+
+        if not lo_ok:
+            raise HTTPException(status_code=500, detail="Ошибка конвертации упаковочного листа в PDF")
+
+        return Response(
+            content=pdf_path.read_bytes(),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'inline; filename="PackingList_{supply_id}.pdf"'},
+        )
+
     @app.get("/api/supplies/{supply_id}/nm-prices")
     def get_supply_nm_prices(request: Request, supply_id: int) -> dict[str, object]:
         """Return {nmID: discountedPrice} for all goods using the source api_key (same token, prices scope)."""
