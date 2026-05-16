@@ -5636,7 +5636,7 @@ p {{ margin: 3pt 0; }}
 <p style="margin-top:4pt">материальных ценностей по транспортной накладной &nbsp; <b><u>{e(supply_id_str)}</u></b> &nbsp; от &nbsp; <b><u>{e(date_display)}</u></b></p>
 <p style="font-size:8pt">наименование, номер и дата документа</p>
 
-<p style="margin-top:10pt">Перечень материальных ценностей, подлежащих доставке</p>
+<p style="margin-top:6pt">Перечень материальных ценностей, подлежащих доставке</p>
 <table border="1" cellspacing="0" cellpadding="4" width="100%" style="font-size:10pt">
   <tr>
     <th width="8%" align="center">Номер по порядку</th>
@@ -5647,10 +5647,8 @@ p {{ margin: 3pt 0; }}
   {goods_rows}
 </table>
 
-<p style="margin-top:18pt">Подпись лица, получившего доверенность удостоверяем. &nbsp;&nbsp;&nbsp;&nbsp; {UL} &nbsp;&nbsp; ({e(driver_name)})</p>
-
-<br>
-<table width="100%" cellspacing="0" cellpadding="4" style="margin-top:18pt">
+<p style="margin-top:8pt">Подпись лица, получившего доверенность удостоверяем. &nbsp;&nbsp;&nbsp;&nbsp; {UL} &nbsp;&nbsp; ({e(driver_name)})</p>
+<table width="100%" cellspacing="0" cellpadding="2" style="margin-top:8pt">
   <tr>
     <td width="25%" valign="bottom">Руководитель<br><small>М.П.</small></td>
     <td width="30%" valign="bottom" align="center">{UL}<br><small>подпись</small></td>
@@ -5658,7 +5656,7 @@ p {{ margin: 3pt 0; }}
   </tr>
 </table>
 
-<table width="100%" cellspacing="0" cellpadding="4" style="margin-top:14pt">
+<table width="100%" cellspacing="0" cellpadding="2" style="margin-top:6pt">
   <tr>
     <td width="25%" valign="bottom">Главный бухгалтер</td>
     <td width="30%" valign="bottom" align="center">{UL}<br><small>подпись</small></td>
