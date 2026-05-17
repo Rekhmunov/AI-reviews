@@ -3779,7 +3779,7 @@ async function downloadCombinedTTN() {
   const amtWords=totalIncl>0?_rublesInWords(Math.round(totalIncl)):"—";
   for(const [ph,val] of [
     ["{{TTN_NUMBER}}",docNum],["{{ORG_FULL}}",orgLine],["{{SUPPLIER}}",orgLine],["{{PAYER}}",orgLine],
-    ["{{ORDER_DATE}}",docNum],["{{DOC_NUM_VAL}}",docNum],["{{DOC_DATE_VAL}}",dateDisp],
+    ["{{ORDER_DATE}}",ids.join(", ")],["{{DOC_NUM_VAL}}",docNum],["{{DOC_DATE_VAL}}",dateDisp],
     ["{{GOODS_NAME}}",allGoods[0]?.product_name||"Товар"],["{{ROW_NUM}}","1"],
     ["{{PRICE}}","—"],["{{ROW_AMOUNT_EXCL}}","—"],["{{ROW_VAT_SUM}}","—"],["{{ROW_AMOUNT_INCL}}","—"],
     ["{{QTY}}",String(qtyTotal)],["{{QTY_SHT}}",`${qtyTotal} шт`],
