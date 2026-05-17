@@ -6073,10 +6073,23 @@ tr {{ page-break-inside: avoid; }}
         if not supply_ids:
             raise HTTPException(status_code=400, detail="Укажите ids поставок")
 
-        # Collect all goods from all selected supplies
+        # Collect all goods from all selected supplies (with lazy WB API fetch if not cached)
         entities = repository.list_supply_legal_entities(user_id=owner_id)
         drivers = repository.list_supply_drivers(user_id=owner_id)
         name_map = repository.get_product_name_by_article(user_id=owner_id)
+
+        def _wb_get_goods(supply_id: int, api_key: str) -> list:
+            ctx = _sl.create_default_context()
+            req = _ul.Request(
+                f"https://supplies-api.wildberries.ru/api/v1/supplies/{supply_id}/goods",
+                method="GET", headers={"Authorization": api_key, "User-Agent": "Mozilla/5.0"}
+            )
+            try:
+                with _ul.urlopen(req, context=ctx, timeout=15) as r:
+                    return _jm.loads(r.read()) or []
+            except Exception:
+                return []
+
         all_goods = []
         ref_item = None
         for sid in supply_ids:
@@ -6084,6 +6097,21 @@ tr {{ page-break-inside: avoid; }}
             if item_row and ref_item is None:
                 ref_item = dict(item_row)
             goods = repository.get_supply_goods(user_id=owner_id, supply_id=sid)
+            # Lazy load from WB API if not cached
+            if not goods and item_row:
+                try:
+                    src = repository.get_supply_source_with_key(
+                        user_id=owner_id, source_id=int(item_row["source_id"])
+                    )
+                    if src and src.get("api_key"):
+                        wb_goods = _wb_get_goods(sid, str(src["api_key"]))
+                        if wb_goods and isinstance(wb_goods, list):
+                            repository.upsert_supply_goods(
+                                supply_item_id=int(item_row["id"]), goods=wb_goods
+                            )
+                            goods = repository.get_supply_goods(user_id=owner_id, supply_id=sid)
+                except Exception as ex:
+                    _log.warning("combined-poa lazy goods sid=%d: %s", sid, ex)
             for g in goods:
                 vc = str(g.get("vendor_code") or "")
                 g["product_name"] = name_map.get(vc) or vc or ""
@@ -6209,7 +6237,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         if not supply_ids:
             raise HTTPException(status_code=400, detail="Укажите ids поставок")
 
-        # Reuse the same logic as single TTN but aggregate all goods
+        # Reuse the same logic as single TTN but aggregate all goods (with lazy WB API fetch)
         entities = repository.list_supply_legal_entities(user_id=owner_id)
         name_map = repository.get_product_name_by_article(user_id=owner_id)
         all_goods = []
@@ -6219,6 +6247,20 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             if item_row and ref_item is None:
                 ref_item = dict(item_row)
             goods = repository.get_supply_goods(user_id=owner_id, supply_id=sid)
+            if not goods and item_row:
+                try:
+                    src = repository.get_supply_source_with_key(user_id=owner_id, source_id=int(item_row["source_id"]))
+                    if src and src.get("api_key"):
+                        ctx2 = _sl.create_default_context()
+                        req2 = _ul.Request(f"https://supplies-api.wildberries.ru/api/v1/supplies/{sid}/goods",
+                            method="GET", headers={"Authorization":str(src["api_key"]),"User-Agent":"Mozilla/5.0"})
+                        with _ul.urlopen(req2, context=ctx2, timeout=15) as rr:
+                            wb_g = _jm.loads(rr.read()) or []
+                        if wb_g and isinstance(wb_g, list):
+                            repository.upsert_supply_goods(supply_item_id=int(item_row["id"]), goods=wb_g)
+                            goods = repository.get_supply_goods(user_id=owner_id, supply_id=sid)
+                except Exception as ex:
+                    _log.warning("combined-ttn lazy goods sid=%d: %s", sid, ex)
             for g in goods:
                 vc = str(g.get("vendor_code") or "")
                 g["product_name"] = name_map.get(vc) or vc or ""
