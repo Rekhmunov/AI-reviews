@@ -3257,7 +3257,8 @@ async function downloadTTN(supplyId) {
   });
 
   const url = URL.createObjectURL(blob);
-  const ttnFileName = `ТТН ${supplierShort} от ${supplyDateDisp}, ${destWh}, ${pallets} палл..docx`;
+  const ttnQty = item.quantity != null ? item.quantity : pallets;
+  const ttnFileName = `ТТН ${supplierShort} от ${supplyDateDisp}, ${destWh}, ${ttnQty} шт..docx`;
   const win = window.open("", "_blank");
   if (win) {
     const a = win.document.createElement("a");
