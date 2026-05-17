@@ -5485,9 +5485,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
         e = _hm.escape
 
-        td = 'style="border:1px solid black;padding:6pt 8pt;vertical-align:middle;font-size:11pt"'
-        td_lbl = 'style="border:1px solid black;padding:6pt 8pt;vertical-align:middle;font-size:11pt;width:40%"'
-        td_tall = 'height="240" style="border:1px solid black;padding:6pt 8pt;vertical-align:top;font-size:11pt;width:60%"'
+        # Use explicit HTML width attributes for LibreOffice (CSS width is ignored)
+        td = 'width="60%" style="border:1px solid black;padding:6pt 8pt;vertical-align:middle;font-size:11pt"'
+        td_lbl = 'width="40%" style="border:1px solid black;padding:6pt 8pt;vertical-align:middle;font-size:11pt"'
+        td_tall = 'width="60%" height="240" style="border:1px solid black;padding:6pt 8pt;vertical-align:top;font-size:11pt"'
 
         html_content = f"""<!DOCTYPE html>
 <html>
@@ -5503,7 +5504,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 <h1>Упаковочный лист {e(supplier_short)}</h1>
 <h1>(поставка №{e(supply_id_str)}, {e(pass_number)})</h1>
 <h2>{e(box_label)}</h2>
-<table border="1" cellspacing="0" cellpadding="0" style="width:100%;border-collapse:collapse;margin-top:8pt">
+<table border="1" cellspacing="0" cellpadding="0" width="100%" style="border-collapse:collapse;margin-top:8pt;table-layout:fixed">
+  <colgroup><col width="40%"><col width="60%"></colgroup>
   <tr><td {td_lbl}>Порядковый номер паллеты</td><td {td}>&nbsp;</td></tr>
   <tr><td {td_lbl}>Количество паллет</td><td {td}>{e(pallets_count)}</td></tr>
   <tr><td {td_lbl}>Количество коробок на паллете</td><td {td}>&nbsp;</td></tr>
@@ -5512,7 +5514,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
   <tr><td {td_lbl}>Тип поставки</td><td {td}><b>{e(box_label)}</b></td></tr>
   <tr><td {td_lbl}>Наименование юридического лица</td><td {td}>{e(full_legal_name)}</td></tr>
   <tr><td {td_lbl}>Дата поставки</td><td {td}>{e(date_display)}</td></tr>
-  <tr height="240"><td {td_lbl} style="border:1px solid black;padding:6pt 8pt;vertical-align:middle;font-size:11pt;width:40%">Штрих-код поставки</td><td {td_tall}><div style="height:240px;min-height:240px">&nbsp;</div></td></tr>
+  <tr height="240"><td {td_lbl}>Штрих-код поставки</td><td {td_tall}><div style="height:240px;min-height:240px">&nbsp;</div></td></tr>
 </table>
 </body></html>"""
 
