@@ -3881,15 +3881,18 @@ function initSuppliesColumnResizer() {
 }
 
 function _applySuppliesColWidths(widths) {
-  const cols = document.querySelectorAll("#suppliesColgroup col");
+  // Skip cols with data-fixed attribute (e.g. checkbox col)
+  const cols = Array.from(document.querySelectorAll("#suppliesColgroup col"))
+    .filter(c => !c.dataset.fixed);
   cols.forEach((col, i) => {
     if (widths[i] !== undefined) col.style.width = widths[i] + "%";
   });
 }
 
 function _getSuppliesColWidths() {
-  const cols = document.querySelectorAll("#suppliesColgroup col");
-  return Array.from(cols).map((col) => parseFloat(col.style.width) || SUPPLIES_DEFAULT_WIDTHS[0]);
+  const cols = Array.from(document.querySelectorAll("#suppliesColgroup col"))
+    .filter(c => !c.dataset.fixed);
+  return cols.map((col) => parseFloat(col.style.width) || SUPPLIES_DEFAULT_WIDTHS[0]);
 }
 
 function toggleSuppliesFilter() { /* legacy stub */ }
