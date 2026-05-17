@@ -3258,9 +3258,16 @@ async function downloadTTN(supplyId) {
 
   const url = URL.createObjectURL(blob);
   const ttnFileName = `ТТН ${supplierShort} от ${supplyDateDisp}, ${destWh}, ${pallets} палл..docx`;
-  const a = document.createElement("a");
-  a.href = url; a.download = ttnFileName; a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  const win = window.open("", "_blank");
+  if (win) {
+    const a = win.document.createElement("a");
+    a.href = url; a.download = ttnFileName; win.document.body.appendChild(a); a.click();
+    setTimeout(() => { try { win.close(); } catch(_){} URL.revokeObjectURL(url); }, 1500);
+  } else {
+    const a = document.createElement("a");
+    a.href = url; a.download = ttnFileName; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }
 }
 
 // ── Supply barcode PDF ──
@@ -3294,8 +3301,9 @@ function downloadSupplyBarcode(passNumber, supplyId) {
   }
 
   // File name: "WB-GI-XXXXXXX, DDMMYYYY, Склад, N шт"
+  const dateStrDisplay = dateStr ? `${dateStr.slice(0,2)}.${dateStr.slice(2,4)}.${dateStr.slice(4)}` : "";
   const nameParts = [passNumber];
-  if (dateStr) nameParts.push(dateStr);
+  if (dateStrDisplay) nameParts.push(dateStrDisplay);
   if (warehouseName) nameParts.push(warehouseName);
   if (quantity) nameParts.push(quantity);
   const fileName = nameParts.join(", ");
