@@ -6359,7 +6359,7 @@ tr {{ page-break-inside: avoid; }}
             _now = _dt.now(_tz.utc)
             date_from = (_now - _td(days=30)).strftime("%Y-%m-%d")
             date_to = (_now + _td(days=1)).strftime("%Y-%m-%d")
-            active_statuses = {1, 2, 3, 4, 5}  # 3 = Отгрузка разрешена
+            active_statuses = {1, 2, 3, 4, 5, 6}  # 3=Отгрузка разрешена, 6=Отгружено на воротах
             total_synced = 0
             errors: list[str] = []
 
@@ -6420,7 +6420,7 @@ tr {{ page-break-inside: avoid; }}
                                 try:
                                     # For active (1,2,4): always fetch details
                                     # For accepted (5): fetch only if not already cached
-                                    need_details = status_id in {1, 2, 3, 4}
+                                    need_details = status_id in {1, 2, 3, 4}  # 5,6 — fetch only if missing
                                     if not need_details:
                                         existing = repository.get_supply_item_row(
                                             user_id=owner_id, supply_id=supply_wb_id

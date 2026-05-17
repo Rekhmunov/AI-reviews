@@ -4640,6 +4640,7 @@ button.secondary.danger:hover {
 .supply-status-3 { background: #dbeafe; color: #1d4ed8; }
 .supply-status-4 { background: #fce7f3; color: #9d174d; }
 .supply-status-5 { background: #dcfce7; color: #166534; }
+.supply-status-6 { background: #d1fae5; color: #065f46; }
 
 /* Goods expand row */
 .supply-goods-row td { padding: 0 !important; background: #f8fafc; }
