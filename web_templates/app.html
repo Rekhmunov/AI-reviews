@@ -1106,6 +1106,11 @@
               <button class="secondary" id="suppliesPrevBtn" onclick="suppliesChangePage(-1)">← Назад</button>
               <span id="suppliesPageInfo" class="small"></span>
               <button class="secondary" id="suppliesNextBtn" onclick="suppliesChangePage(1)">Вперёд →</button>
+              <select id="suppliesPageSizeSelect" onchange="changeSuppliesPageSize(this.value)" style="height:32px;margin-left:8px;font-size:13px">
+                <option value="30">30 / стр.</option>
+                <option value="50" selected>50 / стр.</option>
+                <option value="100">100 / стр.</option>
+              </select>
             </div>
           </div>
         </div>

@@ -1970,7 +1970,7 @@ let suppliesState = {
   items: [],
   total: 0,
   page: 1,
-  page_size: 50,
+  page_size: (() => { try { const v = parseInt(localStorage.getItem("supplies_page_size")); return [30,50,100].includes(v) ? v : 50; } catch(_) { return 50; } })(),
   sources: [],
 };
 
@@ -2127,6 +2127,18 @@ async function loadSupplies(resetPage = false) {
   const nextBtn = document.getElementById("suppliesNextBtn");
   if (prevBtn) prevBtn.disabled = suppliesState.page <= 1;
   if (nextBtn) nextBtn.disabled = suppliesState.page >= totalPages;
+  // Sync page size select with current state
+  const psSel = document.getElementById("suppliesPageSizeSelect");
+  if (psSel) psSel.value = String(suppliesState.page_size);
+}
+
+function changeSuppliesPageSize(val) {
+  const size = parseInt(val);
+  if (![30,50,100].includes(size)) return;
+  suppliesState.page_size = size;
+  suppliesState.page = 1;
+  try { localStorage.setItem("supplies_page_size", String(size)); } catch(_) {}
+  loadSupplies(true);
 }
 
 function suppliesChangePage(delta) {
@@ -8315,6 +8327,7 @@ window.syncSupplies = syncSupplies;
 window.clearSupplies = clearSupplies;
 window.loadSupplies = loadSupplies;
 window.suppliesChangePage = suppliesChangePage;
+window.changeSuppliesPageSize = changeSuppliesPageSize;
 window.toggleSupplyGoods = toggleSupplyGoods;
 window.startEditDriver = startEditDriver;
 window.saveEditDriver = saveEditDriver;
