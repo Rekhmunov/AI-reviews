@@ -3564,16 +3564,19 @@ function _updateBatchActionUI() {
   wrap.style.display = "";
   if (countEl) countEl.textContent = `(${count})`;
 
-  // Check that all selected supplies have the same driver
   const selectedItems = suppliesState.items.filter(x => _selectedSupplyIds.has(x.supply_id));
   const drivers = [...new Set(selectedItems.map(x => (x.driver_name || "").trim()))];
+  const legalEntities = [...new Set(selectedItems.map(x => (x.supplier_name || "").trim()))];
   const sameDriver = drivers.length === 1 && drivers[0] !== "";
+  const sameLegal = legalEntities.length === 1;
   const allHavePassNumber = selectedItems.every(x => _isWbGiCode(x.pass_number));
 
   if (btn) {
-    btn.disabled = !sameDriver || !allHavePassNumber;
+    btn.disabled = !sameDriver || !sameLegal || !allHavePassNumber;
     btn.title = !sameDriver
-      ? "Для суммарных документов все поставки должны иметь одного водителя"
+      ? "Все поставки должны иметь одного водителя"
+      : !sameLegal
+      ? "Все поставки должны иметь одно юридическое лицо"
       : !allHavePassNumber
       ? "У некоторых поставок не заполнен ШК поставки"
       : "";
