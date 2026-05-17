@@ -3787,7 +3787,7 @@ async function downloadCombinedTTN() {
     ["{{SUPPLY_ID}}",docNum],["{{DOC_DATE_FULL}}",`«${dd}» ${["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"][now.getMonth()]} ${yyyy}`],
     ["{{ISSUED_BY}}",supplierShort||"—"],
     ["{{SIGNATORIES}}",le.signatories||supplierShort||"—"],
-    ["{{PROD_HEAD}}","—"],["{{SIGN_SUPPLIER}}",supplierShort],["{{SIGN_DRIVER}}",driverName],
+    ["{{PROD_HEAD}}",le.signatories||supplierShort||"—"],["{{SIGN_SUPPLIER}}",supplierShort],["{{SIGN_DRIVER}}",driverName],
     ["{{AMOUNT_WORDS}}",amtWords],
   ]) { docXml=rpl(docXml,ph,val); }
   docXml=docXml.replace(/\{\{ROW_QTY\}\}/g,String(qtyTotal));
