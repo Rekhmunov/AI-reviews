@@ -2162,6 +2162,9 @@ function renderSuppliesTable() {
     tr.className = "supply-row";
     tr.dataset.supplyId = String(item.supply_id);
     tr.innerHTML = `
+      <td style="width:32px;padding:0 4px;text-align:center">
+        <input type="checkbox" class="supply-row-checkbox" data-supply-id="${item.supply_id}" onchange="onSupplyCheckboxChange()" />
+      </td>
       <td class="supply-expand-cell">
         <button class="supply-expand-btn" title="Показать товары" onclick="toggleSupplyGoods(this, ${item.supply_id})" aria-label="Развернуть">▶</button>
       </td>
@@ -2186,7 +2189,7 @@ function renderSuppliesTable() {
     const goodsTr = document.createElement("tr");
     goodsTr.className = "supply-goods-row hidden";
     goodsTr.dataset.supplyId = String(item.supply_id);
-    goodsTr.innerHTML = `<td colspan="9"><div class="supply-goods-container" id="supply-goods-${item.supply_id}"><span class="small" style="color:#94a3b8">Загрузка…</span></div></td>`;
+    goodsTr.innerHTML = `<td colspan="10"><div class="supply-goods-container" id="supply-goods-${item.supply_id}"><span class="small" style="color:#94a3b8">Загрузка…</span></div></td>`;
     tbody.appendChild(goodsTr);
   }
 }
@@ -3530,6 +3533,287 @@ function printPoA(supplyId) {
   if (!win) alert("Разрешите всплывающие окна для печати");
 }
 window.printPoA = printPoA;
+
+// ── Batch supply selection ────────────────────────────────────────────────
+let _selectedSupplyIds = new Set();
+
+function onSupplyCheckboxChange() {
+  _selectedSupplyIds.clear();
+  document.querySelectorAll(".supply-row-checkbox:checked").forEach(cb => {
+    _selectedSupplyIds.add(Number(cb.dataset.supplyId));
+  });
+  _updateBatchActionUI();
+}
+
+function toggleSelectAllSupplies(checked) {
+  document.querySelectorAll(".supply-row-checkbox").forEach(cb => { cb.checked = checked; });
+  onSupplyCheckboxChange();
+}
+
+function _updateBatchActionUI() {
+  const count = _selectedSupplyIds.size;
+  const wrap = document.getElementById("suppliesBatchWrap");
+  const btn = document.getElementById("suppliesBatchBtn");
+  const countEl = document.getElementById("suppliesBatchCount");
+  if (!wrap) return;
+
+  if (count < 2) {
+    wrap.style.display = "none";
+    return;
+  }
+  wrap.style.display = "";
+  if (countEl) countEl.textContent = `(${count})`;
+
+  // Check that all selected supplies have the same driver
+  const selectedItems = suppliesState.items.filter(x => _selectedSupplyIds.has(x.supply_id));
+  const drivers = [...new Set(selectedItems.map(x => (x.driver_name || "").trim()))];
+  const sameDriver = drivers.length === 1 && drivers[0] !== "";
+  const allHavePassNumber = selectedItems.every(x => _isWbGiCode(x.pass_number));
+
+  if (btn) {
+    btn.disabled = !sameDriver || !allHavePassNumber;
+    btn.title = !sameDriver
+      ? "Для суммарных документов все поставки должны иметь одного водителя"
+      : !allHavePassNumber
+      ? "У некоторых поставок не заполнен ШК поставки"
+      : "";
+  }
+}
+
+function toggleSuppliesBatchMenu(e) {
+  e.stopPropagation();
+  const menu = document.getElementById("suppliesBatchMenu");
+  if (!menu) return;
+  const isHidden = menu.classList.contains("hidden");
+  menu.classList.toggle("hidden", !isHidden);
+  if (!isHidden) return;
+  const close = () => { menu.classList.add("hidden"); document.removeEventListener("click", close); };
+  setTimeout(() => document.addEventListener("click", close), 10);
+}
+
+function _getCombinedDocNumber() {
+  const now = new Date();
+  const dd = String(now.getDate()).padStart(2,"0");
+  const mm = String(now.getMonth()+1).padStart(2,"0");
+  const yyyy = now.getFullYear();
+  const dateKey = `${dd}${mm}${yyyy}`;
+  let stored = {};
+  try { stored = JSON.parse(localStorage.getItem("combined_doc_counter") || "{}"); } catch(_) {}
+  const n = stored.date === dateKey ? (stored.n || 0) + 1 : 1;
+  try { localStorage.setItem("combined_doc_counter", JSON.stringify({ date: dateKey, n })); } catch(_) {}
+  return `${dateKey}_${n}`;
+}
+
+async function _getCombinedGoods() {
+  const ids = [..._selectedSupplyIds];
+  const allGoods = [];
+  for (const sid of ids) {
+    try {
+      const r = await fetch(`/api/supplies/${sid}/goods`).catch(()=>null);
+      if (r && r.ok) {
+        const goods = await r.json().catch(()=>[]);
+        goods.forEach(g => allGoods.push(g));
+      }
+    } catch(_) {}
+  }
+  return allGoods;
+}
+
+async function downloadCombinedPoA() {
+  document.getElementById("suppliesBatchMenu")?.classList.add("hidden");
+  const ids = [..._selectedSupplyIds];
+  const items = suppliesState.items.filter(x => ids.includes(x.supply_id));
+  if (!items.length) return;
+  const refItem = items[0];
+
+  if (!_supplyLegalEntitiesCache.length) await loadSupplyLegalEntities();
+  const supplierShort = refItem.supplier_name || "";
+  const le = _supplyLegalEntitiesCache.find(e => e.short_name === supplierShort) || _supplyLegalEntitiesCache[0] || {};
+  const orgFull = le.full_name || supplierShort;
+  const orgLine = [orgFull, le.requisites].filter(Boolean).join(", ");
+  const driverName = refItem.driver_name || "";
+  const driverObj = _supplyDriversCache.find(d => d.full_name === driverName) || {};
+  const driverDocs = driverObj.documents || "";
+  const docNum = _getCombinedDocNumber();
+  const now = new Date();
+  const dateDisplay = now.toLocaleDateString("ru-RU", {day:"2-digit",month:"2-digit",year:"numeric"});
+
+  const allGoods = await _getCombinedGoods();
+
+  const goodsRows = allGoods.map((g, i) => `<tr>
+    <td>${i+1}</td>
+    <td>${esc(g.product_name||g.vendor_code||"Товар")}</td>
+    <td>шт.</td>
+    <td>${g.quantity??0}</td>
+  </tr>`).join("");
+
+  const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="utf-8">
+<style>
+  @page{size:210mm 297mm;margin:15mm 10mm 15mm 25mm}body{font-family:"Times New Roman",serif;font-size:11pt;line-height:1.4}
+  .small{font-size:8pt;text-align:center}.underline{text-decoration:underline}.center{text-align:center}.bold{font-weight:bold}
+  table.codes{border-collapse:collapse;margin-left:auto;font-size:9pt}table.codes td{border:1px solid #000;padding:2pt 6pt}
+  table.mat{width:100%;border-collapse:collapse;margin-top:6pt;font-size:10pt}
+  table.mat td,table.mat th{border:1px solid #000;padding:3pt 5pt;text-align:center}
+  p{margin:3pt 0}.dotline{display:inline-block;border-bottom:1px solid #000;min-width:120pt}
+</style></head><body>
+<table style="width:100%;border-collapse:collapse;margin-bottom:8pt"><tr>
+  <td style="width:55%;vertical-align:top">${esc(orgFull)}</td>
+  <td style="width:45%;vertical-align:top;text-align:right;font-size:8pt">
+    Типовая межотраслевая форма № М-2<br>Утверждена постановлением Госстата России от 30.10.97 № 71а<br>
+    <table class="codes"><tr><td colspan="2" class="bold center">Коды</td></tr>
+    <tr><td>Форма по ОКУД</td><td>0315001</td></tr><tr><td>по ОКПО</td><td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td></tr></table>
+  </td></tr></table>
+<p style="text-align:center;font-size:14pt;font-weight:bold;margin:10pt 0 4pt"><b>Доверенность № ${docNum}</b></p>
+<p>Дата выдачи <span class="underline bold">${dateDisplay}</span></p>
+<p>Доверенность действительна 14 дней с даты подписания.</p>
+<p style="margin-top:6pt">${esc(orgLine)}</p><p class="small">наименование потребителя и его адрес</p>
+<p style="margin-top:4pt">${esc(orgLine)}</p><p class="small">наименование плательщика и его адрес</p>
+<p style="margin-top:8pt">Доверенность выдана &nbsp;<u>водителю</u>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <u>${esc(driverName)}</u></p>
+<p class="small" style="padding-left:80pt">должность &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; фамилия, имя, отчество</p>
+${driverDocs ? `<p>${esc(driverDocs)}</p>` : ""}
+<p style="margin-top:6pt">На отправку груза от &nbsp;<u>&nbsp;${esc(supplierShort)}&nbsp;</u></p>
+<p class="small" style="text-align:center">наименование поставщика</p>
+<p style="margin-top:4pt">материальных ценностей по транспортным накладным суммарно</p>
+<p style="margin-top:10pt">Перечень материальных ценностей, подлежащих доставке</p>
+<table class="mat">
+  <tr><th style="width:8%">№</th><th style="width:44%">Материальные ценности</th><th style="width:16%">Ед. изм.</th><th style="width:32%">Количество</th></tr>
+  ${goodsRows}
+</table>
+<p style="margin-top:18pt">Подпись лица, получившего доверенность удостоверяем. &nbsp;&nbsp;&nbsp;&nbsp; ______________________________ &nbsp;&nbsp; (${esc(driverName)})</p>
+<table style="width:100%;margin-top:18pt;border-collapse:collapse">
+  <tr>
+    <td style="width:25%;vertical-align:bottom">Руководитель<br><small>М.П.</small></td>
+    <td style="width:30%;vertical-align:bottom;text-align:center">______________________________<br><small>подпись</small></td>
+    <td style="width:45%;vertical-align:bottom;text-align:center">${esc(le.signatories||supplierShort)}<br><small>расшифровка подписи</small></td>
+  </tr>
+</table>
+</body></html>`;
+
+  const blob = new Blob(["\uFEFF" + html], {type:"application/msword"});
+  const url = URL.createObjectURL(blob);
+  const win = window.open("","_blank");
+  if (win) {
+    const a = win.document.createElement("a"); a.href=url; a.download=`Доверенность суммарная ${docNum}.doc`;
+    win.document.body.appendChild(a); a.click();
+    setTimeout(()=>{try{win.close();}catch(_){} URL.revokeObjectURL(url);},1500);
+  }
+}
+
+async function printCombinedPoA() {
+  document.getElementById("suppliesBatchMenu")?.classList.add("hidden");
+  const ids = [..._selectedSupplyIds];
+  const url = `/api/supplies/combined-poa.pdf?ids=${ids.join(",")}`;
+  const win = window.open(url, "_blank");
+  if (!win) alert("Разрешите всплывающие окна для печати");
+}
+
+async function downloadCombinedTTN() {
+  document.getElementById("suppliesBatchMenu")?.classList.add("hidden");
+  if (typeof JSZip === "undefined") { alert("JSZip не загружен. Перезагрузите страницу."); return; }
+  const ids = [..._selectedSupplyIds];
+  const docNum = _getCombinedDocNumber();
+
+  if (!_supplyLegalEntitiesCache.length) await loadSupplyLegalEntities();
+  const refItem = suppliesState.items.find(x => ids.includes(x.supply_id)) || {};
+  const supplierShort = refItem.supplier_name || "";
+  const le = _supplyLegalEntitiesCache.find(e => e.short_name === supplierShort) || _supplyLegalEntitiesCache[0] || {};
+  const orgLine = [le.full_name||supplierShort, le.requisites].filter(Boolean).join(", ");
+  const driverName = refItem.driver_name || "";
+  const pallets = parseInt(refItem.pallets_count) || 0;
+
+  const now = new Date();
+  const dd=String(now.getDate()).padStart(2,"0"), mm=String(now.getMonth()+1).padStart(2,"0"), yyyy=now.getFullYear();
+  const dateDisp = `${dd}.${mm}.${yyyy}`;
+
+  // Fetch all goods from all selected supplies
+  let allGoods = [];
+  let nmPrices = {};
+  for (const sid of ids) {
+    try {
+      const gr = await fetch(`/api/supplies/${sid}/goods`).catch(()=>null);
+      if (gr&&gr.ok) { const g=await gr.json().catch(()=>[]); allGoods=allGoods.concat(g); }
+      const pr = await fetch(`/api/supplies/${sid}/nm-prices`).catch(()=>null);
+      if (pr&&pr.ok) { const pd=await pr.json().catch(()=>{}); Object.assign(nmPrices, pd.prices||{}); }
+    } catch(_){}
+  }
+
+  const VAT_RATE=0.22; const fmt2=(n)=>Number(n).toLocaleString("ru-RU",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const esc_=(s)=>String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  let totalExcl=0,totalVat=0,totalIncl=0;
+  const qtyTotal = allGoods.reduce((s,g)=>s+(parseInt(g.quantity)||0),0);
+
+  // Load TTN template and fill
+  const tplResp = await fetch("/static/torg12_tpl.docx").catch(()=>null);
+  if (!tplResp||!tplResp.ok) { alert("Шаблон ТТН не найден"); return; }
+  const tplData = await tplResp.arrayBuffer();
+  const zip = await JSZip.loadAsync(tplData);
+  let docXml = await zip.file("word/document.xml").async("string");
+  const rpl=(xml,ph,val)=>xml.split(ph).join(val.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"));
+
+  const dataRowRx=/(<w:tr[\s>](?:(?!<\/w:tr>).)*?\{\{GOODS_NAME\}\}.*?<\/w:tr>)/s;
+  const dataRowMatch=docXml.match(dataRowRx);
+  const fmtP=(p)=>Number(p).toLocaleString("ru-RU",{minimumFractionDigits:2,maximumFractionDigits:2});
+  if (dataRowMatch&&allGoods.length) {
+    const rowTpl=dataRowMatch[1];
+    const rows=allGoods.map((g,i)=>{
+      const qty=parseInt(g.quantity)||0; const nm=String(g.nm_id||"");
+      const pI=(nm&&nmPrices[nm])?parseFloat(nmPrices[nm]):null;
+      const pE=pI!=null?pI/(1+VAT_RATE):null; const aE=pE!=null?pE*qty:null;
+      const vA=aE!=null?aE*VAT_RATE:null; const aI=aE!=null?aE+vA:null;
+      if(aE!=null){totalExcl+=aE;totalVat+=vA;totalIncl+=aI;}
+      return rowTpl.replace("{{ROW_NUM}}",String(i+1))
+        .replace("{{GOODS_NAME}}",esc_(g.product_name||g.vendor_code||"Товар"))
+        .replace("{{PRICE}}",esc_(pE!=null?fmtP(pE):"—"))
+        .split("{{ROW_QTY}}").join(String(qty))
+        .replace("{{ROW_AMOUNT_EXCL}}",esc_(aE!=null?fmtP(aE):"—"))
+        .replace("{{ROW_VAT_SUM}}",esc_(vA!=null?fmtP(vA):"—"))
+        .replace("{{ROW_AMOUNT_INCL}}",esc_(aI!=null?fmtP(aI):"—"));
+    }).join("");
+    docXml=docXml.replace(rowTpl,rows,1);
+  }
+  const fmtN=(n)=>n>0?fmt2(n):"—";
+  const amtWords=totalIncl>0?_rublesInWords(Math.round(totalIncl)):"—";
+  for(const [ph,val] of [
+    ["{{TTN_NUMBER}}",docNum],["{{ORG_FULL}}",orgLine],["{{SUPPLIER}}",orgLine],["{{PAYER}}",orgLine],
+    ["{{ORDER_DATE}}",docNum],["{{DOC_NUM_VAL}}",docNum],["{{DOC_DATE_VAL}}",dateDisp],
+    ["{{GOODS_NAME}}",allGoods[0]?.product_name||"Товар"],["{{ROW_NUM}}","1"],
+    ["{{PRICE}}","—"],["{{ROW_AMOUNT_EXCL}}","—"],["{{ROW_VAT_SUM}}","—"],["{{ROW_AMOUNT_INCL}}","—"],
+    ["{{QTY}}",String(qtyTotal)],["{{QTY_SHT}}",`${qtyTotal} шт`],
+    ["{{TOTAL_EXCL}}",fmtN(totalExcl)],["{{TOTAL_VAT}}",fmtN(totalVat)],["{{TOTAL_INCL}}",fmtN(totalIncl)],
+    ["{{AMOUNT}}",fmtN(totalExcl)],["{{VAT_SUM}}",fmtN(totalVat)],["{{AMOUNT_WITH_VAT}}",fmtN(totalIncl)],
+    ["{{TOTAL_RUB}}",String(Math.floor(totalIncl||0))],["{{TOTAL_KOP}}","00"],
+    ["{{PAGES_COUNT}}","1"],["{{ITEMS_COUNT}}",String(allGoods.length)],
+    ["{{SUPPLY_ID}}",docNum],["{{DOC_DATE_FULL}}",`«${dd}» ${["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"][now.getMonth()]} ${yyyy}`],
+    ["{{ISSUED_BY}}",supplierShort||"—"],
+    ["{{SIGNATORIES}}",le.signatories||supplierShort||"—"],
+    ["{{PROD_HEAD}}","—"],["{{SIGN_SUPPLIER}}",supplierShort],["{{SIGN_DRIVER}}",driverName],
+    ["{{AMOUNT_WORDS}}",amtWords],
+  ]) { docXml=rpl(docXml,ph,val); }
+  docXml=docXml.replace(/\{\{ROW_QTY\}\}/g,String(qtyTotal));
+
+  zip.file("word/document.xml",docXml);
+  const blob=await zip.generateAsync({type:"blob",mimeType:"application/vnd.openxmlformats-officedocument.wordprocessingml.document"});
+  const url=URL.createObjectURL(blob);
+  const win=window.open("","_blank");
+  if(win){const a=win.document.createElement("a");a.href=url;a.download=`ТТН суммарная ${docNum}.docx`;win.document.body.appendChild(a);a.click();setTimeout(()=>{try{win.close();}catch(_){}URL.revokeObjectURL(url);},1500);}
+}
+
+async function printCombinedTTN() {
+  document.getElementById("suppliesBatchMenu")?.classList.add("hidden");
+  const ids = [..._selectedSupplyIds];
+  const url = `/api/supplies/combined-ttn.pdf?ids=${ids.join(",")}`;
+  const win = window.open(url, "_blank");
+  if (!win) alert("Разрешите всплывающие окна для печати");
+}
+
+window.onSupplyCheckboxChange = onSupplyCheckboxChange;
+window.toggleSelectAllSupplies = toggleSelectAllSupplies;
+window.toggleSuppliesBatchMenu = toggleSuppliesBatchMenu;
+window.downloadCombinedPoA = downloadCombinedPoA;
+window.printCombinedPoA = printCombinedPoA;
+window.downloadCombinedTTN = downloadCombinedTTN;
+window.printCombinedTTN = printCombinedTTN;
 
 // ── Supplies column resizer ──
 const SUPPLIES_COL_WIDTHS_KEY = "supplies_col_widths";

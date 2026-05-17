@@ -6057,6 +6057,283 @@ tr {{ page-break-inside: avoid; }}
             headers={"Content-Disposition": f'inline; filename="TTN_{supply_id}.pdf"'},
         )
 
+    @app.get("/api/supplies/combined-poa.pdf")
+    def get_combined_poa_pdf(request: Request, ids: str = ""):
+        """Generate combined PoA PDF for multiple supplies via LibreOffice."""
+        import subprocess as _sp, tempfile as _tf, pathlib as _pl, os as _os
+        import html as _hm, urllib.request as _ul, json as _jm, ssl as _sl
+        from fastapi.responses import Response
+        from datetime import datetime as _dtt
+
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        supply_ids = [int(x) for x in ids.split(",") if x.strip().isdigit()]
+        if not supply_ids:
+            raise HTTPException(status_code=400, detail="Укажите ids поставок")
+
+        # Collect all goods from all selected supplies
+        entities = repository.list_supply_legal_entities(user_id=owner_id)
+        drivers = repository.list_supply_drivers(user_id=owner_id)
+        name_map = repository.get_product_name_by_article(user_id=owner_id)
+        all_goods = []
+        ref_item = None
+        for sid in supply_ids:
+            item_row = repository.get_supply_item_row(user_id=owner_id, supply_id=sid)
+            if item_row and ref_item is None:
+                ref_item = dict(item_row)
+            goods = repository.get_supply_goods(user_id=owner_id, supply_id=sid)
+            for g in goods:
+                vc = str(g.get("vendor_code") or "")
+                g["product_name"] = name_map.get(vc) or vc or ""
+            all_goods.extend(goods)
+
+        if not ref_item:
+            raise HTTPException(status_code=404, detail="Поставки не найдены")
+
+        supplier_short = str(ref_item.get("supplier_name") or "")
+        le = next((e for e in entities if e.get("short_name") == supplier_short), None) or (entities[0] if entities else {})
+        org_full = le.get("full_name") or supplier_short
+        org_line = ", ".join(filter(None, [org_full, le.get("requisites") or ""]))
+        signatories = le.get("signatories") or supplier_short
+        driver_name = str(ref_item.get("driver_name") or "")
+        driver_obj = next((d for d in drivers if d.get("full_name") == driver_name), {})
+        driver_docs = driver_obj.get("documents") or ""
+
+        now = _dtt.now()
+        date_display = now.strftime("%d.%m.%Y")
+        doc_num = f"{now.strftime('%d%m%Y')}_1"
+
+        e = _hm.escape
+        UL = "_" * 30
+        sig_name = e(signatories) if signatories and signatories != "—" else ""
+        _td = 'style="border:1px solid black;padding:2pt 4pt;font-size:9pt"'
+        _tbl = 'border="1" cellspacing="0" width="100%" style="border-collapse:collapse;margin:0;table-layout:fixed;font-size:9pt"'
+
+        goods_rows = "".join(
+            f'<table {_tbl}><colgroup><col width="15%"><col width="45%"><col width="20%"><col width="20%"></colgroup>'
+            f'<tr><td {_td} align="center">{i+1}</td><td {_td}>{e(g.get("product_name") or "Товар")}</td>'
+            f'<td {_td} align="center">шт.</td><td {_td} align="center">{g.get("quantity") or "—"}</td></tr></table>'
+            for i, g in enumerate(all_goods)
+        )
+
+        html_content = f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>
+@page{{size:210mm 297mm;margin:15mm 10mm 15mm 25mm}}
+body{{font-family:"Times New Roman",serif;font-size:11pt;line-height:1.3}}
+p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
+</style></head><body>
+<table width="100%" cellspacing="0" cellpadding="0"><tr>
+  <td width="55%" valign="top" style="font-size:11pt"><b>Организация:</b> {e(org_full)}</td>
+  <td width="45%" valign="top" align="right" style="font-size:8pt">
+    Типовая межотраслевая форма № М-2<br>Утверждена постановлением Госстата России от 30.10.97 № 71а
+    <table border="1" cellspacing="0" cellpadding="1" align="right" style="font-size:7pt;margin-top:2pt">
+      <tr><td colspan="2" align="center"><b>Коды</b></td></tr>
+      <tr><td style="padding:1pt 3pt">Форма по ОКУД</td><td style="padding:1pt 3pt">0315001</td></tr>
+      <tr><td style="padding:1pt 3pt">по ОКПО</td><td style="padding:1pt 3pt">&nbsp;&nbsp;&nbsp;&nbsp;</td></tr>
+    </table>
+  </td>
+</tr></table>
+<p align="center" style="font-size:14pt;margin:10pt 0 4pt"><b>Доверенность № {e(doc_num)}</b></p>
+<p>Дата выдачи <b><u>{e(date_display)}</u></b></p>
+<p>Доверенность действительна 14 дней с даты подписания.</p>
+<p style="margin-top:4pt">{e(org_line)}</p><p style="font-size:8pt;text-align:center">наименование потребителя и его адрес</p>
+<p style="margin-top:4pt">{e(org_line)}</p><p style="font-size:8pt;text-align:center">наименование плательщика и его адрес</p>
+<p style="margin-top:6pt">Доверенность выдана &nbsp;<u>водителю</u>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <u>{e(driver_name)}</u></p>
+<p style="font-size:8pt">должность &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; фамилия, имя, отчество</p>
+{f"<p>{e(driver_docs)}</p>" if driver_docs else ""}
+<p style="margin-top:4pt">На отправку груза от &nbsp;<u>&nbsp;{e(supplier_short)}&nbsp;</u></p>
+<p style="font-size:8pt;text-align:center">наименование поставщика</p>
+<p style="margin-top:4pt">материальных ценностей по суммарным транспортным накладным поставок: {", ".join(str(x) for x in supply_ids)}</p>
+<p style="margin-top:6pt">Перечень материальных ценностей, подлежащих доставке</p>
+<table border="1" cellspacing="0" width="100%" style="border-collapse:collapse;margin:0;table-layout:fixed;font-size:9pt">
+  <colgroup><col width="15%"><col width="45%"><col width="20%"><col width="20%"></colgroup>
+  <tr style="page-break-inside:avoid">
+    <th style="border:1px solid black;padding:2pt 4pt;font-size:8pt;font-weight:bold" align="center">Номер по порядку</th>
+    <th style="border:1px solid black;padding:2pt 4pt;font-size:8pt;font-weight:bold" align="center">Материальные ценности</th>
+    <th style="border:1px solid black;padding:2pt 4pt;font-size:8pt;font-weight:bold" align="center">Единица измерения</th>
+    <th style="border:1px solid black;padding:2pt 4pt;font-size:8pt;font-weight:bold" align="center">Количество</th>
+  </tr>
+</table>
+{goods_rows}
+<p style="margin-top:8pt">Подпись лица, получившего доверенность удостоверяем. &nbsp;&nbsp;&nbsp;&nbsp; {UL} &nbsp;&nbsp; ({e(driver_name)})</p>
+<table width="100%" cellspacing="0" cellpadding="2" style="margin-top:6pt">
+  <tr>
+    <td width="25%" valign="bottom">Руководитель<br><small>М.П.</small></td>
+    <td width="30%" valign="bottom" align="center">{UL}<br><small>подпись</small></td>
+    <td width="45%" valign="bottom" align="center">{sig_name}<br><small>расшифровка подписи</small></td>
+  </tr>
+</table>
+<table width="100%" cellspacing="0" cellpadding="2" style="margin-top:6pt">
+  <tr>
+    <td width="25%" valign="bottom">Главный бухгалтер</td>
+    <td width="30%" valign="bottom" align="center">{UL}<br><small>подпись</small></td>
+    <td width="45%" valign="bottom" align="center">{sig_name}<br><small>расшифровка подписи</small></td>
+  </tr>
+</table>
+</body></html>"""
+
+        tmp_dir = _tf.mkdtemp()
+        html_path = _pl.Path(tmp_dir) / "combined_poa.html"
+        pdf_path  = _pl.Path(tmp_dir) / "combined_poa.pdf"
+        html_path.write_text(html_content, encoding="utf-8")
+        lo_env = dict(_os.environ)
+        for k,v in [("HOME",tmp_dir),("XDG_CACHE_HOME",tmp_dir),("XDG_CONFIG_HOME",tmp_dir),
+                    ("XDG_RUNTIME_DIR",tmp_dir),("DCONF_PROFILE","/dev/null")]:
+            lo_env[k]=v
+        lo_ok=False
+        for binary in ("/usr/bin/soffice","/usr/lib/libreoffice/program/soffice","soffice","libreoffice"):
+            try:
+                r=_sp.run([binary,"--headless","--norestore",f"-env:UserInstallation=file://{tmp_dir}/lo_profile","--convert-to","pdf","--outdir",tmp_dir,str(html_path)],capture_output=True,timeout=60,env=lo_env)
+                if r.returncode==0 and pdf_path.exists(): lo_ok=True; break
+            except FileNotFoundError: continue
+            except _sp.TimeoutExpired: raise HTTPException(status_code=504,detail="Таймаут")
+        if not lo_ok: raise HTTPException(status_code=500,detail="Ошибка конвертации PDF")
+        return Response(content=pdf_path.read_bytes(),media_type="application/pdf",headers={"Content-Disposition":'inline; filename="combined_poa.pdf"'})
+
+    @app.get("/api/supplies/combined-ttn.pdf")
+    def get_combined_ttn_pdf(request: Request, ids: str = ""):
+        """Generate combined TTN PDF for multiple supplies via LibreOffice (uses torg12_tpl.docx)."""
+        import subprocess as _sp, tempfile as _tf, zipfile as _zf, io as _io
+        import pathlib as _pl, os as _os, re as _re
+        import html as _hm, urllib.request as _ul, json as _jm, ssl as _sl
+        from fastapi.responses import Response
+        from datetime import datetime as _dtt
+
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        supply_ids = [int(x) for x in ids.split(",") if x.strip().isdigit()]
+        if not supply_ids:
+            raise HTTPException(status_code=400, detail="Укажите ids поставок")
+
+        # Reuse the same logic as single TTN but aggregate all goods
+        entities = repository.list_supply_legal_entities(user_id=owner_id)
+        name_map = repository.get_product_name_by_article(user_id=owner_id)
+        all_goods = []
+        ref_item = None
+        for sid in supply_ids:
+            item_row = repository.get_supply_item_row(user_id=owner_id, supply_id=sid)
+            if item_row and ref_item is None:
+                ref_item = dict(item_row)
+            goods = repository.get_supply_goods(user_id=owner_id, supply_id=sid)
+            for g in goods:
+                vc = str(g.get("vendor_code") or "")
+                g["product_name"] = name_map.get(vc) or vc or ""
+            all_goods.extend(goods)
+        if not ref_item:
+            raise HTTPException(status_code=404, detail="Поставки не найдены")
+
+        supplier_short = str(ref_item.get("supplier_name") or "")
+        le = next((e for e in entities if e.get("short_name") == supplier_short), None) or (entities[0] if entities else {})
+        org_line = ", ".join(filter(None, [le.get("full_name") or supplier_short, le.get("requisites") or ""]))
+        driver_name = str(ref_item.get("driver_name") or "")
+
+        now = _dtt.now()
+        doc_num = f"{now.strftime('%d%m%Y')}_1"
+        date_disp = now.strftime("%d.%m.%Y")
+
+        # Fetch prices
+        nm_prices: dict[int,float] = {}
+        try:
+            src = repository.get_supply_source_with_key(user_id=owner_id, source_id=int(ref_item["source_id"]))
+            if src and src.get("api_key"):
+                ctx = _sl.create_default_context()
+                offset = 0
+                while True:
+                    url2 = f"https://discounts-prices-api.wildberries.ru/api/v2/list/goods/filter?limit=1000&offset={offset}"
+                    req2 = _ul.Request(url2,method="GET",headers={"Authorization":str(src["api_key"]),"User-Agent":"Mozilla/5.0"})
+                    with _ul.urlopen(req2,context=ctx,timeout=15) as resp:
+                        pg=_jm.loads(resp.read()).get("data",{}).get("listGoods",[])
+                    for g in pg:
+                        nm=int(g.get("nmID") or 0); sz=g.get("sizes") or []
+                        dp=float(sz[0].get("discountedPrice",0)) if sz else 0.0
+                        if nm and dp>0: nm_prices[nm]=dp
+                    offset+=len(pg)
+                    if len(pg)<1000: break
+        except Exception as ex:
+            _log.warning("combined-ttn prices: %s", ex)
+
+        VAT=0.22
+        def fmt2(x): return f"{x:,.2f}".replace(",", " ").replace(".", ",")
+
+        rows_data=[]
+        total_excl=total_vat=total_incl=0.0
+        qty_total=sum(int(g.get("quantity") or 0) for g in all_goods)
+        for i,g in enumerate(all_goods):
+            qty=int(g.get("quantity") or 0); nm=int(g.get("nm_id") or 0)
+            pi=nm_prices.get(nm); pe=pi/(1+VAT) if pi else None
+            ae=pe*qty if pe is not None else None; va=ae*VAT if ae is not None else None; ai=ae+va if ae is not None else None
+            if ae is not None: total_excl+=ae; total_vat+=va; total_incl+=ai
+            rows_data.append({"num":i+1,"name":g.get("product_name") or g.get("vendor_code") or "Товар","qty":qty,
+                "price_excl":fmt2(pe) if pe is not None else "—","amt_excl":fmt2(ae) if ae is not None else "—",
+                "vat_amt":fmt2(va) if va is not None else "—","amt_incl":fmt2(ai) if ai is not None else "—"})
+        t_excl=fmt2(total_excl) if total_excl else "—"
+        t_vat=fmt2(total_vat) if total_vat else "—"
+        t_incl=fmt2(total_incl) if total_incl else "—"
+        amt_words=""
+
+        def _rubles_words(n):
+            if n<=0: return "ноль рублей 00 копеек"
+            ones_f=["","одна","две","три","четыре","пять","шесть","семь","восемь","девять"]
+            tens=["","","двадцать","тридцать","сорок","пятьдесят","шестьдесят","семьдесят","восемьдесят","девяносто"]
+            hunds=["","сто","двести","триста","четыреста","пятьсот","шестьсот","семьсот","восемьсот","девятьсот"]
+            teens=["десять","одиннадцать","двенадцать","тринадцать","четырнадцать","пятнадцать","шестнадцать","семнадцать","восемнадцать","девятнадцать"]
+            def chunk(x,fem=False):
+                of=["","один","два","три","четыре","пять","шесть","семь","восемь","девять"]
+                r,w=x%100,[]
+                if x//100: w.append(hunds[x//100])
+                if 10<=r<=19: w.append(teens[r-10])
+                else:
+                    if r//10: w.append(tens[r//10])
+                    if r%10: w.append((ones_f if fem else of)[r%10])
+                return w
+            w=[]; th=(n//1000)%1000; ru=n%1000
+            if th:
+                w.extend(chunk(th,True))
+                w.append(["тысяч","тысяча","тысячи","тысяч"][1 if th%10==1 and th%100!=11 else 2 if th%10 in(2,3,4) and th%100 not in range(12,15) else 3])
+            if ru: w.extend(chunk(ru,False))
+            rw=["рублей","рубль","рубля","рублей"][1 if ru%10==1 and n%100!=11 else 2 if ru%10 in(2,3,4) and n%100 not in range(12,15) else 3]
+            return " ".join(w+[rw,"00 копеек"])
+        if total_incl: amt_words=_rubles_words(round(total_incl))
+
+        tpl_path=STATIC_DIR/"torg12_tpl.docx"
+        with open(tpl_path,"rb") as f: tpl_bytes=f.read()
+        with _zf.ZipFile(_io.BytesIO(tpl_bytes)) as zin:
+            all_files={name:zin.read(name) for name in zin.namelist()}
+        doc_xml=all_files["word/document.xml"].decode("utf-8")
+        row_rx=_re.compile(r'(<w:tr[\s>](?:(?!</w:tr>).)*?\{\{GOODS_NAME\}\}.*?</w:tr>)',_re.DOTALL)
+        m=row_rx.search(doc_xml)
+        import html as _htmlm
+        if m and rows_data:
+            rt=m.group(1); mul=""
+            for rd in rows_data:
+                r=rt.replace("{{ROW_NUM}}",str(rd["num"])).replace("{{GOODS_NAME}}",_htmlm.escape(rd["name"])).replace("{{PRICE}}",_htmlm.escape(rd["price_excl"])).replace("{{ROW_AMOUNT_EXCL}}",_htmlm.escape(rd["amt_excl"])).replace("{{ROW_VAT_SUM}}",_htmlm.escape(rd["vat_amt"])).replace("{{ROW_AMOUNT_INCL}}",_htmlm.escape(rd["amt_incl"])).replace("{{ROW_QTY}}",str(rd["qty"]))
+                mul+=r
+            doc_xml=doc_xml.replace(rt,mul,1)
+        for ph,val in [("{{TTN_NUMBER}}",doc_num),("{{ORG_FULL}}",org_line),("{{SUPPLIER}}",org_line),("{{PAYER}}",org_line),("{{ORDER_DATE}}",doc_num),("{{DOC_NUM_VAL}}",doc_num),("{{DOC_DATE_VAL}}",date_disp),("{{GOODS_NAME}}",rows_data[0]["name"] if rows_data else "Товар"),("{{ROW_NUM}}","1"),("{{PRICE}}",rows_data[0]["price_excl"] if rows_data else "—"),("{{ROW_AMOUNT_EXCL}}",rows_data[0]["amt_excl"] if rows_data else "—"),("{{ROW_VAT_SUM}}",rows_data[0]["vat_amt"] if rows_data else "—"),("{{ROW_AMOUNT_INCL}}",rows_data[0]["amt_incl"] if rows_data else "—"),("{{QTY}}",str(qty_total)),("{{QTY_SHT}}",f"{qty_total} шт"),("{{TOTAL_EXCL}}",t_excl),("{{TOTAL_VAT}}",t_vat),("{{TOTAL_INCL}}",t_incl),("{{AMOUNT}}",t_excl),("{{VAT_SUM}}",t_vat),("{{AMOUNT_WITH_VAT}}",t_incl),("{{TOTAL_RUB}}",str(int(total_incl)) if total_incl else "0"),("{{TOTAL_KOP}}","00"),("{{PAGES_COUNT}}","1"),("{{ITEMS_COUNT}}",str(len(rows_data))),("{{SUPPLY_ID}}",doc_num),("{{DOC_DATE_FULL}}",f"«{now.strftime('%d')}» {['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'][now.month-1]} {now.year}"),("{{ISSUED_BY}}",supplier_short or "—"),("{{SIGNATORIES}}",le.get("signatories") or supplier_short or "—"),("{{PROD_HEAD}}","—"),("{{SIGN_SUPPLIER}}",supplier_short),("{{SIGN_DRIVER}}",driver_name),("{{AMOUNT_WORDS}}",amt_words)]:
+            doc_xml=doc_xml.replace(ph,val)
+        doc_xml=doc_xml.replace("{{ROW_QTY}}",str(qty_total))
+        all_files["word/document.xml"]=doc_xml.encode("utf-8")
+        tmp_dir=_tf.mkdtemp(); docx_path=_pl.Path(tmp_dir)/f"combined_ttn.docx"; pdf_path=_pl.Path(tmp_dir)/f"combined_ttn.pdf"
+        buf=_io.BytesIO()
+        with _zf.ZipFile(buf,"w",_zf.ZIP_DEFLATED) as zout:
+            for name,data in all_files.items(): zout.writestr(name,data)
+        docx_path.write_bytes(buf.getvalue())
+        lo_env=dict(_os.environ)
+        for k,v in [("HOME",tmp_dir),("XDG_CACHE_HOME",tmp_dir),("XDG_CONFIG_HOME",tmp_dir),("XDG_RUNTIME_DIR",tmp_dir),("DCONF_PROFILE","/dev/null")]: lo_env[k]=v
+        lo_ok=False
+        for binary in ("/usr/bin/soffice","/usr/lib/libreoffice/program/soffice","soffice","libreoffice"):
+            try:
+                r=_sp.run([binary,"--headless","--norestore",f"-env:UserInstallation=file://{tmp_dir}/lo_profile","--convert-to","pdf","--outdir",tmp_dir,str(docx_path)],capture_output=True,timeout=60,env=lo_env)
+                if r.returncode==0 and pdf_path.exists(): lo_ok=True; break
+            except FileNotFoundError: continue
+            except _sp.TimeoutExpired: raise HTTPException(status_code=504,detail="Таймаут")
+        if not lo_ok: raise HTTPException(status_code=500,detail="Ошибка конвертации PDF")
+        return Response(content=pdf_path.read_bytes(),media_type="application/pdf",headers={"Content-Disposition":'inline; filename="combined_ttn.pdf"'})
+
     @app.get("/api/supplies/{supply_id}/ttn-error-test")
     def ttn_error_test(request: Request, supply_id: int) -> dict[str, object]:
         """Debug: run ttn.pdf and return error detail instead of 500."""

@@ -1047,6 +1047,23 @@
               <input id="suppliesSearchFilter" type="search" placeholder="🔍 Поиск..."
                      autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
                      style="width:160px" oninput="loadSupplies(true)" />
+              <!-- Batch action dropdown — visible when 2+ supplies with same driver selected -->
+              <div id="suppliesBatchWrap" style="position:relative;display:none">
+                <button id="suppliesBatchBtn" class="secondary" onclick="toggleSuppliesBatchMenu(event)" style="height:34px;padding:0 10px">
+                  Действия ▾ <span id="suppliesBatchCount" style="font-weight:bold"></span>
+                </button>
+                <div id="suppliesBatchMenu" class="dropdown-menu hidden" style="position:absolute;top:38px;left:0;z-index:200;min-width:260px;background:#fff;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.1);padding:6px 0">
+                  <div style="padding:4px 12px 2px;font-size:11px;color:#94a3b8;font-weight:600">СУММАРНЫЕ ДОКУМЕНТЫ</div>
+                  <div style="display:flex;align-items:center;gap:4px;padding:2px 8px">
+                    <button class="secondary" style="flex:1;text-align:left" onclick="downloadCombinedPoA()">⬇ Суммарная доверенность</button>
+                    <button class="secondary" style="padding:0 8px" onclick="printCombinedPoA()" title="Печать доверенности">🖨</button>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:4px;padding:2px 8px 6px">
+                    <button class="secondary" style="flex:1;text-align:left" onclick="downloadCombinedTTN()">⬇ Суммарная ТТН</button>
+                    <button class="secondary" style="padding:0 8px" onclick="printCombinedTTN()" title="Печать ТТН">🖨</button>
+                  </div>
+                </div>
+              </div>
             </div>
             <div class="supplies-date-wrap" style="position:relative">
               <button id="suppliesDateBtn" type="button" class="secondary" onclick="toggleSuppliesDatePanel()" style="padding:0 10px;height:34px" title="Фильтр по дате">📅</button>
@@ -1064,12 +1081,13 @@
           <div class="supplies-table-wrap">
             <table id="suppliesTable" class="supplies-main-table">
               <colgroup id="suppliesColgroup">
-                <col data-col="0" /><col data-col="1" /><col data-col="2" />
+                <col style="width:32px" /><col data-col="0" /><col data-col="1" /><col data-col="2" />
                 <col data-col="3" /><col data-col="4" /><col data-col="5" />
                 <col data-col="6" /><col data-col="7" /><col data-col="8" />
               </colgroup>
               <thead>
                 <tr>
+                  <th style="width:32px;padding:0 4px;text-align:center"><input type="checkbox" id="suppliesSelectAll" onchange="toggleSelectAllSupplies(this.checked)" title="Выбрать все" /></th>
                   <th class="supplies-col-expand" data-col="0"></th>
                   <th data-col="1">№ поставки<span class="col-resize-handle"></span></th>
                   <th data-col="2">Юр. лицо<span class="col-resize-handle"></span></th>
