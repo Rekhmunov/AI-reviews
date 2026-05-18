@@ -8773,17 +8773,26 @@ function renderPoATable() {
   });
 }
 
+function _poaFileName(id, ext) {
+  const r = _poaRecords.find(x => x.id === id);
+  if (!r) return `Доверенность_${id}.${ext}`;
+  const le = (r.le_short || "").replace(/[/\\?%*:|"<>]/g, "");
+  const cn = (r.c_name || "").replace(/[/\\?%*:|"<>]/g, "");
+  const dr = (r.driver_id > 0 ? r.d_full : r.driver_manual_name || "").replace(/[/\\?%*:|"<>]/g, "");
+  return `${le}_${cn}_${dr}.${ext}`;
+}
+
 function downloadPoADoc(id) {
   const a = document.createElement("a");
   a.href = `/api/supply-poa-records/${id}/doc`;
-  a.download = `Доверенность_${id}.doc`;
+  a.download = _poaFileName(id, "doc");
   a.click();
 }
 
 function downloadPoAPdf(id) {
   const a = document.createElement("a");
   a.href = `/api/supply-poa-records/${id}/pdf`;
-  a.download = `Доверенность_${id}.pdf`;
+  a.download = _poaFileName(id, "pdf");
   a.click();
 }
 
