@@ -6957,7 +6957,7 @@ class ReviewRepository:
                 conn.execute(
                     self._sql("INSERT INTO ozon_supply_goods (supply_item_id, sku, name, quantity, barcode, offer_id) VALUES (?, ?, ?, ?, ?, ?)"),
                     (supply_item_id, int(g.get("sku") or 0) or None, str(g.get("name") or "") or None,
-                     int(g.get("quantity") or 0), str(g.get("barcode") or "") or None, str(g.get("contractor_item_code") or "") or None),
+                     int(g.get("quantity") or 0), str(g.get("barcode") or "") or None, str(g.get("offer_id") or "") or None),
                 )
 
     def get_ozon_supply_goods(self, *, user_id: int, supply_order_id: int) -> list[dict[str, Any]]:

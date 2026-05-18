@@ -6153,7 +6153,8 @@ tr {{ page-break-inside: avoid; }}
         except Exception as ex:
             _log.warning("ozon goods lazy load sid=%d: %s", supply_order_id, ex)
         return repository.get_ozon_supply_goods(user_id=owner_id, supply_order_id=supply_order_id) or [
-            {"sku": g.get("sku"), "name": g.get("name"), "quantity": g.get("quantity"), "barcode": g.get("barcode"), "offer_id": g.get("contractor_item_code")} for g in goods
+            {"sku": g.get("sku"), "name": g.get("name"), "quantity": g.get("quantity"),
+             "barcode": g.get("barcode"), "offer_id": g.get("offer_id")} for g in goods
         ]
 
     @app.patch("/api/ozon-supplies/{supply_order_id}/manual-fields")
@@ -6193,7 +6194,8 @@ tr {{ page-break-inside: avoid; }}
         if not sources:
             return {"ok": False, "message": "Нет активных источников OZON"}
 
-        ACTIVE_STATES = ["AWAITING_CONFIRM", "AWAITING_SUPPLY", "SUPPLY_AT_WAREHOUSE", "ACCEPTED"]
+        # v3 API states (confirmed by live testing — v2 states return 404)
+        ACTIVE_STATES = ["IN_TRANSIT", "COMPLETED"]
 
         def _run_ozon_sync():
             with _ozon_sync_lock:
@@ -6207,36 +6209,32 @@ tr {{ page-break-inside: avoid; }}
                     if not api_key or not client_id:
                         continue
                     ctx = _sl.create_default_context()
-                    headers = {"Client-Id": client_id, "Api-Key": api_key, "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
+                    headers = {"Client-Id": client_id, "Api-Key": api_key,
+                               "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
 
-                    # Step 1: build warehouse cache
-                    wh_cache: dict[int, str] = {}
-                    try:
-                        req = _ul.Request("https://api-seller.ozon.ru/v1/warehouse/list", data=b"{}", method="POST", headers=headers)
-                        with _ul.urlopen(req, context=ctx, timeout=15) as r:
-                            wh_data = _jj.loads(r.read())
-                        for wh in (wh_data.get("result") or wh_data.get("warehouses") or []):
-                            wh_cache[int(wh.get("warehouse_id") or 0)] = str(wh.get("name") or "")
-                    except Exception as ex:
-                        _log.warning("ozon wh cache: %s", ex)
-
-                    # Step 2: get list of supply order IDs
+                    # Step 1: paginate supply order IDs via /v3/supply-order/list
+                    # Pagination is cursor-based: last_id string returned in response
                     with _ozon_sync_lock:
                         _ozon_sync_state["message"] = f"«{src['name']}»: получение списка поставок…"
-                    all_order_ids = []
-                    last_id = 0
+                    all_order_ids: list[str] = []
+                    last_id_cursor = ""
                     while True:
-                        body = _jj.dumps({"filter": {"states": ACTIVE_STATES}, "paging": {"from_supply_order_id": last_id, "limit": 100}}).encode()
+                        req_body = {"filter": {"states": ACTIVE_STATES}, "limit": 100, "sort_by": 1}
+                        if last_id_cursor:
+                            req_body["last_id"] = last_id_cursor
                         try:
-                            req = _ul.Request("https://api-seller.ozon.ru/v2/supply-order/list", data=body, method="POST", headers=headers)
-                            with _ul.urlopen(req, context=ctx, timeout=15) as r:
+                            req = _ul.Request(
+                                "https://api-seller.ozon.ru/v3/supply-order/list",
+                                data=_jj.dumps(req_body).encode(), method="POST", headers=headers,
+                            )
+                            with _ul.urlopen(req, context=ctx, timeout=20) as r:
                                 resp = _jj.loads(r.read())
-                            page_ids = [str(x) for x in (resp.get("supply_order_id") or [])]
+                            page_ids = [str(x) for x in (resp.get("order_ids") or [])]
                             if not page_ids:
                                 break
                             all_order_ids.extend(page_ids)
-                            last_id = int(resp.get("last_supply_order_id") or 0)
-                            if len(page_ids) < 100:
+                            last_id_cursor = str(resp.get("last_id") or "")
+                            if not last_id_cursor or len(page_ids) < 100:
                                 break
                         except Exception as ex:
                             errors.append(f"list: {ex}"); break
@@ -6248,46 +6246,46 @@ tr {{ page-break-inside: avoid; }}
                         _ozon_sync_state["total"] = len(all_order_ids)
                         _ozon_sync_state["message"] = f"«{src['name']}»: загрузка {len(all_order_ids)} поставок…"
 
-                    # Step 3: get details in batches of 50
+                    # Step 2: get details in batches of 50 via /v3/supply-order/get
                     for i in range(0, len(all_order_ids), 50):
                         batch = all_order_ids[i:i+50]
                         try:
                             body2 = _jj.dumps({"order_ids": batch}).encode()
-                            req2 = _ul.Request("https://api-seller.ozon.ru/v2/supply-order/get", data=body2, method="POST", headers=headers)
+                            req2 = _ul.Request(
+                                "https://api-seller.ozon.ru/v3/supply-order/get",
+                                data=body2, method="POST", headers=headers,
+                            )
                             with _ul.urlopen(req2, context=ctx, timeout=30) as r2:
                                 det_resp = _jj.loads(r2.read())
-                            orders = det_resp.get("orders") or []
-                            warehouses = {wh["warehouse_id"]: wh["name"] for wh in (det_resp.get("warehouses") or []) if wh.get("warehouse_id")}
-                            wh_cache.update(warehouses)
-                            for order in orders:
-                                oid = int(order.get("supply_order_id") or 0)
+                            for order in (det_resp.get("orders") or []):
+                                oid = int(order.get("order_id") or 0)
                                 if not oid: continue
-                                # Resolve supply_date from timeslot
+                                # supply_date: order.timeslot.timeslot.from
                                 supply_date = None
-                                ts = order.get("timeslot") or []
-                                if ts and isinstance(ts, list):
-                                    tv = (ts[0].get("value") or {})
-                                    tsl = tv.get("timeslot") or []
-                                    if tsl: supply_date = str(tsl[0].get("from") or "")
-                                # warehouse name
-                                wh_id = int(order.get("dropoff_warehouse_id") or 0)
-                                wh_name = wh_cache.get(wh_id, "") if wh_id else ""
-                                # total quantity from supplies (will be filled lazily via goods)
+                                ts_outer = order.get("timeslot") or {}
+                                ts_inner = ts_outer.get("timeslot") or {}
+                                if ts_inner.get("from"):
+                                    supply_date = str(ts_inner["from"])
+                                # warehouse from drop_off_warehouse
+                                wh_obj = order.get("drop_off_warehouse") or {}
+                                wh_id = int(wh_obj.get("warehouse_id") or 0) or None
+                                wh_name = str(wh_obj.get("name") or "") or None
                                 data = {
                                     "supply_order_id": oid,
-                                    "supply_order_number": str(order.get("supply_order_number") or ""),
+                                    "supply_order_number": str(order.get("order_number") or ""),
                                     "state": str(order.get("state") or ""),
-                                    "creation_date": str(order.get("creation_date") or "") or None,
+                                    "creation_date": str(order.get("created_date") or "") or None,
                                     "supply_date": supply_date,
-                                    "dropoff_warehouse_id": wh_id or None,
-                                    "warehouse_name": wh_name or None,
+                                    "dropoff_warehouse_id": wh_id,
+                                    "warehouse_name": wh_name,
                                     "total_quantity": 0,
-                                    "creation_flow": str(order.get("creation_flow") or "") or None,
+                                    "creation_flow": None,
                                     "supplies": order.get("supplies") or [],
                                 }
                                 repository.upsert_ozon_supply_item(source_id=int(src["id"]), data=data)
                                 total_synced += 1
                         except Exception as ex:
+                            _log.error("ozon supply get batch: %s", ex, exc_info=True)
                             errors.append(str(ex))
                         with _ozon_sync_lock:
                             _ozon_sync_state["synced"] = total_synced
