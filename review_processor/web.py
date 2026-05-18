@@ -6207,7 +6207,9 @@ tr {{ page-break-inside: avoid; }}
         ACTIVE_STATES = ["IN_TRANSIT", "COMPLETED"]
         import threading as _thr
         from datetime import datetime as _odt, timezone as _otz, timedelta as _otd
-        _ozon_date_from = (_odt.now(_otz.utc) - _otd(days=30)).strftime("%Y-%m-%d")
+        _ozon_now = _odt.now(_otz.utc)
+        _ozon_date_from = (_ozon_now - _otd(days=30)).strftime("%Y-%m-%d")
+        _ozon_today = _ozon_now.strftime("%Y-%m-%d")
 
         def _run_ozon_sync():
             with _ozon_sync_lock:
@@ -6278,9 +6280,14 @@ tr {{ page-break-inside: avoid; }}
                             for order in (det_resp.get("orders") or []):
                                 oid = int(order.get("order_id") or 0)
                                 if not oid: continue
-                                # Filter: only last 30 days by created_date
+                                # Filter: created in last 30 days OR delivery scheduled in the future
                                 created_date = str(order.get("created_date") or "")
-                                if created_date[:10] < _ozon_date_from:
+                                ts_outer_f = order.get("timeslot") or {}
+                                ts_inner_f = ts_outer_f.get("timeslot") or {}
+                                timeslot_date = str(ts_inner_f.get("from") or "")[:10]
+                                is_recent = created_date[:10] >= _ozon_date_from
+                                is_future_delivery = bool(timeslot_date) and timeslot_date >= _ozon_today
+                                if not is_recent and not is_future_delivery:
                                     continue
                                 # supply_date: order.timeslot.timeslot.from
                                 supply_date = None
