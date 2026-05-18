@@ -115,7 +115,7 @@ const UI_REFRESH_MS = 60000;        // refresh chat list from DB every 60s (afte
 const CHANNEL_ICONS = { "Отзывы": "⭐", "Вопросы": "❓", "Чаты": "💬" };
 const ACTIVE_SECTION_STORAGE_KEY = "feedpilot_active_section";
 const ACTIVE_SETTINGS_TAB_STORAGE_KEY = "feedpilot_active_settings_tab";
-const SECTION_IDS = ["reviews", "conversations", "chats", "analytics", "settings", "stock-settings", "stock-work", "supplies-wb", "supplies-poa", "supplies-settings", "profile"];
+const SECTION_IDS = ["reviews", "conversations", "chats", "analytics", "settings", "stock-settings", "stock-work", "supplies-wb", "supplies-ozon", "supplies-poa", "supplies-settings", "profile"];
 const SETTINGS_TAB_IDS = ["sources", "rules", "templates", "recommendations", "products", "team", "template-variables"];
 const APP_BOOT_HIDE_CLASS = "app-boot-hidden";
 const MOBILE_NAV_BREAKPOINT_PX = 900;
@@ -397,6 +397,7 @@ function canViewSection(section) {
   if (section === "analytics") return permissions.can_view_analytics;
   if (section === "settings") return permissions.can_view_settings;
   if (section === "supplies-wb") return permissions.can_view_supplies;
+  if (section === "supplies-ozon") return permissions.can_view_supplies;
   if (section === "supplies-poa") return permissions.can_view_supplies;
   if (section === "supplies-settings") return permissions.can_view_settings || permissions.can_view_supplies;
   if (section === "reviews" || section === "conversations" || section === "chats") {
@@ -485,6 +486,9 @@ function showSection(section, options = {}) {
     if (_si && _si.value) { _si.value = ""; chatsState.search = ""; }
     chatsState._searchUserTyped = false;
     loadChats();
+  }
+  if (section === "supplies-ozon") {
+    if (!ozonState.items.length) loadOzonSupplies(true);
   }
 }
 
@@ -3727,6 +3731,271 @@ function printPoA(supplyId) {
   if (!win) alert("Разрешите всплывающие окна для печати");
 }
 window.printPoA = printPoA;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// OZON SUPPLIES MODULE — fully isolated from WB
+// ═══════════════════════════════════════════════════════════════════════════
+const OZON_STATUS_LABELS = {
+  "AWAITING_CONFIRM":    "Ожидает подтверждения",
+  "AWAITING_SUPPLY":     "Ожидает поставки",
+  "SUPPLY_AT_WAREHOUSE": "На складе",
+  "ACCEPTED":            "Принята",
+};
+
+const ozonState = { items: [], total: 0, page: 1, page_size: 50 };
+let _ozonSyncPollTimer = null;
+let _ozonDetailsCurrentId = null;
+let _selectedOzonIds = new Set();
+
+// ── Load & render ──────────────────────────────────────────────────────────
+async function loadOzonSupplies(resetPage = false) {
+  if (resetPage) ozonState.page = 1;
+  const statusF = document.getElementById("ozonStatusFilter")?.value || "";
+  const prodF = document.getElementById("ozonProductionFilter")?.value || "";
+  const params = new URLSearchParams({ page: ozonState.page, page_size: ozonState.page_size });
+  const res = await fetch(`/api/ozon-supplies?${params}`).catch(() => null);
+  if (!res || !res.ok) return;
+  const data = await res.json().catch(() => ({}));
+  let items = data.items || [];
+  // Client-side filtering
+  if (statusF) items = items.filter(x => (x.state || "") === statusF);
+  if (prodF) items = items.filter(x => (x.production || "") === prodF);
+  ozonState.items = items;
+  ozonState.total = items.length;
+  _populateOzonProductionFilter();
+  renderOzonTable();
+  _updateOzonPagination();
+  _updateOzonBatchUI();
+}
+
+function _populateOzonProductionFilter() {
+  const sel = document.getElementById("ozonProductionFilter");
+  if (!sel) return;
+  const cur = sel.value;
+  const prods = [...new Set(_supplyProductionsCache.map(p => p.name))];
+  sel.innerHTML = '<option value="">Все производства</option>' +
+    prods.map(n => `<option value="${esc(n)}"${n===cur?' selected':''}>${esc(n)}</option>`).join("");
+}
+
+function renderOzonTable() {
+  const tbody = document.getElementById("ozonSuppliesTbody");
+  if (!tbody) return;
+  const sq = (document.getElementById("ozonSearchFilter")?.value || "").toLowerCase();
+  let rows = ozonState.items;
+  if (sq) rows = rows.filter(x => (x.supply_order_number||"").toLowerCase().includes(sq) || (x.warehouse_name||"").toLowerCase().includes(sq));
+
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="9" class="empty-cell">Поставки не найдены</td></tr>';
+    return;
+  }
+  tbody.innerHTML = "";
+  rows.forEach((item, idx) => {
+    const tr = document.createElement("tr");
+    tr.className = "supply-row";
+    tr.dataset.supplyId = String(item.supply_order_id);
+    const statusLabel = OZON_STATUS_LABELS[item.state] || (item.state || "—");
+    const statusClass = { "AWAITING_CONFIRM":"supply-status-2","AWAITING_SUPPLY":"supply-status-3","SUPPLY_AT_WAREHOUSE":"supply-status-4","ACCEPTED":"supply-status-5" }[item.state] || "";
+    const supplyDate = item.supply_date
+      ? (() => { try { return new Date(item.supply_date).toLocaleDateString("ru-RU",{day:"2-digit",month:"2-digit",year:"numeric"}); } catch(_){return item.supply_date;} })()
+      : "Не назначена";
+    tr.innerHTML = `
+      <td style="width:32px;padding:0 4px;text-align:center">
+        <input type="checkbox" class="ozon-row-checkbox" data-supply-id="${item.supply_order_id}" onchange="onOzonCheckboxChange()" />
+      </td>
+      <td class="supply-expand-cell">
+        <button class="supply-expand-btn" onclick="toggleOzonGoods(this, ${item.supply_order_id})" aria-label="Развернуть">▶</button>
+      </td>
+      <td><span class="supply-id-text">${item.supply_order_number || item.supply_order_id}</span></td>
+      <td>${esc(item.warehouse_name || "—")}</td>
+      <td class="supply-prod-cell">${item.production ? esc(item.production) : '<span class="supply-prod-empty">Требует заполнения</span>'}</td>
+      <td>${esc(supplyDate)}</td>
+      <td>${item.total_quantity || "—"}</td>
+      <td><span class="supply-status-badge ${statusClass}">${esc(statusLabel)}</span></td>
+      <td class="supply-links-cell">
+        <div class="supply-links-col">
+          <button class="supply-detail-link" onclick="openOzonDetailsModal(${item.supply_order_id})">☰ Детали заказа</button>
+          ${item.pallets_count && item.driver_name ? `<button class="supply-detail-link supply-packing-link" onclick="alert('Упаковочный лист OZON — в разработке')">⬇ Упаковочный лист</button>` : ""}
+          ${item.pallets_count && item.driver_name ? `<button class="supply-detail-link supply-poa-link" style="flex:1" onclick="alert('Доверенность OZON — скоро')">⬇ Доверенность</button>` : ""}
+          ${item.pallets_count && item.driver_name ? `<button class="supply-detail-link supply-ttn-link" style="flex:1" onclick="alert('ТТН OZON — скоро')">⬇ ТТН</button>` : ""}
+        </div>
+      </td>`;
+    tbody.appendChild(tr);
+    // Goods row
+    const goodsTr = document.createElement("tr");
+    goodsTr.className = "supply-goods-row hidden";
+    goodsTr.dataset.supplyId = String(item.supply_order_id);
+    goodsTr.innerHTML = `<td colspan="9"><div class="supply-goods-container" id="ozon-goods-${item.supply_order_id}"><span class="small" style="color:#94a3b8">Загрузка…</span></div></td>`;
+    tbody.appendChild(goodsTr);
+  });
+}
+
+async function toggleOzonGoods(btn, supplyId) {
+  const goodsRow = document.querySelector(`.supply-goods-row[data-supply-id="${supplyId}"]`);
+  if (!goodsRow) return;
+  const isOpen = !goodsRow.classList.contains("hidden");
+  if (isOpen) { goodsRow.classList.add("hidden"); btn.textContent = "▶"; return; }
+  goodsRow.classList.remove("hidden"); btn.textContent = "▼";
+  const container = document.getElementById(`ozon-goods-${supplyId}`);
+  if (!container || container.dataset.loaded) return;
+  const res = await fetch(`/api/ozon-supplies/${supplyId}/goods`).catch(() => null);
+  if (!res || !res.ok) { container.innerHTML = '<span class="small" style="color:#b91c1c">Ошибка загрузки</span>'; return; }
+  const goods = await res.json().catch(() => []);
+  container.dataset.loaded = "1";
+  if (!goods.length) { container.innerHTML = '<span class="small" style="color:#94a3b8">Нет товаров</span>'; return; }
+  let html = '<table class="supply-goods-table"><thead><tr><th>SKU OZON</th><th>Наименование</th><th>Кол-во</th></tr></thead><tbody>';
+  for (const g of goods) {
+    html += `<tr><td>${g.sku || "—"}</td><td>${esc(g.name || g.offer_id || "—")}</td><td>${g.quantity ?? "—"}</td></tr>`;
+  }
+  html += "</tbody></table>";
+  container.innerHTML = html;
+}
+
+function _updateOzonPagination() {
+  const total = ozonState.total;
+  const totalPages = Math.max(1, Math.ceil(total / ozonState.page_size));
+  const info = document.getElementById("ozonPageInfo");
+  if (info) info.textContent = `${ozonState.page} / ${totalPages}`;
+  const prev = document.getElementById("ozonPrevBtn");
+  const next = document.getElementById("ozonNextBtn");
+  if (prev) prev.disabled = ozonState.page <= 1;
+  if (next) next.disabled = ozonState.page >= totalPages;
+  const inf = document.getElementById("ozonInfo");
+  if (inf) inf.textContent = `Поставок: ${total}`;
+}
+
+function ozonChangePage(delta) {
+  const totalPages = Math.max(1, Math.ceil(ozonState.total / ozonState.page_size));
+  ozonState.page = Math.max(1, Math.min(totalPages, ozonState.page + delta));
+  renderOzonTable();
+  _updateOzonPagination();
+}
+
+// ── Sync ───────────────────────────────────────────────────────────────────
+async function syncOzonSupplies() {
+  const btn = document.getElementById("ozonSyncBtn");
+  if (btn) { btn.disabled = true; btn.textContent = "⏳ Синхронизация…"; }
+  const res = await fetch("/api/ozon-supplies/sync", { method: "POST", headers: jsonHeaders() }).catch(() => null);
+  if (!res || !res.ok) {
+    const e = await res?.json().catch(()=>({})) || {};
+    if (btn) { btn.disabled = false; btn.textContent = "🔄 Синхронизировать"; }
+    alert("Ошибка: " + (e.message || res?.status)); return;
+  }
+  _ozonPollSync();
+}
+
+function _ozonPollSync() {
+  if (_ozonSyncPollTimer) clearInterval(_ozonSyncPollTimer);
+  _ozonSyncPollTimer = setInterval(async () => {
+    const r = await fetch("/api/ozon-supplies/sync/status").catch(() => null);
+    if (!r || !r.ok) return;
+    const d = await r.json().catch(() => ({}));
+    const info = document.getElementById("ozonSyncInfo");
+    if (info) info.textContent = d.message || "";
+    if (!d.in_progress) {
+      clearInterval(_ozonSyncPollTimer);
+      const btn = document.getElementById("ozonSyncBtn");
+      if (btn) { btn.disabled = false; btn.textContent = "🔄 Синхронизировать"; }
+      await loadOzonSupplies(true);
+    }
+  }, 1500);
+}
+
+async function clearOzonSupplies() {
+  if (!confirm("Удалить все поставки OZON?")) return;
+  await fetch("/api/ozon-supplies", { method: "DELETE", headers: jsonHeaders() });
+  await loadOzonSupplies(true);
+}
+
+// ── Details modal ──────────────────────────────────────────────────────────
+async function openOzonDetailsModal(supplyId) {
+  const item = ozonState.items.find(x => x.supply_order_id === supplyId || x.supply_order_id === Number(supplyId));
+  if (!item) return;
+  _ozonDetailsCurrentId = item.supply_order_id;
+
+  const supplyDate = item.supply_date
+    ? (() => { try { return new Date(item.supply_date).toLocaleDateString("ru-RU",{day:"2-digit",month:"2-digit",year:"numeric"}); } catch(_){return item.supply_date;} })()
+    : "Не назначена";
+
+  document.getElementById("ozonSdOrderNum").textContent = item.supply_order_number || item.supply_order_id;
+  document.getElementById("ozonSdDate").textContent = supplyDate;
+  document.getElementById("ozonSdSupplier").textContent = item.supplier_name || "—";
+  document.getElementById("ozonSdWarehouse").textContent = item.warehouse_name || "—";
+  document.getElementById("ozonSdQty").textContent = item.total_quantity || "—";
+  document.getElementById("ozonSdType").textContent = item.creation_flow || "—";
+  document.getElementById("ozonSdPallets").value = item.pallets_count || "";
+  document.getElementById("ozonSdNotes").value = item.notes || "";
+
+  // Populate production dropdown
+  _populateProductionSelects();
+  const prodSel = document.getElementById("ozonSdProduction");
+  if (prodSel) prodSel.value = item.production || "";
+
+  // Populate driver dropdown
+  const dSel = document.getElementById("ozonSdDriverSelect");
+  if (dSel) {
+    if (!_supplyDriversCache.length) await loadSupplyDrivers();
+    dSel.innerHTML = '<option value="">— Не выбран —</option>' +
+      _supplyDriversCache.map(d => `<option value="${esc(d.full_name||"")}">${esc(d.full_name||"")}</option>`).join("");
+    dSel.value = item.driver_name || "";
+  }
+
+  const modal = document.getElementById("ozonDetailsModal");
+  if (modal) { modal.classList.remove("hidden"); modal.style.display = ""; }
+}
+
+function closeOzonDetailsModal() {
+  const modal = document.getElementById("ozonDetailsModal");
+  if (modal) { modal.classList.add("hidden"); modal.style.display = "none"; }
+  _ozonDetailsCurrentId = null;
+}
+
+function onOzonDriverSelectChange(val) {}
+
+async function saveOzonManualFields() {
+  if (!_ozonDetailsCurrentId) return;
+  const payload = {
+    pallets_count: document.getElementById("ozonSdPallets")?.value || "",
+    driver_name: document.getElementById("ozonSdDriverSelect")?.value || "",
+    notes: document.getElementById("ozonSdNotes")?.value || "",
+    production: document.getElementById("ozonSdProduction")?.value || "",
+  };
+  await fetch(`/api/ozon-supplies/${_ozonDetailsCurrentId}/manual-fields`, {
+    method: "PATCH", headers: jsonHeaders(), body: JSON.stringify(payload)
+  }).catch(() => null);
+  closeOzonDetailsModal();
+  await loadOzonSupplies();
+}
+
+// ── Batch selection (same logic as WB) ────────────────────────────────────
+function onOzonCheckboxChange() {
+  _selectedOzonIds.clear();
+  document.querySelectorAll(".ozon-row-checkbox:checked").forEach(cb => _selectedOzonIds.add(Number(cb.dataset.supplyId)));
+  _updateOzonBatchUI();
+}
+
+function toggleSelectAllOzon(checked) {
+  document.querySelectorAll(".ozon-row-checkbox").forEach(cb => { cb.checked = checked; });
+  onOzonCheckboxChange();
+}
+
+function _updateOzonBatchUI() {
+  // reuse same batch wrap if needed — OZON uses same conditions
+  // For now just log — batch docs for OZON TBD
+}
+
+// ── Register all handlers ──────────────────────────────────────────────────
+window.loadOzonSupplies = loadOzonSupplies;
+window.renderOzonTable = renderOzonTable;
+window.syncOzonSupplies = syncOzonSupplies;
+window.clearOzonSupplies = clearOzonSupplies;
+window.ozonChangePage = ozonChangePage;
+window.toggleOzonGoods = toggleOzonGoods;
+window.openOzonDetailsModal = openOzonDetailsModal;
+window.closeOzonDetailsModal = closeOzonDetailsModal;
+window.saveOzonManualFields = saveOzonManualFields;
+window.onOzonCheckboxChange = onOzonCheckboxChange;
+window.toggleSelectAllOzon = toggleSelectAllOzon;
+window.onOzonDriverSelectChange = onOzonDriverSelectChange;
 
 // ── Batch supply selection ────────────────────────────────────────────────
 let _selectedSupplyIds = new Set();
@@ -8546,11 +8815,18 @@ function _populateProductionSelects() {
     filterSel.innerHTML = '<option value="">Все производства</option>' +
       names.map(n => `<option value="${esc(n)}"${n===cur?' selected':''}>${esc(n)}</option>`).join("");
   }
-  // Modal dropdown
+  // Modal dropdown (WB)
   const modalSel = document.getElementById("sdProduction");
   if (modalSel) {
     const cur = modalSel.value;
     modalSel.innerHTML = '<option value="">— Не выбрано —</option>' +
+      names.map(n => `<option value="${esc(n)}"${n===cur?' selected':''}>${esc(n)}</option>`).join("");
+  }
+  // Modal dropdown (OZON)
+  const ozonModalSel = document.getElementById("ozonSdProduction");
+  if (ozonModalSel) {
+    const cur = ozonModalSel.value;
+    ozonModalSel.innerHTML = '<option value="">— Не выбрано —</option>' +
       names.map(n => `<option value="${esc(n)}"${n===cur?' selected':''}>${esc(n)}</option>`).join("");
   }
 }

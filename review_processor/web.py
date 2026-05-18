@@ -6096,6 +6096,219 @@ tr {{ page-break-inside: avoid; }}
             headers={"Content-Disposition": f'inline; filename="TTN_{supply_id}.pdf"'},
         )
 
+    # ── OZON Supplies endpoints (isolated from WB) ──────────────────────────
+
+    _ozon_sync_state: dict = {"in_progress": False, "synced": 0, "total": 0, "message": "", "errors": []}
+    _ozon_sync_lock = __import__("threading").Lock()
+
+    @app.get("/api/ozon-supplies")
+    def list_ozon_supplies(request: Request, page: int = 1, page_size: int = 50) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        repository._ensure_supply_tables()
+        items = repository.list_ozon_supply_items(user_id=owner_id)
+        total = len(items)
+        start = (page - 1) * page_size
+        return {"items": items[start:start + page_size], "total": total, "page": page, "page_size": page_size}
+
+    @app.get("/api/ozon-supplies/{supply_order_id}/goods")
+    def get_ozon_supply_goods(request: Request, supply_order_id: int) -> list[dict[str, object]]:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        cached = repository.get_ozon_supply_goods(user_id=owner_id, supply_order_id=supply_order_id)
+        if cached:
+            return cached
+        # Lazy-load from OZON API
+        import urllib.request as _ul, json as _jm, ssl as _sl
+        item_row = repository.get_ozon_supply_item_row(user_id=owner_id, supply_order_id=supply_order_id)
+        if not item_row:
+            return []
+        src = repository.get_supply_source_with_key(user_id=owner_id, source_id=int(item_row["source_id"]))
+        if not src or not src.get("api_key"):
+            return []
+        client_id = src.get("client_id") or ""
+        api_key = str(src["api_key"])
+        ctx = _sl.create_default_context()
+        # Get order details to find bundle_ids
+        import json as _jj
+        raw = _jj.loads(item_row.get("raw_json") or "{}")
+        supplies = raw.get("supplies") or []
+        bundle_ids = [s["bundle_id"] for s in supplies if s.get("bundle_id")]
+        if not bundle_ids:
+            return []
+        goods = []
+        try:
+            body = _jj.dumps({"bundle_ids": bundle_ids, "limit": 1000, "last_id": ""}).encode()
+            req = _ul.Request("https://api-seller.ozon.ru/v1/supply-order/bundle", data=body, method="POST",
+                headers={"Client-Id": client_id, "Api-Key": api_key, "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"})
+            with _ul.urlopen(req, context=ctx, timeout=15) as r:
+                resp = _jj.loads(r.read())
+            goods = resp.get("items") or []
+            if goods and item_row.get("id"):
+                repository.upsert_ozon_supply_goods(supply_item_id=int(item_row["id"]), goods=goods)
+        except Exception as ex:
+            _log.warning("ozon goods lazy load sid=%d: %s", supply_order_id, ex)
+        return repository.get_ozon_supply_goods(user_id=owner_id, supply_order_id=supply_order_id) or [
+            {"sku": g.get("sku"), "name": g.get("name"), "quantity": g.get("quantity"), "barcode": g.get("barcode"), "offer_id": g.get("contractor_item_code")} for g in goods
+        ]
+
+    @app.patch("/api/ozon-supplies/{supply_order_id}/manual-fields")
+    def update_ozon_manual_fields(request: Request, supply_order_id: int, payload: dict) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        repository.update_ozon_supply_manual_fields(
+            user_id=_supply_owner_id(user), supply_order_id=supply_order_id,
+            pallets_count=str(payload.get("pallets_count") or ""),
+            driver_name=str(payload.get("driver_name") or ""),
+            notes=str(payload.get("notes") or ""),
+            production=str(payload.get("production") or ""),
+        )
+        return {"ok": True}
+
+    @app.get("/api/ozon-supplies/sync/status")
+    def get_ozon_sync_status(request: Request) -> dict[str, object]:
+        _require_user(request)
+        with _ozon_sync_lock:
+            return dict(_ozon_sync_state)
+
+    @app.post("/api/ozon-supplies/sync")
+    def sync_ozon_supplies(request: Request) -> dict[str, object]:
+        import threading as _thr, urllib.request as _ul, json as _jj, ssl as _sl
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        with _ozon_sync_lock:
+            if _ozon_sync_state.get("in_progress"):
+                return {"ok": False, "message": "Синхронизация уже запущена"}
+
+        # Get OZON sources only
+        sources = [s for s in repository.list_supply_sources(user_id=owner_id)
+                   if (s.get("marketplace") or "wb").lower() == "ozon" and s.get("is_enabled")]
+        if not sources:
+            return {"ok": False, "message": "Нет активных источников OZON"}
+
+        ACTIVE_STATES = ["AWAITING_CONFIRM", "AWAITING_SUPPLY", "SUPPLY_AT_WAREHOUSE", "ACCEPTED"]
+
+        def _run_ozon_sync():
+            with _ozon_sync_lock:
+                _ozon_sync_state.update({"in_progress": True, "synced": 0, "total": 0, "errors": [], "message": "Запуск…"})
+            total_synced = 0
+            errors = []
+            try:
+                for src in sources:
+                    api_key = str(src.get("api_key") or "")
+                    client_id = str(src.get("client_id") or "")
+                    if not api_key or not client_id:
+                        continue
+                    ctx = _sl.create_default_context()
+                    headers = {"Client-Id": client_id, "Api-Key": api_key, "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
+
+                    # Step 1: build warehouse cache
+                    wh_cache: dict[int, str] = {}
+                    try:
+                        req = _ul.Request("https://api-seller.ozon.ru/v1/warehouse/list", data=b"{}", method="POST", headers=headers)
+                        with _ul.urlopen(req, context=ctx, timeout=15) as r:
+                            wh_data = _jj.loads(r.read())
+                        for wh in (wh_data.get("result") or wh_data.get("warehouses") or []):
+                            wh_cache[int(wh.get("warehouse_id") or 0)] = str(wh.get("name") or "")
+                    except Exception as ex:
+                        _log.warning("ozon wh cache: %s", ex)
+
+                    # Step 2: get list of supply order IDs
+                    with _ozon_sync_lock:
+                        _ozon_sync_state["message"] = f"«{src['name']}»: получение списка поставок…"
+                    all_order_ids = []
+                    last_id = 0
+                    while True:
+                        body = _jj.dumps({"filter": {"states": ACTIVE_STATES}, "paging": {"from_supply_order_id": last_id, "limit": 100}}).encode()
+                        try:
+                            req = _ul.Request("https://api-seller.ozon.ru/v2/supply-order/list", data=body, method="POST", headers=headers)
+                            with _ul.urlopen(req, context=ctx, timeout=15) as r:
+                                resp = _jj.loads(r.read())
+                            page_ids = [str(x) for x in (resp.get("supply_order_id") or [])]
+                            if not page_ids:
+                                break
+                            all_order_ids.extend(page_ids)
+                            last_id = int(resp.get("last_supply_order_id") or 0)
+                            if len(page_ids) < 100:
+                                break
+                        except Exception as ex:
+                            errors.append(f"list: {ex}"); break
+
+                    if not all_order_ids:
+                        continue
+
+                    with _ozon_sync_lock:
+                        _ozon_sync_state["total"] = len(all_order_ids)
+                        _ozon_sync_state["message"] = f"«{src['name']}»: загрузка {len(all_order_ids)} поставок…"
+
+                    # Step 3: get details in batches of 50
+                    for i in range(0, len(all_order_ids), 50):
+                        batch = all_order_ids[i:i+50]
+                        try:
+                            body2 = _jj.dumps({"order_ids": batch}).encode()
+                            req2 = _ul.Request("https://api-seller.ozon.ru/v2/supply-order/get", data=body2, method="POST", headers=headers)
+                            with _ul.urlopen(req2, context=ctx, timeout=30) as r2:
+                                det_resp = _jj.loads(r2.read())
+                            orders = det_resp.get("orders") or []
+                            warehouses = {wh["warehouse_id"]: wh["name"] for wh in (det_resp.get("warehouses") or []) if wh.get("warehouse_id")}
+                            wh_cache.update(warehouses)
+                            for order in orders:
+                                oid = int(order.get("supply_order_id") or 0)
+                                if not oid: continue
+                                # Resolve supply_date from timeslot
+                                supply_date = None
+                                ts = order.get("timeslot") or []
+                                if ts and isinstance(ts, list):
+                                    tv = (ts[0].get("value") or {})
+                                    tsl = tv.get("timeslot") or []
+                                    if tsl: supply_date = str(tsl[0].get("from") or "")
+                                # warehouse name
+                                wh_id = int(order.get("dropoff_warehouse_id") or 0)
+                                wh_name = wh_cache.get(wh_id, "") if wh_id else ""
+                                # total quantity from supplies (will be filled lazily via goods)
+                                data = {
+                                    "supply_order_id": oid,
+                                    "supply_order_number": str(order.get("supply_order_number") or ""),
+                                    "state": str(order.get("state") or ""),
+                                    "creation_date": str(order.get("creation_date") or "") or None,
+                                    "supply_date": supply_date,
+                                    "dropoff_warehouse_id": wh_id or None,
+                                    "warehouse_name": wh_name or None,
+                                    "total_quantity": 0,
+                                    "creation_flow": str(order.get("creation_flow") or "") or None,
+                                    "supplies": order.get("supplies") or [],
+                                }
+                                repository.upsert_ozon_supply_item(source_id=int(src["id"]), data=data)
+                                total_synced += 1
+                        except Exception as ex:
+                            errors.append(str(ex))
+                        with _ozon_sync_lock:
+                            _ozon_sync_state["synced"] = total_synced
+            finally:
+                with _ozon_sync_lock:
+                    _ozon_sync_state.update({"in_progress": False, "synced": total_synced, "errors": errors,
+                        "message": f"Готово. Загружено {total_synced} поставок OZON." + (f" Ошибки: {len(errors)}" if errors else "")})
+
+        _thr.Thread(target=_run_ozon_sync, daemon=True).start()
+        return {"ok": True, "message": "Синхронизация OZON запущена"}
+
+    @app.delete("/api/ozon-supplies")
+    def clear_ozon_supplies(request: Request) -> dict[str, object]:
+        user = _require_user(request)
+        if str(user.get("role") or "") not in ROLE_CAN_ACCESS_SETTINGS:
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        deleted = repository.clear_ozon_supply_items(user_id=_supply_owner_id(user))
+        return {"ok": True, "deleted": deleted}
+
+    # ── End OZON Supplies ────────────────────────────────────────────────────
+
     @app.get("/api/supplies/combined-poa.pdf")
     def get_combined_poa_pdf(request: Request, ids: str = ""):
         """Generate combined PoA PDF for multiple supplies via LibreOffice."""
@@ -7229,6 +7442,7 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
     )
     nav_supplies_wb = (
         '<a id="nav-supplies-wb" class="nav-item" href="#" onclick="showSection(\'supplies-wb\')"><span class="nav-item-icon">▦</span> WB</a>'
+        '<a id="nav-supplies-ozon" class="nav-item" href="#" onclick="showSection(\'supplies-ozon\')"><span class="nav-item-icon">◉</span> OZON</a>'
         '<a id="nav-supplies-poa" class="nav-item" href="#" onclick="showSection(\'supplies-poa\')"><span class="nav-item-icon">☐</span> Доверенности</a>'
         if can_view_supplies else ""
     )

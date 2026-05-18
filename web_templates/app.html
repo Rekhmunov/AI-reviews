@@ -1025,6 +1025,100 @@
         </div>
       </div>
 
+      <!-- ── Поставки: OZON ── -->
+      <section id="section-supplies-ozon" class="hidden">
+        <h3 class="section-title">Поставки — OZON</h3>
+        <div class="panel supplies-toolbar-panel">
+          <div class="supplies-top-controls">
+            <div class="supplies-actions">
+              <button id="ozonSyncBtn" onclick="syncOzonSupplies()">🔄 Синхронизировать</button>
+              <button id="ozonClearBtn" class="secondary icon-btn" onclick="clearOzonSupplies()" style="color:#b91c1c;border-color:#fca5a5" title="Удалить поставки OZON">🗑</button>
+              <select id="ozonStatusFilter" onchange="loadOzonSupplies()">
+                <option value="">Все статусы</option>
+                <option value="AWAITING_CONFIRM">Ожидает подтверждения</option>
+                <option value="AWAITING_SUPPLY">Ожидает поставки</option>
+                <option value="SUPPLY_AT_WAREHOUSE">На складе</option>
+                <option value="ACCEPTED">Принята</option>
+              </select>
+              <select id="ozonProductionFilter" onchange="loadOzonSupplies()">
+                <option value="">Все производства</option>
+              </select>
+              <input id="ozonSearchFilter" type="search" placeholder="🔍 Поиск..."
+                     autocomplete="off" style="width:160px" oninput="renderOzonTable()" />
+            </div>
+          </div>
+          <div id="ozonSyncInfo" class="supplies-sync-info"></div>
+        </div>
+        <div class="panel supplies-table-panel">
+          <div class="supplies-table-wrap">
+            <table id="ozonSuppliesTable" class="supplies-main-table">
+              <colgroup>
+                <col style="width:32px" />
+                <col style="width:3%" /><col style="width:12%" /><col style="width:18%" />
+                <col style="width:10%" /><col style="width:9%" /><col style="width:7%" />
+                <col style="width:13%" /><col />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th style="width:32px;padding:0 4px;text-align:center"><input type="checkbox" id="ozonSelectAll" onchange="toggleSelectAllOzon(this.checked)" /></th>
+                  <th></th>
+                  <th>№ поставки</th>
+                  <th>Склад</th>
+                  <th>Производство</th>
+                  <th>Дата поставки</th>
+                  <th>Кол-во</th>
+                  <th>Статус</th>
+                  <th>Ссылки</th>
+                </tr>
+              </thead>
+              <tbody id="ozonSuppliesTbody"></tbody>
+            </table>
+          </div>
+          <div class="supplies-footer">
+            <span id="ozonInfo" class="small supplies-total"></span>
+            <div class="supplies-pagination">
+              <button class="secondary" id="ozonPrevBtn" onclick="ozonChangePage(-1)">← Назад</button>
+              <span id="ozonPageInfo" class="small"></span>
+              <button class="secondary" id="ozonNextBtn" onclick="ozonChangePage(1)">Вперёд →</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- OZON Supply Details Modal -->
+      <div id="ozonDetailsModal" class="modal-overlay hidden" onclick="if(event.target===this)closeOzonDetailsModal()" aria-hidden="true">
+        <div class="modal-card supply-details-modal-card">
+          <div class="modal-card-header">
+            <h4 class="no-margin">Детали поставки OZON</h4>
+            <button class="icon-btn" onclick="closeOzonDetailsModal()">✕</button>
+          </div>
+          <div class="modal-card-body" style="overflow-y:auto">
+            <div class="supply-detail-row"><span class="supply-detail-label">Поставка №</span><span id="ozonSdOrderNum" class="supply-detail-value"></span></div>
+            <div class="supply-detail-row"><span class="supply-detail-label">Дата поставки</span><span id="ozonSdDate" class="supply-detail-value"></span></div>
+            <div class="supply-detail-row"><span class="supply-detail-label">Поставщик</span><span id="ozonSdSupplier" class="supply-detail-value"></span></div>
+            <div class="supply-detail-row">
+              <span class="supply-detail-label">Производство</span>
+              <select id="ozonSdProduction" class="supply-detail-input" style="height:36px"></select>
+            </div>
+            <div class="supply-detail-row"><span class="supply-detail-label">Склад</span><span id="ozonSdWarehouse" class="supply-detail-value"></span></div>
+            <div class="supply-detail-row"><span class="supply-detail-label">Количество</span><span id="ozonSdQty" class="supply-detail-value"></span></div>
+            <div class="supply-detail-row"><span class="supply-detail-label">Паллет</span><input id="ozonSdPallets" type="number" class="supply-detail-input" min="0" /></div>
+            <div class="supply-detail-row"><span class="supply-detail-label">Тип поставки</span><span id="ozonSdType" class="supply-detail-value"></span></div>
+            <div class="supply-detail-row">
+              <span class="supply-detail-label">Водитель</span>
+              <select id="ozonSdDriverSelect" class="supply-detail-input" style="height:36px" onchange="onOzonDriverSelectChange(this.value)">
+                <option value="">— Не выбран —</option>
+              </select>
+            </div>
+            <div class="supply-detail-row"><span class="supply-detail-label">Примечание</span><textarea id="ozonSdNotes" class="supply-detail-input" rows="2"></textarea></div>
+          </div>
+          <div class="modal-card-footer">
+            <button onclick="saveOzonManualFields()">Сохранить</button>
+            <button class="secondary" onclick="closeOzonDetailsModal()">Закрыть</button>
+          </div>
+        </div>
+      </div>
+
       <!-- ── Поставки: WB ── -->
       <section id="section-supplies-wb" class="hidden">
         <h3 class="section-title">Поставки — WB</h3>
