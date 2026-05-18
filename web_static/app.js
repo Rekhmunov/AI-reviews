@@ -8443,6 +8443,7 @@ document.addEventListener("DOMContentLoaded", () => {
       loadSupplyLegalEntities(),
       loadSupplyProductions(),
       loadSupplyContractors(),
+      loadPoARecords(),
     ]).then(() => loadSupplies()).catch(() => {});
     initSuppliesColumnResizer();
   }
@@ -8703,6 +8704,144 @@ window.deleteSupplyContractor = deleteSupplyContractor;
 window.startEditContractor = startEditContractor;
 window.saveEditContractor = saveEditContractor;
 window.loadSupplyContractors = loadSupplyContractors;
+
+// ── Supply PoA Records ────────────────────────────────────────────────────
+let _poaRecords = [];
+
+async function loadPoARecords() {
+  const res = await fetch("/api/supply-poa-records").catch(() => null);
+  if (!res || !res.ok) return;
+  _poaRecords = await res.json().catch(() => []);
+  _populatePoAFilters();
+  renderPoATable();
+}
+
+function _populatePoAFilters() {
+  const cf = document.getElementById("poaContractorFilter");
+  const df = document.getElementById("poaDriverFilter");
+  if (cf) {
+    const contractors = [...new Map(_poaRecords.map(r => [r.contractor_id, r.c_name])).entries()];
+    cf.innerHTML = '<option value="">Все контрагенты</option>' +
+      contractors.map(([id, name]) => `<option value="${id}">${esc(name||"")}</option>`).join("");
+  }
+  if (df) {
+    const drivers = [...new Map(_poaRecords.map(r => [r.driver_id, r.d_full])).entries()];
+    df.innerHTML = '<option value="">Все водители</option>' +
+      drivers.map(([id, name]) => `<option value="${id}">${esc(name||"")}</option>`).join("");
+  }
+}
+
+function renderPoATable() {
+  const tbody = document.getElementById("poaTbody");
+  if (!tbody) return;
+  const cf = document.getElementById("poaContractorFilter")?.value || "";
+  const df = document.getElementById("poaDriverFilter")?.value || "";
+  const sq = (document.getElementById("poaSearch")?.value || "").toLowerCase();
+
+  let rows = _poaRecords;
+  if (cf) rows = rows.filter(r => String(r.contractor_id) === cf);
+  if (df) rows = rows.filter(r => String(r.driver_id) === df);
+  if (sq) rows = rows.filter(r =>
+    (r.le_short||"").toLowerCase().includes(sq) ||
+    (r.c_name||"").toLowerCase().includes(sq) ||
+    (r.d_full||"").toLowerCase().includes(sq)
+  );
+
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-cell">Доверенности не найдены</td></tr>';
+    return;
+  }
+  tbody.innerHTML = "";
+  rows.forEach((r, i) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${i+1}</td>
+      <td>${esc(r.poa_date||"")}</td>
+      <td>${esc(r.le_short||"")}</td>
+      <td>${esc(r.c_name||"")}</td>
+      <td>${esc(r.d_full||"")}</td>
+      <td>
+        <div class="row" style="gap:4px;flex-wrap:nowrap">
+          <a href="/api/supply-poa-records/${r.id}/doc" download="Доверенность_${r.id}.doc" class="secondary small-btn" style="text-decoration:none;display:inline-flex;align-items:center" title="Скачать DOC">📄</a>
+          <a href="/api/supply-poa-records/${r.id}/pdf" download="Доверенность_${r.id}.pdf" class="secondary small-btn" style="text-decoration:none;display:inline-flex;align-items:center" title="Скачать PDF">📑</a>
+          <button class="secondary small-btn" onclick="printPoARecord(${r.id})" title="Печать">🖨</button>
+          <button class="secondary small-btn icon-btn" style="color:#b91c1c;border-color:#fca5a5" onclick="deletePoARecord(${r.id})" title="Удалить">🗑</button>
+        </div>
+      </td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function printPoARecord(id) {
+  const url = `/api/supply-poa-records/${id}/html`;
+  const win = window.open(url, "_blank");
+  if (!win) alert("Разрешите всплывающие окна для печати");
+  // Auto-print after page loads
+  if (win) {
+    win.addEventListener("load", () => {
+      try { win.print(); } catch(_) {}
+    });
+  }
+}
+
+async function deletePoARecord(id) {
+  if (!confirm("Удалить доверенность?")) return;
+  await fetch(`/api/supply-poa-records/${id}`, { method: "DELETE", headers: jsonHeaders() }).catch(() => null);
+  await loadPoARecords();
+}
+
+function openCreatePoAModal() {
+  // Populate dropdowns
+  const lSel = document.getElementById("poaCreateLegal");
+  const cSel = document.getElementById("poaCreateContractor");
+  const dSel = document.getElementById("poaCreateDriver");
+  if (lSel) lSel.innerHTML = '<option value="">— Выберите юр. лицо —</option>' +
+    _supplyLegalEntitiesCache.map(e => `<option value="${e.id}">${esc(e.short_name||"")}</option>`).join("");
+  if (cSel) cSel.innerHTML = '<option value="">— Выберите контрагента —</option>' +
+    _supplyContractorsCache.map(c => `<option value="${c.id}">${esc(c.name||"")}</option>`).join("");
+  if (dSel) dSel.innerHTML = '<option value="">— Выберите водителя —</option>' +
+    _supplyDriversCache.map(d => `<option value="${d.id}">${esc(d.full_name||"")}</option>`).join("");
+  const info = document.getElementById("poaCreateInfo");
+  if (info) { info.textContent = ""; info.style.color = ""; }
+  const modal = document.getElementById("createPoAModal");
+  if (modal) { modal.classList.remove("hidden"); modal.style.display = ""; }
+}
+
+function closeCreatePoAModal() {
+  const modal = document.getElementById("createPoAModal");
+  if (modal) { modal.classList.add("hidden"); modal.style.display = "none"; }
+}
+
+async function savePoARecord() {
+  const leId = parseInt(document.getElementById("poaCreateLegal")?.value || "0");
+  const cId  = parseInt(document.getElementById("poaCreateContractor")?.value || "0");
+  const dId  = parseInt(document.getElementById("poaCreateDriver")?.value || "0");
+  const info = document.getElementById("poaCreateInfo");
+  if (!leId || !cId || !dId) {
+    if (info) { info.textContent = "Заполните все поля"; info.style.color = "#b91c1c"; }
+    return;
+  }
+  if (info) { info.textContent = "Сохранение..."; info.style.color = ""; }
+  const res = await fetch("/api/supply-poa-records", {
+    method: "POST", headers: jsonHeaders(),
+    body: JSON.stringify({ legal_entity_id: leId, contractor_id: cId, driver_id: dId })
+  }).catch(() => null);
+  if (!res || !res.ok) {
+    const e = await res?.json().catch(()=>({})) || {};
+    if (info) { info.textContent = e.detail || "Ошибка"; info.style.color = "#b91c1c"; }
+    return;
+  }
+  closeCreatePoAModal();
+  await loadPoARecords();
+}
+
+window.openCreatePoAModal = openCreatePoAModal;
+window.closeCreatePoAModal = closeCreatePoAModal;
+window.savePoARecord = savePoARecord;
+window.renderPoATable = renderPoATable;
+window.printPoARecord = printPoARecord;
+window.deletePoARecord = deletePoARecord;
+window.loadPoARecords = loadPoARecords;
 
 async function printTTN(supplyId) {
   // Open PDF generated server-side (LibreOffice converts DOCX→PDF, browser prints it)

@@ -1117,6 +1117,72 @@
       </section>
 
       <!-- ── Поставки: Настройки ── -->
+      <!-- ── Поставки: Доверенности ── -->
+      <section id="section-supplies-poa" class="hidden">
+        <h3 class="section-title">Доверенности</h3>
+        <div class="panel supplies-toolbar-panel">
+          <div class="supplies-top-controls">
+            <div class="supplies-actions">
+              <button onclick="openCreatePoAModal()">+ Создать доверенность</button>
+              <select id="poaContractorFilter" onchange="renderPoATable()">
+                <option value="">Все контрагенты</option>
+              </select>
+              <select id="poaDriverFilter" onchange="renderPoATable()">
+                <option value="">Все водители</option>
+              </select>
+              <input id="poaSearch" type="search" placeholder="🔍 Поиск..."
+                     autocomplete="off" style="width:160px" oninput="renderPoATable()" />
+            </div>
+          </div>
+        </div>
+        <div class="panel supplies-table-panel">
+          <div class="supplies-table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th style="width:5%">№</th>
+                  <th>Дата</th>
+                  <th>Юр. лицо</th>
+                  <th>Контрагент</th>
+                  <th>Водитель</th>
+                  <th style="width:12%">Действия</th>
+                </tr>
+              </thead>
+              <tbody id="poaTbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- Create PoA Modal -->
+      <div id="createPoAModal" class="modal-overlay hidden" onclick="if(event.target===this)closeCreatePoAModal()">
+        <div class="modal-card" style="max-width:480px;width:90%">
+          <div class="row row-between">
+            <h4 class="no-margin">Создать доверенность</h4>
+            <button class="icon-btn" onclick="closeCreatePoAModal()">✕</button>
+          </div>
+          <div style="margin-top:14px;display:flex;flex-direction:column;gap:10px">
+            <div>
+              <label class="small" style="display:block;margin-bottom:4px">Юридическое лицо</label>
+              <select id="poaCreateLegal" style="width:100%;height:36px"></select>
+            </div>
+            <div>
+              <label class="small" style="display:block;margin-bottom:4px">Контрагент</label>
+              <select id="poaCreateContractor" style="width:100%;height:36px"></select>
+            </div>
+            <div>
+              <label class="small" style="display:block;margin-bottom:4px">Водитель</label>
+              <select id="poaCreateDriver" style="width:100%;height:36px"></select>
+            </div>
+            <div id="poaCreateInfo" class="small"></div>
+            <div class="row" style="justify-content:flex-end;gap:8px;margin-top:4px">
+              <button class="secondary" onclick="closeCreatePoAModal()">Отмена</button>
+              <button onclick="savePoARecord()">Сохранить</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <section id="section-supplies-settings" class="hidden">
         <h3 class="section-title">Поставки — Настройки</h3>
         <div class="settings-tabs">

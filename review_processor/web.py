@@ -410,6 +410,12 @@ class UpdateSupplyProductionRequest(BaseModel):
     head_name: str = ""
 
 
+class CreatePoARecordRequest(BaseModel):
+    legal_entity_id: int
+    contractor_id: int
+    driver_id: int
+
+
 class CreateSupplyContractorRequest(BaseModel):
     name: str
     requisites: str = ""
@@ -6653,6 +6659,164 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             raise HTTPException(status_code=404, detail="Контрагент не найден")
         return {"ok": True}
 
+    # ── Supply PoA Records ────────────────────────────────────────────────────
+
+    @app.get("/api/supply-poa-records")
+    def list_poa_records(request: Request) -> list[dict[str, object]]:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        repository._ensure_supply_tables()
+        records = repository.list_supply_poa_records(user_id=_supply_owner_id(user))
+        # Strip signature_image from list to keep response small
+        for r in records:
+            r.pop("le_signature_image", None)
+        return records
+
+    @app.post("/api/supply-poa-records")
+    def create_poa_record(request: Request, payload: CreatePoARecordRequest) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        from datetime import datetime as _dtt
+        poa_date = _dtt.now().strftime("%d.%m.%Y")
+        record = repository.create_supply_poa_record(
+            user_id=_supply_owner_id(user),
+            legal_entity_id=payload.legal_entity_id,
+            contractor_id=payload.contractor_id,
+            driver_id=payload.driver_id,
+            poa_date=poa_date,
+        )
+        record.pop("le_signature_image", None)
+        return record
+
+    @app.delete("/api/supply-poa-records/{record_id}")
+    def delete_poa_record(request: Request, record_id: int) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        ok = repository.delete_supply_poa_record(user_id=_supply_owner_id(user), record_id=record_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Доверенность не найдена")
+        return {"ok": True}
+
+    def _build_poa_html(record: dict) -> str:
+        """Build the PoA HTML document from a record dict (with joined data)."""
+        import html as _hm
+        e = _hm.escape
+        le_full   = e(str(record.get("le_full") or ""))
+        le_in_p   = e(str(record.get("le_in_person") or ""))
+        le_basis  = e(str(record.get("le_basis") or ""))
+        le_sig    = e(str(record.get("le_signatories") or ""))
+        sig_img   = record.get("le_signature_image") or ""
+        d_full    = e(str(record.get("d_full") or ""))
+        d_docs    = e(str(record.get("d_docs") or ""))
+        c_name    = e(str(record.get("c_name") or ""))
+        c_req     = e(str(record.get("c_req") or ""))
+        poa_date  = e(str(record.get("poa_date") or ""))
+        driver_str = f"{d_full}, {d_docs}".strip(", ") if d_docs else d_full
+        contractor_str = f"{c_name} {c_req}".strip() if c_req else c_name
+        sig_html = f'<img src="{sig_img}" style="max-height:80px;max-width:160px;object-fit:contain;vertical-align:middle" />' if sig_img else "&nbsp;" * 20
+
+        return f"""<!DOCTYPE html>
+<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="utf-8">
+<style>
+  @page {{ size: 210mm 297mm; margin: 20mm 20mm 20mm 30mm; }}
+  body {{ font-family: "Times New Roman", serif; font-size: 12pt; line-height: 1.5; color: #000; }}
+  .center {{ text-align: center; }}
+  .right {{ text-align: right; }}
+  .small {{ font-size: 9pt; }}
+  .bold {{ font-weight: bold; }}
+  .sig-line {{ border-bottom: 1px solid #000; display: inline-block; width: 200pt; vertical-align: bottom; }}
+</style></head>
+<body>
+<p class="center bold" style="font-size:14pt;margin:0 0 4pt">ДОВЕРЕННОСТЬ №Б/Н</p>
+<p style="margin:0 0 16pt">
+  <span>г. Иваново</span>
+  <span style="float:right">{poa_date}</span>
+</p>
+<p style="text-align:justify;margin-bottom:8pt">
+  «{le_full}» в лице генерального директора в лице «{le_in_p}», действующей на основании «{le_basis}»,
+</p>
+<p class="center small" style="margin-bottom:16pt">(Доверитель)</p>
+<p style="text-align:justify;margin-bottom:16pt">
+  настоящей доверенностью уполномачивает гражданина РФ: <b>{driver_str}</b> получать от <b>{contractor_str}</b> товарно-материальные ценности (ткань), с правом подписания товарной накладной, УПД, акта выполненных работ и отчета агента.
+</p>
+<p style="margin-bottom:32pt"><b>Срок действия доверенности – 1 (один) год.</b></p>
+<p style="margin-bottom:32pt">
+  Образец подписи доверенного лица &nbsp;&nbsp; <span class="sig-line">&nbsp;</span> &nbsp; удостоверяю
+</p>
+<table style="width:100%;border-collapse:collapse;margin-top:20pt">
+  <tr>
+    <td style="width:40%;vertical-align:bottom;font-size:12pt">Генеральный директор</td>
+    <td style="width:35%;vertical-align:bottom;text-align:center">{sig_html}</td>
+    <td style="width:25%;vertical-align:bottom;text-align:center">
+      {le_sig}<br><span class="small">(расшифровка подписи)</span>
+    </td>
+  </tr>
+</table>
+</body></html>"""
+
+    @app.get("/api/supply-poa-records/{record_id}/html")
+    def get_poa_html(request: Request, record_id: int):
+        """Return the PoA as HTML for browser print."""
+        from fastapi.responses import HTMLResponse
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        records = repository.list_supply_poa_records(user_id=_supply_owner_id(user))
+        record = next((r for r in records if r["id"] == record_id), None)
+        if not record:
+            raise HTTPException(status_code=404, detail="Не найдено")
+        return HTMLResponse(content=_build_poa_html(record))
+
+    @app.get("/api/supply-poa-records/{record_id}/pdf")
+    def get_poa_pdf(request: Request, record_id: int):
+        """Generate PoA PDF via LibreOffice."""
+        import subprocess as _sp, tempfile as _tf, pathlib as _pl, os as _os
+        from fastapi.responses import Response
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        records = repository.list_supply_poa_records(user_id=_supply_owner_id(user))
+        record = next((r for r in records if r["id"] == record_id), None)
+        if not record:
+            raise HTTPException(status_code=404, detail="Не найдено")
+
+        html_content = _build_poa_html(record)
+        tmp_dir = _tf.mkdtemp()
+        html_path = _pl.Path(tmp_dir) / "poa.html"
+        pdf_path  = _pl.Path(tmp_dir) / "poa.pdf"
+        html_path.write_text(html_content, encoding="utf-8")
+        lo_env = dict(_os.environ)
+        for k, v in [("HOME",tmp_dir),("XDG_CACHE_HOME",tmp_dir),("XDG_CONFIG_HOME",tmp_dir),
+                     ("XDG_RUNTIME_DIR",tmp_dir),("DCONF_PROFILE","/dev/null")]:
+            lo_env[k] = v
+        lo_ok = False
+        for binary in ("/usr/bin/soffice","/usr/lib/libreoffice/program/soffice","soffice","libreoffice"):
+            try:
+                r = _sp.run([binary,"--headless","--norestore",f"-env:UserInstallation=file://{tmp_dir}/lo_profile","--convert-to","pdf","--outdir",tmp_dir,str(html_path)],capture_output=True,timeout=60,env=lo_env)
+                if r.returncode == 0 and pdf_path.exists(): lo_ok = True; break
+            except FileNotFoundError: continue
+            except _sp.TimeoutExpired: raise HTTPException(status_code=504,detail="Таймаут")
+        if not lo_ok: raise HTTPException(status_code=500,detail="Ошибка генерации PDF")
+        return Response(content=pdf_path.read_bytes(),media_type="application/pdf",headers={"Content-Disposition":f'attachment; filename="POA_{record_id}.pdf"'})
+
+    @app.get("/api/supply-poa-records/{record_id}/doc")
+    def get_poa_doc(request: Request, record_id: int):
+        """Return the PoA as .doc (HTML Word format) for download."""
+        from fastapi.responses import Response
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        records = repository.list_supply_poa_records(user_id=_supply_owner_id(user))
+        record = next((r for r in records if r["id"] == record_id), None)
+        if not record:
+            raise HTTPException(status_code=404, detail="Не найдено")
+        html_content = "\uFEFF" + _build_poa_html(record)
+        return Response(content=html_content.encode("utf-8"),media_type="application/msword",headers={"Content-Disposition":f'attachment; filename="POA_{record_id}.doc"'})
+
     @app.patch("/api/supplies/{supply_id}/manual-fields")
     def update_supply_manual_fields(
         request: Request,
@@ -6982,6 +7146,7 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
     )
     nav_supplies_wb = (
         '<a id="nav-supplies-wb" class="nav-item" href="#" onclick="showSection(\'supplies-wb\')"><span class="nav-item-icon">▦</span> WB</a>'
+        '<a id="nav-supplies-poa" class="nav-item" href="#" onclick="showSection(\'supplies-poa\')"><span class="nav-item-icon">📋</span> Доверенности</a>'
         if can_view_supplies else ""
     )
     nav_supplies_settings = (
