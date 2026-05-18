@@ -6901,7 +6901,7 @@ class ReviewRepository:
                         JOIN supply_sources ss ON ss.id = oi.source_id
                         LEFT JOIN ozon_supply_manual_data om ON om.user_id = ss.user_id AND om.supply_order_id = oi.supply_order_id
                         WHERE ss.user_id = ? AND oi.source_id = ?
-                        ORDER BY oi.creation_date DESC"""),
+                        ORDER BY oi.supply_date DESC NULLS LAST, oi.creation_date DESC"""),
                     (user_id, source_id),
                 ).fetchall()
             else:
@@ -6911,7 +6911,7 @@ class ReviewRepository:
                         JOIN supply_sources ss ON ss.id = oi.source_id
                         LEFT JOIN ozon_supply_manual_data om ON om.user_id = ss.user_id AND om.supply_order_id = oi.supply_order_id
                         WHERE ss.user_id = ?
-                        ORDER BY oi.creation_date DESC"""),
+                        ORDER BY oi.supply_date DESC NULLS LAST, oi.creation_date DESC"""),
                     (user_id,),
                 ).fetchall()
         return [self._row_to_dict(r) for r in rows]
