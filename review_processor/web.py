@@ -6098,8 +6098,8 @@ tr {{ page-break-inside: avoid; }}
 
     # ── OZON Supplies endpoints (isolated from WB) ──────────────────────────
 
-    _ozon_sync_state: dict = {"in_progress": False, "synced": 0, "total": 0, "message": "", "errors": []}
-    _ozon_sync_lock = __import__("threading").Lock()
+    _ozon_sync_state: dict[str, object] = {"in_progress": False, "synced": 0, "total": 0, "message": "", "errors": []}
+    _ozon_sync_lock = threading.Lock()
 
     @app.get("/api/ozon-supplies")
     def list_ozon_supplies(request: Request, page: int = 1, page_size: int = 50) -> dict[str, object]:
