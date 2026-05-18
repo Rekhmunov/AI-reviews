@@ -4086,8 +4086,14 @@ async function openOzonDetailsModal(supplyId) {
 
   document.getElementById("ozonSdOrderNum").textContent = item.supply_order_number || item.supply_order_id;
   document.getElementById("ozonSdDate").textContent = supplyDate;
-  document.getElementById("ozonSdSupplier").textContent = item.supplier_name || "—";
-  document.getElementById("ozonSdWarehouse").textContent = item.warehouse_name || "—";
+  const wh = document.getElementById("ozonSdWarehouse");
+  if (wh) {
+    if (item.is_crossdock && item.transit_warehouse_name) {
+      wh.innerHTML = `${esc(item.transit_warehouse_name)} → <strong>${esc(item.warehouse_name || "—")}</strong>`;
+    } else {
+      wh.textContent = item.warehouse_name || "—";
+    }
+  }
   document.getElementById("ozonSdQty").textContent = item.total_quantity || "—";
   document.getElementById("ozonSdType").textContent = item.creation_flow || "—";
   document.getElementById("ozonSdPallets").value = item.pallets_count || "";
@@ -4156,6 +4162,7 @@ window.loadOzonSupplies = loadOzonSupplies;
 window.renderOzonTable = renderOzonTable;
 window.syncOzonSupplies = syncOzonSupplies;
 window.stopOzonSync = stopOzonSync;
+window.copyOzonDetails = copyOzonDetails;
 window.clearOzonSupplies = clearOzonSupplies;
 window.ozonChangePage = ozonChangePage;
 window.toggleOzonGoods = toggleOzonGoods;
@@ -4165,6 +4172,30 @@ window.saveOzonManualFields = saveOzonManualFields;
 window.onOzonCheckboxChange = onOzonCheckboxChange;
 window.toggleSelectAllOzon = toggleSelectAllOzon;
 window.onOzonDriverSelectChange = onOzonDriverSelectChange;
+
+function copyOzonDetails() {
+  const get = (id) => (document.getElementById(id)?.textContent || "").trim();
+  const val = (id) => (document.getElementById(id)?.value || "").trim();
+  const driverSel = document.getElementById("ozonSdDriverSelect");
+  const driverVal = driverSel
+    ? Array.from(driverSel.options).find((o) => o.value === driverSel.value)?.text || ""
+    : "";
+  const lines = [
+    `Поставка №: ${get("ozonSdOrderNum")}`,
+    `Дата поставки: ${get("ozonSdDate")}`,
+    `Склад: ${document.getElementById("ozonSdWarehouse")?.innerText || get("ozonSdWarehouse") || "—"}`,
+    `Производство: ${document.getElementById("ozonSdProduction")?.value || "—"}`,
+    `Количество: ${get("ozonSdQty")}`,
+    `Паллет: ${val("ozonSdPallets") || "—"}`,
+    `Тип поставки: ${get("ozonSdType")}`,
+    `Водитель: ${driverVal || "—"}`,
+    `Примечание: ${val("ozonSdNotes") || "—"}`,
+  ];
+  navigator.clipboard.writeText(lines.join("\n")).then(() => {
+    const info = document.getElementById("ozonSdInfo");
+    if (info) { info.textContent = "Скопировано!"; setTimeout(() => { info.textContent = ""; }, 2000); }
+  }).catch(() => {});
+}
 window.toggleOzonDatePanel = toggleOzonDatePanel;
 window.clearOzonDateFilter = clearOzonDateFilter;
 window._ozonCalPickDate = _ozonCalPickDate;

@@ -1098,32 +1098,59 @@
       <div id="ozonDetailsModal" class="modal-overlay hidden" onclick="if(event.target===this)closeOzonDetailsModal()" aria-hidden="true">
         <div class="modal-card supply-details-modal-card">
           <div class="modal-card-header">
-            <h4 class="no-margin">Детали поставки OZON</h4>
-            <button class="icon-btn" onclick="closeOzonDetailsModal()">✕</button>
+            <h4 class="no-margin" id="ozonDetailsTitle">Детали поставки OZON</h4>
+            <button type="button" class="modal-close-btn" onclick="closeOzonDetailsModal()" aria-label="Закрыть">✕</button>
           </div>
-          <div class="modal-card-body" style="overflow-y:auto">
-            <div class="supply-detail-row"><span class="supply-detail-label">Поставка №</span><span id="ozonSdOrderNum" class="supply-detail-value"></span></div>
-            <div class="supply-detail-row"><span class="supply-detail-label">Дата поставки</span><span id="ozonSdDate" class="supply-detail-value"></span></div>
-            <div class="supply-detail-row"><span class="supply-detail-label">Поставщик</span><span id="ozonSdSupplier" class="supply-detail-value"></span></div>
+          <div class="supply-details-body">
+            <div class="supply-detail-row">
+              <span class="supply-detail-label">Поставка №</span>
+              <span class="supply-detail-value" id="ozonSdOrderNum">—</span>
+            </div>
+            <div class="supply-detail-row">
+              <span class="supply-detail-label">Дата поставки</span>
+              <span class="supply-detail-value" id="ozonSdDate">—</span>
+            </div>
+            <div class="supply-detail-row">
+              <span class="supply-detail-label">Склад</span>
+              <span class="supply-detail-value" id="ozonSdWarehouse">—</span>
+            </div>
             <div class="supply-detail-row">
               <span class="supply-detail-label">Производство</span>
-              <select id="ozonSdProduction" class="supply-detail-input" style="height:36px"></select>
-            </div>
-            <div class="supply-detail-row"><span class="supply-detail-label">Склад</span><span id="ozonSdWarehouse" class="supply-detail-value"></span></div>
-            <div class="supply-detail-row"><span class="supply-detail-label">Количество</span><span id="ozonSdQty" class="supply-detail-value"></span></div>
-            <div class="supply-detail-row"><span class="supply-detail-label">Паллет</span><input id="ozonSdPallets" type="number" class="supply-detail-input" min="0" /></div>
-            <div class="supply-detail-row"><span class="supply-detail-label">Тип поставки</span><span id="ozonSdType" class="supply-detail-value"></span></div>
-            <div class="supply-detail-row">
-              <span class="supply-detail-label">Водитель</span>
-              <select id="ozonSdDriverSelect" class="supply-detail-input" style="height:36px" onchange="onOzonDriverSelectChange(this.value)">
-                <option value="">— Не выбран —</option>
+              <select id="ozonSdProduction" class="supply-detail-input" style="height:36px">
+                <option value="">— Не выбрано —</option>
               </select>
             </div>
-            <div class="supply-detail-row"><span class="supply-detail-label">Примечание</span><textarea id="ozonSdNotes" class="supply-detail-input" rows="2"></textarea></div>
+            <div class="supply-detail-row">
+              <span class="supply-detail-label">Количество</span>
+              <span class="supply-detail-value" id="ozonSdQty">—</span>
+            </div>
+            <div class="supply-detail-row">
+              <span class="supply-detail-label">Паллет</span>
+              <input id="ozonSdPallets" type="text" class="supply-detail-input"
+                     placeholder="Требует заполнения" autocomplete="off" />
+            </div>
+            <div class="supply-detail-row">
+              <span class="supply-detail-label">Тип поставки</span>
+              <span class="supply-detail-value" id="ozonSdType">—</span>
+            </div>
+            <div class="supply-detail-row">
+              <span class="supply-detail-label">Водитель</span>
+              <select id="ozonSdDriverSelect" class="supply-detail-input" style="height:36px">
+                <option value="">— Требует заполнения —</option>
+              </select>
+            </div>
+            <div class="supply-detail-row" style="margin-top:4px">
+              <span class="supply-detail-label">Примечание</span>
+              <textarea id="ozonSdNotes" class="supply-detail-input" rows="2"
+                        placeholder="Введите примечание…" autocomplete="off"
+                        style="height:60px;padding-top:6px;padding-bottom:6px;resize:vertical;min-height:44px;max-height:120px"></textarea>
+            </div>
           </div>
-          <div class="modal-card-footer">
-            <button onclick="saveOzonManualFields()">Сохранить</button>
-            <button class="secondary" onclick="closeOzonDetailsModal()">Закрыть</button>
+          <div class="supply-details-footer">
+            <button type="button" onclick="saveOzonManualFields()">Сохранить</button>
+            <button type="button" class="secondary" onclick="copyOzonDetails()" title="Скопировать в буфер обмена">📋 Скопировать</button>
+            <button type="button" class="secondary" onclick="closeOzonDetailsModal()">Закрыть</button>
+            <span id="ozonSdInfo" class="small"></span>
           </div>
         </div>
       </div>
@@ -1802,6 +1829,6 @@
   <script src="/static/jszip.min.js"></script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=204"></script>
+  <script src="/static/app.js?v=205"></script>
 </body>
 </html>
