@@ -6851,7 +6851,17 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             except FileNotFoundError: continue
             except _sp.TimeoutExpired: raise HTTPException(status_code=504,detail="Таймаут")
         if not lo_ok: raise HTTPException(status_code=500,detail="Ошибка генерации PDF")
-        return Response(content=pdf_path.read_bytes(),media_type="application/pdf",headers={"Content-Disposition":f'attachment; filename="POA_{record_id}.pdf"'})
+        import re as _re
+        def _poa_fn(rec, ext):
+            le = _re.sub(r'[/\\?%*:|"<>]', '', str(rec.get("le_short") or ""))
+            cn = _re.sub(r'[/\\?%*:|"<>]', '', str(rec.get("c_name") or ""))
+            dr_id = int(rec.get("driver_id") or 0)
+            dr = str(rec.get("d_full") if dr_id > 0 else rec.get("driver_manual_name") or "")
+            dr = _re.sub(r'[/\\?%*:|"<>]', '', dr)
+            name = f"{le}_{cn}_{dr}.{ext}".strip("_")
+            return name or f"POA_{record_id}.{ext}"
+        fname = _poa_fn(record, "pdf")
+        return Response(content=pdf_path.read_bytes(),media_type="application/pdf",headers={"Content-Disposition":f'attachment; filename="{fname}"'})
 
     @app.get("/api/supply-poa-records/{record_id}/doc")
     def get_poa_doc(request: Request, record_id: int):
@@ -6864,8 +6874,18 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         record = next((r for r in records if r["id"] == record_id), None)
         if not record:
             raise HTTPException(status_code=404, detail="Не найдено")
+        import re as _re2
+        def _poa_fn2(rec, ext):
+            le = _re2.sub(r'[/\\?%*:|"<>]', '', str(rec.get("le_short") or ""))
+            cn = _re2.sub(r'[/\\?%*:|"<>]', '', str(rec.get("c_name") or ""))
+            dr_id = int(rec.get("driver_id") or 0)
+            dr = str(rec.get("d_full") if dr_id > 0 else rec.get("driver_manual_name") or "")
+            dr = _re2.sub(r'[/\\?%*:|"<>]', '', dr)
+            name = f"{le}_{cn}_{dr}.{ext}".strip("_")
+            return name or f"POA_{record_id}.{ext}"
         html_content = "\uFEFF" + _build_poa_html(record)
-        return Response(content=html_content.encode("utf-8"),media_type="application/msword",headers={"Content-Disposition":f'attachment; filename="POA_{record_id}.doc"'})
+        fname_doc = _poa_fn2(record, "doc")
+        return Response(content=html_content.encode("utf-8"),media_type="application/msword",headers={"Content-Disposition":f'attachment; filename="{fname_doc}"'})
 
     @app.patch("/api/supplies/{supply_id}/manual-fields")
     def update_supply_manual_fields(
