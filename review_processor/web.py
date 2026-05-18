@@ -6204,8 +6204,14 @@ tr {{ page-break-inside: avoid; }}
             errors = []
             try:
                 for src in sources:
-                    api_key = str(src.get("api_key") or "")
-                    client_id = str(src.get("client_id") or "")
+                    # list_supply_sources strips the real key — fetch it properly
+                    src_full = repository.get_supply_source_with_key(
+                        user_id=owner_id, source_id=int(src["id"])
+                    )
+                    if not src_full:
+                        continue
+                    api_key = str(src_full.get("api_key") or "")
+                    client_id = str(src_full.get("client_id") or "")
                     if not api_key or not client_id:
                         continue
                     ctx = _sl.create_default_context()
