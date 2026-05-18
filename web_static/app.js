@@ -8763,15 +8763,32 @@ function renderPoATable() {
       <td>${esc((r.driver_id > 0 ? r.d_full : r.driver_manual_name)||"")}</td>
       <td>
         <div class="row" style="gap:4px;flex-wrap:nowrap">
-          <a href="/api/supply-poa-records/${r.id}/doc" download="Доверенность_${r.id}.doc" class="secondary small-btn" style="text-decoration:none;display:inline-flex;align-items:center" title="Скачать DOC">📄</a>
-          <a href="/api/supply-poa-records/${r.id}/pdf" download="Доверенность_${r.id}.pdf" class="secondary small-btn" style="text-decoration:none;display:inline-flex;align-items:center" title="Скачать PDF">📑</a>
-          <button class="secondary small-btn" onclick="printPoARecord(${r.id})" title="Печать">🖨</button>
+          <button class="secondary small-btn icon-btn" onclick="downloadPoADoc(${r.id})" title="Скачать DOC">📄</button>
+          <button class="secondary small-btn icon-btn" onclick="downloadPoAPdf(${r.id})" title="Скачать PDF">📑</button>
+          <button class="secondary small-btn icon-btn" onclick="printPoARecord(${r.id})" title="Печать">🖨</button>
           <button class="secondary small-btn icon-btn" style="color:#b91c1c;border-color:#fca5a5" onclick="deletePoARecord(${r.id})" title="Удалить">🗑</button>
         </div>
       </td>`;
     tbody.appendChild(tr);
   });
 }
+
+function downloadPoADoc(id) {
+  const a = document.createElement("a");
+  a.href = `/api/supply-poa-records/${id}/doc`;
+  a.download = `Доверенность_${id}.doc`;
+  a.click();
+}
+
+function downloadPoAPdf(id) {
+  const a = document.createElement("a");
+  a.href = `/api/supply-poa-records/${id}/pdf`;
+  a.download = `Доверенность_${id}.pdf`;
+  a.click();
+}
+
+window.downloadPoADoc = downloadPoADoc;
+window.downloadPoAPdf = downloadPoAPdf;
 
 function printPoARecord(id) {
   const url = `/api/supply-poa-records/${id}/html`;
