@@ -6861,7 +6861,8 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             name = f"{le}_{cn}_{dr}.{ext}".strip("_")
             return name or f"POA_{record_id}.{ext}"
         fname = _poa_fn(record, "pdf")
-        return Response(content=pdf_path.read_bytes(),media_type="application/pdf",headers={"Content-Disposition":f'attachment; filename="{fname}"'})
+        from urllib.parse import quote as _qp
+        return Response(content=pdf_path.read_bytes(),media_type="application/pdf",headers={"Content-Disposition":f"attachment; filename*=UTF-8''{_qp(fname)}"})
 
     @app.get("/api/supply-poa-records/{record_id}/doc")
     def get_poa_doc(request: Request, record_id: int):
@@ -6885,7 +6886,8 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             return name or f"POA_{record_id}.{ext}"
         html_content = "\uFEFF" + _build_poa_html(record, include_signature=False)
         fname_doc = _poa_fn2(record, "doc")
-        return Response(content=html_content.encode("utf-8"),media_type="application/msword",headers={"Content-Disposition":f'attachment; filename="{fname_doc}"'})
+        from urllib.parse import quote as _qp2
+        return Response(content=html_content.encode("utf-8"),media_type="application/msword",headers={"Content-Disposition":f"attachment; filename*=UTF-8''{_qp2(fname_doc)}"})
 
     @app.patch("/api/supplies/{supply_id}/manual-fields")
     def update_supply_manual_fields(
