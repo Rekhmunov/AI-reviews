@@ -461,6 +461,7 @@ class CreateSupplyLegalEntityRequest(BaseModel):
     full_name: str = ""
     requisites: str = ""
     signatories: str = ""
+    in_person: str = ""
 
 
 class UpdateSupplyLegalEntityRequest(BaseModel):
@@ -468,6 +469,7 @@ class UpdateSupplyLegalEntityRequest(BaseModel):
     full_name: str = ""
     requisites: str = ""
     signatories: str = ""
+    in_person: str = ""
 
 
 class UpdateSupplyDriverRequest(BaseModel):
@@ -6521,7 +6523,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             raise HTTPException(status_code=400, detail="Короткое наименование не может быть пустым")
         owner_id = _supply_owner_id(user)
         repository._ensure_supply_tables()
-        return repository.create_supply_legal_entity(user_id=owner_id, short_name=name, full_name=payload.full_name.strip(), requisites=payload.requisites, signatories=payload.signatories)
+        return repository.create_supply_legal_entity(user_id=owner_id, short_name=name, full_name=payload.full_name.strip(), requisites=payload.requisites, signatories=payload.signatories, in_person=payload.in_person)
 
     @app.patch("/api/supply-legal-entities/{entity_id}")
     def update_supply_legal_entity_endpoint(request: Request, entity_id: int, payload: UpdateSupplyLegalEntityRequest) -> dict[str, object]:
@@ -6531,7 +6533,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         name = payload.short_name.strip()
         if not name:
             raise HTTPException(status_code=400, detail="Короткое наименование не может быть пустым")
-        ok = repository.update_supply_legal_entity(user_id=_supply_owner_id(user), entity_id=entity_id, short_name=name, full_name=payload.full_name.strip(), requisites=payload.requisites, signatories=payload.signatories)
+        ok = repository.update_supply_legal_entity(user_id=_supply_owner_id(user), entity_id=entity_id, short_name=name, full_name=payload.full_name.strip(), requisites=payload.requisites, signatories=payload.signatories, in_person=payload.in_person)
         if not ok:
             raise HTTPException(status_code=404, detail="Юридическое лицо не найдено")
         return {"ok": True}
