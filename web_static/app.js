@@ -8288,6 +8288,7 @@ document.addEventListener("DOMContentLoaded", () => {
       loadSupplyWarehouses(),
       loadSupplyLegalEntities(),
       loadSupplyProductions(),
+      loadSupplyContractors(),
     ]).then(() => loadSupplies()).catch(() => {});
     initSuppliesColumnResizer();
   }
@@ -8454,6 +8455,100 @@ window.deleteSupplyProduction = deleteSupplyProduction;
 window.startEditProduction = startEditProduction;
 window.saveEditProduction = saveEditProduction;
 window.loadSupplyProductions = loadSupplyProductions;
+
+// ── Supply Contractors ──────────────────────────────────────────────────────
+let _supplyContractorsCache = [];
+
+async function loadSupplyContractors() {
+  const res = await fetch("/api/supply-contractors").catch(() => null);
+  if (!res || !res.ok) return;
+  _supplyContractorsCache = await res.json().catch(() => []);
+  renderSupplyContractorsTbody();
+}
+
+function renderSupplyContractorsTbody() {
+  const tbody = document.getElementById("supplyContractorsTbody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+  if (!_supplyContractorsCache.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="empty-cell">Контрагенты не добавлены</td></tr>';
+    return;
+  }
+  _supplyContractorsCache.forEach((c, i) => {
+    const tr = document.createElement("tr");
+    tr.dataset.id = c.id;
+    tr.innerHTML = `<td>${i+1}</td>
+      <td class="editable-cell">${esc(c.name||"")}</td>
+      <td class="editable-cell">${esc(c.requisites||"")}</td>
+      <td>
+        <div class="row" style="gap:4px;flex-wrap:nowrap">
+          <button class="secondary small-btn" onclick="startEditContractor(${c.id})">✏</button>
+          <button class="secondary small-btn icon-btn" style="color:#b91c1c;border-color:#fca5a5" onclick="deleteSupplyContractor(${c.id})" title="Удалить">🗑</button>
+        </div>
+      </td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+async function startEditContractor(id) {
+  const item = _supplyContractorsCache.find(x => x.id === id);
+  if (!item) return;
+  const tr = document.querySelector(`#supplyContractorsTbody tr[data-id="${id}"]`);
+  if (!tr) return;
+  const cells = tr.querySelectorAll(".editable-cell");
+  cells[0].innerHTML = `<input class="edit-inline-input" value="${esc(item.name||"")}" />`;
+  cells[1].innerHTML = `<input class="edit-inline-input" value="${esc(item.requisites||"")}" />`;
+  tr.cells[tr.cells.length-1].innerHTML = `<div class="row" style="gap:4px;flex-wrap:nowrap">
+    <button class="secondary small-btn" style="color:#16a34a;border-color:#86efac" onclick="saveEditContractor(${id})">Сохранить</button>
+    <button class="secondary small-btn" onclick="loadSupplyContractors()">Отмена</button>
+  </div>`;
+}
+
+async function saveEditContractor(id) {
+  const tr = document.querySelector(`#supplyContractorsTbody tr[data-id="${id}"]`);
+  if (!tr) return;
+  const inputs = tr.querySelectorAll(".edit-inline-input");
+  const name = inputs[0]?.value.trim() || "";
+  const requisites = inputs[1]?.value.trim() || "";
+  if (!name) return;
+  await fetch(`/api/supply-contractors/${id}`, { method: "PATCH", headers: jsonHeaders(), body: JSON.stringify({ name, requisites }) }).catch(() => null);
+  await loadSupplyContractors();
+}
+
+function toggleAddContractorForm(show) {
+  const form = document.getElementById("addContractorForm");
+  if (!form) return;
+  form.classList.toggle("hidden", !show); form.style.display = show ? "" : "none";
+  if (!show) {
+    ["newContractorName","newContractorRequisites"].forEach(id => { const el = document.getElementById(id); if(el) el.value=""; });
+  }
+}
+
+async function saveSupplyContractor() {
+  const name = document.getElementById("newContractorName")?.value.trim();
+  const requisites = document.getElementById("newContractorRequisites")?.value.trim() || "";
+  const info = document.getElementById("addContractorInfo");
+  if (!name) { if (info) { info.textContent = "Введите название"; info.style.color = "#b91c1c"; } return; }
+  if (info) { info.textContent = "Сохранение..."; info.style.color = ""; }
+  const res = await fetch("/api/supply-contractors", { method: "POST", headers: jsonHeaders(), body: JSON.stringify({ name, requisites }) }).catch(() => null);
+  if (!res || !res.ok) { const e = await res?.json().catch(()=>({})) || {}; if (info) { info.textContent = e.detail||"Ошибка"; info.style.color = "#b91c1c"; } return; }
+  if (info) { info.textContent = "Сохранено"; info.style.color = "#16a34a"; }
+  toggleAddContractorForm(false);
+  await loadSupplyContractors();
+}
+
+async function deleteSupplyContractor(id) {
+  if (!confirm("Удалить контрагента?")) return;
+  await fetch(`/api/supply-contractors/${id}`, { method: "DELETE", headers: jsonHeaders() }).catch(() => null);
+  await loadSupplyContractors();
+}
+
+window.toggleAddContractorForm = toggleAddContractorForm;
+window.saveSupplyContractor = saveSupplyContractor;
+window.deleteSupplyContractor = deleteSupplyContractor;
+window.startEditContractor = startEditContractor;
+window.saveEditContractor = saveEditContractor;
+window.loadSupplyContractors = loadSupplyContractors;
 
 async function printTTN(supplyId) {
   // Open PDF generated server-side (LibreOffice converts DOCX→PDF, browser prints it)

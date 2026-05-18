@@ -1123,8 +1123,9 @@
           <button id="supplies-settings-tab-sources" class="settings-tab-btn active" onclick="showSuppliesSettingsTab('sources')">Источники</button>
           <button id="supplies-settings-tab-drivers" class="settings-tab-btn" onclick="showSuppliesSettingsTab('drivers')">Водители</button>
           <button id="supplies-settings-tab-warehouses" class="settings-tab-btn" onclick="showSuppliesSettingsTab('warehouses')">Склады</button>
-          <button id="supplies-settings-tab-legal" class="settings-tab-btn" onclick="showSuppliesSettingsTab('legal')">Юридические лица</button>
+          <button id="supplies-settings-tab-legal" class="settings-tab-btn" onclick="showSuppliesSettingsTab('legal')">Юр. лица</button>
           <button id="supplies-settings-tab-productions" class="settings-tab-btn" onclick="showSuppliesSettingsTab('productions')">Производства</button>
+          <button id="supplies-settings-tab-contractors" class="settings-tab-btn" onclick="showSuppliesSettingsTab('contractors')">Контрагенты</button>
         </div>
         <div id="supplies-settings-pane-drivers" class="hidden">
           <div class="panel">
@@ -1250,6 +1251,37 @@
                 <colgroup><col style="width:5%"/><col/><col style="width:30%"/><col style="width:9%"/></colgroup>
                 <thead><tr><th>№</th><th>Наименование производства</th><th>Начальник производства</th><th></th></tr></thead>
                 <tbody id="supplyProductionsTbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div id="supplies-settings-pane-contractors" class="hidden">
+          <div class="panel">
+            <div class="row row-between">
+              <h4 class="no-margin">Контрагенты</h4>
+              <button onclick="toggleAddContractorForm(true)">+ Добавить</button>
+            </div>
+            <div id="addContractorForm" class="source-form hidden" style="margin-top:12px">
+              <div class="row">
+                <input id="newContractorName" type="text" placeholder="Контрагент (название)" autocomplete="off" />
+              </div>
+              <div class="row">
+                <input id="newContractorRequisites" type="text" placeholder="Реквизиты (ИНН, адрес и т.д.)" autocomplete="off" />
+              </div>
+              <div class="row">
+                <button onclick="saveSupplyContractor()">Сохранить</button>
+                <button class="secondary" onclick="toggleAddContractorForm(false)">Отмена</button>
+                <span id="addContractorInfo" class="small"></span>
+              </div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="table-wrap">
+              <table class="supply-sources-table">
+                <colgroup><col style="width:5%"/><col/><col/><col style="width:9%"/></colgroup>
+                <thead><tr><th>№</th><th>Контрагент</th><th>Реквизиты</th><th></th></tr></thead>
+                <tbody id="supplyContractorsTbody"></tbody>
               </table>
             </div>
           </div>

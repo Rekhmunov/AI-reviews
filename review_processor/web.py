@@ -410,6 +410,16 @@ class UpdateSupplyProductionRequest(BaseModel):
     head_name: str = ""
 
 
+class CreateSupplyContractorRequest(BaseModel):
+    name: str
+    requisites: str = ""
+
+
+class UpdateSupplyContractorRequest(BaseModel):
+    name: str
+    requisites: str = ""
+
+
 class CreateSupplySourceRequest(BaseModel):
     name: str
     api_key: str
@@ -6580,6 +6590,52 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         )
         if not ok:
             raise HTTPException(status_code=404, detail="Производство не найдено")
+        return {"ok": True}
+
+    @app.get("/api/supply-contractors")
+    def list_supply_contractors(request: Request) -> list[dict[str, object]]:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        repository._ensure_supply_tables()
+        return repository.list_supply_contractors(user_id=_supply_owner_id(user))
+
+    @app.post("/api/supply-contractors")
+    def create_supply_contractor(request: Request, payload: CreateSupplyContractorRequest) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        if not payload.name.strip():
+            raise HTTPException(status_code=400, detail="Название не может быть пустым")
+        return repository.create_supply_contractor(
+            user_id=_supply_owner_id(user), name=payload.name, requisites=payload.requisites
+        )
+
+    @app.patch("/api/supply-contractors/{contractor_id}")
+    def update_supply_contractor_ep(request: Request, contractor_id: int, payload: UpdateSupplyContractorRequest) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        if not payload.name.strip():
+            raise HTTPException(status_code=400, detail="Название не может быть пустым")
+        ok = repository.update_supply_contractor(
+            user_id=_supply_owner_id(user), contractor_id=contractor_id,
+            name=payload.name, requisites=payload.requisites
+        )
+        if not ok:
+            raise HTTPException(status_code=404, detail="Контрагент не найден")
+        return {"ok": True}
+
+    @app.delete("/api/supply-contractors/{contractor_id}")
+    def delete_supply_contractor_ep(request: Request, contractor_id: int) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        ok = repository.delete_supply_contractor(
+            user_id=_supply_owner_id(user), contractor_id=contractor_id
+        )
+        if not ok:
+            raise HTTPException(status_code=404, detail="Контрагент не найден")
         return {"ok": True}
 
     @app.patch("/api/supplies/{supply_id}/manual-fields")
