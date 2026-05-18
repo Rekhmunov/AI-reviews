@@ -6517,6 +6517,12 @@ class ReviewRepository:
             "ALTER TABLE supply_legal_entities ADD COLUMN IF NOT EXISTS requisites TEXT"
         )
         conn.execute(
+            "ALTER TABLE supply_sources ADD COLUMN IF NOT EXISTS marketplace TEXT DEFAULT 'wb'"
+        )
+        conn.execute(
+            "ALTER TABLE supply_sources ADD COLUMN IF NOT EXISTS client_id TEXT"
+        )
+        conn.execute(
             "ALTER TABLE supply_legal_entities ADD COLUMN IF NOT EXISTS signatories TEXT"
         )
         conn.execute(
@@ -6926,16 +6932,17 @@ class ReviewRepository:
         d["api_key"] = decrypt_secret(encrypted) if encrypted else None
         return d
 
-    def create_supply_source(self, *, user_id: int, name: str, api_key: str) -> dict[str, Any]:
+    def create_supply_source(self, *, user_id: int, name: str, api_key: str, marketplace: str = "wb", client_id: str = "") -> dict[str, Any]:
         now = _utc_now()
+        mp = marketplace.strip().lower() if marketplace else "wb"
         with self._connect() as conn:
             source_id = self._insert_and_get_id(
                 conn,
                 """
-                INSERT INTO supply_sources (user_id, name, api_key_encrypted, is_enabled, created_at)
-                VALUES (?, ?, ?, 1, ?)
+                INSERT INTO supply_sources (user_id, name, api_key_encrypted, marketplace, client_id, is_enabled, created_at)
+                VALUES (?, ?, ?, ?, ?, 1, ?)
                 """,
-                (user_id, name.strip(), encrypt_secret(api_key.strip()), now),
+                (user_id, name.strip(), encrypt_secret(api_key.strip()), mp, client_id.strip() or None, now),
             )
             row = conn.execute(
                 self._sql("SELECT * FROM supply_sources WHERE id = ?"),

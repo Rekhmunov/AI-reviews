@@ -1975,6 +1975,15 @@ let suppliesState = {
   sources: [],
 };
 
+function onSupplySourceMarketplaceChange() {
+  const mp = document.getElementById("newSupplySourceMarketplace")?.value || "wb";
+  const clientIdRow = document.getElementById("newSupplyOzonClientIdRow");
+  const apiKeyPlaceholder = document.getElementById("newSupplySourceApiKey");
+  if (clientIdRow) clientIdRow.style.display = mp === "ozon" ? "" : "none";
+  if (apiKeyPlaceholder) apiKeyPlaceholder.placeholder = mp === "ozon" ? "API-ключ OZON (из личного кабинета продавца)" : "Токен WB Поставки";
+}
+window.onSupplySourceMarketplaceChange = onSupplySourceMarketplaceChange;
+
 function toggleAddSupplySourceForm(show) {
   const form = document.getElementById("addSupplySourceForm");
   if (!form) return;
@@ -1983,8 +1992,13 @@ function toggleAddSupplySourceForm(show) {
   if (!show) {
     const nameEl = document.getElementById("newSupplySourceName");
     const keyEl = document.getElementById("newSupplySourceApiKey");
+    const mpEl = document.getElementById("newSupplySourceMarketplace");
+    const cidEl = document.getElementById("newSupplySourceClientId");
     if (nameEl) nameEl.value = "";
     if (keyEl) keyEl.value = "";
+    if (mpEl) mpEl.value = "wb";
+    if (cidEl) cidEl.value = "";
+    onSupplySourceMarketplaceChange();
   }
 }
 
@@ -2015,7 +2029,7 @@ function renderSupplySourcesTable() {
   tbody.innerHTML = "";
   const sources = suppliesState.sources;
   if (!sources.length) {
-    tbody.innerHTML = '<tr><td colspan="6" class="empty-cell">Источники не добавлены</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-cell">Источники не добавлены</td></tr>';
     return;
   }
   sources.forEach((src, idx) => {
@@ -2025,8 +2039,10 @@ function renderSupplySourcesTable() {
       : "—";
     const fullPreview = src.api_key_preview || "—";
     const shortPreview = fullPreview.length > 18 ? fullPreview.slice(0, 14) + "…" : fullPreview;
+    const mpLabel = (src.marketplace||"wb").toUpperCase() === "OZON" ? '<span style="color:#005bff;font-weight:600">OZON</span>' : '<span style="color:#8b4513;font-weight:600">WB</span>';
     tr.innerHTML = `
       <td>${idx + 1}</td>
+      <td>${mpLabel}</td>
       <td>${esc(src.name || "")}</td>
       <td class="supply-src-key-cell">
         <span class="supply-src-key-text" title="${esc(fullPreview)}">${esc(shortPreview)}</span>
@@ -2047,16 +2063,21 @@ function renderSupplySourcesTable() {
 async function createSupplySource() {
   const nameEl = document.getElementById("newSupplySourceName");
   const keyEl = document.getElementById("newSupplySourceApiKey");
+  const mpEl = document.getElementById("newSupplySourceMarketplace");
+  const cidEl = document.getElementById("newSupplySourceClientId");
   const info = document.getElementById("addSupplySourceInfo");
   const name = (nameEl?.value || "").trim();
   const api_key = (keyEl?.value || "").trim();
+  const marketplace = mpEl?.value || "wb";
+  const client_id = (cidEl?.value || "").trim();
   if (!name) { if (info) { info.textContent = "Введите название"; info.style.color = "#b91c1c"; } return; }
   if (!api_key) { if (info) { info.textContent = "Введите API-ключ"; info.style.color = "#b91c1c"; } return; }
+  if (marketplace === "ozon" && !client_id) { if (info) { info.textContent = "Введите Client-ID"; info.style.color = "#b91c1c"; } return; }
   if (info) { info.textContent = "Сохранение..."; info.style.color = ""; }
   const res = await fetch("/api/supply-sources", {
     method: "POST",
     headers: jsonHeaders(),
-    body: JSON.stringify({ name, api_key }),
+    body: JSON.stringify({ name, api_key, marketplace, client_id }),
   }).catch(() => null);
   if (!res) { if (info) { info.textContent = "Ошибка сети"; info.style.color = "#b91c1c"; } return; }
   if (!res.ok) {

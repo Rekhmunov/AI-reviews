@@ -1395,7 +1395,16 @@
             <div id="supplySourcesInfo" class="small"></div>
             <div id="addSupplySourceForm" class="source-form hidden" style="margin-top:12px">
               <div class="row">
+                <select id="newSupplySourceMarketplace" onchange="onSupplySourceMarketplaceChange()" style="height:36px">
+                  <option value="wb">Wildberries (WB)</option>
+                  <option value="ozon">OZON</option>
+                </select>
+              </div>
+              <div class="row">
                 <input id="newSupplySourceName" type="text" placeholder="Название источника (например, ИП Иванов)" />
+              </div>
+              <div id="newSupplyOzonClientIdRow" class="row" style="display:none">
+                <input id="newSupplySourceClientId" type="text" placeholder="Client-ID (OZON)" autocomplete="off" />
               </div>
               <div class="row">
                 <textarea id="newSupplySourceApiKey" class="textarea-compact" placeholder="Токен WB Поставки" rows="3" autocomplete="off"></textarea>
@@ -1411,12 +1420,12 @@
             <div class="table-wrap">
               <table class="supply-sources-table">
                 <colgroup>
-                  <col class="col-num" /><col class="col-name" /><col class="col-key" />
+                  <col class="col-num" /><col style="width:10%"/><col class="col-name" /><col class="col-key" />
                   <col class="col-act" /><col class="col-sync" /><col class="col-acts" />
                 </colgroup>
                 <thead>
                   <tr>
-                    <th>№</th><th>Название</th><th>Ключ</th>
+                    <th>№</th><th>Площадка</th><th>Название</th><th>Ключ</th>
                     <th>Активен</th><th>Последняя синхр.</th><th>Действия</th>
                   </tr>
                 </thead>

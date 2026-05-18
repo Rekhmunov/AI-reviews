@@ -439,6 +439,8 @@ class UpdateSupplyContractorRequest(BaseModel):
 class CreateSupplySourceRequest(BaseModel):
     name: str
     api_key: str
+    marketplace: str = "wb"
+    client_id: str = ""
 
 
 class ToggleSupplySourceRequest(BaseModel):
@@ -5343,6 +5345,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 user_id=int(user["id"]),
                 name=payload.name.strip(),
                 api_key=payload.api_key.strip(),
+                marketplace=payload.marketplace,
+                client_id=payload.client_id,
             )
         except Exception as exc:
             _log.error("create_supply_source error: %s", exc, exc_info=True)
@@ -6945,7 +6949,9 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         sources = repository.list_supply_sources(user_id=owner_id)
         if payload.source_id:
             sources = [s for s in sources if s["id"] == payload.source_id]
-        active_sources = [s for s in sources if s.get("is_enabled")]
+        # WB sync: only process WB sources (marketplace == 'wb' or null/empty)
+        active_sources = [s for s in sources if s.get("is_enabled")
+                          and (s.get("marketplace") or "wb").lower() == "wb"]
         if not active_sources:
             return {"ok": True, "synced": 0, "message": "Нет активных источников"}
 
