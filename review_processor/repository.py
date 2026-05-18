@@ -6857,6 +6857,14 @@ class ReviewRepository:
         records = self.list_supply_poa_records(user_id=user_id)
         return next((r for r in records if r["id"] == rid), {"id": rid})
 
+    def update_supply_poa_record(self, *, user_id: int, record_id: int, legal_entity_id: int, contractor_id: int, driver_id: int = 0, driver_manual_name: str = "", driver_manual_docs: str = "") -> bool:
+        with self._connect() as conn:
+            result = conn.execute(
+                self._sql("UPDATE supply_poa_records SET legal_entity_id = ?, contractor_id = ?, driver_id = ?, driver_manual_name = ?, driver_manual_docs = ? WHERE user_id = ? AND id = ?"),
+                (legal_entity_id, contractor_id, driver_id or 0, driver_manual_name.strip() or None, driver_manual_docs.strip() or None, user_id, record_id),
+            )
+        return bool(result.rowcount)
+
     def delete_supply_poa_record(self, *, user_id: int, record_id: int) -> bool:
         with self._connect() as conn:
             result = conn.execute(

@@ -418,6 +418,14 @@ class CreatePoARecordRequest(BaseModel):
     driver_manual_docs: str = ""
 
 
+class UpdatePoARecordRequest(BaseModel):
+    legal_entity_id: int
+    contractor_id: int
+    driver_id: int = 0
+    driver_manual_name: str = ""
+    driver_manual_docs: str = ""
+
+
 class CreateSupplyContractorRequest(BaseModel):
     name: str
     requisites: str = ""
@@ -6693,6 +6701,21 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         )
         record.pop("le_signature_image", None)
         return record
+
+    @app.patch("/api/supply-poa-records/{record_id}")
+    def update_poa_record(request: Request, record_id: int, payload: UpdatePoARecordRequest) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        ok = repository.update_supply_poa_record(
+            user_id=_supply_owner_id(user), record_id=record_id,
+            legal_entity_id=payload.legal_entity_id, contractor_id=payload.contractor_id,
+            driver_id=payload.driver_id, driver_manual_name=payload.driver_manual_name,
+            driver_manual_docs=payload.driver_manual_docs,
+        )
+        if not ok:
+            raise HTTPException(status_code=404, detail="Доверенность не найдена")
+        return {"ok": True}
 
     @app.delete("/api/supply-poa-records/{record_id}")
     def delete_poa_record(request: Request, record_id: int) -> dict[str, object]:

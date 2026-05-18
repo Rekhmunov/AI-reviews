@@ -8766,6 +8766,8 @@ function renderPoATable() {
           <button class="secondary small-btn icon-btn" onclick="downloadPoADoc(${r.id})" title="Скачать DOC">📄</button>
           <button class="secondary small-btn icon-btn" onclick="downloadPoAPdf(${r.id})" title="Скачать PDF">📑</button>
           <button class="secondary small-btn icon-btn" onclick="printPoARecord(${r.id})" title="Печать">🖨</button>
+          <button class="secondary small-btn icon-btn" onclick="openEditPoAModal(${r.id})" title="Редактировать">✏</button>
+          <button class="secondary small-btn icon-btn" style="color:#2563eb;border-color:#93c5fd" onclick="openCopyPoAModal(${r.id})" title="Копировать">⎘</button>
           <button class="secondary small-btn icon-btn" style="color:#b91c1c;border-color:#fca5a5" onclick="deletePoARecord(${r.id})" title="Удалить">🗑</button>
         </div>
       </td>`;
@@ -8817,8 +8819,10 @@ async function deletePoARecord(id) {
   await loadPoARecords();
 }
 
-async function openCreatePoAModal() {
-  // Ensure caches are loaded
+async function _openPoAModal(mode, record) {
+  _poaModalMode = mode;
+  _poaEditingId = mode === "edit" ? record?.id : null;
+  // Ensure caches loaded
   if (!_supplyLegalEntitiesCache.length) await loadSupplyLegalEntities();
   if (!_supplyContractorsCache.length) await loadSupplyContractors();
   if (!_supplyDriversCache.length) await loadSupplyDrivers();
@@ -8835,15 +8839,52 @@ async function openCreatePoAModal() {
   const info = document.getElementById("poaCreateInfo");
   if (info) { info.textContent = ""; info.style.color = ""; }
   // Reset manual driver mode
+  _poaManualDriverMode = false;
   const mf = document.getElementById("poaManualDriverFields");
-  const dSel2 = document.getElementById("poaCreateDriver");
-  if (mf) { mf.style.display = "none"; }
-  if (dSel2) { dSel2.disabled = false; }
+  if (mf) mf.style.display = "none";
+  if (dSel) dSel.disabled = false;
+  const btn = document.getElementById("poaManualDriverBtn");
+  if (btn) { btn.style.background = ""; btn.style.borderColor = ""; }
+  // Pre-fill if edit or copy
+  if (record) {
+    if (lSel) lSel.value = String(record.legal_entity_id || "");
+    if (cSel) cSel.value = String(record.contractor_id || "");
+    const dId = record.driver_id || 0;
+    if (dId > 0) {
+      if (dSel) dSel.value = String(dId);
+    } else if (record.driver_manual_name) {
+      _poaManualDriverMode = true;
+      if (mf) mf.style.display = "block";
+      if (dSel) dSel.disabled = true;
+      if (btn) { btn.style.background = "#dbeafe"; btn.style.borderColor = "#3b82f6"; }
+      const mn = document.getElementById("poaManualDriverName");
+      const md = document.getElementById("poaManualDriverDocs");
+      if (mn) mn.value = record.driver_manual_name || "";
+      if (md) md.value = record.driver_manual_docs || "";
+    }
+  }
+  // Update modal title
+  const title = document.querySelector("#createPoAModal h4");
+  if (title) {
+    title.textContent = mode === "edit" ? "Редактировать доверенность" :
+                        mode === "copy" ? "Копировать доверенность" : "Создать доверенность";
+  }
+  const saveBtn = document.querySelector("#createPoAModal button[onclick='savePoARecord()']");
+  if (saveBtn) saveBtn.textContent = mode === "edit" ? "Сохранить изменения" : "Сохранить";
   const modal = document.getElementById("createPoAModal");
   if (modal) { modal.classList.remove("hidden"); modal.style.display = ""; }
 }
 
+async function openCreatePoAModal() { await _openPoAModal("create", null); }
+async function openEditPoAModal(id) { await _openPoAModal("edit", _poaRecords.find(r => r.id === id)); }
+async function openCopyPoAModal(id)  { await _openPoAModal("copy", _poaRecords.find(r => r.id === id)); }
+
+window.openEditPoAModal = openEditPoAModal;
+window.openCopyPoAModal = openCopyPoAModal;
+
 let _poaManualDriverMode = false;
+let _poaModalMode = "create"; // "create" | "edit" | "copy"
+let _poaEditingId = null;
 
 function togglePoAManualDriver() {
   _poaManualDriverMode = !_poaManualDriverMode;
@@ -8889,11 +8930,18 @@ async function savePoARecord() {
     return;
   }
   if (info) { info.textContent = "Сохранение..."; info.style.color = ""; }
-  const res = await fetch("/api/supply-poa-records", {
-    method: "POST", headers: jsonHeaders(),
-    body: JSON.stringify({ legal_entity_id: leId, contractor_id: cId, driver_id: dId,
-      driver_manual_name: manualName, driver_manual_docs: manualDocs })
-  }).catch(() => null);
+  const payload = JSON.stringify({ legal_entity_id: leId, contractor_id: cId, driver_id: dId,
+    driver_manual_name: manualName, driver_manual_docs: manualDocs });
+  let res;
+  if (_poaModalMode === "edit" && _poaEditingId) {
+    res = await fetch(`/api/supply-poa-records/${_poaEditingId}`, {
+      method: "PATCH", headers: jsonHeaders(), body: payload
+    }).catch(() => null);
+  } else {
+    res = await fetch("/api/supply-poa-records", {
+      method: "POST", headers: jsonHeaders(), body: payload
+    }).catch(() => null);
+  }
   if (!res || !res.ok) {
     const e = await res?.json().catch(()=>({})) || {};
     if (info) { info.textContent = e.detail || "Ошибка"; info.style.color = "#b91c1c"; }
