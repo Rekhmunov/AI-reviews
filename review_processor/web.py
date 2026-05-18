@@ -6791,7 +6791,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
   </tr>
 </table>
 <p style="text-align:justify;margin-bottom:8pt">
-  «{le_full}» в лице генерального директора в лице «{le_in_p}», действующей на основании «{le_basis}»,
+  {le_full} в лице генерального директора {le_in_p}, действующей на основании {le_basis},
 </p>
 <p style="text-align:center;font-size:9pt;margin-bottom:16pt">(Доверитель)</p>
 <p style="text-align:justify;margin-bottom:16pt">
