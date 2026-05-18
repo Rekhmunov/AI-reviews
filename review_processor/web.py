@@ -6121,35 +6121,58 @@ tr {{ page-break-inside: avoid; }}
         if cached:
             return cached
         # Lazy-load from OZON API
-        import urllib.request as _ul, json as _jm, ssl as _sl
+        import urllib.request as _ul, json as _jj, ssl as _sl
         item_row = repository.get_ozon_supply_item_row(user_id=owner_id, supply_order_id=supply_order_id)
         if not item_row:
+            _log.warning("ozon goods: item_row not found for supply_order_id=%d user=%d", supply_order_id, owner_id)
             return []
         src = repository.get_supply_source_with_key(user_id=owner_id, source_id=int(item_row["source_id"]))
         if not src or not src.get("api_key"):
+            _log.warning("ozon goods: no api_key for source_id=%s", item_row.get("source_id"))
             return []
-        client_id = src.get("client_id") or ""
+        client_id = str(src.get("client_id") or "")
         api_key = str(src["api_key"])
         ctx = _sl.create_default_context()
-        # Get order details to find bundle_ids
-        import json as _jj
+        ozon_headers = {"Client-Id": client_id, "Api-Key": api_key,
+                        "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
+
+        # Step 1: get bundle_ids from raw_json (fast path)
         raw = _jj.loads(item_row.get("raw_json") or "{}")
-        supplies = raw.get("supplies") or []
-        bundle_ids = [s["bundle_id"] for s in supplies if s.get("bundle_id")]
+        supplies_raw = raw.get("supplies") or []
+        bundle_ids = [s["bundle_id"] for s in supplies_raw if s.get("bundle_id")]
+
+        # Step 2: if no bundle_ids in raw_json, re-fetch from v3 API (fallback)
         if not bundle_ids:
+            _log.info("ozon goods: no bundle_ids in raw_json for supply_order_id=%d, fetching fresh", supply_order_id)
+            try:
+                req_det = _ul.Request("https://api-seller.ozon.ru/v3/supply-order/get",
+                    data=_jj.dumps({"order_ids": [str(supply_order_id)]}).encode(),
+                    method="POST", headers=ozon_headers)
+                with _ul.urlopen(req_det, context=ctx, timeout=15) as r_det:
+                    det_resp = _jj.loads(r_det.read())
+                for order in (det_resp.get("orders") or []):
+                    for s in (order.get("supplies") or []):
+                        if s.get("bundle_id"):
+                            bundle_ids.append(s["bundle_id"])
+            except Exception as ex:
+                _log.warning("ozon goods re-fetch order details: %s", ex)
+
+        if not bundle_ids:
+            _log.warning("ozon goods: still no bundle_ids for supply_order_id=%d", supply_order_id)
             return []
+
         goods = []
         try:
             body = _jj.dumps({"bundle_ids": bundle_ids, "limit": 1000, "last_id": ""}).encode()
             req = _ul.Request("https://api-seller.ozon.ru/v1/supply-order/bundle", data=body, method="POST",
-                headers={"Client-Id": client_id, "Api-Key": api_key, "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"})
+                headers=ozon_headers)
             with _ul.urlopen(req, context=ctx, timeout=15) as r:
                 resp = _jj.loads(r.read())
             goods = resp.get("items") or []
             if goods and item_row.get("id"):
                 repository.upsert_ozon_supply_goods(supply_item_id=int(item_row["id"]), goods=goods)
         except Exception as ex:
-            _log.warning("ozon goods lazy load sid=%d: %s", supply_order_id, ex)
+            _log.warning("ozon goods bundle call sid=%d: %s", supply_order_id, ex)
         return repository.get_ozon_supply_goods(user_id=owner_id, supply_order_id=supply_order_id) or [
             {"sku": g.get("sku"), "name": g.get("name"), "quantity": g.get("quantity"),
              "barcode": g.get("barcode"), "offer_id": g.get("offer_id")} for g in goods
