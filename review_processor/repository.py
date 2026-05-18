@@ -6679,7 +6679,11 @@ class ReviewRepository:
                 self._sql("SELECT signature_image FROM supply_legal_entities WHERE user_id = ? AND id = ?"),
                 (user_id, entity_id),
             ).fetchone()
-        return str(row[0]) if row and row[0] else None
+        if not row:
+            return None
+        d = self._row_to_dict(row)
+        val = d.get("signature_image")
+        return str(val) if val else None
 
     def set_legal_entity_signature(self, *, user_id: int, entity_id: int, image_base64: str | None) -> bool:
         with self._connect() as conn:
@@ -6698,7 +6702,7 @@ class ReviewRepository:
             else:
                 # Keep existing signature unchanged
                 existing = conn.execute(self._sql("SELECT signature_image FROM supply_legal_entities WHERE id = ?"), (entity_id,)).fetchone()
-                sig_val = existing[0] if existing else None
+                sig_val = self._row_to_dict(existing).get("signature_image") if existing else None
             result = conn.execute(
                 self._sql("UPDATE supply_legal_entities SET short_name = ?, full_name = ?, requisites = ?, signatories = ?, in_person = ?, basis = ?, signature_image = ? WHERE user_id = ? AND id = ?"),
                 (short_name.strip(), full_name.strip(), (requisites or "").strip() or None, (signatories or "").strip() or None, (in_person or "").strip() or None, (basis or "").strip() or None, sig_val, user_id, entity_id),
