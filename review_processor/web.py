@@ -6204,7 +6204,7 @@ tr {{ page-break-inside: avoid; }}
             return {"ok": False, "message": "Нет активных источников OZON"}
 
         # v3 API states (confirmed by live testing — v2 states return 404)
-        ACTIVE_STATES = ["IN_TRANSIT", "COMPLETED"]
+        ACTIVE_STATES = ["DATA_FILLING", "READY_TO_SUPPLY", "IN_TRANSIT", "COMPLETED"]
         import threading as _thr
         from datetime import datetime as _odt, timezone as _otz, timedelta as _otd
         _ozon_now = _odt.now(_otz.utc)

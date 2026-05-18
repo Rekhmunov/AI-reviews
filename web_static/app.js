@@ -3736,9 +3736,11 @@ window.printPoA = printPoA;
 // OZON SUPPLIES MODULE — fully isolated from WB
 // ═══════════════════════════════════════════════════════════════════════════
 const OZON_STATUS_LABELS = {
-  "IN_TRANSIT": "В пути",
-  "COMPLETED":  "Принята",
-  "CANCELLED":  "Отменена",
+  "DATA_FILLING":    "Заполнение данных",
+  "READY_TO_SUPPLY": "Готово к отгрузке",
+  "IN_TRANSIT":      "В пути",
+  "COMPLETED":       "Принята",
+  "CANCELLED":       "Отменена",
 };
 
 const ozonState = { items: [], total: 0, page: 1, page_size: 50 };
@@ -3793,7 +3795,7 @@ function renderOzonTable() {
     tr.className = "supply-row";
     tr.dataset.supplyId = String(item.supply_order_id);
     const statusLabel = OZON_STATUS_LABELS[item.state] || (item.state || "—");
-    const statusClass = { "IN_TRANSIT":"supply-status-3", "COMPLETED":"supply-status-5", "CANCELLED":"supply-status-1" }[item.state] || "";
+    const statusClass = { "DATA_FILLING":"supply-status-2", "READY_TO_SUPPLY":"supply-status-3", "IN_TRANSIT":"supply-status-4", "COMPLETED":"supply-status-5", "CANCELLED":"supply-status-1" }[item.state] || "";
     const supplyDate = item.supply_date
       ? (() => { try { return new Date(item.supply_date).toLocaleDateString("ru-RU",{day:"2-digit",month:"2-digit",year:"numeric"}); } catch(_){return item.supply_date;} })()
       : "Не назначена";

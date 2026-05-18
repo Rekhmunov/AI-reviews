@@ -1036,6 +1036,8 @@
               <button id="ozonClearBtn" class="secondary icon-btn" onclick="clearOzonSupplies()" style="color:#b91c1c;border-color:#fca5a5" title="Удалить поставки OZON">🗑</button>
               <select id="ozonStatusFilter" onchange="loadOzonSupplies()">
                 <option value="">Все статусы</option>
+                <option value="DATA_FILLING">Заполнение данных</option>
+                <option value="READY_TO_SUPPLY">Готово к отгрузке</option>
                 <option value="IN_TRANSIT">В пути</option>
                 <option value="COMPLETED">Принята</option>
               </select>
@@ -1792,6 +1794,6 @@
   <script src="/static/jszip.min.js"></script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=198"></script>
+  <script src="/static/app.js?v=199"></script>
 </body>
 </html>
