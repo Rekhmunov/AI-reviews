@@ -7251,7 +7251,11 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                         if http_status == 401:
                             errors.append(f"«{src['name']}»: неверный API-ключ")
                         elif isinstance(items, list):
-                            # Client-side filter: supplyDate >= last 30 days
+                            # Collect ALL supply IDs returned by WB for this source
+                            # (used later to purge cancelled/removed supplies from DB)
+                            all_wb_ids = [int(x.get("supplyID") or 0) for x in items if x.get("supplyID")]
+
+                            # Client-side filter: supplyDate >= last 30 days AND active status
                             items = [
                                 x for x in items
                                 if (x.get("supplyDate") or "")[:10] >= date_from
@@ -7302,6 +7306,17 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                                         with supply_sync_lock:
                                             supply_sync_state["message"] = f"Ошибка поставки {supply_wb_id}: {err_msg}"
                                         errors.append(f"Поставка {supply_wb_id}: {err_msg}")
+
+                            # Remove cancelled/removed supplies from DB:
+                            # WB returned all_wb_ids — anything in DB but NOT in that list
+                            # was cancelled or deleted on WB side.
+                            if all_wb_ids:
+                                deleted_count = repository.delete_supply_items_not_in(
+                                    source_id=source_id, keep_supply_ids=all_wb_ids
+                                )
+                                if deleted_count:
+                                    _log.info("supply sync: removed %d cancelled/missing supplies for source %d", deleted_count, source_id)
+
                             repository.mark_supply_source_synced(source_id=source_id)
                             total_synced += synced_this_source
                             # Restore manually-entered fields (pass, pallets, driver)

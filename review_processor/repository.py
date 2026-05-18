@@ -7356,6 +7356,21 @@ class ReviewRepository:
             )
         return int(result.rowcount or 0)
 
+    def delete_supply_items_not_in(self, *, source_id: int, keep_supply_ids: list[int]) -> int:
+        """Delete supply_items for this source whose supply_wb_id is NOT in keep_supply_ids.
+        Used after sync to purge cancelled / removed supplies. Returns deleted count."""
+        if not keep_supply_ids:
+            return 0
+        placeholders = ",".join(["?" for _ in keep_supply_ids])
+        with self._connect() as conn:
+            result = conn.execute(
+                self._sql(
+                    f"DELETE FROM supply_items WHERE source_id = ? AND supply_wb_id NOT IN ({placeholders})"
+                ),
+                [source_id, *keep_supply_ids],
+            )
+        return int(result.rowcount or 0)
+
     def update_supply_manual_fields(
         self,
         *,
