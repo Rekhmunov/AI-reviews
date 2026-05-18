@@ -6163,7 +6163,7 @@ tr {{ page-break-inside: avoid; }}
 
         goods = []
         try:
-            body = _jj.dumps({"bundle_ids": bundle_ids, "limit": 1000, "last_id": ""}).encode()
+            body = _jj.dumps({"bundle_ids": bundle_ids, "limit": 100, "last_id": ""}).encode()
             req = _ul.Request("https://api-seller.ozon.ru/v1/supply-order/bundle", data=body, method="POST",
                 headers=ozon_headers)
             with _ul.urlopen(req, context=ctx, timeout=15) as r:
