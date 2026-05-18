@@ -3993,9 +3993,19 @@ async function toggleOzonGoods(btn, supplyId) {
   const goods = await res.json().catch(() => []);
   container.dataset.loaded = "1";
   if (!goods.length) { container.innerHTML = '<span class="small" style="color:#94a3b8">Нет товаров</span>'; return; }
-  let html = '<table class="supply-goods-table"><thead><tr><th>SKU OZON</th><th>Наименование</th><th>Кол-во</th></tr></thead><tbody>';
+  // Update quantity cell in the parent row
+  const totalQty = goods.reduce((s, g) => s + (Number(g.quantity) || 0), 0);
+  if (totalQty > 0) {
+    const parentRow = document.querySelector(`.supply-row[data-supply-id="${supplyId}"]`);
+    if (parentRow) {
+      const cells = parentRow.querySelectorAll("td");
+      // qty is 7th td (0-indexed: checkbox,expand,#,warehouse,prod,date,qty,status,links)
+      if (cells[6]) cells[6].textContent = totalQty;
+    }
+  }
+  let html = '<table class="supply-goods-table"><thead><tr><th>SKU OZON</th><th>Наименование</th><th>Арт. продавца</th><th>Кол-во</th></tr></thead><tbody>';
   for (const g of goods) {
-    html += `<tr><td>${g.sku || "—"}</td><td>${esc(g.name || g.offer_id || "—")}</td><td>${g.quantity ?? "—"}</td></tr>`;
+    html += `<tr><td>${g.sku || "—"}</td><td>${esc(g.name || "—")}</td><td>${esc(g.offer_id || "—")}</td><td>${g.quantity ?? "—"}</td></tr>`;
   }
   html += "</tbody></table>";
   container.innerHTML = html;

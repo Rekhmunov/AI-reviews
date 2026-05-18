@@ -6171,12 +6171,23 @@ tr {{ page-break-inside: avoid; }}
             goods = resp.get("items") or []
             if goods and item_row.get("id"):
                 repository.upsert_ozon_supply_goods(supply_item_id=int(item_row["id"]), goods=goods)
+                total_qty = sum(int(g.get("quantity") or 0) for g in goods)
+                if total_qty > 0:
+                    repository.update_ozon_supply_total_quantity(
+                        supply_order_id=supply_order_id, total_quantity=total_qty)
         except Exception as ex:
             _log.warning("ozon goods bundle call sid=%d: %s", supply_order_id, ex)
-        return repository.get_ozon_supply_goods(user_id=owner_id, supply_order_id=supply_order_id) or [
+        result = repository.get_ozon_supply_goods(user_id=owner_id, supply_order_id=supply_order_id) or [
             {"sku": g.get("sku"), "name": g.get("name"), "quantity": g.get("quantity"),
              "barcode": g.get("barcode"), "offer_id": g.get("offer_id")} for g in goods
         ]
+        # Recalculate total_quantity from what we have and update DB
+        if result:
+            total_qty = sum(int(g.get("quantity") or 0) for g in result)
+            if total_qty > 0:
+                repository.update_ozon_supply_total_quantity(
+                    supply_order_id=supply_order_id, total_quantity=total_qty)
+        return result
 
     @app.patch("/api/ozon-supplies/{supply_order_id}/manual-fields")
     def update_ozon_manual_fields(request: Request, supply_order_id: int, payload: dict) -> dict[str, object]:

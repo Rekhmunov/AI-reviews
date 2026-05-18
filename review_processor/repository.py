@@ -6991,6 +6991,13 @@ class ReviewRepository:
             ).fetchone()
         return self._row_to_dict(row) if row else None
 
+    def update_ozon_supply_total_quantity(self, *, supply_order_id: int, total_quantity: int) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                self._sql("UPDATE ozon_supply_items SET total_quantity = ? WHERE supply_order_id = ?"),
+                (total_quantity, supply_order_id),
+            )
+
     def update_ozon_supply_manual_fields(self, *, user_id: int, supply_order_id: int,
                                           pallets_count: str = "", driver_name: str = "",
                                           notes: str = "", production: str = "") -> None:
