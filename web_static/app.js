@@ -8763,8 +8763,8 @@ function renderPoATable() {
       <td>${esc((r.driver_id > 0 ? r.d_full : r.driver_manual_name)||"")}</td>
       <td>
         <div class="row" style="gap:4px;flex-wrap:nowrap">
-          <button class="secondary small-btn" onclick="downloadPoAPdf(${r.id})" title="Скачать PDF" style="font-size:11px">📄 PDF</button>
-          <button class="secondary small-btn" onclick="downloadPoADoc(${r.id})" title="Скачать DOC" style="font-size:11px">📄 DOC</button>
+          <button class="secondary small-btn icon-btn" onclick="downloadPoAPdf(${r.id})" title="Скачать PDF" style="font-size:10px;min-width:36px">PDF</button>
+          <button class="secondary small-btn icon-btn" onclick="downloadPoADoc(${r.id})" title="Скачать DOC" style="font-size:10px;min-width:36px">DOC</button>
           <button class="secondary small-btn icon-btn" onclick="printPoARecord(${r.id})" title="Печать">🖨</button>
           <button class="secondary small-btn icon-btn" onclick="openEditPoAModal(${r.id})" title="Редактировать">✏</button>
           <button class="secondary small-btn icon-btn" style="color:#2563eb;border-color:#93c5fd" onclick="openCopyPoAModal(${r.id})" title="Копировать">⎘</button>
