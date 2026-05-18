@@ -3872,6 +3872,19 @@ function clearOzonDateFilter() {
   toggleOzonDatePanel(false);
   loadOzonSupplies(true);
 }
+// Moscow warehouse IDs (cluster 4039 — Москва, МО и Дальние регионы, direct supply only)
+const OZON_MOSCOW_WH_IDS = new Set([
+  15431806189000, 1020002458344000, 19262731541000,
+  1020000759116000, 1020001642383000,
+  23843917228000, 23902289166000,
+  1020000241710000, 23948599159000,
+  1020000115166000, 1020003227965000,
+  1020001853757000,
+  1020000435290000, 1020000989855000,
+  1020001853954000,
+  1020002007811000, 1020000268887000,
+]);
+
 const OZON_STATUS_LABELS = {
   "DATA_FILLING":                   "Заполнение данных",
   "READY_TO_SUPPLY":                "Готово к отгрузке",
@@ -3957,7 +3970,8 @@ function renderOzonTable() {
       <td><span class="supply-id-text">${item.supply_order_number || item.supply_order_id}</span></td>
       <td>${item.is_crossdock && item.transit_warehouse_name
         ? `${esc(item.transit_warehouse_name)} → <strong>${esc(item.warehouse_name || "—")}</strong>`
-        : esc(item.warehouse_name || "—")}</td>
+        : (item.warehouse_name || "—") + ((!item.is_crossdock && OZON_MOSCOW_WH_IDS.has(Number(item.warehouse_id)))
+            ? ' <strong>(Москва)</strong>' : '')}</td>
       <td class="supply-prod-cell">${item.production ? esc(item.production) : '<span class="supply-prod-empty">Требует заполнения</span>'}</td>
       <td>${esc(supplyDate)}</td>
       <td>${item.total_quantity || "—"}</td>
@@ -4101,7 +4115,9 @@ async function openOzonDetailsModal(supplyId) {
     if (item.is_crossdock && item.transit_warehouse_name) {
       wh.innerHTML = `${esc(item.transit_warehouse_name)} → <strong>${esc(item.warehouse_name || "—")}</strong>`;
     } else {
-      wh.textContent = item.warehouse_name || "—";
+      const moscowTag = (!item.is_crossdock && OZON_MOSCOW_WH_IDS.has(Number(item.warehouse_id)))
+        ? ' <strong>(Москва)</strong>' : '';
+      wh.innerHTML = esc(item.warehouse_name || "—") + moscowTag;
     }
   }
   document.getElementById("ozonSdQty").textContent = item.total_quantity || "—";
