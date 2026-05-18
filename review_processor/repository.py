@@ -6491,6 +6491,8 @@ class ReviewRepository:
                 supply_date TEXT,
                 warehouse_id BIGINT,
                 warehouse_name TEXT,
+                transit_warehouse_name TEXT,
+                is_crossdock INTEGER NOT NULL DEFAULT 0,
                 total_quantity INTEGER NOT NULL DEFAULT 0,
                 creation_flow TEXT,
                 raw_json TEXT,
@@ -6502,6 +6504,8 @@ class ReviewRepository:
         conn.execute(
             self._sql("CREATE INDEX IF NOT EXISTS idx_ozon_supply_items_source ON ozon_supply_items(source_id)")
         )
+        conn.execute(self._sql("ALTER TABLE ozon_supply_items ADD COLUMN IF NOT EXISTS transit_warehouse_name TEXT"))
+        conn.execute(self._sql("ALTER TABLE ozon_supply_items ADD COLUMN IF NOT EXISTS is_crossdock INTEGER NOT NULL DEFAULT 0"))
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS ozon_supply_goods (
@@ -6919,8 +6923,9 @@ class ReviewRepository:
             row = conn.execute(
                 self._sql("""INSERT INTO ozon_supply_items
                     (source_id, supply_order_id, supply_order_number, state, creation_date, supply_date,
-                     warehouse_id, warehouse_name, total_quantity, creation_flow, raw_json, synced_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     warehouse_id, warehouse_name, transit_warehouse_name, is_crossdock,
+                     total_quantity, creation_flow, raw_json, synced_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT (source_id, supply_order_id) DO UPDATE SET
                         supply_order_number = excluded.supply_order_number,
                         state = excluded.state,
@@ -6928,6 +6933,8 @@ class ReviewRepository:
                         supply_date = COALESCE(excluded.supply_date, ozon_supply_items.supply_date),
                         warehouse_id = COALESCE(excluded.warehouse_id, ozon_supply_items.warehouse_id),
                         warehouse_name = COALESCE(excluded.warehouse_name, ozon_supply_items.warehouse_name),
+                        transit_warehouse_name = excluded.transit_warehouse_name,
+                        is_crossdock = excluded.is_crossdock,
                         total_quantity = CASE WHEN excluded.total_quantity > 0 THEN excluded.total_quantity ELSE ozon_supply_items.total_quantity END,
                         creation_flow = excluded.creation_flow,
                         raw_json = excluded.raw_json,
@@ -6942,6 +6949,8 @@ class ReviewRepository:
                     str(data.get("supply_date") or "") or None,
                     int(data.get("dropoff_warehouse_id") or 0) or None,
                     str(data.get("warehouse_name") or "") or None,
+                    str(data.get("transit_warehouse_name") or "") or None,
+                    1 if data.get("is_crossdock") else 0,
                     int(data.get("total_quantity") or 0),
                     str(data.get("creation_flow") or "") or None,
                     _json.dumps(data, ensure_ascii=False)[:8000],

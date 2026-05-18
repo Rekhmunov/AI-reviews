@@ -3954,7 +3954,9 @@ function renderOzonTable() {
         <button class="supply-expand-btn" onclick="toggleOzonGoods(this, ${item.supply_order_id})" aria-label="Развернуть">▶</button>
       </td>
       <td><span class="supply-id-text">${item.supply_order_number || item.supply_order_id}</span></td>
-      <td>${esc(item.warehouse_name || "—")}</td>
+      <td>${item.is_crossdock && item.transit_warehouse_name
+        ? `${esc(item.transit_warehouse_name)} → <strong>${esc(item.warehouse_name || "—")}</strong>`
+        : esc(item.warehouse_name || "—")}</td>
       <td class="supply-prod-cell">${item.production ? esc(item.production) : '<span class="supply-prod-empty">Требует заполнения</span>'}</td>
       <td>${esc(supplyDate)}</td>
       <td>${item.total_quantity || "—"}</td>

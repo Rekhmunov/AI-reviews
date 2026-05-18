@@ -6102,16 +6102,14 @@ tr {{ page-break-inside: avoid; }}
     _ozon_sync_lock = threading.Lock()
 
     @app.get("/api/ozon-supplies")
-    def list_ozon_supplies(request: Request, page: int = 1, page_size: int = 50) -> dict[str, object]:
+    def list_ozon_supplies(request: Request) -> dict[str, object]:
         user = _require_user(request)
         if not _can_view_supplies(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
         owner_id = _supply_owner_id(user)
         repository._ensure_supply_tables()
         items = repository.list_ozon_supply_items(user_id=owner_id)
-        total = len(items)
-        start = (page - 1) * page_size
-        return {"items": items[start:start + page_size], "total": total, "page": page, "page_size": page_size}
+        return {"items": items, "total": len(items)}
 
     @app.get("/api/ozon-supplies/{supply_order_id}/goods")
     def get_ozon_supply_goods(request: Request, supply_order_id: int) -> list[dict[str, object]]:
@@ -6295,10 +6293,22 @@ tr {{ page-break-inside: avoid; }}
                                 ts_inner = ts_outer.get("timeslot") or {}
                                 if ts_inner.get("from"):
                                     supply_date = str(ts_inner["from"])
-                                # warehouse from drop_off_warehouse
-                                wh_obj = order.get("drop_off_warehouse") or {}
-                                wh_id = int(wh_obj.get("warehouse_id") or 0) or None
-                                wh_name = str(wh_obj.get("name") or "") or None
+                                # warehouse resolution: crossdock → storage_warehouse is final dest
+                                supplies_list = order.get("supplies") or []
+                                is_crossdock = any(s.get("is_crossdock") for s in supplies_list)
+                                dropoff_obj = order.get("drop_off_warehouse") or {}
+                                dropoff_id = int(dropoff_obj.get("warehouse_id") or 0) or None
+                                dropoff_name = str(dropoff_obj.get("name") or "") or None
+                                if is_crossdock and supplies_list:
+                                    storage_obj = supplies_list[0].get("storage_warehouse") or {}
+                                    final_name = str(storage_obj.get("name") or "") or None
+                                    wh_id = dropoff_id
+                                    wh_name = final_name or dropoff_name
+                                    transit_wh_name = dropoff_name
+                                else:
+                                    wh_id = dropoff_id
+                                    wh_name = dropoff_name
+                                    transit_wh_name = None
                                 data = {
                                     "supply_order_id": oid,
                                     "supply_order_number": str(order.get("order_number") or ""),
@@ -6307,9 +6317,11 @@ tr {{ page-break-inside: avoid; }}
                                     "supply_date": supply_date,
                                     "dropoff_warehouse_id": wh_id,
                                     "warehouse_name": wh_name,
+                                    "transit_warehouse_name": transit_wh_name,
+                                    "is_crossdock": is_crossdock,
                                     "total_quantity": 0,
                                     "creation_flow": None,
-                                    "supplies": order.get("supplies") or [],
+                                    "supplies": supplies_list,
                                 }
                                 repository.upsert_ozon_supply_item(source_id=int(src["id"]), data=data)
                                 total_synced += 1
