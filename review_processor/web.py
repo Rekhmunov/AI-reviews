@@ -7260,7 +7260,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                                 and int(x.get("statusID") or 0) in active_statuses
                             ]
                             with supply_sync_lock:
-                                supply_sync_state["total"] = len(items)
+                                supply_sync_state["total"] = (supply_sync_state.get("total") or 0) + len(items)
                                 supply_sync_state["message"] = (
                                     f"«{src['name']}»: найдено {len(items)} поставок, загрузка деталей…"
                                 )
