@@ -6380,11 +6380,41 @@ tr {{ page-break-inside: avoid; }}
                                     "creation_flow": None,
                                     "supplies": supplies_list,
                                 }
-                                repository.upsert_ozon_supply_item(source_id=int(src["id"]), data=data)
+                                item_id = repository.upsert_ozon_supply_item(source_id=int(src["id"]), data=data)
+                                # Collect bundle_id for quantity loading
+                                for s in supplies_list:
+                                    bid = str(s.get("bundle_id") or "")
+                                    if bid:
+                                        qty_batch.append((oid, bid, item_id))
+                                        break  # one bundle per order
                                 total_synced += 1
                         except Exception as ex:
                             _log.error("ozon supply get batch: %s", ex, exc_info=True)
                             errors.append(str(ex))
+
+                        # Load quantities for this batch via bundle API (1 call per order)
+                        for (order_id, bundle_id, item_id) in qty_batch:
+                            if _ozon_sync_state.get("cancel_requested"):
+                                break
+                            try:
+                                bdy = _jj.dumps({"bundle_ids": [bundle_id], "limit": 100, "last_id": ""}).encode()
+                                bq_req = _ul.Request(
+                                    "https://api-seller.ozon.ru/v1/supply-order/bundle",
+                                    data=bdy, method="POST", headers=headers,
+                                )
+                                with _ul.urlopen(bq_req, context=ctx, timeout=15) as bq_r:
+                                    bq_resp = _jj.loads(bq_r.read())
+                                goods = bq_resp.get("items") or []
+                                total_qty = sum(int(g.get("quantity") or 0) for g in goods)
+                                if total_qty > 0:
+                                    repository.update_ozon_supply_total_quantity(
+                                        supply_order_id=order_id, total_quantity=total_qty)
+                                if goods and item_id:
+                                    repository.upsert_ozon_supply_goods(supply_item_id=item_id, goods=goods)
+                            except Exception as bex:
+                                _log.warning("ozon bundle qty order_id=%d: %s", order_id, bex)
+                            __import__("time").sleep(0.05)
+
                         with _ozon_sync_lock:
                             _ozon_sync_state["synced"] = total_synced
                             if _ozon_sync_state.get("cancel_requested"):
