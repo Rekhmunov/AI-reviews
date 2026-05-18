@@ -7365,7 +7365,7 @@ class ReviewRepository:
         with self._connect() as conn:
             result = conn.execute(
                 self._sql(
-                    f"DELETE FROM supply_items WHERE source_id = ? AND supply_wb_id NOT IN ({placeholders})"
+                    f"DELETE FROM supply_items WHERE source_id = ? AND supply_id NOT IN ({placeholders})"
                 ),
                 [source_id, *keep_supply_ids],
             )
