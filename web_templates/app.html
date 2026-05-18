@@ -1032,6 +1032,7 @@
           <div class="supplies-top-controls">
             <div class="supplies-actions">
               <button id="ozonSyncBtn" onclick="syncOzonSupplies()">🔄 Синхронизировать</button>
+              <button id="ozonStopBtn" class="secondary icon-btn hidden" onclick="stopOzonSync()" style="color:#b91c1c;border-color:#fca5a5" title="Остановить синхронизацию OZON">🛑</button>
               <button id="ozonClearBtn" class="secondary icon-btn" onclick="clearOzonSupplies()" style="color:#b91c1c;border-color:#fca5a5" title="Удалить поставки OZON">🗑</button>
               <select id="ozonStatusFilter" onchange="loadOzonSupplies()">
                 <option value="">Все статусы</option>
@@ -1791,6 +1792,6 @@
   <script src="/static/jszip.min.js"></script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=197"></script>
+  <script src="/static/app.js?v=198"></script>
 </body>
 </html>

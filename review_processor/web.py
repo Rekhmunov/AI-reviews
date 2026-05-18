@@ -6098,7 +6098,7 @@ tr {{ page-break-inside: avoid; }}
 
     # ── OZON Supplies endpoints (isolated from WB) ──────────────────────────
 
-    _ozon_sync_state: dict[str, object] = {"in_progress": False, "synced": 0, "total": 0, "message": "", "errors": []}
+    _ozon_sync_state: dict[str, object] = {"in_progress": False, "synced": 0, "total": 0, "message": "", "errors": [], "cancel_requested": False}
     _ozon_sync_lock = threading.Lock()
 
     @app.get("/api/ozon-supplies")
@@ -6177,6 +6177,15 @@ tr {{ page-break-inside: avoid; }}
         with _ozon_sync_lock:
             return dict(_ozon_sync_state)
 
+    @app.post("/api/ozon-supplies/sync/stop")
+    def stop_ozon_sync(request: Request) -> dict[str, object]:
+        _require_user(request)
+        with _ozon_sync_lock:
+            if _ozon_sync_state.get("in_progress"):
+                _ozon_sync_state["cancel_requested"] = True
+                return {"ok": True, "message": "Остановка синхронизации OZON…"}
+        return {"ok": False, "message": "Синхронизация не запущена"}
+
     @app.post("/api/ozon-supplies/sync")
     def sync_ozon_supplies(request: Request) -> dict[str, object]:
         import threading as _thr, urllib.request as _ul, json as _jj, ssl as _sl
@@ -6202,7 +6211,7 @@ tr {{ page-break-inside: avoid; }}
 
         def _run_ozon_sync():
             with _ozon_sync_lock:
-                _ozon_sync_state.update({"in_progress": True, "synced": 0, "total": 0, "errors": [], "message": "Запуск…"})
+                _ozon_sync_state.update({"in_progress": True, "synced": 0, "total": 0, "errors": [], "message": "Запуск…", "cancel_requested": False})
             total_synced = 0
             errors = []
             try:
@@ -6302,10 +6311,18 @@ tr {{ page-break-inside: avoid; }}
                             errors.append(str(ex))
                         with _ozon_sync_lock:
                             _ozon_sync_state["synced"] = total_synced
+                            if _ozon_sync_state.get("cancel_requested"):
+                                break
+                    with _ozon_sync_lock:
+                        if _ozon_sync_state.get("cancel_requested"):
+                            break
             finally:
+                cancelled = bool(_ozon_sync_state.get("cancel_requested"))
                 with _ozon_sync_lock:
                     _ozon_sync_state.update({"in_progress": False, "synced": total_synced, "errors": errors,
-                        "message": f"Готово. Загружено {total_synced} поставок OZON." + (f" Ошибки: {len(errors)}" if errors else "")})
+                        "cancel_requested": False,
+                        "message": (f"Остановлено. Загружено {total_synced} поставок OZON." if cancelled
+                                    else f"Готово. Загружено {total_synced} поставок OZON." + (f" Ошибки: {len(errors)}" if errors else ""))})
 
         _thr.Thread(target=_run_ozon_sync, daemon=True).start()
         return {"ok": True, "message": "Синхронизация OZON запущена"}

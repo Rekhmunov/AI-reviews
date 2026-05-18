@@ -3872,14 +3872,23 @@ function ozonChangePage(delta) {
 // ── Sync ───────────────────────────────────────────────────────────────────
 async function syncOzonSupplies() {
   const btn = document.getElementById("ozonSyncBtn");
+  const stopBtn = document.getElementById("ozonStopBtn");
   if (btn) { btn.disabled = true; btn.textContent = "⏳ Синхронизация…"; }
+  if (stopBtn) stopBtn.classList.remove("hidden");
   const res = await fetch("/api/ozon-supplies/sync", { method: "POST", headers: jsonHeaders() }).catch(() => null);
   if (!res || !res.ok) {
     const e = await res?.json().catch(()=>({})) || {};
     if (btn) { btn.disabled = false; btn.textContent = "🔄 Синхронизировать"; }
-    alert("Ошибка: " + (e.message || res?.status)); return;
+    if (stopBtn) stopBtn.classList.add("hidden");
+    alert("Ошибка: " + (e.message || e.detail || res?.status)); return;
   }
   _ozonPollSync();
+}
+
+async function stopOzonSync() {
+  const stopBtn = document.getElementById("ozonStopBtn");
+  if (stopBtn) { stopBtn.disabled = true; stopBtn.textContent = "⏳"; }
+  await fetch("/api/ozon-supplies/sync/stop", { method: "POST", headers: jsonHeaders() }).catch(() => null);
 }
 
 function _ozonPollSync() {
@@ -3889,14 +3898,23 @@ function _ozonPollSync() {
     if (!r || !r.ok) return;
     const d = await r.json().catch(() => ({}));
     const info = document.getElementById("ozonSyncInfo");
-    if (info) info.textContent = d.message || "";
-    if (!d.in_progress) {
+    const synced = Number(d.synced ?? 0);
+    const total = Number(d.total ?? 0);
+    if (d.in_progress) {
+      const progressText = total > 0
+        ? `Загружено ${synced} из ${total} поставок`
+        : synced > 0 ? `Загружено ${synced} поставок…` : "Загрузка списка…";
+      if (info) { info.textContent = progressText; info.style.color = "#64748b"; }
+    } else {
       clearInterval(_ozonSyncPollTimer);
       const btn = document.getElementById("ozonSyncBtn");
+      const stopBtn = document.getElementById("ozonStopBtn");
       if (btn) { btn.disabled = false; btn.textContent = "🔄 Синхронизировать"; }
+      if (stopBtn) { stopBtn.classList.add("hidden"); stopBtn.disabled = false; stopBtn.textContent = "🛑"; }
+      if (info) { info.textContent = d.message || `Готово. Загружено ${synced} поставок.`; info.style.color = "#16a34a"; }
       await loadOzonSupplies(true);
     }
-  }, 1500);
+  }, 1000);
 }
 
 async function clearOzonSupplies() {
@@ -3986,6 +4004,7 @@ function _updateOzonBatchUI() {
 window.loadOzonSupplies = loadOzonSupplies;
 window.renderOzonTable = renderOzonTable;
 window.syncOzonSupplies = syncOzonSupplies;
+window.stopOzonSync = stopOzonSync;
 window.clearOzonSupplies = clearOzonSupplies;
 window.ozonChangePage = ozonChangePage;
 window.toggleOzonGoods = toggleOzonGoods;
