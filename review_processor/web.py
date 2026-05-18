@@ -6318,6 +6318,7 @@ tr {{ page-break-inside: avoid; }}
                     # Step 2: get details in batches of 50 via /v3/supply-order/get
                     for i in range(0, len(all_order_ids), 50):
                         batch = all_order_ids[i:i+50]
+                        qty_batch: list = []  # (order_id, bundle_id, item_id)
                         try:
                             body2 = _jj.dumps({"order_ids": batch}).encode()
                             req2 = _ul.Request(
