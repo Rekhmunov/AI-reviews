@@ -6196,6 +6196,9 @@ tr {{ page-break-inside: avoid; }}
 
         # v3 API states (confirmed by live testing — v2 states return 404)
         ACTIVE_STATES = ["IN_TRANSIT", "COMPLETED"]
+        import threading as _thr
+        from datetime import datetime as _odt, timezone as _otz, timedelta as _otd
+        _ozon_date_from = (_odt.now(_otz.utc) - _otd(days=30)).strftime("%Y-%m-%d")
 
         def _run_ozon_sync():
             with _ozon_sync_lock:
@@ -6266,6 +6269,10 @@ tr {{ page-break-inside: avoid; }}
                             for order in (det_resp.get("orders") or []):
                                 oid = int(order.get("order_id") or 0)
                                 if not oid: continue
+                                # Filter: only last 30 days by created_date
+                                created_date = str(order.get("created_date") or "")
+                                if created_date[:10] < _ozon_date_from:
+                                    continue
                                 # supply_date: order.timeslot.timeslot.from
                                 supply_date = None
                                 ts_outer = order.get("timeslot") or {}
@@ -6280,7 +6287,7 @@ tr {{ page-break-inside: avoid; }}
                                     "supply_order_id": oid,
                                     "supply_order_number": str(order.get("order_number") or ""),
                                     "state": str(order.get("state") or ""),
-                                    "creation_date": str(order.get("created_date") or "") or None,
+                                    "creation_date": created_date or None,
                                     "supply_date": supply_date,
                                     "dropoff_warehouse_id": wh_id,
                                     "warehouse_name": wh_name,
