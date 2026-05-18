@@ -6208,7 +6208,7 @@ tr {{ page-break-inside: avoid; }}
         import threading as _thr
         from datetime import datetime as _odt, timezone as _otz, timedelta as _otd
         _ozon_now = _odt.now(_otz.utc)
-        _ozon_date_from = (_ozon_now - _otd(days=30)).strftime("%Y-%m-%d")
+        _ozon_date_from = (_ozon_now - _otd(days=90)).strftime("%Y-%m-%d")
         _ozon_today = _ozon_now.strftime("%Y-%m-%d")
 
         def _run_ozon_sync():
