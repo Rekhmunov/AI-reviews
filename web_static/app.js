@@ -2844,8 +2844,18 @@ function clearNewLegalSig() {
 async function loadEditLegalSig(entityId) {
   _editLegalSigBase64 = null;
   _editLegalSigClear = false;
-  const res = await fetch(`/api/supply-legal-entities/${entityId}/signature`).catch(()=>null);
-  const data = res && res.ok ? await res.json().catch(()=>({})) : {};
+  const res = await fetch(`/api/supply-legal-entities/${entityId}/signature`).catch((e)=>{
+    console.error("[sig] fetch error:", e); return null;
+  });
+  console.log("[sig] entityId:", entityId, "status:", res?.status, "ok:", res?.ok);
+  let data = {};
+  if (res && res.ok) {
+    try { data = await res.json(); } catch(e) { console.error("[sig] json parse error:", e); }
+  } else if (res) {
+    const txt = await res.text().catch(()=>"");
+    console.warn("[sig] non-ok response:", res.status, txt.slice(0,200));
+  }
+  console.log("[sig] data:", data?.signature_image ? "HAS_IMAGE len="+data.signature_image.length : "NO_IMAGE");
   const existing = data.signature_image || null;
   _renderEditLegalSigUI(existing, entityId);
 }
