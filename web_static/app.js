@@ -2743,7 +2743,14 @@ async function saveEditLegalEntity(id) {
   const sigPayload = { short_name: short, full_name: full, requisites: req, signatories: sig, in_person: inp, basis: bas };
   if (_editLegalSigClear) { sigPayload.clear_signature = true; }
   else if (_editLegalSigBase64) { sigPayload.signature_image = _editLegalSigBase64; }
-  await fetch(`/api/supply-legal-entities/${id}`, { method: "PATCH", headers: jsonHeaders(), body: JSON.stringify(sigPayload) }).catch(() => null);
+  const saveRes = await fetch(`/api/supply-legal-entities/${id}`, { method: "PATCH", headers: jsonHeaders(), body: JSON.stringify(sigPayload) }).catch(() => null);
+  if (!saveRes || !saveRes.ok) {
+    const errData = await saveRes?.json().catch(() => ({})) || {};
+    alert("Ошибка сохранения: " + (errData.detail || (saveRes ? saveRes.status : "сеть")));
+    return;
+  }
+  _editLegalSigBase64 = null;
+  _editLegalSigClear = false;
   await loadSupplyLegalEntities();
 }
 
@@ -2787,11 +2794,26 @@ let _editLegalSigBase64 = null; // pending new signature for edit
 let _editLegalSigClear = false; // flag to clear existing signature on save
 
 function _fileToBase64(file) {
+  // Resize to max 400×200 to keep base64 small (~20-40 KB)
   return new Promise((res, rej) => {
-    if (file.size > 2 * 1024 * 1024) { rej(new Error("Файл слишком большой (максимум 2 МБ)")); return; }
+    if (file.size > 5 * 1024 * 1024) { rej(new Error("Файл слишком большой (максимум 5 МБ)")); return; }
     const reader = new FileReader();
-    reader.onload = () => res(reader.result);
     reader.onerror = rej;
+    reader.onload = (evt) => {
+      const img = new Image();
+      img.onerror = rej;
+      img.onload = () => {
+        const MAX_W = 400, MAX_H = 200;
+        let w = img.width, h = img.height;
+        if (w > MAX_W) { h = Math.round(h * MAX_W / w); w = MAX_W; }
+        if (h > MAX_H) { w = Math.round(w * MAX_H / h); h = MAX_H; }
+        const canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        res(canvas.toDataURL("image/png"));
+      };
+      img.src = evt.target.result;
+    };
     reader.readAsDataURL(file);
   });
 }
