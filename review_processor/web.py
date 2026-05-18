@@ -6731,8 +6731,23 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         return f"""<!DOCTYPE html>
 <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
 <head><meta charset="utf-8">
+<!--[if gte mso 9]><xml>
+<w:WordDocument>
+  <w:View>Print</w:View>
+  <w:Zoom>100</w:Zoom>
+  <w:DoNotOptimizeForBrowser/>
+</w:WordDocument>
+</xml><![endif]-->
 <style>
   @page {{ size: 210mm 297mm; margin: 20mm 20mm 20mm 30mm; }}
+  @page Section1 {{
+    size: 210.0mm 297.0mm;
+    margin: 20.0mm 20.0mm 20.0mm 30.0mm;
+    mso-header-margin: 0mm;
+    mso-footer-margin: 0mm;
+    mso-paper-source: 0;
+  }}
+  div.Section1 {{ page: Section1; }}
   body {{ font-family: "Times New Roman", serif; font-size: 12pt; line-height: 1.5; color: #000; }}
   .center {{ text-align: center; }}
   .right {{ text-align: right; }}
@@ -6740,7 +6755,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
   .bold {{ font-weight: bold; }}
   .sig-line {{ border-bottom: 1px solid #000; display: inline-block; width: 200pt; vertical-align: bottom; }}
 </style></head>
-<body>
+<body><div class="Section1">
 <p class="center bold" style="font-size:14pt;margin:0 0 4pt">ДОВЕРЕННОСТЬ №Б/Н</p>
 <p style="margin:0 0 16pt">
   <span>г. Иваново</span>
@@ -6766,7 +6781,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
     </td>
   </tr>
 </table>
-</body></html>"""
+</div></body></html>"""
 
     @app.get("/api/supply-poa-records/{record_id}/html")
     def get_poa_html(request: Request, record_id: int):
