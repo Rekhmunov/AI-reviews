@@ -6727,7 +6727,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             raise HTTPException(status_code=404, detail="Доверенность не найдена")
         return {"ok": True}
 
-    def _build_poa_html(record: dict) -> str:
+    def _build_poa_html(record: dict, include_signature: bool = True) -> str:
         """Build the PoA HTML document from a record dict (with joined data)."""
         import html as _hm
         e = _hm.escape
@@ -6735,7 +6735,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         le_in_p   = e(str(record.get("le_in_person") or ""))
         le_basis  = e(str(record.get("le_basis") or ""))
         le_sig    = e(str(record.get("le_signatories") or ""))
-        sig_img   = record.get("le_signature_image") or ""
+        sig_img   = record.get("le_signature_image") or "" if include_signature else ""
         # Use manual driver if driver_id is 0/null
         driver_id = int(record.get("driver_id") or 0)
         if driver_id > 0:
@@ -6749,7 +6749,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         poa_date  = e(str(record.get("poa_date") or ""))
         driver_str = f"{d_full}, {d_docs}".strip(", ") if d_docs else d_full
         contractor_str = f"{c_name} {c_req}".strip() if c_req else c_name
-        sig_html = f'<img src="{sig_img}" style="max-height:80px;max-width:160px;object-fit:contain;vertical-align:middle" />' if sig_img else "&nbsp;" * 20
+        sig_html = f'<img src="{sig_img}" style="max-height:25mm;max-width:60mm;object-fit:contain;vertical-align:middle" />' if sig_img else "&nbsp;" * 20
 
         return f"""<!DOCTYPE html>
 <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
@@ -6883,7 +6883,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             dr = _re2.sub(r'[/\\?%*:|"<>]', '', dr)
             name = f"{le}_{cn}_{dr}.{ext}".strip("_")
             return name or f"POA_{record_id}.{ext}"
-        html_content = "\uFEFF" + _build_poa_html(record)
+        html_content = "\uFEFF" + _build_poa_html(record, include_signature=False)
         fname_doc = _poa_fn2(record, "doc")
         return Response(content=html_content.encode("utf-8"),media_type="application/msword",headers={"Content-Disposition":f'attachment; filename="{fname_doc}"'})
 
