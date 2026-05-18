@@ -6230,6 +6230,23 @@ tr {{ page-break-inside: avoid; }}
                     headers = {"Client-Id": client_id, "Api-Key": api_key,
                                "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
 
+                    # Step 0: build cluster cache (macrolocal_cluster_id → name)
+                    cluster_cache: dict[int, str] = {}
+                    try:
+                        req_cl = _ul.Request(
+                            "https://api-seller.ozon.ru/v2/cluster/list",
+                            data=_jj.dumps({"cluster_ids": []}).encode(), method="POST", headers=headers,
+                        )
+                        with _ul.urlopen(req_cl, context=ctx, timeout=15) as r_cl:
+                            cl_data = _jj.loads(r_cl.read())
+                        for item in (cl_data.get("result") or []):
+                            cid = int(item.get("macrolocal_cluster_id") or 0)
+                            cname = str((item.get("data") or {}).get("macrolocal_cluster", {}).get("name") or "")
+                            if cid and cname:
+                                cluster_cache[cid] = cname
+                    except Exception as ex:
+                        _log.warning("ozon cluster cache: %s", ex)
+
                     # Step 1: paginate supply order IDs via /v3/supply-order/list
                     # Pagination is cursor-based: last_id string returned in response
                     with _ozon_sync_lock:
@@ -6300,8 +6317,14 @@ tr {{ page-break-inside: avoid; }}
                                 dropoff_id = int(dropoff_obj.get("warehouse_id") or 0) or None
                                 dropoff_name = str(dropoff_obj.get("name") or "") or None
                                 if is_crossdock and supplies_list:
-                                    storage_obj = supplies_list[0].get("storage_warehouse") or {}
+                                    supply0 = supplies_list[0]
+                                    storage_obj = supply0.get("storage_warehouse") or {}
                                     final_name = str(storage_obj.get("name") or "") or None
+                                    # If storage_warehouse is null, resolve via macrolocal_cluster_id
+                                    if not final_name:
+                                        cid = int(supply0.get("macrolocal_cluster_id") or 0)
+                                        if cid and cid in cluster_cache:
+                                            final_name = cluster_cache[cid]
                                     wh_id = dropoff_id
                                     wh_name = final_name or dropoff_name
                                     transit_wh_name = dropoff_name
