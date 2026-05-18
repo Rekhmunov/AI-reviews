@@ -6823,7 +6823,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         record = next((r for r in records if r["id"] == record_id), None)
         if not record:
             raise HTTPException(status_code=404, detail="Не найдено")
-        return HTMLResponse(content=_build_poa_html(record))
+        return HTMLResponse(content=_build_poa_html(record, include_signature=False))
 
     @app.get("/api/supply-poa-records/{record_id}/pdf")
     def get_poa_pdf(request: Request, record_id: int):
