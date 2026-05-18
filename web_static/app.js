@@ -115,7 +115,7 @@ const UI_REFRESH_MS = 60000;        // refresh chat list from DB every 60s (afte
 const CHANNEL_ICONS = { "Отзывы": "⭐", "Вопросы": "❓", "Чаты": "💬" };
 const ACTIVE_SECTION_STORAGE_KEY = "feedpilot_active_section";
 const ACTIVE_SETTINGS_TAB_STORAGE_KEY = "feedpilot_active_settings_tab";
-const SECTION_IDS = ["reviews", "conversations", "chats", "analytics", "settings", "stock-settings", "stock-work", "supplies-wb", "supplies-settings", "profile"];
+const SECTION_IDS = ["reviews", "conversations", "chats", "analytics", "settings", "stock-settings", "stock-work", "supplies-wb", "supplies-poa", "supplies-settings", "profile"];
 const SETTINGS_TAB_IDS = ["sources", "rules", "templates", "recommendations", "products", "team", "template-variables"];
 const APP_BOOT_HIDE_CLASS = "app-boot-hidden";
 const MOBILE_NAV_BREAKPOINT_PX = 900;
@@ -397,6 +397,7 @@ function canViewSection(section) {
   if (section === "analytics") return permissions.can_view_analytics;
   if (section === "settings") return permissions.can_view_settings;
   if (section === "supplies-wb") return permissions.can_view_supplies;
+  if (section === "supplies-poa") return permissions.can_view_supplies;
   if (section === "supplies-settings") return permissions.can_view_settings || permissions.can_view_supplies;
   if (section === "reviews" || section === "conversations" || section === "chats") {
     return permissions.can_view_feedback;
@@ -8790,7 +8791,11 @@ async function deletePoARecord(id) {
   await loadPoARecords();
 }
 
-function openCreatePoAModal() {
+async function openCreatePoAModal() {
+  // Ensure caches are loaded
+  if (!_supplyLegalEntitiesCache.length) await loadSupplyLegalEntities();
+  if (!_supplyContractorsCache.length) await loadSupplyContractors();
+  if (!_supplyDriversCache.length) await loadSupplyDrivers();
   // Populate dropdowns
   const lSel = document.getElementById("poaCreateLegal");
   const cSel = document.getElementById("poaCreateContractor");
