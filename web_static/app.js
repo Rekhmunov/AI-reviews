@@ -3735,6 +3735,143 @@ window.printPoA = printPoA;
 // ═══════════════════════════════════════════════════════════════════════════
 // OZON SUPPLIES MODULE — fully isolated from WB
 // ═══════════════════════════════════════════════════════════════════════════
+
+// ── OZON date range calendar (mirrors WB calendar 1:1) ────────────────────
+const _ozonCal = {
+  viewYear: new Date().getFullYear(),
+  viewMonth: new Date().getMonth(),
+  startDate: null,
+  endDate: null,
+  hoveredDate: null,
+};
+
+function _ozonCalRender() {
+  const container = document.getElementById("ozonCalendar");
+  if (!container) return;
+  const { viewYear: y, viewMonth: m, startDate: s, endDate: e, hoveredDate: h } = _ozonCal;
+  const firstDay = new Date(y, m, 1);
+  const lastDay = new Date(y, m + 1, 0);
+  const startOffset = (firstDay.getDay() + 6) % 7;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const fmtDisp = (d) => d ? `${String(d.getDate()).padStart(2,"0")}.${String(d.getMonth()+1).padStart(2,"0")}.${d.getFullYear()}` : "";
+
+  let html = `<div class="cal-header" onclick="event.stopPropagation()">
+    <button type="button" class="cal-nav" onclick="event.stopPropagation();_ozonCalPrevMonth()">◄</button>
+    <span class="cal-title">${_calMonths[m]} ${y}</span>
+    <button type="button" class="cal-nav" onclick="event.stopPropagation();_ozonCalNextMonth()">►</button>
+  </div>
+  <div class="cal-grid" onmouseleave="_ozonCalClearHover()">`;
+  _calDays.forEach((d) => { html += `<div class="cal-cell cal-dow">${d}</div>`; });
+  for (let i = 0; i < startOffset; i++) html += `<div class="cal-cell cal-empty"></div>`;
+  for (let d = 1; d <= lastDay.getDate(); d++) {
+    const date = new Date(y, m, d);
+    const isToday = date.getTime() === today.getTime();
+    const isStart = s && date.getTime() === s.getTime();
+    const isEnd = e && date.getTime() === e.getTime();
+    const rangeEnd = e || h;
+    const inRange = s && rangeEnd && date > (s < rangeEnd ? s : rangeEnd) && date < (s < rangeEnd ? rangeEnd : s);
+    let cls = "cal-cell cal-day";
+    if (isStart || isEnd) cls += " cal-selected";
+    if (isStart) cls += " cal-range-start";
+    if (isEnd) cls += " cal-range-end";
+    if (inRange) cls += " cal-in-range";
+    if (isToday) cls += " cal-today";
+    const iso = `${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+    html += `<div class="${cls}" data-date="${iso}" onclick="event.stopPropagation();_ozonCalPickDate(${y},${m},${d})" onmouseenter="_ozonCalHover(${y},${m},${d})">${d}</div>`;
+  }
+  html += `</div>`;
+  if (s || e) {
+    html += `<div class="cal-range-label" onclick="event.stopPropagation()">${fmtDisp(s) || "…"} — ${fmtDisp(e) || "…"}</div>`;
+  }
+  html += `<div class="cal-footer" onclick="event.stopPropagation()">
+    <button type="button" class="secondary" onclick="event.stopPropagation();clearOzonDateFilter()">Сбросить</button>
+  </div>`;
+  container.innerHTML = html;
+}
+
+function _ozonCalPickDate(y, m, d) {
+  const date = new Date(y, m, d);
+  date.setHours(0, 0, 0, 0);
+  if (!_ozonCal.startDate || (_ozonCal.startDate && _ozonCal.endDate)) {
+    _ozonCal.startDate = date; _ozonCal.endDate = null;
+  } else {
+    if (date < _ozonCal.startDate) { _ozonCal.endDate = _ozonCal.startDate; _ozonCal.startDate = date; }
+    else if (date.getTime() === _ozonCal.startDate.getTime()) { _ozonCal.startDate = null; }
+    else { _ozonCal.endDate = date; }
+  }
+  _ozonCalRender();
+  if (_ozonCal.startDate && _ozonCal.endDate) {
+    const fmt = (dt) => `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`;
+    const f = document.getElementById("ozonDateFrom");
+    const t = document.getElementById("ozonDateTo");
+    if (f) f.value = fmt(_ozonCal.startDate);
+    if (t) t.value = fmt(_ozonCal.endDate);
+    loadOzonSupplies(true);
+    _updateOzonDateBtn();
+    setTimeout(() => toggleOzonDatePanel(false), 300);
+  }
+}
+
+function _ozonCalHover(y, m, d) {
+  if (!_ozonCal.startDate || _ozonCal.endDate) return;
+  _ozonCal.hoveredDate = new Date(y, m, d);
+  const s = _ozonCal.startDate;
+  document.querySelectorAll("#ozonCalendar .cal-day[data-date]").forEach((el) => {
+    const dt = new Date(el.dataset.date + "T00:00:00");
+    const h2 = _ozonCal.hoveredDate;
+    const inRange = s && h2 && dt > (s < h2 ? s : h2) && dt < (s < h2 ? h2 : s);
+    el.classList.toggle("cal-in-range", inRange);
+  });
+}
+function _ozonCalClearHover() {
+  if (_ozonCal.hoveredDate) {
+    _ozonCal.hoveredDate = null;
+    document.querySelectorAll("#ozonCalendar .cal-day.cal-in-range").forEach((el) => el.classList.remove("cal-in-range"));
+  }
+}
+function _ozonCalPrevMonth() {
+  if (_ozonCal.viewMonth === 0) { _ozonCal.viewMonth = 11; _ozonCal.viewYear--; }
+  else _ozonCal.viewMonth--;
+  _ozonCalRender();
+}
+function _ozonCalNextMonth() {
+  if (_ozonCal.viewMonth === 11) { _ozonCal.viewMonth = 0; _ozonCal.viewYear++; }
+  else _ozonCal.viewMonth++;
+  _ozonCalRender();
+}
+
+function toggleOzonDatePanel(show) {
+  const panel = document.getElementById("ozonDatePanel");
+  if (!panel) return;
+  const isVisible = panel.style.display === "flex";
+  const shouldShow = show !== undefined ? Boolean(show) : !isVisible;
+  panel.style.display = shouldShow ? "flex" : "none";
+  if (shouldShow) _ozonCalRender();
+  _updateOzonDateBtn();
+}
+
+function _updateOzonDateBtn() {
+  const btn = document.getElementById("ozonDateBtn");
+  if (!btn) return;
+  if (_ozonCal.startDate && _ozonCal.endDate) {
+    const fmt = (d) => d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
+    btn.textContent = `${fmt(_ozonCal.startDate)}–${fmt(_ozonCal.endDate)}`;
+  } else {
+    btn.textContent = "📅";
+  }
+}
+
+function clearOzonDateFilter() {
+  _ozonCal.startDate = null; _ozonCal.endDate = null; _ozonCal.hoveredDate = null;
+  const from = document.getElementById("ozonDateFrom");
+  const to = document.getElementById("ozonDateTo");
+  if (from) from.value = "";
+  if (to) to.value = "";
+  _ozonCalRender();
+  _updateOzonDateBtn();
+  toggleOzonDatePanel(false);
+  loadOzonSupplies(true);
+}
 const OZON_STATUS_LABELS = {
   "DATA_FILLING":    "Заполнение данных",
   "READY_TO_SUPPLY": "Готово к отгрузке",
@@ -3753,6 +3890,8 @@ async function loadOzonSupplies(resetPage = false) {
   if (resetPage) ozonState.page = 1;
   const statusF = document.getElementById("ozonStatusFilter")?.value || "";
   const prodF = document.getElementById("ozonProductionFilter")?.value || "";
+  const dateFrom = document.getElementById("ozonDateFrom")?.value || "";
+  const dateTo = document.getElementById("ozonDateTo")?.value || "";
   const params = new URLSearchParams({ page: ozonState.page, page_size: ozonState.page_size });
   const res = await fetch(`/api/ozon-supplies?${params}`).catch(() => null);
   if (!res || !res.ok) return;
@@ -3761,6 +3900,8 @@ async function loadOzonSupplies(resetPage = false) {
   // Client-side filtering
   if (statusF) items = items.filter(x => (x.state || "") === statusF);
   if (prodF) items = items.filter(x => (x.production || "") === prodF);
+  if (dateFrom) items = items.filter(x => (x.creation_date || "").slice(0,10) >= dateFrom);
+  if (dateTo) items = items.filter(x => (x.creation_date || "").slice(0,10) <= dateTo);
   ozonState.items = items;
   ozonState.total = items.length;
   _populateOzonProductionFilter();
@@ -4016,6 +4157,13 @@ window.saveOzonManualFields = saveOzonManualFields;
 window.onOzonCheckboxChange = onOzonCheckboxChange;
 window.toggleSelectAllOzon = toggleSelectAllOzon;
 window.onOzonDriverSelectChange = onOzonDriverSelectChange;
+window.toggleOzonDatePanel = toggleOzonDatePanel;
+window.clearOzonDateFilter = clearOzonDateFilter;
+window._ozonCalPickDate = _ozonCalPickDate;
+window._ozonCalPrevMonth = _ozonCalPrevMonth;
+window._ozonCalNextMonth = _ozonCalNextMonth;
+window._ozonCalHover = _ozonCalHover;
+window._ozonCalClearHover = _ozonCalClearHover;
 
 // ── Batch supply selection ────────────────────────────────────────────────
 let _selectedSupplyIds = new Set();
@@ -8648,6 +8796,13 @@ document.addEventListener("DOMContentLoaded", () => {
     if (suppliesDatePanelEl && suppliesDatePanelEl.style.display === "flex" &&
         !suppliesDatePanelEl.contains(target) && suppliesDateBtnEl && !suppliesDateBtnEl.contains(target)) {
       toggleSuppliesDatePanel(false);
+    }
+    // Close OZON date panel on outside click
+    const ozonDatePanelEl = document.getElementById("ozonDatePanel");
+    const ozonDateBtnEl = document.getElementById("ozonDateBtn");
+    if (ozonDatePanelEl && ozonDatePanelEl.style.display === "flex" &&
+        !ozonDatePanelEl.contains(target) && ozonDateBtnEl && !ozonDateBtnEl.contains(target)) {
+      toggleOzonDatePanel(false);
     }
     const sortWrap = document.querySelector(".chats-sort-wrap");
     const sortDd = document.getElementById("chatsSortDropdown");

@@ -1046,6 +1046,14 @@
               </select>
               <input id="ozonSearchFilter" type="search" placeholder="🔍 Поиск..."
                      autocomplete="off" style="width:160px" oninput="renderOzonTable()" />
+              <div class="supplies-date-wrap" style="position:relative">
+                <button id="ozonDateBtn" type="button" class="secondary" onclick="toggleOzonDatePanel()" style="padding:0 10px;height:34px" title="Фильтр по дате">📅</button>
+                <input type="hidden" id="ozonDateFrom" />
+                <input type="hidden" id="ozonDateTo" />
+                <div id="ozonDatePanel" class="supplies-date-panel" style="display:none">
+                  <div id="ozonCalendar"></div>
+                </div>
+              </div>
             </div>
           </div>
           <div id="ozonSyncInfo" class="supplies-sync-info"></div>
@@ -1794,6 +1802,6 @@
   <script src="/static/jszip.min.js"></script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=199"></script>
+  <script src="/static/app.js?v=200"></script>
 </body>
 </html>
