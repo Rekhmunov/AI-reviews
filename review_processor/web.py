@@ -6779,21 +6779,23 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
   .sig-line {{ border-bottom: 1px solid #000; display: inline-block; width: 200pt; vertical-align: bottom; }}
 </style></head>
 <body><div class="Section1">
-<p class="center bold" style="font-size:14pt;margin:0 0 4pt">ДОВЕРЕННОСТЬ №Б/Н</p>
-<p style="margin:0 0 16pt">
-  <span>г. Иваново</span>
-  <span style="float:right">{poa_date}</span>
-</p>
+<p style="text-align:center;font-weight:bold;font-size:14pt;margin:0 0 4pt">ДОВЕРЕННОСТЬ №Б/Н</p>
+<table width="100%" cellspacing="0" cellpadding="0" style="margin:0 0 16pt">
+  <tr>
+    <td style="text-align:left;font-size:12pt">г. Иваново</td>
+    <td style="text-align:right;font-size:12pt">{poa_date}</td>
+  </tr>
+</table>
 <p style="text-align:justify;margin-bottom:8pt">
   «{le_full}» в лице генерального директора в лице «{le_in_p}», действующей на основании «{le_basis}»,
 </p>
-<p class="center small" style="margin-bottom:16pt">(Доверитель)</p>
+<p style="text-align:center;font-size:9pt;margin-bottom:16pt">(Доверитель)</p>
 <p style="text-align:justify;margin-bottom:16pt">
   настоящей доверенностью уполномачивает гражданина РФ: <b>{driver_str}</b> получать от <b>{contractor_str}</b> товарно-материальные ценности (ткань), с правом подписания товарной накладной, УПД, акта выполненных работ и отчета агента.
 </p>
 <p style="margin-bottom:32pt"><b>Срок действия доверенности – 1 (один) год.</b></p>
 <p style="margin-bottom:32pt">
-  Образец подписи доверенного лица &nbsp;&nbsp; <span class="sig-line">&nbsp;</span> &nbsp; удостоверяю
+  Образец подписи доверенного лица &nbsp;&nbsp;&nbsp;&nbsp; <span style="border-bottom:1px solid #000;display:inline-block;width:240pt;vertical-align:bottom">&nbsp;</span> &nbsp;&nbsp;&nbsp;&nbsp; удостоверяю
 </p>
 <table style="width:100%;border-collapse:collapse;margin-top:20pt">
   <tr>
