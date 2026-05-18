@@ -2293,7 +2293,7 @@ function renderSupplyDriversTable() {
   if (!tbody) return;
   tbody.innerHTML = "";
   if (!_supplyDriversCache.length) {
-    tbody.innerHTML = '<tr><td colspan="3" class="empty-cell">Водители не добавлены</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" class="empty-cell">Водители не добавлены</td></tr>';
     return;
   }
   _supplyDriversCache.forEach((d, idx) => {
@@ -2302,6 +2302,7 @@ function renderSupplyDriversTable() {
     tr.innerHTML = `
       <td>${idx + 1}</td>
       <td class="editable-cell">${esc(d.full_name || "")}</td>
+      <td class="editable-cell">${esc(d.in_person || "")}</td>
       <td class="editable-cell">${esc(d.documents || "")}</td>
       <td>
         <div class="row" style="gap:4px;flex-wrap:nowrap">
@@ -2346,6 +2347,8 @@ function toggleAddDriverForm(show) {
   if (!show) {
     const inp = document.getElementById("newDriverName");
     if (inp) inp.value = "";
+    const ipEl = document.getElementById("newDriverInPerson");
+    if (ipEl) ipEl.value = "";
     const docs = document.getElementById("newDriverDocuments");
     if (docs) docs.value = "";
     const info = document.getElementById("addDriverInfo");
@@ -2353,11 +2356,11 @@ function toggleAddDriverForm(show) {
   }
 }
 
-async function _createDriverRequest(name, infoEl, documents) {
+async function _createDriverRequest(name, infoEl, documents, in_person) {
   if (infoEl) { infoEl.textContent = "Сохранение…"; infoEl.style.color = ""; }
   const res = await fetch("/api/supply-drivers", {
     method: "POST", headers: jsonHeaders(),
-    body: JSON.stringify({ full_name: name, documents: documents || "" }),
+    body: JSON.stringify({ full_name: name, documents: documents || "", in_person: in_person || "" }),
   }).catch(() => null);
   if (!res || !res.ok) {
     const err = await res?.json().catch(() => ({})) || {};
@@ -2374,9 +2377,10 @@ async function saveSupplyDriver() {
   const inp = document.getElementById("newDriverName");
   const info = document.getElementById("addDriverInfo");
   const name = (inp?.value || "").trim();
+  const inpVal = document.getElementById("newDriverInPerson")?.value.trim() || "";
   const docs = document.getElementById("newDriverDocuments")?.value.trim() || "";
   if (!name) { if (info) { info.textContent = "Введите имя"; info.style.color = "#b91c1c"; } return; }
-  const ok = await _createDriverRequest(name, info, docs);
+  const ok = await _createDriverRequest(name, info, docs, inpVal);
   if (!ok) return;
   if (info) { info.textContent = "Добавлен"; info.style.color = "#16a34a"; }
   toggleAddDriverForm(false);
@@ -2390,7 +2394,8 @@ async function startEditDriver(id) {
   if (!tr) return;
   const cells = tr.querySelectorAll(".editable-cell");
   cells[0].innerHTML = `<input class="edit-inline-input" data-field="name" value="${esc(item.full_name||"")}" />`;
-  cells[1].innerHTML = `<input class="edit-inline-input" data-field="docs" value="${esc(item.documents||"")}" />`;
+  cells[1].innerHTML = `<input class="edit-inline-input" data-field="inp" value="${esc(item.in_person||"")}" />`;
+  cells[2].innerHTML = `<input class="edit-inline-input" data-field="docs" value="${esc(item.documents||"")}" />`;
   const actionCell = tr.cells[tr.cells.length - 1];
   actionCell.innerHTML = `<div class="row" style="gap:4px;flex-wrap:nowrap">
     <button class="secondary small-btn" style="color:#16a34a;border-color:#86efac" onclick="saveEditDriver(${id})">Сохранить</button>
@@ -2403,9 +2408,10 @@ async function saveEditDriver(id) {
   const tr = document.querySelector(`#supplyDriversTbody tr[data-id="${id}"]`);
   if (!tr) return;
   const name = tr.querySelector("[data-field='name']")?.value.trim() || "";
+  const inp = tr.querySelector("[data-field='inp']")?.value.trim() || "";
   const docs = tr.querySelector("[data-field='docs']")?.value.trim() || "";
   if (!name) return;
-  await fetch(`/api/supply-drivers/${id}`, { method: "PATCH", headers: jsonHeaders(), body: JSON.stringify({ full_name: name, documents: docs }) }).catch(() => null);
+  await fetch(`/api/supply-drivers/${id}`, { method: "PATCH", headers: jsonHeaders(), body: JSON.stringify({ full_name: name, in_person: inp, documents: docs }) }).catch(() => null);
   await loadSupplyDrivers();
 }
 

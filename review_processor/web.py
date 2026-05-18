@@ -462,6 +462,7 @@ class SupplyManualFieldsRequest(BaseModel):
 class CreateSupplyDriverRequest(BaseModel):
     full_name: str
     documents: str = ""
+    in_person: str = ""
 
 
 class CreateSupplyWarehouseRequest(BaseModel):
@@ -498,6 +499,7 @@ class UpdateSupplyLegalEntityRequest(BaseModel):
 class UpdateSupplyDriverRequest(BaseModel):
     full_name: str
     documents: str = ""
+    in_person: str = ""
 
 
 class ManagerSuppliesAccessRequest(BaseModel):
@@ -6459,7 +6461,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         repository._ensure_supply_tables()
         if repository.driver_exists(user_id=owner_id, full_name=name):
             raise HTTPException(status_code=409, detail=f"Водитель «{name}» уже существует")
-        return repository.create_supply_driver(user_id=owner_id, full_name=name, documents=payload.documents)
+        return repository.create_supply_driver(user_id=owner_id, full_name=name, documents=payload.documents, in_person=payload.in_person)
 
     @app.patch("/api/supply-drivers/{driver_id}")
     def update_supply_driver_endpoint(request: Request, driver_id: int, payload: UpdateSupplyDriverRequest) -> dict[str, object]:
@@ -6469,7 +6471,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         name = payload.full_name.strip()
         if not name:
             raise HTTPException(status_code=400, detail="Имя не может быть пустым")
-        ok = repository.update_supply_driver(user_id=_supply_owner_id(user), driver_id=driver_id, full_name=name, documents=payload.documents)
+        ok = repository.update_supply_driver(user_id=_supply_owner_id(user), driver_id=driver_id, full_name=name, documents=payload.documents, in_person=payload.in_person)
         if not ok:
             raise HTTPException(status_code=404, detail="Водитель не найден")
         return {"ok": True}
@@ -6743,15 +6745,18 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         # Use manual driver if driver_id is 0/null
         driver_id = int(record.get("driver_id") or 0)
         if driver_id > 0:
-            d_full = e(str(record.get("d_full") or ""))
-            d_docs = e(str(record.get("d_docs") or ""))
+            d_in_person = str(record.get("d_in_person") or "")
+            d_full = str(record.get("d_full") or "")
+            d_docs = str(record.get("d_docs") or "")
+            # Use "В лице" if filled, otherwise fallback to ФИО + документы
+            driver_str = e(d_in_person) if d_in_person else (f"{e(d_full)}, {e(d_docs)}".strip(", ") if d_docs else e(d_full))
         else:
-            d_full = e(str(record.get("driver_manual_name") or ""))
-            d_docs = e(str(record.get("driver_manual_docs") or ""))
+            d_full = str(record.get("driver_manual_name") or "")
+            d_docs = str(record.get("driver_manual_docs") or "")
+            driver_str = f"{e(d_full)}, {e(d_docs)}".strip(", ") if d_docs else e(d_full)
         c_name    = e(str(record.get("c_name") or ""))
         c_req     = e(str(record.get("c_req") or ""))
         poa_date  = e(str(record.get("poa_date") or ""))
-        driver_str = f"{d_full}, {d_docs}".strip(", ") if d_docs else d_full
         contractor_str = f"{c_name} {c_req}".strip() if c_req else c_name
         sig_html = f'<img src="{sig_img}" style="max-height:25mm;max-width:60mm;object-fit:contain;vertical-align:middle" />' if sig_img else "&nbsp;" * 20
 

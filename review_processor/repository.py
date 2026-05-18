@@ -6475,6 +6475,9 @@ class ReviewRepository:
         conn.execute(
             "ALTER TABLE supply_drivers ADD COLUMN IF NOT EXISTS documents TEXT"
         )
+        conn.execute(
+            "ALTER TABLE supply_drivers ADD COLUMN IF NOT EXISTS in_person TEXT"
+        )
         # Warehouses catalog (name → address lookup)
         conn.execute(
             """
@@ -6615,13 +6618,13 @@ class ReviewRepository:
             ).fetchone()
         return row is not None
 
-    def create_supply_driver(self, *, user_id: int, full_name: str, documents: str = "") -> dict[str, Any]:
+    def create_supply_driver(self, *, user_id: int, full_name: str, documents: str = "", in_person: str = "") -> dict[str, Any]:
         now = _utc_now()
         with self._connect() as conn:
             driver_id = self._insert_and_get_id(
                 conn,
-                "INSERT INTO supply_drivers (user_id, full_name, documents, created_at) VALUES (?, ?, ?, ?)",
-                (user_id, full_name.strip(), (documents or "").strip() or None, now),
+                "INSERT INTO supply_drivers (user_id, full_name, documents, in_person, created_at) VALUES (?, ?, ?, ?, ?)",
+                (user_id, full_name.strip(), (documents or "").strip() or None, (in_person or "").strip() or None, now),
             )
             row = conn.execute(
                 self._sql("SELECT * FROM supply_drivers WHERE id = ?"),
@@ -6629,11 +6632,11 @@ class ReviewRepository:
             ).fetchone()
         return self._row_to_dict(row) if row else {"id": driver_id, "full_name": full_name}
 
-    def update_supply_driver(self, *, user_id: int, driver_id: int, full_name: str, documents: str = "") -> bool:
+    def update_supply_driver(self, *, user_id: int, driver_id: int, full_name: str, documents: str = "", in_person: str = "") -> bool:
         with self._connect() as conn:
             result = conn.execute(
-                self._sql("UPDATE supply_drivers SET full_name = ?, documents = ? WHERE user_id = ? AND id = ?"),
-                (full_name.strip(), (documents or "").strip() or None, user_id, driver_id),
+                self._sql("UPDATE supply_drivers SET full_name = ?, documents = ?, in_person = ? WHERE user_id = ? AND id = ?"),
+                (full_name.strip(), (documents or "").strip() or None, (in_person or "").strip() or None, user_id, driver_id),
             )
         return bool(result.rowcount)
 
@@ -6839,7 +6842,7 @@ class ReviewRepository:
                            le.basis AS le_basis, le.signatories AS le_signatories,
                            le.signature_image AS le_signature_image,
                            p.contractor_id, c.name AS c_name, c.requisites AS c_req,
-                           p.driver_id, d.full_name AS d_full, d.documents AS d_docs,
+                           p.driver_id, d.full_name AS d_full, d.documents AS d_docs, d.in_person AS d_in_person,
                            p.driver_manual_name, p.driver_manual_docs
                     FROM supply_poa_records p
                     LEFT JOIN supply_legal_entities le ON le.id = p.legal_entity_id
