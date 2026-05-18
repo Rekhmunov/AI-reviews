@@ -3880,7 +3880,7 @@ const OZON_STATUS_LABELS = {
   "CANCELLED":       "Отменена",
 };
 
-const ozonState = { items: [], total: 0, page: 1, page_size: 50 };
+const ozonState = { items: [], allItems: [], total: 0, page: 1, page_size: 50 };
 let _ozonSyncPollTimer = null;
 let _ozonDetailsCurrentId = null;
 let _selectedOzonIds = new Set();
@@ -3902,12 +3902,18 @@ async function loadOzonSupplies(resetPage = false) {
   if (prodF) items = items.filter(x => (x.production || "") === prodF);
   if (dateFrom) items = items.filter(x => (x.creation_date || "").slice(0,10) >= dateFrom);
   if (dateTo) items = items.filter(x => (x.creation_date || "").slice(0,10) <= dateTo);
-  ozonState.items = items;
+  ozonState.allItems = items;   // full filtered set
   ozonState.total = items.length;
   _populateOzonProductionFilter();
+  _applyOzonPage();
+  _updateOzonBatchUI();
+}
+
+function _applyOzonPage() {
+  const start = (ozonState.page - 1) * ozonState.page_size;
+  ozonState.items = (ozonState.allItems || []).slice(start, start + ozonState.page_size);
   renderOzonTable();
   _updateOzonPagination();
-  _updateOzonBatchUI();
 }
 
 function _populateOzonProductionFilter() {
@@ -4008,8 +4014,7 @@ function _updateOzonPagination() {
 function ozonChangePage(delta) {
   const totalPages = Math.max(1, Math.ceil(ozonState.total / ozonState.page_size));
   ozonState.page = Math.max(1, Math.min(totalPages, ozonState.page + delta));
-  renderOzonTable();
-  _updateOzonPagination();
+  _applyOzonPage();
 }
 
 // ── Sync ───────────────────────────────────────────────────────────────────
