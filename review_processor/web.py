@@ -7146,7 +7146,7 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
     )
     nav_supplies_wb = (
         '<a id="nav-supplies-wb" class="nav-item" href="#" onclick="showSection(\'supplies-wb\')"><span class="nav-item-icon">▦</span> WB</a>'
-        '<a id="nav-supplies-poa" class="nav-item" href="#" onclick="showSection(\'supplies-poa\')"><span class="nav-item-icon">📋</span> Доверенности</a>'
+        '<a id="nav-supplies-poa" class="nav-item" href="#" onclick="showSection(\'supplies-poa\')"><span class="nav-item-icon">☐</span> Доверенности</a>'
         if can_view_supplies else ""
     )
     nav_supplies_settings = (
