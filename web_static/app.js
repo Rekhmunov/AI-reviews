@@ -2709,6 +2709,19 @@ async function startEditLegalEntity(id) {
   cells[3].innerHTML = `<input class="edit-inline-input" value="${esc(item.signatories||"")}" />`;
   cells[4].innerHTML = `<input class="edit-inline-input" value="${esc(item.in_person||"")}" />`;
   cells[5].innerHTML = `<input class="edit-inline-input" value="${esc(item.basis||"")}" />`;
+  // Insert a sub-row for signature upload below the edit row
+  const sigRow = document.createElement("tr");
+  sigRow.id = `le-sig-row-${id}`;
+  sigRow.style.background = "#f8fafc";
+  sigRow.innerHTML = `<td colspan="8" style="padding:4px 8px;border-top:none">
+    <div style="display:flex;align-items:center;gap:8px">
+      <span class="small" style="color:#64748b">Подпись:</span>
+      <span id="le-sig-container-${id}"><span class="small" style="color:#94a3b8">Загрузка…</span></span>
+    </div>
+  </td>`;
+  tr.after(sigRow);
+  loadEditLegalSig(id);
+
   const actionCell = tr.cells[tr.cells.length - 1];
   actionCell.innerHTML = `<div class="row" style="gap:4px;flex-wrap:nowrap">
     <button class="secondary small-btn" style="color:#16a34a;border-color:#86efac" onclick="saveEditLegalEntity(${id})">Сохранить</button>
@@ -2727,7 +2740,10 @@ async function saveEditLegalEntity(id) {
   const inp = inputs[4]?.value.trim() || "";
   const bas = inputs[5]?.value.trim() || "";
   if (!short) return;
-  await fetch(`/api/supply-legal-entities/${id}`, { method: "PATCH", headers: jsonHeaders(), body: JSON.stringify({ short_name: short, full_name: full, requisites: req, signatories: sig, in_person: inp, basis: bas }) }).catch(() => null);
+  const sigPayload = { short_name: short, full_name: full, requisites: req, signatories: sig, in_person: inp, basis: bas };
+  if (_editLegalSigClear) { sigPayload.clear_signature = true; }
+  else if (_editLegalSigBase64) { sigPayload.signature_image = _editLegalSigBase64; }
+  await fetch(`/api/supply-legal-entities/${id}`, { method: "PATCH", headers: jsonHeaders(), body: JSON.stringify(sigPayload) }).catch(() => null);
   await loadSupplyLegalEntities();
 }
 
@@ -2749,9 +2765,12 @@ async function saveSupplyLegalEntity() {
   const bas = document.getElementById("newLegalBasis")?.value.trim() || "";
   const info = document.getElementById("addLegalEntityInfo");
   if (!short) { if (info) { info.textContent = "Введите короткое название"; info.style.color = "#b91c1c"; } return; }
-  const res = await fetch("/api/supply-legal-entities", { method: "POST", headers: jsonHeaders(), body: JSON.stringify({ short_name: short, full_name: full, requisites: req, signatories: sig, in_person: inp, basis: bas }) }).catch(() => null);
+  const newSigPayload = { short_name: short, full_name: full, requisites: req, signatories: sig, in_person: inp, basis: bas };
+  if (_newLegalSigBase64) newSigPayload.signature_image = _newLegalSigBase64;
+  const res = await fetch("/api/supply-legal-entities", { method: "POST", headers: jsonHeaders(), body: JSON.stringify(newSigPayload) }).catch(() => null);
   if (!res || !res.ok) { const e = await res?.json().catch(()=>({})) || {}; if (info) { info.textContent = e.detail||"Ошибка"; info.style.color = "#b91c1c"; } return; }
   if (info) { info.textContent = "Сохранено"; info.style.color = "#16a34a"; }
+  _newLegalSigBase64 = null;
   toggleAddLegalEntityForm(false);
   await loadSupplyLegalEntities();
 }
@@ -2761,6 +2780,103 @@ async function deleteSupplyLegalEntity(id) {
   await fetch(`/api/supply-legal-entities/${id}`, { method: "DELETE", headers: jsonHeaders() }).catch(() => null);
   await loadSupplyLegalEntities();
 }
+
+// ── Legal entity signature handling ────────────────────────────────────────
+let _newLegalSigBase64 = null;  // pending signature for create form
+let _editLegalSigBase64 = null; // pending new signature for edit
+let _editLegalSigClear = false; // flag to clear existing signature on save
+
+function _fileToBase64(file) {
+  return new Promise((res, rej) => {
+    if (file.size > 2 * 1024 * 1024) { rej(new Error("Файл слишком большой (максимум 2 МБ)")); return; }
+    const reader = new FileReader();
+    reader.onload = () => res(reader.result);
+    reader.onerror = rej;
+    reader.readAsDataURL(file);
+  });
+}
+
+// Create form
+async function onNewLegalSigSelected(input) {
+  const file = input.files?.[0];
+  if (!file) return;
+  try {
+    _newLegalSigBase64 = await _fileToBase64(file);
+    document.getElementById("newLegalSigArea").style.display = "none";
+    const prev = document.getElementById("newLegalSigPreview");
+    prev.style.display = "flex";
+    document.getElementById("newLegalSigImg").src = _newLegalSigBase64;
+  } catch(e) { alert(e.message); }
+}
+
+function clearNewLegalSig() {
+  _newLegalSigBase64 = null;
+  document.getElementById("newLegalSigArea").style.display = "";
+  const prev = document.getElementById("newLegalSigPreview");
+  prev.style.display = "none";
+  const inp = document.getElementById("newLegalSigFile");
+  if (inp) inp.value = "";
+}
+
+// Edit inline — load existing signature
+async function loadEditLegalSig(entityId) {
+  _editLegalSigBase64 = null;
+  _editLegalSigClear = false;
+  const res = await fetch(`/api/supply-legal-entities/${entityId}/signature`).catch(()=>null);
+  const data = res && res.ok ? await res.json().catch(()=>({})) : {};
+  const existing = data.signature_image || null;
+  _renderEditLegalSigUI(existing, entityId);
+}
+
+function _renderEditLegalSigUI(existingBase64, entityId) {
+  const container = document.getElementById(`le-sig-container-${entityId}`);
+  if (!container) return;
+  if (existingBase64 && !_editLegalSigClear) {
+    container.innerHTML = `
+      <span style="color:#16a34a;font-size:15px">✓</span>
+      <img src="${existingBase64}" style="height:32px;border:1px solid #e2e8f0;border-radius:4px;margin:0 6px" />
+      <button type="button" class="secondary small-btn icon-btn" style="color:#b91c1c;border-color:#fca5a5" onclick="deleteEditLegalSig(${entityId})" title="Удалить подпись">×</button>`;
+  } else if (_editLegalSigBase64) {
+    container.innerHTML = `
+      <span style="color:#16a34a;font-size:15px">✓</span>
+      <img src="${_editLegalSigBase64}" style="height:32px;border:1px solid #e2e8f0;border-radius:4px;margin:0 6px" />
+      <button type="button" class="secondary small-btn icon-btn" style="color:#b91c1c;border-color:#fca5a5" onclick="clearEditLegalSigNew(${entityId})" title="Отменить">×</button>`;
+  } else {
+    container.innerHTML = `<label style="cursor:pointer">
+      <span class="secondary" style="display:inline-block;padding:3px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;background:#f8fafc">📎 Загрузить</span>
+      <input type="file" accept="image/*" style="display:none" onchange="onEditLegalSigSelected(this, ${entityId})" />
+    </label>`;
+  }
+}
+
+async function onEditLegalSigSelected(input, entityId) {
+  const file = input.files?.[0];
+  if (!file) return;
+  try {
+    _editLegalSigBase64 = await _fileToBase64(file);
+    _editLegalSigClear = false;
+    _renderEditLegalSigUI(null, entityId);
+  } catch(e) { alert(e.message); }
+}
+
+async function deleteEditLegalSig(entityId) {
+  if (!confirm("Удалить подпись? Изменение применится при нажатии «Сохранить»")) return;
+  _editLegalSigClear = true;
+  _editLegalSigBase64 = null;
+  _renderEditLegalSigUI(null, entityId);
+}
+
+function clearEditLegalSigNew(entityId) {
+  _editLegalSigBase64 = null;
+  _editLegalSigClear = false;
+  _renderEditLegalSigUI(null, entityId);
+}
+
+window.onNewLegalSigSelected = onNewLegalSigSelected;
+window.clearNewLegalSig = clearNewLegalSig;
+window.deleteEditLegalSig = deleteEditLegalSig;
+window.clearEditLegalSigNew = clearEditLegalSigNew;
+window.onEditLegalSigSelected = onEditLegalSigSelected;
 
 // ── Packing list (Word docx via HTML) ──
 function downloadPackingList(supplyId) {

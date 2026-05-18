@@ -1213,6 +1213,20 @@
               <div class="row">
                 <input id="newLegalBasis" type="text" placeholder="Основание (напр. Устава, Доверенности № ...)" autocomplete="off" />
               </div>
+              <div class="row" style="align-items:center;gap:8px">
+                <span class="small" style="color:#64748b">Подпись:</span>
+                <div id="newLegalSigArea">
+                  <label style="cursor:pointer">
+                    <span class="secondary" style="display:inline-block;padding:4px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;background:#f8fafc">📎 Загрузить подпись</span>
+                    <input type="file" id="newLegalSigFile" accept="image/*" style="display:none" onchange="onNewLegalSigSelected(this)" />
+                  </label>
+                </div>
+                <div id="newLegalSigPreview" style="display:none;align-items:center;gap:6px">
+                  <span style="color:#16a34a;font-size:16px">✓</span>
+                  <img id="newLegalSigImg" style="height:32px;border:1px solid #e2e8f0;border-radius:4px" />
+                  <button type="button" class="secondary small-btn icon-btn" style="color:#b91c1c;border-color:#fca5a5" onclick="clearNewLegalSig()" title="Удалить">×</button>
+                </div>
+              </div>
               <div class="row">
                 <button onclick="saveSupplyLegalEntity()">Сохранить</button>
                 <button class="secondary" onclick="toggleAddLegalEntityForm(false)">Отмена</button>

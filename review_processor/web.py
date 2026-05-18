@@ -463,6 +463,7 @@ class CreateSupplyLegalEntityRequest(BaseModel):
     signatories: str = ""
     in_person: str = ""
     basis: str = ""
+    signature_image: str | None = None
 
 
 class UpdateSupplyLegalEntityRequest(BaseModel):
@@ -472,6 +473,8 @@ class UpdateSupplyLegalEntityRequest(BaseModel):
     signatories: str = ""
     in_person: str = ""
     basis: str = ""
+    signature_image: str | None = None  # new base64 or None
+    clear_signature: bool = False        # True = delete existing
 
 
 class UpdateSupplyDriverRequest(BaseModel):
@@ -6525,7 +6528,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             raise HTTPException(status_code=400, detail="Короткое наименование не может быть пустым")
         owner_id = _supply_owner_id(user)
         repository._ensure_supply_tables()
-        return repository.create_supply_legal_entity(user_id=owner_id, short_name=name, full_name=payload.full_name.strip(), requisites=payload.requisites, signatories=payload.signatories, in_person=payload.in_person, basis=payload.basis)
+        return repository.create_supply_legal_entity(user_id=owner_id, short_name=name, full_name=payload.full_name.strip(), requisites=payload.requisites, signatories=payload.signatories, in_person=payload.in_person, basis=payload.basis, signature_image=payload.signature_image)
 
     @app.patch("/api/supply-legal-entities/{entity_id}")
     def update_supply_legal_entity_endpoint(request: Request, entity_id: int, payload: UpdateSupplyLegalEntityRequest) -> dict[str, object]:
@@ -6535,10 +6538,18 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         name = payload.short_name.strip()
         if not name:
             raise HTTPException(status_code=400, detail="Короткое наименование не может быть пустым")
-        ok = repository.update_supply_legal_entity(user_id=_supply_owner_id(user), entity_id=entity_id, short_name=name, full_name=payload.full_name.strip(), requisites=payload.requisites, signatories=payload.signatories, in_person=payload.in_person, basis=payload.basis)
+        ok = repository.update_supply_legal_entity(user_id=_supply_owner_id(user), entity_id=entity_id, short_name=name, full_name=payload.full_name.strip(), requisites=payload.requisites, signatories=payload.signatories, in_person=payload.in_person, basis=payload.basis, signature_image=payload.signature_image, clear_signature=payload.clear_signature)
         if not ok:
             raise HTTPException(status_code=404, detail="Юридическое лицо не найдено")
         return {"ok": True}
+
+    @app.get("/api/supply-legal-entities/{entity_id}/signature")
+    def get_legal_entity_signature(request: Request, entity_id: int) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        img = repository.get_legal_entity_signature(user_id=_supply_owner_id(user), entity_id=entity_id)
+        return {"signature_image": img}
 
     @app.delete("/api/supply-legal-entities/{entity_id}")
     def delete_supply_legal_entity(request: Request, entity_id: int) -> dict[str, object]:
