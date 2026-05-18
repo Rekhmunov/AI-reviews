@@ -6544,6 +6544,8 @@ class ReviewRepository:
         conn.execute(
             self._sql("CREATE INDEX IF NOT EXISTS idx_supply_poa_records_user ON supply_poa_records(user_id)")
         )
+        conn.execute("ALTER TABLE supply_poa_records ADD COLUMN IF NOT EXISTS driver_manual_name TEXT")
+        conn.execute("ALTER TABLE supply_poa_records ADD COLUMN IF NOT EXISTS driver_manual_docs TEXT")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS supply_productions (
@@ -6831,11 +6833,12 @@ class ReviewRepository:
                            le.basis AS le_basis, le.signatories AS le_signatories,
                            le.signature_image AS le_signature_image,
                            p.contractor_id, c.name AS c_name, c.requisites AS c_req,
-                           p.driver_id, d.full_name AS d_full, d.documents AS d_docs
+                           p.driver_id, d.full_name AS d_full, d.documents AS d_docs,
+                           p.driver_manual_name, p.driver_manual_docs
                     FROM supply_poa_records p
                     LEFT JOIN supply_legal_entities le ON le.id = p.legal_entity_id
                     LEFT JOIN supply_contractors c ON c.id = p.contractor_id
-                    LEFT JOIN supply_drivers d ON d.id = p.driver_id
+                    LEFT JOIN supply_drivers d ON d.id = p.driver_id AND p.driver_id > 0
                     WHERE p.user_id = ?
                     ORDER BY p.created_at DESC
                 """),
@@ -6843,13 +6846,13 @@ class ReviewRepository:
             ).fetchall()
         return [self._row_to_dict(r) for r in rows]
 
-    def create_supply_poa_record(self, *, user_id: int, legal_entity_id: int, contractor_id: int, driver_id: int, poa_date: str) -> dict[str, Any]:
+    def create_supply_poa_record(self, *, user_id: int, legal_entity_id: int, contractor_id: int, driver_id: int = 0, poa_date: str, driver_manual_name: str = "", driver_manual_docs: str = "") -> dict[str, Any]:
         now = _utc_now()
         with self._connect() as conn:
             rid = self._insert_and_get_id(
                 conn,
-                "INSERT INTO supply_poa_records (user_id, legal_entity_id, contractor_id, driver_id, poa_date, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (user_id, legal_entity_id, contractor_id, driver_id, poa_date, now),
+                "INSERT INTO supply_poa_records (user_id, legal_entity_id, contractor_id, driver_id, poa_date, driver_manual_name, driver_manual_docs, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (user_id, legal_entity_id, contractor_id, driver_id or 0, poa_date, driver_manual_name.strip() or None, driver_manual_docs.strip() or None, now),
             )
         records = self.list_supply_poa_records(user_id=user_id)
         return next((r for r in records if r["id"] == rid), {"id": rid})

@@ -8760,7 +8760,7 @@ function renderPoATable() {
       <td>${esc(r.poa_date||"")}</td>
       <td>${esc(r.le_short||"")}</td>
       <td>${esc(r.c_name||"")}</td>
-      <td>${esc(r.d_full||"")}</td>
+      <td>${esc((r.driver_id > 0 ? r.d_full : r.driver_manual_name)||"")}</td>
       <td>
         <div class="row" style="gap:4px;flex-wrap:nowrap">
           <a href="/api/supply-poa-records/${r.id}/doc" download="Доверенность_${r.id}.doc" class="secondary small-btn" style="text-decoration:none;display:inline-flex;align-items:center" title="Скачать DOC">📄</a>
@@ -8808,11 +8808,37 @@ async function openCreatePoAModal() {
     _supplyDriversCache.map(d => `<option value="${d.id}">${esc(d.full_name||"")}</option>`).join("");
   const info = document.getElementById("poaCreateInfo");
   if (info) { info.textContent = ""; info.style.color = ""; }
+  // Reset manual driver mode
+  const mf = document.getElementById("poaManualDriverFields");
+  const dSel2 = document.getElementById("poaCreateDriver");
+  if (mf) { mf.style.display = "none"; }
+  if (dSel2) { dSel2.disabled = false; }
   const modal = document.getElementById("createPoAModal");
   if (modal) { modal.classList.remove("hidden"); modal.style.display = ""; }
 }
 
+let _poaManualDriverMode = false;
+
+function togglePoAManualDriver() {
+  _poaManualDriverMode = !_poaManualDriverMode;
+  const mf = document.getElementById("poaManualDriverFields");
+  const dSel = document.getElementById("poaCreateDriver");
+  const btn = document.getElementById("poaManualDriverBtn");
+  if (_poaManualDriverMode) {
+    if (mf) { mf.style.display = "block"; }
+    if (dSel) { dSel.disabled = true; dSel.value = ""; }
+    if (btn) { btn.style.background = "#dbeafe"; btn.style.borderColor = "#3b82f6"; }
+  } else {
+    if (mf) { mf.style.display = "none"; }
+    if (dSel) { dSel.disabled = false; }
+    if (btn) { btn.style.background = ""; btn.style.borderColor = ""; }
+  }
+}
+
+window.togglePoAManualDriver = togglePoAManualDriver;
+
 function closeCreatePoAModal() {
+  _poaManualDriverMode = false;
   const modal = document.getElementById("createPoAModal");
   if (modal) { modal.classList.add("hidden"); modal.style.display = "none"; }
 }
@@ -8820,16 +8846,27 @@ function closeCreatePoAModal() {
 async function savePoARecord() {
   const leId = parseInt(document.getElementById("poaCreateLegal")?.value || "0");
   const cId  = parseInt(document.getElementById("poaCreateContractor")?.value || "0");
-  const dId  = parseInt(document.getElementById("poaCreateDriver")?.value || "0");
+  const dId  = _poaManualDriverMode ? 0 : parseInt(document.getElementById("poaCreateDriver")?.value || "0");
+  const manualName = _poaManualDriverMode ? (document.getElementById("poaManualDriverName")?.value.trim() || "") : "";
+  const manualDocs = _poaManualDriverMode ? (document.getElementById("poaManualDriverDocs")?.value.trim() || "") : "";
   const info = document.getElementById("poaCreateInfo");
-  if (!leId || !cId || !dId) {
-    if (info) { info.textContent = "Заполните все поля"; info.style.color = "#b91c1c"; }
+  if (!leId || !cId) {
+    if (info) { info.textContent = "Выберите юр. лицо и контрагента"; info.style.color = "#b91c1c"; }
+    return;
+  }
+  if (!_poaManualDriverMode && !dId) {
+    if (info) { info.textContent = "Выберите водителя или введите вручную"; info.style.color = "#b91c1c"; }
+    return;
+  }
+  if (_poaManualDriverMode && !manualName) {
+    if (info) { info.textContent = "Введите ФИО водителя"; info.style.color = "#b91c1c"; }
     return;
   }
   if (info) { info.textContent = "Сохранение..."; info.style.color = ""; }
   const res = await fetch("/api/supply-poa-records", {
     method: "POST", headers: jsonHeaders(),
-    body: JSON.stringify({ legal_entity_id: leId, contractor_id: cId, driver_id: dId })
+    body: JSON.stringify({ legal_entity_id: leId, contractor_id: cId, driver_id: dId,
+      driver_manual_name: manualName, driver_manual_docs: manualDocs })
   }).catch(() => null);
   if (!res || !res.ok) {
     const e = await res?.json().catch(()=>({})) || {};

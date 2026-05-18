@@ -413,7 +413,9 @@ class UpdateSupplyProductionRequest(BaseModel):
 class CreatePoARecordRequest(BaseModel):
     legal_entity_id: int
     contractor_id: int
-    driver_id: int
+    driver_id: int = 0
+    driver_manual_name: str = ""
+    driver_manual_docs: str = ""
 
 
 class CreateSupplyContractorRequest(BaseModel):
@@ -6686,6 +6688,8 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             contractor_id=payload.contractor_id,
             driver_id=payload.driver_id,
             poa_date=poa_date,
+            driver_manual_name=payload.driver_manual_name,
+            driver_manual_docs=payload.driver_manual_docs,
         )
         record.pop("le_signature_image", None)
         return record
@@ -6709,8 +6713,14 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         le_basis  = e(str(record.get("le_basis") or ""))
         le_sig    = e(str(record.get("le_signatories") or ""))
         sig_img   = record.get("le_signature_image") or ""
-        d_full    = e(str(record.get("d_full") or ""))
-        d_docs    = e(str(record.get("d_docs") or ""))
+        # Use manual driver if driver_id is 0/null
+        driver_id = int(record.get("driver_id") or 0)
+        if driver_id > 0:
+            d_full = e(str(record.get("d_full") or ""))
+            d_docs = e(str(record.get("d_docs") or ""))
+        else:
+            d_full = e(str(record.get("driver_manual_name") or ""))
+            d_docs = e(str(record.get("driver_manual_docs") or ""))
         c_name    = e(str(record.get("c_name") or ""))
         c_req     = e(str(record.get("c_req") or ""))
         poa_date  = e(str(record.get("poa_date") or ""))

@@ -1172,7 +1172,20 @@
             </div>
             <div>
               <label class="small" style="display:block;margin-bottom:4px">Водитель</label>
-              <select id="poaCreateDriver" style="width:100%;height:36px"></select>
+              <div style="display:flex;gap:6px;align-items:center">
+                <select id="poaCreateDriver" style="flex:1;height:36px"></select>
+                <button type="button" class="secondary small-btn" id="poaManualDriverBtn"
+                  onclick="togglePoAManualDriver()"
+                  title="Ввести вручную"
+                  style="color:#2563eb;border-color:#93c5fd;height:36px;padding:0 10px">✏</button>
+              </div>
+              <div id="poaManualDriverFields" style="display:none;margin-top:8px;display:none">
+                <input id="poaManualDriverName" type="text" placeholder="ФИО водителя"
+                  autocomplete="off" style="width:100%;margin-bottom:6px" />
+                <input id="poaManualDriverDocs" type="text" placeholder="Документы (серия, номер, кем выдан...)"
+                  autocomplete="off" style="width:100%" />
+                <p class="small" style="color:#64748b;margin-top:4px">Водитель будет сохранён только в доверенности, не в список водителей</p>
+              </div>
             </div>
             <div id="poaCreateInfo" class="small"></div>
             <div class="row" style="justify-content:flex-end;gap:8px;margin-top:4px">
