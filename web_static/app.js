@@ -2210,9 +2210,12 @@ function _renderSupplyDocButtons(item) {
   const multi = validSlots.length > 1;
   let html = "";
 
+  // Helper: get effective driver name for a slot
+  const _effectiveName = (s) => s.manual_driver_name || s.driver_name || "";
+
   // ШК поставки — per driver
   validSlots.forEach((s, i) => {
-    const dName = _shortDriverName(s.driver_name || "");
+    const dName = _shortDriverName(_effectiveName(s));
     const label = multi ? `⬇ ШК — ${dName || `Вод. ${i+1}`}` : "⬇ ШК поставки";
     html += `<button class="supply-detail-link supply-barcode-link" onclick="downloadSupplyBarcode('${esc(s.pass_number)}',${item.supply_id})">${label}</button>`;
   });
@@ -2224,16 +2227,16 @@ function _renderSupplyDocButtons(item) {
 
   // Доверенность — per driver
   validSlots.forEach((s, i) => {
-    if (!s.driver_name) return;
-    const dName = _shortDriverName(s.driver_name);
+    if (!_effectiveName(s)) return;
+    const dName = _shortDriverName(_effectiveName(s));
     const label = multi ? `⬇ Довер. — ${dName}` : "⬇ Доверенность";
     html += `<div><button class="supply-detail-link supply-poa-link" onclick="downloadPoAForSlot(${item.supply_id},${i})">${label}</button><button class="supply-detail-link supply-print-btn" onclick="printPoAForSlot(${item.supply_id},${i})" title="Печать">🖨</button></div>`;
   });
 
   // ТТН — per driver
   validSlots.forEach((s, i) => {
-    if (!s.driver_name) return;
-    const dName = _shortDriverName(s.driver_name);
+    if (!_effectiveName(s)) return;
+    const dName = _shortDriverName(_effectiveName(s));
     const label = multi ? `⬇ ТТН — ${dName}` : "⬇ ТТН";
     html += `<div><button class="supply-detail-link supply-ttn-link" onclick="downloadTTNForSlot(${item.supply_id},${i})">${label}</button><button class="supply-detail-link supply-print-btn" onclick="printTTNForSlot(${item.supply_id},${i})" title="Печать">🖨</button></div>`;
   });
@@ -2529,10 +2532,17 @@ function _sdGetSlots() {
   if (!container) return [];
   const slots = [];
   container.querySelectorAll(".sd-slot").forEach((row, idx) => {
+    const manualName = row.querySelector(`[data-field="manual_driver_name"]`);
+    const manualDocs = row.querySelector(`[data-field="manual_driver_docs"]`);
+    const isManual = manualName !== null;
+    const prevSlot = _sdSlots[idx] || {};
     slots.push({
-      pass_number:   row.querySelector(`[data-field="pass_number"]`)?.value.trim() || "",
-      driver_name:   row.querySelector(`[data-field="driver_name"]`)?.value || "",
-      pallets_count: row.querySelector(`[data-field="pallets_count"]`)?.value.trim() || "",
+      pass_number:        row.querySelector(`[data-field="pass_number"]`)?.value.trim() || "",
+      driver_name:        isManual ? "" : (row.querySelector(`[data-field="driver_name"]`)?.value || ""),
+      pallets_count:      row.querySelector(`[data-field="pallets_count"]`)?.value.trim() || "",
+      manual_driver_name: isManual ? (manualName.value.trim() || undefined) : undefined,
+      manual_driver_docs: isManual ? (manualDocs?.value.trim() || undefined) : undefined,
+      _manual_mode:       isManual,
     });
   });
   return slots;
@@ -2547,6 +2557,9 @@ function _sdRenderSlots() {
   let html = "";
   _sdSlots.forEach((slot, idx) => {
     const isFirst = idx === 0;
+    const isManual = Boolean(slot.manual_driver_name !== undefined ? slot.manual_driver_name : false);
+    // manual mode: if manual_driver_name is set (even empty string after toggle)
+    const manualMode = slot._manual_mode || false;
     const slotTitle = _sdSlots.length > 1 ? `<div class="sd-slot-num">Водитель ${idx + 1}</div>` : "";
     html += `<div class="sd-slot" data-slot="${idx}">`;
     html += slotTitle;
@@ -2562,13 +2575,26 @@ function _sdRenderSlots() {
         }
       </div>
     </div>`;
-    // Водитель
+    // Водитель: dropdown or manual input
     html += `<div class="supply-detail-row">
       <span class="supply-detail-label">Водитель</span>
-      <select data-field="driver_name" class="supply-detail-input" style="height:36px">
-        <option value="">— Требует заполнения —</option>
-        ${driverOptions}
-      </select>
+      <div style="display:flex;gap:6px;align-items:center;flex:1">
+        ${manualMode
+          ? `<div style="flex:1;display:flex;flex-direction:column;gap:4px">
+               <input data-field="manual_driver_name" type="text" class="supply-detail-input"
+                      value="${esc(slot.manual_driver_name||"")}" placeholder="Имя и фамилия" autocomplete="off" />
+               <input data-field="manual_driver_docs" type="text" class="supply-detail-input"
+                      value="${esc(slot.manual_driver_docs||"")}" placeholder="Документы (серия, №)" autocomplete="off" />
+             </div>`
+          : `<select data-field="driver_name" class="supply-detail-input" style="height:36px;flex:1">
+               <option value="">— Требует заполнения —</option>
+               ${driverOptions}
+             </select>`
+        }
+        <button type="button" class="secondary icon-btn" onclick="sdToggleManualDriver(${idx})"
+          title="${manualMode ? 'Выбрать из справочника' : 'Ввести вручную'}"
+          style="flex-shrink:0;width:32px;height:32px;font-size:14px;${manualMode ? 'color:#6366f1;border-color:#a5b4fc' : ''}">✏</button>
+      </div>
     </div>`;
     // Паллет
     html += `<div class="supply-detail-row">
@@ -2579,21 +2605,36 @@ function _sdRenderSlots() {
     html += `</div>`;
   });
   container.innerHTML = html;
-  // Set driver select values
+  // Set driver select values (dropdown mode only)
   _sdSlots.forEach((slot, idx) => {
-    const sel = container.querySelectorAll(".sd-slot")[idx]?.querySelector(`[data-field="driver_name"]`);
-    if (sel) sel.value = slot.driver_name || "";
+    if (!slot._manual_mode) {
+      const sel = container.querySelectorAll(".sd-slot")[idx]?.querySelector(`[data-field="driver_name"]`);
+      if (sel) sel.value = slot.driver_name || "";
+    }
   });
 }
 
-function sdAddSlot() {
-  _sdSlots.push({ pass_number: "", driver_name: "", pallets_count: "" });
-  // Sync current values before re-render
-  const cur = _sdGetSlots();
-  _sdSlots.forEach((s, i) => { if (cur[i]) { s.pass_number = cur[i].pass_number; s.driver_name = cur[i].driver_name; s.pallets_count = cur[i].pallets_count; } });
-  _sdSlots.push({ pass_number: "", driver_name: "", pallets_count: "" });
+function sdToggleManualDriver(idx) {
+  // Save current values before toggle
   _sdSlots = _sdGetSlots();
-  _sdSlots.push({ pass_number: "", driver_name: "", pallets_count: "" });
+  const slot = _sdSlots[idx];
+  if (!slot) return;
+  slot._manual_mode = !slot._manual_mode;
+  if (!slot._manual_mode) {
+    // Switching back to dropdown — clear manual fields
+    slot.manual_driver_name = undefined;
+    slot.manual_driver_docs = undefined;
+  } else {
+    // Switching to manual — clear dropdown selection
+    slot.driver_name = "";
+  }
+  _sdRenderSlots();
+}
+window.sdToggleManualDriver = sdToggleManualDriver;
+
+function sdAddSlot() {
+  _sdSlots = _sdGetSlots();
+  _sdSlots.push({ pass_number: "", driver_name: "", pallets_count: "", _manual_mode: false });
   _sdRenderSlots();
 }
 window.sdAddSlot = sdAddSlot;
@@ -2638,6 +2679,10 @@ function openSupplyDetailsModal(supplyId) {
   if (!_sdSlots || !_sdSlots.length) {
     _sdSlots = [{ pass_number: item.pass_number || "", driver_name: item.driver_name || "", pallets_count: item.pallets_count || "" }];
   }
+  // Restore manual mode flag based on saved data
+  _sdSlots.forEach(s => {
+    s._manual_mode = Boolean(s.manual_driver_name);
+  });
   _sdRenderSlots();
 
   const info = document.getElementById("sdInfo");
@@ -3207,10 +3252,10 @@ async function downloadPoA(supplyId) {
   const orgReq = le.requisites || "";
   const orgLine = [orgFull, orgReq].filter(Boolean).join(", ");
 
-  // Driver lookup
+  // Driver lookup — support manual (temporary) driver via _manual_driver_docs
   const driverName = item.driver_name || "";
   const driverObj = _supplyDriversCache.find((d) => d.full_name === driverName) || {};
-  const driverDocs = driverObj.documents || "";
+  const driverDocs = item._manual_driver_docs !== undefined ? item._manual_driver_docs : (driverObj.documents || "");
 
   // Pallets (kept for fallback)
   const palletsRaw = parseInt(item.pallets_count) || 0;
@@ -3635,11 +3680,9 @@ function downloadSupplyBarcode(passNumber, supplyId) {
   // Find driver from slot matching this passNumber
   let driverName = "";
   if (item) {
-    let slots = [];
-    if (item.drivers_json) { try { slots = JSON.parse(item.drivers_json); } catch (_) {} }
-    if (!slots.length) slots = [{ pass_number: item.pass_number || "", driver_name: item.driver_name || "" }];
-    const slot = slots.find(s => s.pass_number === passNumber) || slots[0] || {};
-    driverName = slot.driver_name || "";
+    const iSlots = _getItemSlots(supplyId);
+    const slot = iSlots.find(s => s.pass_number === passNumber) || iSlots[0] || {};
+    driverName = slot.effectiveDriverName || "";
   }
 
   // File name: "WB-GI-XXXXXXX, DDMMYYYY, Склад, N шт, Фамилия И."
@@ -3768,14 +3811,9 @@ function printSupplyBarcode(passNumber, supplyId) {
     } catch(_) {}
   }
   // Find driver from slot matching this passNumber
-  let driverNamePrint = "";
-  {
-    let slots = [];
-    if (item.drivers_json) { try { slots = JSON.parse(item.drivers_json); } catch (_) {} }
-    if (!slots.length) slots = [{ pass_number: item.pass_number || "", driver_name: item.driver_name || "" }];
-    const slot = slots.find(s => s.pass_number === passNumber) || slots[0] || {};
-    driverNamePrint = slot.driver_name || "";
-  }
+  const _pSlots = _getItemSlots(item.supply_id || supplyId);
+  const _pSlot = _pSlots.find(s => s.pass_number === passNumber) || _pSlots[0] || {};
+  const driverNamePrint = _pSlot.effectiveDriverName || "";
   const bottomParts = [];
   if (dateStr) bottomParts.push(`${dateStr.slice(0,2)}.${dateStr.slice(2,4)}.${dateStr.slice(4)}`);
   if (warehouseName) bottomParts.push(warehouseName);
@@ -3895,21 +3933,27 @@ function _getItemSlots(supplyId) {
   let slots = [];
   if (item.drivers_json) { try { slots = JSON.parse(item.drivers_json); } catch (_) {} }
   if (!slots.length) slots = [{ pass_number: item.pass_number||"", driver_name: item.driver_name||"", pallets_count: item.pallets_count||"" }];
-  return slots;
+  // Add effectiveDriverName helper
+  return slots.map(s => ({
+    ...s,
+    effectiveDriverName: s.manual_driver_name || s.driver_name || "",
+    effectiveDriverDocs: s.manual_driver_docs || "",
+  }));
 }
 
 async function downloadPoAForSlot(supplyId, slotIdx) {
-  // PoA is generated client-side; override driver/pallets from slot
   const item = suppliesState.items.find(x => x.supply_id === supplyId || x.supply_id === Number(supplyId));
   if (!item) return;
   const slots = _getItemSlots(supplyId);
   const slot = slots[slotIdx] || slots[0] || {};
   const orig = { driver_name: item.driver_name, pallets_count: item.pallets_count };
-  item.driver_name = slot.driver_name || item.driver_name;
+  item.driver_name = slot.effectiveDriverName || item.driver_name;
   item.pallets_count = slot.pallets_count || item.pallets_count;
+  item._manual_driver_docs = slot.effectiveDriverDocs || "";
   await downloadPoA(supplyId);
   item.driver_name = orig.driver_name;
   item.pallets_count = orig.pallets_count;
+  delete item._manual_driver_docs;
 }
 
 function printPoAForSlot(supplyId, slotIdx) {
@@ -3918,18 +3962,18 @@ function printPoAForSlot(supplyId, slotIdx) {
 }
 
 async function downloadTTNForSlot(supplyId, slotIdx) {
-  // TTN is generated client-side; override driver/pallets from slot
   const item = suppliesState.items.find(x => x.supply_id === supplyId || x.supply_id === Number(supplyId));
   if (!item) return;
   const slots = _getItemSlots(supplyId);
   const slot = slots[slotIdx] || slots[0] || {};
-  // Temporarily override item fields for this slot
   const orig = { driver_name: item.driver_name, pallets_count: item.pallets_count };
-  item.driver_name = slot.driver_name || item.driver_name;
+  item.driver_name = slot.effectiveDriverName || item.driver_name;
   item.pallets_count = slot.pallets_count || item.pallets_count;
+  item._manual_driver_docs = slot.effectiveDriverDocs || "";
   await downloadTTN(supplyId);
   item.driver_name = orig.driver_name;
   item.pallets_count = orig.pallets_count;
+  delete item._manual_driver_docs;
 }
 
 function printTTNForSlot(supplyId, slotIdx) {
@@ -4542,7 +4586,7 @@ async function downloadCombinedPoA() {
   const orgLine = [orgFull, le.requisites].filter(Boolean).join(", ");
   const driverName = refItem.driver_name || "";
   const driverObj = _supplyDriversCache.find(d => d.full_name === driverName) || {};
-  const driverDocs = driverObj.documents || "";
+  const driverDocs = refItem._manual_driver_docs !== undefined ? refItem._manual_driver_docs : (driverObj.documents || "");
   const docNum = _getCombinedDocNumber();
   const now = new Date();
   const dateDisplay = now.toLocaleDateString("ru-RU", {day:"2-digit",month:"2-digit",year:"numeric"});
