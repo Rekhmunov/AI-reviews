@@ -655,7 +655,12 @@ class OzonMarketplaceClient:
         # to skip old chats that have recent buyer messages.
         # Use updated_at if present; otherwise leave None so the chat is
         # never excluded by the date filter (we rely on unread_count instead).
-        updated_at = str(item.get("updated_at") or item.get("last_message_at") or "")
+        # For Ozon questions: published_at is the only reliable timestamp.
+        # last_message_at is NOT NULL in DB — use published_at as fallback.
+        updated_at = str(
+            item.get("updated_at") or item.get("last_message_at")
+            or item.get("published_at") or ""
+        )
         return {
             "external_id": external_id,
             "kind": kind,
