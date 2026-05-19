@@ -5643,16 +5643,20 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             except Exception: pass
         if _slots and slot_index < len(_slots):
             _slot = _slots[slot_index]
-            driver_name = str(_slot.get("driver_name") or "")
+            # manual_driver_name takes priority over dropdown driver_name
+            driver_name = str(_slot.get("manual_driver_name") or _slot.get("driver_name") or "")
             pallets_slot = str(_slot.get("pallets_count") or item.get("pallets_count") or "")
+            _manual_docs = str(_slot.get("manual_driver_docs") or "")
         else:
             driver_name = str(item.get("driver_name") or "")
             pallets_slot = str(item.get("pallets_count") or "")
+            _manual_docs = ""
         # Override item pallets for this slot
         item = dict(item)
         item["pallets_count"] = pallets_slot
         driver_obj  = next((d for d in drivers if d.get("full_name") == driver_name), {})
-        driver_docs = driver_obj.get("documents") or ""
+        # Use manual docs if provided, otherwise look up from registry
+        driver_docs = _manual_docs if _manual_docs else (driver_obj.get("documents") or "")
 
         now = _dtt.now()
         date_display = now.strftime("%d.%m.%Y")
@@ -5884,7 +5888,7 @@ tr {{ page-break-inside: avoid; }}
             except Exception: pass
         if _slots2 and slot_index < len(_slots2):
             _slot2 = _slots2[slot_index]
-            driver_name = str(_slot2.get("driver_name") or "")
+            driver_name = str(_slot2.get("manual_driver_name") or _slot2.get("driver_name") or "")
             pallets     = int(_slot2.get("pallets_count") or 0)
         else:
             driver_name = str(item.get("driver_name") or "")
