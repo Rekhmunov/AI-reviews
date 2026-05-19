@@ -2220,9 +2220,12 @@ function _renderSupplyDocButtons(item) {
     html += `<button class="supply-detail-link supply-barcode-link" onclick="downloadSupplyBarcode('${esc(s.pass_number)}',${item.supply_id})">${label}</button>`;
   });
 
+  const _pRow = `display:flex;flex-wrap:nowrap;align-items:center;gap:2px;width:100%;min-width:0`;
+  const _pBtn = `flex:0 0 26px;min-width:26px;width:26px;height:26px;padding:0;font-size:13px;font-family:'Segoe UI Symbol','Arial Unicode MS',sans-serif`;
+
   // Упаковочный лист — одна кнопка
   if (totalPalletsStr) {
-    html += `<div><button class="supply-detail-link supply-packing-link" onclick="downloadPackingList(${item.supply_id})">⬇ Упаковочный лист</button><button class="supply-detail-link supply-print-btn" onclick="printPackingList(${item.supply_id})" title="Печать">⎙</button></div>`;
+    html += `<div style="${_pRow}"><button class="supply-detail-link supply-packing-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="downloadPackingList(${item.supply_id})">⬇ Упаковочный лист</button><button class="supply-detail-link supply-print-btn" style="${_pBtn}" onclick="printPackingList(${item.supply_id})" title="Печать">⎙</button></div>`;
   }
 
   // Доверенность — per driver
@@ -2230,7 +2233,7 @@ function _renderSupplyDocButtons(item) {
     if (!_effectiveName(s)) return;
     const dName = _shortDriverName(_effectiveName(s));
     const label = multi ? `⬇ Довер. — ${dName}` : "⬇ Доверенность";
-    html += `<div><button class="supply-detail-link supply-poa-link" onclick="downloadPoAForSlot(${item.supply_id},${i})">${label}</button><button class="supply-detail-link supply-print-btn" onclick="printPoAForSlot(${item.supply_id},${i})" title="Печать">⎙</button></div>`;
+    html += `<div style="${_pRow}"><button class="supply-detail-link supply-poa-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="downloadPoAForSlot(${item.supply_id},${i})">${label}</button><button class="supply-detail-link supply-print-btn" style="${_pBtn}" onclick="printPoAForSlot(${item.supply_id},${i})" title="Печать">⎙</button></div>`;
   });
 
   // ТТН — per driver
@@ -2238,7 +2241,7 @@ function _renderSupplyDocButtons(item) {
     if (!_effectiveName(s)) return;
     const dName = _shortDriverName(_effectiveName(s));
     const label = multi ? `⬇ ТТН — ${dName}` : "⬇ ТТН";
-    html += `<div><button class="supply-detail-link supply-ttn-link" onclick="downloadTTNForSlot(${item.supply_id},${i})">${label}</button><button class="supply-detail-link supply-print-btn" onclick="printTTNForSlot(${item.supply_id},${i})" title="Печать">⎙</button></div>`;
+    html += `<div style="${_pRow}"><button class="supply-detail-link supply-ttn-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="downloadTTNForSlot(${item.supply_id},${i})">${label}</button><button class="supply-detail-link supply-print-btn" style="${_pBtn}" onclick="printTTNForSlot(${item.supply_id},${i})" title="Печать">⎙</button></div>`;
   });
 
   return html;
