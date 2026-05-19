@@ -1718,6 +1718,7 @@
         <button type="button" class="modal-close-btn" onclick="closeSupplyDetailsModal()" aria-label="Закрыть">✕</button>
       </div>
       <div class="supply-details-body">
+        <!-- Read-only info -->
         <div class="supply-detail-row">
           <span class="supply-detail-label">Поставка №</span>
           <span class="supply-detail-value" id="sdSupplyId">—</span>
@@ -1731,17 +1732,6 @@
           <span class="supply-detail-value" id="sdSupplier">—</span>
         </div>
         <div class="supply-detail-row">
-          <span class="supply-detail-label">Производство</span>
-          <select id="sdProduction" class="supply-detail-input" style="height:36px">
-            <option value="">— Не выбрано —</option>
-          </select>
-        </div>
-        <div class="supply-detail-row">
-          <span class="supply-detail-label">ШК поставки</span>
-          <input id="sdPassNumber" type="text" class="supply-detail-input"
-                 placeholder="WB-GI-XXXXXXX (требует заполнения)" autocomplete="off" />
-        </div>
-        <div class="supply-detail-row">
           <span class="supply-detail-label">Склад</span>
           <span class="supply-detail-value" id="sdWarehouse">—</span>
         </div>
@@ -1750,21 +1740,18 @@
           <span class="supply-detail-value" id="sdQuantity">—</span>
         </div>
         <div class="supply-detail-row">
-          <span class="supply-detail-label">Паллет</span>
-          <input id="sdPalletsCount" type="text" class="supply-detail-input"
-                 placeholder="Требует заполнения" autocomplete="off" />
-        </div>
-        <div class="supply-detail-row">
           <span class="supply-detail-label">Тип поставки</span>
           <span class="supply-detail-value" id="sdBoxType">—</span>
         </div>
+        <!-- Editable fields -->
         <div class="supply-detail-row">
-          <span class="supply-detail-label">Водитель</span>
-          <select id="sdDriverSelect" class="supply-detail-input" style="height:36px">
-            <option value="">— Требует заполнения —</option>
-            <option value="__new__">＋ Новый водитель…</option>
+          <span class="supply-detail-label">Производство</span>
+          <select id="sdProduction" class="supply-detail-input" style="height:36px">
+            <option value="">— Не выбрано —</option>
           </select>
         </div>
+        <!-- Multi-driver slots: ШК + Водитель + Паллет -->
+        <div id="sdDriverSlots"></div>
         <div class="supply-detail-row" style="margin-top:4px">
           <span class="supply-detail-label">Примечание</span>
           <textarea id="sdNotes" class="supply-detail-input" rows="2"
@@ -1829,6 +1816,6 @@
   <script src="/static/jszip.min.js"></script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=207"></script>
+  <script src="/static/app.js?v=208"></script>
 </body>
 </html>

@@ -2183,6 +2183,53 @@ function _supplyWarehouseLabel(item) {
   return "—";
 }
 
+function _renderSupplyDocButtons(item) {
+  // Parse slots from drivers_json or legacy fields
+  let slots = [];
+  if (item.drivers_json) {
+    try { slots = JSON.parse(item.drivers_json); } catch (_) {}
+  }
+  if (!slots.length) {
+    slots = [{ pass_number: item.pass_number || "", driver_name: item.driver_name || "", pallets_count: item.pallets_count || "" }];
+  }
+  // Filter slots with valid WB-GI code
+  const validSlots = slots.filter(s => _isWbGiCode(s.pass_number));
+  if (!validSlots.length) return "";
+
+  const totalPallets = slots.reduce((s, sl) => s + (parseInt(sl.pallets_count) || 0), 0);
+  const totalPalletsStr = totalPallets > 0 ? String(totalPallets) : (slots[0]?.pallets_count || "");
+  const multi = validSlots.length > 1;
+  let html = "";
+
+  // ШК поставки — per driver
+  validSlots.forEach((s, i) => {
+    const label = multi ? `⬇ ШК поставки — ${s.driver_name || `Водитель ${i+1}`}` : "⬇ ШК поставки";
+    const slotJson = encodeURIComponent(JSON.stringify(s));
+    html += `<button class="supply-detail-link supply-barcode-link" onclick="downloadSupplyBarcode('${esc(s.pass_number)}',${item.supply_id})">${label}</button>`;
+  });
+
+  // Упаковочный лист — единственная кнопка
+  if (totalPalletsStr) {
+    html += `<div style="display:flex;gap:4px;align-items:center"><button class="supply-detail-link supply-packing-link" style="flex:1" onclick="downloadPackingList(${item.supply_id})">⬇ Упаковочный лист</button><button class="supply-detail-link supply-print-btn" onclick="printPackingList(${item.supply_id})" title="Печать">🖨</button></div>`;
+  }
+
+  // Доверенность — per driver
+  validSlots.forEach((s, i) => {
+    if (!s.driver_name) return;
+    const label = multi ? `⬇ Доверенность — ${s.driver_name}` : "⬇ Доверенность";
+    html += `<div style="display:flex;gap:4px;align-items:center"><button class="supply-detail-link supply-poa-link" style="flex:1" onclick="downloadPoAForSlot(${item.supply_id},${i})">${label}</button><button class="supply-detail-link supply-print-btn" onclick="printPoAForSlot(${item.supply_id},${i})" title="Печать">🖨</button></div>`;
+  });
+
+  // ТТН — per driver
+  validSlots.forEach((s, i) => {
+    if (!s.driver_name) return;
+    const label = multi ? `⬇ ТТН — ${s.driver_name}` : "⬇ ТТН";
+    html += `<div style="display:flex;gap:4px;align-items:center"><button class="supply-detail-link supply-ttn-link" style="flex:1" onclick="downloadTTNForSlot(${item.supply_id},${i})">${label}</button><button class="supply-detail-link supply-print-btn" onclick="printTTNForSlot(${item.supply_id},${i})" title="Печать">🖨</button></div>`;
+  });
+
+  return html;
+}
+
 function renderSuppliesTable() {
   const tbody = document.getElementById("suppliesTbody");
   if (!tbody) return;
@@ -2216,10 +2263,7 @@ function renderSuppliesTable() {
       <td class="supply-links-cell">
         <div class="supply-links-col">
           <button class="supply-detail-link" onclick="openSupplyDetailsModal(${item.supply_id})">☰ Детали заказа</button>
-          ${_isWbGiCode(item.pass_number) ? `<button class="supply-detail-link supply-barcode-link" onclick="downloadSupplyBarcode('${esc(item.pass_number || '')}',${item.supply_id})">⬇ ШК поставки</button>` : ""}
-          ${(_isWbGiCode(item.pass_number) && item.pallets_count) ? `<div style="display:flex;gap:4px;align-items:center"><button class="supply-detail-link supply-packing-link" style="flex:1" onclick="downloadPackingList(${item.supply_id})">⬇ Упаковочный лист</button><button class="supply-detail-link supply-print-btn" onclick="printPackingList(${item.supply_id})" title="Печать упаковочного листа">🖨</button></div>` : ""}
-          ${(_isWbGiCode(item.pass_number) && item.pallets_count && item.driver_name) ? `<div style="display:flex;gap:4px;align-items:center"><button class="supply-detail-link supply-poa-link" style="flex:1" onclick="downloadPoA(${item.supply_id})">⬇ Доверенность</button><button class="supply-detail-link supply-print-btn" onclick="printPoA(${item.supply_id})" title="Печать доверенности">🖨</button></div>` : ""}
-          ${(_isWbGiCode(item.pass_number) && item.pallets_count && item.driver_name) ? `<div style="display:flex;gap:4px;align-items:center"><button class="supply-detail-link supply-ttn-link" style="flex:1" onclick="downloadTTN(${item.supply_id})">⬇ ТТН</button><button class="supply-detail-link supply-print-btn" onclick="printTTN(${item.supply_id})" title="Печать ТТН">🖨</button></div>` : ""}
+          ${_renderSupplyDocButtons(item)}
         </div>
       </td>
     `;
@@ -2466,6 +2510,88 @@ async function addDriverFromModal() {
   if (info) { info.textContent = ""; }
 }
 
+// ── Driver slots for WB supply details ────────────────────────────────────
+let _sdSlots = []; // [{pass_number, driver_name, pallets_count}]
+
+function _sdGetSlots() {
+  const container = document.getElementById("sdDriverSlots");
+  if (!container) return [];
+  const slots = [];
+  container.querySelectorAll(".sd-slot").forEach((row, idx) => {
+    slots.push({
+      pass_number:   row.querySelector(`[data-field="pass_number"]`)?.value.trim() || "",
+      driver_name:   row.querySelector(`[data-field="driver_name"]`)?.value || "",
+      pallets_count: row.querySelector(`[data-field="pallets_count"]`)?.value.trim() || "",
+    });
+  });
+  return slots;
+}
+
+function _sdRenderSlots() {
+  const container = document.getElementById("sdDriverSlots");
+  if (!container) return;
+  const driverOptions = _supplyDriversCache.map(d =>
+    `<option value="${esc(d.full_name||"")}">${esc(d.full_name||"")}</option>`
+  ).join("");
+  let html = "";
+  _sdSlots.forEach((slot, idx) => {
+    const isFirst = idx === 0;
+    html += `<div class="sd-slot" data-slot="${idx}" style="border-top:1px solid #f1f5f9;padding-top:6px;margin-top:${idx>0?'4px':'0'}">`;
+    // ШК поставки
+    html += `<div class="supply-detail-row">
+      <span class="supply-detail-label">ШК поставки</span>
+      <div style="display:flex;gap:6px;align-items:center;flex:1">
+        <input data-field="pass_number" type="text" class="supply-detail-input" style="flex:1"
+               value="${esc(slot.pass_number)}" placeholder="WB-GI-XXXXXXX" autocomplete="off" />
+        ${isFirst
+          ? `<button type="button" class="secondary icon-btn" onclick="sdAddSlot()" title="Добавить водителя" style="flex-shrink:0;font-size:16px;width:32px;height:32px">＋</button>`
+          : `<button type="button" class="secondary icon-btn" onclick="sdRemoveSlot(${idx})" title="Удалить" style="flex-shrink:0;color:#b91c1c;border-color:#fca5a5;width:32px;height:32px">✕</button>`
+        }
+      </div>
+    </div>`;
+    // Водитель
+    html += `<div class="supply-detail-row">
+      <span class="supply-detail-label">Водитель</span>
+      <select data-field="driver_name" class="supply-detail-input" style="height:36px">
+        <option value="">— Требует заполнения —</option>
+        ${driverOptions}
+      </select>
+    </div>`;
+    // Паллет
+    html += `<div class="supply-detail-row">
+      <span class="supply-detail-label">Паллет</span>
+      <input data-field="pallets_count" type="text" class="supply-detail-input"
+             value="${esc(slot.pallets_count)}" placeholder="Требует заполнения" autocomplete="off" />
+    </div>`;
+    html += `</div>`;
+  });
+  container.innerHTML = html;
+  // Set driver select values
+  _sdSlots.forEach((slot, idx) => {
+    const sel = container.querySelectorAll(".sd-slot")[idx]?.querySelector(`[data-field="driver_name"]`);
+    if (sel) sel.value = slot.driver_name || "";
+  });
+}
+
+function sdAddSlot() {
+  _sdSlots.push({ pass_number: "", driver_name: "", pallets_count: "" });
+  // Sync current values before re-render
+  const cur = _sdGetSlots();
+  _sdSlots.forEach((s, i) => { if (cur[i]) { s.pass_number = cur[i].pass_number; s.driver_name = cur[i].driver_name; s.pallets_count = cur[i].pallets_count; } });
+  _sdSlots.push({ pass_number: "", driver_name: "", pallets_count: "" });
+  _sdSlots = _sdGetSlots();
+  _sdSlots.push({ pass_number: "", driver_name: "", pallets_count: "" });
+  _sdRenderSlots();
+}
+window.sdAddSlot = sdAddSlot;
+
+function sdRemoveSlot(idx) {
+  _sdSlots = _sdGetSlots();
+  _sdSlots.splice(idx, 1);
+  _sdRenderSlots();
+}
+window.sdRemoveSlot = sdRemoveSlot;
+
 function openSupplyDetailsModal(supplyId) {
   const item = suppliesState.items.find((x) => x.supply_id === supplyId || x.supply_id === Number(supplyId));
   if (!item) return;
@@ -2474,45 +2600,35 @@ function openSupplyDetailsModal(supplyId) {
   document.getElementById("supplyDetailsTitle").textContent = `Детали поставки № ${item.supply_id}`;
   document.getElementById("sdSupplyId").textContent = item.supply_id;
 
-  // Supply date — formatted same as table column
   const supplyDateEl = document.getElementById("sdSupplyDate");
   if (supplyDateEl) {
     supplyDateEl.textContent = item.supply_date
       ? new Date(item.supply_date).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" })
       : "—";
   }
-
-  // Warehouse — same logic as table column (transit → **dest**)
   const whEl = document.getElementById("sdWarehouse");
   if (whEl) whEl.innerHTML = _supplyWarehouseLabel(item);
-
   document.getElementById("sdQuantity").textContent = item.quantity != null ? `${item.quantity} шт.` : "—";
   document.getElementById("sdBoxType").textContent = SUPPLY_BOX_TYPE_LABELS[item.box_type_id] || `тип ${item.box_type_id || "—"}`;
   document.getElementById("sdSupplier").textContent = item.supplier_name || "—";
 
-  // Editable fields — from saved values or empty
-  document.getElementById("sdPassNumber").value = item.pass_number || "";
-  document.getElementById("sdPalletsCount").value = item.pallets_count || "";
   const notesEl = document.getElementById("sdNotes");
   if (notesEl) notesEl.value = item.notes || "";
   _populateProductionSelects();
   const prodSel = document.getElementById("sdProduction");
   if (prodSel) prodSel.value = item.production || "";
 
-  // Driver dropdown
-  _populateDriverSelect(item.driver_name || "");
-  const driverSel = document.getElementById("sdDriverSelect");
-  if (driverSel) {
-    driverSel.value = item.driver_name || "";
-    driverSel.onchange = onDriverSelectChange;
+  // Build slots from drivers_json or legacy fields
+  if (item.drivers_json) {
+    try { _sdSlots = JSON.parse(item.drivers_json); } catch (_) { _sdSlots = []; }
   }
-  // Hide inline add form
-  const newDriverForm = document.getElementById("sdNewDriverForm");
-  if (newDriverForm) { newDriverForm.classList.add("hidden"); newDriverForm.style.display = "none"; }
+  if (!_sdSlots || !_sdSlots.length) {
+    _sdSlots = [{ pass_number: item.pass_number || "", driver_name: item.driver_name || "", pallets_count: item.pallets_count || "" }];
+  }
+  _sdRenderSlots();
 
   const info = document.getElementById("sdInfo");
   if (info) { info.textContent = ""; info.style.color = ""; }
-
   const modal = document.getElementById("supplyDetailsModal");
   if (modal) { modal.classList.remove("hidden"); modal.removeAttribute("aria-hidden"); }
 }
@@ -2520,23 +2636,20 @@ function openSupplyDetailsModal(supplyId) {
 function copySupplyDetails() {
   const get = (id) => (document.getElementById(id)?.textContent || "").trim();
   const val = (id) => (document.getElementById(id)?.value || "").trim();
-
-  const driverSel = document.getElementById("sdDriverSelect");
-  const driverVal = driverSel
-    ? Array.from(driverSel.options).find((o) => o.value === driverSel.value && o.value !== "__new__")?.text || ""
-    : "";
-
+  const slots = _sdGetSlots();
   const lines = [
     `Поставка №: ${get("sdSupplyId")}`,
     `Дата поставки: ${get("sdSupplyDate")}`,
     `Поставщик: ${get("sdSupplier")}`,
-    `Производство: ${document.getElementById("sdProduction")?.value || "—"}`,
-    `ШК поставки: ${val("sdPassNumber") || "—"}`,
     `Склад: ${document.getElementById("sdWarehouse")?.innerText || get("sdWarehouse") || "—"}`,
     `Количество: ${get("sdQuantity")}`,
-    `Паллет: ${val("sdPalletsCount") || "—"}`,
     `Тип поставки: ${get("sdBoxType")}`,
-    `Водитель: ${driverVal || "—"}`,
+    `Производство: ${document.getElementById("sdProduction")?.value || "—"}`,
+    ...slots.map((s, i) => [
+      `ШК поставки${slots.length > 1 ? ` (${i+1})` : ""}: ${s.pass_number || "—"}`,
+      `Водитель${slots.length > 1 ? ` (${i+1})` : ""}: ${s.driver_name || "—"}`,
+      `Паллет${slots.length > 1 ? ` (${i+1})` : ""}: ${s.pallets_count || "—"}`,
+    ]).flat(),
     `Примечание: ${val("sdNotes") || "—"}`,
   ];
   const text = lines.join("\n");
@@ -2578,19 +2691,22 @@ async function saveSupplyManualFields() {
   if (!_supplyDetailsCurrentId) return;
   const btn = document.getElementById("sdSaveBtn");
   const info = document.getElementById("sdInfo");
-  const passNumber = document.getElementById("sdPassNumber")?.value.trim() || null;
-  const palletsCount = document.getElementById("sdPalletsCount")?.value.trim() || null;
-  const driverSel = document.getElementById("sdDriverSelect");
-  const driverRaw = driverSel?.value || "";
-  const driverName = (driverRaw && driverRaw !== "__new__") ? driverRaw : null;
   const notes = document.getElementById("sdNotes")?.value.trim() || null;
   const production = document.getElementById("sdProduction")?.value || null;
+
+  // Read all slots
+  const slots = _sdGetSlots();
+  const first = slots[0] || {};
+  const passNumber = first.pass_number || null;
+  const palletsCount = first.pallets_count || null;
+  const driverName = first.driver_name || null;
+  const driversJson = slots.length > 0 ? JSON.stringify(slots) : null;
 
   if (btn) { btn.disabled = true; btn.textContent = "Сохранение…"; }
   const res = await fetch(`/api/supplies/${_supplyDetailsCurrentId}/manual-fields`, {
     method: "PATCH",
     headers: jsonHeaders(),
-    body: JSON.stringify({ pass_number: passNumber, pallets_count: palletsCount, driver_name: driverName, notes, production }),
+    body: JSON.stringify({ pass_number: passNumber, pallets_count: palletsCount, driver_name: driverName, notes, production, drivers_json: driversJson }),
   }).catch(() => null);
   if (btn) { btn.disabled = false; btn.textContent = "Сохранить"; }
 
@@ -3731,6 +3847,60 @@ function printPoA(supplyId) {
   if (!win) alert("Разрешите всплывающие окна для печати");
 }
 window.printPoA = printPoA;
+
+// Per-slot wrappers (multi-driver support)
+function _getItemSlots(supplyId) {
+  const item = suppliesState.items.find(x => x.supply_id === supplyId || x.supply_id === Number(supplyId));
+  if (!item) return [];
+  let slots = [];
+  if (item.drivers_json) { try { slots = JSON.parse(item.drivers_json); } catch (_) {} }
+  if (!slots.length) slots = [{ pass_number: item.pass_number||"", driver_name: item.driver_name||"", pallets_count: item.pallets_count||"" }];
+  return slots;
+}
+
+async function downloadPoAForSlot(supplyId, slotIdx) {
+  // PoA is generated client-side; override driver/pallets from slot
+  const item = suppliesState.items.find(x => x.supply_id === supplyId || x.supply_id === Number(supplyId));
+  if (!item) return;
+  const slots = _getItemSlots(supplyId);
+  const slot = slots[slotIdx] || slots[0] || {};
+  const orig = { driver_name: item.driver_name, pallets_count: item.pallets_count };
+  item.driver_name = slot.driver_name || item.driver_name;
+  item.pallets_count = slot.pallets_count || item.pallets_count;
+  await downloadPoA(supplyId);
+  item.driver_name = orig.driver_name;
+  item.pallets_count = orig.pallets_count;
+}
+
+function printPoAForSlot(supplyId, slotIdx) {
+  const win = window.open(`/api/supplies/${supplyId}/poa.pdf?slot_index=${slotIdx}`, "_blank");
+  if (!win) alert("Разрешите всплывающие окна для печати");
+}
+
+async function downloadTTNForSlot(supplyId, slotIdx) {
+  // TTN is generated client-side; override driver/pallets from slot
+  const item = suppliesState.items.find(x => x.supply_id === supplyId || x.supply_id === Number(supplyId));
+  if (!item) return;
+  const slots = _getItemSlots(supplyId);
+  const slot = slots[slotIdx] || slots[0] || {};
+  // Temporarily override item fields for this slot
+  const orig = { driver_name: item.driver_name, pallets_count: item.pallets_count };
+  item.driver_name = slot.driver_name || item.driver_name;
+  item.pallets_count = slot.pallets_count || item.pallets_count;
+  await downloadTTN(supplyId);
+  item.driver_name = orig.driver_name;
+  item.pallets_count = orig.pallets_count;
+}
+
+function printTTNForSlot(supplyId, slotIdx) {
+  const win = window.open(`/api/supplies/${supplyId}/ttn.pdf?slot_index=${slotIdx}`, "_blank");
+  if (!win) alert("Разрешите всплывающие окна для печати");
+}
+
+window.downloadPoAForSlot = downloadPoAForSlot;
+window.printPoAForSlot = printPoAForSlot;
+window.downloadTTNForSlot = downloadTTNForSlot;
+window.printTTNForSlot = printTTNForSlot;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // OZON SUPPLIES MODULE — fully isolated from WB

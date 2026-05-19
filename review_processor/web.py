@@ -457,6 +457,7 @@ class SupplyManualFieldsRequest(BaseModel):
     driver_name: str | None = None
     notes: str | None = None
     production: str | None = None
+    drivers_json: str | None = None  # JSON array of {pass_number, driver_name, pallets_count}
 
 
 class CreateSupplyDriverRequest(BaseModel):
@@ -5512,7 +5513,18 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         box_label = box_labels.get(int(item.get("box_type_id") or 0), "")
 
         pass_number   = str(item.get("pass_number") or "")
-        pallets_count = str(item.get("pallets_count") or "")
+        # Packing list: sum pallets across all slots
+        import json as _jsl3
+        _dj3 = item.get("drivers_json")
+        _slots3 = []
+        if _dj3:
+            try: _slots3 = _jsl3.loads(_dj3)
+            except Exception: pass
+        if _slots3:
+            total_pallets = sum(int(s.get("pallets_count") or 0) for s in _slots3)
+            pallets_count = str(total_pallets) if total_pallets else str(item.get("pallets_count") or "")
+        else:
+            pallets_count = str(item.get("pallets_count") or "")
         supply_id_str = str(supply_id)
 
         raw_sd = str(item.get("supply_date") or "")
@@ -5597,10 +5609,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
 
     @app.get("/api/supplies/{supply_id}/poa.pdf")
-    def get_poa_pdf(request: Request, supply_id: int):
+    def get_poa_pdf(request: Request, supply_id: int, slot_index: int = 0):
         """Generate Power of Attorney HTML → PDF via LibreOffice."""
         import subprocess as _sp, tempfile as _tf, pathlib as _pl, os as _os
-        import html as _hm
+        import html as _hm, json as _jsl
         from fastapi.responses import Response
         from datetime import datetime as _dtt
 
@@ -5623,7 +5635,22 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         signatories = le.get("signatories") or supplier_short
 
         drivers = repository.list_supply_drivers(user_id=owner_id)
-        driver_name = str(item.get("driver_name") or "")
+        # Multi-driver: pick slot by slot_index
+        _dj = item.get("drivers_json")
+        _slots = []
+        if _dj:
+            try: _slots = _jsl.loads(_dj)
+            except Exception: pass
+        if _slots and slot_index < len(_slots):
+            _slot = _slots[slot_index]
+            driver_name = str(_slot.get("driver_name") or "")
+            pallets_slot = str(_slot.get("pallets_count") or item.get("pallets_count") or "")
+        else:
+            driver_name = str(item.get("driver_name") or "")
+            pallets_slot = str(item.get("pallets_count") or "")
+        # Override item pallets for this slot
+        item = dict(item)
+        item["pallets_count"] = pallets_slot
         driver_obj  = next((d for d in drivers if d.get("full_name") == driver_name), {})
         driver_docs = driver_obj.get("documents") or ""
 
@@ -5808,7 +5835,7 @@ tr {{ page-break-inside: avoid; }}
         return {"prices": prices}
 
     @app.get("/api/supplies/{supply_id}/ttn.pdf")
-    def get_ttn_pdf(request: Request, supply_id: int):
+    def get_ttn_pdf(request: Request, supply_id: int, slot_index: int = 0):
         """Generate TTN DOCX from same template as download button, convert to PDF via LibreOffice."""
         import subprocess as _sp, tempfile as _tf, zipfile as _zf, io as _io
         import pathlib as _pl
@@ -5848,8 +5875,20 @@ tr {{ page-break-inside: avoid; }}
         except Exception:
             supply_date_disp = date_disp
 
-        driver_name     = str(item.get("driver_name") or "")
-        pallets         = int(item.get("pallets_count") or 0)
+        # Multi-driver: pick slot by slot_index
+        import json as _jsl2
+        _dj2 = item.get("drivers_json")
+        _slots2 = []
+        if _dj2:
+            try: _slots2 = _jsl2.loads(_dj2)
+            except Exception: pass
+        if _slots2 and slot_index < len(_slots2):
+            _slot2 = _slots2[slot_index]
+            driver_name = str(_slot2.get("driver_name") or "")
+            pallets     = int(_slot2.get("pallets_count") or 0)
+        else:
+            driver_name = str(item.get("driver_name") or "")
+            pallets     = int(item.get("pallets_count") or 0)
         VAT_RATE        = 0.22
         wh              = str(item.get("warehouse_name") or "").strip()
 
@@ -7274,6 +7313,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             driver_name=payload.driver_name,
             notes=payload.notes,
             production=payload.production,
+            drivers_json=payload.drivers_json,
         )
         if not ok:
             raise HTTPException(status_code=404, detail="Поставка не найдена")
