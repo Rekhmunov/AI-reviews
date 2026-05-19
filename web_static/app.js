@@ -3618,7 +3618,7 @@ function downloadSupplyBarcode(passNumber, supplyId) {
 
   // Get supply data for filename and bottom label text
   const item = suppliesState.items.find((x) => x.supply_id === supplyId || x.supply_id === Number(supplyId));
-  const warehouseName = (item?.warehouse_name || "").trim();  // destination (bold)
+  const warehouseName = (item?.warehouse_name || "").trim();
   const quantity = item?.quantity != null ? `${item.quantity} шт` : "";
   const supplyDateRaw = item?.supply_date || "";
   let dateStr = "";
@@ -3632,23 +3632,32 @@ function downloadSupplyBarcode(passNumber, supplyId) {
     } catch (_) {}
   }
 
-  // File name: "WB-GI-XXXXXXX, DDMMYYYY, Склад, N шт"
+  // Find driver from slot matching this passNumber
+  let driverName = "";
+  if (item) {
+    let slots = [];
+    if (item.drivers_json) { try { slots = JSON.parse(item.drivers_json); } catch (_) {} }
+    if (!slots.length) slots = [{ pass_number: item.pass_number || "", driver_name: item.driver_name || "" }];
+    const slot = slots.find(s => s.pass_number === passNumber) || slots[0] || {};
+    driverName = slot.driver_name || "";
+  }
+
+  // File name: "WB-GI-XXXXXXX, DDMMYYYY, Склад, N шт, Фамилия И."
   const dateStrDisplay = dateStr ? `${dateStr.slice(0,2)}.${dateStr.slice(2,4)}.${dateStr.slice(4)}` : "";
   const nameParts = [passNumber];
   if (dateStrDisplay) nameParts.push(dateStrDisplay);
   if (warehouseName) nameParts.push(warehouseName);
   if (quantity) nameParts.push(quantity);
+  if (driverName) nameParts.push(_shortDriverName(driverName));
   const fileName = nameParts.join(", ");
 
-  // Bottom label info line
+  // Bottom label lines: date+warehouse+qty on first line, driver on second
   const bottomParts = [];
-  if (dateStr) {
-    // Format date nicely for display: DD.MM.YYYY
-    bottomParts.push(`${dateStr.slice(0,2)}.${dateStr.slice(2,4)}.${dateStr.slice(4)}`);
-  }
+  if (dateStr) bottomParts.push(`${dateStr.slice(0,2)}.${dateStr.slice(2,4)}.${dateStr.slice(4)}`);
   if (warehouseName) bottomParts.push(warehouseName);
   if (quantity) bottomParts.push(quantity);
-  const bottomText = bottomParts.join("   ");
+  const bottomLine1 = bottomParts.join("   ");
+  const bottomText = driverName ? bottomLine1 + (bottomLine1 ? "\n" : "") + driverName : bottomLine1;
 
   // Render barcode to canvas — tall lines
   const canvas = document.createElement("canvas");
@@ -3703,21 +3712,24 @@ function downloadSupplyBarcode(passNumber, supplyId) {
     const fontSize = 9 * SCALE;
     const canvasW = Math.round((pageW - pad * 2 - 4) * SCALE * 3.78);
     const lineH = 12 * SCALE;
-    // Wrap into lines that fit the canvas width
     const textCanvas = document.createElement("canvas");
     textCanvas.width = canvasW;
-    textCanvas.height = 4 * lineH; // max 4 lines buffer
+    textCanvas.height = 6 * lineH;
     const ctx = textCanvas.getContext("2d");
     ctx.font = `bold ${fontSize}px Arial`;
-    const words = bottomText.split(/\s+/);
+    // Split on explicit \n first, then word-wrap each segment
+    const segments = bottomText.split("\n");
     const lines = [];
-    let cur = "";
-    for (const w of words) {
-      const test = cur ? cur + " " + w : w;
-      if (ctx.measureText(test).width > canvasW - 8 && cur) { lines.push(cur); cur = w; }
-      else cur = test;
+    for (const seg of segments) {
+      const words = seg.split(/\s+/);
+      let cur = "";
+      for (const w of words) {
+        const test = cur ? cur + " " + w : w;
+        if (ctx.measureText(test).width > canvasW - 8 && cur) { lines.push(cur); cur = w; }
+        else cur = test;
+      }
+      if (cur) lines.push(cur);
     }
-    if (cur) lines.push(cur);
     // Resize canvas to exact height needed
     textCanvas.height = lines.length * lineH + 4;
     ctx.clearRect(0, 0, canvasW, textCanvas.height);
@@ -3755,11 +3767,21 @@ function printSupplyBarcode(passNumber, supplyId) {
       dateStr = String(d.getDate()).padStart(2,"0") + String(d.getMonth()+1).padStart(2,"0") + d.getFullYear();
     } catch(_) {}
   }
+  // Find driver from slot matching this passNumber
+  let driverNamePrint = "";
+  {
+    let slots = [];
+    if (item.drivers_json) { try { slots = JSON.parse(item.drivers_json); } catch (_) {} }
+    if (!slots.length) slots = [{ pass_number: item.pass_number || "", driver_name: item.driver_name || "" }];
+    const slot = slots.find(s => s.pass_number === passNumber) || slots[0] || {};
+    driverNamePrint = slot.driver_name || "";
+  }
   const bottomParts = [];
   if (dateStr) bottomParts.push(`${dateStr.slice(0,2)}.${dateStr.slice(2,4)}.${dateStr.slice(4)}`);
   if (warehouseName) bottomParts.push(warehouseName);
   if (quantity) bottomParts.push(quantity);
-  const bottomText = bottomParts.join("   ");
+  const bottomLine1p = bottomParts.join("   ");
+  const bottomText = driverNamePrint ? bottomLine1p + (bottomLine1p ? "\n" : "") + driverNamePrint : bottomLine1p;
 
   // === Render barcode to canvas (same settings) ===
   const bcCanvas = document.createElement("canvas");
@@ -3778,14 +3800,18 @@ function printSupplyBarcode(passNumber, supplyId) {
     tCanvas.width = canvasW; tCanvas.height = 4 * lineH;
     const ctx = tCanvas.getContext("2d");
     ctx.font = `bold ${fontSize}px Arial`;
-    const words = bottomText.split(/\s+/);
+    const segments2 = bottomText.split("\n");
     const lines = []; let cur = "";
-    for (const w of words) {
-      const test = cur ? cur + " " + w : w;
-      if (ctx.measureText(test).width > canvasW - 8 && cur) { lines.push(cur); cur = w; }
-      else cur = test;
+    for (const seg of segments2) {
+      const words = seg.split(/\s+/);
+      cur = "";
+      for (const w of words) {
+        const test = cur ? cur + " " + w : w;
+        if (ctx.measureText(test).width > canvasW - 8 && cur) { lines.push(cur); cur = w; }
+        else cur = test;
+      }
+      if (cur) lines.push(cur);
     }
-    if (cur) lines.push(cur);
     tCanvas.height = lines.length * lineH + 4;
     ctx.clearRect(0, 0, canvasW, tCanvas.height);
     ctx.fillStyle = "#000"; ctx.font = `bold ${fontSize}px Arial`;
