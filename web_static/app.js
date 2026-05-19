@@ -2725,6 +2725,7 @@ async function saveSupplyManualFields() {
     item.driver_name   = driverName;
     item.notes         = notes;
     item.production    = production;
+    item.drivers_json  = driversJson;
   }
   // Re-render table so columns (Производство, etc.) update immediately
   renderSuppliesTable();
