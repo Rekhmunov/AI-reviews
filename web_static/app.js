@@ -2222,7 +2222,7 @@ function _renderSupplyDocButtons(item) {
 
   // Упаковочный лист — одна кнопка
   if (totalPalletsStr) {
-    html += `<div><button class="supply-detail-link supply-packing-link" onclick="downloadPackingList(${item.supply_id})">⬇ Упаковочный лист</button><button class="supply-detail-link supply-print-btn" onclick="printPackingList(${item.supply_id})" title="Печать">🖨</button></div>`;
+    html += `<div><button class="supply-detail-link supply-packing-link" onclick="downloadPackingList(${item.supply_id})">⬇ Упаковочный лист</button><button class="supply-detail-link supply-print-btn" onclick="printPackingList(${item.supply_id})" title="Печать">⎙</button></div>`;
   }
 
   // Доверенность — per driver
@@ -2230,7 +2230,7 @@ function _renderSupplyDocButtons(item) {
     if (!_effectiveName(s)) return;
     const dName = _shortDriverName(_effectiveName(s));
     const label = multi ? `⬇ Довер. — ${dName}` : "⬇ Доверенность";
-    html += `<div><button class="supply-detail-link supply-poa-link" onclick="downloadPoAForSlot(${item.supply_id},${i})">${label}</button><button class="supply-detail-link supply-print-btn" onclick="printPoAForSlot(${item.supply_id},${i})" title="Печать">🖨</button></div>`;
+    html += `<div><button class="supply-detail-link supply-poa-link" onclick="downloadPoAForSlot(${item.supply_id},${i})">${label}</button><button class="supply-detail-link supply-print-btn" onclick="printPoAForSlot(${item.supply_id},${i})" title="Печать">⎙</button></div>`;
   });
 
   // ТТН — per driver
@@ -2238,7 +2238,7 @@ function _renderSupplyDocButtons(item) {
     if (!_effectiveName(s)) return;
     const dName = _shortDriverName(_effectiveName(s));
     const label = multi ? `⬇ ТТН — ${dName}` : "⬇ ТТН";
-    html += `<div><button class="supply-detail-link supply-ttn-link" onclick="downloadTTNForSlot(${item.supply_id},${i})">${label}</button><button class="supply-detail-link supply-print-btn" onclick="printTTNForSlot(${item.supply_id},${i})" title="Печать">🖨</button></div>`;
+    html += `<div><button class="supply-detail-link supply-ttn-link" onclick="downloadTTNForSlot(${item.supply_id},${i})">${label}</button><button class="supply-detail-link supply-print-btn" onclick="printTTNForSlot(${item.supply_id},${i})" title="Печать">⎙</button></div>`;
   });
 
   return html;
@@ -9562,7 +9562,7 @@ function renderPoATable() {
         <div class="row" style="gap:4px;flex-wrap:nowrap">
           <button class="secondary small-btn icon-btn" onclick="downloadPoAPdf(${r.id})" title="Скачать PDF" style="font-size:10px;min-width:36px">PDF</button>
           <button class="secondary small-btn icon-btn" onclick="downloadPoADoc(${r.id})" title="Скачать DOC" style="font-size:10px;min-width:36px">DOC</button>
-          <button class="secondary small-btn icon-btn" onclick="printPoARecord(${r.id})" title="Печать">🖨</button>
+          <button class="secondary small-btn icon-btn" onclick="printPoARecord(${r.id})" title="Печать">⎙</button>
           <button class="secondary small-btn icon-btn" onclick="openEditPoAModal(${r.id})" title="Редактировать">✏</button>
           <button class="secondary small-btn icon-btn" style="color:#2563eb;border-color:#93c5fd" onclick="openCopyPoAModal(${r.id})" title="Копировать">⎘</button>
           <button class="secondary small-btn icon-btn" style="color:#b91c1c;border-color:#fca5a5" onclick="deletePoARecord(${r.id})" title="Удалить">🗑</button>
