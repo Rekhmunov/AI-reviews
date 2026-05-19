@@ -1718,45 +1718,51 @@
         <button type="button" class="modal-close-btn" onclick="closeSupplyDetailsModal()" aria-label="Закрыть">✕</button>
       </div>
       <div class="supply-details-body">
-        <!-- Read-only info -->
-        <div class="supply-detail-row">
-          <span class="supply-detail-label">Поставка №</span>
-          <span class="supply-detail-value" id="sdSupplyId">—</span>
+        <!-- ── Read-only info ── -->
+        <div class="supply-details-info">
+          <div class="supply-details-section-label">Информация</div>
+          <div class="supply-detail-row">
+            <span class="supply-detail-label">Поставка №</span>
+            <span class="supply-detail-value" id="sdSupplyId">—</span>
+          </div>
+          <div class="supply-detail-row">
+            <span class="supply-detail-label">Дата поставки</span>
+            <span class="supply-detail-value" id="sdSupplyDate">—</span>
+          </div>
+          <div class="supply-detail-row">
+            <span class="supply-detail-label">Поставщик</span>
+            <span class="supply-detail-value" id="sdSupplier">—</span>
+          </div>
+          <div class="supply-detail-row">
+            <span class="supply-detail-label">Склад</span>
+            <span class="supply-detail-value" id="sdWarehouse">—</span>
+          </div>
+          <div class="supply-detail-row">
+            <span class="supply-detail-label">Количество</span>
+            <span class="supply-detail-value" id="sdQuantity">—</span>
+          </div>
+          <div class="supply-detail-row">
+            <span class="supply-detail-label">Тип поставки</span>
+            <span class="supply-detail-value" id="sdBoxType">—</span>
+          </div>
         </div>
-        <div class="supply-detail-row">
-          <span class="supply-detail-label">Дата поставки</span>
-          <span class="supply-detail-value" id="sdSupplyDate">—</span>
-        </div>
-        <div class="supply-detail-row">
-          <span class="supply-detail-label">Поставщик</span>
-          <span class="supply-detail-value" id="sdSupplier">—</span>
-        </div>
-        <div class="supply-detail-row">
-          <span class="supply-detail-label">Склад</span>
-          <span class="supply-detail-value" id="sdWarehouse">—</span>
-        </div>
-        <div class="supply-detail-row">
-          <span class="supply-detail-label">Количество</span>
-          <span class="supply-detail-value" id="sdQuantity">—</span>
-        </div>
-        <div class="supply-detail-row">
-          <span class="supply-detail-label">Тип поставки</span>
-          <span class="supply-detail-value" id="sdBoxType">—</span>
-        </div>
-        <!-- Editable fields -->
-        <div class="supply-detail-row">
-          <span class="supply-detail-label">Производство</span>
-          <select id="sdProduction" class="supply-detail-input" style="height:36px">
-            <option value="">— Не выбрано —</option>
-          </select>
-        </div>
-        <!-- Multi-driver slots: ШК + Водитель + Паллет -->
-        <div id="sdDriverSlots"></div>
-        <div class="supply-detail-row" style="margin-top:4px">
-          <span class="supply-detail-label">Примечание</span>
-          <textarea id="sdNotes" class="supply-detail-input" rows="2"
-                    placeholder="Введите примечание…" autocomplete="off"
-                    style="height:60px;padding-top:6px;padding-bottom:6px;resize:vertical;min-height:44px;max-height:120px"></textarea>
+        <!-- ── Editable fields ── -->
+        <div class="supply-details-edit">
+          <div class="supply-details-section-label">Заполнить</div>
+          <div class="supply-detail-row">
+            <span class="supply-detail-label">Производство</span>
+            <select id="sdProduction" class="supply-detail-input" style="height:36px">
+              <option value="">— Не выбрано —</option>
+            </select>
+          </div>
+          <!-- Multi-driver slots -->
+          <div id="sdDriverSlots"></div>
+          <div class="supply-detail-row">
+            <span class="supply-detail-label">Примечание</span>
+            <textarea id="sdNotes" class="supply-detail-input" rows="2"
+                      placeholder="Введите примечание…" autocomplete="off"
+                      style="height:56px;padding-top:8px;padding-bottom:8px;resize:vertical;min-height:40px;max-height:112px"></textarea>
+          </div>
         </div>
         <div id="sdNewDriverForm" class="hidden" style="margin-top:4px">
           <div class="supply-detail-row">
@@ -1816,6 +1822,6 @@
   <script src="/static/jszip.min.js"></script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=208"></script>
+  <script src="/static/app.js?v=209"></script>
 </body>
 </html>

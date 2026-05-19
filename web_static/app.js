@@ -2262,7 +2262,7 @@ function renderSuppliesTable() {
       <td><span class="supply-status-badge supply-status-${item.status_id}">${statusLabel}</span></td>
       <td class="supply-links-cell">
         <div class="supply-links-col">
-          <button class="supply-detail-link" onclick="openSupplyDetailsModal(${item.supply_id})">☰ Детали заказа</button>
+          <button class="supply-detail-link" onclick="openSupplyDetailsModal(${item.supply_id})">☰ Детали поставки</button>
           ${_renderSupplyDocButtons(item)}
         </div>
       </td>
@@ -2536,7 +2536,9 @@ function _sdRenderSlots() {
   let html = "";
   _sdSlots.forEach((slot, idx) => {
     const isFirst = idx === 0;
-    html += `<div class="sd-slot" data-slot="${idx}" style="border-top:1px solid #f1f5f9;padding-top:6px;margin-top:${idx>0?'4px':'0'}">`;
+    const slotTitle = _sdSlots.length > 1 ? `<div class="sd-slot-num">Водитель ${idx + 1}</div>` : "";
+    html += `<div class="sd-slot" data-slot="${idx}">`;
+    html += slotTitle;
     // ШК поставки
     html += `<div class="supply-detail-row">
       <span class="supply-detail-label">ШК поставки</span>
@@ -2544,7 +2546,7 @@ function _sdRenderSlots() {
         <input data-field="pass_number" type="text" class="supply-detail-input" style="flex:1"
                value="${esc(slot.pass_number)}" placeholder="WB-GI-XXXXXXX" autocomplete="off" />
         ${isFirst
-          ? `<button type="button" class="secondary icon-btn" onclick="sdAddSlot()" title="Добавить водителя" style="flex-shrink:0;font-size:16px;width:32px;height:32px">＋</button>`
+          ? `<button type="button" class="secondary icon-btn" onclick="sdAddSlot()" title="Добавить водителя" style="flex-shrink:0;width:32px;height:32px;font-size:15px">＋</button>`
           : `<button type="button" class="secondary icon-btn" onclick="sdRemoveSlot(${idx})" title="Удалить" style="flex-shrink:0;color:#b91c1c;border-color:#fca5a5;width:32px;height:32px">✕</button>`
         }
       </div>

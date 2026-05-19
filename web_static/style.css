@@ -4736,15 +4736,13 @@ button.secondary.danger:hover {
 /* ── Supply Details Modal ──────────────────────────────────────── */
 
 .supply-details-modal-card {
-  width: 50vw;
-  min-width: 320px;
-  max-width: 900px;
-  max-height: 90vh;
+  width: clamp(360px, 52vw, 640px);
+  max-height: 88vh;
   display: flex;
   flex-direction: column;
-  border-radius: var(--radius-lg, 12px);
+  border-radius: 12px;
   background: #fff;
-  box-shadow: 0 8px 32px rgba(15,23,42,0.18);
+  box-shadow: 0 8px 40px rgba(15,23,42,0.16), 0 2px 8px rgba(15,23,42,0.08);
   overflow: hidden;
 }
 
@@ -4752,52 +4750,87 @@ button.secondary.danger:hover {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 20px;
+  padding: 16px 24px;
   border-bottom: 1px solid #e2e8f0;
   background: #f8fafc;
   flex-shrink: 0;
+}
+.modal-card-header h4 {
+  font-size: 15px;
+  font-weight: 600;
+  color: #0f172a;
+  letter-spacing: -0.01em;
 }
 
 .modal-close-btn {
   background: none;
   border: none;
-  font-size: 18px;
+  font-size: 17px;
   color: #94a3b8;
   cursor: pointer;
-  padding: 4px 8px;
-  border-radius: 4px;
+  padding: 6px 8px;
+  border-radius: 6px;
   line-height: 1;
   transition: color 0.12s, background 0.12s;
+  flex-shrink: 0;
 }
 .modal-close-btn:hover { color: #334155; background: #f1f5f9; }
 
 .supply-details-body {
-  padding: 16px 20px;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
   overflow-y: auto;
   flex: 1 1 auto;
 }
 
+/* Section: read-only info block */
+.supply-details-info {
+  padding: 16px 24px 12px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Section: editable fields block */
+.supply-details-edit {
+  padding: 16px 24px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.supply-details-section-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #94a3b8;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
 .supply-detail-row {
   display: grid;
-  grid-template-columns: 120px 1fr;
+  grid-template-columns: 136px 1fr;
   align-items: center;
   gap: 12px;
+  min-height: 32px;
 }
 
 .supply-detail-label {
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   color: #64748b;
   white-space: nowrap;
 }
 
 .supply-detail-value {
   font-size: 14px;
-  color: #1e293b;
+  color: #0f172a;
   font-weight: 500;
+  line-height: 1.4;
 }
 
 .supply-detail-input {
@@ -4809,26 +4842,49 @@ button.secondary.danger:hover {
   font-size: 13px;
   color: #1e293b;
   background: #fff;
-  transition: border-color 0.12s, box-shadow 0.12s;
+  transition: border-color 0.15s, box-shadow 0.15s;
   box-sizing: border-box;
 }
 .supply-detail-input:focus {
   outline: none;
   border-color: #6366f1;
-  box-shadow: 0 0 0 3px rgba(99,102,241,0.12);
+  box-shadow: 0 0 0 3px rgba(99,102,241,0.10);
 }
 .supply-detail-input::placeholder { color: #94a3b8; font-style: italic; }
+
+/* Driver slot card */
+.sd-slot {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.sd-slot .supply-detail-row {
+  grid-template-columns: 100px 1fr;
+}
+.sd-slot-num {
+  font-size: 11px;
+  font-weight: 700;
+  color: #6366f1;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+}
 
 .supply-details-footer {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 20px 14px;
+  padding: 12px 24px 16px;
   border-top: 1px solid #e2e8f0;
   flex-shrink: 0;
   background: #fff;
 }
-.supply-details-footer .small { margin-left: 4px; }
+.supply-details-footer .small { color: #64748b; font-size: 12px; margin-left: 4px; }
 
 /* Детали link button in table */
 /* Supply action buttons in table */
