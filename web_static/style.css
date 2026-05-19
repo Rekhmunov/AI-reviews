@@ -5055,6 +5055,9 @@ button.secondary.danger:hover {
   font-size: 15px !important;
   font-family: "Segoe UI Symbol", "Arial Unicode MS", sans-serif !important;
   line-height: 1 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
 }
 
 /* ── Supplies table row distinction ───────────────────────────── */
