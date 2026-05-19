@@ -2221,7 +2221,7 @@ function _renderSupplyDocButtons(item) {
   });
 
   const _pRow = `display:flex;flex-wrap:nowrap;align-items:center;gap:2px;width:100%;min-width:0`;
-  const _pBtn = `flex:0 0 26px;min-width:26px;width:26px;height:26px;padding:0;font-size:13px;font-family:'Segoe UI Symbol','Arial Unicode MS',sans-serif`;
+  const _pBtn = `flex:0 0 28px;min-width:28px;width:28px;height:28px;padding:0;font-size:13px;font-family:'Segoe UI Symbol','Arial Unicode MS',sans-serif`;
 
   // Упаковочный лист — per driver (only pass_number changes)
   validSlots.forEach((s, i) => {
@@ -4796,7 +4796,7 @@ window.printCombinedTTN = printCombinedTTN;
 const SUPPLIES_COL_WIDTHS_KEY = "supplies_col_widths";
 // Default widths as percentages (9 columns: expand, id, legal, wh, prod, date, qty, status, links)
 // Must sum to 100
-const SUPPLIES_DEFAULT_WIDTHS = [3, 9, 14, 19, 10, 9, 7, 13, 16];
+const SUPPLIES_DEFAULT_WIDTHS = [3, 9, 14, 19, 10, 9, 7, 11, 18];
 
 function initSuppliesColumnResizer() {
   const table = document.getElementById("suppliesTable");

@@ -4900,7 +4900,7 @@ button.secondary.danger:hover {
   font-size: 12.5px;
   font-weight: 500;
   cursor: pointer;
-  padding: 2px 6px;
+  padding: 2px 5px;
   border-radius: 5px;
   white-space: nowrap;
   overflow: hidden;
@@ -5047,12 +5047,12 @@ button.secondary.danger:hover {
   white-space: nowrap;
 }
 .supply-print-btn {
-  flex: 0 0 26px !important;
-  width: 26px !important;
-  min-width: 26px !important;
-  height: 26px !important;
+  flex: 0 0 28px !important;
+  width: 28px !important;
+  min-width: 28px !important;
+  height: 28px !important;
   padding: 0 !important;
-  font-size: 13px !important;
+  font-size: 14px !important;
   font-family: "Segoe UI Symbol", "Arial Unicode MS", sans-serif !important;
   line-height: 1 !important;
 }
