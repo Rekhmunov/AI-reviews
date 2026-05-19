@@ -2593,7 +2593,7 @@ function _sdRenderSlots() {
         }
         <button type="button" class="secondary icon-btn" onclick="sdToggleManualDriver(${idx})"
           title="${manualMode ? 'Выбрать из справочника' : 'Ввести вручную'}"
-          style="flex-shrink:0;width:32px;height:32px;font-size:14px;${manualMode ? 'color:#6366f1;border-color:#a5b4fc' : ''}">✏</button>
+          style="flex-shrink:0;width:32px;height:32px;font-size:14px;${manualMode ? 'color:#b91c1c;border-color:#fca5a5' : ''}">${manualMode ? '✕' : '✏'}</button>
       </div>
     </div>`;
     // Паллет
