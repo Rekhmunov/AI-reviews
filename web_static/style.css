@@ -5047,9 +5047,9 @@ button.secondary.danger:hover {
   white-space: nowrap;
 }
 .supply-print-btn {
-  flex: 0 0 34px !important;
-  width: 34px !important;
-  min-width: 34px !important;
+  flex: 0 0 60px !important;
+  width: 60px !important;
+  min-width: 60px !important;
   height: 28px !important;
   padding: 0 !important;
   font-size: 15px !important;
