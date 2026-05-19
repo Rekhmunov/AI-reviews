@@ -6394,27 +6394,37 @@ tr {{ page-break-inside: avoid; }}
                             errors.append(str(ex))
 
                         # Load quantities for this batch via bundle API (1 call per order)
+                        import time as _t
                         for (order_id, bundle_id, item_id) in qty_batch:
                             if _ozon_sync_state.get("cancel_requested"):
                                 break
-                            try:
-                                bdy = _jj.dumps({"bundle_ids": [bundle_id], "limit": 100, "last_id": ""}).encode()
-                                bq_req = _ul.Request(
-                                    "https://api-seller.ozon.ru/v1/supply-order/bundle",
-                                    data=bdy, method="POST", headers=headers,
-                                )
-                                with _ul.urlopen(bq_req, context=ctx, timeout=15) as bq_r:
-                                    bq_resp = _jj.loads(bq_r.read())
-                                goods = bq_resp.get("items") or []
-                                total_qty = sum(int(g.get("quantity") or 0) for g in goods)
-                                if total_qty > 0:
-                                    repository.update_ozon_supply_total_quantity(
-                                        supply_order_id=order_id, total_quantity=total_qty)
-                                if goods and item_id:
-                                    repository.upsert_ozon_supply_goods(supply_item_id=item_id, goods=goods)
-                            except Exception as bex:
-                                _log.warning("ozon bundle qty order_id=%d: %s", order_id, bex)
-                            __import__("time").sleep(0.05)
+                            for attempt in range(3):
+                                try:
+                                    bdy = _jj.dumps({"bundle_ids": [bundle_id], "limit": 100, "last_id": ""}).encode()
+                                    bq_req = _ul.Request(
+                                        "https://api-seller.ozon.ru/v1/supply-order/bundle",
+                                        data=bdy, method="POST", headers=headers,
+                                    )
+                                    with _ul.urlopen(bq_req, context=ctx, timeout=15) as bq_r:
+                                        bq_resp = _jj.loads(bq_r.read())
+                                    goods = bq_resp.get("items") or []
+                                    total_qty = sum(int(g.get("quantity") or 0) for g in goods)
+                                    if total_qty > 0:
+                                        repository.update_ozon_supply_total_quantity(
+                                            supply_order_id=order_id, total_quantity=total_qty)
+                                    if goods and item_id:
+                                        repository.upsert_ozon_supply_goods(supply_item_id=item_id, goods=goods)
+                                    break  # success
+                                except Exception as bex:
+                                    code = getattr(bex, "code", None)
+                                    if code == 429:
+                                        wait = (attempt + 1) * 2  # 2s, 4s, 6s
+                                        _log.info("ozon bundle 429 order_id=%d, retry in %ds", order_id, wait)
+                                        _t.sleep(wait)
+                                    else:
+                                        _log.warning("ozon bundle qty order_id=%d: %s", order_id, bex)
+                                        break
+                            _t.sleep(0.4)  # 400ms between calls ≈ 2.5 req/s
 
                         with _ozon_sync_lock:
                             _ozon_sync_state["synced"] = total_synced
