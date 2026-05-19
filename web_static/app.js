@@ -2223,10 +2223,13 @@ function _renderSupplyDocButtons(item) {
   const _pRow = `display:flex;flex-wrap:nowrap;align-items:center;gap:2px;width:100%;min-width:0`;
   const _pBtn = `flex:0 0 26px;min-width:26px;width:26px;height:26px;padding:0;font-size:13px;font-family:'Segoe UI Symbol','Arial Unicode MS',sans-serif`;
 
-  // Упаковочный лист — одна кнопка
-  if (totalPalletsStr) {
-    html += `<div style="${_pRow}"><button class="supply-detail-link supply-packing-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="downloadPackingList(${item.supply_id})">⬇ Упаковочный лист</button><button class="supply-detail-link supply-print-btn" style="${_pBtn}" onclick="printPackingList(${item.supply_id})" title="Печать">⎙</button></div>`;
-  }
+  // Упаковочный лист — per driver (only pass_number changes)
+  validSlots.forEach((s, i) => {
+    if (!_isWbGiCode(s.pass_number)) return;
+    const dName = _shortDriverName(_effectiveName(s));
+    const label = multi ? `⬇ УЛ — ${dName || `Вод. ${i+1}`}` : "⬇ Упаковочный лист";
+    html += `<div style="${_pRow}"><button class="supply-detail-link supply-packing-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="downloadPackingListForSlot(${item.supply_id},${i})">${label}</button><button class="supply-detail-link supply-print-btn" style="${_pBtn}" onclick="printPackingListForSlot(${item.supply_id},${i})" title="Печать">⎙</button></div>`;
+  });
 
   // Доверенность — per driver
   validSlots.forEach((s, i) => {
@@ -3984,6 +3987,24 @@ function printTTNForSlot(supplyId, slotIdx) {
   if (!win) alert("Разрешите всплывающие окна для печати");
 }
 
+async function downloadPackingListForSlot(supplyId, slotIdx) {
+  const item = suppliesState.items.find(x => x.supply_id === supplyId || x.supply_id === Number(supplyId));
+  if (!item) return;
+  const slots = _getItemSlots(supplyId);
+  const slot = slots[slotIdx] || slots[0] || {};
+  const orig = item.pass_number;
+  item.pass_number = slot.pass_number || item.pass_number;
+  downloadPackingList(supplyId);
+  item.pass_number = orig;
+}
+
+function printPackingListForSlot(supplyId, slotIdx) {
+  const win = window.open(`/api/supplies/${supplyId}/packing-list.pdf?slot_index=${slotIdx}`, "_blank");
+  if (!win) alert("Разрешите всплывающие окна для печати");
+}
+
+window.downloadPackingListForSlot = downloadPackingListForSlot;
+window.printPackingListForSlot = printPackingListForSlot;
 window.downloadPoAForSlot = downloadPoAForSlot;
 window.printPoAForSlot = printPoAForSlot;
 window.downloadTTNForSlot = downloadTTNForSlot;

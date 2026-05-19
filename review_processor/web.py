@@ -5474,10 +5474,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         return []
 
     @app.get("/api/supplies/{supply_id}/packing-list.pdf")
-    def get_packing_list_pdf(request: Request, supply_id: int):
+    def get_packing_list_pdf(request: Request, supply_id: int, slot_index: int = 0):
         """Generate packing list HTML → PDF via LibreOffice."""
         import subprocess as _sp, tempfile as _tf, pathlib as _pl, os as _os
-        import html as _hm
+        import html as _hm, json as _jsl4
         from fastapi.responses import Response
         from datetime import datetime as _dtt
 
@@ -5512,18 +5512,22 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         box_labels = {0:"Не указан",1:"Короба",2:"Короба",5:"Монопаллеты / СГТ",6:"Паллеты"}
         box_label = box_labels.get(int(item.get("box_type_id") or 0), "")
 
-        pass_number   = str(item.get("pass_number") or "")
-        # Packing list: sum pallets across all slots
-        import json as _jsl3
-        _dj3 = item.get("drivers_json")
-        _slots3 = []
-        if _dj3:
-            try: _slots3 = _jsl3.loads(_dj3)
+        # Pick pass_number from slot (slot_index), pallets = that slot's pallets
+        _dj4 = item.get("drivers_json")
+        _slots4 = []
+        if _dj4:
+            try: _slots4 = _jsl4.loads(_dj4)
             except Exception: pass
-        if _slots3:
-            total_pallets = sum(int(s.get("pallets_count") or 0) for s in _slots3)
+        if _slots4 and slot_index < len(_slots4):
+            _s4 = _slots4[slot_index]
+            pass_number   = str(_s4.get("pass_number") or item.get("pass_number") or "")
+            pallets_count = str(_s4.get("pallets_count") or item.get("pallets_count") or "")
+        elif _slots4:
+            total_pallets = sum(int(s.get("pallets_count") or 0) for s in _slots4)
+            pass_number   = str(item.get("pass_number") or "")
             pallets_count = str(total_pallets) if total_pallets else str(item.get("pallets_count") or "")
         else:
+            pass_number   = str(item.get("pass_number") or "")
             pallets_count = str(item.get("pallets_count") or "")
         supply_id_str = str(supply_id)
 
