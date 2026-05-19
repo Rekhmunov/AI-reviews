@@ -1401,7 +1401,8 @@ class WildberriesMarketplaceClient:
                 headers={"Authorization": self.api_key, "Content-Type": "application/json"},
                 data=json.dumps({"replySign": reply_sign, "message": response_text}).encode("utf-8"),
             )
-            raw = _request_json(request=request, timeout=self.timeout, source="wb", retries=1)
+            raw = _request_json(request=request, timeout=self.timeout, source="wb",
+                                retries=2, retry_5xx=True)
             _raise_if_error_payload(raw, source="wb")
             # Store the WB addTime so caller can look up the eventID
             if isinstance(raw, dict):
@@ -5193,7 +5194,8 @@ def _raise_if_error_payload(payload: object, *, source: str) -> None:
         raise MarketplaceSyncError(source, f"{source} error: {payload.get('errorText')}")
 
 
-def _request_json(*, request: Request, timeout: int, source: str, retries: int = 2) -> object:
+def _request_json(*, request: Request, timeout: int, source: str, retries: int = 2,
+                  retry_5xx: bool = False) -> object:
     """Execute an HTTP request and return the parsed JSON response.
 
     Retryable errors (network, timeout, JSON parse): up to ``retries`` retries
@@ -5204,10 +5206,14 @@ def _request_json(*, request: Request, timeout: int, source: str, retries: int =
     ``retries`` 429 responses the error is re-raised so the caller can handle
     it gracefully (log as access-rate issue, not a hard failure).
 
-    All other HTTP errors (4xx except 429, 5xx) are raised immediately.
+    HTTP 5xx (when retry_5xx=True): retried with 2s/4s backoff — handles
+    transient WB server errors like 'no free connections available'.
+
+    All other HTTP errors (4xx except 429) are raised immediately.
     """
     attempt = 0
     rate_limit_attempt = 0
+    server_error_attempt = 0
     while True:
         try:
             with urlopen(request, timeout=timeout) as response:
@@ -5227,6 +5233,14 @@ def _request_json(*, request: Request, timeout: int, source: str, retries: int =
                 wait_sec = 60 * rate_limit_attempt
                 time.sleep(wait_sec)
                 continue
+            if retry_5xx and exc.code >= 500:
+                # Transient server error (e.g. WB "no free connections") — retry with backoff.
+                server_error_attempt += 1
+                if server_error_attempt <= retries:
+                    _log.warning("%s HTTP %d on attempt %d — retrying in %ds",
+                                 source, exc.code, server_error_attempt, 2 * server_error_attempt)
+                    time.sleep(2 * server_error_attempt)
+                    continue
             message = f"{source} HTTP error {exc.code}"
             try:
                 body_text = exc.read().decode("utf-8")
