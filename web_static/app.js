@@ -2183,6 +2183,16 @@ function _supplyWarehouseLabel(item) {
   return "—";
 }
 
+// Abbreviate driver name: "Иванов Иван Иванович" → "Иванов И.И."
+function _shortDriverName(fullName) {
+  if (!fullName) return "";
+  const parts = fullName.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0];
+  const last = parts[0];
+  const initials = parts.slice(1).map(p => p[0] ? p[0].toUpperCase() + "." : "").join("");
+  return last + " " + initials;
+}
+
 function _renderSupplyDocButtons(item) {
   // Parse slots from drivers_json or legacy fields
   let slots = [];
@@ -2192,7 +2202,6 @@ function _renderSupplyDocButtons(item) {
   if (!slots.length) {
     slots = [{ pass_number: item.pass_number || "", driver_name: item.driver_name || "", pallets_count: item.pallets_count || "" }];
   }
-  // Filter slots with valid WB-GI code
   const validSlots = slots.filter(s => _isWbGiCode(s.pass_number));
   if (!validSlots.length) return "";
 
@@ -2203,28 +2212,30 @@ function _renderSupplyDocButtons(item) {
 
   // ШК поставки — per driver
   validSlots.forEach((s, i) => {
-    const label = multi ? `⬇ ШК поставки — ${s.driver_name || `Водитель ${i+1}`}` : "⬇ ШК поставки";
-    const slotJson = encodeURIComponent(JSON.stringify(s));
+    const dName = _shortDriverName(s.driver_name || "");
+    const label = multi ? `⬇ ШК — ${dName || `Вод. ${i+1}`}` : "⬇ ШК поставки";
     html += `<button class="supply-detail-link supply-barcode-link" onclick="downloadSupplyBarcode('${esc(s.pass_number)}',${item.supply_id})">${label}</button>`;
   });
 
-  // Упаковочный лист — единственная кнопка
+  // Упаковочный лист — одна кнопка
   if (totalPalletsStr) {
-    html += `<div style="display:flex;gap:4px;align-items:center"><button class="supply-detail-link supply-packing-link" style="flex:1" onclick="downloadPackingList(${item.supply_id})">⬇ Упаковочный лист</button><button class="supply-detail-link supply-print-btn" onclick="printPackingList(${item.supply_id})" title="Печать">🖨</button></div>`;
+    html += `<div><button class="supply-detail-link supply-packing-link" onclick="downloadPackingList(${item.supply_id})">⬇ Упаковочный лист</button><button class="supply-detail-link supply-print-btn" onclick="printPackingList(${item.supply_id})" title="Печать">🖨</button></div>`;
   }
 
   // Доверенность — per driver
   validSlots.forEach((s, i) => {
     if (!s.driver_name) return;
-    const label = multi ? `⬇ Доверенность — ${s.driver_name}` : "⬇ Доверенность";
-    html += `<div style="display:flex;gap:4px;align-items:center"><button class="supply-detail-link supply-poa-link" style="flex:1" onclick="downloadPoAForSlot(${item.supply_id},${i})">${label}</button><button class="supply-detail-link supply-print-btn" onclick="printPoAForSlot(${item.supply_id},${i})" title="Печать">🖨</button></div>`;
+    const dName = _shortDriverName(s.driver_name);
+    const label = multi ? `⬇ Довер. — ${dName}` : "⬇ Доверенность";
+    html += `<div><button class="supply-detail-link supply-poa-link" onclick="downloadPoAForSlot(${item.supply_id},${i})">${label}</button><button class="supply-detail-link supply-print-btn" onclick="printPoAForSlot(${item.supply_id},${i})" title="Печать">🖨</button></div>`;
   });
 
   // ТТН — per driver
   validSlots.forEach((s, i) => {
     if (!s.driver_name) return;
-    const label = multi ? `⬇ ТТН — ${s.driver_name}` : "⬇ ТТН";
-    html += `<div style="display:flex;gap:4px;align-items:center"><button class="supply-detail-link supply-ttn-link" style="flex:1" onclick="downloadTTNForSlot(${item.supply_id},${i})">${label}</button><button class="supply-detail-link supply-print-btn" onclick="printTTNForSlot(${item.supply_id},${i})" title="Печать">🖨</button></div>`;
+    const dName = _shortDriverName(s.driver_name);
+    const label = multi ? `⬇ ТТН — ${dName}` : "⬇ ТТН";
+    html += `<div><button class="supply-detail-link supply-ttn-link" onclick="downloadTTNForSlot(${item.supply_id},${i})">${label}</button><button class="supply-detail-link supply-print-btn" onclick="printTTNForSlot(${item.supply_id},${i})" title="Печать">🖨</button></div>`;
   });
 
   return html;
