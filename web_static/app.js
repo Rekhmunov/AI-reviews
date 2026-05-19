@@ -2543,7 +2543,7 @@ function _sdRenderSlots() {
     html += `<div class="supply-detail-row">
       <span class="supply-detail-label">ШК поставки</span>
       <div style="display:flex;gap:6px;align-items:center;flex:1">
-        <input data-field="pass_number" type="text" class="supply-detail-input" style="flex:1"
+        <input data-field="pass_number" type="text" class="supply-detail-input"
                value="${esc(slot.pass_number)}" placeholder="WB-GI-XXXXXXX" autocomplete="off" />
         ${isFirst
           ? `<button type="button" class="secondary icon-btn" onclick="sdAddSlot()" title="Добавить водителя" style="flex-shrink:0;width:32px;height:32px;font-size:15px">＋</button>`
