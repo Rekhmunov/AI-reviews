@@ -2221,7 +2221,7 @@ function _renderSupplyDocButtons(item) {
   });
 
   const _pRow = `display:flex;flex-wrap:nowrap;align-items:center;gap:2px;width:100%;min-width:0`;
-  const _pBtn = `flex:0 0 28px;min-width:28px;width:28px;height:28px;padding:0;font-size:13px;font-family:'Segoe UI Symbol','Arial Unicode MS',sans-serif`;
+  const _pBtn = `flex:0 0 34px;min-width:34px;width:34px;height:28px;padding:0;font-size:15px;font-family:'Segoe UI Symbol','Arial Unicode MS',sans-serif`;
 
   // Упаковочный лист — per driver (only pass_number changes)
   validSlots.forEach((s, i) => {

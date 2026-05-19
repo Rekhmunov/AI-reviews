@@ -5047,12 +5047,12 @@ button.secondary.danger:hover {
   white-space: nowrap;
 }
 .supply-print-btn {
-  flex: 0 0 28px !important;
-  width: 28px !important;
-  min-width: 28px !important;
+  flex: 0 0 34px !important;
+  width: 34px !important;
+  min-width: 34px !important;
   height: 28px !important;
   padding: 0 !important;
-  font-size: 14px !important;
+  font-size: 15px !important;
   font-family: "Segoe UI Symbol", "Arial Unicode MS", sans-serif !important;
   line-height: 1 !important;
 }
