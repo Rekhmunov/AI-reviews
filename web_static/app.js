@@ -4475,6 +4475,236 @@ window.closeOzonDetailsModal = closeOzonDetailsModal;
 window.saveOzonManualFields = saveOzonManualFields;
 window.onOzonCheckboxChange = onOzonCheckboxChange;
 window.toggleSelectAllOzon = toggleSelectAllOzon;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// OZON BINDING MERGE MODULE
+// ═══════════════════════════════════════════════════════════════════════════
+
+let _ozonBindFiles   = [];   // [{name, normalizedName, arrayBuffer}]
+let _ozonBindMerged  = [];   // [{name, blob}]
+
+function openOzonBindingModal() {
+  const m = document.getElementById("ozonBindingModal");
+  if (m) { m.classList.remove("hidden"); }
+}
+function closeOzonBindingModal() {
+  const m = document.getElementById("ozonBindingModal");
+  if (m) { m.classList.add("hidden"); }
+}
+window.openOzonBindingModal = openOzonBindingModal;
+window.closeOzonBindingModal = closeOzonBindingModal;
+
+function ozonBindLoad() {
+  document.getElementById("ozonBindFileInput")?.click();
+}
+window.ozonBindLoad = ozonBindLoad;
+
+async function ozonBindOnFiles(fileList) {
+  if (!fileList || !fileList.length) return;
+  _bindLog("Загрузка файлов…", "info");
+  for (const file of fileList) {
+    const buf = await file.arrayBuffer();
+    const norm = _bindNormName(file.name);
+    _ozonBindFiles.push({ name: file.name, normalizedName: norm, arrayBuffer: buf });
+    _bindLog(`✓ Загружен: <b>${esc(file.name)}</b>`, "ok");
+  }
+  _bindLog(`Всего загружено: <b>${_ozonBindFiles.length}</b> файлов.`, "info");
+  document.getElementById("ozonBindMergeBtn").disabled = _ozonBindFiles.length < 2;
+  document.getElementById("ozonBindDownloadBtn").disabled = true;
+  document.getElementById("ozonBindDownloadBtn").style.opacity = "0.4";
+  document.getElementById("ozonBindFileInput").value = "";
+}
+window.ozonBindOnFiles = ozonBindOnFiles;
+
+function ozonBindClear() {
+  _ozonBindFiles = [];
+  _ozonBindMerged = [];
+  _bindLog("🗑 Все файлы удалены.", "warn");
+  document.getElementById("ozonBindMergeBtn").disabled = true;
+  document.getElementById("ozonBindDownloadBtn").disabled = true;
+  document.getElementById("ozonBindDownloadBtn").style.opacity = "0.4";
+}
+window.ozonBindClear = ozonBindClear;
+
+function _bindNormName(fileName) {
+  // Remove extension, replace underscores/dashes with space, collapse spaces, lowercase
+  return fileName
+    .replace(/\.xlsx?$/i, "")
+    .replace(/[_\-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+async function ozonBindMerge() {
+  if (!_ozonBindFiles.length) return;
+  _bindLog("═══════════════════════════════", "info");
+  _bindLog("⚡ Начало объединения…", "info");
+  _ozonBindMerged = [];
+
+  // Group files by normalized name
+  const groups = new Map(); // normalizedName → [{name, arrayBuffer}]
+  for (const f of _ozonBindFiles) {
+    if (!groups.has(f.normalizedName)) groups.set(f.normalizedName, []);
+    groups.get(f.normalizedName).push(f);
+  }
+
+  let mergedCount = 0;
+  let skippedCount = 0;
+
+  for (const [normName, files] of groups) {
+    if (files.length === 1) {
+      _bindLog(`<span style="color:#b91c1c">⚠ Нет пары для: <b>${esc(files[0].name)}</b> — файл не объединён</span>`, "err");
+      skippedCount++;
+      continue;
+    }
+
+    _bindLog(`📎 Объединение <b>${files.length}</b> файлов: «${esc(files[0].name)}»`, "info");
+
+    try {
+      if (typeof JSZip === "undefined") {
+        _bindLog('<span style="color:#b91c1c">Ошибка: JSZip не загружен. Перезагрузите страницу.</span>', "err");
+        return;
+      }
+      const mergedBlob = await _bindMergeXlsx(files);
+      const outputName = files[0].name; // Use first file's original name
+      _ozonBindMerged.push({ name: outputName, blob: mergedBlob });
+      _bindLog(`✅ Объединено → <b>${esc(outputName)}</b> (${files.length} источника)`, "ok");
+      mergedCount++;
+    } catch (e) {
+      _bindLog(`<span style="color:#b91c1c">❌ Ошибка объединения «${esc(files[0].name)}»: ${esc(String(e))}</span>`, "err");
+      skippedCount++;
+    }
+  }
+
+  _bindLog("═══════════════════════════════", "info");
+  _bindLog(`Готово. Объединено: <b>${mergedCount}</b>. Не объединено: <b style="color:${skippedCount?'#b91c1c':'inherit'}">${skippedCount}</b>.`, "info");
+
+  const canDownload = _ozonBindMerged.length > 0;
+  document.getElementById("ozonBindDownloadBtn").disabled = !canDownload;
+  document.getElementById("ozonBindDownloadBtn").style.opacity = canDownload ? "1" : "0.4";
+}
+window.ozonBindMerge = ozonBindMerge;
+
+async function _bindMergeXlsx(files) {
+  // Load all zips
+  const zips = [];
+  for (const f of files) {
+    const z = await JSZip.loadAsync(f.arrayBuffer);
+    zips.push(z);
+  }
+
+  // Use first file as base
+  const baseZip = zips[0];
+
+  // Find the first sheet XML path in workbook
+  const sheetPath = await _bindFindSheetPath(baseZip);
+
+  // Get base sheet XML
+  let baseSheetXml = await baseZip.file(sheetPath)?.async("string") || "";
+
+  // Extract header row and data rows from base
+  const baseRows = _bindExtractRows(baseSheetXml);
+  let allDataRows = baseRows.slice(1); // rows 2+ from base (skip header)
+
+  // Append data rows from other files
+  for (let i = 1; i < zips.length; i++) {
+    const sp = await _bindFindSheetPath(zips[i]);
+    const xml = await zips[i].file(sp)?.async("string") || "";
+    const rows = _bindExtractRows(xml);
+    allDataRows = allDataRows.concat(rows.slice(1)); // skip header row
+  }
+
+  // Renumber all rows (header=1, data=2,3,...)
+  const headerRow = _bindRenumberRow(baseRows[0], 1);
+  const numberedData = allDataRows.map((r, idx) => _bindRenumberRow(r, idx + 2));
+  const newRows = [headerRow, ...numberedData].join("\n");
+
+  // Replace sheetData in base XML
+  const newSheetXml = baseSheetXml.replace(
+    /<sheetData>[\s\S]*?<\/sheetData>/,
+    `<sheetData>\n${newRows}\n</sheetData>`
+  );
+
+  // Build output zip (copy base, replace sheet)
+  const outZip = new JSZip();
+  const baseFiles = baseZip.files;
+  for (const [path, zipObj] of Object.entries(baseFiles)) {
+    if (zipObj.dir) { outZip.folder(path); continue; }
+    if (path === sheetPath) {
+      outZip.file(path, newSheetXml);
+    } else {
+      const content = await zipObj.async("arraybuffer");
+      outZip.file(path, content);
+    }
+  }
+
+  return await outZip.generateAsync({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+}
+
+async function _bindFindSheetPath(zip) {
+  // Default: xl/worksheets/sheet1.xml
+  // Check workbook.xml.rels for sheet order
+  const defaultPath = "xl/worksheets/sheet1.xml";
+  if (zip.file(defaultPath)) return defaultPath;
+  // Try to find any sheet
+  const keys = Object.keys(zip.files);
+  const sheet = keys.find(k => k.match(/xl\/worksheets\/sheet\d+\.xml/));
+  return sheet || defaultPath;
+}
+
+function _bindExtractRows(sheetXml) {
+  // Extract <row ...>...</row> elements from sheetData
+  const sdMatch = sheetXml.match(/<sheetData>([\s\S]*?)<\/sheetData>/);
+  if (!sdMatch) return [];
+  const sdContent = sdMatch[1];
+  const rows = [];
+  const rowRegex = /<row\b[^>]*>[\s\S]*?<\/row>/g;
+  let m;
+  while ((m = rowRegex.exec(sdContent)) !== null) {
+    rows.push(m[0]);
+  }
+  return rows;
+}
+
+function _bindRenumberRow(rowXml, newRowNum) {
+  // Update r="N" attribute on <row> element
+  let updated = rowXml.replace(/(<row\b[^>]*\b)r="(\d+)"/, `$1r="${newRowNum}"`);
+  // Update cell r="X{N}" references (column letter + row number)
+  updated = updated.replace(/\br="([A-Z]+)\d+"/g, `r="$1${newRowNum}"`);
+  return updated;
+}
+
+async function ozonBindDownload() {
+  if (!_ozonBindMerged.length) return;
+  _bindLog("⬇ Скачивание файлов…", "info");
+  for (let i = 0; i < _ozonBindMerged.length; i++) {
+    const { name, blob } = _ozonBindMerged[i];
+    await new Promise(resolve => setTimeout(resolve, i * 300)); // small delay between downloads
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = name; a.style.display = "none";
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    _bindLog(`⬇ Скачивается: <b>${esc(name)}</b>`, "ok");
+  }
+}
+window.ozonBindDownload = ozonBindDownload;
+
+function _bindLog(html, type) {
+  const log = document.getElementById("ozonBindLog");
+  if (!log) return;
+  // Clear placeholder on first real message
+  if (log.querySelector("span[style*='94a3b8']")) log.innerHTML = "";
+  const line = document.createElement("div");
+  line.innerHTML = html;
+  if (type === "err") line.style.color = "#b91c1c";
+  else if (type === "ok") line.style.color = "#16a34a";
+  else if (type === "warn") line.style.color = "#d97706";
+  log.appendChild(line);
+  log.scrollTop = log.scrollHeight;
+}
 window.onOzonDriverSelectChange = onOzonDriverSelectChange;
 
 function copyOzonDetails() {
