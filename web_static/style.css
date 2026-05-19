@@ -4801,9 +4801,9 @@ button.secondary.danger:hover {
   flex-direction: column;
   gap: 7px;
 }
-/* Slot rows use same 24px horizontal padding as parent sections */
+/* Slot rows — no extra padding, align with parent section rows */
 .sd-slot .supply-detail-row {
-  padding: 0 12px;
+  padding: 0;
 }
 
 .supply-details-section-label {
@@ -4856,12 +4856,12 @@ button.secondary.danger:hover {
 }
 .supply-detail-input::placeholder { color: #94a3b8; font-style: italic; }
 
-/* Driver slot card — labels aligned with main rows */
+/* Driver slot card — rows align flush with parent section rows */
 .sd-slot {
   background: #f8fafc;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
-  padding: 10px 0 10px;
+  padding: 8px 0;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -4874,7 +4874,7 @@ button.secondary.danger:hover {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   margin-bottom: 2px;
-  padding: 0 12px;
+  padding: 0;
 }
 
 .supply-details-footer {
