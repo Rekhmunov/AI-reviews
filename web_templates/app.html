@@ -1073,24 +1073,24 @@
         <div class="panel supplies-table-panel">
           <div class="supplies-table-wrap">
             <table id="ozonSuppliesTable" class="supplies-main-table">
-              <colgroup>
-                <col style="width:32px" />
-                <col style="width:3%" /><col style="width:11%" /><col style="width:11%" />
-                <col style="width:15%" /><col style="width:9%" /><col style="width:9%" />
-                <col style="width:6%" /><col style="width:11%" /><col />
+              <colgroup id="ozonSuppliesColgroup">
+                <col data-fixed="1" style="width:32px" />
+                <col data-col="0" /><col data-col="1" /><col data-col="2" />
+                <col data-col="3" /><col data-col="4" /><col data-col="5" />
+                <col data-col="6" /><col data-col="7" /><col data-col="8" />
               </colgroup>
               <thead>
                 <tr>
                   <th style="width:32px;padding:0 4px;text-align:center"><input type="checkbox" id="ozonSelectAll" onchange="toggleSelectAllOzon(this.checked)" /></th>
-                  <th></th>
-                  <th>№ поставки</th>
-                  <th>Юр. лицо</th>
-                  <th>Склад</th>
-                  <th>Производство</th>
-                  <th>Дата поставки</th>
-                  <th>Кол-во</th>
-                  <th>Статус</th>
-                  <th>Ссылки</th>
+                  <th class="supplies-col-expand" data-col="0"></th>
+                  <th data-col="1">№ поставки<span class="col-resize-handle"></span></th>
+                  <th data-col="2">Юр. лицо<span class="col-resize-handle"></span></th>
+                  <th data-col="3">Склад<span class="col-resize-handle"></span></th>
+                  <th data-col="4">Производство<span class="col-resize-handle"></span></th>
+                  <th data-col="5">Дата поставки<span class="col-resize-handle"></span></th>
+                  <th data-col="6">Кол-во<span class="col-resize-handle"></span></th>
+                  <th data-col="7">Статус<span class="col-resize-handle"></span></th>
+                  <th data-col="8">Ссылки<span class="col-resize-handle"></span></th>
                 </tr>
               </thead>
               <tbody id="ozonSuppliesTbody"></tbody>

@@ -556,6 +556,7 @@ function showSection(section, options = {}) {
   }
   if (section === "supplies-ozon") {
     if (!ozonState.items.length) loadOzonSupplies(true);
+    initOzonSuppliesColumnResizer();
   }
 }
 
@@ -4325,7 +4326,7 @@ function renderOzonTable() {
       <td class="supply-links-cell">
         <div class="supply-links-col">
           <button class="supply-detail-link" onclick="openOzonDetailsModal(${item.supply_order_id})">☰ Детали поставки</button>
-          <div style="display:flex;flex-wrap:nowrap;align-items:center;gap:2px;width:100%;min-width:0"><button class="supply-detail-link supply-poa-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="window.open('/api/ozon-supplies/${item.supply_order_id}/poa.pdf','_blank')">⬇ Доверенность</button><button class="supply-detail-link supply-print-btn" style="flex:0 0 60px;min-width:60px;width:60px;height:28px;padding:0;font-size:13px;font-family:'Segoe UI Symbol','Arial Unicode MS',sans-serif" onclick="window.open('/api/ozon-supplies/${item.supply_order_id}/poa.pdf','_blank')" title="Печать">⎙</button></div>
+          <div style="display:flex;flex-wrap:nowrap;align-items:center;gap:2px;width:100%;min-width:0"><button class="supply-detail-link supply-poa-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="downloadOzonPoA(${item.supply_order_id})">⬇ Доверенность</button><button class="supply-detail-link supply-print-btn" style="flex:0 0 60px;min-width:60px;width:60px;height:28px;padding:0;font-size:13px;font-family:'Segoe UI Symbol','Arial Unicode MS',sans-serif;display:flex;align-items:center;justify-content:center" onclick="window.open('/api/ozon-supplies/${item.supply_order_id}/poa.pdf','_blank')" title="Печать">⎙</button></div>
           <div style="display:flex;flex-wrap:nowrap;align-items:center;gap:2px;width:100%;min-width:0"><button class="supply-detail-link supply-ttn-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="window.open('/api/ozon-supplies/${item.supply_order_id}/ttn.pdf','_blank')">⬇ ТТН</button><button class="supply-detail-link supply-print-btn" style="flex:0 0 60px;min-width:60px;width:60px;height:28px;padding:0;font-size:13px;font-family:'Segoe UI Symbol','Arial Unicode MS',sans-serif" onclick="window.open('/api/ozon-supplies/${item.supply_order_id}/ttn.pdf','_blank')" title="Печать">⎙</button></div>
         </div>
       </td>`;
@@ -4589,6 +4590,193 @@ window.closeOzonDetailsModal = closeOzonDetailsModal;
 window.saveOzonManualFields = saveOzonManualFields;
 window.onOzonCheckboxChange = onOzonCheckboxChange;
 window.toggleSelectAllOzon = toggleSelectAllOzon;
+
+async function downloadOzonPoA(supplyId) {
+  const item = (ozonState.allItems || ozonState.items || []).find(x => x.supply_order_id === supplyId || x.supply_order_id === Number(supplyId));
+  if (!item) return;
+
+  const now = new Date();
+  const dd = String(now.getDate()).padStart(2, "0");
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const yyyy = now.getFullYear();
+  const dateDisplay = `${dd}.${mm}.${yyyy}`;
+
+  // Legal entity — same cache as WB
+  const supplierShort = item.supplier_name || "";
+  const le = _supplyLegalEntitiesCache.find(e => e.short_name === supplierShort) || (_supplyLegalEntitiesCache[0] || {});
+  const orgFull = le.full_name || supplierShort;
+  const orgReq = le.requisites || "";
+  const orgLine = [orgFull, orgReq].filter(Boolean).join(", ");
+
+  // Driver from OZON vehicle API
+  let driverName = "";
+  let driverDocs = "";
+  try {
+    const vr = await fetch(`/api/ozon-supplies/${supplyId}/vehicle`, {credentials: 'include'}).catch(() => null);
+    if (vr && vr.ok) {
+      const vd = await vr.json().catch(() => ({}));
+      const v = vd.vehicle || {};
+      driverName = v.driver_name || "";
+      driverDocs = v.driver_phone || "";
+    }
+  } catch(_) {}
+
+  // Goods
+  let poaGoods = [];
+  try {
+    const gr = await fetch(`/api/ozon-supplies/${supplyId}/goods`, {credentials: 'include'}).catch(() => null);
+    if (gr && gr.ok) poaGoods = await gr.json().catch(() => []);
+  } catch(_) {}
+  if (!poaGoods.length) poaGoods = [{ name: "Товары OZON", offer_id: "", quantity: "—" }];
+
+  const supplyNum = String(item.supply_order_number || "");
+  const wh = String(item.warehouse_name || "");
+
+  const html = `
+<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"
+  xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="utf-8">
+<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View></w:WordDocument></xml><![endif]-->
+<style>
+  @page { size: 210mm 297mm; margin: 15mm 10mm 15mm 25mm; }
+  body { font-family: "Times New Roman", serif; font-size: 11pt; line-height: 1.4; }
+  .small { font-size: 8pt; text-align: center; }
+  .underline { text-decoration: underline; }
+  .center { text-align: center; }
+  .bold { font-weight: bold; }
+  table.outer { width: 100%; border-collapse: collapse; margin-bottom: 8pt; }
+  table.codes { border-collapse: collapse; margin-left: auto; font-size: 9pt; }
+  table.codes td { border: 1px solid #000; padding: 2pt 6pt; }
+  table.mat { width: 100%; border-collapse: collapse; margin-top: 6pt; font-size: 10pt; }
+  table.mat td, table.mat th { border: 1px solid #000; padding: 3pt 5pt; text-align: center; }
+  .dotline { display: inline-block; border-bottom: 1px solid #000; min-width: 120pt; }
+  p { margin: 3pt 0; }
+</style>
+</head>
+<body>
+<table class="outer">
+  <tr>
+    <td style="width:55%;vertical-align:top;font-size:11pt">
+      Организация <span class="underline">${esc(orgFull)}</span>
+    </td>
+    <td style="width:45%;vertical-align:top;text-align:right;font-size:8pt">
+      Типовая межотраслевая форма № М-2<br>
+      Утверждена постановлением Госстата России от 30.10.97 № 71а<br><br>
+      <table class="codes">
+        <tr><td colspan="2" class="bold center">Коды</td></tr>
+        <tr><td>Форма по ОКУД</td><td>0315001</td></tr>
+        <tr><td>по ОКПО</td><td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td></tr>
+      </table>
+    </td>
+  </tr>
+</table>
+
+<p style="text-align:center;font-size:14pt;font-weight:bold;margin:10pt 0 4pt"><b>Доверенность № ${esc(supplyNum)}</b></p>
+
+<p>Дата выдачи <span class="underline bold">${dateDisplay}</span></p>
+<p>Доверенность действительна 14 дней с даты подписания.</p>
+<p style="margin-top:6pt">${esc(orgLine)}</p>
+<p class="small">наименование потребителя и его адрес</p>
+<p style="margin-top:4pt">${esc(orgLine)}</p>
+<p class="small">наименование плательщика и его адрес</p>
+
+<p style="margin-top:8pt">
+  Доверенность выдана &nbsp;&nbsp;
+  <span class="underline" style="min-width:60pt;display:inline-block">водителю</span>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <span class="underline">${esc(driverName)}</span>
+</p>
+<p class="small" style="padding-left:120pt">должность &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; фамилия, имя, отчество</p>
+
+${driverDocs ? `<p>${esc(driverDocs)}</p>` : ""}
+
+<p style="margin-top:6pt">
+  На отправку груза от &nbsp;&nbsp;
+  <span class="underline">&nbsp;&nbsp;&nbsp;&nbsp;${esc(wh)}&nbsp;&nbsp;&nbsp;&nbsp;</span>
+</p>
+<p class="small" style="text-align:center">наименование поставщика</p>
+
+<p style="margin-top:4pt">
+  материальных ценностей по транспортной накладной &nbsp;
+  <span class="underline bold">${esc(supplyNum)}</span>
+  &nbsp; от &nbsp;
+  <span class="underline bold">${dateDisplay}</span>
+</p>
+<p class="small">наименование, номер и дата документа</p>
+
+<p style="margin-top:10pt">Перечень материальных ценностей, подлежащих доставке</p>
+<table class="mat">
+  <tr>
+    <th style="width:8%">Номер по порядку</th>
+    <th style="width:44%">Материальные ценности</th>
+    <th style="width:16%">Единица измерения</th>
+    <th style="width:32%">Количество</th>
+  </tr>
+  ${poaGoods.map((g, i) => `<tr>
+    <td>${i+1}</td>
+    <td>${esc(g.name || g.offer_id || "Товар")}</td>
+    <td>шт.</td>
+    <td>${g.quantity ?? "—"}</td>
+  </tr>`).join("")}
+</table>
+
+<p style="margin-top:18pt">
+  Подпись лица, получившего доверенность удостоверяем.
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <span class="dotline">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
+  &nbsp;&nbsp;
+  (${esc(driverName)})
+</p>
+
+<table style="width:100%;margin-top:18pt;border-collapse:collapse">
+  <tr>
+    <td style="width:25%;vertical-align:bottom">Руководитель<br><span style="font-size:8pt">М.П.</span></td>
+    <td style="width:30%;vertical-align:bottom;text-align:center">
+      <span class="dotline">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><br>
+      <span class="small">подпись</span>
+    </td>
+    <td style="width:45%;vertical-align:bottom;text-align:center">
+      (${esc(le.signatories || supplierShort)})<br>
+      <span class="small">расшифровка подписи</span>
+    </td>
+  </tr>
+</table>
+
+<table style="width:100%;margin-top:14pt;border-collapse:collapse">
+  <tr>
+    <td style="width:25%;vertical-align:bottom">Главный бухгалтер</td>
+    <td style="width:30%;vertical-align:bottom;text-align:center">
+      <span class="dotline">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><br>
+      <span class="small">подпись</span>
+    </td>
+    <td style="width:45%;vertical-align:bottom;text-align:center">
+      (${esc(le.signatories || supplierShort)})<br>
+      <span class="small">расшифровка подписи</span>
+    </td>
+  </tr>
+</table>
+
+</body></html>`;
+
+  const blob = new Blob(["\uFEFF" + html], { type: "application/msword" });
+  const url = URL.createObjectURL(blob);
+  const supplyDateDisp = item.supply_date
+    ? new Date(item.supply_date).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" })
+    : dateDisplay;
+  const poaFileName = `Доверенность №${supplyNum}, ${supplierShort} от ${supplyDateDisp}, ${wh}, ${driverName}.doc`;
+  const winPoa = window.open("", "_blank");
+  if (winPoa) {
+    const a = winPoa.document.createElement("a");
+    a.href = url; a.download = poaFileName;
+    winPoa.document.body.appendChild(a); a.click();
+    setTimeout(() => { try { winPoa.close(); } catch(_){} URL.revokeObjectURL(url); }, 1500);
+  } else {
+    const a = document.createElement("a");
+    a.href = url; a.download = poaFileName; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }
+}
+window.downloadOzonPoA = downloadOzonPoA;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // OZON BINDING MERGE MODULE
@@ -5337,6 +5525,87 @@ function _getSuppliesColWidths() {
 }
 
 function toggleSuppliesFilter() { /* legacy stub */ }
+
+// ── OZON Supplies column resizer ──
+const OZON_SUPPLIES_COL_WIDTHS_KEY = "ozon_supplies_col_widths";
+// Default widths as percentages (9 logical cols: expand, id, legal, wh, prod, date, qty, status, links)
+const OZON_SUPPLIES_DEFAULT_WIDTHS = [3, 9, 11, 19, 9, 9, 6, 11, 23];
+let _ozonColResizerInited = false;
+
+function initOzonSuppliesColumnResizer() {
+  const table = document.getElementById("ozonSuppliesTable");
+  if (!table) return;
+
+  // Apply saved/default widths every time (handles page reloads)
+  let widths = OZON_SUPPLIES_DEFAULT_WIDTHS.slice();
+  try {
+    const saved = JSON.parse(localStorage.getItem(OZON_SUPPLIES_COL_WIDTHS_KEY) || "null");
+    if (Array.isArray(saved) && saved.length === widths.length) widths = saved;
+    else if (Array.isArray(saved)) localStorage.removeItem(OZON_SUPPLIES_COL_WIDTHS_KEY);
+  } catch (_) {}
+  _applyOzonSuppliesColWidths(widths);
+
+  // Attach drag handlers only once
+  if (_ozonColResizerInited) return;
+  _ozonColResizerInited = true;
+
+  table.querySelectorAll("th .col-resize-handle").forEach((handle) => {
+    let startX = 0, colIdx = 0, startWidths = [];
+    handle.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const th = handle.parentElement;
+      colIdx = parseInt(th.getAttribute("data-col") || "0");
+      startX = e.clientX;
+      startWidths = _getOzonSuppliesColWidths();
+      document.addEventListener("mousemove", onMouseMove);
+      document.addEventListener("mouseup", onMouseUp);
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+    });
+    function onMouseMove(e) {
+      const tableEl = document.getElementById("ozonSuppliesTable");
+      if (!tableEl) return;
+      const tableW = tableEl.offsetWidth || 1;
+      const deltaPct = ((e.clientX - startX) / tableW) * 100;
+      const newWidths = startWidths.slice();
+      const minPct = 3;
+      const nextIdx = colIdx < newWidths.length - 1 ? colIdx + 1 : colIdx - 1;
+      let newCur = Math.max(minPct, startWidths[colIdx] + deltaPct);
+      let newNext = Math.max(minPct, startWidths[nextIdx] - deltaPct);
+      if (newNext < minPct) {
+        newCur = startWidths[colIdx] + (startWidths[nextIdx] - minPct);
+        newNext = minPct;
+      }
+      newWidths[colIdx] = Math.round(newCur * 10) / 10;
+      newWidths[nextIdx] = Math.round(newNext * 10) / 10;
+      _applyOzonSuppliesColWidths(newWidths);
+    }
+    function onMouseUp() {
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      try {
+        localStorage.setItem(OZON_SUPPLIES_COL_WIDTHS_KEY, JSON.stringify(_getOzonSuppliesColWidths()));
+      } catch (_) {}
+    }
+  });
+}
+
+function _applyOzonSuppliesColWidths(widths) {
+  const cols = Array.from(document.querySelectorAll("#ozonSuppliesColgroup col"))
+    .filter(c => !c.dataset.fixed);
+  cols.forEach((col, i) => {
+    if (widths[i] !== undefined) col.style.width = widths[i] + "%";
+  });
+}
+
+function _getOzonSuppliesColWidths() {
+  const cols = Array.from(document.querySelectorAll("#ozonSuppliesColgroup col"))
+    .filter(c => !c.dataset.fixed);
+  return cols.map((col) => parseFloat(col.style.width) || OZON_SUPPLIES_DEFAULT_WIDTHS[0]);
+}
 
 // ── Supplies date range calendar ──
 const _cal = {
@@ -9824,6 +10093,7 @@ document.addEventListener("DOMContentLoaded", () => {
       loadPoARecords(),
     ]).then(() => loadSupplies()).catch(() => {});
     initSuppliesColumnResizer();
+    initOzonSuppliesColumnResizer();
   }
   // Load stock sources/reports lazily
   loadStockSources().then(() => loadStockReports()).catch(() => {});
@@ -10590,6 +10860,7 @@ window.downloadTTN = downloadTTN;
 window.printTTN = printTTN;
 window.downloadSupplyBarcode = downloadSupplyBarcode;
 window.initSuppliesColumnResizer = initSuppliesColumnResizer;
+window.initOzonSuppliesColumnResizer = initOzonSuppliesColumnResizer;
 window.toggleSuppliesFilter = toggleSuppliesFilter;
 window.toggleSuppliesDatePanel = toggleSuppliesDatePanel;
 window.applySuppliesDateFilter = applySuppliesDateFilter;
