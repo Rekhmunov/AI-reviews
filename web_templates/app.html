@@ -1189,7 +1189,7 @@
             <div class="supplies-actions">
               <button id="suppliesSyncBtn" onclick="syncSupplies()">🔄 Синхронизировать</button>
               <button id="suppliesClearBtn" class="secondary icon-btn" onclick="clearSupplies()" style="color:#b91c1c;border-color:#fca5a5" title="Удалить поставки">🗑</button>
-              <select id="suppliesStatusFilter" onchange="loadSupplies()">
+              <select id="suppliesStatusFilter" onchange="loadSupplies()" style="display:none">
                 <option value="">Все статусы</option>
                 <option value="1">Новые</option>
                 <option value="2">Запланированные</option>
@@ -1197,12 +1197,6 @@
                 <option value="4">На приёмке</option>
                 <option value="5">Принятые</option>
               </select>
-              <select id="suppliesProductionFilter" onchange="loadSupplies()">
-                <option value="">Все производства</option>
-              </select>
-              <input id="suppliesSearchFilter" type="search" placeholder="🔍 Поиск..."
-                     autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
-                     style="width:160px" oninput="loadSupplies(true)" />
               <!-- Batch action dropdown — visible when 2+ supplies with same driver selected -->
               <div id="suppliesBatchWrap" style="position:relative;display:none">
                 <button id="suppliesBatchBtn" class="secondary" onclick="toggleSuppliesBatchMenu(event)" style="height:34px;padding:0 10px">
@@ -1219,7 +1213,14 @@
                 </div>
               </div>
             </div>
-            <div class="supplies-date-wrap" style="position:relative">
+            <div style="display:flex;gap:6px;align-items:center">
+              <select id="suppliesProductionFilter" onchange="loadSupplies()">
+                <option value="">Все производства</option>
+              </select>
+              <input id="suppliesSearchFilter" type="search" placeholder="🔍 Поиск..."
+                     autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+                     style="width:140px" oninput="loadSupplies(true)" />
+              <div class="supplies-date-wrap" style="position:relative">
               <button id="suppliesDateBtn" type="button" class="secondary" onclick="toggleSuppliesDatePanel()" style="padding:0 10px;height:34px" title="Фильтр по дате">📅</button>
               <!-- Hidden inputs store the selected dates for API calls -->
               <input type="hidden" id="suppliesDateFrom" />
@@ -1227,6 +1228,7 @@
               <div id="suppliesDatePanel" class="supplies-date-panel" style="display:none">
                 <div id="suppliesCalendar"></div>
               </div>
+            </div>
             </div>
           </div>
           <div id="suppliesSyncInfo" class="supplies-sync-info"></div>
