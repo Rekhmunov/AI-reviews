@@ -1035,7 +1035,7 @@
               <button id="ozonStopBtn" class="secondary icon-btn hidden" onclick="stopOzonSync()" style="color:#b91c1c;border-color:#fca5a5" title="Остановить синхронизацию OZON">🛑</button>
               <button id="ozonClearBtn" class="secondary icon-btn" onclick="clearOzonSupplies()" style="color:#b91c1c;border-color:#fca5a5" title="Удалить поставки OZON">🗑</button>
               <button type="button" class="secondary" onclick="openOzonBindingModal()" style="white-space:nowrap">📎 Объединение привязки</button>
-              <select id="ozonStatusFilter" onchange="loadOzonSupplies()">
+              <select id="ozonStatusFilter" onchange="loadOzonSupplies()" style="display:none">
                 <option value="">Все статусы</option>
                 <option value="READY_TO_SUPPLY">Готово к отгрузке</option>
                 <option value="IN_TRANSIT">В пути</option>
