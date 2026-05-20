@@ -497,12 +497,11 @@ body.landing-page {
 }
 
 .nav-collapse-arrow {
-  font-size: 14px;
-  color: #6366f1;
+  font-size: 12px;
+  color: #475569;
   transition: transform 0.25s ease;
   display: inline-block;
   line-height: 1;
-  margin-right: 4px;
 }
 
 .nav-item {
