@@ -4724,20 +4724,35 @@ function _bindRenumberRow(rowXml, newRowNum) {
   return updated;
 }
 
-async function ozonBindDownload() {
+function ozonBindDownload() {
   if (!_ozonBindMerged.length) return;
-  _bindLog("⬇ Скачивание файлов…", "info");
-  for (let i = 0; i < _ozonBindMerged.length; i++) {
-    const { name, blob } = _ozonBindMerged[i];
-    await new Promise(resolve => setTimeout(resolve, i * 300)); // small delay between downloads
+  _bindLog("═══════════════════════════════", "info");
+  _bindLog(`📂 Готово к скачиванию <b>${_ozonBindMerged.length}</b> файлов — нажмите каждую кнопку:`, "info");
+  _ozonBindMerged.forEach(({ name, blob }, i) => {
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = name; a.style.display = "none";
-    document.body.appendChild(a); a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 5000);
-    _bindLog(`⬇ Скачивается: <b>${esc(name)}</b>`, "ok");
-  }
+    const line = document.createElement("div");
+    line.style.cssText = "display:flex;align-items:center;gap:8px;margin:3px 0";
+    const btn = document.createElement("button");
+    btn.className = "secondary";
+    btn.style.cssText = "font-size:12px;padding:3px 10px;flex-shrink:0";
+    btn.textContent = "⬇ Скачать";
+    btn.onclick = () => {
+      const a = document.createElement("a");
+      a.href = url; a.download = name;
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a);
+      btn.textContent = "✓ Скачан";
+      btn.disabled = true;
+      btn.style.color = "#16a34a";
+    };
+    const nameSpan = document.createElement("span");
+    nameSpan.style.cssText = "font-size:12px;color:#1e293b;word-break:break-all";
+    nameSpan.textContent = name;
+    line.appendChild(btn);
+    line.appendChild(nameSpan);
+    const log = document.getElementById("ozonBindLog");
+    if (log) { log.appendChild(line); log.scrollTop = log.scrollHeight; }
+  });
 }
 window.ozonBindDownload = ozonBindDownload;
 
