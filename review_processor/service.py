@@ -1546,10 +1546,12 @@ class WildberriesMarketplaceClient:
                 item.get("createdAt") or item.get("createTime") or item.get("created_at")
                 or item.get("addTime") or item.get("add_time")
             )
-        # Final fallback: use current UTC time so the NOT NULL constraint is satisfied
+        # Final fallback: use a sentinel old date (NOT current time).
+        # Using datetime.now() would make last_message_at > last_sent_at,
+        # which incorrectly moves manually-answered chats back to "New".
+        # A very old date satisfies NOT NULL and never triggers the "buyer wrote last" logic.
         if not last_message_at:
-            from datetime import datetime as _dt2, timezone as _tz2
-            last_message_at = _dt2.now(_tz2.utc).isoformat()
+            last_message_at = "2000-01-01T00:00:00+00:00"
         # For questions answered on the WB portal, set seller_replied_at so that
         # last_sent_at is populated → question moves to "Processed" bucket.
         # We use createdDate as the best available timestamp (WB doesn't return
