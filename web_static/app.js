@@ -4772,7 +4772,12 @@ function ozonBindDownload() {
     btn.style.cssText = "font-size:12px;padding:3px 10px;flex-shrink:0";
     btn.textContent = "⬇ Скачать";
     btn.onclick = () => {
-      window.open(url, "_blank");
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
       btn.textContent = "✓ Скачан";
       btn.style.color = "#16a34a";
     };
