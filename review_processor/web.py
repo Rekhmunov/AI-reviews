@@ -6501,6 +6501,7 @@ tr {{ page-break-inside: avoid; }}
 
         return {
             "item": item_row,
+            "owner_id": owner_id,
             "driver_name": driver_name,
             "driver_docs": driver_docs,
             "vehicle_num": vehicle_num,
@@ -6510,13 +6511,207 @@ tr {{ page-break-inside: avoid; }}
             "name_map": name_map,
         }
 
+    def _build_ozon_poa_html(data: dict, include_signature: bool = True) -> str:
+        """Build PoA M-2 HTML for OZON supply (identical structure to WB PoA)."""
+        import html as _hm
+        from datetime import datetime as _dtt
+        e = _hm.escape
+        item = data["item"]
+        driver_name = str(data.get("driver_name") or "")
+        driver_docs  = str(data.get("driver_docs") or "")
+        le = data.get("le") or {}
+        goods = data.get("goods") or []
+        name_map = data.get("name_map") or {}
+        now = _dtt.now()
+        date_display = now.strftime("%d.%m.%Y")
+        supply_num = str(item.get("supply_order_number") or "")
+        wh = str(item.get("warehouse_name") or "")
+        org_full = str(le.get("full_name") or le.get("short_name") or "")
+        org_req  = str(le.get("requisites") or "")
+        org_line = ", ".join(filter(None, [org_full, org_req]))
+        supplier_short = str(le.get("short_name") or "")
+        signatories = str(le.get("signatories") or supplier_short or "")
+        UL = "_" * 30
+
+        goods_rows_html = ""
+        for i, g in enumerate(goods):
+            offer_id = str(g.get("offer_id") or "")
+            name = name_map.get(offer_id) or offer_id or str(g.get("name") or "Товар")
+            qty  = g.get("quantity") or "—"
+            goods_rows_html += (f"<tr>"
+                                f"<td style='border:1px solid #000;padding:3pt 5pt;text-align:center'>{i+1}</td>"
+                                f"<td style='border:1px solid #000;padding:3pt 5pt;text-align:center'>{e(name)}</td>"
+                                f"<td style='border:1px solid #000;padding:3pt 5pt;text-align:center'>шт.</td>"
+                                f"<td style='border:1px solid #000;padding:3pt 5pt;text-align:center'>{qty}</td>"
+                                f"</tr>")
+
+        owner_id = data.get("owner_id") or 0
+        sig_block = "&nbsp;" * 20
+        if include_signature:
+            sig_data = None
+            try:
+                sig_data = repository.get_legal_entity_signature(
+                    user_id=owner_id, entity_id=int(le.get("id") or 0))
+            except Exception:
+                pass
+            if sig_data:
+                sig_block = f"<img src='data:image/png;base64,{sig_data}' style='max-height:25mm;max-width:60mm;object-fit:contain;vertical-align:middle' />"
+
+        docs_line = f"<p>{e(driver_docs)}</p>" if driver_docs else ""
+
+        return f"""<!DOCTYPE html>
+<html xmlns:o="urn:schemas-microsoft-com:office:office"
+      xmlns:w="urn:schemas-microsoft-com:office:word"
+      xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="utf-8">
+<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View></w:WordDocument></xml><![endif]-->
+<style>
+  @page {{ size: 210mm 297mm; margin: 15mm 10mm 15mm 25mm; }}
+  @page Section1 {{
+    size: 210.0mm 297.0mm;
+    margin: 15.0mm 10.0mm 15.0mm 25.0mm;
+    mso-header-margin: 0mm;
+    mso-footer-margin: 0mm;
+    mso-paper-source: 0;
+  }}
+  div.Section1 {{ page: Section1; }}
+  body {{ font-family: "Times New Roman", serif; font-size: 11pt; line-height: 1.4; }}
+  .small {{ font-size: 8pt; text-align: center; }}
+  .underline {{ text-decoration: underline; }}
+  .center {{ text-align: center; }}
+  .right {{ text-align: right; }}
+  .bold {{ font-weight: bold; }}
+  table.outer {{ width: 100%; border-collapse: collapse; margin-bottom: 8pt; }}
+  table.codes {{ border-collapse: collapse; margin-left: auto; font-size: 9pt; }}
+  table.codes td {{ border: 1px solid #000; padding: 2pt 6pt; }}
+  table.mat {{ width: 100%; border-collapse: collapse; margin-top: 6pt; font-size: 10pt; }}
+  table.mat td, table.mat th {{ border: 1px solid #000; padding: 3pt 5pt; text-align: center; }}
+  .dotline {{ display: inline-block; border-bottom: 1px solid #000; min-width: 120pt; }}
+  p {{ margin: 3pt 0; }}
+</style>
+</head>
+<body><div class="Section1">
+
+<table class="outer">
+  <tr>
+    <td style="width:55%;vertical-align:top;font-size:11pt">
+      Организация <span class="underline">{e(org_full)}</span>
+    </td>
+    <td style="width:45%;vertical-align:top;text-align:right;font-size:8pt">
+      Типовая межотраслевая форма № М-2<br>
+      Утверждена постановлением Госстата России от 30.10.97 № 71а<br><br>
+      <table class="codes">
+        <tr><td colspan="2" class="bold center">Коды</td></tr>
+        <tr><td>Форма по ОКУД</td><td>0315001</td></tr>
+        <tr><td>по ОКПО</td><td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td></tr>
+      </table>
+    </td>
+  </tr>
+</table>
+
+<p style="text-align:center;font-size:14pt;font-weight:bold;margin:10pt 0 4pt"><b>Доверенность № {e(supply_num)}</b></p>
+
+<p>Дата выдачи <span class="underline bold">{date_display}</span></p>
+<p>Доверенность действительна 14 дней с даты подписания.</p>
+<p style="margin-top:6pt">{e(org_line)}</p>
+<p class="small">наименование потребителя и его адрес</p>
+<p style="margin-top:4pt">{e(org_line)}</p>
+<p class="small">наименование плательщика и его адрес</p>
+
+<p style="margin-top:8pt">
+  Доверенность выдана &nbsp;&nbsp;
+  <span class="underline" style="min-width:60pt;display:inline-block">водителю</span>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <span class="underline">{e(driver_name)}</span>
+</p>
+<p class="small" style="padding-left:120pt">должность &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; фамилия, имя, отчество</p>
+
+{docs_line}
+
+<p style="margin-top:6pt">
+  На отправку груза от &nbsp;&nbsp;
+  <span class="underline">&nbsp;&nbsp;&nbsp;&nbsp;{e(wh)}&nbsp;&nbsp;&nbsp;&nbsp;</span>
+</p>
+<p class="small" style="text-align:center">наименование поставщика</p>
+
+<p style="margin-top:4pt">
+  материальных ценностей по транспортной накладной &nbsp;
+  <span class="underline bold">{e(supply_num)}</span>
+  &nbsp; от &nbsp;
+  <span class="underline bold">{date_display}</span>
+</p>
+<p class="small">наименование, номер и дата документа</p>
+
+<p style="margin-top:10pt">Перечень материальных ценностей, подлежащих доставке</p>
+<table class="mat">
+  <tr>
+    <th style="width:8%">Номер по порядку</th>
+    <th style="width:44%">Материальные ценности</th>
+    <th style="width:16%">Единица измерения</th>
+    <th style="width:32%">Количество</th>
+  </tr>
+  {goods_rows_html}
+</table>
+
+<p style="margin-top:18pt">
+  Подпись лица, получившего доверенность удостоверяем.
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <span class="dotline">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
+  &nbsp;&nbsp;
+  ({e(driver_name)})
+</p>
+
+<table style="width:100%;margin-top:18pt;border-collapse:collapse">
+  <tr>
+    <td style="width:25%;vertical-align:bottom">Руководитель<br><span style="font-size:8pt">М.П.</span></td>
+    <td style="width:30%;vertical-align:bottom;text-align:center">
+      <span class="dotline">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><br>
+      <span class="small">подпись</span>
+    </td>
+    <td style="width:45%;vertical-align:bottom;text-align:center">
+      {sig_block}<br>
+      <span class="small">расшифровка подписи</span>
+    </td>
+  </tr>
+</table>
+
+<table style="width:100%;margin-top:14pt;border-collapse:collapse">
+  <tr>
+    <td style="width:25%;vertical-align:bottom">Главный бухгалтер</td>
+    <td style="width:30%;vertical-align:bottom;text-align:center">
+      <span class="dotline">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><br>
+      <span class="small">подпись</span>
+    </td>
+    <td style="width:45%;vertical-align:bottom;text-align:center">
+      ({e(signatories)})<br>
+      <span class="small">расшифровка подписи</span>
+    </td>
+  </tr>
+</table>
+
+</div></body></html>"""
+
+    @app.get("/api/ozon-supplies/{supply_order_id}/poa.doc")
+    def get_ozon_poa_doc(request: Request, supply_order_id: int) -> "Response":
+        from fastapi.responses import Response
+        from urllib.parse import quote as _qp
+        user = _require_user(request)
+        if not _can_view_supplies(user): raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        data = _ozon_get_doc_data(owner_id, supply_order_id)
+        if not data: raise HTTPException(status_code=404, detail="Поставка не найдена")
+        html_content = "\uFEFF" + _build_ozon_poa_html(data, include_signature=False)
+        supply_num = str(data["item"].get("supply_order_number") or supply_order_id)
+        fname = f"Доверенность_OZON_{supply_num}.doc"
+        return Response(content=html_content.encode("utf-8"), media_type="application/msword",
+                        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{_qp(fname)}"})
+
     @app.get("/api/ozon-supplies/{supply_order_id}/poa.pdf")
     def get_ozon_poa_pdf(request: Request, supply_order_id: int) -> "Response":
         """Generate OZON Power of Attorney HTML → PDF via LibreOffice."""
         import subprocess as _sp, tempfile as _tf, pathlib as _pl, os as _os
-        import html as _hm
         from fastapi.responses import Response
-        from datetime import datetime as _dtt
+        from urllib.parse import quote as _qp
 
         user = _require_user(request)
         if not _can_view_supplies(user):
@@ -6526,89 +6721,13 @@ tr {{ page-break-inside: avoid; }}
         if not data:
             raise HTTPException(status_code=404, detail="Поставка не найдена")
 
-        item = data["item"]
-        driver_name = data["driver_name"]
-        driver_docs = data["driver_docs"]
-        le = data["le"]
-        goods = data["goods"]
-        name_map = data["name_map"]
-
-        e = _hm.escape
-        now = _dtt.now()
-        date_display = now.strftime("%d.%m.%Y")
-        org_full = str(le.get("full_name") or le.get("short_name") or "")
-        org_req = str(le.get("requisites") or "")
-        org_line = ", ".join(filter(None, [org_full, org_req]))
-        signatories = str(le.get("signatories") or org_full)
-        UL = "_" * 30
-
-        goods_rows_html = ""
-        for i, g in enumerate(goods):
-            offer_id = str(g.get("offer_id") or "")
-            name = name_map.get(offer_id) or offer_id or str(g.get("name") or "Товар")
-            qty = g.get("quantity") or "—"
-            goods_rows_html += (f"<tr><td style='border:1px solid black;padding:2pt 4pt;font-size:9pt' align='center'>{i+1}</td>"
-                                f"<td style='border:1px solid black;padding:2pt 4pt;font-size:9pt'>{e(name)}</td>"
-                                f"<td style='border:1px solid black;padding:2pt 4pt;font-size:9pt' align='center'>шт.</td>"
-                                f"<td style='border:1px solid black;padding:2pt 4pt;font-size:9pt' align='center'>{qty}</td></tr>")
-
-        wh = str(item.get("warehouse_name") or "")
-        supply_num = str(item.get("supply_order_number") or supply_order_id)
-
-        html = f"""<!DOCTYPE html><html><head><meta charset='utf-8'>
-<style>@page{{size:210mm 297mm;margin:15mm 10mm 15mm 25mm}}
-body{{font-family:'Times New Roman',serif;font-size:11pt;line-height:1.3}}p{{margin:2pt 0}}</style></head><body>
-<table width='100%' cellspacing='0' cellpadding='0'><tr>
-  <td width='55%' valign='top'><b>Организация:</b> {e(org_line)}</td>
-  <td width='45%' valign='top' align='right' style='font-size:8pt'>
-    Типовая межотраслевая форма № М-2<br>Утверждена постановлением Госстата России от 30.10.97 № 71а
-    <table border='1' cellspacing='0' cellpadding='1' align='right' style='font-size:7pt;margin-top:2pt'>
-      <tr><td colspan='2' align='center'><b>Коды</b></td></tr>
-      <tr><td style='padding:1pt 3pt'>Форма по ОКУД</td><td style='padding:1pt 3pt'>0315001</td></tr>
-      <tr><td style='padding:1pt 3pt'>по ОКПО</td><td style='padding:1pt 3pt'>&nbsp;&nbsp;&nbsp;&nbsp;</td></tr>
-    </table>
-  </td></tr></table>
-<p align='center' style='font-size:14pt;margin:10pt 0 4pt'><b>Доверенность № {e(supply_num)}</b></p>
-<p>Дата выдачи <b><u>{date_display}</u></b></p>
-<p>Доверенность действительна 14 дней с даты подписания.</p>
-<p style='margin-top:4pt'>{e(org_line)}</p><p style='font-size:8pt;text-align:center'>наименование потребителя и его адрес</p>
-<p style='margin-top:4pt'>{e(org_line)}</p><p style='font-size:8pt;text-align:center'>наименование плательщика и его адрес</p>
-<p style='margin-top:4pt'>На получение от <u>{e(wh)}</u></p><p style='font-size:8pt;text-align:center'>наименование поставщика</p>
-<p style='margin-top:4pt'>OZON FBO поставка № {e(supply_num)}</p><p style='font-size:8pt;text-align:center'>наименование, номер и дата документа</p>
-<p style='margin-top:6pt'>Перечень материальных ценностей, подлежащих доставке</p>
-<table border='1' cellspacing='0' width='100%' style='border-collapse:collapse;table-layout:fixed;font-size:9pt'>
-  <colgroup><col width='15%'><col width='45%'><col width='20%'><col width='20%'></colgroup>
-  <tr>
-    <th style='padding:2pt 4pt;border:1px solid black;font-size:8pt;font-weight:bold' align='center'>Номер по порядку</th>
-    <th style='padding:2pt 4pt;border:1px solid black;font-size:8pt;font-weight:bold' align='center'>Материальные ценности</th>
-    <th style='padding:2pt 4pt;border:1px solid black;font-size:8pt;font-weight:bold' align='center'>Единица измерения</th>
-    <th style='padding:2pt 4pt;border:1px solid black;font-size:8pt;font-weight:bold' align='center'>Количество</th>
-  </tr>
-  {goods_rows_html}
-</table>
-<p style='margin-top:8pt'>Подпись лица, получившего доверенность удостоверяем. &nbsp;&nbsp;&nbsp; {UL} &nbsp; ({e(driver_name)})</p>
-<p style='margin-top:4pt'>Доверенность выдана водителю: <u>{e(driver_name)}</u></p>
-<p>Документы: {e(driver_docs)}</p>
-<table width='100%' cellspacing='0' cellpadding='2' style='margin-top:8pt'>
-  <tr>
-    <td width='25%' valign='bottom'>Руководитель<br><small>М.П.</small></td>
-    <td width='30%' valign='bottom' align='center'>{UL}<br><small>подпись</small></td>
-    <td width='45%' valign='bottom' align='center'>{e(signatories)}<br><small>расшифровка подписи</small></td>
-  </tr>
-</table>
-<table width='100%' cellspacing='0' cellpadding='2' style='margin-top:6pt'>
-  <tr>
-    <td width='25%' valign='bottom'>Главный бухгалтер</td>
-    <td width='30%' valign='bottom' align='center'>{UL}<br><small>подпись</small></td>
-    <td width='45%' valign='bottom' align='center'>{e(signatories)}<br><small>расшифровка подписи</small></td>
-  </tr>
-</table>
-</body></html>"""
+        supply_num = str(data["item"].get("supply_order_number") or supply_order_id)
+        html_content = _build_ozon_poa_html(data, include_signature=True)
 
         tmp_dir = _tf.mkdtemp()
         html_path = _pl.Path(tmp_dir) / "ozon_poa.html"
         pdf_path = _pl.Path(tmp_dir) / "ozon_poa.pdf"
-        html_path.write_text(html, encoding="utf-8")
+        html_path.write_text(html_content, encoding="utf-8")
         env = dict(_os.environ)
         env.update({"HOME": "/tmp", "XDG_CACHE_HOME": "/tmp/.cache",
                     "XDG_CONFIG_HOME": "/tmp/.config", "DCONF_PROFILE": "empty"})
@@ -6617,7 +6736,6 @@ body{{font-family:'Times New Roman',serif;font-size:11pt;line-height:1.3}}p{{mar
         if not pdf_path.exists():
             raise HTTPException(status_code=500, detail="LibreOffice не смог сгенерировать PDF")
         pdf_bytes = pdf_path.read_bytes()
-        from urllib.parse import quote as _qp
         fname = f"Доверенность_OZON_{supply_num}.pdf"
         return Response(content=pdf_bytes, media_type="application/pdf",
                         headers={"Content-Disposition": f"inline; filename*=UTF-8''{_qp(fname)}"})

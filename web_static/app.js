@@ -4325,7 +4325,7 @@ function renderOzonTable() {
       <td class="supply-links-cell">
         <div class="supply-links-col">
           <button class="supply-detail-link" onclick="openOzonDetailsModal(${item.supply_order_id})">☰ Детали поставки</button>
-          <div style="display:flex;flex-wrap:nowrap;align-items:center;gap:2px;width:100%;min-width:0"><button class="supply-detail-link supply-poa-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="window.open('/api/ozon-supplies/${item.supply_order_id}/poa.pdf','_blank')">⬇ Доверенность</button><button class="supply-detail-link supply-print-btn" style="flex:0 0 60px;min-width:60px;width:60px;height:28px;padding:0;font-size:13px;font-family:'Segoe UI Symbol','Arial Unicode MS',sans-serif" onclick="window.open('/api/ozon-supplies/${item.supply_order_id}/poa.pdf','_blank')" title="Печать">⎙</button></div>
+          <div style="display:flex;flex-wrap:nowrap;align-items:center;gap:2px;width:100%;min-width:0"><button class="supply-detail-link supply-poa-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="downloadOzonPoA(${item.supply_order_id})">⬇ Доверенность</button><button class="supply-detail-link supply-print-btn" style="flex:0 0 60px;min-width:60px;width:60px;height:28px;padding:0;font-size:13px;font-family:'Segoe UI Symbol','Arial Unicode MS',sans-serif;display:flex;align-items:center;justify-content:center" onclick="window.open('/api/ozon-supplies/${item.supply_order_id}/poa.pdf','_blank')" title="Печать">⎙</button></div>
           <div style="display:flex;flex-wrap:nowrap;align-items:center;gap:2px;width:100%;min-width:0"><button class="supply-detail-link supply-ttn-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="window.open('/api/ozon-supplies/${item.supply_order_id}/ttn.pdf','_blank')">⬇ ТТН</button><button class="supply-detail-link supply-print-btn" style="flex:0 0 60px;min-width:60px;width:60px;height:28px;padding:0;font-size:13px;font-family:'Segoe UI Symbol','Arial Unicode MS',sans-serif" onclick="window.open('/api/ozon-supplies/${item.supply_order_id}/ttn.pdf','_blank')" title="Печать">⎙</button></div>
         </div>
       </td>`;
@@ -4589,6 +4589,22 @@ window.closeOzonDetailsModal = closeOzonDetailsModal;
 window.saveOzonManualFields = saveOzonManualFields;
 window.onOzonCheckboxChange = onOzonCheckboxChange;
 window.toggleSelectAllOzon = toggleSelectAllOzon;
+
+async function downloadOzonPoA(supplyId) {
+  try {
+    const resp = await fetch(`/api/ozon-supplies/${supplyId}/poa.doc`, {credentials: 'include'});
+    if (!resp.ok) { const t = await resp.text(); alert('Ошибка: ' + t); return; }
+    const blob = await resp.blob();
+    const cd = resp.headers.get('Content-Disposition') || '';
+    const m = cd.match(/filename\*?=(?:UTF-8'')?([^;]+)/i);
+    const fname = m ? decodeURIComponent(m[1].replace(/"/g,'')) : `Доверенность_OZON_${supplyId}.doc`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = fname; document.body.appendChild(a);
+    a.click(); a.remove(); URL.revokeObjectURL(url);
+  } catch(e) { alert('Ошибка загрузки: ' + e.message); }
+}
+window.downloadOzonPoA = downloadOzonPoA;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // OZON BINDING MERGE MODULE
