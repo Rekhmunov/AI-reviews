@@ -8535,9 +8535,23 @@ function collectManagerPermissionsFromModal() {
   return Array.from(map.values()).filter((item) => item.can_reviews || item.can_questions || item.can_chats);
 }
 
-function formatManagerPermissionsText(permissions, canSupplies) {
+function formatManagerPermissionsText(permissions, canSupplies, supplyPermissions) {
   const rows = Array.isArray(permissions) ? permissions : [];
-  const suppliesText = canSupplies ? "Поставки" : "";
+  // Build supplies summary from granular permissions
+  const sp = supplyPermissions || {};
+  const srcMap = sp.sources || {};
+  const supplyParts = [];
+  for (const [sid, sv] of Object.entries(srcMap)) {
+    if (sv.wb) supplyParts.push("ВБ");
+    if (sv.ozon) supplyParts.push("ОЗОН");
+  }
+  if (sp.can_supply_settings) supplyParts.push("Настройки");
+  if (sp.can_supply_poa) supplyParts.push("Доверенности");
+  // Deduplicate
+  const uniqueParts = [...new Set(supplyParts)];
+  const suppliesText = uniqueParts.length
+    ? "Поставки: " + uniqueParts.join(", ")
+    : (canSupplies ? "Поставки" : "");
   if (!rows.length && !suppliesText) return "Доступы не назначены";
   if (!rows.length) return suppliesText;
   const accountById = new Map((teamState.accounts || []).map((item) => [Number(item.id || 0), item]));
@@ -8586,7 +8600,7 @@ async function loadTeam() {
   } else {
     for (const member of teamState.items) {
       const memberId = Number(member.id || 0);
-      const permsText = formatManagerPermissionsText(member.manager_permissions || [], member.can_supplies);
+      const permsText = formatManagerPermissionsText(member.manager_permissions || [], member.can_supplies, member.supply_permissions);
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td>${esc(member.id)}</td>
@@ -8650,7 +8664,7 @@ async function openEditTeamMember(userId) {
   document.getElementById("editMemberPassword").value = "";
   document.getElementById("editMemberInfo").textContent = "";
   // Show current permissions
-  const permText = formatManagerPermissionsText(member.manager_permissions || [], member.can_supplies);
+  const permText = formatManagerPermissionsText(member.manager_permissions || [], member.can_supplies, member.supply_permissions);
   document.getElementById("editMemberPermissionsPreview").textContent = permText || "Нет доступов";
   // Pre-load permissions into the shared permissions modal state
   _pendingManagerPermissions = (member.manager_permissions || []).map(p => ({...p}));
@@ -8816,7 +8830,7 @@ function applyManagerPermissionsSelection() {
   // Update preview in edit modal if open
   const editPreview = document.getElementById("editMemberPermissionsPreview");
   if (editPreview && _editingMemberId) {
-    const txt = formatManagerPermissionsText(permissions, teamState.pendingCanSupplies);
+    const txt = formatManagerPermissionsText(permissions, teamState.pendingCanSupplies, teamState.pendingSupplyPermissions);
     editPreview.textContent = txt || "Нет доступов";
   }
 }
