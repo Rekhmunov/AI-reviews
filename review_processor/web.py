@@ -6465,6 +6465,16 @@ tr {{ page-break-inside: avoid; }}
                     except Exception as ex:
                         _log.warning("ozon cluster cache: %s", ex)
 
+                    # Pre-load existing quantities to skip bundle calls for already-loaded items
+                    existing_items = repository.list_ozon_supply_items(
+                        user_id=owner_id, source_id=int(src["id"])
+                    )
+                    existing_qty: dict[int, int] = {
+                        int(item.get("supply_order_id") or 0): int(item.get("total_quantity") or 0)
+                        for item in existing_items
+                        if item.get("supply_order_id")
+                    }
+
                     # Step 1: paginate supply order IDs via /v3/supply-order/list
                     # Pagination is cursor-based: last_id string returned in response
                     with _ozon_sync_lock:
@@ -6566,12 +6576,13 @@ tr {{ page-break-inside: avoid; }}
                                     "supplies": supplies_list,
                                 }
                                 item_id = repository.upsert_ozon_supply_item(source_id=int(src["id"]), data=data)
-                                # Collect bundle_id for quantity loading
-                                for s in supplies_list:
-                                    bid = str(s.get("bundle_id") or "")
-                                    if bid:
-                                        qty_batch.append((oid, bid, item_id))
-                                        break  # one bundle per order
+                                # Only fetch bundle quantity if not already loaded
+                                if existing_qty.get(oid, 0) == 0:
+                                    for s in supplies_list:
+                                        bid = str(s.get("bundle_id") or "")
+                                        if bid:
+                                            qty_batch.append((oid, bid, item_id))
+                                            break  # one bundle per order
                                 total_synced += 1
                         except Exception as ex:
                             _log.error("ozon supply get batch: %s", ex, exc_info=True)
