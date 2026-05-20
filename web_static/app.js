@@ -478,13 +478,15 @@ function _applyNavGroup(group, collapsed, animate) {
   if (collapsed) {
     if (animate) {
       wrapper.style.maxHeight = wrapper.scrollHeight + "px";
-      requestAnimationFrame(() => { wrapper.style.maxHeight = "0px"; });
+      requestAnimationFrame(() => { wrapper.style.maxHeight = "0px"; wrapper.style.marginBottom = "0px"; });
     } else {
       wrapper.style.maxHeight = "0px";
+      wrapper.style.marginBottom = "0px";
     }
     if (arrow) arrow.style.transform = "rotate(-90deg)";
   } else {
     wrapper.style.maxHeight = wrapper.scrollHeight ? wrapper.scrollHeight + "px" : "1000px";
+    wrapper.style.marginBottom = "";
     if (arrow) arrow.style.transform = "rotate(0deg)";
   }
 }
