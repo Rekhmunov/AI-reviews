@@ -6387,6 +6387,369 @@ tr {{ page-break-inside: avoid; }}
             _log.warning("ozon vehicle fetch sid=%d: %s", supply_order_id, ex)
             return {"ok": False, "vehicle": None, "error": str(ex)[:100]}
 
+    def _ozon_get_doc_data(owner_id: int, supply_order_id: int) -> dict:
+        """Collect all data needed for OZON document generation."""
+        import urllib.request as _ul, json as _jj, ssl as _sl
+        item_row = repository.get_ozon_supply_item_row(user_id=owner_id, supply_order_id=supply_order_id)
+        if not item_row:
+            return {}
+        src = repository.get_supply_source_with_key(user_id=owner_id, source_id=int(item_row["source_id"]))
+        if not src or not src.get("api_key"):
+            return {"item": item_row}
+        api_key = str(src["api_key"])
+        client_id = str(src.get("client_id") or "")
+        ctx = _sl.create_default_context()
+        hdrs = {"Client-Id": client_id, "Api-Key": api_key,
+                "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
+
+        # Driver from supply-order/details
+        driver_name, driver_docs, vehicle_num = "", "", ""
+        cached_v = str(item_row.get("vehicle_json") or "")
+        if cached_v and cached_v != "{}":
+            try:
+                v = _jj.loads(cached_v)
+                driver_name = str(v.get("driver_name") or "")
+                driver_docs = str(v.get("driver_phone") or "")
+                vehicle_num = f"{v.get('vehicle_model','') or ''} {v.get('vehicle_number','') or ''}".strip()
+            except Exception:
+                pass
+        if not driver_name:
+            try:
+                body = _jj.dumps({"order_id": supply_order_id}).encode()
+                req = _ul.Request("https://api-seller.ozon.ru/v1/supply-order/details",
+                    data=body, method="POST", headers=hdrs)
+                with _ul.urlopen(req, context=ctx, timeout=10) as r:
+                    det = _jj.loads(r.read())
+                v = (det.get("vehicle") or {}).get("value") or {}
+                driver_name = str(v.get("driver_name") or "")
+                driver_docs = str(v.get("driver_phone") or "")
+                vehicle_num = f"{v.get('vehicle_model','') or ''} {v.get('vehicle_number','') or ''}".strip()
+                if v:
+                    repository.update_ozon_supply_vehicle(
+                        supply_order_id=supply_order_id,
+                        vehicle_json=_jj.dumps(v, ensure_ascii=False))
+            except Exception:
+                pass
+
+        # Goods from bundle (cached or fresh)
+        goods = repository.get_ozon_supply_goods(user_id=owner_id, supply_order_id=supply_order_id)
+        if not goods:
+            raw_json_str = str(item_row.get("raw_json") or "")
+            bundle_ids = []
+            if raw_json_str:
+                try:
+                    raw = _jj.loads(raw_json_str)
+                    for s in (raw.get("supplies") or []):
+                        bid = str(s.get("bundle_id") or "")
+                        if bid:
+                            bundle_ids.append(bid)
+                            break
+                except Exception:
+                    pass
+            if bundle_ids:
+                try:
+                    body2 = _jj.dumps({"bundle_ids": bundle_ids, "limit": 100, "last_id": ""}).encode()
+                    req2 = _ul.Request("https://api-seller.ozon.ru/v1/supply-order/bundle",
+                        data=body2, method="POST", headers=hdrs)
+                    with _ul.urlopen(req2, context=ctx, timeout=15) as r2:
+                        bdata = _jj.loads(r2.read())
+                    goods_raw = bdata.get("items") or []
+                    if goods_raw and item_row.get("id"):
+                        repository.upsert_ozon_supply_goods(
+                            supply_item_id=int(item_row["id"]), goods=goods_raw)
+                    goods = repository.get_ozon_supply_goods(
+                        user_id=owner_id, supply_order_id=supply_order_id) or [
+                        {"sku": g.get("sku"), "name": g.get("name"),
+                         "quantity": g.get("quantity"), "offer_id": g.get("offer_id")} for g in goods_raw]
+                except Exception:
+                    pass
+
+        # Prices by product_id (get product_ids first then prices)
+        price_map: dict[str, float] = {}
+        if goods:
+            offer_ids = list({str(g.get("offer_id") or "") for g in goods if g.get("offer_id")})
+            if offer_ids:
+                try:
+                    body3 = _jj.dumps({"filter": {"offer_id": offer_ids, "visibility": "ALL"},
+                                       "last_id": "", "limit": len(offer_ids) + 10}).encode()
+                    req3 = _ul.Request("https://api-seller.ozon.ru/v3/product/list",
+                        data=body3, method="POST", headers=hdrs)
+                    with _ul.urlopen(req3, context=ctx, timeout=10) as r3:
+                        pl = _jj.loads(r3.read())
+                    pid_map = {i["offer_id"]: i["product_id"] for i in (pl.get("result") or {}).get("items", [])}
+                    if pid_map:
+                        body4 = _jj.dumps({"filter": {"product_id": list(pid_map.values()),
+                                                       "visibility": "ALL"}, "last_id": "", "limit": 200}).encode()
+                        req4 = _ul.Request("https://api-seller.ozon.ru/v5/product/info/prices",
+                            data=body4, method="POST", headers=hdrs)
+                        with _ul.urlopen(req4, context=ctx, timeout=10) as r4:
+                            price_data = _jj.loads(r4.read())
+                        for pi in (price_data.get("items") or []):
+                            oid = str(pi.get("offer_id") or "")
+                            price_val = float(pi.get("price", {}).get("price") or 0)
+                            if oid and price_val:
+                                price_map[oid] = price_val
+                except Exception:
+                    pass
+
+        # Legal entity
+        entities = repository.list_supply_legal_entities(user_id=owner_id)
+        le = next((e for e in entities if "ООО" in str(e.get("short_name") or "")), None) or (entities[0] if entities else {})
+
+        # Product name map
+        name_map = repository.get_product_name_by_article(user_id=owner_id)
+
+        return {
+            "item": item_row,
+            "driver_name": driver_name,
+            "driver_docs": driver_docs,
+            "vehicle_num": vehicle_num,
+            "goods": goods,
+            "price_map": price_map,
+            "le": le,
+            "name_map": name_map,
+        }
+
+    @app.get("/api/ozon-supplies/{supply_order_id}/poa.pdf")
+    def get_ozon_poa_pdf(request: Request, supply_order_id: int) -> "Response":
+        """Generate OZON Power of Attorney HTML → PDF via LibreOffice."""
+        import subprocess as _sp, tempfile as _tf, pathlib as _pl, os as _os
+        import html as _hm
+        from fastapi.responses import Response
+        from datetime import datetime as _dtt
+
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        data = _ozon_get_doc_data(owner_id, supply_order_id)
+        if not data:
+            raise HTTPException(status_code=404, detail="Поставка не найдена")
+
+        item = data["item"]
+        driver_name = data["driver_name"]
+        driver_docs = data["driver_docs"]
+        le = data["le"]
+        goods = data["goods"]
+        name_map = data["name_map"]
+
+        e = _hm.escape
+        now = _dtt.now()
+        date_display = now.strftime("%d.%m.%Y")
+        org_full = str(le.get("full_name") or le.get("short_name") or "")
+        org_req = str(le.get("requisites") or "")
+        org_line = ", ".join(filter(None, [org_full, org_req]))
+        signatories = str(le.get("signatories") or org_full)
+        UL = "_" * 30
+
+        goods_rows_html = ""
+        for i, g in enumerate(goods):
+            offer_id = str(g.get("offer_id") or "")
+            name = name_map.get(offer_id) or offer_id or str(g.get("name") or "Товар")
+            qty = g.get("quantity") or "—"
+            goods_rows_html += (f"<tr><td style='border:1px solid black;padding:2pt 4pt;font-size:9pt' align='center'>{i+1}</td>"
+                                f"<td style='border:1px solid black;padding:2pt 4pt;font-size:9pt'>{e(name)}</td>"
+                                f"<td style='border:1px solid black;padding:2pt 4pt;font-size:9pt' align='center'>шт.</td>"
+                                f"<td style='border:1px solid black;padding:2pt 4pt;font-size:9pt' align='center'>{qty}</td></tr>")
+
+        wh = str(item.get("warehouse_name") or "")
+        supply_num = str(item.get("supply_order_number") or supply_order_id)
+
+        html = f"""<!DOCTYPE html><html><head><meta charset='utf-8'>
+<style>@page{{size:210mm 297mm;margin:15mm 10mm 15mm 25mm}}
+body{{font-family:'Times New Roman',serif;font-size:11pt;line-height:1.3}}p{{margin:2pt 0}}</style></head><body>
+<table width='100%' cellspacing='0' cellpadding='0'><tr>
+  <td width='55%' valign='top'><b>Организация:</b> {e(org_line)}</td>
+  <td width='45%' valign='top' align='right' style='font-size:8pt'>
+    Типовая межотраслевая форма № М-2<br>Утверждена постановлением Госстата России от 30.10.97 № 71а
+    <table border='1' cellspacing='0' cellpadding='1' align='right' style='font-size:7pt;margin-top:2pt'>
+      <tr><td colspan='2' align='center'><b>Коды</b></td></tr>
+      <tr><td style='padding:1pt 3pt'>Форма по ОКУД</td><td style='padding:1pt 3pt'>0315001</td></tr>
+      <tr><td style='padding:1pt 3pt'>по ОКПО</td><td style='padding:1pt 3pt'>&nbsp;&nbsp;&nbsp;&nbsp;</td></tr>
+    </table>
+  </td></tr></table>
+<p align='center' style='font-size:14pt;margin:10pt 0 4pt'><b>Доверенность № {e(supply_num)}</b></p>
+<p>Дата выдачи <b><u>{date_display}</u></b></p>
+<p>Доверенность действительна 14 дней с даты подписания.</p>
+<p style='margin-top:4pt'>{e(org_line)}</p><p style='font-size:8pt;text-align:center'>наименование потребителя и его адрес</p>
+<p style='margin-top:4pt'>{e(org_line)}</p><p style='font-size:8pt;text-align:center'>наименование плательщика и его адрес</p>
+<p style='margin-top:4pt'>На получение от <u>{e(wh)}</u></p><p style='font-size:8pt;text-align:center'>наименование поставщика</p>
+<p style='margin-top:4pt'>OZON FBO поставка № {e(supply_num)}</p><p style='font-size:8pt;text-align:center'>наименование, номер и дата документа</p>
+<p style='margin-top:6pt'>Перечень материальных ценностей, подлежащих доставке</p>
+<table border='1' cellspacing='0' width='100%' style='border-collapse:collapse;table-layout:fixed;font-size:9pt'>
+  <colgroup><col width='15%'><col width='45%'><col width='20%'><col width='20%'></colgroup>
+  <tr>
+    <th style='padding:2pt 4pt;border:1px solid black;font-size:8pt;font-weight:bold' align='center'>Номер по порядку</th>
+    <th style='padding:2pt 4pt;border:1px solid black;font-size:8pt;font-weight:bold' align='center'>Материальные ценности</th>
+    <th style='padding:2pt 4pt;border:1px solid black;font-size:8pt;font-weight:bold' align='center'>Единица измерения</th>
+    <th style='padding:2pt 4pt;border:1px solid black;font-size:8pt;font-weight:bold' align='center'>Количество</th>
+  </tr>
+  {goods_rows_html}
+</table>
+<p style='margin-top:8pt'>Подпись лица, получившего доверенность удостоверяем. &nbsp;&nbsp;&nbsp; {UL} &nbsp; ({e(driver_name)})</p>
+<p style='margin-top:4pt'>Доверенность выдана водителю: <u>{e(driver_name)}</u></p>
+<p>Документы: {e(driver_docs)}</p>
+<table width='100%' cellspacing='0' cellpadding='2' style='margin-top:8pt'>
+  <tr>
+    <td width='25%' valign='bottom'>Руководитель<br><small>М.П.</small></td>
+    <td width='30%' valign='bottom' align='center'>{UL}<br><small>подпись</small></td>
+    <td width='45%' valign='bottom' align='center'>{e(signatories)}<br><small>расшифровка подписи</small></td>
+  </tr>
+</table>
+<table width='100%' cellspacing='0' cellpadding='2' style='margin-top:6pt'>
+  <tr>
+    <td width='25%' valign='bottom'>Главный бухгалтер</td>
+    <td width='30%' valign='bottom' align='center'>{UL}<br><small>подпись</small></td>
+    <td width='45%' valign='bottom' align='center'>{e(signatories)}<br><small>расшифровка подписи</small></td>
+  </tr>
+</table>
+</body></html>"""
+
+        tmp_dir = _tf.mkdtemp()
+        html_path = _pl.Path(tmp_dir) / "ozon_poa.html"
+        pdf_path = _pl.Path(tmp_dir) / "ozon_poa.pdf"
+        html_path.write_text(html, encoding="utf-8")
+        env = dict(_os.environ)
+        env.update({"HOME": "/tmp", "XDG_CACHE_HOME": "/tmp/.cache",
+                    "XDG_CONFIG_HOME": "/tmp/.config", "DCONF_PROFILE": "empty"})
+        _sp.run(["soffice", "--headless", "--convert-to", "pdf",
+                 "--outdir", str(tmp_dir), str(html_path)], capture_output=True, env=env, timeout=60)
+        if not pdf_path.exists():
+            raise HTTPException(status_code=500, detail="LibreOffice не смог сгенерировать PDF")
+        pdf_bytes = pdf_path.read_bytes()
+        from urllib.parse import quote as _qp
+        fname = f"Доверенность_OZON_{supply_num}.pdf"
+        return Response(content=pdf_bytes, media_type="application/pdf",
+                        headers={"Content-Disposition": f"inline; filename*=UTF-8''{_qp(fname)}"})
+
+    @app.get("/api/ozon-supplies/{supply_order_id}/ttn.pdf")
+    def get_ozon_ttn_pdf(request: Request, supply_order_id: int) -> "Response":
+        """Generate OZON ТОРГ-12 DOCX → PDF via LibreOffice."""
+        import subprocess as _sp, tempfile as _tf, pathlib as _pl, os as _os
+        import html as _hm, zipfile as _zf, io as _io
+        from fastapi.responses import Response
+        from datetime import datetime as _dtt
+
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        data = _ozon_get_doc_data(owner_id, supply_order_id)
+        if not data:
+            raise HTTPException(status_code=404, detail="Поставка не найдена")
+
+        item = data["item"]
+        le = data["le"]
+        goods = data["goods"]
+        price_map = data["price_map"]
+        name_map = data["name_map"]
+
+        e = _hm.escape
+        now = _dtt.now()
+        date_disp = now.strftime("%d.%m.%Y")
+        supply_num = str(item.get("supply_order_number") or supply_order_id)
+        wh = str(item.get("warehouse_name") or "")
+        org_full = str(le.get("full_name") or le.get("short_name") or "")
+        org_req = str(le.get("requisites") or "")
+        org_line = ", ".join(filter(None, [org_full, org_req]))
+        signatories = str(le.get("signatories") or le.get("short_name") or "")
+        VAT_RATE = 0.22
+
+        # Build goods rows
+        goods_rows_html = ""
+        total_qty = 0
+        total_excl = 0.0
+        total_vat = 0.0
+        total_incl = 0.0
+        for i, g in enumerate(goods):
+            offer_id = str(g.get("offer_id") or "")
+            name = name_map.get(offer_id) or offer_id or str(g.get("name") or "Товар")
+            qty = int(g.get("quantity") or 0)
+            price = price_map.get(offer_id, 0.0)
+            excl = round(price / (1 + VAT_RATE), 2) if price else 0.0
+            vat_amt = round(price * VAT_RATE / (1 + VAT_RATE), 2) if price else 0.0
+            sum_excl = round(excl * qty, 2)
+            sum_vat = round(vat_amt * qty, 2)
+            sum_incl = round(price * qty, 2)
+            total_qty += qty
+            total_excl += sum_excl
+            total_vat += sum_vat
+            total_incl += sum_incl
+            td = "border:1px solid black;padding:2pt 3pt;font-size:8pt"
+            goods_rows_html += (f"<tr><td style='{td}' align='center'>{i+1}</td>"
+                f"<td style='{td}'>{e(name)}</td>"
+                f"<td style='{td}' align='center'>шт.</td>"
+                f"<td style='{td}' align='center'>{qty}</td>"
+                f"<td style='{td}' align='center'>{f'{price:.2f}' if price else '—'}</td>"
+                f"<td style='{td}' align='center'>{f'{sum_excl:.2f}' if price else '—'}</td>"
+                f"<td style='{td}' align='center'>{int(VAT_RATE*100)}%</td>"
+                f"<td style='{td}' align='center'>{f'{sum_vat:.2f}' if price else '—'}</td>"
+                f"<td style='{td}' align='center'>{f'{sum_incl:.2f}' if price else '—'}</td></tr>")
+        UL = "_" * 25
+        html = f"""<!DOCTYPE html><html><head><meta charset='utf-8'>
+<style>@page{{size:297mm 210mm;margin:10mm}}
+body{{font-family:'Times New Roman',serif;font-size:9pt}}
+table{{border-collapse:collapse;width:100%}}
+</style></head><body>
+<p align='center' style='font-size:12pt'><b>ТОВАРНАЯ НАКЛАДНАЯ № {e(supply_num)}</b></p>
+<p align='center'>от {date_disp} г.</p>
+<table style='margin-bottom:6pt'>
+  <tr><td width='50%'><b>Грузоотправитель:</b> {e(org_line)}</td>
+      <td width='50%'><b>Грузополучатель:</b> {e(wh)}, OZON</td></tr>
+  <tr><td><b>Поставщик:</b> {e(org_full)}</td>
+      <td><b>Плательщик:</b> {e(org_full)}</td></tr>
+</table>
+<table border='1' style='font-size:8pt'>
+  <thead><tr style='background:#f0f0f0'>
+    <th style='padding:2pt 3pt;border:1px solid black'>№</th>
+    <th style='padding:2pt 3pt;border:1px solid black'>Наименование товара</th>
+    <th style='padding:2pt 3pt;border:1px solid black'>Ед.</th>
+    <th style='padding:2pt 3pt;border:1px solid black'>Кол-во</th>
+    <th style='padding:2pt 3pt;border:1px solid black'>Цена, руб.</th>
+    <th style='padding:2pt 3pt;border:1px solid black'>Сумма без НДС</th>
+    <th style='padding:2pt 3pt;border:1px solid black'>НДС %</th>
+    <th style='padding:2pt 3pt;border:1px solid black'>НДС сумма</th>
+    <th style='padding:2pt 3pt;border:1px solid black'>Сумма с НДС</th>
+  </tr></thead>
+  <tbody>{goods_rows_html}</tbody>
+  <tfoot><tr style='font-weight:bold'>
+    <td colspan='3' style='border:1px solid black;padding:2pt 3pt;text-align:center'>Итого</td>
+    <td style='border:1px solid black;padding:2pt 3pt;text-align:center'>{total_qty}</td>
+    <td style='border:1px solid black'></td>
+    <td style='border:1px solid black;padding:2pt 3pt;text-align:center'>{total_excl:.2f}</td>
+    <td style='border:1px solid black'></td>
+    <td style='border:1px solid black;padding:2pt 3pt;text-align:center'>{total_vat:.2f}</td>
+    <td style='border:1px solid black;padding:2pt 3pt;text-align:center'>{total_incl:.2f}</td>
+  </tr></tfoot>
+</table>
+<table width='100%' style='margin-top:10pt'>
+  <tr>
+    <td width='33%'>Отпуск разрешил: &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; {UL}<br>
+      <small>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{e(signatories)}</small></td>
+    <td width='34%' align='center'>Главный бухгалтер: {UL}<br><small>{e(signatories)}</small></td>
+    <td width='33%' align='right'>Груз получил: {UL}<br><small>{e(data.get('driver_name',''))}</small></td>
+  </tr>
+</table>
+<p style='margin-top:6pt'>М.П.</p>
+</body></html>"""
+
+        tmp_dir = _tf.mkdtemp()
+        html_path = _pl.Path(tmp_dir) / "ozon_ttn.html"
+        pdf_path = _pl.Path(tmp_dir) / "ozon_ttn.pdf"
+        html_path.write_text(html, encoding="utf-8")
+        env = dict(_os.environ)
+        env.update({"HOME": "/tmp", "XDG_CACHE_HOME": "/tmp/.cache",
+                    "XDG_CONFIG_HOME": "/tmp/.config", "DCONF_PROFILE": "empty"})
+        _sp.run(["soffice", "--headless", "--convert-to", "pdf",
+                 "--outdir", str(tmp_dir), str(html_path)], capture_output=True, env=env, timeout=60)
+        if not pdf_path.exists():
+            raise HTTPException(status_code=500, detail="LibreOffice не смог сгенерировать PDF")
+        pdf_bytes = pdf_path.read_bytes()
+        from urllib.parse import quote as _qp
+        fname = f"ТТН_OZON_{supply_num}.pdf"
+        return Response(content=pdf_bytes, media_type="application/pdf",
+                        headers={"Content-Disposition": f"inline; filename*=UTF-8''{_qp(fname)}"})
+
     @app.patch("/api/ozon-supplies/{supply_order_id}/manual-fields")
     def update_ozon_manual_fields(request: Request, supply_order_id: int, payload: dict) -> dict[str, object]:
         user = _require_user(request)

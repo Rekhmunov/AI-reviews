@@ -4325,9 +4325,8 @@ function renderOzonTable() {
       <td class="supply-links-cell">
         <div class="supply-links-col">
           <button class="supply-detail-link" onclick="openOzonDetailsModal(${item.supply_order_id})">☰ Детали поставки</button>
-          ${item.pallets_count && item.driver_name ? `<button class="supply-detail-link supply-packing-link" onclick="alert('Упаковочный лист OZON — в разработке')">⬇ Упаковочный лист</button>` : ""}
-          ${item.pallets_count && item.driver_name ? `<button class="supply-detail-link supply-poa-link" style="flex:1" onclick="alert('Доверенность OZON — скоро')">⬇ Доверенность</button>` : ""}
-          ${item.pallets_count && item.driver_name ? `<button class="supply-detail-link supply-ttn-link" style="flex:1" onclick="alert('ТТН OZON — скоро')">⬇ ТТН</button>` : ""}
+          <div style="${_pRow}"><button class="supply-detail-link supply-poa-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="window.open('/api/ozon-supplies/${item.supply_order_id}/poa.pdf','_blank')">⬇ Доверенность</button><button class="supply-detail-link supply-print-btn" style="${_pBtn}" onclick="window.open('/api/ozon-supplies/${item.supply_order_id}/poa.pdf','_blank')" title="Печать">⎙</button></div>
+          <div style="${_pRow}"><button class="supply-detail-link supply-ttn-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="window.open('/api/ozon-supplies/${item.supply_order_id}/ttn.pdf','_blank')">⬇ ТТН</button><button class="supply-detail-link supply-print-btn" style="${_pBtn}" onclick="window.open('/api/ozon-supplies/${item.supply_order_id}/ttn.pdf','_blank')" title="Печать">⎙</button></div>
         </div>
       </td>`;
     tbody.appendChild(tr);
