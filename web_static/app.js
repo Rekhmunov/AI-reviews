@@ -4490,6 +4490,15 @@ function openOzonBindingModal() {
 function closeOzonBindingModal() {
   const m = document.getElementById("ozonBindingModal");
   if (m) { m.classList.add("hidden"); }
+  // Clear all data to free browser memory
+  _ozonBindFiles = [];
+  _ozonBindMerged = [];
+  const log = document.getElementById("ozonBindLog");
+  if (log) log.innerHTML = '<span style="color:#94a3b8">Загрузите файлы xlsx для начала работы…</span>';
+  const mergeBtn = document.getElementById("ozonBindMergeBtn");
+  const dlBtn = document.getElementById("ozonBindDownloadBtn");
+  if (mergeBtn) mergeBtn.disabled = true;
+  if (dlBtn) { dlBtn.disabled = true; dlBtn.style.opacity = "0.4"; }
 }
 window.openOzonBindingModal = openOzonBindingModal;
 window.closeOzonBindingModal = closeOzonBindingModal;
