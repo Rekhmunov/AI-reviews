@@ -4607,8 +4607,11 @@ async function downloadOzonPoA(supplyId) {
   const dateDisplay = `${dd}.${mm}.${yyyy}`;
 
   // Legal entity — same cache as WB
-  const supplierShort = item.supplier_name || "";
-  const le = _supplyLegalEntitiesCache.find(e => e.short_name === supplierShort) || (_supplyLegalEntitiesCache[0] || {});
+  // Prefer ООО entity, same logic as Python backend
+  const le = _supplyLegalEntitiesCache.find(e => (e.short_name || "").includes("ООО")) ||
+             _supplyLegalEntitiesCache.find(e => e.short_name === (item.supplier_name || "")) ||
+             (_supplyLegalEntitiesCache[0] || {});
+  const supplierShort = le.short_name || item.supplier_name || "";
   const orgFull = le.full_name || supplierShort;
   const orgReq = le.requisites || "";
   const orgLine = [orgFull, orgReq].filter(Boolean).join(", ");

@@ -6602,7 +6602,7 @@ tr {{ page-break-inside: avoid; }}
     <td style="width:45%;vertical-align:top;text-align:right;font-size:8pt">
       Типовая межотраслевая форма № М-2<br>
       Утверждена постановлением Госстата России от 30.10.97 № 71а<br><br>
-      <table class="codes">
+      <table class="codes" border="1" cellspacing="0">
         <tr><td colspan="2" class="bold center">Коды</td></tr>
         <tr><td>Форма по ОКУД</td><td>0315001</td></tr>
         <tr><td>по ОКПО</td><td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td></tr>
