@@ -6423,6 +6423,7 @@ tr {{ page-break-inside: avoid; }}
         if not _can_view_supplies(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
         owner_id = _supply_owner_id(user)
+        repository._ensure_supply_tables()  # run migrations including supplier_name column
         with _ozon_sync_lock:
             if _ozon_sync_state.get("in_progress"):
                 return {"ok": False, "message": "Синхронизация уже запущена"}
