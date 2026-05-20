@@ -6475,6 +6475,11 @@ tr {{ page-break-inside: avoid; }}
                             _ozon_sync_state["synced"] = total_synced
                             if _ozon_sync_state.get("cancel_requested"):
                                 break
+                    # Mark source as synced (updates last_synced_at timestamp)
+                    try:
+                        repository.mark_supply_source_synced(source_id=int(src["id"]))
+                    except Exception:
+                        pass
                     with _ozon_sync_lock:
                         if _ozon_sync_state.get("cancel_requested"):
                             break
