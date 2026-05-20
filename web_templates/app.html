@@ -1106,7 +1106,7 @@
           <!-- Toolbar -->
           <div style="display:flex;gap:8px;align-items:center;padding:12px 20px;border-bottom:1px solid #e2e8f0;flex-shrink:0;flex-wrap:wrap">
             <button type="button" id="ozonBindLoadBtn" onclick="ozonBindLoad()">📂 Загрузить привязки</button>
-            <input type="file" id="ozonBindFileInput" accept=".xlsx" multiple style="display:none" onchange="ozonBindOnFiles(this.files)" />
+            <input type="file" id="ozonBindFileInput" accept=".xlsx,.zip" multiple style="display:none" onchange="ozonBindOnFiles(this.files)" />
             <button type="button" id="ozonBindClearBtn" class="secondary icon-btn" onclick="ozonBindClear()" title="Удалить загруженные файлы" style="color:#b91c1c;border-color:#fca5a5">🗑</button>
             <button type="button" id="ozonBindMergeBtn" class="secondary" onclick="ozonBindMerge()" disabled>⚡ Объединить привязки</button>
             <button type="button" id="ozonBindDownloadBtn" class="secondary" onclick="ozonBindDownload()" disabled style="opacity:0.4">⬇ Скачать привязки</button>
@@ -1846,6 +1846,6 @@
   <script src="/static/jszip.min.js"></script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=222"></script>
+  <script src="/static/app.js?v=223"></script>
 </body>
 </html>

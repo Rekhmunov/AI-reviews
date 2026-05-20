@@ -4501,14 +4501,48 @@ window.ozonBindLoad = ozonBindLoad;
 
 async function ozonBindOnFiles(fileList) {
   if (!fileList || !fileList.length) return;
+  if (typeof JSZip === "undefined") {
+    _bindLog('<span style="color:#b91c1c">Ошибка: JSZip не загружен. Перезагрузите страницу.</span>', "err");
+    return;
+  }
   _bindLog("Загрузка файлов…", "info");
+  let added = 0;
   for (const file of fileList) {
     const buf = await file.arrayBuffer();
-    const norm = _bindNormName(file.name);
-    _ozonBindFiles.push({ name: file.name, normalizedName: norm, arrayBuffer: buf });
-    _bindLog(`✓ Загружен: <b>${esc(file.name)}</b>`, "ok");
+    if (file.name.toLowerCase().endsWith(".zip")) {
+      // Extract xlsx files from ZIP
+      _bindLog(`📦 Распаковка архива: <b>${esc(file.name)}</b>…`, "info");
+      try {
+        const zip = await JSZip.loadAsync(buf);
+        let xlsxCount = 0;
+        for (const [path, entry] of Object.entries(zip.files)) {
+          if (entry.dir) continue;
+          const fname = path.split("/").pop();
+          if (!fname.toLowerCase().endsWith(".xlsx")) continue;
+          const xlsxBuf = await entry.async("arraybuffer");
+          const norm = _bindNormName(fname);
+          _ozonBindFiles.push({ name: fname, normalizedName: norm, arrayBuffer: xlsxBuf });
+          _bindLog(`  ✓ Из архива: <b>${esc(fname)}</b>`, "ok");
+          xlsxCount++;
+          added++;
+        }
+        if (xlsxCount === 0) {
+          _bindLog(`  ⚠ В архиве <b>${esc(file.name)}</b> xlsx-файлов не найдено.`, "warn");
+        } else {
+          _bindLog(`  📦 Извлечено из архива: <b>${xlsxCount}</b> файлов.`, "info");
+        }
+      } catch (e) {
+        _bindLog(`<span style="color:#b91c1c">❌ Ошибка распаковки <b>${esc(file.name)}</b>: ${esc(String(e))}</span>`, "err");
+      }
+    } else {
+      // Regular xlsx
+      const norm = _bindNormName(file.name);
+      _ozonBindFiles.push({ name: file.name, normalizedName: norm, arrayBuffer: buf });
+      _bindLog(`✓ Загружен: <b>${esc(file.name)}</b>`, "ok");
+      added++;
+    }
   }
-  _bindLog(`Всего загружено: <b>${_ozonBindFiles.length}</b> файлов.`, "info");
+  _bindLog(`Всего файлов в очереди: <b>${_ozonBindFiles.length}</b>.`, "info");
   document.getElementById("ozonBindMergeBtn").disabled = _ozonBindFiles.length < 2;
   document.getElementById("ozonBindDownloadBtn").disabled = true;
   document.getElementById("ozonBindDownloadBtn").style.opacity = "0.4";
