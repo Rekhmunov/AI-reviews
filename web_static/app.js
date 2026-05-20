@@ -8460,15 +8460,21 @@ function renderManagerSupplyPermissionsRows(supplySources, supplyPerms) {
         <input type="checkbox" id="managerSupplyPoa" ${supplyPerms?.can_supply_poa ? "checked" : ""} />
       </td>`;
     }
-    const wbDisabled = mp !== "wb" ? "disabled style='opacity:0.3'" : "";
-    const ozonDisabled = mp !== "ozon" ? "disabled style='opacity:0.3'" : "";
+    const tdSt = "padding:10px 12px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b";
+    const tdCt = tdSt + ";text-align:center";
+    const wbDisabled = mp !== "wb" ? "disabled" : "";
+    const wbStyle = mp !== "wb" ? "opacity:0.2;cursor:default" : "";
+    const ozonDisabled = mp !== "ozon" ? "disabled" : "";
+    const ozonStyle = mp !== "ozon" ? "opacity:0.2;cursor:default" : "";
+    const settingsMerge = settingsCell ? settingsCell.replace("<td ", `<td style="${tdCt}" `) : "";
+    const poaMerge = poaCell ? poaCell.replace("<td ", `<td style="${tdCt}" `) : "";
     tr.innerHTML = `
-      <td>${esc(src.name || `Источник #${sid}`)}</td>
-      <td style="text-align:center"><input type="checkbox" data-source-id="${sid}" data-col="wb"
-          ${srcPerms.wb ? "checked" : ""} ${wbDisabled} /></td>
-      <td style="text-align:center"><input type="checkbox" data-source-id="${sid}" data-col="ozon"
-          ${srcPerms.ozon ? "checked" : ""} ${ozonDisabled} /></td>
-      ${settingsCell}${poaCell}
+      <td style="${tdSt}">${esc(src.name || `Источник #${sid}`)}</td>
+      <td style="${tdCt}"><input type="checkbox" data-source-id="${sid}" data-col="wb"
+          ${srcPerms.wb ? "checked" : ""} ${wbDisabled} style="${wbStyle}" /></td>
+      <td style="${tdCt}"><input type="checkbox" data-source-id="${sid}" data-col="ozon"
+          ${srcPerms.ozon ? "checked" : ""} ${ozonDisabled} style="${ozonStyle}" /></td>
+      ${settingsMerge}${poaMerge}
     `;
     tbody.appendChild(tr);
   });
@@ -8502,11 +8508,13 @@ function renderManagerPermissionsRows(accounts, permissions = []) {
     if (!accountId) continue;
     const rowPerm = permissionsByAccount.get(accountId) || {};
     const tr = document.createElement("tr");
+    const tdStyle = "padding:10px 12px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b";
+    const tdCenter = tdStyle + ";text-align:center";
     tr.innerHTML = `
-      <td>${esc(account.account_name || `Кабинет #${accountId}`)}</td>
-      <td><input type="checkbox" data-account-id="${accountId}" data-scope="reviews" ${rowPerm.can_reviews ? "checked" : ""} /></td>
-      <td><input type="checkbox" data-account-id="${accountId}" data-scope="questions" ${rowPerm.can_questions ? "checked" : ""} /></td>
-      <td><input type="checkbox" data-account-id="${accountId}" data-scope="chats" ${rowPerm.can_chats ? "checked" : ""} /></td>
+      <td style="${tdStyle}">${esc(account.account_name || `Кабинет #${accountId}`)}</td>
+      <td style="${tdCenter}"><input type="checkbox" data-account-id="${accountId}" data-scope="reviews" ${rowPerm.can_reviews ? "checked" : ""} /></td>
+      <td style="${tdCenter}"><input type="checkbox" data-account-id="${accountId}" data-scope="questions" ${rowPerm.can_questions ? "checked" : ""} /></td>
+      <td style="${tdCenter}"><input type="checkbox" data-account-id="${accountId}" data-scope="chats" ${rowPerm.can_chats ? "checked" : ""} /></td>
     `;
     tbody.appendChild(tr);
   }

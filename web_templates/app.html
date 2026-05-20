@@ -1717,48 +1717,57 @@
   </div>
 
   <div id="managerPermissionsModal" class="modal-overlay hidden">
-    <div class="modal-card" style="width:90vw;max-width:90vw;max-height:90vh;overflow-y:auto">
-      <div class="row row-between">
-        <h4 class="no-margin">Доступы менеджера</h4>
-        <button class="secondary" type="button" onclick="closeManagerPermissionsModal()">Закрыть</button>
+    <div style="background:#fff;border-radius:12px;box-shadow:0 8px 40px rgba(15,23,42,0.16);width:90vw;max-height:90vh;display:flex;flex-direction:column;overflow:hidden">
+      <!-- Header -->
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 24px;border-bottom:1px solid #e2e8f0;background:#f8fafc;flex-shrink:0">
+        <h4 style="margin:0;font-size:15px;font-weight:600;color:#0f172a">Доступы менеджера</h4>
+        <button type="button" class="modal-close-btn" onclick="closeManagerPermissionsModal()">✕</button>
       </div>
 
-      <!-- Обратная связь -->
-      <p class="small" style="margin-top:12px;font-weight:600;color:#0f172a">Обратная связь</p>
-      <p class="small" style="margin-bottom:6px">Отметьте кабинеты и типы сущностей, с которыми менеджер сможет работать.</p>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Кабинет</th>
-              <th>Отзывы</th>
-              <th>Вопросы</th>
-              <th>Чаты</th>
-            </tr>
-          </thead>
-          <tbody id="managerPermissionsTbody"></tbody>
-        </table>
+      <!-- Scrollable body -->
+      <div style="overflow-y:auto;flex:1;padding:24px">
+
+        <!-- Обратная связь -->
+        <div style="margin-bottom:24px">
+          <p style="margin:0 0 4px;font-size:12px;font-weight:700;color:#94a3b8;letter-spacing:0.06em;text-transform:uppercase">Обратная связь</p>
+          <p style="margin:0 0 12px;font-size:13px;color:#64748b">Отметьте кабинеты и типы сущностей, с которыми менеджер сможет работать.</p>
+          <table style="width:100%;border-collapse:collapse;table-layout:fixed">
+            <colgroup><col style="width:40%"><col style="width:20%"><col style="width:20%"><col style="width:20%"></colgroup>
+            <thead>
+              <tr style="background:#f8fafc">
+                <th style="text-align:left;padding:8px 12px;font-size:12px;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0">Кабинет</th>
+                <th style="text-align:center;padding:8px 12px;font-size:12px;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0">Отзывы</th>
+                <th style="text-align:center;padding:8px 12px;font-size:12px;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0">Вопросы</th>
+                <th style="text-align:center;padding:8px 12px;font-size:12px;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0">Чаты</th>
+              </tr>
+            </thead>
+            <tbody id="managerPermissionsTbody"></tbody>
+          </table>
+        </div>
+
+        <!-- Поставки -->
+        <div>
+          <p style="margin:0 0 4px;font-size:12px;font-weight:700;color:#94a3b8;letter-spacing:0.06em;text-transform:uppercase">Поставки</p>
+          <p style="margin:0 0 12px;font-size:13px;color:#64748b">Отметьте доступ к источникам и разделам.</p>
+          <table id="managerSupplyPermissionsTable" style="width:100%;border-collapse:collapse;table-layout:fixed">
+            <colgroup><col style="width:30%"><col style="width:14%"><col style="width:14%"><col style="width:21%"><col style="width:21%"></colgroup>
+            <thead>
+              <tr style="background:#f8fafc">
+                <th style="text-align:left;padding:8px 12px;font-size:12px;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0">Кабинет</th>
+                <th style="text-align:center;padding:8px 12px;font-size:12px;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0">ВБ</th>
+                <th style="text-align:center;padding:8px 12px;font-size:12px;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0">ОЗОН</th>
+                <th id="managerSupplySettingsHeader" style="text-align:center;padding:8px 12px;font-size:12px;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0">Настройки</th>
+                <th id="managerSupplyPoaHeader" style="text-align:center;padding:8px 12px;font-size:12px;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0">Доверенности</th>
+              </tr>
+            </thead>
+            <tbody id="managerSupplyPermissionsTbody"></tbody>
+          </table>
+        </div>
+
       </div>
 
-      <!-- Поставки -->
-      <p class="small" style="margin-top:16px;font-weight:600;color:#0f172a">Поставки</p>
-      <p class="small" style="margin-bottom:6px">Отметьте доступ к источникам и разделам.</p>
-      <div class="table-wrap">
-        <table id="managerSupplyPermissionsTable">
-          <thead>
-            <tr>
-              <th>Кабинет</th>
-              <th>ВБ</th>
-              <th>ОЗОН</th>
-              <th id="managerSupplySettingsHeader">Настройки</th>
-              <th id="managerSupplyPoaHeader">Доверенности</th>
-            </tr>
-          </thead>
-          <tbody id="managerSupplyPermissionsTbody"></tbody>
-        </table>
-      </div>
-
-      <div class="row" style="margin-top:14px">
+      <!-- Footer -->
+      <div style="display:flex;align-items:center;gap:12px;padding:16px 24px;border-top:1px solid #e2e8f0;flex-shrink:0;background:#fff">
         <button id="managerPermissionsSaveBtn" type="button" onclick="applyManagerPermissionsSelection()">Применить разрешения</button>
         <span id="managerPermissionsInfo" class="small"></span>
       </div>
@@ -1876,6 +1885,6 @@
   <script src="/static/jszip.min.js"></script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=231"></script>
+  <script src="/static/app.js?v=232"></script>
 </body>
 </html>
