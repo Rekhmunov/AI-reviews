@@ -4323,7 +4323,7 @@ function renderOzonTable() {
       <td><span class="supply-status-badge ${statusClass}">${esc(statusLabel)}</span></td>
       <td class="supply-links-cell">
         <div class="supply-links-col">
-          <button class="supply-detail-link" onclick="openOzonDetailsModal(${item.supply_order_id})">☰ Детали заказа</button>
+          <button class="supply-detail-link" onclick="openOzonDetailsModal(${item.supply_order_id})">☰ Детали поставки</button>
           ${item.pallets_count && item.driver_name ? `<button class="supply-detail-link supply-packing-link" onclick="alert('Упаковочный лист OZON — в разработке')">⬇ Упаковочный лист</button>` : ""}
           ${item.pallets_count && item.driver_name ? `<button class="supply-detail-link supply-poa-link" style="flex:1" onclick="alert('Доверенность OZON — скоро')">⬇ Доверенность</button>` : ""}
           ${item.pallets_count && item.driver_name ? `<button class="supply-detail-link supply-ttn-link" style="flex:1" onclick="alert('ТТН OZON — скоро')">⬇ ТТН</button>` : ""}
