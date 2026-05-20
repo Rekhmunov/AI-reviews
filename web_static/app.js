@@ -3434,7 +3434,7 @@ ${driverDocs ? `<p>${esc(driverDocs)}</p>` : ""}
   </tr>`).join("")}
 </table>
 
-<p style="margin-top:18pt">
+<p style="margin-top:6pt">
   Подпись лица, получившего доверенность удостоверяем.
   &nbsp;&nbsp;&nbsp;&nbsp;
   <span class="dotline">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
@@ -3442,7 +3442,7 @@ ${driverDocs ? `<p>${esc(driverDocs)}</p>` : ""}
   (${esc(driverName)})
 </p>
 
-<table style="width:100%;margin-top:18pt;border-collapse:collapse">
+<table style="width:100%;margin-top:6pt;border-collapse:collapse">
   <tr>
     <td style="width:25%;vertical-align:bottom">Руководитель<br><span style="font-size:8pt">М.П.</span></td>
     <td style="width:30%;vertical-align:bottom;text-align:center">
@@ -3456,7 +3456,7 @@ ${driverDocs ? `<p>${esc(driverDocs)}</p>` : ""}
   </tr>
 </table>
 
-<table style="width:100%;margin-top:14pt;border-collapse:collapse">
+<table style="width:100%;margin-top:4pt;border-collapse:collapse">
   <tr>
     <td style="width:25%;vertical-align:bottom">Главный бухгалтер</td>
     <td style="width:30%;vertical-align:bottom;text-align:center">
@@ -3470,7 +3470,7 @@ ${driverDocs ? `<p>${esc(driverDocs)}</p>` : ""}
   </tr>
 </table>
 
-</body></html>`;
+</body></html>\`;
 
   const blob = new Blob(["\uFEFF" + html], { type: "application/msword" });
   const url = URL.createObjectURL(blob);
@@ -4644,7 +4644,7 @@ async function downloadOzonPoA(supplyId) {
 <!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View></w:WordDocument></xml><![endif]-->
 <style>
   @page { size: 210mm 297mm; margin: 15mm 10mm 15mm 25mm; }
-  body { font-family: "Times New Roman", serif; font-size: 9pt; line-height: 1.15; }
+  body { font-family: "Times New Roman", serif; font-size: 9pt; line-height: 1.05; }
   .small { font-size: 8pt; text-align: center; }
   .underline { text-decoration: underline; }
   .center { text-align: center; }
@@ -4656,7 +4656,7 @@ async function downloadOzonPoA(supplyId) {
   table.mat td, table.mat th { border: 1px solid #000; padding: 0pt 2pt; text-align: center; white-space: nowrap; line-height: 1.1; }
   table.mat td.mat-name, table.mat th.mat-name { text-align: left; white-space: normal; }
   .dotline { display: inline-block; border-bottom: 1px solid #000; min-width: 120pt; }
-  p { margin: 1pt 0; }
+  p { margin: 0; padding: 0; }
 </style>
 </head>
 <body>
@@ -4677,16 +4677,16 @@ async function downloadOzonPoA(supplyId) {
   </tr>
 </table>
 
-<p style="text-align:center;font-size:14pt;font-weight:bold;margin:10pt 0 4pt"><b>Доверенность № ${esc(supplyNum)}</b></p>
+<p style="text-align:center;font-size:12pt;font-weight:bold;margin:4pt 0 2pt"><b>Доверенность № ${esc(supplyNum)}</b></p>
 
 <p>Дата выдачи <span class="underline bold">${dateDisplay}</span></p>
 <p>Доверенность действительна 14 дней с даты подписания.</p>
-<p style="margin-top:6pt">${esc(orgLine)}</p>
+<p>${esc(orgLine)}</p>
 <p class="small">наименование потребителя и его адрес</p>
-<p style="margin-top:4pt">${esc(orgLine)}</p>
+<p>${esc(orgLine)}</p>
 <p class="small">наименование плательщика и его адрес</p>
 
-<p style="margin-top:8pt">
+<p>
   Доверенность выдана &nbsp;&nbsp;
   <span class="underline" style="min-width:60pt;display:inline-block">водителю</span>
   &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
@@ -4696,20 +4696,20 @@ async function downloadOzonPoA(supplyId) {
 
 ${driverDocs ? `<p>${esc(driverDocs)}</p>` : ""}
 
-<p style="margin-top:6pt">
+<p>
   На отправку груза от &nbsp;&nbsp;
   <span class="underline">&nbsp;&nbsp;&nbsp;&nbsp;${esc(wh)}&nbsp;&nbsp;&nbsp;&nbsp;</span>
 </p>
 <p class="small" style="text-align:center">наименование поставщика</p>
 
-<p style="margin-top:4pt">
+<p>
   материальных ценностей. Основание: №<span class="underline bold">${esc(supplyNum)}</span>
   &nbsp; от &nbsp;
   <span class="underline bold">${dateDisplay}</span>
 </p>
 <p class="small">наименование, номер и дата документа</p>
 
-<p style="margin-top:10pt">Перечень материальных ценностей, подлежащих доставке</p>
+<p style="margin-top:3pt">Перечень материальных ценностей, подлежащих доставке</p>
 <table class="mat">
   <colgroup><col style="width:5%"><col style="width:75%"><col style="width:10%"><col style="width:10%"></colgroup>
   <tr>
