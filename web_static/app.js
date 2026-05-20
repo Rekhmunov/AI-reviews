@@ -4774,8 +4774,7 @@ function ozonBindDownload() {
     btn.onclick = () => {
       const a = document.createElement("a");
       a.href = url;
-      a.download = name;  // preserves original Russian filename
-      a.target = "_blank";
+      a.download = name;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
