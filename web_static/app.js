@@ -8729,7 +8729,7 @@ async function saveEditTeamMember() {
       })
     });
     if (info) { info.textContent = "Сохранено"; info.style.color = "#16a34a"; }
-    await loadTeamUsers();
+    await loadTeam();
     setTimeout(closeEditTeamMember, 800);
   } catch(e) {
     if (info) { info.textContent = "Ошибка: " + e.message; info.style.color = "#b91c1c"; }
