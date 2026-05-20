@@ -33,9 +33,8 @@
         <!-- Nav sections -->
         <nav class="sidebar-nav">
 
-          <div class="nav-section-label nav-collapsible" id="nav-group-feedback-header" onclick="toggleNavGroup('feedback')" style="cursor:pointer;user-select:none;display:flex;align-items:center;justify-content:space-between;padding-right:8px">
-            <span>Обратная связь</span>
-            <span id="nav-group-feedback-arrow" class="nav-collapse-arrow">▼</span>
+          <div class="nav-section-label nav-collapsible" id="nav-group-feedback-header" onclick="toggleNavGroup('feedback')" style="cursor:pointer;user-select:none">
+            <span id="nav-group-feedback-arrow" class="nav-collapse-arrow">▾</span> Обратная связь
           </div>
           <div id="nav-group-feedback" style="overflow:hidden;transition:max-height 0.3s ease">
           <a id="nav-reviews" class="nav-item active" href="#" onclick="showSection('reviews')">
@@ -51,9 +50,8 @@
           {{NAV_ANALYTICS}}
           </div>
 
-          <div id="nav-section-supplies" class="nav-section-label nav-collapsible" style="margin-top:8px;display:none;cursor:pointer;user-select:none;padding-right:8px" onclick="toggleNavGroup('supplies')">
-            <span>Поставки</span>
-            <span id="nav-group-supplies-arrow" class="nav-collapse-arrow">▼</span>
+          <div id="nav-section-supplies" class="nav-section-label nav-collapsible" style="margin-top:8px;display:none;cursor:pointer;user-select:none" onclick="toggleNavGroup('supplies')">
+            <span id="nav-group-supplies-arrow" class="nav-collapse-arrow">▾</span> Поставки
           </div>
           <div id="nav-group-supplies" style="overflow:hidden;transition:max-height 0.3s ease">
           {{NAV_SUPPLIES_WB}}
