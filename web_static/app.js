@@ -4511,11 +4511,11 @@ async function openOzonDetailsModal(supplyId) {
     cargoEl.textContent = "Загрузка…";
     fetch(`/api/ozon-supplies/${item.supply_order_id}/cargoes-info`).then(r => r.json()).then(d => {
       const groups = d.groups || [];
-      if (!groups.length) { cargoEl.textContent = "—"; return; }
+      if (!groups.length) { cargoEl.textContent = "Ещё не заполнены"; return; }
       const typeLabel = t => t === "BOX" ? "короба" : t === "PALLET" ? "паллета" : t.toLowerCase();
       const contLabel = c => c === "MONO" ? "моно" : c === "MIXED" ? "микс" : c.toLowerCase();
       cargoEl.textContent = groups.map(g => `${g.count} ${typeLabel(g.type)} — ${contLabel(g.content_type)}`).join("\n");
-    }).catch(() => { cargoEl.textContent = "—"; });
+    }).catch(() => { cargoEl.textContent = "Ещё не заполнены"; });
   }
   document.getElementById("ozonSdNotes").value = item.notes || "";
 
