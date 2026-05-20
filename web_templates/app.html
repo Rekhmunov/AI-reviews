@@ -1717,12 +1717,15 @@
   </div>
 
   <div id="managerPermissionsModal" class="modal-overlay hidden">
-    <div class="modal-card">
+    <div class="modal-card" style="max-width:680px;width:95vw">
       <div class="row row-between">
         <h4 class="no-margin">Доступы менеджера</h4>
         <button class="secondary" type="button" onclick="closeManagerPermissionsModal()">Закрыть</button>
       </div>
-      <p class="small">Отметьте кабинеты и типы сущностей, с которыми менеджер сможет работать.</p>
+
+      <!-- Обратная связь -->
+      <p class="small" style="margin-top:12px;font-weight:600;color:#0f172a">Обратная связь</p>
+      <p class="small" style="margin-bottom:6px">Отметьте кабинеты и типы сущностей, с которыми менеджер сможет работать.</p>
       <div class="table-wrap">
         <table>
           <thead>
@@ -1736,12 +1739,26 @@
           <tbody id="managerPermissionsTbody"></tbody>
         </table>
       </div>
-      <div class="row" style="margin-top:12px;align-items:center;gap:8px">
-        <label style="font-weight:500">Раздел Поставки:</label>
-        <input type="checkbox" id="managerCanSupplies" />
-        <span class="small" style="color:#64748b">Разрешить просмотр раздела Поставки</span>
+
+      <!-- Поставки -->
+      <p class="small" style="margin-top:16px;font-weight:600;color:#0f172a">Поставки</p>
+      <p class="small" style="margin-bottom:6px">Отметьте доступ к источникам и разделам.</p>
+      <div class="table-wrap">
+        <table id="managerSupplyPermissionsTable">
+          <thead>
+            <tr>
+              <th>Кабинет</th>
+              <th>ВБ</th>
+              <th>ОЗОН</th>
+              <th id="managerSupplySettingsHeader">Настройки</th>
+              <th id="managerSupplyPoaHeader">Доверенности</th>
+            </tr>
+          </thead>
+          <tbody id="managerSupplyPermissionsTbody"></tbody>
+        </table>
       </div>
-      <div class="row">
+
+      <div class="row" style="margin-top:14px">
         <button id="managerPermissionsSaveBtn" type="button" onclick="applyManagerPermissionsSelection()">Применить разрешения</button>
         <span id="managerPermissionsInfo" class="small"></span>
       </div>
@@ -1859,6 +1876,6 @@
   <script src="/static/jszip.min.js"></script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=228"></script>
+  <script src="/static/app.js?v=229"></script>
 </body>
 </html>

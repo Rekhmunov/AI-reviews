@@ -8434,6 +8434,62 @@ function closeManagerPermissionsModal() {
   }
 }
 
+// ── Supply permissions table ──────────────────────────────────────────────
+function renderManagerSupplyPermissionsRows(supplySources, supplyPerms) {
+  const tbody = document.getElementById("managerSupplyPermissionsTbody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+  if (!supplySources || !supplySources.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="color:#94a3b8;font-size:12px;text-align:center">Нет источников поставок</td></tr>';
+    return;
+  }
+  const sources = supplyPerms?.sources || {};
+  const rowCount = supplySources.length;
+  supplySources.forEach((src, idx) => {
+    const sid = String(src.id);
+    const mp = (src.marketplace || "wb").toLowerCase();
+    const srcPerms = sources[sid] || {};
+    const tr = document.createElement("tr");
+    let settingsCell = "";
+    let poaCell = "";
+    if (idx === 0) {
+      settingsCell = `<td rowspan="${rowCount}" style="text-align:center;vertical-align:middle">
+        <input type="checkbox" id="managerSupplySettings" ${supplyPerms?.can_supply_settings ? "checked" : ""} />
+      </td>`;
+      poaCell = `<td rowspan="${rowCount}" style="text-align:center;vertical-align:middle">
+        <input type="checkbox" id="managerSupplyPoa" ${supplyPerms?.can_supply_poa ? "checked" : ""} />
+      </td>`;
+    }
+    const wbDisabled = mp !== "wb" ? "disabled style='opacity:0.3'" : "";
+    const ozonDisabled = mp !== "ozon" ? "disabled style='opacity:0.3'" : "";
+    tr.innerHTML = `
+      <td>${esc(src.name || `Источник #${sid}`)}</td>
+      <td style="text-align:center"><input type="checkbox" data-source-id="${sid}" data-col="wb"
+          ${srcPerms.wb ? "checked" : ""} ${wbDisabled} /></td>
+      <td style="text-align:center"><input type="checkbox" data-source-id="${sid}" data-col="ozon"
+          ${srcPerms.ozon ? "checked" : ""} ${ozonDisabled} /></td>
+      ${settingsCell}${poaCell}
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function collectManagerSupplyPermissionsFromModal() {
+  const sources = {};
+  document.querySelectorAll("#managerSupplyPermissionsTbody input[data-source-id]").forEach(cb => {
+    const sid = cb.getAttribute("data-source-id");
+    const col = cb.getAttribute("data-col");
+    if (!sid || !col) return;
+    if (!sources[sid]) sources[sid] = { wb: false, ozon: false };
+    sources[sid][col] = Boolean(cb.checked);
+  });
+  return {
+    sources,
+    can_supply_settings: Boolean(document.getElementById("managerSupplySettings")?.checked),
+    can_supply_poa: Boolean(document.getElementById("managerSupplyPoa")?.checked),
+  };
+}
+
 function renderManagerPermissionsRows(accounts, permissions = []) {
   const tbody = document.getElementById("managerPermissionsTbody");
   if (!tbody) return;
@@ -8613,14 +8669,21 @@ async function openManagerPermissionsModalForEdit() {
   if (!Array.isArray(teamState.accounts) || !teamState.accounts.length) await loadAccounts();
   const member = teamState.items.find(m => Number(m.id) === _editingMemberId);
   if (!member) return;
-  // Pre-load member's current permissions into the shared modal state
   teamState.pendingPermissions = (member.manager_permissions || []).map(p => ({...p}));
   teamState.pendingCanSupplies = Boolean(member.can_supplies);
+  // Load supply permissions
+  const spRes = await fetch(`/api/tenant/team/${_editingMemberId}/supply-permissions`).catch(() => null);
+  const spData = spRes?.ok ? await spRes.json().catch(() => ({})) : {};
+  teamState.pendingSupplyPermissions = spData;
   const info = document.getElementById("managerPermissionsInfo");
   if (info) { info.textContent = ""; info.style.color = ""; }
   const saveBtn = document.getElementById("managerPermissionsSaveBtn");
   if (saveBtn) saveBtn.textContent = "Применить разрешения";
   renderManagerPermissionsRows(teamState.accounts, teamState.pendingPermissions);
+  // Load supply sources and render supply table
+  const ssRes = await fetch("/api/supply-sources").catch(() => null);
+  const ssSources = ssRes?.ok ? await ssRes.json().catch(() => []) : [];
+  renderManagerSupplyPermissionsRows(ssSources, teamState.pendingSupplyPermissions);
   setModalVisibility("managerPermissionsModal", true);
 }
 
@@ -8656,8 +8719,14 @@ async function saveEditTeamMember() {
     await fetch(`/api/tenant/team/${uid}/permissions`, {
       method: "PUT", headers: jsonHeaders(), body: JSON.stringify({ permissions: permsPayload })
     });
+    const sp = teamState.pendingSupplyPermissions || {};
     await fetch(`/api/tenant/team/${uid}/supplies-access`, {
-      method: "PUT", headers: jsonHeaders(), body: JSON.stringify({ can_supplies: Boolean(teamState.pendingCanSupplies) })
+      method: "PUT", headers: jsonHeaders(), body: JSON.stringify({
+        can_supplies: Boolean(teamState.pendingCanSupplies),
+        can_supply_settings: Boolean(sp.can_supply_settings),
+        can_supply_poa: Boolean(sp.can_supply_poa),
+        supply_sources: sp.sources || {},
+      })
     });
     if (info) { info.textContent = "Сохранено"; info.style.color = "#16a34a"; }
     await loadTeamUsers();
@@ -8718,14 +8787,21 @@ async function openManagerPermissionsModalForCreate() {
   }
   const permissions = Array.isArray(teamState.pendingPermissions) ? teamState.pendingPermissions : [];
   renderManagerPermissionsRows(teamState.accounts, permissions);
+  // Load supply sources for new manager (no existing permissions)
+  const ssRes = await fetch("/api/supply-sources").catch(() => null);
+  const ssSources = ssRes?.ok ? await ssRes.json().catch(() => []) : [];
+  renderManagerSupplyPermissionsRows(ssSources, {});
   setModalVisibility("managerPermissionsModal", true);
 }
 
 function applyManagerPermissionsSelection() {
   const permissions = collectManagerPermissionsFromModal();
-  const canSuppliesEl = document.getElementById("managerCanSupplies");
-  teamState.pendingCanSupplies = canSuppliesEl ? Boolean(canSuppliesEl.checked) : false;
-  if (!permissions.length && !teamState.pendingCanSupplies) {
+  const supplyPerms = collectManagerSupplyPermissionsFromModal();
+  teamState.pendingSupplyPermissions = supplyPerms;
+  const hasAnySupply = supplyPerms.can_supply_settings || supplyPerms.can_supply_poa ||
+    Object.values(supplyPerms.sources || {}).some(s => s.wb || s.ozon);
+  teamState.pendingCanSupplies = hasAnySupply;
+  if (!permissions.length && !hasAnySupply) {
     const info = document.getElementById("managerPermissionsInfo");
     if (info) {
       info.textContent = "Нужно выбрать хотя бы один доступ";

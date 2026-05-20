@@ -505,6 +505,9 @@ class UpdateSupplyDriverRequest(BaseModel):
 
 class ManagerSuppliesAccessRequest(BaseModel):
     can_supplies: bool = False
+    can_supply_settings: bool = False
+    can_supply_poa: bool = False
+    supply_sources: dict = {}  # {source_id: {"wb": bool, "ozon": bool}}
 
 
 class UserTemplateVariableValuesSaveRequest(BaseModel):
@@ -4339,6 +4342,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             if str(item.get("role") or "").strip().lower() == TENANT_ROLE_MANAGER:
                 item["manager_permissions"] = repository.list_manager_permissions(manager_user_id=int(item["id"]))
                 item["can_supplies"] = bool(item.get("can_supplies"))
+                item["supply_permissions"] = repository.get_manager_supply_permissions(
+                    manager_user_id=int(item["id"])
+                )
         return {"items": items, "count": len(items)}
 
     @app.post("/api/tenant/team")
@@ -4443,6 +4449,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "items": repository.list_manager_permissions(manager_user_id=target_user_id),
         }
 
+    @app.get("/api/tenant/team/{target_user_id}/supply-permissions")
+    def tenant_get_supply_permissions(target_user_id: int, request: Request) -> dict[str, object]:
+        owner = _require_tenant_owner(request)
+        _target_user_for_admin_scope(actor=owner, target_user_id=target_user_id)
+        repository._ensure_supply_tables()
+        perms = repository.get_manager_supply_permissions(manager_user_id=target_user_id)
+        return {"ok": True, **perms}
+
     @app.put("/api/tenant/team/{target_user_id}/supplies-access")
     def tenant_set_manager_supplies_access(
         target_user_id: int,
@@ -4456,8 +4470,22 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if str(target.get("role") or "").strip().lower() != TENANT_ROLE_MANAGER:
             raise HTTPException(status_code=400, detail="Применимо только для менеджера")
         repository._ensure_supply_tables()
-        repository.set_user_can_supplies(user_id=target_user_id, can_supplies=payload.can_supplies)
-        return {"ok": True, "can_supplies": payload.can_supplies}
+        # Derive can_supplies from granular permissions
+        sources = {str(k): v for k, v in (payload.supply_sources or {}).items()}
+        has_any_supply = (
+            payload.can_supplies
+            or payload.can_supply_settings
+            or payload.can_supply_poa
+            or any((v.get("wb") or v.get("ozon")) for v in sources.values())
+        )
+        repository.set_user_can_supplies(user_id=target_user_id, can_supplies=has_any_supply)
+        repository.set_manager_supply_permissions(
+            manager_user_id=target_user_id,
+            can_supply_settings=payload.can_supply_settings,
+            can_supply_poa=payload.can_supply_poa,
+            sources=sources,
+        )
+        return {"ok": True, "can_supplies": has_any_supply}
 
     @app.post("/api/tenant/team/{target_user_id}/role")
     def tenant_update_team_role(
