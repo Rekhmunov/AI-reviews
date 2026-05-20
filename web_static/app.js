@@ -4479,7 +4479,8 @@ async function openOzonDetailsModal(supplyId) {
     }
   }
   document.getElementById("ozonSdQty").textContent = item.total_quantity || "—";
-  document.getElementById("ozonSdType").textContent = item.creation_flow || "—";
+  const ozonSdTypeEl = document.getElementById("ozonSdType");
+  if (ozonSdTypeEl) ozonSdTypeEl.textContent = item.creation_flow || "—";
   const ozonPalletsEl = document.getElementById("ozonSdPallets");
   if (ozonPalletsEl) ozonPalletsEl.value = item.pallets_count || "";
 
