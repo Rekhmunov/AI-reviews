@@ -6632,7 +6632,7 @@ tr {{ page-break-inside: avoid; }}
 
 <p>
   На отправку груза от &nbsp;&nbsp;
-  <span class="underline">&nbsp;&nbsp;&nbsp;&nbsp;{e(wh)}&nbsp;&nbsp;&nbsp;&nbsp;</span>
+  <span class="underline">&nbsp;&nbsp;&nbsp;&nbsp;{e(supplier_short)}&nbsp;&nbsp;&nbsp;&nbsp;</span>
 </p>
 <p class="small" style="text-align:center">наименование поставщика</p>
 

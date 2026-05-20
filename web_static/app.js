@@ -4698,7 +4698,7 @@ ${driverDocs ? `<p>${esc(driverDocs)}</p>` : ""}
 
 <p>
   На отправку груза от &nbsp;&nbsp;
-  <span class="underline">&nbsp;&nbsp;&nbsp;&nbsp;${esc(wh)}&nbsp;&nbsp;&nbsp;&nbsp;</span>
+  <span class="underline">&nbsp;&nbsp;&nbsp;&nbsp;${esc(supplierShort)}&nbsp;&nbsp;&nbsp;&nbsp;</span>
 </p>
 <p class="small" style="text-align:center">наименование поставщика</p>
 
