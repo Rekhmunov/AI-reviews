@@ -4597,7 +4597,10 @@ async function ozonBindMerge() {
 
   for (const [normName, files] of groups) {
     if (files.length === 1) {
-      _bindLog(`<span style="color:#b91c1c">⚠ Нет пары для: <b>${esc(files[0].name)}</b> — файл не объединён</span>`, "err");
+      _bindLog(`<span style="color:#d97706">⚠ Нет пары для: <b>${esc(files[0].name)}</b> — добавлен без объединения</span>`, "warn");
+      // Add as-is (no merge needed)
+      const blob = new Blob([files[0].arrayBuffer], {type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+      _ozonBindMerged.push({ name: files[0].name, blob });
       skippedCount++;
       continue;
     }
