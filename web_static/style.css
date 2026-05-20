@@ -4967,6 +4967,7 @@ button.secondary.danger:hover {
 .supplies-main-table td {
   text-align: left;
   border-bottom: 1px solid rgba(147,175,224,0.25);
+  border-right: 1px solid rgba(147,175,224,0.18);
   padding: 8px 6px;
   vertical-align: middle;
   overflow: hidden;
@@ -4974,6 +4975,10 @@ button.secondary.danger:hover {
   overflow-wrap: break-word;
   white-space: normal;
   max-width: 0; /* forces table-layout:fixed to respect col widths */
+}
+.supplies-main-table th:last-child,
+.supplies-main-table td:last-child {
+  border-right: none;
 }
 
 .supplies-main-table th {
