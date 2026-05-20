@@ -1540,6 +1540,11 @@ class WildberriesMarketplaceClient:
             or (last_message.get("dateTime") if isinstance(last_message, Mapping) else None)
         )
         last_message_at = _normalize_timestamp(last_message_at_raw)
+        # last_message_at is NOT NULL in DB — use chat creation time as fallback
+        if not last_message_at and kind == "chat":
+            last_message_at = _normalize_timestamp(
+                item.get("createdAt") or item.get("createTime") or item.get("created_at")
+            )
         # For questions answered on the WB portal, set seller_replied_at so that
         # last_sent_at is populated → question moves to "Processed" bucket.
         # We use createdDate as the best available timestamp (WB doesn't return
