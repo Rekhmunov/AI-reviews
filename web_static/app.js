@@ -4364,7 +4364,9 @@ async function toggleOzonGoods(btn, supplyId) {
   }
   let html = '<table class="supply-goods-table"><thead><tr><th>SKU OZON</th><th>Наименование</th><th>Арт. продавца</th><th>Кол-во</th></tr></thead><tbody>';
   for (const g of goods) {
-    html += `<tr><td>${g.sku || "—"}</td><td>${esc(g.name || "—")}</td><td>${esc(g.offer_id || "—")}</td><td>${g.quantity ?? "—"}</td></tr>`;
+    // product_name from our catalog (by offer_id), fallback to offer_id, then API name
+    const displayName = g.product_name || g.offer_id || g.name || "—";
+    html += `<tr><td>${g.sku || "—"}</td><td>${esc(displayName)}</td><td>${esc(g.offer_id || "—")}</td><td>${g.quantity ?? "—"}</td></tr>`;
   }
   html += "</tbody></table>";
   container.innerHTML = html;
