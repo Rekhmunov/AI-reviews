@@ -4341,7 +4341,18 @@ async function syncOzonSupplies() {
 async function stopOzonSync() {
   const stopBtn = document.getElementById("ozonStopBtn");
   if (stopBtn) { stopBtn.disabled = true; stopBtn.textContent = "⏳"; }
-  await fetch("/api/ozon-supplies/sync/stop", { method: "POST", headers: jsonHeaders() }).catch(() => null);
+  const res = await fetch("/api/ozon-supplies/sync/stop", { method: "POST", headers: jsonHeaders() }).catch(() => null);
+  // If sync wasn't running, restore button immediately (poll timer is not active)
+  if (!res || !res.ok) {
+    if (stopBtn) { stopBtn.disabled = false; stopBtn.textContent = "🛑"; stopBtn.classList.add("hidden"); }
+    return;
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!data.ok) {
+    // Sync was not in progress — restore stop button and hide it
+    if (stopBtn) { stopBtn.disabled = false; stopBtn.textContent = "🛑"; stopBtn.classList.add("hidden"); }
+  }
+  // If data.ok = true, poll timer will handle restoring the button when sync finishes
 }
 
 function _ozonPollSync() {
