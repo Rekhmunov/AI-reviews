@@ -6519,6 +6519,7 @@ tr {{ page-break-inside: avoid; }}
                             if not last_id_cursor or len(page_ids) < 100:
                                 break
                         except Exception as ex:
+                            _log.error("ozon sync list error src=%s: %s", src.get("name","?"), ex, exc_info=True)
                             errors.append(f"list: {ex}"); break
 
                     if not all_order_ids:
