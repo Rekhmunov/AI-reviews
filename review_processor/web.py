@@ -6740,21 +6740,14 @@ tr {{ page-break-inside: avoid; }}
         return Response(content=pdf_bytes, media_type="application/pdf",
                         headers={"Content-Disposition": f"inline; filename*=UTF-8''{_qp(fname)}"})
 
-    @app.get("/api/ozon-supplies/{supply_order_id}/ttn.pdf")
-    def get_ozon_ttn_pdf(request: Request, supply_order_id: int) -> "Response":
-        """Generate OZON ТОРГ-12 — same torg12_tpl.docx template as WB → PDF via LibreOffice."""
-        import subprocess as _sp, tempfile as _tf, pathlib as _pl, os as _os
+    def _build_ozon_ttn_docx(request: Request, supply_order_id: int, owner_id: int):
+        """Build OZON TTN DOCX bytes. Returns (bytes, supply_num) or None."""
         import zipfile as _zf, io as _io, re as _re, html as _html_esc
-        from fastapi.responses import Response
         from datetime import datetime as _dtt
 
-        user = _require_user(request)
-        if not _can_view_supplies(user):
-            raise HTTPException(status_code=403, detail="Нет доступа")
-        owner_id = _supply_owner_id(user)
         data = _ozon_get_doc_data(owner_id, supply_order_id)
         if not data:
-            raise HTTPException(status_code=404, detail="Поставка не найдена")
+            return None
 
         item = data["item"]
         le = data["le"]
@@ -6866,7 +6859,7 @@ tr {{ page-break-inside: avoid; }}
             ("{{ORG_FULL}}",        org_line),
             ("{{SUPPLIER}}",        org_line),
             ("{{PAYER}}",           org_line),
-            ("{{ORDER_DATE}}",      supply_date_disp),
+            ("{{ORDER_DATE}}",      f"Поставка №{supply_num}"),
             ("{{DOC_NUM_VAL}}",     supply_num),
             ("{{DOC_DATE_VAL}}",    supply_date_disp),
             ("{{GOODS_NAME}}",      rows_data[0]["name"] if rows_data else "Товар"),
@@ -6901,15 +6894,46 @@ tr {{ page-break-inside: avoid; }}
 
         all_files["word/document.xml"] = doc_xml.encode("utf-8")
 
-        tmp_dir   = _tf.mkdtemp()
-        docx_path = _pl.Path(tmp_dir) / f"ozon_ttn_{supply_order_id}.docx"
-        pdf_path  = _pl.Path(tmp_dir) / f"ozon_ttn_{supply_order_id}.pdf"
         buf = _io.BytesIO()
         with _zf.ZipFile(buf, "w", _zf.ZIP_DEFLATED) as zout:
             for name, fdata in all_files.items():
                 zout.writestr(name, fdata)
-        docx_path.write_bytes(buf.getvalue())
+        return buf.getvalue(), supply_num
 
+    @app.get("/api/ozon-supplies/{supply_order_id}/ttn.docx")
+    def get_ozon_ttn_docx(request: Request, supply_order_id: int) -> "Response":
+        import io as _io, zipfile as _zf
+        from fastapi.responses import Response
+        from urllib.parse import quote as _qp
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        result = _build_ozon_ttn_docx(request, supply_order_id, _supply_owner_id(user))
+        if result is None:
+            raise HTTPException(status_code=404, detail="Поставка не найдена")
+        docx_bytes, supply_num = result
+        fname = f"ТТН_OZON_{supply_num}.docx"
+        return Response(content=docx_bytes,
+                        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{_qp(fname)}"})
+
+    @app.get("/api/ozon-supplies/{supply_order_id}/ttn.pdf")
+    def get_ozon_ttn_pdf_ep(request: Request, supply_order_id: int) -> "Response":
+        import subprocess as _sp, tempfile as _tf, pathlib as _pl, os as _os
+        import io as _io, zipfile as _zf
+        from fastapi.responses import Response
+        from urllib.parse import quote as _qp
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        result = _build_ozon_ttn_docx(request, supply_order_id, _supply_owner_id(user))
+        if result is None:
+            raise HTTPException(status_code=404, detail="Поставка не найдена")
+        docx_bytes, supply_num = result
+        tmp_dir   = _tf.mkdtemp()
+        docx_path = _pl.Path(tmp_dir) / f"ozon_ttn_{supply_order_id}.docx"
+        pdf_path  = _pl.Path(tmp_dir) / f"ozon_ttn_{supply_order_id}.pdf"
+        docx_path.write_bytes(docx_bytes)
         env = dict(_os.environ)
         env.update({"HOME": "/tmp", "XDG_CACHE_HOME": "/tmp/.cache",
                     "XDG_CONFIG_HOME": "/tmp/.config", "DCONF_PROFILE": "empty"})
@@ -6917,7 +6941,6 @@ tr {{ page-break-inside: avoid; }}
                 capture_output=True, env=env, timeout=60)
         if not pdf_path.exists():
             raise HTTPException(status_code=500, detail="LibreOffice не смог сгенерировать PDF")
-        from urllib.parse import quote as _qp
         fname = f"ТТН_OZON_{supply_num}.pdf"
         return Response(content=pdf_path.read_bytes(), media_type="application/pdf",
                         headers={"Content-Disposition": f"inline; filename*=UTF-8''{_qp(fname)}"})
