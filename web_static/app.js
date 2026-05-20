@@ -4639,24 +4639,24 @@ async function downloadOzonPoA(supplyId) {
 <!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View></w:WordDocument></xml><![endif]-->
 <style>
   @page { size: 210mm 297mm; margin: 15mm 10mm 15mm 25mm; }
-  body { font-family: "Times New Roman", serif; font-size: 11pt; line-height: 1.4; }
+  body { font-family: "Times New Roman", serif; font-size: 12pt; line-height: 1.15; }
   .small { font-size: 8pt; text-align: center; }
   .underline { text-decoration: underline; }
   .center { text-align: center; }
   .bold { font-weight: bold; }
-  table.outer { width: 100%; border-collapse: collapse; margin-bottom: 8pt; }
+  table.outer { width: 100%; border-collapse: collapse; margin-bottom: 6pt; }
   table.codes { border-collapse: collapse; margin-left: auto; font-size: 9pt; }
   table.codes td { border: 1px solid #000; padding: 2pt 6pt; }
-  table.mat { width: 100%; border-collapse: collapse; margin-top: 6pt; font-size: 10pt; }
-  table.mat td, table.mat th { border: 1px solid #000; padding: 3pt 5pt; text-align: center; }
+  table.mat { width: 100%; border-collapse: collapse; margin-top: 4pt; font-size: 11pt; }
+  table.mat td, table.mat th { border: 1px solid #000; padding: 2pt 4pt; text-align: center; }
   .dotline { display: inline-block; border-bottom: 1px solid #000; min-width: 120pt; }
-  p { margin: 3pt 0; }
+  p { margin: 1pt 0; }
 </style>
 </head>
 <body>
 <table class="outer">
   <tr>
-    <td style="width:55%;vertical-align:top;font-size:11pt">
+    <td style="width:55%;vertical-align:top;font-size:12pt">
       Организация <span class="underline">${esc(orgFull)}</span>
     </td>
     <td style="width:45%;vertical-align:top;text-align:right;font-size:8pt">
