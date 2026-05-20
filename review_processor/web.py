@@ -6582,7 +6582,7 @@ tr {{ page-break-inside: avoid; }}
   .right {{ text-align: right; }}
   .bold {{ font-weight: bold; }}
   table.outer {{ width: 100%; border-collapse: collapse; margin-bottom: 6pt; }}
-  table.codes {{ border-collapse: collapse; margin-left: auto; font-size: 9pt; }}
+  table.codes {{ border-collapse: collapse; margin-left: auto; font-size: 9pt; border: 1px solid #000; }}
   table.codes td {{ border: 1px solid #000; padding: 2pt 6pt; }}
   table.mat {{ width: 100%; border-collapse: collapse; margin-top: 4pt; font-size: 9pt; border: 1px solid #000; }}
   table.mat td, table.mat th {{ border: 1px solid #000; padding: 0pt 2pt; text-align: center; white-space: nowrap; line-height: 1.1; }}
