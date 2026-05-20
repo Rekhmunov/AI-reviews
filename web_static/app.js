@@ -4639,14 +4639,15 @@ async function _bindMergeXlsx(files) {
 
   // Extract header row and data rows from base
   const baseRows = _bindExtractRows(baseSheetXml);
-  let allDataRows = baseRows.slice(1); // rows 2+ from base (skip header)
+  // Data rows = rows 2+, filtered to only rows that have actual cell values
+  let allDataRows = baseRows.slice(1).filter(_bindRowHasValues);
 
-  // Append data rows from other files
+  // Append data rows from other files (also filtered)
   for (let i = 1; i < zips.length; i++) {
     const sp = await _bindFindSheetPath(zips[i]);
     const xml = await zips[i].file(sp)?.async("string") || "";
     const rows = _bindExtractRows(xml);
-    allDataRows = allDataRows.concat(rows.slice(1)); // skip header row
+    allDataRows = allDataRows.concat(rows.slice(1).filter(_bindRowHasValues));
   }
 
   // Renumber all rows (header=1, data=2,3,...)
@@ -4699,6 +4700,11 @@ function _bindExtractRows(sheetXml) {
     rows.push(m[0]);
   }
   return rows;
+}
+
+function _bindRowHasValues(rowXml) {
+  // Row is considered non-empty if it has at least one cell with a <v> value
+  return /<v[^/]/.test(rowXml) || /<v\/>/.test(rowXml) || /t="inlineStr"/.test(rowXml);
 }
 
 function _bindRenumberRow(rowXml, newRowNum) {
