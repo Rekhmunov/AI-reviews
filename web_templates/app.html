@@ -1042,19 +1042,21 @@
                 <option value="COMPLETED">Принята</option>
                 <option value="REPORTS_CONFIRMATION_AWAITING">Согласование актов</option>
               </select>
+            </div>
+            <div style="display:flex;gap:6px;align-items:center">
               <select id="ozonProductionFilter" onchange="loadOzonSupplies()">
                 <option value="">Все производства</option>
               </select>
               <input id="ozonSearchFilter" type="search" placeholder="🔍 Поиск..."
-                     autocomplete="off" style="width:160px" oninput="renderOzonTable()" />
-            </div>
-            <div class="supplies-date-wrap" style="position:relative">
+                     autocomplete="off" style="width:140px" oninput="renderOzonTable()" />
+              <div class="supplies-date-wrap" style="position:relative">
               <button id="ozonDateBtn" type="button" class="secondary" onclick="toggleOzonDatePanel()" style="padding:0 10px;height:34px" title="Фильтр по дате">📅</button>
               <input type="hidden" id="ozonDateFrom" />
               <input type="hidden" id="ozonDateTo" />
               <div id="ozonDatePanel" class="supplies-date-panel" style="display:none">
                 <div id="ozonCalendar"></div>
               </div>
+            </div>
             </div>
           </div>
           <div id="ozonSyncInfo" class="supplies-sync-info"></div>
