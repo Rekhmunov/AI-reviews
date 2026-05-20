@@ -4775,6 +4775,8 @@ function ozonBindDownload() {
       const a = document.createElement("a");
       a.href = url;
       a.download = name;
+      a.target = "_blank";
+      a.rel = "noopener";
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
