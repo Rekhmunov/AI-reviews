@@ -6555,6 +6555,7 @@ class ReviewRepository:
         conn.execute(self._sql("ALTER TABLE ozon_supply_items ADD COLUMN IF NOT EXISTS is_crossdock INTEGER NOT NULL DEFAULT 0"))
         conn.execute(self._sql("ALTER TABLE ozon_supply_items ADD COLUMN IF NOT EXISTS vehicle_json TEXT"))
         conn.execute(self._sql("ALTER TABLE ozon_supply_items ADD COLUMN IF NOT EXISTS cargoes_json TEXT"))
+        conn.execute(self._sql("ALTER TABLE ozon_supply_items ADD COLUMN IF NOT EXISTS supplier_name TEXT"))
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS ozon_supply_goods (
@@ -6973,8 +6974,8 @@ class ReviewRepository:
                 self._sql("""INSERT INTO ozon_supply_items
                     (source_id, supply_order_id, supply_order_number, state, creation_date, supply_date,
                      warehouse_id, warehouse_name, transit_warehouse_name, is_crossdock,
-                     total_quantity, creation_flow, raw_json, synced_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     total_quantity, creation_flow, supplier_name, raw_json, synced_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT (source_id, supply_order_id) DO UPDATE SET
                         supply_order_number = excluded.supply_order_number,
                         state = excluded.state,
@@ -6986,6 +6987,7 @@ class ReviewRepository:
                         is_crossdock = excluded.is_crossdock,
                         total_quantity = CASE WHEN excluded.total_quantity > 0 THEN excluded.total_quantity ELSE ozon_supply_items.total_quantity END,
                         creation_flow = excluded.creation_flow,
+                        supplier_name = COALESCE(excluded.supplier_name, ozon_supply_items.supplier_name),
                         raw_json = excluded.raw_json,
                         synced_at = excluded.synced_at
                     RETURNING id"""),
@@ -7002,6 +7004,7 @@ class ReviewRepository:
                     1 if data.get("is_crossdock") else 0,
                     int(data.get("total_quantity") or 0),
                     str(data.get("creation_flow") or "") or None,
+                    str(data.get("supplier_name") or "") or None,
                     _json.dumps(data, ensure_ascii=False)[:8000],
                     now,
                 ),

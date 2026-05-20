@@ -4313,6 +4313,7 @@ function renderOzonTable() {
         <button class="supply-expand-btn" onclick="toggleOzonGoods(this, ${item.supply_order_id})" aria-label="Развернуть">▶</button>
       </td>
       <td><span class="supply-id-text">${item.supply_order_number || item.supply_order_id}</span></td>
+      <td class="supply-legal-cell">${esc(item.supplier_name || "—")}</td>
       <td>${item.is_crossdock && item.transit_warehouse_name
         ? `${esc(item.transit_warehouse_name)} → <strong>${esc(item.warehouse_name || "—")}</strong>`
         : (item.warehouse_name || "—") + ((!item.is_crossdock && OZON_MOSCOW_WH_IDS.has(Number(item.warehouse_id)))
@@ -4334,7 +4335,7 @@ function renderOzonTable() {
     const goodsTr = document.createElement("tr");
     goodsTr.className = "supply-goods-row hidden";
     goodsTr.dataset.supplyId = String(item.supply_order_id);
-    goodsTr.innerHTML = `<td colspan="9"><div class="supply-goods-container" id="ozon-goods-${item.supply_order_id}"><span class="small" style="color:#94a3b8">Загрузка…</span></div></td>`;
+    goodsTr.innerHTML = `<td colspan="10"><div class="supply-goods-container" id="ozon-goods-${item.supply_order_id}"><span class="small" style="color:#94a3b8">Загрузка…</span></div></td>`;
     tbody.appendChild(goodsTr);
   });
 }

@@ -6462,6 +6462,10 @@ tr {{ page-break-inside: avoid; }}
                     headers = {"Client-Id": client_id, "Api-Key": api_key,
                                "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
 
+                    # Get default legal entity (supplier_name) from settings
+                    _legal_entities = repository.list_supply_legal_entities(user_id=owner_id)
+                    _default_supplier = str((_legal_entities[0].get("short_name") or "") if _legal_entities else "") or None
+
                     # Step 0: build cluster cache (macrolocal_cluster_id → name)
                     cluster_cache: dict[int, str] = {}
                     try:
@@ -6587,6 +6591,7 @@ tr {{ page-break-inside: avoid; }}
                                     "is_crossdock": is_crossdock,
                                     "total_quantity": 0,
                                     "creation_flow": None,
+                                    "supplier_name": _default_supplier,
                                     "supplies": supplies_list,
                                 }
                                 item_id = repository.upsert_ozon_supply_item(source_id=int(src["id"]), data=data)
