@@ -6671,7 +6671,7 @@ tr {{ page-break-inside: avoid; }}
       <span class="small">подпись</span>
     </td>
     <td style="width:45%;vertical-align:bottom;text-align:center">
-      {sig_block}<br>
+      {sig_block}<br>({e(signatories)})<br>
       <span class="small">расшифровка подписи</span>
     </td>
   </tr>
