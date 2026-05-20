@@ -4644,7 +4644,7 @@ async function downloadOzonPoA(supplyId) {
 <!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View></w:WordDocument></xml><![endif]-->
 <style>
   @page { size: 210mm 297mm; margin: 15mm 10mm 15mm 25mm; }
-  body { font-family: "Times New Roman", serif; font-size: 12pt; line-height: 1.15; }
+  body { font-family: "Times New Roman", serif; font-size: 9pt; line-height: 1.15; }
   .small { font-size: 8pt; text-align: center; }
   .underline { text-decoration: underline; }
   .center { text-align: center; }
@@ -4652,7 +4652,7 @@ async function downloadOzonPoA(supplyId) {
   table.outer { width: 100%; border-collapse: collapse; margin-bottom: 6pt; }
   table.codes { border-collapse: collapse; margin-left: auto; font-size: 9pt; }
   table.codes td { border: 1px solid #000; padding: 2pt 6pt; }
-  table.mat { width: 100%; border-collapse: collapse; margin-top: 4pt; font-size: 11pt; border: 1px solid #000; }
+  table.mat { width: 100%; border-collapse: collapse; margin-top: 4pt; font-size: 9pt; border: 1px solid #000; }
   table.mat td, table.mat th { border: 1px solid #000; padding: 0pt 2pt; text-align: center; white-space: nowrap; line-height: 1.1; }
   table.mat td.mat-name, table.mat th.mat-name { text-align: left; white-space: normal; }
   .dotline { display: inline-block; border-bottom: 1px solid #000; min-width: 120pt; }
@@ -4662,7 +4662,7 @@ async function downloadOzonPoA(supplyId) {
 <body>
 <table class="outer">
   <tr>
-    <td style="width:55%;vertical-align:top;font-size:12pt">
+    <td style="width:55%;vertical-align:top">
       Организация <span class="underline">${esc(orgFull)}</span>
     </td>
     <td style="width:45%;vertical-align:top;text-align:right;font-size:8pt">
