@@ -3470,7 +3470,7 @@ ${driverDocs ? `<p>${esc(driverDocs)}</p>` : ""}
   </tr>
 </table>
 
-</body></html>\`;
+</body></html>`;
 
   const blob = new Blob(["\uFEFF" + html], { type: "application/msword" });
   const url = URL.createObjectURL(blob);
