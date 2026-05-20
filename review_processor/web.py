@@ -6636,8 +6636,7 @@ tr {{ page-break-inside: avoid; }}
 <p class="small" style="text-align:center">наименование поставщика</p>
 
 <p style="margin-top:4pt">
-  материальных ценностей по транспортной накладной &nbsp;
-  <span class="underline bold">{e(supply_num)}</span>
+  материальных ценностей. Основание: №<span class="underline bold">{e(supply_num)}</span>
   &nbsp; от &nbsp;
   <span class="underline bold">{date_display}</span>
 </p>

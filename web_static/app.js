@@ -4697,8 +4697,7 @@ ${driverDocs ? `<p>${esc(driverDocs)}</p>` : ""}
 <p class="small" style="text-align:center">наименование поставщика</p>
 
 <p style="margin-top:4pt">
-  материальных ценностей по транспортной накладной &nbsp;
-  <span class="underline bold">${esc(supplyNum)}</span>
+  материальных ценностей. Основание: №<span class="underline bold">${esc(supplyNum)}</span>
   &nbsp; от &nbsp;
   <span class="underline bold">${dateDisplay}</span>
 </p>
