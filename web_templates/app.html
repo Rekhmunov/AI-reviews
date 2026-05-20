@@ -1170,9 +1170,15 @@
             </div>
             <div class="supply-detail-row">
               <span class="supply-detail-label">Водитель</span>
-              <select id="ozonSdDriverSelect" class="supply-detail-input" style="height:36px">
-                <option value="">— Требует заполнения —</option>
-              </select>
+              <span id="ozonSdDriver" class="supply-detail-value" style="font-size:13px">—</span>
+            </div>
+            <div class="supply-detail-row" id="ozonSdVehicleRow" style="display:none">
+              <span class="supply-detail-label">Машина</span>
+              <span id="ozonSdVehicle" class="supply-detail-value" style="font-size:13px">—</span>
+            </div>
+            <div class="supply-detail-row" id="ozonSdPhoneRow" style="display:none">
+              <span class="supply-detail-label">Телефон</span>
+              <span id="ozonSdPhone" class="supply-detail-value" style="font-size:13px">—</span>
             </div>
             <div class="supply-detail-row" style="margin-top:4px">
               <span class="supply-detail-label">Примечание</span>
@@ -1885,6 +1891,6 @@
   <script src="/static/jszip.min.js"></script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=232"></script>
+  <script src="/static/app.js?v=233"></script>
 </body>
 </html>

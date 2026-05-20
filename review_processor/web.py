@@ -6262,6 +6262,53 @@ tr {{ page-break-inside: avoid; }}
                     supply_order_id=supply_order_id, total_quantity=total_qty)
         return result
 
+    @app.get("/api/ozon-supplies/{supply_order_id}/vehicle")
+    def get_ozon_supply_vehicle(request: Request, supply_order_id: int) -> dict[str, object]:
+        """Fetch vehicle/driver info from OZON /v1/supply-order/details and cache it."""
+        import urllib.request as _ul, json as _jj, ssl as _sl
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        item_row = repository.get_ozon_supply_item_row(user_id=owner_id, supply_order_id=supply_order_id)
+        if not item_row:
+            return {"ok": False, "vehicle": None}
+        # Return cached vehicle data if available
+        cached = str(item_row.get("vehicle_json") or "")
+        if cached and cached != "{}":
+            try:
+                return {"ok": True, "vehicle": _jj.loads(cached), "cached": True}
+            except Exception:
+                pass
+        # Fetch from OZON API
+        src = repository.get_supply_source_with_key(user_id=owner_id, source_id=int(item_row["source_id"]))
+        if not src or not src.get("api_key"):
+            return {"ok": False, "vehicle": None, "error": "no_key"}
+        client_id = str(src.get("client_id") or "")
+        api_key = str(src["api_key"])
+        ctx = _sl.create_default_context()
+        ozon_headers = {"Client-Id": client_id, "Api-Key": api_key,
+                        "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
+        try:
+            body = _jj.dumps({"order_id": supply_order_id}).encode()
+            req = _ul.Request("https://api-seller.ozon.ru/v1/supply-order/details",
+                data=body, method="POST", headers=ozon_headers)
+            with _ul.urlopen(req, context=ctx, timeout=10) as r:
+                data = _jj.loads(r.read())
+            vehicle_obj = data.get("vehicle") or {}
+            vehicle_val = vehicle_obj.get("value") or {}
+            vehicle_json_str = _jj.dumps(vehicle_val, ensure_ascii=False)
+            if vehicle_val:
+                repository.update_ozon_supply_vehicle(
+                    supply_order_id=supply_order_id, vehicle_json=vehicle_json_str)
+            return {"ok": True, "vehicle": vehicle_val}
+        except Exception as ex:
+            code = getattr(ex, "code", None)
+            if code == 403:
+                return {"ok": False, "vehicle": None, "error": "no_role"}
+            _log.warning("ozon vehicle fetch sid=%d: %s", supply_order_id, ex)
+            return {"ok": False, "vehicle": None, "error": str(ex)[:100]}
+
     @app.patch("/api/ozon-supplies/{supply_order_id}/manual-fields")
     def update_ozon_manual_fields(request: Request, supply_order_id: int, payload: dict) -> dict[str, object]:
         user = _require_user(request)

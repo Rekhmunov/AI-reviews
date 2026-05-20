@@ -4479,6 +4479,29 @@ async function openOzonDetailsModal(supplyId) {
   document.getElementById("ozonSdQty").textContent = item.total_quantity || "—";
   document.getElementById("ozonSdType").textContent = item.creation_flow || "—";
   document.getElementById("ozonSdPallets").value = item.pallets_count || "";
+
+  // Load driver/vehicle from OZON API (or cache)
+  const driverEl = document.getElementById("ozonSdDriver");
+  const vehicleEl = document.getElementById("ozonSdVehicle");
+  const phoneEl = document.getElementById("ozonSdPhone");
+  const vehicleRow = document.getElementById("ozonSdVehicleRow");
+  const phoneRow = document.getElementById("ozonSdPhoneRow");
+  if (driverEl) driverEl.textContent = "Загрузка…";
+  fetch(`/api/ozon-supplies/${item.supply_order_id}/vehicle`).then(r => r.json()).then(d => {
+    const v = d.vehicle || {};
+    if (driverEl) driverEl.textContent = v.driver_name || "—";
+    if (v.vehicle_model || v.vehicle_number) {
+      if (vehicleEl) vehicleEl.textContent = [v.vehicle_model, v.vehicle_number].filter(Boolean).join(" ");
+      if (vehicleRow) vehicleRow.style.display = "";
+    }
+    if (v.driver_phone) {
+      if (phoneEl) phoneEl.textContent = v.driver_phone;
+      if (phoneRow) phoneRow.style.display = "";
+    }
+    if (d.error === "no_role") {
+      if (driverEl) driverEl.textContent = "—  (нужны расширенные права API)";
+    }
+  }).catch(() => { if (driverEl) driverEl.textContent = "—"; });
   document.getElementById("ozonSdNotes").value = item.notes || "";
 
   // Populate production dropdown
@@ -4511,7 +4534,6 @@ async function saveOzonManualFields() {
   if (!_ozonDetailsCurrentId) return;
   const payload = {
     pallets_count: document.getElementById("ozonSdPallets")?.value || "",
-    driver_name: document.getElementById("ozonSdDriverSelect")?.value || "",
     notes: document.getElementById("ozonSdNotes")?.value || "",
     production: document.getElementById("ozonSdProduction")?.value || "",
   };
