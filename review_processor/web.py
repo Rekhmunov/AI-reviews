@@ -6615,10 +6615,10 @@ tr {{ page-break-inside: avoid; }}
 
 <p>Дата выдачи <span class="underline bold">{date_display}</span></p>
 <p>Доверенность действительна 14 дней с даты подписания.</p>
-<p>{e(org_line)}</p>
-<p class="small">наименование потребителя и его адрес</p>
-<p>{e(org_line)}</p>
-<p class="small">наименование плательщика и его адрес</p>
+<p><span class="underline">{e(org_line)}</span></p>
+<p class="small">(наименование потребителя и его адрес)</p>
+<p><span class="underline">{e(org_line)}</span></p>
+<p class="small">(наименование плательщика и его адрес)</p>
 
 <p>
   Доверенность выдана &nbsp;&nbsp;
@@ -6626,7 +6626,7 @@ tr {{ page-break-inside: avoid; }}
   &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
   <span class="underline">{e(driver_name)}</span>
 </p>
-<p class="small" style="padding-left:108pt">должность &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; фамилия, имя, отчество</p>
+<p class="small" style="padding-left:108pt">(должность) &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (фамилия, имя, отчество)</p>
 
 <p>
   На отправку груза от &nbsp;&nbsp;

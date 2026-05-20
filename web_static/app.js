@@ -4684,10 +4684,10 @@ async function downloadOzonPoA(supplyId) {
 
 <p>Дата выдачи <span class="underline bold">${dateDisplay}</span></p>
 <p>Доверенность действительна 14 дней с даты подписания.</p>
-<p>${esc(orgLine)}</p>
-<p class="small">наименование потребителя и его адрес</p>
-<p>${esc(orgLine)}</p>
-<p class="small">наименование плательщика и его адрес</p>
+<p><span class="underline">${esc(orgLine)}</span></p>
+<p class="small">(наименование потребителя и его адрес)</p>
+<p><span class="underline">${esc(orgLine)}</span></p>
+<p class="small">(наименование плательщика и его адрес)</p>
 
 <p>
   Доверенность выдана &nbsp;&nbsp;
@@ -4695,7 +4695,7 @@ async function downloadOzonPoA(supplyId) {
   &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
   <span class="underline">${esc(driverName)}</span>
 </p>
-<p class="small" style="padding-left:108pt">должность &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; фамилия, имя, отчество</p>
+<p class="small" style="padding-left:108pt">(должность) &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (фамилия, имя, отчество)</p>
 
 
 <p>
