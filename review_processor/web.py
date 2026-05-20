@@ -6299,7 +6299,21 @@ tr {{ page-break-inside: avoid; }}
         ozon_headers = {"Client-Id": client_id, "Api-Key": api_key,
                         "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
         try:
-            body = _jj.dumps({"supply_ids": [supply_order_id]}).encode()
+            # /v1/cargoes/get uses supply_id (from supplies[].supply_id in order),
+            # NOT order_id. Extract from raw_json stored during sync.
+            actual_supply_id = supply_order_id  # fallback
+            raw_json_str = str(item_row.get("raw_json") or "")
+            if raw_json_str:
+                try:
+                    raw = _jj.loads(raw_json_str)
+                    supplies_raw = raw.get("supplies") or []
+                    if supplies_raw:
+                        sid = int(supplies_raw[0].get("supply_id") or 0)
+                        if sid > 0:
+                            actual_supply_id = sid
+                except Exception:
+                    pass
+            body = _jj.dumps({"supply_ids": [actual_supply_id]}).encode()
             req = _ul.Request("https://api-seller.ozon.ru/v1/cargoes/get",
                 data=body, method="POST", headers=ozon_headers)
             with _ul.urlopen(req, context=ctx, timeout=10) as r:
