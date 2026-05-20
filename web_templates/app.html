@@ -33,7 +33,11 @@
         <!-- Nav sections -->
         <nav class="sidebar-nav">
 
-          <div class="nav-section-label">Обратная связь</div>
+          <div class="nav-section-label nav-collapsible" id="nav-group-feedback-header" onclick="toggleNavGroup('feedback')" style="cursor:pointer;user-select:none;display:flex;align-items:center;justify-content:space-between">
+            <span>Обратная связь</span>
+            <span id="nav-group-feedback-arrow" style="font-size:10px;transition:transform 0.25s;display:inline-block">▼</span>
+          </div>
+          <div id="nav-group-feedback" style="overflow:hidden;transition:max-height 0.3s ease">
           <a id="nav-reviews" class="nav-item active" href="#" onclick="showSection('reviews')">
             <span class="nav-item-icon">★</span> Отзывы
           </a>
@@ -45,10 +49,16 @@
           </a>
           {{NAV_SETTINGS_SUB}}
           {{NAV_ANALYTICS}}
+          </div>
 
-          <div id="nav-section-supplies" class="nav-section-label" style="margin-top:8px;display:none">Поставки</div>
+          <div id="nav-section-supplies" class="nav-section-label nav-collapsible" style="margin-top:8px;display:none;cursor:pointer;user-select:none;flex-direction:row;align-items:center;justify-content:space-between" onclick="toggleNavGroup('supplies')">
+            <span>Поставки</span>
+            <span id="nav-group-supplies-arrow" style="font-size:10px;transition:transform 0.25s;display:inline-block">▼</span>
+          </div>
+          <div id="nav-group-supplies" style="overflow:hidden;transition:max-height 0.3s ease">
           {{NAV_SUPPLIES_WB}}
           {{NAV_SUPPLIES_SETTINGS}}
+          </div>
 
           <div class="nav-section-label" style="margin-top:8px;display:none">Остатки</div>
           <a id="nav-stock-work" class="nav-item" href="#" onclick="showSection('stock-work')" style="display:none">
@@ -1851,6 +1861,6 @@
   <script src="/static/jszip.min.js"></script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=226"></script>
+  <script src="/static/app.js?v=227"></script>
 </body>
 </html>

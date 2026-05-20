@@ -457,6 +457,62 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 });
 
+// ── Nav group collapse / expand ─────────────────────────────────────────────
+const NAV_GROUP_STORAGE_KEY = "feedpilot_nav_groups";
+
+function _getNavGroupStates() {
+  try { return JSON.parse(localStorage.getItem(NAV_GROUP_STORAGE_KEY) || "{}"); }
+  catch (_) { return {}; }
+}
+
+function _setNavGroupState(group, collapsed) {
+  const s = _getNavGroupStates();
+  s[group] = collapsed;
+  localStorage.setItem(NAV_GROUP_STORAGE_KEY, JSON.stringify(s));
+}
+
+function _applyNavGroup(group, collapsed, animate) {
+  const wrapper = document.getElementById(`nav-group-${group}`);
+  const arrow   = document.getElementById(`nav-group-${group}-arrow`);
+  if (!wrapper) return;
+  if (collapsed) {
+    if (animate) {
+      wrapper.style.maxHeight = wrapper.scrollHeight + "px";
+      requestAnimationFrame(() => { wrapper.style.maxHeight = "0px"; });
+    } else {
+      wrapper.style.maxHeight = "0px";
+    }
+    if (arrow) arrow.style.transform = "rotate(-90deg)";
+  } else {
+    wrapper.style.maxHeight = wrapper.scrollHeight ? wrapper.scrollHeight + "px" : "1000px";
+    if (arrow) arrow.style.transform = "rotate(0deg)";
+  }
+}
+
+function toggleNavGroup(group) {
+  const states = _getNavGroupStates();
+  const nowCollapsed = !states[group]; // toggle
+  _setNavGroupState(group, nowCollapsed);
+  _applyNavGroup(group, nowCollapsed, true);
+}
+window.toggleNavGroup = toggleNavGroup;
+
+function initNavGroups() {
+  const states = _getNavGroupStates();
+  for (const group of ["feedback", "supplies"]) {
+    const wrapper = document.getElementById(`nav-group-${group}`);
+    if (!wrapper) continue;
+    const collapsed = Boolean(states[group]);
+    _applyNavGroup(group, collapsed, false);
+  }
+  // Ensure supplies group header has display:flex when visible
+  const supHdr = document.getElementById("nav-section-supplies");
+  if (supHdr && supHdr.style.display !== "none") {
+    supHdr.style.display = "flex";
+  }
+}
+// ────────────────────────────────────────────────────────────────────────────
+
 function showSection(section, options = {}) {
   if (!canViewSection(section)) return;
   const persist = options.persist !== false;
@@ -9455,6 +9511,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let initialSection = SECTION_IDS.includes(savedSection) ? savedSection : "reviews";
   if (!canViewSection(initialSection)) initialSection = "reviews";
   showSection(initialSection, { persist: false });
+  initNavGroups();
   if (permissions.is_admin) {
     document.getElementById("adminStopSyncBtn")?.classList.remove("hidden");
     document.getElementById("adminClearReviewsBtn")?.classList.remove("hidden");
@@ -9603,7 +9660,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // Supplies module
   if (permissions.can_view_supplies) {
     const suppliesNavLabel = document.getElementById("nav-section-supplies");
-    if (suppliesNavLabel) suppliesNavLabel.style.display = "";
+    if (suppliesNavLabel) suppliesNavLabel.style.display = "flex";
     // "Удалить поставки" — только для владельцев, не для менеджеров
     if (!permissions.can_view_settings) {
       const clearBtn = document.getElementById("suppliesClearBtn");

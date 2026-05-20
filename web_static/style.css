@@ -485,6 +485,11 @@ body.landing-page {
   padding-top: 0;
 }
 
+.nav-collapsible:hover {
+  background: rgba(99,102,241,0.06);
+  border-radius: 4px;
+}
+
 .nav-item {
   display: flex;
   align-items: center;
