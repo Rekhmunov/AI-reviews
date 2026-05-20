@@ -4480,7 +4480,8 @@ async function openOzonDetailsModal(supplyId) {
   }
   document.getElementById("ozonSdQty").textContent = item.total_quantity || "—";
   document.getElementById("ozonSdType").textContent = item.creation_flow || "—";
-  document.getElementById("ozonSdPallets").value = item.pallets_count || "";
+  const ozonPalletsEl = document.getElementById("ozonSdPallets");
+  if (ozonPalletsEl) ozonPalletsEl.value = item.pallets_count || "";
 
   // Load driver/vehicle from OZON API (or cache)
   const driverEl = document.getElementById("ozonSdDriver");
