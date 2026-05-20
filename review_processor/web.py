@@ -6642,13 +6642,13 @@ tr {{ page-break-inside: avoid; }}
 <p class="small">наименование, номер и дата документа</p>
 
 <p style="margin-top:3pt">Перечень материальных ценностей, подлежащих доставке</p>
-<table class="mat">
+<table class="mat" border="1" cellspacing="0">
   <colgroup><col style="width:5%"><col style="width:75%"><col style="width:10%"><col style="width:10%"></colgroup>
   <tr>
-    <th style="white-space:nowrap">№</th>
-    <th class="mat-name" style="text-align:left;white-space:normal">Материальные ценности</th>
-    <th style="white-space:nowrap">Ед. изм.</th>
-    <th style="white-space:nowrap">Кол-во</th>
+    <th style="border:1px solid #000;padding:0 2pt;white-space:nowrap;line-height:1.1">№</th>
+    <th style="border:1px solid #000;padding:0 2pt;text-align:left;white-space:normal;line-height:1.1">Материальные ценности</th>
+    <th style="border:1px solid #000;padding:0 2pt;white-space:nowrap;line-height:1.1">Ед. изм.</th>
+    <th style="border:1px solid #000;padding:0 2pt;white-space:nowrap;line-height:1.1">Кол-во</th>
   </tr>
   {goods_rows_html}
 </table>
