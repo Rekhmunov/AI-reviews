@@ -501,20 +501,25 @@ window.toggleNavGroup = toggleNavGroup;
 
 function initNavGroups() {
   const states = _getNavGroupStates();
-  for (const group of ["feedback", "supplies"]) {
-    const wrapper = document.getElementById(`nav-group-${group}`);
-    const header = document.getElementById(`nav-group-${group}-header`) ||
-                   document.getElementById(`nav-section-${group === "supplies" ? "supplies" : group}`);
-    if (!wrapper) continue;
-    // Hide header if group has no visible nav-items
-    const hasVisible = Array.from(wrapper.querySelectorAll("a.nav-item, div.nav-item"))
-      .some(el => el.style.display !== "none" && getComputedStyle(el).display !== "none");
-    if (!hasVisible) {
-      if (header) header.style.display = "none";
-      continue;
-    }
-    const collapsed = Boolean(states[group]);
-    _applyNavGroup(group, collapsed, false);
+  const perms = getPermissions();
+
+  // Feedback section: show only if user has at least one feedback-related permission
+  const hasFeedback = perms.can_view_feedback || perms.can_view_settings || perms.can_view_analytics;
+  const feedbackHeader = document.getElementById("nav-group-feedback-header");
+  const feedbackWrapper = document.getElementById("nav-group-feedback");
+  if (!hasFeedback) {
+    if (feedbackHeader) feedbackHeader.style.display = "none";
+    if (feedbackWrapper) { feedbackWrapper.style.maxHeight = "0px"; feedbackWrapper.style.overflow = "hidden"; }
+  } else {
+    const collapsed = Boolean(states["feedback"]);
+    _applyNavGroup("feedback", collapsed, false);
+  }
+
+  // Supplies section: visibility controlled by existing JS (nav-section-supplies)
+  const suppliesWrapper = document.getElementById("nav-group-supplies");
+  if (suppliesWrapper) {
+    const collapsed = Boolean(states["supplies"]);
+    _applyNavGroup("supplies", collapsed, false);
   }
 }
 // ────────────────────────────────────────────────────────────────────────────
