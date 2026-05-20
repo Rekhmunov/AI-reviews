@@ -7673,6 +7673,7 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
             "CAN_VIEW_SETTINGS": "true" if can_view_settings else "false",
             "CAN_VIEW_SUPPLIES": "true" if can_view_supplies else "false",
             "CAN_VIEW_FEEDBACK": "true" if can_view_feedback else "false",
+            "HIDE_FEEDBACK_SECTION": "" if (can_view_feedback or can_view_settings or can_view_analytics) else "style=\"display:none\"",
             "IS_ADMIN": "true" if role == ROLE_ADMIN else "false",
             "IS_SUPER_ADMIN": "true" if is_super_admin else "false",
             "IS_TENANT_OWNER": "true" if is_tenant_owner else "false",

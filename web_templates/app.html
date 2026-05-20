@@ -33,10 +33,10 @@
         <!-- Nav sections -->
         <nav class="sidebar-nav">
 
-          <div class="nav-section-label nav-collapsible" id="nav-group-feedback-header" onclick="toggleNavGroup('feedback')" style="cursor:pointer;user-select:none">
+          <div class="nav-section-label nav-collapsible" id="nav-group-feedback-header" onclick="toggleNavGroup('feedback')" style="cursor:pointer;user-select:none" {{HIDE_FEEDBACK_SECTION}}>
             Обратная связь &nbsp;&nbsp;<span id="nav-group-feedback-arrow" class="nav-collapse-arrow">▾</span>
           </div>
-          <div id="nav-group-feedback" style="overflow:hidden;transition:max-height 0.3s ease,margin-bottom 0.3s ease">
+          <div id="nav-group-feedback" style="overflow:hidden;transition:max-height 0.3s ease,margin-bottom 0.3s ease" {{HIDE_FEEDBACK_SECTION}}>
           <a id="nav-reviews" class="nav-item active" href="#" onclick="showSection('reviews')">
             <span class="nav-item-icon">★</span> Отзывы
           </a>
