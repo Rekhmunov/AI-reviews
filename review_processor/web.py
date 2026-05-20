@@ -6262,6 +6262,61 @@ tr {{ page-break-inside: avoid; }}
                     supply_order_id=supply_order_id, total_quantity=total_qty)
         return result
 
+    @app.get("/api/ozon-supplies/{supply_order_id}/cargoes-info")
+    def get_ozon_supply_cargoes(request: Request, supply_order_id: int) -> dict[str, object]:
+        """Fetch cargo places from OZON /v1/cargoes/get and cache."""
+        import urllib.request as _ul, json as _jj, ssl as _sl
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        item_row = repository.get_ozon_supply_item_row(user_id=owner_id, supply_order_id=supply_order_id)
+        if not item_row:
+            return {"ok": False, "groups": []}
+        # Return cached if available
+        cached = str(item_row.get("cargoes_json") or "")
+        if cached and cached != "[]":
+            try:
+                return {"ok": True, "groups": _jj.loads(cached), "cached": True}
+            except Exception:
+                pass
+        # Fetch from OZON API
+        src = repository.get_supply_source_with_key(user_id=owner_id, source_id=int(item_row["source_id"]))
+        if not src or not src.get("api_key"):
+            return {"ok": False, "groups": [], "error": "no_key"}
+        client_id = str(src.get("client_id") or "")
+        api_key = str(src["api_key"])
+        ctx = _sl.create_default_context()
+        ozon_headers = {"Client-Id": client_id, "Api-Key": api_key,
+                        "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
+        try:
+            body = _jj.dumps({"supply_ids": [supply_order_id]}).encode()
+            req = _ul.Request("https://api-seller.ozon.ru/v1/cargoes/get",
+                data=body, method="POST", headers=ozon_headers)
+            with _ul.urlopen(req, context=ctx, timeout=10) as r:
+                data = _jj.loads(r.read())
+            cargoes = []
+            for s in (data.get("supply") or []):
+                cargoes.extend(s.get("cargoes") or [])
+            # Group by type + content_type
+            groups_map: dict = {}
+            for c in cargoes:
+                key = (str(c.get("type") or ""), str(c.get("content_type") or ""))
+                groups_map[key] = groups_map.get(key, 0) + 1
+            groups = [{"type": k[0], "content_type": k[1], "count": v}
+                      for k, v in groups_map.items()]
+            cargoes_json_str = _jj.dumps(groups, ensure_ascii=False)
+            if groups:
+                repository.update_ozon_supply_cargoes(
+                    supply_order_id=supply_order_id, cargoes_json=cargoes_json_str)
+            return {"ok": True, "groups": groups}
+        except Exception as ex:
+            code = getattr(ex, "code", None)
+            if code == 403:
+                return {"ok": False, "groups": [], "error": "no_role"}
+            _log.warning("ozon cargoes fetch sid=%d: %s", supply_order_id, ex)
+            return {"ok": False, "groups": [], "error": str(ex)[:100]}
+
     @app.get("/api/ozon-supplies/{supply_order_id}/vehicle")
     def get_ozon_supply_vehicle(request: Request, supply_order_id: int) -> dict[str, object]:
         """Fetch vehicle/driver info from OZON /v1/supply-order/details and cache it."""

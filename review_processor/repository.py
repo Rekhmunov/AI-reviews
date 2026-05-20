@@ -6554,6 +6554,7 @@ class ReviewRepository:
         conn.execute(self._sql("ALTER TABLE ozon_supply_items ADD COLUMN IF NOT EXISTS transit_warehouse_name TEXT"))
         conn.execute(self._sql("ALTER TABLE ozon_supply_items ADD COLUMN IF NOT EXISTS is_crossdock INTEGER NOT NULL DEFAULT 0"))
         conn.execute(self._sql("ALTER TABLE ozon_supply_items ADD COLUMN IF NOT EXISTS vehicle_json TEXT"))
+        conn.execute(self._sql("ALTER TABLE ozon_supply_items ADD COLUMN IF NOT EXISTS cargoes_json TEXT"))
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS ozon_supply_goods (
@@ -7038,6 +7039,13 @@ class ReviewRepository:
                 (user_id, supply_order_id),
             ).fetchone()
         return self._row_to_dict(row) if row else None
+
+    def update_ozon_supply_cargoes(self, *, supply_order_id: int, cargoes_json: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                self._sql("UPDATE ozon_supply_items SET cargoes_json = ? WHERE supply_order_id = ?"),
+                (cargoes_json, supply_order_id),
+            )
 
     def update_ozon_supply_vehicle(self, *, supply_order_id: int, vehicle_json: str) -> None:
         with self._connect() as conn:
