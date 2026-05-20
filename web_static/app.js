@@ -5359,10 +5359,13 @@ function toggleSuppliesFilter() { /* legacy stub */ }
 const OZON_SUPPLIES_COL_WIDTHS_KEY = "ozon_supplies_col_widths";
 // Default widths as percentages (9 logical cols: expand, id, legal, wh, prod, date, qty, status, links)
 const OZON_SUPPLIES_DEFAULT_WIDTHS = [3, 9, 11, 19, 9, 9, 6, 11, 23];
+let _ozonColResizerInited = false;
 
 function initOzonSuppliesColumnResizer() {
   const table = document.getElementById("ozonSuppliesTable");
   if (!table) return;
+
+  // Apply saved/default widths every time (handles page reloads)
   let widths = OZON_SUPPLIES_DEFAULT_WIDTHS.slice();
   try {
     const saved = JSON.parse(localStorage.getItem(OZON_SUPPLIES_COL_WIDTHS_KEY) || "null");
@@ -5371,10 +5374,15 @@ function initOzonSuppliesColumnResizer() {
   } catch (_) {}
   _applyOzonSuppliesColWidths(widths);
 
+  // Attach drag handlers only once
+  if (_ozonColResizerInited) return;
+  _ozonColResizerInited = true;
+
   table.querySelectorAll("th .col-resize-handle").forEach((handle) => {
     let startX = 0, colIdx = 0, startWidths = [];
     handle.addEventListener("mousedown", (e) => {
       e.preventDefault();
+      e.stopPropagation();
       const th = handle.parentElement;
       colIdx = parseInt(th.getAttribute("data-col") || "0");
       startX = e.clientX;
@@ -9914,6 +9922,7 @@ document.addEventListener("DOMContentLoaded", () => {
       loadPoARecords(),
     ]).then(() => loadSupplies()).catch(() => {});
     initSuppliesColumnResizer();
+    initOzonSuppliesColumnResizer();
   }
   // Load stock sources/reports lazily
   loadStockSources().then(() => loadStockReports()).catch(() => {});

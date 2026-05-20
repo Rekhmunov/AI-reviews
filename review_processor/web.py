@@ -6763,6 +6763,35 @@ tr {{ page-break-inside: avoid; }}
         name_map = data["name_map"]
         driver_name = data.get("driver_name") or "—"
 
+        def _rubles_in_words(n: int) -> str:
+            ones_m = ["","один","два","три","четыре","пять","шесть","семь","восемь","девять"]
+            ones_f = ["","одна","две","три","четыре","пять","шесть","семь","восемь","девять"]
+            teens  = ["десять","одиннадцать","двенадцать","тринадцать","четырнадцать",
+                      "пятнадцать","шестнадцать","семнадцать","восемнадцать","девятнадцать"]
+            tens   = ["","","двадцать","тридцать","сорок","пятьдесят","шестьдесят","семьдесят","восемьдесят","девяносто"]
+            hunds  = ["","сто","двести","триста","четыреста","пятьсот","шестьсот","семьсот","восемьсот","девятьсот"]
+            def chunk(x, fem):
+                r,w = x%100,[]
+                h = x//100
+                if h: w.append(hunds[h])
+                if 10<=r<=19: w.append(teens[r-10])
+                else:
+                    if r//10: w.append(tens[r//10])
+                    d = r%10
+                    if d: w.append((ones_f if fem else ones_m)[d])
+                return w
+            if n==0: return "ноль рублей 00 копеек"
+            w=[]
+            bn,mn,th,ru = n//1000000000,(n//1000000)%1000,(n//1000)%1000,n%1000
+            def suf(x,forms): return forms[1 if x%10==1 and x%100!=11 else 2 if x%10 in(2,3,4) and x%100 not in range(12,15) else 3]
+            if bn: w.extend(chunk(bn,False)); w.append(suf(bn,["","миллиард","миллиарда","миллиардов"]))
+            if mn: w.extend(chunk(mn,False)); w.append(suf(mn,["","миллион","миллиона","миллионов"]))
+            if th: w.extend(chunk(th,True));  w.append(suf(th,["","тысяча","тысячи","тысяч"]))
+            if ru: w.extend(chunk(ru,False))
+            w.append(suf(ru,["рублей","рубль","рубля","рублей"]))
+            w.append("00 копеек")
+            return " ".join(w)
+
         now = _dtt.now()
         supply_num = str(item.get("supply_order_number") or supply_order_id)
         supply_date_disp = now.strftime("%d.%m.%Y")
@@ -6805,7 +6834,7 @@ tr {{ page-break-inside: avoid; }}
         t_excl = f"{total_excl:.2f}"
         t_vat  = f"{total_vat:.2f}"
         t_incl = f"{total_incl:.2f}"
-        amt_words = _numToRussianWords(round(total_incl)) if total_incl else "Ноль рублей 00 копеек"
+        amt_words = _rubles_in_words(round(total_incl)) if total_incl else "Ноль рублей 00 копеек"
 
         tpl_path = STATIC_DIR / "torg12_tpl.docx"
         with open(tpl_path, "rb") as f:
