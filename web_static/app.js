@@ -4512,8 +4512,13 @@ async function openOzonDetailsModal(supplyId) {
     fetch(`/api/ozon-supplies/${item.supply_order_id}/cargoes-info`).then(r => r.json()).then(d => {
       const groups = d.groups || [];
       if (!groups.length) { cargoEl.textContent = "Ещё не заполнены"; return; }
-      const typeLabel = t => t === "BOX" ? "короба" : t === "PALLET" ? "паллета" : t.toLowerCase();
-      const contLabel = c => c === "MONO" ? "моно" : c === "MIXED" ? "микс" : c.toLowerCase();
+      const typeLabel = t => t === "BOX" ? "короба" : t === "PALLET" ? "паллета" : (t || "").toLowerCase();
+      const contLabel = c => {
+        if (!c || c === "null" || c === "none" || c === "undefined") return "моно";
+        if (c === "MONO") return "моно";
+        if (c === "MIXED") return "микс";
+        return c.toLowerCase();
+      };
       cargoEl.textContent = groups.map(g => `${g.count} ${typeLabel(g.type)} — ${contLabel(g.content_type)}`).join("\n");
     }).catch(() => { cargoEl.textContent = "Ещё не заполнены"; });
   }
