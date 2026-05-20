@@ -7656,6 +7656,27 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
         role in ROLE_CAN_ACCESS_SETTINGS
         or bool(user.get("can_supplies"))
     )
+    # Granular supply permissions for managers
+    _supply_perms: dict = {}
+    if can_view_supplies and role not in ROLE_CAN_ACCESS_SETTINGS and repository is not None:
+        _supply_perms = repository.get_manager_supply_permissions(manager_user_id=user_id)
+    _sp_sources = _supply_perms.get("sources") or {}
+    can_view_wb_supplies = (
+        role in ROLE_CAN_ACCESS_SETTINGS
+        or any(v.get("wb") for v in _sp_sources.values())
+    )
+    can_view_ozon_supplies = (
+        role in ROLE_CAN_ACCESS_SETTINGS
+        or any(v.get("ozon") for v in _sp_sources.values())
+    )
+    can_view_supply_poa = (
+        role in ROLE_CAN_ACCESS_SETTINGS
+        or bool(_supply_perms.get("can_supply_poa"))
+    )
+    can_view_supply_settings = (
+        role in ROLE_CAN_ACCESS_SETTINGS
+        or bool(_supply_perms.get("can_supply_settings"))
+    )
     if role in ROLE_CAN_ACCESS_SETTINGS:
         can_view_feedback = True
     elif repository is not None:
@@ -7678,15 +7699,16 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
         if can_view_settings
         else ""
     )
-    nav_supplies_wb = (
-        '<a id="nav-supplies-wb" class="nav-item" href="#" onclick="showSection(\'supplies-wb\')"><span class="nav-item-icon">▦</span> WB</a>'
-        '<a id="nav-supplies-ozon" class="nav-item" href="#" onclick="showSection(\'supplies-ozon\')"><span class="nav-item-icon">◉</span> OZON</a>'
-        '<a id="nav-supplies-poa" class="nav-item" href="#" onclick="showSection(\'supplies-poa\')"><span class="nav-item-icon">☐</span> Доверенности</a>'
-        if can_view_supplies else ""
-    )
+    _wb_link = ('<a id="nav-supplies-wb" class="nav-item" href="#" onclick="showSection(\'supplies-wb\')"><span class="nav-item-icon">▦</span> WB</a>'
+                if can_view_wb_supplies else "")
+    _ozon_link = ('<a id="nav-supplies-ozon" class="nav-item" href="#" onclick="showSection(\'supplies-ozon\')"><span class="nav-item-icon">◉</span> OZON</a>'
+                  if can_view_ozon_supplies else "")
+    _poa_link = ('<a id="nav-supplies-poa" class="nav-item" href="#" onclick="showSection(\'supplies-poa\')"><span class="nav-item-icon">☐</span> Доверенности</a>'
+                 if can_view_supply_poa else "")
+    nav_supplies_wb = _wb_link + _ozon_link + _poa_link if can_view_supplies else ""
     nav_supplies_settings = (
         '<a id="nav-supplies-settings" class="nav-item" href="#" onclick="showSection(\'supplies-settings\')"><span class="nav-item-icon">≡</span> Настройки</a>'
-        if (can_view_settings or can_view_supplies) else ""
+        if (can_view_settings or can_view_supply_settings) else ""
     )
     return _render_template(
         "app.html",
