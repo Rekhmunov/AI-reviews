@@ -4652,11 +4652,16 @@ async function _bindMergeXlsx(files) {
   let allDataRows = baseRows.slice(1).filter(_bindRowHasValues);
 
   // Append data rows from other files (also filtered)
+  // Convert shared strings to inline to avoid index mismatch between files
   for (let i = 1; i < zips.length; i++) {
     const sp = await _bindFindSheetPath(zips[i]);
     const xml = await zips[i].file(sp)?.async("string") || "";
+    const ss = await _bindGetSharedStrings(zips[i]);
     const rows = _bindExtractRows(xml);
-    allDataRows = allDataRows.concat(rows.slice(1).filter(_bindRowHasValues));
+    const converted = rows.slice(1)
+      .filter(_bindRowHasValues)
+      .map(r => ss.length ? _bindConvertSharedStrings(r, ss) : r);
+    allDataRows = allDataRows.concat(converted);
   }
 
   // Renumber all rows (header=1, data=2,3,...)
@@ -4709,6 +4714,36 @@ function _bindExtractRows(sheetXml) {
     rows.push(m[0]);
   }
   return rows;
+}
+
+async function _bindGetSharedStrings(zip) {
+  const xml = await zip.file("xl/sharedStrings.xml")?.async("string") || "";
+  if (!xml) return [];
+  const strings = [];
+  const siRegex = /<si>([\s\S]*?)<\/si>/g;
+  let m;
+  while ((m = siRegex.exec(xml)) !== null) {
+    // Concatenate all <t> fragments (handles rich text)
+    const tRegex = /<t[^>]*>([^<]*)<\/t>/g;
+    let text = ""; let tm;
+    while ((tm = tRegex.exec(m[1])) !== null) text += tm[1];
+    strings.push(text);
+  }
+  return strings;
+}
+
+function _bindConvertSharedStrings(rowXml, sharedStrings) {
+  // Replace t="s" shared-string cells with t="inlineStr" inline cells
+  return rowXml.replace(
+    /<c([^>]*)\bt="s"([^>]*)>\s*<v>(\d+)<\/v>\s*<\/c>/g,
+    (match, pre, post, idxStr) => {
+      const value = sharedStrings[parseInt(idxStr, 10)] || "";
+      const safe = value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      // Keep all attributes except t="s", add t="inlineStr"
+      const attrs = (pre + post).replace(/\s*\bt="s"/, "").trim();
+      return `<c ${attrs} t="inlineStr"><is><t>${safe}</t></is></c>`;
+    }
+  );
 }
 
 function _bindRowHasValues(rowXml) {
