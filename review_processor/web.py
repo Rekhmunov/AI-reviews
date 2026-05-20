@@ -6624,9 +6624,9 @@ body{{font-family:'Times New Roman',serif;font-size:11pt;line-height:1.3}}p{{mar
 
     @app.get("/api/ozon-supplies/{supply_order_id}/ttn.pdf")
     def get_ozon_ttn_pdf(request: Request, supply_order_id: int) -> "Response":
-        """Generate OZON ТОРГ-12 DOCX → PDF via LibreOffice."""
+        """Generate OZON ТОРГ-12 — same torg12_tpl.docx template as WB → PDF via LibreOffice."""
         import subprocess as _sp, tempfile as _tf, pathlib as _pl, os as _os
-        import html as _hm, zipfile as _zf, io as _io
+        import zipfile as _zf, io as _io, re as _re, html as _html_esc
         from fastapi.responses import Response
         from datetime import datetime as _dtt
 
@@ -6643,20 +6643,19 @@ body{{font-family:'Times New Roman',serif;font-size:11pt;line-height:1.3}}p{{mar
         goods = data["goods"]
         price_map = data["price_map"]
         name_map = data["name_map"]
+        driver_name = data.get("driver_name") or "—"
 
-        e = _hm.escape
         now = _dtt.now()
-        date_disp = now.strftime("%d.%m.%Y")
         supply_num = str(item.get("supply_order_number") or supply_order_id)
-        wh = str(item.get("warehouse_name") or "")
+        supply_date_disp = now.strftime("%d.%m.%Y")
         org_full = str(le.get("full_name") or le.get("short_name") or "")
         org_req = str(le.get("requisites") or "")
         org_line = ", ".join(filter(None, [org_full, org_req]))
-        signatories = str(le.get("signatories") or le.get("short_name") or "")
+        supplier_short = str(le.get("short_name") or "")
+        signatories = str(le.get("signatories") or supplier_short or "—")
         VAT_RATE = 0.22
 
-        # Build goods rows
-        goods_rows_html = ""
+        rows_data = []
         total_qty = 0
         total_excl = 0.0
         total_vat = 0.0
@@ -6665,7 +6664,7 @@ body{{font-family:'Times New Roman',serif;font-size:11pt;line-height:1.3}}p{{mar
             offer_id = str(g.get("offer_id") or "")
             name = name_map.get(offer_id) or offer_id or str(g.get("name") or "Товар")
             qty = int(g.get("quantity") or 0)
-            price = price_map.get(offer_id, 0.0)
+            price = float(price_map.get(offer_id) or 0)
             excl = round(price / (1 + VAT_RATE), 2) if price else 0.0
             vat_amt = round(price * VAT_RATE / (1 + VAT_RATE), 2) if price else 0.0
             sum_excl = round(excl * qty, 2)
@@ -6675,79 +6674,105 @@ body{{font-family:'Times New Roman',serif;font-size:11pt;line-height:1.3}}p{{mar
             total_excl += sum_excl
             total_vat += sum_vat
             total_incl += sum_incl
-            td = "border:1px solid black;padding:2pt 3pt;font-size:8pt"
-            goods_rows_html += (f"<tr><td style='{td}' align='center'>{i+1}</td>"
-                f"<td style='{td}'>{e(name)}</td>"
-                f"<td style='{td}' align='center'>шт.</td>"
-                f"<td style='{td}' align='center'>{qty}</td>"
-                f"<td style='{td}' align='center'>{f'{price:.2f}' if price else '—'}</td>"
-                f"<td style='{td}' align='center'>{f'{sum_excl:.2f}' if price else '—'}</td>"
-                f"<td style='{td}' align='center'>{int(VAT_RATE*100)}%</td>"
-                f"<td style='{td}' align='center'>{f'{sum_vat:.2f}' if price else '—'}</td>"
-                f"<td style='{td}' align='center'>{f'{sum_incl:.2f}' if price else '—'}</td></tr>")
-        UL = "_" * 25
-        html = f"""<!DOCTYPE html><html><head><meta charset='utf-8'>
-<style>@page{{size:297mm 210mm;margin:10mm}}
-body{{font-family:'Times New Roman',serif;font-size:9pt}}
-table{{border-collapse:collapse;width:100%}}
-</style></head><body>
-<p align='center' style='font-size:12pt'><b>ТОВАРНАЯ НАКЛАДНАЯ № {e(supply_num)}</b></p>
-<p align='center'>от {date_disp} г.</p>
-<table style='margin-bottom:6pt'>
-  <tr><td width='50%'><b>Грузоотправитель:</b> {e(org_line)}</td>
-      <td width='50%'><b>Грузополучатель:</b> {e(wh)}, OZON</td></tr>
-  <tr><td><b>Поставщик:</b> {e(org_full)}</td>
-      <td><b>Плательщик:</b> {e(org_full)}</td></tr>
-</table>
-<table border='1' style='font-size:8pt'>
-  <thead><tr style='background:#f0f0f0'>
-    <th style='padding:2pt 3pt;border:1px solid black'>№</th>
-    <th style='padding:2pt 3pt;border:1px solid black'>Наименование товара</th>
-    <th style='padding:2pt 3pt;border:1px solid black'>Ед.</th>
-    <th style='padding:2pt 3pt;border:1px solid black'>Кол-во</th>
-    <th style='padding:2pt 3pt;border:1px solid black'>Цена, руб.</th>
-    <th style='padding:2pt 3pt;border:1px solid black'>Сумма без НДС</th>
-    <th style='padding:2pt 3pt;border:1px solid black'>НДС %</th>
-    <th style='padding:2pt 3pt;border:1px solid black'>НДС сумма</th>
-    <th style='padding:2pt 3pt;border:1px solid black'>Сумма с НДС</th>
-  </tr></thead>
-  <tbody>{goods_rows_html}</tbody>
-  <tfoot><tr style='font-weight:bold'>
-    <td colspan='3' style='border:1px solid black;padding:2pt 3pt;text-align:center'>Итого</td>
-    <td style='border:1px solid black;padding:2pt 3pt;text-align:center'>{total_qty}</td>
-    <td style='border:1px solid black'></td>
-    <td style='border:1px solid black;padding:2pt 3pt;text-align:center'>{total_excl:.2f}</td>
-    <td style='border:1px solid black'></td>
-    <td style='border:1px solid black;padding:2pt 3pt;text-align:center'>{total_vat:.2f}</td>
-    <td style='border:1px solid black;padding:2pt 3pt;text-align:center'>{total_incl:.2f}</td>
-  </tr></tfoot>
-</table>
-<table width='100%' style='margin-top:10pt'>
-  <tr>
-    <td width='33%'>Отпуск разрешил: &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; {UL}<br>
-      <small>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{e(signatories)}</small></td>
-    <td width='34%' align='center'>Главный бухгалтер: {UL}<br><small>{e(signatories)}</small></td>
-    <td width='33%' align='right'>Груз получил: {UL}<br><small>{e(data.get('driver_name',''))}</small></td>
-  </tr>
-</table>
-<p style='margin-top:6pt'>М.П.</p>
-</body></html>"""
+            rows_data.append({
+                "num": str(i + 1),
+                "name": name,
+                "qty": qty,
+                "price_excl": f"{excl:.2f}" if price else "—",
+                "amt_excl": f"{sum_excl:.2f}" if price else "—",
+                "vat_amt": f"{sum_vat:.2f}" if price else "—",
+                "amt_incl": f"{sum_incl:.2f}" if price else "—",
+            })
 
-        tmp_dir = _tf.mkdtemp()
-        html_path = _pl.Path(tmp_dir) / "ozon_ttn.html"
-        pdf_path = _pl.Path(tmp_dir) / "ozon_ttn.pdf"
-        html_path.write_text(html, encoding="utf-8")
+        t_excl = f"{total_excl:.2f}"
+        t_vat  = f"{total_vat:.2f}"
+        t_incl = f"{total_incl:.2f}"
+        amt_words = _numToRussianWords(round(total_incl)) if total_incl else "Ноль рублей 00 копеек"
+
+        tpl_path = STATIC_DIR / "torg12_tpl.docx"
+        with open(tpl_path, "rb") as f:
+            tpl_bytes = f.read()
+        with _zf.ZipFile(_io.BytesIO(tpl_bytes)) as zin:
+            all_files = {name: zin.read(name) for name in zin.namelist()}
+        doc_xml = all_files["word/document.xml"].decode("utf-8")
+
+        row_rx = _re.compile(r'(<w:tr[\s>](?:(?!</w:tr>).)*?\{\{GOODS_NAME\}\}.*?</w:tr>)', _re.DOTALL)
+        m = row_rx.search(doc_xml)
+        if m and rows_data:
+            row_tpl = m.group(1)
+            multi = ""
+            for rd in rows_data:
+                r = row_tpl
+                r = r.replace("{{ROW_NUM}}",         rd["num"])
+                r = r.replace("{{GOODS_NAME}}",       _html_esc.escape(rd["name"]))
+                r = r.replace("{{PRICE}}",            _html_esc.escape(rd["price_excl"]))
+                r = r.replace("{{ROW_AMOUNT_EXCL}}",  _html_esc.escape(rd["amt_excl"]))
+                r = r.replace("{{ROW_VAT_SUM}}",      _html_esc.escape(rd["vat_amt"]))
+                r = r.replace("{{ROW_AMOUNT_INCL}}",  _html_esc.escape(rd["amt_incl"]))
+                r = r.replace("{{ROW_QTY}}",          str(rd["qty"]))
+                multi += r
+            doc_xml = doc_xml.replace(row_tpl, multi, 1)
+
+        mon_names = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря']
+        for ph, val in [
+            ("{{TTN_NUMBER}}",      supply_num),
+            ("{{ORG_FULL}}",        org_line),
+            ("{{SUPPLIER}}",        org_line),
+            ("{{PAYER}}",           org_line),
+            ("{{ORDER_DATE}}",      supply_date_disp),
+            ("{{DOC_NUM_VAL}}",     supply_num),
+            ("{{DOC_DATE_VAL}}",    supply_date_disp),
+            ("{{GOODS_NAME}}",      rows_data[0]["name"] if rows_data else "Товар"),
+            ("{{ROW_NUM}}",         "1"),
+            ("{{PRICE}}",           rows_data[0]["price_excl"] if rows_data else "—"),
+            ("{{ROW_AMOUNT_EXCL}}", rows_data[0]["amt_excl"] if rows_data else "—"),
+            ("{{ROW_VAT_SUM}}",     rows_data[0]["vat_amt"] if rows_data else "—"),
+            ("{{ROW_AMOUNT_INCL}}", rows_data[0]["amt_incl"] if rows_data else "—"),
+            ("{{QTY}}",             str(total_qty)),
+            ("{{QTY_SHT}}",         f"{total_qty} шт"),
+            ("{{TOTAL_EXCL}}",      t_excl),
+            ("{{TOTAL_VAT}}",       t_vat),
+            ("{{TOTAL_INCL}}",      t_incl),
+            ("{{AMOUNT}}",          t_excl),
+            ("{{VAT_SUM}}",         t_vat),
+            ("{{AMOUNT_WITH_VAT}}", t_incl),
+            ("{{AMOUNT_WORDS}}",    amt_words),
+            ("{{PAGES_COUNT}}",     "1"),
+            ("{{ITEMS_COUNT}}",     str(len(rows_data) or 1)),
+            ("{{TOTAL_RUB}}",       str(int(total_incl)) if total_incl else "0"),
+            ("{{TOTAL_KOP}}",       str(round((total_incl % 1) * 100)).zfill(2) if total_incl else "00"),
+            ("{{SUPPLY_ID}}",       supply_num),
+            ("{{DOC_DATE_FULL}}",   f"«{now.strftime('%d')}» {mon_names[now.month-1]} {now.year}"),
+            ("{{ISSUED_BY}}",       supplier_short or "—"),
+            ("{{SIGNATORIES}}",     signatories),
+            ("{{PROD_HEAD}}",       "—"),
+            ("{{SIGN_SUPPLIER}}",   supplier_short),
+            ("{{SIGN_DRIVER}}",     driver_name),
+        ]:
+            doc_xml = doc_xml.replace(ph, val)
+        doc_xml = doc_xml.replace("{{ROW_QTY}}", str(total_qty))
+
+        all_files["word/document.xml"] = doc_xml.encode("utf-8")
+
+        tmp_dir   = _tf.mkdtemp()
+        docx_path = _pl.Path(tmp_dir) / f"ozon_ttn_{supply_order_id}.docx"
+        pdf_path  = _pl.Path(tmp_dir) / f"ozon_ttn_{supply_order_id}.pdf"
+        buf = _io.BytesIO()
+        with _zf.ZipFile(buf, "w", _zf.ZIP_DEFLATED) as zout:
+            for name, fdata in all_files.items():
+                zout.writestr(name, fdata)
+        docx_path.write_bytes(buf.getvalue())
+
         env = dict(_os.environ)
         env.update({"HOME": "/tmp", "XDG_CACHE_HOME": "/tmp/.cache",
                     "XDG_CONFIG_HOME": "/tmp/.config", "DCONF_PROFILE": "empty"})
-        _sp.run(["soffice", "--headless", "--convert-to", "pdf",
-                 "--outdir", str(tmp_dir), str(html_path)], capture_output=True, env=env, timeout=60)
+        _sp.run(["soffice", "--headless", "--convert-to", "pdf", "--outdir", str(tmp_dir), str(docx_path)],
+                capture_output=True, env=env, timeout=60)
         if not pdf_path.exists():
             raise HTTPException(status_code=500, detail="LibreOffice не смог сгенерировать PDF")
-        pdf_bytes = pdf_path.read_bytes()
         from urllib.parse import quote as _qp
         fname = f"ТТН_OZON_{supply_num}.pdf"
-        return Response(content=pdf_bytes, media_type="application/pdf",
+        return Response(content=pdf_path.read_bytes(), media_type="application/pdf",
                         headers={"Content-Disposition": f"inline; filename*=UTF-8''{_qp(fname)}"})
 
     @app.patch("/api/ozon-supplies/{supply_order_id}/manual-fields")
