@@ -4780,7 +4780,6 @@ function ozonBindDownload() {
       a.click();
       document.body.removeChild(a);
       btn.textContent = "✓ Скачан";
-      btn.disabled = true;
       btn.style.color = "#16a34a";
     };
     const nameSpan = document.createElement("span");
