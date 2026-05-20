@@ -6539,10 +6539,10 @@ tr {{ page-break-inside: avoid; }}
             name = name_map.get(offer_id) or offer_id or str(g.get("name") or "Товар")
             qty  = g.get("quantity") or "—"
             goods_rows_html += (f"<tr>"
-                                f"<td style='border:1px solid #000;padding:2pt 4pt;text-align:center;white-space:nowrap'>{i+1}</td>"
-                                f"<td class='mat-name' style='border:1px solid #000;padding:2pt 4pt;text-align:left;white-space:normal'>{e(name)}</td>"
-                                f"<td style='border:1px solid #000;padding:2pt 4pt;text-align:center;white-space:nowrap'>шт.</td>"
-                                f"<td style='border:1px solid #000;padding:2pt 4pt;text-align:center;white-space:nowrap'>{qty}</td>"
+                                f"<td style='border:1px solid #000;padding:0 2pt;text-align:center;white-space:nowrap;line-height:1.1'>{i+1}</td>"
+                                f"<td class='mat-name' style='border:1px solid #000;padding:0 2pt;text-align:left;white-space:normal;line-height:1.1'>{e(name)}</td>"
+                                f"<td style='border:1px solid #000;padding:0 2pt;text-align:center;white-space:nowrap;line-height:1.1'>шт.</td>"
+                                f"<td style='border:1px solid #000;padding:0 2pt;text-align:center;white-space:nowrap;line-height:1.1'>{qty}</td>"
                                 f"</tr>")
 
         owner_id = data.get("owner_id") or 0
@@ -6585,7 +6585,7 @@ tr {{ page-break-inside: avoid; }}
   table.codes {{ border-collapse: collapse; margin-left: auto; font-size: 9pt; }}
   table.codes td {{ border: 1px solid #000; padding: 2pt 6pt; }}
   table.mat {{ width: 100%; border-collapse: collapse; margin-top: 4pt; font-size: 11pt; border: 1px solid #000; }}
-  table.mat td, table.mat th {{ border: 1px solid #000; padding: 2pt 4pt; text-align: center; white-space: nowrap; }}
+  table.mat td, table.mat th {{ border: 1px solid #000; padding: 0pt 2pt; text-align: center; white-space: nowrap; line-height: 1.1; }}
   table.mat td.mat-name, table.mat th.mat-name {{ text-align: left; white-space: normal; }}
   .dotline {{ display: inline-block; border-bottom: 1px solid #000; min-width: 120pt; }}
   p {{ margin: 1pt 0; }}
