@@ -6543,6 +6543,14 @@ class ReviewRepository:
             ))
         except Exception:
             pass
+        # Add ON DELETE CASCADE FK so ozon_supply_items are cleaned up when source is deleted
+        try:
+            conn.execute(self._sql(
+                "ALTER TABLE ozon_supply_items ADD CONSTRAINT fk_ozon_supply_items_source "
+                "FOREIGN KEY (source_id) REFERENCES supply_sources(id) ON DELETE CASCADE"
+            ))
+        except Exception:
+            pass  # constraint may already exist
         conn.execute(self._sql("ALTER TABLE ozon_supply_items ADD COLUMN IF NOT EXISTS transit_warehouse_name TEXT"))
         conn.execute(self._sql("ALTER TABLE ozon_supply_items ADD COLUMN IF NOT EXISTS is_crossdock INTEGER NOT NULL DEFAULT 0"))
         conn.execute(self._sql("ALTER TABLE ozon_supply_items ADD COLUMN IF NOT EXISTS vehicle_json TEXT"))
