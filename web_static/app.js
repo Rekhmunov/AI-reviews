@@ -556,6 +556,7 @@ function showSection(section, options = {}) {
   }
   if (section === "supplies-ozon") {
     if (!ozonState.items.length) loadOzonSupplies(true);
+    initOzonSuppliesColumnResizer();
   }
 }
 
@@ -5353,6 +5354,79 @@ function _getSuppliesColWidths() {
 }
 
 function toggleSuppliesFilter() { /* legacy stub */ }
+
+// ── OZON Supplies column resizer ──
+const OZON_SUPPLIES_COL_WIDTHS_KEY = "ozon_supplies_col_widths";
+// Default widths as percentages (9 logical cols: expand, id, legal, wh, prod, date, qty, status, links)
+const OZON_SUPPLIES_DEFAULT_WIDTHS = [3, 9, 11, 19, 9, 9, 6, 11, 23];
+
+function initOzonSuppliesColumnResizer() {
+  const table = document.getElementById("ozonSuppliesTable");
+  if (!table) return;
+  let widths = OZON_SUPPLIES_DEFAULT_WIDTHS.slice();
+  try {
+    const saved = JSON.parse(localStorage.getItem(OZON_SUPPLIES_COL_WIDTHS_KEY) || "null");
+    if (Array.isArray(saved) && saved.length === widths.length) widths = saved;
+    else if (Array.isArray(saved)) localStorage.removeItem(OZON_SUPPLIES_COL_WIDTHS_KEY);
+  } catch (_) {}
+  _applyOzonSuppliesColWidths(widths);
+
+  table.querySelectorAll("th .col-resize-handle").forEach((handle) => {
+    let startX = 0, colIdx = 0, startWidths = [];
+    handle.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      const th = handle.parentElement;
+      colIdx = parseInt(th.getAttribute("data-col") || "0");
+      startX = e.clientX;
+      startWidths = _getOzonSuppliesColWidths();
+      document.addEventListener("mousemove", onMouseMove);
+      document.addEventListener("mouseup", onMouseUp);
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+    });
+    function onMouseMove(e) {
+      const tableEl = document.getElementById("ozonSuppliesTable");
+      if (!tableEl) return;
+      const tableW = tableEl.offsetWidth || 1;
+      const deltaPct = ((e.clientX - startX) / tableW) * 100;
+      const newWidths = startWidths.slice();
+      const minPct = 3;
+      const nextIdx = colIdx < newWidths.length - 1 ? colIdx + 1 : colIdx - 1;
+      let newCur = Math.max(minPct, startWidths[colIdx] + deltaPct);
+      let newNext = Math.max(minPct, startWidths[nextIdx] - deltaPct);
+      if (newNext < minPct) {
+        newCur = startWidths[colIdx] + (startWidths[nextIdx] - minPct);
+        newNext = minPct;
+      }
+      newWidths[colIdx] = Math.round(newCur * 10) / 10;
+      newWidths[nextIdx] = Math.round(newNext * 10) / 10;
+      _applyOzonSuppliesColWidths(newWidths);
+    }
+    function onMouseUp() {
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      try {
+        localStorage.setItem(OZON_SUPPLIES_COL_WIDTHS_KEY, JSON.stringify(_getOzonSuppliesColWidths()));
+      } catch (_) {}
+    }
+  });
+}
+
+function _applyOzonSuppliesColWidths(widths) {
+  const cols = Array.from(document.querySelectorAll("#ozonSuppliesColgroup col"))
+    .filter(c => !c.dataset.fixed);
+  cols.forEach((col, i) => {
+    if (widths[i] !== undefined) col.style.width = widths[i] + "%";
+  });
+}
+
+function _getOzonSuppliesColWidths() {
+  const cols = Array.from(document.querySelectorAll("#ozonSuppliesColgroup col"))
+    .filter(c => !c.dataset.fixed);
+  return cols.map((col) => parseFloat(col.style.width) || OZON_SUPPLIES_DEFAULT_WIDTHS[0]);
+}
 
 // ── Supplies date range calendar ──
 const _cal = {
@@ -10606,6 +10680,7 @@ window.downloadTTN = downloadTTN;
 window.printTTN = printTTN;
 window.downloadSupplyBarcode = downloadSupplyBarcode;
 window.initSuppliesColumnResizer = initSuppliesColumnResizer;
+window.initOzonSuppliesColumnResizer = initOzonSuppliesColumnResizer;
 window.toggleSuppliesFilter = toggleSuppliesFilter;
 window.toggleSuppliesDatePanel = toggleSuppliesDatePanel;
 window.applySuppliesDateFilter = applySuppliesDateFilter;
