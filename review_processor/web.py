@@ -5677,20 +5677,18 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
         e = _hm.escape
         # Each row is a separate table — LibreOffice never splits it across pages
-        # Proportions: 15% | 45% | 20% | 20%
-        _t  = 'border="1" cellspacing="0" width="100%" style="border-collapse:collapse;margin:0;table-layout:fixed;font-size:9pt"'
         _p  = 'style="border:1px solid black;padding:2pt 4pt;font-size:9pt"'
-        goods_rows = "".join(
-            f'<table {_t}>'
-            f'<colgroup><col width="15%"><col width="45%"><col width="20%"><col width="20%"></colgroup>'
+        _data_rows = "".join(
             f'<tr>'
             f'<td {_p} align="center">{i+1}</td>'
             f'<td {_p}>{e(g.get("product_name") or "Товар")}</td>'
             f'<td {_p} align="center">шт.</td>'
             f'<td {_p} align="center">{g.get("quantity") or "—"}</td>'
-            f'</tr></table>'
+            f'</tr>'
             for i, g in enumerate(goods_list)
         )
+        # Single unified table so all columns stay aligned
+        goods_rows = _data_rows
 
         # Use underscores for signature lines — LibreOffice renders these reliably
         UL = "_" * 30  # underline substitute
@@ -5748,8 +5746,8 @@ tr {{ page-break-inside: avoid; }}
     <th style="padding:2pt 4pt;border:1px solid black;font-size:8pt;font-weight:bold;font-family:'Times New Roman',serif" align="center">Единица измерения</th>
     <th style="padding:2pt 4pt;border:1px solid black;font-size:8pt;font-weight:bold;font-family:'Times New Roman',serif" align="center">Количество</th>
   </tr>
+  {goods_rows}
 </table>
-{goods_rows}
 
 <p style="margin-top:8pt">Подпись лица, получившего доверенность удостоверяем. &nbsp;&nbsp;&nbsp;&nbsp; {UL} &nbsp;&nbsp; ({e(driver_name)})</p>
 <table width="100%" cellspacing="0" cellpadding="2" style="margin-top:8pt">
@@ -6584,9 +6582,8 @@ tr {{ page-break-inside: avoid; }}
         _tbl = 'border="1" cellspacing="0" width="100%" style="border-collapse:collapse;margin:0;table-layout:fixed;font-size:9pt"'
 
         goods_rows = "".join(
-            f'<table {_tbl}><colgroup><col width="15%"><col width="45%"><col width="20%"><col width="20%"></colgroup>'
             f'<tr><td {_td} align="center">{i+1}</td><td {_td}>{e(g.get("product_name") or "Товар")}</td>'
-            f'<td {_td} align="center">шт.</td><td {_td} align="center">{g.get("quantity") or "—"}</td></tr></table>'
+            f'<td {_td} align="center">шт.</td><td {_td} align="center">{g.get("quantity") or "—"}</td></tr>'
             for i, g in enumerate(all_goods)
         )
 
@@ -6627,8 +6624,8 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
     <th style="border:1px solid black;padding:2pt 4pt;font-size:8pt;font-weight:bold" align="center">Единица измерения</th>
     <th style="border:1px solid black;padding:2pt 4pt;font-size:8pt;font-weight:bold" align="center">Количество</th>
   </tr>
+  {goods_rows}
 </table>
-{goods_rows}
 <p style="margin-top:8pt">Подпись лица, получившего доверенность удостоверяем. &nbsp;&nbsp;&nbsp;&nbsp; {UL} &nbsp;&nbsp; ({e(driver_name)})</p>
 <table width="100%" cellspacing="0" cellpadding="2" style="margin-top:6pt">
   <tr>
