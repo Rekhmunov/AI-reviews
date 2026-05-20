@@ -4771,13 +4771,30 @@ function ozonBindDownload() {
     btn.className = "secondary";
     btn.style.cssText = "font-size:12px;padding:3px 10px;flex-shrink:0";
     btn.textContent = "⬇ Скачать";
-    btn.onclick = () => {
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = name;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+    btn.onclick = async () => {
+      // Convert blob to base64 and embed in an HTML page that opens in new tab
+      // This is the only cross-browser way to get both: new tab + correct filename
+      const dataUrl = await new Promise(resolve => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.readAsDataURL(blob);
+      });
+      const safeName = name.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+      const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(name)}</title></head>
+<body><p style="font-family:sans-serif;color:#64748b">Скачивание файла <b>${esc(name)}</b>…</p>
+<script>
+(function(){
+  var a=document.createElement('a');
+  a.href='${dataUrl}';
+  a.download='${safeName}';
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  setTimeout(function(){window.close();},1500);
+})();
+<\/script></body></html>`;
+      const htmlBlob = new Blob([html], {type: "text/html"});
+      const htmlUrl = URL.createObjectURL(htmlBlob);
+      window.open(htmlUrl, "_blank");
+      setTimeout(() => URL.revokeObjectURL(htmlUrl), 5000);
       btn.textContent = "✓ Скачан";
       btn.style.color = "#16a34a";
     };
