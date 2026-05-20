@@ -505,11 +505,7 @@ function initNavGroups() {
     const collapsed = Boolean(states[group]);
     _applyNavGroup(group, collapsed, false);
   }
-  // Ensure supplies group header has display:flex when visible
-  const supHdr = document.getElementById("nav-section-supplies");
-  if (supHdr && supHdr.style.display !== "none") {
-    supHdr.style.display = "flex";
-  }
+  // nav-collapsible CSS forces display:flex — nothing extra needed here
 }
 // ────────────────────────────────────────────────────────────────────────────
 

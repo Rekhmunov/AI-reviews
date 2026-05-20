@@ -33,9 +33,9 @@
         <!-- Nav sections -->
         <nav class="sidebar-nav">
 
-          <div class="nav-section-label nav-collapsible" id="nav-group-feedback-header" onclick="toggleNavGroup('feedback')" style="cursor:pointer;user-select:none;display:flex;align-items:center;justify-content:space-between">
+          <div class="nav-section-label nav-collapsible" id="nav-group-feedback-header" onclick="toggleNavGroup('feedback')" style="cursor:pointer;user-select:none;display:flex;align-items:center;justify-content:space-between;padding-right:8px">
             <span>Обратная связь</span>
-            <span id="nav-group-feedback-arrow" style="font-size:10px;transition:transform 0.25s;display:inline-block">▼</span>
+            <span id="nav-group-feedback-arrow" class="nav-collapse-arrow">▼</span>
           </div>
           <div id="nav-group-feedback" style="overflow:hidden;transition:max-height 0.3s ease">
           <a id="nav-reviews" class="nav-item active" href="#" onclick="showSection('reviews')">
@@ -51,9 +51,9 @@
           {{NAV_ANALYTICS}}
           </div>
 
-          <div id="nav-section-supplies" class="nav-section-label nav-collapsible" style="margin-top:8px;display:none;cursor:pointer;user-select:none;flex-direction:row;align-items:center;justify-content:space-between" onclick="toggleNavGroup('supplies')">
+          <div id="nav-section-supplies" class="nav-section-label nav-collapsible" style="margin-top:8px;display:none;cursor:pointer;user-select:none;padding-right:8px" onclick="toggleNavGroup('supplies')">
             <span>Поставки</span>
-            <span id="nav-group-supplies-arrow" style="font-size:10px;transition:transform 0.25s;display:inline-block">▼</span>
+            <span id="nav-group-supplies-arrow" class="nav-collapse-arrow">▼</span>
           </div>
           <div id="nav-group-supplies" style="overflow:hidden;transition:max-height 0.3s ease">
           {{NAV_SUPPLIES_WB}}
@@ -1861,6 +1861,6 @@
   <script src="/static/jszip.min.js"></script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=227"></script>
+  <script src="/static/app.js?v=228"></script>
 </body>
 </html>

@@ -485,9 +485,25 @@ body.landing-page {
   padding-top: 0;
 }
 
+.nav-collapsible {
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+}
+
 .nav-collapsible:hover {
   background: rgba(99,102,241,0.06);
   border-radius: 4px;
+}
+
+.nav-collapse-arrow {
+  font-size: 13px;
+  font-weight: bold;
+  color: #64748b;
+  transition: transform 0.25s ease;
+  display: inline-block;
+  line-height: 1;
+  flex-shrink: 0;
 }
 
 .nav-item {
