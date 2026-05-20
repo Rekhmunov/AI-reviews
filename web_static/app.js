@@ -501,11 +501,19 @@ function initNavGroups() {
   const states = _getNavGroupStates();
   for (const group of ["feedback", "supplies"]) {
     const wrapper = document.getElementById(`nav-group-${group}`);
+    const header = document.getElementById(`nav-group-${group}-header`) ||
+                   document.getElementById(`nav-section-${group === "supplies" ? "supplies" : group}`);
     if (!wrapper) continue;
+    // Hide header if group has no visible nav-items
+    const hasVisible = Array.from(wrapper.querySelectorAll("a.nav-item, div.nav-item"))
+      .some(el => el.style.display !== "none" && getComputedStyle(el).display !== "none");
+    if (!hasVisible) {
+      if (header) header.style.display = "none";
+      continue;
+    }
     const collapsed = Boolean(states[group]);
     _applyNavGroup(group, collapsed, false);
   }
-  // nav-collapsible CSS forces display:flex — nothing extra needed here
 }
 // ────────────────────────────────────────────────────────────────────────────
 
