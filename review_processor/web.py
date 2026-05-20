@@ -6463,9 +6463,13 @@ tr {{ page-break-inside: avoid; }}
                     headers = {"Client-Id": client_id, "Api-Key": api_key,
                                "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
 
-                    # Get default legal entity (supplier_name) from settings
+                    # Get default legal entity for OZON (prefer ООО, fallback to first)
                     _legal_entities = repository.list_supply_legal_entities(user_id=owner_id)
-                    _default_supplier = str((_legal_entities[0].get("short_name") or "") if _legal_entities else "") or None
+                    _ozon_le = (
+                        next((e for e in _legal_entities if "ООО" in str(e.get("short_name") or "")), None)
+                        or (_legal_entities[0] if _legal_entities else None)
+                    )
+                    _default_supplier = str(_ozon_le.get("short_name") or "") if _ozon_le else None
 
                     # Step 0: build cluster cache (macrolocal_cluster_id → name)
                     cluster_cache: dict[int, str] = {}
