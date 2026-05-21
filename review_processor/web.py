@@ -5729,8 +5729,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         html_content = f"""<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>
 @page {{ size: 210mm 297mm; margin: 15mm 10mm 15mm 25mm; }}
-body {{ font-family: "Times New Roman", serif; font-size: 11pt; line-height: 1.3; }}
-p {{ margin: 0; padding: 0; }}
+body {{ font-family: "Times New Roman", serif; font-size: 11pt; line-height: 1.05; margin: 0; padding: 0; }}
+p, div {{ margin: 0 !important; padding: 0 !important; line-height: 1.05; }}
 tr {{ page-break-inside: avoid; }}
 </style>
 </head>
