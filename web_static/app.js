@@ -4645,7 +4645,7 @@ function toggleOzonActionsMenu(e) {
   if (!isHidden) { menu.classList.add("hidden"); return; }
 
   // Update doc buttons state
-  for (const id of ["ozonActionPoaBtn", "ozonActionTtnBtn"]) {
+  for (const id of ["ozonActionPoaBtn", "ozonActionTtnBtn", "ozonActionPoaPrintBtn", "ozonActionTtnPrintBtn"]) {
     const b = document.getElementById(id);
     if (!b) continue;
     b.disabled = !_ozonBatchDocsAllowed;
@@ -4763,6 +4763,40 @@ async function ozonCombinedPoA() {
   } catch(e) { alert("Ошибка: " + e.message); }
 }
 
+async function ozonCombinedPoAPrint() {
+  document.getElementById("ozonActionsMenu")?.classList.add("hidden");
+  const ids = Array.from(_selectedOzonIds);
+  try {
+    const resp = await fetch("/api/ozon-supplies/combined-poa.pdf", {
+      method: "POST", credentials: "include",
+      headers: {"Content-Type": "application/json", ...jsonHeaders()},
+      body: JSON.stringify({supply_ids: ids})
+    });
+    if (!resp.ok) { alert("Ошибка: " + await resp.text()); return; }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    window.open(url, "_blank");
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+  } catch(e) { alert("Ошибка: " + e.message); }
+}
+
+async function ozonCombinedTTNPrint() {
+  document.getElementById("ozonActionsMenu")?.classList.add("hidden");
+  const ids = Array.from(_selectedOzonIds);
+  try {
+    const resp = await fetch("/api/ozon-supplies/combined-ttn.pdf", {
+      method: "POST", credentials: "include",
+      headers: {"Content-Type": "application/json", ...jsonHeaders()},
+      body: JSON.stringify({supply_ids: ids})
+    });
+    if (!resp.ok) { alert("Ошибка: " + await resp.text()); return; }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    window.open(url, "_blank");
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+  } catch(e) { alert("Ошибка: " + e.message); }
+}
+
 async function ozonCombinedTTN() {
   document.getElementById("ozonActionsMenu")?.classList.add("hidden");
   const ids = Array.from(_selectedOzonIds);
@@ -4802,7 +4836,9 @@ window.toggleOzonActionsMenu = toggleOzonActionsMenu;
 window.ozonBatchSetProduction = ozonBatchSetProduction;
 window.ozonBatchProdApply = ozonBatchProdApply;
 window.ozonCombinedPoA = ozonCombinedPoA;
+window.ozonCombinedPoAPrint = ozonCombinedPoAPrint;
 window.ozonCombinedTTN = ozonCombinedTTN;
+window.ozonCombinedTTNPrint = ozonCombinedTTNPrint;
 
 async function downloadOzonPoA(supplyId) {
   const item = (ozonState.allItems || ozonState.items || []).find(x => x.supply_order_id === supplyId || x.supply_order_id === Number(supplyId));

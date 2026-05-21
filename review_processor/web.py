@@ -6759,6 +6759,105 @@ tr {{ page-break-inside: avoid; }}
         return Response(content=html_content.encode("utf-8"), media_type="application/msword",
                         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{_qp(fname)}"})
 
+    @app.post("/api/ozon-supplies/combined-poa.pdf")
+    def get_ozon_combined_poa_pdf(request: Request, body: OzonCombinedDocsRequest) -> "Response":
+        """Print-ready PDF of combined PoA via LibreOffice."""
+        import subprocess as _sp, tempfile as _tf, pathlib as _pl, os as _os
+        from fastapi.responses import Response
+        from urllib.parse import quote as _qp
+        from datetime import datetime as _dtt
+
+        user = _require_user(request)
+        if not _can_view_supplies(user): raise HTTPException(status_code=403)
+        owner_id = _supply_owner_id(user)
+        supply_ids = body.supply_ids
+        if not supply_ids: raise HTTPException(status_code=400, detail="supply_ids required")
+
+        now = _dtt.now()
+        seq = repository.next_ttn_number()
+        doc_num = f"{now.strftime('%d%m%Y')}_{seq}"
+
+        all_goods: dict[str, dict] = {}
+        le = {}
+        driver_name = ""
+        supplier_short = ""
+        name_map = repository.get_product_name_by_ozon_sku(user_id=owner_id)
+        name_map_art = repository.get_product_name_by_article(user_id=owner_id)
+
+        for sid in supply_ids:
+            try: data = _ozon_get_doc_data(owner_id, sid)
+            except Exception: data = {}
+            if not data: continue
+            if not le:
+                le = data.get("le") or {}
+                supplier_short = str(le.get("short_name") or "")
+            if not driver_name: driver_name = data.get("driver_name") or ""
+            for g in (data.get("goods") or []):
+                oid = str(g.get("offer_id") or "")
+                sku_k = str(g.get("sku") or "")
+                qty = int(g.get("quantity") or 0)
+                nm = name_map.get(sku_k) or name_map_art.get(oid) or oid or str(g.get("name") or "Товар")
+                if oid in all_goods: all_goods[oid]["quantity"] += qty
+                else: all_goods[oid] = {"offer_id": oid, "sku": sku_k, "name": nm, "quantity": qty}
+
+        data_combined = {
+            "item": {"supply_order_number": doc_num, "warehouse_name": supplier_short},
+            "owner_id": owner_id, "driver_name": driver_name, "driver_docs": "",
+            "le": le, "goods": list(all_goods.values()), "price_map": {}, "name_map": name_map,
+        }
+        html_content = _build_ozon_poa_html(data_combined, include_signature=True)
+        tmp_dir = _tf.mkdtemp()
+        html_path = _pl.Path(tmp_dir) / "combined_poa.html"
+        pdf_path  = _pl.Path(tmp_dir) / "combined_poa.pdf"
+        html_path.write_text(html_content, encoding="utf-8")
+        env = dict(_os.environ)
+        env.update({"HOME": "/tmp", "XDG_CACHE_HOME": "/tmp/.cache",
+                    "XDG_CONFIG_HOME": "/tmp/.config", "DCONF_PROFILE": "empty"})
+        _sp.run(["soffice", "--headless", "--convert-to", "pdf",
+                 "--outdir", str(tmp_dir), str(html_path)],
+                capture_output=True, env=env, timeout=60)
+        if not pdf_path.exists():
+            raise HTTPException(status_code=500, detail="LibreOffice не смог сгенерировать PDF")
+        fname = f"Доверенность суммарная {doc_num}, {supplier_short}.pdf"
+        return Response(content=pdf_path.read_bytes(), media_type="application/pdf",
+                        headers={"Content-Disposition": f"inline; filename*=UTF-8''{_qp(fname)}"})
+
+    @app.post("/api/ozon-supplies/combined-ttn.pdf")
+    def get_ozon_combined_ttn_pdf(request: Request, body: OzonCombinedDocsRequest) -> "Response":
+        """Print-ready PDF of combined TTN via LibreOffice."""
+        import subprocess as _sp, tempfile as _tf, pathlib as _pl, os as _os
+        import zipfile as _zf, io as _io
+        from fastapi.responses import Response
+        from urllib.parse import quote as _qp
+
+        user = _require_user(request)
+        if not _can_view_supplies(user): raise HTTPException(status_code=403)
+        owner_id = _supply_owner_id(user)
+
+        # Reuse combined-ttn.docx logic to build the DOCX bytes
+        class _FakeBody:
+            supply_ids = body.supply_ids
+        # Call the existing endpoint function directly
+        docx_resp = get_ozon_combined_ttn(request, body)
+        if not hasattr(docx_resp, "body"):
+            raise HTTPException(status_code=500, detail="Не удалось собрать DOCX")
+
+        tmp_dir  = _tf.mkdtemp()
+        docx_path = _pl.Path(tmp_dir) / "combined_ttn.docx"
+        pdf_path  = _pl.Path(tmp_dir) / "combined_ttn.pdf"
+        docx_path.write_bytes(docx_resp.body)
+        env = dict(_os.environ)
+        env.update({"HOME": "/tmp", "XDG_CACHE_HOME": "/tmp/.cache",
+                    "XDG_CONFIG_HOME": "/tmp/.config", "DCONF_PROFILE": "empty"})
+        _sp.run(["soffice", "--headless", "--convert-to", "pdf",
+                 "--outdir", str(tmp_dir), str(docx_path)],
+                capture_output=True, env=env, timeout=60)
+        if not pdf_path.exists():
+            raise HTTPException(status_code=500, detail="LibreOffice не смог сгенерировать PDF")
+        fname = "ТТН суммарная.pdf"
+        return Response(content=pdf_path.read_bytes(), media_type="application/pdf",
+                        headers={"Content-Disposition": f"inline; filename*=UTF-8''{_qp(fname)}"})
+
     @app.post("/api/ozon-supplies/combined-ttn.docx")
     def get_ozon_combined_ttn(request: Request, body: OzonCombinedDocsRequest) -> "Response":
         """Generate combined TTN DOCX for multiple OZON supplies."""
