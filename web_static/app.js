@@ -4576,25 +4576,25 @@ function toggleSelectAllOzon(checked) {
   onOzonCheckboxChange();
 }
 
+let _ozonBatchDocsAllowed = false;
+let _ozonBatchDocsReason = "";
+
 function _updateOzonBatchUI() {
-  const btn = document.getElementById("ozonActionsBtn");
-  if (!btn) return;
+  const wrap = document.getElementById("ozonBatchWrap");
+  const countEl = document.getElementById("ozonBatchCount");
+  if (!wrap) return;
   const ids = Array.from(_selectedOzonIds);
 
   if (ids.length < 2) {
-    btn.disabled = true;
-    btn.title = "Выберите 2 и более поставок";
+    wrap.style.display = "none";
     _ozonBatchDocsAllowed = false;
-    _ozonBatchDocsReason = "";
     return;
   }
 
-  btn.disabled = false;
-  btn.title = `${ids.length} поставок выбрано`;
+  wrap.style.display = "";
+  if (countEl) countEl.textContent = `(${ids.length})`;
 
   const items = (ozonState.allItems || []).filter(x => ids.includes(x.supply_order_id));
-
-  // Check same legal entity and driver for doc generation
   const les = new Set(items.map(x => x.supplier_name || ""));
   const drivers = new Set();
   for (const it of items) {
@@ -4604,43 +4604,31 @@ function _updateOzonBatchUI() {
   }
 
   if (les.size > 1) {
-    _ozonBatchDocsAllowed = false;
-    _ozonBatchDocsReason = "Разные юр. лица";
+    _ozonBatchDocsAllowed = false; _ozonBatchDocsReason = "Разные юр. лица";
   } else if (drivers.size > 1) {
-    _ozonBatchDocsAllowed = false;
-    _ozonBatchDocsReason = "Разные водители";
+    _ozonBatchDocsAllowed = false; _ozonBatchDocsReason = "Разные водители";
   } else {
-    _ozonBatchDocsAllowed = true;
-    _ozonBatchDocsReason = "";
+    _ozonBatchDocsAllowed = true; _ozonBatchDocsReason = "";
   }
 }
-
-let _ozonBatchDocsAllowed = false;
-let _ozonBatchDocsReason = "";
 
 function toggleOzonActionsMenu(e) {
   e.stopPropagation();
   const menu = document.getElementById("ozonActionsMenu");
   if (!menu) return;
-  const open = menu.style.display === "block";
-  menu.style.display = open ? "none" : "block";
-  if (!open) {
+  const isHidden = menu.classList.contains("hidden");
+  menu.classList.toggle("hidden", !isHidden);
+  if (isHidden) {
     // Update doc buttons state
-    const poaBtn = document.getElementById("ozonActionPoaBtn");
-    const ttnBtn = document.getElementById("ozonActionTtnBtn");
-    if (poaBtn) {
-      poaBtn.disabled = !_ozonBatchDocsAllowed;
-      poaBtn.title = _ozonBatchDocsAllowed ? "" : _ozonBatchDocsReason;
-      poaBtn.style.opacity = _ozonBatchDocsAllowed ? "" : "0.4";
-      poaBtn.style.cursor = _ozonBatchDocsAllowed ? "" : "not-allowed";
+    for (const id of ["ozonActionPoaBtn", "ozonActionTtnBtn"]) {
+      const b = document.getElementById(id);
+      if (!b) continue;
+      b.disabled = !_ozonBatchDocsAllowed;
+      b.title = _ozonBatchDocsAllowed ? "" : _ozonBatchDocsReason;
+      b.style.opacity = _ozonBatchDocsAllowed ? "" : "0.45";
+      b.style.cursor = _ozonBatchDocsAllowed ? "" : "not-allowed";
     }
-    if (ttnBtn) {
-      ttnBtn.disabled = !_ozonBatchDocsAllowed;
-      ttnBtn.title = _ozonBatchDocsAllowed ? "" : _ozonBatchDocsReason;
-      ttnBtn.style.opacity = _ozonBatchDocsAllowed ? "" : "0.4";
-      ttnBtn.style.cursor = _ozonBatchDocsAllowed ? "" : "not-allowed";
-    }
-    const close = () => { menu.style.display = "none"; document.removeEventListener("click", close); };
+    const close = () => { menu.classList.add("hidden"); document.removeEventListener("click", close); };
     setTimeout(() => document.addEventListener("click", close), 0);
   }
 }

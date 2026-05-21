@@ -6691,11 +6691,8 @@ tr {{ page-break-inside: avoid; }}
 
 </div></body></html>"""
 
-    class OzonCombinedRequest(BaseModel):
-        supply_ids: list[int]
-
     @app.post("/api/ozon-supplies/combined-poa.doc")
-    def get_ozon_combined_poa(request: Request, body: OzonCombinedRequest) -> "Response":
+    async def get_ozon_combined_poa(request: Request) -> "Response":
         """Generate combined PoA for multiple OZON supplies (same LE, same driver)."""
         import html as _hm
         from fastapi.responses import Response
@@ -6706,6 +6703,9 @@ tr {{ page-break-inside: avoid; }}
         if not _can_view_supplies(user): raise HTTPException(status_code=403)
         owner_id = _supply_owner_id(user)
         e = _hm.escape
+        payload = await request.json()
+        supply_ids: list[int] = [int(x) for x in (payload.get("supply_ids") or [])]
+        if not supply_ids: raise HTTPException(status_code=400, detail="supply_ids required")
 
         now = _dtt.now()
         date_display = now.strftime("%d.%m.%Y")
@@ -6719,7 +6719,7 @@ tr {{ page-break-inside: avoid; }}
         supplier_short = ""
         name_map = repository.get_product_name_by_article(user_id=owner_id)
 
-        for sid in body.supply_ids:
+        for sid in supply_ids:
             data = _ozon_get_doc_data(owner_id, sid)
             if not data: continue
             if not le:
@@ -6737,7 +6737,7 @@ tr {{ page-break-inside: avoid; }}
                     all_goods[oid] = {"offer_id": oid, "name": nm, "quantity": qty}
 
         goods = list(all_goods.values())
-        supply_nums = ", ".join(str(sid) for sid in body.supply_ids)
+        supply_nums = ", ".join(str(sid) for sid in supply_ids)
 
         data_combined = {
             "item": {"supply_order_number": doc_num, "warehouse_name": supplier_short},
@@ -6750,7 +6750,7 @@ tr {{ page-break-inside: avoid; }}
                         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{_qp(fname)}"})
 
     @app.post("/api/ozon-supplies/combined-ttn.docx")
-    def get_ozon_combined_ttn(request: Request, body: OzonCombinedRequest) -> "Response":
+    async def get_ozon_combined_ttn(request: Request) -> "Response":
         """Generate combined TTN DOCX for multiple OZON supplies."""
         import zipfile as _zf, io as _io, re as _re, html as _html_esc
         from fastapi.responses import Response
@@ -6760,6 +6760,9 @@ tr {{ page-break-inside: avoid; }}
         user = _require_user(request)
         if not _can_view_supplies(user): raise HTTPException(status_code=403)
         owner_id = _supply_owner_id(user)
+        payload = await request.json()
+        supply_ids: list[int] = [int(x) for x in (payload.get("supply_ids") or [])]
+        if not supply_ids: raise HTTPException(status_code=400, detail="supply_ids required")
 
         now = _dtt.now()
         seq = repository.get_next_ttn_number()
@@ -6775,7 +6778,7 @@ tr {{ page-break-inside: avoid; }}
         name_map = repository.get_product_name_by_article(user_id=owner_id)
         wh_name = ""
 
-        for sid in body.supply_ids:
+        for sid in supply_ids:
             data = _ozon_get_doc_data(owner_id, sid)
             if not data: continue
             if not le:
