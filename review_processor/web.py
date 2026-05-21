@@ -5753,21 +5753,21 @@ tr {{ page-break-inside: avoid; }}
 <p align="center" style="font-size:14pt;margin:10pt 0 4pt"><b>Доверенность № {e(supply_id_str)}</b></p>
 <p>Дата выдачи <b><u>{e(date_display)}</u></b></p>
 <p>Доверенность действительна 14 дней с даты подписания.</p>
-<p style="margin-top:6pt">{e(org_line)}</p>
-<p style="font-size:8pt;text-align:center">наименование потребителя и его адрес</p>
-<p style="margin-top:4pt">{e(org_line)}</p>
-<p style="font-size:8pt;text-align:center">наименование плательщика и его адрес</p>
+<p style="margin-top:6pt"><u>{e(org_line)}</u></p>
+<p style="font-size:8pt;text-align:center">(наименование потребителя и его адрес)</p>
+<p style="margin-top:4pt"><u>{e(org_line)}</u></p>
+<p style="font-size:8pt;text-align:center">(наименование плательщика и его адрес)</p>
 
 <p style="margin-top:8pt">Доверенность выдана &nbsp; <u>водителю</u> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <u>{e(driver_name)}</u></p>
-<p style="font-size:8pt">должность &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; фамилия, имя, отчество</p>
+<p style="font-size:8pt">(должность) &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (фамилия, имя, отчество)</p>
 
 {f"<p>{e(driver_docs)}</p>" if driver_docs else ""}
 
 <p style="margin-top:6pt">На отправку груза от &nbsp;&nbsp; <u>&nbsp;{e(supplier_short)}&nbsp;</u></p>
-<p style="font-size:8pt;text-align:center">наименование поставщика</p>
+<p style="font-size:8pt;text-align:center">(наименование поставщика)</p>
 
 <p style="margin-top:4pt">материальных ценностей по транспортной накладной &nbsp; <b><u>{e(supply_id_str)}</u></b> &nbsp; от &nbsp; <b><u>{e(date_display)}</u></b></p>
-<p style="font-size:8pt">наименование, номер и дата документа</p>
+<p style="font-size:8pt;text-align:center">(наименование, номер и дата документа)</p>
 
 <p style="margin-top:6pt">Перечень материальных ценностей, подлежащих доставке</p>
 <table border="1" cellspacing="0" width="100%" style="border-collapse:collapse;margin:0;table-layout:fixed;font-size:9pt">

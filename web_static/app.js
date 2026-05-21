@@ -3389,10 +3389,10 @@ async function downloadPoA(supplyId) {
 
 <p>Дата выдачи <span class="underline bold">${dateDisplay}</span></p>
 <p>Доверенность действительна 14 дней с даты подписания.</p>
-<p style="margin-top:6pt">${esc(orgLine)}</p>
-<p class="small">наименование потребителя и его адрес</p>
-<p style="margin-top:4pt">${esc(orgLine)}</p>
-<p class="small">наименование плательщика и его адрес</p>
+<p style="margin-top:6pt"><span class="underline">${esc(orgLine)}</span></p>
+<p class="small">(наименование потребителя и его адрес)</p>
+<p style="margin-top:4pt"><span class="underline">${esc(orgLine)}</span></p>
+<p class="small">(наименование плательщика и его адрес)</p>
 
 <p style="margin-top:8pt">
   Доверенность выдана &nbsp;&nbsp;
@@ -3400,7 +3400,7 @@ async function downloadPoA(supplyId) {
   &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
   <span class="underline">${esc(driverName)}</span>
 </p>
-<p class="small" style="padding-left:120pt">должность &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; фамилия, имя, отчество</p>
+<p class="small" style="padding-left:120pt">(должность) &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (фамилия, имя, отчество)</p>
 
 ${driverDocs ? `<p>${esc(driverDocs)}</p>` : ""}
 
@@ -3408,7 +3408,7 @@ ${driverDocs ? `<p>${esc(driverDocs)}</p>` : ""}
   На отправку груза от &nbsp;&nbsp;
   <span class="underline">&nbsp;&nbsp;&nbsp;&nbsp;${esc(supplierShort)}&nbsp;&nbsp;&nbsp;&nbsp;</span>
 </p>
-<p class="small" style="text-align:center">наименование поставщика</p>
+<p class="small" style="text-align:center">(наименование поставщика)</p>
 
 <p style="margin-top:4pt">
   материальных ценностей по транспортной накладной &nbsp;
@@ -3416,7 +3416,7 @@ ${driverDocs ? `<p>${esc(driverDocs)}</p>` : ""}
   &nbsp; от &nbsp;
   <span class="underline bold">${dateDisplay}</span>
 </p>
-<p class="small">наименование, номер и дата документа</p>
+<p class="small" style="text-align:center">(наименование, номер и дата документа)</p>
 
 <p style="margin-top:10pt">Перечень материальных ценностей, подлежащих доставке</p>
 <table class="mat">
