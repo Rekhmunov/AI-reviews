@@ -5787,8 +5787,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 <p>материальных ценностей по транспортной накладной &nbsp; <b><u>{e(supply_id_str)}</u></b> &nbsp; от &nbsp; <b><u>{e(date_display)}</u></b></p>
 <p class="small">(наименование, номер и дата документа)</p>
 <p>Перечень материальных ценностей, подлежащих доставке</p>
-<table class="mat" border="1" cellspacing="0" cellpadding="0" width="100%">
-  <colgroup><col width="5%"><col width="75%"><col width="10%"><col width="10%"></colgroup>
+<table class="mat" border="1" cellspacing="0" cellpadding="0" width="175mm" style="table-layout:fixed">
+  <colgroup><col width="12mm"><col width="103mm"><col width="30mm"><col width="30mm"></colgroup>
   <tr>
     <th>№ по порядку</th>
     <th class="mat-name">Материальные ценности</th>
