@@ -5788,7 +5788,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 <p class="small">(наименование, номер и дата документа)</p>
 <p>Перечень материальных ценностей, подлежащих доставке</p>
 <table class="mat" border="1" cellspacing="0" width="100%" style="width:100%;table-layout:fixed">
-  <colgroup><col style="width:5%"><col style="width:75%"><col style="width:10%"><col style="width:10%"></colgroup>
+  <colgroup><col style="width:3%"><col style="width:77%"><col style="width:10%"><col style="width:10%"></colgroup>
   <tr>
     <th style="border:1px solid black;padding:0 2pt;white-space:nowrap;line-height:1.1">№ по порядку</th>
     <th class="mat-name" style="border:1px solid black;padding:0 2pt;text-align:left;white-space:normal;line-height:1.1">Материальные ценности</th>
