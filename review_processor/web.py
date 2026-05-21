@@ -5787,13 +5787,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 <p>материальных ценностей по транспортной накладной &nbsp; <b><u>{e(supply_id_str)}</u></b> &nbsp; от &nbsp; <b><u>{e(date_display)}</u></b></p>
 <p class="small">(наименование, номер и дата документа)</p>
 <p>Перечень материальных ценностей, подлежащих доставке</p>
-<table class="mat" border="1" cellspacing="0" cellpadding="0" width="175mm" style="table-layout:fixed">
-  <colgroup><col width="12mm"><col width="103mm"><col width="30mm"><col width="30mm"></colgroup>
+<table class="mat" border="1" cellspacing="0">
+  <colgroup><col style="width:5%"><col style="width:75%"><col style="width:10%"><col style="width:10%"></colgroup>
   <tr>
-    <th>№ по порядку</th>
-    <th class="mat-name">Материальные ценности</th>
-    <th>Ед. изм.</th>
-    <th>Кол-во</th>
+    <th style="border:1px solid black;padding:0 2pt;white-space:nowrap;line-height:1.1">№ по порядку</th>
+    <th class="mat-name" style="border:1px solid black;padding:0 2pt;text-align:left;white-space:normal;line-height:1.1">Материальные ценности</th>
+    <th style="border:1px solid black;padding:0 2pt;white-space:nowrap;line-height:1.1">Ед. изм.</th>
+    <th style="border:1px solid black;padding:0 2pt;white-space:nowrap;line-height:1.1">Кол-во</th>
   </tr>
   {goods_rows}
 </table>
