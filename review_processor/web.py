@@ -5726,23 +5726,22 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         UL = "_" * 30  # underline substitute
         sig_name = e(signatories) if signatories and signatories != "—" else ""
 
-        _p  = 'style="margin:0;padding:0;line-height:1.1em;font-family:\'Times New Roman\',serif;font-size:11pt"'
-        _ps = 'style="margin:0;padding:0;line-height:1.1em;font-family:\'Times New Roman\',serif;font-size:8pt;text-align:center"'
-        _p8 = 'style="margin:0;padding:0;line-height:1.1em;font-family:\'Times New Roman\',serif;font-size:8pt"'
+        _F  = "font-family:'Times New Roman',serif;font-size:11pt"
+        _F8 = "font-family:'Times New Roman',serif;font-size:8pt"
+        _TD = f'style="padding:0 0 0 0;border:none;{_F};line-height:1.2em"'
+        _TD8c = f'style="padding:0 0 0 0;border:none;{_F8};line-height:1.1em;text-align:center"'
+        _TD8 = f'style="padding:0 0 0 0;border:none;{_F8};line-height:1.1em"'
         html_content = f"""<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>
 @page {{ size: 210mm 297mm; margin: 15mm 10mm 15mm 25mm; }}
-body {{ font-family: "Times New Roman", serif; font-size: 11pt; line-height: 1.1em; margin: 0; padding: 0; }}
+body {{ font-family: "Times New Roman", serif; font-size: 11pt; margin: 0; padding: 0; }}
 </style>
 </head>
 <body>
-<table width="100%" cellspacing="0" cellpadding="0" style="margin-bottom:2pt"><tr>
-  <td width="55%" valign="top" style="font-size:11pt;font-family:'Times New Roman',serif">
-    Организация <u>{e(org_full)}</u>
-  </td>
-  <td width="45%" valign="top" align="right" style="font-size:8pt;font-family:'Times New Roman',serif">
-    Типовая межотраслевая форма № М-2<br>
-    Утверждена постановлением Госстата России от 30.10.97 № 71а
+<table width="100%" cellspacing="0" cellpadding="0"><tr>
+  <td width="55%" valign="top" style="padding:0;border:none;{_F}">Организация <u>{e(org_full)}</u></td>
+  <td width="45%" valign="top" align="right" style="padding:0;border:none;{_F8}">
+    Типовая межотраслевая форма № М-2<br>Утверждена постановлением Госстата России от 30.10.97 № 71а
     <table border="1" cellspacing="0" cellpadding="2" align="right" style="font-size:8pt;margin-top:2pt">
       <tr><td colspan="2" align="center"><b>Коды</b></td></tr>
       <tr><td>Форма по ОКУД</td><td>0315001</td></tr>
@@ -5750,22 +5749,23 @@ body {{ font-family: "Times New Roman", serif; font-size: 11pt; line-height: 1.1
     </table>
   </td>
 </tr></table>
-
-<p {_p} align="center" style="font-size:13pt;font-weight:bold;text-align:center;margin:2pt 0"><b>Доверенность № {e(supply_id_str)}</b></p>
-<p {_p}>Дата выдачи <b><u>{e(date_display)}</u></b></p>
-<p {_p}>Доверенность действительна 14 дней с даты подписания.</p>
-<p {_p}><u>{e(org_line)}</u></p>
-<p {_ps}>(наименование потребителя и его адрес)</p>
-<p {_p}><u>{e(org_line)}</u></p>
-<p {_ps}>(наименование плательщика и его адрес)</p>
-<p {_p}>Доверенность выдана &nbsp; <u>водителю</u> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <u>{e(driver_name)}</u></p>
-<p {_p8}>(должность) &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (фамилия, имя, отчество)</p>
-{f'<p {_p}>{e(driver_docs)}</p>' if driver_docs else ""}
-<p {_p}>На отправку груза от &nbsp;&nbsp; <u>&nbsp;{e(supplier_short)}&nbsp;</u></p>
-<p {_ps}>(наименование поставщика)</p>
-<p {_p}>материальных ценностей по транспортной накладной &nbsp; <b><u>{e(supply_id_str)}</u></b> &nbsp; от &nbsp; <b><u>{e(date_display)}</u></b></p>
-<p {_ps}>(наименование, номер и дата документа)</p>
-<p {_p} style="margin-top:2pt">Перечень материальных ценностей, подлежащих доставке</p>
+<table width="100%" cellspacing="0" cellpadding="0">
+<tr><td {_TD} align="center" style="padding:2pt 0;border:none;{_F};font-size:13pt;font-weight:bold;text-align:center"><b>Доверенность № {e(supply_id_str)}</b></td></tr>
+<tr><td {_TD}>Дата выдачи <b><u>{e(date_display)}</u></b></td></tr>
+<tr><td {_TD}>Доверенность действительна 14 дней с даты подписания.</td></tr>
+<tr><td {_TD}><u>{e(org_line)}</u></td></tr>
+<tr><td {_TD8c}>(наименование потребителя и его адрес)</td></tr>
+<tr><td {_TD}><u>{e(org_line)}</u></td></tr>
+<tr><td {_TD8c}>(наименование плательщика и его адрес)</td></tr>
+<tr><td {_TD}>Доверенность выдана &nbsp; <u>водителю</u> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <u>{e(driver_name)}</u></td></tr>
+<tr><td {_TD8}>(должность) &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (фамилия, имя, отчество)</td></tr>
+{f'<tr><td {_TD}>{e(driver_docs)}</td></tr>' if driver_docs else ""}
+<tr><td {_TD}>На отправку груза от &nbsp;&nbsp; <u>&nbsp;{e(supplier_short)}&nbsp;</u></td></tr>
+<tr><td {_TD8c}>(наименование поставщика)</td></tr>
+<tr><td {_TD}>материальных ценностей по транспортной накладной &nbsp; <b><u>{e(supply_id_str)}</u></b> &nbsp; от &nbsp; <b><u>{e(date_display)}</u></b></td></tr>
+<tr><td {_TD8c}>(наименование, номер и дата документа)</td></tr>
+<tr><td {_TD}>Перечень материальных ценностей, подлежащих доставке</td></tr>
+</table>
 <table border="1" cellspacing="0" cellpadding="0" width="100%" style="border-collapse:collapse;margin:0;table-layout:fixed;font-size:9pt">
   <colgroup><col style="width:10%"><col style="width:70%"><col style="width:10%"><col style="width:10%"></colgroup>
   <tr>
