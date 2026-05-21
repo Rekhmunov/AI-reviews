@@ -5708,10 +5708,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             goods_list = [{"product_name": "Текстильные товары", "quantity": pallets_raw}]
 
         e = _hm.escape
-        _p_c = 'style="border:1px solid black;padding:0 2pt;font-size:9pt;text-align:center;white-space:nowrap;line-height:1.1em;vertical-align:middle"'
-        _p_l = 'style="border:1px solid black;padding:0 2pt;font-size:9pt;text-align:left;line-height:1.1em;vertical-align:middle"'
+        _p_c = 'style="border:1px solid black;padding:0 2pt;font-size:9pt;text-align:center;white-space:nowrap;line-height:1em;vertical-align:middle;height:1pt"'
+        _p_l = 'style="border:1px solid black;padding:0 2pt;font-size:9pt;text-align:left;line-height:1em;vertical-align:middle;height:1pt"'
         _data_rows = "".join(
-            f'<tr>'
+            f'<tr height="1">'
             f'<td {_p_c}>{i+1}</td>'
             f'<td {_p_l}>{e(g.get("product_name") or "Товар")}</td>'
             f'<td {_p_c}>шт.</td>'
@@ -5767,12 +5767,12 @@ body {{ font-family: "Times New Roman", serif; font-size: 11pt; margin: 0; paddi
 <tr><td {_TD}>Перечень материальных ценностей, подлежащих доставке</td></tr>
 </table>
 <table border="1" cellspacing="0" cellpadding="0" width="100%" style="border-collapse:collapse;margin:0;table-layout:fixed;font-size:9pt">
-  <colgroup><col style="width:10%"><col style="width:70%"><col style="width:10%"><col style="width:10%"></colgroup>
-  <tr>
-    <th style="padding:0 2pt;border:1px solid black;font-size:8pt;font-weight:bold;white-space:nowrap;line-height:1.1em" align="center">№ по порядку</th>
-    <th style="padding:0 2pt;border:1px solid black;font-size:8pt;font-weight:bold;line-height:1.1em" align="left">Материальные ценности</th>
-    <th style="padding:0 2pt;border:1px solid black;font-size:8pt;font-weight:bold;white-space:nowrap;line-height:1.1em" align="center">Ед. изм.</th>
-    <th style="padding:0 2pt;border:1px solid black;font-size:8pt;font-weight:bold;white-space:nowrap;line-height:1.1em" align="center">Кол-во</th>
+  <colgroup><col style="width:8%"><col style="width:72%"><col style="width:10%"><col style="width:10%"></colgroup>
+  <tr height="1">
+    <th style="padding:0 2pt;border:1px solid black;font-size:8pt;font-weight:bold;white-space:nowrap;line-height:1em" align="center">№ по порядку</th>
+    <th style="padding:0 2pt;border:1px solid black;font-size:8pt;font-weight:bold;line-height:1em" align="left">Материальные ценности</th>
+    <th style="padding:0 2pt;border:1px solid black;font-size:8pt;font-weight:bold;white-space:nowrap;line-height:1em" align="center">Ед. изм.</th>
+    <th style="padding:0 2pt;border:1px solid black;font-size:8pt;font-weight:bold;white-space:nowrap;line-height:1em" align="center">Кол-во</th>
   </tr>
   {goods_rows}
 </table>
