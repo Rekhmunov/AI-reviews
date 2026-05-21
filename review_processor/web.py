@@ -5731,6 +5731,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         _TD = f'style="padding:0 0 0 0;border:none;{_F};line-height:1.2em"'
         _TD8c = f'style="padding:0 0 0 0;border:none;{_F8};line-height:1.1em;text-align:center"'
         _TD8 = f'style="padding:0 0 0 0;border:none;{_F8};line-height:1.1em"'
+        _p = f'style="margin:0;padding:0;line-height:1.2em;{_F}"'
         html_content = f"""<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>
 @page {{ size: 210mm 297mm; margin: 15mm 10mm 15mm 25mm; }}
