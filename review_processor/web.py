@@ -7387,12 +7387,19 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     except Exception as ex:
                         _log.warning("ozon cluster cache: %s", ex)
 
-                    # Pre-load existing quantities to skip bundle calls for already-loaded items
+                    # Pre-load existing quantities and vehicle data to skip API calls
                     existing_items = repository.list_ozon_supply_items(
                         user_id=owner_id, source_id=int(src["id"])
                     )
                     existing_qty: dict[int, int] = {
                         int(item.get("supply_order_id") or 0): int(item.get("total_quantity") or 0)
+                        for item in existing_items
+                        if item.get("supply_order_id")
+                    }
+                    existing_vehicle: dict[int, bool] = {
+                        int(item.get("supply_order_id") or 0): bool(
+                            str(item.get("vehicle_json") or "").strip() not in ("", "{}", "null")
+                        )
                         for item in existing_items
                         if item.get("supply_order_id")
                     }
@@ -7435,6 +7442,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     # Step 2: get details in batches of 50 via /v3/supply-order/get
                     for i in range(0, len(all_order_ids), 50):
                         batch = all_order_ids[i:i+50]
+                        order_ids_in_batch: list[int] = []
                         qty_batch: list = []  # (order_id, bundle_id, item_id)
                         try:
                             body2 = _jj.dumps({"order_ids": batch}).encode()
@@ -7500,6 +7508,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                                     "supplies": supplies_list,
                                 }
                                 item_id = repository.upsert_ozon_supply_item(source_id=int(src["id"]), data=data)
+                                order_ids_in_batch.append(oid)
                                 # Only fetch bundle quantity if not already loaded
                                 if existing_qty.get(oid, 0) == 0:
                                     for s in supplies_list:
@@ -7549,6 +7558,40 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                             _ozon_sync_state["synced"] = total_synced
                             if _ozon_sync_state.get("cancel_requested"):
                                 break
+
+                        # Load vehicle/driver data for orders without cached vehicle_json
+                        vehicle_order_ids = [
+                            oid for oid in order_ids_in_batch
+                            if not existing_vehicle.get(oid)
+                        ]
+                        if vehicle_order_ids:
+                            _ozon_sync_state["message"] = f"Загрузка водителей ({len(vehicle_order_ids)})…"
+                        for order_id in vehicle_order_ids:
+                            if _ozon_sync_state.get("cancel_requested"):
+                                break
+                            try:
+                                vbody = _jj.dumps({"order_id": order_id}).encode()
+                                v_req = _ul.Request(
+                                    "https://api-seller.ozon.ru/v1/supply-order/details",
+                                    data=vbody, method="POST", headers=headers,
+                                )
+                                with _ul.urlopen(v_req, context=ctx, timeout=10) as vr:
+                                    vdet = _jj.loads(vr.read())
+                                vval = (vdet.get("vehicle") or {}).get("value") or {}
+                                if vval:
+                                    repository.update_ozon_supply_vehicle(
+                                        supply_order_id=order_id,
+                                        vehicle_json=_jj.dumps(vval, ensure_ascii=False))
+                            except Exception as vex:
+                                code = getattr(vex, "code", None)
+                                if code == 403:
+                                    break  # No role for this key — skip all vehicle fetches
+                                elif code == 429:
+                                    _t.sleep(2)
+                                else:
+                                    _log.debug("ozon vehicle order_id=%d: %s", order_id, vex)
+                            _t.sleep(0.4)
+
                     # Mark source as synced (updates last_synced_at timestamp)
                     try:
                         repository.mark_supply_source_synced(source_id=int(src["id"]))
