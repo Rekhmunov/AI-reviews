@@ -4628,16 +4628,20 @@ function _updateOzonBatchUI() {
 
   const items = (ozonState.allItems || []).filter(x => ids.includes(x.supply_order_id));
   const les = new Set(items.map(x => x.supplier_name || ""));
-  const knownDrivers = new Set();
+  const allDrivers = [];
   for (const it of items) {
     let dName = "";
     try { const v = JSON.parse(it.vehicle_json || "{}"); dName = v.driver_name || ""; } catch(_) {}
-    if (dName) knownDrivers.add(dName);
+    allDrivers.push(dName);
   }
+  const hasUnknown = allDrivers.some(d => !d);
+  const uniqueDrivers = new Set(allDrivers);
 
   if (les.size > 1) {
     _ozonBatchDocsAllowed = false; _ozonBatchDocsReason = "Разные юр. лица";
-  } else if (knownDrivers.size > 1) {
+  } else if (hasUnknown) {
+    _ozonBatchDocsAllowed = false; _ozonBatchDocsReason = "Не у всех поставок загружен водитель";
+  } else if (uniqueDrivers.size > 1) {
     _ozonBatchDocsAllowed = false; _ozonBatchDocsReason = "Разные водители";
   } else {
     _ozonBatchDocsAllowed = true; _ozonBatchDocsReason = "";
