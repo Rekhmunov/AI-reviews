@@ -3362,7 +3362,7 @@ async function downloadPoA(supplyId) {
   table.mat td, table.mat th { border: 1px solid #000; padding: 0 3pt; text-align: center; line-height: 1.1; }
   .sig-row { width: 100%; margin-top: 10pt; }
   .dotline { display: inline-block; border-bottom: 1px solid #000; min-width: 120pt; }
-  p { margin: 3pt 0; }
+  p { margin: 0; padding: 0; }
 </style>
 </head>
 <body>
@@ -3385,16 +3385,16 @@ async function downloadPoA(supplyId) {
   </tr>
 </table>
 
-<p style="text-align:center;font-size:14pt;font-weight:bold;margin:10pt 0 4pt"><b>Доверенность № ${seqNum}</b></p>
+<p style="text-align:center;font-size:14pt;font-weight:bold;margin:4pt 0 2pt"><b>Доверенность № ${seqNum}</b></p>
 
 <p>Дата выдачи <span class="underline bold">${dateDisplay}</span></p>
 <p>Доверенность действительна 14 дней с даты подписания.</p>
-<p style="margin-top:6pt"><span class="underline">${esc(orgLine)}</span></p>
+<p><span class="underline">${esc(orgLine)}</span></p>
 <p class="small">(наименование потребителя и его адрес)</p>
-<p style="margin-top:4pt"><span class="underline">${esc(orgLine)}</span></p>
+<p><span class="underline">${esc(orgLine)}</span></p>
 <p class="small">(наименование плательщика и его адрес)</p>
 
-<p style="margin-top:8pt">
+<p>
   Доверенность выдана &nbsp;&nbsp;
   <span class="underline" style="min-width:60pt;display:inline-block">водителю</span>
   &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
@@ -3404,13 +3404,13 @@ async function downloadPoA(supplyId) {
 
 ${driverDocs ? `<p>${esc(driverDocs)}</p>` : ""}
 
-<p style="margin-top:6pt">
+<p>
   На отправку груза от &nbsp;&nbsp;
   <span class="underline">&nbsp;&nbsp;&nbsp;&nbsp;${esc(supplierShort)}&nbsp;&nbsp;&nbsp;&nbsp;</span>
 </p>
 <p class="small" style="text-align:center">(наименование поставщика)</p>
 
-<p style="margin-top:4pt">
+<p>
   материальных ценностей по транспортной накладной &nbsp;
   <span class="underline bold">${seqNum}</span>
   &nbsp; от &nbsp;
@@ -3418,7 +3418,7 @@ ${driverDocs ? `<p>${esc(driverDocs)}</p>` : ""}
 </p>
 <p class="small" style="text-align:center">(наименование, номер и дата документа)</p>
 
-<p style="margin-top:10pt">Перечень материальных ценностей, подлежащих доставке</p>
+<p style="margin-top:3pt">Перечень материальных ценностей, подлежащих доставке</p>
 <table class="mat">
   <colgroup><col style="width:10%"><col style="width:70%"><col style="width:10%"><col style="width:10%"></colgroup>
   <tr>
