@@ -4645,7 +4645,7 @@ function toggleOzonActionsMenu(e) {
   if (!isHidden) { menu.classList.add("hidden"); return; }
 
   // Update doc buttons state
-  for (const id of ["ozonActionPoaBtn", "ozonActionTtnBtn", "ozonActionPoaPrintBtn", "ozonActionTtnPrintBtn"]) {
+  for (const id of ["ozonActionPoaBtn", "ozonActionTtnBtn"]) {
     const b = document.getElementById(id);
     if (!b) continue;
     b.disabled = !_ozonBatchDocsAllowed;
