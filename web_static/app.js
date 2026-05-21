@@ -4580,29 +4580,43 @@ function _updateOzonBatchUI() {
   const btn = document.getElementById("ozonActionsBtn");
   if (!btn) return;
   const ids = Array.from(_selectedOzonIds);
-  if (ids.length < 2) { btn.disabled = true; btn.title = "Выберите 2 и более поставок"; return; }
 
-  const items = (ozonState.allItems || []).filter(x => ids.includes(x.supply_order_id));
-
-  // Check same legal entity (supplier_name)
-  const les = new Set(items.map(x => x.supplier_name || ""));
-  if (les.size > 1) { btn.disabled = true; btn.title = "Разные юр. лица"; return; }
-
-  // Check same driver (from vehicle_json if cached)
-  const drivers = new Set();
-  for (const it of items) {
-    let dName = "";
-    try {
-      const v = JSON.parse(it.vehicle_json || "{}");
-      dName = v.driver_name || "";
-    } catch(_) {}
-    drivers.add(dName);
+  if (ids.length < 2) {
+    btn.disabled = true;
+    btn.title = "Выберите 2 и более поставок";
+    _ozonBatchDocsAllowed = false;
+    _ozonBatchDocsReason = "";
+    return;
   }
-  if (drivers.size > 1) { btn.disabled = true; btn.title = "Разные водители"; return; }
 
   btn.disabled = false;
   btn.title = `${ids.length} поставок выбрано`;
+
+  const items = (ozonState.allItems || []).filter(x => ids.includes(x.supply_order_id));
+
+  // Check same legal entity and driver for doc generation
+  const les = new Set(items.map(x => x.supplier_name || ""));
+  const drivers = new Set();
+  for (const it of items) {
+    let dName = "";
+    try { const v = JSON.parse(it.vehicle_json || "{}"); dName = v.driver_name || ""; } catch(_) {}
+    drivers.add(dName);
+  }
+
+  if (les.size > 1) {
+    _ozonBatchDocsAllowed = false;
+    _ozonBatchDocsReason = "Разные юр. лица";
+  } else if (drivers.size > 1) {
+    _ozonBatchDocsAllowed = false;
+    _ozonBatchDocsReason = "Разные водители";
+  } else {
+    _ozonBatchDocsAllowed = true;
+    _ozonBatchDocsReason = "";
+  }
 }
+
+let _ozonBatchDocsAllowed = false;
+let _ozonBatchDocsReason = "";
 
 function toggleOzonActionsMenu(e) {
   e.stopPropagation();
@@ -4611,9 +4625,89 @@ function toggleOzonActionsMenu(e) {
   const open = menu.style.display === "block";
   menu.style.display = open ? "none" : "block";
   if (!open) {
+    // Update doc buttons state
+    const poaBtn = document.getElementById("ozonActionPoaBtn");
+    const ttnBtn = document.getElementById("ozonActionTtnBtn");
+    if (poaBtn) {
+      poaBtn.disabled = !_ozonBatchDocsAllowed;
+      poaBtn.title = _ozonBatchDocsAllowed ? "" : _ozonBatchDocsReason;
+      poaBtn.style.opacity = _ozonBatchDocsAllowed ? "" : "0.4";
+      poaBtn.style.cursor = _ozonBatchDocsAllowed ? "" : "not-allowed";
+    }
+    if (ttnBtn) {
+      ttnBtn.disabled = !_ozonBatchDocsAllowed;
+      ttnBtn.title = _ozonBatchDocsAllowed ? "" : _ozonBatchDocsReason;
+      ttnBtn.style.opacity = _ozonBatchDocsAllowed ? "" : "0.4";
+      ttnBtn.style.cursor = _ozonBatchDocsAllowed ? "" : "not-allowed";
+    }
     const close = () => { menu.style.display = "none"; document.removeEventListener("click", close); };
     setTimeout(() => document.addEventListener("click", close), 0);
   }
+}
+
+async function ozonBatchSetProduction() {
+  document.getElementById("ozonActionsMenu").style.display = "none";
+  const ids = Array.from(_selectedOzonIds);
+  if (!ids.length) return;
+
+  // Build production options from existing cache
+  const prods = _supplyProductionsCache || [];
+  if (!prods.length) { alert("Нет доступных производств. Добавьте их в Настройки."); return; }
+
+  // Simple inline prompt via a small floating select
+  const existing = document.getElementById("_ozonBatchProdPopup");
+  if (existing) existing.remove();
+
+  const popup = document.createElement("div");
+  popup.id = "_ozonBatchProdPopup";
+  popup.style.cssText = "position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:9999;background:#fff;border:1px solid #e2e8f0;border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.18);padding:20px 24px;min-width:280px";
+  popup.innerHTML = `
+    <div style="font-weight:600;font-size:14px;margin-bottom:12px">Массовое изменение производства</div>
+    <div style="font-size:13px;color:#64748b;margin-bottom:10px">Выбрано поставок: <b>${ids.length}</b></div>
+    <select id="_ozonBatchProdSelect" style="width:100%;padding:6px 8px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;margin-bottom:14px">
+      <option value="">— Очистить производство —</option>
+      ${prods.map(p => `<option value="${esc(p.name)}">${esc(p.name)}</option>`).join("")}
+    </select>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="secondary" onclick="document.getElementById('_ozonBatchProdPopup').remove()">Отмена</button>
+      <button onclick="ozonBatchProdApply()" style="background:#2563eb;color:#fff;border:none;padding:7px 18px;border-radius:6px;cursor:pointer;font-size:13px">Применить</button>
+    </div>`;
+  document.body.appendChild(popup);
+}
+
+async function ozonBatchProdApply() {
+  const popup = document.getElementById("_ozonBatchProdPopup");
+  const sel = document.getElementById("_ozonBatchProdSelect");
+  if (!sel) return;
+  const production = sel.value;
+  popup?.remove();
+
+  const ids = Array.from(_selectedOzonIds);
+  let ok = 0, fail = 0;
+  for (const sid of ids) {
+    try {
+      const item = (ozonState.allItems || []).find(x => x.supply_order_id === sid) || {};
+      const resp = await fetch(`/api/ozon-supplies/${sid}/manual-fields`, {
+        method: "PATCH", credentials: "include",
+        headers: {"Content-Type": "application/json", ...jsonHeaders()},
+        body: JSON.stringify({
+          production,
+          notes: item.notes || "",
+          driver_name: item.driver_name || "",
+          pallets_count: item.pallets_count || ""
+        })
+      });
+      if (resp.ok) {
+        ok++;
+        const it = (ozonState.allItems || []).find(x => x.supply_order_id === sid);
+        if (it) it.production = production;
+        const ai = (ozonState.items || []).find(x => x.supply_order_id === sid);
+        if (ai) ai.production = production;
+      } else { fail++; }
+    } catch(_) { fail++; }
+  }
+  renderOzonTable();
+  if (fail) alert(`Готово. Обновлено: ${ok}, ошибок: ${fail}`);
 }
 
 async function ozonCombinedPoA() {
@@ -4673,6 +4767,8 @@ window.saveOzonManualFields = saveOzonManualFields;
 window.onOzonCheckboxChange = onOzonCheckboxChange;
 window.toggleSelectAllOzon = toggleSelectAllOzon;
 window.toggleOzonActionsMenu = toggleOzonActionsMenu;
+window.ozonBatchSetProduction = ozonBatchSetProduction;
+window.ozonBatchProdApply = ozonBatchProdApply;
 window.ozonCombinedPoA = ozonCombinedPoA;
 window.ozonCombinedTTN = ozonCombinedTTN;
 

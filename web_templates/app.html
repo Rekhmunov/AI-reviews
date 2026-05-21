@@ -1045,9 +1045,11 @@
               <button type="button" class="secondary" onclick="openOzonBindingModal()" style="white-space:nowrap">📎 Объединение привязки</button>
               <div class="supply-actions-wrap" style="position:relative;display:inline-block">
                 <button id="ozonActionsBtn" class="secondary" disabled onclick="toggleOzonActionsMenu(event)" style="white-space:nowrap">Действия ▾</button>
-                <div id="ozonActionsMenu" style="display:none;position:absolute;left:0;top:100%;z-index:200;background:#fff;border:1px solid #e2e8f0;border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.12);min-width:200px;padding:4px 0">
-                  <button class="supply-action-item" onclick="ozonCombinedPoA()">📄 Суммарная доверенность</button>
-                  <button class="supply-action-item" onclick="ozonCombinedTTN()">📄 Суммарная ТТН</button>
+                <div id="ozonActionsMenu" style="display:none;position:absolute;left:0;top:100%;z-index:200;background:#fff;border:1px solid #e2e8f0;border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.12);min-width:210px;padding:4px 0">
+                  <button class="supply-action-item" onclick="ozonBatchSetProduction()">🏭 Производство</button>
+                  <hr style="margin:4px 0;border:none;border-top:1px solid #e2e8f0">
+                  <button id="ozonActionPoaBtn" class="supply-action-item" onclick="ozonCombinedPoA()">📄 Суммарная доверенность</button>
+                  <button id="ozonActionTtnBtn" class="supply-action-item" onclick="ozonCombinedTTN()">📄 Суммарная ТТН</button>
                 </div>
               </div>
               <select id="ozonStatusFilter" onchange="loadOzonSupplies()" style="display:none">
