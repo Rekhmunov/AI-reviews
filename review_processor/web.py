@@ -5721,7 +5721,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         goods_rows = _data_rows
 
         # Use underscores for signature lines — LibreOffice renders these reliably
-        UL = "_" * 30  # underline substitute
+        UL = "_" * 15  # underline substitute
         sig_name = e(signatories) if signatories and signatories != "—" else ""
 
         html_content = f"""<!DOCTYPE html>
