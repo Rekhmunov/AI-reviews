@@ -4297,7 +4297,7 @@ function renderOzonTable() {
     return;
   }
   tbody.innerHTML = "";
-  rows.forEach((item, idx) => {
+  rows.forEach((item) => {
     const tr = document.createElement("tr");
     tr.className = "supply-row";
     tr.dataset.supplyId = String(item.supply_order_id);
@@ -4338,6 +4338,12 @@ function renderOzonTable() {
     goodsTr.innerHTML = `<td colspan="10"><div class="supply-goods-container" id="ozon-goods-${item.supply_order_id}"><span class="small" style="color:#94a3b8">Загрузка…</span></div></td>`;
     tbody.appendChild(goodsTr);
   });
+
+  // Restore checkbox state from _selectedOzonIds (filters must not clear selection)
+  document.querySelectorAll(".ozon-row-checkbox").forEach(cb => {
+    cb.checked = _selectedOzonIds.has(Number(cb.dataset.supplyId));
+  });
+  _updateOzonBatchUI();
 }
 
 async function toggleOzonGoods(btn, supplyId) {
@@ -4566,14 +4572,24 @@ async function saveOzonManualFields() {
 
 // ── Batch selection (same logic as WB) ────────────────────────────────────
 function onOzonCheckboxChange() {
-  _selectedOzonIds.clear();
-  document.querySelectorAll(".ozon-row-checkbox:checked").forEach(cb => _selectedOzonIds.add(Number(cb.dataset.supplyId)));
+  // Sync all visible checkboxes to _selectedOzonIds (without clearing hidden-page selections)
+  document.querySelectorAll(".ozon-row-checkbox").forEach(cb => {
+    const id = Number(cb.dataset.supplyId);
+    if (cb.checked) _selectedOzonIds.add(id);
+    else _selectedOzonIds.delete(id);
+  });
   _updateOzonBatchUI();
 }
 
 function toggleSelectAllOzon(checked) {
-  document.querySelectorAll(".ozon-row-checkbox").forEach(cb => { cb.checked = checked; });
-  onOzonCheckboxChange();
+  document.querySelectorAll(".ozon-row-checkbox").forEach(cb => {
+    cb.checked = checked;
+    const id = Number(cb.dataset.supplyId);
+    if (checked) _selectedOzonIds.add(id);
+    else _selectedOzonIds.delete(id);
+  });
+  if (!checked) _selectedOzonIds.clear(); // full clear when deselecting all
+  _updateOzonBatchUI();
 }
 
 let _ozonBatchDocsAllowed = false;
@@ -4694,7 +4710,7 @@ async function ozonBatchProdApply() {
       } else { fail++; }
     } catch(_) { fail++; }
   }
-  renderOzonTable();
+  renderOzonTable(); // restores checkboxes from _selectedOzonIds automatically
   if (fail) alert(`Готово. Обновлено: ${ok}, ошибок: ${fail}`);
 }
 
