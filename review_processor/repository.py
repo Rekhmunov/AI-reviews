@@ -7169,7 +7169,12 @@ class ReviewRepository:
             row = conn.execute(
                 self._sql("SELECT n FROM ttn_counter WHERE date = ?"), (today,)
             ).fetchone()
-        return int(row[0]) if row else 1
+        if not row:
+            return 1
+        try:
+            return int(row["n"])
+        except (KeyError, TypeError):
+            return int(row[0]) if hasattr(row, "__getitem__") else 1
 
     def get_legal_entity_map(self, *, user_id: int) -> dict[str, str]:
         """Return {short_name: full_name} for lookups."""
