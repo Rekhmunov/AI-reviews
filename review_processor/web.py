@@ -6194,13 +6194,15 @@ tr {{ page-break-inside: avoid; }}
         if not _can_view_supplies(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
         owner_id = _supply_owner_id(user)
-        # Build name map from our product catalog (offer_id = supplier_article)
-        name_map = repository.get_product_name_by_article(user_id=owner_id)
+        # Build name map from our product catalog — OZON: by SKU first
+        name_map = repository.get_product_name_by_ozon_sku(user_id=owner_id)
+        name_map_art = repository.get_product_name_by_article(user_id=owner_id)
         cached = repository.get_ozon_supply_goods(user_id=owner_id, supply_order_id=supply_order_id)
         if cached:
             for g in cached:
+                sku_key = str(g.get("sku") or "").strip()
                 offer_id = str(g.get("offer_id") or "").strip()
-                g["product_name"] = name_map.get(offer_id) or offer_id or g.get("name") or ""
+                g["product_name"] = name_map.get(sku_key) or name_map_art.get(offer_id) or offer_id or g.get("name") or ""
             return cached
         # Lazy-load from OZON API
         import urllib.request as _ul, json as _jj, ssl as _sl
@@ -6263,10 +6265,11 @@ tr {{ page-break-inside: avoid; }}
             {"sku": g.get("sku"), "name": g.get("name"), "quantity": g.get("quantity"),
              "barcode": g.get("barcode"), "offer_id": g.get("offer_id")} for g in goods
         ]
-        # Apply product name from our catalog (offer_id = supplier_article)
+        # Apply product name — OZON: SKU first, fallback to offer_id
         for g in result:
+            sku_key = str(g.get("sku") or "").strip()
             offer_id = str(g.get("offer_id") or "").strip()
-            g["product_name"] = name_map.get(offer_id) or offer_id or g.get("name") or ""
+            g["product_name"] = name_map.get(sku_key) or name_map_art.get(offer_id) or offer_id or g.get("name") or ""
         # Recalculate total_quantity from what we have and update DB
         if result:
             total_qty = sum(int(g.get("quantity") or 0) for g in result)
