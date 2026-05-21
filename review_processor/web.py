@@ -6859,7 +6859,7 @@ tr {{ page-break-inside: avoid; }}
             ("{{ORG_FULL}}",        org_line),
             ("{{SUPPLIER}}",        org_line),
             ("{{PAYER}}",           org_line),
-            ("{{ORDER_DATE}}",      f"Поставка №{supply_num}"),
+            ("{{ORDER_DATE}}",      supply_num),
             ("{{DOC_NUM_VAL}}",     supply_num),
             ("{{DOC_DATE_VAL}}",    supply_date_disp),
             ("{{GOODS_NAME}}",      rows_data[0]["name"] if rows_data else "Товар"),
@@ -6898,11 +6898,11 @@ tr {{ page-break-inside: avoid; }}
         with _zf.ZipFile(buf, "w", _zf.ZIP_DEFLATED) as zout:
             for name, fdata in all_files.items():
                 zout.writestr(name, fdata)
-        return buf.getvalue(), supply_num
+        wh_name = str(item.get("warehouse_name") or "")
+        return buf.getvalue(), supply_num, supplier_short, supply_date_disp, wh_name
 
     @app.get("/api/ozon-supplies/{supply_order_id}/ttn.docx")
     def get_ozon_ttn_docx(request: Request, supply_order_id: int) -> "Response":
-        import io as _io, zipfile as _zf
         from fastapi.responses import Response
         from urllib.parse import quote as _qp
         user = _require_user(request)
@@ -6911,8 +6911,8 @@ tr {{ page-break-inside: avoid; }}
         result = _build_ozon_ttn_docx(request, supply_order_id, _supply_owner_id(user))
         if result is None:
             raise HTTPException(status_code=404, detail="Поставка не найдена")
-        docx_bytes, supply_num = result
-        fname = f"ТТН_OZON_{supply_num}.docx"
+        docx_bytes, supply_num, supplier_short, supply_date_disp, wh_name = result
+        fname = f"ТТН №{supply_num}, {supplier_short} от {supply_date_disp}, {wh_name}.docx"
         return Response(content=docx_bytes,
                         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{_qp(fname)}"})
@@ -6929,7 +6929,7 @@ tr {{ page-break-inside: avoid; }}
         result = _build_ozon_ttn_docx(request, supply_order_id, _supply_owner_id(user))
         if result is None:
             raise HTTPException(status_code=404, detail="Поставка не найдена")
-        docx_bytes, supply_num = result
+        docx_bytes, supply_num, supplier_short, supply_date_disp, wh_name = result
         tmp_dir   = _tf.mkdtemp()
         docx_path = _pl.Path(tmp_dir) / f"ozon_ttn_{supply_order_id}.docx"
         pdf_path  = _pl.Path(tmp_dir) / f"ozon_ttn_{supply_order_id}.pdf"
@@ -6941,7 +6941,7 @@ tr {{ page-break-inside: avoid; }}
                 capture_output=True, env=env, timeout=60)
         if not pdf_path.exists():
             raise HTTPException(status_code=500, detail="LibreOffice не смог сгенерировать PDF")
-        fname = f"ТТН_OZON_{supply_num}.pdf"
+        fname = f"ТТН №{supply_num}, {supplier_short} от {supply_date_disp}, {wh_name}.pdf"
         return Response(content=pdf_path.read_bytes(), media_type="application/pdf",
                         headers={"Content-Disposition": f"inline; filename*=UTF-8''{_qp(fname)}"})
 
