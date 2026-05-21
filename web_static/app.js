@@ -4632,7 +4632,8 @@ function _updateOzonBatchUI() {
   for (const it of items) {
     let dName = "";
     try { const v = JSON.parse(it.vehicle_json || "{}"); dName = v.driver_name || ""; } catch(_) {}
-    drivers.add(dName);
+    // No cached driver → treat as unique per supply (conservative)
+    drivers.add(dName || `__unknown_${it.supply_order_id}`);
   }
 
   if (les.size > 1) {
@@ -4779,6 +4780,7 @@ async function ozonCombinedPoA() {
 }
 
 async function ozonCombinedPoAPrint() {
+  if (!_ozonBatchDocsAllowed) { alert(_ozonBatchDocsReason || "Недопустимо для выбранных поставок"); return; }
   document.getElementById("ozonActionsMenu")?.classList.add("hidden");
   const ids = Array.from(_selectedOzonIds);
   try {
@@ -4796,6 +4798,7 @@ async function ozonCombinedPoAPrint() {
 }
 
 async function ozonCombinedTTNPrint() {
+  if (!_ozonBatchDocsAllowed) { alert(_ozonBatchDocsReason || "Недопустимо для выбранных поставок"); return; }
   document.getElementById("ozonActionsMenu")?.classList.add("hidden");
   const ids = Array.from(_selectedOzonIds);
   try {
