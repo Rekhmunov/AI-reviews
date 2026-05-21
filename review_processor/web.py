@@ -6712,7 +6712,7 @@ tr {{ page-break-inside: avoid; }}
 
         now = _dtt.now()
         date_display = now.strftime("%d.%m.%Y")
-        seq = repository.get_next_ttn_number()
+        seq = repository.next_ttn_number()
         doc_num = f"{now.strftime('%d%m%Y')}_{seq}"
 
         # Collect and merge goods across all supplies
@@ -6770,7 +6770,7 @@ tr {{ page-break-inside: avoid; }}
         if not supply_ids: raise HTTPException(status_code=400, detail="supply_ids required")
 
         now = _dtt.now()
-        seq = repository.get_next_ttn_number()
+        seq = repository.next_ttn_number()
         doc_num = f"{now.strftime('%d%m%Y')}_{seq}"
         supply_date_disp = now.strftime("%d.%m.%Y")
 
