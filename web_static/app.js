@@ -4703,7 +4703,9 @@ async function ozonBatchProdApply() {
   const production = sel.value;
   popup?.remove();
 
-  const ids = Array.from(_selectedOzonIds);
+  // Snapshot selection BEFORE any async operations
+  const savedIds = new Set(_selectedOzonIds);
+  const ids = Array.from(savedIds);
   let ok = 0, fail = 0;
   for (const sid of ids) {
     try {
@@ -4727,7 +4729,16 @@ async function ozonBatchProdApply() {
       } else { fail++; }
     } catch(_) { fail++; }
   }
-  renderOzonTable(); // restores checkboxes from _selectedOzonIds automatically
+
+  // Restore selection explicitly — async ops may have caused _selectedOzonIds to drift
+  _selectedOzonIds = savedIds;
+  renderOzonTable();
+  // Explicitly re-check boxes in case renderOzonTable missed some
+  document.querySelectorAll(".ozon-row-checkbox").forEach(cb => {
+    cb.checked = _selectedOzonIds.has(Number(cb.dataset.supplyId));
+  });
+  _updateOzonBatchUI();
+
   if (fail) alert(`Готово. Обновлено: ${ok}, ошибок: ${fail}`);
 }
 
