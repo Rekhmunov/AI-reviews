@@ -5708,14 +5708,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             goods_list = [{"product_name": "Текстильные товары", "quantity": pallets_raw}]
 
         e = _hm.escape
-        _p_c = 'style="border:1px solid black;padding:0 2pt;font-size:9pt;text-align:center;white-space:nowrap;line-height:1em;vertical-align:middle;height:1pt"'
-        _p_l = 'style="border:1px solid black;padding:0 2pt;font-size:9pt;text-align:left;line-height:1em;vertical-align:middle;height:1pt"'
         _data_rows = "".join(
-            f'<tr height="1">'
-            f'<td {_p_c}>{i+1}</td>'
-            f'<td {_p_l}>{e(g.get("product_name") or "Товар")}</td>'
-            f'<td {_p_c}>шт.</td>'
-            f'<td {_p_c}>{g.get("quantity") or "—"}</td>'
+            f'<tr>'
+            f'<td style="border:1px solid black;padding:0 2pt;text-align:center;white-space:nowrap;line-height:1.1">{i+1}</td>'
+            f'<td class="mat-name" style="border:1px solid black;padding:0 2pt;text-align:left;white-space:normal;line-height:1.1">{e(g.get("product_name") or "Товар")}</td>'
+            f'<td style="border:1px solid black;padding:0 2pt;text-align:center;white-space:nowrap;line-height:1.1">шт.</td>'
+            f'<td style="border:1px solid black;padding:0 2pt;text-align:center;white-space:nowrap;line-height:1.1">{g.get("quantity") or "—"}</td>'
             f'</tr>'
             for i, g in enumerate(goods_list)
         )
@@ -5726,75 +5724,96 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         UL = "_" * 30  # underline substitute
         sig_name = e(signatories) if signatories and signatories != "—" else ""
 
-        _F  = "font-family:'Times New Roman',serif;font-size:11pt"
-        _F8 = "font-family:'Times New Roman',serif;font-size:8pt"
-        _TD = f'style="padding:0 0 0 0;border:none;{_F};line-height:1.2em"'
-        _TD8c = f'style="padding:0 0 0 0;border:none;{_F8};line-height:1.1em;text-align:center"'
-        _TD8 = f'style="padding:0 0 0 0;border:none;{_F8};line-height:1.1em"'
-        _p = f'style="margin:0;padding:0;line-height:1.2em;{_F}"'
-        html_content = f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+        html_content = f"""<!DOCTYPE html>
+<html xmlns:o="urn:schemas-microsoft-com:office:office"
+      xmlns:w="urn:schemas-microsoft-com:office:word"
+      xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="utf-8">
 <style>
-@page {{ size: 210mm 297mm; margin: 15mm 10mm 15mm 25mm; }}
-body {{ font-family: "Times New Roman", serif; font-size: 11pt; margin: 0; padding: 0; }}
+  @page {{ size: 210mm 297mm; margin: 15mm 10mm 15mm 25mm; }}
+  @page Section1 {{
+    size: 210.0mm 297.0mm;
+    margin: 15.0mm 10.0mm 15.0mm 25.0mm;
+    mso-header-margin: 0mm;
+    mso-footer-margin: 0mm;
+    mso-paper-source: 0;
+  }}
+  div.Section1 {{ page: Section1; }}
+  body {{ font-family: "Times New Roman", serif; font-size: 9pt; line-height: 1.05; }}
+  .small {{ font-size: 7pt; text-align: center; }}
+  .underline {{ text-decoration: underline; }}
+  .bold {{ font-weight: bold; }}
+  table.outer {{ width: 100%; border-collapse: collapse; margin-bottom: 4pt; }}
+  table.codes {{ border-collapse: collapse; margin-left: auto; font-size: 8pt; border: 1px solid #000; }}
+  table.codes td {{ border: 1px solid #000; padding: 1pt 4pt; }}
+  table.mat {{ width: 100%; border-collapse: collapse; margin-top: 2pt; font-size: 9pt; border: 1px solid #000; }}
+  table.mat td, table.mat th {{ border: 1px solid #000; padding: 0 2pt; line-height: 1.1; }}
+  table.mat td.mat-name, table.mat th.mat-name {{ text-align: left; white-space: normal; }}
+  table.mat td, table.mat th {{ text-align: center; white-space: nowrap; }}
+  .dotline {{ display: inline-block; border-bottom: 1px solid #000; min-width: 120pt; }}
+  p {{ margin: 0; padding: 0; }}
+  p {{ margin: 2pt 0; }}
 </style>
 </head>
-<body>
-<table width="100%" cellspacing="0" cellpadding="0"><tr>
-  <td width="55%" valign="top" style="padding:0;border:none;{_F}">Организация <u>{e(org_full)}</u></td>
-  <td width="45%" valign="top" align="right" style="padding:0;border:none;{_F8}">
-    Типовая межотраслевая форма № М-2<br>Утверждена постановлением Госстата России от 30.10.97 № 71а
-    <table border="1" cellspacing="0" cellpadding="2" align="right" style="font-size:8pt;margin-top:2pt">
-      <tr><td colspan="2" align="center"><b>Коды</b></td></tr>
-      <tr><td>Форма по ОКУД</td><td>0315001</td></tr>
-      <tr><td>по ОКПО</td><td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td></tr>
-    </table>
-  </td>
-</tr></table>
-<table width="100%" cellspacing="0" cellpadding="0">
-<tr><td {_TD} align="center" style="padding:2pt 0;border:none;{_F};font-size:13pt;font-weight:bold;text-align:center"><b>Доверенность № {e(supply_id_str)}</b></td></tr>
-<tr><td {_TD}>Дата выдачи <b><u>{e(date_display)}</u></b></td></tr>
-<tr><td {_TD}>Доверенность действительна 14 дней с даты подписания.</td></tr>
-<tr><td {_TD}><u>{e(org_line)}</u></td></tr>
-<tr><td {_TD8c}>(наименование потребителя и его адрес)</td></tr>
-<tr><td {_TD}><u>{e(org_line)}</u></td></tr>
-<tr><td {_TD8c}>(наименование плательщика и его адрес)</td></tr>
-<tr><td {_TD}>Доверенность выдана &nbsp; <u>водителю</u> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <u>{e(driver_name)}</u></td></tr>
-<tr><td {_TD8}>(должность) &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (фамилия, имя, отчество)</td></tr>
-{f'<tr><td {_TD}>{e(driver_docs)}</td></tr>' if driver_docs else ""}
-<tr><td {_TD}>На отправку груза от &nbsp;&nbsp; <u>&nbsp;{e(supplier_short)}&nbsp;</u></td></tr>
-<tr><td {_TD8c}>(наименование поставщика)</td></tr>
-<tr><td {_TD}>материальных ценностей по транспортной накладной &nbsp; <b><u>{e(supply_id_str)}</u></b> &nbsp; от &nbsp; <b><u>{e(date_display)}</u></b></td></tr>
-<tr><td {_TD8c}>(наименование, номер и дата документа)</td></tr>
-<tr><td {_TD}>Перечень материальных ценностей, подлежащих доставке</td></tr>
+<body><div class="Section1">
+
+<table class="outer">
+  <tr>
+    <td style="width:55%;vertical-align:top">{e(org_full)}</td>
+    <td style="width:45%;vertical-align:top;text-align:right;font-size:8pt">
+      Типовая межотраслевая форма № М-2<br>
+      Утверждена постановлением Госстата России от 30.10.97 № 71а<br>
+      <table class="codes" border="1" cellspacing="0">
+        <tr><td colspan="2" align="center"><b>Коды</b></td></tr>
+        <tr><td>Форма по ОКУД</td><td>0315001</td></tr>
+        <tr><td>по ОКПО</td><td>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td></tr>
+      </table>
+    </td>
+  </tr>
 </table>
-<table border="1" cellspacing="0" cellpadding="0" width="100%" style="border-collapse:collapse;margin:0;table-layout:fixed;font-size:9pt">
+
+<p align="center" style="font-size:12pt;font-weight:bold;text-align:center"><b>Доверенность № {e(supply_id_str)}</b></p>
+<p>Дата выдачи <b><u>{e(date_display)}</u></b></p>
+<p>Доверенность действительна 14 дней с даты подписания.</p>
+<p><span class="underline">{e(org_line)}</span></p>
+<p class="small">(наименование потребителя и его адрес)</p>
+<p><span class="underline">{e(org_line)}</span></p>
+<p class="small">(наименование плательщика и его адрес)</p>
+<p>Доверенность выдана &nbsp; <u>водителю</u> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <u>{e(driver_name)}</u></p>
+<p class="small">(должность) &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (фамилия, имя, отчество)</p>
+{f"<p>{e(driver_docs)}</p>" if driver_docs else ""}
+<p>На отправку груза от &nbsp;&nbsp; <u>&nbsp;{e(supplier_short)}&nbsp;</u></p>
+<p class="small">(наименование поставщика)</p>
+<p>материальных ценностей по транспортной накладной &nbsp; <b><u>{e(supply_id_str)}</u></b> &nbsp; от &nbsp; <b><u>{e(date_display)}</u></b></p>
+<p class="small">(наименование, номер и дата документа)</p>
+<p>Перечень материальных ценностей, подлежащих доставке</p>
+<table class="mat" border="1" cellspacing="0" cellpadding="0">
   <colgroup><col style="width:8%"><col style="width:72%"><col style="width:10%"><col style="width:10%"></colgroup>
-  <tr height="1">
-    <th style="padding:0 2pt;border:1px solid black;font-size:8pt;font-weight:bold;white-space:nowrap;line-height:1em" align="center">№ по порядку</th>
-    <th style="padding:0 2pt;border:1px solid black;font-size:8pt;font-weight:bold;line-height:1em" align="left">Материальные ценности</th>
-    <th style="padding:0 2pt;border:1px solid black;font-size:8pt;font-weight:bold;white-space:nowrap;line-height:1em" align="center">Ед. изм.</th>
-    <th style="padding:0 2pt;border:1px solid black;font-size:8pt;font-weight:bold;white-space:nowrap;line-height:1em" align="center">Кол-во</th>
+  <tr>
+    <th>№ по порядку</th>
+    <th class="mat-name">Материальные ценности</th>
+    <th>Ед. изм.</th>
+    <th>Кол-во</th>
   </tr>
   {goods_rows}
 </table>
 
-<p {_p} style="margin-top:4pt">Подпись лица, получившего доверенность удостоверяем. &nbsp;&nbsp;&nbsp;&nbsp; {UL} &nbsp;&nbsp; ({e(driver_name)})</p>
+<p style="margin-top:4pt">Подпись лица, получившего доверенность удостоверяем. &nbsp;&nbsp;&nbsp;&nbsp; {UL} &nbsp;&nbsp; ({e(driver_name)})</p>
 <table width="100%" cellspacing="0" cellpadding="2" style="margin-top:4pt">
   <tr>
-    <td width="25%" valign="bottom" style="font-size:11pt">Руководитель<br><small>М.П.</small></td>
-    <td width="30%" valign="bottom" align="center" style="font-size:11pt">{UL}<br><small>подпись</small></td>
-    <td width="45%" valign="bottom" align="center" style="font-size:11pt">{sig_name}<br><small>расшифровка подписи</small></td>
+    <td width="25%" valign="bottom">Руководитель<br><small>М.П.</small></td>
+    <td width="30%" valign="bottom" align="center">{UL}<br><small>подпись</small></td>
+    <td width="45%" valign="bottom" align="center">{sig_name}<br><small>расшифровка подписи</small></td>
   </tr>
 </table>
-
 <table width="100%" cellspacing="0" cellpadding="2" style="margin-top:3pt">
   <tr>
-    <td width="25%" valign="bottom" style="font-size:11pt">Главный бухгалтер</td>
-    <td width="30%" valign="bottom" align="center" style="font-size:11pt">{UL}<br><small>подпись</small></td>
-    <td width="45%" valign="bottom" align="center" style="font-size:11pt">{sig_name}<br><small>расшифровка подписи</small></td>
+    <td width="25%" valign="bottom">Главный бухгалтер</td>
+    <td width="30%" valign="bottom" align="center">{UL}<br><small>подпись</small></td>
+    <td width="45%" valign="bottom" align="center">{sig_name}<br><small>расшифровка подписи</small></td>
   </tr>
 </table>
-</body></html>"""
+</div></body></html>"""
 
         tmp_dir   = _tf.mkdtemp()
         html_path = _pl.Path(tmp_dir) / f"poa_{supply_id}.html"
