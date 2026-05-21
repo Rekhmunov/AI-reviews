@@ -4264,14 +4264,30 @@ async function loadOzonSupplies(resetPage = false) {
   if (dateTo) items = items.filter(x => (x.supply_date || "").slice(0,10) <= dateTo);
   ozonState.allItems = items;   // full filtered set
   ozonState.total = items.length;
+  ozonState._filteredTotal = undefined;
   _populateOzonProductionFilter();
   _applyOzonPage();
   _updateOzonBatchUI();
 }
 
+function _ozonSearchMatch(x, sq) {
+  if (!sq) return true;
+  const wh = (x.warehouse_name || "").toLowerCase();
+  const transit = (x.transit_warehouse_name || "").toLowerCase();
+  const num = (x.supply_order_number || "").toLowerCase();
+  const isMoscow = x.supply_order_id && OZON_MOSCOW_WH_IDS.has(Number(x.warehouse_id));
+  const moscowTag = isMoscow ? "москва" : "";
+  return num.includes(sq) || wh.includes(sq) || transit.includes(sq) || moscowTag.includes(sq);
+}
+
 function _applyOzonPage() {
+  const sq = (document.getElementById("ozonSearchFilter")?.value || "").toLowerCase().trim();
+  const filtered = sq
+    ? (ozonState.allItems || []).filter(x => _ozonSearchMatch(x, sq))
+    : (ozonState.allItems || []);
   const start = (ozonState.page - 1) * ozonState.page_size;
-  ozonState.items = (ozonState.allItems || []).slice(start, start + ozonState.page_size);
+  ozonState.items = filtered.slice(start, start + ozonState.page_size);
+  ozonState._filteredTotal = filtered.length;
   renderOzonTable();
   _updateOzonPagination();
 }
@@ -4288,9 +4304,7 @@ function _populateOzonProductionFilter() {
 function renderOzonTable() {
   const tbody = document.getElementById("ozonSuppliesTbody");
   if (!tbody) return;
-  const sq = (document.getElementById("ozonSearchFilter")?.value || "").toLowerCase();
   let rows = ozonState.items;
-  if (sq) rows = rows.filter(x => (x.supply_order_number||"").toLowerCase().includes(sq) || (x.warehouse_name||"").toLowerCase().includes(sq));
 
   if (!rows.length) {
     tbody.innerHTML = '<tr><td colspan="9" class="empty-cell">Поставки не найдены</td></tr>';
@@ -4381,7 +4395,7 @@ async function toggleOzonGoods(btn, supplyId) {
 }
 
 function _updateOzonPagination() {
-  const total = ozonState.total;
+  const total = ozonState._filteredTotal !== undefined ? ozonState._filteredTotal : ozonState.total;
   const totalPages = Math.max(1, Math.ceil(total / ozonState.page_size));
   const info = document.getElementById("ozonPageInfo");
   if (info) info.textContent = `${ozonState.page} / ${totalPages}`;

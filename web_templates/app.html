@@ -1075,7 +1075,7 @@
                 <option value="">Все производства</option>
               </select>
               <input id="ozonSearchFilter" type="search" placeholder="🔍 Поиск..."
-                     autocomplete="off" style="width:140px" oninput="renderOzonTable()" />
+                     autocomplete="off" style="width:140px" oninput="ozonState.page=1;ozonState._filteredTotal=undefined;_applyOzonPage()" />
               <div class="supplies-date-wrap" style="position:relative">
               <button id="ozonDateBtn" type="button" class="secondary" onclick="toggleOzonDatePanel()" style="padding:0 10px;height:34px" title="Фильтр по дате">📅</button>
               <input type="hidden" id="ozonDateFrom" />
