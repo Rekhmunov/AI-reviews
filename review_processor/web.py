@@ -6720,7 +6720,10 @@ tr {{ page-break-inside: avoid; }}
         name_map = repository.get_product_name_by_article(user_id=owner_id)
 
         for sid in supply_ids:
-            data = _ozon_get_doc_data(owner_id, sid)
+            try:
+                data = _ozon_get_doc_data(owner_id, sid)
+            except Exception:
+                data = {}
             if not data: continue
             if not le:
                 le = data.get("le") or {}
@@ -6779,7 +6782,10 @@ tr {{ page-break-inside: avoid; }}
         wh_name = ""
 
         for sid in supply_ids:
-            data = _ozon_get_doc_data(owner_id, sid)
+            try:
+                data = _ozon_get_doc_data(owner_id, sid)
+            except Exception:
+                data = {}
             if not data: continue
             if not le:
                 le = data.get("le") or {}

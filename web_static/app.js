@@ -4633,20 +4633,25 @@ function toggleOzonActionsMenu(e) {
   const menu = document.getElementById("ozonActionsMenu");
   if (!menu) return;
   const isHidden = menu.classList.contains("hidden");
-  menu.classList.toggle("hidden", !isHidden);
-  if (isHidden) {
-    // Update doc buttons state
-    for (const id of ["ozonActionPoaBtn", "ozonActionTtnBtn"]) {
-      const b = document.getElementById(id);
-      if (!b) continue;
-      b.disabled = !_ozonBatchDocsAllowed;
-      b.title = _ozonBatchDocsAllowed ? "" : _ozonBatchDocsReason;
-      b.style.opacity = _ozonBatchDocsAllowed ? "" : "0.45";
-      b.style.cursor = _ozonBatchDocsAllowed ? "" : "not-allowed";
-    }
-    const close = () => { menu.classList.add("hidden"); document.removeEventListener("click", close); };
-    setTimeout(() => document.addEventListener("click", close), 0);
+  if (!isHidden) { menu.classList.add("hidden"); return; }
+
+  // Opening — update doc buttons state
+  for (const id of ["ozonActionPoaBtn", "ozonActionTtnBtn"]) {
+    const b = document.getElementById(id);
+    if (!b) continue;
+    b.disabled = !_ozonBatchDocsAllowed;
+    b.title = _ozonBatchDocsAllowed ? "" : _ozonBatchDocsReason;
+    b.style.opacity = _ozonBatchDocsAllowed ? "" : "0.45";
+    b.style.cursor = _ozonBatchDocsAllowed ? "" : "not-allowed";
   }
+  menu.classList.remove("hidden");
+
+  // Close on outside click — use once:true to auto-remove
+  const closeMenu = (ev) => {
+    if (menu.contains(ev.target)) return; // click inside menu — don't close
+    menu.classList.add("hidden");
+  };
+  setTimeout(() => document.addEventListener("click", closeMenu, {once: true}), 0);
 }
 
 async function ozonBatchSetProduction() {
@@ -4674,7 +4679,7 @@ async function ozonBatchSetProduction() {
     </select>
     <div style="display:flex;gap:8px;justify-content:flex-end">
       <button class="secondary" onclick="document.getElementById('_ozonBatchProdPopup').remove()">Отмена</button>
-      <button onclick="ozonBatchProdApply()" style="background:#2563eb;color:#fff;border:none;padding:7px 18px;border-radius:6px;cursor:pointer;font-size:13px">Применить</button>
+      <button onclick="event.stopPropagation();ozonBatchProdApply()" style="background:#2563eb;color:#fff;border:none;padding:7px 18px;border-radius:6px;cursor:pointer;font-size:13px">Применить</button>
     </div>`;
   document.body.appendChild(popup);
 }
