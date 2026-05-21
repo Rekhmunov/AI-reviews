@@ -6691,6 +6691,216 @@ tr {{ page-break-inside: avoid; }}
 
 </div></body></html>"""
 
+    class OzonCombinedRequest(BaseModel):
+        supply_ids: list[int]
+
+    @app.post("/api/ozon-supplies/combined-poa.doc")
+    def get_ozon_combined_poa(request: Request, body: OzonCombinedRequest) -> "Response":
+        """Generate combined PoA for multiple OZON supplies (same LE, same driver)."""
+        import html as _hm
+        from fastapi.responses import Response
+        from urllib.parse import quote as _qp
+        from datetime import datetime as _dtt
+
+        user = _require_user(request)
+        if not _can_view_supplies(user): raise HTTPException(status_code=403)
+        owner_id = _supply_owner_id(user)
+        e = _hm.escape
+
+        now = _dtt.now()
+        date_display = now.strftime("%d.%m.%Y")
+        seq = repository.get_next_ttn_number()
+        doc_num = f"{now.strftime('%d%m%Y')}_{seq}"
+
+        # Collect and merge goods across all supplies
+        all_goods: dict[str, dict] = {}
+        le = {}
+        driver_name = ""
+        supplier_short = ""
+        name_map = repository.get_product_name_by_article(user_id=owner_id)
+
+        for sid in body.supply_ids:
+            data = _ozon_get_doc_data(owner_id, sid)
+            if not data: continue
+            if not le:
+                le = data.get("le") or {}
+                supplier_short = str(le.get("short_name") or "")
+            if not driver_name:
+                driver_name = data.get("driver_name") or ""
+            for g in (data.get("goods") or []):
+                oid = str(g.get("offer_id") or "")
+                qty = int(g.get("quantity") or 0)
+                nm = name_map.get(oid) or oid or str(g.get("name") or "Товар")
+                if oid in all_goods:
+                    all_goods[oid]["quantity"] += qty
+                else:
+                    all_goods[oid] = {"offer_id": oid, "name": nm, "quantity": qty}
+
+        goods = list(all_goods.values())
+        supply_nums = ", ".join(str(sid) for sid in body.supply_ids)
+
+        data_combined = {
+            "item": {"supply_order_number": doc_num, "warehouse_name": supplier_short},
+            "owner_id": owner_id, "driver_name": driver_name, "driver_docs": "",
+            "le": le, "goods": goods, "price_map": {}, "name_map": name_map,
+        }
+        html_content = "\uFEFF" + _build_ozon_poa_html(data_combined, include_signature=False)
+        fname = f"Доверенность суммарная {doc_num}, {supplier_short}.doc"
+        return Response(content=html_content.encode("utf-8"), media_type="application/msword",
+                        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{_qp(fname)}"})
+
+    @app.post("/api/ozon-supplies/combined-ttn.docx")
+    def get_ozon_combined_ttn(request: Request, body: OzonCombinedRequest) -> "Response":
+        """Generate combined TTN DOCX for multiple OZON supplies."""
+        import zipfile as _zf, io as _io, re as _re, html as _html_esc
+        from fastapi.responses import Response
+        from urllib.parse import quote as _qp
+        from datetime import datetime as _dtt
+
+        user = _require_user(request)
+        if not _can_view_supplies(user): raise HTTPException(status_code=403)
+        owner_id = _supply_owner_id(user)
+
+        now = _dtt.now()
+        seq = repository.get_next_ttn_number()
+        doc_num = f"{now.strftime('%d%m%Y')}_{seq}"
+        supply_date_disp = now.strftime("%d.%m.%Y")
+
+        # Collect data
+        all_goods: dict[str, dict] = {}
+        price_map: dict[str, float] = {}
+        le = {}
+        supplier_short = ""
+        driver_name = ""
+        name_map = repository.get_product_name_by_article(user_id=owner_id)
+        wh_name = ""
+
+        for sid in body.supply_ids:
+            data = _ozon_get_doc_data(owner_id, sid)
+            if not data: continue
+            if not le:
+                le = data.get("le") or {}
+                supplier_short = str(le.get("short_name") or "")
+                wh_name = str((data.get("item") or {}).get("warehouse_name") or "")
+            if not driver_name:
+                driver_name = data.get("driver_name") or ""
+            price_map.update(data.get("price_map") or {})
+            for g in (data.get("goods") or []):
+                oid = str(g.get("offer_id") or "")
+                qty = int(g.get("quantity") or 0)
+                nm = name_map.get(oid) or oid or str(g.get("name") or "Товар")
+                if oid in all_goods:
+                    all_goods[oid]["quantity"] += qty
+                else:
+                    all_goods[oid] = {"offer_id": oid, "name": nm, "quantity": qty}
+
+        goods = list(all_goods.values())
+        org_full = str(le.get("full_name") or supplier_short)
+        org_req = str(le.get("requisites") or "")
+        org_line = ", ".join(filter(None, [org_full, org_req]))
+        signatories = str(le.get("signatories") or supplier_short or "—")
+        VAT_RATE = 0.22
+
+        def _rubles_in_words(n: int) -> str:
+            ones_m=["","один","два","три","четыре","пять","шесть","семь","восемь","девять"]
+            ones_f=["","одна","две","три","четыре","пять","шесть","семь","восемь","девять"]
+            teens=["десять","одиннадцать","двенадцать","тринадцать","четырнадцать","пятнадцать","шестнадцать","семнадцать","восемнадцать","девятнадцать"]
+            tens=["","","двадцать","тридцать","сорок","пятьдесят","шестьдесят","семьдесят","восемьдесят","девяносто"]
+            hunds=["","сто","двести","триста","четыреста","пятьсот","шестьсот","семьсот","восемьсот","девятьсот"]
+            def chunk(x,fem):
+                r,w=x%100,[]
+                h=x//100
+                if h: w.append(hunds[h])
+                if 10<=r<=19: w.append(teens[r-10])
+                else:
+                    if r//10: w.append(tens[r//10])
+                    d=r%10
+                    if d: w.append((ones_f if fem else ones_m)[d])
+                return w
+            if n==0: return "ноль рублей 00 копеек"
+            w=[]
+            bn,mn,th,ru=n//1000000000,(n//1000000)%1000,(n//1000)%1000,n%1000
+            def suf(x,forms): return forms[1 if x%10==1 and x%100!=11 else 2 if x%10 in(2,3,4) and x%100 not in range(12,15) else 3]
+            if bn: w.extend(chunk(bn,False)); w.append(suf(bn,["","миллиард","миллиарда","миллиардов"]))
+            if mn: w.extend(chunk(mn,False)); w.append(suf(mn,["","миллион","миллиона","миллионов"]))
+            if th: w.extend(chunk(th,True)); w.append(suf(th,["","тысяча","тысячи","тысяч"]))
+            if ru: w.extend(chunk(ru,False))
+            w.append(suf(ru,["рублей","рубль","рубля","рублей"]))
+            w.append("00 копеек")
+            return " ".join(w)
+
+        rows_data = []
+        total_qty = total_excl = total_vat = total_incl = 0
+        for i, g in enumerate(goods):
+            oid = str(g.get("offer_id") or "")
+            nm = name_map.get(oid) or oid or str(g.get("name") or "Товар")
+            qty = int(g.get("quantity") or 0)
+            price = float(price_map.get(oid) or 0)
+            excl = round(price / (1 + VAT_RATE), 2) if price else 0.0
+            vat_amt = round(price * VAT_RATE / (1 + VAT_RATE), 2) if price else 0.0
+            sum_excl = round(excl * qty, 2); sum_vat = round(vat_amt * qty, 2); sum_incl = round(price * qty, 2)
+            total_qty += qty; total_excl += sum_excl; total_vat += sum_vat; total_incl += sum_incl
+            rows_data.append({"num": str(i+1), "name": nm, "qty": qty,
+                "price_excl": f"{excl:.2f}" if price else "—", "amt_excl": f"{sum_excl:.2f}" if price else "—",
+                "vat_amt": f"{sum_vat:.2f}" if price else "—", "amt_incl": f"{sum_incl:.2f}" if price else "—"})
+
+        t_excl = f"{total_excl:.2f}"; t_vat = f"{total_vat:.2f}"; t_incl = f"{total_incl:.2f}"
+        amt_words = _rubles_in_words(round(total_incl)) if total_incl else "Ноль рублей 00 копеек"
+
+        tpl_path = STATIC_DIR / "torg12_tpl.docx"
+        with open(tpl_path, "rb") as f: tpl_bytes = f.read()
+        with _zf.ZipFile(_io.BytesIO(tpl_bytes)) as zin:
+            all_files = {n: zin.read(n) for n in zin.namelist()}
+        doc_xml = all_files["word/document.xml"].decode("utf-8")
+
+        row_rx = _re.compile(r'(<w:tr[\s>](?:(?!</w:tr>).)*?\{\{GOODS_NAME\}\}.*?</w:tr>)', _re.DOTALL)
+        m = row_rx.search(doc_xml)
+        if m and rows_data:
+            row_tpl = m.group(1); multi = ""
+            for rd in rows_data:
+                r = row_tpl
+                for ph, val in [("{{ROW_NUM}}", rd["num"]), ("{{GOODS_NAME}}", _html_esc.escape(rd["name"])),
+                                 ("{{PRICE}}", rd["price_excl"]), ("{{ROW_AMOUNT_EXCL}}", rd["amt_excl"]),
+                                 ("{{ROW_VAT_SUM}}", rd["vat_amt"]), ("{{ROW_AMOUNT_INCL}}", rd["amt_incl"]),
+                                 ("{{ROW_QTY}}", str(rd["qty"]))]:
+                    r = r.replace(ph, val)
+                multi += r
+            doc_xml = doc_xml.replace(row_tpl, multi, 1)
+
+        mon_names = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря']
+        for ph, val in [
+            ("{{TTN_NUMBER}}", doc_num), ("{{ORG_FULL}}", org_line), ("{{SUPPLIER}}", org_line),
+            ("{{PAYER}}", org_line), ("{{ORDER_DATE}}", doc_num), ("{{DOC_NUM_VAL}}", doc_num),
+            ("{{DOC_DATE_VAL}}", supply_date_disp),
+            ("{{GOODS_NAME}}", rows_data[0]["name"] if rows_data else "Товар"),
+            ("{{ROW_NUM}}", "1"), ("{{PRICE}}", rows_data[0]["price_excl"] if rows_data else "—"),
+            ("{{ROW_AMOUNT_EXCL}}", rows_data[0]["amt_excl"] if rows_data else "—"),
+            ("{{ROW_VAT_SUM}}", rows_data[0]["vat_amt"] if rows_data else "—"),
+            ("{{ROW_AMOUNT_INCL}}", rows_data[0]["amt_incl"] if rows_data else "—"),
+            ("{{QTY}}", str(total_qty)), ("{{QTY_SHT}}", f"{total_qty} шт"),
+            ("{{TOTAL_EXCL}}", t_excl), ("{{TOTAL_VAT}}", t_vat), ("{{TOTAL_INCL}}", t_incl),
+            ("{{AMOUNT}}", t_excl), ("{{VAT_SUM}}", t_vat), ("{{AMOUNT_WITH_VAT}}", t_incl),
+            ("{{AMOUNT_WORDS}}", amt_words), ("{{PAGES_COUNT}}", "1"),
+            ("{{ITEMS_COUNT}}", str(len(rows_data) or 1)),
+            ("{{TOTAL_RUB}}", str(int(total_incl)) if total_incl else "0"),
+            ("{{TOTAL_KOP}}", str(round((total_incl % 1)*100)).zfill(2) if total_incl else "00"),
+            ("{{SUPPLY_ID}}", doc_num),
+            ("{{DOC_DATE_FULL}}", f"«{now.strftime('%d')}» {mon_names[now.month-1]} {now.year}"),
+            ("{{ISSUED_BY}}", supplier_short or "—"), ("{{SIGNATORIES}}", signatories),
+            ("{{PROD_HEAD}}", "—"), ("{{SIGN_SUPPLIER}}", supplier_short), ("{{SIGN_DRIVER}}", driver_name),
+        ]:
+            doc_xml = doc_xml.replace(ph, val)
+        doc_xml = doc_xml.replace("{{ROW_QTY}}", str(total_qty))
+        all_files["word/document.xml"] = doc_xml.encode("utf-8")
+
+        buf = _io.BytesIO()
+        with _zf.ZipFile(buf, "w", _zf.ZIP_DEFLATED) as zout:
+            for n, fdata in all_files.items(): zout.writestr(n, fdata)
+        fname = f"ТТН суммарная {doc_num}, {supplier_short}.docx"
+        return Response(content=buf.getvalue(),
+                        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{_qp(fname)}"})
+
     @app.get("/api/ozon-supplies/{supply_order_id}/poa.doc")
     def get_ozon_poa_doc(request: Request, supply_order_id: int) -> "Response":
         from fastapi.responses import Response

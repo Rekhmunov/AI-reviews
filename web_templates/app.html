@@ -1043,6 +1043,13 @@
               <button id="ozonStopBtn" class="secondary icon-btn hidden" onclick="stopOzonSync()" style="color:#b91c1c;border-color:#fca5a5" title="Остановить синхронизацию OZON">🛑</button>
               <button id="ozonClearBtn" class="secondary icon-btn" onclick="clearOzonSupplies()" style="color:#b91c1c;border-color:#fca5a5" title="Удалить поставки OZON">🗑</button>
               <button type="button" class="secondary" onclick="openOzonBindingModal()" style="white-space:nowrap">📎 Объединение привязки</button>
+              <div class="supply-actions-wrap" style="position:relative;display:inline-block">
+                <button id="ozonActionsBtn" class="secondary" disabled onclick="toggleOzonActionsMenu(event)" style="white-space:nowrap">Действия ▾</button>
+                <div id="ozonActionsMenu" style="display:none;position:absolute;left:0;top:100%;z-index:200;background:#fff;border:1px solid #e2e8f0;border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.12);min-width:200px;padding:4px 0">
+                  <button class="supply-action-item" onclick="ozonCombinedPoA()">📄 Суммарная доверенность</button>
+                  <button class="supply-action-item" onclick="ozonCombinedTTN()">📄 Суммарная ТТН</button>
+                </div>
+              </div>
               <select id="ozonStatusFilter" onchange="loadOzonSupplies()" style="display:none">
                 <option value="">Все статусы</option>
                 <option value="DATA_FILLING">Заполнение данных</option>

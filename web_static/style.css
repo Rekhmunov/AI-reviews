@@ -5234,3 +5234,12 @@ button.secondary.danger:hover {
   border-color: #64748b !important;
   color: #0f172a !important;
 }
+
+/* OZON combined actions dropdown */
+.supply-action-item {
+  display: block; width: 100%; text-align: left;
+  background: none; border: none; padding: 8px 14px;
+  font-size: 13px; color: #1e293b; cursor: pointer;
+  white-space: nowrap;
+}
+.supply-action-item:hover { background: #f1f5f9; }

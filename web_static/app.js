@@ -4577,8 +4577,85 @@ function toggleSelectAllOzon(checked) {
 }
 
 function _updateOzonBatchUI() {
-  // reuse same batch wrap if needed — OZON uses same conditions
-  // For now just log — batch docs for OZON TBD
+  const btn = document.getElementById("ozonActionsBtn");
+  if (!btn) return;
+  const ids = Array.from(_selectedOzonIds);
+  if (ids.length < 2) { btn.disabled = true; btn.title = "Выберите 2 и более поставок"; return; }
+
+  const items = (ozonState.allItems || []).filter(x => ids.includes(x.supply_order_id));
+
+  // Check same legal entity (supplier_name)
+  const les = new Set(items.map(x => x.supplier_name || ""));
+  if (les.size > 1) { btn.disabled = true; btn.title = "Разные юр. лица"; return; }
+
+  // Check same driver (from vehicle_json if cached)
+  const drivers = new Set();
+  for (const it of items) {
+    let dName = "";
+    try {
+      const v = JSON.parse(it.vehicle_json || "{}");
+      dName = v.driver_name || "";
+    } catch(_) {}
+    drivers.add(dName);
+  }
+  if (drivers.size > 1) { btn.disabled = true; btn.title = "Разные водители"; return; }
+
+  btn.disabled = false;
+  btn.title = `${ids.length} поставок выбрано`;
+}
+
+function toggleOzonActionsMenu(e) {
+  e.stopPropagation();
+  const menu = document.getElementById("ozonActionsMenu");
+  if (!menu) return;
+  const open = menu.style.display === "block";
+  menu.style.display = open ? "none" : "block";
+  if (!open) {
+    const close = () => { menu.style.display = "none"; document.removeEventListener("click", close); };
+    setTimeout(() => document.addEventListener("click", close), 0);
+  }
+}
+
+async function ozonCombinedPoA() {
+  document.getElementById("ozonActionsMenu").style.display = "none";
+  const ids = Array.from(_selectedOzonIds);
+  try {
+    const resp = await fetch("/api/ozon-supplies/combined-poa.doc", {
+      method: "POST", credentials: "include",
+      headers: {"Content-Type": "application/json", ...jsonHeaders()},
+      body: JSON.stringify({supply_ids: ids})
+    });
+    if (!resp.ok) { alert("Ошибка: " + await resp.text()); return; }
+    const blob = await resp.blob();
+    const cd = resp.headers.get("Content-Disposition") || "";
+    const m = cd.match(/filename\*?=(?:UTF-8'')?([^;]+)/i);
+    const fname = m ? decodeURIComponent(m[1].replace(/"/g,"")) : "Доверенность_суммарная.doc";
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = fname;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  } catch(e) { alert("Ошибка: " + e.message); }
+}
+
+async function ozonCombinedTTN() {
+  document.getElementById("ozonActionsMenu").style.display = "none";
+  const ids = Array.from(_selectedOzonIds);
+  try {
+    const resp = await fetch("/api/ozon-supplies/combined-ttn.docx", {
+      method: "POST", credentials: "include",
+      headers: {"Content-Type": "application/json", ...jsonHeaders()},
+      body: JSON.stringify({supply_ids: ids})
+    });
+    if (!resp.ok) { alert("Ошибка: " + await resp.text()); return; }
+    const blob = await resp.blob();
+    const cd = resp.headers.get("Content-Disposition") || "";
+    const m = cd.match(/filename\*?=(?:UTF-8'')?([^;]+)/i);
+    const fname = m ? decodeURIComponent(m[1].replace(/"/g,"")) : "ТТН_суммарная.docx";
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = fname;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  } catch(e) { alert("Ошибка: " + e.message); }
 }
 
 // ── Register all handlers ──────────────────────────────────────────────────
@@ -4595,6 +4672,9 @@ window.closeOzonDetailsModal = closeOzonDetailsModal;
 window.saveOzonManualFields = saveOzonManualFields;
 window.onOzonCheckboxChange = onOzonCheckboxChange;
 window.toggleSelectAllOzon = toggleSelectAllOzon;
+window.toggleOzonActionsMenu = toggleOzonActionsMenu;
+window.ozonCombinedPoA = ozonCombinedPoA;
+window.ozonCombinedTTN = ozonCombinedTTN;
 
 async function downloadOzonPoA(supplyId) {
   const item = (ozonState.allItems || ozonState.items || []).find(x => x.supply_order_id === supplyId || x.supply_order_id === Number(supplyId));
