@@ -4294,6 +4294,7 @@ function renderOzonTable() {
 
   if (!rows.length) {
     tbody.innerHTML = '<tr><td colspan="9" class="empty-cell">Поставки не найдены</td></tr>';
+    _updateOzonBatchUI();
     return;
   }
   tbody.innerHTML = "";
@@ -4628,14 +4629,22 @@ function _updateOzonBatchUI() {
   }
 }
 
+let _ozonMenuCloseHandler = null;
 function toggleOzonActionsMenu(e) {
   e.stopPropagation();
   const menu = document.getElementById("ozonActionsMenu");
   if (!menu) return;
   const isHidden = menu.classList.contains("hidden");
+
+  // Remove any existing outside-click listener
+  if (_ozonMenuCloseHandler) {
+    document.removeEventListener("click", _ozonMenuCloseHandler);
+    _ozonMenuCloseHandler = null;
+  }
+
   if (!isHidden) { menu.classList.add("hidden"); return; }
 
-  // Opening — update doc buttons state
+  // Update doc buttons state
   for (const id of ["ozonActionPoaBtn", "ozonActionTtnBtn"]) {
     const b = document.getElementById(id);
     if (!b) continue;
@@ -4646,16 +4655,19 @@ function toggleOzonActionsMenu(e) {
   }
   menu.classList.remove("hidden");
 
-  // Close on outside click — use once:true to auto-remove
-  const closeMenu = (ev) => {
-    if (menu.contains(ev.target)) return; // click inside menu — don't close
+  // Close on outside click (persistent listener, removed when menu closes or when item clicked)
+  _ozonMenuCloseHandler = (ev) => {
+    const wrap = document.getElementById("ozonBatchWrap");
+    if (wrap && wrap.contains(ev.target)) return; // click inside wrap — don't close
     menu.classList.add("hidden");
+    document.removeEventListener("click", _ozonMenuCloseHandler);
+    _ozonMenuCloseHandler = null;
   };
-  setTimeout(() => document.addEventListener("click", closeMenu, {once: true}), 0);
+  setTimeout(() => document.addEventListener("click", _ozonMenuCloseHandler), 0);
 }
 
 async function ozonBatchSetProduction() {
-  document.getElementById("ozonActionsMenu").style.display = "none";
+  document.getElementById("ozonActionsMenu")?.classList.add("hidden");
   const ids = Array.from(_selectedOzonIds);
   if (!ids.length) return;
 
@@ -4720,7 +4732,7 @@ async function ozonBatchProdApply() {
 }
 
 async function ozonCombinedPoA() {
-  document.getElementById("ozonActionsMenu").style.display = "none";
+  document.getElementById("ozonActionsMenu")?.classList.add("hidden");
   const ids = Array.from(_selectedOzonIds);
   try {
     const resp = await fetch("/api/ozon-supplies/combined-poa.doc", {
@@ -4741,7 +4753,7 @@ async function ozonCombinedPoA() {
 }
 
 async function ozonCombinedTTN() {
-  document.getElementById("ozonActionsMenu").style.display = "none";
+  document.getElementById("ozonActionsMenu")?.classList.add("hidden");
   const ids = Array.from(_selectedOzonIds);
   try {
     const resp = await fetch("/api/ozon-supplies/combined-ttn.docx", {
