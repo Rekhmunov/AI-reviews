@@ -646,6 +646,10 @@ class StockSourceCreateRequest(BaseModel):
     retention_days: int = Field(default=30, ge=1, le=365)
 
 
+class OzonCombinedDocsRequest(BaseModel):
+    supply_ids: list[int]
+
+
 class StockSourceUpdateRequest(BaseModel):
     account_name: str | None = None
     api_key: str | None = None
@@ -6692,7 +6696,7 @@ tr {{ page-break-inside: avoid; }}
 </div></body></html>"""
 
     @app.post("/api/ozon-supplies/combined-poa.doc")
-    async def get_ozon_combined_poa(request: Request) -> "Response":
+    def get_ozon_combined_poa(request: Request, body: OzonCombinedDocsRequest) -> "Response":
         """Generate combined PoA for multiple OZON supplies (same LE, same driver)."""
         import html as _hm
         from fastapi.responses import Response
@@ -6703,8 +6707,7 @@ tr {{ page-break-inside: avoid; }}
         if not _can_view_supplies(user): raise HTTPException(status_code=403)
         owner_id = _supply_owner_id(user)
         e = _hm.escape
-        payload = await request.json()
-        supply_ids: list[int] = [int(x) for x in (payload.get("supply_ids") or [])]
+        supply_ids = body.supply_ids
         if not supply_ids: raise HTTPException(status_code=400, detail="supply_ids required")
 
         now = _dtt.now()
@@ -6753,7 +6756,7 @@ tr {{ page-break-inside: avoid; }}
                         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{_qp(fname)}"})
 
     @app.post("/api/ozon-supplies/combined-ttn.docx")
-    async def get_ozon_combined_ttn(request: Request) -> "Response":
+    def get_ozon_combined_ttn(request: Request, body: OzonCombinedDocsRequest) -> "Response":
         """Generate combined TTN DOCX for multiple OZON supplies."""
         import zipfile as _zf, io as _io, re as _re, html as _html_esc
         from fastapi.responses import Response
@@ -6763,8 +6766,7 @@ tr {{ page-break-inside: avoid; }}
         user = _require_user(request)
         if not _can_view_supplies(user): raise HTTPException(status_code=403)
         owner_id = _supply_owner_id(user)
-        payload = await request.json()
-        supply_ids: list[int] = [int(x) for x in (payload.get("supply_ids") or [])]
+        supply_ids = body.supply_ids
         if not supply_ids: raise HTTPException(status_code=400, detail="supply_ids required")
 
         now = _dtt.now()
