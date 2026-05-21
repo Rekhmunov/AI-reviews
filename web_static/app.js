@@ -4632,8 +4632,7 @@ function _updateOzonBatchUI() {
   for (const it of items) {
     let dName = "";
     try { const v = JSON.parse(it.vehicle_json || "{}"); dName = v.driver_name || ""; } catch(_) {}
-    // No cached driver → treat as unique per supply (conservative)
-    drivers.add(dName || `__unknown_${it.supply_order_id}`);
+    drivers.add(dName);
   }
 
   if (les.size > 1) {
