@@ -5708,14 +5708,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             goods_list = [{"product_name": "Текстильные товары", "quantity": pallets_raw}]
 
         e = _hm.escape
-        # Each row is a separate table — LibreOffice never splits it across pages
-        _p  = 'style="border:1px solid black;padding:2pt 4pt;font-size:9pt"'
+        _p_c = 'style="border:1px solid black;padding:0 2pt;font-size:9pt;text-align:center;white-space:nowrap;line-height:1.1"'
+        _p_l = 'style="border:1px solid black;padding:0 2pt;font-size:9pt;text-align:left;line-height:1.1"'
         _data_rows = "".join(
             f'<tr>'
-            f'<td {_p} align="center">{i+1}</td>'
-            f'<td {_p}>{e(g.get("product_name") or "Товар")}</td>'
-            f'<td {_p} align="center">шт.</td>'
-            f'<td {_p} align="center">{g.get("quantity") or "—"}</td>'
+            f'<td {_p_c}>{i+1}</td>'
+            f'<td {_p_l}>{e(g.get("product_name") or "Товар")}</td>'
+            f'<td {_p_c}>шт.</td>'
+            f'<td {_p_c}>{g.get("quantity") or "—"}</td>'
             f'</tr>'
             for i, g in enumerate(goods_list)
         )
@@ -5771,12 +5771,12 @@ tr {{ page-break-inside: avoid; }}
 
 <p style="margin-top:6pt">Перечень материальных ценностей, подлежащих доставке</p>
 <table border="1" cellspacing="0" width="100%" style="border-collapse:collapse;margin:0;table-layout:fixed;font-size:9pt">
-  <colgroup><col width="15%"><col width="45%"><col width="20%"><col width="20%"></colgroup>
+  <colgroup><col width="10%"><col width="70%"><col width="10%"><col width="10%"></colgroup>
   <tr>
-    <th style="padding:2pt 4pt;border:1px solid black;font-size:8pt;font-weight:bold;font-family:'Times New Roman',serif" align="center">Номер по порядку</th>
-    <th style="padding:2pt 4pt;border:1px solid black;font-size:8pt;font-weight:bold;font-family:'Times New Roman',serif" align="center">Материальные ценности</th>
-    <th style="padding:2pt 4pt;border:1px solid black;font-size:8pt;font-weight:bold;font-family:'Times New Roman',serif" align="center">Единица измерения</th>
-    <th style="padding:2pt 4pt;border:1px solid black;font-size:8pt;font-weight:bold;font-family:'Times New Roman',serif" align="center">Количество</th>
+    <th style="padding:0 2pt;border:1px solid black;font-size:8pt;font-weight:bold;white-space:nowrap;line-height:1.1" align="center">№ по порядку</th>
+    <th style="padding:0 2pt;border:1px solid black;font-size:8pt;font-weight:bold;line-height:1.1" align="left">Материальные ценности</th>
+    <th style="padding:0 2pt;border:1px solid black;font-size:8pt;font-weight:bold;white-space:nowrap;line-height:1.1" align="center">Ед. изм.</th>
+    <th style="padding:0 2pt;border:1px solid black;font-size:8pt;font-weight:bold;white-space:nowrap;line-height:1.1" align="center">Кол-во</th>
   </tr>
   {goods_rows}
 </table>

@@ -3359,7 +3359,7 @@ async function downloadPoA(supplyId) {
   table.codes { border-collapse: collapse; margin-left: auto; font-size: 9pt; }
   table.codes td { border: 1px solid #000; padding: 2pt 6pt; }
   table.mat { width: 100%; border-collapse: collapse; margin-top: 6pt; font-size: 10pt; }
-  table.mat td, table.mat th { border: 1px solid #000; padding: 3pt 5pt; text-align: center; }
+  table.mat td, table.mat th { border: 1px solid #000; padding: 0 3pt; text-align: center; line-height: 1.1; }
   .sig-row { width: 100%; margin-top: 10pt; }
   .dotline { display: inline-block; border-bottom: 1px solid #000; min-width: 120pt; }
   p { margin: 3pt 0; }
@@ -3420,17 +3420,18 @@ ${driverDocs ? `<p>${esc(driverDocs)}</p>` : ""}
 
 <p style="margin-top:10pt">Перечень материальных ценностей, подлежащих доставке</p>
 <table class="mat">
+  <colgroup><col style="width:10%"><col style="width:70%"><col style="width:10%"><col style="width:10%"></colgroup>
   <tr>
-    <th style="width:8%">Номер по порядку</th>
-    <th style="width:44%">Материальные ценности</th>
-    <th style="width:16%">Единица измерения</th>
-    <th style="width:32%">Количество</th>
+    <th style="white-space:nowrap">№ по порядку</th>
+    <th style="text-align:left">Материальные ценности</th>
+    <th style="white-space:nowrap">Ед. изм.</th>
+    <th style="white-space:nowrap">Кол-во</th>
   </tr>
   ${poaGoods.map((g, i) => `<tr>
-    <td>${i+1}</td>
-    <td>${esc(g.product_name || g.vendor_code || "Товар")}</td>
-    <td>шт.</td>
-    <td>${g.quantity ?? "—"}</td>
+    <td style="white-space:nowrap">${i+1}</td>
+    <td style="text-align:left">${esc(g.product_name || g.vendor_code || "Товар")}</td>
+    <td style="white-space:nowrap">шт.</td>
+    <td style="white-space:nowrap">${g.quantity ?? "—"}</td>
   </tr>`).join("")}
 </table>
 
