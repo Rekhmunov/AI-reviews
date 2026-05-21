@@ -6500,8 +6500,8 @@ tr {{ page-break-inside: avoid; }}
         entities = repository.list_supply_legal_entities(user_id=owner_id)
         le = next((e for e in entities if "ООО" in str(e.get("short_name") or "")), None) or (entities[0] if entities else {})
 
-        # Product name map
-        name_map = repository.get_product_name_by_article(user_id=owner_id)
+        # Product name map — OZON uses SKU for lookup
+        name_map = repository.get_product_name_by_ozon_sku(user_id=owner_id)
 
         return {
             "item": item_row,
@@ -6539,8 +6539,9 @@ tr {{ page-break-inside: avoid; }}
 
         goods_rows_html = ""
         for i, g in enumerate(goods):
+            sku_key = str(g.get("sku") or "")
             offer_id = str(g.get("offer_id") or "")
-            name = name_map.get(offer_id) or offer_id or str(g.get("name") or "Товар")
+            name = name_map.get(sku_key) or name_map.get(offer_id) or offer_id or str(g.get("name") or "Товар")
             qty  = g.get("quantity") or "—"
             goods_rows_html += (f"<tr>"
                                 f"<td style='border:1px solid #000;padding:0 2pt;text-align:center;white-space:nowrap;line-height:1.1'>{i+1}</td>"
@@ -6736,7 +6737,7 @@ tr {{ page-break-inside: avoid; }}
             for g in (data.get("goods") or []):
                 oid = str(g.get("offer_id") or "")
                 qty = int(g.get("quantity") or 0)
-                nm = name_map.get(oid) or oid or str(g.get("name") or "Товар")
+                sku_k = str(g.get("sku") or ""); nm = name_map.get(sku_k) or name_map.get(oid) or oid or str(g.get("name") or "Товар")
                 if oid in all_goods:
                     all_goods[oid]["quantity"] += qty
                 else:
@@ -6799,7 +6800,7 @@ tr {{ page-break-inside: avoid; }}
             for g in (data.get("goods") or []):
                 oid = str(g.get("offer_id") or "")
                 qty = int(g.get("quantity") or 0)
-                nm = name_map.get(oid) or oid or str(g.get("name") or "Товар")
+                sku_k = str(g.get("sku") or ""); nm = name_map.get(sku_k) or name_map.get(oid) or oid or str(g.get("name") or "Товар")
                 if oid in all_goods:
                     all_goods[oid]["quantity"] += qty
                 else:
@@ -6844,7 +6845,7 @@ tr {{ page-break-inside: avoid; }}
         total_qty = total_excl = total_vat = total_incl = 0
         for i, g in enumerate(goods):
             oid = str(g.get("offer_id") or "")
-            nm = name_map.get(oid) or oid or str(g.get("name") or "Товар")
+            sku_k = str(g.get("sku") or ""); nm = name_map.get(sku_k) or name_map.get(oid) or oid or str(g.get("name") or "Товар")
             qty = int(g.get("quantity") or 0)
             price = float(price_map.get(oid) or 0)
             excl = round(price / (1 + VAT_RATE), 2) if price else 0.0
@@ -7023,7 +7024,8 @@ tr {{ page-break-inside: avoid; }}
         total_incl = 0.0
         for i, g in enumerate(goods):
             offer_id = str(g.get("offer_id") or "")
-            name = name_map.get(offer_id) or offer_id or str(g.get("name") or "Товар")
+            sku_key = str(g.get("sku") or "")
+            name = name_map.get(sku_key) or name_map.get(offer_id) or offer_id or str(g.get("name") or "Товар")
             qty = int(g.get("quantity") or 0)
             price = float(price_map.get(offer_id) or 0)
             excl = round(price / (1 + VAT_RATE), 2) if price else 0.0

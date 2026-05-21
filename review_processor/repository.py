@@ -6275,6 +6275,17 @@ class ReviewRepository:
                 result[article] = name
         return result
 
+    def get_product_name_by_ozon_sku(self, *, user_id: int) -> dict[str, str]:
+        """Return {ozon_sku: name} for fast lookup in OZON supply goods."""
+        rows = self.list_product_photos(user_id=user_id)
+        result: dict[str, str] = {}
+        for r in rows:
+            sku = str(r.get("ozon_sku") or "").strip()
+            name = str(r.get("name") or "").strip()
+            if sku and name:
+                result[sku] = name
+        return result
+
     def get_product_photo_map(self, *, user_id: int) -> dict[str, str]:
         """Return {key: photo_url} for fast lookup. Keys are supplier_article, wb_nmid, ozon_sku."""
         rows = self.list_product_photos(user_id=user_id)
