@@ -650,6 +650,15 @@ class OzonCombinedDocsRequest(BaseModel):
     supply_ids: list[int]
 
 
+class CertificateCreateRequest(BaseModel):
+    legal_entity_short: str = ""
+    category: str = ""
+    number: str = ""
+    expiry_date: str = ""
+    verification_url: str = ""
+    image_data: str | None = None
+
+
 class StockSourceUpdateRequest(BaseModel):
     account_name: str | None = None
     api_key: str | None = None
@@ -8202,14 +8211,6 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
     # ── Supply PoA Records ────────────────────────────────────────────────────
 
     # ── Certificates ──────────────────────────────────────────────────────────
-
-    class CertificateCreateRequest(BaseModel):
-        legal_entity_short: str = ""
-        category: str = ""
-        number: str = ""
-        expiry_date: str = ""
-        verification_url: str = ""
-        image_data: str | None = None
 
     @app.get("/api/certificates")
     def list_certificates(request: Request) -> list[dict[str, object]]:
