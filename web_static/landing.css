@@ -19,6 +19,14 @@
   align-items: stretch;
 }
 
+.fp-landing-center {
+  width: min(680px, 100%);
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .fp-landing-copy {
   position: relative;
   border-radius: 26px;
