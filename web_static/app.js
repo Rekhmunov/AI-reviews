@@ -4143,7 +4143,7 @@ function _ozonCalPickDate(y, m, d) {
     _ozonCal.startDate = date; _ozonCal.endDate = null;
   } else {
     if (date < _ozonCal.startDate) { _ozonCal.endDate = _ozonCal.startDate; _ozonCal.startDate = date; }
-    else if (date.getTime() === _ozonCal.startDate.getTime()) { _ozonCal.startDate = null; }
+    else if (date.getTime() === _ozonCal.startDate.getTime()) { _ozonCal.endDate = new Date(date); }
     else { _ozonCal.endDate = date; }
   }
   _ozonCalRender();
@@ -5944,7 +5944,7 @@ function _calPickDate(y, m, d) {
     _cal.startDate = date; _cal.endDate = null;
   } else {
     if (date < _cal.startDate) { _cal.endDate = _cal.startDate; _cal.startDate = date; }
-    else if (date.getTime() === _cal.startDate.getTime()) { _cal.startDate = null; }
+    else if (date.getTime() === _cal.startDate.getTime()) { _cal.endDate = new Date(date); }
     else { _cal.endDate = date; }
   }
   _calRender();
