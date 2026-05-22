@@ -11080,7 +11080,13 @@ function openCertEditModal(id) {
   document.getElementById("certEditUrl").value = c.verification_url || "";
   document.getElementById("certEditImageData").value = "";
   const prev = document.getElementById("certEditImagePreview");
-  if (prev) prev.style.display = "none";
+  const thumb = document.getElementById("certEditImageThumb");
+  if (c.image_data && prev && thumb) {
+    thumb.src = c.image_data;
+    prev.style.display = "";
+  } else if (prev) {
+    prev.style.display = "none";
+  }
   document.getElementById("certEditModal").classList.remove("hidden");
 }
 function closeCertEditModal() { document.getElementById("certEditModal").classList.add("hidden"); }
