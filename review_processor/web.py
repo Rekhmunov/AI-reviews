@@ -8258,8 +8258,8 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         user = _require_user(request)
         if not _can_view_supplies(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
-        # Only managers (tenant owners) can delete
-        if not user.get("is_tenant"):
+        # Only managers (non-feedback_manager roles) can delete
+        if str(user.get("role") or "") == TENANT_ROLE_MANAGER:
             raise HTTPException(status_code=403, detail="Только менеджер может удалять сертификаты")
         ok = repository.delete_certificate(user_id=_supply_owner_id(user), cert_id=cert_id)
         return {"ok": ok}
