@@ -9022,7 +9022,7 @@ function renderManagerSupplyPermissionsRows(supplySources, supplyPerms) {
   if (!tbody) return;
   tbody.innerHTML = "";
   if (!supplySources || !supplySources.length) {
-    tbody.innerHTML = '<tr><td colspan="5" style="color:#94a3b8;font-size:12px;text-align:center">Нет источников поставок</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" style="color:#94a3b8;font-size:12px;text-align:center">Нет источников поставок</td></tr>';
     return;
   }
   const sources = supplyPerms?.sources || {};
@@ -9032,14 +9032,18 @@ function renderManagerSupplyPermissionsRows(supplySources, supplyPerms) {
     const mp = (src.marketplace || "wb").toLowerCase();
     const srcPerms = sources[sid] || {};
     const tr = document.createElement("tr");
-    let settingsCell = "";
-    let poaCell = "";
-    if (idx === 0) {
+  let settingsCell = "";
+  let poaCell = "";
+  let certsCell = "";
+  if (idx === 0) {
       settingsCell = `<td rowspan="${rowCount}" style="text-align:center;vertical-align:middle">
         <input type="checkbox" id="managerSupplySettings" ${supplyPerms?.can_supply_settings ? "checked" : ""} />
       </td>`;
       poaCell = `<td rowspan="${rowCount}" style="text-align:center;vertical-align:middle">
         <input type="checkbox" id="managerSupplyPoa" ${supplyPerms?.can_supply_poa ? "checked" : ""} />
+      </td>`;
+      certsCell = `<td rowspan="${rowCount}" style="text-align:center;vertical-align:middle">
+        <input type="checkbox" id="managerSupplyCerts" ${supplyPerms?.can_supply_certs ? "checked" : ""} />
       </td>`;
     }
     const tdSt = "padding:10px 12px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b";
@@ -9050,13 +9054,14 @@ function renderManagerSupplyPermissionsRows(supplySources, supplyPerms) {
     const ozonStyle = mp !== "ozon" ? "opacity:0.2;cursor:default" : "";
     const settingsMerge = settingsCell ? settingsCell.replace("<td ", `<td style="${tdCt}" `) : "";
     const poaMerge = poaCell ? poaCell.replace("<td ", `<td style="${tdCt}" `) : "";
+    const certsMerge = certsCell ? certsCell.replace("<td ", `<td style="${tdCt}" `) : "";
     tr.innerHTML = `
       <td style="${tdSt}">${esc(src.name || `Источник #${sid}`)}</td>
       <td style="${tdCt}"><input type="checkbox" data-source-id="${sid}" data-col="wb"
           ${srcPerms.wb ? "checked" : ""} ${wbDisabled} style="${wbStyle}" /></td>
       <td style="${tdCt}"><input type="checkbox" data-source-id="${sid}" data-col="ozon"
           ${srcPerms.ozon ? "checked" : ""} ${ozonDisabled} style="${ozonStyle}" /></td>
-      ${settingsMerge}${poaMerge}
+      ${settingsMerge}${poaMerge}${certsMerge}
     `;
     tbody.appendChild(tr);
   });
@@ -9075,6 +9080,7 @@ function collectManagerSupplyPermissionsFromModal() {
     sources,
     can_supply_settings: Boolean(document.getElementById("managerSupplySettings")?.checked),
     can_supply_poa: Boolean(document.getElementById("managerSupplyPoa")?.checked),
+    can_supply_certs: Boolean(document.getElementById("managerSupplyCerts")?.checked),
   };
 }
 
@@ -9137,6 +9143,7 @@ function formatManagerPermissionsText(permissions, canSupplies, supplyPermission
   }
   if (sp.can_supply_settings) supplyParts.push("Настройки");
   if (sp.can_supply_poa) supplyParts.push("Доверенности");
+  if (sp.can_supply_certs) supplyParts.push("Сертификаты");
   // Deduplicate
   const uniqueParts = [...new Set(supplyParts)];
   const suppliesText = uniqueParts.length
@@ -9402,7 +9409,7 @@ function applyManagerPermissionsSelection() {
   const permissions = collectManagerPermissionsFromModal();
   const supplyPerms = collectManagerSupplyPermissionsFromModal();
   teamState.pendingSupplyPermissions = supplyPerms;
-  const hasAnySupply = supplyPerms.can_supply_settings || supplyPerms.can_supply_poa ||
+  const hasAnySupply = supplyPerms.can_supply_settings || supplyPerms.can_supply_poa || supplyPerms.can_supply_certs ||
     Object.values(supplyPerms.sources || {}).some(s => s.wb || s.ozon);
   teamState.pendingCanSupplies = hasAnySupply;
   if (!permissions.length && !hasAnySupply) {

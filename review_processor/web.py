@@ -507,6 +507,7 @@ class ManagerSuppliesAccessRequest(BaseModel):
     can_supplies: bool = False
     can_supply_settings: bool = False
     can_supply_poa: bool = False
+    can_supply_certs: bool = False
     supply_sources: dict = {}  # {source_id: {"wb": bool, "ozon": bool}}
 
 
@@ -4489,6 +4490,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             payload.can_supplies
             or payload.can_supply_settings
             or payload.can_supply_poa
+            or payload.can_supply_certs
             or any((v.get("wb") or v.get("ozon")) for v in sources.values())
         )
         repository.set_user_can_supplies(user_id=target_user_id, can_supplies=has_any_supply)
@@ -4496,6 +4498,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             manager_user_id=target_user_id,
             can_supply_settings=payload.can_supply_settings,
             can_supply_poa=payload.can_supply_poa,
+            can_supply_certs=payload.can_supply_certs,
             sources=sources,
         )
         return {"ok": True, "can_supplies": has_any_supply}

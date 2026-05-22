@@ -7697,28 +7697,33 @@ class ReviewRepository:
         return {
             "can_supply_settings": bool(d.get("can_supply_settings")),
             "can_supply_poa": bool(d.get("can_supply_poa")),
+            "can_supply_certs": bool(d.get("can_supply_certs")),
             "sources": sources,
         }
 
     def set_manager_supply_permissions(self, *, manager_user_id: int,
                                         can_supply_settings: bool,
                                         can_supply_poa: bool,
+                                        can_supply_certs: bool = False,
                                         sources: dict) -> None:
         import json as _j
         now = _utc_now()
         sources_json = _j.dumps(sources, ensure_ascii=False)
         with self._connect() as conn:
+            conn.execute("ALTER TABLE manager_supply_permissions ADD COLUMN IF NOT EXISTS can_supply_certs INTEGER NOT NULL DEFAULT 0")
             conn.execute(
                 self._sql("""INSERT INTO manager_supply_permissions
-                    (manager_user_id, can_supply_settings, can_supply_poa, sources_json, updated_at)
-                    VALUES (?, ?, ?, ?, ?)
+                    (manager_user_id, can_supply_settings, can_supply_poa, can_supply_certs, sources_json, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     ON CONFLICT (manager_user_id) DO UPDATE SET
                         can_supply_settings = excluded.can_supply_settings,
                         can_supply_poa = excluded.can_supply_poa,
+                        can_supply_certs = excluded.can_supply_certs,
                         sources_json = excluded.sources_json,
                         updated_at = excluded.updated_at"""),
                 (manager_user_id,
                  self._bool_db(can_supply_settings),
                  self._bool_db(can_supply_poa),
+                 self._bool_db(can_supply_certs),
                  sources_json, now),
             )
