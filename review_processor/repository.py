@@ -7199,6 +7199,21 @@ class ReviewRepository:
             ).fetchone()
         return int(self._row_to_dict(row)["id"]) if row else 0
 
+    def update_certificate(self, *, user_id: int, cert_id: int, legal_entity_short: str,
+                           category: str, number: str, expiry_date: str,
+                           verification_url: str, image_data: str | None) -> bool:
+        with self._connect() as conn:
+            result = conn.execute(
+                self._sql(
+                    "UPDATE supply_certificates SET legal_entity_short=?, category=?, number=?, "
+                    "expiry_date=?, verification_url=?, image_data=COALESCE(?, image_data) "
+                    "WHERE user_id=? AND id=?"
+                ),
+                (legal_entity_short.strip(), category.strip(), number.strip(),
+                 expiry_date.strip(), verification_url.strip(), image_data, user_id, cert_id),
+            )
+        return bool(result.rowcount)
+
     def delete_certificate(self, *, user_id: int, cert_id: int) -> bool:
         with self._connect() as conn:
             result = conn.execute(

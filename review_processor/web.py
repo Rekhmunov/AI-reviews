@@ -8240,6 +8240,19 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         )
         return {"ok": True, "id": cert_id}
 
+    @app.put("/api/certificates/{cert_id}")
+    def update_certificate(request: Request, cert_id: int, body: CertificateCreateRequest) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        ok = repository.update_certificate(
+            user_id=_supply_owner_id(user), cert_id=cert_id,
+            legal_entity_short=body.legal_entity_short, category=body.category,
+            number=body.number, expiry_date=body.expiry_date,
+            verification_url=body.verification_url, image_data=body.image_data,
+        )
+        return {"ok": ok}
+
     @app.delete("/api/certificates/{cert_id}")
     def delete_certificate(request: Request, cert_id: int) -> dict[str, object]:
         user = _require_user(request)
@@ -8844,7 +8857,7 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
                   if can_view_ozon_supplies else "")
     _poa_link = ('<a id="nav-supplies-poa" class="nav-item" href="#" onclick="showSection(\'supplies-poa\')"><span class="nav-item-icon">☐</span> Доверенности</a>'
                  if can_view_supply_poa else "")
-    _certs_link = ('<a id="nav-supplies-certificates" class="nav-item" href="#" onclick="showSection(\'supplies-certificates\')"><span class="nav-item-icon">✦</span> Сертификаты</a>'
+    _certs_link = ('<a id="nav-supplies-certificates" class="nav-item" href="#" onclick="showSection(\'supplies-certificates\')"><span class="nav-item-icon">✦</span> Сертификаты/Декларации</a>'
                    if can_view_supplies else "")
     nav_supplies_wb = _wb_link + _ozon_link + _poa_link + _certs_link if can_view_supplies else ""
     nav_supplies_settings = (

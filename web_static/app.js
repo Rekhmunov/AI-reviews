@@ -561,6 +561,7 @@ function showSection(section, options = {}) {
   }
   if (section === "supplies-certificates") {
     loadCertificates();
+    initCertsColumnResizer();
   }
 }
 
@@ -10944,12 +10945,20 @@ function renderCertsTable() {
   }
   tbody.innerHTML = "";
   for (const c of rows) {
-    const expiry = c.expiry_date ? c.expiry_date.slice(0,10) : "—";
-    const today = new Date().toISOString().slice(0,10);
-    const expired = c.expiry_date && c.expiry_date.slice(0,10) < today;
-    const expiryHtml = expired
-      ? `<span style="color:#dc2626;font-weight:600">${expiry} ⚠</span>`
-      : `<span>${expiry}</span>`;
+
+    // Red highlight: within 6 months of expiry
+    let expiryStyle = "";
+    if (c.expiry_date) {
+      const expiryMs = new Date(c.expiry_date.slice(0,10)).getTime();
+      const sixMonthsBefore = expiryMs - 6 * 30 * 24 * 60 * 60 * 1000;
+      if (Date.now() >= sixMonthsBefore) expiryStyle = "color:#dc2626;font-weight:600";
+    }
+    const expiryDisplay = c.expiry_date ? c.expiry_date.slice(0,10) : "—";
+    const expiryHtml2 = expiryStyle
+      ? `<span style="${expiryStyle}">${expiryDisplay} ⚠</span>`
+      : `<span>${expiryDisplay}</span>`;
+
+    const editBtn = `<span title="Редактировать" style="cursor:pointer;font-size:18px" onclick="openCertEditModal(${c.id})">✏</span>`;
 
     const linkBtn = c.verification_url
       ? `<a href="${esc(c.verification_url)}" target="_blank" rel="noopener" title="Проверка" style="font-size:18px;text-decoration:none">🔗</a>`
@@ -10968,8 +10977,8 @@ function renderCertsTable() {
       <td>${esc(c.legal_entity_short || "—")}</td>
       <td>${esc(c.category || "—")}</td>
       <td>${esc(c.number || "—")}</td>
-      <td>${expiryHtml}</td>
-      <td style="text-align:center;display:flex;gap:8px;justify-content:center;align-items:center">${linkBtn}${imgBtn}${delBtn}</td>`;
+      <td>${expiryHtml2}</td>
+      <td style="text-align:center;display:flex;gap:8px;justify-content:center;align-items:center">${editBtn}${linkBtn}${imgBtn}${delBtn}</td>`;
     tbody.appendChild(tr);
   }
 }
@@ -11055,6 +11064,122 @@ function closeCertImageModal() {
   document.getElementById("certImageModal").classList.add("hidden");
 }
 
+// ── Edit modal ──
+function openCertEditModal(id) {
+  const c = _certsData.find(x => x.id === id);
+  if (!c) return;
+  document.getElementById("certEditId").value = id;
+  const sel = document.getElementById("certEditLegalEntity");
+  if (sel) {
+    sel.innerHTML = '<option value="">— Выберите организацию —</option>' +
+      (_supplyLegalEntitiesCache || []).map(le => `<option value="${esc(le.short_name||'')}"${le.short_name===c.legal_entity_short?" selected":""}>${esc(le.short_name||'')}</option>`).join("");
+  }
+  document.getElementById("certEditCategory").value = c.category || "";
+  document.getElementById("certEditNumber").value = c.number || "";
+  document.getElementById("certEditExpiry").value = c.expiry_date ? c.expiry_date.slice(0,10) : "";
+  document.getElementById("certEditUrl").value = c.verification_url || "";
+  document.getElementById("certEditImageData").value = "";
+  const prev = document.getElementById("certEditImagePreview");
+  if (prev) prev.style.display = "none";
+  document.getElementById("certEditModal").classList.remove("hidden");
+}
+function closeCertEditModal() { document.getElementById("certEditModal").classList.add("hidden"); }
+function onCertEditImageChange(input) {
+  const file = input.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    document.getElementById("certEditImageData").value = e.target.result;
+    const thumb = document.getElementById("certEditImageThumb");
+    const prev = document.getElementById("certEditImagePreview");
+    if (thumb) thumb.src = e.target.result;
+    if (prev) prev.style.display = "";
+  };
+  reader.readAsDataURL(file);
+}
+async function saveCertEdit() {
+  const id = Number(document.getElementById("certEditId").value);
+  if (!id) return;
+  const body = {
+    legal_entity_short: document.getElementById("certEditLegalEntity").value,
+    category: document.getElementById("certEditCategory").value.trim(),
+    number: document.getElementById("certEditNumber").value.trim(),
+    expiry_date: document.getElementById("certEditExpiry").value,
+    verification_url: document.getElementById("certEditUrl").value.trim(),
+    image_data: document.getElementById("certEditImageData").value || null,
+  };
+  if (!body.legal_entity_short) { alert("Выберите организацию"); return; }
+  try {
+    const r = await fetch(`/api/certificates/${id}`, {
+      method: "PUT", credentials: "include",
+      headers: {"Content-Type":"application/json", ...jsonHeaders()},
+      body: JSON.stringify(body)
+    });
+    if (!r.ok) { alert("Ошибка: " + await r.text()); return; }
+    closeCertEditModal();
+    await loadCertificates();
+  } catch(e) { alert("Ошибка: " + e.message); }
+}
+
+// ── Resizable columns ──
+const CERTS_COL_WIDTHS_KEY = "certs_col_widths";
+const CERTS_DEFAULT_WIDTHS = [25, 30, 20, 18];
+let _certsColResizerInited = false;
+
+function initCertsColumnResizer() {
+  const table = document.getElementById("certsTable");
+  if (!table) return;
+  let widths = CERTS_DEFAULT_WIDTHS.slice();
+  try {
+    const saved = JSON.parse(localStorage.getItem(CERTS_COL_WIDTHS_KEY) || "null");
+    if (Array.isArray(saved) && saved.length === widths.length) widths = saved;
+  } catch(_) {}
+  _applyCertsColWidths(widths);
+  if (_certsColResizerInited) return;
+  _certsColResizerInited = true;
+  table.querySelectorAll("th .col-resize-handle").forEach((handle) => {
+    let startX = 0, colIdx = 0, startWidths = [];
+    handle.addEventListener("mousedown", (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const th = handle.parentElement;
+      colIdx = parseInt(th.getAttribute("data-col") || "0");
+      startX = e.clientX;
+      startWidths = _getCertsColWidths();
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+    });
+    function onMove(e) {
+      const tbl = document.getElementById("certsTable"); if (!tbl) return;
+      const tw = tbl.offsetWidth || 1;
+      const delta = ((e.clientX - startX) / tw) * 100;
+      const nw = startWidths.slice();
+      const minP = 5;
+      const nextIdx = colIdx < nw.length - 1 ? colIdx + 1 : colIdx - 1;
+      let nc = Math.max(minP, startWidths[colIdx] + delta);
+      let nn = Math.max(minP, startWidths[nextIdx] - delta);
+      if (nn < minP) { nc = startWidths[colIdx] + (startWidths[nextIdx] - minP); nn = minP; }
+      nw[colIdx] = Math.round(nc * 10) / 10;
+      nw[nextIdx] = Math.round(nn * 10) / 10;
+      _applyCertsColWidths(nw);
+    }
+    function onUp() {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = ""; document.body.style.userSelect = "";
+      try { localStorage.setItem(CERTS_COL_WIDTHS_KEY, JSON.stringify(_getCertsColWidths())); } catch(_) {}
+    }
+  });
+}
+function _applyCertsColWidths(widths) {
+  const cols = Array.from(document.querySelectorAll("#certsColgroup col")).filter(c => !c.dataset.fixed);
+  cols.forEach((col, i) => { if (widths[i] !== undefined) col.style.width = widths[i] + "%"; });
+}
+function _getCertsColWidths() {
+  const cols = Array.from(document.querySelectorAll("#certsColgroup col")).filter(c => !c.dataset.fixed);
+  return cols.map(col => parseFloat(col.style.width) || CERTS_DEFAULT_WIDTHS[0]);
+}
+
 window.openCreateCertModal = openCreateCertModal;
 window.closeCertModal = closeCertModal;
 window.saveCert = saveCert;
@@ -11062,6 +11187,11 @@ window.deleteCert = deleteCert;
 window.onCertImageChange = onCertImageChange;
 window.openCertImageModal = openCertImageModal;
 window.closeCertImageModal = closeCertImageModal;
+window.openCertEditModal = openCertEditModal;
+window.closeCertEditModal = closeCertEditModal;
+window.onCertEditImageChange = onCertEditImageChange;
+window.saveCertEdit = saveCertEdit;
+window.initCertsColumnResizer = initCertsColumnResizer;
 
 async function printTTN(supplyId) {
   // Open PDF generated server-side (LibreOffice converts DOCX→PDF, browser prints it)
