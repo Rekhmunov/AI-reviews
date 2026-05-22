@@ -4980,6 +4980,10 @@ button.secondary.danger:hover {
 .supplies-main-table td:last-child {
   border-right: none;
 }
+#certsTable td:last-child {
+  overflow: visible;
+  white-space: nowrap;
+}
 
 .supplies-main-table th {
   position: relative;

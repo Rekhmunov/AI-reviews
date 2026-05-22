@@ -10978,7 +10978,7 @@ function renderCertsTable() {
       <td>${esc(c.category || "—")}</td>
       <td>${esc(c.number || "—")}</td>
       <td>${expiryHtml2}</td>
-      <td style="text-align:center"><div style="display:flex;gap:4px;justify-content:center;align-items:center">${editBtn}${linkBtn}${imgBtn}${delBtn}</div></td>`;
+      <td style="white-space:nowrap;overflow:visible"><div style="display:flex;gap:4px;justify-content:center;align-items:center;flex-wrap:nowrap">${editBtn}${linkBtn}${imgBtn}${delBtn}</div></td>`;
     tbody.appendChild(tr);
   }
 }
