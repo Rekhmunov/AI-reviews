@@ -5423,7 +5423,10 @@ function ozonBindDownload() {
   a.href='${dataUrl}';
   a.download='${safeName}';
   document.body.appendChild(a);a.click();document.body.removeChild(a);
-  setTimeout(function(){window.close();},1500);
+  setTimeout(function(){
+    if(window.opener){try{window.opener.focus();}catch(e){}}
+    window.close();
+  },800);
 })();
 <\/script></body></html>`;
       const htmlBlob = new Blob([html], {type: "text/html"});
