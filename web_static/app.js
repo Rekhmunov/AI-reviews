@@ -10958,18 +10958,18 @@ function renderCertsTable() {
       ? `<span style="${expiryStyle}">${expiryDisplay} ⚠</span>`
       : `<span>${expiryDisplay}</span>`;
 
-    const editBtn = `<span title="Редактировать" style="cursor:pointer;font-size:18px" onclick="openCertEditModal(${c.id})">✏</span>`;
+    const editBtn = `<button class="icon-btn secondary" title="Редактировать" onclick="openCertEditModal(${c.id})" style="min-width:32px;min-height:28px;padding:0 6px;font-size:14px">✏</button>`;
 
     const linkBtn = c.verification_url
-      ? `<a href="${esc(c.verification_url)}" target="_blank" rel="noopener" title="Проверка" style="font-size:18px;text-decoration:none">🔗</a>`
-      : `<span style="opacity:0.3;font-size:18px" title="Нет ссылки">🔗</span>`;
+      ? `<a href="${esc(c.verification_url)}" target="_blank" rel="noopener" title="Проверить" class="icon-btn secondary" style="min-width:32px;min-height:28px;padding:0 6px;font-size:14px;text-decoration:none;display:inline-flex;align-items:center;justify-content:center">🔗</a>`
+      : `<button class="icon-btn secondary" disabled title="Нет ссылки" style="min-width:32px;min-height:28px;padding:0 6px;font-size:14px;opacity:0.35">🔗</button>`;
 
     const imgBtn = c.image_data
-      ? `<span title="Изображение" style="cursor:pointer;font-size:18px" onclick="openCertImageModal('${encodeURIComponent(c.image_data)}')">🖼</span>`
-      : `<span style="opacity:0.3;font-size:18px" title="Нет изображения">🖼</span>`;
+      ? `<button class="icon-btn secondary" title="Изображение" onclick="openCertImageModal('${encodeURIComponent(c.image_data)}')" style="min-width:32px;min-height:28px;padding:0 6px;font-size:14px">🖼</button>`
+      : `<button class="icon-btn secondary" disabled title="Нет изображения" style="min-width:32px;min-height:28px;padding:0 6px;font-size:14px;opacity:0.35">🖼</button>`;
 
     const delBtn = isMgr
-      ? `<span title="Удалить" style="cursor:pointer;font-size:18px;color:#dc2626" onclick="deleteCert(${c.id})">🗑</span>`
+      ? `<button class="icon-btn danger" title="Удалить" onclick="deleteCert(${c.id})" style="min-width:32px;min-height:28px;padding:0 6px;font-size:14px">🗑</button>`
       : "";
 
     const tr = document.createElement("tr");
@@ -10978,7 +10978,7 @@ function renderCertsTable() {
       <td>${esc(c.category || "—")}</td>
       <td>${esc(c.number || "—")}</td>
       <td>${expiryHtml2}</td>
-      <td style="text-align:center;display:flex;gap:8px;justify-content:center;align-items:center">${editBtn}${linkBtn}${imgBtn}${delBtn}</td>`;
+      <td style="text-align:center"><div style="display:flex;gap:4px;justify-content:center;align-items:center">${editBtn}${linkBtn}${imgBtn}${delBtn}</div></td>`;
     tbody.appendChild(tr);
   }
 }
