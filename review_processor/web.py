@@ -8603,7 +8603,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                                         )
                                         if det_status == 200 and isinstance(det_data, dict):
                                             item.update({k: v for k, v in det_data.items() if v is not None})
-                                        _time.sleep(0.15)
+                                        _time.sleep(2.0)  # WB Supplies API: interval ≥ 2s per docs
                                     item["supplyID"] = supply_wb_id
                                     repository.upsert_supply_item(source_id=source_id, data=item)
                                     synced_this_source += 1
