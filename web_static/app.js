@@ -5177,10 +5177,23 @@ async function ozonBindMerge() {
 
   for (const [normName, files] of groups) {
     if (files.length === 1) {
-      _bindLog(`<span style="color:#d97706">⚠ Нет пары для: <b>${esc(files[0].name)}</b> — добавлен без объединения</span>`, "warn");
-      // Add as-is (no merge needed)
-      const blob = new Blob([files[0].arrayBuffer], {type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
-      _ozonBindMerged.push({ name: files[0].name, blob });
+      // Singleton — show orange with inline rename button
+      const fileRef = files[0];
+      const entryId = `bind-singleton-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const html = `<span style="color:#d97706">⚠ Нет пары: <b>${esc(fileRef.name)}</b></span>
+        &nbsp;<button class="secondary" style="font-size:11px;padding:2px 8px;height:22px;line-height:1"
+          onclick="_bindStartRename('${entryId}','${esc(fileRef.name).replace(/'/g,"\\'")}')">✏ Переименовать</button>
+        <span id="${entryId}-rename" style="display:none;margin-left:4px">
+          <input id="${entryId}-input" type="text" style="font-size:12px;padding:2px 6px;width:240px;height:22px"
+            value="${esc(fileRef.name)}" />
+          <button class="secondary" style="font-size:11px;padding:2px 8px;height:22px;line-height:1"
+            onclick="_bindConfirmRename('${entryId}','${esc(fileRef.name).replace(/'/g,"\\'")}')">✓</button>
+          <button class="secondary" style="font-size:11px;padding:2px 8px;height:22px;line-height:1"
+            onclick="_bindCancelRename('${entryId}')">✕</button>
+        </span>`;
+      _bindLog(html, "warn");
+      const blob = new Blob([fileRef.arrayBuffer], {type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+      _ozonBindMerged.push({ name: fileRef.name, blob });
       skippedCount++;
       continue;
     }
@@ -5211,6 +5224,45 @@ async function ozonBindMerge() {
   document.getElementById("ozonBindDownloadBtn").style.opacity = canDownload ? "1" : "0.4";
 }
 window.ozonBindMerge = ozonBindMerge;
+
+function _bindStartRename(entryId, originalName) {
+  const renameEl = document.getElementById(entryId + "-rename");
+  if (renameEl) renameEl.style.display = "inline";
+  const input = document.getElementById(entryId + "-input");
+  if (input) { input.focus(); input.select(); }
+}
+
+function _bindCancelRename(entryId) {
+  const renameEl = document.getElementById(entryId + "-rename");
+  if (renameEl) renameEl.style.display = "none";
+}
+
+function _bindConfirmRename(entryId, originalName) {
+  const input = document.getElementById(entryId + "-input");
+  if (!input) return;
+  const newDisplayName = input.value.trim();
+  if (!newDisplayName) return;
+  const newNorm = _bindNormName(newDisplayName);
+  // Update the file entry in _ozonBindFiles
+  const fileEntry = _ozonBindFiles.find(f => f.name === originalName);
+  if (fileEntry) {
+    fileEntry.normalizedName = newNorm;
+    fileEntry._renamedAs = newDisplayName;
+  }
+  // Update log line to show renamed state
+  const renameEl = document.getElementById(entryId + "-rename");
+  if (renameEl) renameEl.style.display = "none";
+  // Replace the log entry visually
+  const logLine = document.getElementById(entryId + "-rename")?.closest("div");
+  if (logLine) {
+    logLine.innerHTML = `<span style="color:#2563eb">✏ Переименован: <b>${esc(originalName)}</b> → <b>${esc(newDisplayName)}</b> (нажмите «Объединить» снова)</span>`;
+  }
+  _bindLog(`✏ «${esc(originalName)}» переименован в «${esc(newDisplayName)}» для группировки. Нажмите «Объединить привязки».`, "info");
+}
+
+window._bindStartRename = _bindStartRename;
+window._bindCancelRename = _bindCancelRename;
+window._bindConfirmRename = _bindConfirmRename;
 
 async function _bindMergeXlsx(files) {
   // Load all zips
