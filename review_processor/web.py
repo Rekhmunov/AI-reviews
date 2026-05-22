@@ -8201,6 +8201,52 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
 
     # ── Supply PoA Records ────────────────────────────────────────────────────
 
+    # ── Certificates ──────────────────────────────────────────────────────────
+
+    class CertificateCreateRequest(BaseModel):
+        legal_entity_short: str = ""
+        category: str = ""
+        number: str = ""
+        expiry_date: str = ""
+        verification_url: str = ""
+        image_data: str | None = None
+
+    @app.get("/api/certificates")
+    def list_certificates(request: Request) -> list[dict[str, object]]:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        repository._ensure_supply_tables()
+        return repository.list_certificates(user_id=_supply_owner_id(user))
+
+    @app.post("/api/certificates")
+    def create_certificate(request: Request, body: CertificateCreateRequest) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        repository._ensure_supply_tables()
+        cert_id = repository.create_certificate(
+            user_id=_supply_owner_id(user),
+            legal_entity_short=body.legal_entity_short,
+            category=body.category,
+            number=body.number,
+            expiry_date=body.expiry_date,
+            verification_url=body.verification_url,
+            image_data=body.image_data,
+        )
+        return {"ok": True, "id": cert_id}
+
+    @app.delete("/api/certificates/{cert_id}")
+    def delete_certificate(request: Request, cert_id: int) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        # Only managers (tenant owners) can delete
+        if not user.get("is_tenant"):
+            raise HTTPException(status_code=403, detail="Только менеджер может удалять сертификаты")
+        ok = repository.delete_certificate(user_id=_supply_owner_id(user), cert_id=cert_id)
+        return {"ok": ok}
+
     @app.get("/api/supply-poa-records")
     def list_poa_records(request: Request) -> list[dict[str, object]]:
         user = _require_user(request)
@@ -8794,7 +8840,9 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
                   if can_view_ozon_supplies else "")
     _poa_link = ('<a id="nav-supplies-poa" class="nav-item" href="#" onclick="showSection(\'supplies-poa\')"><span class="nav-item-icon">☐</span> Доверенности</a>'
                  if can_view_supply_poa else "")
-    nav_supplies_wb = _wb_link + _ozon_link + _poa_link if can_view_supplies else ""
+    _certs_link = ('<a id="nav-supplies-certificates" class="nav-item" href="#" onclick="showSection(\'supplies-certificates\')"><span class="nav-item-icon">🏅</span> Сертификаты</a>'
+                   if can_view_supplies else "")
+    nav_supplies_wb = _wb_link + _ozon_link + _poa_link + _certs_link if can_view_supplies else ""
     nav_supplies_settings = (
         '<a id="nav-supplies-settings" class="nav-item" href="#" onclick="showSection(\'supplies-settings\')"><span class="nav-item-icon">≡</span> Настройки</a>'
         if (can_view_settings or can_view_supply_settings) else ""

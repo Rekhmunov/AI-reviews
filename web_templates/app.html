@@ -1306,6 +1306,75 @@
       </section>
 
       <!-- ── Поставки: Настройки ── -->
+      <!-- ── Поставки: Сертификаты ── -->
+      <section id="section-supplies-certificates" class="hidden">
+        <h3 class="section-title">Сертификаты</h3>
+        <div class="supplies-top-controls">
+          <div class="supplies-actions">
+            <button onclick="openCreateCertModal()">+ Создать сертификат</button>
+          </div>
+        </div>
+        <div class="supplies-table-wrap" style="overflow-x:auto">
+          <table class="data-table" style="width:100%;border-collapse:collapse">
+            <thead>
+              <tr>
+                <th style="min-width:140px">Организация</th>
+                <th style="min-width:120px">Категория</th>
+                <th style="min-width:120px">Номер</th>
+                <th style="min-width:110px">Дата завершения</th>
+                <th style="width:100px;text-align:center">Действия</th>
+              </tr>
+            </thead>
+            <tbody id="certsTbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Modal: Create Certificate -->
+      <div id="certModal" class="modal-overlay hidden" onclick="if(event.target===this)closeCertModal()">
+        <div class="modal-window" style="max-width:480px;width:95%">
+          <h4 style="margin:0 0 16px">Создать сертификат</h4>
+          <div class="form-group">
+            <label>Организация</label>
+            <select id="certLegalEntity" style="width:100%"></select>
+          </div>
+          <div class="form-group">
+            <label>Категория сертификата</label>
+            <input id="certCategory" type="text" placeholder="Например: Пожарная безопасность" style="width:100%" />
+          </div>
+          <div class="form-group">
+            <label>Номер сертификата</label>
+            <input id="certNumber" type="text" placeholder="Номер" style="width:100%" />
+          </div>
+          <div class="form-group">
+            <label>Дата завершения</label>
+            <input id="certExpiry" type="date" style="width:100%" />
+          </div>
+          <div class="form-group">
+            <label>Ссылка для проверки</label>
+            <input id="certUrl" type="url" placeholder="https://..." style="width:100%" />
+          </div>
+          <div class="form-group">
+            <label>Изображение (необязательно)</label>
+            <input id="certImageFile" type="file" accept="image/*" onchange="onCertImageChange(this)" style="width:100%" />
+            <div id="certImagePreview" style="margin-top:6px;display:none"><img id="certImageThumb" style="max-height:80px;border-radius:4px;border:1px solid #e2e8f0" /></div>
+          </div>
+          <input type="hidden" id="certImageData" />
+          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:20px">
+            <button class="secondary" onclick="closeCertModal()">Отмена</button>
+            <button onclick="saveCert()">Сохранить</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Modal: Certificate image viewer -->
+      <div id="certImageModal" class="modal-overlay hidden" onclick="if(event.target===this)closeCertImageModal()">
+        <div class="modal-window" style="max-width:90vw;max-height:90vh;padding:8px;background:#000">
+          <img id="certImageFull" style="max-width:100%;max-height:85vh;display:block;margin:auto" />
+          <button class="secondary" onclick="closeCertImageModal()" style="margin-top:8px;width:100%;color:#fff;background:rgba(255,255,255,0.1);border-color:rgba(255,255,255,0.2)">Закрыть</button>
+        </div>
+      </div>
+
       <!-- ── Поставки: Доверенности ── -->
       <section id="section-supplies-poa" class="hidden">
         <h3 class="section-title">Доверенности</h3>

@@ -115,7 +115,7 @@ const UI_REFRESH_MS = 60000;        // refresh chat list from DB every 60s (afte
 const CHANNEL_ICONS = { "Отзывы": "⭐", "Вопросы": "❓", "Чаты": "💬" };
 const ACTIVE_SECTION_STORAGE_KEY = "feedpilot_active_section";
 const ACTIVE_SETTINGS_TAB_STORAGE_KEY = "feedpilot_active_settings_tab";
-const SECTION_IDS = ["reviews", "conversations", "chats", "analytics", "settings", "stock-settings", "stock-work", "supplies-wb", "supplies-ozon", "supplies-poa", "supplies-settings", "profile"];
+const SECTION_IDS = ["reviews", "conversations", "chats", "analytics", "settings", "stock-settings", "stock-work", "supplies-wb", "supplies-ozon", "supplies-poa", "supplies-certificates", "supplies-settings", "profile"];
 const SETTINGS_TAB_IDS = ["sources", "rules", "templates", "recommendations", "products", "team", "template-variables"];
 const APP_BOOT_HIDE_CLASS = "app-boot-hidden";
 const MOBILE_NAV_BREAKPOINT_PX = 900;
@@ -399,6 +399,7 @@ function canViewSection(section) {
   if (section === "supplies-wb") return permissions.can_view_supplies;
   if (section === "supplies-ozon") return permissions.can_view_supplies;
   if (section === "supplies-poa") return permissions.can_view_supplies;
+  if (section === "supplies-certificates") return permissions.can_view_supplies;
   if (section === "supplies-settings") return permissions.can_view_settings || permissions.can_view_supplies;
   if (section === "reviews" || section === "conversations" || section === "chats") {
     return permissions.can_view_feedback;
@@ -557,6 +558,9 @@ function showSection(section, options = {}) {
   if (section === "supplies-ozon") {
     if (!ozonState.items.length) loadOzonSupplies(true);
     initOzonSuppliesColumnResizer();
+  }
+  if (section === "supplies-certificates") {
+    loadCertificates();
   }
 }
 
@@ -10885,6 +10889,151 @@ window.renderPoATable = renderPoATable;
 window.printPoARecord = printPoARecord;
 window.deletePoARecord = deletePoARecord;
 window.loadPoARecords = loadPoARecords;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CERTIFICATES MODULE
+// ═══════════════════════════════════════════════════════════════════════════
+
+let _certsData = [];
+
+async function loadCertificates() {
+  try {
+    const r = await fetch("/api/certificates", {credentials: "include"});
+    if (!r.ok) return;
+    _certsData = await r.json().catch(() => []);
+    renderCertsTable();
+  } catch(e) { console.error("loadCertificates:", e); }
+}
+
+function renderCertsTable() {
+  const tbody = document.getElementById("certsTbody");
+  if (!tbody) return;
+  const isMgr = isTenantOwner();
+
+  if (!_certsData.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty-cell">Сертификаты не добавлены</td></tr>';
+    return;
+  }
+  tbody.innerHTML = "";
+  for (const c of _certsData) {
+    const expiry = c.expiry_date ? c.expiry_date.slice(0,10) : "—";
+    const today = new Date().toISOString().slice(0,10);
+    const expired = c.expiry_date && c.expiry_date.slice(0,10) < today;
+    const expiryHtml = expired
+      ? `<span style="color:#dc2626;font-weight:600">${expiry} ⚠</span>`
+      : `<span>${expiry}</span>`;
+
+    const linkBtn = c.verification_url
+      ? `<a href="${esc(c.verification_url)}" target="_blank" rel="noopener" title="Проверка" style="font-size:18px;text-decoration:none">🔗</a>`
+      : `<span style="opacity:0.3;font-size:18px" title="Нет ссылки">🔗</span>`;
+
+    const imgBtn = c.image_data
+      ? `<span title="Изображение" style="cursor:pointer;font-size:18px" onclick="openCertImageModal('${encodeURIComponent(c.image_data)}')">🖼</span>`
+      : `<span style="opacity:0.3;font-size:18px" title="Нет изображения">🖼</span>`;
+
+    const delBtn = isMgr
+      ? `<span title="Удалить" style="cursor:pointer;font-size:18px;color:#dc2626" onclick="deleteCert(${c.id})">🗑</span>`
+      : "";
+
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${esc(c.legal_entity_short || "—")}</td>
+      <td>${esc(c.category || "—")}</td>
+      <td>${esc(c.number || "—")}</td>
+      <td>${expiryHtml}</td>
+      <td style="text-align:center;display:flex;gap:8px;justify-content:center;align-items:center">${linkBtn}${imgBtn}${delBtn}</td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+function openCreateCertModal() {
+  // Populate legal entities dropdown
+  const sel = document.getElementById("certLegalEntity");
+  if (sel) {
+    sel.innerHTML = '<option value="">— Выберите организацию —</option>' +
+      (_supplyLegalEntitiesCache || []).map(le => `<option value="${esc(le.short_name||'')}">${esc(le.short_name||'')}</option>`).join("");
+  }
+  document.getElementById("certCategory").value = "";
+  document.getElementById("certNumber").value = "";
+  document.getElementById("certExpiry").value = "";
+  document.getElementById("certUrl").value = "";
+  document.getElementById("certImageData").value = "";
+  const prev = document.getElementById("certImagePreview");
+  if (prev) prev.style.display = "none";
+  document.getElementById("certModal").classList.remove("hidden");
+}
+
+function closeCertModal() {
+  document.getElementById("certModal").classList.add("hidden");
+}
+
+function onCertImageChange(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    document.getElementById("certImageData").value = e.target.result;
+    const thumb = document.getElementById("certImageThumb");
+    const prev = document.getElementById("certImagePreview");
+    if (thumb) thumb.src = e.target.result;
+    if (prev) prev.style.display = "";
+  };
+  reader.readAsDataURL(file);
+}
+
+async function saveCert() {
+  const body = {
+    legal_entity_short: document.getElementById("certLegalEntity").value,
+    category: document.getElementById("certCategory").value.trim(),
+    number: document.getElementById("certNumber").value.trim(),
+    expiry_date: document.getElementById("certExpiry").value,
+    verification_url: document.getElementById("certUrl").value.trim(),
+    image_data: document.getElementById("certImageData").value || null,
+  };
+  if (!body.legal_entity_short) { alert("Выберите организацию"); return; }
+  if (!body.category) { alert("Введите категорию сертификата"); return; }
+  if (!body.number) { alert("Введите номер сертификата"); return; }
+  try {
+    const r = await fetch("/api/certificates", {
+      method: "POST", credentials: "include",
+      headers: {"Content-Type":"application/json", ...jsonHeaders()},
+      body: JSON.stringify(body)
+    });
+    if (!r.ok) { alert("Ошибка: " + await r.text()); return; }
+    closeCertModal();
+    await loadCertificates();
+  } catch(e) { alert("Ошибка: " + e.message); }
+}
+
+async function deleteCert(id) {
+  if (!confirm("Удалить сертификат?")) return;
+  try {
+    const r = await fetch(`/api/certificates/${id}`, {
+      method: "DELETE", credentials: "include",
+      headers: jsonHeaders()
+    });
+    if (!r.ok) { alert("Ошибка: " + await r.text()); return; }
+    await loadCertificates();
+  } catch(e) { alert("Ошибка: " + e.message); }
+}
+
+function openCertImageModal(encodedData) {
+  const img = document.getElementById("certImageFull");
+  if (img) img.src = decodeURIComponent(encodedData);
+  document.getElementById("certImageModal").classList.remove("hidden");
+}
+
+function closeCertImageModal() {
+  document.getElementById("certImageModal").classList.add("hidden");
+}
+
+window.openCreateCertModal = openCreateCertModal;
+window.closeCertModal = closeCertModal;
+window.saveCert = saveCert;
+window.deleteCert = deleteCert;
+window.onCertImageChange = onCertImageChange;
+window.openCertImageModal = openCertImageModal;
+window.closeCertImageModal = closeCertImageModal;
 
 async function printTTN(supplyId) {
   // Open PDF generated server-side (LibreOffice converts DOCX→PDF, browser prints it)
