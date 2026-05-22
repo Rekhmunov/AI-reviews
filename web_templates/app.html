@@ -1336,37 +1336,42 @@
 
       <!-- Modal: Create Certificate -->
       <div id="certModal" class="modal-overlay hidden" onclick="if(event.target===this)closeCertModal()">
-        <div class="modal-window" style="width:80%;max-width:80vw;height:80vh;max-height:80vh;overflow-y:auto;background:#fff">
-          <h4 style="margin:0 0 16px">Создать сертификат</h4>
-          <div class="form-group">
-            <label>Организация</label>
-            <select id="certLegalEntity" style="width:100%"></select>
+        <div class="modal-card" style="max-width:480px;width:90%">
+          <div class="row row-between">
+            <h4 class="no-margin">Создать сертификат</h4>
+            <button class="icon-btn" onclick="closeCertModal()">✕</button>
           </div>
-          <div class="form-group">
-            <label>Категория сертификата</label>
-            <input id="certCategory" type="text" placeholder="Например: Пожарная безопасность" style="width:100%" />
-          </div>
-          <div class="form-group">
-            <label>Номер сертификата</label>
-            <input id="certNumber" type="text" placeholder="Номер" style="width:100%" />
-          </div>
-          <div class="form-group">
-            <label>Дата завершения</label>
-            <input id="certExpiry" type="date" style="width:100%" />
-          </div>
-          <div class="form-group">
-            <label>Ссылка для проверки</label>
-            <input id="certUrl" type="url" placeholder="https://..." style="width:100%" />
-          </div>
-          <div class="form-group">
-            <label>Изображение (необязательно)</label>
-            <input id="certImageFile" type="file" accept="image/*" onchange="onCertImageChange(this)" style="width:100%" />
-            <div id="certImagePreview" style="margin-top:6px;display:none"><img id="certImageThumb" style="max-height:80px;border-radius:4px;border:1px solid #e2e8f0" /></div>
-          </div>
-          <input type="hidden" id="certImageData" />
-          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:20px">
-            <button class="secondary" onclick="closeCertModal()">Отмена</button>
-            <button onclick="saveCert()">Сохранить</button>
+          <div style="margin-top:14px;display:flex;flex-direction:column;gap:10px">
+            <div>
+              <label class="small" style="display:block;margin-bottom:4px">Организация</label>
+              <select id="certLegalEntity" style="width:100%;height:36px"></select>
+            </div>
+            <div>
+              <label class="small" style="display:block;margin-bottom:4px">Категория сертификата</label>
+              <input id="certCategory" type="text" placeholder="Например: Пожарная безопасность" autocomplete="off" style="width:100%" />
+            </div>
+            <div>
+              <label class="small" style="display:block;margin-bottom:4px">Номер сертификата</label>
+              <input id="certNumber" type="text" placeholder="Номер" autocomplete="off" style="width:100%" />
+            </div>
+            <div>
+              <label class="small" style="display:block;margin-bottom:4px">Дата завершения</label>
+              <input id="certExpiry" type="date" style="width:100%;height:36px" />
+            </div>
+            <div>
+              <label class="small" style="display:block;margin-bottom:4px">Ссылка для проверки</label>
+              <input id="certUrl" type="url" placeholder="https://..." autocomplete="off" style="width:100%" />
+            </div>
+            <div>
+              <label class="small" style="display:block;margin-bottom:4px">Изображение (необязательно)</label>
+              <input id="certImageFile" type="file" accept="image/*" onchange="onCertImageChange(this)" style="width:100%" />
+              <div id="certImagePreview" style="margin-top:6px;display:none"><img id="certImageThumb" style="max-height:80px;border-radius:4px;border:1px solid #e2e8f0" /></div>
+            </div>
+            <input type="hidden" id="certImageData" />
+            <div class="row" style="justify-content:flex-end;gap:8px;margin-top:4px">
+              <button class="secondary" onclick="closeCertModal()">Отмена</button>
+              <button onclick="saveCert()">Сохранить</button>
+            </div>
           </div>
         </div>
       </div>
