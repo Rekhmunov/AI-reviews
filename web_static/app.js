@@ -5150,11 +5150,11 @@ function ozonBindClear() {
 window.ozonBindClear = ozonBindClear;
 
 function _bindNormName(fileName) {
-  // Remove extension, replace underscores/dashes with space, collapse spaces, lowercase
+  // Remove extension, strip digits/dates/special chars, keep only letters, collapse spaces
   return fileName
-    .replace(/\.xlsx?$/i, "")
-    .replace(/[_\-]+/g, " ")
-    .replace(/\s+/g, " ")
+    .replace(/\.xlsx?$/i, "")         // убираем расширение
+    .replace(/[^а-яёa-z\s]/gi, " ")  // оставляем только буквы (кириллица + латиница)
+    .replace(/\s+/g, " ")             // схлопываем пробелы
     .trim()
     .toLowerCase();
 }
