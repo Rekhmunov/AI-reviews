@@ -4265,8 +4265,8 @@ async function loadOzonSupplies(resetPage = false) {
   // Client-side filtering
   if (statusF) items = items.filter(x => (x.state || "") === statusF);
   if (prodF) items = items.filter(x => (x.production || "") === prodF);
-  if (dateFrom) items = items.filter(x => (x.supply_date || "").slice(0,10) >= dateFrom);
-  if (dateTo) items = items.filter(x => (x.supply_date || "").slice(0,10) <= dateTo);
+  if (dateFrom) items = items.filter(x => { const d = (x.supply_date || "").slice(0,10); return !d || d >= dateFrom; });
+  if (dateTo) items = items.filter(x => { const d = (x.supply_date || "").slice(0,10); return !d || d <= dateTo; });
   ozonState.allItems = items;   // full filtered set
   ozonState.total = items.length;
   ozonState._filteredTotal = undefined;

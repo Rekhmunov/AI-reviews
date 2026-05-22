@@ -7442,11 +7442,11 @@ class ReviewRepository:
             conditions.append("si.status_id = ?")
             params.append(status_id)
         if date_from:
-            conditions.append("si.supply_date >= ?")
-            params.append(date_from)
+            conditions.append("LEFT(si.supply_date, 10) >= ?")
+            params.append(date_from[:10])
         if date_to:
-            conditions.append("si.supply_date <= ?")
-            params.append(date_to)
+            conditions.append("LEFT(si.supply_date, 10) <= ?")
+            params.append(date_to[:10])
         if production:
             conditions.append("si.production = ?")
             params.append(production)
