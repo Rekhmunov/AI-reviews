@@ -10908,21 +10908,42 @@ async function loadCertificates() {
     const r = await fetch("/api/certificates", {credentials: "include"});
     if (!r.ok) return;
     _certsData = await r.json().catch(() => []);
+    _populateCertFilters();
     renderCertsTable();
   } catch(e) { console.error("loadCertificates:", e); }
+}
+
+function _populateCertFilters() {
+  const legalSel = document.getElementById("certLegalFilter");
+  const catSel = document.getElementById("certCategoryFilter");
+  if (!legalSel || !catSel) return;
+  const curLegal = legalSel.value;
+  const curCat = catSel.value;
+  const legals = [...new Set(_certsData.map(c => c.legal_entity_short).filter(Boolean))].sort();
+  const cats = [...new Set(_certsData.map(c => c.category).filter(Boolean))].sort();
+  legalSel.innerHTML = '<option value="">Все организации</option>' +
+    legals.map(l => `<option value="${esc(l)}"${l===curLegal?" selected":""}>${esc(l)}</option>`).join("");
+  catSel.innerHTML = '<option value="">Все категории</option>' +
+    cats.map(c => `<option value="${esc(c)}"${c===curCat?" selected":""}>${esc(c)}</option>`).join("");
 }
 
 function renderCertsTable() {
   const tbody = document.getElementById("certsTbody");
   if (!tbody) return;
   const isMgr = isTenantOwner();
+  const legalF = document.getElementById("certLegalFilter")?.value || "";
+  const catF = document.getElementById("certCategoryFilter")?.value || "";
 
-  if (!_certsData.length) {
+  let rows = _certsData;
+  if (legalF) rows = rows.filter(c => c.legal_entity_short === legalF);
+  if (catF) rows = rows.filter(c => c.category === catF);
+
+  if (!rows.length) {
     tbody.innerHTML = '<tr><td colspan="5" class="empty-cell">Сертификаты не добавлены</td></tr>';
     return;
   }
   tbody.innerHTML = "";
-  for (const c of _certsData) {
+  for (const c of rows) {
     const expiry = c.expiry_date ? c.expiry_date.slice(0,10) : "—";
     const today = new Date().toISOString().slice(0,10);
     const expired = c.expiry_date && c.expiry_date.slice(0,10) < today;

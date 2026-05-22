@@ -1313,6 +1313,12 @@
           <div class="supplies-top-controls">
             <div class="supplies-actions">
               <button onclick="openCreateCertModal()">+ Создать сертификат</button>
+              <select id="certLegalFilter" onchange="renderCertsTable()">
+                <option value="">Все организации</option>
+              </select>
+              <select id="certCategoryFilter" onchange="renderCertsTable()">
+                <option value="">Все категории</option>
+              </select>
             </div>
           </div>
         </div>
