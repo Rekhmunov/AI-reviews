@@ -1309,30 +1309,34 @@
       <!-- ── Поставки: Сертификаты ── -->
       <section id="section-supplies-certificates" class="hidden">
         <h3 class="section-title">Сертификаты</h3>
-        <div class="supplies-top-controls">
-          <div class="supplies-actions">
-            <button onclick="openCreateCertModal()">+ Создать сертификат</button>
+        <div class="panel supplies-toolbar-panel">
+          <div class="supplies-top-controls">
+            <div class="supplies-actions">
+              <button onclick="openCreateCertModal()">+ Создать сертификат</button>
+            </div>
           </div>
         </div>
-        <div class="supplies-table-wrap" style="overflow-x:auto">
-          <table class="data-table" style="width:100%;border-collapse:collapse">
-            <thead>
-              <tr>
-                <th style="min-width:140px">Организация</th>
-                <th style="min-width:120px">Категория</th>
-                <th style="min-width:120px">Номер</th>
-                <th style="min-width:110px">Дата завершения</th>
-                <th style="width:100px;text-align:center">Действия</th>
-              </tr>
-            </thead>
-            <tbody id="certsTbody"></tbody>
-          </table>
+        <div class="panel supplies-table-panel">
+          <div class="supplies-table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Организация</th>
+                  <th>Категория</th>
+                  <th>Номер</th>
+                  <th>Дата завершения</th>
+                  <th style="width:100px;text-align:center">Действия</th>
+                </tr>
+              </thead>
+              <tbody id="certsTbody"></tbody>
+            </table>
+          </div>
         </div>
       </section>
 
       <!-- Modal: Create Certificate -->
       <div id="certModal" class="modal-overlay hidden" onclick="if(event.target===this)closeCertModal()">
-        <div class="modal-window" style="max-width:480px;width:95%">
+        <div class="modal-window" style="width:80%;max-width:80vw;height:80vh;max-height:80vh;overflow-y:auto;background:#fff">
           <h4 style="margin:0 0 16px">Создать сертификат</h4>
           <div class="form-group">
             <label>Организация</label>
