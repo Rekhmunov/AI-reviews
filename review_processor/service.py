@@ -1959,6 +1959,10 @@ class ReviewAutomationService:
                 category = existing_group
                 classified_subgroup: str | None = existing_sub or None
                 skipped_already_classified += 1
+                # If previously stored as ai_unclassified → must stay in manual mode
+                if category == self.AI_UNCLASSIFIED_CATEGORY:
+                    ai_classification_failed = True
+                    ai_classification_error = "Ранее не классифицирован ИИ — ручная обработка"
             else:
                 try:
                     category, classified_subgroup = self._classify_category_and_subgroup(
