@@ -1954,15 +1954,16 @@ class ReviewAutomationService:
             review_uid = self.repository.make_review_uid(
                 user_id or 0, source, account_id, str(review.review_id)
             )
-            if review_uid in existing_classifications:
-                existing_group, existing_sub = existing_classifications[review_uid]
+            # ai_unclassified reviews are never cached — they must be retried with
+            # Yandex on every sync so they get properly classified once the API
+            # key is restored.  If Yandex still fails → ai_classification_failed
+            # is set below and the review stays in manual queue.
+            _cached = existing_classifications.get(review_uid)
+            if _cached and _cached[0] != self.AI_UNCLASSIFIED_CATEGORY:
+                existing_group, existing_sub = _cached
                 category = existing_group
                 classified_subgroup: str | None = existing_sub or None
                 skipped_already_classified += 1
-                # If previously stored as ai_unclassified → must stay in manual mode
-                if category == self.AI_UNCLASSIFIED_CATEGORY:
-                    ai_classification_failed = True
-                    ai_classification_error = "Ранее не классифицирован ИИ — ручная обработка"
             else:
                 try:
                     category, classified_subgroup = self._classify_category_and_subgroup(
