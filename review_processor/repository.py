@@ -3720,12 +3720,11 @@ class ReviewRepository:
                     END,
                     processing_mode = excluded.processing_mode,
                     status = CASE
-                        WHEN review_items.status = 'answered_manual' THEN review_items.status
+                        WHEN review_items.status IN ('answered_manual', 'answered_auto') THEN review_items.status
                         ELSE excluded.status
                     END,
                     auto_reply = CASE
-                        WHEN review_items.status = 'answered_manual' THEN review_items.auto_reply
-                        WHEN review_items.status = 'answered_auto' AND excluded.status != 'answered_auto' THEN review_items.auto_reply
+                        WHEN review_items.status IN ('answered_manual', 'answered_auto') THEN review_items.auto_reply
                         ELSE excluded.auto_reply
                     END,
                     updated_at = excluded.updated_at
