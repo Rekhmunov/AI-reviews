@@ -2296,7 +2296,7 @@ function _renderSupplyDocButtons(item) {
     const label = multi ? `⬇ ШК — ${dName || `Вод. ${i+1}`}` : "⬇ ШК поставки";
     html += `<div style="${_pRow}">` +
       `<button class="supply-detail-link supply-barcode-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none" onclick="downloadSupplyBarcode('${esc(s.pass_number)}',${item.supply_id})">${label}</button>` +
-      `<a href="${_wbPassesUrl}" target="_blank" rel="noopener" class="supply-detail-link supply-print-btn" style="${_pBtn};display:inline-flex;align-items:center;justify-content:center;text-decoration:none" title="Проверка пропуска">🔗</a>` +
+      `<button class="supply-detail-link supply-print-btn" style="${_pBtn}" onclick="window.open('${_wbPassesUrl}','_blank')" title="Проверка пропуска">🔗</button>` +
       `</div>`;
   });
 
