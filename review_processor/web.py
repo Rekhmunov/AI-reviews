@@ -5450,8 +5450,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             page_size=page_size,
         )
 
-    @app.get("/api/supplies/{supply_id}/goods")
-    def _fetch_supply_goods_cached(owner_id: int, supply_id: int) -> list[dict[str, Any]]:
+    def _fetch_supply_goods_cached(owner_id: int, supply_id: int) -> list:
         """Return goods from DB; if empty, fetch from WB API and cache (same logic as get_supply_goods endpoint)."""
         cached = repository.get_supply_goods(user_id=owner_id, supply_id=supply_id)
         if cached:
@@ -5482,6 +5481,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             _log.warning("_fetch_supply_goods_cached supply_id=%d: %s", supply_id, _ex)
         return []
 
+    @app.get("/api/supplies/{supply_id}/goods")
     def get_supply_goods(request: Request, supply_id: int) -> list[dict[str, object]]:
         user = _require_user(request)
         if not _can_view_supplies(user):
