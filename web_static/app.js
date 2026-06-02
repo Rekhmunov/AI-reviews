@@ -2287,10 +2287,14 @@ function _renderSupplyDocButtons(item) {
   const _effectiveName = (s) => s.manual_driver_name || s.driver_name || "";
 
   // ШК поставки — per driver
+  const _wbPassesUrl = `https://seller.wildberries.ru/supplies-management/all-supplies/supply-detail?preorderId&supplyId=${item.supply_id}&tab=passes`;
   validSlots.forEach((s, i) => {
     const dName = _shortDriverName(_effectiveName(s));
     const label = multi ? `⬇ ШК — ${dName || `Вод. ${i+1}`}` : "⬇ ШК поставки";
-    html += `<button class="supply-detail-link supply-barcode-link" onclick="downloadSupplyBarcode('${esc(s.pass_number)}',${item.supply_id})">${label}</button>`;
+    html += `<div style="display:flex;flex-wrap:nowrap;align-items:center;gap:2px;width:100%;min-width:0">` +
+      `<button class="supply-detail-link supply-barcode-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="downloadSupplyBarcode('${esc(s.pass_number)}',${item.supply_id})">${label}</button>` +
+      `<a href="${_wbPassesUrl}" target="_blank" rel="noopener" class="supply-detail-link supply-print-btn" style="flex:0 0 60px;min-width:60px;width:60px;height:28px;padding:0;font-size:15px;font-family:'Segoe UI Symbol','Arial Unicode MS',sans-serif;display:inline-flex;align-items:center;justify-content:center;text-decoration:none" title="Открыть пропуска в ЛК WB">🔗</a>` +
+      `</div>`;
   });
 
   const _pRow = `display:flex;flex-wrap:nowrap;align-items:center;gap:2px;width:100%;min-width:0`;
