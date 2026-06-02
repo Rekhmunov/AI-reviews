@@ -2292,7 +2292,7 @@ function _renderSupplyDocButtons(item) {
     const dName = _shortDriverName(_effectiveName(s));
     const label = multi ? `⬇ ШК — ${dName || `Вод. ${i+1}`}` : "⬇ ШК поставки";
     html += `<div style="display:flex;flex-wrap:nowrap;align-items:center;gap:2px;width:100%;min-width:0">` +
-      `<button class="supply-detail-link supply-barcode-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="downloadSupplyBarcode('${esc(s.pass_number)}',${item.supply_id})">${label}</button>` +
+      `<button class="supply-detail-link supply-barcode-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:0.4;cursor:default" disabled onclick="downloadSupplyBarcode('${esc(s.pass_number)}',${item.supply_id})">${label}</button>` +
       `<a href="${_wbPassesUrl}" target="_blank" rel="noopener" class="supply-detail-link supply-print-btn" style="flex:0 0 60px;min-width:60px;width:60px;padding:0;font-size:15px;font-family:'Segoe UI Symbol','Arial Unicode MS',sans-serif;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;align-self:stretch" title="Проверка пропуска">🔗</a>` +
       `</div>`;
   });
