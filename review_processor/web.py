@@ -5451,6 +5451,37 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
 
     @app.get("/api/supplies/{supply_id}/goods")
+    def _fetch_supply_goods_cached(owner_id: int, supply_id: int) -> list[dict[str, Any]]:
+        """Return goods from DB; if empty, fetch from WB API and cache (same logic as get_supply_goods endpoint)."""
+        cached = repository.get_supply_goods(user_id=owner_id, supply_id=supply_id)
+        if cached:
+            return cached
+        try:
+            import urllib.request as _ul2, json as _jm2, ssl as _sl2
+            row = repository.get_supply_item_row(user_id=owner_id, supply_id=supply_id)
+            if not row:
+                return []
+            src = repository.get_supply_source_with_key(user_id=owner_id, source_id=int(row["source_id"]))
+            if not src or not src.get("api_key"):
+                return []
+            api_key = str(src["api_key"])
+            ctx2 = _sl2.create_default_context()
+            req2 = _ul2.Request(
+                f"https://supplies-api.wildberries.ru/api/v1/supplies/{supply_id}/goods",
+                headers={"Authorization": api_key, "Content-Type": "application/json", "User-Agent": "FeedPilot/1.0"},
+                method="GET",
+            )
+            with _ul2.urlopen(req2, timeout=15, context=ctx2) as r2:
+                goods = _jm2.loads(r2.read() or b"[]")
+            if isinstance(goods, list) and goods:
+                item_row = repository.get_supply_item_row(user_id=owner_id, supply_id=supply_id)
+                if item_row:
+                    repository.upsert_supply_goods(supply_item_id=int(item_row["id"]), goods=goods)
+                return repository.get_supply_goods(user_id=owner_id, supply_id=supply_id)
+        except Exception as _ex:
+            _log.warning("_fetch_supply_goods_cached supply_id=%d: %s", supply_id, _ex)
+        return []
+
     def get_supply_goods(request: Request, supply_id: int) -> list[dict[str, object]]:
         user = _require_user(request)
         if not _can_view_supplies(user):
@@ -5710,7 +5741,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         date_display = now.strftime("%d.%m.%Y")
         supply_id_str = str(supply_id)
 
-        goods_list = repository.get_supply_goods(user_id=owner_id, supply_id=supply_id)
+        goods_list = _fetch_supply_goods_cached(owner_id, supply_id)
         name_map = repository.get_product_name_by_article(user_id=owner_id)
         for g in goods_list:
             vc = str(g.get("vendor_code") or "")
@@ -5959,7 +5990,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         wh              = str(item.get("warehouse_name") or "").strip()
 
         # ── Goods list ─────────────────────────────────────────────────────
-        goods_list = repository.get_supply_goods(user_id=owner_id, supply_id=supply_id)
+        goods_list = _fetch_supply_goods_cached(owner_id, supply_id)
         name_map = repository.get_product_name_by_article(user_id=owner_id)
         for g in goods_list:
             vc = str(g.get("vendor_code") or "")
