@@ -2591,9 +2591,16 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                             resume_cursor = str(since_ts * 1000) if since_ts else None
                         else:
                             resume_cursor = None
+                        # Limit to 5 pages max for on-demand fetch — prevents
+                        # timeout on chats with thousands of historical events.
+                        # The auto-sync cursor keeps messages up-to-date.
+                        _page_limit = [0]
+                        def _stop_after_5_pages(p: int, m: int) -> None:
+                            _page_limit[0] = p
                         sender_map = client._fetch_last_sender_map(  # type: ignore[attr-defined]
                             resume_cursor=resume_cursor,
-                            stop_requested=None,
+                            stop_requested=lambda: _page_limit[0] >= 5,
+                            page_progress_callback=_stop_after_5_pages,
                         )
                         sender_map.pop("_final_cursor", None)
                         entry = sender_map.get(ext_id, {})

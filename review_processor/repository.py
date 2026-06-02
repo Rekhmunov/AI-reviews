@@ -2465,11 +2465,11 @@ class ReviewRepository:
         extra[str(key)] = value
         with self._connect() as conn:
             result = conn.execute(
-                """
+                self._sql("""
                 UPDATE marketplace_accounts
                 SET extra_json = ?, updated_at = ?
                 WHERE user_id = ? AND id = ?
-                """,
+                """),
                 (self._json_param(extra), _utc_now(), user_id, account_id),
             )
         return result.rowcount > 0
