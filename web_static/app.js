@@ -2291,9 +2291,9 @@ function _renderSupplyDocButtons(item) {
   validSlots.forEach((s, i) => {
     const dName = _shortDriverName(_effectiveName(s));
     const label = multi ? `⬇ ШК — ${dName || `Вод. ${i+1}`}` : "⬇ ШК поставки";
-    html += `<div style="display:flex;flex-wrap:nowrap;align-items:stretch;gap:2px;width:100%;min-width:0">` +
+    html += `<div style="display:flex;flex-wrap:nowrap;align-items:center;gap:2px;width:100%;min-width:0">` +
       `<button class="supply-detail-link supply-barcode-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none" onclick="downloadSupplyBarcode('${esc(s.pass_number)}',${item.supply_id})">${label}</button>` +
-      `<a href="${_wbPassesUrl}" target="_blank" rel="noopener" class="supply-detail-link supply-print-btn" style="flex:0 0 60px;min-width:60px;width:60px;padding:0;font-size:15px;font-family:'Segoe UI Symbol','Arial Unicode MS',sans-serif;display:inline-flex;align-items:center;justify-content:center;text-decoration:none" title="Проверка пропуска">🔗</a>` +
+      `<a href="${_wbPassesUrl}" target="_blank" rel="noopener" class="supply-detail-link supply-print-btn" style="${_pBtn};display:inline-flex;align-items:center;justify-content:center;text-decoration:none" title="Проверка пропуска">🔗</a>` +
       `</div>`;
   });
 
