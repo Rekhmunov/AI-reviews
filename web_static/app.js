@@ -2286,19 +2286,19 @@ function _renderSupplyDocButtons(item) {
   // Helper: get effective driver name for a slot
   const _effectiveName = (s) => s.manual_driver_name || s.driver_name || "";
 
+  const _pRow = `display:flex;flex-wrap:nowrap;align-items:center;gap:2px;width:100%;min-width:0`;
+  const _pBtn = `flex:0 0 60px;min-width:60px;width:60px;height:28px;padding:0;font-size:15px;font-family:'Segoe UI Symbol','Arial Unicode MS',sans-serif`;
+
   // ШК поставки — per driver
   const _wbPassesUrl = `https://seller.wildberries.ru/supplies-management/all-supplies/supply-detail?preorderId&supplyId=${item.supply_id}&tab=passes`;
   validSlots.forEach((s, i) => {
     const dName = _shortDriverName(_effectiveName(s));
     const label = multi ? `⬇ ШК — ${dName || `Вод. ${i+1}`}` : "⬇ ШК поставки";
-    html += `<div style="display:flex;flex-wrap:nowrap;align-items:center;gap:2px;width:100%;min-width:0">` +
+    html += `<div style="${_pRow}">` +
       `<button class="supply-detail-link supply-barcode-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none" onclick="downloadSupplyBarcode('${esc(s.pass_number)}',${item.supply_id})">${label}</button>` +
       `<a href="${_wbPassesUrl}" target="_blank" rel="noopener" class="supply-detail-link supply-print-btn" style="${_pBtn};display:inline-flex;align-items:center;justify-content:center;text-decoration:none" title="Проверка пропуска">🔗</a>` +
       `</div>`;
   });
-
-  const _pRow = `display:flex;flex-wrap:nowrap;align-items:center;gap:2px;width:100%;min-width:0`;
-  const _pBtn = `flex:0 0 60px;min-width:60px;width:60px;height:28px;padding:0;font-size:15px;font-family:'Segoe UI Symbol','Arial Unicode MS',sans-serif`;
 
   // Упаковочный лист — per driver (only pass_number changes)
   validSlots.forEach((s, i) => {
