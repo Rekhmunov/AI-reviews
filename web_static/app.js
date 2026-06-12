@@ -597,11 +597,18 @@ function initNavGroups() {
     _applyNavGroup("supplies", collapsed, false);
   }
 
-  // Salary section: always visible, default expanded
+  // Salary section: visible only if user has salary access or is tenant owner
+  const salaryHeader = document.getElementById("nav-group-salary-header");
   const salaryWrapper = document.getElementById("nav-group-salary");
-  if (salaryWrapper) {
-    const collapsed = Boolean(states["salary"]);
-    _applyNavGroup("salary", collapsed, false);
+  if (perms.can_view_salary || isTenantOwner()) {
+    if (salaryHeader) salaryHeader.style.display = "";
+    if (salaryWrapper) {
+      const collapsed = Boolean(states["salary"]);
+      _applyNavGroup("salary", collapsed, false);
+    }
+  } else {
+    if (salaryHeader) salaryHeader.style.display = "none";
+    if (salaryWrapper) { salaryWrapper.style.maxHeight = "0px"; salaryWrapper.style.overflow = "hidden"; }
   }
 }
 // ────────────────────────────────────────────────────────────────────────────
@@ -10227,8 +10234,6 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   if (!permissions.can_view_salary && !isTenantOwner()) {
     document.getElementById("section-salary")?.classList.add("hidden");
-    const salaryNav = document.getElementById("nav-salary");
-    if (salaryNav) salaryNav.style.display = "none";
   }
   const savedSettingsTab = readStoredUiState(ACTIVE_SETTINGS_TAB_STORAGE_KEY);
   let initialSettingsTab = SETTINGS_TAB_IDS.includes(savedSettingsTab) ? savedSettingsTab : "sources";
