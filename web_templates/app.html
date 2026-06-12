@@ -1061,7 +1061,7 @@
                   </div>
                 </div>
               </div>
-              <select id="ozonStatusFilter" onchange="loadOzonSupplies()" style="display:none">
+              <select id="ozonStatusFilter" onchange="loadOzonSupplies()">
                 <option value="">Все статусы</option>
                 <option value="DATA_FILLING">Заполнение данных</option>
                 <option value="READY_TO_SUPPLY">Готово к отгрузке</option>
@@ -1235,7 +1235,7 @@
             <div class="supplies-actions">
               <button id="suppliesSyncBtn" onclick="syncSupplies()">🔄 Синхронизировать</button>
               <button id="suppliesClearBtn" class="secondary icon-btn" onclick="clearSupplies()" style="color:#b91c1c;border-color:#fca5a5" title="Удалить поставки">🗑</button>
-              <select id="suppliesStatusFilter" onchange="loadSupplies()" style="display:none">
+              <select id="suppliesStatusFilter" onchange="loadSupplies()">
                 <option value="">Все статусы</option>
                 <option value="1">Новые</option>
                 <option value="2">Запланированные</option>
@@ -1249,7 +1249,11 @@
                   Действия ▾ <span id="suppliesBatchCount" style="font-weight:bold"></span>
                 </button>
                 <div id="suppliesBatchMenu" class="dropdown-menu hidden" style="position:absolute;top:38px;left:0;z-index:200;min-width:260px;background:#fff;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.1);padding:6px 0">
-                  <div style="padding:4px 12px 2px;font-size:11px;color:#94a3b8;font-weight:600">СУММАРНЫЕ ДОКУМЕНТЫ</div>
+                  <div style="padding:4px 12px 2px;font-size:11px;color:#94a3b8;font-weight:600">МАССОВЫЕ ДЕЙСТВИЯ</div>
+                  <div style="padding:2px 8px">
+                    <button class="secondary" style="width:100%;text-align:left" onclick="wbBatchSetProduction()">🏭 Производство</button>
+                  </div>
+                  <div style="padding:2px 8px 2px;font-size:11px;color:#94a3b8;font-weight:600;margin-top:4px">СУММАРНЫЕ ДОКУМЕНТЫ</div>
                   <div style="padding:2px 8px">
                     <button class="secondary" style="width:100%;text-align:left" onclick="printCombinedPoA()">⬇ Суммарная доверенность</button>
                   </div>
@@ -2048,7 +2052,12 @@
       can_view_feedback: {{CAN_VIEW_FEEDBACK}},
       is_admin: {{IS_ADMIN}},
       is_super_admin: {{IS_SUPER_ADMIN}},
-      is_tenant_owner: {{IS_TENANT_OWNER}}
+      is_tenant_owner: {{IS_TENANT_OWNER}},
+      can_view_wb_supplies: {{CAN_VIEW_WB_SUPPLIES}},
+      can_view_ozon_supplies: {{CAN_VIEW_OZON_SUPPLIES}},
+      can_view_supply_poa: {{CAN_VIEW_SUPPLY_POA}},
+      can_view_supply_certs: {{CAN_VIEW_SUPPLY_CERTS}},
+      can_view_supply_settings: {{CAN_VIEW_SUPPLY_SETTINGS}}
     };
   </script>
   <script src="/static/jszip.min.js"></script>

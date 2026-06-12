@@ -7993,19 +7993,6 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         if not lo_ok: raise HTTPException(status_code=500,detail="Ошибка конвертации PDF")
         return Response(content=pdf_path.read_bytes(),media_type="application/pdf",headers={"Content-Disposition":'inline; filename="combined_ttn.pdf"'})
 
-    @app.get("/api/supplies/{supply_id}/ttn-error-test")
-    def ttn_error_test(request: Request, supply_id: int) -> dict[str, object]:
-        """Debug: run ttn.pdf and return error detail instead of 500."""
-        import subprocess as _sp, tempfile as _tf, zipfile as _zf, io as _io
-        import re as _re, pathlib as _pl, traceback as _tb
-        from fastapi.responses import FileResponse
-        try:
-            return get_ttn_pdf(request, supply_id)
-        except HTTPException as e:
-            return {"ok": False, "status": e.status_code, "detail": e.detail}
-        except Exception as ex:
-            return {"ok": False, "error": str(ex), "trace": _tb.format_exc()[-2000:]}
-
     @app.delete("/api/supplies")
     def clear_supplies(request: Request) -> dict[str, object]:
         user = _require_user(request)
@@ -8299,9 +8286,9 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         user = _require_user(request)
         if not _can_view_supplies(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
-        # Only managers (non-feedback_manager roles) can delete
+        # Managers cannot delete certificates; owners and admins can
         if str(user.get("role") or "") == TENANT_ROLE_MANAGER:
-            raise HTTPException(status_code=403, detail="Только менеджер может удалять сертификаты")
+            raise HTTPException(status_code=403, detail="Менеджеры не могут удалять сертификаты")
         ok = repository.delete_certificate(user_id=_supply_owner_id(user), cert_id=cert_id)
         return {"ok": ok}
 
@@ -8866,6 +8853,10 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
         role in ROLE_CAN_ACCESS_SETTINGS
         or bool(_supply_perms.get("can_supply_poa"))
     )
+    can_view_supply_certs = (
+        role in ROLE_CAN_ACCESS_SETTINGS
+        or bool(_supply_perms.get("can_supply_certs"))
+    )
     can_view_supply_settings = (
         role in ROLE_CAN_ACCESS_SETTINGS
         or bool(_supply_perms.get("can_supply_settings"))
@@ -8899,7 +8890,7 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
     _poa_link = ('<a id="nav-supplies-poa" class="nav-item" href="#" onclick="showSection(\'supplies-poa\')"><span class="nav-item-icon">☐</span> Доверенности</a>'
                  if can_view_supply_poa else "")
     _certs_link = ('<a id="nav-supplies-certificates" class="nav-item" href="#" onclick="showSection(\'supplies-certificates\')"><span class="nav-item-icon">✦</span> Сертификаты</a>'
-                   if can_view_supplies else "")
+                   if can_view_supply_certs else "")
     nav_supplies_wb = _wb_link + _ozon_link + _poa_link + _certs_link if can_view_supplies else ""
     nav_supplies_settings = (
         '<a id="nav-supplies-settings" class="nav-item" href="#" onclick="showSection(\'supplies-settings\')"><span class="nav-item-icon">≡</span> Настройки</a>'
@@ -8927,6 +8918,11 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
             "IS_ADMIN": "true" if role == ROLE_ADMIN else "false",
             "IS_SUPER_ADMIN": "true" if is_super_admin else "false",
             "IS_TENANT_OWNER": "true" if is_tenant_owner else "false",
+            "CAN_VIEW_WB_SUPPLIES": "true" if can_view_wb_supplies else "false",
+            "CAN_VIEW_OZON_SUPPLIES": "true" if can_view_ozon_supplies else "false",
+            "CAN_VIEW_SUPPLY_POA": "true" if can_view_supply_poa else "false",
+            "CAN_VIEW_SUPPLY_CERTS": "true" if can_view_supply_certs else "false",
+            "CAN_VIEW_SUPPLY_SETTINGS": "true" if can_view_supply_settings else "false",
         },
     )
 

@@ -604,7 +604,12 @@ function sectionLabel(section) {
     analytics: "Аналитика",
     settings: "Настройки",
     "supplies-wb": "Поставки — WB",
+    "supplies-ozon": "Поставки — OZON",
+    "supplies-poa": "Доверенности",
+    "supplies-certificates": "Сертификаты",
     "supplies-settings": "Поставки — Настройки",
+    "stock-work": "Остатки",
+    "stock-settings": "Остатки — Настройки",
     profile: "Мой профиль",
   };
   return labels[String(section || "")] || "Раздел";
@@ -2295,7 +2300,7 @@ function _renderSupplyDocButtons(item) {
     const dName = _shortDriverName(_effectiveName(s));
     const label = multi ? `⬇ ШК — ${dName || `Вод. ${i+1}`}` : "⬇ ШК поставки";
     html += `<div style="${_pRow}">` +
-      `<button class="supply-detail-link supply-barcode-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none" onclick="downloadSupplyBarcode('${esc(s.pass_number)}',${item.supply_id})">${label}</button>` +
+      `<button class="supply-detail-link supply-barcode-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="downloadSupplyBarcode('${esc(s.pass_number)}',${item.supply_id})">${label}</button>` +
       `<button class="supply-detail-link supply-print-btn" style="${_pBtn}" onclick="window.open('${_wbPassesUrl}','_blank')" title="Проверка пропуска">⎙</button>` +
       `</div>`;
   });
@@ -2788,7 +2793,7 @@ function copySupplyDetails() {
     `Производство: ${document.getElementById("sdProduction")?.value || "—"}`,
     ...slots.map((s, i) => [
       `ШК поставки${slots.length > 1 ? ` (${i+1})` : ""}: ${s.pass_number || "—"}`,
-      `Водитель${slots.length > 1 ? ` (${i+1})` : ""}: ${s.driver_name || "—"}`,
+      `Водитель${slots.length > 1 ? ` (${i+1})` : ""}: ${s.manual_driver_name || s.driver_name || "—"}`,
       `Паллет${slots.length > 1 ? ` (${i+1})` : ""}: ${s.pallets_count || "—"}`,
     ]).flat(),
     `Примечание: ${val("sdNotes") || "—"}`,
@@ -2840,7 +2845,8 @@ async function saveSupplyManualFields() {
   const first = slots[0] || {};
   const passNumber = first.pass_number || null;
   const palletsCount = first.pallets_count || null;
-  const driverName = first.driver_name || null;
+  // For manual-mode slots the effective name is in manual_driver_name, not driver_name
+  const driverName = first.manual_driver_name || first.driver_name || null;
   const driversJson = slots.length > 0 ? JSON.stringify(slots) : null;
 
   if (btn) { btn.disabled = true; btn.textContent = "Сохранение…"; }
@@ -4418,7 +4424,8 @@ function _updateOzonPagination() {
 }
 
 function ozonChangePage(delta) {
-  const totalPages = Math.max(1, Math.ceil(ozonState.total / ozonState.page_size));
+  const effectiveTotal = ozonState._filteredTotal !== undefined ? ozonState._filteredTotal : ozonState.total;
+  const totalPages = Math.max(1, Math.ceil(effectiveTotal / ozonState.page_size));
   ozonState.page = Math.max(1, Math.min(totalPages, ozonState.page + delta));
   _applyOzonPage();
 }
@@ -4484,7 +4491,12 @@ function _ozonPollSync() {
 
 async function clearOzonSupplies() {
   if (!confirm("Удалить все поставки OZON?")) return;
-  await fetch("/api/ozon-supplies", { method: "DELETE", headers: jsonHeaders() });
+  const res = await fetch("/api/ozon-supplies", { method: "DELETE", headers: jsonHeaders() }).catch(() => null);
+  if (!res || !res.ok) {
+    const e = await res?.json().catch(() => ({})) || {};
+    alert("Ошибка: " + (e.detail || e.message || (res?.status ?? "сеть")));
+    return;
+  }
   await loadOzonSupplies(true);
 }
 
@@ -5563,6 +5575,72 @@ function toggleSuppliesBatchMenu(e) {
   const close = () => { menu.classList.add("hidden"); document.removeEventListener("click", close); };
   setTimeout(() => document.addEventListener("click", close), 10);
 }
+
+async function wbBatchSetProduction() {
+  document.getElementById("suppliesBatchMenu")?.classList.add("hidden");
+  const ids = Array.from(_selectedSupplyIds);
+  if (!ids.length) return;
+
+  const prods = _supplyProductionsCache || [];
+  if (!prods.length) { alert("Нет доступных производств. Добавьте их в Настройки."); return; }
+
+  const existing = document.getElementById("_wbBatchProdPopup");
+  if (existing) existing.remove();
+
+  const popup = document.createElement("div");
+  popup.id = "_wbBatchProdPopup";
+  popup.style.cssText = "position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:9999;background:#fff;border:1px solid #e2e8f0;border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.18);padding:20px 24px;min-width:280px";
+  popup.innerHTML = `
+    <div style="font-weight:600;font-size:14px;margin-bottom:12px">Массовое изменение производства</div>
+    <div style="font-size:13px;color:#64748b;margin-bottom:10px">Выбрано поставок: <b>${ids.length}</b></div>
+    <select id="_wbBatchProdSelect" style="width:100%;padding:6px 8px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;margin-bottom:14px">
+      <option value="">— Очистить производство —</option>
+      ${prods.map(p => `<option value="${esc(p.name)}">${esc(p.name)}</option>`).join("")}
+    </select>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="secondary" onclick="document.getElementById('_wbBatchProdPopup').remove()">Отмена</button>
+      <button onclick="event.stopPropagation();_wbBatchProdApply()" style="background:#2563eb;color:#fff;border:none;padding:7px 18px;border-radius:6px;cursor:pointer;font-size:13px">Применить</button>
+    </div>`;
+  document.body.appendChild(popup);
+}
+window.wbBatchSetProduction = wbBatchSetProduction;
+
+async function _wbBatchProdApply() {
+  const popup = document.getElementById("_wbBatchProdPopup");
+  const sel = document.getElementById("_wbBatchProdSelect");
+  if (!sel) return;
+  const production = sel.value;
+  popup?.remove();
+
+  const ids = Array.from(_selectedSupplyIds);
+  let ok = 0, fail = 0;
+  for (const sid of ids) {
+    try {
+      const item = (suppliesState.items || []).find(x => x.supply_id === sid) || {};
+      const resp = await fetch(`/api/supplies/${sid}/manual-fields`, {
+        method: "PATCH", headers: jsonHeaders(),
+        body: JSON.stringify({
+          production,
+          notes: item.notes || null,
+          pass_number: item.pass_number || null,
+          pallets_count: item.pallets_count || null,
+          driver_name: item.driver_name || null,
+          drivers_json: item.drivers_json || null,
+        })
+      });
+      if (resp.ok) {
+        ok++;
+        const it = (suppliesState.items || []).find(x => x.supply_id === sid);
+        if (it) it.production = production;
+      } else { fail++; }
+    } catch (_) { fail++; }
+  }
+
+  renderSuppliesTable();
+  _updateBatchActionUI();
+  if (fail) alert(`Готово. Обновлено: ${ok}, ошибок: ${fail}`);
+}
+window._wbBatchProdApply = _wbBatchProdApply;
 
 function _getCombinedDocNumber() {
   const now = new Date();
@@ -10383,6 +10461,12 @@ document.addEventListener("DOMContentLoaded", () => {
     closeManagerPermissionsModal();
     closeChatQuickTemplatesModal();
     closeSupplyDetailsModal();
+    closeOzonDetailsModal();
+    closeOzonBindingModal();
+    closeCertModal();
+    closeCertEditModal();
+    closeCertImageModal();
+    closeCreatePoAModal();
     toggleChatEmojiPicker(false);
     closeMobileNavMenu();
   });
@@ -10426,13 +10510,25 @@ document.addEventListener("DOMContentLoaded", () => {
   if (permissions.can_view_supplies) {
     const suppliesNavLabel = document.getElementById("nav-section-supplies");
     if (suppliesNavLabel) suppliesNavLabel.style.display = "flex";
-    // "Удалить поставки" — только для владельцев, не для менеджеров
+    // Restrict destructive and privileged actions based on granular permissions
     if (!permissions.can_view_settings) {
       const clearBtn = document.getElementById("suppliesClearBtn");
       if (clearBtn) clearBtn.style.display = "none";
-      // Скрыть вкладку "Источники" в настройках поставок — только водители
+      const ozonClearBtn = document.getElementById("ozonClearBtn");
+      if (ozonClearBtn) ozonClearBtn.style.display = "none";
+      // Скрыть вкладку "Источники" в настройках поставок
       const sourcesTab = document.getElementById("supplies-settings-tab-sources");
       if (sourcesTab) sourcesTab.style.display = "none";
+    }
+    // Show/hide WB sync button based on granular WB access
+    if (!permissions.can_view_wb_supplies) {
+      const wbSyncBtn = document.getElementById("suppliesSyncBtn");
+      if (wbSyncBtn) wbSyncBtn.style.display = "none";
+    }
+    // Show/hide OZON sync button based on granular OZON access
+    if (!permissions.can_view_ozon_supplies) {
+      const ozonSyncBtn = document.getElementById("ozonSyncBtn");
+      if (ozonSyncBtn) ozonSyncBtn.style.display = "none";
     }
     Promise.all([
       loadSupplySources(),
