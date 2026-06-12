@@ -102,6 +102,8 @@ const teamState = {
   pendingCreate: null,
   pendingPermissions: [],
   pendingCanSupplies: false,
+  pendingCanSalary: false,
+  pendingSupplyPermissions: null,
 };
 let syncInProgress = false;
 let syncStopStatusTimer = null;
@@ -9287,7 +9289,11 @@ async function openEditTeamMember(userId) {
   teamState.pendingPermissions = (member.manager_permissions || []).map(p => ({...p}));
   teamState.pendingCanSupplies = Boolean(member.can_supplies);
   teamState.pendingCanSalary = Boolean(member.can_salary);
-  teamState.pendingSupplyPermissions = null; // loaded lazily on first perms modal open
+  // Pre-populate from the data already loaded by loadTeam() so saveEditTeamMember
+  // always has a complete supply payload even if the permissions modal is never opened.
+  teamState.pendingSupplyPermissions = member.supply_permissions
+    ? { ...member.supply_permissions, sources: { ...(member.supply_permissions.sources || {}) } }
+    : null;
   const permText = formatManagerPermissionsText(member.manager_permissions || [], member.can_supplies, member.supply_permissions, member.can_salary);
   document.getElementById("editMemberPermissionsPreview").textContent = permText || "Нет доступов";
   const modal = document.getElementById("editTeamMemberModal");
@@ -9308,7 +9314,7 @@ async function openManagerPermissionsModalForEdit() {
   if (!Array.isArray(teamState.accounts) || !teamState.accounts.length) await loadAccounts();
   if (!_editingMemberId) return;
   // Supply permissions are loaded once per edit session (null = not yet loaded)
-  if (teamState.pendingSupplyPermissions === null) {
+  if (!teamState.pendingSupplyPermissions) {
     const spRes = await fetch(`/api/tenant/team/${_editingMemberId}/supply-permissions`).catch(() => null);
     teamState.pendingSupplyPermissions = spRes?.ok ? await spRes.json().catch(() => ({})) : {};
   }
@@ -9354,24 +9360,42 @@ async function saveEditTeamMember() {
         return;
       }
     }
-    // Update permissions
+    // Update feedback permissions
     const permsPayload = (teamState.pendingPermissions || []).filter(p => p.can_reviews || p.can_questions || p.can_chats);
-    await fetch(`/api/tenant/team/${uid}/permissions`, {
+    const pr2 = await fetch(`/api/tenant/team/${uid}/permissions`, {
       method: "PUT", headers: jsonHeaders(), body: JSON.stringify({ permissions: permsPayload })
     });
+    if (!pr2.ok) {
+      const e = await pr2.json().catch(() => ({}));
+      if (info) { info.textContent = e.detail || "Ошибка сохранения разрешений"; info.style.color = "#b91c1c"; }
+      return;
+    }
+    // Update supply access (always send full payload including can_supply_certs)
     const sp = teamState.pendingSupplyPermissions || {};
-    await fetch(`/api/tenant/team/${uid}/supplies-access`, {
+    const pr3 = await fetch(`/api/tenant/team/${uid}/supplies-access`, {
       method: "PUT", headers: jsonHeaders(), body: JSON.stringify({
         can_supplies: Boolean(teamState.pendingCanSupplies),
         can_supply_settings: Boolean(sp.can_supply_settings),
         can_supply_poa: Boolean(sp.can_supply_poa),
+        can_supply_certs: Boolean(sp.can_supply_certs),
         supply_sources: sp.sources || {},
       })
     });
-    await fetch(`/api/tenant/team/${uid}/salary-access`, {
+    if (!pr3.ok) {
+      const e = await pr3.json().catch(() => ({}));
+      if (info) { info.textContent = e.detail || "Ошибка сохранения доступа к поставкам"; info.style.color = "#b91c1c"; }
+      return;
+    }
+    // Update salary access
+    const pr4 = await fetch(`/api/tenant/team/${uid}/salary-access`, {
       method: "PUT", headers: jsonHeaders(),
       body: JSON.stringify({ can_salary: Boolean(teamState.pendingCanSalary) }),
     });
+    if (!pr4.ok) {
+      const e = await pr4.json().catch(() => ({}));
+      if (info) { info.textContent = e.detail || "Ошибка сохранения доступа к зарплате"; info.style.color = "#b91c1c"; }
+      return;
+    }
     if (info) { info.textContent = "Сохранено"; info.style.color = "#16a34a"; }
     await loadTeam();
     setTimeout(closeEditTeamMember, 800);
@@ -9431,10 +9455,13 @@ async function openManagerPermissionsModalForCreate() {
   }
   const permissions = Array.isArray(teamState.pendingPermissions) ? teamState.pendingPermissions : [];
   renderManagerPermissionsRows(teamState.accounts, permissions);
-  // Load supply sources for new manager (no existing permissions)
   const ssRes = await fetch("/api/supply-sources").catch(() => null);
   const ssSources = ssRes?.ok ? await ssRes.json().catch(() => []) : [];
-  renderManagerSupplyPermissionsRows(ssSources, {});
+  // Use existing pending supply state on re-open so unsaved selections are preserved
+  renderManagerSupplyPermissionsRows(ssSources, teamState.pendingSupplyPermissions || {});
+  // Restore salary checkbox from pending state
+  const salaryChkCreate = document.getElementById("managerSalaryAccess");
+  if (salaryChkCreate) salaryChkCreate.checked = Boolean(teamState.pendingCanSalary);
   setModalVisibility("managerPermissionsModal", true);
 }
 
@@ -9477,7 +9504,8 @@ async function saveNewManager() {
   }
   const permissions = Array.isArray(teamState.pendingPermissions) ? teamState.pendingPermissions : [];
   const canSupplies = Boolean(teamState.pendingCanSupplies);
-  if (!permissions.length && !canSupplies) {
+  const canSalaryNew = Boolean(teamState.pendingCanSalary);
+  if (!permissions.length && !canSupplies && !canSalaryNew) {
     setTeamInfo("Сначала нажмите «Разрешения» и выберите хотя бы один доступ.", true);
     return;
   }
@@ -9503,11 +9531,18 @@ async function saveNewManager() {
     return;
   }
   if (data.item?.id) {
-    // Always set both flags explicitly (including false) so DB is in sync
-    // with the permissions modal state regardless of any prior session state.
+    // Always send full supply and salary payloads (including when false)
+    // so the DB is exactly in sync with what was selected in the modal.
+    const spNew = teamState.pendingSupplyPermissions || {};
     await fetch(`/api/tenant/team/${data.item.id}/supplies-access`, {
       method: "PUT", headers: jsonHeaders(),
-      body: JSON.stringify({ can_supplies: Boolean(teamState.pendingCanSupplies) }),
+      body: JSON.stringify({
+        can_supplies: canSupplies,
+        can_supply_settings: Boolean(spNew.can_supply_settings),
+        can_supply_poa: Boolean(spNew.can_supply_poa),
+        can_supply_certs: Boolean(spNew.can_supply_certs),
+        supply_sources: spNew.sources || {},
+      }),
     }).catch(() => {});
     await fetch(`/api/tenant/team/${data.item.id}/salary-access`, {
       method: "PUT", headers: jsonHeaders(),
