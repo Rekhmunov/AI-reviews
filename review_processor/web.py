@@ -5194,6 +5194,39 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             headers={"Content-Disposition": f'attachment; filename="{xlsx_name}"'},
         )
 
+    @app.get("/api/salary/workers")
+    def list_salary_workers(request: Request) -> dict[str, object]:
+        user = _require_tenant_owner(request)
+        owner_id = _tenant_owner_id(user)
+        workers = repository.list_salary_workers(owner_user_id=owner_id)
+        return {"items": workers, "count": len(workers)}
+
+    class SalaryWorkerCreateRequest(BaseModel):
+        full_name: str = Field(min_length=1, max_length=200)
+        production: str = Field(default="", max_length=100)
+
+    @app.post("/api/salary/workers")
+    def create_salary_worker(
+        payload: SalaryWorkerCreateRequest, request: Request
+    ) -> dict[str, object]:
+        user = _require_tenant_owner(request)
+        owner_id = _tenant_owner_id(user)
+        worker = repository.create_salary_worker(
+            owner_user_id=owner_id,
+            full_name=payload.full_name,
+            production=payload.production,
+        )
+        return {"ok": True, "item": worker}
+
+    @app.delete("/api/salary/workers/{worker_id}")
+    def delete_salary_worker(worker_id: int, request: Request) -> dict[str, object]:
+        user = _require_tenant_owner(request)
+        owner_id = _tenant_owner_id(user)
+        deleted = repository.delete_salary_worker(owner_user_id=owner_id, worker_id=worker_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Работник не найден")
+        return {"ok": True}
+
     @app.get("/api/salary/my")
     def my_salary(
         request: Request,

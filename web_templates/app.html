@@ -73,6 +73,9 @@
             <a id="nav-salary" class="nav-item" href="#" onclick="showSection('salary')">
               <span class="nav-item-icon">₽</span> Начисление ЗП
             </a>
+            <a id="nav-salary-settings" class="nav-item" href="#" onclick="showSection('salary-settings')" style="display:none">
+              <span class="nav-item-icon">≡</span> Настройки
+            </a>
           </div>
 
         </nav>
@@ -1797,6 +1800,47 @@
               <div id="mySalaryTotal" class="my-salary-total-value">0,00 ₽</div>
             </div>
             <div id="mySalaryRatesHint" class="small" style="margin-top:12px;color:#64748b"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="section-salary-settings" class="hidden">
+        <h3 class="section-title">Зарплата — Настройки</h3>
+        <div class="panel">
+          <div class="settings-tabs">
+            <button id="salary-settings-tab-workers" class="settings-tab-btn active" onclick="showSalarySettingsTab('workers')">Работники</button>
+          </div>
+        </div>
+
+        <div id="salary-settings-pane-workers">
+          <div class="panel">
+            <div class="row row-between">
+              <h4 class="no-margin">Работники</h4>
+            </div>
+            <div class="row" style="flex-wrap:wrap;gap:10px;margin-top:8px">
+              <input id="salaryWorkerName" type="text" placeholder="ФИО работника" style="flex:1;min-width:200px" autocomplete="off" />
+              <select id="salaryWorkerProduction" style="min-width:160px">
+                <option value="Иваново">Иваново</option>
+                <option value="Кинешма">Кинешма</option>
+                <option value="Нерль">Нерль</option>
+              </select>
+              <button type="button" onclick="saveSalaryWorker()">+ Добавить</button>
+            </div>
+            <div id="salaryWorkersInfo" class="small" style="margin-top:6px"></div>
+          </div>
+          <div class="panel">
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>ФИО</th>
+                    <th>Производство</th>
+                    <th style="width:80px">Действия</th>
+                  </tr>
+                </thead>
+                <tbody id="salaryWorkersTbody"></tbody>
+              </table>
+            </div>
           </div>
         </div>
       </section>

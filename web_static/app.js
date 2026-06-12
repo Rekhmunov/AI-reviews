@@ -117,7 +117,7 @@ const UI_REFRESH_MS = 60000;        // refresh chat list from DB every 60s (afte
 const CHANNEL_ICONS = { "Отзывы": "⭐", "Вопросы": "❓", "Чаты": "💬" };
 const ACTIVE_SECTION_STORAGE_KEY = "feedpilot_active_section";
 const ACTIVE_SETTINGS_TAB_STORAGE_KEY = "feedpilot_active_settings_tab";
-const SECTION_IDS = ["reviews", "conversations", "chats", "analytics", "settings", "stock-settings", "stock-work", "supplies-wb", "supplies-ozon", "supplies-poa", "supplies-certificates", "supplies-settings", "salary", "team", "profile"];
+const SECTION_IDS = ["reviews", "conversations", "chats", "analytics", "settings", "stock-settings", "stock-work", "supplies-wb", "supplies-ozon", "supplies-poa", "supplies-certificates", "supplies-settings", "salary", "salary-settings", "team", "profile"];
 const SETTINGS_TAB_IDS = ["sources", "rules", "templates", "recommendations", "products", "template-variables"];
 const APP_BOOT_HIDE_CLASS = "app-boot-hidden";
 const MOBILE_NAV_BREAKPOINT_PX = 900;
@@ -531,7 +531,8 @@ function canViewSection(section) {
   if (section === "reviews")      return permissions.can_view_reviews;
   if (section === "conversations") return permissions.can_view_questions;
   if (section === "chats")        return permissions.can_view_chats;
-  if (section === "salary")       return permissions.can_view_salary || isTenantOwner();
+  if (section === "salary")         return permissions.can_view_salary || isTenantOwner();
+  if (section === "salary-settings") return isTenantOwner();
   if (section === "supplies-wb")  return permissions.can_view_supplies;
   if (section === "supplies-ozon") return permissions.can_view_supplies;
   if (section === "supplies-poa") return permissions.can_view_supplies;
@@ -665,6 +666,8 @@ function initNavGroups() {
       const collapsed = Boolean(states["salary"]);
       _applyNavGroup("salary", collapsed, false);
     }
+    const salarySettingsNav = document.getElementById("nav-salary-settings");
+    if (salarySettingsNav) salarySettingsNav.style.display = isTenantOwner() ? "" : "none";
   } else {
     if (salaryHeader) salaryHeader.style.display = "none";
     if (salaryWrapper) { salaryWrapper.style.maxHeight = "0px"; salaryWrapper.style.overflow = "hidden"; }
@@ -700,8 +703,11 @@ function showSection(section, options = {}) {
     loadTeam();
   }
   if (section === "supplies-settings") {
-    // For managers (no can_view_settings), default to drivers tab instead of sources
     showSuppliesSettingsTab(getPermissions().can_view_settings ? "sources" : "drivers");
+  }
+  if (section === "salary-settings") {
+    showSalarySettingsTab("workers");
+    loadSalaryWorkers();
   }
   // Refresh chat list when navigating back to chats so Dmitry's message
   // doesn't disappear due to stale background-timer data.
@@ -758,6 +764,7 @@ function sectionLabel(section) {
     analytics: "Аналитика",
     settings: "Настройки",
     salary: "Моя зарплата",
+    "salary-settings": "Зарплата — Настройки",
     team: "Команда",
     "supplies-wb": "Поставки — WB",
     "supplies-settings": "Поставки — Настройки",
@@ -11675,6 +11682,101 @@ const mySalaryState = {
   dateFrom: null,
   dateTo: null,
 };
+
+// ── Salary Settings ───────────────────────────────────────────────────────
+
+window.showSalarySettingsTab = function(tab) {
+  document.querySelectorAll("#section-salary-settings .settings-tab-btn").forEach(b => b.classList.remove("active"));
+  document.getElementById(`salary-settings-tab-${tab}`)?.classList.add("active");
+  document.querySelectorAll("[id^='salary-settings-pane-']").forEach(p => { p.classList.add("hidden"); p.style.display = "none"; });
+  const pane = document.getElementById(`salary-settings-pane-${tab}`);
+  if (pane) { pane.classList.remove("hidden"); pane.style.display = ""; }
+};
+
+async function loadSalaryWorkers() {
+  const tbody = document.getElementById("salaryWorkersTbody");
+  const info = document.getElementById("salaryWorkersInfo");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+  try {
+    const res = await fetch("/api/salary/workers");
+    const data = await res.json();
+    if (!res.ok) { if (info) info.textContent = data.detail || "Ошибка загрузки"; return; }
+    if (info) info.textContent = "";
+    const workers = data.items || [];
+    if (!workers.length) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = '<td colspan="3" class="small" style="color:#9ca3af">Работники не добавлены</td>';
+      tbody.appendChild(tr);
+      return;
+    }
+    for (const w of workers) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${esc(w.full_name || "")}</td>
+        <td>${esc(w.production || "")}</td>
+        <td><button class="icon-btn danger" title="Удалить" onclick="deleteSalaryWorker(${w.id})">🗑</button></td>
+      `;
+      tbody.appendChild(tr);
+    }
+  } catch (e) {
+    if (info) info.textContent = "Ошибка: " + e.message;
+  }
+}
+window.loadSalaryWorkers = loadSalaryWorkers;
+
+async function saveSalaryWorker() {
+  const nameEl = document.getElementById("salaryWorkerName");
+  const prodEl = document.getElementById("salaryWorkerProduction");
+  const info = document.getElementById("salaryWorkersInfo");
+  const fullName = String(nameEl?.value || "").trim();
+  const production = String(prodEl?.value || "").trim();
+  if (!fullName) {
+    if (info) { info.textContent = "Укажите ФИО работника"; info.style.color = "#b91c1c"; }
+    nameEl?.focus();
+    return;
+  }
+  try {
+    const res = await fetch("/api/salary/workers", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ full_name: fullName, production }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      if (info) { info.textContent = data.detail || "Ошибка сохранения"; info.style.color = "#b91c1c"; }
+      return;
+    }
+    if (nameEl) nameEl.value = "";
+    if (info) { info.textContent = "Работник добавлен"; info.style.color = "#16a34a"; }
+    await loadSalaryWorkers();
+  } catch (e) {
+    if (info) { info.textContent = "Ошибка: " + e.message; info.style.color = "#b91c1c"; }
+  }
+}
+window.saveSalaryWorker = saveSalaryWorker;
+
+async function deleteSalaryWorker(workerId) {
+  if (!confirm("Удалить работника?")) return;
+  const info = document.getElementById("salaryWorkersInfo");
+  try {
+    const res = await fetch(`/api/salary/workers/${workerId}`, {
+      method: "DELETE", headers: jsonHeaders(),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      if (info) { info.textContent = data.detail || "Ошибка удаления"; info.style.color = "#b91c1c"; }
+      return;
+    }
+    if (info) { info.textContent = ""; }
+    await loadSalaryWorkers();
+  } catch (e) {
+    if (info) { info.textContent = "Ошибка: " + e.message; info.style.color = "#b91c1c"; }
+  }
+}
+window.deleteSalaryWorker = deleteSalaryWorker;
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 async function loadMySalary() {
   const infoEl = document.getElementById("mySalaryInfo");
