@@ -3366,6 +3366,58 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 "last_sync_report": sync_state.get("last_sync_report"),
             }
 
+    @app.get("/api/my/permissions")
+    def get_my_permissions(request: Request) -> dict[str, object]:
+        """Return the current permission flags for the logged-in user.
+
+        Used by the client to detect permission changes without a full page
+        reload.  Owners and admins always receive all-true flags so there is
+        no polling overhead for them.
+        """
+        user = _require_user(request)
+        role = str(user.get("role") or ROLE_USER)
+        user_id = int(user.get("id") or 0)
+
+        if role in ROLE_CAN_ACCESS_SETTINGS:
+            return {
+                "can_view_feedback": True,
+                "can_view_reviews": True,
+                "can_view_questions": True,
+                "can_view_chats": True,
+                "can_view_supplies": True,
+                "can_view_any_supply": True,
+                "can_view_salary": True,
+            }
+
+        _perms = repository.list_manager_permissions(manager_user_id=user_id)
+        can_view_reviews = any(bool(p.get("can_reviews")) for p in _perms)
+        can_view_questions = any(bool(p.get("can_questions")) for p in _perms)
+        can_view_chats = any(bool(p.get("can_chats")) for p in _perms)
+        can_view_feedback = can_view_reviews or can_view_questions or can_view_chats
+
+        can_view_supplies = bool(user.get("can_supplies"))
+        can_view_any_supply = False
+        if can_view_supplies:
+            _supply_perms = repository.get_manager_supply_permissions(manager_user_id=user_id)
+            _sp_sources = _supply_perms.get("sources") or {}
+            can_view_any_supply = (
+                any(v.get("wb") for v in _sp_sources.values())
+                or any(v.get("ozon") for v in _sp_sources.values())
+                or bool(_supply_perms.get("can_supply_poa"))
+                or bool(_supply_perms.get("can_supply_settings"))
+                or bool(_supply_perms.get("can_supply_certs"))
+            )
+
+        return {
+            "can_view_feedback": can_view_feedback,
+            "can_view_reviews": can_view_reviews,
+            "can_view_questions": can_view_questions,
+            "can_view_chats": can_view_chats,
+            "can_view_supplies": can_view_supplies,
+            "can_view_any_supply": can_view_any_supply,
+            "can_view_salary": bool(user.get("can_salary")),
+        }
+
     @app.get("/api/accounts")
     def list_accounts(request: Request) -> dict[str, object]:
         user = _require_settings_access(request)

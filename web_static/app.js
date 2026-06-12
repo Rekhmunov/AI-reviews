@@ -210,6 +210,62 @@ function _changePage(state, loadFn, delta) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ── Permission polling (feedback_manager only) ────────────────────────────
+// Re-checks the current user's permissions every 60 seconds.
+// When the admin changes a manager's rights, the change is detected on the
+// next poll and the page reloads automatically so the new HTML is generated
+// with the correct APP_PERMISSIONS snapshot.
+
+const PERMISSION_POLL_MS = 60_000;
+let _permPollTimer = null;
+
+function _isManagedUser() {
+  // Returns true for feedback_manager accounts (not for owners/admins).
+  return !isTenantOwner() && !(window.APP_PERMISSIONS || {}).is_admin;
+}
+
+function _permissionsMatch(newPerms) {
+  const cur = window.APP_PERMISSIONS || {};
+  const keys = [
+    "can_view_feedback", "can_view_reviews", "can_view_questions",
+    "can_view_chats", "can_view_supplies", "can_view_any_supply", "can_view_salary",
+  ];
+  return keys.every(k => Boolean(cur[k]) === Boolean(newPerms[k]));
+}
+
+function _showReloadBanner() {
+  let banner = document.getElementById("permsReloadBanner");
+  if (!banner) {
+    banner = document.createElement("div");
+    banner.id = "permsReloadBanner";
+    banner.className = "perms-reload-banner";
+    banner.innerHTML = '<span class="perms-reload-spinner"></span> Ваши права изменились. Обновляем страницу…';
+    document.body.appendChild(banner);
+  }
+  requestAnimationFrame(() => banner.classList.add("visible"));
+}
+
+async function _checkPermissions() {
+  if (!_isManagedUser()) return;
+  try {
+    const res = await fetch("/api/my/permissions");
+    if (!res.ok) return;
+    const newPerms = await res.json();
+    if (_permissionsMatch(newPerms)) return;
+    // Permissions changed — show banner and reload
+    _showReloadBanner();
+    setTimeout(() => window.location.reload(), 2000);
+  } catch (_) {}
+}
+
+function startPermissionPolling() {
+  if (!_isManagedUser()) return;
+  if (_permPollTimer) return; // already running
+  _permPollTimer = setInterval(_checkPermissions, PERMISSION_POLL_MS);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 function showSyncProgress() {
   const bar = document.getElementById("syncProgressBar");
   if (bar) bar.style.display = "block";
@@ -10469,6 +10525,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // Start silent 60s UI refresh so chat list stays up-to-date
   // without requiring manual page reload
   startUiRefresh();
+  startPermissionPolling();
 });
 
 window.showSection = showSection;
