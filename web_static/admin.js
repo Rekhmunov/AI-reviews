@@ -2249,5 +2249,139 @@ document.addEventListener("DOMContentLoaded", () => {
     loadMetrics();
     loadActions();
     loadSuperAdminSection();
+    loadSalaryRates();
   });
 });
+
+// -----------------------------------------------------------------------
+// Salary
+// -----------------------------------------------------------------------
+
+const salaryState = {
+  dateFrom: null,
+  dateTo: null,
+};
+
+async function loadSalaryRates() {
+  const infoEl = document.getElementById("salaryRatesInfo");
+  try {
+    const resp = await fetch("/api/admin/salary/rates", { headers: csrfHeaders() });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const rates = data.rates || {};
+    const rr = document.getElementById("salaryRateReview");
+    const rq = document.getElementById("salaryRateQuestion");
+    const rc = document.getElementById("salaryRateChat");
+    if (rr) rr.value = String(rates.rate_review ?? 0);
+    if (rq) rq.value = String(rates.rate_question ?? 0);
+    if (rc) rc.value = String(rates.rate_chat ?? 0);
+  } catch (e) {
+    if (infoEl) infoEl.textContent = "Ошибка загрузки ставок";
+  }
+}
+
+async function saveSalaryRates() {
+  const infoEl = document.getElementById("salaryRatesInfo");
+  const rr = parseFloat(document.getElementById("salaryRateReview")?.value || "0") || 0;
+  const rq = parseFloat(document.getElementById("salaryRateQuestion")?.value || "0") || 0;
+  const rc = parseFloat(document.getElementById("salaryRateChat")?.value || "0") || 0;
+  if (rr < 0 || rq < 0 || rc < 0) {
+    if (infoEl) infoEl.textContent = "Ставки не могут быть отрицательными";
+    return;
+  }
+  if (infoEl) infoEl.textContent = "Сохранение...";
+  try {
+    const resp = await fetch("/api/admin/salary/rates", {
+      method: "PUT",
+      headers: csrfHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ rate_review: rr, rate_question: rq, rate_chat: rc }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      if (infoEl) infoEl.textContent = data.detail || "Ошибка сохранения";
+      return;
+    }
+    if (infoEl) {
+      infoEl.textContent = "Ставки сохранены";
+      setTimeout(() => { if (infoEl) infoEl.textContent = ""; }, 3000);
+    }
+  } catch (e) {
+    if (infoEl) infoEl.textContent = "Ошибка сохранения ставок";
+  }
+}
+
+async function loadSalaryReport() {
+  const infoEl = document.getElementById("salaryReportInfo");
+  const tbodyEl = document.getElementById("salaryReportTbody");
+  const totalEl = document.getElementById("salaryReportTotal");
+  const dateFrom = document.getElementById("salaryDateFrom")?.value || null;
+  const dateTo = document.getElementById("salaryDateTo")?.value || null;
+  salaryState.dateFrom = dateFrom || null;
+  salaryState.dateTo = dateTo || null;
+
+  if (tbodyEl) tbodyEl.innerHTML = '<tr><td colspan="5" class="small" style="color:#9ca3af;text-align:center">Загрузка...</td></tr>';
+  if (infoEl) infoEl.textContent = "";
+  if (totalEl) totalEl.classList.add("hidden");
+
+  try {
+    const query = new URLSearchParams();
+    if (dateFrom) query.set("date_from", dateFrom);
+    if (dateTo) query.set("date_to", dateTo);
+    const resp = await fetch("/api/admin/salary/report?" + query.toString(), { headers: csrfHeaders() });
+    const data = await resp.json();
+    if (!resp.ok) {
+      if (infoEl) infoEl.textContent = data.detail || "Ошибка загрузки";
+      if (tbodyEl) tbodyEl.innerHTML = '<tr><td colspan="5" class="small" style="color:#ef4444;text-align:center">Ошибка загрузки</td></tr>';
+      return;
+    }
+    const rows = data.rows || [];
+    if (rows.length === 0) {
+      if (tbodyEl) tbodyEl.innerHTML = '<tr><td colspan="5" class="small" style="color:#9ca3af;text-align:center">Нет данных за выбранный период</td></tr>';
+      return;
+    }
+    let grandTotal = 0;
+    const html = rows.map((row) => {
+      grandTotal += Number(row.total_amount || 0);
+      return `<tr>
+        <td>${esc(row.actor || "—")}</td>
+        <td>${row.review_count ?? 0}</td>
+        <td>${row.question_count ?? 0}</td>
+        <td>${row.chat_count ?? 0}</td>
+        <td><strong>${formatAmount(row.total_amount)}</strong></td>
+      </tr>`;
+    }).join("");
+    if (tbodyEl) tbodyEl.innerHTML = html;
+    if (totalEl) {
+      totalEl.textContent = `Итого: ${formatAmount(grandTotal)} ₽`;
+      totalEl.classList.remove("hidden");
+    }
+  } catch (e) {
+    if (infoEl) infoEl.textContent = "Ошибка загрузки отчёта";
+    if (tbodyEl) tbodyEl.innerHTML = '<tr><td colspan="5" class="small" style="color:#ef4444;text-align:center">Ошибка загрузки</td></tr>';
+  }
+}
+
+function resetSalaryDates() {
+  const df = document.getElementById("salaryDateFrom");
+  const dt = document.getElementById("salaryDateTo");
+  if (df) df.value = "";
+  if (dt) dt.value = "";
+  salaryState.dateFrom = null;
+  salaryState.dateTo = null;
+  loadSalaryReport();
+}
+
+function exportSalaryReport(format) {
+  const exportFormat = String(format || "csv").toLowerCase();
+  if (!["csv", "xlsx"].includes(exportFormat)) return;
+  const query = new URLSearchParams();
+  query.set("format", exportFormat);
+  if (salaryState.dateFrom) query.set("date_from", salaryState.dateFrom);
+  if (salaryState.dateTo) query.set("date_to", salaryState.dateTo);
+  window.location.href = "/api/admin/salary/report/export?" + query.toString();
+}
+
+function formatAmount(value) {
+  const num = Number(value || 0);
+  return num.toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}

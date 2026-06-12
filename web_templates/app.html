@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=115" />
+  <link rel="stylesheet" href="/static/style.css?v=116" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -71,6 +71,7 @@
 
       <div class="sidebar-bottom">
         {{ADMIN_LINK}}
+        {{NAV_SALARY}}
         <a id="nav-profile" class="nav-item nav-item-bottom" href="#" onclick="showSection('profile')">
           <span class="nav-item-icon">○</span> Мой профиль
         </a>
@@ -1753,6 +1754,40 @@
                 <tbody id="supplySourcesTbody"></tbody>
               </table>
             </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="section-salary" class="hidden">
+        <h3 class="section-title">Моя зарплата</h3>
+        <div class="panel">
+          <div class="my-salary-filters">
+            <label class="small">С <input id="mySalaryDateFrom" type="date" /></label>
+            <label class="small">По <input id="mySalaryDateTo" type="date" /></label>
+            <button type="button" class="secondary" onclick="loadMySalary()">Показать</button>
+            <button type="button" class="secondary" onclick="resetMySalaryDates()">Весь период</button>
+          </div>
+          <div id="mySalaryInfo" class="small"></div>
+          <div id="mySalaryStats" class="hidden">
+            <div class="my-salary-stats-grid">
+              <div class="my-salary-stat-card">
+                <div id="mySalaryReviewCount" class="my-salary-stat-value">0</div>
+                <div class="my-salary-stat-label">Отзывов обработано</div>
+              </div>
+              <div class="my-salary-stat-card">
+                <div id="mySalaryQuestionCount" class="my-salary-stat-value">0</div>
+                <div class="my-salary-stat-label">Вопросов отвечено</div>
+              </div>
+              <div class="my-salary-stat-card">
+                <div id="mySalaryChatCount" class="my-salary-stat-value">0</div>
+                <div class="my-salary-stat-label">Чатов обработано</div>
+              </div>
+            </div>
+            <div class="my-salary-total-card">
+              <div class="my-salary-total-label">Начислено за период</div>
+              <div id="mySalaryTotal" class="my-salary-total-value">0,00 ₽</div>
+            </div>
+            <div id="mySalaryRatesHint" class="small" style="margin-top:12px;color:#64748b"></div>
           </div>
         </div>
       </section>

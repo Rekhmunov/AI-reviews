@@ -5247,3 +5247,101 @@ button.secondary.danger:hover {
   white-space: nowrap;
 }
 .supply-action-item:hover { background: #f1f5f9; }
+
+/* ── Salary panel ────────────────────────────────────────────── */
+.salary-rates-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 16px;
+}
+.salary-rate-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.salary-rate-label input[type="number"] {
+  width: 120px;
+}
+.salary-report-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.salary-report-total {
+  margin-top: 12px;
+  padding: 10px 16px;
+  background: #f0fdf4;
+  border: 1px solid #86efac;
+  border-radius: 6px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #166534;
+}
+#salaryReportTable th {
+  white-space: nowrap;
+}
+#salaryPanel .salary-rates-block {
+  padding: 16px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+#salaryPanel .salary-report-block {
+  padding-top: 4px;
+}
+
+/* ── Operator salary section ─────────────────────────────────── */
+.my-salary-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.my-salary-stat-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 16px;
+  text-align: center;
+}
+.my-salary-stat-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: #1e293b;
+  line-height: 1;
+}
+.my-salary-stat-label {
+  font-size: 13px;
+  color: #64748b;
+  margin-top: 4px;
+}
+.my-salary-total-card {
+  background: #f0fdf4;
+  border: 1px solid #86efac;
+  border-radius: 8px;
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.my-salary-total-label {
+  font-size: 15px;
+  font-weight: 600;
+  color: #166534;
+}
+.my-salary-total-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: #166534;
+}
+.my-salary-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}

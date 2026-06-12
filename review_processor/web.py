@@ -252,6 +252,12 @@ class SyncRequest(BaseModel):
     total_expected: int | None = Field(default=None, ge=0, description="Expected total items from preview")
 
 
+class SalaryRatesRequest(BaseModel):
+    rate_review: float = Field(ge=0, default=0.0, description="Ставка за один обработанный отзыв (вручную)")
+    rate_question: float = Field(ge=0, default=0.0, description="Ставка за один обработанный вопрос")
+    rate_chat: float = Field(ge=0, default=0.0, description="Ставка за один обработанный чат")
+
+
 class SyncCapabilitiesRequest(BaseModel):
     account_id: int = Field(ge=1, description="Marketplace account ID for capabilities check")
 
@@ -4978,6 +4984,172 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             headers={"Content-Disposition": f'attachment; filename="{xlsx_name}"'},
         )
 
+    # ------------------------------------------------------------------
+    # Salary endpoints
+    # ------------------------------------------------------------------
+
+    @app.get("/api/admin/salary/rates")
+    def admin_salary_get_rates(request: Request) -> dict[str, object]:
+        admin_user = _require_admin(request)
+        owner_id = _tenant_owner_id(admin_user)
+        rates = repository.get_salary_rates(owner_user_id=owner_id)
+        return {"ok": True, "rates": rates}
+
+    @app.put("/api/admin/salary/rates")
+    def admin_salary_set_rates(request: Request, body: SalaryRatesRequest) -> dict[str, object]:
+        admin_user = _require_admin(request)
+        owner_id = _tenant_owner_id(admin_user)
+        repository.set_salary_rates(
+            owner_user_id=owner_id,
+            rate_review=body.rate_review,
+            rate_question=body.rate_question,
+            rate_chat=body.rate_chat,
+        )
+        rates = repository.get_salary_rates(owner_user_id=owner_id)
+        return {"ok": True, "rates": rates}
+
+    @app.get("/api/admin/salary/report")
+    def admin_salary_report(
+        request: Request,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> dict[str, object]:
+        admin_user = _require_admin(request)
+        owner_id = _tenant_owner_id(admin_user)
+        normalized_date_from = date_from.strip() if date_from else None
+        normalized_date_to = date_to.strip() if date_to else None
+        for date_value in [normalized_date_from, normalized_date_to]:
+            if date_value:
+                try:
+                    datetime.strptime(date_value, "%Y-%m-%d")
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail="Неверный формат даты. Ожидается YYYY-MM-DD") from exc
+        if normalized_date_from and normalized_date_to and normalized_date_from > normalized_date_to:
+            raise HTTPException(status_code=400, detail="Дата начала не может быть позже даты окончания")
+        rows = repository.get_salary_report(
+            owner_user_id=owner_id,
+            date_from=normalized_date_from,
+            date_to=normalized_date_to,
+        )
+        rates = repository.get_salary_rates(owner_user_id=owner_id)
+        return {
+            "ok": True,
+            "rows": rows,
+            "rates": rates,
+            "date_from": normalized_date_from,
+            "date_to": normalized_date_to,
+        }
+
+    @app.get("/api/admin/salary/report/export")
+    def admin_salary_report_export(
+        request: Request,
+        format: str = "csv",
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> StreamingResponse:
+        admin_user = _require_admin(request)
+        owner_id = _tenant_owner_id(admin_user)
+        export_format = format.strip().lower()
+        if export_format not in {"csv", "xlsx"}:
+            raise HTTPException(status_code=400, detail="Формат экспорта должен быть csv или xlsx")
+        normalized_date_from = date_from.strip() if date_from else None
+        normalized_date_to = date_to.strip() if date_to else None
+        for date_value in [normalized_date_from, normalized_date_to]:
+            if date_value:
+                try:
+                    datetime.strptime(date_value, "%Y-%m-%d")
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail="Неверный формат даты. Ожидается YYYY-MM-DD") from exc
+        if normalized_date_from and normalized_date_to and normalized_date_from > normalized_date_to:
+            raise HTTPException(status_code=400, detail="Дата начала не может быть позже даты окончания")
+        rows = repository.get_salary_report(
+            owner_user_id=owner_id,
+            date_from=normalized_date_from,
+            date_to=normalized_date_to,
+        )
+        if export_format == "csv":
+            out = io.StringIO()
+            writer = csv.DictWriter(
+                out,
+                fieldnames=["actor", "review_count", "question_count", "chat_count", "total_amount"],
+            )
+            writer.writeheader()
+            for row in rows:
+                writer.writerow({
+                    "actor": row.get("actor", ""),
+                    "review_count": row.get("review_count", 0),
+                    "question_count": row.get("question_count", 0),
+                    "chat_count": row.get("chat_count", 0),
+                    "total_amount": row.get("total_amount", 0),
+                })
+            payload = io.BytesIO(out.getvalue().encode("utf-8-sig"))
+            filename = f"salary-report-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}.csv"
+            return StreamingResponse(
+                payload,
+                media_type="text/csv; charset=utf-8",
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            )
+        try:
+            from openpyxl import Workbook
+        except ImportError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail="Для экспорта Excel нужен пакет openpyxl. Установите: pip install openpyxl",
+            ) from exc
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "Зарплата операторов"
+        sheet.append(["Оператор", "Отзывы", "Вопросы", "Чаты", "Сумма (₽)"])
+        for row in rows:
+            sheet.append([
+                row.get("actor", ""),
+                row.get("review_count", 0),
+                row.get("question_count", 0),
+                row.get("chat_count", 0),
+                row.get("total_amount", 0),
+            ])
+        out_xlsx = io.BytesIO()
+        workbook.save(out_xlsx)
+        out_xlsx.seek(0)
+        xlsx_name = f"salary-report-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}.xlsx"
+        return StreamingResponse(
+            out_xlsx,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{xlsx_name}"'},
+        )
+
+    @app.get("/api/salary/my")
+    def my_salary(
+        request: Request,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> dict[str, object]:
+        user = _require_user(request)
+        normalized_date_from = date_from.strip() if date_from else None
+        normalized_date_to = date_to.strip() if date_to else None
+        for date_value in [normalized_date_from, normalized_date_to]:
+            if date_value:
+                try:
+                    datetime.strptime(date_value, "%Y-%m-%d")
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail="Неверный формат даты. Ожидается YYYY-MM-DD") from exc
+        if normalized_date_from and normalized_date_to and normalized_date_from > normalized_date_to:
+            raise HTTPException(status_code=400, detail="Дата начала не может быть позже даты окончания")
+        owner_id = _tenant_owner_id(user)
+        actor = str(user.get("email") or "")
+        stats = repository.get_salary_stats_for_actor(
+            owner_user_id=owner_id,
+            actor=actor,
+            date_from=normalized_date_from,
+            date_to=normalized_date_to,
+        )
+        return {
+            "ok": True,
+            "stats": stats,
+            "date_from": normalized_date_from,
+            "date_to": normalized_date_to,
+        }
+
     @app.get("/api/admin/sync-status")
     def admin_sync_status(request: Request) -> dict[str, object]:
         _require_super_admin(request)
@@ -8902,6 +9074,10 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
         '<a id="nav-supplies-settings" class="nav-item" href="#" onclick="showSection(\'supplies-settings\')"><span class="nav-item-icon">≡</span> Настройки</a>'
         if (can_view_settings or can_view_supply_settings) else ""
     )
+    nav_salary = (
+        '<a id="nav-salary" class="nav-item nav-item-bottom" href="#" onclick="showSection(\'salary\')">'
+        '<span class="nav-item-icon">₽</span> Моя зарплата</a>'
+    )
     return _render_template(
         "app.html",
         {
@@ -8916,6 +9092,7 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
             ),
             "NAV_SUPPLIES_WB": nav_supplies_wb,
             "NAV_SUPPLIES_SETTINGS": nav_supplies_settings,
+            "NAV_SALARY": nav_salary,
             "CAN_VIEW_ANALYTICS": "true" if can_view_analytics else "false",
             "CAN_VIEW_SETTINGS": "true" if can_view_settings else "false",
             "CAN_VIEW_SUPPLIES": "true" if can_view_supplies else "false",

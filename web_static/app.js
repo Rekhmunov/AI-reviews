@@ -115,7 +115,7 @@ const UI_REFRESH_MS = 60000;        // refresh chat list from DB every 60s (afte
 const CHANNEL_ICONS = { "Отзывы": "⭐", "Вопросы": "❓", "Чаты": "💬" };
 const ACTIVE_SECTION_STORAGE_KEY = "feedpilot_active_section";
 const ACTIVE_SETTINGS_TAB_STORAGE_KEY = "feedpilot_active_settings_tab";
-const SECTION_IDS = ["reviews", "conversations", "chats", "analytics", "settings", "stock-settings", "stock-work", "supplies-wb", "supplies-ozon", "supplies-poa", "supplies-certificates", "supplies-settings", "profile"];
+const SECTION_IDS = ["reviews", "conversations", "chats", "analytics", "settings", "stock-settings", "stock-work", "supplies-wb", "supplies-ozon", "supplies-poa", "supplies-certificates", "supplies-settings", "salary", "profile"];
 const SETTINGS_TAB_IDS = ["sources", "rules", "templates", "recommendations", "products", "team", "template-variables"];
 const APP_BOOT_HIDE_CLASS = "app-boot-hidden";
 const MOBILE_NAV_BREAKPOINT_PX = 900;
@@ -546,6 +546,9 @@ function showSection(section, options = {}) {
   if (section === "profile") {
     loadProfile();
   }
+  if (section === "salary") {
+    loadMySalary();
+  }
   // Refresh chat list when navigating back to chats so Dmitry's message
   // doesn't disappear due to stale background-timer data.
   if (section === "chats" && !syncInProgress) {
@@ -603,6 +606,7 @@ function sectionLabel(section) {
     chats: "Чаты",
     analytics: "Аналитика",
     settings: "Настройки",
+    salary: "Моя зарплата",
     "supplies-wb": "Поставки — WB",
     "supplies-settings": "Поставки — Настройки",
     profile: "Мой профиль",
@@ -11529,3 +11533,83 @@ window.showSuppliesSettingsTab = function(tab) {
   const pane = document.getElementById(`supplies-settings-pane-${tab}`);
   if (pane) { pane.classList.remove("hidden"); pane.style.display = ""; }
 };
+
+// -----------------------------------------------------------------------
+// My Salary (operator view)
+// -----------------------------------------------------------------------
+
+const mySalaryState = {
+  dateFrom: null,
+  dateTo: null,
+};
+
+async function loadMySalary() {
+  const infoEl = document.getElementById("mySalaryInfo");
+  const statsEl = document.getElementById("mySalaryStats");
+  if (infoEl) infoEl.textContent = "Загрузка...";
+  if (statsEl) statsEl.classList.add("hidden");
+
+  const dateFrom = document.getElementById("mySalaryDateFrom")?.value || null;
+  const dateTo = document.getElementById("mySalaryDateTo")?.value || null;
+  mySalaryState.dateFrom = dateFrom || null;
+  mySalaryState.dateTo = dateTo || null;
+
+  try {
+    const query = new URLSearchParams();
+    if (dateFrom) query.set("date_from", dateFrom);
+    if (dateTo) query.set("date_to", dateTo);
+    const resp = await fetch("/api/salary/my?" + query.toString(), {
+      headers: withCsrfHeaders(),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      if (infoEl) infoEl.textContent = data.detail || "Ошибка загрузки";
+      return;
+    }
+    if (infoEl) infoEl.textContent = "";
+    const stats = data.stats || {};
+    const rc = Number(stats.review_count || 0);
+    const qc = Number(stats.question_count || 0);
+    const cc = Number(stats.chat_count || 0);
+    const total = Number(stats.total_amount || 0);
+    const rr = Number(stats.rate_review || 0);
+    const rq = Number(stats.rate_question || 0);
+    const rchat = Number(stats.rate_chat || 0);
+
+    const rcEl = document.getElementById("mySalaryReviewCount");
+    const qcEl = document.getElementById("mySalaryQuestionCount");
+    const ccEl = document.getElementById("mySalaryChatCount");
+    const totalEl = document.getElementById("mySalaryTotal");
+    const hintEl = document.getElementById("mySalaryRatesHint");
+
+    if (rcEl) rcEl.textContent = String(rc);
+    if (qcEl) qcEl.textContent = String(qc);
+    if (ccEl) ccEl.textContent = String(cc);
+    if (totalEl) totalEl.textContent = formatSalaryAmount(total) + " ₽";
+    if (hintEl) {
+      const parts = [];
+      if (rr > 0) parts.push(`отзыв — ${formatSalaryAmount(rr)} ₽`);
+      if (rq > 0) parts.push(`вопрос — ${formatSalaryAmount(rq)} ₽`);
+      if (rchat > 0) parts.push(`чат — ${formatSalaryAmount(rchat)} ₽`);
+      hintEl.textContent = parts.length ? "Ставки: " + parts.join(", ") : "Ставки не настроены — обратитесь к администратору";
+    }
+    if (statsEl) statsEl.classList.remove("hidden");
+  } catch (e) {
+    if (infoEl) infoEl.textContent = "Ошибка загрузки данных о зарплате";
+  }
+}
+
+function resetMySalaryDates() {
+  const df = document.getElementById("mySalaryDateFrom");
+  const dt = document.getElementById("mySalaryDateTo");
+  if (df) df.value = "";
+  if (dt) dt.value = "";
+  mySalaryState.dateFrom = null;
+  mySalaryState.dateTo = null;
+  loadMySalary();
+}
+
+function formatSalaryAmount(value) {
+  const num = Number(value || 0);
+  return num.toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
