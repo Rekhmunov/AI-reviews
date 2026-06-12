@@ -449,7 +449,8 @@ function getPermissions() {
   return {
     can_view_analytics: _b("can_view_analytics", true),
     can_view_settings:  _b("can_view_settings", true),
-    can_view_supplies:  _b("can_view_supplies", false),
+    can_view_supplies:    _b("can_view_supplies", false),
+    can_view_any_supply:  _b("can_view_any_supply", false),
     can_view_feedback:  _b("can_view_feedback", true),
     can_view_reviews:   _b("can_view_reviews", true),
     can_view_questions: _b("can_view_questions", true),
@@ -10399,8 +10400,10 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   // Supplies module
   if (permissions.can_view_supplies) {
-    const suppliesNavLabel = document.getElementById("nav-section-supplies");
-    if (suppliesNavLabel) suppliesNavLabel.style.display = "flex";
+    if (permissions.can_view_any_supply) {
+      const suppliesNavLabel = document.getElementById("nav-section-supplies");
+      if (suppliesNavLabel) suppliesNavLabel.style.display = "flex";
+    }
     // "Удалить поставки" — только для владельцев, не для менеджеров
     if (!permissions.can_view_settings) {
       const clearBtn = document.getElementById("suppliesClearBtn");
