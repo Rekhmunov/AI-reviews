@@ -1092,6 +1092,8 @@ class ReviewRepository:
         self._migrate_manually_closed_at(conn)
         # Supply module tables (FBW/FBS)
         self._migrate_supply_tables(conn)
+        # One-time cleanup: reset stale can_salary / can_supplies flags on managers
+        self._run_migration_once(conn, "cleanup_stale_manager_access_flags", self._cleanup_stale_manager_access_flags)
         # Remove tagged_reviews group — it is no longer supported.
         # pros/cons fields are now merged into review.text before classification.
         conn.execute(
@@ -1100,6 +1102,86 @@ class ReviewRepository:
         conn.execute(
             self._sql("DELETE FROM default_template_subgroups WHERE group_id = 'tagged_reviews'")
         )
+
+    def _run_migration_once(self, conn, name: str, fn) -> None:
+        """Run a migration function exactly once, tracked by name in applied_migrations."""
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS applied_migrations (
+                name TEXT PRIMARY KEY,
+                applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+        row = conn.execute(
+            self._sql("SELECT 1 FROM applied_migrations WHERE name = ? LIMIT 1"),
+            (name,),
+        ).fetchone()
+        if row is not None:
+            return
+        fn(conn)
+        conn.execute(
+            self._sql("INSERT INTO applied_migrations (name, applied_at) VALUES (?, NOW()) ON CONFLICT (name) DO NOTHING"),
+            (name,),
+        )
+
+    def _cleanup_stale_manager_access_flags(self, conn) -> None:
+        """One-time: reset can_salary and can_supplies for feedback_managers
+        whose flags were set stale due to leftover pendingCanSalary/pendingCanSupplies
+        state leaking between manager-creation sessions.
+
+        - can_salary: reset for ALL feedback_managers (new feature; any true value
+          is from the stale-state bug, not an intentional grant).
+        - can_supplies: reset only for managers whose manager_supply_permissions
+          row has no actual permissions (all false / no row at all).
+        """
+        import json as _json
+
+        _mgr_role = "feedback_manager"
+
+        # 1. Reset can_salary for all feedback_managers
+        conn.execute(
+            self._sql(
+                "UPDATE users SET can_salary = FALSE WHERE role = ? AND can_salary = TRUE"
+            ),
+            (_mgr_role,),
+        )
+
+        # 2. Reset can_supplies for managers with no actual supply permissions
+        rows = conn.execute(
+            self._sql(
+                "SELECT id FROM users WHERE role = ? AND can_supplies = TRUE"
+            ),
+            (_mgr_role,),
+        ).fetchall()
+        for row in rows:
+            manager_id = int((row.get("id") if hasattr(row, "get") else row[0]))
+            perm_row = conn.execute(
+                self._sql(
+                    "SELECT can_supply_settings, can_supply_poa, can_supply_certs, sources_json "
+                    "FROM manager_supply_permissions WHERE manager_user_id = ? LIMIT 1"
+                ),
+                (manager_id,),
+            ).fetchone()
+            if perm_row is None:
+                # No supply permissions row at all → stale flag
+                conn.execute(
+                    self._sql("UPDATE users SET can_supplies = FALSE WHERE id = ?"),
+                    (manager_id,),
+                )
+                continue
+            d = perm_row if not hasattr(perm_row, "get") else dict(perm_row)
+            if d.get("can_supply_settings") or d.get("can_supply_poa") or d.get("can_supply_certs"):
+                continue  # has at least one non-source permission → legitimate
+            try:
+                sources = _json.loads(d.get("sources_json") or "{}")
+            except Exception:
+                sources = {}
+            if any(v.get("wb") or v.get("ozon") for v in sources.values()):
+                continue  # has at least one source permission → legitimate
+            # All supply permissions are false → stale flag
+            conn.execute(
+                self._sql("UPDATE users SET can_supplies = FALSE WHERE id = ?"),
+                (manager_id,),
+            )
 
     def _migrate_ai_request_log_table(self, conn) -> None:
         """Create ai_request_log table for Yandex GPT request/response debugging."""
