@@ -9051,6 +9051,11 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
     else:
         can_view_feedback = True  # safe fallback
     admin_link = '<a class="navbtn nav-admin" href="/admin"><span class="nav-item-icon">○</span> Админ-панель</a>' if role == ROLE_ADMIN else ""
+    nav_team = (
+        '<a id="nav-team" class="nav-item nav-item-bottom" href="#" onclick="showSection(\'team\')"><span class="nav-item-icon">◫</span> Команда</a>'
+        if is_tenant_owner
+        else ""
+    )
     nav_analytics = (
         '<a id="nav-analytics" class="nav-item" href="#" onclick="showSection(\'analytics\')"><span class="nav-item-icon">∑</span> Аналитика</a>'
         if can_view_analytics
@@ -9080,6 +9085,7 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
             "SAFE_EMAIL": safe_email,
             "SAFE_ROLE": safe_role,
             "ADMIN_LINK": admin_link,
+            "NAV_TEAM": nav_team,
             "NAV_ANALYTICS": nav_analytics,
             "NAV_SETTINGS": nav_settings,
             "NAV_SETTINGS_SUB": (
