@@ -9280,12 +9280,15 @@ async function openEditTeamMember(userId) {
   document.getElementById("editMemberFullName").value = member.full_name || "";
   document.getElementById("editMemberPassword").value = "";
   document.getElementById("editMemberInfo").textContent = "";
-  // Show current permissions
-  const permText = formatManagerPermissionsText(member.manager_permissions || [], member.can_supplies, member.supply_permissions);
+  // Initialise pending state from DB data for this editing session.
+  // openManagerPermissionsModalForEdit will reuse this state on repeated opens
+  // so unsaved checkbox changes are never silently discarded.
+  teamState.pendingPermissions = (member.manager_permissions || []).map(p => ({...p}));
+  teamState.pendingCanSupplies = Boolean(member.can_supplies);
+  teamState.pendingCanSalary = Boolean(member.can_salary);
+  teamState.pendingSupplyPermissions = null; // loaded lazily on first perms modal open
+  const permText = formatManagerPermissionsText(member.manager_permissions || [], member.can_supplies, member.supply_permissions, member.can_salary);
   document.getElementById("editMemberPermissionsPreview").textContent = permText || "Нет доступов";
-  // Pre-load permissions into the shared permissions modal state
-  _pendingManagerPermissions = (member.manager_permissions || []).map(p => ({...p}));
-  _pendingManagerCanSupplies = Boolean(member.can_supplies);
   const modal = document.getElementById("editTeamMemberModal");
   if (modal) { modal.classList.remove("hidden"); modal.style.display = ""; }
 }
@@ -9294,19 +9297,20 @@ function closeEditTeamMember() {
   const modal = document.getElementById("editTeamMemberModal");
   if (modal) { modal.classList.add("hidden"); modal.style.display = "none"; }
   _editingMemberId = null;
+  teamState.pendingPermissions = [];
+  teamState.pendingCanSupplies = false;
+  teamState.pendingCanSalary = false;
+  teamState.pendingSupplyPermissions = null;
 }
 
 async function openManagerPermissionsModalForEdit() {
   if (!Array.isArray(teamState.accounts) || !teamState.accounts.length) await loadAccounts();
-  const member = teamState.items.find(m => Number(m.id) === _editingMemberId);
-  if (!member) return;
-  teamState.pendingPermissions = (member.manager_permissions || []).map(p => ({...p}));
-  teamState.pendingCanSupplies = Boolean(member.can_supplies);
-  teamState.pendingCanSalary = Boolean(member.can_salary);
-  // Load supply permissions
-  const spRes = await fetch(`/api/tenant/team/${_editingMemberId}/supply-permissions`).catch(() => null);
-  const spData = spRes?.ok ? await spRes.json().catch(() => ({})) : {};
-  teamState.pendingSupplyPermissions = spData;
+  if (!_editingMemberId) return;
+  // Supply permissions are loaded once per edit session (null = not yet loaded)
+  if (teamState.pendingSupplyPermissions === null) {
+    const spRes = await fetch(`/api/tenant/team/${_editingMemberId}/supply-permissions`).catch(() => null);
+    teamState.pendingSupplyPermissions = spRes?.ok ? await spRes.json().catch(() => ({})) : {};
+  }
   const info = document.getElementById("managerPermissionsInfo");
   if (info) { info.textContent = ""; info.style.color = ""; }
   const saveBtn = document.getElementById("managerPermissionsSaveBtn");
