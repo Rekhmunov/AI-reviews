@@ -4614,9 +4614,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         request: Request,
     ) -> dict[str, object]:
         owner = _require_tenant_owner(request)
-        _target_user_for_admin_scope(actor=owner, target_user_id=target_user_id)
+        target = _target_user_for_admin_scope(actor=owner, target_user_id=target_user_id)
         repository.update_user_profile(
             user_id=target_user_id,
+            email=str(target.get("email") or ""),
             full_name=payload.full_name.strip() or None,
         )
         return {"ok": True}
