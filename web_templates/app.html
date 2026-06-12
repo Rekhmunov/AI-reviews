@@ -1179,7 +1179,11 @@
                 <span id="ozonSdCargoes" class="supply-detail-value" style="white-space:pre-line">—</span>
               </div>
               <div class="supply-detail-row">
-                <span class="supply-detail-label">Водитель</span>
+                <span class="supply-detail-label">Тип поставки</span>
+                <span id="ozonSdType" class="supply-detail-value">—</span>
+              </div>
+              <div class="supply-detail-row">
+                <span class="supply-detail-label">Водитель (API)</span>
                 <span id="ozonSdDriver" class="supply-detail-value">—</span>
               </div>
               <div class="supply-detail-row" id="ozonSdVehicleRow" style="display:none">
@@ -1194,6 +1198,17 @@
                 <select id="ozonSdProduction" class="supply-detail-input" style="height:36px">
                   <option value="">— Не выбрано —</option>
                 </select>
+              </div>
+              <div class="supply-detail-row" style="margin-top:4px">
+                <span class="supply-detail-label">Водитель</span>
+                <select id="ozonSdDriverSelect" class="supply-detail-input" style="height:36px">
+                  <option value="">— Не выбран —</option>
+                </select>
+              </div>
+              <div class="supply-detail-row" style="margin-top:4px">
+                <span class="supply-detail-label">Паллет</span>
+                <input id="ozonSdPallets" type="number" min="0" class="supply-detail-input"
+                       placeholder="Кол-во паллет" autocomplete="off" style="height:36px" />
               </div>
               <div class="supply-detail-row" style="margin-top:4px">
                 <span class="supply-detail-label">Примечание</span>

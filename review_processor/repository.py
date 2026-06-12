@@ -7064,8 +7064,10 @@ class ReviewRepository:
     def get_ozon_supply_item_row(self, *, user_id: int, supply_order_id: int) -> dict[str, Any] | None:
         with self._connect() as conn:
             row = conn.execute(
-                self._sql("""SELECT oi.* FROM ozon_supply_items oi
+                self._sql("""SELECT oi.*, om.pallets_count, om.driver_name, om.notes, om.production
+                    FROM ozon_supply_items oi
                     JOIN supply_sources ss ON ss.id = oi.source_id
+                    LEFT JOIN ozon_supply_manual_data om ON om.user_id = ss.user_id AND om.supply_order_id = oi.supply_order_id
                     WHERE ss.user_id = ? AND oi.supply_order_id = ? LIMIT 1"""),
                 (user_id, supply_order_id),
             ).fetchone()

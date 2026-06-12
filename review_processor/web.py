@@ -6475,7 +6475,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         hdrs = {"Client-Id": client_id, "Api-Key": api_key,
                 "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
 
-        # Driver from supply-order/details
+        # Driver from supply-order/details (OZON API), with manual override as fallback
         driver_name, driver_docs, vehicle_num = "", "", ""
         cached_v = str(item_row.get("vehicle_json") or "")
         if cached_v and cached_v != "{}":
@@ -6503,6 +6503,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                         vehicle_json=_jj.dumps(v, ensure_ascii=False))
             except Exception:
                 pass
+        # Fall back to manually-set driver name when OZON API has no vehicle data
+        if not driver_name:
+            driver_name = str(item_row.get("driver_name") or "")
 
         # Goods from bundle (cached or fresh)
         goods = repository.get_ozon_supply_goods(user_id=owner_id, supply_order_id=supply_order_id)

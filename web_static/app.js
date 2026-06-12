@@ -4585,14 +4585,21 @@ async function saveOzonManualFields() {
   if (!_ozonDetailsCurrentId) return;
   const payload = {
     pallets_count: document.getElementById("ozonSdPallets")?.value || "",
+    driver_name: document.getElementById("ozonSdDriverSelect")?.value || "",
     notes: document.getElementById("ozonSdNotes")?.value || "",
     production: document.getElementById("ozonSdProduction")?.value || "",
   };
-  await fetch(`/api/ozon-supplies/${_ozonDetailsCurrentId}/manual-fields`, {
+  const infoEl = document.getElementById("ozonSdInfo");
+  if (infoEl) infoEl.textContent = "Сохранение…";
+  const res = await fetch(`/api/ozon-supplies/${_ozonDetailsCurrentId}/manual-fields`, {
     method: "PATCH", headers: jsonHeaders(), body: JSON.stringify(payload)
   }).catch(() => null);
-  closeOzonDetailsModal();
-  await loadOzonSupplies();
+  if (res && res.ok) {
+    closeOzonDetailsModal();
+    await loadOzonSupplies();
+  } else {
+    if (infoEl) infoEl.textContent = "Ошибка сохранения";
+  }
 }
 
 // ── Batch selection (same logic as WB) ────────────────────────────────────
