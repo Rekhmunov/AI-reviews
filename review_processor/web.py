@@ -9060,6 +9060,17 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
         role in ROLE_CAN_ACCESS_SETTINGS
         or bool(_supply_perms.get("can_supply_settings"))
     )
+    can_view_supply_certs = (
+        role in ROLE_CAN_ACCESS_SETTINGS
+        or bool(_supply_perms.get("can_supply_certs"))
+    )
+    can_view_any_supply = (
+        can_view_wb_supplies
+        or can_view_ozon_supplies
+        or can_view_supply_poa
+        or can_view_supply_settings
+        or can_view_supply_certs
+    )
     if role in ROLE_CAN_ACCESS_SETTINGS:
         can_view_feedback = True
         can_view_reviews = True
@@ -9100,7 +9111,7 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
     _poa_link = ('<a id="nav-supplies-poa" class="nav-item" href="#" onclick="showSection(\'supplies-poa\')"><span class="nav-item-icon">☐</span> Доверенности</a>'
                  if can_view_supply_poa else "")
     _certs_link = ('<a id="nav-supplies-certificates" class="nav-item" href="#" onclick="showSection(\'supplies-certificates\')"><span class="nav-item-icon">✦</span> Сертификаты</a>'
-                   if can_view_supplies else "")
+                   if can_view_supply_certs else "")
     nav_supplies_wb = _wb_link + _ozon_link + _poa_link + _certs_link if can_view_supplies else ""
     nav_supplies_settings = (
         '<a id="nav-supplies-settings" class="nav-item" href="#" onclick="showSection(\'supplies-settings\')"><span class="nav-item-icon">≡</span> Настройки</a>'
@@ -9121,6 +9132,7 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
             ),
             "NAV_SUPPLIES_WB": nav_supplies_wb,
             "NAV_SUPPLIES_SETTINGS": nav_supplies_settings,
+            "CAN_VIEW_ANY_SUPPLY": "true" if can_view_any_supply else "false",
             "CAN_VIEW_ANALYTICS": "true" if can_view_analytics else "false",
             "CAN_VIEW_SETTINGS": "true" if can_view_settings else "false",
             "CAN_VIEW_SUPPLIES": "true" if can_view_supplies else "false",
