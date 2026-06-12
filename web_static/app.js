@@ -9503,18 +9503,16 @@ async function saveNewManager() {
     return;
   }
   if (data.item?.id) {
-    if (teamState.pendingCanSupplies) {
-      await fetch(`/api/tenant/team/${data.item.id}/supplies-access`, {
-        method: "PUT", headers: jsonHeaders(),
-        body: JSON.stringify({ can_supplies: true }),
-      }).catch(() => {});
-    }
-    if (teamState.pendingCanSalary) {
-      await fetch(`/api/tenant/team/${data.item.id}/salary-access`, {
-        method: "PUT", headers: jsonHeaders(),
-        body: JSON.stringify({ can_salary: true }),
-      }).catch(() => {});
-    }
+    // Always set both flags explicitly (including false) so DB is in sync
+    // with the permissions modal state regardless of any prior session state.
+    await fetch(`/api/tenant/team/${data.item.id}/supplies-access`, {
+      method: "PUT", headers: jsonHeaders(),
+      body: JSON.stringify({ can_supplies: Boolean(teamState.pendingCanSupplies) }),
+    }).catch(() => {});
+    await fetch(`/api/tenant/team/${data.item.id}/salary-access`, {
+      method: "PUT", headers: jsonHeaders(),
+      body: JSON.stringify({ can_salary: Boolean(teamState.pendingCanSalary) }),
+    }).catch(() => {});
   }
   document.getElementById("teamManagerEmail").value = "";
   document.getElementById("teamManagerPassword").value = "";
