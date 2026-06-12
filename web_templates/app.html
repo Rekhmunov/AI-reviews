@@ -1913,29 +1913,27 @@
     </div>
   </div>
 
-  <div id="managerPermissionsModal" class="modal-overlay hidden">
-    <div style="background:#fff;border-radius:12px;box-shadow:0 8px 40px rgba(15,23,42,0.16);width:90vw;max-height:90vh;display:flex;flex-direction:column;overflow:hidden">
-      <!-- Header -->
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 24px;border-bottom:1px solid #e2e8f0;background:#f8fafc;flex-shrink:0">
-        <h4 style="margin:0;font-size:15px;font-weight:600;color:#0f172a">Доступы менеджера</h4>
-        <button type="button" class="modal-close-btn" onclick="closeManagerPermissionsModal()">✕</button>
+  <div id="managerPermissionsModal" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="perm-modal-card">
+      <div class="modal-card-header">
+        <h4 class="no-margin">Доступы менеджера</h4>
+        <button type="button" class="modal-close-btn" onclick="closeManagerPermissionsModal()" aria-label="Закрыть">✕</button>
       </div>
 
-      <!-- Scrollable body -->
-      <div style="overflow-y:auto;flex:1;padding:24px">
+      <div class="perm-modal-body">
 
         <!-- Обратная связь -->
-        <div style="margin-bottom:24px">
-          <p style="margin:0 0 4px;font-size:12px;font-weight:700;color:#94a3b8;letter-spacing:0.06em;text-transform:uppercase">Обратная связь</p>
-          <p style="margin:0 0 12px;font-size:13px;color:#64748b">Отметьте кабинеты и типы сущностей, с которыми менеджер сможет работать.</p>
-          <table style="width:100%;border-collapse:collapse;table-layout:fixed">
+        <div class="perm-section">
+          <p class="perm-section-label">Обратная связь</p>
+          <p class="perm-section-hint">Отметьте кабинеты и типы сущностей, с которыми менеджер сможет работать.</p>
+          <table class="perm-table">
             <colgroup><col style="width:40%"><col style="width:20%"><col style="width:20%"><col style="width:20%"></colgroup>
             <thead>
-              <tr style="background:#f8fafc">
-                <th style="text-align:left;padding:8px 12px;font-size:12px;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0">Кабинет</th>
-                <th style="text-align:center;padding:8px 12px;font-size:12px;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0">Отзывы</th>
-                <th style="text-align:center;padding:8px 12px;font-size:12px;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0">Вопросы</th>
-                <th style="text-align:center;padding:8px 12px;font-size:12px;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0">Чаты</th>
+              <tr>
+                <th>Кабинет</th>
+                <th>Отзывы</th>
+                <th>Вопросы</th>
+                <th>Чаты</th>
               </tr>
             </thead>
             <tbody id="managerPermissionsTbody"></tbody>
@@ -1943,29 +1941,38 @@
         </div>
 
         <!-- Поставки -->
-        <div>
-          <p style="margin:0 0 4px;font-size:12px;font-weight:700;color:#94a3b8;letter-spacing:0.06em;text-transform:uppercase">Поставки</p>
-          <p style="margin:0 0 12px;font-size:13px;color:#64748b">Отметьте доступ к источникам и разделам.</p>
-          <table id="managerSupplyPermissionsTable" style="width:100%;border-collapse:collapse;table-layout:fixed">
+        <div class="perm-section">
+          <p class="perm-section-label">Поставки</p>
+          <p class="perm-section-hint">Отметьте доступ к источникам и разделам.</p>
+          <table id="managerSupplyPermissionsTable" class="perm-table">
             <colgroup><col style="width:28%"><col style="width:12%"><col style="width:12%"><col style="width:16%"><col style="width:16%"><col style="width:16%"></colgroup>
             <thead>
-              <tr style="background:#f8fafc">
-                <th style="text-align:left;padding:8px 12px;font-size:12px;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0">Кабинет</th>
-                <th style="text-align:center;padding:8px 12px;font-size:12px;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0">ВБ</th>
-                <th style="text-align:center;padding:8px 12px;font-size:12px;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0">ОЗОН</th>
-                <th id="managerSupplySettingsHeader" style="text-align:center;padding:8px 12px;font-size:12px;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0">Настройки</th>
-                <th id="managerSupplyPoaHeader" style="text-align:center;padding:8px 12px;font-size:12px;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0">Доверенности</th>
-                <th style="text-align:center;padding:8px 12px;font-size:12px;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0">Сертификаты</th>
+              <tr>
+                <th>Кабинет</th>
+                <th>ВБ</th>
+                <th>ОЗОН</th>
+                <th id="managerSupplySettingsHeader">Настройки</th>
+                <th id="managerSupplyPoaHeader">Доверенности</th>
+                <th>Сертификаты</th>
               </tr>
             </thead>
             <tbody id="managerSupplyPermissionsTbody"></tbody>
           </table>
         </div>
 
+        <!-- Зарплата -->
+        <div class="perm-section">
+          <p class="perm-section-label">Зарплата</p>
+          <p class="perm-section-hint">Доступ к разделу начислений.</p>
+          <div class="perm-section-checkbox-row">
+            <input type="checkbox" id="managerSalaryAccess" />
+            <label for="managerSalaryAccess">Начисление ЗП</label>
+          </div>
+        </div>
+
       </div>
 
-      <!-- Footer -->
-      <div style="display:flex;align-items:center;gap:12px;padding:16px 24px;border-top:1px solid #e2e8f0;flex-shrink:0;background:#fff">
+      <div class="perm-modal-footer">
         <button id="managerPermissionsSaveBtn" type="button" onclick="applyManagerPermissionsSelection()">Применить разрешения</button>
         <span id="managerPermissionsInfo" class="small"></span>
       </div>
@@ -2075,6 +2082,10 @@
       can_view_settings: {{CAN_VIEW_SETTINGS}},
       can_view_supplies: {{CAN_VIEW_SUPPLIES}},
       can_view_feedback: {{CAN_VIEW_FEEDBACK}},
+      can_view_reviews: {{CAN_VIEW_REVIEWS}},
+      can_view_questions: {{CAN_VIEW_QUESTIONS}},
+      can_view_chats: {{CAN_VIEW_CHATS}},
+      can_view_salary: {{CAN_VIEW_SALARY}},
       is_admin: {{IS_ADMIN}},
       is_super_admin: {{IS_SUPER_ADMIN}},
       is_tenant_owner: {{IS_TENANT_OWNER}}

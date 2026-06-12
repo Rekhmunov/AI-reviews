@@ -444,34 +444,18 @@ async function copyAccountApiKey(rawKey) {
 }
 
 function getPermissions() {
-  const defaults = { can_view_analytics: true, can_view_settings: true, can_view_supplies: false, can_view_feedback: true, is_admin: false };
   const fromWindow = window.APP_PERMISSIONS || {};
+  const _b = (key, def) => Boolean(fromWindow[key] !== undefined ? fromWindow[key] : def);
   return {
-    can_view_analytics: Boolean(
-      fromWindow.can_view_analytics !== undefined
-        ? fromWindow.can_view_analytics
-        : defaults.can_view_analytics,
-    ),
-    can_view_settings: Boolean(
-      fromWindow.can_view_settings !== undefined
-        ? fromWindow.can_view_settings
-        : defaults.can_view_settings,
-    ),
-    can_view_supplies: Boolean(
-      fromWindow.can_view_supplies !== undefined
-        ? fromWindow.can_view_supplies
-        : defaults.can_view_supplies,
-    ),
-    can_view_feedback: Boolean(
-      fromWindow.can_view_feedback !== undefined
-        ? fromWindow.can_view_feedback
-        : defaults.can_view_feedback,
-    ),
-    is_admin: Boolean(
-      fromWindow.is_admin !== undefined
-        ? fromWindow.is_admin
-        : defaults.is_admin,
-    ),
+    can_view_analytics: _b("can_view_analytics", true),
+    can_view_settings:  _b("can_view_settings", true),
+    can_view_supplies:  _b("can_view_supplies", false),
+    can_view_feedback:  _b("can_view_feedback", true),
+    can_view_reviews:   _b("can_view_reviews", true),
+    can_view_questions: _b("can_view_questions", true),
+    can_view_chats:     _b("can_view_chats", true),
+    can_view_salary:    _b("can_view_salary", false),
+    is_admin:           _b("is_admin", false),
   };
 }
 
@@ -482,17 +466,18 @@ function isTenantOwner() {
 
 function canViewSection(section) {
   const permissions = getPermissions();
-  if (section === "analytics") return permissions.can_view_analytics;
-  if (section === "settings") return permissions.can_view_settings;
-  if (section === "team") return isTenantOwner();
-  if (section === "supplies-wb") return permissions.can_view_supplies;
+  if (section === "analytics")    return permissions.can_view_analytics;
+  if (section === "settings")     return permissions.can_view_settings;
+  if (section === "team")         return isTenantOwner();
+  if (section === "reviews")      return permissions.can_view_reviews;
+  if (section === "conversations") return permissions.can_view_questions;
+  if (section === "chats")        return permissions.can_view_chats;
+  if (section === "salary")       return permissions.can_view_salary || isTenantOwner();
+  if (section === "supplies-wb")  return permissions.can_view_supplies;
   if (section === "supplies-ozon") return permissions.can_view_supplies;
   if (section === "supplies-poa") return permissions.can_view_supplies;
   if (section === "supplies-certificates") return permissions.can_view_supplies;
   if (section === "supplies-settings") return permissions.can_view_settings || permissions.can_view_supplies;
-  if (section === "reviews" || section === "conversations" || section === "chats") {
-    return permissions.can_view_feedback;
-  }
   return true;
 }
 
@@ -9027,10 +9012,11 @@ function updateTeamPermissionsPreview() {
   if (!preview) return;
   const permissions = Array.isArray(teamState.pendingPermissions) ? teamState.pendingPermissions : [];
   const canSupplies = Boolean(teamState.pendingCanSupplies);
-  if (!permissions.length && !canSupplies) {
+  const canSalary = Boolean(teamState.pendingCanSalary);
+  if (!permissions.length && !canSupplies && !canSalary) {
     preview.textContent = "Разрешения не выбраны";
   } else {
-    preview.textContent = formatManagerPermissionsText(permissions, canSupplies);
+    preview.textContent = formatManagerPermissionsText(permissions, canSupplies, teamState.pendingSupplyPermissions, canSalary);
   }
 }
 
@@ -9124,13 +9110,11 @@ function renderManagerPermissionsRows(accounts, permissions = []) {
     if (!accountId) continue;
     const rowPerm = permissionsByAccount.get(accountId) || {};
     const tr = document.createElement("tr");
-    const tdStyle = "padding:10px 12px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b";
-    const tdCenter = tdStyle + ";text-align:center";
     tr.innerHTML = `
-      <td style="${tdStyle}">${esc(account.account_name || `Кабинет #${accountId}`)}</td>
-      <td style="${tdCenter}"><input type="checkbox" data-account-id="${accountId}" data-scope="reviews" ${rowPerm.can_reviews ? "checked" : ""} /></td>
-      <td style="${tdCenter}"><input type="checkbox" data-account-id="${accountId}" data-scope="questions" ${rowPerm.can_questions ? "checked" : ""} /></td>
-      <td style="${tdCenter}"><input type="checkbox" data-account-id="${accountId}" data-scope="chats" ${rowPerm.can_chats ? "checked" : ""} /></td>
+      <td>${esc(account.account_name || `Кабинет #${accountId}`)}</td>
+      <td><input type="checkbox" data-account-id="${accountId}" data-scope="reviews" ${rowPerm.can_reviews ? "checked" : ""} /></td>
+      <td><input type="checkbox" data-account-id="${accountId}" data-scope="questions" ${rowPerm.can_questions ? "checked" : ""} /></td>
+      <td><input type="checkbox" data-account-id="${accountId}" data-scope="chats" ${rowPerm.can_chats ? "checked" : ""} /></td>
     `;
     tbody.appendChild(tr);
   }
@@ -9159,7 +9143,7 @@ function collectManagerPermissionsFromModal() {
   return Array.from(map.values()).filter((item) => item.can_reviews || item.can_questions || item.can_chats);
 }
 
-function formatManagerPermissionsText(permissions, canSupplies, supplyPermissions) {
+function formatManagerPermissionsText(permissions, canSupplies, supplyPermissions, canSalary) {
   const rows = Array.isArray(permissions) ? permissions : [];
   // Build supplies summary from granular permissions
   const sp = supplyPermissions || {};
@@ -9177,8 +9161,9 @@ function formatManagerPermissionsText(permissions, canSupplies, supplyPermission
   const suppliesText = uniqueParts.length
     ? "Поставки: " + uniqueParts.join(", ")
     : (canSupplies ? "Поставки" : "");
-  if (!rows.length && !suppliesText) return "Доступы не назначены";
-  if (!rows.length) return suppliesText;
+  const salaryText = canSalary ? "Зарплата: Начисление ЗП" : "";
+  if (!rows.length && !suppliesText && !salaryText) return "Доступы не назначены";
+  if (!rows.length) return [suppliesText, salaryText].filter(Boolean).join("; ");
   const accountById = new Map((teamState.accounts || []).map((item) => [Number(item.id || 0), item]));
   return rows
     .map((perm) => {
@@ -9191,7 +9176,7 @@ function formatManagerPermissionsText(permissions, canSupplies, supplyPermission
       if (perm.can_chats) scopes.push("чаты");
       return `${accountName}: ${scopes.join(", ") || "нет"}`;
     })
-    .join("; ") + (suppliesText ? "; " + suppliesText : "");
+    .join("; ") + (suppliesText ? "; " + suppliesText : "") + (salaryText ? "; " + salaryText : "");
 }
 
 async function loadTeam() {
@@ -9225,7 +9210,7 @@ async function loadTeam() {
   } else {
     for (const member of teamState.items) {
       const memberId = Number(member.id || 0);
-      const permsText = formatManagerPermissionsText(member.manager_permissions || [], member.can_supplies, member.supply_permissions);
+      const permsText = formatManagerPermissionsText(member.manager_permissions || [], member.can_supplies, member.supply_permissions, member.can_salary);
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td>${esc(member.id)}</td>
@@ -9310,6 +9295,7 @@ async function openManagerPermissionsModalForEdit() {
   if (!member) return;
   teamState.pendingPermissions = (member.manager_permissions || []).map(p => ({...p}));
   teamState.pendingCanSupplies = Boolean(member.can_supplies);
+  teamState.pendingCanSalary = Boolean(member.can_salary);
   // Load supply permissions
   const spRes = await fetch(`/api/tenant/team/${_editingMemberId}/supply-permissions`).catch(() => null);
   const spData = spRes?.ok ? await spRes.json().catch(() => ({})) : {};
@@ -9323,6 +9309,9 @@ async function openManagerPermissionsModalForEdit() {
   const ssRes = await fetch("/api/supply-sources").catch(() => null);
   const ssSources = ssRes?.ok ? await ssRes.json().catch(() => []) : [];
   renderManagerSupplyPermissionsRows(ssSources, teamState.pendingSupplyPermissions);
+  // Set salary checkbox
+  const salaryChk = document.getElementById("managerSalaryAccess");
+  if (salaryChk) salaryChk.checked = teamState.pendingCanSalary;
   setModalVisibility("managerPermissionsModal", true);
 }
 
@@ -9366,6 +9355,10 @@ async function saveEditTeamMember() {
         can_supply_poa: Boolean(sp.can_supply_poa),
         supply_sources: sp.sources || {},
       })
+    });
+    await fetch(`/api/tenant/team/${uid}/salary-access`, {
+      method: "PUT", headers: jsonHeaders(),
+      body: JSON.stringify({ can_salary: Boolean(teamState.pendingCanSalary) }),
     });
     if (info) { info.textContent = "Сохранено"; info.style.color = "#16a34a"; }
     await loadTeam();
@@ -9436,11 +9429,13 @@ async function openManagerPermissionsModalForCreate() {
 function applyManagerPermissionsSelection() {
   const permissions = collectManagerPermissionsFromModal();
   const supplyPerms = collectManagerSupplyPermissionsFromModal();
+  const canSalary = Boolean(document.getElementById("managerSalaryAccess")?.checked);
   teamState.pendingSupplyPermissions = supplyPerms;
+  teamState.pendingCanSalary = canSalary;
   const hasAnySupply = supplyPerms.can_supply_settings || supplyPerms.can_supply_poa || supplyPerms.can_supply_certs ||
     Object.values(supplyPerms.sources || {}).some(s => s.wb || s.ozon);
   teamState.pendingCanSupplies = hasAnySupply;
-  if (!permissions.length && !hasAnySupply) {
+  if (!permissions.length && !hasAnySupply && !canSalary) {
     const info = document.getElementById("managerPermissionsInfo");
     if (info) {
       info.textContent = "Нужно выбрать хотя бы один доступ";
@@ -9452,10 +9447,9 @@ function applyManagerPermissionsSelection() {
   closeManagerPermissionsModal();
   updateTeamPermissionsPreview();
   setTeamInfo("Разрешения менеджера выбраны");
-  // Update preview in edit modal if open
   const editPreview = document.getElementById("editMemberPermissionsPreview");
   if (editPreview && _editingMemberId) {
-    const txt = formatManagerPermissionsText(permissions, teamState.pendingCanSupplies, teamState.pendingSupplyPermissions);
+    const txt = formatManagerPermissionsText(permissions, teamState.pendingCanSupplies, teamState.pendingSupplyPermissions, canSalary);
     editPreview.textContent = txt || "Нет доступов";
   }
 }
@@ -9496,19 +9490,26 @@ async function saveNewManager() {
     setTeamInfo("Ошибка: " + msg, true);
     return;
   }
-  // Set can_supplies if checked
-  if (teamState.pendingCanSupplies && data.item?.id) {
-    await fetch(`/api/tenant/team/${data.item.id}/supplies-access`, {
-      method: "PUT",
-      headers: jsonHeaders(),
-      body: JSON.stringify({ can_supplies: true }),
-    }).catch(() => {});
+  if (data.item?.id) {
+    if (teamState.pendingCanSupplies) {
+      await fetch(`/api/tenant/team/${data.item.id}/supplies-access`, {
+        method: "PUT", headers: jsonHeaders(),
+        body: JSON.stringify({ can_supplies: true }),
+      }).catch(() => {});
+    }
+    if (teamState.pendingCanSalary) {
+      await fetch(`/api/tenant/team/${data.item.id}/salary-access`, {
+        method: "PUT", headers: jsonHeaders(),
+        body: JSON.stringify({ can_salary: true }),
+      }).catch(() => {});
+    }
   }
   document.getElementById("teamManagerEmail").value = "";
   document.getElementById("teamManagerPassword").value = "";
   document.getElementById("teamManagerFullName").value = "";
   teamState.pendingPermissions = [];
   teamState.pendingCanSupplies = false;
+  teamState.pendingCanSalary = false;
   updateTeamPermissionsPreview();
   setTeamInfo("Менеджер создан");
   await loadTeam();
@@ -10206,18 +10207,28 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("section-supplies-wb")?.classList.add("hidden");
     document.getElementById("section-supplies-settings")?.classList.add("hidden");
   }
+  // Per-channel nav visibility: hide individual tabs the manager has no access to
+  const channelMap = [
+    { section: "section-reviews",       nav: "nav-reviews",       can: permissions.can_view_reviews },
+    { section: "section-conversations", nav: "nav-conversations",  can: permissions.can_view_questions },
+    { section: "section-chats",         nav: "nav-chats",          can: permissions.can_view_chats },
+  ];
+  for (const ch of channelMap) {
+    if (!ch.can) {
+      document.getElementById(ch.section)?.classList.add("hidden");
+      const navEl = document.getElementById(ch.nav);
+      if (navEl) navEl.style.display = "none";
+    }
+  }
+  // Hide the whole feedback group if no channel is accessible
   if (!permissions.can_view_feedback) {
-    ["section-reviews", "section-conversations", "section-chats"].forEach((id) => {
-      document.getElementById(id)?.classList.add("hidden");
-    });
-    // Hide feedback nav items
-    ["nav-reviews", "nav-conversations", "nav-chats"].forEach((id) => {
-      const el = document.getElementById(id);
-      if (el) el.style.display = "none";
-    });
-    // Also hide the nav section label if all feedback items are hidden
     const feedbackLabel = document.querySelector(".sidebar-nav .nav-section-label");
     if (feedbackLabel) feedbackLabel.style.display = "none";
+  }
+  if (!permissions.can_view_salary && !isTenantOwner()) {
+    document.getElementById("section-salary")?.classList.add("hidden");
+    const salaryNav = document.getElementById("nav-salary");
+    if (salaryNav) salaryNav.style.display = "none";
   }
   const savedSettingsTab = readStoredUiState(ACTIVE_SETTINGS_TAB_STORAGE_KEY);
   let initialSettingsTab = SETTINGS_TAB_IDS.includes(savedSettingsTab) ? savedSettingsTab : "sources";
