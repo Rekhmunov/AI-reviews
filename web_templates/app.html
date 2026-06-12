@@ -156,7 +156,7 @@
               <select id="statusFilter" class="hidden" aria-hidden="true">
                 <option value="all">Статус: Выбрать все</option>
                 <option value="waiting_send">Ждет отправки</option>
-                <option value="processed_outside_spix">Обработан вне Спикс</option>
+                <option value="processed_outside_spix">Обработан вне FeedPilot</option>
                 <option value="rejected">Отклонен</option>
                 <option value="answered">Отвечен</option>
                 <option value="waiting_processing">Ждет обработки</option>
@@ -442,7 +442,7 @@
               </select>
               <div id="chatsSortDropdown" class="chats-sort-dropdown hidden"></div>
               <div class="reviews-date-wrap">
-                <input type="search" id="chatsSearchInput" class="chats-search-input" placeholder="🔍 Поиск по имени..." oninput="onChatsSearchInput()" autocomplete="off" readonly onfocus="this.removeAttribute('readonly')" onblur="if(!this.value.trim())this.setAttribute('readonly','')" style="width:180px" />
+                <input type="search" id="chatsSearchInput" class="chats-search-input" placeholder="🔍 Поиск по имени..." oninput="onChatsSearchInput()" autocomplete="off" style="width:180px" />
               </div>
             </div>
           </div>

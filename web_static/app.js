@@ -120,6 +120,94 @@ const SETTINGS_TAB_IDS = ["sources", "rules", "templates", "recommendations", "p
 const APP_BOOT_HIDE_CLASS = "app-boot-hidden";
 const MOBILE_NAV_BREAKPOINT_PX = 900;
 
+// ── Shared filter/pagination utilities ───────────────────────────────────────
+
+/**
+ * Compute from/to date strings for a named preset relative to today.
+ * Returns { fromValue, toValue } as "YYYY-MM-DD" strings.
+ */
+function _computeDatePreset(preset) {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  let fromDate = null;
+  let toDate = new Date(today);
+
+  if (preset === "today") {
+    fromDate = new Date(today);
+  } else if (preset === "yesterday") {
+    fromDate = new Date(today);
+    fromDate.setDate(fromDate.getDate() - 1);
+    toDate = new Date(fromDate);
+  } else if (preset === "last_week") {
+    const diffFromMonday = (today.getDay() + 6) % 7;
+    const weekStart = new Date(today);
+    weekStart.setDate(weekStart.getDate() - diffFromMonday);
+    fromDate = new Date(weekStart);
+    fromDate.setDate(fromDate.getDate() - 7);
+    toDate = new Date(weekStart);
+    toDate.setDate(toDate.getDate() - 1);
+  } else if (preset === "last_7_days") {
+    fromDate = new Date(today);
+    fromDate.setDate(fromDate.getDate() - 6);
+  } else if (preset === "last_30_days") {
+    fromDate = new Date(today);
+    fromDate.setDate(fromDate.getDate() - 29);
+  } else if (preset === "last_month") {
+    const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    fromDate = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    toDate = new Date(firstOfMonth);
+    toDate.setDate(0);
+  } else if (preset === "last_3_months") {
+    fromDate = new Date(today);
+    fromDate.setMonth(fromDate.getMonth() - 3);
+    fromDate.setDate(fromDate.getDate() + 1);
+  } else if (preset === "last_year") {
+    fromDate = new Date(today);
+    fromDate.setFullYear(fromDate.getFullYear() - 1);
+    fromDate.setDate(fromDate.getDate() + 1);
+  } else {
+    return null;
+  }
+
+  return {
+    fromValue: fromDate ? dateToInputValue(fromDate) : "",
+    toValue: toDate ? dateToInputValue(toDate) : "",
+  };
+}
+
+/**
+ * Update a date-range filter button label given a button element ID and
+ * from/to "YYYY-MM-DD" strings (or null).
+ */
+function _updateDateFilterButton(btnId, from, to) {
+  const btn = document.getElementById(btnId);
+  if (!btn) return;
+  if (from && to) { btn.textContent = `${inputValueToRuDate(from)} - ${inputValueToRuDate(to)}`; return; }
+  if (from) { btn.textContent = `С ${inputValueToRuDate(from)}`; return; }
+  if (to) { btn.textContent = `До ${inputValueToRuDate(to)}`; return; }
+  btn.textContent = "Период: все даты";
+}
+
+/**
+ * Toggle "active" CSS class on a pair of bucket tab buttons.
+ */
+function _setBucketTabs(newTabId, processedTabId, bucket) {
+  document.getElementById(newTabId)?.classList.toggle("active", bucket === "new");
+  document.getElementById(processedTabId)?.classList.toggle("active", bucket === "processed");
+}
+
+/**
+ * Advance pagination by delta (-1 or +1), guard bounds, then reload.
+ */
+function _changePage(state, loadFn, delta) {
+  const next = state.page + delta;
+  if (next < 1 || next > state.pages) return;
+  state.page = next;
+  loadFn();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 function showSyncProgress() {
   const bar = document.getElementById("syncProgressBar");
   if (bar) bar.style.display = "block";
@@ -282,7 +370,7 @@ const reviewStatusLabels = {
   answered_manual: "Обработан оператором",
   ignored: "Игнор",
   waiting_send: "Ждет отправки",
-  processed_outside_spix: "Обработан вне Спикс",
+  processed_outside_spix: "Обработан вне FeedPilot",
   rejected: "Отклонен",
   answered: "Отвечен",
   waiting_processing: "Ждет обработки",
@@ -682,8 +770,7 @@ function closeMobileNavIfDesktop() {
 function setReviewBucket(bucket) {
   reviewsState.bucket = bucket;
   reviewsState.page = 1;
-  document.getElementById("reviews-tab-new")?.classList.toggle("active", bucket === "new");
-  document.getElementById("reviews-tab-processed")?.classList.toggle("active", bucket === "processed");
+  _setBucketTabs("reviews-tab-new", "reviews-tab-processed", bucket);
   loadReviews();
 }
 
@@ -696,17 +783,13 @@ function onReviewPageSizeChange() {
 }
 
 function changeReviewsPage(delta) {
-  const next = reviewsState.page + delta;
-  if (next < 1 || next > reviewsState.pages) return;
-  reviewsState.page = next;
-  loadReviews();
+  _changePage(reviewsState, loadReviews, delta);
 }
 
 function setQuestionBucket(bucket) {
   questionsState.bucket = bucket;
   questionsState.page = 1;
-  document.getElementById("questions-tab-new")?.classList.toggle("active", bucket === "new");
-  document.getElementById("questions-tab-processed")?.classList.toggle("active", bucket === "processed");
+  _setBucketTabs("questions-tab-new", "questions-tab-processed", bucket);
   loadQuestions();
 }
 
@@ -719,16 +802,12 @@ function onQuestionsPageSizeChange() {
 }
 
 function changeQuestionsPage(delta) {
-  const next = questionsState.page + delta;
-  if (next < 1 || next > questionsState.pages) return;
-  questionsState.page = next;
-  loadQuestions();
+  _changePage(questionsState, loadQuestions, delta);
 }
 
 function setChatBucket(bucket) {
   chatsState.bucket = bucket;
-  document.getElementById("chats-tab-new")?.classList.toggle("active", bucket === "new");
-  document.getElementById("chats-tab-processed")?.classList.toggle("active", bucket === "processed");
+  _setBucketTabs("chats-tab-new", "chats-tab-processed", bucket);
   _updateChatBucketButtons();
   loadChats();
 }
@@ -763,23 +842,7 @@ function inputValueToRuDate(value) {
 }
 
 function updateReviewsDateFilterButton() {
-  const btn = document.getElementById("reviewsDateFilterBtn");
-  if (!btn) return;
-  const from = reviewsState.date_from;
-  const to = reviewsState.date_to;
-  if (from && to) {
-    btn.textContent = `${inputValueToRuDate(from)} - ${inputValueToRuDate(to)}`;
-    return;
-  }
-  if (from) {
-    btn.textContent = `С ${inputValueToRuDate(from)}`;
-    return;
-  }
-  if (to) {
-    btn.textContent = `До ${inputValueToRuDate(to)}`;
-    return;
-  }
-  btn.textContent = "Период: все даты";
+  _updateDateFilterButton("reviewsDateFilterBtn", reviewsState.date_from, reviewsState.date_to);
 }
 
 function setSourceFilterOptions(options) {
@@ -991,55 +1054,12 @@ function clearReviewsDateFilter() {
 }
 
 function setReviewsDatePreset(preset) {
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  let fromDate = null;
-  let toDate = new Date(today);
-
-  if (preset === "today") {
-    fromDate = new Date(today);
-  } else if (preset === "yesterday") {
-    fromDate = new Date(today);
-    fromDate.setDate(fromDate.getDate() - 1);
-    toDate = new Date(fromDate);
-  } else if (preset === "last_week") {
-    const currentDay = today.getDay();
-    const diffFromMonday = (currentDay + 6) % 7;
-    const currentWeekMonday = new Date(today);
-    currentWeekMonday.setDate(currentWeekMonday.getDate() - diffFromMonday);
-    fromDate = new Date(currentWeekMonday);
-    fromDate.setDate(fromDate.getDate() - 7);
-    toDate = new Date(currentWeekMonday);
-    toDate.setDate(toDate.getDate() - 1);
-  } else if (preset === "last_7_days") {
-    fromDate = new Date(today);
-    fromDate.setDate(fromDate.getDate() - 6);
-  } else if (preset === "last_30_days") {
-    fromDate = new Date(today);
-    fromDate.setDate(fromDate.getDate() - 29);
-  } else if (preset === "last_month") {
-    const currentMonthFirstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-    fromDate = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-    toDate = new Date(currentMonthFirstDay);
-    toDate.setDate(0);
-  } else if (preset === "last_3_months") {
-    fromDate = new Date(today);
-    fromDate.setMonth(fromDate.getMonth() - 3);
-    fromDate.setDate(fromDate.getDate() + 1);
-  } else if (preset === "last_year") {
-    fromDate = new Date(today);
-    fromDate.setFullYear(fromDate.getFullYear() - 1);
-    fromDate.setDate(fromDate.getDate() + 1);
-  } else {
-    return;
-  }
-
-  const fromValue = fromDate ? dateToInputValue(fromDate) : "";
-  const toValue = toDate ? dateToInputValue(toDate) : "";
+  const result = _computeDatePreset(preset);
+  if (!result) return;
   const fromInput = document.getElementById("reviewsDateFrom");
   const toInput = document.getElementById("reviewsDateTo");
-  if (fromInput) fromInput.value = fromValue;
-  if (toInput) toInput.value = toValue;
+  if (fromInput) fromInput.value = result.fromValue;
+  if (toInput) toInput.value = result.toValue;
 }
 
 function setDefaultQuestionsDateRange(force) {
@@ -1057,23 +1077,7 @@ function setDefaultQuestionsDateRange(force) {
 }
 
 function updateQuestionsDateFilterButton() {
-  const btn = document.getElementById("questionsDateFilterBtn");
-  if (!btn) return;
-  const from = questionsState.date_from;
-  const to = questionsState.date_to;
-  if (from && to) {
-    btn.textContent = `${inputValueToRuDate(from)} - ${inputValueToRuDate(to)}`;
-    return;
-  }
-  if (from) {
-    btn.textContent = `С ${inputValueToRuDate(from)}`;
-    return;
-  }
-  if (to) {
-    btn.textContent = `До ${inputValueToRuDate(to)}`;
-    return;
-  }
-  btn.textContent = "Период: все даты";
+  _updateDateFilterButton("questionsDateFilterBtn", questionsState.date_from, questionsState.date_to);
 }
 
 function toggleQuestionsDateFilterPanel(forceOpen) {
@@ -1128,55 +1132,12 @@ function clearQuestionsDateFilter() {
 }
 
 function setQuestionsDatePreset(preset) {
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  let fromDate = null;
-  let toDate = new Date(today);
-
-  if (preset === "today") {
-    fromDate = new Date(today);
-  } else if (preset === "yesterday") {
-    fromDate = new Date(today);
-    fromDate.setDate(fromDate.getDate() - 1);
-    toDate = new Date(fromDate);
-  } else if (preset === "last_week") {
-    const currentDay = today.getDay();
-    const diffFromMonday = (currentDay + 6) % 7;
-    const currentWeekMonday = new Date(today);
-    currentWeekMonday.setDate(currentWeekMonday.getDate() - diffFromMonday);
-    fromDate = new Date(currentWeekMonday);
-    fromDate.setDate(fromDate.getDate() - 7);
-    toDate = new Date(currentWeekMonday);
-    toDate.setDate(toDate.getDate() - 1);
-  } else if (preset === "last_7_days") {
-    fromDate = new Date(today);
-    fromDate.setDate(fromDate.getDate() - 6);
-  } else if (preset === "last_30_days") {
-    fromDate = new Date(today);
-    fromDate.setDate(fromDate.getDate() - 29);
-  } else if (preset === "last_month") {
-    const currentMonthFirstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-    fromDate = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-    toDate = new Date(currentMonthFirstDay);
-    toDate.setDate(0);
-  } else if (preset === "last_3_months") {
-    fromDate = new Date(today);
-    fromDate.setMonth(fromDate.getMonth() - 3);
-    fromDate.setDate(fromDate.getDate() + 1);
-  } else if (preset === "last_year") {
-    fromDate = new Date(today);
-    fromDate.setFullYear(fromDate.getFullYear() - 1);
-    fromDate.setDate(fromDate.getDate() + 1);
-  } else {
-    return;
-  }
-
-  const fromValue = fromDate ? dateToInputValue(fromDate) : "";
-  const toValue = toDate ? dateToInputValue(toDate) : "";
+  const result = _computeDatePreset(preset);
+  if (!result) return;
   const fromInput = document.getElementById("questionsDateFrom");
   const toInput = document.getElementById("questionsDateTo");
-  if (fromInput) fromInput.value = fromValue;
-  if (toInput) toInput.value = toValue;
+  if (fromInput) fromInput.value = result.fromValue;
+  if (toInput) toInput.value = result.toValue;
 }
 
 function onQuestionsSortChange() {
@@ -1967,7 +1928,7 @@ async function loadReviews() {
     const nmId = rawProduct.nmId || rawItem.nmId || rawItem.nmID || rawItem.productId || null;
     const ozonProductId = rawItem.product_id || rawItem.productId || rawItem.item_id || null;
     let productUrl = "";
-    if (review.source === "ozon" || String(review.source || "").toLowerCase().includes("ozon")) {
+    if (isOzon) {
       if (ozonProductId) productUrl = `https://www.ozon.ru/product/${ozonProductId}/`;
     } else if (nmId) {
       productUrl = `https://www.wildberries.ru/catalog/${nmId}/detail.aspx`;
