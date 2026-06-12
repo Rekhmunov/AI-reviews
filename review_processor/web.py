@@ -4553,23 +4553,26 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="Для владельца права не меняются")
         if str(target.get("role") or "").strip().lower() != TENANT_ROLE_MANAGER:
             raise HTTPException(status_code=400, detail="Применимо только для менеджера")
-        # Derive can_supplies from granular permissions
-        sources = {str(k): v for k, v in (payload.supply_sources or {}).items()}
-        has_any_supply = (
-            payload.can_supplies
-            or payload.can_supply_settings
-            or payload.can_supply_poa
-            or payload.can_supply_certs
-            or any((v.get("wb") or v.get("ozon")) for v in sources.values())
-        )
-        repository.set_user_can_supplies(user_id=target_user_id, can_supplies=has_any_supply)
-        repository.set_manager_supply_permissions(
-            manager_user_id=target_user_id,
-            can_supply_settings=payload.can_supply_settings,
-            can_supply_poa=payload.can_supply_poa,
-            can_supply_certs=payload.can_supply_certs,
-            sources=sources,
-        )
+        try:
+            sources = {str(k): v for k, v in (payload.supply_sources or {}).items()}
+            has_any_supply = (
+                payload.can_supplies
+                or payload.can_supply_settings
+                or payload.can_supply_poa
+                or payload.can_supply_certs
+                or any((v.get("wb") or v.get("ozon")) for v in sources.values())
+            )
+            repository.set_user_can_supplies(user_id=target_user_id, can_supplies=has_any_supply)
+            repository.set_manager_supply_permissions(
+                manager_user_id=target_user_id,
+                can_supply_settings=payload.can_supply_settings,
+                can_supply_poa=payload.can_supply_poa,
+                can_supply_certs=payload.can_supply_certs,
+                sources=sources,
+            )
+        except Exception as exc:
+            _log.error("supplies-access save failed for user %s: %s", target_user_id, exc, exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Ошибка сохранения прав на поставки: {exc}") from exc
         return {"ok": True, "can_supplies": has_any_supply}
 
     @app.put("/api/tenant/team/{target_user_id}/salary-access")
