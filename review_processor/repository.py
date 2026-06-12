@@ -1154,13 +1154,16 @@ class ReviewRepository:
         ).fetchall()
         for row in rows:
             manager_id = int((row.get("id") if hasattr(row, "get") else row[0]))
-            perm_row = conn.execute(
-                self._sql(
-                    "SELECT can_supply_settings, can_supply_poa, can_supply_certs, sources_json "
-                    "FROM manager_supply_permissions WHERE manager_user_id = ? LIMIT 1"
-                ),
-                (manager_id,),
-            ).fetchone()
+            try:
+                perm_row = conn.execute(
+                    self._sql(
+                        "SELECT can_supply_settings, can_supply_poa, sources_json "
+                        "FROM manager_supply_permissions WHERE manager_user_id = ? LIMIT 1"
+                    ),
+                    (manager_id,),
+                ).fetchone()
+            except Exception:
+                continue  # table or column not ready yet — skip this manager
             if perm_row is None:
                 # No supply permissions row at all → stale flag
                 conn.execute(
@@ -1169,7 +1172,7 @@ class ReviewRepository:
                 )
                 continue
             d = perm_row if not hasattr(perm_row, "get") else dict(perm_row)
-            if d.get("can_supply_settings") or d.get("can_supply_poa") or d.get("can_supply_certs"):
+            if d.get("can_supply_settings") or d.get("can_supply_poa"):
                 continue  # has at least one non-source permission → legitimate
             try:
                 sources = _json.loads(d.get("sources_json") or "{}")

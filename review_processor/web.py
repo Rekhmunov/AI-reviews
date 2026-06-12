@@ -4501,7 +4501,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="Для владельца права не меняются")
         if str(target.get("role") or "").strip().lower() != TENANT_ROLE_MANAGER:
             raise HTTPException(status_code=400, detail="Применимо только для менеджера")
-        repository._ensure_supply_tables()
         # Derive can_supplies from granular permissions
         sources = {str(k): v for k, v in (payload.supply_sources or {}).items()}
         has_any_supply = (
