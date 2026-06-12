@@ -1893,6 +1893,8 @@ class ReviewRepository:
                     u.blocked_at,
                     u.plan_code,
                     u.created_at,
+                    u.can_supplies,
+                    u.can_salary,
                     s.status AS subscription_status,
                     s.active_from AS subscription_active_from,
                     s.paid_until AS subscription_paid_until,
@@ -7821,7 +7823,7 @@ class ReviewRepository:
                 (manager_user_id,),
             ).fetchone()
         if row is None:
-            return {"can_supply_settings": False, "can_supply_poa": False, "sources": {}}
+            return {"can_supply_settings": False, "can_supply_poa": False, "can_supply_certs": False, "sources": {}}
         d = self._row_to_dict(row)
         try:
             sources = _j.loads(d.get("sources_json") or "{}")
