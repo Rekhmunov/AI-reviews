@@ -71,6 +71,7 @@
 
       <div class="sidebar-bottom">
         {{ADMIN_LINK}}
+        {{NAV_TEAM}}
         <a id="nav-profile" class="nav-item nav-item-bottom" href="#" onclick="showSection('profile')">
           <span class="nav-item-icon">○</span> Мой профиль
         </a>
@@ -579,7 +580,6 @@
             <button id="settings-tab-templates" class="settings-tab-btn" onclick="showSettingsTab('templates')">Шаблоны</button>
             <button id="settings-tab-recommendations" class="settings-tab-btn" onclick="showSettingsTab('recommendations')">Рекомендации</button>
             <button id="settings-tab-products" class="settings-tab-btn" onclick="showSettingsTab('products')">Товары</button>
-            <button id="settings-tab-team" class="settings-tab-btn hidden" onclick="showSettingsTab('team')">Команда</button>
           </div>
           <div class="settings-mobile-tab-switch">
             <label for="mobileSettingsTabSelect" class="small">Раздел настроек</label>
@@ -589,7 +589,6 @@
               <option value="templates">Шаблоны</option>
               <option value="recommendations">Рекомендации</option>
               <option value="products">Товары</option>
-              <option id="mobile-settings-option-team" value="team">Команда</option>
             </select>
           </div>
         </div>
@@ -797,40 +796,42 @@
           </div>
         </div>
 
-        <div id="settings-pane-team" class="hidden">
-          <div class="panel">
-            <div class="row row-between">
-              <h4 class="no-margin">Команда</h4>
-            </div>
-            <div class="row">
-              <input id="teamManagerEmail" type="email" placeholder="Эл. почта менеджера" />
-              <input id="teamManagerPassword" type="password" placeholder="Пароль (минимум 8 символов)" />
-              <input id="teamManagerFullName" type="text" placeholder="ФИО (необязательно)" />
-            </div>
-            <div class="row">
-              <button class="secondary" type="button" onclick="openManagerPermissionsModalForCreate()">Разрешения</button>
-              <button type="button" onclick="saveNewManager()">Добавить менеджера</button>
-              <span id="teamPermissionsPreview" class="small">Разрешения не выбраны</span>
-            </div>
-            <div id="teamInfo" class="small"></div>
-            <!-- Mobile card list -->
-            <div id="teamMobileList" class="team-mobile-list"></div>
-            <!-- Desktop table -->
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>ID</th>
-                    <th>Email</th>
-                    <th>ФИО</th>
-                    <th>Роль</th>
-                    <th>Доступы</th>
-                    <th>Действия</th>
-                  </tr>
-                </thead>
-                <tbody id="teamTbody"></tbody>
-              </table>
-            </div>
+      </section>
+
+      <section id="section-team" class="hidden">
+        <h3 class="section-title">Команда</h3>
+        <div class="panel">
+          <div class="row row-between">
+            <h4 class="no-margin">Менеджеры</h4>
+          </div>
+          <div class="row">
+            <input id="teamManagerEmail" type="email" placeholder="Эл. почта менеджера" />
+            <input id="teamManagerPassword" type="password" placeholder="Пароль (минимум 8 символов)" />
+            <input id="teamManagerFullName" type="text" placeholder="ФИО (необязательно)" />
+          </div>
+          <div class="row">
+            <button class="secondary" type="button" onclick="openManagerPermissionsModalForCreate()">Разрешения</button>
+            <button type="button" onclick="saveNewManager()">Добавить менеджера</button>
+            <span id="teamPermissionsPreview" class="small">Разрешения не выбраны</span>
+          </div>
+          <div id="teamInfo" class="small"></div>
+          <!-- Mobile card list -->
+          <div id="teamMobileList" class="team-mobile-list"></div>
+          <!-- Desktop table -->
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Email</th>
+                  <th>ФИО</th>
+                  <th>Роль</th>
+                  <th>Доступы</th>
+                  <th>Действия</th>
+                </tr>
+              </thead>
+              <tbody id="teamTbody"></tbody>
+            </table>
           </div>
         </div>
       </section>

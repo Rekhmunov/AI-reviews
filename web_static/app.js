@@ -115,8 +115,8 @@ const UI_REFRESH_MS = 60000;        // refresh chat list from DB every 60s (afte
 const CHANNEL_ICONS = { "Отзывы": "⭐", "Вопросы": "❓", "Чаты": "💬" };
 const ACTIVE_SECTION_STORAGE_KEY = "feedpilot_active_section";
 const ACTIVE_SETTINGS_TAB_STORAGE_KEY = "feedpilot_active_settings_tab";
-const SECTION_IDS = ["reviews", "conversations", "chats", "analytics", "settings", "stock-settings", "stock-work", "supplies-wb", "supplies-ozon", "supplies-poa", "supplies-certificates", "supplies-settings", "profile"];
-const SETTINGS_TAB_IDS = ["sources", "rules", "templates", "recommendations", "products", "team", "template-variables"];
+const SECTION_IDS = ["reviews", "conversations", "chats", "analytics", "settings", "stock-settings", "stock-work", "supplies-wb", "supplies-ozon", "supplies-poa", "supplies-certificates", "supplies-settings", "team", "profile"];
+const SETTINGS_TAB_IDS = ["sources", "rules", "templates", "recommendations", "products", "template-variables"];
 const APP_BOOT_HIDE_CLASS = "app-boot-hidden";
 const MOBILE_NAV_BREAKPOINT_PX = 900;
 
@@ -484,6 +484,7 @@ function canViewSection(section) {
   const permissions = getPermissions();
   if (section === "analytics") return permissions.can_view_analytics;
   if (section === "settings") return permissions.can_view_settings;
+  if (section === "team") return isTenantOwner();
   if (section === "supplies-wb") return permissions.can_view_supplies;
   if (section === "supplies-ozon") return permissions.can_view_supplies;
   if (section === "supplies-poa") return permissions.can_view_supplies;
@@ -634,6 +635,9 @@ function showSection(section, options = {}) {
   if (section === "profile") {
     loadProfile();
   }
+  if (section === "team") {
+    loadTeam();
+  }
   // Refresh chat list when navigating back to chats so Dmitry's message
   // doesn't disappear due to stale background-timer data.
   if (section === "chats" && !syncInProgress) {
@@ -672,9 +676,6 @@ function showSettingsTab(tab, options = {}) {
   if (tab === "products") {
     loadProducts();
   }
-  if (tab === "team") {
-    loadTeam();
-  }
   if (tab === "template-variables") {
     loadUserTemplateVariables();
   }
@@ -691,6 +692,7 @@ function sectionLabel(section) {
     chats: "Чаты",
     analytics: "Аналитика",
     settings: "Настройки",
+    team: "Команда",
     "supplies-wb": "Поставки — WB",
     "supplies-settings": "Поставки — Настройки",
     profile: "Мой профиль",
@@ -749,13 +751,7 @@ function onMobileSettingsTabChange(value) {
 
 function setupMobileSettingsTabSelect() {
   const select = document.getElementById("mobileSettingsTabSelect");
-  const teamOption = document.getElementById("mobile-settings-option-team");
   if (!select) return;
-  const showTeam = isTenantOwner();
-  if (teamOption) {
-    teamOption.hidden = !showTeam;
-    teamOption.disabled = !showTeam;
-  }
   const activeButton = document.querySelector("#section-settings .settings-tab-btn.active");
   const activeId = String(activeButton?.id || "").replace("settings-tab-", "");
   const initial = SETTINGS_TAB_IDS.includes(activeId) ? activeId : "sources";
@@ -9262,7 +9258,7 @@ function openTeamManagerModal() {
     setTeamInfo("Доступ к команде есть только у владельца кабинета.", true);
     return;
   }
-  showSettingsTab("team");
+  showSection("team");
 }
 
 function closeTeamManagerModal() {
@@ -10192,12 +10188,6 @@ async function saveProfile() {
 document.addEventListener("DOMContentLoaded", () => {
   document.body.classList.add(APP_BOOT_HIDE_CLASS);
   const permissions = getPermissions();
-  const teamButton = document.getElementById("settings-tab-team");
-  if (teamButton) {
-    const visible = isTenantOwner();
-    teamButton.classList.toggle("hidden", !visible);
-    teamButton.style.display = visible ? "" : "none";
-  }
   if (!permissions.can_view_analytics) {
     document.getElementById("section-analytics")?.classList.add("hidden");
   }
