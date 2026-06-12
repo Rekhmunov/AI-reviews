@@ -9382,8 +9382,9 @@ async function saveEditTeamMember() {
       })
     });
     if (!pr3.ok) {
-      const e = await pr3.json().catch(() => ({}));
-      if (info) { info.textContent = e.detail || "Ошибка сохранения доступа к поставкам"; info.style.color = "#b91c1c"; }
+      let msg = "Ошибка сохранения доступа к поставкам";
+      try { const e = await pr3.json(); if (e?.detail) msg = Array.isArray(e.detail) ? e.detail.map(d => d.msg || JSON.stringify(d)).join("; ") : String(e.detail); } catch (_) {}
+      if (info) { info.textContent = msg; info.style.color = "#b91c1c"; }
       return;
     }
     // Update salary access
@@ -9392,8 +9393,9 @@ async function saveEditTeamMember() {
       body: JSON.stringify({ can_salary: Boolean(teamState.pendingCanSalary) }),
     });
     if (!pr4.ok) {
-      const e = await pr4.json().catch(() => ({}));
-      if (info) { info.textContent = e.detail || "Ошибка сохранения доступа к зарплате"; info.style.color = "#b91c1c"; }
+      let msg = "Ошибка сохранения доступа к зарплате";
+      try { const e = await pr4.json(); if (e?.detail) msg = Array.isArray(e.detail) ? e.detail.map(d => d.msg || JSON.stringify(d)).join("; ") : String(e.detail); } catch (_) {}
+      if (info) { info.textContent = msg; info.style.color = "#b91c1c"; }
       return;
     }
     if (info) { info.textContent = "Сохранено"; info.style.color = "#16a34a"; }
