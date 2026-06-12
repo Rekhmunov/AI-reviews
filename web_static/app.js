@@ -9097,6 +9097,44 @@ function closeManagerPermissionsModal() {
 }
 
 // ── Supply permissions table ──────────────────────────────────────────────
+/**
+ * Toggle a permission section on/off via its parent checkbox.
+ * Disables/enables all child checkboxes and dims the content block.
+ */
+function togglePermSection(section) {
+  const ids = {
+    feedback: { chk: 'managerFeedbackEnabled', content: 'permSectionFeedback' },
+    supplies: { chk: 'managerSuppliesEnabled', content: 'permSectionSupplies' },
+    salary:   { chk: 'managerSalaryEnabled',   content: 'permSectionSalary'   },
+  };
+  const cfg = ids[section];
+  if (!cfg) return;
+  const parent  = document.getElementById(cfg.chk);
+  const content = document.getElementById(cfg.content);
+  if (!parent || !content) return;
+  const enabled = parent.checked;
+  content.classList.toggle('disabled', !enabled);
+  content.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+    cb.disabled = !enabled;
+    if (!enabled) cb.checked = false;
+  });
+}
+
+/**
+ * Initialise all three parent checkboxes and their section states.
+ * Called after the modal content has been rendered.
+ */
+function initPermSectionToggles(feedbackEnabled, suppliesEnabled, salaryEnabled) {
+  const set = (id, checked) => {
+    const el = document.getElementById(id);
+    if (el) el.checked = checked;
+  };
+  set('managerFeedbackEnabled', feedbackEnabled);
+  set('managerSuppliesEnabled', suppliesEnabled);
+  set('managerSalaryEnabled',   salaryEnabled);
+  ['feedback', 'supplies', 'salary'].forEach(s => togglePermSection(s));
+}
+
 function renderManagerSupplyPermissionsRows(supplySources, supplyPerms) {
   const tbody = document.getElementById("managerSupplyPermissionsTbody");
   if (!tbody) return;
@@ -9383,9 +9421,15 @@ async function openManagerPermissionsModalForEdit() {
   const ssRes = await fetch("/api/supply-sources").catch(() => null);
   const ssSources = ssRes?.ok ? await ssRes.json().catch(() => []) : [];
   renderManagerSupplyPermissionsRows(ssSources, teamState.pendingSupplyPermissions);
-  // Set salary checkbox
+  // Set salary sub-checkbox
   const salaryChk = document.getElementById("managerSalaryAccess");
   if (salaryChk) salaryChk.checked = teamState.pendingCanSalary;
+  // Initialise parent (category) checkboxes
+  initPermSectionToggles(
+    teamState.pendingPermissions.length > 0,
+    Boolean(teamState.pendingCanSupplies),
+    Boolean(teamState.pendingCanSalary)
+  );
   setModalVisibility("managerPermissionsModal", true);
 }
 
@@ -9517,16 +9561,28 @@ async function openManagerPermissionsModalForCreate() {
   const ssSources = ssRes?.ok ? await ssRes.json().catch(() => []) : [];
   // Use existing pending supply state on re-open so unsaved selections are preserved
   renderManagerSupplyPermissionsRows(ssSources, teamState.pendingSupplyPermissions || {});
-  // Restore salary checkbox from pending state
+  // Restore salary sub-checkbox from pending state
   const salaryChkCreate = document.getElementById("managerSalaryAccess");
   if (salaryChkCreate) salaryChkCreate.checked = Boolean(teamState.pendingCanSalary);
+  // Initialise parent (category) checkboxes
+  initPermSectionToggles(
+    (teamState.pendingPermissions || []).length > 0,
+    Boolean(teamState.pendingCanSupplies),
+    Boolean(teamState.pendingCanSalary)
+  );
   setModalVisibility("managerPermissionsModal", true);
 }
 
 function applyManagerPermissionsSelection() {
-  const permissions = collectManagerPermissionsFromModal();
-  const supplyPerms = collectManagerSupplyPermissionsFromModal();
-  const canSalary = Boolean(document.getElementById("managerSalaryAccess")?.checked);
+  // Parent (category) checkboxes determine whether the section is active at all
+  const feedbackEnabled = Boolean(document.getElementById("managerFeedbackEnabled")?.checked);
+  const suppliesEnabled = Boolean(document.getElementById("managerSuppliesEnabled")?.checked);
+  const salaryEnabled   = Boolean(document.getElementById("managerSalaryEnabled")?.checked);
+
+  const permissions = feedbackEnabled ? collectManagerPermissionsFromModal() : [];
+  const supplyPerms = suppliesEnabled ? collectManagerSupplyPermissionsFromModal()
+                                      : { sources: {}, can_supply_settings: false, can_supply_poa: false, can_supply_certs: false };
+  const canSalary   = salaryEnabled && Boolean(document.getElementById("managerSalaryAccess")?.checked);
   teamState.pendingSupplyPermissions = supplyPerms;
   teamState.pendingCanSalary = canSalary;
   const hasAnySupply = supplyPerms.can_supply_settings || supplyPerms.can_supply_poa || supplyPerms.can_supply_certs ||
