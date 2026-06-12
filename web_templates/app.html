@@ -1924,49 +1924,64 @@
 
         <!-- Обратная связь -->
         <div class="perm-section">
-          <p class="perm-section-label">Обратная связь</p>
-          <p class="perm-section-hint">Отметьте кабинеты и типы сущностей, с которыми менеджер сможет работать.</p>
-          <table class="perm-table">
-            <colgroup><col style="width:40%"><col style="width:20%"><col style="width:20%"><col style="width:20%"></colgroup>
-            <thead>
-              <tr>
-                <th>Кабинет</th>
-                <th>Отзывы</th>
-                <th>Вопросы</th>
-                <th>Чаты</th>
-              </tr>
-            </thead>
-            <tbody id="managerPermissionsTbody"></tbody>
-          </table>
+          <label class="perm-category-header">
+            <input type="checkbox" id="managerFeedbackEnabled" class="perm-parent-check" onchange="togglePermSection('feedback')" />
+            <span class="perm-section-label">Обратная связь</span>
+          </label>
+          <div id="permSectionFeedback" class="perm-section-content">
+            <p class="perm-section-hint">Отметьте кабинеты и типы сущностей, с которыми менеджер сможет работать.</p>
+            <table class="perm-table">
+              <colgroup><col style="width:40%"><col style="width:20%"><col style="width:20%"><col style="width:20%"></colgroup>
+              <thead>
+                <tr>
+                  <th>Кабинет</th>
+                  <th>Отзывы</th>
+                  <th>Вопросы</th>
+                  <th>Чаты</th>
+                </tr>
+              </thead>
+              <tbody id="managerPermissionsTbody"></tbody>
+            </table>
+          </div>
         </div>
 
         <!-- Поставки -->
         <div class="perm-section">
-          <p class="perm-section-label">Поставки</p>
-          <p class="perm-section-hint">Отметьте доступ к источникам и разделам.</p>
-          <table id="managerSupplyPermissionsTable" class="perm-table">
-            <colgroup><col style="width:28%"><col style="width:12%"><col style="width:12%"><col style="width:16%"><col style="width:16%"><col style="width:16%"></colgroup>
-            <thead>
-              <tr>
-                <th>Кабинет</th>
-                <th>ВБ</th>
-                <th>ОЗОН</th>
-                <th id="managerSupplySettingsHeader">Настройки</th>
-                <th id="managerSupplyPoaHeader">Доверенности</th>
-                <th>Сертификаты</th>
-              </tr>
-            </thead>
-            <tbody id="managerSupplyPermissionsTbody"></tbody>
-          </table>
+          <label class="perm-category-header">
+            <input type="checkbox" id="managerSuppliesEnabled" class="perm-parent-check" onchange="togglePermSection('supplies')" />
+            <span class="perm-section-label">Поставки</span>
+          </label>
+          <div id="permSectionSupplies" class="perm-section-content">
+            <p class="perm-section-hint">Отметьте доступ к источникам и разделам.</p>
+            <table id="managerSupplyPermissionsTable" class="perm-table">
+              <colgroup><col style="width:28%"><col style="width:12%"><col style="width:12%"><col style="width:16%"><col style="width:16%"><col style="width:16%"></colgroup>
+              <thead>
+                <tr>
+                  <th>Кабинет</th>
+                  <th>ВБ</th>
+                  <th>ОЗОН</th>
+                  <th id="managerSupplySettingsHeader">Настройки</th>
+                  <th id="managerSupplyPoaHeader">Доверенности</th>
+                  <th>Сертификаты</th>
+                </tr>
+              </thead>
+              <tbody id="managerSupplyPermissionsTbody"></tbody>
+            </table>
+          </div>
         </div>
 
         <!-- Зарплата -->
         <div class="perm-section">
-          <p class="perm-section-label">Зарплата</p>
-          <p class="perm-section-hint">Доступ к разделу начислений.</p>
-          <div class="perm-section-checkbox-row">
-            <input type="checkbox" id="managerSalaryAccess" />
-            <label for="managerSalaryAccess">Начисление ЗП</label>
+          <label class="perm-category-header">
+            <input type="checkbox" id="managerSalaryEnabled" class="perm-parent-check" onchange="togglePermSection('salary')" />
+            <span class="perm-section-label">Зарплата</span>
+          </label>
+          <div id="permSectionSalary" class="perm-section-content">
+            <p class="perm-section-hint">Доступ к разделу начислений.</p>
+            <div class="perm-section-checkbox-row">
+              <input type="checkbox" id="managerSalaryAccess" />
+              <label for="managerSalaryAccess">Начисление ЗП</label>
+            </div>
           </div>
         </div>
 

@@ -5449,6 +5449,37 @@ button.secondary.danger:hover {
   user-select: none;
 }
 
+.perm-category-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.perm-category-header .perm-section-label {
+  margin: 0;
+  font-size: 11px;
+}
+
+.perm-parent-check {
+  width: 16px;
+  height: 16px;
+  accent-color: #2563eb;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.perm-section-content {
+  transition: opacity 0.15s ease;
+}
+
+.perm-section-content.disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
 /* ── Permission-change notification banner ──────────────────────────────── */
 
 .perms-reload-banner {
