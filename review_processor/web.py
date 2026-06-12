@@ -9074,10 +9074,6 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
         '<a id="nav-supplies-settings" class="nav-item" href="#" onclick="showSection(\'supplies-settings\')"><span class="nav-item-icon">≡</span> Настройки</a>'
         if (can_view_settings or can_view_supply_settings) else ""
     )
-    nav_salary = (
-        '<a id="nav-salary" class="nav-item nav-item-bottom" href="#" onclick="showSection(\'salary\')">'
-        '<span class="nav-item-icon">₽</span> Моя зарплата</a>'
-    )
     return _render_template(
         "app.html",
         {
@@ -9092,7 +9088,6 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
             ),
             "NAV_SUPPLIES_WB": nav_supplies_wb,
             "NAV_SUPPLIES_SETTINGS": nav_supplies_settings,
-            "NAV_SALARY": nav_salary,
             "CAN_VIEW_ANALYTICS": "true" if can_view_analytics else "false",
             "CAN_VIEW_SETTINGS": "true" if can_view_settings else "false",
             "CAN_VIEW_SUPPLIES": "true" if can_view_supplies else "false",

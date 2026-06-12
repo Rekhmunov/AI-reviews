@@ -522,6 +522,13 @@ function initNavGroups() {
     const collapsed = Boolean(states["supplies"]);
     _applyNavGroup("supplies", collapsed, false);
   }
+
+  // Salary section: always visible, default expanded
+  const salaryWrapper = document.getElementById("nav-group-salary");
+  if (salaryWrapper) {
+    const collapsed = Boolean(states["salary"]);
+    _applyNavGroup("salary", collapsed, false);
+  }
 }
 // ────────────────────────────────────────────────────────────────────────────
 

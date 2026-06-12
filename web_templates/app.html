@@ -66,12 +66,20 @@
             <span class="nav-item-icon">≡</span> Настройки
           </a>
 
+          <div id="nav-group-salary-header" class="nav-section-label nav-collapsible" style="margin-top:8px;cursor:pointer;user-select:none" onclick="toggleNavGroup('salary')">
+            Зарплата &nbsp;&nbsp;<span id="nav-group-salary-arrow" class="nav-collapse-arrow">▾</span>
+          </div>
+          <div id="nav-group-salary" style="overflow:hidden;transition:max-height 0.3s ease,margin-bottom 0.3s ease">
+            <a id="nav-salary" class="nav-item" href="#" onclick="showSection('salary')">
+              <span class="nav-item-icon">₽</span> Начисление ЗП
+            </a>
+          </div>
+
         </nav>
       </div>
 
       <div class="sidebar-bottom">
         {{ADMIN_LINK}}
-        {{NAV_SALARY}}
         <a id="nav-profile" class="nav-item nav-item-bottom" href="#" onclick="showSection('profile')">
           <span class="nav-item-icon">○</span> Мой профиль
         </a>
