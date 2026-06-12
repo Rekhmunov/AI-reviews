@@ -7862,7 +7862,7 @@ class ReviewRepository:
                 (manager_user_id,
                  self._bool_db(can_supply_settings),
                  self._bool_db(can_supply_poa),
-                 self._bool_db(can_supply_certs),
+                 1 if can_supply_certs else 0,  # column is INTEGER, not BOOLEAN
                  sources_json, now),
             )
 
