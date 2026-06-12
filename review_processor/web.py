@@ -9,6 +9,7 @@ import io
 import csv
 import logging
 from pathlib import Path
+import random
 import re
 import secrets
 import threading
@@ -35,6 +36,26 @@ try:  # pragma: no cover - optional in sqlite-only environments
     import psycopg  # type: ignore
 except Exception:  # pragma: no cover
     psycopg = None
+
+def _apply_template_substitution(
+    raw_tpl: str,
+    author: str,
+    vars_ctx: dict[str, object],
+) -> str:
+    """Apply author placeholders and custom variable substitution to a template string.
+
+    Strips any remaining unreplaced %VAR% tokens at the end.
+    """
+    if not raw_tpl:
+        return raw_tpl
+    if not author:
+        for placeholder in ("%USER%", "%AUTHOR%"):
+            raw_tpl = raw_tpl.replace(f", {placeholder}", "").replace(f" {placeholder}", "")
+    raw_tpl = raw_tpl.replace("%USER%", author).replace("%AUTHOR%", author)
+    for key, value in vars_ctx.items():
+        raw_tpl = raw_tpl.replace(str(key), str(value or ""))
+    return re.sub(r'%[A-Z0-9_]{2,50}%', '', raw_tpl)
+
 
 CATEGORIES = [
     "negative_delivery",
@@ -1957,7 +1978,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 pairs.append((group_id, subgroup or None))
         # Single DB call — load ALL templates for relevant groups
         # Each review picks independently so different reviews get different templates
-        import random as _rnd
         group_ids_needed = list({p[0] for p in pairs if p[0]})
         try:
             tmpl_pool = repository.get_template_pool_for_reviews(
@@ -1986,17 +2006,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 item["suggested_reply"] = ""
             elif group_id:
                 texts = tmpl_pool.get((group_id, subgroup)) or tmpl_pool.get((group_id, "")) or []
-                raw_tpl = _rnd.choice(texts) if texts else ""
+                raw_tpl = random.choice(texts) if texts else ""
                 if raw_tpl:
-                    # Apply basic variable substitution for UI display
                     _author = str(item.get("author") or "").strip()
-                    # If author is empty — remove preceding comma/space to avoid ", !" artifacts
-                    if not _author:
-                        for _ph in ("%USER%", "%AUTHOR%"):
-                            raw_tpl = raw_tpl.replace(f", {_ph}", "").replace(f" {_ph}", "")
-                    raw_tpl = raw_tpl.replace("%USER%", _author)
-                    raw_tpl = raw_tpl.replace("%AUTHOR%", _author)
-                    # Apply user-defined template variables context
                     try:
                         _vars_ctx = repository.build_template_variables_context(
                             user_id=user_id_int,
@@ -2007,13 +2019,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                             review_tags=None,
                             review_metadata=item.get("metadata") if isinstance(item.get("metadata"), dict) else {},
                         )
-                        for _vk, _vv in _vars_ctx.items():
-                            raw_tpl = raw_tpl.replace(str(_vk), str(_vv or ""))
                     except Exception:
-                        pass
-                    # Remove any remaining unreplaced %VAR% placeholders
-                    import re as _re2
-                    raw_tpl = _re2.sub(r'%[A-Z0-9_]{2,50}%', '', raw_tpl)
+                        _vars_ctx = {}
+                    raw_tpl = _apply_template_substitution(raw_tpl, _author, _vars_ctx)
                 item["suggested_reply"] = raw_tpl
             else:
                 item["suggested_reply"] = ""
@@ -2072,15 +2080,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
         raw_text = str(tmpl.get("template_text") or "") if tmpl else ""
         if raw_text and review_uid.strip():
-            # Apply variable substitution using the specific review's data
             review_obj = repository.get_review(user_id=owner_uid, review_uid=review_uid.strip())
             if review_obj:
                 _author = str(review_obj.get("author") or "").strip()
-                if not _author:
-                    for _ph in ("%USER%", "%AUTHOR%"):
-                        raw_text = raw_text.replace(f", {_ph}", "").replace(f" {_ph}", "")
-                raw_text = raw_text.replace("%USER%", _author)
-                raw_text = raw_text.replace("%AUTHOR%", _author)
                 try:
                     _vars_ctx = repository.build_template_variables_context(
                         user_id=owner_uid,
@@ -2091,13 +2093,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                         review_tags=None,
                         review_metadata=review_obj.get("metadata") if isinstance(review_obj.get("metadata"), dict) else {},
                     )
-                    for _vk, _vv in _vars_ctx.items():
-                        raw_text = raw_text.replace(str(_vk), str(_vv or ""))
                 except Exception:
-                    pass
-        # Remove any remaining unreplaced %VAR% placeholders
-        import re as _re_tpl
-        raw_text = _re_tpl.sub(r'%[A-Z0-9_]{2,50}%', '', raw_text)
+                    _vars_ctx = {}
+                raw_text = _apply_template_substitution(raw_text, _author, _vars_ctx)
+        else:
+            raw_text = re.sub(r'%[A-Z0-9_]{2,50}%', '', raw_text)
         return {"template_text": raw_text}
 
     @app.post("/api/reviews/{review_uid}/reply")
