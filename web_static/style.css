@@ -486,7 +486,7 @@ body.landing-page {
 }
 
 .nav-collapsible {
-  display: flex !important;
+  display: flex;
   align-items: center;
   justify-content: space-between;
 }
