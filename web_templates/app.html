@@ -1809,14 +1809,14 @@
             <input id="profileEmail" type="email" placeholder="Эл. почта" />
           </div>
           <div class="row">
-            <a
+            <button
               id="profilePasswordToggle"
-              class="profile-password-toggle"
-              href="#"
+              type="button"
+              class="secondary"
               onclick="togglePasswordFields(event)"
             >
               Изменить пароль
-            </a>
+            </button>
           </div>
           <div id="profilePasswordFields" class="row hidden">
             <input id="profileCurrentPassword" type="password" placeholder="Текущий пароль" />
@@ -1828,7 +1828,7 @@
             <span id="profileInfo" class="small"></span>
           </div>
           <div class="row mt-10">
-            <a class="navbtn logout-link" href="/logout">Выйти из аккаунта</a>
+            <button type="button" class="secondary danger" onclick="window.location.href='/logout'">Выйти из аккаунта</button>
           </div>
         </div>
       </section>
