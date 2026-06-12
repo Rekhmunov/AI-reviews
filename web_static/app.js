@@ -699,6 +699,10 @@ function showSection(section, options = {}) {
   if (section === "team") {
     loadTeam();
   }
+  if (section === "supplies-settings") {
+    // For managers (no can_view_settings), default to drivers tab instead of sources
+    showSuppliesSettingsTab(getPermissions().can_view_settings ? "sources" : "drivers");
+  }
   // Refresh chat list when navigating back to chats so Dmitry's message
   // doesn't disappear due to stale background-timer data.
   if (section === "chats" && !syncInProgress) {
