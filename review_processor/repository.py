@@ -6456,6 +6456,10 @@ class ReviewRepository:
         conn.execute(
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS can_supplies BOOLEAN NOT NULL DEFAULT FALSE"
         )
+        # Add can_salary flag to users for salary section access control
+        conn.execute(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS can_salary BOOLEAN NOT NULL DEFAULT FALSE"
+        )
         # Add transit/actual warehouse columns (idempotent)
         conn.execute(
             "ALTER TABLE supply_items ADD COLUMN IF NOT EXISTS transit_warehouse_name TEXT"
@@ -7709,6 +7713,23 @@ class ReviewRepository:
         if row is None:
             return False
         return bool((row.get("can_supplies") if hasattr(row, "get") else row[0]))  # type: ignore[index]
+
+    def set_user_can_salary(self, *, user_id: int, can_salary: bool) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                self._sql("UPDATE users SET can_salary = ? WHERE id = ?"),
+                (self._bool_db(can_salary), user_id),
+            )
+
+    def get_user_can_salary(self, *, user_id: int) -> bool:
+        with self._connect() as conn:
+            row = conn.execute(
+                self._sql("SELECT can_salary FROM users WHERE id = ?"),
+                (user_id,),
+            ).fetchone()
+        if row is None:
+            return False
+        return bool((row.get("can_salary") if hasattr(row, "get") else row[0]))  # type: ignore[index]
 
     def get_manager_supply_permissions(self, *, manager_user_id: int) -> dict[str, Any]:
         import json as _j
