@@ -11809,6 +11809,50 @@ async function loadSalaryWorkers() {
 }
 window.loadSalaryWorkers = loadSalaryWorkers;
 
+async function exportSalaryWorkers() {
+  try {
+    const res = await fetch("/api/salary/workers/export");
+    if (!res.ok) { alert("Ошибка экспорта"); return; }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "salary_workers.csv";
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (e) { alert("Ошибка: " + e.message); }
+}
+window.exportSalaryWorkers = exportSalaryWorkers;
+
+async function importSalaryWorkers(input) {
+  const info = document.getElementById("salaryWorkersImportInfo");
+  const file = input?.files?.[0];
+  if (!file) return;
+  if (info) { info.textContent = "Загрузка..."; info.style.color = "#64748b"; }
+  try {
+    const formData = new FormData();
+    formData.append("file", file);
+    const res = await fetch("/api/salary/workers/import", {
+      method: "POST",
+      headers: { "X-CSRF-Token": document.cookie.match(/csrf_token=([^;]+)/)?.[1] || "" },
+      body: formData,
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      if (info) { info.textContent = data.detail || "Ошибка импорта"; info.style.color = "#b91c1c"; }
+      return;
+    }
+    const errTxt = data.errors?.length ? `; ошибок: ${data.errors.length}` : "";
+    if (info) { info.textContent = `Добавлено: ${data.created}${errTxt}`; info.style.color = data.errors?.length ? "#b45309" : "#16a34a"; }
+    await loadSalaryWorkers();
+  } catch (e) {
+    if (info) { info.textContent = "Ошибка: " + e.message; info.style.color = "#b91c1c"; }
+  } finally {
+    if (input) input.value = "";
+  }
+}
+window.importSalaryWorkers = importSalaryWorkers;
+
 async function saveSalaryWorker() {
   const nameEl = document.getElementById("salaryWorkerName");
   const prodEl = document.getElementById("salaryWorkerProduction");
