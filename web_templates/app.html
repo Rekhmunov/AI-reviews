@@ -1999,11 +1999,20 @@
               <button type="button" onclick="toggleSalaryProductForm(true)">+ Добавить товар</button>
             </div>
             <div id="salaryProductAddForm" class="source-form hidden" style="margin-top:12px">
+              <div class="row" style="flex-wrap:wrap;gap:10px;margin-bottom:8px">
+                <input id="salaryProductName" type="text" placeholder="Наименование товара" style="flex:1;min-width:200px" autocomplete="off" />
+              </div>
+              <div class="row" style="flex-wrap:wrap;gap:10px;margin-bottom:4px">
+                <span class="small" style="color:#64748b;font-weight:600;width:100%">Кинешма</span>
+                <input id="salaryProductKineshma_poshiv"    type="number" placeholder="Пошив"    min="0" step="0.01" style="flex:1;min-width:100px" />
+                <input id="salaryProductKineshma_raskroi"   type="number" placeholder="Раскрой"   min="0" step="0.01" style="flex:1;min-width:100px" />
+                <input id="salaryProductKineshma_upakovka"  type="number" placeholder="Упаковка"  min="0" step="0.01" style="flex:1;min-width:100px" />
+              </div>
               <div class="row" style="flex-wrap:wrap;gap:10px">
-                <input id="salaryProductName" type="text" placeholder="Наименование товара" style="flex:2;min-width:200px" autocomplete="off" />
-                <input id="salaryProductPriceIvanovo" type="number" placeholder="Цена Иваново" min="0" step="0.01" style="width:130px" />
-                <input id="salaryProductPriceKineshma" type="number" placeholder="Цена Кинешма" min="0" step="0.01" style="width:130px" />
-                <input id="salaryProductPriceNerl" type="number" placeholder="Цена Нерль" min="0" step="0.01" style="width:130px" />
+                <span class="small" style="color:#64748b;font-weight:600;width:100%">Нерль</span>
+                <input id="salaryProductNerl_poshiv"    type="number" placeholder="Пошив"    min="0" step="0.01" style="flex:1;min-width:100px" />
+                <input id="salaryProductNerl_raskroi"   type="number" placeholder="Раскрой"   min="0" step="0.01" style="flex:1;min-width:100px" />
+                <input id="salaryProductNerl_upakovka"  type="number" placeholder="Упаковка"  min="0" step="0.01" style="flex:1;min-width:100px" />
               </div>
               <div class="row" style="margin-top:8px">
                 <button type="button" onclick="saveSalaryProduct()">Сохранить</button>
@@ -2017,12 +2026,19 @@
               <table>
                 <thead>
                   <tr>
-                    <th style="width:28px" title="Порядок">≡</th>
-                    <th>Наименование</th>
-                    <th style="width:120px">Иваново</th>
-                    <th style="width:120px">Кинешма</th>
-                    <th style="width:120px">Нерль</th>
-                    <th style="width:80px">Действия</th>
+                    <th rowspan="2" style="width:28px" title="Порядок">≡</th>
+                    <th rowspan="2">Наименование</th>
+                    <th colspan="3" style="text-align:center;background:#e0f2fe">Кинешма</th>
+                    <th colspan="3" style="text-align:center;background:#f0fdf4">Нерль</th>
+                    <th rowspan="2" style="width:80px">Действия</th>
+                  </tr>
+                  <tr>
+                    <th style="width:90px;background:#e0f2fe">Пошив</th>
+                    <th style="width:90px;background:#e0f2fe">Раскрой</th>
+                    <th style="width:90px;background:#e0f2fe">Упаковка</th>
+                    <th style="width:90px;background:#f0fdf4">Пошив</th>
+                    <th style="width:90px;background:#f0fdf4">Раскрой</th>
+                    <th style="width:90px;background:#f0fdf4">Упаковка</th>
                   </tr>
                 </thead>
                 <tbody id="salaryProductsTbody"></tbody>
@@ -2042,10 +2058,21 @@
       <div style="padding:20px;display:flex;flex-direction:column;gap:12px">
         <input type="hidden" id="editSalaryProductId" />
         <input id="editSalaryProductName" type="text" placeholder="Наименование товара" autocomplete="off" />
-        <div class="row" style="gap:10px;flex-wrap:wrap">
-          <input id="editSalaryProductPriceIvanovo" type="number" placeholder="Цена Иваново" min="0" step="0.01" style="flex:1;min-width:120px" />
-          <input id="editSalaryProductPriceKineshma" type="number" placeholder="Цена Кинешма" min="0" step="0.01" style="flex:1;min-width:120px" />
-          <input id="editSalaryProductPriceNerl" type="number" placeholder="Цена Нерль" min="0" step="0.01" style="flex:1;min-width:120px" />
+        <div>
+          <p class="small" style="margin:0 0 4px;color:#0369a1;font-weight:600">Кинешма</p>
+          <div class="row" style="gap:8px;flex-wrap:wrap">
+            <input id="editSalaryProductKineshma_poshiv"   type="number" placeholder="Пошив"   min="0" step="0.01" style="flex:1;min-width:100px" />
+            <input id="editSalaryProductKineshma_raskroi"  type="number" placeholder="Раскрой"  min="0" step="0.01" style="flex:1;min-width:100px" />
+            <input id="editSalaryProductKineshma_upakovka" type="number" placeholder="Упаковка" min="0" step="0.01" style="flex:1;min-width:100px" />
+          </div>
+        </div>
+        <div>
+          <p class="small" style="margin:0 0 4px;color:#15803d;font-weight:600">Нерль</p>
+          <div class="row" style="gap:8px;flex-wrap:wrap">
+            <input id="editSalaryProductNerl_poshiv"   type="number" placeholder="Пошив"   min="0" step="0.01" style="flex:1;min-width:100px" />
+            <input id="editSalaryProductNerl_raskroi"  type="number" placeholder="Раскрой"  min="0" step="0.01" style="flex:1;min-width:100px" />
+            <input id="editSalaryProductNerl_upakovka" type="number" placeholder="Упаковка" min="0" step="0.01" style="flex:1;min-width:100px" />
+          </div>
         </div>
         <div id="editSalaryProductInfo" class="small"></div>
         <div class="row" style="justify-content:flex-end;gap:8px">

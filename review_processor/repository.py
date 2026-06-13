@@ -8206,6 +8206,19 @@ class ReviewRepository:
             "CREATE INDEX IF NOT EXISTS idx_salary_products_owner "
             "ON salary_products(owner_user_id, order_num ASC)"
         ))
+        # Sub-price columns for Кинешма and Нерль (idempotent)
+        for col in (
+            "price_kineshma_poshiv", "price_kineshma_raskroi", "price_kineshma_upakovka",
+            "price_nerl_poshiv",     "price_nerl_raskroi",     "price_nerl_upakovka",
+        ):
+            conn.execute(
+                f"ALTER TABLE salary_products ADD COLUMN IF NOT EXISTS {col} NUMERIC(12,2) NOT NULL DEFAULT 0"
+            )
+
+    _SUB_PRICE_COLS = (
+        "price_kineshma_poshiv", "price_kineshma_raskroi", "price_kineshma_upakovka",
+        "price_nerl_poshiv",     "price_nerl_raskroi",     "price_nerl_upakovka",
+    )
 
     def list_salary_products(self, *, owner_user_id: int) -> list[dict[str, Any]]:
         with self._connect() as conn:
@@ -8213,17 +8226,27 @@ class ReviewRepository:
             rows = conn.execute(
                 self._sql(
                     "SELECT id, owner_user_id, order_num, name, "
-                    "price_ivanovo, price_kineshma, price_nerl, created_at "
+                    + ", ".join(self._SUB_PRICE_COLS)
+                    + ", created_at "
                     "FROM salary_products WHERE owner_user_id = ? "
                     "ORDER BY order_num ASC, id ASC"
                 ),
                 (owner_user_id,),
             ).fetchall()
-        return [self._row_to_dict(row) for row in rows]
+        results = [self._row_to_dict(row) for row in rows]
+        for r in results:
+            for col in self._SUB_PRICE_COLS:
+                r[col] = float(r.get(col) or 0)
+        return results
 
     def create_salary_product(
         self, *, owner_user_id: int, order_num: int, name: str,
-        price_ivanovo: float, price_kineshma: float, price_nerl: float,
+        price_ivanovo: float = 0,
+        price_kineshma: float = 0, price_nerl: float = 0,
+        price_kineshma_poshiv: float = 0, price_kineshma_raskroi: float = 0,
+        price_kineshma_upakovka: float = 0,
+        price_nerl_poshiv: float = 0, price_nerl_raskroi: float = 0,
+        price_nerl_upakovka: float = 0,
     ) -> dict[str, Any]:
         now = _utc_now()
         with self._connect() as conn:
@@ -8231,32 +8254,54 @@ class ReviewRepository:
             cur = conn.execute(
                 self._sql(
                     "INSERT INTO salary_products "
-                    "(owner_user_id, order_num, name, price_ivanovo, price_kineshma, price_nerl, created_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id"
+                    "(owner_user_id, order_num, name, price_ivanovo, price_kineshma, price_nerl, "
+                    "price_kineshma_poshiv, price_kineshma_raskroi, price_kineshma_upakovka, "
+                    "price_nerl_poshiv, price_nerl_raskroi, price_nerl_upakovka, created_at) "
+                    "VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id"
                 ),
                 (owner_user_id, order_num, name.strip(),
-                 price_ivanovo, price_kineshma, price_nerl, now),
+                 round(price_kineshma_poshiv + price_kineshma_raskroi + price_kineshma_upakovka, 2),
+                 round(price_nerl_poshiv + price_nerl_raskroi + price_nerl_upakovka, 2),
+                 round(float(price_kineshma_poshiv), 2), round(float(price_kineshma_raskroi), 2),
+                 round(float(price_kineshma_upakovka), 2),
+                 round(float(price_nerl_poshiv), 2), round(float(price_nerl_raskroi), 2),
+                 round(float(price_nerl_upakovka), 2), now),
             )
             row = cur.fetchone()
         product_id = int(row[0] if not hasattr(row, "get") else row.get("id"))
-        return {"id": product_id, "owner_user_id": owner_user_id, "order_num": order_num,
-                "name": name.strip(), "price_ivanovo": price_ivanovo,
-                "price_kineshma": price_kineshma, "price_nerl": price_nerl, "created_at": now}
+        return {"id": product_id, "order_num": order_num, "name": name.strip(),
+                "price_kineshma_poshiv": price_kineshma_poshiv,
+                "price_kineshma_raskroi": price_kineshma_raskroi,
+                "price_kineshma_upakovka": price_kineshma_upakovka,
+                "price_nerl_poshiv": price_nerl_poshiv,
+                "price_nerl_raskroi": price_nerl_raskroi,
+                "price_nerl_upakovka": price_nerl_upakovka, "created_at": now}
 
     def update_salary_product(
         self, *, owner_user_id: int, product_id: int, order_num: int,
-        name: str, price_ivanovo: float, price_kineshma: float, price_nerl: float,
+        name: str, price_ivanovo: float = 0, price_kineshma: float = 0, price_nerl: float = 0,
+        price_kineshma_poshiv: float = 0, price_kineshma_raskroi: float = 0,
+        price_kineshma_upakovka: float = 0,
+        price_nerl_poshiv: float = 0, price_nerl_raskroi: float = 0,
+        price_nerl_upakovka: float = 0,
     ) -> bool:
+        kineshma_total = round(float(price_kineshma_poshiv) + float(price_kineshma_raskroi) + float(price_kineshma_upakovka), 2)
+        nerl_total     = round(float(price_nerl_poshiv)     + float(price_nerl_raskroi)     + float(price_nerl_upakovka),     2)
         with self._connect() as conn:
             self._ensure_salary_products_table(conn)
             result = conn.execute(
                 self._sql(
-                    "UPDATE salary_products SET order_num=?, name=?, price_ivanovo=?, "
-                    "price_kineshma=?, price_nerl=? WHERE id=? AND owner_user_id=?"
+                    "UPDATE salary_products SET order_num=?, name=?, price_ivanovo=0, "
+                    "price_kineshma=?, price_nerl=?, "
+                    "price_kineshma_poshiv=?, price_kineshma_raskroi=?, price_kineshma_upakovka=?, "
+                    "price_nerl_poshiv=?, price_nerl_raskroi=?, price_nerl_upakovka=? "
+                    "WHERE id=? AND owner_user_id=?"
                 ),
-                (order_num, name.strip(),
-                 round(float(price_ivanovo), 2), round(float(price_kineshma), 2),
-                 round(float(price_nerl), 2), product_id, owner_user_id),
+                (order_num, name.strip(), kineshma_total, nerl_total,
+                 round(float(price_kineshma_poshiv), 2), round(float(price_kineshma_raskroi), 2),
+                 round(float(price_kineshma_upakovka), 2),
+                 round(float(price_nerl_poshiv), 2), round(float(price_nerl_raskroi), 2),
+                 round(float(price_nerl_upakovka), 2), product_id, owner_user_id),
             )
         return result.rowcount > 0
 

@@ -556,9 +556,15 @@ class SalaryWorkerCreateRequest(BaseModel):
 class SalaryProductCreateRequest(BaseModel):
     order_num: int = Field(default=0, ge=0)
     name: str = Field(min_length=1, max_length=300)
-    price_ivanovo: float = Field(default=0.0, ge=0)
-    price_kineshma: float = Field(default=0.0, ge=0)
-    price_nerl: float = Field(default=0.0, ge=0)
+    price_ivanovo: float = Field(default=0.0, ge=0)        # kept for compat
+    price_kineshma: float = Field(default=0.0, ge=0)       # kept for compat
+    price_nerl: float = Field(default=0.0, ge=0)           # kept for compat
+    price_kineshma_poshiv: float = Field(default=0.0, ge=0)
+    price_kineshma_raskroi: float = Field(default=0.0, ge=0)
+    price_kineshma_upakovka: float = Field(default=0.0, ge=0)
+    price_nerl_poshiv: float = Field(default=0.0, ge=0)
+    price_nerl_raskroi: float = Field(default=0.0, ge=0)
+    price_nerl_upakovka: float = Field(default=0.0, ge=0)
 
 
 class SalaryEntryItem(BaseModel):
@@ -5274,9 +5280,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             owner_user_id=owner_id,
             order_num=payload.order_num,
             name=payload.name,
-            price_ivanovo=round(float(payload.price_ivanovo), 2),
-            price_kineshma=round(float(payload.price_kineshma), 2),
-            price_nerl=round(float(payload.price_nerl), 2),
+            price_kineshma_poshiv=round(float(payload.price_kineshma_poshiv), 2),
+            price_kineshma_raskroi=round(float(payload.price_kineshma_raskroi), 2),
+            price_kineshma_upakovka=round(float(payload.price_kineshma_upakovka), 2),
+            price_nerl_poshiv=round(float(payload.price_nerl_poshiv), 2),
+            price_nerl_raskroi=round(float(payload.price_nerl_raskroi), 2),
+            price_nerl_upakovka=round(float(payload.price_nerl_upakovka), 2),
         )
         return {"ok": True, "item": item}
 
@@ -5293,9 +5302,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             product_id=product_id,
             order_num=payload.order_num,
             name=payload.name,
-            price_ivanovo=float(payload.price_ivanovo),
-            price_kineshma=float(payload.price_kineshma),
-            price_nerl=float(payload.price_nerl),
+            price_kineshma_poshiv=round(float(payload.price_kineshma_poshiv), 2),
+            price_kineshma_raskroi=round(float(payload.price_kineshma_raskroi), 2),
+            price_kineshma_upakovka=round(float(payload.price_kineshma_upakovka), 2),
+            price_nerl_poshiv=round(float(payload.price_nerl_poshiv), 2),
+            price_nerl_raskroi=round(float(payload.price_nerl_raskroi), 2),
+            price_nerl_upakovka=round(float(payload.price_nerl_upakovka), 2),
         )
         if not updated:
             raise HTTPException(status_code=404, detail="Товар не найден")
