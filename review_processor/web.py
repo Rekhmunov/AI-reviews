@@ -5490,9 +5490,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         date_from: str = "",
         date_to: str = "",
     ):
-        """Export the payroll table as CSV. Dates filtered by date_from/date_to."""
-        import csv, io
+        """Export the payroll table as XLSX. Dates filtered by date_from/date_to."""
+        import io
         from datetime import date as _date, timedelta
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
         user = _require_salary_access(request)
         owner_id = _salary_owner_id(user)
 
@@ -5522,24 +5524,70 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             y, m, dd = iso.split("-")
             return f"{dd}.{m}.{y[2:]}"
 
-        buf = io.StringIO()
-        writer = csv.writer(buf, delimiter=";", quoting=csv.QUOTE_MINIMAL)
-        writer.writerow(["ФИО","Должность","Дата рождения","Юр. принадлежность","Производство"] + [date_ru(d) for d in dates])
-        for w in workers:
-            row = [
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Начисление ЗП"
+
+        # Styles
+        header_font = Font(bold=True, name="Calibri", size=11)
+        header_fill = PatternFill("solid", fgColor="D6E4FF")
+        date_fill   = PatternFill("solid", fgColor="F0F7FF")
+        center      = Alignment(horizontal="center", vertical="center", wrap_text=False)
+        left        = Alignment(horizontal="left", vertical="center")
+        thin        = Side(style="thin", color="BBCCE8")
+        border      = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+        # Header row
+        fixed_headers = ["ФИО", "Должность", "Дата рождения", "Юр. принадлежность", "Производство"]
+        date_headers  = [date_ru(d) for d in dates]
+        all_headers   = fixed_headers + date_headers
+
+        for ci, h in enumerate(all_headers, start=1):
+            cell = ws.cell(row=1, column=ci, value=h)
+            cell.font    = header_font
+            cell.fill    = header_fill if ci <= len(fixed_headers) else date_fill
+            cell.alignment = center
+            cell.border  = border
+
+        # Data rows
+        for wi, w in enumerate(workers, start=2):
+            fixed_vals = [
                 str(w.get("full_name") or ""),
                 str(w.get("position") or ""),
                 str(w.get("birth_date") or ""),
                 str(w.get("legal_entity") or ""),
                 str(w.get("production") or ""),
-            ] + [str(totals_map.get(f"{w['id']}_{d}", "") or "") for d in dates]
-            writer.writerow(row)
+            ]
+            date_vals = [totals_map.get(f"{w['id']}_{d}", None) for d in dates]
+            for ci, v in enumerate(fixed_vals, start=1):
+                cell = ws.cell(row=wi, column=ci, value=v)
+                cell.alignment = left
+                cell.border = border
+            for ci, v in enumerate(date_vals, start=len(fixed_vals)+1):
+                if v:
+                    cell = ws.cell(row=wi, column=ci, value=round(v, 2))
+                    cell.number_format = '#,##0.00'
+                else:
+                    cell = ws.cell(row=wi, column=ci, value=None)
+                cell.alignment = center
+                cell.border = border
 
-        content = "\ufeff" + buf.getvalue()
+        # Auto-fit column widths based on header row content (first row visible in Excel)
+        for ci, h in enumerate(all_headers, start=1):
+            col_letter = ws.cell(row=1, column=ci).column_letter
+            # Width = character count of header + small padding; minimum 8
+            ws.column_dimensions[col_letter].width = max(len(str(h)) * 1.15 + 2, 8)
+
+        # Freeze first row
+        ws.freeze_panes = "A2"
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
         return StreamingResponse(
-            iter([content.encode("utf-8")]),
-            media_type="text/csv; charset=utf-8",
-            headers={"Content-Disposition": "attachment; filename=\"payroll.csv\""},
+            iter([buf.read()]),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": "attachment; filename=\"payroll.xlsx\""},
         )
 
     @app.post("/api/salary/payroll/import")
