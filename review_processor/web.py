@@ -545,6 +545,7 @@ class ManagerSalaryAccessRequest(BaseModel):
 
 class SalaryWorkerCreateRequest(BaseModel):
     full_name: str = Field(min_length=1, max_length=200)
+    position: str = Field(default="", max_length=200)
     birth_date: str = Field(default="", max_length=20)
     legal_entity: str = Field(default="", max_length=200)
     production: str = Field(default="", max_length=100)
@@ -5263,6 +5264,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         worker = repository.create_salary_worker(
             owner_user_id=owner_id,
             full_name=payload.full_name,
+            position=payload.position,
             birth_date=payload.birth_date,
             legal_entity=payload.legal_entity,
             production=payload.production,
@@ -5276,6 +5278,52 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         deleted = repository.delete_salary_worker(owner_user_id=owner_id, worker_id=worker_id)
         if not deleted:
             raise HTTPException(status_code=404, detail="Работник не найден")
+        return {"ok": True}
+
+    @app.get("/api/salary/entries")
+    def get_salary_entries(
+        request: Request,
+        worker_id: int = 0,
+        entry_date: str = "",
+    ) -> dict[str, object]:
+        user = _require_tenant_owner(request)
+        owner_id = _tenant_owner_id(user)
+        if not worker_id or not entry_date:
+            raise HTTPException(status_code=400, detail="worker_id и entry_date обязательны")
+        entries = repository.get_salary_entries(
+            owner_user_id=owner_id, worker_id=worker_id, entry_date=entry_date
+        )
+        return {"items": entries, "count": len(entries)}
+
+    @app.get("/api/salary/totals")
+    def get_salary_totals(request: Request) -> dict[str, object]:
+        user = _require_tenant_owner(request)
+        owner_id = _tenant_owner_id(user)
+        totals = repository.get_salary_totals(owner_user_id=owner_id)
+        return {"items": totals, "count": len(totals)}
+
+    class SalaryEntryItem(BaseModel):
+        product_id: int = Field(ge=1)
+        quantity: float = Field(default=0.0, ge=0)
+        price_snapshot: float = Field(default=0.0, ge=0)
+
+    class SalaryEntriesSaveRequest(BaseModel):
+        worker_id: int = Field(ge=1)
+        entry_date: str = Field(min_length=8, max_length=10)
+        entries: list[SalaryEntryItem] = Field(default_factory=list)
+
+    @app.post("/api/salary/entries")
+    def save_salary_entries(
+        payload: SalaryEntriesSaveRequest, request: Request
+    ) -> dict[str, object]:
+        user = _require_tenant_owner(request)
+        owner_id = _tenant_owner_id(user)
+        repository.upsert_salary_entries(
+            owner_user_id=owner_id,
+            worker_id=payload.worker_id,
+            entry_date=payload.entry_date,
+            entries=[e.model_dump() for e in payload.entries],
+        )
         return {"ok": True}
 
     @app.get("/api/salary/my")
