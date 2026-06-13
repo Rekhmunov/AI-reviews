@@ -8319,6 +8319,25 @@ class ReviewRepository:
                 "production": production.strip(),
                 "visible_for_accountant": visible_for_accountant, "created_at": now}
 
+    def update_salary_worker(
+        self, *, owner_user_id: int, worker_id: int,
+        full_name: str, position: str, birth_date: str,
+        legal_entity: str, production: str, visible_for_accountant: bool = True,
+    ) -> bool:
+        with self._connect() as conn:
+            self._ensure_salary_workers_table(conn)
+            result = conn.execute(
+                self._sql(
+                    "UPDATE salary_workers SET full_name=?, position=?, birth_date=?, "
+                    "legal_entity=?, production=?, visible_for_accountant=? "
+                    "WHERE id=? AND owner_user_id=?"
+                ),
+                (full_name.strip(), position.strip(), birth_date.strip(),
+                 legal_entity.strip(), production.strip(),
+                 self._bool_db(visible_for_accountant), worker_id, owner_user_id),
+            )
+        return result.rowcount > 0
+
     def delete_salary_worker(self, *, owner_user_id: int, worker_id: int) -> bool:
         with self._connect() as conn:
             self._ensure_salary_workers_table(conn)

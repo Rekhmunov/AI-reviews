@@ -11788,9 +11788,10 @@ async function loadSalaryWorkers() {
     if (!res.ok) { if (info) info.textContent = data.detail || "Ошибка загрузки"; return; }
     if (info) info.textContent = "";
     const workers = data.items || [];
+    window._salaryWorkersCache = workers; // cache for edit modal
     if (!workers.length) {
       const tr = document.createElement("tr");
-      tr.innerHTML = '<td colspan="3" class="small" style="color:#9ca3af">Работники не добавлены</td>';
+      tr.innerHTML = '<td colspan="8" class="small" style="color:#9ca3af">Работники не добавлены</td>';
       tbody.appendChild(tr);
       return;
     }
@@ -11804,7 +11805,10 @@ async function loadSalaryWorkers() {
         <td>${esc(w.legal_entity || "")}</td>
         <td>${esc(w.production || "")}</td>
         <td>${accVisible}</td>
-        <td><button class="icon-btn danger" title="Удалить" onclick="deleteSalaryWorker(${w.id})">🗑</button></td>
+        <td>
+          <button class="icon-btn" title="Редактировать" onclick="openEditSalaryWorker(${w.id})">✏</button>
+          <button class="icon-btn danger" title="Удалить" onclick="deleteSalaryWorker(${w.id})">🗑</button>
+        </td>
       `;
       tbody.appendChild(tr);
     }
@@ -11937,6 +11941,67 @@ async function deleteSalaryWorker(workerId) {
   }
 }
 window.deleteSalaryWorker = deleteSalaryWorker;
+
+function openEditSalaryWorker(workerId) {
+  const w = (payrollState?.workers || []).find(x => x.id === workerId)
+         || JSON.parse(document.getElementById(`_sw_${workerId}`)?.dataset?.worker || "null");
+  // fallback: reload from last loaded list in teamState (salary workers stored differently)
+  // We'll just open the modal and let it prefill from the DOM data attributes
+  const row = document.querySelector(`[data-worker-id="${workerId}"]`);
+  // Actually, re-fetch the worker list state stored when loadSalaryWorkers ran
+  const workers = window._salaryWorkersCache || [];
+  const worker = workers.find(x => Number(x.id) === workerId);
+  if (!worker) { alert("Данные работника не найдены. Обновите страницу."); return; }
+  document.getElementById("editSalaryWorkerId").value = workerId;
+  document.getElementById("editSalaryWorkerName").value = worker.full_name || "";
+  document.getElementById("editSalaryWorkerPosition").value = worker.position || "";
+  document.getElementById("editSalaryWorkerBirthDate").value = worker.birth_date || "";
+  document.getElementById("editSalaryWorkerLegalEntity").value = worker.legal_entity || "";
+  document.getElementById("editSalaryWorkerProduction").value = worker.production || "Иваново";
+  document.getElementById("editSalaryWorkerVisible").value = worker.visible_for_accountant !== false ? "true" : "false";
+  document.getElementById("editSalaryWorkerInfo").textContent = "";
+  document.getElementById("editSalaryWorkerModal")?.classList.remove("hidden");
+}
+window.openEditSalaryWorker = openEditSalaryWorker;
+
+function closeEditSalaryWorker() {
+  document.getElementById("editSalaryWorkerModal")?.classList.add("hidden");
+}
+window.closeEditSalaryWorker = closeEditSalaryWorker;
+
+async function saveEditSalaryWorker() {
+  const id = parseInt(document.getElementById("editSalaryWorkerId")?.value || "0");
+  if (!id) return;
+  const info = document.getElementById("editSalaryWorkerInfo");
+  const payload = {
+    full_name: document.getElementById("editSalaryWorkerName")?.value.trim() || "",
+    position: document.getElementById("editSalaryWorkerPosition")?.value.trim() || "",
+    birth_date: document.getElementById("editSalaryWorkerBirthDate")?.value.trim() || "",
+    legal_entity: document.getElementById("editSalaryWorkerLegalEntity")?.value.trim() || "",
+    production: document.getElementById("editSalaryWorkerProduction")?.value.trim() || "",
+    visible_for_accountant: document.getElementById("editSalaryWorkerVisible")?.value !== "false",
+  };
+  if (!payload.full_name) {
+    if (info) { info.textContent = "Укажите ФИО"; info.style.color = "#b91c1c"; }
+    return;
+  }
+  try {
+    const res = await fetch(`/api/salary/workers/${id}`, {
+      method: "PUT", headers: jsonHeaders(), body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      const msg = Array.isArray(data.detail) ? data.detail.map(d => d.msg||JSON.stringify(d)).join("; ") : String(data.detail || "Ошибка");
+      if (info) { info.textContent = msg; info.style.color = "#b91c1c"; }
+      return;
+    }
+    closeEditSalaryWorker();
+    await loadSalaryWorkers();
+  } catch (e) {
+    if (info) { info.textContent = "Ошибка: " + e.message; info.style.color = "#b91c1c"; }
+  }
+}
+window.saveEditSalaryWorker = saveEditSalaryWorker;
 
 // ── Salary Payroll (Начисление ЗП) ───────────────────────────────────────
 

@@ -5316,6 +5316,28 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
         return {"ok": True, "item": worker}
 
+    @app.put("/api/salary/workers/{worker_id}")
+    def update_salary_worker(
+        worker_id: int,
+        payload: SalaryWorkerCreateRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        user = _require_tenant_owner(request)
+        owner_id = _tenant_owner_id(user)
+        updated = repository.update_salary_worker(
+            owner_user_id=owner_id,
+            worker_id=worker_id,
+            full_name=payload.full_name,
+            position=payload.position,
+            birth_date=payload.birth_date,
+            legal_entity=payload.legal_entity,
+            production=payload.production,
+            visible_for_accountant=payload.visible_for_accountant,
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Работник не найден")
+        return {"ok": True}
+
     @app.delete("/api/salary/workers/{worker_id}")
     def delete_salary_worker(worker_id: int, request: Request) -> dict[str, object]:
         user = _require_tenant_owner(request)
@@ -5563,10 +5585,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 str(w.get("production") or ""),
             ]
             date_vals = [totals_map.get(f"{w['id']}_{d}", None) for d in dates]
+            # Column 3 (index 2, ci=3) is birth_date — must be text, not date
+            BIRTH_DATE_COL = 3
             for ci, v in enumerate(fixed_vals, start=1):
                 cell = ws.cell(row=wi, column=ci, value=v)
                 cell.alignment = left
                 cell.border = border
+                if ci == BIRTH_DATE_COL:
+                    cell.number_format = "@"
+                    cell.quotePrefix = True
             for ci, v in enumerate(date_vals, start=len(fixed_vals)+1):
                 if v:
                     cell = ws.cell(row=wi, column=ci, value=round(v, 2))
