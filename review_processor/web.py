@@ -541,6 +541,7 @@ class ManagerSuppliesAccessRequest(BaseModel):
 class ManagerSalaryAccessRequest(BaseModel):
     can_salary: bool = False
     can_salary_settings: bool = False
+    salary_productions: list[str] = Field(default_factory=list)
 
 
 class SalaryWorkerCreateRequest(BaseModel):
@@ -3433,6 +3434,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "can_view_supplies": can_view_supplies,
             "can_view_any_supply": can_view_any_supply,
             "can_view_salary": bool(user.get("can_salary")),
+            "salary_productions": (lambda: (
+                __import__("json").loads(str(user.get("salary_productions") or "[]"))
+            ) if not (role in ROLE_CAN_ACCESS_SETTINGS) else None)(),
         }
 
     @app.get("/api/accounts")
@@ -4444,6 +4448,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 item["can_supplies"] = bool(item.get("can_supplies"))
                 item["can_salary"] = bool(item.get("can_salary"))
                 item["can_salary_settings"] = bool(item.get("can_salary_settings"))
+                try:
+                    import json as _j_sp
+                    item["salary_productions"] = _j_sp.loads(str(item.get("salary_productions") or "[]"))
+                except Exception:
+                    item["salary_productions"] = []
                 item["supply_permissions"] = repository.get_manager_supply_permissions(
                     manager_user_id=int(item["id"])
                 )
@@ -4610,6 +4619,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             user_id=target_user_id,
             can_salary=payload.can_salary,
             can_salary_settings=payload.can_salary_settings,
+            salary_productions=list(payload.salary_productions),
         )
         return {"ok": True, "can_salary": payload.can_salary}
 
@@ -5216,12 +5226,30 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             headers={"Content-Disposition": f'attachment; filename="{xlsx_name}"'},
         )
 
-    @app.get("/api/salary/products")
-    def list_salary_products(request: Request) -> dict[str, object]:
-        user = _require_tenant_owner(request)
-        owner_id = _tenant_owner_id(user)
-        items = repository.list_salary_products(owner_user_id=owner_id)
-        return {"items": items, "count": len(items)}
+    def _require_salary_access(request: Request) -> dict[str, object]:
+        """Allow tenant owner OR manager with can_salary."""
+        user = _require_user(request)
+        role = str(user.get("role") or "").strip().lower()
+        if role in ROLE_CAN_ACCESS_SETTINGS:
+            return user
+        if bool(user.get("can_salary")):
+            return user
+        raise HTTPException(status_code=403, detail="Нет доступа к начислению ЗП")
+
+    def _salary_owner_id(user: dict[str, object]) -> int:
+        return _tenant_owner_id(user)
+
+    def _salary_allowed_productions(user: dict[str, object]) -> list[str] | None:
+        """None = all productions (owner). List = restricted (manager)."""
+        import json as _j
+        role = str(user.get("role") or "").strip().lower()
+        if role in ROLE_CAN_ACCESS_SETTINGS:
+            return None
+        try:
+            prods = _j.loads(str(user.get("salary_productions") or "[]"))
+            return list(prods) if isinstance(prods, list) else []
+        except Exception:
+            return []
 
     @app.post("/api/salary/products")
     def create_salary_product(
@@ -5250,9 +5278,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.get("/api/salary/workers")
     def list_salary_workers(request: Request) -> dict[str, object]:
-        user = _require_tenant_owner(request)
-        owner_id = _tenant_owner_id(user)
+        user = _require_salary_access(request)
+        owner_id = _salary_owner_id(user)
         workers = repository.list_salary_workers(owner_user_id=owner_id)
+        allowed = _salary_allowed_productions(user)
+        if allowed is not None:
+            workers = [w for w in workers if str(w.get("production") or "") in allowed]
         return {"items": workers, "count": len(workers)}
 
     @app.post("/api/salary/workers")
@@ -5286,10 +5317,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         worker_id: int = 0,
         entry_date: str = "",
     ) -> dict[str, object]:
-        user = _require_tenant_owner(request)
-        owner_id = _tenant_owner_id(user)
+        user = _require_salary_access(request)
+        owner_id = _salary_owner_id(user)
         if not worker_id or not entry_date:
             raise HTTPException(status_code=400, detail="worker_id и entry_date обязательны")
+        # Verify worker belongs to allowed production
+        allowed = _salary_allowed_productions(user)
+        if allowed is not None:
+            workers = repository.list_salary_workers(owner_user_id=owner_id)
+            target = next((w for w in workers if w.get("id") == worker_id), None)
+            if not target or str(target.get("production") or "") not in allowed:
+                raise HTTPException(status_code=403, detail="Нет доступа к данному работнику")
         entries = repository.get_salary_entries(
             owner_user_id=owner_id, worker_id=worker_id, entry_date=entry_date
         )
@@ -5297,9 +5335,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.get("/api/salary/totals")
     def get_salary_totals(request: Request) -> dict[str, object]:
-        user = _require_tenant_owner(request)
-        owner_id = _tenant_owner_id(user)
+        user = _require_salary_access(request)
+        owner_id = _salary_owner_id(user)
         totals = repository.get_salary_totals(owner_user_id=owner_id)
+        allowed = _salary_allowed_productions(user)
+        if allowed is not None:
+            # Filter totals to only workers in allowed productions
+            workers = repository.list_salary_workers(owner_user_id=owner_id)
+            allowed_ids = {w["id"] for w in workers if str(w.get("production") or "") in allowed}
+            totals = [t for t in totals if int(t.get("worker_id") or 0) in allowed_ids]
         return {"items": totals, "count": len(totals)}
 
     class SalaryEntryItem(BaseModel):
@@ -5312,12 +5356,27 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         entry_date: str = Field(min_length=8, max_length=10)
         entries: list[SalaryEntryItem] = Field(default_factory=list)
 
+    @app.get("/api/salary/products")
+    def _list_salary_products_for_payroll(request: Request) -> dict[str, object]:
+        """Public to salary users (not just owners)."""
+        user = _require_salary_access(request)
+        owner_id = _salary_owner_id(user)
+        items = repository.list_salary_products(owner_user_id=owner_id)
+        return {"items": items, "count": len(items)}
+
     @app.post("/api/salary/entries")
     def save_salary_entries(
         payload: SalaryEntriesSaveRequest, request: Request
     ) -> dict[str, object]:
-        user = _require_tenant_owner(request)
-        owner_id = _tenant_owner_id(user)
+        user = _require_salary_access(request)
+        owner_id = _salary_owner_id(user)
+        # Verify worker belongs to allowed production
+        allowed = _salary_allowed_productions(user)
+        if allowed is not None:
+            workers = repository.list_salary_workers(owner_user_id=owner_id)
+            target = next((w for w in workers if w.get("id") == payload.worker_id), None)
+            if not target or str(target.get("production") or "") not in allowed:
+                raise HTTPException(status_code=403, detail="Нет доступа к данному работнику")
         repository.upsert_salary_entries(
             owner_user_id=owner_id,
             worker_id=payload.worker_id,
@@ -9276,6 +9335,16 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
         can_view_chats = True
     can_view_salary = is_tenant_owner or bool(user.get("can_salary"))
     can_view_salary_settings = is_tenant_owner or bool(user.get("can_salary_settings"))
+    import json as _json_salary
+    _raw_prods = user.get("salary_productions")
+    if is_tenant_owner:
+        _salary_prods_js = "null"
+    else:
+        try:
+            _prods_list = _json_salary.loads(str(_raw_prods or "[]"))
+            _salary_prods_js = _json_salary.dumps(_prods_list if isinstance(_prods_list, list) else [])
+        except Exception:
+            _salary_prods_js = "[]"
     admin_link = '<a class="navbtn nav-admin" href="/admin"><span class="nav-item-icon">○</span> Админ-панель</a>' if role == ROLE_ADMIN else ""
     nav_team = (
         '<a id="nav-team" class="nav-item nav-item-bottom" href="#" onclick="showSection(\'team\')"><span class="nav-item-icon">◫</span> Команда</a>'
@@ -9330,6 +9399,7 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
             "CAN_VIEW_CHATS": "true" if can_view_chats else "false",
             "CAN_VIEW_SALARY": "true" if can_view_salary else "false",
             "CAN_VIEW_SALARY_SETTINGS": "true" if can_view_salary_settings else "false",
+            "CAN_SALARY_PRODUCTIONS": _salary_prods_js,
             "HIDE_FEEDBACK_SECTION": "" if (can_view_feedback or can_view_settings or can_view_analytics) else "style=\"display:none\"",
             "IS_ADMIN": "true" if role == ROLE_ADMIN else "false",
             "IS_SUPER_ADMIN": "true" if is_super_admin else "false",
