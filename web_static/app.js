@@ -12069,8 +12069,8 @@ window.startPayrollResize = startPayrollResize;
 function togglePayrollDatePanel(forceOpen) {
   const panel = document.getElementById("payrollDatePanel");
   if (!panel) return;
-  if (forceOpen === false) { panel.classList.add("hidden"); return; }
-  panel.classList.toggle("hidden");
+  if (forceOpen === false) { panel.style.display = "none"; return; }
+  panel.style.display = panel.style.display === "none" || !panel.style.display ? "flex" : "none";
 }
 function applyPayrollDateFilter() {
   payrollState.dateFrom = document.getElementById("payrollDateFrom")?.value || null;
