@@ -5350,46 +5350,64 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.post("/api/salary/workers/import")
     async def import_salary_workers(request: Request, file: UploadFile = File(...)) -> dict[str, object]:
         import csv, io
-        user = _require_tenant_owner(request)
-        owner_id = _tenant_owner_id(user)
-        raw = await file.read()
-        text = raw.decode("utf-8-sig")  # strip BOM if present
-        reader = csv.DictReader(io.StringIO(text), delimiter=";")
-        created = 0
-        errors: list[str] = []
-        # Flexible header mapping (Russian or position-based)
-        _alias = {
-            "фио": "full_name", "full_name": "full_name",
-            "должность": "position", "position": "position",
-            "дата рождения": "birth_date", "birth_date": "birth_date",
-            "юр. принадлежность": "legal_entity", "юр.принадлежность": "legal_entity",
-            "legal_entity": "legal_entity",
-            "производство": "production", "production": "production",
-        }
-        for i, row in enumerate(reader, start=2):
-            mapped: dict[str, str] = {}
-            for k, v in row.items():
-                key = (k or "").strip().lower()
-                field = _alias.get(key)
-                if field:
-                    mapped[field] = (v or "").strip()
-            full_name = mapped.get("full_name", "")
-            if not full_name:
-                errors.append(f"Строка {i}: пустое ФИО — пропущена")
-                continue
-            try:
-                repository.create_salary_worker(
-                    owner_user_id=owner_id,
-                    full_name=full_name,
-                    position=mapped.get("position", ""),
-                    birth_date=mapped.get("birth_date", ""),
-                    legal_entity=mapped.get("legal_entity", ""),
-                    production=mapped.get("production", ""),
-                )
-                created += 1
-            except Exception as exc:
-                errors.append(f"Строка {i}: {exc}")
-        return {"ok": True, "created": created, "errors": errors}
+        try:
+            user = _require_tenant_owner(request)
+            owner_id = _tenant_owner_id(user)
+            raw = await file.read()
+            # Try common encodings — Excel on Windows often saves as cp1251
+            text: str | None = None
+            for enc in ("utf-8-sig", "utf-8", "cp1251", "windows-1251", "latin-1"):
+                try:
+                    text = raw.decode(enc)
+                    break
+                except (UnicodeDecodeError, LookupError):
+                    continue
+            if text is None:
+                raise HTTPException(status_code=400, detail="Не удалось определить кодировку файла")
+
+            # Auto-detect delimiter (semicolon or comma)
+            delimiter = ";" if text.count(";") >= text.count(",") else ","
+
+            reader = csv.DictReader(io.StringIO(text), delimiter=delimiter)
+            created = 0
+            errors: list[str] = []
+            _alias = {
+                "фио": "full_name", "full_name": "full_name",
+                "должность": "position", "position": "position",
+                "дата рождения": "birth_date", "birth_date": "birth_date",
+                "юр. принадлежность": "legal_entity", "юр.принадлежность": "legal_entity",
+                "legal_entity": "legal_entity",
+                "производство": "production", "production": "production",
+            }
+            for i, row in enumerate(reader, start=2):
+                mapped: dict[str, str] = {}
+                for k, v in row.items():
+                    key = (k or "").strip().lower()
+                    field = _alias.get(key)
+                    if field:
+                        mapped[field] = (v or "").strip()
+                full_name = mapped.get("full_name", "")
+                if not full_name:
+                    errors.append(f"Строка {i}: пустое ФИО — пропущена")
+                    continue
+                try:
+                    repository.create_salary_worker(
+                        owner_user_id=owner_id,
+                        full_name=full_name,
+                        position=mapped.get("position", ""),
+                        birth_date=mapped.get("birth_date", ""),
+                        legal_entity=mapped.get("legal_entity", ""),
+                        production=mapped.get("production", ""),
+                    )
+                    created += 1
+                except Exception as exc:
+                    errors.append(f"Строка {i}: {exc}")
+            return {"ok": True, "created": created, "errors": errors}
+        except HTTPException:
+            raise
+        except Exception as exc:
+            _log.error("salary workers import error: %s", exc, exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Ошибка импорта: {exc}") from exc
 
     @app.get("/api/salary/entries")
     def get_salary_entries(
@@ -5488,75 +5506,86 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     async def import_payroll_table(request: Request, file: UploadFile = File(...)) -> dict[str, object]:
         """Import payroll CSV — sets total amounts per worker/date."""
         import csv, io
-        user = _require_tenant_owner(request)
-        owner_id = _tenant_owner_id(user)
+        try:
+          user = _require_tenant_owner(request)
+          owner_id = _tenant_owner_id(user)
 
-        raw = await file.read()
-        text = raw.decode("utf-8-sig")
-        reader = csv.reader(io.StringIO(text), delimiter=";")
-        rows = list(reader)
-        if not rows:
-            raise HTTPException(status_code=400, detail="Файл пустой")
+          raw = await file.read()
+          text: str | None = None
+          for enc in ("utf-8-sig", "utf-8", "cp1251", "windows-1251", "latin-1"):
+              try:
+                  text = raw.decode(enc); break
+              except (UnicodeDecodeError, LookupError):
+                  continue
+          if text is None:
+              raise HTTPException(status_code=400, detail="Не удалось определить кодировку файла")
+          delimiter = ";" if text.count(";") >= text.count(",") else ","
+          reader = csv.reader(io.StringIO(text), delimiter=delimiter)
+          rows = list(reader)
+          if not rows:
+              raise HTTPException(status_code=400, detail="Файл пустой")
 
-        header = rows[0]
-        # Fixed columns: 0-4 (ФИО, Должность, Дата рождения, Юр. принадлежность, Производство)
-        # Dates start at index 5
-        from datetime import date as _date, timedelta
-        start = _date(2026, 1, 7)
-        end_limit = _date.today() + timedelta(days=14)
-        series_dates: list[str] = []
-        d = start
-        while d <= end_limit:
-            series_dates.append(d.isoformat())
-            d += timedelta(days=7)
+          header = rows[0]
+          from datetime import date as _date, timedelta
+          start = _date(2026, 1, 7)
+          end_limit = _date.today() + timedelta(days=14)
+          series_dates: list[str] = []
+          d = start
+          while d <= end_limit:
+              series_dates.append(d.isoformat())
+              d += timedelta(days=7)
 
-        def parse_date_header(s: str) -> str | None:
-            """Convert DD.MM.YY or DD.MM.YYYY to YYYY-MM-DD."""
-            s = s.strip()
-            parts = s.split(".")
-            if len(parts) != 3:
-                return None
-            dd, mm, yy = parts
-            year = int(yy) + 2000 if len(yy) == 2 else int(yy)
-            iso = f"{year}-{mm.zfill(2)}-{dd.zfill(2)}"
-            return iso if iso in series_dates else None
+          def parse_date_header(s: str) -> str | None:
+              s = s.strip()
+              parts = s.split(".")
+              if len(parts) != 3:
+                  return None
+              dd, mm, yy = parts
+              year = int(yy) + 2000 if len(yy) == 2 else int(yy)
+              iso = f"{year}-{mm.zfill(2)}-{dd.zfill(2)}"
+              return iso if iso in series_dates else None
 
-        date_cols: list[tuple[int, str]] = []
-        for ci, h in enumerate(header[5:], start=5):
-            iso = parse_date_header(h)
-            if iso:
-                date_cols.append((ci, iso))
+          date_cols: list[tuple[int, str]] = []
+          for ci, h in enumerate(header[5:], start=5):
+              iso = parse_date_header(h)
+              if iso:
+                  date_cols.append((ci, iso))
 
-        workers = repository.list_salary_workers(owner_user_id=owner_id)
-        workers_by_name = {str(w.get("full_name") or "").strip().lower(): w for w in workers}
+          workers = repository.list_salary_workers(owner_user_id=owner_id)
+          workers_by_name = {str(w.get("full_name") or "").strip().lower(): w for w in workers}
 
-        created = 0; errors: list[str] = []
-        for ri, row in enumerate(rows[1:], start=2):
-            if not row:
-                continue
-            full_name = row[0].strip() if row else ""
-            if not full_name:
-                continue
-            w = workers_by_name.get(full_name.lower())
-            if not w:
-                errors.append(f"Строка {ri}: работник «{full_name}» не найден")
-                continue
-            for ci, iso in date_cols:
-                cell = row[ci].strip() if ci < len(row) else ""
-                if not cell:
-                    continue
-                try:
-                    amount = float(cell.replace(",", ".").replace(" ", ""))
-                except ValueError:
-                    continue
-                repository.set_salary_total_override(
-                    owner_user_id=owner_id,
-                    worker_id=int(w["id"]),
-                    entry_date=iso,
-                    total_amount=amount,
-                )
-                created += 1
-        return {"ok": True, "created": created, "errors": errors}
+          created = 0; errors: list[str] = []
+          for ri, row in enumerate(rows[1:], start=2):
+              if not row:
+                  continue
+              full_name = row[0].strip() if row else ""
+              if not full_name:
+                  continue
+              w = workers_by_name.get(full_name.lower())
+              if not w:
+                  errors.append(f"Строка {ri}: работник «{full_name}» не найден")
+                  continue
+              for ci, iso in date_cols:
+                  cell = row[ci].strip() if ci < len(row) else ""
+                  if not cell:
+                      continue
+                  try:
+                      amount = float(cell.replace(",", ".").replace(" ", ""))
+                  except ValueError:
+                      continue
+                  repository.set_salary_total_override(
+                      owner_user_id=owner_id,
+                      worker_id=int(w["id"]),
+                      entry_date=iso,
+                      total_amount=amount,
+                  )
+                  created += 1
+          return {"ok": True, "created": created, "errors": errors}
+        except HTTPException:
+            raise
+        except Exception as exc:
+            _log.error("payroll import error: %s", exc, exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Ошибка импорта: {exc}") from exc
 
     @app.get("/api/salary/products")
     def _list_salary_products_for_payroll(request: Request) -> dict[str, object]:
