@@ -5349,29 +5349,60 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             headers={"Content-Disposition": "attachment; filename=\"salary_workers.csv\""},
         )
 
+    def _parse_upload_to_rows(raw: bytes, filename: str) -> list[list[str]]:
+        """Parse CSV / XLSX / XLS upload into a list of string rows."""
+        import io, csv
+        ext = (filename or "").lower().rsplit(".", 1)[-1]
+
+        if ext in ("xlsx",):
+            import openpyxl
+            wb = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+            ws = wb.active
+            rows = [
+                [str(cell.value if cell.value is not None else "").strip() for cell in row]
+                for row in ws.iter_rows()
+            ]
+            wb.close()
+            return rows
+
+        if ext in ("xls",):
+            try:
+                import xlrd
+                wb = xlrd.open_workbook(file_contents=raw)
+                ws = wb.sheet_by_index(0)
+                rows = [
+                    [str(ws.cell_value(ri, ci) if ws.cell_value(ri, ci) is not None else "").strip()
+                     for ci in range(ws.ncols)]
+                    for ri in range(ws.nrows)
+                ]
+                return rows
+            except ImportError:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Формат .xls не поддерживается. Сохраните файл в формате .xlsx и загрузите снова."
+                )
+
+        # Default: treat as CSV
+        text: str | None = None
+        for enc in ("utf-8-sig", "utf-8", "cp1251", "windows-1251", "latin-1"):
+            try:
+                text = raw.decode(enc); break
+            except (UnicodeDecodeError, LookupError):
+                continue
+        if text is None:
+            raise HTTPException(status_code=400, detail="Не удалось определить кодировку файла")
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+        delimiter = ";" if text.count(";") >= text.count(",") else ","
+        reader = csv.reader(io.StringIO(text), delimiter=delimiter)
+        return list(reader)
+
     @app.post("/api/salary/workers/import")
     async def import_salary_workers(request: Request, file: UploadFile = File(...)) -> dict[str, object]:
-        import csv, io
         try:
             user = _require_tenant_owner(request)
             owner_id = _tenant_owner_id(user)
             raw = await file.read()
-            text: str | None = None
-            for enc in ("utf-8-sig", "utf-8", "cp1251", "windows-1251", "latin-1"):
-                try:
-                    text = raw.decode(enc); break
-                except (UnicodeDecodeError, LookupError):
-                    continue
-            if text is None:
-                raise HTTPException(status_code=400, detail="Не удалось определить кодировку файла")
-            text = text.replace("\r\n", "\n").replace("\r", "\n")
-            delimiter = ";" if text.count(";") >= text.count(",") else ","
-
-            # Use positional reading (column index) — robust regardless of header encoding
-            # Template columns: 0=ФИО, 1=Должность, 2=Дата рождения,
-            #                   3=Юр. принадлежность, 4=Производство, 5=Видимость для бухгалтера
-            reader = csv.reader(io.StringIO(text), delimiter=delimiter)
-            rows = list(reader)
+            rows = _parse_upload_to_rows(raw, file.filename or "")
             if not rows:
                 raise HTTPException(status_code=400, detail="Файл пустой")
 
@@ -5513,25 +5544,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.post("/api/salary/payroll/import")
     async def import_payroll_table(request: Request, file: UploadFile = File(...)) -> dict[str, object]:
-        """Import payroll CSV — sets total amounts per worker/date."""
-        import csv, io
+        """Import payroll CSV/XLSX/XLS — sets total amounts per worker/date."""
         try:
           user = _require_tenant_owner(request)
           owner_id = _tenant_owner_id(user)
 
           raw = await file.read()
-          text: str | None = None
-          for enc in ("utf-8-sig", "utf-8", "cp1251", "windows-1251", "latin-1"):
-              try:
-                  text = raw.decode(enc); break
-              except (UnicodeDecodeError, LookupError):
-                  continue
-          if text is None:
-              raise HTTPException(status_code=400, detail="Не удалось определить кодировку файла")
-          text = text.replace("\r\n", "\n").replace("\r", "\n")
-          delimiter = ";" if text.count(";") >= text.count(",") else ","
-          reader = csv.reader(io.StringIO(text), delimiter=delimiter)
-          rows = list(reader)
+          rows = _parse_upload_to_rows(raw, file.filename or "")
           if not rows:
               raise HTTPException(status_code=400, detail="Файл пустой")
 
