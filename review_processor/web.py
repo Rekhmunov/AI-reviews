@@ -5548,6 +5548,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             cell.fill    = header_fill if ci <= len(fixed_headers) else date_fill
             cell.alignment = center
             cell.border  = border
+            if ci > len(fixed_headers):
+                # Force text format so Excel doesn't convert "07.01.26" to a date serial number
+                cell.number_format = "@"
+                cell.quotePrefix = True  # equivalent to prefixing with ' in Excel
 
         # Data rows
         for wi, w in enumerate(workers, start=2):
