@@ -1889,6 +1889,8 @@
             <div class="row row-between">
               <h4 class="no-margin">Работники</h4>
               <div class="row" style="gap:8px">
+                <button type="button" id="salaryWorkersBulkDeleteBtn" class="secondary danger hidden"
+                  onclick="bulkDeleteSalaryWorkers()" title="Удалить выбранных">🗑 Удалить выбранных (<span id="salaryWorkersBulkCount">0</span>)</button>
                 <button type="button" class="secondary" onclick="downloadSalaryWorkerTemplate()" title="Скачать шаблон CSV">📋 Шаблон</button>
                 <button type="button" class="secondary" onclick="exportSalaryWorkers()" title="Экспорт в CSV">⬇ Экспорт</button>
                 <label class="secondary" style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;padding:10px 12px;border-radius:var(--radius-sm);border:1px solid rgba(147,197,253,0.7);background:linear-gradient(160deg,rgba(255,255,255,0.88),rgba(239,246,255,0.92));font-size:14px;font-weight:600;color:#1e40af" title="Импорт из CSV">
@@ -1973,6 +1975,7 @@
               <table>
                 <thead>
                   <tr>
+                    <th style="width:36px"><input type="checkbox" id="salaryWorkersSelectAll" onchange="toggleAllSalaryWorkers(this.checked)" title="Выбрать всех" /></th>
                     <th>ФИО</th>
                     <th>Должность</th>
                     <th>Дата рождения</th>
