@@ -12692,11 +12692,8 @@ async function _loadPayrollModalProducts(date) {
 
   payrollState.modalEntries = {...existingMap};
 
-  // Determine price column based on production
+  // Determine price based on production (sum of 3 sub-components)
   const prod = (w.production||"").toLowerCase();
-  const priceCol = prod.includes("кинешма") ? "price_kineshma"
-    : prod.includes("нерль") ? "price_nerl"
-    : "price_ivanovo";
 
   const products = payrollState.products;
   if (!products.length) {
@@ -12709,7 +12706,11 @@ async function _loadPayrollModalProducts(date) {
 
   let rows = "";
   products.forEach((p, idx) => {
-    const price = parseFloat(p[priceCol] || 0);
+    const price = prod.includes("кинешма")
+      ? (parseFloat(p.price_kineshma_poshiv||0) + parseFloat(p.price_kineshma_raskroi||0) + parseFloat(p.price_kineshma_upakovka||0))
+      : prod.includes("нерль")
+        ? (parseFloat(p.price_nerl_poshiv||0) + parseFloat(p.price_nerl_raskroi||0) + parseFloat(p.price_nerl_upakovka||0))
+        : 0;
     const qty = payrollState.modalEntries[p.id] || 0;
     rows += `<tr>
       <td>${esc(p.name||"")}</td>
@@ -12751,16 +12752,18 @@ async function savePayrollEntry() {
   if (btn) { btn.disabled = true; btn.textContent = "Сохранение..."; }
 
   const w = payrollState.workers.find(x => x.id === workerId);
-  const prod = (w?.production||"").toLowerCase();
-  const priceCol = prod.includes("кинешма") ? "price_kineshma"
-    : prod.includes("нерль") ? "price_nerl"
-    : "price_ivanovo";
+  const prod2 = (w?.production||"").toLowerCase();
+  const _price = (p) => prod2.includes("кинешма")
+    ? (parseFloat(p.price_kineshma_poshiv||0)+parseFloat(p.price_kineshma_raskroi||0)+parseFloat(p.price_kineshma_upakovka||0))
+    : prod2.includes("нерль")
+      ? (parseFloat(p.price_nerl_poshiv||0)+parseFloat(p.price_nerl_raskroi||0)+parseFloat(p.price_nerl_upakovka||0))
+      : 0;
 
   const entries = payrollState.products
     .map(p => ({
       product_id: p.id,
       quantity: parseFloat(payrollState.modalEntries[p.id]||0)||0,
-      price_snapshot: parseFloat(p[priceCol]||0)||0,
+      price_snapshot: _price(p),
     }))
     .filter(e => e.quantity > 0);
 
@@ -12810,8 +12813,9 @@ window.toggleSalaryProductForm = function(show) {
   if (!form) return;
   form.classList.toggle("hidden", !show);
   if (!show) {
-    ["salaryProductName","salaryProductPriceIvanovo",
-     "salaryProductPriceKineshma","salaryProductPriceNerl"].forEach(id => {
+    ["salaryProductName",
+     "salaryProductKineshma_poshiv","salaryProductKineshma_raskroi","salaryProductKineshma_upakovka",
+     "salaryProductNerl_poshiv","salaryProductNerl_raskroi","salaryProductNerl_upakovka"].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.value = "";
     });
@@ -12848,9 +12852,12 @@ async function loadSalaryProducts() {
       tr.innerHTML = `
         <td style="cursor:grab;text-align:center;color:#94a3b8" title="Перетащить">⠿</td>
         <td>${esc(p.name || "")}</td>
-        <td>${fmt(p.price_ivanovo)}</td>
-        <td>${fmt(p.price_kineshma)}</td>
-        <td>${fmt(p.price_nerl)}</td>
+        <td style="background:#f0f9ff">${fmt(p.price_kineshma_poshiv)}</td>
+        <td style="background:#f0f9ff">${fmt(p.price_kineshma_raskroi)}</td>
+        <td style="background:#f0f9ff">${fmt(p.price_kineshma_upakovka)}</td>
+        <td style="background:#f0fdf4">${fmt(p.price_nerl_poshiv)}</td>
+        <td style="background:#f0fdf4">${fmt(p.price_nerl_raskroi)}</td>
+        <td style="background:#f0fdf4">${fmt(p.price_nerl_upakovka)}</td>
         <td>
           <button class="icon-btn" title="Редактировать" onclick="openEditSalaryProduct(${p.id})">✏</button>
           <button class="icon-btn danger" title="Удалить" onclick="deleteSalaryProduct(${p.id})">🗑</button>
@@ -12873,12 +12880,15 @@ async function saveSalaryProduct() {
     document.getElementById("salaryProductName")?.focus();
     return;
   }
+  const _n = id => parseFloat(document.getElementById(id)?.value || "0") || 0;
   const payload = {
-    order_num: 0,
-    name,
-    price_ivanovo: parseFloat(document.getElementById("salaryProductPriceIvanovo")?.value || "0") || 0,
-    price_kineshma: parseFloat(document.getElementById("salaryProductPriceKineshma")?.value || "0") || 0,
-    price_nerl: parseFloat(document.getElementById("salaryProductPriceNerl")?.value || "0") || 0,
+    order_num: 0, name,
+    price_kineshma_poshiv:    _n("salaryProductKineshma_poshiv"),
+    price_kineshma_raskroi:   _n("salaryProductKineshma_raskroi"),
+    price_kineshma_upakovka:  _n("salaryProductKineshma_upakovka"),
+    price_nerl_poshiv:        _n("salaryProductNerl_poshiv"),
+    price_nerl_raskroi:       _n("salaryProductNerl_raskroi"),
+    price_nerl_upakovka:      _n("salaryProductNerl_upakovka"),
   };
   try {
     const res = await fetch("/api/salary/products", {
@@ -12973,9 +12983,12 @@ function openEditSalaryProduct(productId) {
   if (!p) { alert("Данные товара не найдены. Обновите страницу."); return; }
   document.getElementById("editSalaryProductId").value = productId;
   document.getElementById("editSalaryProductName").value = p.name || "";
-  document.getElementById("editSalaryProductPriceIvanovo").value = p.price_ivanovo || "";
-  document.getElementById("editSalaryProductPriceKineshma").value = p.price_kineshma || "";
-  document.getElementById("editSalaryProductPriceNerl").value = p.price_nerl || "";
+  document.getElementById("editSalaryProductKineshma_poshiv").value   = p.price_kineshma_poshiv || "";
+  document.getElementById("editSalaryProductKineshma_raskroi").value  = p.price_kineshma_raskroi || "";
+  document.getElementById("editSalaryProductKineshma_upakovka").value = p.price_kineshma_upakovka || "";
+  document.getElementById("editSalaryProductNerl_poshiv").value   = p.price_nerl_poshiv || "";
+  document.getElementById("editSalaryProductNerl_raskroi").value  = p.price_nerl_raskroi || "";
+  document.getElementById("editSalaryProductNerl_upakovka").value = p.price_nerl_upakovka || "";
   document.getElementById("editSalaryProductInfo").textContent = "";
   document.getElementById("editSalaryProductModal")?.classList.remove("hidden");
 }
@@ -12996,12 +13009,15 @@ async function saveEditSalaryProduct() {
   }
   const products = window._salaryProductsCache || [];
   const current = products.find(x => Number(x.id) === id);
+  const _ne = eid => parseFloat(document.getElementById(eid)?.value || "0") || 0;
   const payload = {
-    order_num: current?.order_num ?? 0,
-    name,
-    price_ivanovo: parseFloat(document.getElementById("editSalaryProductPriceIvanovo")?.value || "0") || 0,
-    price_kineshma: parseFloat(document.getElementById("editSalaryProductPriceKineshma")?.value || "0") || 0,
-    price_nerl: parseFloat(document.getElementById("editSalaryProductPriceNerl")?.value || "0") || 0,
+    order_num: current?.order_num ?? 0, name,
+    price_kineshma_poshiv:    _ne("editSalaryProductKineshma_poshiv"),
+    price_kineshma_raskroi:   _ne("editSalaryProductKineshma_raskroi"),
+    price_kineshma_upakovka:  _ne("editSalaryProductKineshma_upakovka"),
+    price_nerl_poshiv:        _ne("editSalaryProductNerl_poshiv"),
+    price_nerl_raskroi:       _ne("editSalaryProductNerl_raskroi"),
+    price_nerl_upakovka:      _ne("editSalaryProductNerl_upakovka"),
   };
   try {
     const res = await fetch(`/api/salary/products/${id}`, {
