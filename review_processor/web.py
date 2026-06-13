@@ -542,6 +542,11 @@ class ManagerSalaryAccessRequest(BaseModel):
     can_salary: bool = False
 
 
+class SalaryWorkerCreateRequest(BaseModel):
+    full_name: str = Field(min_length=1, max_length=200)
+    production: str = Field(default="", max_length=100)
+
+
 class UserTemplateVariableValuesSaveRequest(BaseModel):
     values: dict[str, str] = Field(default_factory=dict)
 
@@ -5200,10 +5205,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         owner_id = _tenant_owner_id(user)
         workers = repository.list_salary_workers(owner_user_id=owner_id)
         return {"items": workers, "count": len(workers)}
-
-    class SalaryWorkerCreateRequest(BaseModel):
-        full_name: str = Field(min_length=1, max_length=200)
-        production: str = Field(default="", max_length=100)
 
     @app.post("/api/salary/workers")
     def create_salary_worker(

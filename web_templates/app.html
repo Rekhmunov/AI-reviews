@@ -1816,15 +1816,21 @@
           <div class="panel">
             <div class="row row-between">
               <h4 class="no-margin">Работники</h4>
+              <button type="button" onclick="toggleSalaryWorkerForm(true)">+ Добавить работника</button>
             </div>
-            <div class="row" style="flex-wrap:wrap;gap:10px;margin-top:8px">
-              <input id="salaryWorkerName" type="text" placeholder="ФИО работника" style="flex:1;min-width:200px" autocomplete="off" />
-              <select id="salaryWorkerProduction" style="min-width:160px">
-                <option value="Иваново">Иваново</option>
-                <option value="Кинешма">Кинешма</option>
-                <option value="Нерль">Нерль</option>
-              </select>
-              <button type="button" onclick="saveSalaryWorker()">+ Добавить</button>
+            <div id="salaryWorkerAddForm" class="source-form hidden" style="margin-top:12px">
+              <div class="row" style="flex-wrap:wrap;gap:10px">
+                <input id="salaryWorkerName" type="text" placeholder="ФИО работника" style="flex:1;min-width:200px" autocomplete="off" />
+                <select id="salaryWorkerProduction" style="min-width:160px">
+                  <option value="Иваново">Иваново</option>
+                  <option value="Кинешма">Кинешма</option>
+                  <option value="Нерль">Нерль</option>
+                </select>
+              </div>
+              <div class="row" style="margin-top:8px">
+                <button type="button" onclick="saveSalaryWorker()">Сохранить</button>
+                <button type="button" class="secondary" onclick="toggleSalaryWorkerForm(false)">Отмена</button>
+              </div>
             </div>
             <div id="salaryWorkersInfo" class="small" style="margin-top:6px"></div>
           </div>
