@@ -5280,6 +5280,46 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
         return {"ok": True, "item": item}
 
+    @app.put("/api/salary/products/{product_id}")
+    def update_salary_product(
+        product_id: int,
+        payload: SalaryProductCreateRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        user = _require_tenant_owner(request)
+        owner_id = _tenant_owner_id(user)
+        updated = repository.update_salary_product(
+            owner_user_id=owner_id,
+            product_id=product_id,
+            order_num=payload.order_num,
+            name=payload.name,
+            price_ivanovo=float(payload.price_ivanovo),
+            price_kineshma=float(payload.price_kineshma),
+            price_nerl=float(payload.price_nerl),
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Товар не найден")
+        return {"ok": True}
+
+    class ProductReorderItem(BaseModel):
+        id: int = Field(ge=1)
+        order_num: int = Field(ge=0)
+
+    class ProductReorderRequest(BaseModel):
+        order: list[ProductReorderItem] = Field(default_factory=list)
+
+    @app.put("/api/salary/products/reorder")
+    def reorder_salary_products(
+        payload: ProductReorderRequest, request: Request
+    ) -> dict[str, object]:
+        user = _require_tenant_owner(request)
+        owner_id = _tenant_owner_id(user)
+        repository.reorder_salary_products(
+            owner_user_id=owner_id,
+            order=[{"id": item.id, "order_num": item.order_num} for item in payload.order],
+        )
+        return {"ok": True}
+
     @app.delete("/api/salary/products/{product_id}")
     def delete_salary_product(product_id: int, request: Request) -> dict[str, object]:
         user = _require_tenant_owner(request)

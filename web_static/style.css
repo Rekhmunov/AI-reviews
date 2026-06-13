@@ -5733,3 +5733,8 @@ button.secondary.danger:hover {
   background: #eff6ff !important;
 }
 
+tr.dnd-over td {
+  background: #dbeafe !important;
+  border-top: 2px solid #3b82f6 !important;
+}
+

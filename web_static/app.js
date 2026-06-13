@@ -12839,18 +12839,26 @@ async function loadSalaryProducts() {
       tbody.appendChild(tr);
       return;
     }
+    window._salaryProductsCache = items; // cache for edit + DnD
     const fmt = v => Number(v || 0).toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     for (const p of items) {
       const tr = document.createElement("tr");
+      tr.draggable = true;
+      tr.dataset.id = p.id;
       tr.innerHTML = `
+        <td style="cursor:grab;text-align:center;color:#94a3b8" title="Перетащить">⠿</td>
         <td>${esc(p.name || "")}</td>
         <td>${fmt(p.price_ivanovo)}</td>
         <td>${fmt(p.price_kineshma)}</td>
         <td>${fmt(p.price_nerl)}</td>
-        <td><button class="icon-btn danger" title="Удалить" onclick="deleteSalaryProduct(${p.id})">🗑</button></td>
+        <td>
+          <button class="icon-btn" title="Редактировать" onclick="openEditSalaryProduct(${p.id})">✏</button>
+          <button class="icon-btn danger" title="Удалить" onclick="deleteSalaryProduct(${p.id})">🗑</button>
+        </td>
       `;
       tbody.appendChild(tr);
     }
+    _initProductDnD(tbody);
   } catch (e) {
     if (info) info.textContent = "Ошибка: " + e.message;
   }
@@ -12908,6 +12916,110 @@ async function deleteSalaryProduct(productId) {
   }
 }
 window.deleteSalaryProduct = deleteSalaryProduct;
+
+// ── Salary products drag-and-drop reorder ─────────────────────────────────
+
+let _dndDragging = null;
+
+function _initProductDnD(tbody) {
+  tbody.addEventListener("dragstart", e => {
+    _dndDragging = e.target.closest("tr");
+    if (_dndDragging) _dndDragging.style.opacity = "0.5";
+  });
+  tbody.addEventListener("dragend", () => {
+    if (_dndDragging) _dndDragging.style.opacity = "";
+    tbody.querySelectorAll("tr").forEach(r => r.classList.remove("dnd-over"));
+    _dndDragging = null;
+  });
+  tbody.addEventListener("dragover", e => {
+    e.preventDefault();
+    const over = e.target.closest("tr");
+    tbody.querySelectorAll("tr").forEach(r => r.classList.remove("dnd-over"));
+    if (over && over !== _dndDragging) over.classList.add("dnd-over");
+  });
+  tbody.addEventListener("drop", async e => {
+    e.preventDefault();
+    const over = e.target.closest("tr");
+    if (!over || !_dndDragging || over === _dndDragging) return;
+    // Reorder in DOM
+    const rows = Array.from(tbody.querySelectorAll("tr"));
+    const fromIdx = rows.indexOf(_dndDragging);
+    const toIdx   = rows.indexOf(over);
+    if (fromIdx < toIdx) over.after(_dndDragging);
+    else over.before(_dndDragging);
+    over.classList.remove("dnd-over");
+    // Build new order and save
+    const newOrder = Array.from(tbody.querySelectorAll("tr")).map((tr, i) => ({
+      id: parseInt(tr.dataset.id), order_num: i,
+    }));
+    try {
+      await fetch("/api/salary/products/reorder", {
+        method: "PUT", headers: jsonHeaders(), body: JSON.stringify({ order: newOrder }),
+      });
+      // Update cache order
+      if (window._salaryProductsCache) {
+        const byId = Object.fromEntries(window._salaryProductsCache.map(p => [p.id, p]));
+        window._salaryProductsCache = newOrder.map(o => byId[o.id]).filter(Boolean);
+      }
+    } catch (_) {}
+  });
+}
+
+// ── Edit salary product ───────────────────────────────────────────────────
+
+function openEditSalaryProduct(productId) {
+  const products = window._salaryProductsCache || [];
+  const p = products.find(x => Number(x.id) === productId);
+  if (!p) { alert("Данные товара не найдены. Обновите страницу."); return; }
+  document.getElementById("editSalaryProductId").value = productId;
+  document.getElementById("editSalaryProductName").value = p.name || "";
+  document.getElementById("editSalaryProductPriceIvanovo").value = p.price_ivanovo || "";
+  document.getElementById("editSalaryProductPriceKineshma").value = p.price_kineshma || "";
+  document.getElementById("editSalaryProductPriceNerl").value = p.price_nerl || "";
+  document.getElementById("editSalaryProductInfo").textContent = "";
+  document.getElementById("editSalaryProductModal")?.classList.remove("hidden");
+}
+window.openEditSalaryProduct = openEditSalaryProduct;
+
+function closeEditSalaryProduct() {
+  document.getElementById("editSalaryProductModal")?.classList.add("hidden");
+}
+window.closeEditSalaryProduct = closeEditSalaryProduct;
+
+async function saveEditSalaryProduct() {
+  const id = parseInt(document.getElementById("editSalaryProductId")?.value || "0");
+  const info = document.getElementById("editSalaryProductInfo");
+  const name = document.getElementById("editSalaryProductName")?.value.trim() || "";
+  if (!id || !name) {
+    if (info) { info.textContent = "Укажите наименование"; info.style.color = "#b91c1c"; }
+    return;
+  }
+  const products = window._salaryProductsCache || [];
+  const current = products.find(x => Number(x.id) === id);
+  const payload = {
+    order_num: current?.order_num ?? 0,
+    name,
+    price_ivanovo: parseFloat(document.getElementById("editSalaryProductPriceIvanovo")?.value || "0") || 0,
+    price_kineshma: parseFloat(document.getElementById("editSalaryProductPriceKineshma")?.value || "0") || 0,
+    price_nerl: parseFloat(document.getElementById("editSalaryProductPriceNerl")?.value || "0") || 0,
+  };
+  try {
+    const res = await fetch(`/api/salary/products/${id}`, {
+      method: "PUT", headers: jsonHeaders(), body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      const msg = Array.isArray(data.detail) ? data.detail.map(d => d.msg||JSON.stringify(d)).join("; ") : String(data.detail||"Ошибка");
+      if (info) { info.textContent = msg; info.style.color = "#b91c1c"; }
+      return;
+    }
+    closeEditSalaryProduct();
+    await loadSalaryProducts();
+  } catch (e) {
+    if (info) { info.textContent = "Ошибка: " + e.message; info.style.color = "#b91c1c"; }
+  }
+}
+window.saveEditSalaryProduct = saveEditSalaryProduct;
 
 // ─────────────────────────────────────────────────────────────────────────────
 
