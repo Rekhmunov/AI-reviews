@@ -8243,6 +8243,37 @@ class ReviewRepository:
                 "name": name.strip(), "price_ivanovo": price_ivanovo,
                 "price_kineshma": price_kineshma, "price_nerl": price_nerl, "created_at": now}
 
+    def update_salary_product(
+        self, *, owner_user_id: int, product_id: int, order_num: int,
+        name: str, price_ivanovo: float, price_kineshma: float, price_nerl: float,
+    ) -> bool:
+        with self._connect() as conn:
+            self._ensure_salary_products_table(conn)
+            result = conn.execute(
+                self._sql(
+                    "UPDATE salary_products SET order_num=?, name=?, price_ivanovo=?, "
+                    "price_kineshma=?, price_nerl=? WHERE id=? AND owner_user_id=?"
+                ),
+                (order_num, name.strip(),
+                 round(float(price_ivanovo), 2), round(float(price_kineshma), 2),
+                 round(float(price_nerl), 2), product_id, owner_user_id),
+            )
+        return result.rowcount > 0
+
+    def reorder_salary_products(
+        self, *, owner_user_id: int, order: list[dict[str, int]]
+    ) -> None:
+        """Update order_num for each product in the list."""
+        with self._connect() as conn:
+            self._ensure_salary_products_table(conn)
+            for item in order:
+                conn.execute(
+                    self._sql(
+                        "UPDATE salary_products SET order_num=? WHERE id=? AND owner_user_id=?"
+                    ),
+                    (int(item["order_num"]), int(item["id"]), owner_user_id),
+                )
+
     def delete_salary_product(self, *, owner_user_id: int, product_id: int) -> bool:
         with self._connect() as conn:
             self._ensure_salary_products_table(conn)
