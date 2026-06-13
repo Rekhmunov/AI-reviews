@@ -1833,12 +1833,13 @@
           </div>
           <div id="payrollModalWorkerInfo" class="payroll-modal-header-info"></div>
           <div class="perm-modal-body" style="padding:16px;gap:12px">
-            <div style="display:flex;align-items:center;gap:10px">
+            <div style="display:flex;align-items:center;gap:10px;position:relative">
               <span class="small" style="color:#64748b;white-space:nowrap">Дата начисления:</span>
-              <a id="payrollModalDateLink" class="payroll-date-link" onclick="openPayrollDatePicker(event)" href="#">
+              <a id="payrollModalDateLink" class="payroll-date-link" onclick="togglePayrollModalDateList(event)" href="#">
                 <span id="payrollModalDateDisplay">Выбрать дату</span> 📅
               </a>
-              <input id="payrollModalDateInput" type="date" class="hidden" style="position:absolute;opacity:0;pointer-events:none" onchange="onPayrollDateSelected()" />
+              <!-- Custom date dropdown — only shows valid 7-day series dates -->
+              <div id="payrollModalDateList" class="supplies-date-panel" style="display:none;max-height:220px;overflow-y:auto;min-width:140px;top:calc(100% + 4px);left:0"></div>
             </div>
             <div id="payrollModalProductsWrap" class="hidden">
               <div class="table-wrap">

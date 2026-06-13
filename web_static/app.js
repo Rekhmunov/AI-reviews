@@ -12202,42 +12202,57 @@ function _setPayrollModalDate(date) {
   if (date) _loadPayrollModalProducts(date);
 }
 
-function openPayrollDatePicker(e) {
+function togglePayrollModalDateList(e) {
   e.preventDefault();
-  const inp = document.getElementById("payrollModalDateInput");
-  if (!inp) return;
-  // Set min/max to valid dates in the series
-  const dates = _payrollDates();
-  inp.min = dates[0];
-  inp.max = dates[dates.length-1];
-  // Make it visible temporarily for click
-  inp.style.opacity = "1";
-  inp.style.pointerEvents = "auto";
-  inp.style.position = "fixed";
-  inp.style.top = (e.clientY+4)+"px";
-  inp.style.left = e.clientX+"px";
-  inp.style.zIndex = "9999";
-  inp.showPicker?.();
-  const hide = () => { inp.style.opacity="0"; inp.style.pointerEvents="none"; inp.style.position="absolute"; document.removeEventListener("mousedown", hide); };
-  setTimeout(() => document.addEventListener("mousedown", hide), 200);
-}
-window.openPayrollDatePicker = openPayrollDatePicker;
+  const list = document.getElementById("payrollModalDateList");
+  if (!list) return;
+  if (list.style.display !== "none") { list.style.display = "none"; return; }
 
-function onPayrollDateSelected() {
-  const inp = document.getElementById("payrollModalDateInput");
-  const val = inp?.value;
-  if (!val) return;
-  // Validate it's a valid date in the series
   const dates = _payrollDates();
-  const isValid = dates.includes(val);
-  if (!isValid) {
-    const nearest = dates.reduce((a, b) => Math.abs(new Date(b)-new Date(val)) < Math.abs(new Date(a)-new Date(val)) ? b : a);
-    _setPayrollModalDate(nearest);
-  } else {
-    _setPayrollModalDate(val);
-  }
+  const current = payrollState.modalDate;
+  const totals = payrollState.totals;
+  const workerId = payrollState.modalWorkerId;
+
+  // Build list: newest first for easier access to recent dates
+  const reversed = [...dates].reverse();
+  list.innerHTML = reversed.map(d => {
+    const hasSaved = totals[`${workerId}_${d}`] > 0;
+    const isSelected = d === current;
+    const today = _dateFmt(new Date());
+    const isCurrent = d <= today && new Date(today) - new Date(d) < PAYROLL_WEEK_MS * 1.5;
+    return `<div class="payroll-date-list-item${isSelected?" selected":""}${isCurrent?" current":""}"
+      onclick="selectPayrollModalDate('${d}')"
+      style="padding:7px 12px;cursor:pointer;font-size:13px;
+             background:${isSelected?"#eff6ff":isCurrent?"#fef9c3":"#fff"};
+             font-weight:${isSelected||isCurrent?"600":"400"};
+             border-bottom:1px solid #f1f5f9">
+      ${_dateRu(d)}${hasSaved ? " <span style='color:#1d4ed8;font-size:11px'>●</span>" : ""}
+    </div>`;
+  }).join("");
+  list.style.display = "block";
+
+  // Scroll to current date in list
+  requestAnimationFrame(() => {
+    const sel = list.querySelector(".selected") || list.querySelector(".current");
+    if (sel) sel.scrollIntoView({ block: "nearest" });
+  });
+
+  // Close on outside click
+  const close = (ev) => {
+    if (!list.contains(ev.target) && ev.target.id !== "payrollModalDateLink") {
+      list.style.display = "none";
+      document.removeEventListener("mousedown", close);
+    }
+  };
+  setTimeout(() => document.addEventListener("mousedown", close), 100);
 }
-window.onPayrollDateSelected = onPayrollDateSelected;
+window.togglePayrollModalDateList = togglePayrollModalDateList;
+
+function selectPayrollModalDate(date) {
+  document.getElementById("payrollModalDateList").style.display = "none";
+  _setPayrollModalDate(date);
+}
+window.selectPayrollModalDate = selectPayrollModalDate;
 
 async function _loadPayrollModalProducts(date) {
   const workerId = payrollState.modalWorkerId;
