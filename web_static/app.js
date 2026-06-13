@@ -11719,8 +11719,12 @@ window.toggleSalaryWorkerForm = function(show) {
   if (!form) return;
   form.classList.toggle("hidden", !show);
   if (!show) {
-    const nameEl = document.getElementById("salaryWorkerName");
-    if (nameEl) nameEl.value = "";
+    ["salaryWorkerName","salaryWorkerBirthDate"].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = "";
+    });
+    const le = document.getElementById("salaryWorkerLegalEntity");
+    if (le) le.value = "";
     const info = document.getElementById("salaryWorkersInfo");
     if (info) info.textContent = "";
   } else {
@@ -11758,6 +11762,8 @@ async function loadSalaryWorkers() {
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td>${esc(w.full_name || "")}</td>
+        <td>${esc(w.birth_date || "")}</td>
+        <td>${esc(w.legal_entity || "")}</td>
         <td>${esc(w.production || "")}</td>
         <td><button class="icon-btn danger" title="Удалить" onclick="deleteSalaryWorker(${w.id})">🗑</button></td>
       `;
@@ -11774,6 +11780,8 @@ async function saveSalaryWorker() {
   const prodEl = document.getElementById("salaryWorkerProduction");
   const info = document.getElementById("salaryWorkersInfo");
   const fullName = String(nameEl?.value || "").trim();
+  const birthDate = String(document.getElementById("salaryWorkerBirthDate")?.value || "").trim();
+  const legalEntity = String(document.getElementById("salaryWorkerLegalEntity")?.value || "").trim();
   const production = String(prodEl?.value || "").trim();
   if (!fullName) {
     if (info) { info.textContent = "Укажите ФИО работника"; info.style.color = "#b91c1c"; }
@@ -11784,7 +11792,7 @@ async function saveSalaryWorker() {
     const res = await fetch("/api/salary/workers", {
       method: "POST",
       headers: jsonHeaders(),
-      body: JSON.stringify({ full_name: fullName, production }),
+      body: JSON.stringify({ full_name: fullName, birth_date: birthDate, legal_entity: legalEntity, production }),
     });
     const data = await res.json();
     if (!res.ok) {
