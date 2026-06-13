@@ -12367,12 +12367,9 @@ function togglePayrollModalDateList(e) {
     const isSelected = d === current;
     const today = _dateFmt(new Date());
     const isCurrent = d <= today && new Date(today) - new Date(d) < PAYROLL_WEEK_MS * 1.5;
-    return `<div class="payroll-date-list-item${isSelected?" selected":""}${isCurrent?" current":""}"
+    return `<div class="payroll-date-list-item"
       onclick="selectPayrollModalDate('${d}')"
-      style="padding:7px 12px;cursor:pointer;font-size:13px;
-             background:${isSelected?"#eff6ff":isCurrent?"#fef9c3":"#fff"};
-             font-weight:${isSelected||isCurrent?"600":"400"};
-             border-bottom:1px solid #f1f5f9">
+      style="padding:7px 12px;cursor:pointer;font-size:13px;background:#fff;border-bottom:1px solid #f1f5f9">
       ${_dateRu(d)}${hasSaved ? " <span style='color:#1d4ed8;font-size:11px'>●</span>" : ""}
     </div>`;
   }).join("");
@@ -12503,7 +12500,11 @@ async function savePayrollEntry() {
     });
     const data = await res.json();
     if (!res.ok) {
-      if (infoEl) { infoEl.textContent = data.detail || "Ошибка сохранения"; infoEl.style.color = "#b91c1c"; }
+      const detail = data.detail;
+      const msg = Array.isArray(detail)
+        ? detail.map(d => d.msg || JSON.stringify(d)).join("; ")
+        : String(detail || "Ошибка сохранения");
+      if (infoEl) { infoEl.textContent = msg; infoEl.style.color = "#b91c1c"; }
       return;
     }
     // Refresh totals and close

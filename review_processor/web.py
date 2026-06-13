@@ -560,6 +560,18 @@ class SalaryProductCreateRequest(BaseModel):
     price_nerl: float = Field(default=0.0, ge=0)
 
 
+class SalaryEntryItem(BaseModel):
+    product_id: int = Field(ge=1)
+    quantity: float = Field(default=0.0, ge=0)
+    price_snapshot: float = Field(default=0.0, ge=0)
+
+
+class SalaryEntriesSaveRequest(BaseModel):
+    worker_id: int = Field(ge=1)
+    entry_date: str = Field(min_length=8, max_length=10)
+    entries: list[SalaryEntryItem] = Field(default_factory=list)
+
+
 class UserTemplateVariableValuesSaveRequest(BaseModel):
     values: dict[str, str] = Field(default_factory=dict)
 
@@ -5345,16 +5357,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             allowed_ids = {w["id"] for w in workers if str(w.get("production") or "") in allowed}
             totals = [t for t in totals if int(t.get("worker_id") or 0) in allowed_ids]
         return {"items": totals, "count": len(totals)}
-
-    class SalaryEntryItem(BaseModel):
-        product_id: int = Field(ge=1)
-        quantity: float = Field(default=0.0, ge=0)
-        price_snapshot: float = Field(default=0.0, ge=0)
-
-    class SalaryEntriesSaveRequest(BaseModel):
-        worker_id: int = Field(ge=1)
-        entry_date: str = Field(min_length=8, max_length=10)
-        entries: list[SalaryEntryItem] = Field(default_factory=list)
 
     @app.get("/api/salary/products")
     def _list_salary_products_for_payroll(request: Request) -> dict[str, object]:
