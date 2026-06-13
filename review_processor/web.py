@@ -548,6 +548,14 @@ class SalaryWorkerCreateRequest(BaseModel):
     production: str = Field(default="", max_length=100)
 
 
+class SalaryProductCreateRequest(BaseModel):
+    order_num: int = Field(default=0, ge=0)
+    name: str = Field(min_length=1, max_length=300)
+    price_ivanovo: float = Field(default=0.0, ge=0)
+    price_kineshma: float = Field(default=0.0, ge=0)
+    price_nerl: float = Field(default=0.0, ge=0)
+
+
 class UserTemplateVariableValuesSaveRequest(BaseModel):
     values: dict[str, str] = Field(default_factory=dict)
 
@@ -5204,6 +5212,38 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={"Content-Disposition": f'attachment; filename="{xlsx_name}"'},
         )
+
+    @app.get("/api/salary/products")
+    def list_salary_products(request: Request) -> dict[str, object]:
+        user = _require_tenant_owner(request)
+        owner_id = _tenant_owner_id(user)
+        items = repository.list_salary_products(owner_user_id=owner_id)
+        return {"items": items, "count": len(items)}
+
+    @app.post("/api/salary/products")
+    def create_salary_product(
+        payload: SalaryProductCreateRequest, request: Request
+    ) -> dict[str, object]:
+        user = _require_tenant_owner(request)
+        owner_id = _tenant_owner_id(user)
+        item = repository.create_salary_product(
+            owner_user_id=owner_id,
+            order_num=payload.order_num,
+            name=payload.name,
+            price_ivanovo=round(float(payload.price_ivanovo), 2),
+            price_kineshma=round(float(payload.price_kineshma), 2),
+            price_nerl=round(float(payload.price_nerl), 2),
+        )
+        return {"ok": True, "item": item}
+
+    @app.delete("/api/salary/products/{product_id}")
+    def delete_salary_product(product_id: int, request: Request) -> dict[str, object]:
+        user = _require_tenant_owner(request)
+        owner_id = _tenant_owner_id(user)
+        deleted = repository.delete_salary_product(owner_user_id=owner_id, product_id=product_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Товар не найден")
+        return {"ok": True}
 
     @app.get("/api/salary/workers")
     def list_salary_workers(request: Request) -> dict[str, object]:

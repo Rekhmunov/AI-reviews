@@ -1809,6 +1809,7 @@
         <div class="panel">
           <div class="settings-tabs">
             <button id="salary-settings-tab-workers" class="settings-tab-btn active" onclick="showSalarySettingsTab('workers')">Работники</button>
+          <button id="salary-settings-tab-products" class="settings-tab-btn" onclick="showSalarySettingsTab('products')">Товары / Расценки</button>
           </div>
         </div>
 
@@ -1845,6 +1846,46 @@
                   </tr>
                 </thead>
                 <tbody id="salaryWorkersTbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div id="salary-settings-pane-products" class="hidden" style="display:none">
+          <div class="panel">
+            <div class="row row-between">
+              <h4 class="no-margin">Товары / Расценки</h4>
+              <button type="button" onclick="toggleSalaryProductForm(true)">+ Добавить товар</button>
+            </div>
+            <div id="salaryProductAddForm" class="source-form hidden" style="margin-top:12px">
+              <div class="row" style="flex-wrap:wrap;gap:10px">
+                <input id="salaryProductOrderNum" type="number" placeholder="№ п.п." min="0" style="width:80px" />
+                <input id="salaryProductName" type="text" placeholder="Наименование товара" style="flex:2;min-width:200px" autocomplete="off" />
+                <input id="salaryProductPriceIvanovo" type="number" placeholder="Цена Иваново" min="0" step="0.01" style="width:130px" />
+                <input id="salaryProductPriceKineshma" type="number" placeholder="Цена Кинешма" min="0" step="0.01" style="width:130px" />
+                <input id="salaryProductPriceNerl" type="number" placeholder="Цена Нерль" min="0" step="0.01" style="width:130px" />
+              </div>
+              <div class="row" style="margin-top:8px">
+                <button type="button" onclick="saveSalaryProduct()">Сохранить</button>
+                <button type="button" class="secondary" onclick="toggleSalaryProductForm(false)">Отмена</button>
+              </div>
+            </div>
+            <div id="salaryProductsInfo" class="small" style="margin-top:6px"></div>
+          </div>
+          <div class="panel">
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th style="width:60px">№</th>
+                    <th>Наименование</th>
+                    <th style="width:120px">Иваново</th>
+                    <th style="width:120px">Кинешма</th>
+                    <th style="width:120px">Нерль</th>
+                    <th style="width:60px">Действия</th>
+                  </tr>
+                </thead>
+                <tbody id="salaryProductsTbody"></tbody>
               </table>
             </div>
           </div>

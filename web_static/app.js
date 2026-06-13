@@ -717,6 +717,7 @@ function showSection(section, options = {}) {
   if (section === "salary-settings") {
     showSalarySettingsTab("workers");
     toggleSalaryWorkerForm(false);
+    toggleSalaryProductForm(false);
     loadSalaryWorkers();
   }
   // Refresh chat list when navigating back to chats so Dmitry's message
@@ -11733,6 +11734,7 @@ window.showSalarySettingsTab = function(tab) {
   document.querySelectorAll("[id^='salary-settings-pane-']").forEach(p => { p.classList.add("hidden"); p.style.display = "none"; });
   const pane = document.getElementById(`salary-settings-pane-${tab}`);
   if (pane) { pane.classList.remove("hidden"); pane.style.display = ""; }
+  if (tab === "products") loadSalaryProducts();
 };
 
 async function loadSalaryWorkers() {
@@ -11821,6 +11823,113 @@ async function deleteSalaryWorker(workerId) {
   }
 }
 window.deleteSalaryWorker = deleteSalaryWorker;
+
+// ── Salary Products ───────────────────────────────────────────────────────
+
+window.toggleSalaryProductForm = function(show) {
+  const form = document.getElementById("salaryProductAddForm");
+  if (!form) return;
+  form.classList.toggle("hidden", !show);
+  if (!show) {
+    ["salaryProductOrderNum","salaryProductName","salaryProductPriceIvanovo",
+     "salaryProductPriceKineshma","salaryProductPriceNerl"].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = "";
+    });
+    const info = document.getElementById("salaryProductsInfo");
+    if (info) info.textContent = "";
+  } else {
+    document.getElementById("salaryProductOrderNum")?.focus();
+  }
+};
+
+async function loadSalaryProducts() {
+  const tbody = document.getElementById("salaryProductsTbody");
+  const info = document.getElementById("salaryProductsInfo");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+  try {
+    const res = await fetch("/api/salary/products");
+    const data = await res.json();
+    if (!res.ok) { if (info) info.textContent = data.detail || "Ошибка загрузки"; return; }
+    if (info) info.textContent = "";
+    const items = data.items || [];
+    if (!items.length) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = '<td colspan="6" class="small" style="color:#9ca3af">Товары не добавлены</td>';
+      tbody.appendChild(tr);
+      return;
+    }
+    const fmt = v => Number(v || 0).toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    for (const p of items) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${esc(String(p.order_num ?? ""))}</td>
+        <td>${esc(p.name || "")}</td>
+        <td>${fmt(p.price_ivanovo)}</td>
+        <td>${fmt(p.price_kineshma)}</td>
+        <td>${fmt(p.price_nerl)}</td>
+        <td><button class="icon-btn danger" title="Удалить" onclick="deleteSalaryProduct(${p.id})">🗑</button></td>
+      `;
+      tbody.appendChild(tr);
+    }
+  } catch (e) {
+    if (info) info.textContent = "Ошибка: " + e.message;
+  }
+}
+window.loadSalaryProducts = loadSalaryProducts;
+
+async function saveSalaryProduct() {
+  const info = document.getElementById("salaryProductsInfo");
+  const name = String(document.getElementById("salaryProductName")?.value || "").trim();
+  if (!name) {
+    if (info) { info.textContent = "Укажите наименование товара"; info.style.color = "#b91c1c"; }
+    document.getElementById("salaryProductName")?.focus();
+    return;
+  }
+  const payload = {
+    order_num: parseInt(document.getElementById("salaryProductOrderNum")?.value || "0") || 0,
+    name,
+    price_ivanovo: parseFloat(document.getElementById("salaryProductPriceIvanovo")?.value || "0") || 0,
+    price_kineshma: parseFloat(document.getElementById("salaryProductPriceKineshma")?.value || "0") || 0,
+    price_nerl: parseFloat(document.getElementById("salaryProductPriceNerl")?.value || "0") || 0,
+  };
+  try {
+    const res = await fetch("/api/salary/products", {
+      method: "POST", headers: jsonHeaders(), body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      const detail = data.detail;
+      const msg = Array.isArray(detail) ? detail.map(d => d.msg || JSON.stringify(d)).join("; ") : String(detail || "Ошибка сохранения");
+      if (info) { info.textContent = msg; info.style.color = "#b91c1c"; }
+      return;
+    }
+    toggleSalaryProductForm(false);
+    if (info) { info.textContent = "Товар добавлен"; info.style.color = "#16a34a"; }
+    await loadSalaryProducts();
+  } catch (e) {
+    if (info) { info.textContent = "Ошибка: " + e.message; info.style.color = "#b91c1c"; }
+  }
+}
+window.saveSalaryProduct = saveSalaryProduct;
+
+async function deleteSalaryProduct(productId) {
+  if (!confirm("Удалить товар?")) return;
+  const info = document.getElementById("salaryProductsInfo");
+  try {
+    const res = await fetch(`/api/salary/products/${productId}`, { method: "DELETE", headers: jsonHeaders() });
+    const data = await res.json();
+    if (!res.ok) {
+      if (info) { info.textContent = data.detail || "Ошибка удаления"; info.style.color = "#b91c1c"; }
+      return;
+    }
+    await loadSalaryProducts();
+  } catch (e) {
+    if (info) { info.textContent = "Ошибка: " + e.message; info.style.color = "#b91c1c"; }
+  }
+}
+window.deleteSalaryProduct = deleteSalaryProduct;
 
 // ─────────────────────────────────────────────────────────────────────────────
 
