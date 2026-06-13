@@ -11800,7 +11800,7 @@ async function loadSalaryWorkers() {
       tr.innerHTML = `
         <td>${esc(w.full_name || "")}</td>
         <td>${esc(w.position || "")}</td>
-        <td>${esc(w.birth_date || "")}</td>
+        <td>${esc(_dateRuFull(w.birth_date))}</td>
         <td>${esc(w.legal_entity || "")}</td>
         <td>${esc(w.production || "")}</td>
         <td>${accVisible}</td>
