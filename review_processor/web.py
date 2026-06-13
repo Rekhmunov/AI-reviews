@@ -5323,6 +5323,74 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Работник не найден")
         return {"ok": True}
 
+    @app.get("/api/salary/workers/export")
+    def export_salary_workers(request: Request):
+        import csv, io
+        user = _require_tenant_owner(request)
+        owner_id = _tenant_owner_id(user)
+        workers = repository.list_salary_workers(owner_user_id=owner_id)
+        buf = io.StringIO()
+        writer = csv.writer(buf, delimiter=";", quoting=csv.QUOTE_MINIMAL)
+        writer.writerow(["ФИО", "Должность", "Дата рождения", "Юр. принадлежность", "Производство"])
+        for w in workers:
+            writer.writerow([
+                str(w.get("full_name") or ""),
+                str(w.get("position") or ""),
+                str(w.get("birth_date") or ""),
+                str(w.get("legal_entity") or ""),
+                str(w.get("production") or ""),
+            ])
+        content = "\ufeff" + buf.getvalue()  # UTF-8 BOM for Excel
+        return StreamingResponse(
+            iter([content.encode("utf-8")]),
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": "attachment; filename=\"salary_workers.csv\""},
+        )
+
+    @app.post("/api/salary/workers/import")
+    async def import_salary_workers(request: Request, file: UploadFile = File(...)) -> dict[str, object]:
+        import csv, io
+        user = _require_tenant_owner(request)
+        owner_id = _tenant_owner_id(user)
+        raw = await file.read()
+        text = raw.decode("utf-8-sig")  # strip BOM if present
+        reader = csv.DictReader(io.StringIO(text), delimiter=";")
+        created = 0
+        errors: list[str] = []
+        # Flexible header mapping (Russian or position-based)
+        _alias = {
+            "фио": "full_name", "full_name": "full_name",
+            "должность": "position", "position": "position",
+            "дата рождения": "birth_date", "birth_date": "birth_date",
+            "юр. принадлежность": "legal_entity", "юр.принадлежность": "legal_entity",
+            "legal_entity": "legal_entity",
+            "производство": "production", "production": "production",
+        }
+        for i, row in enumerate(reader, start=2):
+            mapped: dict[str, str] = {}
+            for k, v in row.items():
+                key = (k or "").strip().lower()
+                field = _alias.get(key)
+                if field:
+                    mapped[field] = (v or "").strip()
+            full_name = mapped.get("full_name", "")
+            if not full_name:
+                errors.append(f"Строка {i}: пустое ФИО — пропущена")
+                continue
+            try:
+                repository.create_salary_worker(
+                    owner_user_id=owner_id,
+                    full_name=full_name,
+                    position=mapped.get("position", ""),
+                    birth_date=mapped.get("birth_date", ""),
+                    legal_entity=mapped.get("legal_entity", ""),
+                    production=mapped.get("production", ""),
+                )
+                created += 1
+            except Exception as exc:
+                errors.append(f"Строка {i}: {exc}")
+        return {"ok": True, "created": created, "errors": errors}
+
     @app.get("/api/salary/entries")
     def get_salary_entries(
         request: Request,
