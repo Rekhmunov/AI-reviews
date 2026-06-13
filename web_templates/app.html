@@ -1773,37 +1773,42 @@
       <section id="section-salary" class="hidden">
         <h3 class="section-title">Начисление ЗП</h3>
 
-        <!-- Filter bar -->
-        <div class="panel" style="padding:12px 16px">
-          <div class="payroll-filters">
-            <input id="payrollSearchName" type="search" placeholder="🔍 Поиск по ФИО..." autocomplete="off" style="width:200px" oninput="renderPayrollTable()" />
-            <select id="payrollFilterProduction" onchange="renderPayrollTable()" style="width:150px">
-              <option value="">Производство: все</option>
-              <option value="Иваново">Иваново</option>
-              <option value="Кинешма">Кинешма</option>
-              <option value="Нерль">Нерль</option>
-            </select>
-            <select id="payrollFilterLegal" onchange="renderPayrollTable()" style="width:200px">
-              <option value="">Юр. принадлежность: все</option>
-              <option value="ООО ВарФабрик">ООО ВарФабрик</option>
-              <option value="ИП Авдеева М.Ю.">ИП Авдеева М.Ю.</option>
-              <option value="ИП Рехмунов Д.О.">ИП Рехмунов Д.О.</option>
-            </select>
-            <div class="payroll-date-picker-wrap">
-              <button type="button" id="payrollDateRangeBtn" class="secondary" onclick="togglePayrollDatePanel()" style="white-space:nowrap">
-                📅 Период: все даты
-              </button>
-              <div id="payrollDatePanel" class="payroll-date-panel hidden">
-                <div class="reviews-date-presets" style="display:flex;flex-wrap:wrap;gap:6px">
-                  <button type="button" class="secondary" onclick="setPayrollDatePreset('last_4_weeks')">4 недели</button>
-                  <button type="button" class="secondary" onclick="setPayrollDatePreset('last_month')">Месяц</button>
-                  <button type="button" class="secondary" onclick="setPayrollDatePreset('last_3_months')">3 месяца</button>
-                  <button type="button" class="secondary" onclick="setPayrollDatePreset('ytd')">С начала года</button>
-                </div>
-                <div class="reviews-date-controls" style="margin-top:8px">
-                  <label>С <input id="payrollDateFrom" type="date" /></label>
-                  <label>По <input id="payrollDateTo" type="date" /></label>
-                  <div class="row" style="gap:6px;margin-top:6px">
+        <!-- Filter bar — same structure as Поставки — ВБ -->
+        <div class="panel supplies-toolbar-panel">
+          <div class="supplies-top-controls">
+            <div class="supplies-actions">
+              <span class="small" style="color:#64748b;font-weight:600">Начисление ЗП</span>
+            </div>
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+              <input id="payrollSearchName" type="search" placeholder="🔍 Поиск по ФИО..."
+                autocomplete="off" style="width:180px" oninput="renderPayrollTable()" />
+              <select id="payrollFilterProduction" onchange="renderPayrollTable()" style="width:140px">
+                <option value="">Все производства</option>
+                <option value="Иваново">Иваново</option>
+                <option value="Кинешма">Кинешма</option>
+                <option value="Нерль">Нерль</option>
+              </select>
+              <select id="payrollFilterLegal" onchange="renderPayrollTable()" style="width:200px">
+                <option value="">Все юр. лица</option>
+                <option value="ООО ВарФабрик">ООО ВарФабрик</option>
+                <option value="ИП Авдеева М.Ю.">ИП Авдеева М.Ю.</option>
+                <option value="ИП Рехмунов Д.О.">ИП Рехмунов Д.О.</option>
+              </select>
+              <div class="supplies-date-wrap" style="position:relative">
+                <button id="payrollDateRangeBtn" type="button" class="secondary"
+                  onclick="togglePayrollDatePanel()" style="padding:0 10px;height:34px" title="Фильтр по периоду">📅</button>
+                <div id="payrollDatePanel" class="supplies-date-panel" style="display:none">
+                  <div class="supplies-date-panel-row" style="flex-wrap:wrap;gap:6px">
+                    <button type="button" class="secondary" onclick="setPayrollDatePreset('last_4_weeks')">4 недели</button>
+                    <button type="button" class="secondary" onclick="setPayrollDatePreset('last_month')">Месяц</button>
+                    <button type="button" class="secondary" onclick="setPayrollDatePreset('last_3_months')">3 месяца</button>
+                    <button type="button" class="secondary" onclick="setPayrollDatePreset('ytd')">С начала года</button>
+                  </div>
+                  <div class="supplies-date-panel-row">
+                    <label>С <input id="payrollDateFrom" type="date" /></label>
+                    <label>По <input id="payrollDateTo" type="date" /></label>
+                  </div>
+                  <div class="supplies-date-panel-row">
                     <button type="button" onclick="applyPayrollDateFilter()">Применить</button>
                     <button type="button" class="secondary" onclick="clearPayrollDateFilter()">Сбросить</button>
                     <button type="button" class="secondary" onclick="togglePayrollDatePanel(false)">Закрыть</button>
@@ -1811,8 +1816,8 @@
                 </div>
               </div>
             </div>
-            <span id="payrollInfo" class="small"></span>
           </div>
+          <div id="payrollInfo" class="supplies-sync-info small"></div>
         </div>
 
         <!-- Payroll table -->
