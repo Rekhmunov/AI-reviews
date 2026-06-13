@@ -12009,14 +12009,25 @@ function renderPayrollTable() {
   leftThead.innerHTML = leftTh;
 
   const emptyLeft = `<tr><td colspan="${FIXED_COLS.length}" class="small" style="color:#9ca3af;text-align:center">Нет данных</td></tr>`;
+  // Find the most recent past date in the series (used as default when clicking a worker row)
+  const _todayStr = _dateFmt(new Date());
+  const _allDates = _payrollDates();
+  const defaultDate = [..._allDates].reverse().find(d => d <= _todayStr) || _allDates[0];
+
   leftTbody.innerHTML = workers.length ? workers.map((w, idx) => {
     let cells = FIXED_COLS.map(c => {
       const val = c.key === 'seq' ? (idx+1)
         : c.key === 'birth_date' ? esc(_dateRuFull(w.birth_date))
         : esc(String(w[c.key]||""));
-      return `<td>${val}</td>`;
+      // ФИО cell gets a clickable style and tooltip
+      const extra = c.key === 'full_name'
+        ? ' style="cursor:pointer;color:#1e40af;text-decoration:underline dotted" title="Открыть начисление ЗП"'
+        : '';
+      return `<td${extra}>${val}</td>`;
     }).join("");
-    return `<tr>${cells}</tr>`;
+    return `<tr style="cursor:pointer" onclick="openPayrollModal(${w.id},'${defaultDate}')"
+      onmouseover="this.style.background='#dbeafe'" onmouseout="this.style.background=''"
+    >${cells}</tr>`;
   }).join("") : emptyLeft;
 
   // Update left panel width
