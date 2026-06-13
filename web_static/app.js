@@ -707,6 +707,7 @@ function showSection(section, options = {}) {
   }
   if (section === "salary-settings") {
     showSalarySettingsTab("workers");
+    toggleSalaryWorkerForm(false);
     loadSalaryWorkers();
   }
   // Refresh chat list when navigating back to chats so Dmitry's message
@@ -11685,6 +11686,20 @@ const mySalaryState = {
 
 // ── Salary Settings ───────────────────────────────────────────────────────
 
+window.toggleSalaryWorkerForm = function(show) {
+  const form = document.getElementById("salaryWorkerAddForm");
+  if (!form) return;
+  form.classList.toggle("hidden", !show);
+  if (!show) {
+    const nameEl = document.getElementById("salaryWorkerName");
+    if (nameEl) nameEl.value = "";
+    const info = document.getElementById("salaryWorkersInfo");
+    if (info) info.textContent = "";
+  } else {
+    document.getElementById("salaryWorkerName")?.focus();
+  }
+};
+
 window.showSalarySettingsTab = function(tab) {
   document.querySelectorAll("#section-salary-settings .settings-tab-btn").forEach(b => b.classList.remove("active"));
   document.getElementById(`salary-settings-tab-${tab}`)?.classList.add("active");
@@ -11744,10 +11759,14 @@ async function saveSalaryWorker() {
     });
     const data = await res.json();
     if (!res.ok) {
-      if (info) { info.textContent = data.detail || "Ошибка сохранения"; info.style.color = "#b91c1c"; }
+      const detail = data.detail;
+      const msg = Array.isArray(detail)
+        ? detail.map(d => d.msg || JSON.stringify(d)).join("; ")
+        : String(detail || "Ошибка сохранения");
+      if (info) { info.textContent = msg; info.style.color = "#b91c1c"; }
       return;
     }
-    if (nameEl) nameEl.value = "";
+    toggleSalaryWorkerForm(false);
     if (info) { info.textContent = "Работник добавлен"; info.style.color = "#16a34a"; }
     await loadSalaryWorkers();
   } catch (e) {
