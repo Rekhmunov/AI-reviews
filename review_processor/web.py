@@ -5426,6 +5426,138 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             totals = [t for t in totals if int(t.get("worker_id") or 0) in allowed_ids]
         return {"items": totals, "count": len(totals)}
 
+    @app.get("/api/salary/payroll/export")
+    def export_payroll_table(
+        request: Request,
+        date_from: str = "",
+        date_to: str = "",
+    ):
+        """Export the payroll table as CSV. Dates filtered by date_from/date_to."""
+        import csv, io
+        from datetime import date as _date, timedelta
+        user = _require_salary_access(request)
+        owner_id = _salary_owner_id(user)
+
+        # Build 7-day series from Jan 7 2026 to today + 14 days
+        start = _date(2026, 1, 7)
+        end_limit = _date.today() + timedelta(days=14)
+        dates: list[str] = []
+        d = start
+        while d <= end_limit:
+            iso = d.isoformat()
+            if (not date_from or iso >= date_from) and (not date_to or iso <= date_to):
+                dates.append(iso)
+            d += timedelta(days=7)
+
+        workers = repository.list_salary_workers(owner_user_id=owner_id)
+        allowed = _salary_allowed_productions(user)
+        if allowed is not None:
+            workers = [w for w in workers if str(w.get("production") or "") in allowed]
+
+        totals = repository.get_salary_totals(owner_user_id=owner_id)
+        totals_map: dict[str, float] = {
+            f"{t['worker_id']}_{t['entry_date']}": float(t.get("total") or 0)
+            for t in totals
+        }
+
+        def date_ru(iso: str) -> str:
+            y, m, dd = iso.split("-")
+            return f"{dd}.{m}.{y[2:]}"
+
+        buf = io.StringIO()
+        writer = csv.writer(buf, delimiter=";", quoting=csv.QUOTE_MINIMAL)
+        writer.writerow(["ФИО","Должность","Дата рождения","Юр. принадлежность","Производство"] + [date_ru(d) for d in dates])
+        for w in workers:
+            row = [
+                str(w.get("full_name") or ""),
+                str(w.get("position") or ""),
+                str(w.get("birth_date") or ""),
+                str(w.get("legal_entity") or ""),
+                str(w.get("production") or ""),
+            ] + [str(totals_map.get(f"{w['id']}_{d}", "") or "") for d in dates]
+            writer.writerow(row)
+
+        content = "\ufeff" + buf.getvalue()
+        return StreamingResponse(
+            iter([content.encode("utf-8")]),
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": "attachment; filename=\"payroll.csv\""},
+        )
+
+    @app.post("/api/salary/payroll/import")
+    async def import_payroll_table(request: Request, file: UploadFile = File(...)) -> dict[str, object]:
+        """Import payroll CSV — sets total amounts per worker/date."""
+        import csv, io
+        user = _require_tenant_owner(request)
+        owner_id = _tenant_owner_id(user)
+
+        raw = await file.read()
+        text = raw.decode("utf-8-sig")
+        reader = csv.reader(io.StringIO(text), delimiter=";")
+        rows = list(reader)
+        if not rows:
+            raise HTTPException(status_code=400, detail="Файл пустой")
+
+        header = rows[0]
+        # Fixed columns: 0-4 (ФИО, Должность, Дата рождения, Юр. принадлежность, Производство)
+        # Dates start at index 5
+        from datetime import date as _date, timedelta
+        start = _date(2026, 1, 7)
+        end_limit = _date.today() + timedelta(days=14)
+        series_dates: list[str] = []
+        d = start
+        while d <= end_limit:
+            series_dates.append(d.isoformat())
+            d += timedelta(days=7)
+
+        def parse_date_header(s: str) -> str | None:
+            """Convert DD.MM.YY or DD.MM.YYYY to YYYY-MM-DD."""
+            s = s.strip()
+            parts = s.split(".")
+            if len(parts) != 3:
+                return None
+            dd, mm, yy = parts
+            year = int(yy) + 2000 if len(yy) == 2 else int(yy)
+            iso = f"{year}-{mm.zfill(2)}-{dd.zfill(2)}"
+            return iso if iso in series_dates else None
+
+        date_cols: list[tuple[int, str]] = []
+        for ci, h in enumerate(header[5:], start=5):
+            iso = parse_date_header(h)
+            if iso:
+                date_cols.append((ci, iso))
+
+        workers = repository.list_salary_workers(owner_user_id=owner_id)
+        workers_by_name = {str(w.get("full_name") or "").strip().lower(): w for w in workers}
+
+        created = 0; errors: list[str] = []
+        for ri, row in enumerate(rows[1:], start=2):
+            if not row:
+                continue
+            full_name = row[0].strip() if row else ""
+            if not full_name:
+                continue
+            w = workers_by_name.get(full_name.lower())
+            if not w:
+                errors.append(f"Строка {ri}: работник «{full_name}» не найден")
+                continue
+            for ci, iso in date_cols:
+                cell = row[ci].strip() if ci < len(row) else ""
+                if not cell:
+                    continue
+                try:
+                    amount = float(cell.replace(",", ".").replace(" ", ""))
+                except ValueError:
+                    continue
+                repository.set_salary_total_override(
+                    owner_user_id=owner_id,
+                    worker_id=int(w["id"]),
+                    entry_date=iso,
+                    total_amount=amount,
+                )
+                created += 1
+        return {"ok": True, "created": created, "errors": errors}
+
     @app.get("/api/salary/products")
     def _list_salary_products_for_payroll(request: Request) -> dict[str, object]:
         """Public to salary users (not just owners)."""

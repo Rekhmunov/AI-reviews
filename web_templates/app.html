@@ -1771,7 +1771,16 @@
       </section>
 
       <section id="section-salary" class="hidden">
-        <h3 class="section-title">Начисление ЗП</h3>
+        <div class="row row-between" style="margin-bottom:12px">
+          <h3 class="section-title" style="margin:0">Начисление ЗП</h3>
+          <div class="row" style="gap:8px">
+            <button type="button" class="secondary" onclick="exportPayrollTable()" title="Экспорт в CSV">⬇ Экспорт</button>
+            <label class="secondary" style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;padding:10px 12px;border-radius:var(--radius-sm);border:1px solid rgba(147,197,253,0.7);background:linear-gradient(160deg,rgba(255,255,255,0.88),rgba(239,246,255,0.92));font-size:14px;font-weight:600;color:#1e40af" title="Импорт из CSV">
+              ⬆ Импорт
+              <input type="file" id="payrollImportFile" accept=".csv" style="display:none" onchange="importPayrollTable(this)" />
+            </label>
+          </div>
+        </div>
 
         <!-- Filter bar -->
         <div class="panel supplies-toolbar-panel">
