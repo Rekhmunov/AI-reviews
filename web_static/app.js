@@ -11838,7 +11838,7 @@ async function exportSalaryWorkers() {
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url; a.download = "salary_workers.csv";
+    a.href = url; a.download = "salary_workers.xlsx";
     document.body.appendChild(a); a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
@@ -12376,6 +12376,22 @@ async function exportPayrollTable() {
   } catch (e) { alert("Ошибка: " + e.message); }
 }
 window.exportPayrollTable = exportPayrollTable;
+
+async function downloadPayrollTemplate() {
+  const params = new URLSearchParams();
+  if (payrollState.dateFrom) params.set("date_from", payrollState.dateFrom);
+  if (payrollState.dateTo)   params.set("date_to",   payrollState.dateTo);
+  try {
+    const res = await fetch("/api/salary/payroll/template?" + params.toString());
+    if (!res.ok) { alert("Ошибка загрузки шаблона"); return; }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "payroll_template.xlsx";
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
+  } catch (e) { alert("Ошибка: " + e.message); }
+}
+window.downloadPayrollTemplate = downloadPayrollTemplate;
 
 async function importPayrollTable(input) {
   const file = input?.files?.[0];
