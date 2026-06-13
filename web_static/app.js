@@ -12565,12 +12565,12 @@ async function _loadPayrollModalProducts(date) {
     const qty = payrollState.modalEntries[p.id] || 0;
     rows += `<tr>
       <td>${esc(p.name||"")}</td>
-      <td style="text-align:right">${_fmtRub(price)}</td>
+      <td style="text-align:center">${_fmtRub(price)}</td>
       <td><input type="number" class="payroll-qty-input" min="0" step="0.01"
         data-product-id="${p.id}" data-price="${price}"
         value="${qty||""}" placeholder="0"
         oninput="updatePayrollTotal()" style="width:80px;min-height:32px;text-align:right" /></td>
-      <td id="payroll-row-sum-${p.id}" style="text-align:right">${qty ? _fmtRub(qty*price) : ""}</td>
+      <td id="payroll-row-sum-${p.id}" style="text-align:center">${qty ? _fmtRub(qty*price) : ""}</td>
     </tr>`;
   });
   tbody.innerHTML = rows;
