@@ -11948,10 +11948,11 @@ function renderPayrollTable() {
   // Header row
   let thRow = '<tr>';
   FIXED_COLS.forEach((c, i) => {
-    thRow += `<th class="payroll-fixed" style="--sticky-left:${offsets[i]}px;width:${c.w}px;min-width:${c.w}px;max-width:${c.w}px;position:sticky;left:${offsets[i]}px">
-      <div style="position:relative;overflow:hidden;text-overflow:ellipsis">${esc(c.label)}
-        <span class="payroll-resize-handle" data-col="${c.key}" onmousedown="startPayrollResize(event,'${c.key}')"></span>
-      </div>
+    // Handle is on the <th> directly (not inside overflow:hidden div) so it stays visible
+    thRow += `<th class="payroll-fixed" data-col="${c.key}"
+        style="width:${c.w}px;min-width:${c.w}px;max-width:${c.w}px;position:sticky;left:${offsets[i]}px;overflow:visible">
+      <span style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:6px">${esc(c.label)}</span>
+      <span class="payroll-resize-handle" onmousedown="startPayrollResize(event,'${c.key}')"></span>
     </th>`;
   });
   // Date headers
@@ -12004,22 +12005,61 @@ function _scrollToLastFilledDate(dates, fixedCount) {
   }
 }
 
-// Column resize
+// Column resize — live width update via direct DOM manipulation, full re-render on mouseup
 let _resizeState = null;
+let _resizeRafId = null;
+
 function startPayrollResize(e, colKey) {
   e.preventDefault();
   e.stopPropagation();
+  const handle = e.target;
+  handle.classList.add("dragging");
+  document.body.style.cursor = "col-resize";
+  document.body.style.userSelect = "none";
+
   _resizeState = { colKey, startX: e.clientX, startW: _colWidths()[colKey] || 100 };
+
   const onMove = (ev) => {
     if (!_resizeState) return;
     const delta = ev.clientX - _resizeState.startX;
     const newW = Math.max(60, _resizeState.startW + delta);
-    const ws = _colWidths();
-    ws[_resizeState.colKey] = newW;
-    _saveColWidths(ws);
-    renderPayrollTable();
+    _resizeState.currentW = newW;
+
+    // Throttle to one DOM update per animation frame
+    if (_resizeRafId) return;
+    _resizeRafId = requestAnimationFrame(() => {
+      _resizeRafId = null;
+      if (!_resizeState) return;
+      const w = _resizeState.currentW;
+      // Update <th> widths directly (no full re-render)
+      const table = document.getElementById("payrollTable");
+      if (!table) return;
+      const ths = table.querySelectorAll(`th[data-col="${_resizeState.colKey}"]`);
+      ths.forEach(th => {
+        th.style.width = w + "px";
+        th.style.minWidth = w + "px";
+        th.style.maxWidth = w + "px";
+      });
+    });
   };
-  const onUp = () => { _resizeState = null; document.removeEventListener("mousemove", onMove); document.removeEventListener("mouseup", onUp); };
+
+  const onUp = () => {
+    if (!_resizeState) return;
+    const finalW = _resizeState.currentW || _resizeState.startW;
+    const ws = _colWidths();
+    ws[colKey] = finalW;
+    _saveColWidths(ws);
+    handle.classList.remove("dragging");
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+    _resizeState = null;
+    if (_resizeRafId) { cancelAnimationFrame(_resizeRafId); _resizeRafId = null; }
+    // Full re-render to recalculate sticky left offsets
+    renderPayrollTable();
+    document.removeEventListener("mousemove", onMove);
+    document.removeEventListener("mouseup", onUp);
+  };
+
   document.addEventListener("mousemove", onMove);
   document.addEventListener("mouseup", onUp);
 }

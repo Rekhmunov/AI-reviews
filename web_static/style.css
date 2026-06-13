@@ -5608,15 +5608,29 @@ button.secondary.danger:hover {
   background: #fef9c3;
 }
 
-/* Resizable column handle */
+/* Resizable column handle — sits on the <th> itself, not inside overflow:hidden */
+.payroll-table th.payroll-fixed {
+  position: sticky !important;
+  overflow: visible !important;
+}
+
 .payroll-resize-handle {
   position: absolute;
-  right: 0;
+  right: -3px;
   top: 0;
   bottom: 0;
-  width: 5px;
+  width: 7px;
   cursor: col-resize;
   user-select: none;
+  z-index: 10;
+  background: transparent;
+  transition: background 0.15s;
+}
+
+.payroll-resize-handle:hover,
+.payroll-resize-handle.dragging {
+  background: rgba(37, 99, 235, 0.35);
+  border-radius: 2px;
 }
 
 /* Payroll entry modal */
