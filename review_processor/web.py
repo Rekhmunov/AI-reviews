@@ -5349,26 +5349,138 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.get("/api/salary/workers/export")
     def export_salary_workers(request: Request):
-        import csv, io
+        import io
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
         user = _require_tenant_owner(request)
         owner_id = _tenant_owner_id(user)
         workers = repository.list_salary_workers(owner_user_id=owner_id)
-        buf = io.StringIO()
-        writer = csv.writer(buf, delimiter=";", quoting=csv.QUOTE_MINIMAL)
-        writer.writerow(["ФИО", "Должность", "Дата рождения", "Юр. принадлежность", "Производство"])
-        for w in workers:
-            writer.writerow([
-                str(w.get("full_name") or ""),
-                str(w.get("position") or ""),
-                str(w.get("birth_date") or ""),
-                str(w.get("legal_entity") or ""),
-                str(w.get("production") or ""),
-            ])
-        content = "\ufeff" + buf.getvalue()  # UTF-8 BOM for Excel
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Работники"
+
+        hdr_font  = Font(bold=True, name="Calibri", size=11)
+        hdr_fill  = PatternFill("solid", fgColor="D6E4FF")
+        center    = Alignment(horizontal="center", vertical="center")
+        left_al   = Alignment(horizontal="left", vertical="center")
+        thin      = Side(style="thin", color="BBCCE8")
+        border    = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+        headers = ["ФИО","Должность","Дата рождения","Юр. принадлежность","Производство","Видимость для бухгалтера"]
+        for ci, h in enumerate(headers, start=1):
+            cell = ws.cell(row=1, column=ci, value=h)
+            cell.font = hdr_font; cell.fill = hdr_fill
+            cell.alignment = center; cell.border = border
+            ws.column_dimensions[cell.column_letter].width = max(len(h)*1.2+2, 10)
+
+        # birth_date column index = 3 — force text
+        for ri, w in enumerate(workers, start=2):
+            vals = [
+                w.get("full_name") or "",
+                w.get("position") or "",
+                w.get("birth_date") or "",
+                w.get("legal_entity") or "",
+                w.get("production") or "",
+                "Да" if w.get("visible_for_accountant") is not False else "Нет",
+            ]
+            for ci, v in enumerate(vals, start=1):
+                cell = ws.cell(row=ri, column=ci, value=str(v))
+                cell.alignment = left_al; cell.border = border
+                if ci == 3:  # birth_date — keep as text
+                    cell.number_format = "@"
+                    cell.quotePrefix = True
+
+        ws.freeze_panes = "A2"
+        buf = io.BytesIO()
+        wb.save(buf); buf.seek(0)
         return StreamingResponse(
-            iter([content.encode("utf-8")]),
-            media_type="text/csv; charset=utf-8",
-            headers={"Content-Disposition": "attachment; filename=\"salary_workers.csv\""},
+            iter([buf.read()]),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": "attachment; filename=\"salary_workers.xlsx\""},
+        )
+
+    @app.get("/api/salary/payroll/template")
+    def download_payroll_template(
+        request: Request,
+        date_from: str = "",
+        date_to: str = "",
+    ):
+        """Download a blank payroll XLSX template pre-filled with workers and date columns."""
+        import io
+        from datetime import date as _date, timedelta
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        user = _require_salary_access(request)
+        owner_id = _salary_owner_id(user)
+
+        start = _date(2026, 1, 7)
+        end_limit = _date.today() + timedelta(days=14)
+        dates: list[str] = []
+        d = start
+        while d <= end_limit:
+            iso = d.isoformat()
+            if (not date_from or iso >= date_from) and (not date_to or iso <= date_to):
+                dates.append(iso)
+            d += timedelta(days=7)
+
+        workers = repository.list_salary_workers(owner_user_id=owner_id)
+        allowed = _salary_allowed_productions(user)
+        if allowed is not None:
+            workers = [w for w in workers if str(w.get("production") or "") in allowed]
+
+        def date_ru(iso: str) -> str:
+            y, m, dd = iso.split("-")
+            return f"{dd}.{m}.{y[2:]}"
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Шаблон начисления ЗП"
+
+        hdr_font  = Font(bold=True, name="Calibri", size=11)
+        fixed_fill = PatternFill("solid", fgColor="D6E4FF")
+        date_fill  = PatternFill("solid", fgColor="F0F7FF")
+        center = Alignment(horizontal="center", vertical="center")
+        left_al = Alignment(horizontal="left", vertical="center")
+        thin = Side(style="thin", color="BBCCE8")
+        border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+        fixed_headers = ["ФИО","Должность","Дата рождения","Юр. принадлежность","Производство"]
+        all_headers = fixed_headers + [date_ru(d) for d in dates]
+
+        for ci, h in enumerate(all_headers, start=1):
+            cell = ws.cell(row=1, column=ci, value=h)
+            cell.font = hdr_font
+            cell.fill = fixed_fill if ci <= len(fixed_headers) else date_fill
+            cell.alignment = center; cell.border = border
+            ws.column_dimensions[cell.column_letter].width = max(len(h)*1.15+2, 8)
+            if ci > len(fixed_headers):
+                cell.number_format = "@"; cell.quotePrefix = True
+
+        for ri, w in enumerate(workers, start=2):
+            fixed_vals = [
+                w.get("full_name") or "",
+                w.get("position") or "",
+                w.get("birth_date") or "",
+                w.get("legal_entity") or "",
+                w.get("production") or "",
+            ]
+            for ci, v in enumerate(fixed_vals, start=1):
+                cell = ws.cell(row=ri, column=ci, value=str(v))
+                cell.alignment = left_al; cell.border = border
+                if ci == 3:
+                    cell.number_format = "@"; cell.quotePrefix = True
+            for ci in range(len(fixed_vals)+1, len(all_headers)+1):
+                cell = ws.cell(row=ri, column=ci, value=None)
+                cell.border = border; cell.alignment = center
+
+        ws.freeze_panes = "F2"
+        buf = io.BytesIO()
+        wb.save(buf); buf.seek(0)
+        return StreamingResponse(
+            iter([buf.read()]),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": "attachment; filename=\"payroll_template.xlsx\""},
         )
 
     def _parse_upload_to_rows(raw: bytes, filename: str) -> list[list[str]]:
