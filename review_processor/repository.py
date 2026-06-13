@@ -8270,6 +8270,7 @@ class ReviewRepository:
         conn.execute("ALTER TABLE salary_workers ADD COLUMN IF NOT EXISTS birth_date TEXT NOT NULL DEFAULT ''")
         conn.execute("ALTER TABLE salary_workers ADD COLUMN IF NOT EXISTS legal_entity TEXT NOT NULL DEFAULT ''")
         conn.execute("ALTER TABLE salary_workers ADD COLUMN IF NOT EXISTS position TEXT NOT NULL DEFAULT ''")
+        conn.execute("ALTER TABLE salary_workers ADD COLUMN IF NOT EXISTS visible_for_accountant BOOLEAN NOT NULL DEFAULT TRUE")
         conn.execute(self._sql(
             "CREATE INDEX IF NOT EXISTS idx_salary_workers_owner "
             "ON salary_workers(owner_user_id)"
@@ -8280,16 +8281,21 @@ class ReviewRepository:
             self._ensure_salary_workers_table(conn)
             rows = conn.execute(
                 self._sql(
-                    "SELECT id, owner_user_id, full_name, position, birth_date, legal_entity, production, created_at "
+                    "SELECT id, owner_user_id, full_name, position, birth_date, legal_entity, "
+                    "production, visible_for_accountant, created_at "
                     "FROM salary_workers WHERE owner_user_id = ? ORDER BY full_name ASC"
                 ),
                 (owner_user_id,),
             ).fetchall()
-        return [self._row_to_dict(row) for row in rows]
+        result = [self._row_to_dict(row) for row in rows]
+        for r in result:
+            r["visible_for_accountant"] = bool(r.get("visible_for_accountant") if r.get("visible_for_accountant") is not None else True)
+        return result
 
     def create_salary_worker(
         self, *, owner_user_id: int, full_name: str, position: str,
         birth_date: str, legal_entity: str, production: str,
+        visible_for_accountant: bool = True,
     ) -> dict[str, Any]:
         now = _utc_now()
         with self._connect() as conn:
@@ -8297,18 +8303,21 @@ class ReviewRepository:
             cur = conn.execute(
                 self._sql(
                     "INSERT INTO salary_workers "
-                    "(owner_user_id, full_name, position, birth_date, legal_entity, production, created_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id"
+                    "(owner_user_id, full_name, position, birth_date, legal_entity, production, "
+                    "visible_for_accountant, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id"
                 ),
                 (owner_user_id, full_name.strip(), position.strip(), birth_date.strip(),
-                 legal_entity.strip(), production.strip(), now),
+                 legal_entity.strip(), production.strip(),
+                 self._bool_db(visible_for_accountant), now),
             )
             row = cur.fetchone()
         worker_id = int(row[0] if not hasattr(row, "get") else row.get("id"))
         return {"id": worker_id, "owner_user_id": owner_user_id,
                 "full_name": full_name.strip(), "position": position.strip(),
                 "birth_date": birth_date.strip(), "legal_entity": legal_entity.strip(),
-                "production": production.strip(), "created_at": now}
+                "production": production.strip(),
+                "visible_for_accountant": visible_for_accountant, "created_at": now}
 
     def delete_salary_worker(self, *, owner_user_id: int, worker_id: int) -> bool:
         with self._connect() as conn:

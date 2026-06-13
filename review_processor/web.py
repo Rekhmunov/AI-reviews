@@ -550,6 +550,7 @@ class SalaryWorkerCreateRequest(BaseModel):
     birth_date: str = Field(default="", max_length=20)
     legal_entity: str = Field(default="", max_length=200)
     production: str = Field(default="", max_length=100)
+    visible_for_accountant: bool = True
 
 
 class SalaryProductCreateRequest(BaseModel):
@@ -5311,6 +5312,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             birth_date=payload.birth_date,
             legal_entity=payload.legal_entity,
             production=payload.production,
+            visible_for_accountant=payload.visible_for_accountant,
         )
         return {"ok": True, "item": worker}
 
