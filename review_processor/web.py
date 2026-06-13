@@ -5366,7 +5366,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     continue
             if text is None:
                 raise HTTPException(status_code=400, detail="Не удалось определить кодировку файла")
-
+            # Normalize line endings (Excel on Windows uses \r\n; \r appends to last header)
+            text = text.replace("\r\n", "\n").replace("\r", "\n")
             # Auto-detect delimiter (semicolon or comma)
             delimiter = ";" if text.count(";") >= text.count(",") else ","
 
@@ -5521,6 +5522,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                   continue
           if text is None:
               raise HTTPException(status_code=400, detail="Не удалось определить кодировку файла")
+          text = text.replace("\r\n", "\n").replace("\r", "\n")
           delimiter = ";" if text.count(";") >= text.count(",") else ","
           reader = csv.reader(io.StringIO(text), delimiter=delimiter)
           rows = list(reader)

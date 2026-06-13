@@ -11747,6 +11747,7 @@ window.toggleSalaryWorkerForm = function(show) {
     if (le) le.value = "";
     const info = document.getElementById("salaryWorkersInfo");
     if (info) info.textContent = "";
+    document.getElementById("salaryWorkersImportErrors")?.classList.add("hidden");
   } else {
     document.getElementById("salaryWorkerName")?.focus();
   }
@@ -11813,6 +11814,17 @@ async function loadSalaryWorkers() {
 }
 window.loadSalaryWorkers = loadSalaryWorkers;
 
+function downloadSalaryWorkerTemplate() {
+  const headers = "ФИО;Должность;Дата рождения;Юр. принадлежность;Производство;Видимость для бухгалтера\n";
+  const example = "Иванов Иван Иванович;Оператор;01.01.1990;ООО ВарФабрик;Иваново;Да\n";
+  const blob = new Blob(["\ufeff" + headers + example], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a"); a.href = url; a.download = "workers_template.csv";
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+window.downloadSalaryWorkerTemplate = downloadSalaryWorkerTemplate;
+
 async function exportSalaryWorkers() {
   try {
     const res = await fetch("/api/salary/workers/export");
@@ -11846,8 +11858,19 @@ async function importSalaryWorkers(input) {
       if (info) { info.textContent = data.detail || "Ошибка импорта"; info.style.color = "#b91c1c"; }
       return;
     }
-    const errTxt = data.errors?.length ? `; ошибок: ${data.errors.length}` : "";
-    if (info) { info.textContent = `Добавлено: ${data.created}${errTxt}`; info.style.color = data.errors?.length ? "#b45309" : "#16a34a"; }
+    const errList = data.errors || [];
+    const errTxt = errList.length ? `; ошибок: ${errList.length}` : "";
+    if (info) { info.textContent = `Добавлено: ${data.created}${errTxt}`; info.style.color = errList.length ? "#b45309" : "#16a34a"; }
+    // Show error details
+    const errBox = document.getElementById("salaryWorkersImportErrors");
+    if (errBox) {
+      if (errList.length) {
+        errBox.innerHTML = errList.map(e => `<div>• ${esc(e)}</div>`).join("");
+        errBox.classList.remove("hidden");
+      } else {
+        errBox.classList.add("hidden");
+      }
+    }
     await loadSalaryWorkers();
   } catch (e) {
     if (info) { info.textContent = "Ошибка: " + e.message; info.style.color = "#b91c1c"; }
