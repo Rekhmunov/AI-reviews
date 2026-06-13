@@ -540,6 +540,7 @@ class ManagerSuppliesAccessRequest(BaseModel):
 
 class ManagerSalaryAccessRequest(BaseModel):
     can_salary: bool = False
+    can_salary_settings: bool = False
 
 
 class SalaryWorkerCreateRequest(BaseModel):
@@ -4431,6 +4432,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 item["manager_permissions"] = repository.list_manager_permissions(manager_user_id=int(item["id"]))
                 item["can_supplies"] = bool(item.get("can_supplies"))
                 item["can_salary"] = bool(item.get("can_salary"))
+                item["can_salary_settings"] = bool(item.get("can_salary_settings"))
                 item["supply_permissions"] = repository.get_manager_supply_permissions(
                     manager_user_id=int(item["id"])
                 )
@@ -4593,7 +4595,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if str(target.get("role") or "").strip().lower() != TENANT_ROLE_MANAGER:
             raise HTTPException(status_code=400, detail="Применимо только для менеджера")
         repository._ensure_supply_tables()
-        repository.set_user_can_salary(user_id=target_user_id, can_salary=payload.can_salary)
+        repository.set_user_can_salary(
+            user_id=target_user_id,
+            can_salary=payload.can_salary,
+            can_salary_settings=payload.can_salary_settings,
+        )
         return {"ok": True, "can_salary": payload.can_salary}
 
     @app.post("/api/tenant/team/{target_user_id}/role")
@@ -9177,6 +9183,7 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
         can_view_questions = True
         can_view_chats = True
     can_view_salary = is_tenant_owner or bool(user.get("can_salary"))
+    can_view_salary_settings = is_tenant_owner or bool(user.get("can_salary_settings"))
     admin_link = '<a class="navbtn nav-admin" href="/admin"><span class="nav-item-icon">○</span> Админ-панель</a>' if role == ROLE_ADMIN else ""
     nav_team = (
         '<a id="nav-team" class="nav-item nav-item-bottom" href="#" onclick="showSection(\'team\')"><span class="nav-item-icon">◫</span> Команда</a>'
@@ -9230,6 +9237,7 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
             "CAN_VIEW_QUESTIONS": "true" if can_view_questions else "false",
             "CAN_VIEW_CHATS": "true" if can_view_chats else "false",
             "CAN_VIEW_SALARY": "true" if can_view_salary else "false",
+            "CAN_VIEW_SALARY_SETTINGS": "true" if can_view_salary_settings else "false",
             "HIDE_FEEDBACK_SECTION": "" if (can_view_feedback or can_view_settings or can_view_analytics) else "style=\"display:none\"",
             "IS_ADMIN": "true" if role == ROLE_ADMIN else "false",
             "IS_SUPER_ADMIN": "true" if is_super_admin else "false",

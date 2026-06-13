@@ -103,6 +103,7 @@ const teamState = {
   pendingPermissions: [],
   pendingCanSupplies: false,
   pendingCanSalary: false,
+  pendingCanSalarySettings: false,
   pendingSupplyPermissions: null,
 };
 let syncInProgress = false;
@@ -513,7 +514,8 @@ function getPermissions() {
     can_view_reviews:   _b("can_view_reviews", true),
     can_view_questions: _b("can_view_questions", true),
     can_view_chats:     _b("can_view_chats", true),
-    can_view_salary:    _b("can_view_salary", false),
+    can_view_salary:          _b("can_view_salary", false),
+    can_view_salary_settings: _b("can_view_salary_settings", false),
     is_admin:           _b("is_admin", false),
   };
 }
@@ -532,7 +534,7 @@ function canViewSection(section) {
   if (section === "conversations") return permissions.can_view_questions;
   if (section === "chats")        return permissions.can_view_chats;
   if (section === "salary")         return permissions.can_view_salary || isTenantOwner();
-  if (section === "salary-settings") return isTenantOwner();
+  if (section === "salary-settings") return isTenantOwner() || permissions.can_view_salary_settings;
   if (section === "supplies-wb")  return permissions.can_view_supplies;
   if (section === "supplies-ozon") return permissions.can_view_supplies;
   if (section === "supplies-poa") return permissions.can_view_supplies;
@@ -660,14 +662,21 @@ function initNavGroups() {
   // Salary section: visible only if user has salary access or is tenant owner
   const salaryHeader = document.getElementById("nav-group-salary-header");
   const salaryWrapper = document.getElementById("nav-group-salary");
-  if (perms.can_view_salary || isTenantOwner()) {
+  const hasSalaryAccess = perms.can_view_salary || perms.can_view_salary_settings || isTenantOwner();
+  if (hasSalaryAccess) {
     if (salaryHeader) salaryHeader.style.display = "";
     if (salaryWrapper) {
       const collapsed = Boolean(states["salary"]);
       _applyNavGroup("salary", collapsed, false);
     }
+    // nav-salary: only if has Начисление ЗП access
+    const salaryNav = document.getElementById("nav-salary");
+    if (salaryNav) salaryNav.style.display = (perms.can_view_salary || isTenantOwner()) ? "" : "none";
+    // nav-salary-settings: only if has Настройки access
     const salarySettingsNav = document.getElementById("nav-salary-settings");
-    if (salarySettingsNav) salarySettingsNav.style.display = isTenantOwner() ? "" : "none";
+    if (salarySettingsNav) {
+      salarySettingsNav.style.display = (isTenantOwner() || perms.can_view_salary_settings) ? "" : "none";
+    }
   } else {
     if (salaryHeader) salaryHeader.style.display = "none";
     if (salaryWrapper) { salaryWrapper.style.maxHeight = "0px"; salaryWrapper.style.overflow = "hidden"; }
@@ -9091,10 +9100,10 @@ function updateTeamPermissionsPreview() {
   const permissions = Array.isArray(teamState.pendingPermissions) ? teamState.pendingPermissions : [];
   const canSupplies = Boolean(teamState.pendingCanSupplies);
   const canSalary = Boolean(teamState.pendingCanSalary);
-  if (!permissions.length && !canSupplies && !canSalary) {
+  if (!permissions.length && !canSupplies && !canSalary && !teamState.pendingCanSalarySettings) {
     preview.textContent = "Разрешения не выбраны";
   } else {
-    preview.textContent = formatManagerPermissionsText(permissions, canSupplies, teamState.pendingSupplyPermissions, canSalary);
+    preview.textContent = formatManagerPermissionsText(permissions, canSupplies, teamState.pendingSupplyPermissions, canSalary, teamState.pendingCanSalarySettings);
   }
 }
 
@@ -9259,7 +9268,7 @@ function collectManagerPermissionsFromModal() {
   return Array.from(map.values()).filter((item) => item.can_reviews || item.can_questions || item.can_chats);
 }
 
-function formatManagerPermissionsText(permissions, canSupplies, supplyPermissions, canSalary) {
+function formatManagerPermissionsText(permissions, canSupplies, supplyPermissions, canSalary, canSalarySettings) {
   const rows = Array.isArray(permissions) ? permissions : [];
   // Build supplies summary from granular permissions
   const sp = supplyPermissions || {};
@@ -9277,7 +9286,10 @@ function formatManagerPermissionsText(permissions, canSupplies, supplyPermission
   const suppliesText = uniqueParts.length
     ? "Поставки: " + uniqueParts.join(", ")
     : (canSupplies ? "Поставки" : "");
-  const salaryText = canSalary ? "Зарплата: Начисление ЗП" : "";
+  const salaryParts = [];
+  if (canSalary) salaryParts.push("Начисление ЗП");
+  if (canSalarySettings) salaryParts.push("Настройки");
+  const salaryText = salaryParts.length ? "Зарплата: " + salaryParts.join(", ") : "";
   if (!rows.length && !suppliesText && !salaryText) return "Доступы не назначены";
   if (!rows.length) return [suppliesText, salaryText].filter(Boolean).join("; ");
   const accountById = new Map((teamState.accounts || []).map((item) => [Number(item.id || 0), item]));
@@ -9326,7 +9338,7 @@ async function loadTeam() {
   } else {
     for (const member of teamState.items) {
       const memberId = Number(member.id || 0);
-      const permsText = formatManagerPermissionsText(member.manager_permissions || [], member.can_supplies, member.supply_permissions, member.can_salary);
+      const permsText = formatManagerPermissionsText(member.manager_permissions || [], member.can_supplies, member.supply_permissions, member.can_salary, member.can_salary_settings);
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td>${esc(member.id)}</td>
@@ -9395,12 +9407,13 @@ async function openEditTeamMember(userId) {
   teamState.pendingPermissions = (member.manager_permissions || []).map(p => ({...p}));
   teamState.pendingCanSupplies = Boolean(member.can_supplies);
   teamState.pendingCanSalary = Boolean(member.can_salary);
+  teamState.pendingCanSalarySettings = Boolean(member.can_salary_settings);
   // Pre-populate from the data already loaded by loadTeam() so saveEditTeamMember
   // always has a complete supply payload even if the permissions modal is never opened.
   teamState.pendingSupplyPermissions = member.supply_permissions
     ? { ...member.supply_permissions, sources: { ...(member.supply_permissions.sources || {}) } }
     : null;
-  const permText = formatManagerPermissionsText(member.manager_permissions || [], member.can_supplies, member.supply_permissions, member.can_salary);
+  const permText = formatManagerPermissionsText(member.manager_permissions || [], member.can_supplies, member.supply_permissions, member.can_salary, member.can_salary_settings);
   document.getElementById("editMemberPermissionsPreview").textContent = permText || "Нет доступов";
   const modal = document.getElementById("editTeamMemberModal");
   if (modal) { modal.classList.remove("hidden"); modal.style.display = ""; }
@@ -9413,6 +9426,7 @@ function closeEditTeamMember() {
   teamState.pendingPermissions = [];
   teamState.pendingCanSupplies = false;
   teamState.pendingCanSalary = false;
+  teamState.pendingCanSalarySettings = false;
   teamState.pendingSupplyPermissions = null;
 }
 
@@ -9433,9 +9447,11 @@ async function openManagerPermissionsModalForEdit() {
   const ssRes = await fetch("/api/supply-sources").catch(() => null);
   const ssSources = ssRes?.ok ? await ssRes.json().catch(() => []) : [];
   renderManagerSupplyPermissionsRows(ssSources, teamState.pendingSupplyPermissions);
-  // Set salary sub-checkbox
+  // Set salary sub-checkboxes
   const salaryChk = document.getElementById("managerSalaryAccess");
   if (salaryChk) salaryChk.checked = teamState.pendingCanSalary;
+  const salaryStgChk = document.getElementById("managerSalarySettingsAccess");
+  if (salaryStgChk) salaryStgChk.checked = teamState.pendingCanSalarySettings;
   // Initialise parent (category) checkboxes
   initPermSectionToggles(
     teamState.pendingPermissions.length > 0,
@@ -9502,7 +9518,10 @@ async function saveEditTeamMember() {
     // Update salary access
     const pr4 = await fetch(`/api/tenant/team/${uid}/salary-access`, {
       method: "PUT", headers: jsonHeaders(),
-      body: JSON.stringify({ can_salary: Boolean(teamState.pendingCanSalary) }),
+      body: JSON.stringify({
+        can_salary: Boolean(teamState.pendingCanSalary),
+        can_salary_settings: Boolean(teamState.pendingCanSalarySettings),
+      }),
     });
     if (!pr4.ok) {
       let msg = "Ошибка сохранения доступа к зарплате";
@@ -9573,9 +9592,11 @@ async function openManagerPermissionsModalForCreate() {
   const ssSources = ssRes?.ok ? await ssRes.json().catch(() => []) : [];
   // Use existing pending supply state on re-open so unsaved selections are preserved
   renderManagerSupplyPermissionsRows(ssSources, teamState.pendingSupplyPermissions || {});
-  // Restore salary sub-checkbox from pending state
+  // Restore salary sub-checkboxes from pending state
   const salaryChkCreate = document.getElementById("managerSalaryAccess");
   if (salaryChkCreate) salaryChkCreate.checked = Boolean(teamState.pendingCanSalary);
+  const salaryStgChkCreate = document.getElementById("managerSalarySettingsAccess");
+  if (salaryStgChkCreate) salaryStgChkCreate.checked = Boolean(teamState.pendingCanSalarySettings);
   // Initialise parent (category) checkboxes
   initPermSectionToggles(
     (teamState.pendingPermissions || []).length > 0,
@@ -9594,13 +9615,15 @@ function applyManagerPermissionsSelection() {
   const permissions = feedbackEnabled ? collectManagerPermissionsFromModal() : [];
   const supplyPerms = suppliesEnabled ? collectManagerSupplyPermissionsFromModal()
                                       : { sources: {}, can_supply_settings: false, can_supply_poa: false, can_supply_certs: false };
-  const canSalary   = salaryEnabled && Boolean(document.getElementById("managerSalaryAccess")?.checked);
+  const canSalary         = salaryEnabled && Boolean(document.getElementById("managerSalaryAccess")?.checked);
+  const canSalarySettings = salaryEnabled && Boolean(document.getElementById("managerSalarySettingsAccess")?.checked);
   teamState.pendingSupplyPermissions = supplyPerms;
   teamState.pendingCanSalary = canSalary;
+  teamState.pendingCanSalarySettings = canSalarySettings;
   const hasAnySupply = supplyPerms.can_supply_settings || supplyPerms.can_supply_poa || supplyPerms.can_supply_certs ||
     Object.values(supplyPerms.sources || {}).some(s => s.wb || s.ozon);
   teamState.pendingCanSupplies = hasAnySupply;
-  if (!permissions.length && !hasAnySupply && !canSalary) {
+  if (!permissions.length && !hasAnySupply && !canSalary && !canSalarySettings) {
     const info = document.getElementById("managerPermissionsInfo");
     if (info) {
       info.textContent = "Нужно выбрать хотя бы один доступ";
@@ -9614,7 +9637,7 @@ function applyManagerPermissionsSelection() {
   setTeamInfo("Разрешения менеджера выбраны");
   const editPreview = document.getElementById("editMemberPermissionsPreview");
   if (editPreview && _editingMemberId) {
-    const txt = formatManagerPermissionsText(permissions, teamState.pendingCanSupplies, teamState.pendingSupplyPermissions, canSalary);
+    const txt = formatManagerPermissionsText(permissions, teamState.pendingCanSupplies, teamState.pendingSupplyPermissions, canSalary, canSalarySettings);
     editPreview.textContent = txt || "Нет доступов";
   }
 }
@@ -9672,7 +9695,10 @@ async function saveNewManager() {
     }).catch(() => {});
     await fetch(`/api/tenant/team/${data.item.id}/salary-access`, {
       method: "PUT", headers: jsonHeaders(),
-      body: JSON.stringify({ can_salary: Boolean(teamState.pendingCanSalary) }),
+      body: JSON.stringify({
+        can_salary: Boolean(teamState.pendingCanSalary),
+        can_salary_settings: Boolean(teamState.pendingCanSalarySettings),
+      }),
     }).catch(() => {});
   }
   document.getElementById("teamManagerEmail").value = "";
@@ -9681,6 +9707,7 @@ async function saveNewManager() {
   teamState.pendingPermissions = [];
   teamState.pendingCanSupplies = false;
   teamState.pendingCanSalary = false;
+  teamState.pendingCanSalarySettings = false;
   updateTeamPermissionsPreview();
   setTeamInfo("Менеджер создан");
   await loadTeam();
