@@ -11741,6 +11741,8 @@ window.toggleSalaryWorkerForm = function(show) {
       const el = document.getElementById(id);
       if (el) el.value = "";
     });
+    const visEl = document.getElementById("salaryWorkerVisibleForAccountant");
+    if (visEl) visEl.value = "true";
     const le = document.getElementById("salaryWorkerLegalEntity");
     if (le) le.value = "";
     const info = document.getElementById("salaryWorkersInfo");
@@ -11793,12 +11795,14 @@ async function loadSalaryWorkers() {
     }
     for (const w of workers) {
       const tr = document.createElement("tr");
+      const accVisible = w.visible_for_accountant !== false ? "Да" : "Нет";
       tr.innerHTML = `
         <td>${esc(w.full_name || "")}</td>
         <td>${esc(w.position || "")}</td>
         <td>${esc(w.birth_date || "")}</td>
         <td>${esc(w.legal_entity || "")}</td>
         <td>${esc(w.production || "")}</td>
+        <td>${accVisible}</td>
         <td><button class="icon-btn danger" title="Удалить" onclick="deleteSalaryWorker(${w.id})">🗑</button></td>
       `;
       tbody.appendChild(tr);
@@ -11871,7 +11875,7 @@ async function saveSalaryWorker() {
     const res = await fetch("/api/salary/workers", {
       method: "POST",
       headers: jsonHeaders(),
-      body: JSON.stringify({ full_name: fullName, position, birth_date: birthDate, legal_entity: legalEntity, production }),
+      body: JSON.stringify({ full_name: fullName, position, birth_date: birthDate, legal_entity: legalEntity, production, visible_for_accountant: document.getElementById("salaryWorkerVisibleForAccountant")?.value !== "false" }),
     });
     const data = await res.json();
     if (!res.ok) {
