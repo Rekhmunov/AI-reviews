@@ -12145,47 +12145,157 @@ function startPayrollResize(e, colKey) {
 window.startPayrollResize = startPayrollResize;
 
 // Date filter
-function togglePayrollDatePanel(forceOpen) {
-  const panel = document.getElementById("payrollDatePanel");
-  if (!panel) return;
-  if (forceOpen === false) { panel.style.display = "none"; return; }
-  panel.style.display = panel.style.display === "none" || !panel.style.display ? "flex" : "none";
+// ── Payroll date range calendar (mirrors WB supplies calendar) ────────────
+
+const _payrollCal = {
+  viewYear: new Date().getFullYear(),
+  viewMonth: new Date().getMonth(),
+  startDate: null,
+  endDate: null,
+  hoveredDate: null,
+};
+
+function _payrollCalRender() {
+  const container = document.getElementById("payrollCalendar");
+  if (!container) return;
+  const { viewYear: y, viewMonth: m, startDate: s, endDate: e, hoveredDate: h } = _payrollCal;
+  const firstDay = new Date(y, m, 1);
+  const lastDay = new Date(y, m + 1, 0);
+  const startOffset = (firstDay.getDay() + 6) % 7;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const fmtDisp = (d) => d ? `${String(d.getDate()).padStart(2,"0")}.${String(d.getMonth()+1).padStart(2,"0")}.${d.getFullYear()}` : "";
+
+  let html = `<div class="cal-header" onclick="event.stopPropagation()">
+    <button type="button" class="cal-nav" onclick="event.stopPropagation();_payrollCalPrev()">◄</button>
+    <span class="cal-title">${_calMonths[m]} ${y}</span>
+    <button type="button" class="cal-nav" onclick="event.stopPropagation();_payrollCalNext()">►</button>
+  </div>
+  <div class="cal-grid" onmouseleave="_payrollCalClearHover()">`;
+  _calDays.forEach(d => { html += `<div class="cal-cell cal-dow">${d}</div>`; });
+  for (let i = 0; i < startOffset; i++) html += `<div class="cal-cell cal-empty"></div>`;
+  for (let d = 1; d <= lastDay.getDate(); d++) {
+    const date = new Date(y, m, d);
+    const isToday = date.getTime() === today.getTime();
+    const isStart = s && date.getTime() === s.getTime();
+    const isEnd = e && date.getTime() === e.getTime();
+    const rangeEnd = e || h;
+    const inRange = s && rangeEnd && date > (s < rangeEnd ? s : rangeEnd) && date < (s < rangeEnd ? rangeEnd : s);
+    let cls = "cal-cell cal-day";
+    if (isStart || isEnd) cls += " cal-selected";
+    if (isStart) cls += " cal-range-start";
+    if (isEnd) cls += " cal-range-end";
+    if (inRange) cls += " cal-in-range";
+    if (isToday) cls += " cal-today";
+    const iso = `${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+    html += `<div class="${cls}" data-date="${iso}"
+      onclick="event.stopPropagation();_payrollCalPick(${y},${m},${d})"
+      onmouseenter="_payrollCalHover(${y},${m},${d})">${d}</div>`;
+  }
+  html += `</div>`;
+  if (s || e) {
+    html += `<div class="cal-range-label" onclick="event.stopPropagation()">${fmtDisp(s)||"…"} — ${fmtDisp(e)||"…"}</div>`;
+  }
+  html += `<div class="cal-footer" onclick="event.stopPropagation()">
+    <button type="button" class="secondary" onclick="event.stopPropagation();clearPayrollDateFilter()">Сбросить</button>
+  </div>`;
+  container.innerHTML = html;
 }
-function applyPayrollDateFilter() {
-  payrollState.dateFrom = document.getElementById("payrollDateFrom")?.value || null;
-  payrollState.dateTo = document.getElementById("payrollDateTo")?.value || null;
-  _updatePayrollDateBtn();
-  togglePayrollDatePanel(false);
-  renderPayrollTable();
+
+function _payrollCalPick(y, m, d) {
+  const date = new Date(y, m, d); date.setHours(0,0,0,0);
+  if (!_payrollCal.startDate || (_payrollCal.startDate && _payrollCal.endDate)) {
+    _payrollCal.startDate = date; _payrollCal.endDate = null;
+  } else {
+    if (date < _payrollCal.startDate) { _payrollCal.endDate = _payrollCal.startDate; _payrollCal.startDate = date; }
+    else if (date.getTime() === _payrollCal.startDate.getTime()) { _payrollCal.endDate = new Date(date); }
+    else { _payrollCal.endDate = date; }
+  }
+  _payrollCalRender();
+  if (_payrollCal.startDate && _payrollCal.endDate) {
+    const fmt = (dt) => `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`;
+    payrollState.dateFrom = fmt(_payrollCal.startDate);
+    payrollState.dateTo   = fmt(_payrollCal.endDate);
+    const f = document.getElementById("payrollDateFrom");
+    const t = document.getElementById("payrollDateTo");
+    if (f) f.value = payrollState.dateFrom;
+    if (t) t.value = payrollState.dateTo;
+    _updatePayrollDateBtn();
+    renderPayrollTable();
+    setTimeout(() => togglePayrollDatePanel(false), 300);
+  }
 }
-function clearPayrollDateFilter() {
-  payrollState.dateFrom = null;
-  payrollState.dateTo = null;
-  const f = document.getElementById("payrollDateFrom"); if(f) f.value="";
-  const t = document.getElementById("payrollDateTo"); if(t) t.value="";
-  _updatePayrollDateBtn();
-  renderPayrollTable();
+
+function _payrollCalHover(y, m, d) {
+  if (!_payrollCal.startDate || _payrollCal.endDate) return;
+  _payrollCal.hoveredDate = new Date(y, m, d);
+  const s = _payrollCal.startDate;
+  const hov = _payrollCal.hoveredDate;
+  document.querySelectorAll("#payrollCalendar .cal-day[data-date]").forEach(el => {
+    const dt = new Date(el.dataset.date + "T00:00:00");
+    el.classList.toggle("cal-in-range", s && hov && dt > (s < hov ? s : hov) && dt < (s < hov ? hov : s));
+  });
 }
-function setPayrollDatePreset(preset) {
-  const today = new Date();
-  let from = null, to = _dateFmt(new Date(today.getTime() + 14*24*60*60*1000));
-  if (preset==="last_4_weeks") { from = _dateFmt(new Date(today.getTime()-28*24*60*60*1000)); }
-  else if (preset==="last_month") { const d=new Date(today); d.setMonth(d.getMonth()-1); from=_dateFmt(d); }
-  else if (preset==="last_3_months") { const d=new Date(today); d.setMonth(d.getMonth()-3); from=_dateFmt(d); }
-  else if (preset==="ytd") { from=`${today.getFullYear()}-01-07`; }
-  payrollState.dateFrom = from; payrollState.dateTo = to;
-  const f=document.getElementById("payrollDateFrom"); if(f) f.value=from||"";
-  const t2=document.getElementById("payrollDateTo"); if(t2) t2.value=to||"";
-  _updatePayrollDateBtn();
-  togglePayrollDatePanel(false);
-  renderPayrollTable();
+
+function _payrollCalClearHover() {
+  if (_payrollCal.hoveredDate) {
+    _payrollCal.hoveredDate = null;
+    document.querySelectorAll("#payrollCalendar .cal-day.cal-in-range").forEach(el => el.classList.remove("cal-in-range"));
+  }
 }
+
+function _payrollCalPrev() {
+  if (_payrollCal.viewMonth === 0) { _payrollCal.viewMonth = 11; _payrollCal.viewYear--; }
+  else _payrollCal.viewMonth--;
+  _payrollCalRender();
+}
+function _payrollCalNext() {
+  if (_payrollCal.viewMonth === 11) { _payrollCal.viewMonth = 0; _payrollCal.viewYear++; }
+  else _payrollCal.viewMonth++;
+  _payrollCalRender();
+}
+
+window._payrollCalPick = _payrollCalPick;
+window._payrollCalPrev = _payrollCalPrev;
+window._payrollCalNext = _payrollCalNext;
+window._payrollCalHover = _payrollCalHover;
+window._payrollCalClearHover = _payrollCalClearHover;
+
 function _updatePayrollDateBtn() {
   const btn = document.getElementById("payrollDateRangeBtn");
   if (!btn) return;
-  if (payrollState.dateFrom && payrollState.dateTo) {
-    btn.textContent = `📅 ${_dateRu(payrollState.dateFrom)} - ${_dateRu(payrollState.dateTo)}`;
-  } else { btn.textContent = "📅 Период: все даты"; }
+  if (_payrollCal.startDate && _payrollCal.endDate) {
+    const fmt = (d) => d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
+    btn.textContent = `${fmt(_payrollCal.startDate)}–${fmt(_payrollCal.endDate)}`;
+  } else {
+    btn.textContent = "📅";
+  }
+}
+
+function togglePayrollDatePanel(forceOpen) {
+  const panel = document.getElementById("payrollDatePanel");
+  if (!panel) return;
+  const isVisible = panel.style.display === "flex";
+  const shouldShow = forceOpen !== undefined ? Boolean(forceOpen) : !isVisible;
+  panel.style.display = shouldShow ? "flex" : "none";
+  if (shouldShow) _payrollCalRender();
+  _updatePayrollDateBtn();
+}
+function applyPayrollDateFilter() {
+  // No-op: calendar applies immediately on date pick
+  togglePayrollDatePanel(false);
+}
+function clearPayrollDateFilter() {
+  _payrollCal.startDate = null; _payrollCal.endDate = null; _payrollCal.hoveredDate = null;
+  payrollState.dateFrom = null;
+  payrollState.dateTo = null;
+  const f = document.getElementById("payrollDateFrom"); if (f) f.value = "";
+  const t = document.getElementById("payrollDateTo"); if (t) t.value = "";
+  _updatePayrollDateBtn();
+  togglePayrollDatePanel(false);
+  renderPayrollTable();
+}
+function setPayrollDatePreset(preset) {
+  // Keep for possible future use, not exposed in new calendar UI
 }
 
 window.togglePayrollDatePanel = togglePayrollDatePanel;

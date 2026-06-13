@@ -1790,27 +1790,15 @@
               <option value="ИП Авдеева М.Ю.">ИП Авдеева М.Ю.</option>
               <option value="ИП Рехмунов Д.О.">ИП Рехмунов Д.О.</option>
             </select>
-            <div class="supplies-date-wrap" style="position:relative">
-              <button id="payrollDateRangeBtn" type="button" class="secondary"
-                onclick="togglePayrollDatePanel()" style="padding:0 10px;height:34px" title="Фильтр по периоду">📅</button>
-              <div id="payrollDatePanel" class="supplies-date-panel" style="display:none">
-                <div class="supplies-date-panel-row" style="flex-wrap:wrap;gap:6px">
-                  <button type="button" class="secondary" onclick="setPayrollDatePreset('last_4_weeks')">4 недели</button>
-                  <button type="button" class="secondary" onclick="setPayrollDatePreset('last_month')">Месяц</button>
-                  <button type="button" class="secondary" onclick="setPayrollDatePreset('last_3_months')">3 месяца</button>
-                  <button type="button" class="secondary" onclick="setPayrollDatePreset('ytd')">С начала года</button>
-                </div>
-                <div class="supplies-date-panel-row">
-                  <label>С <input id="payrollDateFrom" type="date" /></label>
-                  <label>По <input id="payrollDateTo" type="date" /></label>
-                </div>
-                <div class="supplies-date-panel-row">
-                  <button type="button" onclick="applyPayrollDateFilter()">Применить</button>
-                  <button type="button" class="secondary" onclick="clearPayrollDateFilter()">Сбросить</button>
-                  <button type="button" class="secondary" onclick="togglePayrollDatePanel(false)">Закрыть</button>
+              <div class="supplies-date-wrap" style="position:relative">
+                <button id="payrollDateRangeBtn" type="button" class="secondary"
+                  onclick="togglePayrollDatePanel()" style="padding:0 10px;height:34px" title="Фильтр по периоду">📅</button>
+                <input type="hidden" id="payrollDateFrom" />
+                <input type="hidden" id="payrollDateTo" />
+                <div id="payrollDatePanel" class="supplies-date-panel" style="display:none">
+                  <div id="payrollCalendar"></div>
                 </div>
               </div>
-            </div>
             <span id="payrollInfo" class="small" style="color:#64748b"></span>
           </div>
         </div>
