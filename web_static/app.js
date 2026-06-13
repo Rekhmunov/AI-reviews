@@ -11982,27 +11982,35 @@ function renderPayrollTable() {
   });
   tbody.innerHTML = rows || `<tr><td colspan="${FIXED_COLS.length + dates.length}" class="small" style="color:#9ca3af;text-align:center;padding:20px">Работники не найдены</td></tr>`;
 
-  // Scroll to last filled date column
-  requestAnimationFrame(() => _scrollToLastFilledDate(dates, FIXED_COLS.length));
+  // Scroll so the most recent past date is the first visible column
+  requestAnimationFrame(() => _scrollToCurrentDate(dates, FIXED_COLS.length));
 }
 
-function _scrollToLastFilledDate(dates, fixedCount) {
+function _scrollToCurrentDate(dates, fixedCount) {
   const wrap = document.getElementById("payrollWrap");
   if (!wrap) return;
-  // Find last date that has any data
-  const lastFilledIdx = [...dates].reverse().findIndex(d =>
-    payrollState.workers.some(w => payrollState.totals[`${w.id}_${d}`] > 0)
-  );
-  if (lastFilledIdx < 0) return;
-  const targetIdx = dates.length - 1 - lastFilledIdx;
+  const today = _dateFmt(new Date());
+
+  // Find the most recent date ≤ today (the last past date in the series)
+  let targetIdx = -1;
+  for (let i = dates.length - 1; i >= 0; i--) {
+    if (dates[i] <= today) { targetIdx = i; break; }
+  }
+  // Fallback: first date in series
+  if (targetIdx < 0) targetIdx = 0;
+
   const table = document.getElementById("payrollTable");
   if (!table) return;
   const headers = table.querySelectorAll("thead th");
   const target = headers[fixedCount + targetIdx];
-  if (target) {
-    const targetLeft = target.offsetLeft - 20;
-    wrap.scrollLeft = Math.max(0, targetLeft);
-  }
+  if (!target) return;
+
+  // Calculate total width of fixed (sticky) columns so we know where
+  // the scrollable area begins and can position the target as its first column
+  const fixedThs = Array.from(headers).slice(0, fixedCount);
+  const fixedTotalW = fixedThs.reduce((s, th) => s + (th.offsetWidth || 0), 0);
+  const targetLeft = target.offsetLeft - fixedTotalW;
+  wrap.scrollLeft = Math.max(0, targetLeft);
 }
 
 // Column resize — live width update via direct DOM manipulation, full re-render on mouseup
