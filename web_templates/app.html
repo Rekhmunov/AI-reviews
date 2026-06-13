@@ -1823,20 +1823,21 @@
       <!-- Payroll entry modal -->
       <div id="payrollEntryModal" class="modal-overlay hidden" role="dialog" aria-modal="true">
         <div class="payroll-modal-card">
-          <div class="modal-card-header">
-            <h4 class="no-margin" id="payrollModalTitle">Начисление ЗП</h4>
+          <div class="modal-card-header" style="position:relative">
+            <div style="display:flex;align-items:center;gap:10px;min-width:0;overflow:visible">
+              <h4 class="no-margin" style="white-space:nowrap">Начисление ЗП</h4>
+              <a id="payrollModalDateLink" class="payroll-date-link" onclick="togglePayrollModalDateList(event)" href="#"
+                style="font-size:14px;font-weight:600;color:#475569;border-bottom:1px dashed #94a3b8">
+                <span id="payrollModalDateDisplay">Выбрать дату</span> 📅
+              </a>
+              <!-- Custom date dropdown -->
+              <div id="payrollModalDateList" class="supplies-date-panel"
+                style="display:none;max-height:220px;overflow-y:auto;min-width:140px;top:calc(100% + 4px);left:0;z-index:9999"></div>
+            </div>
             <button type="button" class="modal-close-btn" onclick="closePayrollModal()" aria-label="Закрыть">✕</button>
           </div>
           <div id="payrollModalWorkerInfo" class="payroll-modal-header-info"></div>
           <div class="perm-modal-body" style="padding:16px;gap:12px">
-            <div style="display:flex;align-items:center;gap:10px;position:relative">
-              <span class="small" style="color:#64748b;white-space:nowrap">Дата начисления:</span>
-              <a id="payrollModalDateLink" class="payroll-date-link" onclick="togglePayrollModalDateList(event)" href="#">
-                <span id="payrollModalDateDisplay">Выбрать дату</span> 📅
-              </a>
-              <!-- Custom date dropdown — only shows valid 7-day series dates -->
-              <div id="payrollModalDateList" class="supplies-date-panel" style="display:none;max-height:220px;overflow-y:auto;min-width:140px;top:calc(100% + 4px);left:0"></div>
-            </div>
             <div id="payrollModalProductsWrap" class="hidden">
               <div class="table-wrap">
                 <table>
