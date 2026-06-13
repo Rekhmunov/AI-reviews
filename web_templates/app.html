@@ -1821,7 +1821,14 @@
             </div>
             <div id="salaryWorkerAddForm" class="source-form hidden" style="margin-top:12px">
               <div class="row" style="flex-wrap:wrap;gap:10px">
-                <input id="salaryWorkerName" type="text" placeholder="ФИО работника" style="flex:1;min-width:200px" autocomplete="off" />
+                <input id="salaryWorkerName" type="text" placeholder="ФИО работника" style="flex:2;min-width:200px" autocomplete="off" />
+                <input id="salaryWorkerBirthDate" type="date" title="Дата рождения" style="min-width:160px" />
+                <select id="salaryWorkerLegalEntity" style="min-width:200px">
+                  <option value="">— Юр. принадлежность —</option>
+                  <option value="ООО ВарФабрик">ООО ВарФабрик</option>
+                  <option value="ИП Авдеева М.Ю.">ИП Авдеева М.Ю.</option>
+                  <option value="ИП Рехмунов Д.О.">ИП Рехмунов Д.О.</option>
+                </select>
                 <select id="salaryWorkerProduction" style="min-width:160px">
                   <option value="Иваново">Иваново</option>
                   <option value="Кинешма">Кинешма</option>
@@ -1841,8 +1848,10 @@
                 <thead>
                   <tr>
                     <th>ФИО</th>
+                    <th>Дата рождения</th>
+                    <th>Юр. принадлежность</th>
                     <th>Производство</th>
-                    <th style="width:80px">Действия</th>
+                    <th style="width:60px">Действия</th>
                   </tr>
                 </thead>
                 <tbody id="salaryWorkersTbody"></tbody>

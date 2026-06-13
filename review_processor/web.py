@@ -545,6 +545,8 @@ class ManagerSalaryAccessRequest(BaseModel):
 
 class SalaryWorkerCreateRequest(BaseModel):
     full_name: str = Field(min_length=1, max_length=200)
+    birth_date: str = Field(default="", max_length=20)
+    legal_entity: str = Field(default="", max_length=200)
     production: str = Field(default="", max_length=100)
 
 
@@ -5261,6 +5263,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         worker = repository.create_salary_worker(
             owner_user_id=owner_id,
             full_name=payload.full_name,
+            birth_date=payload.birth_date,
+            legal_entity=payload.legal_entity,
             production=payload.production,
         )
         return {"ok": True, "item": worker}
