@@ -11987,9 +11987,20 @@ function renderPayrollTable() {
   ];
 
   // ── LEFT: fixed 5 columns ─────────────────────────────────────────────────
+  // Use <colgroup> so table-layout:fixed applies widths to every row, not just <th>
+  const leftTable = document.getElementById("payrollTableLeft");
+  if (leftTable) {
+    let cg = '<colgroup>';
+    FIXED_COLS.forEach(c => { cg += `<col data-col="${c.key}" style="width:${c.w}px">`; });
+    cg += '</colgroup>';
+    const existingCg = leftTable.querySelector("colgroup");
+    if (existingCg) existingCg.outerHTML = cg;
+    else leftTable.insertAdjacentHTML("afterbegin", cg);
+  }
+
   let leftTh = '<tr>';
   FIXED_COLS.forEach(c => {
-    leftTh += `<th data-col="${c.key}" style="width:${c.w}px;min-width:${c.w}px;max-width:${c.w}px;overflow:visible;position:relative">
+    leftTh += `<th data-col="${c.key}" style="overflow:visible;position:relative">
       <span style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:6px">${esc(c.label)}</span>
       <span class="payroll-resize-handle" onmousedown="startPayrollResize(event,'${c.key}')"></span>
     </th>`;
@@ -12003,7 +12014,7 @@ function renderPayrollTable() {
       const val = c.key === 'seq' ? (idx+1)
         : c.key === 'birth_date' ? esc(_dateRuFull(w.birth_date))
         : esc(String(w[c.key]||""));
-      return `<td style="min-width:${c.w}px;max-width:${c.w}px">${val}</td>`;
+      return `<td>${val}</td>`;
     }).join("");
     return `<tr>${cells}</tr>`;
   }).join("") : emptyLeft;
@@ -12075,7 +12086,13 @@ function startPayrollResize(e, colKey) {
   document.body.style.cursor = "col-resize";
   document.body.style.userSelect = "none";
 
-  _resizeState = { colKey, startX: e.clientX, startW: _colWidths()[colKey] || 100 };
+  const leftPanel = document.getElementById("payrollLeftPanel");
+  _resizeState = {
+    colKey,
+    startX: e.clientX,
+    startW: _colWidths()[colKey] || 100,
+    panelStartW: parseInt(leftPanel?.style.width || "0"),
+  };
 
   const onMove = (ev) => {
     if (!_resizeState) return;
@@ -12088,21 +12105,19 @@ function startPayrollResize(e, colKey) {
       _resizeRafId = null;
       if (!_resizeState) return;
       const w = _resizeState.currentW;
-      // Update <th> widths in the left table
+      // Update only the <col> for this column — table-layout:fixed does the rest
       const leftTable = document.getElementById("payrollTableLeft");
       if (leftTable) {
-        leftTable.querySelectorAll(`th[data-col="${_resizeState.colKey}"]`).forEach(th => {
-          th.style.width = w + "px";
-          th.style.minWidth = w + "px";
-          th.style.maxWidth = w + "px";
-        });
+        const col = leftTable.querySelector(`col[data-col="${_resizeState.colKey}"]`);
+        if (col) col.style.width = w + "px";
       }
-      // Update left panel total width live
+      // Update left panel total width
       const leftPanel = document.getElementById("payrollLeftPanel");
       if (leftPanel) {
-        const currentW = parseInt(leftPanel.style.width || "0");
-        const oldW = _resizeState.startW;
-        leftPanel.style.width = (currentW - oldW + w) + "px";
+        const delta = w - _resizeState.startW;
+        const base = _resizeState.panelStartW || parseInt(leftPanel.style.width || "0");
+        leftPanel.style.width = (base + delta) + "px";
+        leftPanel.style.minWidth = (base + delta) + "px";
       }
     });
   };
