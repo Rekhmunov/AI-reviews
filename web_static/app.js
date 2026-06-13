@@ -12200,6 +12200,60 @@ function startPayrollResize(e, colKey) {
 window.startPayrollResize = startPayrollResize;
 
 // Date filter
+// ── Payroll export / import ───────────────────────────────────────────────
+
+async function exportPayrollTable() {
+  const params = new URLSearchParams();
+  if (payrollState.dateFrom) params.set("date_from", payrollState.dateFrom);
+  if (payrollState.dateTo)   params.set("date_to",   payrollState.dateTo);
+  try {
+    const res = await fetch("/api/salary/payroll/export?" + params.toString());
+    if (!res.ok) { alert("Ошибка экспорта"); return; }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "payroll.csv";
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
+  } catch (e) { alert("Ошибка: " + e.message); }
+}
+window.exportPayrollTable = exportPayrollTable;
+
+async function importPayrollTable(input) {
+  const file = input?.files?.[0];
+  if (!file) return;
+  const info = document.getElementById("payrollInfo");
+  if (info) { info.textContent = "Импорт..."; info.style.color = "#64748b"; }
+  try {
+    const formData = new FormData();
+    formData.append("file", file);
+    const res = await fetch("/api/salary/payroll/import", {
+      method: "POST",
+      headers: { "X-CSRF-Token": document.cookie.match(/csrf_token=([^;]+)/)?.[1] || "" },
+      body: formData,
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      if (info) { info.textContent = data.detail || "Ошибка импорта"; info.style.color = "#b91c1c"; }
+      return;
+    }
+    const errTxt = data.errors?.length ? `; ошибок: ${data.errors.length}` : "";
+    if (info) { info.textContent = `Импортировано ячеек: ${data.created}${errTxt}`; info.style.color = "#16a34a"; }
+    // Reload totals
+    const tRes = await fetch("/api/salary/totals");
+    const tData = await tRes.json();
+    payrollState.totals = {};
+    for (const t of (tData.items || [])) {
+      payrollState.totals[`${t.worker_id}_${t.entry_date}`] = parseFloat(t.total || 0);
+    }
+    renderPayrollTable();
+  } catch (e) {
+    if (info) { info.textContent = "Ошибка: " + e.message; info.style.color = "#b91c1c"; }
+  } finally {
+    if (input) input.value = "";
+  }
+}
+window.importPayrollTable = importPayrollTable;
+
 // ── Payroll date range calendar (mirrors WB supplies calendar) ────────────
 
 const _payrollCal = {
