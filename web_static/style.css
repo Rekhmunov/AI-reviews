@@ -5595,7 +5595,9 @@ button.secondary.danger:hover {
 /* Left panel cells (no sticky needed — separate table) */
 .payroll-table-fixed th { background: #e8f0fe; }
 .payroll-table-fixed td { background: #f0f7ff; }
-.payroll-table-fixed tr:hover td { background: #dbeafe; }
+/* Synchronized row hover — applied via JS to both left and right rows */
+.payroll-row-hover td { background: #dbeafe !important; }
+.payroll-row-hover.payroll-right-row td { background: #eff6ff !important; }
 
 /* Date columns */
 .payroll-date-th {

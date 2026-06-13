@@ -12209,8 +12209,8 @@ function renderPayrollTable() {
         : '';
       return `<td${extra}>${val}</td>`;
     }).join("");
-    return `<tr style="cursor:pointer" onclick="openPayrollModal(${w.id},'${defaultDate}')"
-      onmouseover="this.style.background='#dbeafe'" onmouseout="this.style.background=''"
+    return `<tr class="payroll-left-row" data-row="${idx}" data-wid="${w.id}"
+      style="cursor:pointer" onclick="openPayrollModal(${w.id},'${defaultDate}')"
     >${cells}</tr>`;
   }).join("") : emptyLeft;
 
@@ -12233,18 +12233,37 @@ function renderPayrollTable() {
   rightThead.innerHTML = rightTh;
 
   const emptyRight = `<tr><td colspan="${dates.length}" class="small" style="color:#9ca3af;text-align:center">—</td></tr>`;
-  rightTbody.innerHTML = workers.length ? workers.map(w => {
+  rightTbody.innerHTML = workers.length ? workers.map((w, idx) => {
     let cells = dates.map(d => {
       const total = payrollState.totals[`${w.id}_${d}`];
       const hasData = total != null && total > 0;
       return `<td class="payroll-date-td${hasData?" has-data":""}${d===today?" current-week":""}"
         onclick="openPayrollModal(${w.id},'${d}')">${hasData ? _fmtRub(total) : ""}</td>`;
     }).join("");
-    return `<tr>${cells}</tr>`;
+    return `<tr class="payroll-right-row" data-row="${idx}">${cells}</tr>`;
   }).join("") : emptyRight;
 
-  // Scroll right panel to nearest past date
-  requestAnimationFrame(() => _scrollToCurrentDate(dates));
+  // Bind synchronized row hover after render
+  requestAnimationFrame(() => {
+    _bindPayrollRowHover();
+    _scrollToCurrentDate(dates);
+  });
+}
+
+function _bindPayrollRowHover() {
+  const leftRows  = document.querySelectorAll("#payrollTbodyLeft .payroll-left-row");
+  const rightRows = document.querySelectorAll("#payrollTbodyRight .payroll-right-row");
+
+  const allByIdx = {};
+  leftRows.forEach(tr  => { const i = tr.dataset.row; (allByIdx[i] = allByIdx[i]||[]).push(tr); });
+  rightRows.forEach(tr => { const i = tr.dataset.row; (allByIdx[i] = allByIdx[i]||[]).push(tr); });
+
+  Object.values(allByIdx).forEach(rows => {
+    rows.forEach(tr => {
+      tr.addEventListener("mouseenter", () => rows.forEach(r => r.classList.add("payroll-row-hover")));
+      tr.addEventListener("mouseleave", () => rows.forEach(r => r.classList.remove("payroll-row-hover")));
+    });
+  });
 }
 
 function _scrollToCurrentDate(dates) {
