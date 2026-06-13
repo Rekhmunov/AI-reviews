@@ -11789,6 +11789,7 @@ async function loadSalaryWorkers() {
     if (info) info.textContent = "";
     const workers = data.items || [];
     window._salaryWorkersCache = workers; // cache for edit modal
+    _updateWorkersBulkBtn(); // reset bulk delete button state
     if (!workers.length) {
       const tr = document.createElement("tr");
       tr.innerHTML = '<td colspan="8" class="small" style="color:#9ca3af">Работники не добавлены</td>';
@@ -11799,6 +11800,7 @@ async function loadSalaryWorkers() {
       const tr = document.createElement("tr");
       const accVisible = w.visible_for_accountant !== false ? "Да" : "Нет";
       tr.innerHTML = `
+        <td><input type="checkbox" class="salary-worker-chk" data-id="${w.id}" onchange="_updateWorkersBulkBtn()" /></td>
         <td>${esc(w.full_name || "")}</td>
         <td>${esc(w.position || "")}</td>
         <td>${esc(_dateRuFull(w.birth_date))}</td>
@@ -12002,6 +12004,52 @@ async function saveEditSalaryWorker() {
   }
 }
 window.saveEditSalaryWorker = saveEditSalaryWorker;
+
+// ── Salary workers bulk delete ────────────────────────────────────────────
+
+function _updateWorkersBulkBtn() {
+  const checked = document.querySelectorAll(".salary-worker-chk:checked");
+  const btn = document.getElementById("salaryWorkersBulkDeleteBtn");
+  const cnt = document.getElementById("salaryWorkersBulkCount");
+  if (btn) btn.classList.toggle("hidden", checked.length === 0);
+  if (cnt) cnt.textContent = checked.length;
+  // Sync select-all checkbox state
+  const all = document.querySelectorAll(".salary-worker-chk");
+  const selAll = document.getElementById("salaryWorkersSelectAll");
+  if (selAll) {
+    selAll.indeterminate = checked.length > 0 && checked.length < all.length;
+    selAll.checked = all.length > 0 && checked.length === all.length;
+  }
+}
+window._updateWorkersBulkBtn = _updateWorkersBulkBtn;
+
+function toggleAllSalaryWorkers(checked) {
+  document.querySelectorAll(".salary-worker-chk").forEach(cb => { cb.checked = checked; });
+  _updateWorkersBulkBtn();
+}
+window.toggleAllSalaryWorkers = toggleAllSalaryWorkers;
+
+async function bulkDeleteSalaryWorkers() {
+  const ids = Array.from(document.querySelectorAll(".salary-worker-chk:checked"))
+    .map(cb => parseInt(cb.getAttribute("data-id")));
+  if (!ids.length) return;
+  if (!confirm(`Удалить ${ids.length} работник${ids.length === 1 ? "а" : "ов"}?`)) return;
+  const info = document.getElementById("salaryWorkersInfo");
+  if (info) { info.textContent = "Удаление..."; info.style.color = "#64748b"; }
+  let deleted = 0, errors = 0;
+  for (const id of ids) {
+    try {
+      const res = await fetch(`/api/salary/workers/${id}`, { method: "DELETE", headers: jsonHeaders() });
+      if (res.ok) deleted++; else errors++;
+    } catch (_) { errors++; }
+  }
+  if (info) {
+    info.textContent = `Удалено: ${deleted}` + (errors ? `; ошибок: ${errors}` : "");
+    info.style.color = errors ? "#b45309" : "#16a34a";
+  }
+  await loadSalaryWorkers();
+}
+window.bulkDeleteSalaryWorkers = bulkDeleteSalaryWorkers;
 
 // ── Salary Payroll (Начисление ЗП) ───────────────────────────────────────
 
