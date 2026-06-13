@@ -12238,7 +12238,7 @@ async function exportPayrollTable() {
     if (!res.ok) { alert("Ошибка экспорта"); return; }
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = "payroll.csv";
+    const a = document.createElement("a"); a.href = url; a.download = "payroll.xlsx";
     document.body.appendChild(a); a.click();
     document.body.removeChild(a); URL.revokeObjectURL(url);
   } catch (e) { alert("Ошибка: " + e.message); }
