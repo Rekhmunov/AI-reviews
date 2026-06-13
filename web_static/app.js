@@ -665,17 +665,17 @@ function initNavGroups() {
   const hasSalaryAccess = perms.can_view_salary || perms.can_view_salary_settings || isTenantOwner();
   if (hasSalaryAccess) {
     if (salaryHeader) salaryHeader.style.display = "";
-    if (salaryWrapper) {
-      const collapsed = Boolean(states["salary"]);
-      _applyNavGroup("salary", collapsed, false);
-    }
-    // nav-salary: only if has Начисление ЗП access
+    // Set nav item visibility BEFORE _applyNavGroup so scrollHeight
+    // includes all visible items when maxHeight is calculated
     const salaryNav = document.getElementById("nav-salary");
     if (salaryNav) salaryNav.style.display = (perms.can_view_salary || isTenantOwner()) ? "" : "none";
-    // nav-salary-settings: only if has Настройки access
     const salarySettingsNav = document.getElementById("nav-salary-settings");
     if (salarySettingsNav) {
       salarySettingsNav.style.display = (isTenantOwner() || perms.can_view_salary_settings) ? "" : "none";
+    }
+    if (salaryWrapper) {
+      const collapsed = Boolean(states["salary"]);
+      _applyNavGroup("salary", collapsed, false);
     }
   } else {
     if (salaryHeader) salaryHeader.style.display = "none";
@@ -710,6 +710,9 @@ function showSection(section, options = {}) {
   }
   if (section === "team") {
     loadTeam();
+  }
+  if (section === "salary") {
+    loadPayrollPage();
   }
   if (section === "supplies-settings") {
     showSuppliesSettingsTab(getPermissions().can_view_settings ? "sources" : "drivers");
@@ -11719,7 +11722,7 @@ window.toggleSalaryWorkerForm = function(show) {
   if (!form) return;
   form.classList.toggle("hidden", !show);
   if (!show) {
-    ["salaryWorkerName","salaryWorkerBirthDate"].forEach(id => {
+    ["salaryWorkerName","salaryWorkerPosition","salaryWorkerBirthDate"].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.value = "";
     });
@@ -11762,6 +11765,7 @@ async function loadSalaryWorkers() {
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td>${esc(w.full_name || "")}</td>
+        <td>${esc(w.position || "")}</td>
         <td>${esc(w.birth_date || "")}</td>
         <td>${esc(w.legal_entity || "")}</td>
         <td>${esc(w.production || "")}</td>
@@ -11780,6 +11784,7 @@ async function saveSalaryWorker() {
   const prodEl = document.getElementById("salaryWorkerProduction");
   const info = document.getElementById("salaryWorkersInfo");
   const fullName = String(nameEl?.value || "").trim();
+  const position = String(document.getElementById("salaryWorkerPosition")?.value || "").trim();
   const birthDate = String(document.getElementById("salaryWorkerBirthDate")?.value || "").trim();
   const legalEntity = String(document.getElementById("salaryWorkerLegalEntity")?.value || "").trim();
   const production = String(prodEl?.value || "").trim();
@@ -11792,7 +11797,7 @@ async function saveSalaryWorker() {
     const res = await fetch("/api/salary/workers", {
       method: "POST",
       headers: jsonHeaders(),
-      body: JSON.stringify({ full_name: fullName, birth_date: birthDate, legal_entity: legalEntity, production }),
+      body: JSON.stringify({ full_name: fullName, position, birth_date: birthDate, legal_entity: legalEntity, production }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -11831,6 +11836,444 @@ async function deleteSalaryWorker(workerId) {
   }
 }
 window.deleteSalaryWorker = deleteSalaryWorker;
+
+// ── Salary Payroll (Начисление ЗП) ───────────────────────────────────────
+
+const PAYROLL_START_DATE = new Date(2026, 0, 7); // Jan 7 2026
+const PAYROLL_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const PAYROLL_COL_WIDTHS_KEY = "payroll_col_widths";
+
+let payrollState = {
+  workers: [],
+  products: [],
+  totals: {}, // "workerId_dateStr" -> total
+  dateFrom: null,
+  dateTo: null,
+  // modal
+  modalWorkerId: null,
+  modalDate: null,
+  modalEntries: {}, // productId -> quantity
+};
+
+/** Generate date series: every 7 days from Jan 7 2026 up to today + 14 days */
+function _payrollDates() {
+  const dates = [];
+  const now = new Date();
+  const end = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+  let d = new Date(PAYROLL_START_DATE);
+  while (d <= end) {
+    dates.push(_dateFmt(d));
+    d = new Date(d.getTime() + PAYROLL_WEEK_MS);
+  }
+  return dates;
+}
+
+function _dateFmt(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function _dateRu(iso) {
+  if (!iso) return "";
+  const [y,m,day] = iso.split("-");
+  return `${day}.${m}.${String(y).slice(2)}`;
+}
+
+function _fmtRub(v) {
+  return Number(v||0).toLocaleString("ru-RU",{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+
+function _colWidths() {
+  try { return JSON.parse(localStorage.getItem(PAYROLL_COL_WIDTHS_KEY) || "{}"); } catch(_){return {};}
+}
+function _saveColWidths(w) {
+  try { localStorage.setItem(PAYROLL_COL_WIDTHS_KEY, JSON.stringify(w)); } catch(_){}
+}
+
+async function loadPayrollPage() {
+  const [wRes, pRes, tRes] = await Promise.all([
+    fetch("/api/salary/workers"),
+    fetch("/api/salary/products"),
+    fetch("/api/salary/totals"),
+  ]);
+  const [wData, pData, tData] = await Promise.all([wRes.json(), pRes.json(), tRes.json()]);
+  payrollState.workers = (wData.items || []).map((w,i) => ({...w, seq: i+1}));
+  payrollState.products = pData.items || [];
+  payrollState.totals = {};
+  for (const t of (tData.items || [])) {
+    payrollState.totals[`${t.worker_id}_${t.entry_date}`] = parseFloat(t.total || 0);
+  }
+  renderPayrollTable();
+}
+
+function _filteredWorkers() {
+  const search = String(document.getElementById("payrollSearchName")?.value || "").toLowerCase();
+  const prod = String(document.getElementById("payrollFilterProduction")?.value || "");
+  const legal = String(document.getElementById("payrollFilterLegal")?.value || "");
+  return payrollState.workers.filter(w => {
+    if (search && !String(w.full_name||"").toLowerCase().includes(search)) return false;
+    if (prod && w.production !== prod) return false;
+    if (legal && w.legal_entity !== legal) return false;
+    return true;
+  });
+}
+
+function _visibleDates() {
+  const all = _payrollDates();
+  const from = payrollState.dateFrom;
+  const to = payrollState.dateTo;
+  if (!from && !to) return all;
+  return all.filter(d => (!from || d >= from) && (!to || d <= to));
+}
+
+function renderPayrollTable() {
+  const thead = document.getElementById("payrollThead");
+  const tbody = document.getElementById("payrollTbody");
+  if (!thead || !tbody) return;
+
+  const workers = _filteredWorkers();
+  const dates = _visibleDates();
+  const colWidths = _colWidths();
+  const FIXED_COLS = [
+    {key:"seq", label:"№", w: colWidths["seq"]||48},
+    {key:"full_name", label:"ФИО", w: colWidths["full_name"]||180},
+    {key:"position", label:"Должность", w: colWidths["position"]||140},
+    {key:"birth_date", label:"Дата рождения", w: colWidths["birth_date"]||120},
+    {key:"legal_entity", label:"Юр. принадлежность", w: colWidths["legal_entity"]||170},
+  ];
+
+  // Build cumulative left offsets
+  let left = 0;
+  const offsets = FIXED_COLS.map(c => { const o = left; left += c.w; return o; });
+
+  // Header row
+  let thRow = '<tr>';
+  FIXED_COLS.forEach((c, i) => {
+    thRow += `<th class="payroll-fixed" style="--sticky-left:${offsets[i]}px;width:${c.w}px;min-width:${c.w}px;max-width:${c.w}px;position:sticky;left:${offsets[i]}px">
+      <div style="position:relative;overflow:hidden;text-overflow:ellipsis">${esc(c.label)}
+        <span class="payroll-resize-handle" data-col="${c.key}" onmousedown="startPayrollResize(event,'${c.key}')"></span>
+      </div>
+    </th>`;
+  });
+  // Date headers
+  const today = _dateFmt(new Date());
+  dates.forEach(d => {
+    const isCur = d === today || (d > today && new Date(d) - new Date(today) < PAYROLL_WEEK_MS);
+    thRow += `<th class="payroll-date-th${isCur?" current-week":""}">${_dateRu(d)}</th>`;
+  });
+  thRow += '</tr>';
+  thead.innerHTML = thRow;
+
+  // Body rows
+  let rows = '';
+  workers.forEach((w, idx) => {
+    rows += '<tr>';
+    FIXED_COLS.forEach((c, i) => {
+      let val = c.key === 'seq' ? (idx+1) : esc(String(w[c.key]||""));
+      rows += `<td class="payroll-fixed" style="left:${offsets[i]}px;position:sticky;background:#f0f7ff;min-width:${c.w}px;max-width:${c.w}px;overflow:hidden;text-overflow:ellipsis">${val}</td>`;
+    });
+    dates.forEach(d => {
+      const key = `${w.id}_${d}`;
+      const total = payrollState.totals[key];
+      const hasData = total != null && total > 0;
+      rows += `<td class="payroll-date-td${hasData?" has-data":""}${d===today?" current-week":""}" onclick="openPayrollModal(${w.id},'${d}')">${hasData ? _fmtRub(total) : ""}</td>`;
+    });
+    rows += '</tr>';
+  });
+  tbody.innerHTML = rows || `<tr><td colspan="${FIXED_COLS.length + dates.length}" class="small" style="color:#9ca3af;text-align:center;padding:20px">Работники не найдены</td></tr>`;
+
+  // Scroll to last filled date column
+  requestAnimationFrame(() => _scrollToLastFilledDate(dates, FIXED_COLS.length));
+}
+
+function _scrollToLastFilledDate(dates, fixedCount) {
+  const wrap = document.getElementById("payrollWrap");
+  if (!wrap) return;
+  // Find last date that has any data
+  const lastFilledIdx = [...dates].reverse().findIndex(d =>
+    payrollState.workers.some(w => payrollState.totals[`${w.id}_${d}`] > 0)
+  );
+  if (lastFilledIdx < 0) return;
+  const targetIdx = dates.length - 1 - lastFilledIdx;
+  const table = document.getElementById("payrollTable");
+  if (!table) return;
+  const headers = table.querySelectorAll("thead th");
+  const target = headers[fixedCount + targetIdx];
+  if (target) {
+    const targetLeft = target.offsetLeft - 20;
+    wrap.scrollLeft = Math.max(0, targetLeft);
+  }
+}
+
+// Column resize
+let _resizeState = null;
+function startPayrollResize(e, colKey) {
+  e.preventDefault();
+  e.stopPropagation();
+  _resizeState = { colKey, startX: e.clientX, startW: _colWidths()[colKey] || 100 };
+  const onMove = (ev) => {
+    if (!_resizeState) return;
+    const delta = ev.clientX - _resizeState.startX;
+    const newW = Math.max(60, _resizeState.startW + delta);
+    const ws = _colWidths();
+    ws[_resizeState.colKey] = newW;
+    _saveColWidths(ws);
+    renderPayrollTable();
+  };
+  const onUp = () => { _resizeState = null; document.removeEventListener("mousemove", onMove); document.removeEventListener("mouseup", onUp); };
+  document.addEventListener("mousemove", onMove);
+  document.addEventListener("mouseup", onUp);
+}
+window.startPayrollResize = startPayrollResize;
+
+// Date filter
+function togglePayrollDatePanel(forceOpen) {
+  const panel = document.getElementById("payrollDatePanel");
+  if (!panel) return;
+  if (forceOpen === false) { panel.classList.add("hidden"); return; }
+  panel.classList.toggle("hidden");
+}
+function applyPayrollDateFilter() {
+  payrollState.dateFrom = document.getElementById("payrollDateFrom")?.value || null;
+  payrollState.dateTo = document.getElementById("payrollDateTo")?.value || null;
+  _updatePayrollDateBtn();
+  togglePayrollDatePanel(false);
+  renderPayrollTable();
+}
+function clearPayrollDateFilter() {
+  payrollState.dateFrom = null;
+  payrollState.dateTo = null;
+  const f = document.getElementById("payrollDateFrom"); if(f) f.value="";
+  const t = document.getElementById("payrollDateTo"); if(t) t.value="";
+  _updatePayrollDateBtn();
+  renderPayrollTable();
+}
+function setPayrollDatePreset(preset) {
+  const today = new Date();
+  let from = null, to = _dateFmt(new Date(today.getTime() + 14*24*60*60*1000));
+  if (preset==="last_4_weeks") { from = _dateFmt(new Date(today.getTime()-28*24*60*60*1000)); }
+  else if (preset==="last_month") { const d=new Date(today); d.setMonth(d.getMonth()-1); from=_dateFmt(d); }
+  else if (preset==="last_3_months") { const d=new Date(today); d.setMonth(d.getMonth()-3); from=_dateFmt(d); }
+  else if (preset==="ytd") { from=`${today.getFullYear()}-01-07`; }
+  payrollState.dateFrom = from; payrollState.dateTo = to;
+  const f=document.getElementById("payrollDateFrom"); if(f) f.value=from||"";
+  const t2=document.getElementById("payrollDateTo"); if(t2) t2.value=to||"";
+  _updatePayrollDateBtn();
+  togglePayrollDatePanel(false);
+  renderPayrollTable();
+}
+function _updatePayrollDateBtn() {
+  const btn = document.getElementById("payrollDateRangeBtn");
+  if (!btn) return;
+  if (payrollState.dateFrom && payrollState.dateTo) {
+    btn.textContent = `📅 ${_dateRu(payrollState.dateFrom)} - ${_dateRu(payrollState.dateTo)}`;
+  } else { btn.textContent = "📅 Период: все даты"; }
+}
+
+window.togglePayrollDatePanel = togglePayrollDatePanel;
+window.applyPayrollDateFilter = applyPayrollDateFilter;
+window.clearPayrollDateFilter = clearPayrollDateFilter;
+window.setPayrollDatePreset = setPayrollDatePreset;
+window.renderPayrollTable = renderPayrollTable;
+
+// ── Payroll entry modal ───────────────────────────────────────────────────
+
+function openPayrollModal(workerId, date) {
+  const w = payrollState.workers.find(x => x.id === workerId);
+  if (!w) return;
+  payrollState.modalWorkerId = workerId;
+  payrollState.modalDate = date;
+  payrollState.modalEntries = {};
+
+  const infoEl = document.getElementById("payrollModalWorkerInfo");
+  if (infoEl) {
+    infoEl.innerHTML = [
+      `<span><strong>ФИО:</strong> ${esc(w.full_name||"")}</span>`,
+      `<span><strong>Дата рождения:</strong> ${esc(w.birth_date||"")}</span>`,
+      `<span><strong>Юр. принадлежность:</strong> ${esc(w.legal_entity||"")}</span>`,
+      `<span><strong>Производство:</strong> ${esc(w.production||"")}</span>`,
+    ].join("");
+  }
+
+  // Set date
+  _setPayrollModalDate(date);
+  document.getElementById("payrollEntryModal")?.classList.remove("hidden");
+}
+window.openPayrollModal = openPayrollModal;
+
+function _setPayrollModalDate(date) {
+  payrollState.modalDate = date;
+  const linkEl = document.getElementById("payrollModalDateDisplay");
+  if (linkEl) linkEl.textContent = date ? _dateRu(date) : "Выбрать дату";
+  const inp = document.getElementById("payrollModalDateInput");
+  if (inp) inp.value = date || "";
+  if (date) _loadPayrollModalProducts(date);
+}
+
+function openPayrollDatePicker(e) {
+  e.preventDefault();
+  const inp = document.getElementById("payrollModalDateInput");
+  if (!inp) return;
+  // Set min/max to valid dates in the series
+  const dates = _payrollDates();
+  inp.min = dates[0];
+  inp.max = dates[dates.length-1];
+  // Make it visible temporarily for click
+  inp.style.opacity = "1";
+  inp.style.pointerEvents = "auto";
+  inp.style.position = "fixed";
+  inp.style.top = (e.clientY+4)+"px";
+  inp.style.left = e.clientX+"px";
+  inp.style.zIndex = "9999";
+  inp.showPicker?.();
+  const hide = () => { inp.style.opacity="0"; inp.style.pointerEvents="none"; inp.style.position="absolute"; document.removeEventListener("mousedown", hide); };
+  setTimeout(() => document.addEventListener("mousedown", hide), 200);
+}
+window.openPayrollDatePicker = openPayrollDatePicker;
+
+function onPayrollDateSelected() {
+  const inp = document.getElementById("payrollModalDateInput");
+  const val = inp?.value;
+  if (!val) return;
+  // Validate it's a valid date in the series
+  const dates = _payrollDates();
+  const isValid = dates.includes(val);
+  if (!isValid) {
+    const nearest = dates.reduce((a, b) => Math.abs(new Date(b)-new Date(val)) < Math.abs(new Date(a)-new Date(val)) ? b : a);
+    _setPayrollModalDate(nearest);
+  } else {
+    _setPayrollModalDate(val);
+  }
+}
+window.onPayrollDateSelected = onPayrollDateSelected;
+
+async function _loadPayrollModalProducts(date) {
+  const workerId = payrollState.modalWorkerId;
+  const w = payrollState.workers.find(x => x.id === workerId);
+  if (!w) return;
+  const wrap = document.getElementById("payrollModalProductsWrap");
+  const tbody = document.getElementById("payrollModalProductsTbody");
+  const infoEl = document.getElementById("payrollModalInfo");
+  if (!tbody || !wrap) return;
+
+  // Load existing entries
+  let existingMap = {};
+  try {
+    const res = await fetch(`/api/salary/entries?worker_id=${workerId}&entry_date=${date}`);
+    const data = await res.json();
+    for (const e of (data.items||[])) {
+      existingMap[e.product_id] = parseFloat(e.quantity||0);
+    }
+  } catch(_) {}
+
+  payrollState.modalEntries = {...existingMap};
+
+  // Determine price column based on production
+  const prod = (w.production||"").toLowerCase();
+  const priceCol = prod.includes("кинешма") ? "price_kineshma"
+    : prod.includes("нерль") ? "price_nerl"
+    : "price_ivanovo";
+
+  const products = payrollState.products;
+  if (!products.length) {
+    if(infoEl) infoEl.textContent = "Товары не настроены (Зарплата → Настройки → Товары)";
+    wrap.classList.add("hidden");
+    return;
+  }
+  if(infoEl) infoEl.textContent = "";
+  wrap.classList.remove("hidden");
+
+  let rows = "";
+  products.forEach((p, idx) => {
+    const price = parseFloat(p[priceCol] || 0);
+    const qty = payrollState.modalEntries[p.id] || 0;
+    rows += `<tr>
+      <td>${idx+1}</td>
+      <td>${esc(p.name||"")}</td>
+      <td style="text-align:right">${_fmtRub(price)}</td>
+      <td><input type="number" class="payroll-qty-input" min="0" step="0.01"
+        data-product-id="${p.id}" data-price="${price}"
+        value="${qty||""}" placeholder="0"
+        oninput="updatePayrollTotal()" style="width:80px;min-height:32px;text-align:right" /></td>
+      <td id="payroll-row-sum-${p.id}" style="text-align:right">${qty ? _fmtRub(qty*price) : ""}</td>
+    </tr>`;
+  });
+  tbody.innerHTML = rows;
+  updatePayrollTotal();
+}
+
+function updatePayrollTotal() {
+  let total = 0;
+  document.querySelectorAll(".payroll-qty-input").forEach(inp => {
+    const qty = parseFloat(inp.value||0)||0;
+    const price = parseFloat(inp.getAttribute("data-price")||0)||0;
+    const pid = inp.getAttribute("data-product-id");
+    const rowSum = qty * price;
+    total += rowSum;
+    payrollState.modalEntries[parseInt(pid)] = qty;
+    const rowSumEl = document.getElementById(`payroll-row-sum-${pid}`);
+    if (rowSumEl) rowSumEl.textContent = qty > 0 ? _fmtRub(rowSum) : "";
+  });
+  const totalEl = document.getElementById("payrollModalTotal");
+  if (totalEl) totalEl.textContent = _fmtRub(total) + " ₽";
+}
+window.updatePayrollTotal = updatePayrollTotal;
+
+async function savePayrollEntry() {
+  const workerId = payrollState.modalWorkerId;
+  const date = payrollState.modalDate;
+  if (!workerId || !date) return;
+  const infoEl = document.getElementById("payrollModalInfo");
+  const btn = document.getElementById("payrollModalSaveBtn");
+  if (btn) { btn.disabled = true; btn.textContent = "Сохранение..."; }
+
+  const w = payrollState.workers.find(x => x.id === workerId);
+  const prod = (w?.production||"").toLowerCase();
+  const priceCol = prod.includes("кинешма") ? "price_kineshma"
+    : prod.includes("нерль") ? "price_nerl"
+    : "price_ivanovo";
+
+  const entries = payrollState.products
+    .map(p => ({
+      product_id: p.id,
+      quantity: parseFloat(payrollState.modalEntries[p.id]||0)||0,
+      price_snapshot: parseFloat(p[priceCol]||0)||0,
+    }))
+    .filter(e => e.quantity > 0);
+
+  try {
+    const res = await fetch("/api/salary/entries", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ worker_id: workerId, entry_date: date, entries }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      if (infoEl) { infoEl.textContent = data.detail || "Ошибка сохранения"; infoEl.style.color = "#b91c1c"; }
+      return;
+    }
+    // Refresh totals and close
+    const total = entries.reduce((s, e) => s + e.quantity * e.price_snapshot, 0);
+    payrollState.totals[`${workerId}_${date}`] = total || undefined;
+    if (total <= 0) delete payrollState.totals[`${workerId}_${date}`];
+    renderPayrollTable();
+    closePayrollModal();
+  } catch (e) {
+    if (infoEl) { infoEl.textContent = "Ошибка: " + e.message; infoEl.style.color = "#b91c1c"; }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "Сохранить"; }
+  }
+}
+window.savePayrollEntry = savePayrollEntry;
+
+function closePayrollModal() {
+  document.getElementById("payrollEntryModal")?.classList.add("hidden");
+  payrollState.modalWorkerId = null;
+  payrollState.modalDate = null;
+  payrollState.modalEntries = {};
+  document.getElementById("payrollModalProductsWrap")?.classList.add("hidden");
+  document.getElementById("payrollModalInfo") && (document.getElementById("payrollModalInfo").textContent = "");
+}
+window.closePayrollModal = closePayrollModal;
 
 // ── Salary Products ───────────────────────────────────────────────────────
 
