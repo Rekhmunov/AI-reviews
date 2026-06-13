@@ -6551,6 +6551,10 @@ class ReviewRepository:
         conn.execute(
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS can_salary_settings BOOLEAN NOT NULL DEFAULT FALSE"
         )
+        # Add salary_productions for production-level access control (JSON array)
+        conn.execute(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS salary_productions TEXT NOT NULL DEFAULT '[]'"
+        )
         # Add transit/actual warehouse columns (idempotent)
         conn.execute(
             "ALTER TABLE supply_items ADD COLUMN IF NOT EXISTS transit_warehouse_name TEXT"
@@ -7805,11 +7809,21 @@ class ReviewRepository:
             return False
         return bool((row.get("can_supplies") if hasattr(row, "get") else row[0]))  # type: ignore[index]
 
-    def set_user_can_salary(self, *, user_id: int, can_salary: bool, can_salary_settings: bool = False) -> None:
+    def set_user_can_salary(
+        self, *, user_id: int, can_salary: bool,
+        can_salary_settings: bool = False,
+        salary_productions: list[str] | None = None,
+    ) -> None:
+        import json as _j
+        prods_json = _j.dumps(list(salary_productions or []), ensure_ascii=False)
         with self._connect() as conn:
             conn.execute(
-                self._sql("UPDATE users SET can_salary = ?, can_salary_settings = ? WHERE id = ?"),
-                (self._bool_db(can_salary), self._bool_db(can_salary_settings), user_id),
+                self._sql(
+                    "UPDATE users SET can_salary = ?, can_salary_settings = ?, "
+                    "salary_productions = ? WHERE id = ?"
+                ),
+                (self._bool_db(can_salary), self._bool_db(can_salary_settings),
+                 prods_json, user_id),
             )
 
     def get_user_can_salary(self, *, user_id: int) -> bool:

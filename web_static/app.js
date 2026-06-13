@@ -104,6 +104,7 @@ const teamState = {
   pendingCanSupplies: false,
   pendingCanSalary: false,
   pendingCanSalarySettings: false,
+  pendingCanSalaryProductions: [],
   pendingSupplyPermissions: null,
 };
 let syncInProgress = false;
@@ -516,6 +517,7 @@ function getPermissions() {
     can_view_chats:     _b("can_view_chats", true),
     can_view_salary:          _b("can_view_salary", false),
     can_view_salary_settings: _b("can_view_salary_settings", false),
+    can_salary_productions: (window.APP_PERMISSIONS || {}).can_salary_productions ?? null,
     is_admin:           _b("is_admin", false),
   };
 }
@@ -9107,7 +9109,7 @@ function updateTeamPermissionsPreview() {
   if (!permissions.length && !canSupplies && !canSalary && !teamState.pendingCanSalarySettings) {
     preview.textContent = "Разрешения не выбраны";
   } else {
-    preview.textContent = formatManagerPermissionsText(permissions, canSupplies, teamState.pendingSupplyPermissions, canSalary, teamState.pendingCanSalarySettings);
+    preview.textContent = formatManagerPermissionsText(permissions, canSupplies, teamState.pendingSupplyPermissions, canSalary, teamState.pendingCanSalarySettings, teamState.pendingCanSalaryProductions);
   }
 }
 
@@ -9272,7 +9274,7 @@ function collectManagerPermissionsFromModal() {
   return Array.from(map.values()).filter((item) => item.can_reviews || item.can_questions || item.can_chats);
 }
 
-function formatManagerPermissionsText(permissions, canSupplies, supplyPermissions, canSalary, canSalarySettings) {
+function formatManagerPermissionsText(permissions, canSupplies, supplyPermissions, canSalary, canSalarySettings, salaryProductions) {
   const rows = Array.isArray(permissions) ? permissions : [];
   // Build supplies summary from granular permissions
   const sp = supplyPermissions || {};
@@ -9291,7 +9293,11 @@ function formatManagerPermissionsText(permissions, canSupplies, supplyPermission
     ? "Поставки: " + uniqueParts.join(", ")
     : (canSupplies ? "Поставки" : "");
   const salaryParts = [];
-  if (canSalary) salaryParts.push("Начисление ЗП");
+  if (canSalary) {
+    const prods = Array.isArray(salaryProductions) && salaryProductions.length
+      ? " (" + salaryProductions.join(", ") + ")" : "";
+    salaryParts.push("Начисление ЗП" + prods);
+  }
   if (canSalarySettings) salaryParts.push("Настройки");
   const salaryText = salaryParts.length ? "Зарплата: " + salaryParts.join(", ") : "";
   if (!rows.length && !suppliesText && !salaryText) return "Доступы не назначены";
@@ -9342,7 +9348,7 @@ async function loadTeam() {
   } else {
     for (const member of teamState.items) {
       const memberId = Number(member.id || 0);
-      const permsText = formatManagerPermissionsText(member.manager_permissions || [], member.can_supplies, member.supply_permissions, member.can_salary, member.can_salary_settings);
+      const permsText = formatManagerPermissionsText(member.manager_permissions || [], member.can_supplies, member.supply_permissions, member.can_salary, member.can_salary_settings, member.salary_productions);
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td>${esc(member.id)}</td>
@@ -9412,12 +9418,13 @@ async function openEditTeamMember(userId) {
   teamState.pendingCanSupplies = Boolean(member.can_supplies);
   teamState.pendingCanSalary = Boolean(member.can_salary);
   teamState.pendingCanSalarySettings = Boolean(member.can_salary_settings);
+  teamState.pendingCanSalaryProductions = Array.isArray(member.salary_productions) ? [...member.salary_productions] : [];
   // Pre-populate from the data already loaded by loadTeam() so saveEditTeamMember
   // always has a complete supply payload even if the permissions modal is never opened.
   teamState.pendingSupplyPermissions = member.supply_permissions
     ? { ...member.supply_permissions, sources: { ...(member.supply_permissions.sources || {}) } }
     : null;
-  const permText = formatManagerPermissionsText(member.manager_permissions || [], member.can_supplies, member.supply_permissions, member.can_salary, member.can_salary_settings);
+  const permText = formatManagerPermissionsText(member.manager_permissions || [], member.can_supplies, member.supply_permissions, member.can_salary, member.can_salary_settings, member.salary_productions);
   document.getElementById("editMemberPermissionsPreview").textContent = permText || "Нет доступов";
   const modal = document.getElementById("editTeamMemberModal");
   if (modal) { modal.classList.remove("hidden"); modal.style.display = ""; }
@@ -9431,6 +9438,7 @@ function closeEditTeamMember() {
   teamState.pendingCanSupplies = false;
   teamState.pendingCanSalary = false;
   teamState.pendingCanSalarySettings = false;
+  teamState.pendingCanSalaryProductions = [];
   teamState.pendingSupplyPermissions = null;
 }
 
@@ -9456,6 +9464,7 @@ async function openManagerPermissionsModalForEdit() {
   if (salaryChk) salaryChk.checked = teamState.pendingCanSalary;
   const salaryStgChk = document.getElementById("managerSalarySettingsAccess");
   if (salaryStgChk) salaryStgChk.checked = teamState.pendingCanSalarySettings;
+  _setPayrollProductionCheckboxes(teamState.pendingCanSalaryProductions);
   // Initialise parent (category) checkboxes
   initPermSectionToggles(
     teamState.pendingPermissions.length > 0,
@@ -9525,6 +9534,7 @@ async function saveEditTeamMember() {
       body: JSON.stringify({
         can_salary: Boolean(teamState.pendingCanSalary),
         can_salary_settings: Boolean(teamState.pendingCanSalarySettings),
+        salary_productions: teamState.pendingCanSalaryProductions || [],
       }),
     });
     if (!pr4.ok) {
@@ -9601,6 +9611,7 @@ async function openManagerPermissionsModalForCreate() {
   if (salaryChkCreate) salaryChkCreate.checked = Boolean(teamState.pendingCanSalary);
   const salaryStgChkCreate = document.getElementById("managerSalarySettingsAccess");
   if (salaryStgChkCreate) salaryStgChkCreate.checked = Boolean(teamState.pendingCanSalarySettings);
+  _setPayrollProductionCheckboxes(teamState.pendingCanSalaryProductions);
   // Initialise parent (category) checkboxes
   initPermSectionToggles(
     (teamState.pendingPermissions || []).length > 0,
@@ -9621,9 +9632,11 @@ function applyManagerPermissionsSelection() {
                                       : { sources: {}, can_supply_settings: false, can_supply_poa: false, can_supply_certs: false };
   const canSalary         = salaryEnabled && Boolean(document.getElementById("managerSalaryAccess")?.checked);
   const canSalarySettings = salaryEnabled && Boolean(document.getElementById("managerSalarySettingsAccess")?.checked);
+  const salaryProductions = salaryEnabled ? _collectPayrollProductions() : [];
   teamState.pendingSupplyPermissions = supplyPerms;
   teamState.pendingCanSalary = canSalary;
   teamState.pendingCanSalarySettings = canSalarySettings;
+  teamState.pendingCanSalaryProductions = salaryProductions;
   const hasAnySupply = supplyPerms.can_supply_settings || supplyPerms.can_supply_poa || supplyPerms.can_supply_certs ||
     Object.values(supplyPerms.sources || {}).some(s => s.wb || s.ozon);
   teamState.pendingCanSupplies = hasAnySupply;
@@ -9641,7 +9654,7 @@ function applyManagerPermissionsSelection() {
   setTeamInfo("Разрешения менеджера выбраны");
   const editPreview = document.getElementById("editMemberPermissionsPreview");
   if (editPreview && _editingMemberId) {
-    const txt = formatManagerPermissionsText(permissions, teamState.pendingCanSupplies, teamState.pendingSupplyPermissions, canSalary, canSalarySettings);
+    const txt = formatManagerPermissionsText(permissions, teamState.pendingCanSupplies, teamState.pendingSupplyPermissions, canSalary, canSalarySettings, salaryProductions);
     editPreview.textContent = txt || "Нет доступов";
   }
 }
@@ -9702,6 +9715,7 @@ async function saveNewManager() {
       body: JSON.stringify({
         can_salary: Boolean(teamState.pendingCanSalary),
         can_salary_settings: Boolean(teamState.pendingCanSalarySettings),
+        salary_productions: teamState.pendingCanSalaryProductions || [],
       }),
     }).catch(() => {});
   }
@@ -9712,6 +9726,7 @@ async function saveNewManager() {
   teamState.pendingCanSupplies = false;
   teamState.pendingCanSalary = false;
   teamState.pendingCanSalarySettings = false;
+  teamState.pendingCanSalaryProductions = [];
   updateTeamPermissionsPreview();
   setTeamInfo("Менеджер создан");
   await loadTeam();
@@ -11735,6 +11750,21 @@ window.toggleSalaryWorkerForm = function(show) {
   }
 };
 
+function _collectPayrollProductions() {
+  const prods = [];
+  document.querySelectorAll("[data-production]").forEach(cb => {
+    if (cb.checked) prods.push(cb.getAttribute("data-production"));
+  });
+  return prods;
+}
+
+function _setPayrollProductionCheckboxes(prods) {
+  const arr = Array.isArray(prods) ? prods : [];
+  document.querySelectorAll("[data-production]").forEach(cb => {
+    cb.checked = arr.includes(cb.getAttribute("data-production"));
+  });
+}
+
 window.showSalarySettingsTab = function(tab) {
   document.querySelectorAll("#section-salary-settings .settings-tab-btn").forEach(b => b.classList.remove("active"));
   document.getElementById(`salary-settings-tab-${tab}`)?.classList.add("active");
@@ -11909,10 +11939,16 @@ function _filteredWorkers() {
   const search = String(document.getElementById("payrollSearchName")?.value || "").toLowerCase();
   const prod = String(document.getElementById("payrollFilterProduction")?.value || "");
   const legal = String(document.getElementById("payrollFilterLegal")?.value || "");
+  // Permission-based production filter (for managers)
+  const allowedProds = getPermissions().can_salary_productions; // null = all
   return payrollState.workers.filter(w => {
     if (search && !String(w.full_name||"").toLowerCase().includes(search)) return false;
     if (prod && w.production !== prod) return false;
     if (legal && w.legal_entity !== legal) return false;
+    // Server already filtered by production, but double-check client-side
+    if (allowedProds !== null && Array.isArray(allowedProds) && allowedProds.length > 0) {
+      if (!allowedProds.includes(w.production)) return false;
+    }
     return true;
   });
 }
