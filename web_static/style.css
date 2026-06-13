@@ -5670,8 +5670,8 @@ button.secondary.danger:hover {
   font-size: 13px;
   color: #475569;
   display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .payroll-modal-header-info strong {
