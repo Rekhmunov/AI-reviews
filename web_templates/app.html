@@ -1900,6 +1900,46 @@
             </div>
             <div id="salaryWorkersImportInfo" class="small" style="margin-top:4px"></div>
             <div id="salaryWorkersImportErrors" class="hidden" style="margin-top:6px;max-height:120px;overflow-y:auto;background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;padding:8px 12px;font-size:12px;color:#b91c1c"></div>
+
+  <!-- Edit salary worker modal -->
+  <div id="editSalaryWorkerModal" class="modal-overlay hidden" role="dialog" aria-modal="true" onclick="if(event.target===this)closeEditSalaryWorker()">
+    <div class="modal-card" style="max-width:560px">
+      <div class="modal-card-header">
+        <h4 class="no-margin">Редактировать работника</h4>
+        <button type="button" class="modal-close-btn" onclick="closeEditSalaryWorker()" aria-label="Закрыть">✕</button>
+      </div>
+      <div style="padding:20px;display:flex;flex-direction:column;gap:10px">
+        <input type="hidden" id="editSalaryWorkerId" />
+        <div class="row" style="flex-wrap:wrap;gap:10px">
+          <input id="editSalaryWorkerName" type="text" placeholder="ФИО работника" style="flex:2;min-width:200px" autocomplete="off" />
+          <input id="editSalaryWorkerPosition" type="text" placeholder="Должность" style="flex:1;min-width:150px" autocomplete="off" />
+        </div>
+        <div class="row" style="flex-wrap:wrap;gap:10px">
+          <input id="editSalaryWorkerBirthDate" type="date" title="Дата рождения" style="min-width:160px" />
+          <select id="editSalaryWorkerLegalEntity" style="min-width:200px">
+            <option value="">— Юр. принадлежность —</option>
+            <option value="ООО ВарФабрик">ООО ВарФабрик</option>
+            <option value="ИП Авдеева М.Ю.">ИП Авдеева М.Ю.</option>
+            <option value="ИП Рехмунов Д.О.">ИП Рехмунов Д.О.</option>
+          </select>
+          <select id="editSalaryWorkerProduction" style="min-width:160px">
+            <option value="Иваново">Иваново</option>
+            <option value="Кинешма">Кинешма</option>
+            <option value="Нерль">Нерль</option>
+          </select>
+          <select id="editSalaryWorkerVisible" style="min-width:140px">
+            <option value="true">Да</option>
+            <option value="false">Нет</option>
+          </select>
+        </div>
+        <div id="editSalaryWorkerInfo" class="small"></div>
+        <div class="row" style="justify-content:flex-end;gap:8px">
+          <button type="button" class="secondary" onclick="closeEditSalaryWorker()">Отмена</button>
+          <button type="button" onclick="saveEditSalaryWorker()">Сохранить</button>
+        </div>
+      </div>
+    </div>
+  </div>
             <div id="salaryWorkerAddForm" class="source-form hidden" style="margin-top:12px">
               <div class="row" style="flex-wrap:wrap;gap:10px">
                 <input id="salaryWorkerName" type="text" placeholder="ФИО работника" style="flex:2;min-width:200px" autocomplete="off" />
@@ -1939,7 +1979,7 @@
                     <th>Юр. принадлежность</th>
                     <th>Производство</th>
                     <th>Бухгалтер</th>
-                    <th style="width:60px">Действия</th>
+                    <th style="width:80px">Действия</th>
                   </tr>
                 </thead>
                 <tbody id="salaryWorkersTbody"></tbody>
