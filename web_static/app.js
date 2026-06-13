@@ -11908,6 +11908,13 @@ function _dateRu(iso) {
   return `${day}.${m}.${String(y).slice(2)}`;
 }
 
+function _dateRuFull(iso) {
+  if (!iso) return "";
+  const parts = iso.split("-");
+  if (parts.length !== 3) return iso;
+  return `${parts[2]}.${parts[1]}.${parts[0]}`;
+}
+
 function _fmtRub(v) {
   return Number(v||0).toLocaleString("ru-RU",{minimumFractionDigits:2,maximumFractionDigits:2});
 }
@@ -12005,7 +12012,9 @@ function renderPayrollTable() {
   workers.forEach((w, idx) => {
     rows += '<tr>';
     FIXED_COLS.forEach((c, i) => {
-      let val = c.key === 'seq' ? (idx+1) : esc(String(w[c.key]||""));
+      let val = c.key === 'seq' ? (idx+1)
+        : c.key === 'birth_date' ? esc(_dateRuFull(w.birth_date))
+        : esc(String(w[c.key]||""));
       rows += `<td class="payroll-fixed" style="left:${offsets[i]}px;position:sticky;background:#f0f7ff;min-width:${c.w}px;max-width:${c.w}px;overflow:hidden;text-overflow:ellipsis">${val}</td>`;
     });
     dates.forEach(d => {
@@ -12172,7 +12181,7 @@ function openPayrollModal(workerId, date) {
   if (infoEl) {
     infoEl.innerHTML = [
       `<span><strong>ФИО:</strong> ${esc(w.full_name||"")}</span>`,
-      `<span><strong>Дата рождения:</strong> ${esc(w.birth_date||"")}</span>`,
+      `<span><strong>Дата рождения:</strong> ${esc(_dateRuFull(w.birth_date))}</span>`,
       `<span><strong>Юр. принадлежность:</strong> ${esc(w.legal_entity||"")}</span>`,
       `<span><strong>Производство:</strong> ${esc(w.production||"")}</span>`,
     ].join("");
