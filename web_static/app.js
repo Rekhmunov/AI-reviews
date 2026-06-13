@@ -12564,7 +12564,6 @@ async function _loadPayrollModalProducts(date) {
     const price = parseFloat(p[priceCol] || 0);
     const qty = payrollState.modalEntries[p.id] || 0;
     rows += `<tr>
-      <td>${idx+1}</td>
       <td>${esc(p.name||"")}</td>
       <td style="text-align:right">${_fmtRub(price)}</td>
       <td><input type="number" class="payroll-qty-input" min="0" step="0.01"
@@ -12663,7 +12662,7 @@ window.toggleSalaryProductForm = function(show) {
   if (!form) return;
   form.classList.toggle("hidden", !show);
   if (!show) {
-    ["salaryProductOrderNum","salaryProductName","salaryProductPriceIvanovo",
+    ["salaryProductName","salaryProductPriceIvanovo",
      "salaryProductPriceKineshma","salaryProductPriceNerl"].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.value = "";
@@ -12671,7 +12670,7 @@ window.toggleSalaryProductForm = function(show) {
     const info = document.getElementById("salaryProductsInfo");
     if (info) info.textContent = "";
   } else {
-    document.getElementById("salaryProductOrderNum")?.focus();
+    document.getElementById("salaryProductName")?.focus();
   }
 };
 
@@ -12688,7 +12687,7 @@ async function loadSalaryProducts() {
     const items = data.items || [];
     if (!items.length) {
       const tr = document.createElement("tr");
-      tr.innerHTML = '<td colspan="6" class="small" style="color:#9ca3af">Товары не добавлены</td>';
+      tr.innerHTML = '<td colspan="5" class="small" style="color:#9ca3af">Товары не добавлены</td>';
       tbody.appendChild(tr);
       return;
     }
@@ -12696,7 +12695,6 @@ async function loadSalaryProducts() {
     for (const p of items) {
       const tr = document.createElement("tr");
       tr.innerHTML = `
-        <td>${esc(String(p.order_num ?? ""))}</td>
         <td>${esc(p.name || "")}</td>
         <td>${fmt(p.price_ivanovo)}</td>
         <td>${fmt(p.price_kineshma)}</td>
@@ -12720,7 +12718,7 @@ async function saveSalaryProduct() {
     return;
   }
   const payload = {
-    order_num: parseInt(document.getElementById("salaryProductOrderNum")?.value || "0") || 0,
+    order_num: 0,
     name,
     price_ivanovo: parseFloat(document.getElementById("salaryProductPriceIvanovo")?.value || "0") || 0,
     price_kineshma: parseFloat(document.getElementById("salaryProductPriceKineshma")?.value || "0") || 0,
