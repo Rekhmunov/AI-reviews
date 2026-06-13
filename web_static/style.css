@@ -5524,6 +5524,7 @@ button.secondary.danger:hover {
 
 /* ── Salary Payroll Table ────────────────────────────────────────────────── */
 
+/* Deprecated single-wrap — kept for safety */
 .payroll-wrap {
   overflow-x: auto;
   overflow-y: visible;
@@ -5533,17 +5534,48 @@ button.secondary.danger:hover {
   background: #fff;
 }
 
+/* Split layout: fixed left + scrollable right */
+.payroll-outer {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.payroll-left-panel {
+  flex-shrink: 0;
+  overflow: hidden;
+  border-right: 2px solid #bfdbfe;
+  background: #f0f7ff;
+  z-index: 2;
+}
+
+.payroll-right-panel {
+  flex: 1 1 auto;
+  overflow-x: auto;
+  overflow-y: hidden;
+  min-width: 0;
+}
+
 .payroll-table {
   border-collapse: collapse;
   width: max-content;
-  min-width: 100%;
   font-size: 13px;
+}
+
+.payroll-table-fixed {
+  width: 100%;
 }
 
 .payroll-table th,
 .payroll-table td {
-  padding: 8px 10px;
+  padding: 0 10px;
+  height: 41px;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   border-bottom: 1px solid #f1f5f9;
   border-right: 1px solid #f1f5f9;
 }
@@ -5559,27 +5591,10 @@ button.secondary.danger:hover {
   z-index: 2;
 }
 
-/* Fixed left columns */
-.payroll-fixed {
-  position: sticky;
-  left: var(--sticky-left, 0);
-  z-index: 3;
-  background: #f0f7ff;
-}
-
-.payroll-table th.payroll-fixed {
-  z-index: 4;
-  background: #e8f0fe;
-  border-right: 2px solid #bfdbfe;
-}
-
-.payroll-table td.payroll-fixed {
-  border-right: 2px solid #bfdbfe;
-}
-
-.payroll-table tr:hover td.payroll-fixed {
-  background: #dbeafe;
-}
+/* Left panel cells (no sticky needed — separate table) */
+.payroll-table-fixed th { background: #e8f0fe; }
+.payroll-table-fixed td { background: #f0f7ff; }
+.payroll-table-fixed tr:hover td { background: #dbeafe; }
 
 /* Date columns */
 .payroll-date-th {

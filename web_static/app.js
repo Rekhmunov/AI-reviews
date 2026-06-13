@@ -11969,93 +11969,98 @@ function _visibleDates() {
 }
 
 function renderPayrollTable() {
-  const thead = document.getElementById("payrollThead");
-  const tbody = document.getElementById("payrollTbody");
-  if (!thead || !tbody) return;
+  const leftThead = document.getElementById("payrollTheadLeft");
+  const leftTbody = document.getElementById("payrollTbodyLeft");
+  const rightThead = document.getElementById("payrollTheadRight");
+  const rightTbody = document.getElementById("payrollTbodyRight");
+  if (!leftThead || !rightThead) return;
 
   const workers = _filteredWorkers();
   const dates = _visibleDates();
   const colWidths = _colWidths();
   const FIXED_COLS = [
-    {key:"seq", label:"№", w: colWidths["seq"]||48},
-    {key:"full_name", label:"ФИО", w: colWidths["full_name"]||180},
-    {key:"position", label:"Должность", w: colWidths["position"]||140},
-    {key:"birth_date", label:"Дата рождения", w: colWidths["birth_date"]||120},
-    {key:"legal_entity", label:"Юр. принадлежность", w: colWidths["legal_entity"]||170},
+    {key:"seq",          label:"№",                  w: colWidths["seq"]         || 48},
+    {key:"full_name",    label:"ФИО",                 w: colWidths["full_name"]   || 180},
+    {key:"position",     label:"Должность",           w: colWidths["position"]   || 140},
+    {key:"birth_date",   label:"Дата рождения",       w: colWidths["birth_date"] || 120},
+    {key:"legal_entity", label:"Юр. принадлежность",  w: colWidths["legal_entity"]|| 170},
   ];
 
-  // Build cumulative left offsets
-  let left = 0;
-  const offsets = FIXED_COLS.map(c => { const o = left; left += c.w; return o; });
-
-  // Header row
-  let thRow = '<tr>';
-  FIXED_COLS.forEach((c, i) => {
-    // Handle is on the <th> directly (not inside overflow:hidden div) so it stays visible
-    thRow += `<th class="payroll-fixed" data-col="${c.key}"
-        style="width:${c.w}px;min-width:${c.w}px;max-width:${c.w}px;position:sticky;left:${offsets[i]}px;overflow:visible">
+  // ── LEFT: fixed 5 columns ─────────────────────────────────────────────────
+  let leftTh = '<tr>';
+  FIXED_COLS.forEach(c => {
+    leftTh += `<th data-col="${c.key}" style="width:${c.w}px;min-width:${c.w}px;max-width:${c.w}px;overflow:visible;position:relative">
       <span style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:6px">${esc(c.label)}</span>
       <span class="payroll-resize-handle" onmousedown="startPayrollResize(event,'${c.key}')"></span>
     </th>`;
   });
-  // Date headers
-  const today = _dateFmt(new Date());
-  dates.forEach(d => {
-    const isCur = d === today || (d > today && new Date(d) - new Date(today) < PAYROLL_WEEK_MS);
-    thRow += `<th class="payroll-date-th${isCur?" current-week":""}">${_dateRu(d)}</th>`;
-  });
-  thRow += '</tr>';
-  thead.innerHTML = thRow;
+  leftTh += '</tr>';
+  leftThead.innerHTML = leftTh;
 
-  // Body rows
-  let rows = '';
-  workers.forEach((w, idx) => {
-    rows += '<tr>';
-    FIXED_COLS.forEach((c, i) => {
-      let val = c.key === 'seq' ? (idx+1)
+  const emptyLeft = `<tr><td colspan="${FIXED_COLS.length}" class="small" style="color:#9ca3af;text-align:center">Нет данных</td></tr>`;
+  leftTbody.innerHTML = workers.length ? workers.map((w, idx) => {
+    let cells = FIXED_COLS.map(c => {
+      const val = c.key === 'seq' ? (idx+1)
         : c.key === 'birth_date' ? esc(_dateRuFull(w.birth_date))
         : esc(String(w[c.key]||""));
-      rows += `<td class="payroll-fixed" style="left:${offsets[i]}px;position:sticky;background:#f0f7ff;min-width:${c.w}px;max-width:${c.w}px;overflow:hidden;text-overflow:ellipsis">${val}</td>`;
-    });
-    dates.forEach(d => {
-      const key = `${w.id}_${d}`;
-      const total = payrollState.totals[key];
-      const hasData = total != null && total > 0;
-      rows += `<td class="payroll-date-td${hasData?" has-data":""}${d===today?" current-week":""}" onclick="openPayrollModal(${w.id},'${d}')">${hasData ? _fmtRub(total) : ""}</td>`;
-    });
-    rows += '</tr>';
-  });
-  tbody.innerHTML = rows || `<tr><td colspan="${FIXED_COLS.length + dates.length}" class="small" style="color:#9ca3af;text-align:center;padding:20px">Работники не найдены</td></tr>`;
+      return `<td style="min-width:${c.w}px;max-width:${c.w}px">${val}</td>`;
+    }).join("");
+    return `<tr>${cells}</tr>`;
+  }).join("") : emptyLeft;
 
-  // Scroll so the most recent past date is the first visible column
-  requestAnimationFrame(() => _scrollToCurrentDate(dates, FIXED_COLS.length));
+  // Update left panel width
+  const leftPanel = document.getElementById("payrollLeftPanel");
+  if (leftPanel) {
+    const totalW = FIXED_COLS.reduce((s, c) => s + c.w, 0);
+    leftPanel.style.width = totalW + "px";
+    leftPanel.style.minWidth = totalW + "px";
+  }
+
+  // ── RIGHT: date columns only ──────────────────────────────────────────────
+  const today = _dateFmt(new Date());
+  let rightTh = '<tr>';
+  dates.forEach(d => {
+    const isCur = d === today || (d > today && new Date(d) - new Date(today) < PAYROLL_WEEK_MS);
+    rightTh += `<th class="payroll-date-th${isCur?" current-week":""}">${_dateRu(d)}</th>`;
+  });
+  rightTh += '</tr>';
+  rightThead.innerHTML = rightTh;
+
+  const emptyRight = `<tr><td colspan="${dates.length}" class="small" style="color:#9ca3af;text-align:center">—</td></tr>`;
+  rightTbody.innerHTML = workers.length ? workers.map(w => {
+    let cells = dates.map(d => {
+      const total = payrollState.totals[`${w.id}_${d}`];
+      const hasData = total != null && total > 0;
+      return `<td class="payroll-date-td${hasData?" has-data":""}${d===today?" current-week":""}"
+        onclick="openPayrollModal(${w.id},'${d}')">${hasData ? _fmtRub(total) : ""}</td>`;
+    }).join("");
+    return `<tr>${cells}</tr>`;
+  }).join("") : emptyRight;
+
+  // Scroll right panel to nearest past date
+  requestAnimationFrame(() => _scrollToCurrentDate(dates));
 }
 
-function _scrollToCurrentDate(dates, fixedCount) {
-  const wrap = document.getElementById("payrollWrap");
-  if (!wrap) return;
+function _scrollToCurrentDate(dates) {
+  const rightPanel = document.getElementById("payrollRightPanel");
+  if (!rightPanel) return;
   const today = _dateFmt(new Date());
 
-  // Find the most recent date ≤ today (the last past date in the series)
+  // Find the most recent date ≤ today
   let targetIdx = -1;
   for (let i = dates.length - 1; i >= 0; i--) {
     if (dates[i] <= today) { targetIdx = i; break; }
   }
-  // Fallback: first date in series
   if (targetIdx < 0) targetIdx = 0;
 
-  const table = document.getElementById("payrollTable");
+  const table = document.getElementById("payrollTableRight");
   if (!table) return;
   const headers = table.querySelectorAll("thead th");
-  const target = headers[fixedCount + targetIdx];
+  const target = headers[targetIdx];
   if (!target) return;
 
-  // Calculate total width of fixed (sticky) columns so we know where
-  // the scrollable area begins and can position the target as its first column
-  const fixedThs = Array.from(headers).slice(0, fixedCount);
-  const fixedTotalW = fixedThs.reduce((s, th) => s + (th.offsetWidth || 0), 0);
-  const targetLeft = target.offsetLeft - fixedTotalW;
-  wrap.scrollLeft = Math.max(0, targetLeft);
+  // Scroll so this date column is the first visible in the right panel
+  rightPanel.scrollLeft = Math.max(0, target.offsetLeft);
 }
 
 // Column resize — live width update via direct DOM manipulation, full re-render on mouseup
@@ -12078,21 +12083,27 @@ function startPayrollResize(e, colKey) {
     const newW = Math.max(60, _resizeState.startW + delta);
     _resizeState.currentW = newW;
 
-    // Throttle to one DOM update per animation frame
     if (_resizeRafId) return;
     _resizeRafId = requestAnimationFrame(() => {
       _resizeRafId = null;
       if (!_resizeState) return;
       const w = _resizeState.currentW;
-      // Update <th> widths directly (no full re-render)
-      const table = document.getElementById("payrollTable");
-      if (!table) return;
-      const ths = table.querySelectorAll(`th[data-col="${_resizeState.colKey}"]`);
-      ths.forEach(th => {
-        th.style.width = w + "px";
-        th.style.minWidth = w + "px";
-        th.style.maxWidth = w + "px";
-      });
+      // Update <th> widths in the left table
+      const leftTable = document.getElementById("payrollTableLeft");
+      if (leftTable) {
+        leftTable.querySelectorAll(`th[data-col="${_resizeState.colKey}"]`).forEach(th => {
+          th.style.width = w + "px";
+          th.style.minWidth = w + "px";
+          th.style.maxWidth = w + "px";
+        });
+      }
+      // Update left panel total width live
+      const leftPanel = document.getElementById("payrollLeftPanel");
+      if (leftPanel) {
+        const currentW = parseInt(leftPanel.style.width || "0");
+        const oldW = _resizeState.startW;
+        leftPanel.style.width = (currentW - oldW + w) + "px";
+      }
     });
   };
 

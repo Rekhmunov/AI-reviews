@@ -1815,12 +1815,20 @@
           </div>
         </div>
 
-        <!-- Payroll table -->
-        <div class="payroll-wrap" id="payrollWrap">
-          <table class="payroll-table" id="payrollTable">
-            <thead id="payrollThead"></thead>
-            <tbody id="payrollTbody"></tbody>
-          </table>
+        <!-- Payroll split table: fixed left (5 cols) + scrollable right (dates) -->
+        <div class="payroll-outer" id="payrollOuter">
+          <div class="payroll-left-panel" id="payrollLeftPanel">
+            <table class="payroll-table payroll-table-fixed" id="payrollTableLeft">
+              <thead id="payrollTheadLeft"></thead>
+              <tbody id="payrollTbodyLeft"></tbody>
+            </table>
+          </div>
+          <div class="payroll-right-panel" id="payrollRightPanel">
+            <table class="payroll-table" id="payrollTableRight">
+              <thead id="payrollTheadRight"></thead>
+              <tbody id="payrollTbodyRight"></tbody>
+            </table>
+          </div>
         </div>
       </section>
 
