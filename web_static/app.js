@@ -12629,16 +12629,12 @@ const PIECE_ROLES = ["Упаковщик", "Закройщик", "Швея"];
 
 // Which extra prod types are available per position
 const EXTRA_PROD_CONFIG = {
-  "Нач. производства":    ["poshiv", "raskroi", "upakovka"],
-  "Грузчик":              ["poshiv", "raskroi", "upakovka"],
-  "Комплектовщик":        ["poshiv", "raskroi", "upakovka"],
-  "Менеджер":             ["poshiv", "raskroi", "upakovka"],
-  "Бухгалтер":            ["poshiv", "raskroi", "upakovka"],
-  "Технический директор": ["poshiv", "raskroi", "upakovka"],
-  "Генеральный директор": ["poshiv", "raskroi", "upakovka"],
-  "Закройщик":            ["poshiv", "upakovka"],
-  "Швея":                 ["raskroi", "upakovka"],
-  "Упаковщик":            ["poshiv", "raskroi"],
+  "Нач. производства": ["poshiv", "raskroi", "upakovka"],
+  "Грузчик":           ["poshiv", "raskroi", "upakovka"],
+  "Комплектовщик":     ["poshiv", "raskroi", "upakovka"],
+  "Закройщик":         ["poshiv", "upakovka"],
+  "Швея":              ["raskroi", "upakovka"],
+  "Упаковщик":         ["poshiv", "raskroi"],
 };
 
 const PROD_TYPE_LABELS = { poshiv: "Пошив", raskroi: "Закрой", upakovka: "Упаковка" };
