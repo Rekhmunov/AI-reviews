@@ -8082,38 +8082,92 @@ class ReviewRepository:
                 )
 
     def get_salary_totals(self, *, owner_user_id: int) -> list[dict[str, Any]]:
-        """Return (worker_id, entry_date, total) — product-based OR override."""
+        """Return (worker_id, entry_date, total) — products + oklad + extras + linked workers,
+        with manual overrides taking absolute precedence."""
+        def _r(row, key, idx):
+            return row.get(key) if hasattr(row, "get") else row[idx]
+
         with self._connect() as conn:
             self._ensure_salary_entries_table(conn)
+            self._ensure_salary_oklad_table(conn)
+            self._ensure_salary_entry_extras_table(conn)
+            self._ensure_salary_worker_links_table(conn)
             self._ensure_salary_totals_override_table(conn)
-            rows = conn.execute(
+
+            totals: dict[tuple[int, str], float] = {}
+
+            # 1. Product entries
+            for r in conn.execute(
                 self._sql(
-                    """SELECT worker_id, CAST(entry_date AS TEXT) AS entry_date,
-                        SUM(quantity * price_snapshot) AS total
-                    FROM salary_entries WHERE owner_user_id = ?
-                    GROUP BY worker_id, entry_date"""
+                    "SELECT worker_id, CAST(entry_date AS TEXT) AS entry_date, "
+                    "SUM(quantity * price_snapshot) AS total "
+                    "FROM salary_entries WHERE owner_user_id = ? "
+                    "GROUP BY worker_id, entry_date"
+                ),
+                (owner_user_id,),
+            ).fetchall():
+                key = (int(_r(r, "worker_id", 0)), str(_r(r, "entry_date", 1)))
+                totals[key] = totals.get(key, 0.0) + float(_r(r, "total", 2) or 0)
+
+            # 2. Oklad entries
+            for r in conn.execute(
+                self._sql(
+                    "SELECT worker_id, CAST(entry_date AS TEXT) AS entry_date, amount "
+                    "FROM salary_oklad_entries WHERE owner_user_id = ?"
+                ),
+                (owner_user_id,),
+            ).fetchall():
+                amt = float(_r(r, "amount", 2) or 0)
+                if amt > 0:
+                    key = (int(_r(r, "worker_id", 0)), str(_r(r, "entry_date", 1)))
+                    totals[key] = totals.get(key, 0.0) + amt
+
+            # 3. Extra costs
+            for r in conn.execute(
+                self._sql(
+                    "SELECT worker_id, CAST(entry_date AS TEXT) AS entry_date, SUM(amount) AS total "
+                    "FROM salary_entry_extras WHERE owner_user_id = ? "
+                    "GROUP BY worker_id, entry_date"
+                ),
+                (owner_user_id,),
+            ).fetchall():
+                amt = float(_r(r, "total", 2) or 0)
+                if amt > 0:
+                    key = (int(_r(r, "worker_id", 0)), str(_r(r, "entry_date", 1)))
+                    totals[key] = totals.get(key, 0.0) + amt
+
+            # 4. Linked workers — add their own (non-cascading) totals
+            base_totals = dict(totals)
+            links = conn.execute(
+                self._sql(
+                    "SELECT worker_id, linked_worker_id "
+                    "FROM salary_worker_links WHERE owner_user_id = ?"
                 ),
                 (owner_user_id,),
             ).fetchall()
-            product_totals = {
-                (int(r.get("worker_id") if hasattr(r,"get") else r[0]),
-                 str(r.get("entry_date") if hasattr(r,"get") else r[1])): float(r.get("total") if hasattr(r,"get") else r[2] or 0)
-                for r in rows
-            }
-            overrides = conn.execute(
+            for lnk in links:
+                wid = int(_r(lnk, "worker_id", 0))
+                lid = int(_r(lnk, "linked_worker_id", 1))
+                for (k_wid, k_date), k_tot in base_totals.items():
+                    if k_wid == lid and k_tot > 0:
+                        main_key = (wid, k_date)
+                        totals[main_key] = totals.get(main_key, 0.0) + k_tot
+
+            # 5. Manual overrides take absolute precedence
+            for ov in conn.execute(
                 self._sql(
                     "SELECT worker_id, CAST(entry_date AS TEXT) AS entry_date, total_amount "
                     "FROM salary_totals_override WHERE owner_user_id = ?"
                 ),
                 (owner_user_id,),
-            ).fetchall()
-            for ov in overrides:
-                wid = int(ov.get("worker_id") if hasattr(ov,"get") else ov[0])
-                ed = str(ov.get("entry_date") if hasattr(ov,"get") else ov[1])
-                product_totals[(wid, ed)] = float(ov.get("total_amount") if hasattr(ov,"get") else ov[2] or 0)
+            ).fetchall():
+                wid = int(_r(ov, "worker_id", 0))
+                ed = str(_r(ov, "entry_date", 1))
+                totals[(wid, ed)] = float(_r(ov, "total_amount", 2) or 0)
+
         return [
             {"worker_id": wid, "entry_date": ed, "total": tot}
-            for (wid, ed), tot in product_totals.items()
+            for (wid, ed), tot in totals.items()
         ]
 
     def _ensure_salary_entries_table(self, conn) -> None:
@@ -8422,5 +8476,177 @@ class ReviewRepository:
                     "DELETE FROM salary_workers WHERE id = ? AND owner_user_id = ?"
                 ),
                 (worker_id, owner_user_id),
+            )
+        return result.rowcount > 0
+
+    # ── Salary oklad entries ─────────────────────────────────────────────────
+
+    def _ensure_salary_oklad_table(self, conn) -> None:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS salary_oklad_entries (
+                id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                owner_user_id BIGINT NOT NULL,
+                worker_id BIGINT NOT NULL,
+                entry_date DATE NOT NULL,
+                amount NUMERIC(12,2) NOT NULL DEFAULT 0
+            )
+        """)
+        conn.execute(self._sql(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_salary_oklad_unique "
+            "ON salary_oklad_entries(owner_user_id, worker_id, entry_date)"
+        ))
+
+    def get_salary_oklad(self, *, owner_user_id: int, worker_id: int, entry_date: str) -> float:
+        with self._connect() as conn:
+            self._ensure_salary_oklad_table(conn)
+            row = conn.execute(
+                self._sql(
+                    "SELECT amount FROM salary_oklad_entries "
+                    "WHERE owner_user_id = ? AND worker_id = ? AND entry_date = ?"
+                ),
+                (owner_user_id, worker_id, entry_date),
+            ).fetchone()
+        if row is None:
+            return 0.0
+        return float(row["amount"] if hasattr(row, "keys") else row[0] or 0)
+
+    def upsert_salary_oklad(
+        self, *, owner_user_id: int, worker_id: int, entry_date: str, amount: float
+    ) -> None:
+        with self._connect() as conn:
+            self._ensure_salary_oklad_table(conn)
+            conn.execute(
+                self._sql(
+                    "DELETE FROM salary_oklad_entries "
+                    "WHERE owner_user_id = ? AND worker_id = ? AND entry_date = ?"
+                ),
+                (owner_user_id, worker_id, entry_date),
+            )
+            conn.execute(
+                self._sql(
+                    "INSERT INTO salary_oklad_entries "
+                    "(owner_user_id, worker_id, entry_date, amount) VALUES (?, ?, ?, ?)"
+                ),
+                (owner_user_id, worker_id, entry_date, amount),
+            )
+
+    # ── Salary entry extras ──────────────────────────────────────────────────
+
+    def _ensure_salary_entry_extras_table(self, conn) -> None:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS salary_entry_extras (
+                id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                owner_user_id BIGINT NOT NULL,
+                worker_id BIGINT NOT NULL,
+                entry_date DATE NOT NULL,
+                amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+                note TEXT NOT NULL DEFAULT ''
+            )
+        """)
+        conn.execute(self._sql(
+            "CREATE INDEX IF NOT EXISTS idx_salary_extras_worker "
+            "ON salary_entry_extras(owner_user_id, worker_id, entry_date)"
+        ))
+
+    def list_salary_entry_extras(
+        self, *, owner_user_id: int, worker_id: int, entry_date: str
+    ) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            self._ensure_salary_entry_extras_table(conn)
+            rows = conn.execute(
+                self._sql(
+                    "SELECT id, amount, note FROM salary_entry_extras "
+                    "WHERE owner_user_id = ? AND worker_id = ? AND entry_date = ? ORDER BY id ASC"
+                ),
+                (owner_user_id, worker_id, entry_date),
+            ).fetchall()
+        return [self._row_to_dict(row) for row in rows]
+
+    def replace_salary_entry_extras(
+        self,
+        *,
+        owner_user_id: int,
+        worker_id: int,
+        entry_date: str,
+        extras: list[dict[str, Any]],
+    ) -> None:
+        with self._connect() as conn:
+            self._ensure_salary_entry_extras_table(conn)
+            conn.execute(
+                self._sql(
+                    "DELETE FROM salary_entry_extras "
+                    "WHERE owner_user_id = ? AND worker_id = ? AND entry_date = ?"
+                ),
+                (owner_user_id, worker_id, entry_date),
+            )
+            for e in extras:
+                amt = float(e.get("amount") or 0)
+                note = str(e.get("note") or "")
+                if amt <= 0 and not note:
+                    continue
+                conn.execute(
+                    self._sql(
+                        "INSERT INTO salary_entry_extras "
+                        "(owner_user_id, worker_id, entry_date, amount, note) VALUES (?, ?, ?, ?, ?)"
+                    ),
+                    (owner_user_id, worker_id, entry_date, amt, note),
+                )
+
+    # ── Salary worker links (persistent) ────────────────────────────────────
+
+    def _ensure_salary_worker_links_table(self, conn) -> None:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS salary_worker_links (
+                id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                owner_user_id BIGINT NOT NULL,
+                worker_id BIGINT NOT NULL,
+                linked_worker_id BIGINT NOT NULL
+            )
+        """)
+        conn.execute(self._sql(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_salary_links_unique "
+            "ON salary_worker_links(owner_user_id, worker_id, linked_worker_id)"
+        ))
+
+    def list_salary_worker_links(
+        self, *, owner_user_id: int, worker_id: int
+    ) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            self._ensure_salary_worker_links_table(conn)
+            rows = conn.execute(
+                self._sql(
+                    "SELECT swl.id, swl.linked_worker_id, sw.full_name AS linked_worker_name "
+                    "FROM salary_worker_links swl "
+                    "LEFT JOIN salary_workers sw ON sw.id = swl.linked_worker_id "
+                    "WHERE swl.owner_user_id = ? AND swl.worker_id = ? ORDER BY swl.id ASC"
+                ),
+                (owner_user_id, worker_id),
+            ).fetchall()
+        return [self._row_to_dict(row) for row in rows]
+
+    def add_salary_worker_link(
+        self, *, owner_user_id: int, worker_id: int, linked_worker_id: int
+    ) -> None:
+        with self._connect() as conn:
+            self._ensure_salary_worker_links_table(conn)
+            try:
+                conn.execute(
+                    self._sql(
+                        "INSERT INTO salary_worker_links "
+                        "(owner_user_id, worker_id, linked_worker_id) VALUES (?, ?, ?)"
+                    ),
+                    (owner_user_id, worker_id, linked_worker_id),
+                )
+            except Exception:
+                pass  # Already exists — ignore
+
+    def delete_salary_worker_link(self, *, owner_user_id: int, link_id: int) -> bool:
+        with self._connect() as conn:
+            self._ensure_salary_worker_links_table(conn)
+            result = conn.execute(
+                self._sql(
+                    "DELETE FROM salary_worker_links WHERE id = ? AND owner_user_id = ?"
+                ),
+                (link_id, owner_user_id),
             )
         return result.rowcount > 0
