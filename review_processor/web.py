@@ -601,6 +601,18 @@ class SalaryWorkerLinkRequest(BaseModel):
     linked_worker_id: int = Field(ge=1)
 
 
+class SalaryLinkedSnapshotItem(BaseModel):
+    linked_worker_id: int = Field(ge=1)
+    linked_worker_name: str = Field(default="", max_length=300)
+    amount: float = Field(default=0.0, ge=0)
+
+
+class SalaryLinkedSnapshotSaveRequest(BaseModel):
+    worker_id: int = Field(ge=1)
+    entry_date: str = Field(min_length=8, max_length=10)
+    links: list[SalaryLinkedSnapshotItem] = Field(default_factory=list)
+
+
 class UserTemplateVariableValuesSaveRequest(BaseModel):
     values: dict[str, str] = Field(default_factory=dict)
 
@@ -5984,6 +5996,36 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             owner_user_id=owner_id, worker_id=worker_id
         )
         return {"items": items, "count": len(items)}
+
+    # ── Linked snapshot (historical) ────────────────────────────────────────
+    @app.get("/api/salary/linked-snapshot")
+    def get_linked_snapshot(
+        request: Request,
+        worker_id: int = 0,
+        entry_date: str = "",
+    ) -> dict[str, object]:
+        user = _require_salary_access(request)
+        owner_id = _salary_owner_id(user)
+        if not worker_id or not entry_date:
+            raise HTTPException(status_code=400, detail="worker_id и entry_date обязательны")
+        items = repository.get_salary_linked_snapshot(
+            owner_user_id=owner_id, worker_id=worker_id, entry_date=entry_date
+        )
+        return {"items": items, "count": len(items)}
+
+    @app.post("/api/salary/linked-snapshot")
+    def save_linked_snapshot(
+        payload: SalaryLinkedSnapshotSaveRequest, request: Request
+    ) -> dict[str, object]:
+        user = _require_salary_access(request)
+        owner_id = _salary_owner_id(user)
+        repository.save_salary_linked_snapshot(
+            owner_user_id=owner_id,
+            worker_id=payload.worker_id,
+            entry_date=payload.entry_date,
+            links=[lnk.model_dump() for lnk in payload.links],
+        )
+        return {"ok": True}
 
     @app.get("/api/salary/links/used")
     def get_salary_links_used(request: Request) -> dict[str, object]:
