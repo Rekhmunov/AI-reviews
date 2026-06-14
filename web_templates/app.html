@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=116" />
+  <link rel="stylesheet" href="/static/style.css?v=117" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -2194,22 +2194,22 @@
   <!-- Edit team member modal -->
   <div id="editTeamMemberModal" class="modal-overlay hidden" onclick="if(event.target===this)closeEditTeamMember()">
     <div class="modal-card" style="max-width:480px;width:90%">
-      <div class="row row-between">
+      <div class="modal-card-header">
         <h4 class="no-margin">Редактировать менеджера</h4>
-        <button class="icon-btn" onclick="closeEditTeamMember()">✕</button>
+        <button type="button" class="modal-close-btn" onclick="closeEditTeamMember()" aria-label="Закрыть">✕</button>
       </div>
-      <div style="margin-top:12px;display:flex;flex-direction:column;gap:10px">
+      <div style="padding:20px;display:flex;flex-direction:column;gap:16px">
         <div>
-          <label class="small" style="display:block;margin-bottom:4px">ФИО</label>
+          <label style="display:block;margin-bottom:6px;font-size:13px;font-weight:500;color:#475569">ФИО</label>
           <input id="editMemberFullName" type="text" placeholder="ФИО" style="width:100%" />
         </div>
         <div>
-          <label class="small" style="display:block;margin-bottom:4px">Новый пароль (оставьте пустым чтобы не менять)</label>
+          <label style="display:block;margin-bottom:6px;font-size:13px;font-weight:500;color:#475569">Новый пароль <span style="font-weight:400;color:#94a3b8">(оставьте пустым, чтобы не менять)</span></label>
           <input id="editMemberPassword" type="password" placeholder="Минимум 8 символов" style="width:100%" autocomplete="new-password" />
         </div>
-        <div>
+        <div class="row" style="align-items:center;gap:12px">
           <button class="secondary" type="button" onclick="openManagerPermissionsModalForEdit()">Разрешения</button>
-          <span id="editMemberPermissionsPreview" class="small" style="margin-left:8px">Загрузка...</span>
+          <span id="editMemberPermissionsPreview" class="small" style="color:#64748b">Загрузка...</span>
         </div>
         <div id="editMemberInfo" class="small"></div>
         <div class="row" style="justify-content:flex-end;gap:8px">
@@ -2293,8 +2293,8 @@
               <input type="checkbox" id="managerSalarySettingsAccess" />
               <label for="managerSalarySettingsAccess">Настройки</label>
             </div>
-            <div id="managerSalaryProductionsWrap" style="margin-top:8px;padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px">
-              <p style="margin:0 0 6px;font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:0.06em;text-transform:uppercase">Производства (Начисление ЗП)</p>
+            <div id="managerSalaryProductionsWrap" style="margin-top:12px;padding:12px 16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px">
+              <p style="margin:0 0 8px;font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:0.06em;text-transform:uppercase">Производства (Начисление ЗП)</p>
               <div class="perm-section-checkbox-row">
                 <input type="checkbox" id="managerSalaryProdIvanovo" data-production="Иваново" />
                 <label for="managerSalaryProdIvanovo">Иваново</label>
