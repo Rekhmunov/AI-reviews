@@ -8150,21 +8150,62 @@ class ReviewRepository:
                     key = (int(_r(r, "worker_id", 0)), str(_r(r, "entry_date", 1)))
                     totals[key] = totals.get(key, 0.0) + amt
 
-            # 4. Linked workers — use saved snapshots (historical, not dynamic)
+            # 4. Linked workers — amounts are always taken dynamically from base_totals.
+            #    We store only worker IDs in two places:
+            #      a) salary_linked_snapshot  — historical record per date (written on Save)
+            #      b) salary_worker_links      — currently active links
+            #    Rule: if a snapshot exists for (worker, date) → use snapshot worker IDs.
+            #          otherwise → use active link worker IDs.
+            #    This ensures deleting a link never removes historical contributions.
             self._ensure_salary_linked_snapshot_table(conn)
+
+            # Compute base totals first (without linked contributions)
+            base_totals = dict(totals)
+
+            # a) Snapshot worker IDs  →  (main_worker, date) → set of linked_worker_ids
+            snap_links: dict[tuple[int, str], set[int]] = {}
             for r in conn.execute(
                 self._sql(
-                    "SELECT worker_id, CAST(entry_date AS TEXT) AS entry_date, "
-                    "SUM(amount) AS total "
-                    "FROM salary_linked_snapshot WHERE owner_user_id = ? "
-                    "GROUP BY worker_id, entry_date"
+                    "SELECT worker_id, CAST(entry_date AS TEXT) AS entry_date, linked_worker_id "
+                    "FROM salary_linked_snapshot WHERE owner_user_id = ?"
                 ),
                 (owner_user_id,),
             ).fetchall():
-                amt = float(_r(r, "total", 2) or 0)
-                if amt > 0:
-                    key = (int(_r(r, "worker_id", 0)), str(_r(r, "entry_date", 1)))
-                    totals[key] = totals.get(key, 0.0) + amt
+                key = (int(_r(r, "worker_id", 0)), str(_r(r, "entry_date", 1)))
+                snap_links.setdefault(key, set()).add(int(_r(r, "linked_worker_id", 2)))
+
+            # b) Active link worker IDs  →  main_worker_id → set of linked_worker_ids
+            act_links: dict[int, set[int]] = {}
+            for r in conn.execute(
+                self._sql(
+                    "SELECT worker_id, linked_worker_id "
+                    "FROM salary_worker_links WHERE owner_user_id = ?"
+                ),
+                (owner_user_id,),
+            ).fetchall():
+                act_links.setdefault(
+                    int(_r(r, "worker_id", 0)), set()
+                ).add(int(_r(r, "linked_worker_id", 1)))
+
+            # Apply snapshot-based contributions (historical dates)
+            for (wid, date), linked_ids in snap_links.items():
+                for lid in linked_ids:
+                    contrib = base_totals.get((lid, date), 0.0)
+                    totals[(wid, date)] = totals.get((wid, date), 0.0) + contrib
+
+            # Apply active-link contributions for dates WITHOUT a snapshot
+            snapshot_keys = set(snap_links.keys())
+            all_dates = {d for (_, d) in base_totals}
+            for wid, linked_ids in act_links.items():
+                # Also consider dates where any linked worker has data
+                for lid in linked_ids:
+                    all_dates |= {d for (w, d) in base_totals if w == lid}
+                for date in all_dates:
+                    if (wid, date) not in snapshot_keys:
+                        for lid in linked_ids:
+                            contrib = base_totals.get((lid, date), 0.0)
+                            if contrib > 0:
+                                totals[(wid, date)] = totals.get((wid, date), 0.0) + contrib
 
             # 5. Manual overrides take absolute precedence
             for ov in conn.execute(
