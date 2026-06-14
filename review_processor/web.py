@@ -5985,6 +5985,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
         return {"items": items, "count": len(items)}
 
+    @app.get("/api/salary/links/used")
+    def get_salary_links_used(request: Request) -> dict[str, object]:
+        """Return all linked_worker_ids currently used in any link for this tenant."""
+        user = _require_salary_access(request)
+        owner_id = _salary_owner_id(user)
+        used_ids = repository.list_all_salary_linked_ids(owner_user_id=owner_id)
+        return {"ids": sorted(used_ids)}
+
     @app.post("/api/salary/links")
     def add_salary_link(
         payload: SalaryWorkerLinkRequest, request: Request

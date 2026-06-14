@@ -8624,6 +8624,21 @@ class ReviewRepository:
             ).fetchall()
         return [self._row_to_dict(row) for row in rows]
 
+    def list_all_salary_linked_ids(self, *, owner_user_id: int) -> set[int]:
+        """Return the set of all linked_worker_id values used in any link for this tenant."""
+        with self._connect() as conn:
+            self._ensure_salary_worker_links_table(conn)
+            rows = conn.execute(
+                self._sql(
+                    "SELECT linked_worker_id FROM salary_worker_links WHERE owner_user_id = ?"
+                ),
+                (owner_user_id,),
+            ).fetchall()
+        return {
+            int(r["linked_worker_id"] if hasattr(r, "get") else r[0])
+            for r in rows
+        }
+
     def add_salary_worker_link(
         self, *, owner_user_id: int, worker_id: int, linked_worker_id: int
     ) -> None:
