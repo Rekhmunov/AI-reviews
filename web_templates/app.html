@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=117" />
+  <link rel="stylesheet" href="/static/style.css?v=118" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1833,46 +1833,110 @@
       <!-- Payroll entry modal -->
       <div id="payrollEntryModal" class="modal-overlay hidden" role="dialog" aria-modal="true">
         <div class="payroll-modal-card">
+
+          <!-- Header: title + date selector -->
           <div class="modal-card-header" style="position:relative">
-            <div style="display:flex;align-items:center;gap:10px;min-width:0;overflow:visible">
+            <div style="display:flex;align-items:center;gap:12px;min-width:0;overflow:visible">
               <h4 class="no-margin" style="white-space:nowrap">Начисление ЗП</h4>
               <a id="payrollModalDateLink" class="payroll-date-link" onclick="togglePayrollModalDateList(event)" href="#"
                 style="font-size:14px;font-weight:600;color:#475569;border-bottom:1px dashed #94a3b8">
                 <span id="payrollModalDateDisplay">Выбрать дату</span> 📅
               </a>
-              <!-- Custom date dropdown -->
               <div id="payrollModalDateList" class="supplies-date-panel"
                 style="display:none;max-height:220px;overflow-y:auto;min-width:140px;top:calc(100% + 4px);left:0;z-index:9999"></div>
             </div>
             <button type="button" class="modal-close-btn" onclick="closePayrollModal()" aria-label="Закрыть">✕</button>
           </div>
+
+          <!-- Worker info strip -->
           <div id="payrollModalWorkerInfo" class="payroll-modal-header-info"></div>
-          <div class="perm-modal-body" style="padding:16px;gap:12px">
-            <div id="payrollModalProductsWrap" class="hidden">
-              <div class="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Наименование товара</th>
-                      <th style="width:100px">Цена</th>
-                      <th style="width:100px">Кол-во</th>
-                      <th style="width:110px">Сумма</th>
-                    </tr>
-                  </thead>
-                  <tbody id="payrollModalProductsTbody"></tbody>
-                </table>
+
+          <!-- Scrollable body -->
+          <div class="perm-modal-body" style="gap:12px">
+
+            <!-- Block 1: Earnings -->
+            <div class="perm-section">
+              <div class="perm-category-header" style="cursor:default">
+                <span class="perm-section-label" style="font-size:12px;letter-spacing:.05em;text-transform:uppercase">Начисления</span>
               </div>
-              <div class="payroll-total-row">
-                <span>Итого:</span>
-                <span id="payrollModalTotal">0,00 ₽</span>
+              <div class="perm-section-content">
+                <!-- Piece-work: product table -->
+                <div id="payrollModalProductsWrap" class="hidden">
+                  <div class="table-wrap" style="margin:0">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th style="text-align:left">Наименование</th>
+                          <th style="width:96px">Цена</th>
+                          <th style="width:88px">Кол-во</th>
+                          <th style="width:100px">Сумма</th>
+                        </tr>
+                      </thead>
+                      <tbody id="payrollModalProductsTbody"></tbody>
+                    </table>
+                  </div>
+                </div>
+                <!-- Salary-based: oklad input -->
+                <div id="payrollModalOkladWrap" class="hidden">
+                  <div style="display:flex;align-items:center;gap:12px">
+                    <label style="font-size:14px;color:#475569;white-space:nowrap">Окладная часть</label>
+                    <input id="payrollModalOkladInput" type="number" min="0" step="0.01"
+                      placeholder="0,00" oninput="updatePayrollTotal()"
+                      style="width:160px;text-align:right" />
+                    <span style="font-size:14px;color:#64748b">₽</span>
+                  </div>
+                </div>
               </div>
             </div>
+
+            <!-- Block 2: Additional costs -->
+            <div class="perm-section">
+              <div class="perm-category-header" style="cursor:default">
+                <span class="perm-section-label" style="font-size:12px;letter-spacing:.05em;text-transform:uppercase">Дополнительные затраты</span>
+              </div>
+              <div class="perm-section-content">
+                <div id="payrollModalExtrasWrap" style="display:flex;flex-direction:column;gap:8px"></div>
+                <button type="button" class="secondary" style="margin-top:10px;font-size:13px" onclick="addPayrollExtra()">+ Добавить затрату</button>
+              </div>
+            </div>
+
+            <!-- Block 3: Linked workers -->
+            <div class="perm-section">
+              <div class="perm-category-header" style="cursor:default">
+                <span class="perm-section-label" style="font-size:12px;letter-spacing:.05em;text-transform:uppercase">Привязанные работники</span>
+              </div>
+              <div class="perm-section-content">
+                <div id="payrollModalLinksWrap" style="display:flex;flex-direction:column;gap:8px"></div>
+                <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                  <button type="button" class="secondary" style="font-size:13px" onclick="openWorkerLinkSelector()">+ Добавить работника в ЗП</button>
+                </div>
+                <!-- Worker selector dropdown -->
+                <div id="payrollModalWorkerSelector" class="hidden" style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                  <select id="payrollModalWorkerSelect" style="flex:1;min-width:200px">
+                    <option value="">— Выбрать работника —</option>
+                  </select>
+                  <button type="button" onclick="confirmAddWorkerLink()" style="font-size:13px">Добавить</button>
+                  <button type="button" class="secondary" style="font-size:13px" onclick="cancelWorkerLinkSelector()">Отмена</button>
+                </div>
+                <div id="payrollModalLinkInfo" class="small" style="margin-top:4px"></div>
+              </div>
+            </div>
+
             <div id="payrollModalInfo" class="small"></div>
           </div>
-          <div class="perm-modal-footer">
-            <button type="button" id="payrollModalSaveBtn" onclick="savePayrollEntry()">Сохранить</button>
-            <button type="button" class="secondary" onclick="closePayrollModal()">Закрыть</button>
+
+          <!-- Footer: total + actions -->
+          <div class="perm-modal-footer" style="flex-direction:column;align-items:stretch;gap:8px;padding:12px 20px">
+            <div style="display:flex;align-items:center;justify-content:space-between;font-size:16px;font-weight:700;color:#1e293b">
+              <span>Итого</span>
+              <span id="payrollModalTotal">0,00 ₽</span>
+            </div>
+            <div style="display:flex;gap:8px;justify-content:flex-end">
+              <button type="button" class="secondary" onclick="closePayrollModal()">Закрыть</button>
+              <button type="button" id="payrollModalSaveBtn" onclick="savePayrollEntry()">Сохранить</button>
+            </div>
           </div>
+
         </div>
       </div>
 
@@ -2438,6 +2502,6 @@
   <script src="/static/jszip.min.js"></script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=243"></script>
+  <script src="/static/app.js?v=244"></script>
 </body>
 </html>

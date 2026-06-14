@@ -12066,7 +12066,9 @@ let payrollState = {
   // modal
   modalWorkerId: null,
   modalDate: null,
-  modalEntries: {}, // productId -> quantity
+  modalEntries: {}, // productId -> quantity (piece workers)
+  modalExtras: [],  // [{amount, note}]
+  modalLinks: [],   // [{id, linked_worker_id, linked_worker_name, linked_amount}]
 };
 
 /** Generate date series: every 7 days from Jan 7 2026 up to today + 14 days */
@@ -12590,24 +12592,41 @@ window.renderPayrollTable = renderPayrollTable;
 
 // ── Payroll entry modal ───────────────────────────────────────────────────
 
+const PIECE_ROLES = ["Упаковщик", "Закройщик", "Швея"];
+
+function _getProductPrice(product, position, production) {
+  const prod = (production || "").toLowerCase();
+  const prefix = prod.includes("кинешма") ? "kineshma"
+    : prod.includes("нерль") ? "nerl"
+    : "ivanovo";
+  const pos = position || "";
+  const suffix = pos === "Упаковщик" ? "upakovka"
+    : pos === "Закройщик" ? "raskroi"
+    : pos === "Швея" ? "poshiv"
+    : null;
+  if (!suffix) return 0;
+  return parseFloat(product[`price_${prefix}_${suffix}`] || 0);
+}
+
 function openPayrollModal(workerId, date) {
   const w = payrollState.workers.find(x => x.id === workerId);
   if (!w) return;
   payrollState.modalWorkerId = workerId;
   payrollState.modalDate = date;
   payrollState.modalEntries = {};
+  payrollState.modalExtras = [];
+  payrollState.modalLinks = [];
 
   const infoEl = document.getElementById("payrollModalWorkerInfo");
   if (infoEl) {
     infoEl.innerHTML = [
       `<span><strong>ФИО:</strong> ${esc(w.full_name||"")}</span>`,
-      `<span><strong>Дата рождения:</strong> ${esc(_dateRuFull(w.birth_date))}</span>`,
-      `<span><strong>Юр. принадлежность:</strong> ${esc(w.legal_entity||"")}</span>`,
+      w.position ? `<span><strong>Должность:</strong> ${esc(w.position)}</span>` : "",
       `<span><strong>Производство:</strong> ${esc(w.production||"")}</span>`,
-    ].join("");
+      w.legal_entity ? `<span><strong>Юр. принадлежность:</strong> ${esc(w.legal_entity)}</span>` : "",
+    ].filter(Boolean).join("");
   }
 
-  // Set date
   _setPayrollModalDate(date);
   document.getElementById("payrollEntryModal")?.classList.remove("hidden");
 }
@@ -12675,59 +12694,196 @@ async function _loadPayrollModalProducts(date) {
   const workerId = payrollState.modalWorkerId;
   const w = payrollState.workers.find(x => x.id === workerId);
   if (!w) return;
-  const wrap = document.getElementById("payrollModalProductsWrap");
-  const tbody = document.getElementById("payrollModalProductsTbody");
   const infoEl = document.getElementById("payrollModalInfo");
-  if (!tbody || !wrap) return;
+  if (infoEl) infoEl.textContent = "";
 
-  // Load existing entries
-  let existingMap = {};
-  try {
-    const res = await fetch(`/api/salary/entries?worker_id=${workerId}&entry_date=${date}`);
-    const data = await res.json();
-    for (const e of (data.items||[])) {
-      existingMap[e.product_id] = parseFloat(e.quantity||0);
+  const isPiece = PIECE_ROLES.includes(w.position || "");
+  document.getElementById("payrollModalProductsWrap")?.classList.toggle("hidden", !isPiece);
+  document.getElementById("payrollModalOkladWrap")?.classList.toggle("hidden", isPiece);
+
+  if (isPiece) {
+    // ── Load product entries ──────────────────────────────────────────────
+    let existingMap = {};
+    try {
+      const res = await fetch(`/api/salary/entries?worker_id=${workerId}&entry_date=${date}`);
+      const data = await res.json();
+      for (const e of (data.items||[])) existingMap[e.product_id] = parseFloat(e.quantity||0);
+    } catch(_) {}
+    payrollState.modalEntries = {...existingMap};
+
+    const products = payrollState.products;
+    if (!products.length) {
+      if (infoEl) infoEl.textContent = "Товары не настроены (Зарплата → Настройки → Товары)";
     }
-  } catch(_) {}
-
-  payrollState.modalEntries = {...existingMap};
-
-  // Determine price based on production (sum of 3 sub-components)
-  const prod = (w.production||"").toLowerCase();
-
-  const products = payrollState.products;
-  if (!products.length) {
-    if(infoEl) infoEl.textContent = "Товары не настроены (Зарплата → Настройки → Товары)";
-    wrap.classList.add("hidden");
-    return;
+    const tbody = document.getElementById("payrollModalProductsTbody");
+    if (tbody) {
+      tbody.innerHTML = products.map(p => {
+        const price = _getProductPrice(p, w.position, w.production);
+        const qty = existingMap[p.id] || 0;
+        return `<tr>
+          <td>${esc(p.name||"")}</td>
+          <td style="text-align:center">${_fmtRub(price)}</td>
+          <td><input type="number" class="payroll-qty-input" min="0" step="1"
+            data-product-id="${p.id}" data-price="${price}"
+            value="${qty||""}" placeholder="0"
+            oninput="updatePayrollTotal()" style="width:80px;min-height:32px;text-align:right" /></td>
+          <td id="payroll-row-sum-${p.id}" style="text-align:center">${qty ? _fmtRub(qty*price) : ""}</td>
+        </tr>`;
+      }).join("");
+    }
+  } else {
+    // ── Load oklad ────────────────────────────────────────────────────────
+    let okladAmount = 0;
+    try {
+      const res = await fetch(`/api/salary/oklad?worker_id=${workerId}&entry_date=${date}`);
+      const data = await res.json();
+      okladAmount = parseFloat(data.amount || 0);
+    } catch(_) {}
+    const okladInput = document.getElementById("payrollModalOkladInput");
+    if (okladInput) okladInput.value = okladAmount > 0 ? okladAmount : "";
   }
-  if(infoEl) infoEl.textContent = "";
-  wrap.classList.remove("hidden");
 
-  let rows = "";
-  products.forEach((p, idx) => {
-    const price = prod.includes("кинешма")
-      ? (parseFloat(p.price_kineshma_poshiv||0) + parseFloat(p.price_kineshma_raskroi||0) + parseFloat(p.price_kineshma_upakovka||0))
-      : prod.includes("нерль")
-        ? (parseFloat(p.price_nerl_poshiv||0) + parseFloat(p.price_nerl_raskroi||0) + parseFloat(p.price_nerl_upakovka||0))
-        : 0;
-    const qty = payrollState.modalEntries[p.id] || 0;
-    rows += `<tr>
-      <td>${esc(p.name||"")}</td>
-      <td style="text-align:center">${_fmtRub(price)}</td>
-      <td><input type="number" class="payroll-qty-input" min="0" step="0.01"
-        data-product-id="${p.id}" data-price="${price}"
-        value="${qty||""}" placeholder="0"
-        oninput="updatePayrollTotal()" style="width:80px;min-height:32px;text-align:right" /></td>
-      <td id="payroll-row-sum-${p.id}" style="text-align:center">${qty ? _fmtRub(qty*price) : ""}</td>
-    </tr>`;
-  });
-  tbody.innerHTML = rows;
+  // ── Load extras ───────────────────────────────────────────────────────
+  await _loadPayrollExtras(workerId, date);
+  // ── Load links ────────────────────────────────────────────────────────
+  await _loadPayrollLinks(workerId, date);
+
   updatePayrollTotal();
 }
 
+// ── Extras ────────────────────────────────────────────────────────────────
+
+async function _loadPayrollExtras(workerId, date) {
+  try {
+    const res = await fetch(`/api/salary/extras?worker_id=${workerId}&entry_date=${date}`);
+    const data = await res.json();
+    payrollState.modalExtras = (data.items || []).map(e => ({
+      amount: parseFloat(e.amount || 0),
+      note: e.note || "",
+    }));
+  } catch(_) { payrollState.modalExtras = []; }
+  _renderPayrollExtras();
+}
+
+function _renderPayrollExtras() {
+  const wrap = document.getElementById("payrollModalExtrasWrap");
+  if (!wrap) return;
+  if (!payrollState.modalExtras.length) { wrap.innerHTML = ""; return; }
+  wrap.innerHTML = payrollState.modalExtras.map((e, idx) => `
+    <div style="display:flex;gap:8px;align-items:center">
+      <input type="number" min="0" step="0.01" placeholder="Сумма ₽"
+        value="${e.amount > 0 ? e.amount : ""}"
+        oninput="payrollState.modalExtras[${idx}].amount=parseFloat(this.value||0)||0;updatePayrollTotal()"
+        style="width:120px;text-align:right" />
+      <input type="text" placeholder="Примечание"
+        value="${esc(e.note||"")}"
+        oninput="payrollState.modalExtras[${idx}].note=this.value"
+        style="flex:1;min-width:100px" />
+      <button type="button" class="icon-btn danger" title="Удалить" onclick="removePayrollExtra(${idx})">🗑</button>
+    </div>
+  `).join("");
+}
+
+window.addPayrollExtra = function() {
+  payrollState.modalExtras.push({amount: 0, note: ""});
+  _renderPayrollExtras();
+  const inputs = document.querySelectorAll("#payrollModalExtrasWrap input[type=number]");
+  if (inputs.length) inputs[inputs.length - 1].focus();
+};
+
+window.removePayrollExtra = function(idx) {
+  payrollState.modalExtras.splice(idx, 1);
+  _renderPayrollExtras();
+  updatePayrollTotal();
+};
+
+// ── Linked workers ────────────────────────────────────────────────────────
+
+async function _loadPayrollLinks(workerId, date) {
+  try {
+    const res = await fetch(`/api/salary/links?worker_id=${workerId}`);
+    const data = await res.json();
+    payrollState.modalLinks = (data.items || []).map(lnk => ({
+      id: lnk.id,
+      linked_worker_id: lnk.linked_worker_id,
+      linked_worker_name: lnk.linked_worker_name || "",
+      linked_amount: parseFloat(payrollState.totals[`${lnk.linked_worker_id}_${date}`] || 0),
+    }));
+  } catch(_) { payrollState.modalLinks = []; }
+  _renderPayrollLinks();
+}
+
+function _renderPayrollLinks() {
+  const wrap = document.getElementById("payrollModalLinksWrap");
+  if (!wrap) return;
+  if (!payrollState.modalLinks.length) { wrap.innerHTML = ""; return; }
+  wrap.innerHTML = payrollState.modalLinks.map(lnk => `
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f1f5f9">
+      <span style="flex:1;font-size:14px;color:#1e293b">${esc(lnk.linked_worker_name||"")}</span>
+      <span style="font-size:14px;font-weight:600;color:#2563eb;min-width:80px;text-align:right">
+        ${lnk.linked_amount > 0 ? _fmtRub(lnk.linked_amount) + " ₽" : "—"}
+      </span>
+      <button type="button" class="icon-btn danger" title="Отвязать" onclick="removePayrollLink(${lnk.id})">🗑</button>
+    </div>
+  `).join("");
+}
+
+window.openWorkerLinkSelector = function() {
+  const sel = document.getElementById("payrollModalWorkerSelector");
+  const select = document.getElementById("payrollModalWorkerSelect");
+  if (!sel || !select) return;
+  const currentId = payrollState.modalWorkerId;
+  const linkedIds = new Set(payrollState.modalLinks.map(l => l.linked_worker_id));
+  const allowedProds = getPermissions().can_salary_productions; // null = all
+  const workers = payrollState.workers.filter(w => {
+    if (w.id === currentId) return false;
+    if (linkedIds.has(w.id)) return false;
+    if (allowedProds && !allowedProds.includes(w.production)) return false;
+    return true;
+  });
+  select.innerHTML = `<option value="">— Выбрать работника —</option>` +
+    workers.map(w => `<option value="${w.id}">${esc(w.full_name||"")}${w.production ? " ("+esc(w.production)+")" : ""}</option>`).join("");
+  sel.classList.remove("hidden");
+};
+
+window.confirmAddWorkerLink = async function() {
+  const select = document.getElementById("payrollModalWorkerSelect");
+  const linkedWorkerId = parseInt(select?.value || "0");
+  if (!linkedWorkerId) return;
+  const infoEl = document.getElementById("payrollModalLinkInfo");
+  try {
+    const res = await fetch("/api/salary/links", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ worker_id: payrollState.modalWorkerId, linked_worker_id: linkedWorkerId }),
+    });
+    if (!res.ok) throw new Error((await res.json()).detail || "Ошибка");
+    document.getElementById("payrollModalWorkerSelector")?.classList.add("hidden");
+    await _loadPayrollLinks(payrollState.modalWorkerId, payrollState.modalDate);
+    updatePayrollTotal();
+    if (infoEl) infoEl.textContent = "";
+  } catch(e) {
+    if (infoEl) { infoEl.textContent = e.message; infoEl.style.color = "#b91c1c"; }
+  }
+};
+
+window.cancelWorkerLinkSelector = function() {
+  document.getElementById("payrollModalWorkerSelector")?.classList.add("hidden");
+};
+
+window.removePayrollLink = async function(linkId) {
+  if (!confirm("Отвязать работника? Привязка постоянная и будет удалена.")) return;
+  try {
+    const res = await fetch(`/api/salary/links/${linkId}`, { method: "DELETE" });
+    if (!res.ok) throw new Error((await res.json()).detail || "Ошибка");
+    await _loadPayrollLinks(payrollState.modalWorkerId, payrollState.modalDate);
+    updatePayrollTotal();
+  } catch(e) { alert(e.message); }
+};
+
 function updatePayrollTotal() {
   let total = 0;
+  // Products
   document.querySelectorAll(".payroll-qty-input").forEach(inp => {
     const qty = parseFloat(inp.value||0)||0;
     const price = parseFloat(inp.getAttribute("data-price")||0)||0;
@@ -12735,9 +12891,22 @@ function updatePayrollTotal() {
     const rowSum = qty * price;
     total += rowSum;
     payrollState.modalEntries[parseInt(pid)] = qty;
-    const rowSumEl = document.getElementById(`payroll-row-sum-${pid}`);
-    if (rowSumEl) rowSumEl.textContent = qty > 0 ? _fmtRub(rowSum) : "";
+    const el = document.getElementById(`payroll-row-sum-${pid}`);
+    if (el) el.textContent = qty > 0 ? _fmtRub(rowSum) : "";
   });
+  // Oklad
+  const okladInput = document.getElementById("payrollModalOkladInput");
+  if (okladInput && !document.getElementById("payrollModalOkladWrap")?.classList.contains("hidden")) {
+    total += parseFloat(okladInput.value || 0) || 0;
+  }
+  // Extras
+  for (const e of payrollState.modalExtras || []) {
+    total += parseFloat(e.amount || 0) || 0;
+  }
+  // Linked workers
+  for (const lnk of payrollState.modalLinks || []) {
+    total += parseFloat(lnk.linked_amount || 0) || 0;
+  }
   const totalEl = document.getElementById("payrollModalTotal");
   if (totalEl) totalEl.textContent = _fmtRub(total) + " ₽";
 }
@@ -12750,42 +12919,69 @@ async function savePayrollEntry() {
   const infoEl = document.getElementById("payrollModalInfo");
   const btn = document.getElementById("payrollModalSaveBtn");
   if (btn) { btn.disabled = true; btn.textContent = "Сохранение..."; }
+  if (infoEl) infoEl.textContent = "";
 
   const w = payrollState.workers.find(x => x.id === workerId);
-  const prod2 = (w?.production||"").toLowerCase();
-  const _price = (p) => prod2.includes("кинешма")
-    ? (parseFloat(p.price_kineshma_poshiv||0)+parseFloat(p.price_kineshma_raskroi||0)+parseFloat(p.price_kineshma_upakovka||0))
-    : prod2.includes("нерль")
-      ? (parseFloat(p.price_nerl_poshiv||0)+parseFloat(p.price_nerl_raskroi||0)+parseFloat(p.price_nerl_upakovka||0))
-      : 0;
-
-  const entries = payrollState.products
-    .map(p => ({
-      product_id: p.id,
-      quantity: parseFloat(payrollState.modalEntries[p.id]||0)||0,
-      price_snapshot: _price(p),
-    }))
-    .filter(e => e.quantity > 0);
+  const isPiece = PIECE_ROLES.includes(w?.position || "");
 
   try {
-    const res = await fetch("/api/salary/entries", {
+    if (isPiece) {
+      // Save product entries
+      const entries = payrollState.products
+        .map(p => ({
+          product_id: p.id,
+          quantity: parseFloat(payrollState.modalEntries[p.id]||0)||0,
+          price_snapshot: _getProductPrice(p, w.position, w.production),
+        }))
+        .filter(e => e.quantity > 0);
+      const res = await fetch("/api/salary/entries", {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ worker_id: workerId, entry_date: date, entries }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        const detail = data.detail;
+        throw new Error(Array.isArray(detail)
+          ? detail.map(d => d.msg || JSON.stringify(d)).join("; ")
+          : String(detail || "Ошибка сохранения"));
+      }
+    } else {
+      // Save oklad
+      const okladInput = document.getElementById("payrollModalOkladInput");
+      const amount = parseFloat(okladInput?.value || 0) || 0;
+      const res = await fetch("/api/salary/oklad", {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ worker_id: workerId, entry_date: date, amount }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(String(data.detail || "Ошибка сохранения оклада"));
+      }
+    }
+
+    // Save extras (replace all for this worker+date)
+    await fetch("/api/salary/extras", {
       method: "POST",
       headers: jsonHeaders(),
-      body: JSON.stringify({ worker_id: workerId, entry_date: date, entries }),
+      body: JSON.stringify({
+        worker_id: workerId,
+        entry_date: date,
+        extras: (payrollState.modalExtras || []).map(e => ({
+          amount: parseFloat(e.amount || 0) || 0,
+          note: e.note || "",
+        })),
+      }),
     });
-    const data = await res.json();
-    if (!res.ok) {
-      const detail = data.detail;
-      const msg = Array.isArray(detail)
-        ? detail.map(d => d.msg || JSON.stringify(d)).join("; ")
-        : String(detail || "Ошибка сохранения");
-      if (infoEl) { infoEl.textContent = msg; infoEl.style.color = "#b91c1c"; }
-      return;
+
+    // Reload totals so table reflects new values (including linked contributions)
+    const tRes = await fetch("/api/salary/totals");
+    const tData = await tRes.json();
+    payrollState.totals = {};
+    for (const t of (tData.items || [])) {
+      payrollState.totals[`${t.worker_id}_${t.entry_date}`] = parseFloat(t.total || 0);
     }
-    // Refresh totals and close
-    const total = entries.reduce((s, e) => s + e.quantity * e.price_snapshot, 0);
-    payrollState.totals[`${workerId}_${date}`] = total || undefined;
-    if (total <= 0) delete payrollState.totals[`${workerId}_${date}`];
     renderPayrollTable();
     closePayrollModal();
   } catch (e) {
@@ -12798,11 +12994,18 @@ window.savePayrollEntry = savePayrollEntry;
 
 function closePayrollModal() {
   document.getElementById("payrollEntryModal")?.classList.add("hidden");
+  document.getElementById("payrollModalWorkerSelector")?.classList.add("hidden");
   payrollState.modalWorkerId = null;
   payrollState.modalDate = null;
   payrollState.modalEntries = {};
+  payrollState.modalExtras = [];
+  payrollState.modalLinks = [];
   document.getElementById("payrollModalProductsWrap")?.classList.add("hidden");
-  document.getElementById("payrollModalInfo") && (document.getElementById("payrollModalInfo").textContent = "");
+  document.getElementById("payrollModalOkladWrap")?.classList.add("hidden");
+  document.getElementById("payrollModalExtrasWrap") && (document.getElementById("payrollModalExtrasWrap").innerHTML = "");
+  document.getElementById("payrollModalLinksWrap") && (document.getElementById("payrollModalLinksWrap").innerHTML = "");
+  if (document.getElementById("payrollModalInfo")) document.getElementById("payrollModalInfo").textContent = "";
+  if (document.getElementById("payrollModalLinkInfo")) document.getElementById("payrollModalLinkInfo").textContent = "";
 }
 window.closePayrollModal = closePayrollModal;
 

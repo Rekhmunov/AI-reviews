@@ -579,6 +579,28 @@ class SalaryEntriesSaveRequest(BaseModel):
     entries: list[SalaryEntryItem] = Field(default_factory=list)
 
 
+class SalaryOkladSaveRequest(BaseModel):
+    worker_id: int = Field(ge=1)
+    entry_date: str = Field(min_length=8, max_length=10)
+    amount: float = Field(default=0.0, ge=0)
+
+
+class SalaryExtraItem(BaseModel):
+    amount: float = Field(default=0.0, ge=0)
+    note: str = Field(default="", max_length=500)
+
+
+class SalaryExtrasSaveRequest(BaseModel):
+    worker_id: int = Field(ge=1)
+    entry_date: str = Field(min_length=8, max_length=10)
+    extras: list[SalaryExtraItem] = Field(default_factory=list)
+
+
+class SalaryWorkerLinkRequest(BaseModel):
+    worker_id: int = Field(ge=1)
+    linked_worker_id: int = Field(ge=1)
+
+
 class UserTemplateVariableValuesSaveRequest(BaseModel):
     values: dict[str, str] = Field(default_factory=dict)
 
@@ -5886,6 +5908,107 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             entry_date=payload.entry_date,
             entries=[e.model_dump() for e in payload.entries],
         )
+        return {"ok": True}
+
+    # ── Oklad ──────────────────────────────────────────────────────────────
+    @app.get("/api/salary/oklad")
+    def get_salary_oklad(
+        request: Request,
+        worker_id: int = 0,
+        entry_date: str = "",
+    ) -> dict[str, object]:
+        user = _require_salary_access(request)
+        owner_id = _salary_owner_id(user)
+        if not worker_id or not entry_date:
+            raise HTTPException(status_code=400, detail="worker_id и entry_date обязательны")
+        amount = repository.get_salary_oklad(
+            owner_user_id=owner_id, worker_id=worker_id, entry_date=entry_date
+        )
+        return {"amount": amount}
+
+    @app.post("/api/salary/oklad")
+    def save_salary_oklad(
+        payload: SalaryOkladSaveRequest, request: Request
+    ) -> dict[str, object]:
+        user = _require_salary_access(request)
+        owner_id = _salary_owner_id(user)
+        repository.upsert_salary_oklad(
+            owner_user_id=owner_id,
+            worker_id=payload.worker_id,
+            entry_date=payload.entry_date,
+            amount=payload.amount,
+        )
+        return {"ok": True}
+
+    # ── Extras ─────────────────────────────────────────────────────────────
+    @app.get("/api/salary/extras")
+    def get_salary_extras(
+        request: Request,
+        worker_id: int = 0,
+        entry_date: str = "",
+    ) -> dict[str, object]:
+        user = _require_salary_access(request)
+        owner_id = _salary_owner_id(user)
+        if not worker_id or not entry_date:
+            raise HTTPException(status_code=400, detail="worker_id и entry_date обязательны")
+        items = repository.list_salary_entry_extras(
+            owner_user_id=owner_id, worker_id=worker_id, entry_date=entry_date
+        )
+        return {"items": items, "count": len(items)}
+
+    @app.post("/api/salary/extras")
+    def save_salary_extras(
+        payload: SalaryExtrasSaveRequest, request: Request
+    ) -> dict[str, object]:
+        user = _require_salary_access(request)
+        owner_id = _salary_owner_id(user)
+        repository.replace_salary_entry_extras(
+            owner_user_id=owner_id,
+            worker_id=payload.worker_id,
+            entry_date=payload.entry_date,
+            extras=[e.model_dump() for e in payload.extras],
+        )
+        return {"ok": True}
+
+    # ── Worker links ────────────────────────────────────────────────────────
+    @app.get("/api/salary/links")
+    def get_salary_links(
+        request: Request,
+        worker_id: int = 0,
+    ) -> dict[str, object]:
+        user = _require_salary_access(request)
+        owner_id = _salary_owner_id(user)
+        if not worker_id:
+            raise HTTPException(status_code=400, detail="worker_id обязателен")
+        items = repository.list_salary_worker_links(
+            owner_user_id=owner_id, worker_id=worker_id
+        )
+        return {"items": items, "count": len(items)}
+
+    @app.post("/api/salary/links")
+    def add_salary_link(
+        payload: SalaryWorkerLinkRequest, request: Request
+    ) -> dict[str, object]:
+        user = _require_salary_access(request)
+        owner_id = _salary_owner_id(user)
+        if payload.worker_id == payload.linked_worker_id:
+            raise HTTPException(status_code=400, detail="Нельзя привязать работника к самому себе")
+        repository.add_salary_worker_link(
+            owner_user_id=owner_id,
+            worker_id=payload.worker_id,
+            linked_worker_id=payload.linked_worker_id,
+        )
+        return {"ok": True}
+
+    @app.delete("/api/salary/links/{link_id}")
+    def delete_salary_link(link_id: int, request: Request) -> dict[str, object]:
+        user = _require_salary_access(request)
+        owner_id = _salary_owner_id(user)
+        deleted = repository.delete_salary_worker_link(
+            owner_user_id=owner_id, link_id=link_id
+        )
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Связь не найдена")
         return {"ok": True}
 
     @app.get("/api/salary/my")
