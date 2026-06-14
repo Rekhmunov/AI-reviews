@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=118" />
+  <link rel="stylesheet" href="/static/style.css?v=119" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1852,14 +1852,12 @@
           <div id="payrollModalWorkerInfo" class="payroll-modal-header-info"></div>
 
           <!-- Scrollable body -->
-          <div class="perm-modal-body" style="gap:12px">
+          <div class="payroll-modal-body">
 
             <!-- Block 1: Earnings -->
-            <div class="perm-section">
-              <div class="perm-category-header" style="cursor:default">
-                <span class="perm-section-label" style="font-size:12px;letter-spacing:.05em;text-transform:uppercase">Начисления</span>
-              </div>
-              <div class="perm-section-content">
+            <div class="pm-block">
+              <div class="pm-block-header">Начисления</div>
+              <div class="pm-block-body">
                 <!-- Piece-work: product table -->
                 <div id="payrollModalProductsWrap" class="hidden">
                   <div class="table-wrap" style="margin:0">
@@ -1867,9 +1865,9 @@
                       <thead>
                         <tr>
                           <th style="text-align:left">Наименование</th>
-                          <th style="width:96px">Цена</th>
-                          <th style="width:88px">Кол-во</th>
-                          <th style="width:100px">Сумма</th>
+                          <th style="width:90px">Цена</th>
+                          <th style="width:80px">Кол-во</th>
+                          <th style="width:96px">Сумма</th>
                         </tr>
                       </thead>
                       <tbody id="payrollModalProductsTbody"></tbody>
@@ -1890,27 +1888,22 @@
             </div>
 
             <!-- Block 2: Additional costs -->
-            <div class="perm-section">
-              <div class="perm-category-header" style="cursor:default">
-                <span class="perm-section-label" style="font-size:12px;letter-spacing:.05em;text-transform:uppercase">Дополнительные затраты</span>
-              </div>
-              <div class="perm-section-content">
+            <div class="pm-block">
+              <div class="pm-block-header">Дополнительные затраты</div>
+              <div class="pm-block-body">
                 <div id="payrollModalExtrasWrap" style="display:flex;flex-direction:column;gap:8px"></div>
                 <button type="button" class="secondary" style="margin-top:10px;font-size:13px" onclick="addPayrollExtra()">+ Добавить затрату</button>
               </div>
             </div>
 
             <!-- Block 3: Linked workers -->
-            <div class="perm-section">
-              <div class="perm-category-header" style="cursor:default">
-                <span class="perm-section-label" style="font-size:12px;letter-spacing:.05em;text-transform:uppercase">Привязанные работники</span>
-              </div>
-              <div class="perm-section-content">
-                <div id="payrollModalLinksWrap" style="display:flex;flex-direction:column;gap:8px"></div>
+            <div class="pm-block">
+              <div class="pm-block-header">Привязанные работники</div>
+              <div class="pm-block-body">
+                <div id="payrollModalLinksWrap" style="display:flex;flex-direction:column;gap:0"></div>
                 <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
                   <button type="button" class="secondary" style="font-size:13px" onclick="openWorkerLinkSelector()">+ Добавить работника в ЗП</button>
                 </div>
-                <!-- Worker selector dropdown -->
                 <div id="payrollModalWorkerSelector" class="hidden" style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
                   <select id="payrollModalWorkerSelect" style="flex:1;min-width:200px">
                     <option value="">— Выбрать работника —</option>
@@ -1926,8 +1919,8 @@
           </div>
 
           <!-- Footer: total + actions -->
-          <div class="perm-modal-footer" style="flex-direction:column;align-items:stretch;gap:8px;padding:12px 20px">
-            <div style="display:flex;align-items:center;justify-content:space-between;font-size:16px;font-weight:700;color:#1e293b">
+          <div class="pm-footer">
+            <div class="pm-footer-total">
               <span>Итого</span>
               <span id="payrollModalTotal">0,00 ₽</span>
             </div>
@@ -2502,6 +2495,6 @@
   <script src="/static/jszip.min.js"></script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=244"></script>
+  <script src="/static/app.js?v=245"></script>
 </body>
 </html>
