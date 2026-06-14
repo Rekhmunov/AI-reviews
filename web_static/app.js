@@ -12750,6 +12750,13 @@ async function _loadPayrollModalProducts(date) {
   document.getElementById("payrollModalOkladWrap")?.classList.toggle("hidden", isPiece);
 
   if (isPiece) {
+    // Set main operation label (Пошив / Закрой / Упаковка)
+    const mainProdSuffix = w.position === "Швея" ? "poshiv"
+      : w.position === "Закройщик" ? "raskroi"
+      : "upakovka";
+    const labelEl = document.getElementById("payrollMainProdLabel");
+    if (labelEl) labelEl.textContent = PROD_TYPE_LABELS[mainProdSuffix] || "";
+
     // ── Load product entries ──────────────────────────────────────────────
     let existingMap = {};
     try {
