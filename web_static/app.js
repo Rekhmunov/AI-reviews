@@ -12653,10 +12653,10 @@ function openPayrollModal(workerId, date) {
   const infoEl = document.getElementById("payrollModalWorkerInfo");
   if (infoEl) {
     infoEl.innerHTML = [
-      `<span><strong>ФИО:</strong> ${esc(w.full_name||"")}</span>`,
-      w.position ? `<span><strong>Должность:</strong> ${esc(w.position)}</span>` : "",
-      `<span><strong>Производство:</strong> ${esc(w.production||"")}</span>`,
-      w.legal_entity ? `<span><strong>Юр. принадлежность:</strong> ${esc(w.legal_entity)}</span>` : "",
+      `<span>ФИО: <strong>${esc(w.full_name||"")}</strong></span>`,
+      w.position ? `<span>Должность: <strong>${esc(w.position)}</strong></span>` : "",
+      `<span>Производство: <strong>${esc(w.production||"")}</strong></span>`,
+      w.legal_entity ? `<span>Юр. принадлежность: <strong>${esc(w.legal_entity)}</strong></span>` : "",
     ].filter(Boolean).join("");
   }
 

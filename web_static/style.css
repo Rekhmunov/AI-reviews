@@ -5702,6 +5702,7 @@ button.secondary.danger:hover {
 
 .payroll-modal-header-info strong {
   color: #0f172a;
+  font-size: 15px;
 }
 
 /* Scrollable body */
