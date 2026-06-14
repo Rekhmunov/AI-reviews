@@ -5803,6 +5803,25 @@ button.secondary.danger:hover {
   background: #eff6ff !important;
 }
 
+/* ── Workers filter bar ─────────────────────────────────────────────────── */
+
+.workers-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+.workers-filter-bar input,
+.workers-filter-bar select {
+  height: 36px;
+  font-size: 13px;
+}
+
 /* ── Worker form grid (add + edit) ──────────────────────────────────────── */
 
 .worker-form-grid {
