@@ -5803,6 +5803,44 @@ button.secondary.danger:hover {
   background: #eff6ff !important;
 }
 
+/* ── Worker form grid (add + edit) ──────────────────────────────────────── */
+
+.worker-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px 16px;
+}
+
+@media (max-width: 480px) {
+  .worker-form-grid {
+    grid-template-columns: 1fr;
+  }
+  .wfg-field[style*="grid-column:span 2"],
+  .wfg-field[style*="grid-column: span 2"] {
+    grid-column: span 1 !important;
+  }
+}
+
+.wfg-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.wfg-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.wfg-field input,
+.wfg-field select {
+  width: 100%;
+  box-sizing: border-box;
+}
+
 tr.dnd-over td {
   background: #dbeafe !important;
   border-top: 2px solid #3b82f6 !important;

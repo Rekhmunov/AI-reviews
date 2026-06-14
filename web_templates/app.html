@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=119" />
+  <link rel="stylesheet" href="/static/style.css?v=120" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1962,39 +1962,57 @@
             <div id="salaryWorkersImportErrors" class="hidden" style="margin-top:6px;max-height:120px;overflow-y:auto;background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;padding:8px 12px;font-size:12px;color:#b91c1c"></div>
 
             <div id="salaryWorkerAddForm" class="source-form hidden" style="margin-top:12px">
-              <div class="row" style="flex-wrap:wrap;gap:10px">
-                <input id="salaryWorkerName" type="text" placeholder="ФИО работника" style="flex:2;min-width:200px" autocomplete="off" />
-                <select id="salaryWorkerPosition" style="flex:1;min-width:180px">
-                  <option value="">— Должность —</option>
-                  <option>Нач. производства</option>
-                  <option>Менеджер</option>
-                  <option>Бухгалтер</option>
-                  <option>Закройщик</option>
-                  <option>Упаковщик</option>
-                  <option>Швея</option>
-                  <option>Технический директор</option>
-                  <option>Генеральный директор</option>
-                  <option>Грузчик</option>
-                  <option>Комплектовщик</option>
-                </select>
-                <input id="salaryWorkerBirthDate" type="date" title="Дата рождения" style="min-width:160px" />
-                <select id="salaryWorkerLegalEntity" style="min-width:200px">
-                  <option value="">— Юр. принадлежность —</option>
-                  <option value="ООО ВарФабрик">ООО ВарФабрик</option>
-                  <option value="ИП Авдеева М.Ю.">ИП Авдеева М.Ю.</option>
-                  <option value="ИП Рехмунов Д.О.">ИП Рехмунов Д.О.</option>
-                </select>
-                <select id="salaryWorkerProduction" style="min-width:160px">
-                  <option value="Иваново">Иваново</option>
-                  <option value="Кинешма">Кинешма</option>
-                  <option value="Нерль">Нерль</option>
-                </select>
-                <select id="salaryWorkerVisibleForAccountant" style="min-width:140px">
-                  <option value="true" selected>Да</option>
-                  <option value="false">Нет</option>
-                </select>
+              <div class="worker-form-grid">
+                <div class="wfg-field" style="grid-column:span 2">
+                  <label class="wfg-label" for="salaryWorkerName">ФИО работника</label>
+                  <input id="salaryWorkerName" type="text" placeholder="Фамилия Имя Отчество" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="salaryWorkerPosition">Должность</label>
+                  <select id="salaryWorkerPosition">
+                    <option value="">— не выбрана —</option>
+                    <option>Нач. производства</option>
+                    <option>Менеджер</option>
+                    <option>Бухгалтер</option>
+                    <option>Закройщик</option>
+                    <option>Упаковщик</option>
+                    <option>Швея</option>
+                    <option>Технический директор</option>
+                    <option>Генеральный директор</option>
+                    <option>Грузчик</option>
+                    <option>Комплектовщик</option>
+                  </select>
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="salaryWorkerBirthDate">Дата рождения</label>
+                  <input id="salaryWorkerBirthDate" type="date" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="salaryWorkerLegalEntity">Юр. принадлежность</label>
+                  <select id="salaryWorkerLegalEntity">
+                    <option value="">— не выбрана —</option>
+                    <option value="ООО ВарФабрик">ООО ВарФабрик</option>
+                    <option value="ИП Авдеева М.Ю.">ИП Авдеева М.Ю.</option>
+                    <option value="ИП Рехмунов Д.О.">ИП Рехмунов Д.О.</option>
+                  </select>
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="salaryWorkerProduction">Производство</label>
+                  <select id="salaryWorkerProduction">
+                    <option value="Иваново">Иваново</option>
+                    <option value="Кинешма">Кинешма</option>
+                    <option value="Нерль">Нерль</option>
+                  </select>
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="salaryWorkerVisibleForAccountant">Виден бухгалтеру</label>
+                  <select id="salaryWorkerVisibleForAccountant">
+                    <option value="true" selected>Да</option>
+                    <option value="false">Нет</option>
+                  </select>
+                </div>
               </div>
-              <div class="row" style="margin-top:8px">
+              <div class="row" style="margin-top:12px;gap:8px">
                 <button type="button" onclick="saveSalaryWorker()">Сохранить</button>
                 <button type="button" class="secondary" onclick="toggleSalaryWorkerForm(false)">Отмена</button>
               </div>
@@ -2085,41 +2103,57 @@
         <h4 class="no-margin">Редактировать работника</h4>
         <button type="button" class="modal-close-btn" onclick="closeEditSalaryWorker()" aria-label="Закрыть">✕</button>
       </div>
-      <div style="padding:20px;display:flex;flex-direction:column;gap:12px">
+      <div style="padding:20px;display:flex;flex-direction:column;gap:16px">
         <input type="hidden" id="editSalaryWorkerId" />
-        <div class="row" style="flex-wrap:wrap;gap:10px">
-          <input id="editSalaryWorkerName" type="text" placeholder="ФИО работника" style="flex:2;min-width:200px" autocomplete="off" />
-          <select id="editSalaryWorkerPosition" style="flex:1;min-width:180px">
-            <option value="">— Должность —</option>
-            <option>Нач. производства</option>
-            <option>Менеджер</option>
-            <option>Бухгалтер</option>
-            <option>Закройщик</option>
-            <option>Упаковщик</option>
-            <option>Швея</option>
-            <option>Технический директор</option>
-            <option>Генеральный директор</option>
-            <option>Грузчик</option>
-            <option>Комплектовщик</option>
-          </select>
-        </div>
-        <div class="row" style="flex-wrap:wrap;gap:10px">
-          <input id="editSalaryWorkerBirthDate" type="date" title="Дата рождения" style="min-width:160px" />
-          <select id="editSalaryWorkerLegalEntity" style="min-width:200px">
-            <option value="">— Юр. принадлежность —</option>
-            <option value="ООО ВарФабрик">ООО ВарФабрик</option>
-            <option value="ИП Авдеева М.Ю.">ИП Авдеева М.Ю.</option>
-            <option value="ИП Рехмунов Д.О.">ИП Рехмунов Д.О.</option>
-          </select>
-          <select id="editSalaryWorkerProduction" style="min-width:160px">
-            <option value="Иваново">Иваново</option>
-            <option value="Кинешма">Кинешма</option>
-            <option value="Нерль">Нерль</option>
-          </select>
-          <select id="editSalaryWorkerVisible" style="min-width:120px">
-            <option value="true">Да</option>
-            <option value="false">Нет</option>
-          </select>
+        <div class="worker-form-grid">
+          <div class="wfg-field" style="grid-column:span 2">
+            <label class="wfg-label" for="editSalaryWorkerName">ФИО работника</label>
+            <input id="editSalaryWorkerName" type="text" placeholder="Фамилия Имя Отчество" autocomplete="off" />
+          </div>
+          <div class="wfg-field">
+            <label class="wfg-label" for="editSalaryWorkerPosition">Должность</label>
+            <select id="editSalaryWorkerPosition">
+              <option value="">— не выбрана —</option>
+              <option>Нач. производства</option>
+              <option>Менеджер</option>
+              <option>Бухгалтер</option>
+              <option>Закройщик</option>
+              <option>Упаковщик</option>
+              <option>Швея</option>
+              <option>Технический директор</option>
+              <option>Генеральный директор</option>
+              <option>Грузчик</option>
+              <option>Комплектовщик</option>
+            </select>
+          </div>
+          <div class="wfg-field">
+            <label class="wfg-label" for="editSalaryWorkerBirthDate">Дата рождения</label>
+            <input id="editSalaryWorkerBirthDate" type="date" />
+          </div>
+          <div class="wfg-field">
+            <label class="wfg-label" for="editSalaryWorkerLegalEntity">Юр. принадлежность</label>
+            <select id="editSalaryWorkerLegalEntity">
+              <option value="">— не выбрана —</option>
+              <option value="ООО ВарФабрик">ООО ВарФабрик</option>
+              <option value="ИП Авдеева М.Ю.">ИП Авдеева М.Ю.</option>
+              <option value="ИП Рехмунов Д.О.">ИП Рехмунов Д.О.</option>
+            </select>
+          </div>
+          <div class="wfg-field">
+            <label class="wfg-label" for="editSalaryWorkerProduction">Производство</label>
+            <select id="editSalaryWorkerProduction">
+              <option value="Иваново">Иваново</option>
+              <option value="Кинешма">Кинешма</option>
+              <option value="Нерль">Нерль</option>
+            </select>
+          </div>
+          <div class="wfg-field">
+            <label class="wfg-label" for="editSalaryWorkerVisible">Виден бухгалтеру</label>
+            <select id="editSalaryWorkerVisible">
+              <option value="true">Да</option>
+              <option value="false">Нет</option>
+            </select>
+          </div>
         </div>
         <div id="editSalaryWorkerInfo" class="small"></div>
         <div class="row" style="justify-content:flex-end;gap:8px">
