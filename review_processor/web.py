@@ -601,6 +601,19 @@ class SalaryWorkerLinkRequest(BaseModel):
     linked_worker_id: int = Field(ge=1)
 
 
+class SalaryExtraProdItem(BaseModel):
+    prod_type: str = Field(..., pattern="^(poshiv|raskroi|upakovka)$")
+    product_id: int = Field(ge=1)
+    quantity: float = Field(default=0.0, ge=0)
+    price_snapshot: float = Field(default=0.0, ge=0)
+
+
+class SalaryExtraProdsRequest(BaseModel):
+    worker_id: int = Field(ge=1)
+    entry_date: str = Field(min_length=8, max_length=10)
+    entries: list[SalaryExtraProdItem] = Field(default_factory=list)
+
+
 class SalaryLinkedSnapshotItem(BaseModel):
     linked_worker_id: int = Field(ge=1)
     linked_worker_name: str = Field(default="", max_length=300)
@@ -5996,6 +6009,36 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             owner_user_id=owner_id, worker_id=worker_id
         )
         return {"items": items, "count": len(items)}
+
+    # ── Extra-production entries ────────────────────────────────────────────
+    @app.get("/api/salary/extra-prods")
+    def get_salary_extra_prods(
+        request: Request,
+        worker_id: int = 0,
+        entry_date: str = "",
+    ) -> dict[str, object]:
+        user = _require_salary_access(request)
+        owner_id = _salary_owner_id(user)
+        if not worker_id or not entry_date:
+            raise HTTPException(status_code=400, detail="worker_id и entry_date обязательны")
+        items = repository.get_salary_extra_prods(
+            owner_user_id=owner_id, worker_id=worker_id, entry_date=entry_date
+        )
+        return {"items": items, "count": len(items)}
+
+    @app.post("/api/salary/extra-prods")
+    def save_salary_extra_prods(
+        payload: SalaryExtraProdsRequest, request: Request
+    ) -> dict[str, object]:
+        user = _require_salary_access(request)
+        owner_id = _salary_owner_id(user)
+        repository.upsert_salary_extra_prods(
+            owner_user_id=owner_id,
+            worker_id=payload.worker_id,
+            entry_date=payload.entry_date,
+            entries=[e.model_dump() for e in payload.entries],
+        )
+        return {"ok": True}
 
     # ── Linked snapshot (historical) ────────────────────────────────────────
     @app.get("/api/salary/linked-snapshot")

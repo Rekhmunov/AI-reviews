@@ -5838,6 +5838,14 @@ button.secondary.danger:hover {
   background: #eff6ff !important;
 }
 
+/* ── Extra production buttons (payroll modal) ───────────────────────────── */
+
+button.active-prod-btn {
+  background: linear-gradient(160deg, rgba(255,255,255,0.88), rgba(219,234,254,0.95)) !important;
+  border-color: rgba(96,165,250,0.8) !important;
+  color: #1d4ed8 !important;
+}
+
 /* ── Workers filter bar ─────────────────────────────────────────────────── */
 
 .workers-filter-bar {
