@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=120" />
+  <link rel="stylesheet" href="/static/style.css?v=121" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1958,6 +1958,38 @@
                 <button type="button" onclick="toggleSalaryWorkerForm(true)">+ Добавить</button>
               </div>
             </div>
+            <!-- Filter bar -->
+            <div class="workers-filter-bar" style="margin-top:12px">
+              <input id="swFilterName" type="text" placeholder="Поиск по имени…"
+                oninput="applySalaryWorkersFilter()" style="flex:2;min-width:160px" autocomplete="off" />
+              <select id="swFilterProduction" onchange="applySalaryWorkersFilter()" style="min-width:130px">
+                <option value="">Производство</option>
+                <option>Иваново</option>
+                <option>Кинешма</option>
+                <option>Нерль</option>
+              </select>
+              <select id="swFilterPosition" onchange="applySalaryWorkersFilter()" style="min-width:160px">
+                <option value="">Должность</option>
+                <option>Нач. производства</option>
+                <option>Менеджер</option>
+                <option>Бухгалтер</option>
+                <option>Закройщик</option>
+                <option>Упаковщик</option>
+                <option>Швея</option>
+                <option>Технический директор</option>
+                <option>Генеральный директор</option>
+                <option>Грузчик</option>
+                <option>Комплектовщик</option>
+              </select>
+              <select id="swFilterLegal" onchange="applySalaryWorkersFilter()" style="min-width:170px">
+                <option value="">Юр. принадлежность</option>
+                <option>ООО ВарФабрик</option>
+                <option>ИП Авдеева М.Ю.</option>
+                <option>ИП Рехмунов Д.О.</option>
+              </select>
+              <button type="button" class="secondary" onclick="resetSalaryWorkersFilter()" title="Сбросить фильтры">✕ Сбросить</button>
+            </div>
+
             <div id="salaryWorkersImportInfo" class="small" style="margin-top:4px"></div>
             <div id="salaryWorkersImportErrors" class="hidden" style="margin-top:6px;max-height:120px;overflow-y:auto;background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;padding:8px 12px;font-size:12px;color:#b91c1c"></div>
 
@@ -2529,6 +2561,6 @@
   <script src="/static/jszip.min.js"></script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=245"></script>
+  <script src="/static/app.js?v=246"></script>
 </body>
 </html>

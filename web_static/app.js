@@ -11778,47 +11778,75 @@ window.showSalarySettingsTab = function(tab) {
 };
 
 async function loadSalaryWorkers() {
-  const tbody = document.getElementById("salaryWorkersTbody");
   const info = document.getElementById("salaryWorkersInfo");
-  if (!tbody) return;
-  tbody.innerHTML = "";
   try {
     const res = await fetch("/api/salary/workers");
     const data = await res.json();
     if (!res.ok) { if (info) info.textContent = data.detail || "Ошибка загрузки"; return; }
     if (info) info.textContent = "";
-    const workers = data.items || [];
-    window._salaryWorkersCache = workers; // cache for edit modal
-    _updateWorkersBulkBtn(); // reset bulk delete button state
-    if (!workers.length) {
-      const tr = document.createElement("tr");
-      tr.innerHTML = '<td colspan="8" class="small" style="color:#9ca3af">Работники не добавлены</td>';
-      tbody.appendChild(tr);
-      return;
-    }
-    for (const w of workers) {
-      const tr = document.createElement("tr");
-      const accVisible = w.visible_for_accountant !== false ? "Да" : "Нет";
-      tr.innerHTML = `
-        <td><input type="checkbox" class="salary-worker-chk" data-id="${w.id}" onchange="_updateWorkersBulkBtn()" /></td>
-        <td>${esc(w.full_name || "")}</td>
-        <td>${esc(w.position || "")}</td>
-        <td>${esc(_dateRuFull(w.birth_date))}</td>
-        <td>${esc(w.legal_entity || "")}</td>
-        <td>${esc(w.production || "")}</td>
-        <td>${accVisible}</td>
-        <td style="white-space:nowrap">
-          <button class="icon-btn" title="Редактировать" onclick="openEditSalaryWorker(${w.id})">✏</button>
-          <button class="icon-btn danger" title="Удалить" onclick="deleteSalaryWorker(${w.id})">🗑</button>
-        </td>
-      `;
-      tbody.appendChild(tr);
-    }
+    window._salaryWorkersCache = data.items || [];
+    _updateWorkersBulkBtn();
+    applySalaryWorkersFilter();
   } catch (e) {
     if (info) info.textContent = "Ошибка: " + e.message;
   }
 }
 window.loadSalaryWorkers = loadSalaryWorkers;
+
+function _renderSalaryWorkersTable(workers) {
+  const tbody = document.getElementById("salaryWorkersTbody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+  if (!workers.length) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = '<td colspan="8" class="small" style="color:#9ca3af">Нет работников, соответствующих фильтрам</td>';
+    tbody.appendChild(tr);
+    return;
+  }
+  for (const w of workers) {
+    const tr = document.createElement("tr");
+    const accVisible = w.visible_for_accountant !== false ? "Да" : "Нет";
+    tr.innerHTML = `
+      <td><input type="checkbox" class="salary-worker-chk" data-id="${w.id}" onchange="_updateWorkersBulkBtn()" /></td>
+      <td>${esc(w.full_name || "")}</td>
+      <td>${esc(w.position || "")}</td>
+      <td>${esc(_dateRuFull(w.birth_date))}</td>
+      <td>${esc(w.legal_entity || "")}</td>
+      <td>${esc(w.production || "")}</td>
+      <td>${accVisible}</td>
+      <td style="white-space:nowrap">
+        <button class="icon-btn" title="Редактировать" onclick="openEditSalaryWorker(${w.id})">✏</button>
+        <button class="icon-btn danger" title="Удалить" onclick="deleteSalaryWorker(${w.id})">🗑</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
+window.applySalaryWorkersFilter = function() {
+  const all = window._salaryWorkersCache || [];
+  const search = (document.getElementById("swFilterName")?.value || "").toLowerCase().trim();
+  const prod   = document.getElementById("swFilterProduction")?.value || "";
+  const pos    = document.getElementById("swFilterPosition")?.value || "";
+  const legal  = document.getElementById("swFilterLegal")?.value || "";
+
+  const filtered = all.filter(w => {
+    if (search && !String(w.full_name || "").toLowerCase().includes(search)) return false;
+    if (prod  && w.production   !== prod)  return false;
+    if (pos   && w.position     !== pos)   return false;
+    if (legal && w.legal_entity !== legal) return false;
+    return true;
+  });
+  _renderSalaryWorkersTable(filtered);
+};
+
+window.resetSalaryWorkersFilter = function() {
+  ["swFilterName","swFilterProduction","swFilterPosition","swFilterLegal"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = "";
+  });
+  applySalaryWorkersFilter();
+};
 
 function downloadSalaryWorkerTemplate() {
   const headers = "ФИО;Должность;Дата рождения;Юр. принадлежность;Производство;Видимость для бухгалтера\n";
