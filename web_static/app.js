@@ -12796,6 +12796,8 @@ async function _loadPayrollExtras(workerId, date) {
     }));
   } catch(_) { payrollState.modalExtras = []; }
   _renderPayrollExtras();
+  // Auto-expand if there's data
+  _setPmBlockCollapsed("pmBlockExtras", payrollState.modalExtras.length === 0);
 }
 
 function _renderPayrollExtras() {
@@ -12844,6 +12846,8 @@ async function _loadPayrollLinks(workerId, date) {
     }));
   } catch(_) { payrollState.modalLinks = []; }
   _renderPayrollLinks();
+  // Auto-expand if there are linked workers
+  _setPmBlockCollapsed("pmBlockLinks", payrollState.modalLinks.length === 0);
 }
 
 function _renderPayrollLinks() {
@@ -13037,7 +13041,20 @@ async function savePayrollEntry() {
 }
 window.savePayrollEntry = savePayrollEntry;
 
+window.togglePmBlock = function(blockId) {
+  document.getElementById(blockId)?.classList.toggle("pm-block--collapsed");
+};
+
+function _setPmBlockCollapsed(blockId, collapsed) {
+  const el = document.getElementById(blockId);
+  if (!el) return;
+  el.classList.toggle("pm-block--collapsed", collapsed);
+}
+
 function closePayrollModal() {
+  // Collapse collapsible blocks for next open
+  _setPmBlockCollapsed("pmBlockExtras", true);
+  _setPmBlockCollapsed("pmBlockLinks", true);
   document.getElementById("payrollEntryModal")?.classList.add("hidden");
   const _wsel = document.getElementById("payrollModalWorkerSelector");
   if (_wsel) { _wsel.classList.add("hidden"); _wsel.style.display = ""; }

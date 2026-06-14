@@ -5735,6 +5735,38 @@ button.secondary.danger:hover {
   color: #64748b;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  user-select: none;
+}
+
+.pm-block-header.pm-collapsible {
+  cursor: pointer;
+}
+
+.pm-block-header.pm-collapsible:hover {
+  background: #e8eef5;
+}
+
+.pm-block-chevron {
+  margin-left: auto;
+  font-size: 10px;
+  color: #94a3b8;
+  transition: transform 0.18s ease;
+  display: inline-block;
+}
+
+.pm-block--collapsed .pm-block-chevron {
+  transform: rotate(-90deg);
+}
+
+.pm-block--collapsed .pm-block-body {
+  display: none;
+}
+
+.pm-block--collapsed .pm-block-header {
+  border-bottom: none;
 }
 
 .pm-block-body {
