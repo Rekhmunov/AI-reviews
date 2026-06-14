@@ -12097,6 +12097,7 @@ let payrollState = {
   modalEntries: {}, // productId -> quantity (piece workers)
   modalExtras: [],  // [{amount, note}]
   modalLinks: [],   // [{id, linked_worker_id, linked_worker_name, linked_amount}]
+  usedLinkedIds: new Set(), // all linked_worker_ids already used globally
 };
 
 /** Generate date series: every 7 days from Jan 7 2026 up to today + 14 days */
@@ -12141,18 +12142,22 @@ function _saveColWidths(w) {
 }
 
 async function loadPayrollPage() {
-  const [wRes, pRes, tRes] = await Promise.all([
+  const [wRes, pRes, tRes, uRes] = await Promise.all([
     fetch("/api/salary/workers"),
     fetch("/api/salary/products"),
     fetch("/api/salary/totals"),
+    fetch("/api/salary/links/used"),
   ]);
-  const [wData, pData, tData] = await Promise.all([wRes.json(), pRes.json(), tRes.json()]);
+  const [wData, pData, tData, uData] = await Promise.all([
+    wRes.json(), pRes.json(), tRes.json(), uRes.json(),
+  ]);
   payrollState.workers = (wData.items || []).map((w,i) => ({...w, seq: i+1}));
   payrollState.products = pData.items || [];
   payrollState.totals = {};
   for (const t of (tData.items || [])) {
     payrollState.totals[`${t.worker_id}_${t.entry_date}`] = parseFloat(t.total || 0);
   }
+  payrollState.usedLinkedIds = new Set((uData.ids || []).map(Number));
   renderPayrollTable();
 }
 
@@ -12861,11 +12866,15 @@ window.openWorkerLinkSelector = function() {
   const select = document.getElementById("payrollModalWorkerSelect");
   if (!sel || !select) return;
   const currentId = payrollState.modalWorkerId;
-  const linkedIds = new Set(payrollState.modalLinks.map(l => l.linked_worker_id));
+  // Workers already linked TO the current worker
+  const myLinkedIds = new Set(payrollState.modalLinks.map(l => l.linked_worker_id));
+  // All workers already used as a slave in ANY link globally
+  const globalUsed = payrollState.usedLinkedIds;
   const allowedProds = getPermissions().can_salary_productions; // null = all
   const workers = payrollState.workers.filter(w => {
-    if (w.id === currentId) return false;
-    if (linkedIds.has(w.id)) return false;
+    if (w.id === currentId) return false;           // не себя
+    if (myLinkedIds.has(w.id)) return false;        // уже привязан к текущему
+    if (globalUsed.has(w.id)) return false;         // уже привязан к другому работнику
     if (allowedProds && !allowedProds.includes(w.production)) return false;
     return true;
   });
@@ -12887,6 +12896,8 @@ window.confirmAddWorkerLink = async function() {
     });
     if (!res.ok) throw new Error((await res.json()).detail || "Ошибка");
     document.getElementById("payrollModalWorkerSelector")?.classList.add("hidden");
+    // Update global used set
+    payrollState.usedLinkedIds.add(linkedWorkerId);
     await _loadPayrollLinks(payrollState.modalWorkerId, payrollState.modalDate);
     updatePayrollTotal();
     if (infoEl) infoEl.textContent = "";
@@ -12904,6 +12915,9 @@ window.removePayrollLink = async function(linkId) {
   try {
     const res = await fetch(`/api/salary/links/${linkId}`, { method: "DELETE" });
     if (!res.ok) throw new Error((await res.json()).detail || "Ошибка");
+    // Find the removed linked_worker_id and remove from global set
+    const removed = payrollState.modalLinks.find(l => l.id === linkId);
+    if (removed) payrollState.usedLinkedIds.delete(removed.linked_worker_id);
     await _loadPayrollLinks(payrollState.modalWorkerId, payrollState.modalDate);
     updatePayrollTotal();
   } catch(e) { alert(e.message); }
