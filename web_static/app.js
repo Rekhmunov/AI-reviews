@@ -12962,7 +12962,7 @@ window.cancelWorkerLinkSelector = function() {
 window.removePayrollLink = async function(linkId) {
   if (!confirm("Отвязать работника? Привязка постоянная и будет удалена.")) return;
   try {
-    const res = await fetch(`/api/salary/links/${linkId}`, { method: "DELETE" });
+    const res = await fetch(`/api/salary/links/${linkId}`, { method: "DELETE", headers: jsonHeaders() });
     if (!res.ok) throw new Error((await res.json()).detail || "Ошибка");
     // Find the removed linked_worker_id and remove from global set
     const removed = payrollState.modalLinks.find(l => l.id === linkId);
