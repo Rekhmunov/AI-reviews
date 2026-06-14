@@ -12627,6 +12627,23 @@ window.renderPayrollTable = renderPayrollTable;
 
 const PIECE_ROLES = ["Упаковщик", "Закройщик", "Швея"];
 
+// Which extra prod types are available per position
+const EXTRA_PROD_CONFIG = {
+  "Нач. производства":    ["poshiv", "raskroi", "upakovka"],
+  "Грузчик":              ["poshiv", "raskroi", "upakovka"],
+  "Комплектовщик":        ["poshiv", "raskroi", "upakovka"],
+  "Менеджер":             ["poshiv", "raskroi", "upakovka"],
+  "Бухгалтер":            ["poshiv", "raskroi", "upakovka"],
+  "Технический директор": ["poshiv", "raskroi", "upakovka"],
+  "Генеральный директор": ["poshiv", "raskroi", "upakovka"],
+  "Закройщик":            ["poshiv", "upakovka"],
+  "Швея":                 ["raskroi", "upakovka"],
+  "Упаковщик":            ["poshiv", "raskroi"],
+};
+
+const PROD_TYPE_LABELS = { poshiv: "Пошив", raskroi: "Закрой", upakovka: "Упаковка" };
+const PROD_TYPE_SUFFIX = { poshiv: "poshiv", raskroi: "raskroi", upakovka: "upakovka" };
+
 function _getProductPrice(product, position, production) {
   const prod = (production || "").toLowerCase();
   const prefix = prod.includes("кинешма") ? "kineshma"
@@ -12649,6 +12666,8 @@ function openPayrollModal(workerId, date) {
   payrollState.modalEntries = {};
   payrollState.modalExtras = [];
   payrollState.modalLinks = [];
+  payrollState.modalExtraProds = {};
+  payrollState.activeExtraProds = new Set();
 
   const infoEl = document.getElementById("payrollModalWorkerInfo");
   if (infoEl) {
@@ -12776,6 +12795,8 @@ async function _loadPayrollModalProducts(date) {
     if (okladInput) okladInput.value = okladAmount > 0 ? okladAmount : "";
   }
 
+  // ── Load extra productions ────────────────────────────────────────────
+  await _loadPayrollExtraProds(workerId, date, w);
   // ── Load extras ───────────────────────────────────────────────────────
   await _loadPayrollExtras(workerId, date);
   // ── Load links ────────────────────────────────────────────────────────
@@ -12783,6 +12804,127 @@ async function _loadPayrollModalProducts(date) {
 
   updatePayrollTotal();
 }
+
+// ── Extra productions ─────────────────────────────────────────────────────
+
+async function _loadPayrollExtraProds(workerId, date, worker) {
+  const pos = worker?.position || "";
+  const availableTypes = EXTRA_PROD_CONFIG[pos] || [];
+  const area = document.getElementById("payrollExtraProdsArea");
+  const btnWrap = document.getElementById("payrollExtraProdsButtons");
+  const contentWrap = document.getElementById("payrollExtraProdsContent");
+  if (!area || !btnWrap || !contentWrap) return;
+
+  payrollState.modalExtraProds = {};
+  payrollState.activeExtraProds = new Set();
+
+  if (!availableTypes.length) {
+    area.classList.add("hidden");
+    return;
+  }
+
+  // Load saved data
+  try {
+    const res = await fetch(`/api/salary/extra-prods?worker_id=${workerId}&entry_date=${date}`);
+    const data = await res.json();
+    for (const e of (data.items || [])) {
+      const t = e.prod_type;
+      if (!payrollState.modalExtraProds[t]) payrollState.modalExtraProds[t] = {};
+      payrollState.modalExtraProds[t][e.product_id] = parseFloat(e.quantity || 0);
+    }
+    // Types with saved data become active automatically
+    for (const t of availableTypes) {
+      if (payrollState.modalExtraProds[t] && Object.keys(payrollState.modalExtraProds[t]).length > 0) {
+        payrollState.activeExtraProds.add(t);
+      }
+    }
+  } catch(_) {}
+
+  area.classList.remove("hidden");
+  _renderExtraProdButtons(availableTypes, worker);
+  _renderExtraProdTables(availableTypes, worker);
+}
+
+function _renderExtraProdButtons(availableTypes, worker) {
+  const btnWrap = document.getElementById("payrollExtraProdsButtons");
+  if (!btnWrap) return;
+  btnWrap.innerHTML = availableTypes.map(t => {
+    const isActive = payrollState.activeExtraProds.has(t);
+    return `<button type="button" class="secondary${isActive ? " active-prod-btn" : ""}"
+      style="font-size:12px;padding:6px 12px" onclick="toggleExtraProd('${t}')"
+      id="extraProdBtn_${t}">
+      ${isActive ? "✓ " : "+ "}${PROD_TYPE_LABELS[t]}
+    </button>`;
+  }).join("");
+}
+
+function _renderExtraProdTables(availableTypes, worker) {
+  const contentWrap = document.getElementById("payrollExtraProdsContent");
+  if (!contentWrap) return;
+  contentWrap.innerHTML = "";
+  for (const t of availableTypes) {
+    if (!payrollState.activeExtraProds.has(t)) continue;
+    const block = document.createElement("div");
+    block.className = "extra-prod-block";
+    block.id = `extraProdBlock_${t}`;
+    const products = payrollState.products;
+    const rows = products.map(p => {
+      const price = _getExtraProdPrice(p, t, worker?.production || "");
+      const qty = (payrollState.modalExtraProds[t] || {})[p.id] || 0;
+      return `<tr>
+        <td>${esc(p.name || "")}</td>
+        <td style="text-align:center">${_fmtRub(price)}</td>
+        <td><input type="number" min="0" step="1" placeholder="0"
+          class="payroll-qty-input extra-prod-qty"
+          data-prod-type="${t}" data-product-id="${p.id}" data-price="${price}"
+          value="${qty || ""}"
+          oninput="updateExtraProdQty('${t}',${p.id},this.value);updatePayrollTotal()"
+          style="width:72px;min-height:30px;text-align:right" /></td>
+        <td id="ep-row-sum-${t}-${p.id}" style="text-align:center">${qty ? _fmtRub(qty * price) : ""}</td>
+      </tr>`;
+    }).join("");
+    block.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0 4px;border-bottom:1px solid #e2e8f0;margin-bottom:4px">
+        <span style="font-size:12px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.05em">${PROD_TYPE_LABELS[t]}</span>
+        <span id="ep-subtotal-${t}" style="font-size:13px;font-weight:600;color:#1d4ed8"></span>
+      </div>
+      <div class="table-wrap" style="margin:0">
+        <table><thead><tr>
+          <th style="text-align:left">Наименование</th>
+          <th style="width:90px">Цена</th><th style="width:72px">Кол-во</th><th style="width:88px">Сумма</th>
+        </tr></thead><tbody>${rows}</tbody></table>
+      </div>`;
+    contentWrap.appendChild(block);
+  }
+}
+
+function _getExtraProdPrice(product, prodType, production) {
+  const prod = (production || "").toLowerCase();
+  const prefix = prod.includes("кинешма") ? "kineshma"
+    : prod.includes("нерль") ? "nerl"
+    : "ivanovo";
+  return parseFloat(product[`price_${prefix}_${PROD_TYPE_SUFFIX[prodType]}`] || 0);
+}
+
+window.toggleExtraProd = function(prodType) {
+  const w = payrollState.workers.find(x => x.id === payrollState.modalWorkerId);
+  const availableTypes = EXTRA_PROD_CONFIG[w?.position || ""] || [];
+  if (payrollState.activeExtraProds.has(prodType)) {
+    payrollState.activeExtraProds.delete(prodType);
+    delete payrollState.modalExtraProds[prodType];
+  } else {
+    payrollState.activeExtraProds.add(prodType);
+    if (!payrollState.modalExtraProds[prodType]) payrollState.modalExtraProds[prodType] = {};
+  }
+  _renderExtraProdButtons(availableTypes, w);
+  _renderExtraProdTables(availableTypes, w);
+  updatePayrollTotal();
+};
+
+window.updateExtraProdQty = function(prodType, productId, val) {
+  if (!payrollState.modalExtraProds[prodType]) payrollState.modalExtraProds[prodType] = {};
+  payrollState.modalExtraProds[prodType][productId] = parseFloat(val || 0) || 0;
+};
 
 // ── Extras ────────────────────────────────────────────────────────────────
 
@@ -12991,6 +13133,27 @@ function updatePayrollTotal() {
   if (okladInput && !document.getElementById("payrollModalOkladWrap")?.classList.contains("hidden")) {
     total += parseFloat(okladInput.value || 0) || 0;
   }
+  // Extra productions
+  document.querySelectorAll(".extra-prod-qty").forEach(inp => {
+    const qty = parseFloat(inp.value || 0) || 0;
+    const price = parseFloat(inp.getAttribute("data-price") || 0) || 0;
+    const t = inp.getAttribute("data-prod-type");
+    const pid = inp.getAttribute("data-product-id");
+    const rowSum = qty * price;
+    total += rowSum;
+    const rowEl = document.getElementById(`ep-row-sum-${t}-${pid}`);
+    if (rowEl) rowEl.textContent = qty > 0 ? _fmtRub(rowSum) : "";
+  });
+  // Update per-type subtotals
+  for (const t of Object.keys(PROD_TYPE_LABELS)) {
+    let subTotal = 0;
+    document.querySelectorAll(`.extra-prod-qty[data-prod-type="${t}"]`).forEach(inp => {
+      subTotal += (parseFloat(inp.value || 0) || 0) * (parseFloat(inp.getAttribute("data-price") || 0) || 0);
+    });
+    const subEl = document.getElementById(`ep-subtotal-${t}`);
+    if (subEl) subEl.textContent = subTotal > 0 ? _fmtRub(subTotal) + " ₽" : "";
+  }
+
   // Extras
   for (const e of payrollState.modalExtras || []) {
     total += parseFloat(e.amount || 0) || 0;
@@ -13052,6 +13215,27 @@ async function savePayrollEntry() {
         throw new Error(String(data.detail || "Ошибка сохранения оклада"));
       }
     }
+
+    // Save extra-production entries
+    const extraProdEntries = [];
+    const w2 = payrollState.workers.find(x => x.id === workerId);
+    for (const [prodType, qtyMap] of Object.entries(payrollState.modalExtraProds || {})) {
+      for (const product of payrollState.products) {
+        const qty = parseFloat(qtyMap[product.id] || 0) || 0;
+        if (qty <= 0) continue;
+        extraProdEntries.push({
+          prod_type: prodType,
+          product_id: product.id,
+          quantity: qty,
+          price_snapshot: _getExtraProdPrice(product, prodType, w2?.production || ""),
+        });
+      }
+    }
+    await fetch("/api/salary/extra-prods", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ worker_id: workerId, entry_date: date, entries: extraProdEntries }),
+    });
 
     // Save extras (replace all for this worker+date)
     await fetch("/api/salary/extras", {
@@ -13122,6 +13306,14 @@ function closePayrollModal() {
   payrollState.modalEntries = {};
   payrollState.modalExtras = [];
   payrollState.modalLinks = [];
+  payrollState.modalExtraProds = {};
+  payrollState.activeExtraProds = new Set();
+  const _epArea = document.getElementById("payrollExtraProdsArea");
+  if (_epArea) { _epArea.classList.add("hidden"); }
+  const _epContent = document.getElementById("payrollExtraProdsContent");
+  if (_epContent) _epContent.innerHTML = "";
+  const _epBtns = document.getElementById("payrollExtraProdsButtons");
+  if (_epBtns) _epBtns.innerHTML = "";
   document.getElementById("payrollModalProductsWrap")?.classList.add("hidden");
   document.getElementById("payrollModalOkladWrap")?.classList.add("hidden");
   document.getElementById("payrollModalExtrasWrap") && (document.getElementById("payrollModalExtrasWrap").innerHTML = "");
