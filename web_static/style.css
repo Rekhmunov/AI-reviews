@@ -5333,6 +5333,7 @@ button.secondary.danger:hover {
 .perm-modal-card {
   width: min(760px, 96vw);
   max-height: 90vh;
+  height: 90vh;
   background: #fff;
   border-radius: 12px;
   box-shadow: 0 8px 40px rgba(15, 23, 42, 0.16);
@@ -5343,7 +5344,8 @@ button.secondary.danger:hover {
 
 .perm-modal-body {
   overflow-y: auto;
-  flex: 1 1 auto;
+  flex: 1 1 0;
+  min-height: 0;
   padding: 20px 24px;
   display: flex;
   flex-direction: column;
