@@ -13004,12 +13004,14 @@ async function _loadPayrollLinks(workerId, date) {
     const snapshot = snapData.items || [];
 
     if (snapshot.length > 0) {
-      // Use historical snapshot — shows correct state for saved past dates
+      // Use historical snapshot — but always look up CURRENT amount from totals
+      // (snapshot stores only the worker ID for historical preservation;
+      //  the amount is always dynamic so edits to B are reflected in A's view)
       payrollState.modalLinks = snapshot.map(lnk => ({
         id: null, // no active link id — historical entry
         linked_worker_id: lnk.linked_worker_id,
         linked_worker_name: lnk.linked_worker_name || "",
-        linked_amount: parseFloat(lnk.amount || 0),
+        linked_amount: parseFloat(payrollState.totals[`${lnk.linked_worker_id}_${date}`] || 0),
         historical: true,
       }));
     } else {
