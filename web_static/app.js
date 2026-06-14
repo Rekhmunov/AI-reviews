@@ -11807,7 +11807,7 @@ async function loadSalaryWorkers() {
         <td>${esc(w.legal_entity || "")}</td>
         <td>${esc(w.production || "")}</td>
         <td>${accVisible}</td>
-        <td>
+        <td style="white-space:nowrap">
           <button class="icon-btn" title="Редактировать" onclick="openEditSalaryWorker(${w.id})">✏</button>
           <button class="icon-btn danger" title="Удалить" onclick="deleteSalaryWorker(${w.id})">🗑</button>
         </td>
@@ -12858,7 +12858,7 @@ async function loadSalaryProducts() {
         <td style="background:#f0fdf4">${fmt(p.price_nerl_poshiv)}</td>
         <td style="background:#f0fdf4">${fmt(p.price_nerl_raskroi)}</td>
         <td style="background:#f0fdf4">${fmt(p.price_nerl_upakovka)}</td>
-        <td>
+        <td style="white-space:nowrap">
           <button class="icon-btn" title="Редактировать" onclick="openEditSalaryProduct(${p.id})">✏</button>
           <button class="icon-btn danger" title="Удалить" onclick="deleteSalaryProduct(${p.id})">🗑</button>
         </td>
