@@ -12865,6 +12865,7 @@ window.openWorkerLinkSelector = function() {
   const sel = document.getElementById("payrollModalWorkerSelector");
   const select = document.getElementById("payrollModalWorkerSelect");
   if (!sel || !select) return;
+  sel.style.display = "flex";
   const currentId = payrollState.modalWorkerId;
   // Workers already linked TO the current worker
   const myLinkedIds = new Set(payrollState.modalLinks.map(l => l.linked_worker_id));
@@ -12895,7 +12896,8 @@ window.confirmAddWorkerLink = async function() {
       body: JSON.stringify({ worker_id: payrollState.modalWorkerId, linked_worker_id: linkedWorkerId }),
     });
     if (!res.ok) throw new Error((await res.json()).detail || "Ошибка");
-    document.getElementById("payrollModalWorkerSelector")?.classList.add("hidden");
+    const selDiv = document.getElementById("payrollModalWorkerSelector");
+    if (selDiv) { selDiv.classList.add("hidden"); selDiv.style.display = ""; }
     // Update global used set
     payrollState.usedLinkedIds.add(linkedWorkerId);
     await _loadPayrollLinks(payrollState.modalWorkerId, payrollState.modalDate);
@@ -12907,7 +12909,8 @@ window.confirmAddWorkerLink = async function() {
 };
 
 window.cancelWorkerLinkSelector = function() {
-  document.getElementById("payrollModalWorkerSelector")?.classList.add("hidden");
+  const sel = document.getElementById("payrollModalWorkerSelector");
+  if (sel) { sel.classList.add("hidden"); sel.style.display = ""; }
 };
 
 window.removePayrollLink = async function(linkId) {
@@ -13036,7 +13039,8 @@ window.savePayrollEntry = savePayrollEntry;
 
 function closePayrollModal() {
   document.getElementById("payrollEntryModal")?.classList.add("hidden");
-  document.getElementById("payrollModalWorkerSelector")?.classList.add("hidden");
+  const _wsel = document.getElementById("payrollModalWorkerSelector");
+  if (_wsel) { _wsel.classList.add("hidden"); _wsel.style.display = ""; }
   payrollState.modalWorkerId = null;
   payrollState.modalDate = null;
   payrollState.modalEntries = {};
