@@ -12834,7 +12834,7 @@ window.removePayrollExtra = function(idx) {
 
 // ── Linked workers ────────────────────────────────────────────────────────
 
-async function _loadPayrollLinks(workerId, date) {
+async function _loadPayrollLinksActive(workerId, date) {
   try {
     const res = await fetch(`/api/salary/links?worker_id=${workerId}`);
     const data = await res.json();
@@ -12843,7 +12843,42 @@ async function _loadPayrollLinks(workerId, date) {
       linked_worker_id: lnk.linked_worker_id,
       linked_worker_name: lnk.linked_worker_name || "",
       linked_amount: parseFloat(payrollState.totals[`${lnk.linked_worker_id}_${date}`] || 0),
+      historical: false,
     }));
+  } catch(_) { payrollState.modalLinks = []; }
+  _renderPayrollLinks();
+  _setPmBlockCollapsed("pmBlockLinks", payrollState.modalLinks.length === 0);
+  updatePayrollTotal();
+}
+
+async function _loadPayrollLinks(workerId, date) {
+  try {
+    // First check if a historical snapshot exists for this worker+date
+    const snapRes = await fetch(`/api/salary/linked-snapshot?worker_id=${workerId}&entry_date=${date}`);
+    const snapData = await snapRes.json();
+    const snapshot = snapData.items || [];
+
+    if (snapshot.length > 0) {
+      // Use historical snapshot — shows correct state for saved past dates
+      payrollState.modalLinks = snapshot.map(lnk => ({
+        id: null, // no active link id — historical entry
+        linked_worker_id: lnk.linked_worker_id,
+        linked_worker_name: lnk.linked_worker_name || "",
+        linked_amount: parseFloat(lnk.amount || 0),
+        historical: true,
+      }));
+    } else {
+      // No snapshot yet → show current active links (unsaved date)
+      const res = await fetch(`/api/salary/links?worker_id=${workerId}`);
+      const data = await res.json();
+      payrollState.modalLinks = (data.items || []).map(lnk => ({
+        id: lnk.id,
+        linked_worker_id: lnk.linked_worker_id,
+        linked_worker_name: lnk.linked_worker_name || "",
+        linked_amount: parseFloat(payrollState.totals[`${lnk.linked_worker_id}_${date}`] || 0),
+        historical: false,
+      }));
+    }
   } catch(_) { payrollState.modalLinks = []; }
   _renderPayrollLinks();
   // Auto-expand if there are linked workers
@@ -12856,11 +12891,16 @@ function _renderPayrollLinks() {
   if (!payrollState.modalLinks.length) { wrap.innerHTML = ""; return; }
   wrap.innerHTML = payrollState.modalLinks.map(lnk => `
     <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f1f5f9">
-      <span style="flex:1;font-size:14px;color:#1e293b">${esc(lnk.linked_worker_name||"")}</span>
+      <span style="flex:1;font-size:14px;color:#1e293b">
+        ${esc(lnk.linked_worker_name||"")}
+        ${lnk.historical ? `<span style="font-size:11px;color:#94a3b8;margin-left:4px">сохранено</span>` : ""}
+      </span>
       <span style="font-size:14px;font-weight:600;color:#2563eb;min-width:80px;text-align:right">
         ${lnk.linked_amount > 0 ? _fmtRub(lnk.linked_amount) + " ₽" : "—"}
       </span>
-      <button type="button" class="icon-btn danger" title="Отвязать" onclick="removePayrollLink(${lnk.id})">🗑</button>
+      ${!lnk.historical
+        ? `<button type="button" class="icon-btn danger" title="Отвязать" onclick="removePayrollLink(${lnk.id})">🗑</button>`
+        : `<span style="width:28px"></span>`}
     </div>
   `).join("");
 }
@@ -12904,7 +12944,9 @@ window.confirmAddWorkerLink = async function() {
     if (selDiv) { selDiv.classList.add("hidden"); selDiv.style.display = ""; }
     // Update global used set
     payrollState.usedLinkedIds.add(linkedWorkerId);
-    await _loadPayrollLinks(payrollState.modalWorkerId, payrollState.modalDate);
+    // After adding, reset snapshot context so active links are used
+    // (the snapshot for this date will be written on next Save)
+    await _loadPayrollLinksActive(payrollState.modalWorkerId, payrollState.modalDate);
     updatePayrollTotal();
     if (infoEl) infoEl.textContent = "";
   } catch(e) {
@@ -12925,7 +12967,8 @@ window.removePayrollLink = async function(linkId) {
     // Find the removed linked_worker_id and remove from global set
     const removed = payrollState.modalLinks.find(l => l.id === linkId);
     if (removed) payrollState.usedLinkedIds.delete(removed.linked_worker_id);
-    await _loadPayrollLinks(payrollState.modalWorkerId, payrollState.modalDate);
+    // Reload active links (no snapshot — user just changed current state)
+    await _loadPayrollLinksActive(payrollState.modalWorkerId, payrollState.modalDate);
     updatePayrollTotal();
   } catch(e) { alert(e.message); }
 };
@@ -13022,6 +13065,22 @@ async function savePayrollEntry() {
           note: e.note || "",
         })),
       }),
+    });
+
+    // Save linked-worker snapshot — for historical preservation after unlink
+    // If current view is from a snapshot (historical), re-save as-is to preserve
+    // If current view is active links, snapshot current state + their amounts
+    const snapshotLinks = payrollState.modalLinks
+      .filter(lnk => lnk.linked_amount > 0 || lnk.linked_worker_id)
+      .map(lnk => ({
+        linked_worker_id: lnk.linked_worker_id,
+        linked_worker_name: lnk.linked_worker_name || "",
+        amount: parseFloat(lnk.linked_amount || 0),
+      }));
+    await fetch("/api/salary/linked-snapshot", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ worker_id: workerId, entry_date: date, links: snapshotLinks }),
     });
 
     // Reload totals so table reflects new values (including linked contributions)
