@@ -12306,12 +12306,29 @@ function _scrollToCurrentDate(dates) {
   if (!rightPanel) return;
   const today = _dateFmt(new Date());
 
-  // Find the most recent date ≤ today
-  let targetIdx = -1;
-  for (let i = dates.length - 1; i >= 0; i--) {
-    if (dates[i] <= today) { targetIdx = i; break; }
+  // Find the last date that has ANY data (any worker has a total for it)
+  const datesWithData = new Set();
+  for (const key of Object.keys(payrollState.totals)) {
+    const parts = key.split("_");
+    if (parts.length >= 2) datesWithData.add(parts.slice(1).join("_"));
   }
-  if (targetIdx < 0) targetIdx = 0;
+
+  let targetDate = null;
+  // Latest date with data that is ≤ today
+  for (let i = dates.length - 1; i >= 0; i--) {
+    if (dates[i] <= today && datesWithData.has(dates[i])) {
+      targetDate = dates[i];
+      break;
+    }
+  }
+  // Fallback: most recent date ≤ today (even without data)
+  if (!targetDate) {
+    for (let i = dates.length - 1; i >= 0; i--) {
+      if (dates[i] <= today) { targetDate = dates[i]; break; }
+    }
+  }
+
+  const targetIdx = targetDate ? dates.indexOf(targetDate) : 0;
 
   const table = document.getElementById("payrollTableRight");
   if (!table) return;

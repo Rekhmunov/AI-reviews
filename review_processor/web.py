@@ -5746,7 +5746,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             if (not date_from or iso >= date_from) and (not date_to or iso <= date_to):
                 dates.append(iso)
             d += timedelta(days=7)
-        dates.sort(reverse=True)  # newest date first → appears right after the 5 fixed columns
+        # ascending: oldest left → newest right (freeze pane lets scrolling land on recent data)
 
         workers = repository.list_salary_workers(owner_user_id=owner_id)
         allowed = _salary_allowed_productions(user)
