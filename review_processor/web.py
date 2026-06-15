@@ -5455,10 +5455,16 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         return s
 
     def _parse_birth_date_import(raw: str) -> tuple:
-        """Returns (iso_str, warning_or_None). Accepts DD.MM.YYYY or YYYY-MM-DD."""
+        """Returns (iso_str, warning_or_None).
+        Accepts: DD.MM.YYYY, DD.MM.YY, YYYY-MM-DD, YYYY-MM-DD HH:MM:SS (datetime).
+        """
         s = str(raw or "").strip()
         if not s:
             return "", None
+        # Strip time component: "1991-08-31 00:00:00" → "1991-08-31"
+        if " " in s:
+            s = s.split(" ")[0].strip()
+        # DD.MM.YYYY or DD.MM.YY
         parts = s.split(".")
         if len(parts) == 3:
             dd, mm, yy = parts
@@ -5467,9 +5473,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 return f"{year}-{mm.zfill(2)}-{dd.zfill(2)}", None
             except ValueError:
                 pass
+        # YYYY-MM-DD
         if len(s) == 10 and s[4] == "-":
             return s, None
-        return "", f"нераспознанная дата рождения «{s}»"
+        return "", f"нераспознанная дата рождения «{str(raw).strip()}»"
 
     @app.get("/api/salary/workers/export")
     def export_salary_workers(request: Request):
