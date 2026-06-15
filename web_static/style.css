@@ -5366,8 +5366,8 @@ button.secondary.danger:hover {
 .perm-section {
   border: 1px solid #e2e8f0;
   border-radius: 10px;
-  overflow: hidden;
   background: #fff;
+  flex-shrink: 0; /* prevent compression inside flex modal body */
 }
 
 .perm-section:last-child {
@@ -5379,9 +5379,10 @@ button.secondary.danger:hover {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 14px 16px;
+  padding: 13px 16px;
   background: #f8fafc;
   border-bottom: 1px solid #e2e8f0;
+  border-radius: 10px 10px 0 0;
   cursor: pointer;
   user-select: none;
 }
@@ -5405,8 +5406,8 @@ button.secondary.danger:hover {
 }
 
 .perm-parent-check {
-  width: 17px;
-  height: 17px;
+  width: 16px;
+  height: 16px;
   accent-color: #2563eb;
   cursor: pointer;
   flex-shrink: 0;
