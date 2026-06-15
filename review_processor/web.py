@@ -6110,14 +6110,23 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     "rows": row_results,
                 }
 
-            # Actually save
+            # Actually save — store imported amount as "Дополнительные затраты"
+            # and clear any previous salary_totals_override to avoid double-counting
             saved = 0
             for item in pending_saves:
+                # Remove hard override (if any) so extras are not masked
                 repository.set_salary_total_override(
                     owner_user_id=owner_id,
                     worker_id=item["worker_id"],
                     entry_date=item["entry_date"],
-                    total_amount=item["total_amount"],
+                    total_amount=0,  # 0 → deletes the override
+                )
+                # Replace extras with one "Импортировано" entry
+                repository.replace_salary_entry_extras(
+                    owner_user_id=owner_id,
+                    worker_id=item["worker_id"],
+                    entry_date=item["entry_date"],
+                    extras=[{"amount": item["total_amount"], "note": "Импортировано"}],
                 )
                 saved += 1
 
