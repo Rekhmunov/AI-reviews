@@ -1609,7 +1609,7 @@
             </div>
             <div id="addLegalEntityForm" class="source-form hidden" style="margin-top:12px">
               <div class="row">
-                <input id="newLegalShortName" type="text" placeholder="Короткое наименование (напр. ООО ВарФабрик)" autocomplete="off" />
+                <input id="newLegalShortName" type="text" placeholder="Короткое наименование (напр. ООО Варфабрик)" autocomplete="off" />
               </div>
               <div class="row">
                 <input id="newLegalFullName" type="text" placeholder="Полное наименование для документов" autocomplete="off" />
@@ -1793,7 +1793,7 @@
             </select>
             <select id="payrollFilterLegal" onchange="renderPayrollTable()" style="width:200px">
               <option value="">Все юр. лица</option>
-              <option value="ООО ВарФабрик">ООО ВарФабрик</option>
+              <option value="ООО Варфабрик">ООО Варфабрик</option>
               <option value="ИП Авдеева М.Ю.">ИП Авдеева М.Ю.</option>
               <option value="ИП Рехмунов Д.О.">ИП Рехмунов Д.О.</option>
             </select>
@@ -1991,12 +1991,13 @@
                 <option>Генеральный директор</option>
                 <option>Грузчик</option>
                 <option>Комплектовщик</option>
+                <option>Разнорабочий</option>
               </select>
               <select id="swFilterLegal" onchange="applySalaryWorkersFilter()" style="min-width:170px">
                 <option value="">Юр. принадлежность</option>
-                <option>ООО ВарФабрик</option>
-                <option>ИП Авдеева М.Ю.</option>
-                <option>ИП Рехмунов Д.О.</option>
+                <option value="ООО Варфабрик">ООО Варфабрик</option>
+                <option value="ИП Авдеева М.Ю.">ИП Авдеева М.Ю.</option>
+                <option value="ИП Рехмунов Д.О.">ИП Рехмунов Д.О.</option>
               </select>
               <button type="button" class="secondary" onclick="resetSalaryWorkersFilter()" title="Сбросить фильтры">✕ Сбросить</button>
             </div>
@@ -2024,6 +2025,7 @@
                     <option>Генеральный директор</option>
                     <option>Грузчик</option>
                     <option>Комплектовщик</option>
+                    <option>Разнорабочий</option>
                   </select>
                 </div>
                 <div class="wfg-field">
@@ -2034,7 +2036,7 @@
                   <label class="wfg-label" for="salaryWorkerLegalEntity">Юр. принадлежность</label>
                   <select id="salaryWorkerLegalEntity">
                     <option value="">— не выбрана —</option>
-                    <option value="ООО ВарФабрик">ООО ВарФабрик</option>
+                    <option value="ООО Варфабрик">ООО Варфабрик</option>
                     <option value="ИП Авдеева М.Ю.">ИП Авдеева М.Ю.</option>
                     <option value="ИП Рехмунов Д.О.">ИП Рехмунов Д.О.</option>
                   </select>
@@ -2167,6 +2169,7 @@
               <option>Генеральный директор</option>
               <option>Грузчик</option>
               <option>Комплектовщик</option>
+              <option>Разнорабочий</option>
             </select>
           </div>
           <div class="wfg-field">
@@ -2177,7 +2180,7 @@
             <label class="wfg-label" for="editSalaryWorkerLegalEntity">Юр. принадлежность</label>
             <select id="editSalaryWorkerLegalEntity">
               <option value="">— не выбрана —</option>
-              <option value="ООО ВарФабрик">ООО ВарФабрик</option>
+              <option value="ООО Варфабрик">ООО Варфабрик</option>
               <option value="ИП Авдеева М.Ю.">ИП Авдеева М.Ю.</option>
               <option value="ИП Рехмунов Д.О.">ИП Рехмунов Д.О.</option>
             </select>
