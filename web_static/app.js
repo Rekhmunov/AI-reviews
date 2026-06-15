@@ -12396,19 +12396,11 @@ window.startPayrollResize = startPayrollResize;
 // Date filter
 // ── Payroll export / import ───────────────────────────────────────────────
 
-async function exportPayrollTable() {
+function exportPayrollTable() {
   const params = new URLSearchParams();
   if (payrollState.dateFrom) params.set("date_from", payrollState.dateFrom);
   if (payrollState.dateTo)   params.set("date_to",   payrollState.dateTo);
-  try {
-    const res = await fetch("/api/salary/payroll/export?" + params.toString());
-    if (!res.ok) { alert("Ошибка экспорта"); return; }
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = "payroll.xlsx";
-    document.body.appendChild(a); a.click();
-    document.body.removeChild(a); URL.revokeObjectURL(url);
-  } catch (e) { alert("Ошибка: " + e.message); }
+  window.open("/api/salary/payroll/export?" + params.toString(), "_blank");
 }
 window.exportPayrollTable = exportPayrollTable;
 
