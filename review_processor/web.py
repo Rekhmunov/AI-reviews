@@ -5446,14 +5446,43 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Работник не найден")
         return {"ok": True}
 
+    def _fmt_birth_date(raw: str) -> str:
+        """Convert YYYY-MM-DD → DD.MM.YYYY; pass through anything else."""
+        s = str(raw or "").strip()
+        if len(s) == 10 and s[4] == "-":
+            y, m, d = s.split("-")
+            return f"{d}.{m}.{y}"
+        return s
+
+    def _parse_birth_date_import(raw: str) -> tuple:
+        """Returns (iso_str, warning_or_None). Accepts DD.MM.YYYY or YYYY-MM-DD."""
+        s = str(raw or "").strip()
+        if not s:
+            return "", None
+        parts = s.split(".")
+        if len(parts) == 3:
+            dd, mm, yy = parts
+            try:
+                year = int(yy) + 2000 if len(yy) == 2 else int(yy)
+                return f"{year}-{mm.zfill(2)}-{dd.zfill(2)}", None
+            except ValueError:
+                pass
+        if len(s) == 10 and s[4] == "-":
+            return s, None
+        return "", f"нераспознанная дата рождения «{s}»"
+
     @app.get("/api/salary/workers/export")
     def export_salary_workers(request: Request):
         import io
+        from datetime import date as _date
         import openpyxl
         from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
         user = _require_tenant_owner(request)
         owner_id = _tenant_owner_id(user)
         workers = repository.list_salary_workers(owner_user_id=owner_id)
+
+        today_str = _date.today().strftime("%d.%m.%Y")
+        fname = f"Работники {today_str}"
 
         wb = openpyxl.Workbook()
         ws = wb.active
@@ -5466,19 +5495,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         thin      = Side(style="thin", color="BBCCE8")
         border    = Border(left=thin, right=thin, top=thin, bottom=thin)
 
-        headers = ["ФИО","Должность","Дата рождения","Юр. принадлежность","Производство","Видимость для бухгалтера"]
+        headers = ["ФИО", "Должность", "Дата рождения", "Юр. принадлежность", "Производство", "Видимость для бухгалтера"]
         for ci, h in enumerate(headers, start=1):
             cell = ws.cell(row=1, column=ci, value=h)
             cell.font = hdr_font; cell.fill = hdr_fill
             cell.alignment = center; cell.border = border
-            ws.column_dimensions[cell.column_letter].width = max(len(h)*1.2+2, 10)
 
-        # birth_date column index = 3 — force text
         for ri, w in enumerate(workers, start=2):
             vals = [
                 w.get("full_name") or "",
                 w.get("position") or "",
-                w.get("birth_date") or "",
+                _fmt_birth_date(str(w.get("birth_date") or "")),  # DD.MM.YYYY
                 w.get("legal_entity") or "",
                 w.get("production") or "",
                 "Да" if w.get("visible_for_accountant") is not False else "Нет",
@@ -5486,17 +5513,24 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             for ci, v in enumerate(vals, start=1):
                 cell = ws.cell(row=ri, column=ci, value=str(v))
                 cell.alignment = left_al; cell.border = border
-                if ci == 3:  # birth_date — keep as text
+                if ci == 3:
                     cell.number_format = "@"
                     cell.quotePrefix = True
+
+        # Auto-fit columns
+        for col_cells in ws.columns:
+            max_len = max((len(str(c.value or "")) for c in col_cells), default=8)
+            ws.column_dimensions[col_cells[0].column_letter].width = min(max(max_len * 1.15 + 2, 10), 50)
 
         ws.freeze_panes = "A2"
         buf = io.BytesIO()
         wb.save(buf); buf.seek(0)
+        from urllib.parse import quote as _q
+        cd = "attachment; filename=\"workers.xlsx\"; filename*=UTF-8''" + _q(fname + ".xlsx")
         return StreamingResponse(
             iter([buf.read()]),
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": "attachment; filename=\"salary_workers.xlsx\""},
+            headers={"Content-Disposition": cd},
         )
 
     @app.get("/api/salary/payroll/template")
@@ -5630,7 +5664,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         return list(reader)
 
     @app.post("/api/salary/workers/import")
-    async def import_salary_workers(request: Request, file: UploadFile = File(...)) -> dict[str, object]:
+    async def import_salary_workers(
+        request: Request,
+        file: UploadFile = File(...),
+        preview: bool = False,
+    ) -> dict[str, object]:
+        """Import workers from XLSX (same format as export).
+        preview=true  → parse + validate, return summary WITHOUT saving.
+        preview=false → parse + validate + upsert, return results.
+        """
         try:
             user = _require_tenant_owner(request)
             owner_id = _tenant_owner_id(user)
@@ -5639,43 +5681,115 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             if not rows:
                 raise HTTPException(status_code=400, detail="Файл пустой")
 
-            created = 0; errors: list[str] = []
-            # Skip first row if it looks like a header (no digits in expected date column)
-            start_row = 1  # skip header by default
+            VALID_POSITIONS = {
+                "Нач. производства", "Менеджер", "Бухгалтер", "Закройщик",
+                "Упаковщик", "Швея", "Технический директор", "Генеральный директор",
+                "Грузчик", "Комплектовщик", "Разнорабочий",
+            }
+            VALID_PRODUCTIONS = {"Иваново", "Кинешма", "Нерль"}
+            VALID_LEGAL = {"ООО Варфабрик", "ИП Авдеева М.Ю.", "ИП Рехмунов Д.О."}
+
+            # Build name→worker map for upsert logic
+            existing = repository.list_salary_workers(owner_user_id=owner_id)
+            by_name = {str(w.get("full_name") or "").strip().lower(): w for w in existing}
+
+            # Determine header row
+            start_row = 1
             if rows and rows[0]:
-                first_val = (rows[0][0] or "").strip()
-                # If first cell matches known header names, skip it
-                if first_val.lower().replace(" ", "") in ("фио", "fullname", "name"):
-                    start_row = 1
-                else:
-                    start_row = 0  # no header, start from row 0
+                first = str(rows[0][0] or "").strip().lower().replace(" ", "")
+                if first not in ("фио", "fullname", "name"):
+                    start_row = 0
+
+            warnings = []
+            pending = []  # list of dicts ready to upsert
 
             for i, row in enumerate(rows[start_row:], start=start_row + 1):
-                if not row or not any(c.strip() for c in row):
+                if not row or not any(str(c).strip() for c in row):
                     continue
-                full_name = row[0].strip() if len(row) > 0 else ""
+                full_name = str(row[0]).strip() if len(row) > 0 else ""
                 if not full_name or full_name.lower().replace(" ", "") in ("фио", "fullname"):
-                    continue  # skip header-like rows
-                position     = row[1].strip() if len(row) > 1 else ""
-                birth_date   = row[2].strip() if len(row) > 2 else ""
-                legal_entity = row[3].strip() if len(row) > 3 else ""
-                production   = row[4].strip() if len(row) > 4 else ""
-                vis_raw      = row[5].strip().lower() if len(row) > 5 else ""
-                visible      = vis_raw not in ("нет", "no", "false", "0")
+                    continue
+
+                row_warns = []
+                position = str(row[1]).strip() if len(row) > 1 else ""
+                if position and position not in VALID_POSITIONS:
+                    row_warns.append(f"должность «{position}» не из справочника — будет сохранена как есть")
+
+                raw_bd = str(row[2]).strip() if len(row) > 2 else ""
+                birth_date, bd_warn = _parse_birth_date_import(raw_bd)
+                if bd_warn:
+                    row_warns.append(bd_warn + " — дата рождения будет пустой")
+                    birth_date = ""
+
+                legal_entity = str(row[3]).strip() if len(row) > 3 else ""
+                if legal_entity and legal_entity not in VALID_LEGAL:
+                    row_warns.append(f"юр. принадлежность «{legal_entity}» не из справочника — будет сохранена как есть")
+
+                production = str(row[4]).strip() if len(row) > 4 else ""
+                if production and production not in VALID_PRODUCTIONS:
+                    row_warns.append(f"производство «{production}» не из справочника — будет пустым")
+                    production = ""
+
+                vis_raw = str(row[5]).strip().lower() if len(row) > 5 else ""
+                visible = vis_raw not in ("нет", "no", "false", "0")
+
+                if row_warns:
+                    warnings.append(f"Строка {i} ({full_name}): {'; '.join(row_warns)}")
+
+                existing_worker = by_name.get(full_name.lower())
+                pending.append({
+                    "full_name": full_name,
+                    "position": position,
+                    "birth_date": birth_date,
+                    "legal_entity": legal_entity,
+                    "production": production,
+                    "visible_for_accountant": visible,
+                    "existing_id": int(existing_worker["id"]) if existing_worker else None,
+                    "action": "update" if existing_worker else "create",
+                })
+
+            if preview:
+                created_count = sum(1 for p in pending if p["action"] == "create")
+                updated_count = sum(1 for p in pending if p["action"] == "update")
+                return {
+                    "preview": True,
+                    "total_rows": len(pending),
+                    "to_create": created_count,
+                    "to_update": updated_count,
+                    "warnings": warnings,
+                }
+
+            created = updated = 0
+            errors = []
+            for p in pending:
                 try:
-                    repository.create_salary_worker(
-                        owner_user_id=owner_id,
-                        full_name=full_name,
-                        position=position,
-                        birth_date=birth_date,
-                        legal_entity=legal_entity,
-                        production=production,
-                        visible_for_accountant=visible,
-                    )
-                    created += 1
+                    if p["action"] == "update":
+                        repository.update_salary_worker(
+                            owner_user_id=owner_id,
+                            worker_id=p["existing_id"],
+                            full_name=p["full_name"],
+                            position=p["position"],
+                            birth_date=p["birth_date"],
+                            legal_entity=p["legal_entity"],
+                            production=p["production"],
+                            visible_for_accountant=p["visible_for_accountant"],
+                        )
+                        updated += 1
+                    else:
+                        repository.create_salary_worker(
+                            owner_user_id=owner_id,
+                            full_name=p["full_name"],
+                            position=p["position"],
+                            birth_date=p["birth_date"],
+                            legal_entity=p["legal_entity"],
+                            production=p["production"],
+                            visible_for_accountant=p["visible_for_accountant"],
+                        )
+                        created += 1
                 except Exception as exc:
-                    errors.append(f"Строка {i}: {exc}")
-            return {"ok": True, "created": created, "errors": errors}
+                    errors.append(f"{p['full_name']}: {exc}")
+
+            return {"ok": True, "created": created, "updated": updated, "warnings": warnings, "errors": errors}
         except HTTPException:
             raise
         except Exception as exc:

@@ -11859,47 +11859,105 @@ function downloadSalaryWorkerTemplate() {
 }
 window.downloadSalaryWorkerTemplate = downloadSalaryWorkerTemplate;
 
-async function exportSalaryWorkers() {
-  try {
-    const res = await fetch("/api/salary/workers/export");
-    if (!res.ok) { alert("Ошибка экспорта"); return; }
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = "salary_workers.xlsx";
-    document.body.appendChild(a); a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  } catch (e) { alert("Ошибка: " + e.message); }
+function exportSalaryWorkers() {
+  window.open("/api/salary/workers/export", "_blank");
 }
 window.exportSalaryWorkers = exportSalaryWorkers;
 
+let _importWorkersFile = null;
+
 async function importSalaryWorkers(input) {
-  const info = document.getElementById("salaryWorkersImportInfo");
   const file = input?.files?.[0];
   if (!file) return;
-  if (info) { info.textContent = "Загрузка..."; info.style.color = "#64748b"; }
+  _importWorkersFile = file;
+  if (input) input.value = "";
+  const info = document.getElementById("salaryWorkersImportInfo");
+  if (info) { info.textContent = "Анализ файла..."; info.style.color = "#64748b"; }
   try {
     const formData = new FormData();
     formData.append("file", file);
-    const res = await fetch("/api/salary/workers/import", {
+    const csrf = document.cookie.match(/csrf_token=([^;]+)/)?.[1] || "";
+    const res = await fetch("/api/salary/workers/import?preview=true", {
       method: "POST",
-      headers: { "X-CSRF-Token": document.cookie.match(/csrf_token=([^;]+)/)?.[1] || "" },
+      headers: { "X-CSRF-Token": csrf },
       body: formData,
     });
     const data = await res.json();
     if (!res.ok) {
+      if (info) { info.textContent = data.detail || "Ошибка анализа"; info.style.color = "#b91c1c"; }
+      return;
+    }
+    if (info) info.textContent = "";
+    _showWorkersImportPreview(data);
+  } catch (e) {
+    if (info) { info.textContent = "Ошибка: " + e.message; info.style.color = "#b91c1c"; }
+  }
+}
+window.importSalaryWorkers = importSalaryWorkers;
+
+function _showWorkersImportPreview(data) {
+  const summaryEl = document.getElementById("workersImportSummary");
+  const warnWrap  = document.getElementById("workersImportWarningsWrap");
+  const warnEl    = document.getElementById("workersImportWarnings");
+  const modal     = document.getElementById("workersImportPreviewModal");
+  if (!summaryEl || !modal) return;
+
+  const hasWarnings = data.warnings && data.warnings.length > 0;
+  summaryEl.innerHTML = [
+    `<div><b>Найдено строк:</b> ${data.total_rows ?? 0}</div>`,
+    `<div><b>Будет создано:</b> ${data.to_create ?? 0}</div>`,
+    `<div><b>Будет обновлено:</b> ${data.to_update ?? 0}</div>`,
+    hasWarnings ? `<div><span style="color:#b45309"><b>Предупреждений:</b> ${data.warnings.length}</span></div>` : "",
+  ].filter(Boolean).join("");
+
+  if (hasWarnings) {
+    warnEl.innerHTML = data.warnings.map(w => `<div>⚠ ${esc(w)}</div>`).join("");
+    warnWrap.classList.remove("hidden");
+  } else {
+    warnWrap.classList.add("hidden");
+  }
+  const btn = document.getElementById("workersImportConfirmBtn");
+  if (btn) btn.disabled = (data.total_rows === 0);
+  modal.classList.remove("hidden");
+}
+
+window.closeWorkersImportModal = function() {
+  document.getElementById("workersImportPreviewModal")?.classList.add("hidden");
+  _importWorkersFile = null;
+};
+
+window.confirmWorkersImport = async function() {
+  if (!_importWorkersFile) return;
+  const btn = document.getElementById("workersImportConfirmBtn");
+  if (btn) { btn.disabled = true; btn.textContent = "Загрузка..."; }
+  const info = document.getElementById("salaryWorkersImportInfo");
+  const errBox = document.getElementById("salaryWorkersImportErrors");
+  try {
+    const formData = new FormData();
+    formData.append("file", _importWorkersFile);
+    const csrf = document.cookie.match(/csrf_token=([^;]+)/)?.[1] || "";
+    const res = await fetch("/api/salary/workers/import?preview=false", {
+      method: "POST",
+      headers: { "X-CSRF-Token": csrf },
+      body: formData,
+    });
+    const data = await res.json();
+    document.getElementById("workersImportPreviewModal")?.classList.add("hidden");
+    _importWorkersFile = null;
+
+    if (!res.ok) {
       if (info) { info.textContent = data.detail || "Ошибка импорта"; info.style.color = "#b91c1c"; }
       return;
     }
-    const errList = data.errors || [];
-    const errTxt = errList.length ? `; ошибок: ${errList.length}` : "";
-    if (info) { info.textContent = `Добавлено: ${data.created}${errTxt}`; info.style.color = errList.length ? "#b45309" : "#16a34a"; }
-    // Show error details
-    const errBox = document.getElementById("salaryWorkersImportErrors");
+    const warnTxt = data.warnings?.length ? `; предупреждений: ${data.warnings.length}` : "";
+    if (info) {
+      info.textContent = `Создано: ${data.created}, обновлено: ${data.updated}${warnTxt}`;
+      info.style.color = "#16a34a";
+    }
+    const allIssues = [...(data.warnings || []), ...(data.errors || [])];
     if (errBox) {
-      if (errList.length) {
-        errBox.innerHTML = errList.map(e => `<div>• ${esc(e)}</div>`).join("");
+      if (allIssues.length) {
+        errBox.innerHTML = allIssues.map(e => `<div>• ${esc(e)}</div>`).join("");
         errBox.classList.remove("hidden");
       } else {
         errBox.classList.add("hidden");
@@ -11909,10 +11967,9 @@ async function importSalaryWorkers(input) {
   } catch (e) {
     if (info) { info.textContent = "Ошибка: " + e.message; info.style.color = "#b91c1c"; }
   } finally {
-    if (input) input.value = "";
+    if (btn) { btn.disabled = false; btn.textContent = "Загрузить"; }
   }
-}
-window.importSalaryWorkers = importSalaryWorkers;
+};
 
 async function saveSalaryWorker() {
   const nameEl = document.getElementById("salaryWorkerName");

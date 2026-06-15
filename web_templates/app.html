@@ -1960,8 +1960,7 @@
               <div class="row" style="gap:8px">
                 <button type="button" id="salaryWorkersBulkDeleteBtn" class="secondary danger hidden"
                   onclick="bulkDeleteSalaryWorkers()" title="Удалить выбранных">🗑 Удалить выбранных (<span id="salaryWorkersBulkCount">0</span>)</button>
-                <button type="button" class="secondary" onclick="downloadSalaryWorkerTemplate()" title="Скачать шаблон CSV">📋 Шаблон</button>
-                <button type="button" class="secondary" onclick="exportSalaryWorkers()" title="Экспорт в CSV">⬇ Экспорт</button>
+                <button type="button" class="secondary" onclick="exportSalaryWorkers()" title="Экспорт в XLSX">⬇ Экспорт</button>
                 <label class="secondary" style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;padding:10px 12px;border-radius:var(--radius-sm);border:1px solid rgba(147,197,253,0.7);background:linear-gradient(160deg,rgba(255,255,255,0.88),rgba(239,246,255,0.92));font-size:14px;font-weight:600;color:#1e40af" title="Импорт из CSV">
                   ⬆ Импорт
                   <input type="file" id="salaryWorkersImportFile" accept=".csv,.xlsx,.xls" style="display:none" onchange="importSalaryWorkers(this)" />
@@ -2456,6 +2455,28 @@
       </div>
     </div>
   </div>
+  <!-- ── Workers Import Preview Modal ── -->
+  <div id="workersImportPreviewModal" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal-card" style="max-width:600px">
+      <div class="modal-card-header">
+        <h4 class="no-margin">Предпросмотр импорта работников</h4>
+        <button type="button" class="modal-close-btn" onclick="closeWorkersImportModal()" aria-label="Закрыть">✕</button>
+      </div>
+      <div style="padding:16px 20px;display:flex;flex-direction:column;gap:12px;max-height:60vh;overflow-y:auto">
+        <div id="workersImportSummary" style="font-size:14px;color:#1e293b;line-height:1.6"></div>
+        <div id="workersImportWarningsWrap" class="hidden">
+          <div style="font-size:12px;font-weight:700;color:#92400e;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Предупреждения</div>
+          <div id="workersImportWarnings"
+            style="background:#fffbeb;border:1px solid #fcd34d;border-radius:6px;padding:10px 12px;font-size:13px;color:#78350f;max-height:200px;overflow-y:auto;display:flex;flex-direction:column;gap:4px"></div>
+        </div>
+      </div>
+      <div class="modal-card-footer" style="display:flex;gap:8px;justify-content:flex-end;padding:12px 20px;border-top:1px solid #e2e8f0">
+        <button type="button" class="secondary" onclick="closeWorkersImportModal()">Отмена</button>
+        <button type="button" id="workersImportConfirmBtn" onclick="confirmWorkersImport()">Загрузить</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ── Payroll Import Preview Modal ── -->
   <div id="payrollImportPreviewModal" class="modal-overlay hidden" role="dialog" aria-modal="true">
     <div class="modal-card" style="max-width:600px">
@@ -2597,6 +2618,6 @@
   <script src="/static/jszip.min.js"></script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=259"></script>
+  <script src="/static/app.js?v=260"></script>
 </body>
 </html>
