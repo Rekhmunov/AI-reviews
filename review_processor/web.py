@@ -5720,7 +5720,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     def _payroll_export_cd(name: str) -> str:
         from urllib.parse import quote
         safe = quote(name + ".xlsx")
-        return f'attachment; filename="payroll.xlsx"; filename*=UTF-8\'\'{safe}'
+        return "attachment; filename=\"payroll.xlsx\"; filename*=UTF-8''" + safe
 
     @app.get("/api/salary/payroll/export")
     def export_payroll_table(

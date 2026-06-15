@@ -8163,7 +8163,7 @@ class ReviewRepository:
             base_totals = dict(totals)
 
             # a) Snapshot worker IDs  →  (main_worker, date) → set of linked_worker_ids
-            snap_links: dict[tuple[int, str], set[int]] = {}
+            snap_links = {}
             for r in conn.execute(
                 self._sql(
                     "SELECT worker_id, CAST(entry_date AS TEXT) AS entry_date, linked_worker_id "
@@ -8175,7 +8175,7 @@ class ReviewRepository:
                 snap_links.setdefault(key, set()).add(int(_r(r, "linked_worker_id", 2)))
 
             # b) Active link worker IDs  →  main_worker_id → set of linked_worker_ids
-            act_links: dict[int, set[int]] = {}
+            act_links = {}
             for r in conn.execute(
                 self._sql(
                     "SELECT worker_id, linked_worker_id "
