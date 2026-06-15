@@ -5530,7 +5530,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
         def date_ru(iso: str) -> str:
             y, m, dd = iso.split("-")
-            return f"{dd}.{m}.{y[2:]}"
+            return f"{dd}.{m}.{y}"  # DD.MM.YYYY — 4-digit year
 
         wb = openpyxl.Workbook()
         ws = wb.active
@@ -5815,11 +5815,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     cell.number_format = "@"
                     cell.quotePrefix = True
             for ci, v in enumerate(date_vals, start=len(fixed_vals)+1):
-                if v:
-                    cell = ws.cell(row=wi, column=ci, value=round(v, 2))
-                    cell.number_format = '#,##0.00'
-                else:
-                    cell = ws.cell(row=wi, column=ci, value=None)
+                display_val = round(v, 2) if v else 0.0
+                cell = ws.cell(row=wi, column=ci, value=display_val)
+                cell.number_format = '#,##0.00'
                 cell.alignment = center
                 cell.border = border
 
@@ -5859,73 +5857,151 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
 
     @app.post("/api/salary/payroll/import")
-    async def import_payroll_table(request: Request, file: UploadFile = File(...)) -> dict[str, object]:
-        """Import payroll CSV/XLSX/XLS — sets total amounts per worker/date."""
+    async def import_payroll_table(
+        request: Request,
+        file: UploadFile = File(...),
+        preview: bool = False,
+    ) -> dict[str, object]:
+        """Import payroll XLSX — upserts total overrides per worker/date.
+        preview=true  → parse + validate, return summary WITHOUT saving.
+        preview=false → parse + validate + save, return results.
+        """
         try:
-          user = _require_tenant_owner(request)
-          owner_id = _tenant_owner_id(user)
+            user = _require_tenant_owner(request)
+            owner_id = _tenant_owner_id(user)
 
-          raw = await file.read()
-          rows = _parse_upload_to_rows(raw, file.filename or "")
-          if not rows:
-              raise HTTPException(status_code=400, detail="Файл пустой")
+            raw = await file.read()
+            rows = _parse_upload_to_rows(raw, file.filename or "")
+            if not rows:
+                raise HTTPException(status_code=400, detail="Файл пустой")
 
-          header = rows[0]
-          from datetime import date as _date, timedelta
-          start = _date(2026, 1, 7)
-          end_limit = _date.today() + timedelta(days=14)
-          series_dates: list[str] = []
-          d = start
-          while d <= end_limit:
-              series_dates.append(d.isoformat())
-              d += timedelta(days=7)
+            header = rows[0]
+            from datetime import date as _date, timedelta
+            start = _date(2026, 1, 7)
+            end_limit = _date.today() + timedelta(days=180)  # allow future dates
+            series_dates_set = set()
+            d = start
+            while d <= end_limit:
+                series_dates_set.add(d.isoformat())
+                d += timedelta(days=7)
 
-          def parse_date_header(s: str) -> str | None:
-              s = s.strip()
-              parts = s.split(".")
-              if len(parts) != 3:
-                  return None
-              dd, mm, yy = parts
-              year = int(yy) + 2000 if len(yy) == 2 else int(yy)
-              iso = f"{year}-{mm.zfill(2)}-{dd.zfill(2)}"
-              return iso if iso in series_dates else None
+            def parse_date_header(s: str) -> str | None:
+                s = str(s).strip()
+                parts = s.split(".")
+                if len(parts) != 3:
+                    return None
+                dd, mm, yy = parts
+                try:
+                    year = int(yy) + 2000 if len(yy) == 2 else int(yy)
+                    iso = f"{year}-{mm.zfill(2)}-{dd.zfill(2)}"
+                except ValueError:
+                    return None
+                return iso if iso in series_dates_set else None
 
-          date_cols: list[tuple[int, str]] = []
-          for ci, h in enumerate(header[5:], start=5):
-              iso = parse_date_header(h)
-              if iso:
-                  date_cols.append((ci, iso))
+            date_cols = []
+            unrecognised_dates = []
+            for ci, h in enumerate(header[5:], start=5):
+                iso = parse_date_header(h)
+                if iso:
+                    date_cols.append((ci, iso))
+                elif str(h).strip():
+                    unrecognised_dates.append(str(h).strip())
 
-          workers = repository.list_salary_workers(owner_user_id=owner_id)
-          workers_by_name = {str(w.get("full_name") or "").strip().lower(): w for w in workers}
+            workers = repository.list_salary_workers(owner_user_id=owner_id)
+            workers_by_name = {
+                str(w.get("full_name") or "").strip().lower(): w for w in workers
+            }
 
-          created = 0; errors: list[str] = []
-          for ri, row in enumerate(rows[1:], start=2):
-              if not row:
-                  continue
-              full_name = row[0].strip() if row else ""
-              if not full_name:
-                  continue
-              w = workers_by_name.get(full_name.lower())
-              if not w:
-                  errors.append(f"Строка {ri}: работник «{full_name}» не найден")
-                  continue
-              for ci, iso in date_cols:
-                  cell = row[ci].strip() if ci < len(row) else ""
-                  if not cell:
-                      continue
-                  try:
-                      amount = float(cell.replace(",", ".").replace(" ", ""))
-                  except ValueError:
-                      continue
-                  repository.set_salary_total_override(
-                      owner_user_id=owner_id,
-                      worker_id=int(w["id"]),
-                      entry_date=iso,
-                      total_amount=amount,
-                  )
-                  created += 1
-          return {"ok": True, "created": created, "errors": errors}
+            VALID_POSITIONS = {
+                "Нач. производства", "Менеджер", "Бухгалтер", "Закройщик",
+                "Упаковщик", "Швея", "Технический директор", "Генеральный директор",
+                "Грузчик", "Комплектовщик",
+            }
+
+            warnings = []
+            row_results = []   # [{name, matched, cells_found, cells_zero, issues}]
+            pending_saves = []  # [{worker_id, entry_date, total_amount}]
+
+            if unrecognised_dates:
+                warnings.append(
+                    f"Нераспознанные заголовки дат (пропущены): {', '.join(unrecognised_dates)}"
+                )
+
+            for ri, row in enumerate(rows[1:], start=2):
+                if not row:
+                    continue
+                full_name = str(row[0]).strip() if row else ""
+                if not full_name:
+                    continue
+
+                row_issues = []
+                w = workers_by_name.get(full_name.lower())
+                if not w:
+                    warnings.append(f"Строка {ri}: работник «{full_name}» не найден — строка пропущена")
+                    row_results.append({"row": ri, "name": full_name, "matched": False, "issues": ["Работник не найден"]})
+                    continue
+
+                # Validate optional metadata columns (warn, don't block)
+                if len(row) > 1:
+                    file_pos = str(row[1]).strip()
+                    if file_pos and file_pos not in VALID_POSITIONS:
+                        row_issues.append(f"должность «{file_pos}» не из справочника")
+
+                cells_found = 0
+                cells_zero = 0
+                for ci, iso in date_cols:
+                    raw_cell = str(row[ci]).strip() if ci < len(row) else ""
+                    if not raw_cell:
+                        continue
+                    try:
+                        amount = float(raw_cell.replace(",", ".").replace("\xa0", "").replace(" ", ""))
+                    except ValueError:
+                        row_issues.append(f"не удалось разобрать сумму «{raw_cell}» для {iso}")
+                        continue
+                    if amount == 0.0:
+                        cells_zero += 1
+                        continue  # skip zero-value cells — don't create override
+                    cells_found += 1
+                    pending_saves.append({
+                        "worker_id": int(w["id"]),
+                        "entry_date": iso,
+                        "total_amount": amount,
+                    })
+
+                if row_issues:
+                    warnings.append(f"Строка {ri} ({full_name}): {'; '.join(row_issues)}")
+                row_results.append({
+                    "row": ri,
+                    "name": full_name,
+                    "matched": True,
+                    "cells_found": cells_found,
+                    "cells_zero": cells_zero,
+                    "issues": row_issues,
+                })
+
+            if preview:
+                return {
+                    "preview": True,
+                    "total_rows": len(row_results),
+                    "matched_workers": sum(1 for r in row_results if r.get("matched")),
+                    "cells_to_save": len(pending_saves),
+                    "warnings": warnings,
+                    "rows": row_results,
+                }
+
+            # Actually save
+            saved = 0
+            for item in pending_saves:
+                repository.set_salary_total_override(
+                    owner_user_id=owner_id,
+                    worker_id=item["worker_id"],
+                    entry_date=item["entry_date"],
+                    total_amount=item["total_amount"],
+                )
+                saved += 1
+
+            return {"ok": True, "saved": saved, "warnings": warnings, "rows": row_results}
+
         except HTTPException:
             raise
         except Exception as exc:
