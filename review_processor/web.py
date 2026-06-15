@@ -5731,7 +5731,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         user = _require_salary_access(request)
         owner_id = _salary_owner_id(user)
 
-        # Build 7-day series from Jan 7 2026 to today + 14 days
+        # Build 7-day series from Jan 7 2026 to today + 14 days, newest first
         start = _date(2026, 1, 7)
         end_limit = _date.today() + timedelta(days=14)
         dates: list[str] = []
@@ -5741,6 +5741,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             if (not date_from or iso >= date_from) and (not date_to or iso <= date_to):
                 dates.append(iso)
             d += timedelta(days=7)
+        dates.sort(reverse=True)  # newest date first → appears right after the 5 fixed columns
 
         workers = repository.list_salary_workers(owner_user_id=owner_id)
         allowed = _salary_allowed_productions(user)
