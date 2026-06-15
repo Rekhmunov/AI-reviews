@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=125" />
+  <link rel="stylesheet" href="/static/style.css?v=126" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1884,8 +1884,18 @@
                     <span style="font-size:14px;color:#64748b">₽</span>
                   </div>
                 </div>
+                <!-- Vacation checkbox -->
+                <div style="margin-top:14px;border-top:1px solid #f1f5f9;padding-top:12px;display:flex;align-items:center;gap:10px">
+                  <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;color:#1e293b;font-weight:500;user-select:none">
+                    <input type="checkbox" id="payrollVacationCheck" onchange="onPayrollVacationChange()"
+                      style="width:17px;height:17px;accent-color:#2563eb;cursor:pointer;flex-shrink:0" />
+                    Отпуск
+                  </label>
+                  <span id="payrollVacationHint" class="hidden" style="font-size:12px;color:#64748b">— цифра в ячейке заменяется словом «Отпуск»</span>
+                </div>
+
                 <!-- Extra production buttons and tables -->
-                <div id="payrollExtraProdsArea" class="hidden" style="margin-top:14px;border-top:1px solid #f1f5f9;padding-top:12px">
+                <div id="payrollExtraProdsArea" class="hidden" style="margin-top:12px;border-top:1px solid #f1f5f9;padding-top:12px">
                   <div id="payrollExtraProdsButtons" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:4px"></div>
                   <div id="payrollExtraProdsContent" style="display:flex;flex-direction:column;gap:10px;margin-top:8px"></div>
                 </div>
@@ -2618,6 +2628,6 @@
   <script src="/static/jszip.min.js"></script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=260"></script>
+  <script src="/static/app.js?v=261"></script>
 </body>
 </html>

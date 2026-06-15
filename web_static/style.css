@@ -5838,6 +5838,20 @@ button.secondary.danger:hover {
   background: #eff6ff !important;
 }
 
+/* ── Vacation cells in payroll table ────────────────────────────────────── */
+
+.payroll-vacation-cell {
+  background: #f0fdf4 !important;
+}
+
+.payroll-vacation-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #16a34a;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 /* ── Extra production buttons (payroll modal) ───────────────────────────── */
 
 button.active-prod-btn {

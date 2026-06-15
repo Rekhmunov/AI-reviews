@@ -6158,6 +6158,35 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
         return {"ok": True}
 
+    # ── Vacation ───────────────────────────────────────────────────────────
+    @app.get("/api/salary/vacations")
+    def list_salary_vacations(request: Request) -> dict[str, object]:
+        user = _require_salary_access(request)
+        owner_id = _salary_owner_id(user)
+        items = repository.list_salary_vacations(owner_user_id=owner_id)
+        allowed = _salary_allowed_productions(user)
+        if allowed is not None:
+            workers = repository.list_salary_workers(owner_user_id=owner_id)
+            allowed_ids = {w["id"] for w in workers if str(w.get("production") or "") in allowed}
+            items = [v for v in items if int(v.get("worker_id") or 0) in allowed_ids]
+        return {"items": items}
+
+    @app.post("/api/salary/vacation")
+    def set_salary_vacation(
+        request: Request,
+        worker_id: int = 0,
+        entry_date: str = "",
+        on: bool = True,
+    ) -> dict[str, object]:
+        user = _require_salary_access(request)
+        owner_id = _salary_owner_id(user)
+        if not worker_id or not entry_date:
+            raise HTTPException(status_code=400, detail="worker_id и entry_date обязательны")
+        repository.set_salary_vacation(
+            owner_user_id=owner_id, worker_id=worker_id, entry_date=entry_date, on=on
+        )
+        return {"ok": True}
+
     # ── Oklad ──────────────────────────────────────────────────────────────
     @app.get("/api/salary/oklad")
     def get_salary_oklad(
