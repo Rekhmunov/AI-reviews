@@ -13476,7 +13476,8 @@ function _setPmBlockCollapsed(blockId, collapsed) {
 }
 
 function closePayrollModal() {
-  // Collapse collapsible blocks for next open
+  // Reset collapsible blocks
+  _setPmBlockCollapsed("pmBlockEarnings", false); // earnings open by default
   _setPmBlockCollapsed("pmBlockExtras", true);
   _setPmBlockCollapsed("pmBlockLinks", true);
   document.getElementById("payrollEntryModal")?.classList.add("hidden");

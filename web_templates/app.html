@@ -1854,8 +1854,11 @@
           <div class="payroll-modal-body">
 
             <!-- Block 1: Earnings -->
-            <div class="pm-block">
-              <div class="pm-block-header">Начисления</div>
+            <div class="pm-block" id="pmBlockEarnings">
+              <div class="pm-block-header pm-collapsible" onclick="togglePmBlock('pmBlockEarnings')">
+                Начисления
+                <span class="pm-block-chevron">▼</span>
+              </div>
               <div class="pm-block-body">
                 <!-- Piece-work: product table -->
                 <div id="payrollModalProductsWrap" class="hidden">
