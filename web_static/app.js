@@ -12155,6 +12155,8 @@ let payrollState = {
   modalExtras: [],  // [{amount, note}]
   modalLinks: [],   // [{id, linked_worker_id, linked_worker_name, linked_amount}]
   usedLinkedIds: new Set(), // all linked_worker_ids already used globally
+  vacations: new Set(),     // "workerId_date" keys where vacation is set
+  modalVacation: false,
 };
 
 /** Generate date series: every 7 days from Jan 7 2026 up to today + 14 days */
@@ -12199,14 +12201,15 @@ function _saveColWidths(w) {
 }
 
 async function loadPayrollPage() {
-  const [wRes, pRes, tRes, uRes] = await Promise.all([
+  const [wRes, pRes, tRes, uRes, vRes] = await Promise.all([
     fetch("/api/salary/workers"),
     fetch("/api/salary/products"),
     fetch("/api/salary/totals"),
     fetch("/api/salary/links/used"),
+    fetch("/api/salary/vacations"),
   ]);
-  const [wData, pData, tData, uData] = await Promise.all([
-    wRes.json(), pRes.json(), tRes.json(), uRes.json(),
+  const [wData, pData, tData, uData, vData] = await Promise.all([
+    wRes.json(), pRes.json(), tRes.json(), uRes.json(), vRes.json(),
   ]);
   payrollState.workers = (wData.items || []).map((w,i) => ({...w, seq: i+1}));
   payrollState.products = pData.items || [];
@@ -12215,6 +12218,9 @@ async function loadPayrollPage() {
     payrollState.totals[`${t.worker_id}_${t.entry_date}`] = parseFloat(t.total || 0);
   }
   payrollState.usedLinkedIds = new Set((uData.ids || []).map(Number));
+  payrollState.vacations = new Set(
+    (vData.items || []).map(v => `${v.worker_id}_${v.entry_date}`)
+  );
   renderPayrollTable();
 }
 
@@ -12327,10 +12333,14 @@ function renderPayrollTable() {
   const emptyRight = `<tr><td colspan="${dates.length}" class="small" style="color:#9ca3af;text-align:center">—</td></tr>`;
   rightTbody.innerHTML = workers.length ? workers.map((w, idx) => {
     let cells = dates.map(d => {
+      const isVacation = payrollState.vacations.has(`${w.id}_${d}`);
       const total = payrollState.totals[`${w.id}_${d}`];
       const hasData = total != null && total > 0;
-      return `<td class="payroll-date-td${hasData?" has-data":""}${d===today?" current-week":""}"
-        onclick="openPayrollModal(${w.id},'${d}')">${hasData ? _fmtRub(total) : ""}</td>`;
+      const cellContent = isVacation
+        ? `<span class="payroll-vacation-label">Отпуск</span>`
+        : (hasData ? _fmtRub(total) : "");
+      return `<td class="payroll-date-td${(hasData||isVacation)?" has-data":""}${d===today?" current-week":""}${isVacation?" payroll-vacation-cell":""}"
+        onclick="openPayrollModal(${w.id},'${d}')">${cellContent}</td>`;
     }).join("");
     return `<tr class="payroll-right-row" data-row="${idx}">${cells}</tr>`;
   }).join("") : emptyRight;
@@ -12800,6 +12810,12 @@ function openPayrollModal(workerId, date) {
   payrollState.modalLinks = [];
   payrollState.modalExtraProds = {};
   payrollState.activeExtraProds = new Set();
+  payrollState.modalVacation = false;
+
+  // Reset vacation checkbox
+  const vchk = document.getElementById("payrollVacationCheck");
+  if (vchk) vchk.checked = false;
+  document.getElementById("payrollVacationHint")?.classList.add("hidden");
 
   const infoEl = document.getElementById("payrollModalWorkerInfo");
   if (infoEl) {
@@ -12933,6 +12949,13 @@ async function _loadPayrollModalProducts(date) {
     const okladInput = document.getElementById("payrollModalOkladInput");
     if (okladInput) okladInput.value = okladAmount > 0 ? okladAmount : "";
   }
+
+  // ── Vacation checkbox ─────────────────────────────────────────────────
+  const isVacation = payrollState.vacations.has(`${workerId}_${date}`);
+  payrollState.modalVacation = isVacation;
+  const vchk = document.getElementById("payrollVacationCheck");
+  if (vchk) vchk.checked = isVacation;
+  document.getElementById("payrollVacationHint")?.classList.toggle("hidden", !isVacation);
 
   // ── Load extra productions ────────────────────────────────────────────
   await _loadPayrollExtraProds(workerId, date, w);
@@ -13392,6 +13415,16 @@ async function savePayrollEntry() {
       }),
     });
 
+    // Save vacation flag
+    await fetch(
+      `/api/salary/vacation?worker_id=${workerId}&entry_date=${date}&on=${payrollState.modalVacation}`,
+      { method: "POST", headers: jsonHeaders() }
+    );
+    // Update local vacation set
+    const vKey = `${workerId}_${date}`;
+    if (payrollState.modalVacation) payrollState.vacations.add(vKey);
+    else payrollState.vacations.delete(vKey);
+
     // Save linked-worker snapshot — for historical preservation after unlink
     // If current view is from a snapshot (historical), re-save as-is to preserve
     // If current view is active links, snapshot current state + their amounts
@@ -13424,6 +13457,13 @@ async function savePayrollEntry() {
   }
 }
 window.savePayrollEntry = savePayrollEntry;
+
+window.onPayrollVacationChange = function() {
+  const chk = document.getElementById("payrollVacationCheck");
+  payrollState.modalVacation = chk?.checked || false;
+  document.getElementById("payrollVacationHint")?.classList.toggle("hidden", !payrollState.modalVacation);
+  updatePayrollTotal();
+};
 
 window.togglePmBlock = function(blockId) {
   document.getElementById(blockId)?.classList.toggle("pm-block--collapsed");
