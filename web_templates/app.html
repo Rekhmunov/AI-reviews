@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=126" />
+  <link rel="stylesheet" href="/static/style.css?v=127" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1928,12 +1928,18 @@
                 <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
                   <button type="button" class="secondary" style="font-size:13px" onclick="openWorkerLinkSelector()">+ Добавить работника в ЗП</button>
                 </div>
-                <div id="payrollModalWorkerSelector" class="hidden" style="margin-top:8px;gap:8px;align-items:center;flex-wrap:wrap">
-                  <select id="payrollModalWorkerSelect" style="flex:1;min-width:200px">
-                    <option value="">— Выбрать работника —</option>
-                  </select>
-                  <button type="button" onclick="confirmAddWorkerLink()" style="font-size:13px">Добавить</button>
-                  <button type="button" class="secondary" style="font-size:13px" onclick="cancelWorkerLinkSelector()">Отмена</button>
+                <div id="payrollModalWorkerSelector" class="hidden" style="margin-top:10px">
+                  <div class="worker-link-picker">
+                    <div class="worker-link-search-wrap">
+                      <input id="payrollModalWorkerSearch" type="text" placeholder="🔍 Поиск по имени или производству…"
+                        oninput="filterWorkerLinkList()" autocomplete="off"
+                        style="width:100%;border:none;outline:none;font-size:14px;background:transparent;padding:0" />
+                    </div>
+                    <div id="payrollModalWorkerList" class="worker-link-list"></div>
+                    <div class="worker-link-actions">
+                      <button type="button" class="secondary" style="font-size:13px" onclick="cancelWorkerLinkSelector()">Отмена</button>
+                    </div>
+                  </div>
                 </div>
                 <div id="payrollModalLinkInfo" class="small" style="margin-top:4px"></div>
               </div>
@@ -2631,6 +2637,6 @@
   <script src="/static/jszip.min.js"></script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=261"></script>
+  <script src="/static/app.js?v=262"></script>
 </body>
 </html>

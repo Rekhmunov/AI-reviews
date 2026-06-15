@@ -13211,47 +13211,69 @@ function _renderPayrollLinks() {
   `).join("");
 }
 
-window.openWorkerLinkSelector = function() {
-  const sel = document.getElementById("payrollModalWorkerSelector");
-  const select = document.getElementById("payrollModalWorkerSelect");
-  if (!sel || !select) return;
-  sel.style.display = "flex";
+function _buildAvailableWorkers() {
   const currentId = payrollState.modalWorkerId;
-  // Workers already linked TO the current worker
   const myLinkedIds = new Set(payrollState.modalLinks.map(l => l.linked_worker_id));
-  // All workers already used as a slave in ANY link globally
   const globalUsed = payrollState.usedLinkedIds;
-  const allowedProds = getPermissions().can_salary_productions; // null = all
-  const workers = payrollState.workers.filter(w => {
-    if (w.id === currentId) return false;           // не себя
-    if (myLinkedIds.has(w.id)) return false;        // уже привязан к текущему
-    if (globalUsed.has(w.id)) return false;         // уже привязан к другому работнику
+  const allowedProds = getPermissions().can_salary_productions;
+  return payrollState.workers.filter(w => {
+    if (w.id === currentId) return false;
+    if (myLinkedIds.has(w.id)) return false;
+    if (globalUsed.has(w.id)) return false;
     if (allowedProds && !allowedProds.includes(w.production)) return false;
     return true;
   });
-  select.innerHTML = `<option value="">— Выбрать работника —</option>` +
-    workers.map(w => `<option value="${w.id}">${esc(w.full_name||"")}${w.production ? " ("+esc(w.production)+")" : ""}</option>`).join("");
+}
+
+function _renderWorkerLinkList(workers) {
+  const list = document.getElementById("payrollModalWorkerList");
+  if (!list) return;
+  if (!workers.length) {
+    list.innerHTML = `<div class="worker-link-empty">Нет доступных работников</div>`;
+    return;
+  }
+  list.innerHTML = workers.map(w => `
+    <div class="worker-link-item" onclick="selectWorkerLink(${w.id})" data-id="${w.id}">
+      <span class="worker-link-item-name">${esc(w.full_name||"")}</span>
+      <span class="worker-link-item-meta">${[esc(w.position||""), esc(w.production||"")].filter(Boolean).join(" · ")}</span>
+    </div>
+  `).join("");
+}
+
+window.openWorkerLinkSelector = function() {
+  const sel = document.getElementById("payrollModalWorkerSelector");
+  if (!sel) return;
+  sel.style.display = "block";
   sel.classList.remove("hidden");
+  const searchEl = document.getElementById("payrollModalWorkerSearch");
+  if (searchEl) searchEl.value = "";
+  _renderWorkerLinkList(_buildAvailableWorkers());
+  requestAnimationFrame(() => searchEl?.focus());
 };
 
-window.confirmAddWorkerLink = async function() {
-  const select = document.getElementById("payrollModalWorkerSelect");
-  const linkedWorkerId = parseInt(select?.value || "0");
-  if (!linkedWorkerId) return;
+window.filterWorkerLinkList = function() {
+  const q = (document.getElementById("payrollModalWorkerSearch")?.value || "").toLowerCase();
+  const workers = _buildAvailableWorkers().filter(w =>
+    !q ||
+    (w.full_name||"").toLowerCase().includes(q) ||
+    (w.production||"").toLowerCase().includes(q) ||
+    (w.position||"").toLowerCase().includes(q)
+  );
+  _renderWorkerLinkList(workers);
+};
+
+window.selectWorkerLink = async function(workerId) {
   const infoEl = document.getElementById("payrollModalLinkInfo");
   try {
     const res = await fetch("/api/salary/links", {
       method: "POST",
       headers: jsonHeaders(),
-      body: JSON.stringify({ worker_id: payrollState.modalWorkerId, linked_worker_id: linkedWorkerId }),
+      body: JSON.stringify({ worker_id: payrollState.modalWorkerId, linked_worker_id: workerId }),
     });
     if (!res.ok) throw new Error((await res.json()).detail || "Ошибка");
     const selDiv = document.getElementById("payrollModalWorkerSelector");
     if (selDiv) { selDiv.classList.add("hidden"); selDiv.style.display = ""; }
-    // Update global used set
-    payrollState.usedLinkedIds.add(linkedWorkerId);
-    // After adding, reset snapshot context so active links are used
-    // (the snapshot for this date will be written on next Save)
+    payrollState.usedLinkedIds.add(workerId);
     await _loadPayrollLinksActive(payrollState.modalWorkerId, payrollState.modalDate);
     updatePayrollTotal();
     if (infoEl) infoEl.textContent = "";
@@ -13259,6 +13281,8 @@ window.confirmAddWorkerLink = async function() {
     if (infoEl) { infoEl.textContent = e.message; infoEl.style.color = "#b91c1c"; }
   }
 };
+
+// confirmAddWorkerLink replaced by selectWorkerLink (click on list item)
 
 window.cancelWorkerLinkSelector = function() {
   const sel = document.getElementById("payrollModalWorkerSelector");
