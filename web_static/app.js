@@ -13157,27 +13157,31 @@ async function _loadPayrollLinksActive(workerId, date) {
 
 async function _loadPayrollLinks(workerId, date) {
   try {
-    // First check if a historical snapshot exists for this worker+date
-    const snapRes = await fetch(`/api/salary/linked-snapshot?worker_id=${workerId}&entry_date=${date}`);
-    const snapData = await snapRes.json();
+    // Always load active links (needed for delete id, even on historical dates)
+    const [snapRes, activeRes] = await Promise.all([
+      fetch(`/api/salary/linked-snapshot?worker_id=${workerId}&entry_date=${date}`),
+      fetch(`/api/salary/links?worker_id=${workerId}`),
+    ]);
+    const [snapData, activeData] = await Promise.all([snapRes.json(), activeRes.json()]);
     const snapshot = snapData.items || [];
+    const activeLinks = activeData.items || [];
+
+    // Map linked_worker_id → active link id (for delete button)
+    const activeIdMap = {};
+    for (const lnk of activeLinks) activeIdMap[lnk.linked_worker_id] = lnk.id;
 
     if (snapshot.length > 0) {
-      // Use historical snapshot — but always look up CURRENT amount from totals
-      // (snapshot stores only the worker ID for historical preservation;
-      //  the amount is always dynamic so edits to B are reflected in A's view)
+      // Historical: amounts from totals; show delete button if still active
       payrollState.modalLinks = snapshot.map(lnk => ({
-        id: null, // no active link id — historical entry
+        id: activeIdMap[lnk.linked_worker_id] ?? null,
         linked_worker_id: lnk.linked_worker_id,
         linked_worker_name: lnk.linked_worker_name || "",
         linked_amount: parseFloat(payrollState.totals[`${lnk.linked_worker_id}_${date}`] || 0),
         historical: true,
       }));
     } else {
-      // No snapshot yet → show current active links (unsaved date)
-      const res = await fetch(`/api/salary/links?worker_id=${workerId}`);
-      const data = await res.json();
-      payrollState.modalLinks = (data.items || []).map(lnk => ({
+      // No snapshot yet → active links only
+      payrollState.modalLinks = activeLinks.map(lnk => ({
         id: lnk.id,
         linked_worker_id: lnk.linked_worker_id,
         linked_worker_name: lnk.linked_worker_name || "",
@@ -13187,7 +13191,6 @@ async function _loadPayrollLinks(workerId, date) {
     }
   } catch(_) { payrollState.modalLinks = []; }
   _renderPayrollLinks();
-  // Auto-expand if there are linked workers
   _setPmBlockCollapsed("pmBlockLinks", payrollState.modalLinks.length === 0);
 }
 
@@ -13195,20 +13198,23 @@ function _renderPayrollLinks() {
   const wrap = document.getElementById("payrollModalLinksWrap");
   if (!wrap) return;
   if (!payrollState.modalLinks.length) { wrap.innerHTML = ""; return; }
-  wrap.innerHTML = payrollState.modalLinks.map(lnk => `
-    <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f1f5f9">
-      <span style="flex:1;font-size:14px;color:#1e293b">
-        ${esc(lnk.linked_worker_name||"")}
-        ${lnk.historical ? `<span style="font-size:11px;color:#94a3b8;margin-left:4px">сохранено</span>` : ""}
+  wrap.innerHTML = payrollState.modalLinks.map(lnk => {
+    const canDelete = lnk.id !== null;
+    const deletedBadge = lnk.historical && !canDelete
+      ? `<span style="font-size:11px;color:#94a3b8;background:#f1f5f9;border-radius:4px;padding:1px 6px;margin-left:6px">отвязан</span>`
+      : "";
+    return `<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #f1f5f9">
+      <span style="flex:1;font-size:14px;color:#1e293b;min-width:0">
+        ${esc(lnk.linked_worker_name||"")}${deletedBadge}
       </span>
-      <span style="font-size:14px;font-weight:600;color:#2563eb;min-width:80px;text-align:right">
+      <span style="font-size:14px;font-weight:600;color:#2563eb;min-width:80px;text-align:right;flex-shrink:0">
         ${lnk.linked_amount > 0 ? _fmtRub(lnk.linked_amount) + " ₽" : "—"}
       </span>
-      ${!lnk.historical
-        ? `<button type="button" class="icon-btn danger" title="Отвязать" onclick="removePayrollLink(${lnk.id})">🗑</button>`
+      ${canDelete
+        ? `<button type="button" class="icon-btn danger" title="Отвязать работника" onclick="removePayrollLink(${lnk.id})">🗑</button>`
         : `<span style="width:28px"></span>`}
-    </div>
-  `).join("");
+    </div>`;
+  }).join("");
 }
 
 function _buildAvailableWorkers() {
