@@ -5717,6 +5717,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             totals = [t for t in totals if int(t.get("worker_id") or 0) in allowed_ids]
         return {"items": totals, "count": len(totals)}
 
+    def _payroll_export_cd(name: str) -> str:
+        from urllib.parse import quote
+        safe = quote(name + ".xlsx")
+        return f'attachment; filename="payroll.xlsx"; filename*=UTF-8\'\'{safe}'
+
     @app.get("/api/salary/payroll/export")
     def export_payroll_table(
         request: Request,
@@ -5850,7 +5855,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         return StreamingResponse(
             iter([buf.read()]),
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{report_name.replace(' ', '%20')}.xlsx"},
+            headers={"Content-Disposition": _payroll_export_cd(report_name)},
         )
 
     @app.post("/api/salary/payroll/import")
