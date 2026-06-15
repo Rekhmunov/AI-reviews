@@ -5814,11 +5814,28 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 cell.alignment = center
                 cell.border = border
 
-        # Auto-fit column widths based on header row content (first row visible in Excel)
-        for ci, h in enumerate(all_headers, start=1):
-            col_letter = ws.cell(row=1, column=ci).column_letter
-            # Width = character count of header + small padding; minimum 8
-            ws.column_dimensions[col_letter].width = max(len(str(h)) * 1.15 + 2, 8)
+        # Auto-fit column widths: scan every cell to find the widest content
+        for col_cells in ws.columns:
+            max_len = 0
+            col_letter = col_cells[0].column_letter
+            for cell in col_cells:
+                try:
+                    val = cell.value
+                    if val is None:
+                        continue
+                    # Format numbers the same way they appear in Excel
+                    if isinstance(val, (int, float)):
+                        cell_str = f"{val:,.2f}"
+                    else:
+                        cell_str = str(val)
+                    # Account for multi-line content (take widest line)
+                    line_len = max(len(line) for line in cell_str.split("\n"))
+                    if line_len > max_len:
+                        max_len = line_len
+                except Exception:
+                    pass
+            # +2 padding; Calibri 11pt ≈ 1.15× char units; minimum 8, maximum 60
+            ws.column_dimensions[col_letter].width = min(max(max_len * 1.15 + 2, 8), 60)
 
         # Freeze first row
         ws.freeze_panes = "A2"
