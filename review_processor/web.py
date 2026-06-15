@@ -5758,9 +5758,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             y, m, dd = iso.split("-")
             return f"{dd}.{m}.{y[2:]}"
 
+        today_str = _date.today().strftime("%d.%m.%Y")
+        report_name = f"Отчет ЗП {today_str}"
+
         wb = openpyxl.Workbook()
         ws = wb.active
-        ws.title = "Начисление ЗП"
+        ws.title = report_name
 
         # Styles
         header_font = Font(bold=True, name="Calibri", size=11)
@@ -5847,7 +5850,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         return StreamingResponse(
             iter([buf.read()]),
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": "attachment; filename=\"payroll.xlsx\""},
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{report_name.replace(' ', '%20')}.xlsx"},
         )
 
     @app.post("/api/salary/payroll/import")
