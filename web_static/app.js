@@ -12437,27 +12437,98 @@ async function downloadPayrollTemplate() {
 }
 window.downloadPayrollTemplate = downloadPayrollTemplate;
 
+let _importPayrollFile = null; // stored for second-phase confirm
+
 async function importPayrollTable(input) {
   const file = input?.files?.[0];
   if (!file) return;
+  _importPayrollFile = file;
   const info = document.getElementById("payrollInfo");
-  if (info) { info.textContent = "Импорт..."; info.style.color = "#64748b"; }
+  if (info) { info.textContent = "Анализ файла..."; info.style.color = "#64748b"; }
+  if (input) input.value = "";
+
   try {
     const formData = new FormData();
     formData.append("file", file);
-    const res = await fetch("/api/salary/payroll/import", {
+    const csrf = document.cookie.match(/csrf_token=([^;]+)/)?.[1] || "";
+    const res = await fetch("/api/salary/payroll/import?preview=true", {
       method: "POST",
-      headers: { "X-CSRF-Token": document.cookie.match(/csrf_token=([^;]+)/)?.[1] || "" },
+      headers: { "X-CSRF-Token": csrf },
       body: formData,
     });
     const data = await res.json();
     if (!res.ok) {
+      if (info) { info.textContent = data.detail || "Ошибка анализа файла"; info.style.color = "#b91c1c"; }
+      return;
+    }
+    if (info) info.textContent = "";
+    _showPayrollImportPreview(data);
+  } catch (e) {
+    if (info) { info.textContent = "Ошибка: " + e.message; info.style.color = "#b91c1c"; }
+  }
+}
+window.importPayrollTable = importPayrollTable;
+
+function _showPayrollImportPreview(data) {
+  const summaryEl = document.getElementById("payrollImportSummary");
+  const warnWrap  = document.getElementById("payrollImportWarningsWrap");
+  const warnEl    = document.getElementById("payrollImportWarnings");
+  const modal     = document.getElementById("payrollImportPreviewModal");
+  if (!summaryEl || !modal) return;
+
+  const hasWarnings = data.warnings && data.warnings.length > 0;
+  summaryEl.innerHTML = [
+    `<b>Найдено строк:</b> ${data.total_rows ?? 0}`,
+    `<b>Совпало работников:</b> ${data.matched_workers ?? 0}`,
+    `<b>Ячеек ЗП к загрузке:</b> ${data.cells_to_save ?? 0}`,
+    hasWarnings ? `<span style="color:#b45309"><b>Предупреждений:</b> ${data.warnings.length}</span>` : "",
+  ].filter(Boolean).map(t => `<div>${t}</div>`).join("");
+
+  if (hasWarnings) {
+    warnEl.innerHTML = data.warnings.map(w => `<div>⚠ ${esc(w)}</div>`).join("");
+    warnWrap.classList.remove("hidden");
+  } else {
+    warnWrap.classList.add("hidden");
+  }
+
+  const btn = document.getElementById("payrollImportConfirmBtn");
+  if (btn) btn.disabled = data.cells_to_save === 0;
+
+  modal.classList.remove("hidden");
+}
+
+window.closePayrollImportModal = function() {
+  document.getElementById("payrollImportPreviewModal")?.classList.add("hidden");
+  _importPayrollFile = null;
+};
+
+window.confirmPayrollImport = async function() {
+  if (!_importPayrollFile) return;
+  const btn = document.getElementById("payrollImportConfirmBtn");
+  if (btn) { btn.disabled = true; btn.textContent = "Загрузка..."; }
+  const info = document.getElementById("payrollInfo");
+
+  try {
+    const formData = new FormData();
+    formData.append("file", _importPayrollFile);
+    const csrf = document.cookie.match(/csrf_token=([^;]+)/)?.[1] || "";
+    const res = await fetch("/api/salary/payroll/import?preview=false", {
+      method: "POST",
+      headers: { "X-CSRF-Token": csrf },
+      body: formData,
+    });
+    const data = await res.json();
+    document.getElementById("payrollImportPreviewModal")?.classList.add("hidden");
+    _importPayrollFile = null;
+
+    if (!res.ok) {
       if (info) { info.textContent = data.detail || "Ошибка импорта"; info.style.color = "#b91c1c"; }
       return;
     }
-    const errTxt = data.errors?.length ? `; ошибок: ${data.errors.length}` : "";
-    if (info) { info.textContent = `Импортировано ячеек: ${data.created}${errTxt}`; info.style.color = "#16a34a"; }
-    // Reload totals
+    const warnTxt = data.warnings?.length ? `; предупреждений: ${data.warnings.length}` : "";
+    if (info) { info.textContent = `Загружено записей: ${data.saved}${warnTxt}`; info.style.color = "#16a34a"; }
+
+    // Reload totals and re-render
     const tRes = await fetch("/api/salary/totals");
     const tData = await tRes.json();
     payrollState.totals = {};
@@ -12468,10 +12539,9 @@ async function importPayrollTable(input) {
   } catch (e) {
     if (info) { info.textContent = "Ошибка: " + e.message; info.style.color = "#b91c1c"; }
   } finally {
-    if (input) input.value = "";
+    if (btn) { btn.disabled = false; btn.textContent = "Загрузить"; }
   }
-}
-window.importPayrollTable = importPayrollTable;
+};
 
 // ── Payroll date range calendar (mirrors WB supplies calendar) ────────────
 

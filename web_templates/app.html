@@ -2453,6 +2453,28 @@
       </div>
     </div>
   </div>
+  <!-- ── Payroll Import Preview Modal ── -->
+  <div id="payrollImportPreviewModal" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal-card" style="max-width:600px">
+      <div class="modal-card-header">
+        <h4 class="no-margin">Предпросмотр импорта ЗП</h4>
+        <button type="button" class="modal-close-btn" onclick="closePayrollImportModal()" aria-label="Закрыть">✕</button>
+      </div>
+      <div style="padding:16px 20px;display:flex;flex-direction:column;gap:12px;max-height:60vh;overflow-y:auto">
+        <div id="payrollImportSummary" style="font-size:14px;color:#1e293b;line-height:1.6"></div>
+        <div id="payrollImportWarningsWrap" class="hidden">
+          <div style="font-size:12px;font-weight:700;color:#92400e;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Предупреждения</div>
+          <div id="payrollImportWarnings"
+            style="background:#fffbeb;border:1px solid #fcd34d;border-radius:6px;padding:10px 12px;font-size:13px;color:#78350f;max-height:200px;overflow-y:auto;display:flex;flex-direction:column;gap:4px"></div>
+        </div>
+      </div>
+      <div class="modal-card-footer" style="display:flex;gap:8px;justify-content:flex-end;padding:12px 20px;border-top:1px solid #e2e8f0">
+        <button type="button" class="secondary" onclick="closePayrollImportModal()">Отмена</button>
+        <button type="button" id="payrollImportConfirmBtn" onclick="confirmPayrollImport()">Загрузить</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ── Supply Details Modal ── -->
   <div id="supplyDetailsModal" class="modal-overlay hidden" aria-hidden="true" onclick="if(event.target===this)closeSupplyDetailsModal()">
     <div class="modal-card supply-details-modal-card">
@@ -2572,6 +2594,6 @@
   <script src="/static/jszip.min.js"></script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=258"></script>
+  <script src="/static/app.js?v=259"></script>
 </body>
 </html>
