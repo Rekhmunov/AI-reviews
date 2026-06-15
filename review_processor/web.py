@@ -5837,8 +5837,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             # +2 padding; Calibri 11pt ≈ 1.15× char units; minimum 8, maximum 60
             ws.column_dimensions[col_letter].width = min(max(max_len * 1.15 + 2, 8), 60)
 
-        # Freeze first row
-        ws.freeze_panes = "A2"
+        # Freeze first row + first 5 data columns (ФИО, Должность, Дата рождения, Юр., Производство)
+        ws.freeze_panes = "F2"
 
         buf = io.BytesIO()
         wb.save(buf)
