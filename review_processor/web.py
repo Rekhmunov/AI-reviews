@@ -5980,6 +5980,48 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             headers={"Content-Disposition": _payroll_export_cd(report_name)},
         )
 
+    # ── Payroll data clear ──────────────────────────────────────────────────
+    @app.post("/api/salary/clear")
+    def clear_salary_data(
+        request: Request,
+        scope: str = "all",        # all | date | production | legal
+        entry_date: str = "",
+        production: str = "",
+        legal_entity: str = "",
+    ) -> dict[str, object]:
+        """Clear payroll data by scope. Requires tenant owner."""
+        user = _require_tenant_owner(request)
+        owner_id = _tenant_owner_id(user)
+
+        worker_ids: list[int] | None = None
+
+        if scope == "date":
+            if not entry_date:
+                raise HTTPException(status_code=400, detail="entry_date обязателен")
+            deleted = repository.clear_salary_data(
+                owner_user_id=owner_id, entry_date=entry_date
+            )
+        elif scope == "production":
+            if not production:
+                raise HTTPException(status_code=400, detail="production обязателен")
+            workers = repository.list_salary_workers(owner_user_id=owner_id)
+            worker_ids = [int(w["id"]) for w in workers if str(w.get("production") or "") == production]
+            if not worker_ids:
+                return {"ok": True, "deleted": 0, "message": "Работники не найдены"}
+            deleted = repository.clear_salary_data(owner_user_id=owner_id, worker_ids=worker_ids)
+        elif scope == "legal":
+            if not legal_entity:
+                raise HTTPException(status_code=400, detail="legal_entity обязателен")
+            workers = repository.list_salary_workers(owner_user_id=owner_id)
+            worker_ids = [int(w["id"]) for w in workers if str(w.get("legal_entity") or "") == legal_entity]
+            if not worker_ids:
+                return {"ok": True, "deleted": 0, "message": "Работники не найдены"}
+            deleted = repository.clear_salary_data(owner_user_id=owner_id, worker_ids=worker_ids)
+        else:  # all
+            deleted = repository.clear_salary_data(owner_user_id=owner_id)
+
+        return {"ok": True, "deleted": deleted}
+
     # ── Distribution import (Стежка / Мулетон format) ──────────────────────
 
     @app.post("/api/salary/payroll/import-distribution")
