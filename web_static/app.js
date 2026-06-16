@@ -12759,13 +12759,11 @@ function _pdimRenderDateList() {
   wrap.innerHTML = dates.map(d => {
     const hasDot = Object.keys(payrollState.totals).some(k => k.endsWith("_" + d));
     const isSelected = d === _pdimSelectedDate;
-    const isCurrent = d <= today;
-    return `<button type="button"
-      onclick="pdimSelectDate('${d}')"
-      style="padding:5px 10px;font-size:13px;border-radius:6px;border:1px solid ${isSelected ? "#2563eb" : "#e2e8f0"};
-             background:${isSelected ? "#eff6ff" : "#fff"};color:${isSelected ? "#1d4ed8" : "#374151"};
-             font-weight:${isSelected ? "700" : "400"};cursor:pointer;white-space:nowrap">
-      ${_dateRu(d)}${hasDot ? " <span style='color:#2563eb;font-size:10px'>●</span>" : ""}
+    const isPast = d <= today;
+    return `<button type="button" onclick="pdimSelectDate('${d}')"
+      class="pdim-date-btn${isSelected ? " selected" : ""}${!isPast ? " future" : ""}">
+      <span class="pdim-date-val">${_dateRu(d)}</span>
+      ${hasDot ? `<span class="pdim-date-dot">●</span>` : ""}
     </button>`;
   }).join("");
 }
@@ -12779,6 +12777,8 @@ window.pdimSelectDate = function(d) {
 window.pdimOnFileChange = function() {
   const input = document.getElementById("pdimFileInput");
   _pdimFile = input?.files?.[0] || null;
+  const nameEl = document.getElementById("pdimFileNameDisplay");
+  if (nameEl) nameEl.textContent = _pdimFile ? _pdimFile.name : "Выберите файл .xlsx или .xls";
   _pdimCheckReady();
 };
 

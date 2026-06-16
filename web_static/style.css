@@ -5897,6 +5897,119 @@ button.secondary.danger:hover {
   margin: 1px 2px;
 }
 
+/* ── Distribution import modal (pdim) ───────────────────────────────────── */
+
+.pdim-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pdim-section-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.pdim-date-hint {
+  font-size: 12px;
+  color: #94a3b8;
+  margin-top: -4px;
+}
+
+/* Date grid */
+.pdim-date-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 6px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.pdim-date-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 6px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  transition: background .1s, border-color .1s;
+  font-size: 13px;
+  color: #374151;
+  font-weight: 400;
+}
+
+.pdim-date-btn:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+.pdim-date-btn.selected {
+  background: #eff6ff;
+  border-color: #2563eb;
+  color: #1d4ed8;
+  font-weight: 700;
+}
+
+.pdim-date-btn.future {
+  color: #94a3b8;
+}
+
+.pdim-date-val {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.pdim-date-dot {
+  font-size: 8px;
+  color: #2563eb;
+  line-height: 1;
+}
+
+/* File upload row */
+.pdim-file-label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  background: #f8fafc;
+  cursor: pointer;
+  transition: background .12s, border-color .12s;
+}
+
+.pdim-file-label:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+}
+
+#pdimFileNameDisplay {
+  flex: 1;
+  font-size: 13px;
+  color: #475569;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pdim-file-btn {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: 6px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  color: #374151;
+}
+
 /* ── Worker link picker (searchable dropdown) ───────────────────────────── */
 
 .worker-link-picker {

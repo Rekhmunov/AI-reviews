@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=129" />
+  <link rel="stylesheet" href="/static/style.css?v=130" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -2580,20 +2580,29 @@
       </div>
 
       <!-- Step 1: file + date -->
-      <div id="pdimStep1" style="padding:20px;display:flex;flex-direction:column;gap:16px">
-        <div>
-          <label style="display:block;margin-bottom:6px;font-size:13px;font-weight:600;color:#475569">Файл распределения (.xlsx)</label>
-          <input type="file" id="pdimFileInput" accept=".xlsx,.xls"
-            style="font-size:13px" onchange="pdimOnFileChange()" />
+      <div id="pdimStep1" style="padding:20px;display:flex;flex-direction:column;gap:20px">
+
+        <!-- File upload -->
+        <div class="pdim-section">
+          <div class="pdim-section-label">Файл распределения</div>
+          <label class="pdim-file-label" id="pdimFileLabelEl">
+            <span id="pdimFileNameDisplay">Выберите файл .xlsx или .xls</span>
+            <input type="file" id="pdimFileInput" accept=".xlsx,.xls" style="display:none" onchange="pdimOnFileChange()" />
+            <span class="pdim-file-btn">Обзор</span>
+          </label>
         </div>
-        <div>
-          <label style="display:block;margin-bottom:8px;font-size:13px;font-weight:600;color:#475569">Дата начисления</label>
-          <div id="pdimDateList" style="display:flex;flex-wrap:wrap;gap:6px;max-height:200px;overflow-y:auto"></div>
+
+        <!-- Date selection -->
+        <div class="pdim-section">
+          <div class="pdim-section-label">Дата начисления</div>
+          <div class="pdim-date-hint">Выберите период, за который будут загружены данные</div>
+          <div id="pdimDateList" class="pdim-date-grid"></div>
         </div>
+
         <div id="pdimStep1Info" class="small"></div>
-        <div style="display:flex;gap:8px;justify-content:flex-end">
+        <div style="display:flex;gap:8px;justify-content:flex-end;padding-top:4px;border-top:1px solid #f1f5f9">
           <button type="button" class="secondary" onclick="closeDistImportModal()">Отмена</button>
-          <button type="button" id="pdimPreviewBtn" disabled onclick="pdimLoadPreview()">Показать предпросмотр</button>
+          <button type="button" id="pdimPreviewBtn" disabled onclick="pdimLoadPreview()">Показать предпросмотр →</button>
         </div>
       </div>
 
@@ -2758,6 +2767,6 @@
   <script src="/static/jszip.min.js"></script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=267"></script>
+  <script src="/static/app.js?v=268"></script>
 </body>
 </html>
