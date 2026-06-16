@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=128" />
+  <link rel="stylesheet" href="/static/style.css?v=129" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -2110,8 +2110,14 @@
               <button type="button" onclick="toggleSalaryProductForm(true)">+ Добавить товар</button>
             </div>
             <div id="salaryProductAddForm" class="source-form hidden" style="margin-top:12px">
-              <div class="row" style="flex-wrap:wrap;gap:10px;margin-bottom:8px">
+              <div class="row" style="flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:8px">
                 <input id="salaryProductName" type="text" placeholder="Наименование товара" style="flex:1;min-width:200px" autocomplete="off" />
+                <div class="product-roles-group">
+                  <span class="product-roles-label">Принадлежность:</span>
+                  <label class="product-role-check"><input type="checkbox" id="salaryProductRoleShveya"   value="Швея">Швея</label>
+                  <label class="product-role-check"><input type="checkbox" id="salaryProductRoleUpakovka" value="Упаковщик">Упаковщик</label>
+                  <label class="product-role-check"><input type="checkbox" id="salaryProductRoleRaskroi"  value="Закройщик">Закройщик</label>
+                </div>
               </div>
               <div class="row" style="flex-wrap:wrap;gap:10px;margin-bottom:4px">
                 <span class="small" style="color:#64748b;font-weight:600;width:100%">Кинешма</span>
@@ -2139,6 +2145,7 @@
                   <tr>
                     <th rowspan="2" style="width:28px" title="Порядок">≡</th>
                     <th rowspan="2">Наименование</th>
+                    <th rowspan="2" style="min-width:130px">Принадлежность</th>
                     <th colspan="3" style="text-align:center;background:#e0f2fe">Кинешма</th>
                     <th colspan="3" style="text-align:center;background:#f0fdf4">Нерль</th>
                     <th rowspan="2" style="width:80px">Действия</th>
@@ -2238,6 +2245,12 @@
       <div style="padding:20px;display:flex;flex-direction:column;gap:12px">
         <input type="hidden" id="editSalaryProductId" />
         <input id="editSalaryProductName" type="text" placeholder="Наименование товара" autocomplete="off" />
+        <div class="product-roles-group" style="flex-wrap:wrap">
+          <span class="product-roles-label">Принадлежность:</span>
+          <label class="product-role-check"><input type="checkbox" id="editSalaryProductRoleShveya"   value="Швея">Швея</label>
+          <label class="product-role-check"><input type="checkbox" id="editSalaryProductRoleUpakovka" value="Упаковщик">Упаковщик</label>
+          <label class="product-role-check"><input type="checkbox" id="editSalaryProductRoleRaskroi"  value="Закройщик">Закройщик</label>
+        </div>
         <div>
           <p class="small" style="margin:0 0 4px;color:#0369a1;font-weight:600">Кинешма</p>
           <div class="row" style="gap:8px;flex-wrap:wrap">
@@ -2637,6 +2650,6 @@
   <script src="/static/jszip.min.js"></script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=263"></script>
+  <script src="/static/app.js?v=264"></script>
 </body>
 </html>

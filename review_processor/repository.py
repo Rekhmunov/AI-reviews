@@ -8322,6 +8322,11 @@ class ReviewRepository:
             conn.execute(
                 f"ALTER TABLE salary_products ADD COLUMN IF NOT EXISTS {col} NUMERIC(12,2) NOT NULL DEFAULT 0"
             )
+        # Roles: comma-separated list of positions (Швея, Упаковщик, Закройщик)
+        # Empty = applies to all three roles (backwards compat)
+        conn.execute(
+            "ALTER TABLE salary_products ADD COLUMN IF NOT EXISTS roles TEXT NOT NULL DEFAULT ''"
+        )
 
     _SUB_PRICE_COLS = (
         "price_kineshma_poshiv", "price_kineshma_raskroi", "price_kineshma_upakovka",
@@ -8333,7 +8338,7 @@ class ReviewRepository:
             self._ensure_salary_products_table(conn)
             rows = conn.execute(
                 self._sql(
-                    "SELECT id, owner_user_id, order_num, name, "
+                    "SELECT id, owner_user_id, order_num, name, roles, "
                     + ", ".join(self._SUB_PRICE_COLS)
                     + ", created_at "
                     "FROM salary_products WHERE owner_user_id = ? "
@@ -8349,6 +8354,7 @@ class ReviewRepository:
 
     def create_salary_product(
         self, *, owner_user_id: int, order_num: int, name: str,
+        roles: str = "",
         price_ivanovo: float = 0,
         price_kineshma: float = 0, price_nerl: float = 0,
         price_kineshma_poshiv: float = 0, price_kineshma_raskroi: float = 0,
@@ -8362,12 +8368,12 @@ class ReviewRepository:
             cur = conn.execute(
                 self._sql(
                     "INSERT INTO salary_products "
-                    "(owner_user_id, order_num, name, price_ivanovo, price_kineshma, price_nerl, "
+                    "(owner_user_id, order_num, name, roles, price_ivanovo, price_kineshma, price_nerl, "
                     "price_kineshma_poshiv, price_kineshma_raskroi, price_kineshma_upakovka, "
                     "price_nerl_poshiv, price_nerl_raskroi, price_nerl_upakovka, created_at) "
-                    "VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id"
+                    "VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id"
                 ),
-                (owner_user_id, order_num, name.strip(),
+                (owner_user_id, order_num, name.strip(), roles.strip(),
                  round(price_kineshma_poshiv + price_kineshma_raskroi + price_kineshma_upakovka, 2),
                  round(price_nerl_poshiv + price_nerl_raskroi + price_nerl_upakovka, 2),
                  round(float(price_kineshma_poshiv), 2), round(float(price_kineshma_raskroi), 2),
@@ -8377,7 +8383,7 @@ class ReviewRepository:
             )
             row = cur.fetchone()
         product_id = int(row[0] if not hasattr(row, "get") else row.get("id"))
-        return {"id": product_id, "order_num": order_num, "name": name.strip(),
+        return {"id": product_id, "order_num": order_num, "name": name.strip(), "roles": roles.strip(),
                 "price_kineshma_poshiv": price_kineshma_poshiv,
                 "price_kineshma_raskroi": price_kineshma_raskroi,
                 "price_kineshma_upakovka": price_kineshma_upakovka,
@@ -8387,7 +8393,8 @@ class ReviewRepository:
 
     def update_salary_product(
         self, *, owner_user_id: int, product_id: int, order_num: int,
-        name: str, price_ivanovo: float = 0, price_kineshma: float = 0, price_nerl: float = 0,
+        name: str, roles: str = "",
+        price_ivanovo: float = 0, price_kineshma: float = 0, price_nerl: float = 0,
         price_kineshma_poshiv: float = 0, price_kineshma_raskroi: float = 0,
         price_kineshma_upakovka: float = 0,
         price_nerl_poshiv: float = 0, price_nerl_raskroi: float = 0,
@@ -8399,13 +8406,13 @@ class ReviewRepository:
             self._ensure_salary_products_table(conn)
             result = conn.execute(
                 self._sql(
-                    "UPDATE salary_products SET order_num=?, name=?, price_ivanovo=0, "
+                    "UPDATE salary_products SET order_num=?, name=?, roles=?, price_ivanovo=0, "
                     "price_kineshma=?, price_nerl=?, "
                     "price_kineshma_poshiv=?, price_kineshma_raskroi=?, price_kineshma_upakovka=?, "
                     "price_nerl_poshiv=?, price_nerl_raskroi=?, price_nerl_upakovka=? "
                     "WHERE id=? AND owner_user_id=?"
                 ),
-                (order_num, name.strip(), kineshma_total, nerl_total,
+                (order_num, name.strip(), roles.strip(), kineshma_total, nerl_total,
                  round(float(price_kineshma_poshiv), 2), round(float(price_kineshma_raskroi), 2),
                  round(float(price_kineshma_upakovka), 2),
                  round(float(price_nerl_poshiv), 2), round(float(price_nerl_raskroi), 2),
