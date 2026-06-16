@@ -1780,6 +1780,7 @@
               <input type="file" id="payrollImportFile" accept=".csv,.xlsx,.xls" style="display:none" onchange="importPayrollTable(this)" />
             </label>
             <button type="button" class="secondary" onclick="openDistImportModal()" title="Импорт распределения заказа (Стежка/Мулетон)" style="font-size:14px;font-weight:600;color:#1e40af;border-color:rgba(147,197,253,0.7)">⬆ Распределение</button>
+            <button type="button" class="icon-btn danger" onclick="openPayrollClearModal()" title="Очистить данные таблицы" style="font-size:16px;padding:6px 10px">🗑</button>
           </div>
         </div>
 
@@ -2510,6 +2511,66 @@
     </div>
   </div>
 
+  <!-- ── Payroll Clear Modal ── -->
+  <div id="payrollClearModal" class="modal-overlay hidden" role="dialog" aria-modal="true" onclick="if(event.target===this)closePayrollClearModal()">
+    <div class="modal-card" style="max-width:480px">
+      <div class="modal-card-header">
+        <h4 class="no-margin">Очистка данных начислений</h4>
+        <button type="button" class="modal-close-btn" onclick="closePayrollClearModal()" aria-label="Закрыть">✕</button>
+      </div>
+      <div style="padding:20px;display:flex;flex-direction:column;gap:16px">
+
+        <!-- Scope selector -->
+        <div>
+          <label style="display:block;margin-bottom:6px;font-size:13px;font-weight:600;color:#475569">Что очищать</label>
+          <select id="clearScopeSelect" onchange="onClearScopeChange()" style="width:100%">
+            <option value="all">Всю таблицу (все данные)</option>
+            <option value="date">За определённую дату</option>
+            <option value="production">По производству</option>
+            <option value="legal">По юр. принадлежности</option>
+          </select>
+        </div>
+
+        <!-- Date picker (scope=date) -->
+        <div id="clearDateWrap" class="hidden">
+          <label style="display:block;margin-bottom:6px;font-size:13px;font-weight:600;color:#475569">Дата</label>
+          <div id="clearDateList" style="display:flex;flex-wrap:wrap;gap:6px;max-height:180px;overflow-y:auto"></div>
+        </div>
+
+        <!-- Production picker (scope=production) -->
+        <div id="clearProductionWrap" class="hidden">
+          <label style="display:block;margin-bottom:6px;font-size:13px;font-weight:600;color:#475569">Производство</label>
+          <select id="clearProductionSelect" style="width:100%">
+            <option value="Иваново">Иваново</option>
+            <option value="Кинешма">Кинешма</option>
+            <option value="Нерль">Нерль</option>
+          </select>
+        </div>
+
+        <!-- Legal entity picker (scope=legal) -->
+        <div id="clearLegalWrap" class="hidden">
+          <label style="display:block;margin-bottom:6px;font-size:13px;font-weight:600;color:#475569">Юр. принадлежность</label>
+          <select id="clearLegalSelect" style="width:100%">
+            <option value="ООО Варфабрик">ООО Варфабрик</option>
+            <option value="ИП Авдеева М.Ю.">ИП Авдеева М.Ю.</option>
+            <option value="ИП Рехмунов Д.О.">ИП Рехмунов Д.О.</option>
+          </select>
+        </div>
+
+        <!-- Warning + info -->
+        <div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:10px 14px;font-size:13px;color:#991b1b">
+          ⚠ Удалённые данные не восстанавливаются. Убедитесь в правильности выбора.
+        </div>
+        <div id="payrollClearInfo" class="small"></div>
+
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button type="button" class="secondary" onclick="closePayrollClearModal()">Отмена</button>
+          <button type="button" class="danger" id="payrollClearBtn" onclick="executePayrollClear()">Очистить</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ── Distribution Import Modal ── -->
   <div id="payrollDistImportModal" class="modal-overlay hidden" role="dialog" aria-modal="true">
     <div class="modal-card" style="max-width:860px;width:96vw">
@@ -2697,6 +2758,6 @@
   <script src="/static/jszip.min.js"></script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=266"></script>
+  <script src="/static/app.js?v=267"></script>
 </body>
 </html>

@@ -8617,6 +8617,70 @@ class ReviewRepository:
                     ),
                 )
 
+    # ── Salary data clear ────────────────────────────────────────────────────
+
+    _SALARY_DATA_TABLES = (
+        "salary_entries",
+        "salary_extra_prod_entries",
+        "salary_oklad_entries",
+        "salary_entry_extras",
+        "salary_vacation_entries",
+        "salary_linked_snapshot",
+        "salary_totals_override",
+    )
+
+    def clear_salary_data(
+        self,
+        *,
+        owner_user_id: int,
+        entry_date: str | None = None,
+        worker_ids: list[int] | None = None,
+    ) -> int:
+        """Delete payroll data for the given scope.
+        - entry_date=None, worker_ids=None  → clear ALL
+        - entry_date set                    → clear that date only
+        - worker_ids set                    → clear those workers (optionally + date)
+        Returns total rows deleted.
+        """
+        total = 0
+        with self._connect() as conn:
+            for tbl in self._SALARY_DATA_TABLES:
+                try:
+                    if worker_ids is not None and entry_date:
+                        placeholders = ", ".join(["?"] * len(worker_ids))
+                        res = conn.execute(
+                            self._sql(
+                                f"DELETE FROM {tbl} WHERE owner_user_id = ? "
+                                f"AND worker_id IN ({placeholders}) AND entry_date = ?"
+                            ),
+                            [owner_user_id, *worker_ids, entry_date],
+                        )
+                    elif worker_ids is not None:
+                        placeholders = ", ".join(["?"] * len(worker_ids))
+                        res = conn.execute(
+                            self._sql(
+                                f"DELETE FROM {tbl} WHERE owner_user_id = ? "
+                                f"AND worker_id IN ({placeholders})"
+                            ),
+                            [owner_user_id, *worker_ids],
+                        )
+                    elif entry_date:
+                        res = conn.execute(
+                            self._sql(
+                                f"DELETE FROM {tbl} WHERE owner_user_id = ? AND entry_date = ?"
+                            ),
+                            (owner_user_id, entry_date),
+                        )
+                    else:
+                        res = conn.execute(
+                            self._sql(f"DELETE FROM {tbl} WHERE owner_user_id = ?"),
+                            (owner_user_id,),
+                        )
+                    total += res.rowcount or 0
+                except Exception:
+                    pass  # table may not exist yet
+        return total
+
     # ── Salary vacation entries ──────────────────────────────────────────────
 
     def _ensure_salary_vacation_table(self, conn) -> None:

@@ -12610,6 +12610,118 @@ window.confirmPayrollImport = async function() {
   }
 };
 
+// ── Payroll clear modal ───────────────────────────────────────────────────
+
+let _clearSelectedDate = null;
+
+window.openPayrollClearModal = function() {
+  _clearSelectedDate = null;
+  document.getElementById("clearScopeSelect").value = "all";
+  document.getElementById("payrollClearInfo").textContent = "";
+  onClearScopeChange();
+  document.getElementById("payrollClearModal")?.classList.remove("hidden");
+};
+
+window.closePayrollClearModal = function() {
+  document.getElementById("payrollClearModal")?.classList.add("hidden");
+};
+
+window.onClearScopeChange = function() {
+  const scope = document.getElementById("clearScopeSelect")?.value;
+  document.getElementById("clearDateWrap")?.classList.toggle("hidden", scope !== "date");
+  document.getElementById("clearProductionWrap")?.classList.toggle("hidden", scope !== "production");
+  document.getElementById("clearLegalWrap")?.classList.toggle("hidden", scope !== "legal");
+  if (scope === "date") _clearRenderDateList();
+};
+
+function _clearRenderDateList() {
+  const wrap = document.getElementById("clearDateList");
+  if (!wrap) return;
+  const dates = _payrollDates();
+  const today = _dateFmt(new Date());
+  wrap.innerHTML = dates.map(d => {
+    const hasDot = Object.keys(payrollState.totals).some(k => k.endsWith("_" + d));
+    const isSelected = d === _clearSelectedDate;
+    return `<button type="button" onclick="clearSelectDate('${d}')"
+      style="padding:5px 10px;font-size:13px;border-radius:6px;border:1px solid ${isSelected ? "#ef4444" : "#e2e8f0"};
+             background:${isSelected ? "#fef2f2" : "#fff"};color:${isSelected ? "#b91c1c" : "#374151"};
+             font-weight:${isSelected ? "700" : "400"};cursor:pointer;white-space:nowrap">
+      ${_dateRu(d)}${hasDot ? " <span style='color:#2563eb;font-size:10px'>●</span>" : ""}
+    </button>`;
+  }).join("");
+}
+
+window.clearSelectDate = function(d) {
+  _clearSelectedDate = d;
+  _clearRenderDateList();
+};
+
+window.executePayrollClear = async function() {
+  const scope = document.getElementById("clearScopeSelect")?.value || "all";
+  const info = document.getElementById("payrollClearInfo");
+
+  // Build confirmation message
+  let confirmMsg = "";
+  const params = new URLSearchParams({ scope });
+  if (scope === "date") {
+    if (!_clearSelectedDate) {
+      if (info) { info.textContent = "Выберите дату"; info.style.color = "#b91c1c"; }
+      return;
+    }
+    confirmMsg = `Удалить ВСЕ данные начислений за ${_dateRuFull(_clearSelectedDate)}?`;
+    params.set("entry_date", _clearSelectedDate);
+  } else if (scope === "production") {
+    const prod = document.getElementById("clearProductionSelect")?.value || "";
+    confirmMsg = `Удалить ВСЕ данные начислений для производства «${prod}»?`;
+    params.set("production", prod);
+  } else if (scope === "legal") {
+    const leg = document.getElementById("clearLegalSelect")?.value || "";
+    confirmMsg = `Удалить ВСЕ данные начислений для «${leg}»?`;
+    params.set("legal_entity", leg);
+  } else {
+    confirmMsg = "Удалить ВСЕ данные начислений по всем работникам и датам?\n\nЭто действие необратимо!";
+  }
+
+  if (!confirm(confirmMsg)) return;
+
+  const btn = document.getElementById("payrollClearBtn");
+  if (btn) { btn.disabled = true; btn.textContent = "Очистка..."; }
+  if (info) info.textContent = "";
+
+  try {
+    const res = await fetch("/api/salary/clear?" + params.toString(), {
+      method: "POST",
+      headers: jsonHeaders(),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      if (info) { info.textContent = data.detail || "Ошибка"; info.style.color = "#b91c1c"; }
+      return;
+    }
+    closePayrollClearModal();
+
+    // Reload totals + vacations
+    const [tRes, vRes] = await Promise.all([fetch("/api/salary/totals"), fetch("/api/salary/vacations")]);
+    const [tData, vData] = await Promise.all([tRes.json(), vRes.json()]);
+    payrollState.totals = {};
+    for (const t of (tData.items || [])) {
+      payrollState.totals[`${t.worker_id}_${t.entry_date}`] = parseFloat(t.total || 0);
+    }
+    payrollState.vacations = new Set((vData.items || []).map(v => `${v.worker_id}_${v.entry_date}`));
+    renderPayrollTable();
+
+    const pageInfo = document.getElementById("payrollInfo");
+    if (pageInfo) {
+      pageInfo.textContent = `Очищено записей: ${data.deleted ?? 0}`;
+      pageInfo.style.color = "#16a34a";
+    }
+  } catch (e) {
+    if (info) { info.textContent = "Ошибка: " + e.message; info.style.color = "#b91c1c"; }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "Очистить"; }
+  }
+};
+
 // ── Distribution import modal ─────────────────────────────────────────────
 
 let _pdimSelectedDate = null;
