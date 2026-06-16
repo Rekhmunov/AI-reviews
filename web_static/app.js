@@ -13025,6 +13025,17 @@ function _renderExtraProdButtons(availableTypes, worker) {
   }).join("");
 }
 
+// prod_type → role that owns this operation (used to filter products by roles field)
+const PROD_TYPE_ROLE = { poshiv: "Швея", raskroi: "Закройщик", upakovka: "Упаковщик" };
+
+function _filterProductsByProdType(prodType) {
+  const targetRole = PROD_TYPE_ROLE[prodType];
+  return payrollState.products.filter(p => {
+    const roles = (p.roles || "").split(",").map(s => s.trim()).filter(Boolean);
+    return roles.length === 0 || roles.includes(targetRole);
+  });
+}
+
 function _renderExtraProdTables(availableTypes, worker) {
   const contentWrap = document.getElementById("payrollExtraProdsContent");
   if (!contentWrap) return;
@@ -13034,7 +13045,7 @@ function _renderExtraProdTables(availableTypes, worker) {
     const block = document.createElement("div");
     block.className = "extra-prod-block";
     block.id = `extraProdBlock_${t}`;
-    const products = payrollState.products;
+    const products = _filterProductsByProdType(t);
     const rows = products.map(p => {
       const price = _getExtraProdPrice(p, t, worker?.production || "");
       const qty = (payrollState.modalExtraProds[t] || {})[p.id] || 0;
