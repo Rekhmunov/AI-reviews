@@ -1779,6 +1779,7 @@
               ⬆ Импорт
               <input type="file" id="payrollImportFile" accept=".csv,.xlsx,.xls" style="display:none" onchange="importPayrollTable(this)" />
             </label>
+            <button type="button" class="secondary" onclick="openDistImportModal()" title="Импорт распределения заказа (Стежка/Мулетон)" style="font-size:14px;font-weight:600;color:#1e40af;border-color:rgba(147,197,253,0.7)">⬆ Распределение</button>
           </div>
         </div>
 
@@ -2509,6 +2510,52 @@
     </div>
   </div>
 
+  <!-- ── Distribution Import Modal ── -->
+  <div id="payrollDistImportModal" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal-card" style="max-width:860px;width:96vw">
+      <div class="modal-card-header">
+        <h4 class="no-margin">Импорт распределения заказа</h4>
+        <button type="button" class="modal-close-btn" onclick="closeDistImportModal()" aria-label="Закрыть">✕</button>
+      </div>
+
+      <!-- Step 1: file + date -->
+      <div id="pdimStep1" style="padding:20px;display:flex;flex-direction:column;gap:16px">
+        <div>
+          <label style="display:block;margin-bottom:6px;font-size:13px;font-weight:600;color:#475569">Файл распределения (.xlsx)</label>
+          <input type="file" id="pdimFileInput" accept=".xlsx,.xls"
+            style="font-size:13px" onchange="pdimOnFileChange()" />
+        </div>
+        <div>
+          <label style="display:block;margin-bottom:8px;font-size:13px;font-weight:600;color:#475569">Дата начисления</label>
+          <div id="pdimDateList" style="display:flex;flex-wrap:wrap;gap:6px;max-height:200px;overflow-y:auto"></div>
+        </div>
+        <div id="pdimStep1Info" class="small"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button type="button" class="secondary" onclick="closeDistImportModal()">Отмена</button>
+          <button type="button" id="pdimPreviewBtn" disabled onclick="pdimLoadPreview()">Показать предпросмотр</button>
+        </div>
+      </div>
+
+      <!-- Step 2: preview + confirm -->
+      <div id="pdimStep2" class="hidden" style="display:flex;flex-direction:column;min-height:0">
+        <div style="padding:12px 20px;background:#f8fafc;border-bottom:1px solid #e2e8f0;font-size:13px;color:#475569;display:flex;gap:16px;align-items:center">
+          <span id="pdimPreviewMeta"></span>
+          <button type="button" class="secondary" style="font-size:12px;padding:4px 10px" onclick="pdimBackToStep1()">← Изменить дату/файл</button>
+        </div>
+        <div id="pdimWarningsWrap" class="hidden" style="padding:10px 20px;background:#fffbeb;border-bottom:1px solid #fcd34d">
+          <div style="font-size:11px;font-weight:700;color:#92400e;text-transform:uppercase;margin-bottom:4px">Предупреждения</div>
+          <div id="pdimWarnings" style="font-size:12px;color:#78350f;max-height:120px;overflow-y:auto;display:flex;flex-direction:column;gap:2px"></div>
+        </div>
+        <div id="pdimSheetPreviews" style="overflow-y:auto;flex:1;padding:16px 20px;display:flex;flex-direction:column;gap:20px;max-height:55vh"></div>
+        <div style="padding:12px 20px;border-top:1px solid #e2e8f0;display:flex;gap:8px;justify-content:flex-end;background:#fff">
+          <button type="button" class="secondary" onclick="closeDistImportModal()">Отмена</button>
+          <button type="button" id="pdimConfirmBtn" onclick="pdimConfirmImport()">Загрузить данные</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
   <!-- ── Payroll Import Preview Modal ── -->
   <div id="payrollImportPreviewModal" class="modal-overlay hidden" role="dialog" aria-modal="true">
     <div class="modal-card" style="max-width:600px">
@@ -2650,6 +2697,6 @@
   <script src="/static/jszip.min.js"></script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=265"></script>
+  <script src="/static/app.js?v=266"></script>
 </body>
 </html>

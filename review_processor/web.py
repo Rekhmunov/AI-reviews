@@ -5980,6 +5980,180 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             headers={"Content-Disposition": _payroll_export_cd(report_name)},
         )
 
+    # ── Distribution import (Стежка / Мулетон format) ──────────────────────
+
+    @app.post("/api/salary/payroll/import-distribution")
+    async def import_payroll_distribution(
+        request: Request,
+        file: UploadFile = File(...),
+        entry_date: str = "",
+        preview: bool = False,
+    ) -> dict[str, object]:
+        """Parse a multi-sheet distribution XLSX (Стежка/Мулетон) and upsert salary_entries."""
+        try:
+            import io, openpyxl
+
+            user = _require_salary_access(request)
+            owner_id = _salary_owner_id(user)
+
+            if not entry_date:
+                raise HTTPException(status_code=400, detail="entry_date обязателен")
+
+            raw = await file.read()
+            wb = openpyxl.load_workbook(io.BytesIO(raw), data_only=True)
+
+            workers = repository.list_salary_workers(owner_user_id=owner_id)
+            by_name = {str(w.get("full_name") or "").strip().lower(): w for w in workers}
+
+            products = repository.list_salary_products(owner_user_id=owner_id)
+            prod_by_name = {str(p.get("name") or "").strip().lower(): p for p in products}
+
+            def get_price_snapshot(worker: dict, product: dict) -> float:
+                pos = str(worker.get("position") or "")
+                prod_loc = str(worker.get("production") or "").lower()
+                prefix = "kineshma" if "кинешма" in prod_loc else "nerl" if "нерль" in prod_loc else "ivanovo"
+                suffix = "poshiv" if pos == "Швея" else "raskroi" if pos == "Закройщик" else "upakovka" if pos == "Упаковщик" else None
+                if not suffix:
+                    return 0.0
+                key = f"price_{prefix}_{suffix}"
+                return float(product.get(key) or 0)
+
+            def parse_sheet(ws) -> tuple:
+                """Returns (preview_rows, product_headers, worker_product_map, warnings_list)"""
+                # Build product column ranges from row 1 (handle merged cells)
+                merged_map: dict[int, str] = {}  # col_idx(0-based) → product name
+                for mr in ws.merged_cells.ranges:
+                    if mr.min_row == 1:
+                        val = ws.cell(row=1, column=mr.min_col).value
+                        name = str(val or "").strip()
+                        for c in range(mr.min_col, mr.max_col + 1):
+                            merged_map[c - 1] = name  # 0-based
+
+                header_row = [ws.cell(row=1, column=c).value for c in range(1, ws.max_column + 1)]
+
+                # Build full header list resolving merged cells
+                full_headers: list[str] = []
+                for i, h in enumerate(header_row):
+                    if i in merged_map:
+                        full_headers.append(merged_map[i])
+                    else:
+                        full_headers.append(str(h or "").strip())
+
+                # Find worker column index
+                worker_col = 0
+                for i, h in enumerate(full_headers):
+                    if h and "работник" in h.lower():
+                        worker_col = i
+                        break
+
+                # Build product → [col_indices] (skip "Итого" and worker col)
+                product_cols: dict[str, list[int]] = {}
+                for i, h in enumerate(full_headers):
+                    if i == worker_col:
+                        continue
+                    if not h or "итого" in h.lower():
+                        continue
+                    product_cols.setdefault(h, []).append(i)
+
+                product_names = list(product_cols.keys())
+
+                # Parse data rows
+                warnings: list[str] = []
+                worker_data: dict[str, dict[str, int]] = {}  # worker_name → {prod → qty}
+                preview_rows: list[list] = []
+
+                for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+                    name_val = row[worker_col] if worker_col < len(row) else None
+                    if name_val is None:
+                        continue
+                    worker_name = str(name_val).strip()
+                    if not worker_name or "итого" in worker_name.lower():
+                        continue
+
+                    prods: dict[str, int] = {}
+                    preview_row: list = [worker_name]
+                    for pname in product_names:
+                        qty = 0
+                        for ci in product_cols[pname]:
+                            if ci < len(row):
+                                v = row[ci]
+                                if isinstance(v, (int, float)) and v > 0:
+                                    qty += int(v)
+                        prods[pname] = qty
+                        preview_row.append(qty if qty else "")
+
+                    worker_data[worker_name] = prods
+                    preview_rows.append(preview_row)
+
+                return preview_rows, product_names, worker_data, warnings
+
+            sheets_preview: list[dict] = []
+            all_warnings: list[str] = []
+            pending: list[dict] = []  # {worker_id, product_id, quantity, price_snapshot}
+
+            for sheet_name in wb.sheetnames:
+                ws = wb[sheet_name]
+                prev_rows, prod_names, worker_data, sh_warns = parse_sheet(ws)
+                all_warnings.extend(sh_warns)
+
+                sheets_preview.append({
+                    "name": sheet_name,
+                    "headers": ["Работник"] + prod_names,
+                    "rows": prev_rows[:50],  # limit preview to 50 rows
+                })
+
+                for worker_name, prods in worker_data.items():
+                    w = by_name.get(worker_name.lower())
+                    if not w:
+                        all_warnings.append(f"[{sheet_name}] Работник «{worker_name}» не найден")
+                        continue
+                    for prod_name, qty in prods.items():
+                        if qty <= 0:
+                            continue
+                        p = prod_by_name.get(prod_name.lower())
+                        if not p:
+                            all_warnings.append(f"[{sheet_name}] Товар «{prod_name}» не найден в каталоге")
+                            continue
+                        price = get_price_snapshot(w, p)
+                        pending.append({
+                            "worker_id": int(w["id"]),
+                            "product_id": int(p["id"]),
+                            "quantity": qty,
+                            "price_snapshot": price,
+                        })
+
+            if preview:
+                return {
+                    "preview": True,
+                    "sheets": sheets_preview,
+                    "to_save": len(pending),
+                    "warnings": all_warnings,
+                }
+
+            # Save — group by worker, upsert salary_entries per worker
+            from collections import defaultdict
+            by_worker: dict[int, list[dict]] = defaultdict(list)
+            for item in pending:
+                by_worker[item["worker_id"]].append(item)
+
+            saved = 0
+            for worker_id, entries in by_worker.items():
+                repository.upsert_salary_entries(
+                    owner_user_id=owner_id,
+                    worker_id=worker_id,
+                    entry_date=entry_date,
+                    entries=entries,
+                )
+                saved += len(entries)
+
+            return {"ok": True, "saved": saved, "warnings": all_warnings}
+
+        except HTTPException:
+            raise
+        except Exception as exc:
+            _log.error("distribution import error: %s", exc, exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Ошибка импорта: {exc}") from exc
+
     @app.post("/api/salary/payroll/import")
     async def import_payroll_table(
         request: Request,
