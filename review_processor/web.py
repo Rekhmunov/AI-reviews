@@ -556,6 +556,7 @@ class SalaryWorkerCreateRequest(BaseModel):
 class SalaryProductCreateRequest(BaseModel):
     order_num: int = Field(default=0, ge=0)
     name: str = Field(min_length=1, max_length=300)
+    roles: str = Field(default="", max_length=200)  # comma-separated: "Швея,Упаковщик,Закройщик"
     price_ivanovo: float = Field(default=0.0, ge=0)        # kept for compat
     price_kineshma: float = Field(default=0.0, ge=0)       # kept for compat
     price_nerl: float = Field(default=0.0, ge=0)           # kept for compat
@@ -5327,6 +5328,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             owner_user_id=owner_id,
             order_num=payload.order_num,
             name=payload.name,
+            roles=payload.roles,
             price_kineshma_poshiv=round(float(payload.price_kineshma_poshiv), 2),
             price_kineshma_raskroi=round(float(payload.price_kineshma_raskroi), 2),
             price_kineshma_upakovka=round(float(payload.price_kineshma_upakovka), 2),
@@ -5349,6 +5351,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             product_id=product_id,
             order_num=payload.order_num,
             name=payload.name,
+            roles=payload.roles,
             price_kineshma_poshiv=round(float(payload.price_kineshma_poshiv), 2),
             price_kineshma_raskroi=round(float(payload.price_kineshma_raskroi), 2),
             price_kineshma_upakovka=round(float(payload.price_kineshma_upakovka), 2),

@@ -12918,8 +12918,13 @@ async function _loadPayrollModalProducts(date) {
     } catch(_) {}
     payrollState.modalEntries = {...existingMap};
 
-    const products = payrollState.products;
-    if (!products.length) {
+    // Filter products by role (empty roles = applies to all piece roles)
+    const allProducts = payrollState.products;
+    const products = allProducts.filter(p => {
+      const roles = (p.roles || "").split(",").map(s => s.trim()).filter(Boolean);
+      return roles.length === 0 || roles.includes(w.position || "");
+    });
+    if (!allProducts.length) {
       if (infoEl) infoEl.textContent = "Товары не настроены (Зарплата → Настройки → Товары)";
     }
     const tbody = document.getElementById("payrollModalProductsTbody");
@@ -13555,6 +13560,33 @@ window.toggleSalaryProductForm = function(show) {
   }
 };
 
+const PRODUCT_ROLE_MAP = [
+  { id: "Shveya",   val: "Швея" },
+  { id: "Upakovka", val: "Упаковщик" },
+  { id: "Raskroi",  val: "Закройщик" },
+];
+
+function _readProductRoles(prefix) {
+  return PRODUCT_ROLE_MAP
+    .filter(r => document.getElementById(`${prefix}Role${r.id}`)?.checked)
+    .map(r => r.val)
+    .join(",");
+}
+
+function _setProductRoles(prefix, rolesStr) {
+  const roleSet = new Set((rolesStr || "").split(",").map(s => s.trim()).filter(Boolean));
+  PRODUCT_ROLE_MAP.forEach(r => {
+    const el = document.getElementById(`${prefix}Role${r.id}`);
+    if (el) el.checked = roleSet.has(r.val);
+  });
+}
+
+function _renderRoleTags(rolesStr) {
+  const roles = (rolesStr || "").split(",").map(s => s.trim()).filter(Boolean);
+  if (!roles.length) return '<span style="color:#94a3b8;font-size:12px">—</span>';
+  return roles.map(r => `<span class="role-tag">${esc(r)}</span>`).join("");
+}
+
 async function loadSalaryProducts() {
   const tbody = document.getElementById("salaryProductsTbody");
   const info = document.getElementById("salaryProductsInfo");
@@ -13568,7 +13600,7 @@ async function loadSalaryProducts() {
     const items = data.items || [];
     if (!items.length) {
       const tr = document.createElement("tr");
-      tr.innerHTML = '<td colspan="5" class="small" style="color:#9ca3af">Товары не добавлены</td>';
+      tr.innerHTML = '<td colspan="9" class="small" style="color:#9ca3af">Товары не добавлены</td>';
       tbody.appendChild(tr);
       return;
     }
@@ -13581,6 +13613,7 @@ async function loadSalaryProducts() {
       tr.innerHTML = `
         <td style="cursor:grab;text-align:center;color:#94a3b8" title="Перетащить">⠿</td>
         <td>${esc(p.name || "")}</td>
+        <td>${_renderRoleTags(p.roles)}</td>
         <td style="background:#f0f9ff">${fmt(p.price_kineshma_poshiv)}</td>
         <td style="background:#f0f9ff">${fmt(p.price_kineshma_raskroi)}</td>
         <td style="background:#f0f9ff">${fmt(p.price_kineshma_upakovka)}</td>
@@ -13612,6 +13645,7 @@ async function saveSalaryProduct() {
   const _n = id => parseFloat(document.getElementById(id)?.value || "0") || 0;
   const payload = {
     order_num: 0, name,
+    roles: _readProductRoles("salaryProduct"),
     price_kineshma_poshiv:    _n("salaryProductKineshma_poshiv"),
     price_kineshma_raskroi:   _n("salaryProductKineshma_raskroi"),
     price_kineshma_upakovka:  _n("salaryProductKineshma_upakovka"),
@@ -13712,6 +13746,7 @@ function openEditSalaryProduct(productId) {
   if (!p) { alert("Данные товара не найдены. Обновите страницу."); return; }
   document.getElementById("editSalaryProductId").value = productId;
   document.getElementById("editSalaryProductName").value = p.name || "";
+  _setProductRoles("editSalaryProduct", p.roles || "");
   document.getElementById("editSalaryProductKineshma_poshiv").value   = p.price_kineshma_poshiv || "";
   document.getElementById("editSalaryProductKineshma_raskroi").value  = p.price_kineshma_raskroi || "";
   document.getElementById("editSalaryProductKineshma_upakovka").value = p.price_kineshma_upakovka || "";
@@ -13741,6 +13776,7 @@ async function saveEditSalaryProduct() {
   const _ne = eid => parseFloat(document.getElementById(eid)?.value || "0") || 0;
   const payload = {
     order_num: current?.order_num ?? 0, name,
+    roles: _readProductRoles("editSalaryProduct"),
     price_kineshma_poshiv:    _ne("editSalaryProductKineshma_poshiv"),
     price_kineshma_raskroi:   _ne("editSalaryProductKineshma_raskroi"),
     price_kineshma_upakovka:  _ne("editSalaryProductKineshma_upakovka"),
