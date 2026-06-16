@@ -12843,11 +12843,21 @@ function _pdimRenderPreview(data) {
       <div style="font-size:12px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">
         Лист: ${esc(sheet.name)}
       </div>
-      <div class="table-wrap" style="margin:0;max-height:280px;overflow:auto">
-        <table style="min-width:600px">
-          <thead><tr>${sheet.headers.map(h => `<th style="white-space:nowrap;font-size:12px;padding:6px 8px">${esc(h)}</th>`).join("")}</tr></thead>
+          <div class="table-wrap" style="margin:0;max-height:280px;overflow:auto">
+        <table style="min-width:400px;table-layout:fixed">
+          <thead><tr>${sheet.headers.map((h, i) => `<th style="
+              font-size:11px;padding:6px 8px;
+              white-space:normal;word-break:break-word;
+              min-width:${i === 0 ? 120 : 80}px;
+              max-width:${i === 0 ? 160 : 120}px;
+              vertical-align:bottom;line-height:1.3;
+              text-align:${i === 0 ? 'left' : 'center'}">${esc(h)}</th>`).join("")}</tr></thead>
           <tbody>${(sheet.rows || []).map(row =>
-            `<tr>${row.map(c => `<td style="font-size:12px;padding:4px 8px;text-align:${typeof c === 'number' ? 'right' : 'left'}">${c === "" ? "" : esc(String(c))}</td>`).join("")}</tr>`
+            `<tr>${row.map((c, ci) => {
+              const isEmpty = c === "" || c === null || c === undefined;
+              const isNum = typeof c === "number" && c > 0;
+              return `<td style="font-size:12px;padding:4px 8px;text-align:${ci === 0 ? 'left' : 'center'};color:${isNum ? '#1e293b' : '#94a3b8'};font-weight:${isNum ? '500' : '400'}">${isEmpty ? "" : esc(String(c))}</td>`;
+            }).join("")}</tr>`
           ).join("")}</tbody>
         </table>
       </div>`;

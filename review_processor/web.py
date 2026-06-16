@@ -6088,12 +6088,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                         worker_col = i
                         break
 
-                # Build product → [col_indices] (skip "Итого" and worker col)
+                # Build product → [col_indices]
+                # Skip worker col, empty headers, and any "итог*" / "total" column
                 product_cols: dict[str, list[int]] = {}
                 for i, h in enumerate(full_headers):
                     if i == worker_col:
                         continue
-                    if not h or "итого" in h.lower():
+                    hl = h.lower().strip()
+                    if not hl or hl.startswith("итог") or hl in ("total", "итого", "итог"):
                         continue
                     product_cols.setdefault(h, []).append(i)
 
