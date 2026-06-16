@@ -12610,6 +12610,180 @@ window.confirmPayrollImport = async function() {
   }
 };
 
+// ── Distribution import modal ─────────────────────────────────────────────
+
+let _pdimSelectedDate = null;
+let _pdimFile = null;
+
+window.openDistImportModal = function() {
+  _pdimSelectedDate = null;
+  _pdimFile = null;
+  document.getElementById("pdimFileInput").value = "";
+  document.getElementById("pdimStep1Info").textContent = "";
+  document.getElementById("pdimPreviewBtn").disabled = true;
+  _pdimRenderDateList();
+  _pdimShowStep(1);
+  document.getElementById("payrollDistImportModal")?.classList.remove("hidden");
+};
+
+window.closeDistImportModal = function() {
+  document.getElementById("payrollDistImportModal")?.classList.add("hidden");
+  _pdimSelectedDate = null;
+  _pdimFile = null;
+};
+
+function _pdimShowStep(n) {
+  document.getElementById("pdimStep1").classList.toggle("hidden", n !== 1);
+  document.getElementById("pdimStep2").classList.toggle("hidden", n !== 2);
+  const s2 = document.getElementById("pdimStep2");
+  if (s2) s2.style.display = n === 2 ? "flex" : "none";
+}
+
+function _pdimRenderDateList() {
+  const wrap = document.getElementById("pdimDateList");
+  if (!wrap) return;
+  const dates = _payrollDates();
+  const today = _dateFmt(new Date());
+  wrap.innerHTML = dates.map(d => {
+    const hasDot = Object.keys(payrollState.totals).some(k => k.endsWith("_" + d));
+    const isSelected = d === _pdimSelectedDate;
+    const isCurrent = d <= today;
+    return `<button type="button"
+      onclick="pdimSelectDate('${d}')"
+      style="padding:5px 10px;font-size:13px;border-radius:6px;border:1px solid ${isSelected ? "#2563eb" : "#e2e8f0"};
+             background:${isSelected ? "#eff6ff" : "#fff"};color:${isSelected ? "#1d4ed8" : "#374151"};
+             font-weight:${isSelected ? "700" : "400"};cursor:pointer;white-space:nowrap">
+      ${_dateRu(d)}${hasDot ? " <span style='color:#2563eb;font-size:10px'>●</span>" : ""}
+    </button>`;
+  }).join("");
+}
+
+window.pdimSelectDate = function(d) {
+  _pdimSelectedDate = d;
+  _pdimRenderDateList();
+  _pdimCheckReady();
+};
+
+window.pdimOnFileChange = function() {
+  const input = document.getElementById("pdimFileInput");
+  _pdimFile = input?.files?.[0] || null;
+  _pdimCheckReady();
+};
+
+function _pdimCheckReady() {
+  const btn = document.getElementById("pdimPreviewBtn");
+  if (btn) btn.disabled = !(_pdimFile && _pdimSelectedDate);
+}
+
+window.pdimBackToStep1 = function() {
+  _pdimShowStep(1);
+};
+
+window.pdimLoadPreview = async function() {
+  const info = document.getElementById("pdimStep1Info");
+  if (!_pdimFile || !_pdimSelectedDate) return;
+  if (info) { info.textContent = "Загрузка предпросмотра..."; info.style.color = "#64748b"; }
+  const btn = document.getElementById("pdimPreviewBtn");
+  if (btn) btn.disabled = true;
+  try {
+    const formData = new FormData();
+    formData.append("file", _pdimFile);
+    const csrf = document.cookie.match(/csrf_token=([^;]+)/)?.[1] || "";
+    const res = await fetch(`/api/salary/payroll/import-distribution?preview=true&entry_date=${_pdimSelectedDate}`, {
+      method: "POST",
+      headers: { "X-CSRF-Token": csrf },
+      body: formData,
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      if (info) { info.textContent = data.detail || "Ошибка"; info.style.color = "#b91c1c"; }
+      return;
+    }
+    if (info) info.textContent = "";
+    _pdimRenderPreview(data);
+    _pdimShowStep(2);
+  } catch (e) {
+    if (info) { info.textContent = "Ошибка: " + e.message; info.style.color = "#b91c1c"; }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+};
+
+function _pdimRenderPreview(data) {
+  const meta = document.getElementById("pdimPreviewMeta");
+  if (meta) meta.innerHTML = `Дата: <b>${_dateRuFull(_pdimSelectedDate)}</b> &nbsp;·&nbsp; Записей к загрузке: <b>${data.to_save ?? 0}</b>`;
+
+  const warnWrap = document.getElementById("pdimWarningsWrap");
+  const warnEl = document.getElementById("pdimWarnings");
+  if (data.warnings?.length) {
+    warnEl.innerHTML = data.warnings.map(w => `<div>⚠ ${esc(w)}</div>`).join("");
+    warnWrap.classList.remove("hidden");
+  } else {
+    warnWrap.classList.add("hidden");
+  }
+
+  const container = document.getElementById("pdimSheetPreviews");
+  if (!container) return;
+  container.innerHTML = "";
+  for (const sheet of (data.sheets || [])) {
+    const block = document.createElement("div");
+    block.innerHTML = `
+      <div style="font-size:12px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">
+        Лист: ${esc(sheet.name)}
+      </div>
+      <div class="table-wrap" style="margin:0;max-height:280px;overflow:auto">
+        <table style="min-width:600px">
+          <thead><tr>${sheet.headers.map(h => `<th style="white-space:nowrap;font-size:12px;padding:6px 8px">${esc(h)}</th>`).join("")}</tr></thead>
+          <tbody>${(sheet.rows || []).map(row =>
+            `<tr>${row.map(c => `<td style="font-size:12px;padding:4px 8px;text-align:${typeof c === 'number' ? 'right' : 'left'}">${c === "" ? "" : esc(String(c))}</td>`).join("")}</tr>`
+          ).join("")}</tbody>
+        </table>
+      </div>`;
+    container.appendChild(block);
+  }
+
+  const confirmBtn = document.getElementById("pdimConfirmBtn");
+  if (confirmBtn) confirmBtn.disabled = (data.to_save === 0);
+}
+
+window.pdimConfirmImport = async function() {
+  if (!_pdimFile || !_pdimSelectedDate) return;
+  const btn = document.getElementById("pdimConfirmBtn");
+  if (btn) { btn.disabled = true; btn.textContent = "Загрузка..."; }
+  try {
+    const formData = new FormData();
+    formData.append("file", _pdimFile);
+    const csrf = document.cookie.match(/csrf_token=([^;]+)/)?.[1] || "";
+    const res = await fetch(`/api/salary/payroll/import-distribution?preview=false&entry_date=${_pdimSelectedDate}`, {
+      method: "POST",
+      headers: { "X-CSRF-Token": csrf },
+      body: formData,
+    });
+    const data = await res.json();
+    closeDistImportModal();
+    if (!res.ok) { alert(data.detail || "Ошибка импорта"); return; }
+
+    // Reload totals
+    const tRes = await fetch("/api/salary/totals");
+    const tData = await tRes.json();
+    payrollState.totals = {};
+    for (const t of (tData.items || [])) {
+      payrollState.totals[`${t.worker_id}_${t.entry_date}`] = parseFloat(t.total || 0);
+    }
+    renderPayrollTable();
+    const info = document.getElementById("payrollInfo");
+    if (info) {
+      const warnTxt = data.warnings?.length ? `; предупреждений: ${data.warnings.length}` : "";
+      info.textContent = `Импортировано: ${data.saved} записей${warnTxt}`;
+      info.style.color = "#16a34a";
+    }
+  } catch (e) {
+    alert("Ошибка: " + e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "Загрузить данные"; }
+  }
+};
+
 // ── Payroll date range calendar (mirrors WB supplies calendar) ────────────
 
 const _payrollCal = {
