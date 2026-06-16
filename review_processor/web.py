@@ -6008,7 +6008,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             worker_ids = [int(w["id"]) for w in workers if str(w.get("production") or "") == production]
             if not worker_ids:
                 return {"ok": True, "deleted": 0, "message": "Работники не найдены"}
-            deleted = repository.clear_salary_data(owner_user_id=owner_id, worker_ids=worker_ids)
+            deleted = repository.clear_salary_data(
+                owner_user_id=owner_id,
+                worker_ids=worker_ids,
+                entry_date=entry_date or None,
+            )
         elif scope == "legal":
             if not legal_entity:
                 raise HTTPException(status_code=400, detail="legal_entity обязателен")
@@ -6016,7 +6020,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             worker_ids = [int(w["id"]) for w in workers if str(w.get("legal_entity") or "") == legal_entity]
             if not worker_ids:
                 return {"ok": True, "deleted": 0, "message": "Работники не найдены"}
-            deleted = repository.clear_salary_data(owner_user_id=owner_id, worker_ids=worker_ids)
+            deleted = repository.clear_salary_data(
+                owner_user_id=owner_id,
+                worker_ids=worker_ids,
+                entry_date=entry_date or None,
+            )
         else:  # all
             deleted = repository.clear_salary_data(owner_user_id=owner_id)
 

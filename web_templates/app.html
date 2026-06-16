@@ -2557,6 +2557,20 @@
           </select>
         </div>
 
+        <!-- Optional date filter for production/legal scopes -->
+        <div id="clearExtraDateWrap" class="hidden">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:600;color:#475569;user-select:none">
+              <input type="checkbox" id="clearUseDateFilter" onchange="onClearDateFilterToggle()"
+                style="width:15px;height:15px;accent-color:#2563eb;cursor:pointer" />
+              Дополнительно — только за дату
+            </label>
+          </div>
+          <div id="clearExtraDatesWrap" class="hidden">
+            <div id="clearExtraDates" class="pdim-date-grid" style="max-height:160px"></div>
+          </div>
+        </div>
+
         <!-- Warning + info -->
         <div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:10px 14px;font-size:13px;color:#991b1b">
           ⚠ Удалённые данные не восстанавливаются. Убедитесь в правильности выбора.
@@ -2767,6 +2781,6 @@
   <script src="/static/jszip.min.js"></script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=269"></script>
+  <script src="/static/app.js?v=270"></script>
 </body>
 </html>

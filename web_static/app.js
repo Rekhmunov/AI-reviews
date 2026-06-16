@@ -12631,8 +12631,38 @@ window.onClearScopeChange = function() {
   document.getElementById("clearDateWrap")?.classList.toggle("hidden", scope !== "date");
   document.getElementById("clearProductionWrap")?.classList.toggle("hidden", scope !== "production");
   document.getElementById("clearLegalWrap")?.classList.toggle("hidden", scope !== "legal");
+  // Show extra date filter only for production/legal scopes
+  const showExtra = scope === "production" || scope === "legal";
+  document.getElementById("clearExtraDateWrap")?.classList.toggle("hidden", !showExtra);
+  if (!showExtra) {
+    const chk = document.getElementById("clearUseDateFilter");
+    if (chk) chk.checked = false;
+    document.getElementById("clearExtraDatesWrap")?.classList.add("hidden");
+  }
   if (scope === "date") _clearRenderDateList();
 };
+
+window.onClearDateFilterToggle = function() {
+  const on = document.getElementById("clearUseDateFilter")?.checked;
+  document.getElementById("clearExtraDatesWrap")?.classList.toggle("hidden", !on);
+  if (on) _clearRenderExtraDates();
+};
+
+function _clearRenderExtraDates() {
+  const wrap = document.getElementById("clearExtraDates");
+  if (!wrap) return;
+  const dates = _payrollDates();
+  const today = _dateFmt(new Date());
+  wrap.innerHTML = dates.map(d => {
+    const hasDot = Object.keys(payrollState.totals).some(k => k.endsWith("_" + d));
+    const isSelected = d === _clearSelectedDate;
+    return `<button type="button" onclick="clearSelectDate('${d}')"
+      class="pdim-date-btn${isSelected ? " selected" : ""}${d > today ? " future" : ""}">
+      <span class="pdim-date-val">${_dateRu(d)}</span>
+      ${hasDot ? `<span class="pdim-date-dot">●</span>` : ""}
+    </button>`;
+  }).join("");
+}
 
 function _clearRenderDateList() {
   const wrap = document.getElementById("clearDateList");
@@ -12654,11 +12684,13 @@ function _clearRenderDateList() {
 window.clearSelectDate = function(d) {
   _clearSelectedDate = d;
   _clearRenderDateList();
+  _clearRenderExtraDates();
 };
 
 window.executePayrollClear = async function() {
   const scope = document.getElementById("clearScopeSelect")?.value || "all";
   const info = document.getElementById("payrollClearInfo");
+  const useExtraDate = document.getElementById("clearUseDateFilter")?.checked && _clearSelectedDate;
 
   // Build confirmation message
   let confirmMsg = "";
@@ -12672,12 +12704,16 @@ window.executePayrollClear = async function() {
     params.set("entry_date", _clearSelectedDate);
   } else if (scope === "production") {
     const prod = document.getElementById("clearProductionSelect")?.value || "";
-    confirmMsg = `Удалить ВСЕ данные начислений для производства «${prod}»?`;
+    const datePart = useExtraDate ? ` за ${_dateRuFull(_clearSelectedDate)}` : " за все даты";
+    confirmMsg = `Удалить данные начислений для производства «${prod}»${datePart}?`;
     params.set("production", prod);
+    if (useExtraDate) params.set("entry_date", _clearSelectedDate);
   } else if (scope === "legal") {
     const leg = document.getElementById("clearLegalSelect")?.value || "";
-    confirmMsg = `Удалить ВСЕ данные начислений для «${leg}»?`;
+    const datePart = useExtraDate ? ` за ${_dateRuFull(_clearSelectedDate)}` : " за все даты";
+    confirmMsg = `Удалить данные начислений для «${leg}»${datePart}?`;
     params.set("legal_entity", leg);
+    if (useExtraDate) params.set("entry_date", _clearSelectedDate);
   } else {
     confirmMsg = "Удалить ВСЕ данные начислений по всем работникам и датам?\n\nЭто действие необратимо!";
   }
