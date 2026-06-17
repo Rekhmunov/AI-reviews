@@ -12226,14 +12226,16 @@ async function loadPayrollPage() {
 
 function _filteredWorkers() {
   const search = String(document.getElementById("payrollSearchName")?.value || "").toLowerCase();
-  const prod = String(document.getElementById("payrollFilterProduction")?.value || "");
-  const legal = String(document.getElementById("payrollFilterLegal")?.value || "");
+  const prod     = String(document.getElementById("payrollFilterProduction")?.value || "");
+  const position = String(document.getElementById("payrollFilterPosition")?.value || "");
+  const legal    = String(document.getElementById("payrollFilterLegal")?.value || "");
   // Permission-based production filter (for managers)
   const allowedProds = getPermissions().can_salary_productions; // null = all
   return payrollState.workers.filter(w => {
-    if (search && !String(w.full_name||"").toLowerCase().includes(search)) return false;
-    if (prod && w.production !== prod) return false;
-    if (legal && w.legal_entity !== legal) return false;
+    if (search   && !String(w.full_name||"").toLowerCase().includes(search)) return false;
+    if (prod     && w.production !== prod)     return false;
+    if (position && w.position   !== position) return false;
+    if (legal    && w.legal_entity !== legal)  return false;
     // Server already filtered by production, but double-check client-side
     if (allowedProds !== null && Array.isArray(allowedProds) && allowedProds.length > 0) {
       if (!allowedProds.includes(w.production)) return false;
