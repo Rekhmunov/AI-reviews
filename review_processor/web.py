@@ -6069,6 +6069,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 key = f"price_{prefix}_{suffix}"
                 return float(product.get(key) or 0)
 
+            sheet_names_lower = {s.lower() for s in wb.sheetnames}
+
             def parse_sheet(ws) -> tuple:
                 """Returns (preview_rows, product_headers, worker_product_map, warnings_list)"""
                 # Build product column ranges from row 1 (handle merged cells)
@@ -6120,7 +6122,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     if name_val is None:
                         continue
                     worker_name = str(name_val).strip()
-                    if not worker_name or "итого" in worker_name.lower():
+                    wl = worker_name.lower()
+                    if not worker_name or wl.startswith("итог") or wl in sheet_names_lower:
                         continue
 
                     prods: dict[str, int] = {}
