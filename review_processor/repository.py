@@ -3888,19 +3888,31 @@ class ReviewRepository:
     def reset_answered_auto_for_source(
         self, *, user_id: int, source: str, need_reaction_only: bool = True
     ) -> int:
-        """Reset answered_auto reviews back to 'new' so they can be re-processed.
+        """Reset answered_auto reviews back to 'new' and fix rating/text from metadata.
 
         For YM: only reset reviews where metadata needReaction=true (unanswered on marketplace side).
+        Also fixes rating extracted from statistics.rating and text from description.advantages.
         """
+        now = _utc_now()
         with self._connect() as conn:
             if need_reaction_only and source == "yandex":
+                # Reset status AND fix rating from statistics.rating in metadata
                 result = conn.execute(
                     self._sql(
-                        "UPDATE review_items SET status = 'new', auto_reply = NULL, updated_at = ? "
+                        "UPDATE review_items "
+                        "SET status = 'new', "
+                        "    auto_reply = NULL, "
+                        "    updated_at = ?, "
+                        # Extract rating from statistics.rating in raw metadata
+                        "    rating = CASE "
+                        "        WHEN (metadata_json::jsonb->'raw'->'statistics'->>'rating') IS NOT NULL "
+                        "        THEN (metadata_json::jsonb->'raw'->'statistics'->>'rating')::int "
+                        "        ELSE rating "
+                        "    END "
                         "WHERE user_id = ? AND source = ? AND status = 'answered_auto' "
                         "AND metadata_json::jsonb->'raw'->>'needReaction' = 'true'"
                     ),
-                    (_utc_now(), user_id, source),
+                    (now, user_id, source),
                 )
             else:
                 result = conn.execute(
@@ -3908,7 +3920,7 @@ class ReviewRepository:
                         "UPDATE review_items SET status = 'new', auto_reply = NULL, updated_at = ? "
                         "WHERE user_id = ? AND source = ? AND status = 'answered_auto'"
                     ),
-                    (_utc_now(), user_id, source),
+                    (now, user_id, source),
                 )
         return result.rowcount or 0
 
