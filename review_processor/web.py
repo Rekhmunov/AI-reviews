@@ -6050,7 +6050,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 raise HTTPException(status_code=400, detail="entry_date обязателен")
 
             raw = await file.read()
-            wb = openpyxl.load_workbook(io.BytesIO(raw), data_only=True)
+            # keep_vba=True allows opening .xlsm (macro-enabled) files
+            wb = openpyxl.load_workbook(io.BytesIO(raw), data_only=True, keep_vba=True)
 
             workers = repository.list_salary_workers(owner_user_id=owner_id)
             by_name = {str(w.get("full_name") or "").strip().lower(): w for w in workers}
