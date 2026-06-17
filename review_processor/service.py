@@ -1703,8 +1703,11 @@ class YandexMarketClient:
         stats = item.get("statistics") or {}
         rating_raw = stats.get("rating") if isinstance(stats, dict) else item.get("rating")
         rating = int(rating_raw) if rating_raw is not None else None
-        # Store under "raw" key with createdDate so the UI sort/filter works identically to WB/Ozon
+        # Store under "raw" key matching WB/Ozon metadata conventions
         created_at = str(item.get("createdAt") or "")
+        identifiers = item.get("identifiers") or {}
+        offer_id = str(identifiers.get("offerId") or "")
+        model_id = str(identifiers.get("modelId") or "")
         return ReviewInput(
             review_id=review_id,
             text=text,
@@ -1713,7 +1716,10 @@ class YandexMarketClient:
             metadata={
                 "raw": {
                     **item,
-                    "createdDate": created_at,  # expected by list_reviews sort/filter
+                    "createdDate": created_at,      # for sort/date filter
+                    "supplierArticle": offer_id,     # артикул → shown in product column
+                    "productName": "",               # YM API doesn't return product name
+                    "nmId": model_id,                # modelId → used for product link
                 },
                 "source_marketplace": "yandex",
             },

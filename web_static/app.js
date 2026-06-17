@@ -2034,9 +2034,13 @@ async function loadReviews() {
     // Build marketplace link for product name
     const nmId = rawProduct.nmId || rawItem.nmId || rawItem.nmID || rawItem.productId || null;
     const ozonProductId = rawItem.product_id || rawItem.productId || rawItem.item_id || null;
+    const isYandex = String(review.source || "").toLowerCase().includes("yandex");
+    const ymModelId = rawItem.nmId || null; // we store modelId as nmId for YM
     let productUrl = "";
     if (isOzon) {
       if (ozonProductId) productUrl = `https://www.ozon.ru/product/${ozonProductId}/`;
+    } else if (isYandex) {
+      if (ymModelId) productUrl = `https://market.yandex.ru/product/${ymModelId}`;
     } else if (nmId) {
       productUrl = `https://www.wildberries.ru/catalog/${nmId}/detail.aspx`;
     }
