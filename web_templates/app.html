@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=130" />
+  <link rel="stylesheet" href="/static/style.css?v=131" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -115,6 +115,11 @@
               <button id="reviews-tab-new" class="bucket-tab active" onclick="setReviewBucket('new')">Новые отзывы (0)</button>
               <button id="reviews-tab-processed" class="bucket-tab" onclick="setReviewBucket('processed')">Обработанные отзывы (0)</button>
               <button id="adminClearReviewsBtn" class="secondary hidden" onclick="clearAllReviews()">Очистить отзывы</button>
+              <span class="source-filter-sep"></span>
+              <button id="reviews-src-all"  class="source-filter-btn active" onclick="setReviewsSource('all')">Все</button>
+              <button id="reviews-src-wb"   class="source-filter-btn" onclick="setReviewsSource('wb')">WB</button>
+              <button id="reviews-src-ozon" class="source-filter-btn" onclick="setReviewsSource('ozon')">OZON</button>
+              <button id="reviews-src-yandex" class="source-filter-btn" onclick="setReviewsSource('yandex')">ЯМ</button>
             </div>
             <div class="reviews-quick-controls">
               <select id="reviewsSortFilter">
@@ -242,6 +247,11 @@
               <button id="questions-tab-new" class="bucket-tab active" onclick="setQuestionBucket('new')">Новые вопросы (0)</button>
               <button id="questions-tab-processed" class="bucket-tab" onclick="setQuestionBucket('processed')">Обработанные вопросы (0)</button>
               <button id="adminClearQuestionsBtn" class="secondary hidden" onclick="clearAllQuestions()">Очистить вопросы</button>
+              <span class="source-filter-sep"></span>
+              <button id="questions-src-all"  class="source-filter-btn active" onclick="setQuestionsSource('all')">Все</button>
+              <button id="questions-src-wb"   class="source-filter-btn" onclick="setQuestionsSource('wb')">WB</button>
+              <button id="questions-src-ozon" class="source-filter-btn" onclick="setQuestionsSource('ozon')">OZON</button>
+              <button id="questions-src-yandex" class="source-filter-btn" onclick="setQuestionsSource('yandex')">ЯМ</button>
             </div>
             <div class="reviews-quick-controls">
               <select id="questionSortFilter">
@@ -2831,6 +2841,6 @@
   <script src="/static/jszip.min.js"></script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=273"></script>
+  <script src="/static/app.js?v=274"></script>
 </body>
 </html>

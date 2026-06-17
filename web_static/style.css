@@ -1857,6 +1857,42 @@ button.secondary.danger:hover {
   box-shadow: 0 1px 4px rgba(37, 99, 235, 0.20);
 }
 
+/* Source filter buttons (WB / OZON / ЯМ) */
+.source-filter-sep {
+  width: 1px;
+  height: 24px;
+  background: #e2e8f0;
+  align-self: center;
+  flex-shrink: 0;
+  margin: 0 4px;
+}
+
+.source-filter-btn {
+  min-height: 30px;
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #64748b;
+  font-weight: 500;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background .12s, color .12s, border-color .12s;
+}
+
+.source-filter-btn:hover {
+  background: #f1f5f9;
+  color: #1e293b;
+  border-color: #cbd5e1;
+}
+
+.source-filter-btn.active {
+  background: #eff6ff;
+  border-color: #93c5fd;
+  color: #1d4ed8;
+  font-weight: 700;
+}
+
 .reviews-pagination-row {
   justify-content: space-between;
   margin-top: 14px;

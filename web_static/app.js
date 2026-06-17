@@ -860,6 +860,19 @@ function setReviewBucket(bucket) {
   loadReviews();
 }
 
+window.setReviewsSource = function(src) {
+  reviewsState.source = src === "all" ? "all" : src;
+  // Sync the hidden select too
+  const sel = document.getElementById("sourceFilter");
+  if (sel) sel.value = src;
+  reviewsState.page = 1;
+  // Update button states
+  ["all","wb","ozon","yandex"].forEach(s => {
+    document.getElementById(`reviews-src-${s}`)?.classList.toggle("active", s === src);
+  });
+  loadReviews();
+};
+
 function onReviewPageSizeChange() {
   const raw = Number(document.getElementById("reviewsPageSize")?.value || 30);
   if (![10, 30, 50, 100].includes(raw)) return;
@@ -878,6 +891,15 @@ function setQuestionBucket(bucket) {
   _setBucketTabs("questions-tab-new", "questions-tab-processed", bucket);
   loadQuestions();
 }
+
+window.setQuestionsSource = function(src) {
+  questionsState.source = src === "all" ? "all" : src;
+  questionsState.page = 1;
+  ["all","wb","ozon","yandex"].forEach(s => {
+    document.getElementById(`questions-src-${s}`)?.classList.toggle("active", s === src);
+  });
+  loadQuestions();
+};
 
 function onQuestionsPageSizeChange() {
   const raw = Number(document.getElementById("questionsPageSize")?.value || 30);
