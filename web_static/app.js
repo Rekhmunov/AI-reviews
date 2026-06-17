@@ -9041,9 +9041,11 @@ window.executePerSourceSync = async function() {
     const res = await fetch("/api/sync", {
       method: "POST",
       headers: jsonHeaders(),
-      body: JSON.stringify({ account_id: _pssAccountId, all_accounts: false }),
+      // Use account_ids (array) → background thread, non-blocking
+      body: JSON.stringify({ account_ids: [_pssAccountId], all_accounts: false }),
     });
-    const data = await res.json();
+    let data = {};
+    try { data = await res.json(); } catch (_) {}
     if (!res.ok) {
       if (info) { info.textContent = data.detail || "Ошибка запуска"; info.style.color = "#b91c1c"; }
       return;
