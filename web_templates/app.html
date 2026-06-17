@@ -633,11 +633,15 @@
                 <select id="newSourceMarketplace" onchange="onSourceMarketplaceChange()">
                   <option value="wb">Wildberries</option>
                   <option value="ozon">Ozon</option>
+                  <option value="yandex">Яндекс Маркет</option>
                 </select>
                 <input id="newSourceName" type="text" placeholder="Название кабинета" />
               </div>
               <div id="ozonClientField" class="row hidden">
                 <input id="newSourceClientId" type="text" placeholder="Идентификатор клиента (Client-Id)" />
+              </div>
+              <div id="yandexBusinessIdField" class="row hidden">
+                <input id="newSourceBusinessId" type="text" placeholder="Business ID (идентификатор кабинета ЯМ)" />
               </div>
               <div class="row">
                 <textarea id="newSourceApiToken" class="textarea-compact" placeholder="Токен / ключ доступа API" rows="3"></textarea>
@@ -654,7 +658,7 @@
             <!-- Desktop table (hidden ≤900px via CSS) -->
             <div class="table-wrap">
               <table>
-              <thead><tr><th>№</th><th>Маркетплейс</th><th>Название</th><th>Адрес API</th><th>Client-Id</th><th>Ключ</th><th>Активен</th><th>Действия</th></tr></thead>
+              <thead><tr><th>№</th><th>Маркетплейс</th><th>Название</th><th>Адрес API</th><th>Client-Id</th><th>Ключ</th><th>Активен</th><th>Синк</th><th>Действия</th></tr></thead>
               <tbody id="accountsTbody"></tbody>
               </table>
             </div>
@@ -2503,6 +2507,38 @@
       </div>
     </div>
   </div>
+  <!-- ── Per-source Sync Modal ── -->
+  <div id="perSourceSyncModal" class="modal-overlay hidden" role="dialog" aria-modal="true" onclick="if(event.target===this)closePerSourceSyncModal()">
+    <div class="modal-card" style="max-width:440px">
+      <div class="modal-card-header">
+        <h4 class="no-margin" id="perSourceSyncTitle">Синхронизация кабинета</h4>
+        <button type="button" class="modal-close-btn" onclick="closePerSourceSyncModal()" aria-label="Закрыть">✕</button>
+      </div>
+      <div style="padding:20px;display:flex;flex-direction:column;gap:16px">
+        <div style="font-size:13px;color:#64748b">Выберите, что синхронизировать:</div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <label style="display:flex;align-items:center;gap:10px;font-size:14px;cursor:pointer">
+            <input type="checkbox" id="pssChkReviews" checked style="width:16px;height:16px;accent-color:#2563eb" />
+            Отзывы
+          </label>
+          <label style="display:flex;align-items:center;gap:10px;font-size:14px;cursor:pointer">
+            <input type="checkbox" id="pssChkQuestions" checked style="width:16px;height:16px;accent-color:#2563eb" />
+            Вопросы
+          </label>
+          <label id="pssChatsRow" style="display:flex;align-items:center;gap:10px;font-size:14px;cursor:pointer">
+            <input type="checkbox" id="pssChkChats" checked style="width:16px;height:16px;accent-color:#2563eb" />
+            Чаты
+          </label>
+        </div>
+        <div id="perSourceSyncInfo" class="small"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button type="button" class="secondary" onclick="closePerSourceSyncModal()">Отмена</button>
+          <button type="button" id="perSourceSyncBtn" onclick="executePerSourceSync()">🔄 Синхронизировать</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ── Workers Import Preview Modal ── -->
   <div id="workersImportPreviewModal" class="modal-overlay hidden" role="dialog" aria-modal="true">
     <div class="modal-card" style="max-width:600px">
@@ -2795,6 +2831,6 @@
   <script src="/static/jszip.min.js"></script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=271"></script>
+  <script src="/static/app.js?v=272"></script>
 </body>
 </html>

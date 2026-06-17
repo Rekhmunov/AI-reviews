@@ -1573,6 +1573,198 @@ class WildberriesMarketplaceClient:
         }
 
 
+@dataclass(slots=True)
+class YandexMarketClient:
+    """Yandex Market Partner API client — reviews + questions (no chats)."""
+
+    api_url: str = "https://api.partner.market.yandex.ru"
+    api_key: str = ""
+    business_id: str = ""
+    page_size: int = 50
+    max_pages: int = 2000
+    timeout: int = 20
+
+    def _headers(self) -> dict[str, str]:
+        return {"Api-Key": self.api_key, "Content-Type": "application/json"}
+
+    def _post(self, path: str, payload: dict[str, object]) -> dict[str, object]:
+        url = f"{self.api_url.rstrip('/')}{path}"
+        resp = requests.post(url, json=payload, headers=self._headers(), timeout=self.timeout)
+        resp.raise_for_status()
+        return resp.json()  # type: ignore[return-value]
+
+    # ── Reviews ──────────────────────────────────────────────────────────────
+
+    def fetch_reviews(
+        self,
+        *,
+        since_date: str | None = None,
+        stop_requested: Callable[[], bool] | None = None,
+    ) -> list[ReviewInput]:
+        if not self.api_key or not self.business_id:
+            raise MarketplaceSyncError("yandex", "Не заданы Api-Key / business_id")
+        reviews: list[ReviewInput] = []
+        page_token: str | None = None
+        page = 0
+        while page < self.max_pages:
+            _raise_if_stop_requested(stop_requested, source="yandex")
+            if page > 0:
+                time.sleep(0.2)
+            path = f"/v2/businesses/{self.business_id}/goods-feedback"
+            payload: dict[str, object] = {"reactionStatus": "ALL", "limit": self.page_size}
+            if since_date:
+                payload["dateTimeFrom"] = f"{since_date}T00:00:00+03:00"
+            if page_token:
+                payload["pageToken"] = page_token
+            try:
+                body = self._post(path, payload)
+            except Exception as exc:
+                raise MarketplaceSyncError("yandex", f"Ошибка API отзывов ЯМ: {exc}") from exc
+            if str(body.get("status") or "").upper() != "OK":
+                raise MarketplaceSyncError("yandex", f"ЯМ API вернул ошибку: {body.get('errors') or body}")
+            result = body.get("result") or {}
+            feedbacks = result.get("feedbacks") or []
+            if not feedbacks:
+                break
+            for item in feedbacks:
+                rv = self._to_review(item)
+                if rv.review_id:
+                    reviews.append(rv)
+            page += 1
+            next_token = (result.get("paging") or {}).get("nextPageToken")
+            if not next_token:
+                break
+            page_token = next_token
+        return reviews
+
+    def fetch_reviews_iter(
+        self,
+        *,
+        since_date: str | None = None,
+        stop_requested: Callable[[], bool] | None = None,
+    ):
+        yield from self.fetch_reviews(since_date=since_date, stop_requested=stop_requested)
+
+    def _to_review(self, item: dict[str, object]) -> ReviewInput:
+        review_id = str(item.get("id") or item.get("feedbackId") or "")
+        text_obj = item.get("text") or {}
+        text = str(text_obj.get("body") or "") if isinstance(text_obj, dict) else str(text_obj or "")
+        author_obj = item.get("author") or {}
+        author = str(author_obj.get("name") or "") if isinstance(author_obj, dict) else None
+        rating = int(item["rating"]) if item.get("rating") is not None else None
+        return ReviewInput(
+            review_id=review_id,
+            text=text,
+            author=author or None,
+            rating=rating,
+            metadata={"_ym_raw": item},
+        )
+
+    # ── Questions ─────────────────────────────────────────────────────────────
+
+    def fetch_questions(
+        self,
+        *,
+        stop_requested: Callable[[], bool] | None = None,
+    ) -> list[dict[str, object]]:
+        if not self.api_key or not self.business_id:
+            raise MarketplaceSyncError("yandex", "Не заданы Api-Key / business_id")
+        items: list[dict[str, object]] = []
+        page_token: str | None = None
+        page = 0
+        while page < self.max_pages:
+            _raise_if_stop_requested(stop_requested, source="yandex")
+            if page > 0:
+                time.sleep(0.2)
+            path = f"/v1/businesses/{self.business_id}/goods-questions"
+            payload: dict[str, object] = {"limit": self.page_size}
+            if page_token:
+                payload["pageToken"] = page_token
+            try:
+                body = self._post(path, payload)
+            except Exception as exc:
+                raise MarketplaceSyncError("yandex", f"Ошибка API вопросов ЯМ: {exc}") from exc
+            if str(body.get("status") or "").upper() != "OK":
+                raise MarketplaceSyncError("yandex", f"ЯМ API вопросов вернул ошибку: {body.get('errors') or body}")
+            result = body.get("result") or {}
+            questions = result.get("questions") or []
+            if not questions:
+                break
+            for q in questions:
+                conv = self._to_question(q)
+                if conv:
+                    items.append(conv)
+            page += 1
+            next_token = (result.get("paging") or {}).get("nextPageToken")
+            if not next_token:
+                break
+            page_token = next_token
+        return items
+
+    def _to_question(self, item: dict[str, object]) -> dict[str, object] | None:
+        ids = item.get("questionIdentifiers") or {}
+        external_id = str(
+            (ids.get("questionId") if isinstance(ids, dict) else None)
+            or item.get("id") or ""
+        ).strip()
+        if not external_id:
+            return None
+        text = str(item.get("text") or "")
+        author_obj = item.get("author") or {}
+        customer_name = str(
+            (author_obj.get("login") or author_obj.get("name") or "")
+            if isinstance(author_obj, dict) else ""
+        ) or None
+        answers_count = int(item.get("answersCount") or 0)
+        status = "answered_manual" if answers_count > 0 else "open"
+        return {
+            "external_id": external_id,
+            "text": text,
+            "customer_name": customer_name,
+            "status": status,
+            "seller_replied_at": None,
+            "last_message_at": str(item.get("createdAt") or ""),
+            "metadata": {"_ym_raw": item},
+        }
+
+    def fetch_conversations(
+        self,
+        *,
+        stop_requested: Callable[[], bool] | None = None,
+    ) -> list[dict[str, object]]:
+        return self.fetch_questions(stop_requested=stop_requested)
+
+    def fetch_chats(
+        self,
+        *,
+        stop_requested: Callable[[], bool] | None = None,
+    ) -> list[dict[str, object]]:
+        return []  # Yandex Market has no chat API
+
+    def send_conversation_reply(
+        self,
+        *,
+        conversation: dict[str, object],
+        response_text: str,
+    ) -> bool:
+        try:
+            kind = str(conversation.get("kind") or "question")
+            ext_id = str(conversation.get("external_id") or "")
+            if not ext_id:
+                return False
+            if kind == "question":
+                path = f"/v1/businesses/{self.business_id}/goods-questions/update"
+                payload: dict[str, object] = {"answers": [{"questionId": int(ext_id), "text": response_text}]}
+            else:
+                # feedback comment
+                path = f"/v2/businesses/{self.business_id}/goods-feedback/comments/update"
+                payload = {"feedbackId": ext_id, "comment": {"text": response_text}}
+            body = self._post(path, payload)
+            return str(body.get("status") or "").upper() == "OK"
+        except Exception:
+            return False
+
+
 class MockMarketplaceClient:
     """Demo client for local startup without real marketplace credentials."""
 
@@ -3114,6 +3306,14 @@ class ReviewAutomationService:
                 reply_review_id_field=str(extra.get("reply_review_id_field") or "review_id"),
                 reply_text_field=str(extra.get("reply_text_field") or "text"),
                 reply_payload=extra.get("reply_payload") if isinstance(extra.get("reply_payload"), dict) else None,
+            )
+        if marketplace == "yandex":
+            return YandexMarketClient(
+                api_url=str(account.get("api_url") or "https://api.partner.market.yandex.ru"),
+                api_key=str(account.get("api_key") or ""),
+                business_id=str(extra.get("business_id") or ""),
+                page_size=_to_positive_int(extra.get("page_size"), default=50),
+                max_pages=_to_positive_int(extra.get("max_pages"), default=2000),
             )
         if marketplace == "wb":
             api_key = str(account.get("api_key") or "")

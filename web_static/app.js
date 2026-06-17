@@ -453,6 +453,7 @@ const modeLabels = {
 const marketplaceLabels = {
   wb: "WB",
   ozon: "OZON",
+  yandex: "Яндекс Маркет",
   mock: "Тестовый",
 };
 const roleLabels = {
@@ -1441,13 +1442,8 @@ function toggleAddSourceForm(show) {
 
 function onSourceMarketplaceChange() {
   const marketplace = document.getElementById("newSourceMarketplace")?.value || "wb";
-  const ozonField = document.getElementById("ozonClientField");
-  if (!ozonField) return;
-  if (marketplace === "ozon") {
-    ozonField.classList.remove("hidden");
-  } else {
-    ozonField.classList.add("hidden");
-  }
+  document.getElementById("ozonClientField")?.classList.toggle("hidden", marketplace !== "ozon");
+  document.getElementById("yandexBusinessIdField")?.classList.toggle("hidden", marketplace !== "yandex");
 }
 
 function syncRuleFormFromStore() {
@@ -8899,6 +8895,10 @@ async function loadAccounts() {
         </div>
       </td>
       <td>${esc(account.is_active ? "Да" : "Нет")}</td>
+      <td style="text-align:center">
+        <button class="icon-btn" title="Синхронизировать этот кабинет"
+          onclick="openPerSourceSyncModal(${account.id}, '${esc(account.account_name)}', '${esc(account.marketplace || 'wb')}')">🔄</button>
+      </td>
       <td>
         <div class="row">
           <button class="secondary" onclick="toggleAccount(${account.id}, ${account.is_active ? "false" : "true"})">
@@ -9006,6 +9006,59 @@ async function loadUserSyncSettings() {
   info.textContent = "";
 }
 
+// ── Per-source sync modal ─────────────────────────────────────────────────
+
+let _pssAccountId = null;
+
+window.openPerSourceSyncModal = function(accountId, accountName, marketplace) {
+  _pssAccountId = accountId;
+  const title = document.getElementById("perSourceSyncTitle");
+  if (title) title.textContent = `Синхронизация: ${accountName}`;
+  // Hide chats row for Yandex Market (no chats API)
+  const chatsRow = document.getElementById("pssChatsRow");
+  if (chatsRow) chatsRow.style.display = marketplace === "yandex" ? "none" : "";
+  // Reset checkboxes
+  ["pssChkReviews","pssChkQuestions","pssChkChats"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.checked = true;
+  });
+  document.getElementById("perSourceSyncInfo").textContent = "";
+  document.getElementById("perSourceSyncModal")?.classList.remove("hidden");
+};
+
+window.closePerSourceSyncModal = function() {
+  document.getElementById("perSourceSyncModal")?.classList.add("hidden");
+  _pssAccountId = null;
+};
+
+window.executePerSourceSync = async function() {
+  if (!_pssAccountId) return;
+  const btn = document.getElementById("perSourceSyncBtn");
+  const info = document.getElementById("perSourceSyncInfo");
+  if (btn) { btn.disabled = true; btn.textContent = "Синхронизация..."; }
+  if (info) info.textContent = "";
+  try {
+    const res = await fetch("/api/sync", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ account_id: _pssAccountId, all_accounts: false }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      if (info) { info.textContent = data.detail || "Ошибка запуска"; info.style.color = "#b91c1c"; }
+      return;
+    }
+    closePerSourceSyncModal();
+    if (info) { info.textContent = "Синхронизация запущена"; info.style.color = "#16a34a"; }
+    // Brief delay then reload sync status
+    setTimeout(() => { if (typeof loadSyncStatus === "function") loadSyncStatus(); }, 1500);
+  } catch (e) {
+    if (info) { info.textContent = "Ошибка: " + e.message; info.style.color = "#b91c1c"; }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "🔄 Синхронизировать"; }
+  }
+};
+
 async function createAccount() {
   const marketplace = document.getElementById("newSourceMarketplace").value;
   const accountName = document.getElementById("newSourceName").value.trim();
@@ -9020,17 +9073,23 @@ async function createAccount() {
     document.getElementById("accountsInfo").textContent = "Ошибка: укажите токен доступа";
     return;
   }
+  const businessId = document.getElementById("newSourceBusinessId")?.value.trim() || "";
   if (marketplace === "ozon" && !clientId) {
     document.getElementById("accountsInfo").textContent = "Ошибка: укажите идентификатор клиента для OZON";
     return;
   }
+  if (marketplace === "yandex" && !businessId) {
+    document.getElementById("accountsInfo").textContent = "Ошибка: укажите Business ID для Яндекс Маркета";
+    return;
+  }
 
+  const integration = marketplace === "yandex" ? { business_id: businessId } : null;
   const payload = {
     marketplace: marketplace,
     account_name: accountName,
     client_id: marketplace === "ozon" ? clientId : null,
     api_key: apiToken,
-    integration: null,
+    integration,
   };
   const res = await fetch("/api/accounts", {
     method: "POST",
