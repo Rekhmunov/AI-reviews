@@ -1691,11 +1691,15 @@ class YandexMarketClient:
 
     def _to_review(self, item: dict[str, object]) -> ReviewInput:
         review_id = str(item.get("id") or item.get("feedbackId") or "")
-        # Text may be in description.positive / description.negative or a top-level "text" field
+        # Text: YM uses description.advantages / description.disadvantages
         desc = item.get("description") or {}
         if isinstance(desc, dict):
-            text_parts = [str(desc.get("positive") or ""), str(desc.get("negative") or "")]
-            text = " ".join(p for p in text_parts if p).strip() or str(item.get("text") or "")
+            parts = [
+                str(desc.get("advantages") or desc.get("positive") or ""),
+                str(desc.get("disadvantages") or desc.get("negative") or ""),
+                str(desc.get("body") or desc.get("comment") or ""),
+            ]
+            text = " ".join(p.strip() for p in parts if p.strip()) or str(item.get("text") or "")
         else:
             text = str(item.get("text") or "")
         author = str(item.get("author") or "") or None
