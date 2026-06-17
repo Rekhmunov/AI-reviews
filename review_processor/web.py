@@ -962,6 +962,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="Для WB разрешены только домены wildberries.ru")
         if marketplace == "ozon" and not (host == "api-seller.ozon.ru" or host.endswith(".ozon.ru")):
             raise HTTPException(status_code=400, detail="Для OZON разрешены только домены ozon.ru")
+        if marketplace == "yandex" and not (host == "api.partner.market.yandex.ru" or host.endswith(".market.yandex.ru")):
+            raise HTTPException(status_code=400, detail="Для Яндекс Маркета разрешены только домены market.yandex.ru")
         return normalized
 
     def _set_session_cookie(response: RedirectResponse, token: str) -> None:
@@ -3516,21 +3518,26 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     def create_account(request: Request, payload: AccountCreateRequest) -> dict[str, object]:
         user = _require_settings_access(request)
         marketplace = payload.marketplace.strip().lower()
-        if marketplace not in {"wb", "ozon", "mock"}:
+        if marketplace not in {"wb", "ozon", "yandex", "mock"}:
             raise HTTPException(status_code=400, detail="Некорректный маркетплейс")
         integration = payload.integration if isinstance(payload.integration, dict) else {}
         default_api_urls = {
             "wb": "https://feedbacks-api.wildberries.ru/api/v1/feedbacks",
             "ozon": "https://api-seller.ozon.ru",
+            "yandex": "https://api.partner.market.yandex.ru",
             "mock": "https://example.local/api/reviews",
         }
         api_url = (payload.api_url or "").strip() or str(integration.get("api_url") or default_api_urls[marketplace])
         api_url = _validate_account_api_url(marketplace, api_url)
-        if marketplace in {"wb", "ozon"} and not (payload.api_key or "").strip():
-            raise HTTPException(status_code=400, detail="Для WB/OZON требуется ключ доступа")
+        if marketplace in {"wb", "ozon", "yandex"} and not (payload.api_key or "").strip():
+            raise HTTPException(status_code=400, detail="Для WB/OZON/ЯМ требуется ключ доступа")
         client_id_value = (payload.client_id or "").strip() or str(integration.get("client_id") or "").strip()
         if marketplace == "ozon" and not client_id_value:
             raise HTTPException(status_code=400, detail="Для OZON требуется идентификатор клиента")
+        # Yandex Market: require business_id
+        business_id_value = str(integration.get("business_id") or "").strip()
+        if marketplace == "yandex" and not business_id_value:
+            raise HTTPException(status_code=400, detail="Для Яндекс Маркета требуется Business ID")
         if client_id_value:
             integration["client_id"] = client_id_value
         if marketplace == "ozon":
