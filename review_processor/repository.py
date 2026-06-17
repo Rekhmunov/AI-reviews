@@ -4202,7 +4202,19 @@ class ReviewRepository:
                         WHEN TRIM(COALESCE(excluded.message_text, '')) != '' THEN excluded.message_text
                         ELSE conversation_items.message_text
                     END,
-                    status = excluded.status,
+                    -- Don't downgrade from answered/ignored if manually closed
+                    -- and no newer buyer message arrived since closure.
+                    status = CASE
+                        WHEN conversation_items.manually_closed_at IS NOT NULL
+                             AND conversation_items.status IN ('answered_manual', 'answered_auto', 'ignored')
+                             AND excluded.status NOT IN ('answered_manual', 'answered_auto', 'ignored')
+                             AND (
+                                 excluded.last_message_at IS NULL
+                                 OR excluded.last_message_at::text <= conversation_items.manually_closed_at::text
+                             )
+                        THEN conversation_items.status
+                        ELSE excluded.status
+                    END,
                     unread_count = excluded.unread_count,
                     metadata_json = excluded.metadata_json,
                     send_error_code = CASE
@@ -4665,17 +4677,19 @@ class ReviewRepository:
         return result.rowcount > 0
 
     def mark_conversation_answered(self, *, user_id: int, conversation_uid: str) -> bool:
-        """Set last_sent_at = now and manually_closed_at = now.
+        """Set last_sent_at = now, manually_closed_at = now and status = 'answered_manual'.
 
         manually_closed_at prevents auto-sync from moving this chat back to
         'New' as long as no newer buyer message arrives after this timestamp.
+        Setting status ensures the conversation moves to the 'Processed' bucket
+        immediately (bucket filter: status IN ('answered_manual', ...)).
         """
         now = _utc_now()
         with self._connect() as conn:
             result = conn.execute(
                 """
                 UPDATE conversation_items
-                SET last_sent_at = ?, manually_closed_at = ?, updated_at = ?
+                SET last_sent_at = ?, manually_closed_at = ?, status = 'answered_manual', updated_at = ?
                 WHERE user_id = ? AND conversation_uid = ?
                 """,
                 (now, now, now, user_id, conversation_uid),
