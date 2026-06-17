@@ -3901,6 +3901,7 @@ class ReviewRepository:
                 # - clear stale auto_reply from looping sync
                 # - fix rating from statistics.rating stored in raw metadata
                 # NOTE: answered_manual is always preserved (operator work)
+                # Support both old metadata key (_ym_raw) and new (raw)
                 result = conn.execute(
                     self._sql(
                         "UPDATE review_items "
@@ -3910,11 +3911,16 @@ class ReviewRepository:
                         "    rating = CASE "
                         "        WHEN (metadata_json::jsonb->'raw'->'statistics'->>'rating') IS NOT NULL "
                         "        THEN (metadata_json::jsonb->'raw'->'statistics'->>'rating')::int "
+                        "        WHEN (metadata_json::jsonb->'_ym_raw'->'statistics'->>'rating') IS NOT NULL "
+                        "        THEN (metadata_json::jsonb->'_ym_raw'->'statistics'->>'rating')::int "
                         "        ELSE rating "
                         "    END "
                         "WHERE user_id = ? AND source = ? "
                         "AND status != 'answered_manual' "
-                        "AND metadata_json::jsonb->'raw'->>'needReaction' = 'true'"
+                        "AND ("
+                        "    metadata_json::jsonb->'raw'->>'needReaction' = 'true' "
+                        "    OR metadata_json::jsonb->'_ym_raw'->>'needReaction' = 'true'"
+                        ")"
                     ),
                     (now, user_id, source),
                 )
