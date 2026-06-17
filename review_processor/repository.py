@@ -3896,20 +3896,24 @@ class ReviewRepository:
         now = _utc_now()
         with self._connect() as conn:
             if need_reaction_only and source == "yandex":
-                # Reset status AND fix rating from statistics.rating in metadata
+                # Fix ALL YM reviews with needReaction=true:
+                # - reset status to 'new' (whether answered_auto or already 'new')
+                # - clear stale auto_reply from looping sync
+                # - fix rating from statistics.rating stored in raw metadata
+                # NOTE: answered_manual is always preserved (operator work)
                 result = conn.execute(
                     self._sql(
                         "UPDATE review_items "
                         "SET status = 'new', "
                         "    auto_reply = NULL, "
                         "    updated_at = ?, "
-                        # Extract rating from statistics.rating in raw metadata
                         "    rating = CASE "
                         "        WHEN (metadata_json::jsonb->'raw'->'statistics'->>'rating') IS NOT NULL "
                         "        THEN (metadata_json::jsonb->'raw'->'statistics'->>'rating')::int "
                         "        ELSE rating "
                         "    END "
-                        "WHERE user_id = ? AND source = ? AND status = 'answered_auto' "
+                        "WHERE user_id = ? AND source = ? "
+                        "AND status != 'answered_manual' "
                         "AND metadata_json::jsonb->'raw'->>'needReaction' = 'true'"
                     ),
                     (now, user_id, source),
