@@ -1815,9 +1815,9 @@ class YandexMarketClient:
                 path = f"/v1/businesses/{self.business_id}/goods-questions/update"
                 payload: dict[str, object] = {"answers": [{"questionId": int(ext_id), "text": response_text}]}
             else:
-                # feedback comment
+                # feedback comment — feedbackId must be integer per YM API spec
                 path = f"/v2/businesses/{self.business_id}/goods-feedback/comments/update"
-                payload = {"feedbackId": ext_id, "comment": {"text": response_text}}
+                payload = {"feedbackId": int(ext_id), "comment": {"text": response_text}}
             body = self._post(path, body=payload)
             return str(body.get("status") or "").upper() == "OK"
         except Exception:
