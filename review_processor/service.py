@@ -1691,17 +1691,32 @@ class YandexMarketClient:
 
     def _to_review(self, item: dict[str, object]) -> ReviewInput:
         review_id = str(item.get("id") or item.get("feedbackId") or "")
-        text_obj = item.get("text") or {}
-        text = str(text_obj.get("body") or "") if isinstance(text_obj, dict) else str(text_obj or "")
-        author_obj = item.get("author") or {}
-        author = str(author_obj.get("name") or "") if isinstance(author_obj, dict) else None
-        rating = int(item["rating"]) if item.get("rating") is not None else None
+        # Text may be in description.positive / description.negative or a top-level "text" field
+        desc = item.get("description") or {}
+        if isinstance(desc, dict):
+            text_parts = [str(desc.get("positive") or ""), str(desc.get("negative") or "")]
+            text = " ".join(p for p in text_parts if p).strip() or str(item.get("text") or "")
+        else:
+            text = str(item.get("text") or "")
+        author = str(item.get("author") or "") or None
+        # Rating is nested under statistics.rating
+        stats = item.get("statistics") or {}
+        rating_raw = stats.get("rating") if isinstance(stats, dict) else item.get("rating")
+        rating = int(rating_raw) if rating_raw is not None else None
+        # Store under "raw" key with createdDate so the UI sort/filter works identically to WB/Ozon
+        created_at = str(item.get("createdAt") or "")
         return ReviewInput(
             review_id=review_id,
             text=text,
-            author=author or None,
+            author=author,
             rating=rating,
-            metadata={"_ym_raw": item},
+            metadata={
+                "raw": {
+                    **item,
+                    "createdDate": created_at,  # expected by list_reviews sort/filter
+                },
+                "source_marketplace": "yandex",
+            },
         )
 
     # ── Questions ─────────────────────────────────────────────────────────────
