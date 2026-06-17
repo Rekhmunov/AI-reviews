@@ -1615,21 +1615,25 @@ class YandexMarketClient:
             if page > 0:
                 time.sleep(0.2)
             path = f"/v2/businesses/{self.business_id}/goods-feedback"
-            # Don't filter by reactionStatus — return all feedbacks
             payload: dict[str, object] = {"limit": self.page_size}
-            if since_date:
-                # YM API date filter: ISO-8601 datetime string
-                payload["dateTimeFrom"] = f"{since_date}T00:00:00+03:00"
+            # Note: dateTimeFrom is intentionally NOT passed on first pages
+            # because YM reviews may predate the sync_start_date setting.
+            # We rely on the reviews table unique-constraint to deduplicate.
             if page_token:
                 payload["pageToken"] = page_token
             try:
                 body = self._post(path, payload)
             except Exception as exc:
                 raise MarketplaceSyncError("yandex", f"Ошибка API отзывов ЯМ: {exc}") from exc
-            if str(body.get("status") or "").upper() != "OK":
-                raise MarketplaceSyncError("yandex", f"ЯМ API вернул ошибку: {body.get('errors') or body}")
+            status_val = str(body.get("status") or "").upper()
             result = body.get("result") or {}
             feedbacks = result.get("feedbacks") or []
+            _log.info(
+                "YandexMarketClient.fetch_reviews: page=%d status=%s feedbacks_on_page=%d",
+                page, status_val, len(feedbacks),
+            )
+            if status_val != "OK":
+                raise MarketplaceSyncError("yandex", f"ЯМ API вернул ошибку: {body.get('errors') or body}")
             if not feedbacks:
                 break
             for item in feedbacks:
