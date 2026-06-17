@@ -1607,7 +1607,17 @@ class YandexMarketClient:
     ) -> list[ReviewInput]:
         if not self.api_key or not self.business_id:
             raise MarketplaceSyncError("yandex", "Не заданы Api-Key / business_id")
-        reviews: list[ReviewInput] = []
+        return list(self.fetch_reviews_iter(since_date=since_date, stop_requested=stop_requested))
+
+    def fetch_reviews_iter(
+        self,
+        *,
+        since_date: str | None = None,
+        stop_requested: Callable[[], bool] | None = None,
+    ):
+        """Page-by-page generator so progress bar updates incrementally."""
+        if not self.api_key or not self.business_id:
+            raise MarketplaceSyncError("yandex", "Не заданы Api-Key / business_id")
         page_token: str | None = None
         page = 0
         while page < self.max_pages:
@@ -1616,9 +1626,6 @@ class YandexMarketClient:
                 time.sleep(0.2)
             path = f"/v2/businesses/{self.business_id}/goods-feedback"
             payload: dict[str, object] = {"limit": self.page_size}
-            # Note: dateTimeFrom is intentionally NOT passed on first pages
-            # because YM reviews may predate the sync_start_date setting.
-            # We rely on the reviews table unique-constraint to deduplicate.
             if page_token:
                 payload["pageToken"] = page_token
             try:
@@ -1629,7 +1636,7 @@ class YandexMarketClient:
             result = body.get("result") or {}
             feedbacks = result.get("feedbacks") or []
             _log.info(
-                "YandexMarketClient.fetch_reviews: page=%d status=%s feedbacks_on_page=%d",
+                "YandexMarketClient.fetch_reviews_iter: page=%d status=%s feedbacks_on_page=%d",
                 page, status_val, len(feedbacks),
             )
             if status_val != "OK":
@@ -1639,21 +1646,33 @@ class YandexMarketClient:
             for item in feedbacks:
                 rv = self._to_review(item)
                 if rv.review_id:
-                    reviews.append(rv)
+                    yield rv
             page += 1
             next_token = (result.get("paging") or {}).get("nextPageToken")
             if not next_token:
                 break
             page_token = next_token
-        return reviews
 
-    def fetch_reviews_iter(
-        self,
-        *,
-        since_date: str | None = None,
-        stop_requested: Callable[[], bool] | None = None,
-    ):
-        yield from self.fetch_reviews(since_date=since_date, stop_requested=stop_requested)
+    def count_pending(self, *, since_date: str | None = None) -> dict[str, int]:
+        """Estimate pending YM reviews/questions by fetching one page."""
+        counts: dict[str, int] = {"reviews": 0, "questions": 0, "chats": 0}
+        try:
+            path = f"/v2/businesses/{self.business_id}/goods-feedback"
+            body = self._post(path, {"limit": 1})
+            result = body.get("result") or {}
+            total = result.get("paging", {})
+            # YM doesn't expose total count directly; use page existence as proxy
+            counts["reviews"] = 1 if result.get("feedbacks") else 0
+        except Exception:
+            pass
+        try:
+            path = f"/v1/businesses/{self.business_id}/goods-questions"
+            body = self._post(path, {"limit": 1})
+            result = body.get("result") or {}
+            counts["questions"] = 1 if result.get("questions") else 0
+        except Exception:
+            pass
+        return counts
 
     def _to_review(self, item: dict[str, object]) -> ReviewInput:
         review_id = str(item.get("id") or item.get("feedbackId") or "")
