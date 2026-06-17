@@ -1584,13 +1584,23 @@ class YandexMarketClient:
     max_pages: int = 2000
     timeout: int = 20
 
-    def _post(self, path: str, payload: dict[str, object]) -> dict[str, object]:
-        url = _compose_url(self.api_url, path)
+    def _post(
+        self,
+        path: str,
+        body: dict[str, object] | None = None,
+        params: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        base_url = _compose_url(self.api_url, path)
+        if params:
+            qs = urlencode({k: v for k, v in params.items() if v is not None})
+            url = f"{base_url}?{qs}"
+        else:
+            url = base_url
         req = Request(
             url,
             method="POST",
             headers={"Content-Type": "application/json", "Api-Key": self.api_key},
-            data=json.dumps(payload).encode("utf-8"),
+            data=json.dumps(body or {}).encode("utf-8"),
         )
         result = _request_json(request=req, timeout=self.timeout, source="yandex")
         if not isinstance(result, dict):
@@ -1615,32 +1625,39 @@ class YandexMarketClient:
         since_date: str | None = None,
         stop_requested: Callable[[], bool] | None = None,
     ):
-        """Page-by-page generator so progress bar updates incrementally."""
+        """Page-by-page generator so progress bar updates incrementally.
+        YM API: limit + page_token are QUERY params; filter fields go in the body.
+        """
         if not self.api_key or not self.business_id:
             raise MarketplaceSyncError("yandex", "Не заданы Api-Key / business_id")
         page_token: str | None = None
         page = 0
+        path = f"/v2/businesses/{self.business_id}/goods-feedback"
+        # Filter body — only dateTimeFrom when date filtering is needed
+        filter_body: dict[str, object] = {}
+        if since_date:
+            filter_body["dateTimeFrom"] = f"{since_date}T00:00:00+03:00"
         while page < self.max_pages:
             _raise_if_stop_requested(stop_requested, source="yandex")
             if page > 0:
                 time.sleep(0.2)
-            path = f"/v2/businesses/{self.business_id}/goods-feedback"
-            payload: dict[str, object] = {"limit": self.page_size}
+            # limit and page_token are query parameters
+            qparams: dict[str, object] = {"limit": self.page_size}
             if page_token:
-                payload["pageToken"] = page_token
+                qparams["page_token"] = page_token
             try:
-                body = self._post(path, payload)
+                resp = self._post(path, body=filter_body, params=qparams)
             except Exception as exc:
                 raise MarketplaceSyncError("yandex", f"Ошибка API отзывов ЯМ: {exc}") from exc
-            status_val = str(body.get("status") or "").upper()
-            result = body.get("result") or {}
+            status_val = str(resp.get("status") or "").upper()
+            result = resp.get("result") or {}
             feedbacks = result.get("feedbacks") or []
             _log.info(
-                "YandexMarketClient.fetch_reviews_iter: page=%d status=%s feedbacks_on_page=%d",
-                page, status_val, len(feedbacks),
+                "YandexMarketClient.fetch_reviews_iter: page=%d status=%s feedbacks=%d errors=%s",
+                page, status_val, len(feedbacks), resp.get("errors"),
             )
             if status_val != "OK":
-                raise MarketplaceSyncError("yandex", f"ЯМ API вернул ошибку: {body.get('errors') or body}")
+                raise MarketplaceSyncError("yandex", f"ЯМ API вернул ошибку: {resp.get('errors') or resp}")
             if not feedbacks:
                 break
             for item in feedbacks:
@@ -1658,16 +1675,14 @@ class YandexMarketClient:
         counts: dict[str, int] = {"reviews": 0, "questions": 0, "chats": 0}
         try:
             path = f"/v2/businesses/{self.business_id}/goods-feedback"
-            body = self._post(path, {"limit": 1})
+            body = self._post(path, body={}, params={"limit": 1})
             result = body.get("result") or {}
-            total = result.get("paging", {})
-            # YM doesn't expose total count directly; use page existence as proxy
             counts["reviews"] = 1 if result.get("feedbacks") else 0
         except Exception:
             pass
         try:
             path = f"/v1/businesses/{self.business_id}/goods-questions"
-            body = self._post(path, {"limit": 1})
+            body = self._post(path, body={}, params={"limit": 1})
             result = body.get("result") or {}
             counts["questions"] = 1 if result.get("questions") else 0
         except Exception:
@@ -1706,11 +1721,11 @@ class YandexMarketClient:
             if page > 0:
                 time.sleep(0.2)
             path = f"/v1/businesses/{self.business_id}/goods-questions"
-            payload: dict[str, object] = {"limit": self.page_size}
+            qparams: dict[str, object] = {"limit": self.page_size}
             if page_token:
-                payload["pageToken"] = page_token
+                qparams["page_token"] = page_token
             try:
-                body = self._post(path, payload)
+                body = self._post(path, body={}, params=qparams)
             except Exception as exc:
                 raise MarketplaceSyncError("yandex", f"Ошибка API вопросов ЯМ: {exc}") from exc
             if str(body.get("status") or "").upper() != "OK":
@@ -1788,7 +1803,7 @@ class YandexMarketClient:
                 # feedback comment
                 path = f"/v2/businesses/{self.business_id}/goods-feedback/comments/update"
                 payload = {"feedbackId": ext_id, "comment": {"text": response_text}}
-            body = self._post(path, payload)
+            body = self._post(path, body=payload)
             return str(body.get("status") or "").upper() == "OK"
         except Exception:
             return False
