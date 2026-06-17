@@ -1584,14 +1584,18 @@ class YandexMarketClient:
     max_pages: int = 2000
     timeout: int = 20
 
-    def _headers(self) -> dict[str, str]:
-        return {"Api-Key": self.api_key, "Content-Type": "application/json"}
-
     def _post(self, path: str, payload: dict[str, object]) -> dict[str, object]:
-        url = f"{self.api_url.rstrip('/')}{path}"
-        resp = requests.post(url, json=payload, headers=self._headers(), timeout=self.timeout)
-        resp.raise_for_status()
-        return resp.json()  # type: ignore[return-value]
+        url = _compose_url(self.api_url, path)
+        req = Request(
+            url,
+            method="POST",
+            headers={"Content-Type": "application/json", "Api-Key": self.api_key},
+            data=json.dumps(payload).encode("utf-8"),
+        )
+        result = _request_json(request=req, timeout=self.timeout, source="yandex")
+        if not isinstance(result, dict):
+            raise MarketplaceSyncError("yandex", "ЯМ API вернул не JSON-объект")
+        return result
 
     # ── Reviews ──────────────────────────────────────────────────────────────
 
