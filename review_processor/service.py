@@ -1615,8 +1615,10 @@ class YandexMarketClient:
             if page > 0:
                 time.sleep(0.2)
             path = f"/v2/businesses/{self.business_id}/goods-feedback"
-            payload: dict[str, object] = {"reactionStatus": "ALL", "limit": self.page_size}
+            # Don't filter by reactionStatus — return all feedbacks
+            payload: dict[str, object] = {"limit": self.page_size}
             if since_date:
+                # YM API date filter: ISO-8601 datetime string
                 payload["dateTimeFrom"] = f"{since_date}T00:00:00+03:00"
             if page_token:
                 payload["pageToken"] = page_token
