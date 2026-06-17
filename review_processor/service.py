@@ -2314,6 +2314,10 @@ class ReviewAutomationService:
                 mode = "manual"
                 auto_send = False
                 template_text = ""
+            # For Yandex Market: never auto-send — operator must reply manually.
+            # Template text is still prepared so it pre-fills the reply box.
+            if source == "yandex" and auto_send:
+                auto_send = False
 
             if mode == "template":
                 group_template = self._pick_group_template_text(
