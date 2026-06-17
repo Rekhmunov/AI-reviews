@@ -3823,11 +3823,23 @@ class ReviewRepository:
                     END,
                     processing_mode = excluded.processing_mode,
                     status = CASE
-                        WHEN review_items.status IN ('answered_manual', 'answered_auto') THEN review_items.status
+                        -- Preserve answered status — but NOT for YM reviews where marketplace
+                        -- says reaction is still needed (needReaction=true means unanswered on YM side).
+                        WHEN review_items.status IN ('answered_manual', 'answered_auto')
+                         AND NOT (
+                             excluded.source = 'yandex'
+                             AND excluded.metadata_json::jsonb->'raw'->>'needReaction' = 'true'
+                         )
+                        THEN review_items.status
                         ELSE excluded.status
                     END,
                     auto_reply = CASE
-                        WHEN review_items.status IN ('answered_manual', 'answered_auto') THEN review_items.auto_reply
+                        WHEN review_items.status IN ('answered_manual', 'answered_auto')
+                         AND NOT (
+                             excluded.source = 'yandex'
+                             AND excluded.metadata_json::jsonb->'raw'->>'needReaction' = 'true'
+                         )
+                        THEN review_items.auto_reply
                         ELSE excluded.auto_reply
                     END,
                     updated_at = excluded.updated_at
@@ -3870,6 +3882,33 @@ class ReviewRepository:
                     """),
                     (user_id, review_uid, action_type, "system", self._json_param(details), now),
                 )
+
+    def reset_answered_auto_for_source(
+        self, *, user_id: int, source: str, need_reaction_only: bool = True
+    ) -> int:
+        """Reset answered_auto reviews back to 'new' so they can be re-processed.
+
+        For YM: only reset reviews where metadata needReaction=true (unanswered on marketplace side).
+        """
+        with self._connect() as conn:
+            if need_reaction_only and source == "yandex":
+                result = conn.execute(
+                    self._sql(
+                        "UPDATE review_items SET status = 'new', auto_reply = NULL, updated_at = ? "
+                        "WHERE user_id = ? AND source = ? AND status = 'answered_auto' "
+                        "AND metadata_json::jsonb->'raw'->>'needReaction' = 'true'"
+                    ),
+                    (_utc_now(), user_id, source),
+                )
+            else:
+                result = conn.execute(
+                    self._sql(
+                        "UPDATE review_items SET status = 'new', auto_reply = NULL, updated_at = ? "
+                        "WHERE user_id = ? AND source = ? AND status = 'answered_auto'"
+                    ),
+                    (_utc_now(), user_id, source),
+                )
+        return result.rowcount or 0
 
     def list_reviews(
         self,

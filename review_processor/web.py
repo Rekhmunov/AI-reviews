@@ -3221,6 +3221,21 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             date_to=date_to.strip() or None,
         )
 
+    @app.post("/api/reviews/reset-source-status")
+    def reset_source_review_status(
+        request: Request,
+        source: str = "yandex",
+    ) -> dict[str, object]:
+        """Reset answered_auto reviews for a source back to 'new'.
+        For YM: only resets reviews where marketplace says needReaction=true.
+        """
+        user = _require_settings_access(request)
+        user_id = int(user["id"])
+        count = repository.reset_answered_auto_for_source(
+            user_id=user_id, source=source, need_reaction_only=(source == "yandex")
+        )
+        return {"ok": True, "reset": count, "source": source}
+
     @app.post("/api/sync")
     def sync_reviews(request: Request, payload: SyncRequest) -> dict[str, object]:
         user = _require_user(request)

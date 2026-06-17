@@ -115,6 +115,7 @@
               <button id="reviews-tab-new" class="bucket-tab active" onclick="setReviewBucket('new')">Новые отзывы (0)</button>
               <button id="reviews-tab-processed" class="bucket-tab" onclick="setReviewBucket('processed')">Обработанные отзывы (0)</button>
               <button id="adminClearReviewsBtn" class="secondary hidden" onclick="clearAllReviews()">Очистить отзывы</button>
+              <button id="resetYmReviewsBtn" class="secondary hidden" onclick="resetYmReviewStatuses()" title="Сбросить статусы ЯМ-отзывов в 'Новые'">🔄 Сброс ЯМ-статусов</button>
             </div>
             <div class="reviews-quick-controls">
               <select id="reviewsSortFilter">
@@ -2843,6 +2844,6 @@
   <script src="/static/jszip.min.js"></script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=276"></script>
+  <script src="/static/app.js?v=277"></script>
 </body>
 </html>

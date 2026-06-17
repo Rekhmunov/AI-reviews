@@ -1921,6 +1921,20 @@ async function stopSyncAll() {
   scheduleSyncStatusPolling();
 }
 
+window.resetYmReviewStatuses = async function() {
+  if (!confirm("Сбросить статусы ЯМ-отзывов (needReaction=true) в «Новые»? Ручные ответы не затронуты.")) return;
+  const res = await fetch("/api/reviews/reset-source-status?source=yandex", {
+    method: "POST", headers: jsonHeaders(),
+  });
+  const data = await res.json();
+  if (res.ok) {
+    alert(`Сброшено: ${data.reset} отзывов. Обновите страницу.`);
+    loadReviews();
+  } else {
+    alert(data.detail || "Ошибка");
+  }
+};
+
 async function clearAllReviews() {
   if (!confirm("Удалить все отзывы из текущего кабинета?")) return;
   const res = await fetch("/api/admin/reviews-clear", {
@@ -10554,6 +10568,7 @@ document.addEventListener("DOMContentLoaded", () => {
   if (permissions.is_admin) {
     document.getElementById("adminStopSyncBtn")?.classList.remove("hidden");
     document.getElementById("adminClearReviewsBtn")?.classList.remove("hidden");
+    document.getElementById("resetYmReviewsBtn")?.classList.remove("hidden");
     document.getElementById("adminClearQuestionsBtn")?.classList.remove("hidden");
     document.getElementById("adminClearChatsBtn")?.classList.remove("hidden");
     // Delete all chats button is only for admins — managers should not accidentally
