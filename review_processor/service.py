@@ -1810,6 +1810,21 @@ class YandexMarketClient:
     ) -> list[dict[str, object]]:
         return []  # Yandex Market has no chat API
 
+    def send_review_reply(self, *, review: ReviewInput, response_text: str) -> bool:
+        """Reply to a YM goods-feedback review."""
+        try:
+            if not review.review_id:
+                return False
+            path = f"/v2/businesses/{self.business_id}/goods-feedback/comments/update"
+            payload: dict[str, object] = {
+                "feedbackId": int(review.review_id),
+                "comment": {"text": response_text},
+            }
+            body = self._post(path, body=payload)
+            return str(body.get("status") or "").upper() == "OK"
+        except Exception:
+            return False
+
     def send_conversation_reply(
         self,
         *,
