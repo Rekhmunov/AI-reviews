@@ -862,14 +862,13 @@ function setReviewBucket(bucket) {
 
 window.setReviewsSource = function(src) {
   reviewsState.source = src === "all" ? "all" : src;
-  // Sync the hidden select too
-  const sel = document.getElementById("sourceFilter");
-  if (sel) sel.value = src;
   reviewsState.page = 1;
-  // Update button states
+  // Sync both selects and buttons
   ["all","wb","ozon","yandex"].forEach(s => {
     document.getElementById(`reviews-src-${s}`)?.classList.toggle("active", s === src);
   });
+  const mpSel = document.getElementById("reviewsMarketplaceFilter");
+  if (mpSel) mpSel.value = src;
   loadReviews();
 };
 
@@ -898,6 +897,8 @@ window.setQuestionsSource = function(src) {
   ["all","wb","ozon","yandex"].forEach(s => {
     document.getElementById(`questions-src-${s}`)?.classList.toggle("active", s === src);
   });
+  const mpSel = document.getElementById("questionsMarketplaceFilter");
+  if (mpSel) mpSel.value = src;
   loadQuestions();
 };
 
@@ -1941,7 +1942,10 @@ async function loadReviews() {
   const priority = String(document.getElementById("priorityFilter")?.value || reviewsState.priority || "");
   const status = String(document.getElementById("statusFilter")?.value || reviewsState.status || "all");
   const category = String(document.getElementById("categoryFilter")?.value || reviewsState.category || "");
-  const source = String(document.getElementById("sourceFilter")?.value || reviewsState.source || "all");
+  // Prefer reviewsState.source when set by source buttons; fall back to select for filter panel
+  const source = (reviewsState.source && reviewsState.source !== "all")
+    ? reviewsState.source
+    : String(document.getElementById("sourceFilter")?.value || "all");
   reviewsState.priority = priority;
   reviewsState.status = status;
   reviewsState.category = category;
@@ -7220,6 +7224,8 @@ async function loadQuestions() {
   const query = new URLSearchParams();
   query.set("kind", "question");
   if (accountIdRaw && accountIdRaw !== "all") query.set("account_id", accountIdRaw);
+  // Source filter from quick buttons (WB/OZON/ЯМ)
+  if (questionsState.source && questionsState.source !== "all") query.set("source", questionsState.source);
   if (status && status !== "all") query.set("status", status);
   if (questionsState.date_from) query.set("date_from", questionsState.date_from);
   if (questionsState.date_to) query.set("date_to", questionsState.date_to);

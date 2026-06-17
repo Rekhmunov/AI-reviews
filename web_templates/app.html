@@ -129,6 +129,12 @@
                 <option value="rating_desc">Оценка (сначала высокая)</option>
                 <option value="category">По темам</option>
               </select>
+              <select id="reviewsMarketplaceFilter" onchange="setReviewsSource(this.value)" style="min-width:110px">
+                <option value="all">Все МП</option>
+                <option value="wb">WB</option>
+                <option value="ozon">OZON</option>
+                <option value="yandex">Яндекс Маркет</option>
+              </select>
               <div class="reviews-date-wrap">
                 <button type="button" id="reviewsDateFilterBtn" class="secondary" onclick="toggleReviewsDateFilterPanel()">
                   Период: все даты
@@ -257,6 +263,12 @@
               <select id="questionSortFilter">
                 <option value="newest">Сначала новые</option>
                 <option value="oldest">Сначала старые</option>
+              </select>
+              <select id="questionsMarketplaceFilter" onchange="setQuestionsSource(this.value)" style="min-width:110px">
+                <option value="all">Все МП</option>
+                <option value="wb">WB</option>
+                <option value="ozon">OZON</option>
+                <option value="yandex">Яндекс Маркет</option>
               </select>
               <div id="questionsDateWrap" class="reviews-date-wrap">
                 <button type="button" id="questionsDateFilterBtn" class="secondary" onclick="toggleQuestionsDateFilterPanel()">
@@ -2841,6 +2853,6 @@
   <script src="/static/jszip.min.js"></script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=274"></script>
+  <script src="/static/app.js?v=275"></script>
 </body>
 </html>
