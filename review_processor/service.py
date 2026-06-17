@@ -2168,7 +2168,8 @@ class ReviewAutomationService:
 
             # Check if this review was already answered on the marketplace portal.
             # WB: replyText or reply.text. Ozon: comment.text or answer.
-            # If a reply exists → mark answered_manual and skip the template pipeline.
+            # YM: needReaction=False means the seller already replied (or no reply needed).
+            # If a reply exists OR needReaction=False → mark answered_manual, skip pipeline.
             _raw = review.metadata.get("raw") if isinstance(review.metadata, dict) else {}
             _raw = _raw if isinstance(_raw, dict) else {}
             _reply_text = (
@@ -2177,7 +2178,9 @@ class ReviewAutomationService:
                 or str((_raw.get("answer") or {}).get("text") or "").strip()
                 or str((_raw.get("comment") or {}).get("text") or "").strip()
             )
-            if _reply_text:
+            # YM: needReaction is stored in raw; False = already handled/answered
+            _ym_no_reaction = (source == "yandex" and _raw.get("needReaction") is False)
+            if _reply_text or _ym_no_reaction:
                 review_uid = self.repository.make_review_uid(
                     user_id or 0, source, account_id, str(review.review_id)
                 )
