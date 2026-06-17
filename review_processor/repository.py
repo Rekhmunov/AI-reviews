@@ -3902,13 +3902,14 @@ class ReviewRepository:
                 # - fix rating from statistics.rating stored in raw metadata
                 # NOTE: answered_manual is always preserved (operator work)
                 # Support both old metadata key (_ym_raw) and new (raw)
-                # Also reset category/text so they get recalculated on next sync
+                # Reset all classification fields so they get recalculated on next sync
                 result = conn.execute(
                     self._sql(
                         "UPDATE review_items "
                         "SET status = 'new', "
                         "    auto_reply = NULL, "
-                        "    category = 'ai_unclassified', "  # allow recategorisation
+                        "    category = 'ai_unclassified', "
+                        "    classified_subgroup = '', "  # clear the '1 звезда' badge
                         "    updated_at = ?, "
                         # Fix rating from statistics.rating
                         "    rating = CASE "
@@ -3918,14 +3919,18 @@ class ReviewRepository:
                         "        THEN (metadata_json::jsonb->'_ym_raw'->'statistics'->>'rating')::int "
                         "        ELSE rating "
                         "    END, "
-                        # Fix text: extract from description.advantages (new key) or old _ym_raw
+                        # Fix text from description.advantages
                         "    text = CASE "
                         "        WHEN COALESCE(metadata_json::jsonb->'raw'->'description'->>'advantages','') != '' "
                         "        THEN metadata_json::jsonb->'raw'->'description'->>'advantages' "
                         "        WHEN COALESCE(metadata_json::jsonb->'_ym_raw'->'description'->>'advantages','') != '' "
                         "        THEN metadata_json::jsonb->'_ym_raw'->'description'->>'advantages' "
                         "        ELSE text "
-                        "    END "
+                        "    END, "
+                        # Clear classified_group_id and classified_subgroup from metadata JSON
+                        "    metadata_json = (metadata_json::jsonb "
+                        "        || jsonb_build_object('classified_group_id', 'ai_unclassified', "
+                        "                             'classified_subgroup', ''))::text "
                         "WHERE user_id = ? AND source = ? "
                         "AND status != 'answered_manual' "
                         "AND ("
