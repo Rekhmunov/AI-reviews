@@ -3823,23 +3823,25 @@ class ReviewRepository:
                     END,
                     processing_mode = excluded.processing_mode,
                     status = CASE
-                        -- Preserve answered status — but NOT for YM reviews where marketplace
-                        -- says reaction is still needed (needReaction=true means unanswered on YM side).
-                        WHEN review_items.status IN ('answered_manual', 'answered_auto')
-                         AND NOT (
-                             excluded.source = 'yandex'
-                             AND excluded.metadata_json::jsonb->'raw'->>'needReaction' = 'true'
-                         )
-                        THEN review_items.status
+                        -- ALWAYS preserve manual operator replies — never overwrite human work
+                        WHEN review_items.status = 'answered_manual' THEN review_items.status
+                        -- For YM: reset only answered_AUTO (bot artefact from loop)
+                        -- when marketplace still reports needReaction=true (unanswered on YM side)
+                        WHEN review_items.status = 'answered_auto'
+                         AND excluded.source = 'yandex'
+                         AND excluded.metadata_json::jsonb->'raw'->>'needReaction' = 'true'
+                        THEN excluded.status
+                        -- All other cases: preserve answered status
+                        WHEN review_items.status IN ('answered_auto') THEN review_items.status
                         ELSE excluded.status
                     END,
                     auto_reply = CASE
-                        WHEN review_items.status IN ('answered_manual', 'answered_auto')
-                         AND NOT (
-                             excluded.source = 'yandex'
-                             AND excluded.metadata_json::jsonb->'raw'->>'needReaction' = 'true'
-                         )
-                        THEN review_items.auto_reply
+                        WHEN review_items.status = 'answered_manual' THEN review_items.auto_reply
+                        WHEN review_items.status = 'answered_auto'
+                         AND excluded.source = 'yandex'
+                         AND excluded.metadata_json::jsonb->'raw'->>'needReaction' = 'true'
+                        THEN excluded.auto_reply
+                        WHEN review_items.status IN ('answered_auto') THEN review_items.auto_reply
                         ELSE excluded.auto_reply
                     END,
                     updated_at = excluded.updated_at
