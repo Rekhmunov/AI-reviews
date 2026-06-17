@@ -2083,11 +2083,11 @@ async function loadReviews() {
         `}
       </td>
       <td class="review-col-product">
-        ${productName
-          ? productUrl
-            ? `<div class="review-product-name"><a href="${productUrl}" target="_blank" rel="noopener noreferrer" class="review-product-link">${productName}</a></div>`
-            : `<div class="review-product-name">${productName}</div>`
-          : ""}
+        ${productUrl
+          ? `<div class="review-product-name"><a href="${productUrl}" target="_blank" rel="noopener noreferrer" class="review-product-link">${productName || article || "Товар на маркетплейсе"}</a></div>`
+          : productName
+            ? `<div class="review-product-name">${productName}</div>`
+            : ""}
         ${article ? `<div class="review-product-detail small">Артикул: ${article}</div>` : ""}
         ${brand ? `<div class="review-product-detail small">Бренд: ${brand}</div>` : ""}
         ${seller ? `<div class="review-product-detail small">Продавец: ${seller}</div>` : ""}
