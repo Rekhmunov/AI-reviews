@@ -1811,6 +1811,21 @@ class YandexMarketClient:
     ) -> list[dict[str, object]]:
         return []  # Yandex Market has no chat API
 
+    def fetch_review_reply_text(self, feedback_id: str) -> str:
+        """Fetch existing seller comment for a feedback. Returns empty string if none."""
+        try:
+            path = f"/v2/businesses/{self.business_id}/goods-feedback/comments"
+            body = self._post(path, body={"feedbackId": int(feedback_id)})
+            result = body.get("result") or {}
+            comments = result.get("comments") or []
+            # Find the BUSINESS (seller) comment
+            for c in comments:
+                if str(c.get("author", {}).get("type") or "").upper() == "BUSINESS":
+                    return str(c.get("text") or "")
+        except Exception:
+            pass
+        return ""
+
     def send_review_reply(self, *, review: ReviewInput, response_text: str) -> bool:
         """Reply to a YM goods-feedback review."""
         try:
@@ -2205,6 +2220,12 @@ class ReviewAutomationService:
             )
             # YM: needReaction is stored in raw; False = already handled/answered
             _ym_no_reaction = (source == "yandex" and _raw.get("needReaction") is False)
+            # For YM already-answered reviews: fetch the seller's reply text
+            if _ym_no_reaction and not _reply_text:
+                try:
+                    _reply_text = getattr(client, "fetch_review_reply_text", lambda _: "")(review.review_id) or ""
+                except Exception:
+                    pass
             if _reply_text or _ym_no_reaction:
                 review_uid = self.repository.make_review_uid(
                     user_id or 0, source, account_id, str(review.review_id)
