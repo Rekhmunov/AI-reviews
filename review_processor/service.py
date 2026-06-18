@@ -2204,6 +2204,25 @@ class ReviewAutomationService:
                     user_id or 0, source, account_id, str(review.review_id)
                 )
                 review_metadata = dict(review.metadata) if isinstance(review.metadata, dict) else {}
+                # Use cached classification if available and valid; otherwise classify now
+                _cached_for_answered = existing_classifications.get(review_uid)
+                if _cached_for_answered and _cached_for_answered[0] != self.AI_UNCLASSIFIED_CATEGORY:
+                    _answered_category = _cached_for_answered[0]
+                    if _cached_for_answered[1]:
+                        review_metadata["classified_subgroup"] = _cached_for_answered[1]
+                    review_metadata["classified_group_id"] = _answered_category
+                else:
+                    # Not cached or still ai_unclassified — run Yandex AI now
+                    try:
+                        _answered_category, _answered_sub = self._classify_category_and_subgroup(
+                            review, self.processor.process(review),
+                            settings=settings, user_id=user_id,
+                        )
+                        if _answered_sub:
+                            review_metadata["classified_subgroup"] = _answered_sub
+                        review_metadata["classified_group_id"] = _answered_category
+                    except Exception:
+                        _answered_category = str(review_metadata.get("classified_group_id") or self.AI_UNCLASSIFIED_CATEGORY)
                 self.repository.upsert_processed_review(
                     user_id=user_id,
                     source=source,
@@ -2216,7 +2235,7 @@ class ReviewAutomationService:
                         metadata=review_metadata,
                     ),
                     processed=self.processor.process(review),
-                    category=str(review_metadata.get("classified_group_id") or self.AI_UNCLASSIFIED_CATEGORY),
+                    category=_answered_category,
                     processing_mode="manual",
                     status="answered_manual",
                     auto_reply=_reply_text,
