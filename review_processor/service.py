@@ -1772,8 +1772,9 @@ class YandexMarketClient:
 
     def _to_question(self, item: dict[str, object]) -> dict[str, object] | None:
         ids = item.get("questionIdentifiers") or {}
+        # YM API returns "id" inside questionIdentifiers (not "questionId")
         external_id = str(
-            (ids.get("questionId") if isinstance(ids, dict) else None)
+            (ids.get("id") or ids.get("questionId") if isinstance(ids, dict) else None)
             or item.get("id") or ""
         ).strip()
         if not external_id:
@@ -1838,7 +1839,12 @@ class YandexMarketClient:
                 return False
             if kind == "question":
                 path = f"/v1/businesses/{self.business_id}/goods-questions/update"
-                payload: dict[str, object] = {"answers": [{"questionId": int(ext_id), "text": response_text}]}
+                # questionId must be integer per YM API spec
+                try:
+                    q_id = int(ext_id)
+                except (ValueError, TypeError):
+                    return False
+                payload: dict[str, object] = {"answers": [{"questionId": q_id, "text": response_text}]}
             else:
                 # feedback comment — feedbackId must be integer per YM API spec
                 path = f"/v2/businesses/{self.business_id}/goods-feedback/comments/update"
