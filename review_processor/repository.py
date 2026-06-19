@@ -6583,6 +6583,10 @@ class ReviewRepository:
         conn.execute(
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS salary_productions TEXT NOT NULL DEFAULT '[]'"
         )
+        # Add can_salary_report for расчёт начислений export permission
+        conn.execute(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS can_salary_report BOOLEAN NOT NULL DEFAULT FALSE"
+        )
         # Add transit/actual warehouse columns (idempotent)
         conn.execute(
             "ALTER TABLE supply_items ADD COLUMN IF NOT EXISTS transit_warehouse_name TEXT"
@@ -7840,6 +7844,7 @@ class ReviewRepository:
     def set_user_can_salary(
         self, *, user_id: int, can_salary: bool,
         can_salary_settings: bool = False,
+        can_salary_report: bool = False,
         salary_productions: list[str] | None = None,
     ) -> None:
         import json as _j
@@ -7848,10 +7853,10 @@ class ReviewRepository:
             conn.execute(
                 self._sql(
                     "UPDATE users SET can_salary = ?, can_salary_settings = ?, "
-                    "salary_productions = ? WHERE id = ?"
+                    "can_salary_report = ?, salary_productions = ? WHERE id = ?"
                 ),
                 (self._bool_db(can_salary), self._bool_db(can_salary_settings),
-                 prods_json, user_id),
+                 self._bool_db(can_salary_report), prods_json, user_id),
             )
 
     def get_user_can_salary(self, *, user_id: int) -> bool:

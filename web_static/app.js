@@ -518,6 +518,7 @@ function getPermissions() {
     can_view_chats:     _b("can_view_chats", true),
     can_view_salary:          _b("can_view_salary", false),
     can_view_salary_settings: _b("can_view_salary_settings", false),
+    can_view_salary_report: _b("can_view_salary_report", false),
     can_salary_productions: (window.APP_PERMISSIONS || {}).can_salary_productions ?? null,
     is_admin:           _b("is_admin", false),
   };
@@ -9512,6 +9513,7 @@ async function openEditTeamMember(userId) {
   teamState.pendingCanSupplies = Boolean(member.can_supplies);
   teamState.pendingCanSalary = Boolean(member.can_salary);
   teamState.pendingCanSalarySettings = Boolean(member.can_salary_settings);
+  teamState.pendingCanSalaryReport = Boolean(member.can_salary_report);
   teamState.pendingCanSalaryProductions = Array.isArray(member.salary_productions) ? [...member.salary_productions] : [];
   // Pre-populate from the data already loaded by loadTeam() so saveEditTeamMember
   // always has a complete supply payload even if the permissions modal is never opened.
@@ -9558,6 +9560,8 @@ async function openManagerPermissionsModalForEdit() {
   if (salaryChk) salaryChk.checked = teamState.pendingCanSalary;
   const salaryStgChk = document.getElementById("managerSalarySettingsAccess");
   if (salaryStgChk) salaryStgChk.checked = teamState.pendingCanSalarySettings;
+  const salaryRptChk = document.getElementById("managerSalaryReportAccess");
+  if (salaryRptChk) salaryRptChk.checked = Boolean(teamState.pendingCanSalaryReport);
   _setPayrollProductionCheckboxes(teamState.pendingCanSalaryProductions);
   // Initialise parent (category) checkboxes
   initPermSectionToggles(
@@ -9628,6 +9632,7 @@ async function saveEditTeamMember() {
       body: JSON.stringify({
         can_salary: Boolean(teamState.pendingCanSalary),
         can_salary_settings: Boolean(teamState.pendingCanSalarySettings),
+        can_salary_report: Boolean(teamState.pendingCanSalaryReport),
         salary_productions: teamState.pendingCanSalaryProductions || [],
       }),
     });
@@ -9726,10 +9731,12 @@ function applyManagerPermissionsSelection() {
                                       : { sources: {}, can_supply_settings: false, can_supply_poa: false, can_supply_certs: false };
   const canSalary         = salaryEnabled && Boolean(document.getElementById("managerSalaryAccess")?.checked);
   const canSalarySettings = salaryEnabled && Boolean(document.getElementById("managerSalarySettingsAccess")?.checked);
+  const canSalaryReport   = salaryEnabled && Boolean(document.getElementById("managerSalaryReportAccess")?.checked);
   const salaryProductions = salaryEnabled ? _collectPayrollProductions() : [];
   teamState.pendingSupplyPermissions = supplyPerms;
   teamState.pendingCanSalary = canSalary;
   teamState.pendingCanSalarySettings = canSalarySettings;
+  teamState.pendingCanSalaryReport = canSalaryReport;
   teamState.pendingCanSalaryProductions = salaryProductions;
   const hasAnySupply = supplyPerms.can_supply_settings || supplyPerms.can_supply_poa || supplyPerms.can_supply_certs ||
     Object.values(supplyPerms.sources || {}).some(s => s.wb || s.ozon);
@@ -9809,6 +9816,7 @@ async function saveNewManager() {
       body: JSON.stringify({
         can_salary: Boolean(teamState.pendingCanSalary),
         can_salary_settings: Boolean(teamState.pendingCanSalarySettings),
+        can_salary_report: Boolean(teamState.pendingCanSalaryReport),
         salary_productions: teamState.pendingCanSalaryProductions || [],
       }),
     }).catch(() => {});
@@ -12294,6 +12302,15 @@ function _saveColWidths(w) {
   try { localStorage.setItem(PAYROLL_COL_WIDTHS_KEY, JSON.stringify(w)); } catch(_){}
 }
 
+function _initPayrollReportBtn() {
+  const btn = document.getElementById("payrollReportMenuBtn");
+  if (!btn) return;
+  const perms = getPermissions();
+  const visible = isTenantOwner() || perms.can_view_salary_report;
+  btn.style.display = visible ? "" : "none";
+  if (btn.parentElement) btn.parentElement.style.display = visible ? "" : "none";
+}
+
 async function loadPayrollPage() {
   const [wRes, pRes, tRes, uRes, vRes] = await Promise.all([
     fetch("/api/salary/workers"),
@@ -12316,6 +12333,7 @@ async function loadPayrollPage() {
     (vData.items || []).map(v => `${v.worker_id}_${v.entry_date}`)
   );
   renderPayrollTable();
+  _initPayrollReportBtn();
 }
 
 function _filteredWorkers() {

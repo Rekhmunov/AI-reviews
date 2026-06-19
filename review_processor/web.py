@@ -541,6 +541,7 @@ class ManagerSuppliesAccessRequest(BaseModel):
 class ManagerSalaryAccessRequest(BaseModel):
     can_salary: bool = False
     can_salary_settings: bool = False
+    can_salary_report: bool = False
     salary_productions: list[str] = Field(default_factory=list)
 
 
@@ -3503,6 +3504,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "can_view_supplies": can_view_supplies,
             "can_view_any_supply": can_view_any_supply,
             "can_view_salary": bool(user.get("can_salary")),
+            "can_salary_report": bool(user.get("can_salary_report")),
             "salary_productions": (lambda: (
                 __import__("json").loads(str(user.get("salary_productions") or "[]"))
             ) if not (role in ROLE_CAN_ACCESS_SETTINGS) else None)(),
@@ -4693,6 +4695,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             user_id=target_user_id,
             can_salary=payload.can_salary,
             can_salary_settings=payload.can_salary_settings,
+            can_salary_report=payload.can_salary_report,
             salary_productions=list(payload.salary_productions),
         )
         return {"ok": True, "can_salary": payload.can_salary}
@@ -5877,6 +5880,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
         user = _require_salary_access(request)
         owner_id = _salary_owner_id(user)
+        # Check report permission for non-owners
+        _is_owner = bool(user.get("is_tenant_owner") or user.get("role") == "owner")
+        if not _is_owner and not bool(user.get("can_salary_report")):
+            raise HTTPException(status_code=403, detail="Нет доступа к экспорту расчёта начислений")
 
         if not legal_entity or not entry_date:
             raise HTTPException(status_code=400, detail="legal_entity и entry_date обязательны")
@@ -5893,9 +5900,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         date_from_display = _fmt_date(date_from) if date_from else _fmt_date(entry_date)
         date_to_display   = _fmt_date(date_to)   if date_to   else _fmt_date(entry_date)
 
-        # Get workers for this legal entity
+        # Get workers for this legal entity, filtered by manager's allowed productions
         all_workers = repository.list_salary_workers(owner_user_id=owner_id)
-        workers = [w for w in all_workers if str(w.get("legal_entity") or "") == legal_entity]
+        allowed_prods = _salary_allowed_productions(user)  # None = all, [] = none
+        workers = [
+            w for w in all_workers
+            if str(w.get("legal_entity") or "") == legal_entity
+            and (allowed_prods is None or str(w.get("production") or "") in allowed_prods)
+        ]
 
         # Get totals for entry_date
         totals = repository.get_salary_totals(owner_user_id=owner_id)
@@ -10704,6 +10716,7 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
         can_view_chats = True
     can_view_salary = is_tenant_owner or bool(user.get("can_salary"))
     can_view_salary_settings = is_tenant_owner or bool(user.get("can_salary_settings"))
+    can_view_salary_report = is_tenant_owner or bool(user.get("can_salary_report"))
     import json as _json_salary
     _raw_prods = user.get("salary_productions")
     if is_tenant_owner:
@@ -10768,6 +10781,7 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
             "CAN_VIEW_CHATS": "true" if can_view_chats else "false",
             "CAN_VIEW_SALARY": "true" if can_view_salary else "false",
             "CAN_VIEW_SALARY_SETTINGS": "true" if can_view_salary_settings else "false",
+            "CAN_VIEW_SALARY_REPORT": "true" if can_view_salary_report else "false",
             "CAN_SALARY_PRODUCTIONS": _salary_prods_js,
             "HIDE_FEEDBACK_SECTION": "" if (can_view_feedback or can_view_settings or can_view_analytics) else "style=\"display:none\"",
             "IS_ADMIN": "true" if role == ROLE_ADMIN else "false",
