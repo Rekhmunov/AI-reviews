@@ -1790,7 +1790,17 @@
         <div class="row row-between" style="margin-bottom:12px">
           <h3 class="section-title" style="margin:0">Начисление ЗП</h3>
           <div class="row" style="gap:8px">
-            <button type="button" class="secondary" onclick="exportPayrollTable()" title="Экспорт в Excel">⬇ Экспорт</button>
+            <button type="button" class="secondary" onclick="exportPayrollTable()" title="Экспорт таблицы ЗП в Excel">⬇ Экспорт ЗП</button>
+            <div style="position:relative;display:inline-block">
+              <button type="button" class="secondary" onclick="togglePayrollReportMenu(event)" title="Экспорт расчёта начислений по юр. лицу" id="payrollReportMenuBtn">
+                📄 Экспорт расчёт начислений ▾
+              </button>
+              <div id="payrollReportMenu" class="hidden" style="position:absolute;top:calc(100% + 4px);right:0;min-width:220px;background:#fff;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 4px 16px rgba(15,23,42,.1);z-index:9999;overflow:hidden">
+                <div style="padding:6px 0">
+                  <div id="payrollReportMenuItems"></div>
+                </div>
+              </div>
+            </div>
             <label class="secondary" style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;padding:10px 12px;border-radius:var(--radius-sm);border:1px solid rgba(147,197,253,0.7);background:linear-gradient(160deg,rgba(255,255,255,0.88),rgba(239,246,255,0.92));font-size:14px;font-weight:600;color:#1e40af" title="Импорт из Excel или CSV">
               ⬆ Импорт
               <input type="file" id="payrollImportFile" accept=".csv,.xlsx,.xls" style="display:none" onchange="importPayrollTable(this)" />
@@ -2573,6 +2583,25 @@
     </div>
   </div>
 
+  <!-- ── Payroll Report Date Picker Modal ── -->
+  <div id="payrollReportModal" class="modal-overlay hidden" role="dialog" aria-modal="true" onclick="if(event.target===this)closePayrollReportModal()">
+    <div class="modal-card" style="max-width:440px">
+      <div class="modal-card-header">
+        <h4 class="no-margin" id="payrollReportModalTitle">Расчёт начислений</h4>
+        <button type="button" class="modal-close-btn" onclick="closePayrollReportModal()" aria-label="Закрыть">✕</button>
+      </div>
+      <div style="padding:16px 20px;display:flex;flex-direction:column;gap:14px">
+        <div style="font-size:13px;color:#64748b">Выберите дату начисления для отчёта:</div>
+        <div id="payrollReportDateGrid" class="pdim-date-grid" style="max-height:240px"></div>
+        <div id="payrollReportInfo" class="small"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;padding-top:4px;border-top:1px solid #f1f5f9">
+          <button type="button" class="secondary" onclick="closePayrollReportModal()">Отмена</button>
+          <button type="button" id="payrollReportExportBtn" disabled onclick="doExportPayrollReport()">Скачать отчёт</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ── Payroll Clear Modal ── -->
   <div id="payrollClearModal" class="modal-overlay hidden" role="dialog" aria-modal="true" onclick="if(event.target===this)closePayrollClearModal()">
     <div class="modal-card" style="max-width:480px">
@@ -2843,6 +2872,6 @@
   <script src="/static/jszip.min.js"></script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=279"></script>
+  <script src="/static/app.js?v=280"></script>
 </body>
 </html>

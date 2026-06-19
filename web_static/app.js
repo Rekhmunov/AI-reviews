@@ -12576,6 +12576,111 @@ window.startPayrollResize = startPayrollResize;
 // Date filter
 // ── Payroll export / import ───────────────────────────────────────────────
 
+// ── Payroll report export (расчёт начислений) ────────────────────────────
+
+const LEGAL_ENTITIES_WITH_SIGNATORIES = [
+  { name: "ООО Варфабрик",       signatory: "Рехмунова Екатерина Анатольевна" },
+  { name: "ИП Авдеева М.Ю.",     signatory: "Авдеева Марина Юрьевна" },
+  { name: "ИП Рехмунов Д.О.",    signatory: "Рехмунов Дмитрий Олегович" },
+];
+
+let _payrollReportLegal = null;
+let _payrollReportDate  = null;
+
+window.togglePayrollReportMenu = function(e) {
+  e.stopPropagation();
+  const menu = document.getElementById("payrollReportMenu");
+  if (!menu) return;
+  if (!menu.classList.contains("hidden")) { menu.classList.add("hidden"); return; }
+
+  // Populate menu items
+  const items = document.getElementById("payrollReportMenuItems");
+  if (items) {
+    items.innerHTML = LEGAL_ENTITIES_WITH_SIGNATORIES.map(le => `
+      <div onclick="openPayrollReportModal('${esc(le.name)}')"
+        style="padding:9px 16px;font-size:13px;color:#1e293b;cursor:pointer;transition:background .1s"
+        onmouseenter="this.style.background='#f1f5f9'" onmouseleave="this.style.background=''">
+        ${esc(le.name)}
+      </div>`).join("");
+  }
+
+  menu.classList.remove("hidden");
+  // Close on outside click
+  const close = (ev) => {
+    if (!menu.contains(ev.target) && ev.target.id !== "payrollReportMenuBtn") {
+      menu.classList.add("hidden");
+      document.removeEventListener("mousedown", close);
+    }
+  };
+  setTimeout(() => document.addEventListener("mousedown", close), 50);
+};
+
+window.openPayrollReportModal = function(legalName) {
+  document.getElementById("payrollReportMenu")?.classList.add("hidden");
+  _payrollReportLegal = legalName;
+  _payrollReportDate  = null;
+
+  const title = document.getElementById("payrollReportModalTitle");
+  if (title) title.textContent = `Расчёт начислений — ${legalName}`;
+
+  // Render date grid
+  const grid = document.getElementById("payrollReportDateGrid");
+  if (grid) {
+    const dates = _payrollDates();
+    const today = _dateFmt(new Date());
+    grid.innerHTML = dates.map(d => {
+      const hasDot = Object.keys(payrollState.totals).some(k => k.endsWith("_" + d));
+      const isPast = d <= today;
+      return `<button type="button" onclick="selectPayrollReportDate('${d}')"
+        class="pdim-date-btn${!isPast ? " future" : ""}">
+        <span class="pdim-date-val">${_dateRu(d)}</span>
+        ${hasDot ? `<span class="pdim-date-dot">●</span>` : ""}
+      </button>`;
+    }).join("");
+  }
+
+  document.getElementById("payrollReportExportBtn").disabled = true;
+  document.getElementById("payrollReportInfo").textContent = "";
+  document.getElementById("payrollReportModal")?.classList.remove("hidden");
+};
+
+window.selectPayrollReportDate = function(d) {
+  _payrollReportDate = d;
+  // Update button states
+  document.querySelectorAll("#payrollReportDateGrid .pdim-date-btn").forEach(btn => {
+    const isSelected = btn.querySelector(".pdim-date-val")?.textContent === _dateRu(d);
+    btn.classList.toggle("selected", isSelected);
+  });
+  document.getElementById("payrollReportExportBtn").disabled = false;
+
+  // Show preview of date range in info
+  const [from, to] = _payrollReportWeekRange(d);
+  const info = document.getElementById("payrollReportInfo");
+  if (info) info.textContent = `Период: ${_dateRuFull(from)} — ${_dateRuFull(to)}`;
+};
+
+window.closePayrollReportModal = function() {
+  document.getElementById("payrollReportModal")?.classList.add("hidden");
+  _payrollReportLegal = null;
+  _payrollReportDate  = null;
+};
+
+function _payrollReportWeekRange(dateStr) {
+  // dateStr is a Wednesday; range = prev Friday to next Thursday
+  const d = new Date(dateStr);
+  const from = new Date(d); from.setDate(d.getDate() - 5); // Fri
+  const to   = new Date(d); to.setDate(d.getDate() + 1);   // Thu
+  return [_dateFmt(from), _dateFmt(to)];
+}
+
+window.doExportPayrollReport = function() {
+  if (!_payrollReportLegal || !_payrollReportDate) return;
+  const [from, to] = _payrollReportWeekRange(_payrollReportDate);
+  const url = `/api/salary/payroll/report?legal_entity=${encodeURIComponent(_payrollReportLegal)}&entry_date=${_payrollReportDate}&date_from=${from}&date_to=${to}`;
+  window.open(url, "_blank");
+  closePayrollReportModal();
+};
+
 function exportPayrollTable() {
   const params = new URLSearchParams();
   if (payrollState.dateFrom) params.set("date_from", payrollState.dateFrom);
