@@ -6004,9 +6004,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         wb.save(buf); buf.seek(0)
 
         from urllib.parse import quote as _q
-        d_from = date_from.replace("-", "") if date_from else entry_date.replace("-", "")
-        d_to   = date_to.replace("-", "")   if date_to   else entry_date.replace("-", "")
-        fname  = f"Расчёт начислений {d_from}-{d_to}"
+        # Filename: "Расчёт начислений <юр.лицо> <дата из таблицы дд.мм.гггг>"
+        entry_date_display = _fmt_date(entry_date)  # дд.мм.гггг
+        fname = f"Расчёт начислений {legal_entity} {entry_date_display}"
         cd = "attachment; filename=\"report.xlsx\"; filename*=UTF-8''" + _q(fname + ".xlsx")
         return StreamingResponse(
             iter([buf.read()]),
