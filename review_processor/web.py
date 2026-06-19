@@ -5880,9 +5880,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
         user = _require_salary_access(request)
         owner_id = _salary_owner_id(user)
-        # Check report permission for non-owners
-        _is_owner = bool(user.get("is_tenant_owner") or user.get("role") == "owner")
-        if not _is_owner and not bool(user.get("can_salary_report")):
+        # Check report permission: managers need explicit can_salary_report flag
+        _is_manager = str(user.get("role") or "").strip().lower() == TENANT_ROLE_MANAGER
+        if _is_manager and not bool(user.get("can_salary_report")):
             raise HTTPException(status_code=403, detail="Нет доступа к экспорту расчёта начислений")
 
         if not legal_entity or not entry_date:
