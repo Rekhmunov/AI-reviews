@@ -5853,6 +5853,148 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         safe = quote(name + ".xlsx")
         return "attachment; filename=\"payroll.xlsx\"; filename*=UTF-8''" + safe
 
+    # Signatories per legal entity (hardcoded per business requirement)
+    _LEGAL_SIGNATORIES: dict[str, str] = {
+        "ООО Варфабрик":    "Рехмунова Екатерина Анатольевна",
+        "ИП Авдеева М.Ю.":  "Авдеева Марина Юрьевна",
+        "ИП Рехмунов Д.О.": "Рехмунов Дмитрий Олегович",
+    }
+
+    @app.get("/api/salary/payroll/report")
+    def export_payroll_report(
+        request: Request,
+        legal_entity: str = "",
+        entry_date: str = "",   # the Wednesday payroll date (YYYY-MM-DD)
+        date_from: str = "",    # prev Friday
+        date_to: str = "",      # next Thursday
+    ):
+        """Export a 'Расчёт начислений' XLSX for a specific legal entity and payroll date."""
+        import io
+        from datetime import date as _date
+        import openpyxl
+        from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
+        from openpyxl.utils import get_column_letter
+
+        user = _require_salary_access(request)
+        owner_id = _salary_owner_id(user)
+
+        if not legal_entity or not entry_date:
+            raise HTTPException(status_code=400, detail="legal_entity и entry_date обязательны")
+
+        signatory = _LEGAL_SIGNATORIES.get(legal_entity, "")
+
+        # Format dates for header display
+        def _fmt_date(iso: str) -> str:
+            if not iso: return ""
+            parts = iso.split("-")
+            if len(parts) != 3: return iso
+            return f"{parts[2]}.{parts[1]}.{parts[0]}"
+
+        date_from_display = _fmt_date(date_from) if date_from else _fmt_date(entry_date)
+        date_to_display   = _fmt_date(date_to)   if date_to   else _fmt_date(entry_date)
+
+        # Get workers for this legal entity
+        all_workers = repository.list_salary_workers(owner_user_id=owner_id)
+        workers = [w for w in all_workers if str(w.get("legal_entity") or "") == legal_entity]
+
+        # Get totals for entry_date
+        totals = repository.get_salary_totals(owner_user_id=owner_id)
+        totals_map: dict[str, float] = {
+            f"{t['worker_id']}_{t['entry_date']}": float(t.get("total") or 0)
+            for t in totals
+        }
+
+        # Build rows: only workers with salary > 0 on this date, sorted by full_name
+        rows = []
+        for w in sorted(workers, key=lambda x: str(x.get("full_name") or "")):
+            amount = totals_map.get(f"{w['id']}_{entry_date}", 0.0)
+            rows.append({"name": str(w.get("full_name") or ""), "amount": amount})
+
+        # Build XLSX (portrait, A4)
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Расчёт начислений"
+        ws.page_setup.orientation = "portrait"
+        ws.page_setup.paperSize = 9  # A4
+        ws.page_setup.fitToWidth = 1
+        ws.page_setup.fitToPage = True
+
+        thin = Side(style="thin", color="000000")
+        border = Border(left=thin, right=thin, top=thin, bottom=thin)
+        bold = Font(bold=True)
+        center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        left_al = Alignment(horizontal="left", vertical="center")
+
+        # Row 1: УТВЕРЖДАЮ
+        ws.merge_cells("A1:B1")
+        c = ws.cell(row=1, column=1, value=f"УТВЕРЖДАЮ {'_' * 29}  {signatory}")
+        c.font = Font(size=11)
+        c.alignment = Alignment(horizontal="left", vertical="center")
+
+        # Row 2: title
+        ws.merge_cells("A2:B2")
+        c = ws.cell(row=2, column=1,
+                    value=f"Расчет начислений с {date_from_display} по {date_to_display}")
+        c.font = Font(bold=True, size=12)
+        c.alignment = Alignment(horizontal="center", vertical="center")
+
+        # Rows 3-4: blank spacer
+        ws.row_dimensions[3].height = 8
+        ws.row_dimensions[4].height = 8
+
+        # Row 5: spacer
+        ws.row_dimensions[5].height = 6
+
+        # Row 6: spacer
+        ws.row_dimensions[6].height = 6
+
+        # Row 7: header
+        hdr_row = 7
+        ws.row_dimensions[hdr_row].height = 28
+        for ci, (val, width) in enumerate([("ФИО", 38), ("Всего, руб.", 18)], start=1):
+            c = ws.cell(row=hdr_row, column=ci, value=val)
+            c.font = Font(bold=True, size=11)
+            c.alignment = center
+            c.border = border
+            c.fill = PatternFill("solid", fgColor="D6E4FF")
+            ws.column_dimensions[get_column_letter(ci)].width = width
+
+        # Data rows
+        for i, row in enumerate(rows, start=hdr_row + 1):
+            ws.row_dimensions[i].height = 18
+            c1 = ws.cell(row=i, column=1, value=row["name"])
+            c1.border = border; c1.alignment = left_al; c1.font = Font(size=11)
+
+            c2 = ws.cell(row=i, column=2,
+                         value=round(row["amount"], 2) if row["amount"] else None)
+            c2.border = border; c2.alignment = center; c2.font = Font(size=11)
+            if row["amount"]:
+                c2.number_format = '#,##0.00'
+
+        # Set row heights for header rows
+        ws.row_dimensions[1].height = 20
+        ws.row_dimensions[2].height = 22
+
+        # Margins (cm → inches: 1 cm ≈ 0.394 in)
+        ws.page_margins.left   = 0.79  # ~2 cm
+        ws.page_margins.right  = 0.59  # ~1.5 cm
+        ws.page_margins.top    = 0.79
+        ws.page_margins.bottom = 0.79
+
+        buf = io.BytesIO()
+        wb.save(buf); buf.seek(0)
+
+        from urllib.parse import quote as _q
+        d_from = date_from.replace("-", "") if date_from else entry_date.replace("-", "")
+        d_to   = date_to.replace("-", "")   if date_to   else entry_date.replace("-", "")
+        fname  = f"Расчёт начислений {d_from}-{d_to}"
+        cd = "attachment; filename=\"report.xlsx\"; filename*=UTF-8''" + _q(fname + ".xlsx")
+        return StreamingResponse(
+            iter([buf.read()]),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": cd},
+        )
+
     @app.get("/api/salary/payroll/export")
     def export_payroll_table(
         request: Request,
