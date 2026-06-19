@@ -5921,15 +5921,23 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
         thin = Side(style="thin", color="000000")
         border = Border(left=thin, right=thin, top=thin, bottom=thin)
-        bold = Font(bold=True)
         center = Alignment(horizontal="center", vertical="center", wrap_text=True)
         left_al = Alignment(horizontal="left", vertical="center")
 
-        # Row 1: УТВЕРЖДАЮ
+        # Column widths filling A4 portrait (≈17 cm usable, units ≈ char width)
+        # A = ФИО wide, B = Всего compact
+        COL_A_WIDTH = 50   # ~ФИО
+        COL_B_WIDTH = 18   # ~Всего, руб.
+        ws.column_dimensions["A"].width = COL_A_WIDTH
+        ws.column_dimensions["B"].width = COL_B_WIDTH
+
+        # Row 1: УТВЕРЖДАЮ ___ + signatory on same row, two-line via wrap
         ws.merge_cells("A1:B1")
-        c = ws.cell(row=1, column=1, value=f"УТВЕРЖДАЮ {'_' * 29}  {signatory}")
+        c = ws.cell(row=1, column=1,
+                    value=f"УТВЕРЖДАЮ _____________________________  {signatory}")
         c.font = Font(size=11)
-        c.alignment = Alignment(horizontal="left", vertical="center")
+        c.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        ws.row_dimensions[1].height = 30  # tall enough for possible wrap
 
         # Row 2: title
         ws.merge_cells("A2:B2")
@@ -5937,47 +5945,46 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     value=f"Расчет начислений с {date_from_display} по {date_to_display}")
         c.font = Font(bold=True, size=12)
         c.alignment = Alignment(horizontal="center", vertical="center")
+        ws.row_dimensions[2].height = 22
 
-        # Rows 3-4: blank spacer
-        ws.row_dimensions[3].height = 8
-        ws.row_dimensions[4].height = 8
+        # Rows 3-4: blank spacers
+        ws.row_dimensions[3].height = 6
+        ws.row_dimensions[4].height = 6
 
-        # Row 5: spacer
-        ws.row_dimensions[5].height = 6
-
-        # Row 6: spacer
-        ws.row_dimensions[6].height = 6
-
-        # Row 7: header
-        hdr_row = 7
+        # Row 5: header
+        hdr_row = 5
         ws.row_dimensions[hdr_row].height = 28
-        for ci, (val, width) in enumerate([("ФИО", 38), ("Всего, руб.", 18)], start=1):
+        for ci, val in enumerate(["ФИО", "Всего, руб."], start=1):
             c = ws.cell(row=hdr_row, column=ci, value=val)
             c.font = Font(bold=True, size=11)
             c.alignment = center
             c.border = border
             c.fill = PatternFill("solid", fgColor="D6E4FF")
-            ws.column_dimensions[get_column_letter(ci)].width = width
 
         # Data rows
         for i, row in enumerate(rows, start=hdr_row + 1):
             ws.row_dimensions[i].height = 18
             c1 = ws.cell(row=i, column=1, value=row["name"])
-            c1.border = border; c1.alignment = left_al; c1.font = Font(size=11)
+            c1.border = border
+            c1.alignment = Alignment(horizontal="left", vertical="center")
+            c1.font = Font(size=11)
 
             c2 = ws.cell(row=i, column=2,
                          value=round(row["amount"], 2) if row["amount"] else None)
-            c2.border = border; c2.alignment = center; c2.font = Font(size=11)
+            c2.border = border
+            c2.alignment = Alignment(horizontal="center", vertical="center")
+            c2.font = Font(size=11)
             if row["amount"]:
                 c2.number_format = '#,##0.00'
 
-        # Set row heights for header rows
-        ws.row_dimensions[1].height = 20
-        ws.row_dimensions[2].height = 22
+        # Print settings: fit columns to one page width
+        ws.page_setup.fitToWidth = 1
+        ws.page_setup.fitToPage  = True
+        ws.print_options.horizontalCentered = False
 
-        # Margins (cm → inches: 1 cm ≈ 0.394 in)
-        ws.page_margins.left   = 0.79  # ~2 cm
-        ws.page_margins.right  = 0.59  # ~1.5 cm
+        # Margins (inches): left 1.5cm, right 1.5cm, top/bottom 2cm
+        ws.page_margins.left   = 0.59
+        ws.page_margins.right  = 0.59
         ws.page_margins.top    = 0.79
         ws.page_margins.bottom = 0.79
 
