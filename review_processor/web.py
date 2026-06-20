@@ -6105,7 +6105,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
         wb = openpyxl.Workbook()
         ws = wb.active
-        ws.title = report_name
+        # Excel sheet name limit is 31 characters
+        ws.title = report_name[:31]
 
         # Styles
         header_font = Font(bold=True, name="Calibri", size=11)
@@ -6116,8 +6117,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         thin        = Side(style="thin", color="BBCCE8")
         border      = Border(left=thin, right=thin, top=thin, bottom=thin)
 
-        # Header row
-        fixed_headers = ["ФИО", "Должность", "Дата рождения", "Юр. принадлежность", "Производство"]
+        # Header row — 4 fixed columns (no Производство)
+        fixed_headers = ["ФИО", "Должность", "Дата рождения", "Юр. принадлежность"]
         date_headers  = [date_ru(d) for d in dates]
         all_headers   = fixed_headers + date_headers
 
@@ -6128,9 +6129,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             cell.alignment = center
             cell.border  = border
             if ci > len(fixed_headers):
-                # Force text format so Excel doesn't convert "07.01.26" to a date serial number
                 cell.number_format = "@"
-                cell.quotePrefix = True  # equivalent to prefixing with ' in Excel
+                cell.quotePrefix = True
 
         # Data rows
         for wi, w in enumerate(workers, start=2):
@@ -6139,10 +6139,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 str(w.get("position") or ""),
                 str(w.get("birth_date") or ""),
                 str(w.get("legal_entity") or ""),
-                str(w.get("production") or ""),
             ]
             date_vals = [totals_map.get(f"{w['id']}_{d}", None) for d in dates]
-            # Column 3 (index 2, ci=3) is birth_date — must be text, not date
             BIRTH_DATE_COL = 3
             for ci, v in enumerate(fixed_vals, start=1):
                 cell = ws.cell(row=wi, column=ci, value=v)
@@ -6181,8 +6179,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             # +2 padding; Calibri 11pt ≈ 1.15× char units; minimum 8, maximum 60
             ws.column_dimensions[col_letter].width = min(max(max_len * 1.15 + 2, 8), 60)
 
-        # Freeze first row + first 5 data columns (ФИО, Должность, Дата рождения, Юр., Производство)
-        ws.freeze_panes = "F2"
+        # Freeze first row + first 4 data columns (ФИО, Должность, Дата рождения, Юр.)
+        ws.freeze_panes = "E2"
 
         buf = io.BytesIO()
         wb.save(buf)
