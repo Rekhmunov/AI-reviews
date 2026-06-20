@@ -12641,6 +12641,43 @@ window.startPayrollResize = startPayrollResize;
 // Date filter
 // ── Payroll export / import ───────────────────────────────────────────────
 
+// ── Payroll ЗП export by legal entity dropdown ───────────────────────────
+
+window.togglePayrollZpExportMenu = function(e) {
+  e.stopPropagation();
+  const menu = document.getElementById("payrollZpExportMenu");
+  if (!menu) return;
+  if (!menu.classList.contains("hidden")) { menu.classList.add("hidden"); return; }
+
+  const items = document.getElementById("payrollZpExportMenuItems");
+  if (items) {
+    items.innerHTML = LEGAL_ENTITIES_WITH_SIGNATORIES.map(le => `
+      <div onclick="exportPayrollByLegal('${esc(le.name)}')"
+        style="padding:9px 16px;font-size:13px;color:#1e293b;cursor:pointer;transition:background .1s"
+        onmouseenter="this.style.background='#f1f5f9'" onmouseleave="this.style.background=''">
+        ${esc(le.name)}
+      </div>`).join("");
+  }
+
+  menu.classList.remove("hidden");
+  const close = (ev) => {
+    if (!menu.contains(ev.target) && ev.target.id !== "payrollZpExportMenuBtn") {
+      menu.classList.add("hidden");
+      document.removeEventListener("mousedown", close);
+    }
+  };
+  setTimeout(() => document.addEventListener("mousedown", close), 50);
+};
+
+window.exportPayrollByLegal = function(legalEntity) {
+  document.getElementById("payrollZpExportMenu")?.classList.add("hidden");
+  const params = new URLSearchParams();
+  if (payrollState.dateFrom) params.set("date_from", payrollState.dateFrom);
+  if (payrollState.dateTo)   params.set("date_to",   payrollState.dateTo);
+  params.set("legal_entity", legalEntity);
+  window.open("/api/salary/payroll/export?" + params.toString(), "_blank");
+};
+
 // ── Payroll report export (расчёт начислений) ────────────────────────────
 
 const LEGAL_ENTITIES_WITH_SIGNATORIES = [

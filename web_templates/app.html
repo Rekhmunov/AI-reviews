@@ -1792,7 +1792,16 @@
         <div class="row row-between" style="margin-bottom:12px">
           <h3 class="section-title" style="margin:0">Начисление ЗП</h3>
           <div class="row" style="gap:8px">
-            <button type="button" class="secondary" onclick="exportPayrollTable()" title="Экспорт таблицы ЗП в Excel">⬇ Экспорт ЗП</button>
+            <div style="position:relative;display:inline-block">
+              <button type="button" class="secondary" onclick="togglePayrollZpExportMenu(event)" title="Экспорт таблицы ЗП по юр. лицу" id="payrollZpExportMenuBtn">
+                ⬇ Экспорт ЗП ▾
+              </button>
+              <div id="payrollZpExportMenu" class="hidden" style="position:absolute;top:calc(100% + 4px);right:0;min-width:200px;background:#fff;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 4px 16px rgba(15,23,42,.1);z-index:9999;overflow:hidden">
+                <div style="padding:6px 0">
+                  <div id="payrollZpExportMenuItems"></div>
+                </div>
+              </div>
+            </div>
             <div style="position:relative;display:inline-block">
               <button type="button" class="secondary" onclick="togglePayrollReportMenu(event)" title="Экспорт расчёта начислений по юр. лицу" id="payrollReportMenuBtn">
                 📄 Экспорт расчёт начислений ▾
@@ -2879,6 +2888,6 @@
   <script src="/static/jszip.min.js"></script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=288"></script>
+  <script src="/static/app.js?v=289"></script>
 </body>
 </html>
