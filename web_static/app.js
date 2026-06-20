@@ -519,6 +519,7 @@ function getPermissions() {
     can_view_salary:          _b("can_view_salary", false),
     can_view_salary_settings: _b("can_view_salary_settings", false),
     can_view_salary_report: _b("can_view_salary_report", false),
+    can_view_salary_zp_export: _b("can_view_salary_zp_export", false),
     can_salary_productions: (window.APP_PERMISSIONS || {}).can_salary_productions ?? null,
     is_admin:           _b("is_admin", false),
   };
@@ -9557,6 +9558,7 @@ async function openEditTeamMember(userId) {
   teamState.pendingCanSalary = Boolean(member.can_salary);
   teamState.pendingCanSalarySettings = Boolean(member.can_salary_settings);
   teamState.pendingCanSalaryReport = Boolean(member.can_salary_report);
+  teamState.pendingCanSalaryZpExport = Boolean(member.can_salary_zp_export);
   teamState.pendingCanSalaryProductions = Array.isArray(member.salary_productions) ? [...member.salary_productions] : [];
   // Pre-populate from the data already loaded by loadTeam() so saveEditTeamMember
   // always has a complete supply payload even if the permissions modal is never opened.
@@ -9605,6 +9607,8 @@ async function openManagerPermissionsModalForEdit() {
   if (salaryStgChk) salaryStgChk.checked = teamState.pendingCanSalarySettings;
   const salaryRptChk = document.getElementById("managerSalaryReportAccess");
   if (salaryRptChk) salaryRptChk.checked = Boolean(teamState.pendingCanSalaryReport);
+  const salaryZpExpChk = document.getElementById("managerSalaryZpExportAccess");
+  if (salaryZpExpChk) salaryZpExpChk.checked = Boolean(teamState.pendingCanSalaryZpExport);
   _setPayrollProductionCheckboxes(teamState.pendingCanSalaryProductions);
   // Initialise parent (category) checkboxes
   initPermSectionToggles(
@@ -9676,6 +9680,7 @@ async function saveEditTeamMember() {
         can_salary: Boolean(teamState.pendingCanSalary),
         can_salary_settings: Boolean(teamState.pendingCanSalarySettings),
         can_salary_report: Boolean(teamState.pendingCanSalaryReport),
+        can_salary_zp_export: Boolean(teamState.pendingCanSalaryZpExport),
         salary_productions: teamState.pendingCanSalaryProductions || [],
       }),
     });
@@ -9775,11 +9780,13 @@ function applyManagerPermissionsSelection() {
   const canSalary         = salaryEnabled && Boolean(document.getElementById("managerSalaryAccess")?.checked);
   const canSalarySettings = salaryEnabled && Boolean(document.getElementById("managerSalarySettingsAccess")?.checked);
   const canSalaryReport   = salaryEnabled && Boolean(document.getElementById("managerSalaryReportAccess")?.checked);
+  const canSalaryZpExport = salaryEnabled && Boolean(document.getElementById("managerSalaryZpExportAccess")?.checked);
   const salaryProductions = salaryEnabled ? _collectPayrollProductions() : [];
   teamState.pendingSupplyPermissions = supplyPerms;
   teamState.pendingCanSalary = canSalary;
   teamState.pendingCanSalarySettings = canSalarySettings;
   teamState.pendingCanSalaryReport = canSalaryReport;
+  teamState.pendingCanSalaryZpExport = canSalaryZpExport;
   teamState.pendingCanSalaryProductions = salaryProductions;
   const hasAnySupply = supplyPerms.can_supply_settings || supplyPerms.can_supply_poa || supplyPerms.can_supply_certs ||
     Object.values(supplyPerms.sources || {}).some(s => s.wb || s.ozon);
@@ -9860,6 +9867,7 @@ async function saveNewManager() {
         can_salary: Boolean(teamState.pendingCanSalary),
         can_salary_settings: Boolean(teamState.pendingCanSalarySettings),
         can_salary_report: Boolean(teamState.pendingCanSalaryReport),
+        can_salary_zp_export: Boolean(teamState.pendingCanSalaryZpExport),
         salary_productions: teamState.pendingCanSalaryProductions || [],
       }),
     }).catch(() => {});
@@ -12350,12 +12358,21 @@ function _saveColWidths(w) {
 }
 
 function _initPayrollReportBtn() {
-  const btn = document.getElementById("payrollReportMenuBtn");
-  if (!btn) return;
   const perms = getPermissions();
-  const visible = isTenantOwner() || perms.can_view_salary_report;
-  btn.style.display = visible ? "" : "none";
-  if (btn.parentElement) btn.parentElement.style.display = visible ? "" : "none";
+  // Расчёт начислений button
+  const btn = document.getElementById("payrollReportMenuBtn");
+  if (btn) {
+    const visible = isTenantOwner() || perms.can_view_salary_report;
+    btn.style.display = visible ? "" : "none";
+    if (btn.parentElement) btn.parentElement.style.display = visible ? "" : "none";
+  }
+  // Экспорт ЗП button
+  const zpBtn = document.getElementById("payrollZpExportMenuBtn");
+  if (zpBtn) {
+    const visible = isTenantOwner() || perms.can_view_salary_zp_export;
+    zpBtn.style.display = visible ? "" : "none";
+    if (zpBtn.parentElement) zpBtn.parentElement.style.display = visible ? "" : "none";
+  }
 }
 
 async function loadPayrollPage() {

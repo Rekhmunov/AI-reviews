@@ -542,6 +542,7 @@ class ManagerSalaryAccessRequest(BaseModel):
     can_salary: bool = False
     can_salary_settings: bool = False
     can_salary_report: bool = False
+    can_salary_zp_export: bool = False
     salary_productions: list[str] = Field(default_factory=list)
 
 
@@ -3545,6 +3546,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "can_view_any_supply": can_view_any_supply,
             "can_view_salary": bool(user.get("can_salary")),
             "can_salary_report": bool(user.get("can_salary_report")),
+            "can_salary_zp_export": bool(user.get("can_salary_zp_export")),
             "salary_productions": (lambda: (
                 __import__("json").loads(str(user.get("salary_productions") or "[]"))
             ) if not (role in ROLE_CAN_ACCESS_SETTINGS) else None)(),
@@ -4736,6 +4738,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             can_salary=payload.can_salary,
             can_salary_settings=payload.can_salary_settings,
             can_salary_report=payload.can_salary_report,
+            can_salary_zp_export=payload.can_salary_zp_export,
             salary_productions=list(payload.salary_productions),
         )
         return {"ok": True, "can_salary": payload.can_salary}
@@ -6068,6 +6071,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
         user = _require_salary_access(request)
         owner_id = _salary_owner_id(user)
+        # Managers need explicit can_salary_zp_export permission
+        _is_mgr = str(user.get("role") or "").strip().lower() == TENANT_ROLE_MANAGER
+        if _is_mgr and not bool(user.get("can_salary_zp_export")):
+            raise HTTPException(status_code=403, detail="Нет доступа к экспорту ЗП")
 
         # Build 7-day series from Jan 7 2026 to today + 14 days, newest first
         start = _date(2026, 1, 7)
@@ -10760,6 +10767,7 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
     can_view_salary = is_tenant_owner or bool(user.get("can_salary"))
     can_view_salary_settings = is_tenant_owner or bool(user.get("can_salary_settings"))
     can_view_salary_report = is_tenant_owner or bool(user.get("can_salary_report"))
+    can_view_salary_zp_export = is_tenant_owner or bool(user.get("can_salary_zp_export"))
     import json as _json_salary
     _raw_prods = user.get("salary_productions")
     if is_tenant_owner:
@@ -10825,6 +10833,7 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
             "CAN_VIEW_SALARY": "true" if can_view_salary else "false",
             "CAN_VIEW_SALARY_SETTINGS": "true" if can_view_salary_settings else "false",
             "CAN_VIEW_SALARY_REPORT": "true" if can_view_salary_report else "false",
+            "CAN_VIEW_SALARY_ZP_EXPORT": "true" if can_view_salary_zp_export else "false",
             "CAN_SALARY_PRODUCTIONS": _salary_prods_js,
             "HIDE_FEEDBACK_SECTION": "" if (can_view_feedback or can_view_settings or can_view_analytics) else "style=\"display:none\"",
             "IS_ADMIN": "true" if role == ROLE_ADMIN else "false",

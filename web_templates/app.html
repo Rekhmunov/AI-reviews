@@ -2518,6 +2518,10 @@
               <input type="checkbox" id="managerSalaryReportAccess" />
               <label for="managerSalaryReportAccess">Экспорт расчёта начислений</label>
             </div>
+            <div class="perm-section-checkbox-row">
+              <input type="checkbox" id="managerSalaryZpExportAccess" />
+              <label for="managerSalaryZpExportAccess">Экспорт ЗП</label>
+            </div>
             <div id="managerSalaryProductionsWrap" style="margin-top:12px;padding:12px 16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px">
               <p style="margin:0 0 8px;font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:0.06em;text-transform:uppercase">Производства (Начисление ЗП)</p>
               <div class="perm-section-checkbox-row">
@@ -2879,6 +2883,7 @@
       can_view_salary: {{CAN_VIEW_SALARY}},
       can_view_salary_settings: {{CAN_VIEW_SALARY_SETTINGS}},
       can_view_salary_report: {{CAN_VIEW_SALARY_REPORT}},
+      can_view_salary_zp_export: {{CAN_VIEW_SALARY_ZP_EXPORT}},
       can_salary_productions: {{CAN_SALARY_PRODUCTIONS}},
       is_admin: {{IS_ADMIN}},
       is_super_admin: {{IS_SUPER_ADMIN}},
@@ -2888,6 +2893,6 @@
   <script src="/static/jszip.min.js"></script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=289"></script>
+  <script src="/static/app.js?v=290"></script>
 </body>
 </html>
