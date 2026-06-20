@@ -3024,6 +3024,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         supplier_article: str = Form(""),
         wb_nmid: str = Form(""),
         ozon_sku: str = Form(""),
+        yandex_offer_id: str = Form(""),
         photo: UploadFile | None = File(None),
     ) -> dict[str, object]:
         user = _require_settings_access(request)
@@ -3047,7 +3048,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 _log.warning("add_product: photo processing failed: %s", _e)
         item = repository.add_product_photo(
             user_id=owner_uid, name=name.strip(), supplier_article=supplier_article.strip(),
-            wb_nmid=wb_nmid.strip(), ozon_sku=ozon_sku.strip(), photo_path=photo_path,
+            wb_nmid=wb_nmid.strip(), ozon_sku=ozon_sku.strip(),
+            yandex_offer_id=yandex_offer_id.strip(), photo_path=photo_path,
         )
         if item:
             item["photo_url"] = f"/api/products/photo/{item['id']}" if item.get("photo_path") else None
@@ -3061,6 +3063,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         supplier_article: str = Form(""),
         wb_nmid: str = Form(""),
         ozon_sku: str = Form(""),
+        yandex_offer_id: str = Form(""),
         photo: UploadFile | None = File(None),
     ) -> dict[str, object]:
         user = _require_settings_access(request)
@@ -3084,7 +3087,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         ok = repository.update_product_photo(
             user_id=owner_uid, product_id=product_id, name=name.strip(),
             supplier_article=supplier_article.strip(), wb_nmid=wb_nmid.strip(),
-            ozon_sku=ozon_sku.strip(), photo_path=new_photo_path,
+            ozon_sku=ozon_sku.strip(), yandex_offer_id=yandex_offer_id.strip(),
+            photo_path=new_photo_path,
         )
         if not ok:
             raise HTTPException(status_code=404, detail="Товар не найден")
