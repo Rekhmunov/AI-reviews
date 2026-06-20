@@ -7291,7 +7291,7 @@ async function loadQuestions() {
       } else if (isOzon) {
         replyText = "Ответ предоставлен напрямую через портал ОЗОНа или другой сервис";
       } else if (isYandex) {
-        replyText = "Ответ предоставлен через Яндекс Маркет";
+        replyText = "";  // no reply text available; don't show misleading fallback
       } else {
         replyText = "";
       }

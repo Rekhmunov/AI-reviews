@@ -2365,8 +2365,41 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     )
                     for item in items:
                         uid = item["conversation_uid"]
-                        # Priority: our system reply > portal reply (metadata.raw.answer.text)
                         item["last_sent_text"] = sent_texts.get(uid, "")
+                except Exception:
+                    pass
+            # For YM processed questions without reply text: try to fetch from YM API
+            ym_items_no_reply = [
+                item for item in items
+                if str(item.get("source") or "").lower() == "yandex"
+                and not str(item.get("last_sent_text") or "").strip()
+            ]
+            if ym_items_no_reply:
+                try:
+                    acct_id = int(ym_items_no_reply[0].get("account_id") or 0)
+                    ym_acct = repository.get_marketplace_account(
+                        user_id=conv_owner_user_id, account_id=acct_id, include_secrets=True
+                    ) if acct_id else None
+                    if ym_acct and str(ym_acct.get("marketplace") or "") == "yandex":
+                        from .service import ReviewAutomationService as _RAS
+                        _ym_client = _RAS._build_client(ym_acct)
+                        for item in ym_items_no_reply:
+                            ext_id = str(item.get("external_conversation_id") or "").strip()
+                            if not ext_id:
+                                continue
+                            try:
+                                answers = getattr(_ym_client, "fetch_question_answers", lambda _: [])(ext_id)
+                                if answers:
+                                    # Find the BUSINESS seller answer
+                                    for ans in answers:
+                                        if str((ans.get("author") or {}).get("type") or "").upper() in ("BUSINESS", "SELLER"):
+                                            item["last_sent_text"] = str(ans.get("text") or "")
+                                            break
+                                    else:
+                                        # First answer if no explicit business type
+                                        item["last_sent_text"] = str(answers[0].get("text") or "")
+                            except Exception:
+                                pass
                 except Exception:
                     pass
         # Enrich questions with product photo URLs
