@@ -2029,20 +2029,28 @@ async function loadReviews() {
     }
 
     // --- Column 3: Product ---
-    const productName = esc(rawProduct.productName || rawItem.productName || "");
+    const isYandex = String(review.source || "").toLowerCase().includes("yandex");
+    // For YM: look up catalog name by yandex_offer_id matching supplierArticle
+    const ymArticle = isYandex ? (rawItem.supplierArticle || "") : "";
+    const ymCatalogProduct = ymArticle
+      ? (_productsCache || []).find(p => String(p.yandex_offer_id || "").trim() === ymArticle.trim())
+      : null;
+    const ymCatalogName = ymCatalogProduct?.name || "";
+
+    const productName = esc(ymCatalogName || rawProduct.productName || rawItem.productName || "");
     const article = esc(rawProduct.supplierArticle || rawItem.supplierArticle || "");
     const brand = esc(rawProduct.brand || rawItem.brand || "");
     const seller = esc(rawProduct.seller || rawItem.seller || "");
-    // Build marketplace link for product name
+    // Build marketplace link
     const nmId = rawProduct.nmId || rawItem.nmId || rawItem.nmID || rawItem.productId || null;
     const ozonProductId = rawItem.product_id || rawItem.productId || rawItem.item_id || null;
-    const isYandex = String(review.source || "").toLowerCase().includes("yandex");
     const ymModelId = rawItem.nmId || null; // we store modelId as nmId for YM
     let productUrl = "";
     if (isOzon) {
       if (ozonProductId) productUrl = `https://www.ozon.ru/product/${ozonProductId}/`;
     } else if (isYandex) {
       if (ymModelId) productUrl = `https://market.yandex.ru/product/${ymModelId}`;
+      else if (ymArticle) productUrl = `https://market.yandex.ru/search?text=${encodeURIComponent(ymArticle)}`;
     } else if (nmId) {
       productUrl = `https://www.wildberries.ru/catalog/${nmId}/detail.aspx`;
     }
