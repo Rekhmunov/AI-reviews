@@ -1787,15 +1787,32 @@ class YandexMarketClient:
         ) or None
         answers_count = int(item.get("answersCount") or 0)
         status = "answered_manual" if answers_count > 0 else "open"
+        created_at = str(item.get("createdAt") or "")
         return {
             "external_id": external_id,
             "text": text,
             "customer_name": customer_name,
             "status": status,
             "seller_replied_at": None,
-            "last_message_at": str(item.get("createdAt") or ""),
-            "metadata": {"_ym_raw": item},
+            "last_message_at": created_at,
+            "metadata": {
+                "raw": {
+                    **item,
+                    "text": text,           # question text at raw.text for UI
+                    "createdDate": created_at,  # for sort/date filter
+                },
+            },
         }
+
+    def fetch_question_answers(self, question_id: str) -> list[dict[str, object]]:
+        """Fetch existing answers to a YM question for display in processed bucket."""
+        try:
+            path = f"/v1/businesses/{self.business_id}/goods-questions/answers"
+            body = self._post(path, body={"questionId": int(question_id)})
+            result = body.get("result") or {}
+            return list(result.get("answers") or [])
+        except Exception:
+            return []
 
     def fetch_conversations(
         self,
@@ -2545,6 +2562,23 @@ class ReviewAutomationService:
             external_id = str(row.get("external_id") or "").strip()
             if not external_id:
                 continue
+            # "text" is the canonical key from YM _to_question; "message_text" for others
+            _msg_text = str(row.get("text") or row.get("message_text") or "")
+
+            # For YM answered questions: fetch existing seller answer and store in metadata
+            _row_meta = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+            if source == "yandex" and str(row.get("status") or "") == "answered_manual":
+                try:
+                    _answers = getattr(client, "fetch_question_answers", lambda _: [])(external_id)
+                    if _answers:
+                        _row_meta = dict(_row_meta)
+                        raw = dict(_row_meta.get("raw") or {})
+                        raw["_ym_answers"] = _answers
+                        _row_meta["raw"] = raw
+                        _row_meta["_ym_answers"] = _answers
+                except Exception:
+                    pass
+
             conversation_uid = self.repository.upsert_conversation(
                 user_id=user_id,
                 source=source,
@@ -2552,10 +2586,10 @@ class ReviewAutomationService:
                 external_conversation_id=external_id,
                 kind="question",
                 customer_name=str(row.get("customer_name") or "") or None,
-                message_text=str(row.get("message_text") or ""),
+                message_text=_msg_text,
                 status=str(row.get("status") or "open"),
                 unread_count=_to_positive_int(row.get("unread_count"), default=0),
-                metadata=row.get("metadata") if isinstance(row.get("metadata"), dict) else {},
+                metadata=_row_meta,
                 last_message_at=str(row.get("last_message_at") or "") or None,
                 seller_replied_at=str(row.get("seller_replied_at") or "") or None,
             )

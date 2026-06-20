@@ -7256,20 +7256,24 @@ async function loadQuestions() {
     const uid = esc(item.conversation_uid);
     const meta = item.metadata || {};
     const rawItem = meta.raw || {};
-    const isOzon = String(item.source || "").toLowerCase().includes("ozon");
+    const srcLower = String(item.source || "").toLowerCase();
+    const isOzon   = srcLower.includes("ozon");
+    const isYandex = srcLower.includes("yandex");
     const isProcessed = questionsState.bucket === "processed";
 
     // Source badge
     const sourceIcon = isOzon
       ? `<span class="chat-list-badge" style="margin-left:6px;vertical-align:middle">OZON</span>`
-      : `<span class="chat-list-badge" style="margin-left:6px;vertical-align:middle">WB</span>`;
+      : isYandex
+        ? `<span class="chat-list-badge" style="margin-left:6px;vertical-align:middle;background:#ffdb4d;color:#1a1a1a">ЯМ</span>`
+        : `<span class="chat-list-badge" style="margin-left:6px;vertical-align:middle">WB</span>`;
 
     // Date/time MSK
     const qDateRaw = rawItem.createdDate || item.last_message_at || item.updated_at || "";
     const qDateStr = qDateRaw ? _toMsk(qDateRaw) : "—";
 
-    // Column 1: Question
-    const questionText = item.message_text || rawItem.text || "";
+    // Column 1: Question — YM stores question text in raw.text (top-level in raw metadata)
+    const questionText = item.message_text || rawItem.text || (meta._ym_raw || {}).text || "";
 
     // Column 2: Reply
     let replyContent;
@@ -7277,12 +7281,17 @@ async function loadQuestions() {
       // Show actual reply — our system reply OR portal reply (raw.answer.text for WB)
       const ourReply = String(item.last_sent_text || "").trim();
       const portalReply = String((rawItem.answer || {}).text || "").trim();
-      const actualReply = ourReply || portalReply;
+      // YM: answers may be in raw.answers array or meta._ym_answers
+      const ymAnswers = meta._ym_answers || [];
+      const ymReply = ymAnswers.length ? String(ymAnswers[0]?.text || "") : "";
+      const actualReply = ourReply || portalReply || ymReply;
       let replyText;
       if (actualReply) {
         replyText = actualReply;
       } else if (isOzon) {
         replyText = "Ответ предоставлен напрямую через портал ОЗОНа или другой сервис";
+      } else if (isYandex) {
+        replyText = "Ответ предоставлен через Яндекс Маркет";
       } else {
         replyText = "";
       }
