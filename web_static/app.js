@@ -7314,12 +7314,16 @@ async function loadQuestions() {
     // YM: offerId in rawItem.identifiers.offerId OR rawItem.offerId
     let productCell = "";
     if (isYandex) {
-      const ymOfferId = (rawItem.identifiers?.offerId) || rawItem.offerId || rawItem.supplierArticle || "";
+      const ymOfferId = (rawItem.questionIdentifiers?.offerId)
+        || (rawItem.identifiers?.offerId)
+        || rawItem.offerId || rawItem.supplierArticle || "";
       if (ymOfferId) {
         const ymProduct = ymOfferId
           ? (_productsCache || []).find(p => String(p.yandex_offer_id || "").trim() === String(ymOfferId).trim())
           : null;
-        const ymModelId = rawItem.nmId || rawItem.modelId || (rawItem.identifiers?.modelId) || "";
+        const ymModelId = rawItem.nmId || rawItem.modelId
+          || (rawItem.identifiers?.modelId)
+          || (rawItem.questionIdentifiers?.modelId) || "";
         const ymUrl = ymModelId ? `https://market.yandex.ru/product/${ymModelId}` : "";
         const ymName = ymProduct?.name || "";
         productCell = `${ymName
