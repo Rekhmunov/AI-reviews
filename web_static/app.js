@@ -7311,9 +7311,24 @@ async function loadQuestions() {
     }
 
     // Column 3: Product
-    // WB: product info in productDetails; Ozon: sku + product_url in rawItem directly
+    // YM: offerId in rawItem.identifiers.offerId OR rawItem.offerId
     let productCell = "";
-    if (isOzon) {
+    if (isYandex) {
+      const ymOfferId = (rawItem.identifiers?.offerId) || rawItem.offerId || rawItem.supplierArticle || "";
+      if (ymOfferId) {
+        const ymProduct = ymOfferId
+          ? (_productsCache || []).find(p => String(p.yandex_offer_id || "").trim() === String(ymOfferId).trim())
+          : null;
+        const ymModelId = rawItem.nmId || rawItem.modelId || (rawItem.identifiers?.modelId) || "";
+        const ymUrl = ymModelId ? `https://market.yandex.ru/product/${ymModelId}` : "";
+        const ymName = ymProduct?.name || "";
+        productCell = `${ymName
+          ? `<div class="review-product-name">${ymUrl ? `<a href="${esc(ymUrl)}" target="_blank" rel="noopener noreferrer" class="review-product-link">${esc(ymName)}</a>` : esc(ymName)}</div>`
+          : (ymUrl ? `<div class="review-product-name"><a href="${esc(ymUrl)}" target="_blank" rel="noopener noreferrer" class="review-product-link">Товар на ЯМ</a></div>` : "")}
+          <div class="review-product-detail small">Артикул: ${esc(ymOfferId)}</div>
+          ${ymProduct?.photo_url ? `<img src="${esc(ymProduct.photo_url)}" class="product-thumb" alt="" onerror="this.style.display='none'">` : ""}`;
+      }
+    } else if (isOzon) {
       const ozonSku = rawItem.sku || null;
       const ozonUrl = rawItem.product_url || (ozonSku ? `https://www.ozon.ru/product/${ozonSku}/` : "");
       if (ozonUrl || ozonSku) {
@@ -10231,6 +10246,7 @@ function openAddProductForm(editItem = null) {
   document.getElementById("productFormSupplierArticle").value = editItem?.supplier_article || "";
   document.getElementById("productFormWbNmid").value = editItem?.wb_nmid || "";
   document.getElementById("productFormOzonSku").value = editItem?.ozon_sku || "";
+  document.getElementById("productFormYandexOfferId").value = editItem?.yandex_offer_id || "";
   document.getElementById("productFormPhoto").value = "";
   document.getElementById("productFormName").focus();
 }
@@ -10261,6 +10277,7 @@ async function loadProducts() {
         <td>${esc(item.supplier_article || "—")}</td>
         <td>${esc(item.wb_nmid || "—")}</td>
         <td>${esc(item.ozon_sku || "—")}</td>
+        <td>${esc(item.yandex_offer_id || "—")}</td>
         <td>
           <button type="button" class="secondary" style="font-size:12px;padding:4px 8px" onclick="editProduct(${item.id})">✏</button>
           <button type="button" class="secondary danger" style="font-size:12px;padding:4px 8px" onclick="deleteProduct(${item.id})">✕</button>
@@ -10283,6 +10300,7 @@ async function saveProduct() {
   const supplierArticle = String(document.getElementById("productFormSupplierArticle")?.value || "").trim();
   const wbNmid = String(document.getElementById("productFormWbNmid")?.value || "").trim();
   const ozonSku = String(document.getElementById("productFormOzonSku")?.value || "").trim();
+  const yandexOfferId = String(document.getElementById("productFormYandexOfferId")?.value || "").trim();
   const photoFile = document.getElementById("productFormPhoto")?.files?.[0];
   const info = document.getElementById("productFormInfo");
   if (!name) { if (info) info.textContent = "Введите наименование"; return; }
@@ -10291,6 +10309,7 @@ async function saveProduct() {
   fd.append("supplier_article", supplierArticle);
   fd.append("wb_nmid", wbNmid);
   fd.append("ozon_sku", ozonSku);
+  fd.append("yandex_offer_id", yandexOfferId);
   if (photoFile) fd.append("photo", photoFile);
   try {
     const url = editId ? `/api/products/${editId}` : "/api/products";
