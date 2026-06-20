@@ -7376,7 +7376,7 @@ async function loadQuestions() {
         <div class="review-meta-small">${esc(item.customer_name || "")}${item.customer_name && qDateStr !== "—" ? " · " : ""}${qDateStr !== "—" ? qDateStr : ""}</div>
       </td>
       <td class="review-col-reply">${replyContent}</td>
-      <td class="review-col-product">${productCell}${item.product_photo_url ? `<img src="${esc(item.product_photo_url)}" class="product-thumb" alt="" onerror="this.style.display='none'">` : ""}</td>
+      <td class="review-col-product">${productCell}${item.product_photo_url && !isYandex ? `<img src="${esc(item.product_photo_url)}" class="product-thumb" alt="" onerror="this.style.display='none'">` : ""}</td>
     `;
 
     // Make textarea editable on click for new questions
