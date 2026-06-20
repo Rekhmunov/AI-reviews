@@ -6431,7 +6431,7 @@ class ReviewRepository:
             if not pid or not r.get("photo_path"):
                 continue
             url = f"/api/products/photo/{pid}"
-            for field in ("supplier_article", "wb_nmid", "ozon_sku"):
+            for field in ("supplier_article", "wb_nmid", "ozon_sku", "yandex_offer_id"):
                 val = str(r.get(field) or "").strip()
                 if val:
                     result[val] = url

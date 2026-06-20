@@ -7318,19 +7318,26 @@ async function loadQuestions() {
         || (rawItem.identifiers?.offerId)
         || rawItem.offerId || rawItem.supplierArticle || "";
       if (ymOfferId) {
-        const ymProduct = ymOfferId
-          ? (_productsCache || []).find(p => String(p.yandex_offer_id || "").trim() === String(ymOfferId).trim())
-          : null;
+        const ymProduct = (_productsCache || []).find(
+          p => String(p.yandex_offer_id || "").trim() === String(ymOfferId).trim()
+        );
+        // For reviews: modelId available; for questions: fall back to search URL
         const ymModelId = rawItem.nmId || rawItem.modelId
           || (rawItem.identifiers?.modelId)
           || (rawItem.questionIdentifiers?.modelId) || "";
-        const ymUrl = ymModelId ? `https://market.yandex.ru/product/${ymModelId}` : "";
+        const ymUrl = ymModelId
+          ? `https://market.yandex.ru/product/${ymModelId}`
+          : `https://market.yandex.ru/search?text=${encodeURIComponent(ymOfferId)}`;
         const ymName = ymProduct?.name || "";
-        productCell = `${ymName
-          ? `<div class="review-product-name">${ymUrl ? `<a href="${esc(ymUrl)}" target="_blank" rel="noopener noreferrer" class="review-product-link">${esc(ymName)}</a>` : esc(ymName)}</div>`
-          : (ymUrl ? `<div class="review-product-name"><a href="${esc(ymUrl)}" target="_blank" rel="noopener noreferrer" class="review-product-link">Товар на ЯМ</a></div>` : "")}
-          <div class="review-product-detail small">Артикул: ${esc(ymOfferId)}</div>
-          ${ymProduct?.photo_url ? `<img src="${esc(ymProduct.photo_url)}" class="product-thumb" alt="" onerror="this.style.display='none'">` : ""}`;
+        const ymPhoto = ymProduct?.photo_url || item.product_photo_url || "";
+        productCell = `
+          <div class="review-product-name">
+            <a href="${esc(ymUrl)}" target="_blank" rel="noopener noreferrer" class="review-product-link">
+              ${ymName ? esc(ymName) : esc(ymOfferId)}
+            </a>
+          </div>
+          ${ymName ? `<div class="review-product-detail small">Артикул: ${esc(ymOfferId)}</div>` : ""}
+          ${ymPhoto ? `<img src="${esc(ymPhoto)}" class="product-thumb" alt="" onerror="this.style.display='none'">` : ""}`;
       }
     } else if (isOzon) {
       const ozonSku = rawItem.sku || null;

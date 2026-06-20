@@ -2411,11 +2411,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                         _meta = _item.get("metadata") or {}
                         _raw = (_meta.get("raw") or {}) if isinstance(_meta, dict) else {}
                         _pd = (_raw.get("productDetails") or {}) if isinstance(_raw, dict) else {}
+                        _qi = (_raw.get("questionIdentifiers") or {}) if isinstance(_raw, dict) else {}
                         _keys = [
-                            str(_raw.get("sku") or "").strip(),           # Ozon SKU
-                            str(_pd.get("supplierArticle") or "").strip(), # WB supplier article
-                            str(_pd.get("nmId") or "").strip(),            # WB nmId
-                            str(_raw.get("supplierArticle") or "").strip(),# WB supplier article alt
+                            str(_raw.get("sku") or "").strip(),                    # Ozon SKU
+                            str(_pd.get("supplierArticle") or "").strip(),          # WB supplier article
+                            str(_pd.get("nmId") or "").strip(),                     # WB nmId
+                            str(_raw.get("supplierArticle") or "").strip(),         # WB supplier article alt
+                            str(_qi.get("offerId") or "").strip(),                  # YM offerId
+                            str(_raw.get("offerId") or "").strip(),                 # YM offerId alt
                         ]
                         _item["product_photo_url"] = next(
                             (_photo_map[k] for k in _keys if k and k in _photo_map), None
