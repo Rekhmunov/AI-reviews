@@ -6059,6 +6059,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         request: Request,
         date_from: str = "",
         date_to: str = "",
+        legal_entity: str = "",
     ):
         """Export the payroll table as XLSX. Dates filtered by date_from/date_to."""
         import io
@@ -6084,6 +6085,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         allowed = _salary_allowed_productions(user)
         if allowed is not None:
             workers = [w for w in workers if str(w.get("production") or "") in allowed]
+        # Filter by legal entity if specified
+        if legal_entity:
+            workers = [w for w in workers if str(w.get("legal_entity") or "") == legal_entity]
 
         totals = repository.get_salary_totals(owner_user_id=owner_id)
         totals_map: dict[str, float] = {
@@ -6096,7 +6100,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             return f"{dd}.{m}.{y[2:]}"
 
         today_str = _date.today().strftime("%d.%m.%Y")
-        report_name = f"Отчет ЗП {today_str}"
+        # Include legal entity in filename/title if filtered
+        report_name = f"Отчет ЗП {legal_entity} {today_str}" if legal_entity else f"Отчет ЗП {today_str}"
 
         wb = openpyxl.Workbook()
         ws = wb.active
