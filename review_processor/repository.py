@@ -6597,6 +6597,10 @@ class ReviewRepository:
         conn.execute(
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS can_salary_zp_export BOOLEAN NOT NULL DEFAULT FALSE"
         )
+        # Add can_supply_planning for Планирование поставок
+        conn.execute(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS can_supply_planning BOOLEAN NOT NULL DEFAULT FALSE"
+        )
         # Add transit/actual warehouse columns (idempotent)
         conn.execute(
             "ALTER TABLE supply_items ADD COLUMN IF NOT EXISTS transit_warehouse_name TEXT"

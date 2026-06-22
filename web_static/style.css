@@ -6129,6 +6129,52 @@ button.secondary.danger:hover {
   letter-spacing: 0.04em;
 }
 
+/* ── Supply Planning table ──────────────────────────────────────────────── */
+
+.sp-th {
+  position: relative;
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+  border-right: 1px solid #f1f5f9;
+  white-space: nowrap;
+  user-select: none;
+  text-align: left;
+}
+
+.sp-th.sp-sortable { cursor: pointer; }
+.sp-th.sp-sortable:hover { background: #f1f5f9; }
+
+.col-resize-handle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  background: transparent;
+  z-index: 1;
+}
+.col-resize-handle:hover,
+.col-resize-handle.dragging { background: #2563eb; opacity: 0.5; }
+
+#supplyPlanningTable td {
+  padding: 9px 12px;
+  font-size: 13px;
+  color: #1e293b;
+  border-bottom: 1px solid #f1f5f9;
+  border-right: 1px solid #f8fafc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 0;
+}
+
+#supplyPlanningTable tr:hover td { background: #f8fafc; }
+
 /* ── Extra production buttons (payroll modal) ───────────────────────────── */
 
 button.active-prod-btn {

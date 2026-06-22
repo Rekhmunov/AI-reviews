@@ -55,6 +55,7 @@
           </div>
           <div id="nav-group-supplies" style="overflow:hidden;transition:max-height 0.3s ease">
           {{NAV_SUPPLIES_WB}}
+          {{NAV_SUPPLIES_PLANNING}}
           {{NAV_SUPPLIES_SETTINGS}}
           </div>
 
@@ -1547,6 +1548,70 @@
         </div>
       </div>
 
+      <!-- ── Планирование поставок ── -->
+      <section id="section-supply-planning" class="hidden">
+        <div class="panel" style="margin-bottom:12px">
+          <div class="row row-between" style="align-items:center;flex-wrap:wrap;gap:12px">
+            <div class="row" style="align-items:center;gap:16px">
+              <h3 class="section-title" style="margin:0">Планирование поставок</h3>
+              <select id="supplyPlanningMp" onchange="onSupplyPlanningMpChange()"
+                style="font-size:18px;font-weight:700;color:#1e293b;border:none;background:transparent;cursor:pointer;padding:0 4px;min-width:120px">
+                <option value="wb">WB</option>
+                <option value="ozon">OZON</option>
+                <option value="yandex">ЯМ</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Filter bar (placeholder) -->
+        <div class="panel supplies-toolbar-panel" style="margin-bottom:12px">
+          <div class="supplies-actions" style="justify-content:flex-end;width:100%">
+            <span class="small" style="color:#94a3b8">Фильтры будут добавлены позднее</span>
+          </div>
+        </div>
+
+        <!-- Table -->
+        <div class="panel" style="padding:0;overflow:hidden">
+          <div class="table-wrap" id="supplyPlanningTableWrap" style="overflow-x:auto">
+            <table id="supplyPlanningTable" style="width:100%;min-width:800px;border-collapse:collapse">
+              <thead>
+                <tr id="supplyPlanningThead">
+                  <th class="sp-th" data-col="article" style="width:200px">
+                    Склад/Артикул <span class="col-resize-handle" onmousedown="startSpResize(event,'article')"></span>
+                  </th>
+                  <th class="sp-th" data-col="barcode" style="width:160px">
+                    <span id="supplyPlanningBarcodeHeader">ШК WB</span>
+                    <span class="col-resize-handle" onmousedown="startSpResize(event,'barcode')"></span>
+                  </th>
+                  <th class="sp-th" data-col="stock" style="width:120px">
+                    Текущий остаток <span class="col-resize-handle" onmousedown="startSpResize(event,'stock')"></span>
+                  </th>
+                  <th class="sp-th sp-sortable" data-col="qty" style="width:120px" onclick="toggleSpSort('qty')">
+                    Количество <span id="spSortQtyIcon">⇅</span>
+                    <span class="col-resize-handle" onmousedown="startSpResize(event,'qty')"></span>
+                  </th>
+                  <th class="sp-th" data-col="order" style="width:120px">
+                    Заказ <span class="col-resize-handle" onmousedown="startSpResize(event,'order')"></span>
+                  </th>
+                  <th class="sp-th" data-col="production" style="width:140px">
+                    Производство <span class="col-resize-handle" onmousedown="startSpResize(event,'production')"></span>
+                  </th>
+                  <th class="sp-th" data-col="note" style="width:180px">
+                    Примечание <span class="col-resize-handle" onmousedown="startSpResize(event,'note')"></span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody id="supplyPlanningTbody">
+                <tr><td colspan="7" style="text-align:center;padding:32px;color:#94a3b8;font-size:14px">
+                  Нет данных
+                </td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
       <section id="section-supplies-settings" class="hidden">
         <h3 class="section-title">Поставки — Настройки</h3>
         <div class="settings-tabs">
@@ -2495,6 +2560,10 @@
               </thead>
               <tbody id="managerSupplyPermissionsTbody"></tbody>
             </table>
+            <div class="perm-section-checkbox-row" style="margin-top:10px">
+              <input type="checkbox" id="managerSupplyPlanningAccess" />
+              <label for="managerSupplyPlanningAccess">Планирование поставок</label>
+            </div>
           </div>
         </div>
 
@@ -2880,6 +2949,7 @@
       can_view_reviews: {{CAN_VIEW_REVIEWS}},
       can_view_questions: {{CAN_VIEW_QUESTIONS}},
       can_view_chats: {{CAN_VIEW_CHATS}},
+      can_supply_planning: {{CAN_SUPPLY_PLANNING}},
       can_view_salary: {{CAN_VIEW_SALARY}},
       can_view_salary_settings: {{CAN_VIEW_SALARY_SETTINGS}},
       can_view_salary_report: {{CAN_VIEW_SALARY_REPORT}},
