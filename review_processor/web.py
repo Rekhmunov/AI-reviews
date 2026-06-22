@@ -10804,7 +10804,7 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
         else ""
     )
     can_supply_planning = is_tenant_owner or bool(user.get("can_supply_planning"))
-    _planning_link = ('<a id="nav-supply-planning" class="nav-item" href="#" onclick="showSection(\'supply-planning\')"><span class="nav-item-icon">📋</span> Планирование</a>'
+    _planning_link = ('<a id="nav-supply-planning" class="nav-item" href="#" onclick="showSection(\'supply-planning\')"><span class="nav-item-icon">▤</span> Планирование</a>'
                       if can_supply_planning and can_view_supplies else "")
     _wb_link = ('<a id="nav-supplies-wb" class="nav-item" href="#" onclick="showSection(\'supplies-wb\')"><span class="nav-item-icon">▦</span> WB</a>'
                 if can_view_wb_supplies else "")
