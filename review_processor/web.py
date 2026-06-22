@@ -535,6 +535,7 @@ class ManagerSuppliesAccessRequest(BaseModel):
     can_supply_settings: bool = False
     can_supply_poa: bool = False
     can_supply_certs: bool = False
+    can_supply_planning: bool = False
     supply_sources: dict = {}  # {source_id: {"wb": bool, "ozon": bool}}
 
 
@@ -4571,9 +4572,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     item["salary_productions"] = _j_sp.loads(str(item.get("salary_productions") or "[]"))
                 except Exception:
                     item["salary_productions"] = []
-                item["supply_permissions"] = repository.get_manager_supply_permissions(
+                _sp = repository.get_manager_supply_permissions(
                     manager_user_id=int(item["id"])
                 )
+                _sp["can_supply_planning"] = bool(item.get("can_supply_planning"))
+                item["supply_permissions"] = _sp
         return {"items": items, "count": len(items)}
 
     @app.post("/api/tenant/team")
@@ -4715,6 +4718,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 can_supply_certs=payload.can_supply_certs,
                 sources=sources,
             )
+            # Save can_supply_planning directly on the user row
+            with repository._connect() as _conn:
+                _conn.execute(
+                    repository._sql("UPDATE users SET can_supply_planning = ? WHERE id = ?"),
+                    (repository._bool_db(payload.can_supply_planning), target_user_id),
+                )
         except Exception as exc:
             _log.error("supplies-access save failed for user %s: %s", target_user_id, exc, exc_info=True)
             raise HTTPException(status_code=500, detail=f"Ошибка сохранения прав на поставки: {exc}") from exc
@@ -10794,6 +10803,9 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
         if can_view_settings
         else ""
     )
+    can_supply_planning = is_tenant_owner or bool(user.get("can_supply_planning"))
+    _planning_link = ('<a id="nav-supply-planning" class="nav-item" href="#" onclick="showSection(\'supply-planning\')"><span class="nav-item-icon">📋</span> Планирование</a>'
+                      if can_supply_planning and can_view_supplies else "")
     _wb_link = ('<a id="nav-supplies-wb" class="nav-item" href="#" onclick="showSection(\'supplies-wb\')"><span class="nav-item-icon">▦</span> WB</a>'
                 if can_view_wb_supplies else "")
     _ozon_link = ('<a id="nav-supplies-ozon" class="nav-item" href="#" onclick="showSection(\'supplies-ozon\')"><span class="nav-item-icon">◉</span> OZON</a>'
@@ -10821,6 +10833,7 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
                 if can_view_settings else ""
             ),
             "NAV_SUPPLIES_WB": nav_supplies_wb,
+            "NAV_SUPPLIES_PLANNING": _planning_link,
             "NAV_SUPPLIES_SETTINGS": nav_supplies_settings,
             "CAN_VIEW_ANY_SUPPLY": "true" if can_view_any_supply else "false",
             "CAN_VIEW_ANALYTICS": "true" if can_view_analytics else "false",
@@ -10830,6 +10843,7 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
             "CAN_VIEW_REVIEWS": "true" if can_view_reviews else "false",
             "CAN_VIEW_QUESTIONS": "true" if can_view_questions else "false",
             "CAN_VIEW_CHATS": "true" if can_view_chats else "false",
+            "CAN_SUPPLY_PLANNING": "true" if can_supply_planning else "false",
             "CAN_VIEW_SALARY": "true" if can_view_salary else "false",
             "CAN_VIEW_SALARY_SETTINGS": "true" if can_view_salary_settings else "false",
             "CAN_VIEW_SALARY_REPORT": "true" if can_view_salary_report else "false",

@@ -119,7 +119,7 @@ const UI_REFRESH_MS = 60000;        // refresh chat list from DB every 60s (afte
 const CHANNEL_ICONS = { "Отзывы": "⭐", "Вопросы": "❓", "Чаты": "💬" };
 const ACTIVE_SECTION_STORAGE_KEY = "feedpilot_active_section";
 const ACTIVE_SETTINGS_TAB_STORAGE_KEY = "feedpilot_active_settings_tab";
-const SECTION_IDS = ["reviews", "conversations", "chats", "analytics", "settings", "stock-settings", "stock-work", "supplies-wb", "supplies-ozon", "supplies-poa", "supplies-certificates", "supplies-settings", "salary", "salary-settings", "team", "profile"];
+const SECTION_IDS = ["reviews", "conversations", "chats", "analytics", "settings", "stock-settings", "stock-work", "supplies-wb", "supplies-ozon", "supplies-poa", "supplies-certificates", "supplies-settings", "supply-planning", "salary", "salary-settings", "team", "profile"];
 const SETTINGS_TAB_IDS = ["sources", "rules", "templates", "recommendations", "products", "template-variables"];
 const APP_BOOT_HIDE_CLASS = "app-boot-hidden";
 const MOBILE_NAV_BREAKPOINT_PX = 900;
@@ -545,6 +545,7 @@ function canViewSection(section) {
   if (section === "supplies-poa") return permissions.can_view_supplies;
   if (section === "supplies-certificates") return permissions.can_view_supplies;
   if (section === "supplies-settings") return permissions.can_view_settings || permissions.can_view_supplies;
+  if (section === "supply-planning") return isTenantOwner() || permissions.can_supply_planning;
   return true;
 }
 
@@ -721,6 +722,9 @@ function showSection(section, options = {}) {
   }
   if (section === "supplies-settings") {
     showSuppliesSettingsTab(getPermissions().can_view_settings ? "sources" : "drivers");
+  }
+  if (section === "supply-planning") {
+    loadSupplyPlanningSection();
   }
   if (section === "salary-settings") {
     showSalarySettingsTab("workers");
@@ -9365,6 +9369,7 @@ function collectManagerSupplyPermissionsFromModal() {
     can_supply_settings: Boolean(document.getElementById("managerSupplySettings")?.checked),
     can_supply_poa: Boolean(document.getElementById("managerSupplyPoa")?.checked),
     can_supply_certs: Boolean(document.getElementById("managerSupplyCerts")?.checked),
+    can_supply_planning: Boolean(document.getElementById("managerSupplyPlanningAccess")?.checked),
   };
 }
 
@@ -9600,6 +9605,9 @@ async function openManagerPermissionsModalForEdit() {
   const ssRes = await fetch("/api/supply-sources").catch(() => null);
   const ssSources = ssRes?.ok ? await ssRes.json().catch(() => []) : [];
   renderManagerSupplyPermissionsRows(ssSources, teamState.pendingSupplyPermissions);
+  // Set supply planning checkbox from pendingSupplyPermissions
+  const spPlanChk = document.getElementById("managerSupplyPlanningAccess");
+  if (spPlanChk) spPlanChk.checked = Boolean(teamState.pendingSupplyPermissions?.can_supply_planning);
   // Set salary sub-checkboxes
   const salaryChk = document.getElementById("managerSalaryAccess");
   if (salaryChk) salaryChk.checked = teamState.pendingCanSalary;
@@ -9664,6 +9672,7 @@ async function saveEditTeamMember() {
         can_supply_settings: Boolean(sp.can_supply_settings),
         can_supply_poa: Boolean(sp.can_supply_poa),
         can_supply_certs: Boolean(sp.can_supply_certs),
+        can_supply_planning: Boolean(sp.can_supply_planning),
         supply_sources: sp.sources || {},
       })
     });
@@ -9753,6 +9762,8 @@ async function openManagerPermissionsModalForCreate() {
   const ssSources = ssRes?.ok ? await ssRes.json().catch(() => []) : [];
   // Use existing pending supply state on re-open so unsaved selections are preserved
   renderManagerSupplyPermissionsRows(ssSources, teamState.pendingSupplyPermissions || {});
+  const spPlanChk2 = document.getElementById("managerSupplyPlanningAccess");
+  if (spPlanChk2) spPlanChk2.checked = Boolean(teamState.pendingSupplyPermissions?.can_supply_planning);
   // Restore salary sub-checkboxes from pending state
   const salaryChkCreate = document.getElementById("managerSalaryAccess");
   if (salaryChkCreate) salaryChkCreate.checked = Boolean(teamState.pendingCanSalary);
@@ -13260,6 +13271,93 @@ window.pdimConfirmImport = async function() {
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = "Загрузить данные"; }
   }
+};
+
+// ── Supply Planning ───────────────────────────────────────────────────────
+
+const SP_COL_WIDTHS_KEY = "supply_planning_col_widths";
+
+function _spColWidths() {
+  try { return JSON.parse(localStorage.getItem(SP_COL_WIDTHS_KEY) || "{}"); } catch(_){return {};}
+}
+function _spSaveColWidths(w) {
+  try { localStorage.setItem(SP_COL_WIDTHS_KEY, JSON.stringify(w)); } catch(_){}
+}
+
+// Apply saved column widths to the planning table
+function applySpColWidths() {
+  const widths = _spColWidths();
+  const table = document.getElementById("supplyPlanningTable");
+  if (!table) return;
+  table.querySelectorAll("th.sp-th[data-col]").forEach(th => {
+    const col = th.getAttribute("data-col");
+    if (widths[col]) th.style.width = widths[col] + "px";
+  });
+}
+
+let _spSortCol = null;
+let _spSortAsc = false;
+
+window.onSupplyPlanningMpChange = function() {
+  const mp = document.getElementById("supplyPlanningMp")?.value || "wb";
+  const hdr = document.getElementById("supplyPlanningBarcodeHeader");
+  if (hdr) {
+    hdr.textContent = mp === "wb" ? "ШК WB" : mp === "ozon" ? "ШК OZON" : "ШК ЯМ";
+  }
+  // TODO: reload data for selected MP
+};
+
+window.toggleSpSort = function(col) {
+  if (_spSortCol === col) {
+    _spSortAsc = !_spSortAsc;
+  } else {
+    _spSortCol = col;
+    _spSortAsc = false; // default: descending
+  }
+  const icon = document.getElementById("spSortQtyIcon");
+  if (icon) icon.textContent = _spSortAsc ? "↑" : "↓";
+  // TODO: re-sort and re-render data
+};
+
+// Column resize
+let _spResizeState = null;
+
+window.startSpResize = function(e, col) {
+  e.preventDefault();
+  e.stopPropagation();
+  const handle = e.target;
+  const th = handle.closest("th");
+  if (!th) return;
+  handle.classList.add("dragging");
+  const startX = e.clientX;
+  const startW = th.offsetWidth;
+  _spResizeState = { th, col, startX, startW, handle };
+
+  const onMove = (ev) => {
+    if (!_spResizeState) return;
+    const delta = ev.clientX - _spResizeState.startX;
+    const newW = Math.max(60, _spResizeState.startW + delta);
+    _spResizeState.th.style.width = newW + "px";
+  };
+  const onUp = () => {
+    if (_spResizeState) {
+      const w = _spColWidths();
+      w[_spResizeState.col] = _spResizeState.th.offsetWidth;
+      _spSaveColWidths(w);
+      _spResizeState.handle.classList.remove("dragging");
+      _spResizeState = null;
+    }
+    document.removeEventListener("mousemove", onMove);
+    document.removeEventListener("mouseup", onUp);
+  };
+  document.addEventListener("mousemove", onMove);
+  document.addEventListener("mouseup", onUp);
+};
+
+// Called when section loads
+window.loadSupplyPlanningSection = function() {
+  applySpColWidths();
+  onSupplyPlanningMpChange();
 };
 
 // ── Payroll date range calendar (mirrors WB supplies calendar) ────────────
