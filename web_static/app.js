@@ -102,10 +102,6 @@ const teamState = {
   pendingCreate: null,
   pendingPermissions: [],
   pendingCanSupplies: false,
-  pendingCanSalary: false,
-  pendingCanSalarySettings: false,
-  pendingCanSalaryProductions: [],
-  pendingSupplyPermissions: null,
 };
 let syncInProgress = false;
 let syncStopStatusTimer = null;
@@ -119,7 +115,7 @@ const UI_REFRESH_MS = 60000;        // refresh chat list from DB every 60s (afte
 const CHANNEL_ICONS = { "Отзывы": "⭐", "Вопросы": "❓", "Чаты": "💬" };
 const ACTIVE_SECTION_STORAGE_KEY = "feedpilot_active_section";
 const ACTIVE_SETTINGS_TAB_STORAGE_KEY = "feedpilot_active_settings_tab";
-const SECTION_IDS = ["reviews", "conversations", "chats", "analytics", "settings", "stock-settings", "stock-work", "supplies-wb", "supplies-ozon", "supplies-poa", "supplies-certificates", "supplies-settings", "supply-planning", "salary", "salary-settings", "team", "profile"];
+const SECTION_IDS = ["reviews", "conversations", "chats", "analytics", "settings", "stock-settings", "stock-work", "supplies-wb", "supplies-ozon", "supplies-poa", "supplies-certificates", "supplies-settings", "team", "profile"];
 const SETTINGS_TAB_IDS = ["sources", "rules", "templates", "recommendations", "products", "template-variables"];
 const APP_BOOT_HIDE_CLASS = "app-boot-hidden";
 const MOBILE_NAV_BREAKPOINT_PX = 900;
@@ -208,62 +204,6 @@ function _changePage(state, loadFn, delta) {
   if (next < 1 || next > state.pages) return;
   state.page = next;
   loadFn();
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-
-// ── Permission polling (feedback_manager only) ────────────────────────────
-// Re-checks the current user's permissions every 60 seconds.
-// When the admin changes a manager's rights, the change is detected on the
-// next poll and the page reloads automatically so the new HTML is generated
-// with the correct APP_PERMISSIONS snapshot.
-
-const PERMISSION_POLL_MS = 60_000;
-let _permPollTimer = null;
-
-function _isManagedUser() {
-  // Returns true for feedback_manager accounts (not for owners/admins).
-  return !isTenantOwner() && !(window.APP_PERMISSIONS || {}).is_admin;
-}
-
-function _permissionsMatch(newPerms) {
-  const cur = window.APP_PERMISSIONS || {};
-  const keys = [
-    "can_view_feedback", "can_view_reviews", "can_view_questions",
-    "can_view_chats", "can_view_supplies", "can_view_any_supply", "can_view_salary",
-  ];
-  return keys.every(k => Boolean(cur[k]) === Boolean(newPerms[k]));
-}
-
-function _showReloadBanner() {
-  let banner = document.getElementById("permsReloadBanner");
-  if (!banner) {
-    banner = document.createElement("div");
-    banner.id = "permsReloadBanner";
-    banner.className = "perms-reload-banner";
-    banner.innerHTML = '<span class="perms-reload-spinner"></span> Ваши права изменились. Обновляем страницу…';
-    document.body.appendChild(banner);
-  }
-  requestAnimationFrame(() => banner.classList.add("visible"));
-}
-
-async function _checkPermissions() {
-  if (!_isManagedUser()) return;
-  try {
-    const res = await fetch("/api/my/permissions");
-    if (!res.ok) return;
-    const newPerms = await res.json();
-    if (_permissionsMatch(newPerms)) return;
-    // Permissions changed — show banner and reload
-    _showReloadBanner();
-    setTimeout(() => window.location.reload(), 2000);
-  } catch (_) {}
-}
-
-function startPermissionPolling() {
-  if (!_isManagedUser()) return;
-  if (_permPollTimer) return; // already running
-  _permPollTimer = setInterval(_checkPermissions, PERMISSION_POLL_MS);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -453,7 +393,6 @@ const modeLabels = {
 const marketplaceLabels = {
   wb: "WB",
   ozon: "OZON",
-  yandex: "Яндекс Маркет",
   mock: "Тестовый",
 };
 const roleLabels = {
@@ -505,23 +444,34 @@ async function copyAccountApiKey(rawKey) {
 }
 
 function getPermissions() {
+  const defaults = { can_view_analytics: true, can_view_settings: true, can_view_supplies: false, can_view_feedback: true, is_admin: false };
   const fromWindow = window.APP_PERMISSIONS || {};
-  const _b = (key, def) => Boolean(fromWindow[key] !== undefined ? fromWindow[key] : def);
   return {
-    can_view_analytics: _b("can_view_analytics", true),
-    can_view_settings:  _b("can_view_settings", true),
-    can_view_supplies:    _b("can_view_supplies", false),
-    can_view_any_supply:  _b("can_view_any_supply", false),
-    can_view_feedback:  _b("can_view_feedback", true),
-    can_view_reviews:   _b("can_view_reviews", true),
-    can_view_questions: _b("can_view_questions", true),
-    can_view_chats:     _b("can_view_chats", true),
-    can_view_salary:          _b("can_view_salary", false),
-    can_view_salary_settings: _b("can_view_salary_settings", false),
-    can_view_salary_report: _b("can_view_salary_report", false),
-    can_view_salary_zp_export: _b("can_view_salary_zp_export", false),
-    can_salary_productions: (window.APP_PERMISSIONS || {}).can_salary_productions ?? null,
-    is_admin:           _b("is_admin", false),
+    can_view_analytics: Boolean(
+      fromWindow.can_view_analytics !== undefined
+        ? fromWindow.can_view_analytics
+        : defaults.can_view_analytics,
+    ),
+    can_view_settings: Boolean(
+      fromWindow.can_view_settings !== undefined
+        ? fromWindow.can_view_settings
+        : defaults.can_view_settings,
+    ),
+    can_view_supplies: Boolean(
+      fromWindow.can_view_supplies !== undefined
+        ? fromWindow.can_view_supplies
+        : defaults.can_view_supplies,
+    ),
+    can_view_feedback: Boolean(
+      fromWindow.can_view_feedback !== undefined
+        ? fromWindow.can_view_feedback
+        : defaults.can_view_feedback,
+    ),
+    is_admin: Boolean(
+      fromWindow.is_admin !== undefined
+        ? fromWindow.is_admin
+        : defaults.is_admin,
+    ),
   };
 }
 
@@ -532,20 +482,17 @@ function isTenantOwner() {
 
 function canViewSection(section) {
   const permissions = getPermissions();
-  if (section === "analytics")    return permissions.can_view_analytics;
-  if (section === "settings")     return permissions.can_view_settings;
-  if (section === "team")         return isTenantOwner();
-  if (section === "reviews")      return permissions.can_view_reviews;
-  if (section === "conversations") return permissions.can_view_questions;
-  if (section === "chats")        return permissions.can_view_chats;
-  if (section === "salary")         return permissions.can_view_salary || isTenantOwner();
-  if (section === "salary-settings") return isTenantOwner() || permissions.can_view_salary_settings;
-  if (section === "supplies-wb")  return permissions.can_view_supplies;
+  if (section === "analytics") return permissions.can_view_analytics;
+  if (section === "settings") return permissions.can_view_settings;
+  if (section === "team") return isTenantOwner();
+  if (section === "supplies-wb") return permissions.can_view_supplies;
   if (section === "supplies-ozon") return permissions.can_view_supplies;
   if (section === "supplies-poa") return permissions.can_view_supplies;
   if (section === "supplies-certificates") return permissions.can_view_supplies;
   if (section === "supplies-settings") return permissions.can_view_settings || permissions.can_view_supplies;
-  if (section === "supply-planning") return isTenantOwner() || permissions.can_supply_planning;
+  if (section === "reviews" || section === "conversations" || section === "chats") {
+    return permissions.can_view_feedback;
+  }
   return true;
 }
 
@@ -664,29 +611,6 @@ function initNavGroups() {
     const collapsed = Boolean(states["supplies"]);
     _applyNavGroup("supplies", collapsed, false);
   }
-
-  // Salary section: visible only if user has salary access or is tenant owner
-  const salaryHeader = document.getElementById("nav-group-salary-header");
-  const salaryWrapper = document.getElementById("nav-group-salary");
-  const hasSalaryAccess = perms.can_view_salary || perms.can_view_salary_settings || isTenantOwner();
-  if (hasSalaryAccess) {
-    if (salaryHeader) salaryHeader.style.display = "";
-    // Set nav item visibility BEFORE _applyNavGroup so scrollHeight
-    // includes all visible items when maxHeight is calculated
-    const salaryNav = document.getElementById("nav-salary");
-    if (salaryNav) salaryNav.style.display = (perms.can_view_salary || isTenantOwner()) ? "" : "none";
-    const salarySettingsNav = document.getElementById("nav-salary-settings");
-    if (salarySettingsNav) {
-      salarySettingsNav.style.display = (isTenantOwner() || perms.can_view_salary_settings) ? "" : "none";
-    }
-    if (salaryWrapper) {
-      const collapsed = Boolean(states["salary"]);
-      _applyNavGroup("salary", collapsed, false);
-    }
-  } else {
-    if (salaryHeader) salaryHeader.style.display = "none";
-    if (salaryWrapper) { salaryWrapper.style.maxHeight = "0px"; salaryWrapper.style.overflow = "hidden"; }
-  }
 }
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -711,26 +635,8 @@ function showSection(section, options = {}) {
   if (section === "profile") {
     loadProfile();
   }
-  if (section === "salary") {
-    loadMySalary();
-  }
   if (section === "team") {
     loadTeam();
-  }
-  if (section === "salary") {
-    loadPayrollPage();
-  }
-  if (section === "supplies-settings") {
-    showSuppliesSettingsTab(getPermissions().can_view_settings ? "sources" : "drivers");
-  }
-  if (section === "supply-planning") {
-    loadSupplyPlanningSection();
-  }
-  if (section === "salary-settings") {
-    showSalarySettingsTab("workers");
-    toggleSalaryWorkerForm(false);
-    toggleSalaryProductForm(false);
-    loadSalaryWorkers();
   }
   // Refresh chat list when navigating back to chats so Dmitry's message
   // doesn't disappear due to stale background-timer data.
@@ -786,8 +692,6 @@ function sectionLabel(section) {
     chats: "Чаты",
     analytics: "Аналитика",
     settings: "Настройки",
-    salary: "Моя зарплата",
-    "salary-settings": "Зарплата — Настройки",
     team: "Команда",
     "supplies-wb": "Поставки — WB",
     "supplies-settings": "Поставки — Настройки",
@@ -866,18 +770,6 @@ function setReviewBucket(bucket) {
   loadReviews();
 }
 
-window.setReviewsSource = function(src) {
-  reviewsState.source = src === "all" ? "all" : src;
-  reviewsState.page = 1;
-  // Sync both selects and buttons
-  ["all","wb","ozon","yandex"].forEach(s => {
-    document.getElementById(`reviews-src-${s}`)?.classList.toggle("active", s === src);
-  });
-  const mpSel = document.getElementById("reviewsMarketplaceFilter");
-  if (mpSel) mpSel.value = src;
-  loadReviews();
-};
-
 function onReviewPageSizeChange() {
   const raw = Number(document.getElementById("reviewsPageSize")?.value || 30);
   if (![10, 30, 50, 100].includes(raw)) return;
@@ -896,17 +788,6 @@ function setQuestionBucket(bucket) {
   _setBucketTabs("questions-tab-new", "questions-tab-processed", bucket);
   loadQuestions();
 }
-
-window.setQuestionsSource = function(src) {
-  questionsState.source = src === "all" ? "all" : src;
-  questionsState.page = 1;
-  ["all","wb","ozon","yandex"].forEach(s => {
-    document.getElementById(`questions-src-${s}`)?.classList.toggle("active", s === src);
-  });
-  const mpSel = document.getElementById("questionsMarketplaceFilter");
-  if (mpSel) mpSel.value = src;
-  loadQuestions();
-};
 
 function onQuestionsPageSizeChange() {
   const raw = Number(document.getElementById("questionsPageSize")?.value || 30);
@@ -1471,8 +1352,13 @@ function toggleAddSourceForm(show) {
 
 function onSourceMarketplaceChange() {
   const marketplace = document.getElementById("newSourceMarketplace")?.value || "wb";
-  document.getElementById("ozonClientField")?.classList.toggle("hidden", marketplace !== "ozon");
-  document.getElementById("yandexBusinessIdField")?.classList.toggle("hidden", marketplace !== "yandex");
+  const ozonField = document.getElementById("ozonClientField");
+  if (!ozonField) return;
+  if (marketplace === "ozon") {
+    ozonField.classList.remove("hidden");
+  } else {
+    ozonField.classList.add("hidden");
+  }
 }
 
 function syncRuleFormFromStore() {
@@ -1927,7 +1813,6 @@ async function stopSyncAll() {
   scheduleSyncStatusPolling();
 }
 
-
 async function clearAllReviews() {
   if (!confirm("Удалить все отзывы из текущего кабинета?")) return;
   const res = await fetch("/api/admin/reviews-clear", {
@@ -1949,10 +1834,7 @@ async function loadReviews() {
   const priority = String(document.getElementById("priorityFilter")?.value || reviewsState.priority || "");
   const status = String(document.getElementById("statusFilter")?.value || reviewsState.status || "all");
   const category = String(document.getElementById("categoryFilter")?.value || reviewsState.category || "");
-  // Prefer reviewsState.source when set by source buttons; fall back to select for filter panel
-  const source = (reviewsState.source && reviewsState.source !== "all")
-    ? reviewsState.source
-    : String(document.getElementById("sourceFilter")?.value || "all");
+  const source = String(document.getElementById("sourceFilter")?.value || reviewsState.source || "all");
   reviewsState.priority = priority;
   reviewsState.status = status;
   reviewsState.category = category;
@@ -2034,28 +1916,16 @@ async function loadReviews() {
     }
 
     // --- Column 3: Product ---
-    const isYandex = String(review.source || "").toLowerCase().includes("yandex");
-    // For YM: look up catalog name by yandex_offer_id matching supplierArticle
-    const ymArticle = isYandex ? (rawItem.supplierArticle || "") : "";
-    const ymCatalogProduct = ymArticle
-      ? (_productsCache || []).find(p => String(p.yandex_offer_id || "").trim() === ymArticle.trim())
-      : null;
-    const ymCatalogName = ymCatalogProduct?.name || "";
-
-    const productName = esc(ymCatalogName || rawProduct.productName || rawItem.productName || "");
+    const productName = esc(rawProduct.productName || rawItem.productName || "");
     const article = esc(rawProduct.supplierArticle || rawItem.supplierArticle || "");
     const brand = esc(rawProduct.brand || rawItem.brand || "");
     const seller = esc(rawProduct.seller || rawItem.seller || "");
-    // Build marketplace link
+    // Build marketplace link for product name
     const nmId = rawProduct.nmId || rawItem.nmId || rawItem.nmID || rawItem.productId || null;
     const ozonProductId = rawItem.product_id || rawItem.productId || rawItem.item_id || null;
-    const ymModelId = rawItem.nmId || null; // we store modelId as nmId for YM
     let productUrl = "";
     if (isOzon) {
       if (ozonProductId) productUrl = `https://www.ozon.ru/product/${ozonProductId}/`;
-    } else if (isYandex) {
-      if (ymModelId) productUrl = `https://market.yandex.ru/product/${ymModelId}`;
-      else if (ymArticle) productUrl = `https://market.yandex.ru/search?text=${encodeURIComponent(ymArticle)}`;
     } else if (nmId) {
       productUrl = `https://www.wildberries.ru/catalog/${nmId}/detail.aspx`;
     }
@@ -2084,11 +1954,11 @@ async function loadReviews() {
         `}
       </td>
       <td class="review-col-product">
-        ${productUrl
-          ? `<div class="review-product-name"><a href="${productUrl}" target="_blank" rel="noopener noreferrer" class="review-product-link">${productName || article || "Товар на маркетплейсе"}</a></div>`
-          : productName
-            ? `<div class="review-product-name">${productName}</div>`
-            : ""}
+        ${productName
+          ? productUrl
+            ? `<div class="review-product-name"><a href="${productUrl}" target="_blank" rel="noopener noreferrer" class="review-product-link">${productName}</a></div>`
+            : `<div class="review-product-name">${productName}</div>`
+          : ""}
         ${article ? `<div class="review-product-detail small">Артикул: ${article}</div>` : ""}
         ${brand ? `<div class="review-product-detail small">Бренд: ${brand}</div>` : ""}
         ${seller ? `<div class="review-product-detail small">Продавец: ${seller}</div>` : ""}
@@ -2843,6 +2713,8 @@ function openSupplyDetailsModal(supplyId) {
   if (prodSel) prodSel.value = item.production || "";
 
   // Build slots from drivers_json or legacy fields
+  // Always reset first so a previously-opened supply's data doesn't leak into this one
+  _sdSlots = [];
   if (item.drivers_json) {
     try { _sdSlots = JSON.parse(item.drivers_json); } catch (_) { _sdSlots = []; }
   }
@@ -7243,8 +7115,6 @@ async function loadQuestions() {
   const query = new URLSearchParams();
   query.set("kind", "question");
   if (accountIdRaw && accountIdRaw !== "all") query.set("account_id", accountIdRaw);
-  // Source filter from quick buttons (WB/OZON/ЯМ)
-  if (questionsState.source && questionsState.source !== "all") query.set("source", questionsState.source);
   if (status && status !== "all") query.set("status", status);
   if (questionsState.date_from) query.set("date_from", questionsState.date_from);
   if (questionsState.date_to) query.set("date_to", questionsState.date_to);
@@ -7269,24 +7139,20 @@ async function loadQuestions() {
     const uid = esc(item.conversation_uid);
     const meta = item.metadata || {};
     const rawItem = meta.raw || {};
-    const srcLower = String(item.source || "").toLowerCase();
-    const isOzon   = srcLower.includes("ozon");
-    const isYandex = srcLower.includes("yandex");
+    const isOzon = String(item.source || "").toLowerCase().includes("ozon");
     const isProcessed = questionsState.bucket === "processed";
 
     // Source badge
     const sourceIcon = isOzon
       ? `<span class="chat-list-badge" style="margin-left:6px;vertical-align:middle">OZON</span>`
-      : isYandex
-        ? `<span class="chat-list-badge" style="margin-left:6px;vertical-align:middle;background:#ffdb4d;color:#1a1a1a">ЯМ</span>`
-        : `<span class="chat-list-badge" style="margin-left:6px;vertical-align:middle">WB</span>`;
+      : `<span class="chat-list-badge" style="margin-left:6px;vertical-align:middle">WB</span>`;
 
     // Date/time MSK
     const qDateRaw = rawItem.createdDate || item.last_message_at || item.updated_at || "";
     const qDateStr = qDateRaw ? _toMsk(qDateRaw) : "—";
 
-    // Column 1: Question — YM stores question text in raw.text (top-level in raw metadata)
-    const questionText = item.message_text || rawItem.text || (meta._ym_raw || {}).text || "";
+    // Column 1: Question
+    const questionText = item.message_text || rawItem.text || "";
 
     // Column 2: Reply
     let replyContent;
@@ -7294,17 +7160,12 @@ async function loadQuestions() {
       // Show actual reply — our system reply OR portal reply (raw.answer.text for WB)
       const ourReply = String(item.last_sent_text || "").trim();
       const portalReply = String((rawItem.answer || {}).text || "").trim();
-      // YM: answers may be in raw.answers array or meta._ym_answers
-      const ymAnswers = meta._ym_answers || [];
-      const ymReply = ymAnswers.length ? String(ymAnswers[0]?.text || "") : "";
-      const actualReply = ourReply || portalReply || ymReply;
+      const actualReply = ourReply || portalReply;
       let replyText;
       if (actualReply) {
         replyText = actualReply;
       } else if (isOzon) {
         replyText = "Ответ предоставлен напрямую через портал ОЗОНа или другой сервис";
-      } else if (isYandex) {
-        replyText = "";  // no reply text available; don't show misleading fallback
       } else {
         replyText = "";
       }
@@ -7324,35 +7185,9 @@ async function loadQuestions() {
     }
 
     // Column 3: Product
-    // YM: offerId in rawItem.identifiers.offerId OR rawItem.offerId
+    // WB: product info in productDetails; Ozon: sku + product_url in rawItem directly
     let productCell = "";
-    if (isYandex) {
-      const ymOfferId = (rawItem.questionIdentifiers?.offerId)
-        || (rawItem.identifiers?.offerId)
-        || rawItem.offerId || rawItem.supplierArticle || "";
-      if (ymOfferId) {
-        const ymProduct = (_productsCache || []).find(
-          p => String(p.yandex_offer_id || "").trim() === String(ymOfferId).trim()
-        );
-        // For reviews: modelId available; for questions: fall back to search URL
-        const ymModelId = rawItem.nmId || rawItem.modelId
-          || (rawItem.identifiers?.modelId)
-          || (rawItem.questionIdentifiers?.modelId) || "";
-        const ymUrl = ymModelId
-          ? `https://market.yandex.ru/product/${ymModelId}`
-          : `https://market.yandex.ru/search?text=${encodeURIComponent(ymOfferId)}`;
-        const ymName = ymProduct?.name || "";
-        const ymPhoto = ymProduct?.photo_url || item.product_photo_url || "";
-        productCell = `
-          <div class="review-product-name">
-            <a href="${esc(ymUrl)}" target="_blank" rel="noopener noreferrer" class="review-product-link">
-              ${ymName ? esc(ymName) : esc(ymOfferId)}
-            </a>
-          </div>
-          ${ymName ? `<div class="review-product-detail small">Артикул: ${esc(ymOfferId)}</div>` : ""}
-          ${ymPhoto ? `<img src="${esc(ymPhoto)}" class="product-thumb" alt="" onerror="this.style.display='none'">` : ""}`;
-      }
-    } else if (isOzon) {
+    if (isOzon) {
       const ozonSku = rawItem.sku || null;
       const ozonUrl = rawItem.product_url || (ozonSku ? `https://www.ozon.ru/product/${ozonSku}/` : "");
       if (ozonUrl || ozonSku) {
@@ -7389,7 +7224,7 @@ async function loadQuestions() {
         <div class="review-meta-small">${esc(item.customer_name || "")}${item.customer_name && qDateStr !== "—" ? " · " : ""}${qDateStr !== "—" ? qDateStr : ""}</div>
       </td>
       <td class="review-col-reply">${replyContent}</td>
-      <td class="review-col-product">${productCell}${item.product_photo_url && !isYandex ? `<img src="${esc(item.product_photo_url)}" class="product-thumb" alt="" onerror="this.style.display='none'">` : ""}</td>
+      <td class="review-col-product">${productCell}${item.product_photo_url ? `<img src="${esc(item.product_photo_url)}" class="product-thumb" alt="" onerror="this.style.display='none'">` : ""}</td>
     `;
 
     // Make textarea editable on click for new questions
@@ -8977,10 +8812,6 @@ async function loadAccounts() {
         </div>
       </td>
       <td>${esc(account.is_active ? "Да" : "Нет")}</td>
-      <td style="text-align:center">
-        <button class="icon-btn" title="Синхронизировать этот кабинет"
-          onclick="openPerSourceSyncModal(${account.id}, '${esc(account.account_name)}', '${esc(account.marketplace || 'wb')}')">🔄</button>
-      </td>
       <td>
         <div class="row">
           <button class="secondary" onclick="toggleAccount(${account.id}, ${account.is_active ? "false" : "true"})">
@@ -9088,61 +8919,6 @@ async function loadUserSyncSettings() {
   info.textContent = "";
 }
 
-// ── Per-source sync modal ─────────────────────────────────────────────────
-
-let _pssAccountId = null;
-
-window.openPerSourceSyncModal = function(accountId, accountName, marketplace) {
-  _pssAccountId = accountId;
-  const title = document.getElementById("perSourceSyncTitle");
-  if (title) title.textContent = `Синхронизация: ${accountName}`;
-  // Hide chats row for Yandex Market (no chats API)
-  const chatsRow = document.getElementById("pssChatsRow");
-  if (chatsRow) chatsRow.style.display = marketplace === "yandex" ? "none" : "";
-  // Reset checkboxes
-  ["pssChkReviews","pssChkQuestions","pssChkChats"].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.checked = true;
-  });
-  document.getElementById("perSourceSyncInfo").textContent = "";
-  document.getElementById("perSourceSyncModal")?.classList.remove("hidden");
-};
-
-window.closePerSourceSyncModal = function() {
-  document.getElementById("perSourceSyncModal")?.classList.add("hidden");
-  _pssAccountId = null;
-};
-
-window.executePerSourceSync = async function() {
-  if (!_pssAccountId) return;
-  const btn = document.getElementById("perSourceSyncBtn");
-  const info = document.getElementById("perSourceSyncInfo");
-  if (btn) { btn.disabled = true; btn.textContent = "Синхронизация..."; }
-  if (info) info.textContent = "";
-  try {
-    const res = await fetch("/api/sync", {
-      method: "POST",
-      headers: jsonHeaders(),
-      // Use account_ids (array) → background thread, non-blocking
-      body: JSON.stringify({ account_ids: [_pssAccountId], all_accounts: false }),
-    });
-    let data = {};
-    try { data = await res.json(); } catch (_) {}
-    if (!res.ok) {
-      if (info) { info.textContent = data.detail || "Ошибка запуска"; info.style.color = "#b91c1c"; }
-      return;
-    }
-    closePerSourceSyncModal();
-    if (info) { info.textContent = "Синхронизация запущена"; info.style.color = "#16a34a"; }
-    // Brief delay then reload sync status
-    setTimeout(() => { if (typeof loadSyncStatus === "function") loadSyncStatus(); }, 1500);
-  } catch (e) {
-    if (info) { info.textContent = "Ошибка: " + e.message; info.style.color = "#b91c1c"; }
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = "🔄 Синхронизировать"; }
-  }
-};
-
 async function createAccount() {
   const marketplace = document.getElementById("newSourceMarketplace").value;
   const accountName = document.getElementById("newSourceName").value.trim();
@@ -9157,23 +8933,17 @@ async function createAccount() {
     document.getElementById("accountsInfo").textContent = "Ошибка: укажите токен доступа";
     return;
   }
-  const businessId = document.getElementById("newSourceBusinessId")?.value.trim() || "";
   if (marketplace === "ozon" && !clientId) {
     document.getElementById("accountsInfo").textContent = "Ошибка: укажите идентификатор клиента для OZON";
     return;
   }
-  if (marketplace === "yandex" && !businessId) {
-    document.getElementById("accountsInfo").textContent = "Ошибка: укажите Business ID для Яндекс Маркета";
-    return;
-  }
 
-  const integration = marketplace === "yandex" ? { business_id: businessId } : null;
   const payload = {
     marketplace: marketplace,
     account_name: accountName,
     client_id: marketplace === "ozon" ? clientId : null,
     api_key: apiToken,
-    integration,
+    integration: null,
   };
   const res = await fetch("/api/accounts", {
     method: "POST",
@@ -9248,11 +9018,10 @@ function updateTeamPermissionsPreview() {
   if (!preview) return;
   const permissions = Array.isArray(teamState.pendingPermissions) ? teamState.pendingPermissions : [];
   const canSupplies = Boolean(teamState.pendingCanSupplies);
-  const canSalary = Boolean(teamState.pendingCanSalary);
-  if (!permissions.length && !canSupplies && !canSalary && !teamState.pendingCanSalarySettings) {
+  if (!permissions.length && !canSupplies) {
     preview.textContent = "Разрешения не выбраны";
   } else {
-    preview.textContent = formatManagerPermissionsText(permissions, canSupplies, teamState.pendingSupplyPermissions, canSalary, teamState.pendingCanSalarySettings, teamState.pendingCanSalaryProductions);
+    preview.textContent = formatManagerPermissionsText(permissions, canSupplies);
   }
 }
 
@@ -9267,44 +9036,6 @@ function closeManagerPermissionsModal() {
 }
 
 // ── Supply permissions table ──────────────────────────────────────────────
-/**
- * Toggle a permission section on/off via its parent checkbox.
- * Disables/enables all child checkboxes and dims the content block.
- */
-function togglePermSection(section) {
-  const ids = {
-    feedback: { chk: 'managerFeedbackEnabled', content: 'permSectionFeedback' },
-    supplies: { chk: 'managerSuppliesEnabled', content: 'permSectionSupplies' },
-    salary:   { chk: 'managerSalaryEnabled',   content: 'permSectionSalary'   },
-  };
-  const cfg = ids[section];
-  if (!cfg) return;
-  const parent  = document.getElementById(cfg.chk);
-  const content = document.getElementById(cfg.content);
-  if (!parent || !content) return;
-  const enabled = parent.checked;
-  content.classList.toggle('disabled', !enabled);
-  content.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-    cb.disabled = !enabled;
-    if (!enabled) cb.checked = false;
-  });
-}
-
-/**
- * Initialise all three parent checkboxes and their section states.
- * Called after the modal content has been rendered.
- */
-function initPermSectionToggles(feedbackEnabled, suppliesEnabled, salaryEnabled) {
-  const set = (id, checked) => {
-    const el = document.getElementById(id);
-    if (el) el.checked = checked;
-  };
-  set('managerFeedbackEnabled', feedbackEnabled);
-  set('managerSuppliesEnabled', suppliesEnabled);
-  set('managerSalaryEnabled',   salaryEnabled);
-  ['feedback', 'supplies', 'salary'].forEach(s => togglePermSection(s));
-}
-
 function renderManagerSupplyPermissionsRows(supplySources, supplyPerms) {
   const tbody = document.getElementById("managerSupplyPermissionsTbody");
   if (!tbody) return;
@@ -9369,7 +9100,6 @@ function collectManagerSupplyPermissionsFromModal() {
     can_supply_settings: Boolean(document.getElementById("managerSupplySettings")?.checked),
     can_supply_poa: Boolean(document.getElementById("managerSupplyPoa")?.checked),
     can_supply_certs: Boolean(document.getElementById("managerSupplyCerts")?.checked),
-    can_supply_planning: Boolean(document.getElementById("managerSupplyPlanningAccess")?.checked),
   };
 }
 
@@ -9385,11 +9115,13 @@ function renderManagerPermissionsRows(accounts, permissions = []) {
     if (!accountId) continue;
     const rowPerm = permissionsByAccount.get(accountId) || {};
     const tr = document.createElement("tr");
+    const tdStyle = "padding:10px 12px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b";
+    const tdCenter = tdStyle + ";text-align:center";
     tr.innerHTML = `
-      <td>${esc(account.account_name || `Кабинет #${accountId}`)}</td>
-      <td><input type="checkbox" data-account-id="${accountId}" data-scope="reviews" ${rowPerm.can_reviews ? "checked" : ""} /></td>
-      <td><input type="checkbox" data-account-id="${accountId}" data-scope="questions" ${rowPerm.can_questions ? "checked" : ""} /></td>
-      <td><input type="checkbox" data-account-id="${accountId}" data-scope="chats" ${rowPerm.can_chats ? "checked" : ""} /></td>
+      <td style="${tdStyle}">${esc(account.account_name || `Кабинет #${accountId}`)}</td>
+      <td style="${tdCenter}"><input type="checkbox" data-account-id="${accountId}" data-scope="reviews" ${rowPerm.can_reviews ? "checked" : ""} /></td>
+      <td style="${tdCenter}"><input type="checkbox" data-account-id="${accountId}" data-scope="questions" ${rowPerm.can_questions ? "checked" : ""} /></td>
+      <td style="${tdCenter}"><input type="checkbox" data-account-id="${accountId}" data-scope="chats" ${rowPerm.can_chats ? "checked" : ""} /></td>
     `;
     tbody.appendChild(tr);
   }
@@ -9418,7 +9150,7 @@ function collectManagerPermissionsFromModal() {
   return Array.from(map.values()).filter((item) => item.can_reviews || item.can_questions || item.can_chats);
 }
 
-function formatManagerPermissionsText(permissions, canSupplies, supplyPermissions, canSalary, canSalarySettings, salaryProductions) {
+function formatManagerPermissionsText(permissions, canSupplies, supplyPermissions) {
   const rows = Array.isArray(permissions) ? permissions : [];
   // Build supplies summary from granular permissions
   const sp = supplyPermissions || {};
@@ -9436,16 +9168,8 @@ function formatManagerPermissionsText(permissions, canSupplies, supplyPermission
   const suppliesText = uniqueParts.length
     ? "Поставки: " + uniqueParts.join(", ")
     : (canSupplies ? "Поставки" : "");
-  const salaryParts = [];
-  if (canSalary) {
-    const prods = Array.isArray(salaryProductions) && salaryProductions.length
-      ? " (" + salaryProductions.join(", ") + ")" : "";
-    salaryParts.push("Начисление ЗП" + prods);
-  }
-  if (canSalarySettings) salaryParts.push("Настройки");
-  const salaryText = salaryParts.length ? "Зарплата: " + salaryParts.join(", ") : "";
-  if (!rows.length && !suppliesText && !salaryText) return "Доступы не назначены";
-  if (!rows.length) return [suppliesText, salaryText].filter(Boolean).join("; ");
+  if (!rows.length && !suppliesText) return "Доступы не назначены";
+  if (!rows.length) return suppliesText;
   const accountById = new Map((teamState.accounts || []).map((item) => [Number(item.id || 0), item]));
   return rows
     .map((perm) => {
@@ -9458,7 +9182,7 @@ function formatManagerPermissionsText(permissions, canSupplies, supplyPermission
       if (perm.can_chats) scopes.push("чаты");
       return `${accountName}: ${scopes.join(", ") || "нет"}`;
     })
-    .join("; ") + (suppliesText ? "; " + suppliesText : "") + (salaryText ? "; " + salaryText : "");
+    .join("; ") + (suppliesText ? "; " + suppliesText : "");
 }
 
 async function loadTeam() {
@@ -9492,7 +9216,7 @@ async function loadTeam() {
   } else {
     for (const member of teamState.items) {
       const memberId = Number(member.id || 0);
-      const permsText = formatManagerPermissionsText(member.manager_permissions || [], member.can_supplies, member.supply_permissions, member.can_salary, member.can_salary_settings, member.salary_productions);
+      const permsText = formatManagerPermissionsText(member.manager_permissions || [], member.can_supplies, member.supply_permissions);
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td>${esc(member.id)}</td>
@@ -9555,23 +9279,12 @@ async function openEditTeamMember(userId) {
   document.getElementById("editMemberFullName").value = member.full_name || "";
   document.getElementById("editMemberPassword").value = "";
   document.getElementById("editMemberInfo").textContent = "";
-  // Initialise pending state from DB data for this editing session.
-  // openManagerPermissionsModalForEdit will reuse this state on repeated opens
-  // so unsaved checkbox changes are never silently discarded.
-  teamState.pendingPermissions = (member.manager_permissions || []).map(p => ({...p}));
-  teamState.pendingCanSupplies = Boolean(member.can_supplies);
-  teamState.pendingCanSalary = Boolean(member.can_salary);
-  teamState.pendingCanSalarySettings = Boolean(member.can_salary_settings);
-  teamState.pendingCanSalaryReport = Boolean(member.can_salary_report);
-  teamState.pendingCanSalaryZpExport = Boolean(member.can_salary_zp_export);
-  teamState.pendingCanSalaryProductions = Array.isArray(member.salary_productions) ? [...member.salary_productions] : [];
-  // Pre-populate from the data already loaded by loadTeam() so saveEditTeamMember
-  // always has a complete supply payload even if the permissions modal is never opened.
-  teamState.pendingSupplyPermissions = member.supply_permissions
-    ? { ...member.supply_permissions, sources: { ...(member.supply_permissions.sources || {}) } }
-    : null;
-  const permText = formatManagerPermissionsText(member.manager_permissions || [], member.can_supplies, member.supply_permissions, member.can_salary, member.can_salary_settings, member.salary_productions);
+  // Show current permissions
+  const permText = formatManagerPermissionsText(member.manager_permissions || [], member.can_supplies, member.supply_permissions);
   document.getElementById("editMemberPermissionsPreview").textContent = permText || "Нет доступов";
+  // Pre-load permissions into the shared permissions modal state
+  _pendingManagerPermissions = (member.manager_permissions || []).map(p => ({...p}));
+  _pendingManagerCanSupplies = Boolean(member.can_supplies);
   const modal = document.getElementById("editTeamMemberModal");
   if (modal) { modal.classList.remove("hidden"); modal.style.display = ""; }
 }
@@ -9580,22 +9293,18 @@ function closeEditTeamMember() {
   const modal = document.getElementById("editTeamMemberModal");
   if (modal) { modal.classList.add("hidden"); modal.style.display = "none"; }
   _editingMemberId = null;
-  teamState.pendingPermissions = [];
-  teamState.pendingCanSupplies = false;
-  teamState.pendingCanSalary = false;
-  teamState.pendingCanSalarySettings = false;
-  teamState.pendingCanSalaryProductions = [];
-  teamState.pendingSupplyPermissions = null;
 }
 
 async function openManagerPermissionsModalForEdit() {
   if (!Array.isArray(teamState.accounts) || !teamState.accounts.length) await loadAccounts();
-  if (!_editingMemberId) return;
-  // Supply permissions are loaded once per edit session (null = not yet loaded)
-  if (!teamState.pendingSupplyPermissions) {
-    const spRes = await fetch(`/api/tenant/team/${_editingMemberId}/supply-permissions`).catch(() => null);
-    teamState.pendingSupplyPermissions = spRes?.ok ? await spRes.json().catch(() => ({})) : {};
-  }
+  const member = teamState.items.find(m => Number(m.id) === _editingMemberId);
+  if (!member) return;
+  teamState.pendingPermissions = (member.manager_permissions || []).map(p => ({...p}));
+  teamState.pendingCanSupplies = Boolean(member.can_supplies);
+  // Load supply permissions
+  const spRes = await fetch(`/api/tenant/team/${_editingMemberId}/supply-permissions`).catch(() => null);
+  const spData = spRes?.ok ? await spRes.json().catch(() => ({})) : {};
+  teamState.pendingSupplyPermissions = spData;
   const info = document.getElementById("managerPermissionsInfo");
   if (info) { info.textContent = ""; info.style.color = ""; }
   const saveBtn = document.getElementById("managerPermissionsSaveBtn");
@@ -9605,25 +9314,6 @@ async function openManagerPermissionsModalForEdit() {
   const ssRes = await fetch("/api/supply-sources").catch(() => null);
   const ssSources = ssRes?.ok ? await ssRes.json().catch(() => []) : [];
   renderManagerSupplyPermissionsRows(ssSources, teamState.pendingSupplyPermissions);
-  // Set supply planning checkbox from pendingSupplyPermissions
-  const spPlanChk = document.getElementById("managerSupplyPlanningAccess");
-  if (spPlanChk) spPlanChk.checked = Boolean(teamState.pendingSupplyPermissions?.can_supply_planning);
-  // Set salary sub-checkboxes
-  const salaryChk = document.getElementById("managerSalaryAccess");
-  if (salaryChk) salaryChk.checked = teamState.pendingCanSalary;
-  const salaryStgChk = document.getElementById("managerSalarySettingsAccess");
-  if (salaryStgChk) salaryStgChk.checked = teamState.pendingCanSalarySettings;
-  const salaryRptChk = document.getElementById("managerSalaryReportAccess");
-  if (salaryRptChk) salaryRptChk.checked = Boolean(teamState.pendingCanSalaryReport);
-  const salaryZpExpChk = document.getElementById("managerSalaryZpExportAccess");
-  if (salaryZpExpChk) salaryZpExpChk.checked = Boolean(teamState.pendingCanSalaryZpExport);
-  _setPayrollProductionCheckboxes(teamState.pendingCanSalaryProductions);
-  // Initialise parent (category) checkboxes
-  initPermSectionToggles(
-    teamState.pendingPermissions.length > 0,
-    Boolean(teamState.pendingCanSupplies),
-    Boolean(teamState.pendingCanSalary)
-  );
   setModalVisibility("managerPermissionsModal", true);
 }
 
@@ -9654,51 +9344,20 @@ async function saveEditTeamMember() {
         return;
       }
     }
-    // Update feedback permissions
+    // Update permissions
     const permsPayload = (teamState.pendingPermissions || []).filter(p => p.can_reviews || p.can_questions || p.can_chats);
-    const pr2 = await fetch(`/api/tenant/team/${uid}/permissions`, {
+    await fetch(`/api/tenant/team/${uid}/permissions`, {
       method: "PUT", headers: jsonHeaders(), body: JSON.stringify({ permissions: permsPayload })
     });
-    if (!pr2.ok) {
-      const e = await pr2.json().catch(() => ({}));
-      if (info) { info.textContent = e.detail || "Ошибка сохранения разрешений"; info.style.color = "#b91c1c"; }
-      return;
-    }
-    // Update supply access (always send full payload including can_supply_certs)
     const sp = teamState.pendingSupplyPermissions || {};
-    const pr3 = await fetch(`/api/tenant/team/${uid}/supplies-access`, {
+    await fetch(`/api/tenant/team/${uid}/supplies-access`, {
       method: "PUT", headers: jsonHeaders(), body: JSON.stringify({
         can_supplies: Boolean(teamState.pendingCanSupplies),
         can_supply_settings: Boolean(sp.can_supply_settings),
         can_supply_poa: Boolean(sp.can_supply_poa),
-        can_supply_certs: Boolean(sp.can_supply_certs),
-        can_supply_planning: Boolean(sp.can_supply_planning),
         supply_sources: sp.sources || {},
       })
     });
-    if (!pr3.ok) {
-      let msg = "Ошибка сохранения доступа к поставкам";
-      try { const e = await pr3.json(); if (e?.detail) msg = Array.isArray(e.detail) ? e.detail.map(d => d.msg || JSON.stringify(d)).join("; ") : String(e.detail); } catch (_) {}
-      if (info) { info.textContent = msg; info.style.color = "#b91c1c"; }
-      return;
-    }
-    // Update salary access
-    const pr4 = await fetch(`/api/tenant/team/${uid}/salary-access`, {
-      method: "PUT", headers: jsonHeaders(),
-      body: JSON.stringify({
-        can_salary: Boolean(teamState.pendingCanSalary),
-        can_salary_settings: Boolean(teamState.pendingCanSalarySettings),
-        can_salary_report: Boolean(teamState.pendingCanSalaryReport),
-        can_salary_zp_export: Boolean(teamState.pendingCanSalaryZpExport),
-        salary_productions: teamState.pendingCanSalaryProductions || [],
-      }),
-    });
-    if (!pr4.ok) {
-      let msg = "Ошибка сохранения доступа к зарплате";
-      try { const e = await pr4.json(); if (e?.detail) msg = Array.isArray(e.detail) ? e.detail.map(d => d.msg || JSON.stringify(d)).join("; ") : String(e.detail); } catch (_) {}
-      if (info) { info.textContent = msg; info.style.color = "#b91c1c"; }
-      return;
-    }
     if (info) { info.textContent = "Сохранено"; info.style.color = "#16a34a"; }
     await loadTeam();
     setTimeout(closeEditTeamMember, 800);
@@ -9758,51 +9417,21 @@ async function openManagerPermissionsModalForCreate() {
   }
   const permissions = Array.isArray(teamState.pendingPermissions) ? teamState.pendingPermissions : [];
   renderManagerPermissionsRows(teamState.accounts, permissions);
+  // Load supply sources for new manager (no existing permissions)
   const ssRes = await fetch("/api/supply-sources").catch(() => null);
   const ssSources = ssRes?.ok ? await ssRes.json().catch(() => []) : [];
-  // Use existing pending supply state on re-open so unsaved selections are preserved
-  renderManagerSupplyPermissionsRows(ssSources, teamState.pendingSupplyPermissions || {});
-  const spPlanChk2 = document.getElementById("managerSupplyPlanningAccess");
-  if (spPlanChk2) spPlanChk2.checked = Boolean(teamState.pendingSupplyPermissions?.can_supply_planning);
-  // Restore salary sub-checkboxes from pending state
-  const salaryChkCreate = document.getElementById("managerSalaryAccess");
-  if (salaryChkCreate) salaryChkCreate.checked = Boolean(teamState.pendingCanSalary);
-  const salaryStgChkCreate = document.getElementById("managerSalarySettingsAccess");
-  if (salaryStgChkCreate) salaryStgChkCreate.checked = Boolean(teamState.pendingCanSalarySettings);
-  _setPayrollProductionCheckboxes(teamState.pendingCanSalaryProductions);
-  // Initialise parent (category) checkboxes
-  initPermSectionToggles(
-    (teamState.pendingPermissions || []).length > 0,
-    Boolean(teamState.pendingCanSupplies),
-    Boolean(teamState.pendingCanSalary)
-  );
+  renderManagerSupplyPermissionsRows(ssSources, {});
   setModalVisibility("managerPermissionsModal", true);
 }
 
 function applyManagerPermissionsSelection() {
-  // Parent (category) checkboxes determine whether the section is active at all
-  const feedbackEnabled = Boolean(document.getElementById("managerFeedbackEnabled")?.checked);
-  const suppliesEnabled = Boolean(document.getElementById("managerSuppliesEnabled")?.checked);
-  const salaryEnabled   = Boolean(document.getElementById("managerSalaryEnabled")?.checked);
-
-  const permissions = feedbackEnabled ? collectManagerPermissionsFromModal() : [];
-  const supplyPerms = suppliesEnabled ? collectManagerSupplyPermissionsFromModal()
-                                      : { sources: {}, can_supply_settings: false, can_supply_poa: false, can_supply_certs: false };
-  const canSalary         = salaryEnabled && Boolean(document.getElementById("managerSalaryAccess")?.checked);
-  const canSalarySettings = salaryEnabled && Boolean(document.getElementById("managerSalarySettingsAccess")?.checked);
-  const canSalaryReport   = salaryEnabled && Boolean(document.getElementById("managerSalaryReportAccess")?.checked);
-  const canSalaryZpExport = salaryEnabled && Boolean(document.getElementById("managerSalaryZpExportAccess")?.checked);
-  const salaryProductions = salaryEnabled ? _collectPayrollProductions() : [];
+  const permissions = collectManagerPermissionsFromModal();
+  const supplyPerms = collectManagerSupplyPermissionsFromModal();
   teamState.pendingSupplyPermissions = supplyPerms;
-  teamState.pendingCanSalary = canSalary;
-  teamState.pendingCanSalarySettings = canSalarySettings;
-  teamState.pendingCanSalaryReport = canSalaryReport;
-  teamState.pendingCanSalaryZpExport = canSalaryZpExport;
-  teamState.pendingCanSalaryProductions = salaryProductions;
   const hasAnySupply = supplyPerms.can_supply_settings || supplyPerms.can_supply_poa || supplyPerms.can_supply_certs ||
     Object.values(supplyPerms.sources || {}).some(s => s.wb || s.ozon);
   teamState.pendingCanSupplies = hasAnySupply;
-  if (!permissions.length && !hasAnySupply && !canSalary && !canSalarySettings) {
+  if (!permissions.length && !hasAnySupply) {
     const info = document.getElementById("managerPermissionsInfo");
     if (info) {
       info.textContent = "Нужно выбрать хотя бы один доступ";
@@ -9814,9 +9443,10 @@ function applyManagerPermissionsSelection() {
   closeManagerPermissionsModal();
   updateTeamPermissionsPreview();
   setTeamInfo("Разрешения менеджера выбраны");
+  // Update preview in edit modal if open
   const editPreview = document.getElementById("editMemberPermissionsPreview");
   if (editPreview && _editingMemberId) {
-    const txt = formatManagerPermissionsText(permissions, teamState.pendingCanSupplies, teamState.pendingSupplyPermissions, canSalary, canSalarySettings, salaryProductions);
+    const txt = formatManagerPermissionsText(permissions, teamState.pendingCanSupplies, teamState.pendingSupplyPermissions);
     editPreview.textContent = txt || "Нет доступов";
   }
 }
@@ -9832,8 +9462,7 @@ async function saveNewManager() {
   }
   const permissions = Array.isArray(teamState.pendingPermissions) ? teamState.pendingPermissions : [];
   const canSupplies = Boolean(teamState.pendingCanSupplies);
-  const canSalaryNew = Boolean(teamState.pendingCanSalary);
-  if (!permissions.length && !canSupplies && !canSalaryNew) {
+  if (!permissions.length && !canSupplies) {
     setTeamInfo("Сначала нажмите «Разрешения» и выберите хотя бы один доступ.", true);
     return;
   }
@@ -9858,29 +9487,12 @@ async function saveNewManager() {
     setTeamInfo("Ошибка: " + msg, true);
     return;
   }
-  if (data.item?.id) {
-    // Always send full supply and salary payloads (including when false)
-    // so the DB is exactly in sync with what was selected in the modal.
-    const spNew = teamState.pendingSupplyPermissions || {};
+  // Set can_supplies if checked
+  if (teamState.pendingCanSupplies && data.item?.id) {
     await fetch(`/api/tenant/team/${data.item.id}/supplies-access`, {
-      method: "PUT", headers: jsonHeaders(),
-      body: JSON.stringify({
-        can_supplies: canSupplies,
-        can_supply_settings: Boolean(spNew.can_supply_settings),
-        can_supply_poa: Boolean(spNew.can_supply_poa),
-        can_supply_certs: Boolean(spNew.can_supply_certs),
-        supply_sources: spNew.sources || {},
-      }),
-    }).catch(() => {});
-    await fetch(`/api/tenant/team/${data.item.id}/salary-access`, {
-      method: "PUT", headers: jsonHeaders(),
-      body: JSON.stringify({
-        can_salary: Boolean(teamState.pendingCanSalary),
-        can_salary_settings: Boolean(teamState.pendingCanSalarySettings),
-        can_salary_report: Boolean(teamState.pendingCanSalaryReport),
-        can_salary_zp_export: Boolean(teamState.pendingCanSalaryZpExport),
-        salary_productions: teamState.pendingCanSalaryProductions || [],
-      }),
+      method: "PUT",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ can_supplies: true }),
     }).catch(() => {});
   }
   document.getElementById("teamManagerEmail").value = "";
@@ -9888,9 +9500,6 @@ async function saveNewManager() {
   document.getElementById("teamManagerFullName").value = "";
   teamState.pendingPermissions = [];
   teamState.pendingCanSupplies = false;
-  teamState.pendingCanSalary = false;
-  teamState.pendingCanSalarySettings = false;
-  teamState.pendingCanSalaryProductions = [];
   updateTeamPermissionsPreview();
   setTeamInfo("Менеджер создан");
   await loadTeam();
@@ -10284,7 +9893,6 @@ function openAddProductForm(editItem = null) {
   document.getElementById("productFormSupplierArticle").value = editItem?.supplier_article || "";
   document.getElementById("productFormWbNmid").value = editItem?.wb_nmid || "";
   document.getElementById("productFormOzonSku").value = editItem?.ozon_sku || "";
-  document.getElementById("productFormYandexOfferId").value = editItem?.yandex_offer_id || "";
   document.getElementById("productFormPhoto").value = "";
   document.getElementById("productFormName").focus();
 }
@@ -10315,7 +9923,6 @@ async function loadProducts() {
         <td>${esc(item.supplier_article || "—")}</td>
         <td>${esc(item.wb_nmid || "—")}</td>
         <td>${esc(item.ozon_sku || "—")}</td>
-        <td>${esc(item.yandex_offer_id || "—")}</td>
         <td>
           <button type="button" class="secondary" style="font-size:12px;padding:4px 8px" onclick="editProduct(${item.id})">✏</button>
           <button type="button" class="secondary danger" style="font-size:12px;padding:4px 8px" onclick="deleteProduct(${item.id})">✕</button>
@@ -10338,7 +9945,6 @@ async function saveProduct() {
   const supplierArticle = String(document.getElementById("productFormSupplierArticle")?.value || "").trim();
   const wbNmid = String(document.getElementById("productFormWbNmid")?.value || "").trim();
   const ozonSku = String(document.getElementById("productFormOzonSku")?.value || "").trim();
-  const yandexOfferId = String(document.getElementById("productFormYandexOfferId")?.value || "").trim();
   const photoFile = document.getElementById("productFormPhoto")?.files?.[0];
   const info = document.getElementById("productFormInfo");
   if (!name) { if (info) info.textContent = "Введите наименование"; return; }
@@ -10347,7 +9953,6 @@ async function saveProduct() {
   fd.append("supplier_article", supplierArticle);
   fd.append("wb_nmid", wbNmid);
   fd.append("ozon_sku", ozonSku);
-  fd.append("yandex_offer_id", yandexOfferId);
   if (photoFile) fd.append("photo", photoFile);
   try {
     const url = editId ? `/api/products/${editId}` : "/api/products";
@@ -10592,26 +10197,18 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("section-supplies-wb")?.classList.add("hidden");
     document.getElementById("section-supplies-settings")?.classList.add("hidden");
   }
-  // Per-channel nav visibility: hide individual tabs the manager has no access to
-  const channelMap = [
-    { section: "section-reviews",       nav: "nav-reviews",       can: permissions.can_view_reviews },
-    { section: "section-conversations", nav: "nav-conversations",  can: permissions.can_view_questions },
-    { section: "section-chats",         nav: "nav-chats",          can: permissions.can_view_chats },
-  ];
-  for (const ch of channelMap) {
-    if (!ch.can) {
-      document.getElementById(ch.section)?.classList.add("hidden");
-      const navEl = document.getElementById(ch.nav);
-      if (navEl) navEl.style.display = "none";
-    }
-  }
-  // Hide the whole feedback group if no channel is accessible
   if (!permissions.can_view_feedback) {
+    ["section-reviews", "section-conversations", "section-chats"].forEach((id) => {
+      document.getElementById(id)?.classList.add("hidden");
+    });
+    // Hide feedback nav items
+    ["nav-reviews", "nav-conversations", "nav-chats"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = "none";
+    });
+    // Also hide the nav section label if all feedback items are hidden
     const feedbackLabel = document.querySelector(".sidebar-nav .nav-section-label");
     if (feedbackLabel) feedbackLabel.style.display = "none";
-  }
-  if (!permissions.can_view_salary && !isTenantOwner()) {
-    document.getElementById("section-salary")?.classList.add("hidden");
   }
   const savedSettingsTab = readStoredUiState(ACTIVE_SETTINGS_TAB_STORAGE_KEY);
   let initialSettingsTab = SETTINGS_TAB_IDS.includes(savedSettingsTab) ? savedSettingsTab : "sources";
@@ -10773,10 +10370,8 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   // Supplies module
   if (permissions.can_view_supplies) {
-    if (permissions.can_view_any_supply) {
-      const suppliesNavLabel = document.getElementById("nav-section-supplies");
-      if (suppliesNavLabel) suppliesNavLabel.style.display = "flex";
-    }
+    const suppliesNavLabel = document.getElementById("nav-section-supplies");
+    if (suppliesNavLabel) suppliesNavLabel.style.display = "flex";
     // "Удалить поставки" — только для владельцев, не для менеджеров
     if (!permissions.can_view_settings) {
       const clearBtn = document.getElementById("suppliesClearBtn");
@@ -10807,7 +10402,6 @@ document.addEventListener("DOMContentLoaded", () => {
   // Start silent 60s UI refresh so chat list stays up-to-date
   // without requiring manual page reload
   startUiRefresh();
-  startPermissionPolling();
 });
 
 window.showSection = showSection;
@@ -11888,2750 +11482,3 @@ window.showSuppliesSettingsTab = function(tab) {
   const pane = document.getElementById(`supplies-settings-pane-${tab}`);
   if (pane) { pane.classList.remove("hidden"); pane.style.display = ""; }
 };
-
-// -----------------------------------------------------------------------
-// My Salary (operator view)
-// -----------------------------------------------------------------------
-
-const mySalaryState = {
-  dateFrom: null,
-  dateTo: null,
-};
-
-// ── Salary Settings ───────────────────────────────────────────────────────
-
-window.toggleSalaryWorkerForm = function(show) {
-  const form = document.getElementById("salaryWorkerAddForm");
-  if (!form) return;
-  form.classList.toggle("hidden", !show);
-  if (!show) {
-    ["salaryWorkerName","salaryWorkerPosition","salaryWorkerBirthDate"].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.value = "";
-    });
-    const visEl = document.getElementById("salaryWorkerVisibleForAccountant");
-    if (visEl) visEl.value = "true";
-    const le = document.getElementById("salaryWorkerLegalEntity");
-    if (le) le.value = "";
-    const info = document.getElementById("salaryWorkersInfo");
-    if (info) info.textContent = "";
-    document.getElementById("salaryWorkersImportErrors")?.classList.add("hidden");
-  } else {
-    document.getElementById("salaryWorkerName")?.focus();
-  }
-};
-
-function _collectPayrollProductions() {
-  const prods = [];
-  document.querySelectorAll("[data-production]").forEach(cb => {
-    if (cb.checked) prods.push(cb.getAttribute("data-production"));
-  });
-  return prods;
-}
-
-function _setPayrollProductionCheckboxes(prods) {
-  const arr = Array.isArray(prods) ? prods : [];
-  document.querySelectorAll("[data-production]").forEach(cb => {
-    cb.checked = arr.includes(cb.getAttribute("data-production"));
-  });
-}
-
-window.showSalarySettingsTab = function(tab) {
-  document.querySelectorAll("#section-salary-settings .settings-tab-btn").forEach(b => b.classList.remove("active"));
-  document.getElementById(`salary-settings-tab-${tab}`)?.classList.add("active");
-  document.querySelectorAll("[id^='salary-settings-pane-']").forEach(p => { p.classList.add("hidden"); p.style.display = "none"; });
-  const pane = document.getElementById(`salary-settings-pane-${tab}`);
-  if (pane) { pane.classList.remove("hidden"); pane.style.display = ""; }
-  if (tab === "products") loadSalaryProducts();
-};
-
-async function loadSalaryWorkers() {
-  const info = document.getElementById("salaryWorkersInfo");
-  try {
-    const res = await fetch("/api/salary/workers");
-    const data = await res.json();
-    if (!res.ok) { if (info) info.textContent = data.detail || "Ошибка загрузки"; return; }
-    if (info) info.textContent = "";
-    window._salaryWorkersCache = data.items || [];
-    _updateWorkersBulkBtn();
-    applySalaryWorkersFilter();
-  } catch (e) {
-    if (info) info.textContent = "Ошибка: " + e.message;
-  }
-}
-window.loadSalaryWorkers = loadSalaryWorkers;
-
-function _renderSalaryWorkersTable(workers) {
-  const tbody = document.getElementById("salaryWorkersTbody");
-  if (!tbody) return;
-  tbody.innerHTML = "";
-  if (!workers.length) {
-    const tr = document.createElement("tr");
-    tr.innerHTML = '<td colspan="8" class="small" style="color:#9ca3af">Нет работников, соответствующих фильтрам</td>';
-    tbody.appendChild(tr);
-    return;
-  }
-  for (const w of workers) {
-    const tr = document.createElement("tr");
-    const accVisible = w.visible_for_accountant !== false ? "Да" : "Нет";
-    tr.innerHTML = `
-      <td><input type="checkbox" class="salary-worker-chk" data-id="${w.id}" onchange="_updateWorkersBulkBtn()" /></td>
-      <td>${esc(w.full_name || "")}</td>
-      <td>${esc(w.position || "")}</td>
-      <td>${esc(_dateRuFull(w.birth_date))}</td>
-      <td>${esc(w.legal_entity || "")}</td>
-      <td>${esc(w.production || "")}</td>
-      <td>${accVisible}</td>
-      <td style="white-space:nowrap">
-        <button class="icon-btn" title="Редактировать" onclick="openEditSalaryWorker(${w.id})">✏</button>
-        <button class="icon-btn danger" title="Удалить" onclick="deleteSalaryWorker(${w.id})">🗑</button>
-      </td>
-    `;
-    tbody.appendChild(tr);
-  }
-}
-
-window.applySalaryWorkersFilter = function() {
-  const all = window._salaryWorkersCache || [];
-  const search = (document.getElementById("swFilterName")?.value || "").toLowerCase().trim();
-  const prod   = document.getElementById("swFilterProduction")?.value || "";
-  const pos    = document.getElementById("swFilterPosition")?.value || "";
-  const legal  = document.getElementById("swFilterLegal")?.value || "";
-
-  const filtered = all.filter(w => {
-    if (search && !String(w.full_name || "").toLowerCase().includes(search)) return false;
-    if (prod  && w.production   !== prod)  return false;
-    if (pos   && w.position     !== pos)   return false;
-    if (legal && w.legal_entity !== legal) return false;
-    return true;
-  });
-  _renderSalaryWorkersTable(filtered);
-};
-
-window.resetSalaryWorkersFilter = function() {
-  ["swFilterName","swFilterProduction","swFilterPosition","swFilterLegal"].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.value = "";
-  });
-  applySalaryWorkersFilter();
-};
-
-function downloadSalaryWorkerTemplate() {
-  const headers = "ФИО;Должность;Дата рождения;Юр. принадлежность;Производство;Видимость для бухгалтера\n";
-  const example = "Иванов Иван Иванович;Оператор;01.01.1990;ООО ВарФабрик;Иваново;Да\n";
-  const blob = new Blob(["\ufeff" + headers + example], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a"); a.href = url; a.download = "workers_template.csv";
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
-window.downloadSalaryWorkerTemplate = downloadSalaryWorkerTemplate;
-
-function exportSalaryWorkers() {
-  window.open("/api/salary/workers/export", "_blank");
-}
-window.exportSalaryWorkers = exportSalaryWorkers;
-
-let _importWorkersFile = null;
-
-async function importSalaryWorkers(input) {
-  const file = input?.files?.[0];
-  if (!file) return;
-  _importWorkersFile = file;
-  if (input) input.value = "";
-  const info = document.getElementById("salaryWorkersImportInfo");
-  if (info) { info.textContent = "Анализ файла..."; info.style.color = "#64748b"; }
-  try {
-    const formData = new FormData();
-    formData.append("file", file);
-    const csrf = document.cookie.match(/csrf_token=([^;]+)/)?.[1] || "";
-    const res = await fetch("/api/salary/workers/import?preview=true", {
-      method: "POST",
-      headers: { "X-CSRF-Token": csrf },
-      body: formData,
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      if (info) { info.textContent = data.detail || "Ошибка анализа"; info.style.color = "#b91c1c"; }
-      return;
-    }
-    if (info) info.textContent = "";
-    _showWorkersImportPreview(data);
-  } catch (e) {
-    if (info) { info.textContent = "Ошибка: " + e.message; info.style.color = "#b91c1c"; }
-  }
-}
-window.importSalaryWorkers = importSalaryWorkers;
-
-function _showWorkersImportPreview(data) {
-  const summaryEl = document.getElementById("workersImportSummary");
-  const warnWrap  = document.getElementById("workersImportWarningsWrap");
-  const warnEl    = document.getElementById("workersImportWarnings");
-  const modal     = document.getElementById("workersImportPreviewModal");
-  if (!summaryEl || !modal) return;
-
-  const hasWarnings = data.warnings && data.warnings.length > 0;
-  summaryEl.innerHTML = [
-    `<div><b>Найдено строк:</b> ${data.total_rows ?? 0}</div>`,
-    `<div><b>Будет создано:</b> ${data.to_create ?? 0}</div>`,
-    `<div><b>Будет обновлено:</b> ${data.to_update ?? 0}</div>`,
-    hasWarnings ? `<div><span style="color:#b45309"><b>Предупреждений:</b> ${data.warnings.length}</span></div>` : "",
-  ].filter(Boolean).join("");
-
-  if (hasWarnings) {
-    warnEl.innerHTML = data.warnings.map(w => `<div>⚠ ${esc(w)}</div>`).join("");
-    warnWrap.classList.remove("hidden");
-  } else {
-    warnWrap.classList.add("hidden");
-  }
-  const btn = document.getElementById("workersImportConfirmBtn");
-  if (btn) btn.disabled = (data.total_rows === 0);
-  modal.classList.remove("hidden");
-}
-
-window.closeWorkersImportModal = function() {
-  document.getElementById("workersImportPreviewModal")?.classList.add("hidden");
-  _importWorkersFile = null;
-};
-
-window.confirmWorkersImport = async function() {
-  if (!_importWorkersFile) return;
-  const btn = document.getElementById("workersImportConfirmBtn");
-  if (btn) { btn.disabled = true; btn.textContent = "Загрузка..."; }
-  const info = document.getElementById("salaryWorkersImportInfo");
-  const errBox = document.getElementById("salaryWorkersImportErrors");
-  try {
-    const formData = new FormData();
-    formData.append("file", _importWorkersFile);
-    const csrf = document.cookie.match(/csrf_token=([^;]+)/)?.[1] || "";
-    const res = await fetch("/api/salary/workers/import?preview=false", {
-      method: "POST",
-      headers: { "X-CSRF-Token": csrf },
-      body: formData,
-    });
-    const data = await res.json();
-    document.getElementById("workersImportPreviewModal")?.classList.add("hidden");
-    _importWorkersFile = null;
-
-    if (!res.ok) {
-      if (info) { info.textContent = data.detail || "Ошибка импорта"; info.style.color = "#b91c1c"; }
-      return;
-    }
-    const warnTxt = data.warnings?.length ? `; предупреждений: ${data.warnings.length}` : "";
-    if (info) {
-      info.textContent = `Создано: ${data.created}, обновлено: ${data.updated}${warnTxt}`;
-      info.style.color = "#16a34a";
-    }
-    const allIssues = [...(data.warnings || []), ...(data.errors || [])];
-    if (errBox) {
-      if (allIssues.length) {
-        errBox.innerHTML = allIssues.map(e => `<div>• ${esc(e)}</div>`).join("");
-        errBox.classList.remove("hidden");
-      } else {
-        errBox.classList.add("hidden");
-      }
-    }
-    await loadSalaryWorkers();
-  } catch (e) {
-    if (info) { info.textContent = "Ошибка: " + e.message; info.style.color = "#b91c1c"; }
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = "Загрузить"; }
-  }
-};
-
-async function saveSalaryWorker() {
-  const nameEl = document.getElementById("salaryWorkerName");
-  const prodEl = document.getElementById("salaryWorkerProduction");
-  const info = document.getElementById("salaryWorkersInfo");
-  const fullName = String(nameEl?.value || "").trim();
-  const position = String(document.getElementById("salaryWorkerPosition")?.value || "").trim();
-  const birthDate = String(document.getElementById("salaryWorkerBirthDate")?.value || "").trim();
-  const legalEntity = String(document.getElementById("salaryWorkerLegalEntity")?.value || "").trim();
-  const production = String(prodEl?.value || "").trim();
-  if (!fullName) {
-    if (info) { info.textContent = "Укажите ФИО работника"; info.style.color = "#b91c1c"; }
-    nameEl?.focus();
-    return;
-  }
-  try {
-    const res = await fetch("/api/salary/workers", {
-      method: "POST",
-      headers: jsonHeaders(),
-      body: JSON.stringify({ full_name: fullName, position, birth_date: birthDate, legal_entity: legalEntity, production, visible_for_accountant: document.getElementById("salaryWorkerVisibleForAccountant")?.value !== "false" }),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      const detail = data.detail;
-      const msg = Array.isArray(detail)
-        ? detail.map(d => d.msg || JSON.stringify(d)).join("; ")
-        : String(detail || "Ошибка сохранения");
-      if (info) { info.textContent = msg; info.style.color = "#b91c1c"; }
-      return;
-    }
-    toggleSalaryWorkerForm(false);
-    if (info) { info.textContent = "Работник добавлен"; info.style.color = "#16a34a"; }
-    await loadSalaryWorkers();
-  } catch (e) {
-    if (info) { info.textContent = "Ошибка: " + e.message; info.style.color = "#b91c1c"; }
-  }
-}
-window.saveSalaryWorker = saveSalaryWorker;
-
-async function deleteSalaryWorker(workerId) {
-  if (!confirm("Удалить работника?")) return;
-  const info = document.getElementById("salaryWorkersInfo");
-  try {
-    const res = await fetch(`/api/salary/workers/${workerId}`, {
-      method: "DELETE", headers: jsonHeaders(),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      if (info) { info.textContent = data.detail || "Ошибка удаления"; info.style.color = "#b91c1c"; }
-      return;
-    }
-    if (info) { info.textContent = ""; }
-    await loadSalaryWorkers();
-  } catch (e) {
-    if (info) { info.textContent = "Ошибка: " + e.message; info.style.color = "#b91c1c"; }
-  }
-}
-window.deleteSalaryWorker = deleteSalaryWorker;
-
-function openEditSalaryWorker(workerId) {
-  const w = (payrollState?.workers || []).find(x => x.id === workerId)
-         || JSON.parse(document.getElementById(`_sw_${workerId}`)?.dataset?.worker || "null");
-  // fallback: reload from last loaded list in teamState (salary workers stored differently)
-  // We'll just open the modal and let it prefill from the DOM data attributes
-  const row = document.querySelector(`[data-worker-id="${workerId}"]`);
-  // Actually, re-fetch the worker list state stored when loadSalaryWorkers ran
-  const workers = window._salaryWorkersCache || [];
-  const worker = workers.find(x => Number(x.id) === workerId);
-  if (!worker) { alert("Данные работника не найдены. Обновите страницу."); return; }
-  document.getElementById("editSalaryWorkerId").value = workerId;
-  document.getElementById("editSalaryWorkerName").value = worker.full_name || "";
-  document.getElementById("editSalaryWorkerPosition").value = worker.position || "";
-  document.getElementById("editSalaryWorkerBirthDate").value = worker.birth_date || "";
-  document.getElementById("editSalaryWorkerLegalEntity").value = worker.legal_entity || "";
-  document.getElementById("editSalaryWorkerProduction").value = worker.production || "Иваново";
-  document.getElementById("editSalaryWorkerVisible").value = worker.visible_for_accountant !== false ? "true" : "false";
-  document.getElementById("editSalaryWorkerInfo").textContent = "";
-  document.getElementById("editSalaryWorkerModal")?.classList.remove("hidden");
-}
-window.openEditSalaryWorker = openEditSalaryWorker;
-
-function closeEditSalaryWorker() {
-  document.getElementById("editSalaryWorkerModal")?.classList.add("hidden");
-}
-window.closeEditSalaryWorker = closeEditSalaryWorker;
-
-async function saveEditSalaryWorker() {
-  const id = parseInt(document.getElementById("editSalaryWorkerId")?.value || "0");
-  if (!id) return;
-  const info = document.getElementById("editSalaryWorkerInfo");
-  const payload = {
-    full_name: document.getElementById("editSalaryWorkerName")?.value.trim() || "",
-    position: document.getElementById("editSalaryWorkerPosition")?.value.trim() || "",
-    birth_date: document.getElementById("editSalaryWorkerBirthDate")?.value.trim() || "",
-    legal_entity: document.getElementById("editSalaryWorkerLegalEntity")?.value.trim() || "",
-    production: document.getElementById("editSalaryWorkerProduction")?.value.trim() || "",
-    visible_for_accountant: document.getElementById("editSalaryWorkerVisible")?.value !== "false",
-  };
-  if (!payload.full_name) {
-    if (info) { info.textContent = "Укажите ФИО"; info.style.color = "#b91c1c"; }
-    return;
-  }
-  try {
-    const res = await fetch(`/api/salary/workers/${id}`, {
-      method: "PUT", headers: jsonHeaders(), body: JSON.stringify(payload),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      const msg = Array.isArray(data.detail) ? data.detail.map(d => d.msg||JSON.stringify(d)).join("; ") : String(data.detail || "Ошибка");
-      if (info) { info.textContent = msg; info.style.color = "#b91c1c"; }
-      return;
-    }
-    closeEditSalaryWorker();
-    await loadSalaryWorkers();
-  } catch (e) {
-    if (info) { info.textContent = "Ошибка: " + e.message; info.style.color = "#b91c1c"; }
-  }
-}
-window.saveEditSalaryWorker = saveEditSalaryWorker;
-
-// ── Salary workers bulk delete ────────────────────────────────────────────
-
-function _updateWorkersBulkBtn() {
-  const checked = document.querySelectorAll(".salary-worker-chk:checked");
-  const btn = document.getElementById("salaryWorkersBulkDeleteBtn");
-  const cnt = document.getElementById("salaryWorkersBulkCount");
-  if (btn) btn.classList.toggle("hidden", checked.length === 0);
-  if (cnt) cnt.textContent = checked.length;
-  // Sync select-all checkbox state
-  const all = document.querySelectorAll(".salary-worker-chk");
-  const selAll = document.getElementById("salaryWorkersSelectAll");
-  if (selAll) {
-    selAll.indeterminate = checked.length > 0 && checked.length < all.length;
-    selAll.checked = all.length > 0 && checked.length === all.length;
-  }
-}
-window._updateWorkersBulkBtn = _updateWorkersBulkBtn;
-
-function toggleAllSalaryWorkers(checked) {
-  document.querySelectorAll(".salary-worker-chk").forEach(cb => { cb.checked = checked; });
-  _updateWorkersBulkBtn();
-}
-window.toggleAllSalaryWorkers = toggleAllSalaryWorkers;
-
-async function bulkDeleteSalaryWorkers() {
-  const ids = Array.from(document.querySelectorAll(".salary-worker-chk:checked"))
-    .map(cb => parseInt(cb.getAttribute("data-id")));
-  if (!ids.length) return;
-  if (!confirm(`Удалить ${ids.length} работник${ids.length === 1 ? "а" : "ов"}?`)) return;
-  const info = document.getElementById("salaryWorkersInfo");
-  if (info) { info.textContent = "Удаление..."; info.style.color = "#64748b"; }
-  let deleted = 0, errors = 0;
-  for (const id of ids) {
-    try {
-      const res = await fetch(`/api/salary/workers/${id}`, { method: "DELETE", headers: jsonHeaders() });
-      if (res.ok) deleted++; else errors++;
-    } catch (_) { errors++; }
-  }
-  if (info) {
-    info.textContent = `Удалено: ${deleted}` + (errors ? `; ошибок: ${errors}` : "");
-    info.style.color = errors ? "#b45309" : "#16a34a";
-  }
-  await loadSalaryWorkers();
-}
-window.bulkDeleteSalaryWorkers = bulkDeleteSalaryWorkers;
-
-// ── Salary Payroll (Начисление ЗП) ───────────────────────────────────────
-
-const PAYROLL_START_DATE = new Date(2026, 0, 7); // Jan 7 2026
-const PAYROLL_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
-const PAYROLL_COL_WIDTHS_KEY = "payroll_col_widths";
-
-let payrollState = {
-  workers: [],
-  products: [],
-  totals: {}, // "workerId_dateStr" -> total
-  dateFrom: null,
-  dateTo: null,
-  // modal
-  modalWorkerId: null,
-  modalDate: null,
-  modalEntries: {}, // productId -> quantity (piece workers)
-  modalExtras: [],  // [{amount, note}]
-  modalLinks: [],   // [{id, linked_worker_id, linked_worker_name, linked_amount}]
-  usedLinkedIds: new Set(), // all linked_worker_ids already used globally
-  vacations: new Set(),     // "workerId_date" keys where vacation is set
-  modalVacation: false,
-};
-
-/** Generate date series: every 7 days from Jan 7 2026 up to today + 14 days */
-function _payrollDates() {
-  const dates = [];
-  const now = new Date();
-  const end = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
-  let d = new Date(PAYROLL_START_DATE);
-  while (d <= end) {
-    dates.push(_dateFmt(d));
-    d = new Date(d.getTime() + PAYROLL_WEEK_MS);
-  }
-  return dates;
-}
-
-function _dateFmt(d) {
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-}
-
-function _dateRu(iso) {
-  if (!iso) return "";
-  const [y,m,day] = iso.split("-");
-  return `${day}.${m}.${String(y).slice(2)}`;
-}
-
-function _dateRuFull(iso) {
-  if (!iso) return "";
-  const parts = iso.split("-");
-  if (parts.length !== 3) return iso;
-  return `${parts[2]}.${parts[1]}.${parts[0]}`;
-}
-
-function _fmtRub(v) {
-  return Number(v||0).toLocaleString("ru-RU",{minimumFractionDigits:2,maximumFractionDigits:2});
-}
-
-function _colWidths() {
-  try { return JSON.parse(localStorage.getItem(PAYROLL_COL_WIDTHS_KEY) || "{}"); } catch(_){return {};}
-}
-function _saveColWidths(w) {
-  try { localStorage.setItem(PAYROLL_COL_WIDTHS_KEY, JSON.stringify(w)); } catch(_){}
-}
-
-function _initPayrollReportBtn() {
-  const perms = getPermissions();
-  // Расчёт начислений button
-  const btn = document.getElementById("payrollReportMenuBtn");
-  if (btn) {
-    const visible = isTenantOwner() || perms.can_view_salary_report;
-    btn.style.display = visible ? "" : "none";
-    if (btn.parentElement) btn.parentElement.style.display = visible ? "" : "none";
-  }
-  // Экспорт ЗП button
-  const zpBtn = document.getElementById("payrollZpExportMenuBtn");
-  if (zpBtn) {
-    const visible = isTenantOwner() || perms.can_view_salary_zp_export;
-    zpBtn.style.display = visible ? "" : "none";
-    if (zpBtn.parentElement) zpBtn.parentElement.style.display = visible ? "" : "none";
-  }
-}
-
-async function loadPayrollPage() {
-  const [wRes, pRes, tRes, uRes, vRes] = await Promise.all([
-    fetch("/api/salary/workers"),
-    fetch("/api/salary/products"),
-    fetch("/api/salary/totals"),
-    fetch("/api/salary/links/used"),
-    fetch("/api/salary/vacations"),
-  ]);
-  const [wData, pData, tData, uData, vData] = await Promise.all([
-    wRes.json(), pRes.json(), tRes.json(), uRes.json(), vRes.json(),
-  ]);
-  payrollState.workers = (wData.items || []).map((w,i) => ({...w, seq: i+1}));
-  payrollState.products = pData.items || [];
-  payrollState.totals = {};
-  for (const t of (tData.items || [])) {
-    payrollState.totals[`${t.worker_id}_${t.entry_date}`] = parseFloat(t.total || 0);
-  }
-  payrollState.usedLinkedIds = new Set((uData.ids || []).map(Number));
-  payrollState.vacations = new Set(
-    (vData.items || []).map(v => `${v.worker_id}_${v.entry_date}`)
-  );
-  renderPayrollTable();
-  _initPayrollReportBtn();
-}
-
-function _filteredWorkers() {
-  const search = String(document.getElementById("payrollSearchName")?.value || "").toLowerCase();
-  const prod     = String(document.getElementById("payrollFilterProduction")?.value || "");
-  const position = String(document.getElementById("payrollFilterPosition")?.value || "");
-  const legal    = String(document.getElementById("payrollFilterLegal")?.value || "");
-  // Permission-based production filter (for managers)
-  const allowedProds = getPermissions().can_salary_productions; // null = all
-  return payrollState.workers.filter(w => {
-    if (search   && !String(w.full_name||"").toLowerCase().includes(search)) return false;
-    if (prod     && w.production !== prod)     return false;
-    if (position && w.position   !== position) return false;
-    if (legal    && w.legal_entity !== legal)  return false;
-    // Server already filtered by production, but double-check client-side
-    if (allowedProds !== null && Array.isArray(allowedProds) && allowedProds.length > 0) {
-      if (!allowedProds.includes(w.production)) return false;
-    }
-    return true;
-  });
-}
-
-function _visibleDates() {
-  const all = _payrollDates();
-  const from = payrollState.dateFrom;
-  const to = payrollState.dateTo;
-  if (!from && !to) return all;
-  return all.filter(d => (!from || d >= from) && (!to || d <= to));
-}
-
-function renderPayrollTable() {
-  const leftThead = document.getElementById("payrollTheadLeft");
-  const leftTbody = document.getElementById("payrollTbodyLeft");
-  const rightThead = document.getElementById("payrollTheadRight");
-  const rightTbody = document.getElementById("payrollTbodyRight");
-  if (!leftThead || !rightThead) return;
-
-  const workers = _filteredWorkers();
-  const dates = _visibleDates();
-  const colWidths = _colWidths();
-  const FIXED_COLS = [
-    {key:"seq",          label:"№",                  w: colWidths["seq"]         || 48},
-    {key:"full_name",    label:"ФИО",                 w: colWidths["full_name"]   || 180},
-    {key:"position",     label:"Должность",           w: colWidths["position"]   || 140},
-    {key:"birth_date",   label:"Дата рождения",       w: colWidths["birth_date"] || 120},
-    {key:"legal_entity", label:"Юр. принадлежность",  w: colWidths["legal_entity"]|| 170},
-  ];
-
-  // ── LEFT: fixed 5 columns ─────────────────────────────────────────────────
-  // Use <colgroup> so table-layout:fixed applies widths to every row, not just <th>
-  const leftTable = document.getElementById("payrollTableLeft");
-  if (leftTable) {
-    let cg = '<colgroup>';
-    FIXED_COLS.forEach(c => { cg += `<col data-col="${c.key}" style="width:${c.w}px">`; });
-    cg += '</colgroup>';
-    const existingCg = leftTable.querySelector("colgroup");
-    if (existingCg) existingCg.outerHTML = cg;
-    else leftTable.insertAdjacentHTML("afterbegin", cg);
-  }
-
-  let leftTh = '<tr>';
-  FIXED_COLS.forEach(c => {
-    leftTh += `<th data-col="${c.key}" style="overflow:visible;position:relative">
-      <span style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:6px">${esc(c.label)}</span>
-      <span class="payroll-resize-handle" onmousedown="startPayrollResize(event,'${c.key}')"></span>
-    </th>`;
-  });
-  leftTh += '</tr>';
-  leftThead.innerHTML = leftTh;
-
-  const emptyLeft = `<tr><td colspan="${FIXED_COLS.length}" class="small" style="color:#9ca3af;text-align:center">Нет данных</td></tr>`;
-  // Find the most recent past date in the series (used as default when clicking a worker row)
-  const _todayStr = _dateFmt(new Date());
-  const _allDates = _payrollDates();
-  const defaultDate = [..._allDates].reverse().find(d => d <= _todayStr) || _allDates[0];
-
-  leftTbody.innerHTML = workers.length ? workers.map((w, idx) => {
-    let cells = FIXED_COLS.map(c => {
-      const val = c.key === 'seq' ? (idx+1)
-        : c.key === 'birth_date' ? esc(_dateRuFull(w.birth_date))
-        : esc(String(w[c.key]||""));
-      // ФИО cell gets a clickable style and tooltip
-      const extra = c.key === 'full_name'
-        ? ' style="cursor:pointer;color:#1e40af;text-decoration:underline dotted" title="Открыть начисление ЗП"'
-        : '';
-      return `<td${extra}>${val}</td>`;
-    }).join("");
-    return `<tr class="payroll-left-row" data-row="${idx}" data-wid="${w.id}"
-      style="cursor:pointer" onclick="openPayrollModal(${w.id},'${defaultDate}')"
-    >${cells}</tr>`;
-  }).join("") : emptyLeft;
-
-  // Update left panel width
-  const leftPanel = document.getElementById("payrollLeftPanel");
-  if (leftPanel) {
-    const totalW = FIXED_COLS.reduce((s, c) => s + c.w, 0);
-    leftPanel.style.width = totalW + "px";
-    leftPanel.style.minWidth = totalW + "px";
-  }
-
-  // ── RIGHT: date columns only ──────────────────────────────────────────────
-  const today = _dateFmt(new Date());
-  let rightTh = '<tr>';
-  dates.forEach(d => {
-    const isCur = d === today || (d > today && new Date(d) - new Date(today) < PAYROLL_WEEK_MS);
-    rightTh += `<th class="payroll-date-th${isCur?" current-week":""}">${_dateRu(d)}</th>`;
-  });
-  rightTh += '</tr>';
-  rightThead.innerHTML = rightTh;
-
-  const emptyRight = `<tr><td colspan="${dates.length}" class="small" style="color:#9ca3af;text-align:center">—</td></tr>`;
-  rightTbody.innerHTML = workers.length ? workers.map((w, idx) => {
-    let cells = dates.map(d => {
-      const isVacation = payrollState.vacations.has(`${w.id}_${d}`);
-      const total = payrollState.totals[`${w.id}_${d}`];
-      const hasData = total != null && total > 0;
-      const cellContent = isVacation
-        ? `<span class="payroll-vacation-label">Отпуск</span>`
-        : (hasData ? _fmtRub(total) : "");
-      return `<td class="payroll-date-td${(hasData||isVacation)?" has-data":""}${d===today?" current-week":""}${isVacation?" payroll-vacation-cell":""}"
-        onclick="openPayrollModal(${w.id},'${d}')">${cellContent}</td>`;
-    }).join("");
-    return `<tr class="payroll-right-row" data-row="${idx}">${cells}</tr>`;
-  }).join("") : emptyRight;
-
-  // Bind synchronized row hover after render
-  requestAnimationFrame(() => {
-    _bindPayrollRowHover();
-    _scrollToCurrentDate(dates);
-  });
-}
-
-function _bindPayrollRowHover() {
-  const leftRows  = document.querySelectorAll("#payrollTbodyLeft .payroll-left-row");
-  const rightRows = document.querySelectorAll("#payrollTbodyRight .payroll-right-row");
-
-  const allByIdx = {};
-  leftRows.forEach(tr  => { const i = tr.dataset.row; (allByIdx[i] = allByIdx[i]||[]).push(tr); });
-  rightRows.forEach(tr => { const i = tr.dataset.row; (allByIdx[i] = allByIdx[i]||[]).push(tr); });
-
-  Object.values(allByIdx).forEach(rows => {
-    rows.forEach(tr => {
-      tr.addEventListener("mouseenter", () => rows.forEach(r => r.classList.add("payroll-row-hover")));
-      tr.addEventListener("mouseleave", () => rows.forEach(r => r.classList.remove("payroll-row-hover")));
-    });
-  });
-}
-
-function _scrollToCurrentDate(dates) {
-  const rightPanel = document.getElementById("payrollRightPanel");
-  if (!rightPanel) return;
-  const today = _dateFmt(new Date());
-
-  // Find the last date that has ANY data (any worker has a total for it)
-  const datesWithData = new Set();
-  for (const key of Object.keys(payrollState.totals)) {
-    const parts = key.split("_");
-    if (parts.length >= 2) datesWithData.add(parts.slice(1).join("_"));
-  }
-
-  let targetDate = null;
-  // Latest date with data that is ≤ today
-  for (let i = dates.length - 1; i >= 0; i--) {
-    if (dates[i] <= today && datesWithData.has(dates[i])) {
-      targetDate = dates[i];
-      break;
-    }
-  }
-  // Fallback: most recent date ≤ today (even without data)
-  if (!targetDate) {
-    for (let i = dates.length - 1; i >= 0; i--) {
-      if (dates[i] <= today) { targetDate = dates[i]; break; }
-    }
-  }
-
-  const targetIdx = targetDate ? dates.indexOf(targetDate) : 0;
-
-  const table = document.getElementById("payrollTableRight");
-  if (!table) return;
-  const headers = table.querySelectorAll("thead th");
-  const target = headers[targetIdx];
-  if (!target) return;
-
-  // Scroll so this date column is the first visible in the right panel
-  rightPanel.scrollLeft = Math.max(0, target.offsetLeft);
-}
-
-// Column resize — live width update via direct DOM manipulation, full re-render on mouseup
-let _resizeState = null;
-let _resizeRafId = null;
-
-function startPayrollResize(e, colKey) {
-  e.preventDefault();
-  e.stopPropagation();
-  const handle = e.target;
-  handle.classList.add("dragging");
-  document.body.style.cursor = "col-resize";
-  document.body.style.userSelect = "none";
-
-  const leftPanel = document.getElementById("payrollLeftPanel");
-  _resizeState = {
-    colKey,
-    startX: e.clientX,
-    startW: _colWidths()[colKey] || 100,
-    panelStartW: parseInt(leftPanel?.style.width || "0"),
-  };
-
-  const onMove = (ev) => {
-    if (!_resizeState) return;
-    const delta = ev.clientX - _resizeState.startX;
-    const newW = Math.max(60, _resizeState.startW + delta);
-    _resizeState.currentW = newW;
-
-    if (_resizeRafId) return;
-    _resizeRafId = requestAnimationFrame(() => {
-      _resizeRafId = null;
-      if (!_resizeState) return;
-      const w = _resizeState.currentW;
-      // Update only the <col> for this column — table-layout:fixed does the rest
-      const leftTable = document.getElementById("payrollTableLeft");
-      if (leftTable) {
-        const col = leftTable.querySelector(`col[data-col="${_resizeState.colKey}"]`);
-        if (col) col.style.width = w + "px";
-      }
-      // Update left panel total width
-      const leftPanel = document.getElementById("payrollLeftPanel");
-      if (leftPanel) {
-        const delta = w - _resizeState.startW;
-        const base = _resizeState.panelStartW || parseInt(leftPanel.style.width || "0");
-        leftPanel.style.width = (base + delta) + "px";
-        leftPanel.style.minWidth = (base + delta) + "px";
-      }
-    });
-  };
-
-  const onUp = () => {
-    if (!_resizeState) return;
-    const finalW = _resizeState.currentW || _resizeState.startW;
-    const ws = _colWidths();
-    ws[colKey] = finalW;
-    _saveColWidths(ws);
-    handle.classList.remove("dragging");
-    document.body.style.cursor = "";
-    document.body.style.userSelect = "";
-    _resizeState = null;
-    if (_resizeRafId) { cancelAnimationFrame(_resizeRafId); _resizeRafId = null; }
-    // Full re-render to recalculate sticky left offsets
-    renderPayrollTable();
-    document.removeEventListener("mousemove", onMove);
-    document.removeEventListener("mouseup", onUp);
-  };
-
-  document.addEventListener("mousemove", onMove);
-  document.addEventListener("mouseup", onUp);
-}
-window.startPayrollResize = startPayrollResize;
-
-// Date filter
-// ── Payroll export / import ───────────────────────────────────────────────
-
-// ── Payroll ЗП export by legal entity dropdown ───────────────────────────
-
-window.togglePayrollZpExportMenu = function(e) {
-  e.stopPropagation();
-  const menu = document.getElementById("payrollZpExportMenu");
-  if (!menu) return;
-  if (!menu.classList.contains("hidden")) { menu.classList.add("hidden"); return; }
-
-  const items = document.getElementById("payrollZpExportMenuItems");
-  if (items) {
-    items.innerHTML = LEGAL_ENTITIES_WITH_SIGNATORIES.map(le => `
-      <div onclick="exportPayrollByLegal('${esc(le.name)}')"
-        style="padding:9px 16px;font-size:13px;color:#1e293b;cursor:pointer;transition:background .1s"
-        onmouseenter="this.style.background='#f1f5f9'" onmouseleave="this.style.background=''">
-        ${esc(le.name)}
-      </div>`).join("");
-  }
-
-  menu.classList.remove("hidden");
-  const close = (ev) => {
-    if (!menu.contains(ev.target) && ev.target.id !== "payrollZpExportMenuBtn") {
-      menu.classList.add("hidden");
-      document.removeEventListener("mousedown", close);
-    }
-  };
-  setTimeout(() => document.addEventListener("mousedown", close), 50);
-};
-
-window.exportPayrollByLegal = function(legalEntity) {
-  document.getElementById("payrollZpExportMenu")?.classList.add("hidden");
-  const params = new URLSearchParams();
-  if (payrollState.dateFrom) params.set("date_from", payrollState.dateFrom);
-  if (payrollState.dateTo)   params.set("date_to",   payrollState.dateTo);
-  params.set("legal_entity", legalEntity);
-  window.open("/api/salary/payroll/export?" + params.toString(), "_blank");
-};
-
-// ── Payroll report export (расчёт начислений) ────────────────────────────
-
-const LEGAL_ENTITIES_WITH_SIGNATORIES = [
-  { name: "ООО Варфабрик",       signatory: "Рехмунова Екатерина Анатольевна" },
-  { name: "ИП Авдеева М.Ю.",     signatory: "Авдеева Марина Юрьевна" },
-  { name: "ИП Рехмунов Д.О.",    signatory: "Рехмунов Дмитрий Олегович" },
-];
-
-let _payrollReportLegal = null;
-let _payrollReportDate  = null;
-
-window.togglePayrollReportMenu = function(e) {
-  e.stopPropagation();
-  const menu = document.getElementById("payrollReportMenu");
-  if (!menu) return;
-  if (!menu.classList.contains("hidden")) { menu.classList.add("hidden"); return; }
-
-  // Populate menu items
-  const items = document.getElementById("payrollReportMenuItems");
-  if (items) {
-    items.innerHTML = LEGAL_ENTITIES_WITH_SIGNATORIES.map(le => `
-      <div onclick="openPayrollReportModal('${esc(le.name)}')"
-        style="padding:9px 16px;font-size:13px;color:#1e293b;cursor:pointer;transition:background .1s"
-        onmouseenter="this.style.background='#f1f5f9'" onmouseleave="this.style.background=''">
-        ${esc(le.name)}
-      </div>`).join("");
-  }
-
-  menu.classList.remove("hidden");
-  // Close on outside click
-  const close = (ev) => {
-    if (!menu.contains(ev.target) && ev.target.id !== "payrollReportMenuBtn") {
-      menu.classList.add("hidden");
-      document.removeEventListener("mousedown", close);
-    }
-  };
-  setTimeout(() => document.addEventListener("mousedown", close), 50);
-};
-
-window.openPayrollReportModal = function(legalName) {
-  document.getElementById("payrollReportMenu")?.classList.add("hidden");
-  _payrollReportLegal = legalName;
-  _payrollReportDate  = null;
-
-  const title = document.getElementById("payrollReportModalTitle");
-  if (title) title.textContent = `Расчёт начислений — ${legalName}`;
-
-  // Render date grid
-  const grid = document.getElementById("payrollReportDateGrid");
-  if (grid) {
-    const dates = _payrollDates();
-    const today = _dateFmt(new Date());
-    grid.innerHTML = dates.map(d => {
-      const hasDot = Object.keys(payrollState.totals).some(k => k.endsWith("_" + d));
-      const isPast = d <= today;
-      return `<button type="button" onclick="selectPayrollReportDate('${d}')"
-        class="pdim-date-btn${!isPast ? " future" : ""}">
-        <span class="pdim-date-val">${_dateRu(d)}</span>
-        ${hasDot ? `<span class="pdim-date-dot">●</span>` : ""}
-      </button>`;
-    }).join("");
-  }
-
-  document.getElementById("payrollReportExportBtn").disabled = true;
-  document.getElementById("payrollReportInfo").textContent = "";
-  document.getElementById("payrollReportModal")?.classList.remove("hidden");
-};
-
-window.selectPayrollReportDate = function(d) {
-  _payrollReportDate = d;
-  // Update button states
-  document.querySelectorAll("#payrollReportDateGrid .pdim-date-btn").forEach(btn => {
-    const isSelected = btn.querySelector(".pdim-date-val")?.textContent === _dateRu(d);
-    btn.classList.toggle("selected", isSelected);
-  });
-  document.getElementById("payrollReportExportBtn").disabled = false;
-
-  // Show preview of date range in info
-  const [from, to] = _payrollReportWeekRange(d);
-  const info = document.getElementById("payrollReportInfo");
-  if (info) info.textContent = `Период: ${_dateRuFull(from)} — ${_dateRuFull(to)}`;
-};
-
-window.closePayrollReportModal = function() {
-  document.getElementById("payrollReportModal")?.classList.add("hidden");
-  _payrollReportLegal = null;
-  _payrollReportDate  = null;
-};
-
-function _payrollReportWeekRange(dateStr) {
-  // dateStr is a Wednesday; range = prev Friday to next Thursday
-  const d = new Date(dateStr);
-  const from = new Date(d); from.setDate(d.getDate() - 5); // Fri
-  const to   = new Date(d); to.setDate(d.getDate() + 1);   // Thu
-  return [_dateFmt(from), _dateFmt(to)];
-}
-
-window.doExportPayrollReport = function() {
-  if (!_payrollReportLegal || !_payrollReportDate) return;
-  const [from, to] = _payrollReportWeekRange(_payrollReportDate);
-  const url = `/api/salary/payroll/report?legal_entity=${encodeURIComponent(_payrollReportLegal)}&entry_date=${_payrollReportDate}&date_from=${from}&date_to=${to}`;
-  window.open(url, "_blank");
-  closePayrollReportModal();
-};
-
-function exportPayrollTable() {
-  const params = new URLSearchParams();
-  if (payrollState.dateFrom) params.set("date_from", payrollState.dateFrom);
-  if (payrollState.dateTo)   params.set("date_to",   payrollState.dateTo);
-  window.open("/api/salary/payroll/export?" + params.toString(), "_blank");
-}
-window.exportPayrollTable = exportPayrollTable;
-
-async function downloadPayrollTemplate() {
-  const params = new URLSearchParams();
-  if (payrollState.dateFrom) params.set("date_from", payrollState.dateFrom);
-  if (payrollState.dateTo)   params.set("date_to",   payrollState.dateTo);
-  try {
-    const res = await fetch("/api/salary/payroll/template?" + params.toString());
-    if (!res.ok) { alert("Ошибка загрузки шаблона"); return; }
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = "payroll_template.xlsx";
-    document.body.appendChild(a); a.click();
-    document.body.removeChild(a); URL.revokeObjectURL(url);
-  } catch (e) { alert("Ошибка: " + e.message); }
-}
-window.downloadPayrollTemplate = downloadPayrollTemplate;
-
-let _importPayrollFile = null; // stored for second-phase confirm
-
-async function importPayrollTable(input) {
-  const file = input?.files?.[0];
-  if (!file) return;
-  _importPayrollFile = file;
-  const info = document.getElementById("payrollInfo");
-  if (info) { info.textContent = "Анализ файла..."; info.style.color = "#64748b"; }
-  if (input) input.value = "";
-
-  try {
-    const formData = new FormData();
-    formData.append("file", file);
-    const csrf = document.cookie.match(/csrf_token=([^;]+)/)?.[1] || "";
-    const res = await fetch("/api/salary/payroll/import?preview=true", {
-      method: "POST",
-      headers: { "X-CSRF-Token": csrf },
-      body: formData,
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      if (info) { info.textContent = data.detail || "Ошибка анализа файла"; info.style.color = "#b91c1c"; }
-      return;
-    }
-    if (info) info.textContent = "";
-    _showPayrollImportPreview(data);
-  } catch (e) {
-    if (info) { info.textContent = "Ошибка: " + e.message; info.style.color = "#b91c1c"; }
-  }
-}
-window.importPayrollTable = importPayrollTable;
-
-function _showPayrollImportPreview(data) {
-  const summaryEl = document.getElementById("payrollImportSummary");
-  const warnWrap  = document.getElementById("payrollImportWarningsWrap");
-  const warnEl    = document.getElementById("payrollImportWarnings");
-  const modal     = document.getElementById("payrollImportPreviewModal");
-  if (!summaryEl || !modal) return;
-
-  const hasWarnings = data.warnings && data.warnings.length > 0;
-  summaryEl.innerHTML = [
-    `<b>Найдено строк:</b> ${data.total_rows ?? 0}`,
-    `<b>Совпало работников:</b> ${data.matched_workers ?? 0}`,
-    `<b>Ячеек ЗП к загрузке:</b> ${data.cells_to_save ?? 0}`,
-    hasWarnings ? `<span style="color:#b45309"><b>Предупреждений:</b> ${data.warnings.length}</span>` : "",
-  ].filter(Boolean).map(t => `<div>${t}</div>`).join("");
-
-  if (hasWarnings) {
-    warnEl.innerHTML = data.warnings.map(w => `<div>⚠ ${esc(w)}</div>`).join("");
-    warnWrap.classList.remove("hidden");
-  } else {
-    warnWrap.classList.add("hidden");
-  }
-
-  const btn = document.getElementById("payrollImportConfirmBtn");
-  if (btn) btn.disabled = data.cells_to_save === 0;
-
-  modal.classList.remove("hidden");
-}
-
-window.closePayrollImportModal = function() {
-  document.getElementById("payrollImportPreviewModal")?.classList.add("hidden");
-  _importPayrollFile = null;
-};
-
-window.confirmPayrollImport = async function() {
-  if (!_importPayrollFile) return;
-  const btn = document.getElementById("payrollImportConfirmBtn");
-  if (btn) { btn.disabled = true; btn.textContent = "Загрузка..."; }
-  const info = document.getElementById("payrollInfo");
-
-  try {
-    const formData = new FormData();
-    formData.append("file", _importPayrollFile);
-    const csrf = document.cookie.match(/csrf_token=([^;]+)/)?.[1] || "";
-    const res = await fetch("/api/salary/payroll/import?preview=false", {
-      method: "POST",
-      headers: { "X-CSRF-Token": csrf },
-      body: formData,
-    });
-    const data = await res.json();
-    document.getElementById("payrollImportPreviewModal")?.classList.add("hidden");
-    _importPayrollFile = null;
-
-    if (!res.ok) {
-      if (info) { info.textContent = data.detail || "Ошибка импорта"; info.style.color = "#b91c1c"; }
-      return;
-    }
-    const warnTxt = data.warnings?.length ? `; предупреждений: ${data.warnings.length}` : "";
-    if (info) { info.textContent = `Загружено записей: ${data.saved}${warnTxt}`; info.style.color = "#16a34a"; }
-
-    // Reload totals and re-render
-    const tRes = await fetch("/api/salary/totals");
-    const tData = await tRes.json();
-    payrollState.totals = {};
-    for (const t of (tData.items || [])) {
-      payrollState.totals[`${t.worker_id}_${t.entry_date}`] = parseFloat(t.total || 0);
-    }
-    renderPayrollTable();
-  } catch (e) {
-    if (info) { info.textContent = "Ошибка: " + e.message; info.style.color = "#b91c1c"; }
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = "Загрузить"; }
-  }
-};
-
-// ── Payroll clear modal ───────────────────────────────────────────────────
-
-let _clearSelectedDate = null;
-
-window.openPayrollClearModal = function() {
-  _clearSelectedDate = null;
-  document.getElementById("clearScopeSelect").value = "all";
-  document.getElementById("payrollClearInfo").textContent = "";
-  onClearScopeChange();
-  document.getElementById("payrollClearModal")?.classList.remove("hidden");
-};
-
-window.closePayrollClearModal = function() {
-  document.getElementById("payrollClearModal")?.classList.add("hidden");
-};
-
-window.onClearScopeChange = function() {
-  const scope = document.getElementById("clearScopeSelect")?.value;
-  document.getElementById("clearDateWrap")?.classList.toggle("hidden", scope !== "date");
-  document.getElementById("clearProductionWrap")?.classList.toggle("hidden", scope !== "production");
-  document.getElementById("clearLegalWrap")?.classList.toggle("hidden", scope !== "legal");
-  // Show extra date filter only for production/legal scopes
-  const showExtra = scope === "production" || scope === "legal";
-  document.getElementById("clearExtraDateWrap")?.classList.toggle("hidden", !showExtra);
-  if (!showExtra) {
-    const chk = document.getElementById("clearUseDateFilter");
-    if (chk) chk.checked = false;
-    document.getElementById("clearExtraDatesWrap")?.classList.add("hidden");
-  }
-  if (scope === "date") _clearRenderDateList();
-};
-
-window.onClearDateFilterToggle = function() {
-  const on = document.getElementById("clearUseDateFilter")?.checked;
-  document.getElementById("clearExtraDatesWrap")?.classList.toggle("hidden", !on);
-  if (on) _clearRenderExtraDates();
-};
-
-function _clearRenderExtraDates() {
-  const wrap = document.getElementById("clearExtraDates");
-  if (!wrap) return;
-  const dates = _payrollDates();
-  const today = _dateFmt(new Date());
-  wrap.innerHTML = dates.map(d => {
-    const hasDot = Object.keys(payrollState.totals).some(k => k.endsWith("_" + d));
-    const isSelected = d === _clearSelectedDate;
-    return `<button type="button" onclick="clearSelectDate('${d}')"
-      class="pdim-date-btn${isSelected ? " selected" : ""}${d > today ? " future" : ""}">
-      <span class="pdim-date-val">${_dateRu(d)}</span>
-      ${hasDot ? `<span class="pdim-date-dot">●</span>` : ""}
-    </button>`;
-  }).join("");
-}
-
-function _clearRenderDateList() {
-  const wrap = document.getElementById("clearDateList");
-  if (!wrap) return;
-  const dates = _payrollDates();
-  const today = _dateFmt(new Date());
-  wrap.innerHTML = dates.map(d => {
-    const hasDot = Object.keys(payrollState.totals).some(k => k.endsWith("_" + d));
-    const isSelected = d === _clearSelectedDate;
-    return `<button type="button" onclick="clearSelectDate('${d}')"
-      style="padding:5px 10px;font-size:13px;border-radius:6px;border:1px solid ${isSelected ? "#ef4444" : "#e2e8f0"};
-             background:${isSelected ? "#fef2f2" : "#fff"};color:${isSelected ? "#b91c1c" : "#374151"};
-             font-weight:${isSelected ? "700" : "400"};cursor:pointer;white-space:nowrap">
-      ${_dateRu(d)}${hasDot ? " <span style='color:#2563eb;font-size:10px'>●</span>" : ""}
-    </button>`;
-  }).join("");
-}
-
-window.clearSelectDate = function(d) {
-  _clearSelectedDate = d;
-  _clearRenderDateList();
-  _clearRenderExtraDates();
-};
-
-window.executePayrollClear = async function() {
-  const scope = document.getElementById("clearScopeSelect")?.value || "all";
-  const info = document.getElementById("payrollClearInfo");
-  const useExtraDate = document.getElementById("clearUseDateFilter")?.checked && _clearSelectedDate;
-
-  // Build confirmation message
-  let confirmMsg = "";
-  const params = new URLSearchParams({ scope });
-  if (scope === "date") {
-    if (!_clearSelectedDate) {
-      if (info) { info.textContent = "Выберите дату"; info.style.color = "#b91c1c"; }
-      return;
-    }
-    confirmMsg = `Удалить ВСЕ данные начислений за ${_dateRuFull(_clearSelectedDate)}?`;
-    params.set("entry_date", _clearSelectedDate);
-  } else if (scope === "production") {
-    const prod = document.getElementById("clearProductionSelect")?.value || "";
-    const datePart = useExtraDate ? ` за ${_dateRuFull(_clearSelectedDate)}` : " за все даты";
-    confirmMsg = `Удалить данные начислений для производства «${prod}»${datePart}?`;
-    params.set("production", prod);
-    if (useExtraDate) params.set("entry_date", _clearSelectedDate);
-  } else if (scope === "legal") {
-    const leg = document.getElementById("clearLegalSelect")?.value || "";
-    const datePart = useExtraDate ? ` за ${_dateRuFull(_clearSelectedDate)}` : " за все даты";
-    confirmMsg = `Удалить данные начислений для «${leg}»${datePart}?`;
-    params.set("legal_entity", leg);
-    if (useExtraDate) params.set("entry_date", _clearSelectedDate);
-  } else {
-    confirmMsg = "Удалить ВСЕ данные начислений по всем работникам и датам?\n\nЭто действие необратимо!";
-  }
-
-  if (!confirm(confirmMsg)) return;
-
-  const btn = document.getElementById("payrollClearBtn");
-  if (btn) { btn.disabled = true; btn.textContent = "Очистка..."; }
-  if (info) info.textContent = "";
-
-  try {
-    const res = await fetch("/api/salary/clear?" + params.toString(), {
-      method: "POST",
-      headers: jsonHeaders(),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      if (info) { info.textContent = data.detail || "Ошибка"; info.style.color = "#b91c1c"; }
-      return;
-    }
-    closePayrollClearModal();
-
-    // Reload totals + vacations
-    const [tRes, vRes] = await Promise.all([fetch("/api/salary/totals"), fetch("/api/salary/vacations")]);
-    const [tData, vData] = await Promise.all([tRes.json(), vRes.json()]);
-    payrollState.totals = {};
-    for (const t of (tData.items || [])) {
-      payrollState.totals[`${t.worker_id}_${t.entry_date}`] = parseFloat(t.total || 0);
-    }
-    payrollState.vacations = new Set((vData.items || []).map(v => `${v.worker_id}_${v.entry_date}`));
-    renderPayrollTable();
-
-    const pageInfo = document.getElementById("payrollInfo");
-    if (pageInfo) {
-      pageInfo.textContent = `Очищено записей: ${data.deleted ?? 0}`;
-      pageInfo.style.color = "#16a34a";
-    }
-  } catch (e) {
-    if (info) { info.textContent = "Ошибка: " + e.message; info.style.color = "#b91c1c"; }
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = "Очистить"; }
-  }
-};
-
-// ── Distribution import modal ─────────────────────────────────────────────
-
-let _pdimSelectedDate = null;
-let _pdimFile = null;
-
-window.openDistImportModal = function() {
-  _pdimSelectedDate = null;
-  _pdimFile = null;
-  document.getElementById("pdimFileInput").value = "";
-  document.getElementById("pdimStep1Info").textContent = "";
-  document.getElementById("pdimPreviewBtn").disabled = true;
-  _pdimRenderDateList();
-  _pdimShowStep(1);
-  document.getElementById("payrollDistImportModal")?.classList.remove("hidden");
-};
-
-window.closeDistImportModal = function() {
-  document.getElementById("payrollDistImportModal")?.classList.add("hidden");
-  _pdimSelectedDate = null;
-  _pdimFile = null;
-};
-
-function _pdimShowStep(n) {
-  document.getElementById("pdimStep1").classList.toggle("hidden", n !== 1);
-  document.getElementById("pdimStep2").classList.toggle("hidden", n !== 2);
-  const s2 = document.getElementById("pdimStep2");
-  if (s2) s2.style.display = n === 2 ? "flex" : "none";
-}
-
-function _pdimRenderDateList() {
-  const wrap = document.getElementById("pdimDateList");
-  if (!wrap) return;
-  const dates = _payrollDates();
-  const today = _dateFmt(new Date());
-  wrap.innerHTML = dates.map(d => {
-    const hasDot = Object.keys(payrollState.totals).some(k => k.endsWith("_" + d));
-    const isSelected = d === _pdimSelectedDate;
-    const isPast = d <= today;
-    return `<button type="button" onclick="pdimSelectDate('${d}')"
-      class="pdim-date-btn${isSelected ? " selected" : ""}${!isPast ? " future" : ""}">
-      <span class="pdim-date-val">${_dateRu(d)}</span>
-      ${hasDot ? `<span class="pdim-date-dot">●</span>` : ""}
-    </button>`;
-  }).join("");
-}
-
-window.pdimSelectDate = function(d) {
-  _pdimSelectedDate = d;
-  _pdimRenderDateList();
-  _pdimCheckReady();
-};
-
-window.pdimOnFileChange = function() {
-  const input = document.getElementById("pdimFileInput");
-  _pdimFile = input?.files?.[0] || null;
-  const nameEl = document.getElementById("pdimFileNameDisplay");
-  if (nameEl) nameEl.textContent = _pdimFile ? _pdimFile.name : "Выберите файл .xlsx или .xls";
-  _pdimCheckReady();
-};
-
-function _pdimCheckReady() {
-  const btn = document.getElementById("pdimPreviewBtn");
-  if (btn) btn.disabled = !(_pdimFile && _pdimSelectedDate);
-}
-
-window.pdimBackToStep1 = function() {
-  _pdimShowStep(1);
-};
-
-window.pdimLoadPreview = async function() {
-  const info = document.getElementById("pdimStep1Info");
-  if (!_pdimFile || !_pdimSelectedDate) return;
-  if (info) { info.textContent = "Загрузка предпросмотра..."; info.style.color = "#64748b"; }
-  const btn = document.getElementById("pdimPreviewBtn");
-  if (btn) btn.disabled = true;
-  try {
-    const formData = new FormData();
-    formData.append("file", _pdimFile);
-    const csrf = document.cookie.match(/csrf_token=([^;]+)/)?.[1] || "";
-    const res = await fetch(`/api/salary/payroll/import-distribution?preview=true&entry_date=${_pdimSelectedDate}`, {
-      method: "POST",
-      headers: { "X-CSRF-Token": csrf },
-      body: formData,
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      if (info) { info.textContent = data.detail || "Ошибка"; info.style.color = "#b91c1c"; }
-      return;
-    }
-    if (info) info.textContent = "";
-    _pdimRenderPreview(data);
-    _pdimShowStep(2);
-  } catch (e) {
-    if (info) { info.textContent = "Ошибка: " + e.message; info.style.color = "#b91c1c"; }
-  } finally {
-    if (btn) btn.disabled = false;
-  }
-};
-
-function _pdimRenderPreview(data) {
-  const meta = document.getElementById("pdimPreviewMeta");
-  if (meta) meta.innerHTML = `Дата: <b>${_dateRuFull(_pdimSelectedDate)}</b> &nbsp;·&nbsp; Записей к загрузке: <b>${data.to_save ?? 0}</b>`;
-
-  const warnWrap = document.getElementById("pdimWarningsWrap");
-  const warnEl = document.getElementById("pdimWarnings");
-  if (data.warnings?.length) {
-    warnEl.innerHTML = data.warnings.map(w => `<div>⚠ ${esc(w)}</div>`).join("");
-    warnWrap.classList.remove("hidden");
-  } else {
-    warnWrap.classList.add("hidden");
-  }
-
-  const container = document.getElementById("pdimSheetPreviews");
-  if (!container) return;
-  container.innerHTML = "";
-  for (const sheet of (data.sheets || [])) {
-    const block = document.createElement("div");
-    block.innerHTML = `
-      <div style="font-size:12px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">
-        Лист: ${esc(sheet.name)}
-      </div>
-          <div class="table-wrap" style="margin:0;max-height:280px;overflow:auto">
-        <table style="min-width:400px;table-layout:fixed">
-          <thead><tr>${sheet.headers.map((h, i) => `<th style="
-              font-size:11px;padding:6px 8px;
-              white-space:normal;word-break:break-word;
-              min-width:${i === 0 ? 120 : 80}px;
-              max-width:${i === 0 ? 160 : 120}px;
-              vertical-align:bottom;line-height:1.3;
-              text-align:${i === 0 ? 'left' : 'center'}">${esc(h)}</th>`).join("")}</tr></thead>
-          <tbody>${(sheet.rows || []).map(row =>
-            `<tr>${row.map((c, ci) => {
-              const isEmpty = c === "" || c === null || c === undefined;
-              const isNum = typeof c === "number" && c > 0;
-              return `<td style="font-size:12px;padding:4px 8px;text-align:${ci === 0 ? 'left' : 'center'};color:${isNum ? '#1e293b' : '#94a3b8'};font-weight:${isNum ? '500' : '400'}">${isEmpty ? "" : esc(String(c))}</td>`;
-            }).join("")}</tr>`
-          ).join("")}</tbody>
-        </table>
-      </div>`;
-    container.appendChild(block);
-  }
-
-  const confirmBtn = document.getElementById("pdimConfirmBtn");
-  if (confirmBtn) confirmBtn.disabled = (data.to_save === 0);
-}
-
-window.pdimConfirmImport = async function() {
-  if (!_pdimFile || !_pdimSelectedDate) return;
-  const btn = document.getElementById("pdimConfirmBtn");
-  if (btn) { btn.disabled = true; btn.textContent = "Загрузка..."; }
-  try {
-    const formData = new FormData();
-    formData.append("file", _pdimFile);
-    const csrf = document.cookie.match(/csrf_token=([^;]+)/)?.[1] || "";
-    const res = await fetch(`/api/salary/payroll/import-distribution?preview=false&entry_date=${_pdimSelectedDate}`, {
-      method: "POST",
-      headers: { "X-CSRF-Token": csrf },
-      body: formData,
-    });
-    const data = await res.json();
-    closeDistImportModal();
-    if (!res.ok) { alert(data.detail || "Ошибка импорта"); return; }
-
-    // Reload totals
-    const tRes = await fetch("/api/salary/totals");
-    const tData = await tRes.json();
-    payrollState.totals = {};
-    for (const t of (tData.items || [])) {
-      payrollState.totals[`${t.worker_id}_${t.entry_date}`] = parseFloat(t.total || 0);
-    }
-    renderPayrollTable();
-    const info = document.getElementById("payrollInfo");
-    if (info) {
-      const warnTxt = data.warnings?.length ? `; предупреждений: ${data.warnings.length}` : "";
-      info.textContent = `Импортировано: ${data.saved} записей${warnTxt}`;
-      info.style.color = "#16a34a";
-    }
-  } catch (e) {
-    alert("Ошибка: " + e.message);
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = "Загрузить данные"; }
-  }
-};
-
-// ── Supply Planning ───────────────────────────────────────────────────────
-
-const SP_COL_WIDTHS_KEY = "supply_planning_col_widths";
-
-function _spColWidths() {
-  try { return JSON.parse(localStorage.getItem(SP_COL_WIDTHS_KEY) || "{}"); } catch(_){return {};}
-}
-function _spSaveColWidths(w) {
-  try { localStorage.setItem(SP_COL_WIDTHS_KEY, JSON.stringify(w)); } catch(_){}
-}
-
-// Apply saved column widths to the planning table
-function applySpColWidths() {
-  const widths = _spColWidths();
-  const table = document.getElementById("supplyPlanningTable");
-  if (!table) return;
-  table.querySelectorAll("th.sp-th[data-col]").forEach(th => {
-    const col = th.getAttribute("data-col");
-    if (widths[col]) th.style.width = widths[col] + "px";
-  });
-}
-
-let _spSortCol = null;
-let _spSortAsc = false;
-
-window.onSupplyPlanningMpChange = function() {
-  const mp = document.getElementById("supplyPlanningMp")?.value || "wb";
-  const hdr = document.getElementById("supplyPlanningBarcodeHeader");
-  if (hdr) {
-    hdr.textContent = mp === "wb" ? "ШК WB" : mp === "ozon" ? "ШК OZON" : "ШК ЯМ";
-  }
-  // TODO: reload data for selected MP
-};
-
-window.toggleSpSort = function(col) {
-  if (_spSortCol === col) {
-    _spSortAsc = !_spSortAsc;
-  } else {
-    _spSortCol = col;
-    _spSortAsc = false; // default: descending
-  }
-  const icon = document.getElementById("spSortQtyIcon");
-  if (icon) icon.textContent = _spSortAsc ? "↑" : "↓";
-  // TODO: re-sort and re-render data
-};
-
-// Column resize
-let _spResizeState = null;
-
-window.startSpResize = function(e, col) {
-  e.preventDefault();
-  e.stopPropagation();
-  const handle = e.target;
-  const th = handle.closest("th");
-  if (!th) return;
-  handle.classList.add("dragging");
-  const startX = e.clientX;
-  const startW = th.offsetWidth;
-  _spResizeState = { th, col, startX, startW, handle };
-
-  const onMove = (ev) => {
-    if (!_spResizeState) return;
-    const delta = ev.clientX - _spResizeState.startX;
-    const newW = Math.max(60, _spResizeState.startW + delta);
-    _spResizeState.th.style.width = newW + "px";
-  };
-  const onUp = () => {
-    if (_spResizeState) {
-      const w = _spColWidths();
-      w[_spResizeState.col] = _spResizeState.th.offsetWidth;
-      _spSaveColWidths(w);
-      _spResizeState.handle.classList.remove("dragging");
-      _spResizeState = null;
-    }
-    document.removeEventListener("mousemove", onMove);
-    document.removeEventListener("mouseup", onUp);
-  };
-  document.addEventListener("mousemove", onMove);
-  document.addEventListener("mouseup", onUp);
-};
-
-// Called when section loads
-window.loadSupplyPlanningSection = function() {
-  applySpColWidths();
-  onSupplyPlanningMpChange();
-};
-
-// ── Payroll date range calendar (mirrors WB supplies calendar) ────────────
-
-const _payrollCal = {
-  viewYear: new Date().getFullYear(),
-  viewMonth: new Date().getMonth(),
-  startDate: null,
-  endDate: null,
-  hoveredDate: null,
-};
-
-function _payrollCalRender() {
-  const container = document.getElementById("payrollCalendar");
-  if (!container) return;
-  const { viewYear: y, viewMonth: m, startDate: s, endDate: e, hoveredDate: h } = _payrollCal;
-  const firstDay = new Date(y, m, 1);
-  const lastDay = new Date(y, m + 1, 0);
-  const startOffset = (firstDay.getDay() + 6) % 7;
-  const today = new Date(); today.setHours(0,0,0,0);
-  const fmtDisp = (d) => d ? `${String(d.getDate()).padStart(2,"0")}.${String(d.getMonth()+1).padStart(2,"0")}.${d.getFullYear()}` : "";
-
-  let html = `<div class="cal-header" onclick="event.stopPropagation()">
-    <button type="button" class="cal-nav" onclick="event.stopPropagation();_payrollCalPrev()">◄</button>
-    <span class="cal-title">${_calMonths[m]} ${y}</span>
-    <button type="button" class="cal-nav" onclick="event.stopPropagation();_payrollCalNext()">►</button>
-  </div>
-  <div class="cal-grid" onmouseleave="_payrollCalClearHover()">`;
-  _calDays.forEach(d => { html += `<div class="cal-cell cal-dow">${d}</div>`; });
-  for (let i = 0; i < startOffset; i++) html += `<div class="cal-cell cal-empty"></div>`;
-  for (let d = 1; d <= lastDay.getDate(); d++) {
-    const date = new Date(y, m, d);
-    const isToday = date.getTime() === today.getTime();
-    const isStart = s && date.getTime() === s.getTime();
-    const isEnd = e && date.getTime() === e.getTime();
-    const rangeEnd = e || h;
-    const inRange = s && rangeEnd && date > (s < rangeEnd ? s : rangeEnd) && date < (s < rangeEnd ? rangeEnd : s);
-    let cls = "cal-cell cal-day";
-    if (isStart || isEnd) cls += " cal-selected";
-    if (isStart) cls += " cal-range-start";
-    if (isEnd) cls += " cal-range-end";
-    if (inRange) cls += " cal-in-range";
-    if (isToday) cls += " cal-today";
-    const iso = `${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
-    html += `<div class="${cls}" data-date="${iso}"
-      onclick="event.stopPropagation();_payrollCalPick(${y},${m},${d})"
-      onmouseenter="_payrollCalHover(${y},${m},${d})">${d}</div>`;
-  }
-  html += `</div>`;
-  if (s || e) {
-    html += `<div class="cal-range-label" onclick="event.stopPropagation()">${fmtDisp(s)||"…"} — ${fmtDisp(e)||"…"}</div>`;
-  }
-  html += `<div class="cal-footer" onclick="event.stopPropagation()">
-    <button type="button" class="secondary" onclick="event.stopPropagation();clearPayrollDateFilter()">Сбросить</button>
-  </div>`;
-  container.innerHTML = html;
-}
-
-function _payrollCalPick(y, m, d) {
-  const date = new Date(y, m, d); date.setHours(0,0,0,0);
-  if (!_payrollCal.startDate || (_payrollCal.startDate && _payrollCal.endDate)) {
-    _payrollCal.startDate = date; _payrollCal.endDate = null;
-  } else {
-    if (date < _payrollCal.startDate) { _payrollCal.endDate = _payrollCal.startDate; _payrollCal.startDate = date; }
-    else if (date.getTime() === _payrollCal.startDate.getTime()) { _payrollCal.endDate = new Date(date); }
-    else { _payrollCal.endDate = date; }
-  }
-  _payrollCalRender();
-  if (_payrollCal.startDate && _payrollCal.endDate) {
-    const fmt = (dt) => `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`;
-    payrollState.dateFrom = fmt(_payrollCal.startDate);
-    payrollState.dateTo   = fmt(_payrollCal.endDate);
-    const f = document.getElementById("payrollDateFrom");
-    const t = document.getElementById("payrollDateTo");
-    if (f) f.value = payrollState.dateFrom;
-    if (t) t.value = payrollState.dateTo;
-    _updatePayrollDateBtn();
-    renderPayrollTable();
-    setTimeout(() => togglePayrollDatePanel(false), 300);
-  }
-}
-
-function _payrollCalHover(y, m, d) {
-  if (!_payrollCal.startDate || _payrollCal.endDate) return;
-  _payrollCal.hoveredDate = new Date(y, m, d);
-  const s = _payrollCal.startDate;
-  const hov = _payrollCal.hoveredDate;
-  document.querySelectorAll("#payrollCalendar .cal-day[data-date]").forEach(el => {
-    const dt = new Date(el.dataset.date + "T00:00:00");
-    el.classList.toggle("cal-in-range", s && hov && dt > (s < hov ? s : hov) && dt < (s < hov ? hov : s));
-  });
-}
-
-function _payrollCalClearHover() {
-  if (_payrollCal.hoveredDate) {
-    _payrollCal.hoveredDate = null;
-    document.querySelectorAll("#payrollCalendar .cal-day.cal-in-range").forEach(el => el.classList.remove("cal-in-range"));
-  }
-}
-
-function _payrollCalPrev() {
-  if (_payrollCal.viewMonth === 0) { _payrollCal.viewMonth = 11; _payrollCal.viewYear--; }
-  else _payrollCal.viewMonth--;
-  _payrollCalRender();
-}
-function _payrollCalNext() {
-  if (_payrollCal.viewMonth === 11) { _payrollCal.viewMonth = 0; _payrollCal.viewYear++; }
-  else _payrollCal.viewMonth++;
-  _payrollCalRender();
-}
-
-window._payrollCalPick = _payrollCalPick;
-window._payrollCalPrev = _payrollCalPrev;
-window._payrollCalNext = _payrollCalNext;
-window._payrollCalHover = _payrollCalHover;
-window._payrollCalClearHover = _payrollCalClearHover;
-
-function _updatePayrollDateBtn() {
-  const btn = document.getElementById("payrollDateRangeBtn");
-  if (!btn) return;
-  if (_payrollCal.startDate && _payrollCal.endDate) {
-    const fmt = (d) => d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
-    btn.textContent = `${fmt(_payrollCal.startDate)}–${fmt(_payrollCal.endDate)}`;
-  } else {
-    btn.textContent = "📅";
-  }
-}
-
-function togglePayrollDatePanel(forceOpen) {
-  const panel = document.getElementById("payrollDatePanel");
-  if (!panel) return;
-  const isVisible = panel.style.display === "flex";
-  const shouldShow = forceOpen !== undefined ? Boolean(forceOpen) : !isVisible;
-  panel.style.display = shouldShow ? "flex" : "none";
-  if (shouldShow) _payrollCalRender();
-  _updatePayrollDateBtn();
-}
-function applyPayrollDateFilter() {
-  // No-op: calendar applies immediately on date pick
-  togglePayrollDatePanel(false);
-}
-function clearPayrollDateFilter() {
-  _payrollCal.startDate = null; _payrollCal.endDate = null; _payrollCal.hoveredDate = null;
-  payrollState.dateFrom = null;
-  payrollState.dateTo = null;
-  const f = document.getElementById("payrollDateFrom"); if (f) f.value = "";
-  const t = document.getElementById("payrollDateTo"); if (t) t.value = "";
-  _updatePayrollDateBtn();
-  togglePayrollDatePanel(false);
-  renderPayrollTable();
-}
-function setPayrollDatePreset(preset) {
-  // Keep for possible future use, not exposed in new calendar UI
-}
-
-window.togglePayrollDatePanel = togglePayrollDatePanel;
-window.applyPayrollDateFilter = applyPayrollDateFilter;
-window.clearPayrollDateFilter = clearPayrollDateFilter;
-window.setPayrollDatePreset = setPayrollDatePreset;
-window.renderPayrollTable = renderPayrollTable;
-
-// ── Payroll entry modal ───────────────────────────────────────────────────
-
-const PIECE_ROLES = ["Упаковщик", "Закройщик", "Швея"];
-
-// Which extra prod types are available per position
-const EXTRA_PROD_CONFIG = {
-  "Нач. производства": ["poshiv", "raskroi", "upakovka"],
-  "Грузчик":           ["poshiv", "raskroi", "upakovka"],
-  "Комплектовщик":     ["poshiv", "raskroi", "upakovka"],
-  "Закройщик":         ["poshiv", "upakovka"],
-  "Швея":              ["raskroi", "upakovka"],
-  "Упаковщик":         ["poshiv", "raskroi"],
-};
-
-const PROD_TYPE_LABELS = { poshiv: "Пошив", raskroi: "Закрой", upakovka: "Упаковка" };
-const PROD_TYPE_SUFFIX = { poshiv: "poshiv", raskroi: "raskroi", upakovka: "upakovka" };
-
-function _getProductPrice(product, position, production) {
-  const prod = (production || "").toLowerCase();
-  const prefix = prod.includes("кинешма") ? "kineshma"
-    : prod.includes("нерль") ? "nerl"
-    : "ivanovo";
-  const pos = position || "";
-  const suffix = pos === "Упаковщик" ? "upakovka"
-    : pos === "Закройщик" ? "raskroi"
-    : pos === "Швея" ? "poshiv"
-    : null;
-  if (!suffix) return 0;
-  return parseFloat(product[`price_${prefix}_${suffix}`] || 0);
-}
-
-function openPayrollModal(workerId, date) {
-  const w = payrollState.workers.find(x => x.id === workerId);
-  if (!w) return;
-  payrollState.modalWorkerId = workerId;
-  payrollState.modalDate = date;
-  payrollState.modalEntries = {};
-  payrollState.modalExtras = [];
-  payrollState.modalLinks = [];
-  payrollState.modalExtraProds = {};
-  payrollState.activeExtraProds = new Set();
-  payrollState.modalVacation = false;
-
-  // Reset vacation checkbox
-  const vchk = document.getElementById("payrollVacationCheck");
-  if (vchk) vchk.checked = false;
-  document.getElementById("payrollVacationHint")?.classList.add("hidden");
-
-  const infoEl = document.getElementById("payrollModalWorkerInfo");
-  if (infoEl) {
-    infoEl.innerHTML = [
-      `<span>ФИО: <strong>${esc(w.full_name||"")}</strong></span>`,
-      w.position ? `<span>Должность: <strong>${esc(w.position)}</strong></span>` : "",
-      `<span>Производство: <strong>${esc(w.production||"")}</strong></span>`,
-      w.legal_entity ? `<span>Юр. принадлежность: <strong>${esc(w.legal_entity)}</strong></span>` : "",
-    ].filter(Boolean).join("");
-  }
-
-  _setPayrollModalDate(date);
-  document.getElementById("payrollEntryModal")?.classList.remove("hidden");
-}
-window.openPayrollModal = openPayrollModal;
-
-function _setPayrollModalDate(date) {
-  payrollState.modalDate = date;
-  const linkEl = document.getElementById("payrollModalDateDisplay");
-  if (linkEl) linkEl.textContent = date ? _dateRu(date) : "Выбрать дату";
-  const inp = document.getElementById("payrollModalDateInput");
-  if (inp) inp.value = date || "";
-  if (date) _loadPayrollModalProducts(date);
-}
-
-function togglePayrollModalDateList(e) {
-  e.preventDefault();
-  const list = document.getElementById("payrollModalDateList");
-  if (!list) return;
-  if (list.style.display !== "none") { list.style.display = "none"; return; }
-
-  const dates = _payrollDates();
-  const current = payrollState.modalDate;
-  const totals = payrollState.totals;
-  const workerId = payrollState.modalWorkerId;
-
-  // Build list: newest first for easier access to recent dates
-  const reversed = [...dates].reverse();
-  list.innerHTML = reversed.map(d => {
-    const hasSaved = totals[`${workerId}_${d}`] > 0;
-    const isSelected = d === current;
-    const today = _dateFmt(new Date());
-    const isCurrent = d <= today && new Date(today) - new Date(d) < PAYROLL_WEEK_MS * 1.5;
-    return `<div class="payroll-date-list-item"
-      onclick="selectPayrollModalDate('${d}')"
-      style="padding:7px 12px;cursor:pointer;font-size:13px;background:#fff;border-bottom:1px solid #f1f5f9">
-      ${_dateRu(d)}${hasSaved ? " <span style='color:#1d4ed8;font-size:11px'>●</span>" : ""}
-    </div>`;
-  }).join("");
-  list.style.display = "block";
-
-  // Scroll to current date in list
-  requestAnimationFrame(() => {
-    const sel = list.querySelector(".selected") || list.querySelector(".current");
-    if (sel) sel.scrollIntoView({ block: "nearest" });
-  });
-
-  // Close on outside click
-  const close = (ev) => {
-    if (!list.contains(ev.target) && ev.target.id !== "payrollModalDateLink") {
-      list.style.display = "none";
-      document.removeEventListener("mousedown", close);
-    }
-  };
-  setTimeout(() => document.addEventListener("mousedown", close), 100);
-}
-window.togglePayrollModalDateList = togglePayrollModalDateList;
-
-function selectPayrollModalDate(date) {
-  document.getElementById("payrollModalDateList").style.display = "none";
-  _setPayrollModalDate(date);
-}
-window.selectPayrollModalDate = selectPayrollModalDate;
-
-async function _loadPayrollModalProducts(date) {
-  const workerId = payrollState.modalWorkerId;
-  const w = payrollState.workers.find(x => x.id === workerId);
-  if (!w) return;
-  const infoEl = document.getElementById("payrollModalInfo");
-  if (infoEl) infoEl.textContent = "";
-
-  const isPiece = PIECE_ROLES.includes(w.position || "");
-  document.getElementById("payrollModalProductsWrap")?.classList.toggle("hidden", !isPiece);
-  document.getElementById("payrollModalOkladWrap")?.classList.toggle("hidden", isPiece);
-
-  if (isPiece) {
-    // Set main operation label (Пошив / Закрой / Упаковка)
-    const mainProdSuffix = w.position === "Швея" ? "poshiv"
-      : w.position === "Закройщик" ? "raskroi"
-      : "upakovka";
-    const labelEl = document.getElementById("payrollMainProdLabel");
-    if (labelEl) labelEl.textContent = PROD_TYPE_LABELS[mainProdSuffix] || "";
-
-    // ── Load product entries ──────────────────────────────────────────────
-    let existingMap = {};
-    try {
-      const res = await fetch(`/api/salary/entries?worker_id=${workerId}&entry_date=${date}`);
-      const data = await res.json();
-      for (const e of (data.items||[])) existingMap[e.product_id] = parseFloat(e.quantity||0);
-    } catch(_) {}
-    payrollState.modalEntries = {...existingMap};
-
-    // Filter products by role (empty roles = applies to all piece roles)
-    const allProducts = payrollState.products;
-    const products = allProducts.filter(p => {
-      const roles = (p.roles || "").split(",").map(s => s.trim()).filter(Boolean);
-      return roles.length === 0 || roles.includes(w.position || "");
-    });
-    if (!allProducts.length) {
-      if (infoEl) infoEl.textContent = "Товары не настроены (Зарплата → Настройки → Товары)";
-    }
-    const tbody = document.getElementById("payrollModalProductsTbody");
-    if (tbody) {
-      tbody.innerHTML = products.map(p => {
-        const price = _getProductPrice(p, w.position, w.production);
-        const qty = existingMap[p.id] || 0;
-        return `<tr>
-          <td>${esc(p.name||"")}</td>
-          <td style="text-align:center">${_fmtRub(price)}</td>
-          <td><input type="number" class="payroll-qty-input" min="0" step="1"
-            data-product-id="${p.id}" data-price="${price}"
-            value="${qty||""}" placeholder="0"
-            oninput="updatePayrollTotal()" style="width:80px;min-height:32px;text-align:right" /></td>
-          <td id="payroll-row-sum-${p.id}" style="text-align:center">${qty ? _fmtRub(qty*price) : ""}</td>
-        </tr>`;
-      }).join("");
-    }
-  } else {
-    // ── Load oklad ────────────────────────────────────────────────────────
-    let okladAmount = 0;
-    try {
-      const res = await fetch(`/api/salary/oklad?worker_id=${workerId}&entry_date=${date}`);
-      const data = await res.json();
-      okladAmount = parseFloat(data.amount || 0);
-    } catch(_) {}
-    const okladInput = document.getElementById("payrollModalOkladInput");
-    if (okladInput) okladInput.value = okladAmount > 0 ? okladAmount : "";
-  }
-
-  // ── Vacation checkbox ─────────────────────────────────────────────────
-  const isVacation = payrollState.vacations.has(`${workerId}_${date}`);
-  payrollState.modalVacation = isVacation;
-  const vchk = document.getElementById("payrollVacationCheck");
-  if (vchk) vchk.checked = isVacation;
-  document.getElementById("payrollVacationHint")?.classList.toggle("hidden", !isVacation);
-
-  // ── Load extra productions ────────────────────────────────────────────
-  await _loadPayrollExtraProds(workerId, date, w);
-  // ── Load extras ───────────────────────────────────────────────────────
-  await _loadPayrollExtras(workerId, date);
-  // ── Load links ────────────────────────────────────────────────────────
-  await _loadPayrollLinks(workerId, date);
-
-  updatePayrollTotal();
-}
-
-// ── Extra productions ─────────────────────────────────────────────────────
-
-async function _loadPayrollExtraProds(workerId, date, worker) {
-  const pos = worker?.position || "";
-  const availableTypes = EXTRA_PROD_CONFIG[pos] || [];
-  const area = document.getElementById("payrollExtraProdsArea");
-  const btnWrap = document.getElementById("payrollExtraProdsButtons");
-  const contentWrap = document.getElementById("payrollExtraProdsContent");
-  if (!area || !btnWrap || !contentWrap) return;
-
-  payrollState.modalExtraProds = {};
-  payrollState.activeExtraProds = new Set();
-
-  if (!availableTypes.length) {
-    area.classList.add("hidden");
-    return;
-  }
-
-  // Load saved data
-  try {
-    const res = await fetch(`/api/salary/extra-prods?worker_id=${workerId}&entry_date=${date}`);
-    const data = await res.json();
-    for (const e of (data.items || [])) {
-      const t = e.prod_type;
-      if (!payrollState.modalExtraProds[t]) payrollState.modalExtraProds[t] = {};
-      payrollState.modalExtraProds[t][e.product_id] = parseFloat(e.quantity || 0);
-    }
-    // Types with saved data become active automatically
-    for (const t of availableTypes) {
-      if (payrollState.modalExtraProds[t] && Object.keys(payrollState.modalExtraProds[t]).length > 0) {
-        payrollState.activeExtraProds.add(t);
-      }
-    }
-  } catch(_) {}
-
-  area.classList.remove("hidden");
-  _renderExtraProdButtons(availableTypes, worker);
-  _renderExtraProdTables(availableTypes, worker);
-}
-
-function _renderExtraProdButtons(availableTypes, worker) {
-  const btnWrap = document.getElementById("payrollExtraProdsButtons");
-  if (!btnWrap) return;
-  btnWrap.innerHTML = availableTypes.map(t => {
-    const isActive = payrollState.activeExtraProds.has(t);
-    return `<button type="button" class="secondary${isActive ? " active-prod-btn" : ""}"
-      style="font-size:12px;padding:6px 12px" onclick="toggleExtraProd('${t}')"
-      id="extraProdBtn_${t}">
-      ${isActive ? "✓ " : "+ "}${PROD_TYPE_LABELS[t]}
-    </button>`;
-  }).join("");
-}
-
-// prod_type → role that owns this operation (used to filter products by roles field)
-const PROD_TYPE_ROLE = { poshiv: "Швея", raskroi: "Закройщик", upakovka: "Упаковщик" };
-
-function _filterProductsByProdType(prodType) {
-  const targetRole = PROD_TYPE_ROLE[prodType];
-  return payrollState.products.filter(p => {
-    const roles = (p.roles || "").split(",").map(s => s.trim()).filter(Boolean);
-    return roles.length === 0 || roles.includes(targetRole);
-  });
-}
-
-function _renderExtraProdTables(availableTypes, worker) {
-  const contentWrap = document.getElementById("payrollExtraProdsContent");
-  if (!contentWrap) return;
-  contentWrap.innerHTML = "";
-  for (const t of availableTypes) {
-    if (!payrollState.activeExtraProds.has(t)) continue;
-    const block = document.createElement("div");
-    block.className = "extra-prod-block";
-    block.id = `extraProdBlock_${t}`;
-    const products = _filterProductsByProdType(t);
-    const rows = products.map(p => {
-      const price = _getExtraProdPrice(p, t, worker?.production || "");
-      const qty = (payrollState.modalExtraProds[t] || {})[p.id] || 0;
-      return `<tr>
-        <td>${esc(p.name || "")}</td>
-        <td style="text-align:center">${_fmtRub(price)}</td>
-        <td><input type="number" min="0" step="1" placeholder="0"
-          class="payroll-qty-input extra-prod-qty"
-          data-prod-type="${t}" data-product-id="${p.id}" data-price="${price}"
-          value="${qty || ""}"
-          oninput="updateExtraProdQty('${t}',${p.id},this.value);updatePayrollTotal()"
-          style="width:72px;min-height:30px;text-align:right" /></td>
-        <td id="ep-row-sum-${t}-${p.id}" style="text-align:center">${qty ? _fmtRub(qty * price) : ""}</td>
-      </tr>`;
-    }).join("");
-    block.innerHTML = `
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0 4px;border-bottom:1px solid #e2e8f0;margin-bottom:4px">
-        <span style="font-size:12px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.05em">${PROD_TYPE_LABELS[t]}</span>
-        <span id="ep-subtotal-${t}" style="font-size:13px;font-weight:600;color:#1d4ed8"></span>
-      </div>
-      <div class="table-wrap" style="margin:0">
-        <table><thead><tr>
-          <th style="text-align:left">Наименование</th>
-          <th style="width:90px">Цена</th><th style="width:72px">Кол-во</th><th style="width:88px">Сумма</th>
-        </tr></thead><tbody>${rows}</tbody></table>
-      </div>`;
-    contentWrap.appendChild(block);
-  }
-}
-
-function _getExtraProdPrice(product, prodType, production) {
-  const prod = (production || "").toLowerCase();
-  const prefix = prod.includes("кинешма") ? "kineshma"
-    : prod.includes("нерль") ? "nerl"
-    : "ivanovo";
-  return parseFloat(product[`price_${prefix}_${PROD_TYPE_SUFFIX[prodType]}`] || 0);
-}
-
-window.toggleExtraProd = function(prodType) {
-  const w = payrollState.workers.find(x => x.id === payrollState.modalWorkerId);
-  const availableTypes = EXTRA_PROD_CONFIG[w?.position || ""] || [];
-  if (payrollState.activeExtraProds.has(prodType)) {
-    payrollState.activeExtraProds.delete(prodType);
-    delete payrollState.modalExtraProds[prodType];
-  } else {
-    payrollState.activeExtraProds.add(prodType);
-    if (!payrollState.modalExtraProds[prodType]) payrollState.modalExtraProds[prodType] = {};
-  }
-  _renderExtraProdButtons(availableTypes, w);
-  _renderExtraProdTables(availableTypes, w);
-  updatePayrollTotal();
-};
-
-window.updateExtraProdQty = function(prodType, productId, val) {
-  if (!payrollState.modalExtraProds[prodType]) payrollState.modalExtraProds[prodType] = {};
-  payrollState.modalExtraProds[prodType][productId] = parseFloat(val || 0) || 0;
-};
-
-// ── Extras ────────────────────────────────────────────────────────────────
-
-async function _loadPayrollExtras(workerId, date) {
-  try {
-    const res = await fetch(`/api/salary/extras?worker_id=${workerId}&entry_date=${date}`);
-    const data = await res.json();
-    payrollState.modalExtras = (data.items || []).map(e => ({
-      amount: parseFloat(e.amount || 0),
-      note: e.note || "",
-    }));
-  } catch(_) { payrollState.modalExtras = []; }
-  _renderPayrollExtras();
-  // Auto-expand if there's data
-  _setPmBlockCollapsed("pmBlockExtras", payrollState.modalExtras.length === 0);
-}
-
-function _renderPayrollExtras() {
-  const wrap = document.getElementById("payrollModalExtrasWrap");
-  if (!wrap) return;
-  if (!payrollState.modalExtras.length) { wrap.innerHTML = ""; return; }
-  wrap.innerHTML = payrollState.modalExtras.map((e, idx) => `
-    <div style="display:flex;gap:8px;align-items:center">
-      <input type="number" min="0" step="0.01" placeholder="Сумма ₽"
-        value="${e.amount > 0 ? e.amount : ""}"
-        oninput="payrollState.modalExtras[${idx}].amount=parseFloat(this.value||0)||0;updatePayrollTotal()"
-        style="width:120px;text-align:right" />
-      <input type="text" placeholder="Примечание"
-        value="${esc(e.note||"")}"
-        oninput="payrollState.modalExtras[${idx}].note=this.value"
-        style="flex:1;min-width:100px" />
-      <button type="button" class="icon-btn danger" title="Удалить" onclick="removePayrollExtra(${idx})">🗑</button>
-    </div>
-  `).join("");
-}
-
-window.addPayrollExtra = function() {
-  payrollState.modalExtras.push({amount: 0, note: ""});
-  _renderPayrollExtras();
-  const inputs = document.querySelectorAll("#payrollModalExtrasWrap input[type=number]");
-  if (inputs.length) inputs[inputs.length - 1].focus();
-};
-
-window.removePayrollExtra = function(idx) {
-  payrollState.modalExtras.splice(idx, 1);
-  _renderPayrollExtras();
-  updatePayrollTotal();
-};
-
-// ── Linked workers ────────────────────────────────────────────────────────
-
-async function _loadPayrollLinksActive(workerId, date) {
-  try {
-    const res = await fetch(`/api/salary/links?worker_id=${workerId}`);
-    const data = await res.json();
-    payrollState.modalLinks = (data.items || []).map(lnk => ({
-      id: lnk.id,
-      linked_worker_id: lnk.linked_worker_id,
-      linked_worker_name: lnk.linked_worker_name || "",
-      linked_amount: parseFloat(payrollState.totals[`${lnk.linked_worker_id}_${date}`] || 0),
-      historical: false,
-    }));
-  } catch(_) { payrollState.modalLinks = []; }
-  _renderPayrollLinks();
-  _setPmBlockCollapsed("pmBlockLinks", payrollState.modalLinks.length === 0);
-  updatePayrollTotal();
-}
-
-async function _loadPayrollLinks(workerId, date) {
-  try {
-    // Always load active links (needed for delete id, even on historical dates)
-    const [snapRes, activeRes] = await Promise.all([
-      fetch(`/api/salary/linked-snapshot?worker_id=${workerId}&entry_date=${date}`),
-      fetch(`/api/salary/links?worker_id=${workerId}`),
-    ]);
-    const [snapData, activeData] = await Promise.all([snapRes.json(), activeRes.json()]);
-    const snapshot = snapData.items || [];
-    const activeLinks = activeData.items || [];
-
-    // Map linked_worker_id → active link id (for delete button)
-    const activeIdMap = {};
-    for (const lnk of activeLinks) activeIdMap[lnk.linked_worker_id] = lnk.id;
-
-    if (snapshot.length > 0) {
-      // Historical: amounts from totals; show delete button if still active
-      payrollState.modalLinks = snapshot.map(lnk => ({
-        id: activeIdMap[lnk.linked_worker_id] ?? null,
-        linked_worker_id: lnk.linked_worker_id,
-        linked_worker_name: lnk.linked_worker_name || "",
-        linked_amount: parseFloat(payrollState.totals[`${lnk.linked_worker_id}_${date}`] || 0),
-        historical: true,
-      }));
-    } else {
-      // No snapshot yet → active links only
-      payrollState.modalLinks = activeLinks.map(lnk => ({
-        id: lnk.id,
-        linked_worker_id: lnk.linked_worker_id,
-        linked_worker_name: lnk.linked_worker_name || "",
-        linked_amount: parseFloat(payrollState.totals[`${lnk.linked_worker_id}_${date}`] || 0),
-        historical: false,
-      }));
-    }
-  } catch(_) { payrollState.modalLinks = []; }
-  _renderPayrollLinks();
-  _setPmBlockCollapsed("pmBlockLinks", payrollState.modalLinks.length === 0);
-}
-
-function _renderPayrollLinks() {
-  const wrap = document.getElementById("payrollModalLinksWrap");
-  if (!wrap) return;
-  if (!payrollState.modalLinks.length) { wrap.innerHTML = ""; return; }
-  wrap.innerHTML = payrollState.modalLinks.map(lnk => {
-    const canDelete = lnk.id !== null;
-    const deletedBadge = lnk.historical && !canDelete
-      ? `<span style="font-size:11px;color:#94a3b8;background:#f1f5f9;border-radius:4px;padding:1px 6px;margin-left:6px">отвязан</span>`
-      : "";
-    return `<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #f1f5f9">
-      <span style="flex:1;font-size:14px;color:#1e293b;min-width:0">
-        ${esc(lnk.linked_worker_name||"")}${deletedBadge}
-      </span>
-      <span style="font-size:14px;font-weight:600;color:#2563eb;min-width:80px;text-align:right;flex-shrink:0">
-        ${lnk.linked_amount > 0 ? _fmtRub(lnk.linked_amount) + " ₽" : "—"}
-      </span>
-      ${canDelete
-        ? `<button type="button" class="icon-btn danger" title="Отвязать работника" onclick="removePayrollLink(${lnk.id})">🗑</button>`
-        : `<span style="width:28px"></span>`}
-    </div>`;
-  }).join("");
-}
-
-function _buildAvailableWorkers() {
-  const currentId = payrollState.modalWorkerId;
-  const myLinkedIds = new Set(payrollState.modalLinks.map(l => l.linked_worker_id));
-  const globalUsed = payrollState.usedLinkedIds;
-  const allowedProds = getPermissions().can_salary_productions;
-  return payrollState.workers.filter(w => {
-    if (w.id === currentId) return false;
-    if (myLinkedIds.has(w.id)) return false;
-    if (globalUsed.has(w.id)) return false;
-    if (allowedProds && !allowedProds.includes(w.production)) return false;
-    return true;
-  });
-}
-
-function _renderWorkerLinkList(workers) {
-  const list = document.getElementById("payrollModalWorkerList");
-  if (!list) return;
-  if (!workers.length) {
-    list.innerHTML = `<div class="worker-link-empty">Нет доступных работников</div>`;
-    return;
-  }
-  list.innerHTML = workers.map(w => `
-    <div class="worker-link-item" onclick="selectWorkerLink(${w.id})" data-id="${w.id}">
-      <span class="worker-link-item-name">${esc(w.full_name||"")}</span>
-      <span class="worker-link-item-meta">${[esc(w.position||""), esc(w.production||"")].filter(Boolean).join(" · ")}</span>
-    </div>
-  `).join("");
-}
-
-window.openWorkerLinkSelector = function() {
-  const sel = document.getElementById("payrollModalWorkerSelector");
-  if (!sel) return;
-  sel.style.display = "block";
-  sel.classList.remove("hidden");
-  const searchEl = document.getElementById("payrollModalWorkerSearch");
-  if (searchEl) searchEl.value = "";
-  _renderWorkerLinkList(_buildAvailableWorkers());
-  requestAnimationFrame(() => searchEl?.focus());
-};
-
-window.filterWorkerLinkList = function() {
-  const q = (document.getElementById("payrollModalWorkerSearch")?.value || "").toLowerCase();
-  const workers = _buildAvailableWorkers().filter(w =>
-    !q ||
-    (w.full_name||"").toLowerCase().includes(q) ||
-    (w.production||"").toLowerCase().includes(q) ||
-    (w.position||"").toLowerCase().includes(q)
-  );
-  _renderWorkerLinkList(workers);
-};
-
-window.selectWorkerLink = async function(workerId) {
-  const infoEl = document.getElementById("payrollModalLinkInfo");
-  try {
-    const res = await fetch("/api/salary/links", {
-      method: "POST",
-      headers: jsonHeaders(),
-      body: JSON.stringify({ worker_id: payrollState.modalWorkerId, linked_worker_id: workerId }),
-    });
-    if (!res.ok) throw new Error((await res.json()).detail || "Ошибка");
-    const selDiv = document.getElementById("payrollModalWorkerSelector");
-    if (selDiv) { selDiv.classList.add("hidden"); selDiv.style.display = ""; }
-    payrollState.usedLinkedIds.add(workerId);
-    await _loadPayrollLinksActive(payrollState.modalWorkerId, payrollState.modalDate);
-    updatePayrollTotal();
-    if (infoEl) infoEl.textContent = "";
-  } catch(e) {
-    if (infoEl) { infoEl.textContent = e.message; infoEl.style.color = "#b91c1c"; }
-  }
-};
-
-// confirmAddWorkerLink replaced by selectWorkerLink (click on list item)
-
-window.cancelWorkerLinkSelector = function() {
-  const sel = document.getElementById("payrollModalWorkerSelector");
-  if (sel) { sel.classList.add("hidden"); sel.style.display = ""; }
-};
-
-window.removePayrollLink = async function(linkId) {
-  if (!confirm("Отвязать работника? Привязка постоянная и будет удалена.")) return;
-  try {
-    const res = await fetch(`/api/salary/links/${linkId}`, { method: "DELETE", headers: jsonHeaders() });
-    if (!res.ok) throw new Error((await res.json()).detail || "Ошибка");
-    // Find the removed linked_worker_id and remove from global set
-    const removed = payrollState.modalLinks.find(l => l.id === linkId);
-    if (removed) payrollState.usedLinkedIds.delete(removed.linked_worker_id);
-    // Reload active links (no snapshot — user just changed current state)
-    await _loadPayrollLinksActive(payrollState.modalWorkerId, payrollState.modalDate);
-    updatePayrollTotal();
-  } catch(e) { alert(e.message); }
-};
-
-function updatePayrollTotal() {
-  let total = 0;
-  // Products
-  document.querySelectorAll(".payroll-qty-input").forEach(inp => {
-    const qty = parseFloat(inp.value||0)||0;
-    const price = parseFloat(inp.getAttribute("data-price")||0)||0;
-    const pid = inp.getAttribute("data-product-id");
-    const rowSum = qty * price;
-    total += rowSum;
-    payrollState.modalEntries[parseInt(pid)] = qty;
-    const el = document.getElementById(`payroll-row-sum-${pid}`);
-    if (el) el.textContent = qty > 0 ? _fmtRub(rowSum) : "";
-  });
-  // Oklad
-  const okladInput = document.getElementById("payrollModalOkladInput");
-  if (okladInput && !document.getElementById("payrollModalOkladWrap")?.classList.contains("hidden")) {
-    total += parseFloat(okladInput.value || 0) || 0;
-  }
-  // Extra productions
-  document.querySelectorAll(".extra-prod-qty").forEach(inp => {
-    const qty = parseFloat(inp.value || 0) || 0;
-    const price = parseFloat(inp.getAttribute("data-price") || 0) || 0;
-    const t = inp.getAttribute("data-prod-type");
-    const pid = inp.getAttribute("data-product-id");
-    const rowSum = qty * price;
-    total += rowSum;
-    const rowEl = document.getElementById(`ep-row-sum-${t}-${pid}`);
-    if (rowEl) rowEl.textContent = qty > 0 ? _fmtRub(rowSum) : "";
-  });
-  // Update per-type subtotals
-  for (const t of Object.keys(PROD_TYPE_LABELS)) {
-    let subTotal = 0;
-    document.querySelectorAll(`.extra-prod-qty[data-prod-type="${t}"]`).forEach(inp => {
-      subTotal += (parseFloat(inp.value || 0) || 0) * (parseFloat(inp.getAttribute("data-price") || 0) || 0);
-    });
-    const subEl = document.getElementById(`ep-subtotal-${t}`);
-    if (subEl) subEl.textContent = subTotal > 0 ? _fmtRub(subTotal) + " ₽" : "";
-  }
-
-  // Extras
-  for (const e of payrollState.modalExtras || []) {
-    total += parseFloat(e.amount || 0) || 0;
-  }
-  // Linked workers
-  for (const lnk of payrollState.modalLinks || []) {
-    total += parseFloat(lnk.linked_amount || 0) || 0;
-  }
-  const totalEl = document.getElementById("payrollModalTotal");
-  if (totalEl) totalEl.textContent = _fmtRub(total) + " ₽";
-}
-window.updatePayrollTotal = updatePayrollTotal;
-
-async function savePayrollEntry() {
-  const workerId = payrollState.modalWorkerId;
-  const date = payrollState.modalDate;
-  if (!workerId || !date) return;
-  const infoEl = document.getElementById("payrollModalInfo");
-  const btn = document.getElementById("payrollModalSaveBtn");
-  if (btn) { btn.disabled = true; btn.textContent = "Сохранение..."; }
-  if (infoEl) infoEl.textContent = "";
-
-  const w = payrollState.workers.find(x => x.id === workerId);
-  const isPiece = PIECE_ROLES.includes(w?.position || "");
-
-  try {
-    if (isPiece) {
-      // Save product entries
-      const entries = payrollState.products
-        .map(p => ({
-          product_id: p.id,
-          quantity: parseFloat(payrollState.modalEntries[p.id]||0)||0,
-          price_snapshot: _getProductPrice(p, w.position, w.production),
-        }))
-        .filter(e => e.quantity > 0);
-      const res = await fetch("/api/salary/entries", {
-        method: "POST",
-        headers: jsonHeaders(),
-        body: JSON.stringify({ worker_id: workerId, entry_date: date, entries }),
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        const detail = data.detail;
-        throw new Error(Array.isArray(detail)
-          ? detail.map(d => d.msg || JSON.stringify(d)).join("; ")
-          : String(detail || "Ошибка сохранения"));
-      }
-    } else {
-      // Save oklad
-      const okladInput = document.getElementById("payrollModalOkladInput");
-      const amount = parseFloat(okladInput?.value || 0) || 0;
-      const res = await fetch("/api/salary/oklad", {
-        method: "POST",
-        headers: jsonHeaders(),
-        body: JSON.stringify({ worker_id: workerId, entry_date: date, amount }),
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(String(data.detail || "Ошибка сохранения оклада"));
-      }
-    }
-
-    // Save extra-production entries
-    const extraProdEntries = [];
-    const w2 = payrollState.workers.find(x => x.id === workerId);
-    for (const [prodType, qtyMap] of Object.entries(payrollState.modalExtraProds || {})) {
-      for (const product of payrollState.products) {
-        const qty = parseFloat(qtyMap[product.id] || 0) || 0;
-        if (qty <= 0) continue;
-        extraProdEntries.push({
-          prod_type: prodType,
-          product_id: product.id,
-          quantity: qty,
-          price_snapshot: _getExtraProdPrice(product, prodType, w2?.production || ""),
-        });
-      }
-    }
-    await fetch("/api/salary/extra-prods", {
-      method: "POST",
-      headers: jsonHeaders(),
-      body: JSON.stringify({ worker_id: workerId, entry_date: date, entries: extraProdEntries }),
-    });
-
-    // Save extras (replace all for this worker+date)
-    await fetch("/api/salary/extras", {
-      method: "POST",
-      headers: jsonHeaders(),
-      body: JSON.stringify({
-        worker_id: workerId,
-        entry_date: date,
-        extras: (payrollState.modalExtras || []).map(e => ({
-          amount: parseFloat(e.amount || 0) || 0,
-          note: e.note || "",
-        })),
-      }),
-    });
-
-    // Save vacation flag
-    await fetch(
-      `/api/salary/vacation?worker_id=${workerId}&entry_date=${date}&on=${payrollState.modalVacation}`,
-      { method: "POST", headers: jsonHeaders() }
-    );
-    // Update local vacation set
-    const vKey = `${workerId}_${date}`;
-    if (payrollState.modalVacation) payrollState.vacations.add(vKey);
-    else payrollState.vacations.delete(vKey);
-
-    // Save linked-worker snapshot — for historical preservation after unlink
-    // If current view is from a snapshot (historical), re-save as-is to preserve
-    // If current view is active links, snapshot current state + their amounts
-    const snapshotLinks = payrollState.modalLinks
-      .filter(lnk => lnk.linked_amount > 0 || lnk.linked_worker_id)
-      .map(lnk => ({
-        linked_worker_id: lnk.linked_worker_id,
-        linked_worker_name: lnk.linked_worker_name || "",
-        amount: parseFloat(lnk.linked_amount || 0),
-      }));
-    await fetch("/api/salary/linked-snapshot", {
-      method: "POST",
-      headers: jsonHeaders(),
-      body: JSON.stringify({ worker_id: workerId, entry_date: date, links: snapshotLinks }),
-    });
-
-    // Reload totals so table reflects new values (including linked contributions)
-    const tRes = await fetch("/api/salary/totals");
-    const tData = await tRes.json();
-    payrollState.totals = {};
-    for (const t of (tData.items || [])) {
-      payrollState.totals[`${t.worker_id}_${t.entry_date}`] = parseFloat(t.total || 0);
-    }
-    renderPayrollTable();
-    closePayrollModal();
-  } catch (e) {
-    if (infoEl) { infoEl.textContent = "Ошибка: " + e.message; infoEl.style.color = "#b91c1c"; }
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = "Сохранить"; }
-  }
-}
-window.savePayrollEntry = savePayrollEntry;
-
-window.onPayrollVacationChange = function() {
-  const chk = document.getElementById("payrollVacationCheck");
-  payrollState.modalVacation = chk?.checked || false;
-  document.getElementById("payrollVacationHint")?.classList.toggle("hidden", !payrollState.modalVacation);
-  updatePayrollTotal();
-};
-
-window.togglePmBlock = function(blockId) {
-  document.getElementById(blockId)?.classList.toggle("pm-block--collapsed");
-};
-
-function _setPmBlockCollapsed(blockId, collapsed) {
-  const el = document.getElementById(blockId);
-  if (!el) return;
-  el.classList.toggle("pm-block--collapsed", collapsed);
-}
-
-function closePayrollModal() {
-  // Reset collapsible blocks
-  _setPmBlockCollapsed("pmBlockEarnings", false); // earnings open by default
-  _setPmBlockCollapsed("pmBlockExtras", true);
-  _setPmBlockCollapsed("pmBlockLinks", true);
-  document.getElementById("payrollEntryModal")?.classList.add("hidden");
-  const _wsel = document.getElementById("payrollModalWorkerSelector");
-  if (_wsel) { _wsel.classList.add("hidden"); _wsel.style.display = ""; }
-  payrollState.modalWorkerId = null;
-  payrollState.modalDate = null;
-  payrollState.modalEntries = {};
-  payrollState.modalExtras = [];
-  payrollState.modalLinks = [];
-  payrollState.modalExtraProds = {};
-  payrollState.activeExtraProds = new Set();
-  const _epArea = document.getElementById("payrollExtraProdsArea");
-  if (_epArea) { _epArea.classList.add("hidden"); }
-  const _epContent = document.getElementById("payrollExtraProdsContent");
-  if (_epContent) _epContent.innerHTML = "";
-  const _epBtns = document.getElementById("payrollExtraProdsButtons");
-  if (_epBtns) _epBtns.innerHTML = "";
-  document.getElementById("payrollModalProductsWrap")?.classList.add("hidden");
-  document.getElementById("payrollModalOkladWrap")?.classList.add("hidden");
-  document.getElementById("payrollModalExtrasWrap") && (document.getElementById("payrollModalExtrasWrap").innerHTML = "");
-  document.getElementById("payrollModalLinksWrap") && (document.getElementById("payrollModalLinksWrap").innerHTML = "");
-  if (document.getElementById("payrollModalInfo")) document.getElementById("payrollModalInfo").textContent = "";
-  if (document.getElementById("payrollModalLinkInfo")) document.getElementById("payrollModalLinkInfo").textContent = "";
-}
-window.closePayrollModal = closePayrollModal;
-
-// ── Salary Products ───────────────────────────────────────────────────────
-
-window.toggleSalaryProductForm = function(show) {
-  const form = document.getElementById("salaryProductAddForm");
-  if (!form) return;
-  form.classList.toggle("hidden", !show);
-  if (!show) {
-    ["salaryProductName",
-     "salaryProductKineshma_poshiv","salaryProductKineshma_raskroi","salaryProductKineshma_upakovka",
-     "salaryProductNerl_poshiv","salaryProductNerl_raskroi","salaryProductNerl_upakovka"].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.value = "";
-    });
-    const info = document.getElementById("salaryProductsInfo");
-    if (info) info.textContent = "";
-  } else {
-    document.getElementById("salaryProductName")?.focus();
-  }
-};
-
-const PRODUCT_ROLE_MAP = [
-  { id: "Shveya",   val: "Швея" },
-  { id: "Upakovka", val: "Упаковщик" },
-  { id: "Raskroi",  val: "Закройщик" },
-];
-
-function _readProductRoles(prefix) {
-  return PRODUCT_ROLE_MAP
-    .filter(r => document.getElementById(`${prefix}Role${r.id}`)?.checked)
-    .map(r => r.val)
-    .join(",");
-}
-
-function _setProductRoles(prefix, rolesStr) {
-  const roleSet = new Set((rolesStr || "").split(",").map(s => s.trim()).filter(Boolean));
-  PRODUCT_ROLE_MAP.forEach(r => {
-    const el = document.getElementById(`${prefix}Role${r.id}`);
-    if (el) el.checked = roleSet.has(r.val);
-  });
-}
-
-function _renderRoleTags(rolesStr) {
-  const roles = (rolesStr || "").split(",").map(s => s.trim()).filter(Boolean);
-  if (!roles.length) return '<span style="color:#94a3b8;font-size:12px">—</span>';
-  return roles.map(r => `<span class="role-tag">${esc(r)}</span>`).join("");
-}
-
-async function loadSalaryProducts() {
-  const tbody = document.getElementById("salaryProductsTbody");
-  const info = document.getElementById("salaryProductsInfo");
-  if (!tbody) return;
-  tbody.innerHTML = "";
-  try {
-    const res = await fetch("/api/salary/products");
-    const data = await res.json();
-    if (!res.ok) { if (info) info.textContent = data.detail || "Ошибка загрузки"; return; }
-    if (info) info.textContent = "";
-    const items = data.items || [];
-    if (!items.length) {
-      const tr = document.createElement("tr");
-      tr.innerHTML = '<td colspan="9" class="small" style="color:#9ca3af">Товары не добавлены</td>';
-      tbody.appendChild(tr);
-      return;
-    }
-    window._salaryProductsCache = items; // cache for edit + DnD
-    const fmt = v => Number(v || 0).toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    for (const p of items) {
-      const tr = document.createElement("tr");
-      tr.draggable = true;
-      tr.dataset.id = p.id;
-      tr.innerHTML = `
-        <td style="cursor:grab;text-align:center;color:#94a3b8" title="Перетащить">⠿</td>
-        <td>${esc(p.name || "")}</td>
-        <td>${_renderRoleTags(p.roles)}</td>
-        <td style="background:#f0f9ff">${fmt(p.price_kineshma_poshiv)}</td>
-        <td style="background:#f0f9ff">${fmt(p.price_kineshma_raskroi)}</td>
-        <td style="background:#f0f9ff">${fmt(p.price_kineshma_upakovka)}</td>
-        <td style="background:#f0fdf4">${fmt(p.price_nerl_poshiv)}</td>
-        <td style="background:#f0fdf4">${fmt(p.price_nerl_raskroi)}</td>
-        <td style="background:#f0fdf4">${fmt(p.price_nerl_upakovka)}</td>
-        <td style="white-space:nowrap">
-          <button class="icon-btn" title="Редактировать" onclick="openEditSalaryProduct(${p.id})">✏</button>
-          <button class="icon-btn danger" title="Удалить" onclick="deleteSalaryProduct(${p.id})">🗑</button>
-        </td>
-      `;
-      tbody.appendChild(tr);
-    }
-    _initProductDnD(tbody);
-  } catch (e) {
-    if (info) info.textContent = "Ошибка: " + e.message;
-  }
-}
-window.loadSalaryProducts = loadSalaryProducts;
-
-async function saveSalaryProduct() {
-  const info = document.getElementById("salaryProductsInfo");
-  const name = String(document.getElementById("salaryProductName")?.value || "").trim();
-  if (!name) {
-    if (info) { info.textContent = "Укажите наименование товара"; info.style.color = "#b91c1c"; }
-    document.getElementById("salaryProductName")?.focus();
-    return;
-  }
-  const _n = id => parseFloat(document.getElementById(id)?.value || "0") || 0;
-  const payload = {
-    order_num: 0, name,
-    roles: _readProductRoles("salaryProduct"),
-    price_kineshma_poshiv:    _n("salaryProductKineshma_poshiv"),
-    price_kineshma_raskroi:   _n("salaryProductKineshma_raskroi"),
-    price_kineshma_upakovka:  _n("salaryProductKineshma_upakovka"),
-    price_nerl_poshiv:        _n("salaryProductNerl_poshiv"),
-    price_nerl_raskroi:       _n("salaryProductNerl_raskroi"),
-    price_nerl_upakovka:      _n("salaryProductNerl_upakovka"),
-  };
-  try {
-    const res = await fetch("/api/salary/products", {
-      method: "POST", headers: jsonHeaders(), body: JSON.stringify(payload),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      const detail = data.detail;
-      const msg = Array.isArray(detail) ? detail.map(d => d.msg || JSON.stringify(d)).join("; ") : String(detail || "Ошибка сохранения");
-      if (info) { info.textContent = msg; info.style.color = "#b91c1c"; }
-      return;
-    }
-    toggleSalaryProductForm(false);
-    if (info) { info.textContent = "Товар добавлен"; info.style.color = "#16a34a"; }
-    await loadSalaryProducts();
-  } catch (e) {
-    if (info) { info.textContent = "Ошибка: " + e.message; info.style.color = "#b91c1c"; }
-  }
-}
-window.saveSalaryProduct = saveSalaryProduct;
-
-async function deleteSalaryProduct(productId) {
-  if (!confirm("Удалить товар?")) return;
-  const info = document.getElementById("salaryProductsInfo");
-  try {
-    const res = await fetch(`/api/salary/products/${productId}`, { method: "DELETE", headers: jsonHeaders() });
-    const data = await res.json();
-    if (!res.ok) {
-      if (info) { info.textContent = data.detail || "Ошибка удаления"; info.style.color = "#b91c1c"; }
-      return;
-    }
-    await loadSalaryProducts();
-  } catch (e) {
-    if (info) { info.textContent = "Ошибка: " + e.message; info.style.color = "#b91c1c"; }
-  }
-}
-window.deleteSalaryProduct = deleteSalaryProduct;
-
-// ── Salary products drag-and-drop reorder ─────────────────────────────────
-
-let _dndDragging = null;
-
-function _initProductDnD(tbody) {
-  tbody.addEventListener("dragstart", e => {
-    _dndDragging = e.target.closest("tr");
-    if (_dndDragging) _dndDragging.style.opacity = "0.5";
-  });
-  tbody.addEventListener("dragend", () => {
-    if (_dndDragging) _dndDragging.style.opacity = "";
-    tbody.querySelectorAll("tr").forEach(r => r.classList.remove("dnd-over"));
-    _dndDragging = null;
-  });
-  tbody.addEventListener("dragover", e => {
-    e.preventDefault();
-    const over = e.target.closest("tr");
-    tbody.querySelectorAll("tr").forEach(r => r.classList.remove("dnd-over"));
-    if (over && over !== _dndDragging) over.classList.add("dnd-over");
-  });
-  tbody.addEventListener("drop", async e => {
-    e.preventDefault();
-    const over = e.target.closest("tr");
-    if (!over || !_dndDragging || over === _dndDragging) return;
-    // Reorder in DOM
-    const rows = Array.from(tbody.querySelectorAll("tr"));
-    const fromIdx = rows.indexOf(_dndDragging);
-    const toIdx   = rows.indexOf(over);
-    if (fromIdx < toIdx) over.after(_dndDragging);
-    else over.before(_dndDragging);
-    over.classList.remove("dnd-over");
-    // Build new order and save
-    const newOrder = Array.from(tbody.querySelectorAll("tr")).map((tr, i) => ({
-      id: parseInt(tr.dataset.id), order_num: i,
-    }));
-    try {
-      await fetch("/api/salary/products/reorder", {
-        method: "PUT", headers: jsonHeaders(), body: JSON.stringify({ order: newOrder }),
-      });
-      // Update cache order
-      if (window._salaryProductsCache) {
-        const byId = Object.fromEntries(window._salaryProductsCache.map(p => [p.id, p]));
-        window._salaryProductsCache = newOrder.map(o => byId[o.id]).filter(Boolean);
-      }
-    } catch (_) {}
-  });
-}
-
-// ── Edit salary product ───────────────────────────────────────────────────
-
-function openEditSalaryProduct(productId) {
-  const products = window._salaryProductsCache || [];
-  const p = products.find(x => Number(x.id) === productId);
-  if (!p) { alert("Данные товара не найдены. Обновите страницу."); return; }
-  document.getElementById("editSalaryProductId").value = productId;
-  document.getElementById("editSalaryProductName").value = p.name || "";
-  _setProductRoles("editSalaryProduct", p.roles || "");
-  document.getElementById("editSalaryProductKineshma_poshiv").value   = p.price_kineshma_poshiv || "";
-  document.getElementById("editSalaryProductKineshma_raskroi").value  = p.price_kineshma_raskroi || "";
-  document.getElementById("editSalaryProductKineshma_upakovka").value = p.price_kineshma_upakovka || "";
-  document.getElementById("editSalaryProductNerl_poshiv").value   = p.price_nerl_poshiv || "";
-  document.getElementById("editSalaryProductNerl_raskroi").value  = p.price_nerl_raskroi || "";
-  document.getElementById("editSalaryProductNerl_upakovka").value = p.price_nerl_upakovka || "";
-  document.getElementById("editSalaryProductInfo").textContent = "";
-  document.getElementById("editSalaryProductModal")?.classList.remove("hidden");
-}
-window.openEditSalaryProduct = openEditSalaryProduct;
-
-function closeEditSalaryProduct() {
-  document.getElementById("editSalaryProductModal")?.classList.add("hidden");
-}
-window.closeEditSalaryProduct = closeEditSalaryProduct;
-
-async function saveEditSalaryProduct() {
-  const id = parseInt(document.getElementById("editSalaryProductId")?.value || "0");
-  const info = document.getElementById("editSalaryProductInfo");
-  const name = document.getElementById("editSalaryProductName")?.value.trim() || "";
-  if (!id || !name) {
-    if (info) { info.textContent = "Укажите наименование"; info.style.color = "#b91c1c"; }
-    return;
-  }
-  const products = window._salaryProductsCache || [];
-  const current = products.find(x => Number(x.id) === id);
-  const _ne = eid => parseFloat(document.getElementById(eid)?.value || "0") || 0;
-  const payload = {
-    order_num: current?.order_num ?? 0, name,
-    roles: _readProductRoles("editSalaryProduct"),
-    price_kineshma_poshiv:    _ne("editSalaryProductKineshma_poshiv"),
-    price_kineshma_raskroi:   _ne("editSalaryProductKineshma_raskroi"),
-    price_kineshma_upakovka:  _ne("editSalaryProductKineshma_upakovka"),
-    price_nerl_poshiv:        _ne("editSalaryProductNerl_poshiv"),
-    price_nerl_raskroi:       _ne("editSalaryProductNerl_raskroi"),
-    price_nerl_upakovka:      _ne("editSalaryProductNerl_upakovka"),
-  };
-  try {
-    const res = await fetch(`/api/salary/products/${id}`, {
-      method: "PUT", headers: jsonHeaders(), body: JSON.stringify(payload),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      const msg = Array.isArray(data.detail) ? data.detail.map(d => d.msg||JSON.stringify(d)).join("; ") : String(data.detail||"Ошибка");
-      if (info) { info.textContent = msg; info.style.color = "#b91c1c"; }
-      return;
-    }
-    closeEditSalaryProduct();
-    await loadSalaryProducts();
-  } catch (e) {
-    if (info) { info.textContent = "Ошибка: " + e.message; info.style.color = "#b91c1c"; }
-  }
-}
-window.saveEditSalaryProduct = saveEditSalaryProduct;
-
-// ─────────────────────────────────────────────────────────────────────────────
-
-async function loadMySalary() {
-  const infoEl = document.getElementById("mySalaryInfo");
-  const statsEl = document.getElementById("mySalaryStats");
-  if (infoEl) infoEl.textContent = "Загрузка...";
-  if (statsEl) statsEl.classList.add("hidden");
-
-  const dateFrom = document.getElementById("mySalaryDateFrom")?.value || null;
-  const dateTo = document.getElementById("mySalaryDateTo")?.value || null;
-  mySalaryState.dateFrom = dateFrom || null;
-  mySalaryState.dateTo = dateTo || null;
-
-  try {
-    const query = new URLSearchParams();
-    if (dateFrom) query.set("date_from", dateFrom);
-    if (dateTo) query.set("date_to", dateTo);
-    const resp = await fetch("/api/salary/my?" + query.toString(), {
-      headers: withCsrfHeaders(),
-    });
-    const data = await resp.json();
-    if (!resp.ok) {
-      if (infoEl) infoEl.textContent = data.detail || "Ошибка загрузки";
-      return;
-    }
-    if (infoEl) infoEl.textContent = "";
-    const stats = data.stats || {};
-    const rc = Number(stats.review_count || 0);
-    const qc = Number(stats.question_count || 0);
-    const cc = Number(stats.chat_count || 0);
-    const total = Number(stats.total_amount || 0);
-    const rr = Number(stats.rate_review || 0);
-    const rq = Number(stats.rate_question || 0);
-    const rchat = Number(stats.rate_chat || 0);
-
-    const rcEl = document.getElementById("mySalaryReviewCount");
-    const qcEl = document.getElementById("mySalaryQuestionCount");
-    const ccEl = document.getElementById("mySalaryChatCount");
-    const totalEl = document.getElementById("mySalaryTotal");
-    const hintEl = document.getElementById("mySalaryRatesHint");
-
-    if (rcEl) rcEl.textContent = String(rc);
-    if (qcEl) qcEl.textContent = String(qc);
-    if (ccEl) ccEl.textContent = String(cc);
-    if (totalEl) totalEl.textContent = formatSalaryAmount(total) + " ₽";
-    if (hintEl) {
-      const parts = [];
-      if (rr > 0) parts.push(`отзыв — ${formatSalaryAmount(rr)} ₽`);
-      if (rq > 0) parts.push(`вопрос — ${formatSalaryAmount(rq)} ₽`);
-      if (rchat > 0) parts.push(`чат — ${formatSalaryAmount(rchat)} ₽`);
-      hintEl.textContent = parts.length ? "Ставки: " + parts.join(", ") : "Ставки не настроены — обратитесь к администратору";
-    }
-    if (statsEl) statsEl.classList.remove("hidden");
-  } catch (e) {
-    if (infoEl) infoEl.textContent = "Ошибка загрузки данных о зарплате";
-  }
-}
-
-function resetMySalaryDates() {
-  const df = document.getElementById("mySalaryDateFrom");
-  const dt = document.getElementById("mySalaryDateTo");
-  if (df) df.value = "";
-  if (dt) dt.value = "";
-  mySalaryState.dateFrom = null;
-  mySalaryState.dateTo = null;
-  loadMySalary();
-}
-
-function formatSalaryAmount(value) {
-  const num = Number(value || 0);
-  return num.toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
