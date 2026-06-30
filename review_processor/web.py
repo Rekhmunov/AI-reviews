@@ -796,6 +796,8 @@ ROLE_CAN_ACCESS_SETTINGS = {ROLE_ADMIN, ROLE_USER}
 ROLE_ASSIGNABLE_BY_ADMIN = {ROLE_USER, ROLE_FEEDBACK_MANAGER}
 TENANT_ROLE_OWNER = "admin"
 TENANT_ROLE_MANAGER = "feedback_manager"
+# All roles that are treated as "manager" (can have granular permissions configured)
+TENANT_MANAGER_ROLES = {"feedback_manager", "production_manager", "manager"}
 SESSION_TTL_SECONDS = 30 * 24 * 60 * 60
 CSRF_COOKIE_NAME = "csrf_token"
 CSRF_HEADER_NAME = "X-CSRF-Token"
@@ -1164,12 +1166,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=403, detail="Недостаточно прав для управления этим пользователем")
         return target
 
-    _TENANT_ALLOWED_ROLES = {
-        TENANT_ROLE_OWNER,
-        TENANT_ROLE_MANAGER,
-        "production_manager",
-        "manager",
-    }
+    _TENANT_ALLOWED_ROLES = {TENANT_ROLE_OWNER} | TENANT_MANAGER_ROLES
 
     def _normalize_tenant_role_or_400(raw_role: str) -> str:
         role = str(raw_role or "").strip().lower()
@@ -1178,12 +1175,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         return role
 
     def _manager_permissions_context_for_user(user: dict[str, object]) -> list[dict[str, object]]:
-        if str(user.get("role") or "").strip().lower() != TENANT_ROLE_MANAGER:
+        if str(user.get("role") or "").strip().lower() not in TENANT_MANAGER_ROLES:
             return []
         return repository.list_manager_permissions(manager_user_id=int(user["id"]))
 
     def _manager_allowed_review_account_ids(user: dict[str, object]) -> list[int] | None:
-        if str(user.get("role") or "").strip().lower() != TENANT_ROLE_MANAGER:
+        if str(user.get("role") or "").strip().lower() not in TENANT_MANAGER_ROLES:
             return None
         rows = _manager_permissions_context_for_user(user)
         ids: list[int] = []
@@ -1202,7 +1199,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         return ids
 
     def _manager_allowed_conversation_accounts(user: dict[str, object]) -> dict[str, list[int]] | None:
-        if str(user.get("role") or "").strip().lower() != TENANT_ROLE_MANAGER:
+        if str(user.get("role") or "").strip().lower() not in TENANT_MANAGER_ROLES:
             return None
         rows = _manager_permissions_context_for_user(user)
         scope: dict[str, list[int]] = {"question": [], "chat": []}
@@ -1230,7 +1227,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         }
 
     def _require_manager_scope_for_review(user: dict[str, object], review_uid: str) -> None:
-        if str(user.get("role") or "").strip().lower() != TENANT_ROLE_MANAGER:
+        if str(user.get("role") or "").strip().lower() not in TENANT_MANAGER_ROLES:
             return
         allowed = set(_manager_allowed_review_account_ids(user) or [])
         if not allowed:
@@ -1246,7 +1243,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=403, detail="Нет доступа к этому кабинету отзывов")
 
     def _require_manager_scope_for_conversation(user: dict[str, object], conversation_uid: str) -> None:
-        if str(user.get("role") or "").strip().lower() != TENANT_ROLE_MANAGER:
+        if str(user.get("role") or "").strip().lower() not in TENANT_MANAGER_ROLES:
             return
         scope = _manager_allowed_conversation_accounts(user) or {"question": [], "chat": []}
         conversation = repository.get_conversation(user_id=_tenant_owner_id(user), conversation_uid=conversation_uid)
@@ -4171,7 +4168,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         user_id = int(user["id"])
         owner_user_id = _tenant_owner_id(user)
         manager_permissions: list[dict[str, object]] = []
-        if str(user.get("role") or "").strip().lower() == TENANT_ROLE_MANAGER:
+        if str(user.get("role") or "").strip().lower() in TENANT_MANAGER_ROLES:
             manager_permissions = _manager_permissions_context_for_user(user)
         return {
             "user_id": user_id,
@@ -4569,7 +4566,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         owner_id = _tenant_owner_id(owner)
         items = repository.list_tenant_users(owner_user_id=owner_id)
         for item in items:
-            if str(item.get("role") or "").strip().lower() == TENANT_ROLE_MANAGER:
+            if str(item.get("role") or "").strip().lower() in TENANT_MANAGER_ROLES:
                 item["manager_permissions"] = repository.list_manager_permissions(manager_user_id=int(item["id"]))
                 item["can_supplies"] = bool(item.get("can_supplies"))
                 item["can_salary"] = bool(item.get("can_salary"))
@@ -4644,7 +4641,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         target = _target_user_for_admin_scope(actor=owner, target_user_id=target_user_id)
         if int(target["id"]) == int(owner["id"]):
             raise HTTPException(status_code=400, detail="Для владельца кабинета отдельные права менеджера не назначаются")
-        if str(target.get("role") or "").strip().lower() != TENANT_ROLE_MANAGER:
+        if str(target.get("role") or "").strip().lower() not in TENANT_MANAGER_ROLES:
             raise HTTPException(status_code=400, detail="Права можно настраивать только для менеджера")
         permissions = repository.list_manager_permissions(manager_user_id=target_user_id)
         return {"items": permissions, "count": len(permissions)}
@@ -4659,7 +4656,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         target = _target_user_for_admin_scope(actor=owner, target_user_id=target_user_id)
         if int(target["id"]) == int(owner["id"]):
             raise HTTPException(status_code=400, detail="Для владельца кабинета отдельные права менеджера не назначаются")
-        if str(target.get("role") or "").strip().lower() != TENANT_ROLE_MANAGER:
+        if str(target.get("role") or "").strip().lower() not in TENANT_MANAGER_ROLES:
             raise HTTPException(status_code=400, detail="Права можно настраивать только для менеджера")
         owner_account_ids = _manager_owner_account_ids(_tenant_owner_id(owner))
         normalized_permissions: list[dict[str, object]] = []
@@ -4706,7 +4703,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         target = _target_user_for_admin_scope(actor=owner, target_user_id=target_user_id)
         if int(target["id"]) == int(owner["id"]):
             raise HTTPException(status_code=400, detail="Для владельца права не меняются")
-        if str(target.get("role") or "").strip().lower() != TENANT_ROLE_MANAGER:
+        if str(target.get("role") or "").strip().lower() not in TENANT_MANAGER_ROLES:
             raise HTTPException(status_code=400, detail="Применимо только для менеджера")
         try:
             sources = {str(k): v for k, v in (payload.supply_sources or {}).items()}
@@ -4746,7 +4743,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         target = _target_user_for_admin_scope(actor=owner, target_user_id=target_user_id)
         if int(target["id"]) == int(owner["id"]):
             raise HTTPException(status_code=400, detail="Для владельца права не меняются")
-        if str(target.get("role") or "").strip().lower() != TENANT_ROLE_MANAGER:
+        if str(target.get("role") or "").strip().lower() not in TENANT_MANAGER_ROLES:
             raise HTTPException(status_code=400, detail="Применимо только для менеджера")
         repository._ensure_supply_tables()
         repository.set_user_can_salary(
@@ -5940,7 +5937,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         user = _require_salary_access(request)
         owner_id = _salary_owner_id(user)
         # Check report permission: managers need explicit can_salary_report flag
-        _is_manager = str(user.get("role") or "").strip().lower() == TENANT_ROLE_MANAGER
+        _is_manager = str(user.get("role") or "").strip().lower() in TENANT_MANAGER_ROLES
         if _is_manager and not bool(user.get("can_salary_report")):
             raise HTTPException(status_code=403, detail="Нет доступа к экспорту расчёта начислений")
 
@@ -6088,7 +6085,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         user = _require_salary_access(request)
         owner_id = _salary_owner_id(user)
         # Managers need explicit can_salary_zp_export permission
-        _is_mgr = str(user.get("role") or "").strip().lower() == TENANT_ROLE_MANAGER
+        _is_mgr = str(user.get("role") or "").strip().lower() in TENANT_MANAGER_ROLES
         if _is_mgr and not bool(user.get("can_salary_zp_export")):
             raise HTTPException(status_code=403, detail="Нет доступа к экспорту ЗП")
 
@@ -10183,7 +10180,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         if not _can_view_supplies(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
         # Only managers (non-feedback_manager roles) can delete
-        if str(user.get("role") or "") == TENANT_ROLE_MANAGER:
+        if str(user.get("role") or "") in TENANT_MANAGER_ROLES:
             raise HTTPException(status_code=403, detail="Только менеджер может удалять сертификаты")
         ok = repository.delete_certificate(user_id=_supply_owner_id(user), cert_id=cert_id)
         return {"ok": ok}
