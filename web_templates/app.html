@@ -831,47 +831,46 @@
 
       <section id="section-team" class="hidden">
         <h3 class="section-title">Команда</h3>
+        <div class="panel">
 
-        <!-- Add manager form -->
-        <div class="panel" style="margin-bottom:16px">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
-            <h4 class="no-margin">Новый менеджер</h4>
+          <!-- Header -->
+          <div class="row row-between" style="margin-bottom:16px">
+            <h4 class="no-margin">Менеджеры</h4>
             <span id="teamInfo" class="small" style="color:#64748b"></span>
           </div>
 
-          <div class="team-create-grid">
-            <div class="team-field">
-              <label class="team-field-label">Эл. почта</label>
-              <input id="teamManagerEmail" type="email" placeholder="manager@example.com" />
+          <!-- Add manager form -->
+          <div class="source-form" style="margin-bottom:16px">
+            <div class="worker-form-grid" style="margin-bottom:12px">
+              <div class="wfg-field">
+                <label class="wfg-label" for="teamManagerEmail">Эл. почта</label>
+                <input id="teamManagerEmail" type="email" placeholder="manager@example.com" autocomplete="off" />
+              </div>
+              <div class="wfg-field">
+                <label class="wfg-label" for="teamManagerPassword">Пароль</label>
+                <input id="teamManagerPassword" type="password" placeholder="Минимум 8 символов" autocomplete="new-password" />
+              </div>
+              <div class="wfg-field">
+                <label class="wfg-label" for="teamManagerFullName">ФИО</label>
+                <input id="teamManagerFullName" type="text" placeholder="Необязательно" autocomplete="off" />
+              </div>
+              <div class="wfg-field">
+                <label class="wfg-label" for="teamManagerRole">Роль</label>
+                <select id="teamManagerRole">
+                  <option value="feedback_manager">Менеджер обратной связи</option>
+                  <option value="production_manager">Начальник производства</option>
+                  <option value="manager">Менеджер</option>
+                  <option value="admin">Администратор</option>
+                </select>
+              </div>
             </div>
-            <div class="team-field">
-              <label class="team-field-label">Пароль</label>
-              <input id="teamManagerPassword" type="password" placeholder="Минимум 8 символов" />
-            </div>
-            <div class="team-field">
-              <label class="team-field-label">ФИО</label>
-              <input id="teamManagerFullName" type="text" placeholder="Необязательно" />
-            </div>
-            <div class="team-field">
-              <label class="team-field-label">Роль</label>
-              <select id="teamManagerRole">
-                <option value="feedback_manager">Менеджер обратной связи</option>
-                <option value="production_manager">Начальник производства</option>
-                <option value="manager">Менеджер</option>
-                <option value="admin">Администратор</option>
-              </select>
+            <div class="row" style="gap:8px">
+              <button class="secondary" type="button" onclick="openManagerPermissionsModalForCreate()">Разрешения</button>
+              <button type="button" onclick="saveNewManager()">Добавить менеджера</button>
+              <span id="teamPermissionsPreview" class="small" style="color:#64748b">Разрешения не выбраны</span>
             </div>
           </div>
 
-          <div style="display:flex;align-items:center;gap:12px;margin-top:16px;flex-wrap:wrap">
-            <button class="secondary" type="button" onclick="openManagerPermissionsModalForCreate()">Разрешения</button>
-            <button type="button" onclick="saveNewManager()">Добавить менеджера</button>
-            <span id="teamPermissionsPreview" class="small" style="color:#64748b">Разрешения не выбраны</span>
-          </div>
-        </div>
-
-        <!-- Managers table -->
-        <div class="panel">
           <!-- Mobile card list -->
           <div id="teamMobileList" class="team-mobile-list"></div>
           <!-- Desktop table -->

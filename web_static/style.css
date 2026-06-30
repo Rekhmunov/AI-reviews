@@ -4398,44 +4398,6 @@ button.secondary.danger:hover {
   }
 
   /* ── Team pane ── */
-/* ── Team create form grid ───────────────────────────────────────────────── */
-
-.team-create-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-}
-
-.team-field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.team-field-label {
-  font-size: 13px;
-  font-weight: 500;
-  color: #475569;
-}
-
-.team-field input,
-.team-field select {
-  width: 100%;
-  box-sizing: border-box;
-}
-
-@media (max-width: 900px) {
-  .team-create-grid {
-    grid-template-columns: 1fr 1fr;
-  }
-}
-
-@media (max-width: 560px) {
-  .team-create-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
 /* ── Team mobile list ────────────────────────────────────────────────────── */
 
   .team-mobile-list {
