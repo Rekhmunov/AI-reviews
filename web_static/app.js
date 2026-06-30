@@ -9556,6 +9556,8 @@ async function openEditTeamMember(userId) {
   document.getElementById("editMemberFullName").value = member.full_name || "";
   document.getElementById("editMemberPassword").value = "";
   document.getElementById("editMemberInfo").textContent = "";
+  const roleSelect = document.getElementById("editMemberRole");
+  if (roleSelect) roleSelect.value = member.role || "feedback_manager";
   // Initialise pending state from DB data for this editing session.
   // openManagerPermissionsModalForEdit will reuse this state on repeated opens
   // so unsaved checkbox changes are never silently discarded.
@@ -9631,12 +9633,25 @@ async function saveEditTeamMember() {
   const fullName = document.getElementById("editMemberFullName")?.value.trim() || "";
   const password = document.getElementById("editMemberPassword")?.value || "";
   const info = document.getElementById("editMemberInfo");
+  const newRole = document.getElementById("editMemberRole")?.value || "feedback_manager";
   if (info) { info.textContent = "Сохранение..."; info.style.color = ""; }
   try {
     // Update full name
     await fetch(`/api/tenant/team/${uid}/profile`, {
       method: "PATCH", headers: jsonHeaders(), body: JSON.stringify({ full_name: fullName })
     });
+    // Update role if changed
+    const currentMember = teamState.items.find(m => Number(m.id) === uid);
+    if (currentMember && currentMember.role !== newRole) {
+      const prRole = await fetch(`/api/tenant/team/${uid}/role`, {
+        method: "POST", headers: jsonHeaders(), body: JSON.stringify({ role: newRole })
+      });
+      if (!prRole.ok) {
+        const e = await prRole.json().catch(() => ({}));
+        if (info) { info.textContent = e.detail || "Ошибка смены роли"; info.style.color = "#b91c1c"; }
+        return;
+      }
+    }
     // Update password if provided
     if (password) {
       if (password.length < 8) {
@@ -9832,11 +9847,12 @@ async function saveNewManager() {
     setTeamInfo("Сначала нажмите «Разрешения» и выберите хотя бы один доступ.", true);
     return;
   }
+  const role = document.getElementById("teamManagerRole")?.value || "feedback_manager";
   const payload = {
     email,
     password,
     full_name: fullName,
-    role: "feedback_manager",
+    role,
     permissions,
   };
   const res = await fetch("/api/tenant/team", {

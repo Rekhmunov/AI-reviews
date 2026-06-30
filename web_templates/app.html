@@ -839,6 +839,10 @@
             <input id="teamManagerEmail" type="email" placeholder="Эл. почта менеджера" />
             <input id="teamManagerPassword" type="password" placeholder="Пароль (минимум 8 символов)" />
             <input id="teamManagerFullName" type="text" placeholder="ФИО (необязательно)" />
+            <select id="teamManagerRole" style="min-width:220px">
+              <option value="feedback_manager">Менеджер обратной связи</option>
+              <option value="admin">Администратор</option>
+            </select>
           </div>
           <div class="row">
             <button class="secondary" type="button" onclick="openManagerPermissionsModalForCreate()">Разрешения</button>
@@ -2488,6 +2492,13 @@
         <div>
           <label style="display:block;margin-bottom:6px;font-size:13px;font-weight:500;color:#475569">ФИО</label>
           <input id="editMemberFullName" type="text" placeholder="ФИО" style="width:100%" />
+        </div>
+        <div>
+          <label style="display:block;margin-bottom:6px;font-size:13px;font-weight:500;color:#475569">Роль</label>
+          <select id="editMemberRole" style="width:100%">
+            <option value="feedback_manager">Менеджер обратной связи</option>
+            <option value="admin">Администратор</option>
+          </select>
         </div>
         <div>
           <label style="display:block;margin-bottom:6px;font-size:13px;font-weight:500;color:#475569">Новый пароль <span style="font-weight:400;color:#94a3b8">(оставьте пустым, чтобы не менять)</span></label>

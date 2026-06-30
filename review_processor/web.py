@@ -4588,7 +4588,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="Введите корректную эл. почту")
         if repository.get_user_by_email(email) is not None:
             raise HTTPException(status_code=409, detail="Пользователь с такой почтой уже существует")
-        role = TENANT_ROLE_MANAGER
+        role = _normalize_tenant_role_or_400(payload.role) if payload.role else TENANT_ROLE_MANAGER
         created = repository.create_tenant_user(
             owner_user_id=owner_id,
             email=email,
