@@ -10721,6 +10721,8 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
         ROLE_ADMIN: "администратор",
         ROLE_USER: "пользователь",
         ROLE_FEEDBACK_MANAGER: "менеджер обратной связи",
+        "production_manager": "начальник производства",
+        "manager": "менеджер",
     }
     safe_role = escape(role_labels.get(role, role))
     can_view_analytics = role in ROLE_CAN_ACCESS_ANALYTICS
