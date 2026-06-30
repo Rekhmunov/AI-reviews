@@ -460,6 +460,8 @@ const roleLabels = {
   user: "пользователь",
   feedback_manager: "менеджер обратной связи",
   admin: "администратор",
+  production_manager: "начальник производства",
+  manager: "менеджер",
 };
 
 function labelFromMap(map, value) {

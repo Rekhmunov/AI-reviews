@@ -1164,10 +1164,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=403, detail="Недостаточно прав для управления этим пользователем")
         return target
 
+    _TENANT_ALLOWED_ROLES = {
+        TENANT_ROLE_OWNER,
+        TENANT_ROLE_MANAGER,
+        "production_manager",
+        "manager",
+    }
+
     def _normalize_tenant_role_or_400(raw_role: str) -> str:
         role = str(raw_role or "").strip().lower()
-        if role not in {TENANT_ROLE_OWNER, TENANT_ROLE_MANAGER}:
-            raise HTTPException(status_code=400, detail="Роль должна быть: администратор или менеджер обратной связи")
+        if role not in _TENANT_ALLOWED_ROLES:
+            raise HTTPException(status_code=400, detail="Недопустимая роль")
         return role
 
     def _manager_permissions_context_for_user(user: dict[str, object]) -> list[dict[str, object]]:
