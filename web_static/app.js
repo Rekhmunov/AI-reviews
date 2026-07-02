@@ -11557,7 +11557,7 @@ async function saveCertEdit() {
 
 // ── Resizable columns ──
 const CERTS_COL_WIDTHS_KEY = "certs_col_widths_v2";
-const CERTS_DEFAULT_WIDTHS = [20, 22, 22, 18, 16];
+const CERTS_DEFAULT_WIDTHS = [18, 20, 20, 16, 14];
 let _certsColResizerInited = false;
 
 function initCertsColumnResizer() {

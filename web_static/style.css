@@ -4970,6 +4970,11 @@ button.secondary.danger:hover {
   overflow: hidden; /* no horizontal scroll, ever */
 }
 
+/* Certs table has more columns — allow horizontal scroll */
+.certs-table-wrap {
+  overflow-x: auto;
+}
+
 /* Override global min-width that would cause overflow on narrow screens */
 .supplies-table-wrap .supplies-main-table {
   min-width: 0 !important;
