@@ -11347,16 +11347,11 @@ async function loadCertificates() {
 
 function _populateCertFilters() {
   const legalSel = document.getElementById("certLegalFilter");
-  const catSel = document.getElementById("certCategoryFilter");
-  if (!legalSel || !catSel) return;
+  if (!legalSel) return;
   const curLegal = legalSel.value;
-  const curCat = catSel.value;
   const legals = [...new Set(_certsData.map(c => c.legal_entity_short).filter(Boolean))].sort();
-  const cats = [...new Set(_certsData.map(c => c.category).filter(Boolean))].sort();
   legalSel.innerHTML = '<option value="">Все организации</option>' +
     legals.map(l => `<option value="${esc(l)}"${l===curLegal?" selected":""}>${esc(l)}</option>`).join("");
-  catSel.innerHTML = '<option value="">Все категории</option>' +
-    cats.map(c => `<option value="${esc(c)}"${c===curCat?" selected":""}>${esc(c)}</option>`).join("");
 }
 
 function renderCertsTable() {
@@ -11364,19 +11359,18 @@ function renderCertsTable() {
   if (!tbody) return;
   const isMgr = isTenantOwner();
   const legalF = document.getElementById("certLegalFilter")?.value || "";
-  const catF = document.getElementById("certCategoryFilter")?.value || "";
+  const docTypeF = document.getElementById("certDocTypeFilter")?.value || "";
 
   let rows = _certsData;
   if (legalF) rows = rows.filter(c => c.legal_entity_short === legalF);
-  if (catF) rows = rows.filter(c => c.category === catF);
+  if (docTypeF) rows = rows.filter(c => (c.doc_type || "Сертификат соответствия") === docTypeF);
 
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="5" class="empty-cell">Сертификаты не добавлены</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-cell">Документы не добавлены</td></tr>';
     return;
   }
   tbody.innerHTML = "";
   for (const c of rows) {
-
     // Red highlight: within 6 months of expiry
     let expiryStyle = "";
     if (c.expiry_date) {
@@ -11390,15 +11384,12 @@ function renderCertsTable() {
       : `<span>${expiryDisplay}</span>`;
 
     const editBtn = `<button class="icon-btn secondary" title="Редактировать" onclick="openCertEditModal(${c.id})" style="min-width:32px;min-height:28px;padding:0 6px;font-size:14px">✏</button>`;
-
     const linkBtn = c.verification_url
       ? `<a href="${esc(c.verification_url)}" target="_blank" rel="noopener" title="Проверить" class="icon-btn secondary" style="min-width:32px;min-height:28px;padding:0 6px;font-size:14px;text-decoration:none;display:inline-flex;align-items:center;justify-content:center">🔗</a>`
       : `<button class="icon-btn secondary" disabled title="Нет ссылки" style="min-width:32px;min-height:28px;padding:0 6px;font-size:14px;opacity:0.35">🔗</button>`;
-
     const imgBtn = c.image_data
       ? `<button class="icon-btn secondary" title="Изображение" onclick="openCertImageModal('${encodeURIComponent(c.image_data)}')" style="min-width:32px;min-height:28px;padding:0 6px;font-size:14px">🖼</button>`
       : `<button class="icon-btn secondary" disabled title="Нет изображения" style="min-width:32px;min-height:28px;padding:0 6px;font-size:14px;opacity:0.35">🖼</button>`;
-
     const delBtn = isMgr
       ? `<button class="icon-btn danger" title="Удалить" onclick="deleteCert(${c.id})" style="min-width:32px;min-height:28px;padding:0 6px;font-size:14px">🗑</button>`
       : "";
@@ -11406,6 +11397,7 @@ function renderCertsTable() {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${esc(c.legal_entity_short || "—")}</td>
+      <td>${esc(c.doc_type || "Сертификат соответствия")}</td>
       <td>${esc(c.category || "—")}</td>
       <td>${esc(c.number || "—")}</td>
       <td>${expiryHtml2}</td>
@@ -11421,6 +11413,8 @@ function openCreateCertModal() {
     sel.innerHTML = '<option value="">— Выберите организацию —</option>' +
       (_supplyLegalEntitiesCache || []).map(le => `<option value="${esc(le.short_name||'')}">${esc(le.short_name||'')}</option>`).join("");
   }
+  const docTypeSel = document.getElementById("certDocType");
+  if (docTypeSel) docTypeSel.value = "Сертификат соответствия";
   document.getElementById("certCategory").value = "";
   document.getElementById("certNumber").value = "";
   document.getElementById("certExpiry").value = "";
@@ -11452,6 +11446,7 @@ function onCertImageChange(input) {
 async function saveCert() {
   const body = {
     legal_entity_short: document.getElementById("certLegalEntity").value,
+    doc_type: document.getElementById("certDocType")?.value || "Сертификат соответствия",
     category: document.getElementById("certCategory").value.trim(),
     number: document.getElementById("certNumber").value.trim(),
     expiry_date: document.getElementById("certExpiry").value,
@@ -11459,8 +11454,8 @@ async function saveCert() {
     image_data: document.getElementById("certImageData").value || null,
   };
   if (!body.legal_entity_short) { alert("Выберите организацию"); return; }
-  if (!body.category) { alert("Введите категорию сертификата"); return; }
-  if (!body.number) { alert("Введите номер сертификата"); return; }
+  if (!body.category) { alert("Введите продукцию"); return; }
+  if (!body.number) { alert("Введите номер документа"); return; }
   try {
     const r = await fetch("/api/certificates", {
       method: "POST", credentials: "include",
@@ -11505,6 +11500,8 @@ function openCertEditModal(id) {
     sel.innerHTML = '<option value="">— Выберите организацию —</option>' +
       (_supplyLegalEntitiesCache || []).map(le => `<option value="${esc(le.short_name||'')}"${le.short_name===c.legal_entity_short?" selected":""}>${esc(le.short_name||'')}</option>`).join("");
   }
+  const editDocTypeSel = document.getElementById("certEditDocType");
+  if (editDocTypeSel) editDocTypeSel.value = c.doc_type || "Сертификат соответствия";
   document.getElementById("certEditCategory").value = c.category || "";
   document.getElementById("certEditNumber").value = c.number || "";
   document.getElementById("certEditExpiry").value = c.expiry_date ? c.expiry_date.slice(0,10) : "";
@@ -11538,6 +11535,7 @@ async function saveCertEdit() {
   if (!id) return;
   const body = {
     legal_entity_short: document.getElementById("certEditLegalEntity").value,
+    doc_type: document.getElementById("certEditDocType")?.value || "Сертификат соответствия",
     category: document.getElementById("certEditCategory").value.trim(),
     number: document.getElementById("certEditNumber").value.trim(),
     expiry_date: document.getElementById("certEditExpiry").value,
@@ -11558,8 +11556,8 @@ async function saveCertEdit() {
 }
 
 // ── Resizable columns ──
-const CERTS_COL_WIDTHS_KEY = "certs_col_widths";
-const CERTS_DEFAULT_WIDTHS = [25, 30, 20, 18];
+const CERTS_COL_WIDTHS_KEY = "certs_col_widths_v2";
+const CERTS_DEFAULT_WIDTHS = [20, 22, 22, 18, 16];
 let _certsColResizerInited = false;
 
 function initCertsColumnResizer() {

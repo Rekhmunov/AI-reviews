@@ -1369,12 +1369,14 @@
         <div class="panel supplies-toolbar-panel">
           <div class="supplies-top-controls">
             <div class="supplies-actions">
-              <button onclick="openCreateCertModal()">+ Создать сертификат</button>
+              <button onclick="openCreateCertModal()">+ Создать документ</button>
               <select id="certLegalFilter" onchange="renderCertsTable()">
                 <option value="">Все организации</option>
               </select>
-              <select id="certCategoryFilter" onchange="renderCertsTable()">
-                <option value="">Все категории</option>
+              <select id="certDocTypeFilter" onchange="renderCertsTable()">
+                <option value="">Все виды документов</option>
+                <option value="Декларация соответствия">Декларация соответствия</option>
+                <option value="Сертификат соответствия">Сертификат соответствия</option>
               </select>
             </div>
           </div>
@@ -1384,14 +1386,15 @@
             <table id="certsTable" class="supplies-main-table">
               <colgroup id="certsColgroup">
                 <col data-col="0" /><col data-col="1" /><col data-col="2" />
-                <col data-col="3" /><col style="width:160px" data-fixed="1" />
+                <col data-col="3" /><col data-col="4" /><col style="width:160px" data-fixed="1" />
               </colgroup>
               <thead>
                 <tr>
                   <th data-col="0">Организация<span class="col-resize-handle"></span></th>
-                  <th data-col="1">Категория<span class="col-resize-handle"></span></th>
-                  <th data-col="2">Номер<span class="col-resize-handle"></span></th>
-                  <th data-col="3">Дата завершения<span class="col-resize-handle"></span></th>
+                  <th data-col="1">Вид документа<span class="col-resize-handle"></span></th>
+                  <th data-col="2">Продукция<span class="col-resize-handle"></span></th>
+                  <th data-col="3">Номер<span class="col-resize-handle"></span></th>
+                  <th data-col="4">Дата завершения<span class="col-resize-handle"></span></th>
                   <th style="text-align:center;width:160px">Действия</th>
                 </tr>
               </thead>
@@ -1405,7 +1408,7 @@
       <div id="certModal" class="modal-overlay hidden" onclick="if(event.target===this)closeCertModal()">
         <div class="modal-card" style="max-width:480px;width:90%">
           <div class="row row-between">
-            <h4 class="no-margin">Создать сертификат</h4>
+            <h4 class="no-margin">Создать документ</h4>
             <button class="icon-btn" onclick="closeCertModal()">✕</button>
           </div>
           <div style="margin-top:14px;display:flex;flex-direction:column;gap:10px">
@@ -1414,8 +1417,15 @@
               <select id="certLegalEntity" style="width:100%;height:36px"></select>
             </div>
             <div>
-              <label class="small" style="display:block;margin-bottom:4px">Категория сертификата</label>
-              <input id="certCategory" type="text" placeholder="Например: Пожарная безопасность" autocomplete="off" style="width:100%" />
+              <label class="small" style="display:block;margin-bottom:4px">Вид документа</label>
+              <select id="certDocType" style="width:100%;height:36px">
+                <option value="Сертификат соответствия">Сертификат соответствия</option>
+                <option value="Декларация соответствия">Декларация соответствия</option>
+              </select>
+            </div>
+            <div>
+              <label class="small" style="display:block;margin-bottom:4px">Продукция</label>
+              <input id="certCategory" type="text" placeholder="Например: Постельное бельё" autocomplete="off" style="width:100%" />
             </div>
             <div>
               <label class="small" style="display:block;margin-bottom:4px">Номер сертификата</label>
@@ -1447,7 +1457,7 @@
       <div id="certEditModal" class="modal-overlay hidden" onclick="if(event.target===this)closeCertEditModal()">
         <div class="modal-card" style="max-width:480px;width:90%">
           <div class="row row-between">
-            <h4 class="no-margin">Редактировать сертификат</h4>
+            <h4 class="no-margin">Редактировать документ</h4>
             <button class="icon-btn" onclick="closeCertEditModal()">✕</button>
           </div>
           <div style="margin-top:14px;display:flex;flex-direction:column;gap:10px">
@@ -1457,8 +1467,15 @@
               <select id="certEditLegalEntity" style="width:100%;height:36px"></select>
             </div>
             <div>
-              <label class="small" style="display:block;margin-bottom:4px">Категория сертификата</label>
-              <input id="certEditCategory" type="text" placeholder="Например: Пожарная безопасность" autocomplete="off" style="width:100%" />
+              <label class="small" style="display:block;margin-bottom:4px">Вид документа</label>
+              <select id="certEditDocType" style="width:100%;height:36px">
+                <option value="Сертификат соответствия">Сертификат соответствия</option>
+                <option value="Декларация соответствия">Декларация соответствия</option>
+              </select>
+            </div>
+            <div>
+              <label class="small" style="display:block;margin-bottom:4px">Продукция</label>
+              <input id="certEditCategory" type="text" placeholder="Например: Постельное бельё" autocomplete="off" style="width:100%" />
             </div>
             <div>
               <label class="small" style="display:block;margin-bottom:4px">Номер сертификата</label>

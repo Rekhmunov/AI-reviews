@@ -777,6 +777,7 @@ class CertificateCreateRequest(BaseModel):
     expiry_date: str = ""
     verification_url: str = ""
     image_data: str | None = None
+    doc_type: str = "Сертификат соответствия"
 
 
 class StockSourceUpdateRequest(BaseModel):
@@ -10158,6 +10159,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             expiry_date=body.expiry_date,
             verification_url=body.verification_url,
             image_data=body.image_data,
+            doc_type=body.doc_type,
         )
         return {"ok": True, "id": cert_id}
 
@@ -10171,6 +10173,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             legal_entity_short=body.legal_entity_short, category=body.category,
             number=body.number, expiry_date=body.expiry_date,
             verification_url=body.verification_url, image_data=body.image_data,
+            doc_type=body.doc_type,
         )
         return {"ok": ok}
 
