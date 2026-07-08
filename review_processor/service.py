@@ -3339,6 +3339,10 @@ class ReviewAutomationService:
                             was_cancelled = True
                             break
                         is_access_error = self._is_access_error(exc)
+                        _log.error(
+                            "sync channel error: marketplace=%s channel=%s account_id=%s error=%s",
+                            marketplace, channel, account_id, exc,
+                        )
                         details = {
                             "account_id": account_id,
                             "marketplace": marketplace,
@@ -3365,6 +3369,10 @@ class ReviewAutomationService:
                             "access_denied": bool(is_access_error),
                         }
                     except Exception as exc:
+                        _log.error(
+                            "sync channel unexpected error: marketplace=%s channel=%s account_id=%s error=%s",
+                            marketplace, channel, account_id, exc, exc_info=True,
+                        )
                         details = {
                             "account_id": account_id,
                             "marketplace": marketplace,
