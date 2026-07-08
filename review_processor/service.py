@@ -1633,10 +1633,22 @@ class YandexMarketClient:
         page_token: str | None = None
         page = 0
         path = f"/v2/businesses/{self.business_id}/goods-feedback"
-        # Filter body — only dateTimeFrom when date filtering is needed
+        # Filter body — only dateTimeFrom when date filtering is needed.
+        # YM API enforces a maximum interval of 6 months between dateTimeFrom
+        # and the current date. Cap the date to at most 165 days (5.5 months)
+        # ago to stay safely within the limit.
         filter_body: dict[str, object] = {}
         if since_date:
-            filter_body["dateTimeFrom"] = f"{since_date}T00:00:00+03:00"
+            from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+            _max_days = 165  # 5.5 months — safely under the 6-month API limit
+            _earliest_allowed = (_dt.now(_tz.utc) - _td(days=_max_days)).strftime("%Y-%m-%d")
+            _effective_since = max(since_date[:10], _earliest_allowed)
+            filter_body["dateTimeFrom"] = f"{_effective_since}T00:00:00+03:00"
+            if _effective_since != since_date[:10]:
+                _log.info(
+                    "YandexMarketClient: dateTimeFrom capped from %s to %s (6-month API limit)",
+                    since_date[:10], _effective_since,
+                )
         while page < self.max_pages:
             _raise_if_stop_requested(stop_requested, source="yandex")
             if page > 0:
