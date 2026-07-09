@@ -6316,60 +6316,26 @@ class ReviewRepository:
         source_clause = " AND source = ?" if source else ""
         source_params: list[Any] = [source] if source else []
 
-        if self._use_postgres:
-            trunc_expr = "DATE_TRUNC('week', created_at::date)" if granularity == "week" else "DATE_TRUNC('month', created_at::date)"
-            period_fmt = "TO_CHAR({}, 'YYYY-MM-DD')".format(trunc_expr)
-        else:
-            # SQLite
-            if granularity == "week":
-                period_fmt = "strftime('%Y-W%W', created_at)"
-            else:
-                period_fmt = "strftime('%Y-%m', created_at)"
-
-        # Limit to recent 52 weeks or 24 months
+        # Repository is always PostgreSQL — use native date functions
         limit_days = 52 * 7 if granularity == "week" else 24 * 30
+        cutoff_clause = f" AND created_at >= NOW() - INTERVAL '{limit_days} days'"
 
-        if self._use_postgres:
-            cutoff_clause = f" AND created_at >= NOW() - INTERVAL '{limit_days} days'"
-        else:
-            cutoff_clause = f" AND created_at >= datetime('now', '-{limit_days} days')"
-
-        if self._use_postgres:
-            query = f"""
-                SELECT
-                    TO_CHAR(DATE_TRUNC('{granularity}', created_at::date), 'YYYY-MM-DD') AS period,
-                    COUNT(*) AS total,
-                    ROUND(
-                        CAST(AVG(CASE WHEN rating IS NOT NULL THEN rating END) AS numeric), 2
-                    ) AS avg_rating,
-                    ROUND(
-                        100.0 * SUM(CASE WHEN status IN ('answered_auto','answered_manual','ignored') THEN 1 ELSE 0 END)
-                        / NULLIF(COUNT(*), 0)::numeric, 1
-                    ) AS processed_pct
-                FROM review_items
-                WHERE user_id = ?{source_clause}{cutoff_clause}
-                GROUP BY DATE_TRUNC('{granularity}', created_at::date)
-                ORDER BY DATE_TRUNC('{granularity}', created_at::date)
-            """
-        else:
-            if granularity == "week":
-                grp = "strftime('%Y-W%W', created_at)"
-            else:
-                grp = "strftime('%Y-%m', created_at)"
-            query = f"""
-                SELECT
-                    {grp} AS period,
-                    COUNT(*) AS total,
-                    ROUND(AVG(CAST(rating AS REAL)), 2) AS avg_rating,
-                    ROUND(
-                        100.0 * SUM(CASE WHEN status IN ('answered_auto','answered_manual','ignored') THEN 1 ELSE 0 END)
-                        / MAX(1, COUNT(*)), 1
-                    ) AS processed_pct
-                FROM review_items
-                WHERE user_id = ?{source_clause}{cutoff_clause}
-                GROUP BY {grp}
-                ORDER BY {grp}
-            """
+        query = f"""
+            SELECT
+                TO_CHAR(DATE_TRUNC('{granularity}', created_at::date), 'YYYY-MM-DD') AS period,
+                COUNT(*) AS total,
+                ROUND(
+                    CAST(AVG(CASE WHEN rating IS NOT NULL THEN rating END) AS numeric), 2
+                ) AS avg_rating,
+                ROUND(
+                    100.0 * SUM(CASE WHEN status IN ('answered_auto','answered_manual','ignored') THEN 1 ELSE 0 END)
+                    / NULLIF(COUNT(*), 0)::numeric, 1
+                ) AS processed_pct
+            FROM review_items
+            WHERE user_id = ?{source_clause}{cutoff_clause}
+            GROUP BY DATE_TRUNC('{granularity}', created_at::date)
+            ORDER BY DATE_TRUNC('{granularity}', created_at::date)
+        """
 
         with self._connect() as conn:
             rows = conn.execute(
@@ -6402,10 +6368,10 @@ class ReviewRepository:
             conditions.append("source = ?")
             params.append(source)
         if date_from:
-            conditions.append("created_at::date >= ?::date" if self._use_postgres else "date(created_at) >= date(?)")
+            conditions.append("created_at::date >= ?::date")
             params.append(date_from)
         if date_to:
-            conditions.append("created_at::date <= ?::date" if self._use_postgres else "date(created_at) <= date(?)")
+            conditions.append("created_at::date <= ?::date")
             params.append(date_to)
         where = " AND ".join(conditions)
         query = f"""
