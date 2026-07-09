@@ -3313,7 +3313,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         reviews = repository.list_reviews_for_export(user_id=uid, source=src, date_from=df, date_to=dt)
 
         src_label = {"wb": "ВБ (Wildberries)", "yandex": "ЯМ (Яндекс Маркет)"}.get(src, src.upper())
-        period_label = f"{df or '—'} — {dt or '—'}"
+        def _ru_date(d: str | None) -> str:
+            if not d or len(d) < 10:
+                return d or "—"
+            return f"{d[8:10]}.{d[5:7]}.{d[2:4]}"
+        period_label = f"{_ru_date(df)} — {_ru_date(dt)}"
 
         wb = _WB()
 
@@ -3392,12 +3396,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
         # ── Sheet 2: Отзывы ───────────────────────────────────────────────────
         ws2 = wb.create_sheet("Отзывы")
-        _hrow(ws2, 1, ["Дата", "Источник", "Рейтинг", "Категория", "Текст отзыва", "Ответ магазина"])
+        _hrow(ws2, 1, ["Дата", "Источник", "Артикул", "Рейтинг", "Категория", "Текст отзыва", "Ответ магазина"])
         ws2.row_dimensions[1].height = 18
         for i, rev in enumerate(reviews, 2):
+            raw_dt = str(rev.get("created_at", "") or "")
+            date_str = raw_dt[8:10] + "." + raw_dt[5:7] + "." + raw_dt[2:4] if len(raw_dt) >= 10 else raw_dt[:10]
             _row(ws2, i, [
-                str(rev.get("created_at", ""))[:10],
+                date_str,
                 src_label,
+                rev.get("article") or "—",
                 rev.get("rating") or "—",
                 rev.get("category") or "—",
                 rev.get("text") or "",
@@ -3406,10 +3413,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             ws2.row_dimensions[i].height = 40
         ws2.column_dimensions["A"].width = 12
         ws2.column_dimensions["B"].width = 14
-        ws2.column_dimensions["C"].width = 9
-        ws2.column_dimensions["D"].width = 24
-        ws2.column_dimensions["E"].width = 50
-        ws2.column_dimensions["F"].width = 40
+        ws2.column_dimensions["C"].width = 18
+        ws2.column_dimensions["D"].width = 9
+        ws2.column_dimensions["E"].width = 24
+        ws2.column_dimensions["F"].width = 50
+        ws2.column_dimensions["G"].width = 40
         ws2.freeze_panes = "A2"
 
         # ── Sheet 3: По категориям ─────────────────────────────────────────────

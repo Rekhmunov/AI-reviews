@@ -6376,7 +6376,17 @@ class ReviewRepository:
         where = " AND ".join(conditions)
         query = f"""
             SELECT created_at, source, rating, category, text,
-                   COALESCE(manual_reply, auto_reply) AS reply_text
+                   COALESCE(manual_reply, auto_reply) AS reply_text,
+                   COALESCE(
+                       metadata_json->'raw'->'productDetails'->>'vendorCode',
+                       metadata_json->'raw'->>'vendorCode',
+                       metadata_json->'raw'->>'vendor_code',
+                       metadata_json->'raw'->>'offerId',
+                       metadata_json->'raw'->>'offer_id',
+                       metadata_json->>'vendorCode',
+                       metadata_json->>'vendor_code',
+                       ''
+                   ) AS article
             FROM review_items
             WHERE {where}
             ORDER BY created_at ASC

@@ -8857,6 +8857,12 @@ function resetAnalyticsDates() {
 const AN_SRC_LABELS = { wb: "ВБ", ozon: "ОЗОН", yandex: "ЯМ" };
 const AN_EXPORT_SOURCES = new Set(["wb", "yandex"]);
 
+// Format YYYY-MM-DD → DD.MM.YY
+function _anFmtDate(d) {
+  if (!d || d.length < 10) return d || "";
+  return `${d.slice(8, 10)}.${d.slice(5, 7)}.${d.slice(2, 4)}`;
+}
+
 let _anLastData = null; // cache last analytics result for export
 
 function _anGetFilters() {
@@ -9034,10 +9040,10 @@ async function loadAnalyticsComparison(mode, updateTabs = true) {
   const { curFrom, curTo, prevFrom, prevTo } = _anDateRange(mode);
   const modeLabel = mode === "week" ? "неделя" : "месяц";
   const curLabel = mode === "week"
-    ? `${curFrom.slice(5).replace("-", ".")} — ${curTo.slice(5).replace("-", ".")}`
+    ? `${_anFmtDate(curFrom)} — ${_anFmtDate(curTo)}`
     : new Date(curFrom).toLocaleString("ru", { month: "long", year: "numeric" });
   const prevLabel = mode === "week"
-    ? `${prevFrom.slice(5).replace("-", ".")} — ${prevTo.slice(5).replace("-", ".")}`
+    ? `${_anFmtDate(prevFrom)} — ${_anFmtDate(prevTo)}`
     : new Date(prevFrom).toLocaleString("ru", { month: "long", year: "numeric" });
 
   try {
@@ -9124,71 +9130,99 @@ async function loadAnalyticsTrend(granularity, updateTabs = true) {
 window.loadAnalyticsTrend = loadAnalyticsTrend;
 
 function _anRenderTrend(points) {
-  const W = 600, H = 160, PAD = { top: 16, right: 16, bottom: 28, left: 44 };
+  const W = 600, H = 170, PAD = { top: 20, right: 16, bottom: 32, left: 44 };
   const chartW = W - PAD.left - PAD.right;
   const chartH = H - PAD.top - PAD.bottom;
   const n = points.length;
 
-  // Rating line (left axis 1–5)
-  const ratings = points.map(p => p.avg_rating || 0);
-  const rMin = Math.max(0, Math.min(...ratings.filter(Boolean)) - 0.3);
-  const rMax = Math.min(5, Math.max(...ratings.filter(Boolean)) + 0.3);
-
-  // Total bars (right side — just relative height)
+  const ratings = points.map(p => p.avg_rating != null ? p.avg_rating : 0);
+  const validRatings = ratings.filter(Boolean);
+  const rMin = validRatings.length ? Math.max(0, Math.min(...validRatings) - 0.3) : 0;
+  const rMax = validRatings.length ? Math.min(5, Math.max(...validRatings) + 0.3) : 5;
   const totals = points.map(p => p.total || 0);
   const tMax = Math.max(...totals, 1);
 
   const xStep = n > 1 ? chartW / (n - 1) : chartW;
   const xOf = i => PAD.left + (n > 1 ? i * xStep : chartW / 2);
   const yOfR = v => PAD.top + chartH - ((v - rMin) / (rMax - rMin || 1)) * chartH;
-  const yOfT = v => PAD.top + chartH - (v / tMax) * chartH * 0.8;
 
   // Bars
   const barW = Math.max(4, Math.min(20, xStep * 0.5));
-  let bars = points.map((p, i) => {
+  const bars = points.map((p, i) => {
     const bh = (p.total / tMax) * chartH * 0.8;
     const by = PAD.top + chartH - bh;
     return `<rect x="${xOf(i) - barW / 2}" y="${by}" width="${barW}" height="${bh}" fill="#bfdbfe" rx="2" opacity="0.7" />`;
   }).join("");
 
-  // Rating line path
-  let linePath = "";
+  // Rating line + interactive dots with tooltip
   let dots = "";
   for (let i = 0; i < n; i++) {
-    const x = xOf(i), y = yOfR(ratings[i] || 0);
-    linePath += i === 0 ? `M ${x} ${y}` : ` L ${x} ${y}`;
-    dots += `<circle cx="${x}" cy="${y}" r="3" fill="#2563eb" />`;
+    const r = ratings[i];
+    const x = xOf(i), y = yOfR(r || 0);
+    const period = _anFmtDate(String(points[i].period || ""));
+    const rLabel = r != null ? r.toFixed(2) : "—";
+    const total = points[i].total || 0;
+    dots += `<g class="an-dot-group">
+      <circle cx="${x}" cy="${y}" r="5" fill="#2563eb" opacity="0" class="an-dot-hit" />
+      <circle cx="${x}" cy="${y}" r="3" fill="#2563eb" pointer-events="none" />
+      <g class="an-tooltip" style="display:none" pointer-events="none">
+        <rect x="${x - 42}" y="${y - 34}" width="84" height="28" rx="4" fill="#1e293b" opacity="0.9"/>
+        <text x="${x}" y="${y - 20}" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">★ ${rLabel}</text>
+        <text x="${x}" y="${y - 8}" text-anchor="middle" font-size="10" fill="#94a3b8">${period} · ${total} отз.</text>
+      </g>
+    </g>`;
   }
 
-  // X labels
+  // X labels — DD.MM.ГГ
   const xLabels = points.map((p, i) => {
-    const label = String(p.period || "").slice(5); // MM-DD or month
-    return `<text x="${xOf(i)}" y="${H - 6}" text-anchor="middle" font-size="10" fill="#64748b">${label}</text>`;
+    const raw = String(p.period || "");
+    // For month format "YYYY-MM" show мм.гг, for week show дд.мм.гг
+    const label = raw.length === 7
+      ? `${raw.slice(5)}.${raw.slice(2, 4)}`  // MM.YY
+      : _anFmtDate(raw);
+    return `<text x="${xOf(i)}" y="${H - 8}" text-anchor="middle" font-size="9" fill="#64748b">${label}</text>`;
   }).join("");
 
-  // Y axis (rating)
-  const yTicks = [Math.ceil(rMin * 2) / 2, (rMin + rMax) / 2, Math.floor(rMax * 2) / 2].filter((v, i, a) => a.indexOf(v) === i);
-  const yAxis = yTicks.map(v =>
+  // Y axis ticks
+  const yTicks = [rMin, (rMin + rMax) / 2, rMax].map(v => Math.round(v * 10) / 10);
+  const yAxis = [...new Set(yTicks)].map(v =>
     `<text x="${PAD.left - 6}" y="${yOfR(v) + 4}" text-anchor="end" font-size="10" fill="#64748b">${v.toFixed(1)}</text>
      <line x1="${PAD.left}" y1="${yOfR(v)}" x2="${PAD.left + chartW}" y2="${yOfR(v)}" stroke="#f1f5f9" stroke-width="1" />`
   ).join("");
 
-  return `
-    <div style="overflow-x:auto">
-      <svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;height:auto;display:block">
+  const linePoints = points.map((p, i) => `${xOf(i)},${yOfR(ratings[i] || 0)}`).join(" ");
+
+  const svgId = `anTrendSvg_${Date.now()}`;
+  const html = `
+    <div style="overflow-x:auto;position:relative">
+      <svg id="${svgId}" viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;height:auto;display:block">
         ${yAxis}
         ${bars}
-        <polyline points="${points.map((p, i) => `${xOf(i)},${yOfR(ratings[i] || 0)}`).join(" ")}"
-          fill="none" stroke="#2563eb" stroke-width="2" stroke-linejoin="round" />
+        <polyline points="${linePoints}" fill="none" stroke="#2563eb" stroke-width="2" stroke-linejoin="round" />
         ${dots}
         ${xLabels}
-        <text x="${PAD.left - 2}" y="${PAD.top - 4}" font-size="10" fill="#94a3b8">★ рейт.</text>
+        <text x="${PAD.left - 2}" y="${PAD.top - 6}" font-size="10" fill="#94a3b8">★ рейтинг</text>
       </svg>
     </div>
     <div class="an-trend-legend">
       <span class="an-trend-dot" style="background:#bfdbfe"></span> Объём отзывов
-      <span class="an-trend-dot" style="background:#2563eb;margin-left:12px"></span> Ср. рейтинг
+      <span class="an-trend-dot" style="background:#2563eb;margin-left:12px"></span> Средний рейтинг
     </div>`;
+
+  // Attach tooltip listeners after render
+  setTimeout(() => {
+    const svg = document.getElementById(svgId);
+    if (!svg) return;
+    svg.querySelectorAll(".an-dot-group").forEach(g => {
+      const hit = g.querySelector(".an-dot-hit");
+      const tip = g.querySelector(".an-tooltip");
+      if (!hit || !tip) return;
+      hit.addEventListener("mouseenter", () => { tip.style.display = ""; hit.setAttribute("opacity", "0.15"); });
+      hit.addEventListener("mouseleave", () => { tip.style.display = "none"; hit.setAttribute("opacity", "0"); });
+    });
+  }, 50);
+
+  return html;
 }
 
 async function loadAccounts() {
