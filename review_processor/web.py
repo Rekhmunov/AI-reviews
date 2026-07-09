@@ -3269,6 +3269,165 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             date_to=date_to.strip() or None,
         )
 
+    @app.get("/api/analytics/trend")
+    def analytics_trend(
+        request: Request,
+        source: str = "",
+        granularity: str = "week",
+    ) -> list[dict[str, object]]:
+        user = _require_analytics_access(request)
+        gran = granularity.strip().lower()
+        if gran not in ("week", "month"):
+            gran = "week"
+        return repository.get_analytics_trend(
+            user_id=int(user["id"]),
+            source=source.strip() or None,
+            granularity=gran,
+        )
+
+    @app.get("/api/analytics/export")
+    def analytics_export(
+        request: Request,
+        source: str = "",
+        date_from: str = "",
+        date_to: str = "",
+    ):
+        import io as _io
+        import urllib.parse as _uparse
+        from openpyxl import Workbook as _WB
+        from openpyxl.styles import Font as _Font, PatternFill as _Fill, Alignment as _Align, Border as _Border, Side as _Side
+        from openpyxl.utils import get_column_letter as _gcl
+        from starlette.responses import StreamingResponse as _SR
+
+        user = _require_analytics_access(request)
+        uid = int(user["id"])
+        src = source.strip() or None
+        df = date_from.strip() or None
+        dt = date_to.strip() or None
+
+        if not src or src not in ("wb", "yandex"):
+            raise HTTPException(status_code=400, detail="Источник должен быть wb или yandex")
+
+        # ── Data ──────────────────────────────────────────────────────────────
+        summary = repository.get_user_analytics(user_id=uid, source=src, date_from=df, date_to=dt)
+        reviews = repository.list_reviews_for_export(user_id=uid, source=src, date_from=df, date_to=dt)
+
+        src_label = {"wb": "ВБ (Wildberries)", "yandex": "ЯМ (Яндекс Маркет)"}.get(src, src.upper())
+        period_label = f"{df or '—'} — {dt or '—'}"
+
+        wb = _WB()
+
+        # ── Helpers ───────────────────────────────────────────────────────────
+        H_FILL  = _Fill(fill_type="solid", fgColor="1E40AF")
+        H2_FILL = _Fill(fill_type="solid", fgColor="DBEAFE")
+        H_FONT  = _Font(bold=True, color="FFFFFF", size=11)
+        H2_FONT = _Font(bold=True, color="1E40AF", size=10)
+        BOLD    = _Font(bold=True, size=10)
+        NORM    = _Font(size=10)
+        thin    = _Side(style="thin", color="E2E8F0")
+        BORDER  = _Border(left=thin, right=thin, top=thin, bottom=thin)
+        CENTER  = _Align(horizontal="center", vertical="center", wrap_text=True)
+        VCENTER = _Align(vertical="center", wrap_text=True)
+
+        def _hrow(ws, row, values, fill=H_FILL, font=H_FONT):
+            for c, v in enumerate(values, 1):
+                cell = ws.cell(row=row, column=c, value=v)
+                cell.fill = fill; cell.font = font; cell.border = BORDER; cell.alignment = CENTER
+
+        def _row(ws, row, values):
+            for c, v in enumerate(values, 1):
+                cell = ws.cell(row=row, column=c, value=v)
+                cell.font = NORM; cell.border = BORDER; cell.alignment = VCENTER
+
+        def _autofit(ws, min_w=10, max_w=50):
+            for col in ws.columns:
+                length = max((len(str(cell.value or "")) for cell in col), default=min_w)
+                ws.column_dimensions[_gcl(col[0].column)].width = min(max(length + 2, min_w), max_w)
+
+        # ── Sheet 1: Сводка ───────────────────────────────────────────────────
+        ws1 = wb.active; ws1.title = "Сводка"
+        ws1.merge_cells("A1:B1")
+        ws1["A1"] = f"Аналитический отчёт: {src_label}"
+        ws1["A1"].font = _Font(bold=True, size=13, color="1E3A8A")
+        ws1["A1"].alignment = CENTER
+        ws1.row_dimensions[1].height = 22
+
+        meta = [("Период", period_label), ("Источник", src_label),
+                ("Всего отзывов", summary.get("total_reviews", 0)),
+                ("Обработано", f"{summary.get('processed_reviews',0)} ({summary.get('processed_percent',0)}%)"),
+                ("Оценка 4–5 ★", summary.get("high_rating_count", 0)),
+                ("Оценка 1–3 ★", summary.get("low_rating_count", 0)),
+                ("Вопросов", summary.get("questions_count", 0)),
+                ("Чатов", summary.get("chats_count", 0))]
+        for i, (k, v) in enumerate(meta, 3):
+            ws1.cell(row=i, column=1, value=k).font = BOLD
+            ws1.cell(row=i, column=1).border = BORDER
+            ws1.cell(row=i, column=2, value=v).font = NORM
+            ws1.cell(row=i, column=2).border = BORDER
+
+        r = len(meta) + 4
+        ws1.cell(row=r, column=1, value="Распределение по оценкам").font = BOLD
+        r += 1
+        _hrow(ws1, r, ["Оценка", "Кол-во", "%"], H2_FILL, H2_FONT)
+        by_rating = summary.get("by_rating", {})
+        total_r = sum(by_rating.values()) or 1
+        for star in [5, 4, 3, 2, 1]:
+            r += 1
+            cnt = by_rating.get(star, 0)
+            _row(ws1, r, [f"{star} ★", cnt, f"{round(cnt/total_r*100)}%"])
+
+        r += 2
+        ws1.cell(row=r, column=1, value="Топ категорий отзывов").font = BOLD
+        r += 1
+        _hrow(ws1, r, ["Категория", "Кол-во", "%"], H2_FILL, H2_FONT)
+        by_cat = summary.get("by_category", [])
+        cat_total = sum(c["count"] for c in by_cat) or 1
+        for cat in by_cat[:15]:
+            r += 1
+            _row(ws1, r, [cat.get("category", ""), cat["count"], f"{round(cat['count']/cat_total*100)}%"])
+
+        ws1.column_dimensions["A"].width = 28
+        ws1.column_dimensions["B"].width = 20
+        ws1.column_dimensions["C"].width = 10
+
+        # ── Sheet 2: Отзывы ───────────────────────────────────────────────────
+        ws2 = wb.create_sheet("Отзывы")
+        _hrow(ws2, 1, ["Дата", "Источник", "Рейтинг", "Категория", "Текст отзыва", "Ответ магазина"])
+        ws2.row_dimensions[1].height = 18
+        for i, rev in enumerate(reviews, 2):
+            _row(ws2, i, [
+                str(rev.get("created_at", ""))[:10],
+                src_label,
+                rev.get("rating") or "—",
+                rev.get("category") or "—",
+                rev.get("text") or "",
+                rev.get("reply_text") or "",
+            ])
+            ws2.row_dimensions[i].height = 40
+        ws2.column_dimensions["A"].width = 12
+        ws2.column_dimensions["B"].width = 14
+        ws2.column_dimensions["C"].width = 9
+        ws2.column_dimensions["D"].width = 24
+        ws2.column_dimensions["E"].width = 50
+        ws2.column_dimensions["F"].width = 40
+        ws2.freeze_panes = "A2"
+
+        # ── Sheet 3: По категориям ─────────────────────────────────────────────
+        ws3 = wb.create_sheet("По категориям")
+        _hrow(ws3, 1, ["Категория", "Кол-во отзывов", "% от общего"])
+        for i, cat in enumerate(by_cat, 2):
+            _row(ws3, i, [cat.get("category",""), cat["count"], f"{round(cat['count']/cat_total*100)}%"])
+        ws3.column_dimensions["A"].width = 32; ws3.column_dimensions["B"].width = 18; ws3.column_dimensions["C"].width = 14
+
+        buf = _io.BytesIO(); wb.save(buf); buf.seek(0)
+        fname = f"Аналитика_{src_label.split()[0]}_{(df or 'all').replace('-','')}_{(dt or 'all').replace('-','')}.xlsx"
+        encoded = _uparse.quote(fname, safe="")
+        return _SR(
+            buf,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded}"},
+        )
+
     @app.post("/api/sync")
     def sync_reviews(request: Request, payload: SyncRequest) -> dict[str, object]:
         user = _require_user(request)

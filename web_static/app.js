@@ -8854,10 +8854,30 @@ function resetAnalyticsDates() {
   loadAnalytics();
 }
 
+const AN_SRC_LABELS = { wb: "ВБ", ozon: "ОЗОН", yandex: "ЯМ" };
+const AN_EXPORT_SOURCES = new Set(["wb", "yandex"]);
+
+let _anLastData = null; // cache last analytics result for export
+
+function _anGetFilters() {
+  return {
+    source: String(document.getElementById("analyticsSourceFilter")?.value || ""),
+    dateFrom: String(document.getElementById("analyticsDateFrom")?.value || ""),
+    dateTo: String(document.getElementById("analyticsDateTo")?.value || ""),
+  };
+}
+
+function _anUpdateExportBtn() {
+  const { source, dateFrom, dateTo } = _anGetFilters();
+  const btn = document.getElementById("anExportBtn");
+  if (!btn) return;
+  const canExport = AN_EXPORT_SOURCES.has(source) && dateFrom && dateTo;
+  btn.classList.toggle("hidden", !canExport);
+}
+
 async function loadAnalytics() {
-  const source = String(document.getElementById("analyticsSourceFilter")?.value || "");
-  const dateFrom = String(document.getElementById("analyticsDateFrom")?.value || "");
-  const dateTo = String(document.getElementById("analyticsDateTo")?.value || "");
+  const { source, dateFrom, dateTo } = _anGetFilters();
+  _anUpdateExportBtn();
   const q = new URLSearchParams();
   if (source) q.set("source", source);
   if (dateFrom) q.set("date_from", dateFrom);
@@ -8871,6 +8891,7 @@ async function loadAnalytics() {
     return;
   }
   if (info) info.textContent = "";
+  _anLastData = data;
 
   const total = data.total_reviews || 0;
 
@@ -8888,31 +8909,25 @@ async function loadAnalytics() {
   const byRating = data.by_rating || {};
   const ratingColors = { 5: "#16a34a", 4: "#65a30d", 3: "#d97706", 2: "#ea580c", 1: "#dc2626" };
   const ratingSegments = [5, 4, 3, 2, 1].map(s => ({
-    value: byRating[s] || 0,
-    color: ratingColors[s],
-    label: `${s} ★`,
+    value: byRating[s] || 0, color: ratingColors[s], label: `${s} ★`,
   }));
   const ratingTotal = ratingSegments.reduce((sum, s) => sum + s.value, 0);
   _anDonut("anRatingChart", ratingSegments);
   _anLegend("anRatingLegend", ratingSegments, ratingTotal);
 
-  // Category donut — titles from templateGroupsState (same as Settings → Templates page)
+  // Category donut
   const groupTitleMap = {};
   for (const g of (templateGroupsState.items || [])) {
     const gid = String(g.group_id || g.id || "");
     const gtitle = String(g.title || g.group_title || "");
     if (gid && gtitle) groupTitleMap[gid] = gtitle;
   }
-  const _catLabel = (cat) =>
-    groupTitleMap[cat] || labelFromMap(categoryLabels, cat) || cat;
-
+  const _catLabel = (cat) => groupTitleMap[cat] || labelFromMap(categoryLabels, cat) || cat;
   const catColors = ["#2563eb","#16a34a","#d97706","#7c3aed","#0891b2","#db2777","#94a3b8","#64748b","#f59e0b","#10b981"];
   const byCategory = Array.isArray(data.by_category) ? data.by_category : [];
   const catTotal = byCategory.reduce((s, x) => s + x.count, 0);
   const catSegments = byCategory.slice(0, 9).map((c, i) => ({
-    value: c.count,
-    color: catColors[i % catColors.length],
-    label: _catLabel(c.category),
+    value: c.count, color: catColors[i % catColors.length], label: _catLabel(c.category),
   }));
   if (byCategory.length > 9) {
     const rest = byCategory.slice(9).reduce((s, x) => s + x.count, 0);
@@ -8925,13 +8940,12 @@ async function loadAnalytics() {
   const tbody = document.getElementById("anSourceTbody");
   if (tbody) {
     const rows = Array.isArray(data.by_source) ? data.by_source : [];
-    const srcLabels = { wb: "Wildberries", ozon: "Ozon" };
     tbody.innerHTML = rows.map(r => {
       const pct = r.total ? Math.round(r.processed / r.total * 100) : 0;
       const pp = r.total ? Math.round(r.positive / r.total * 100) : 0;
       const np = r.total ? Math.round(r.negative / r.total * 100) : 0;
       return `<tr>
-        <td><strong>${esc(srcLabels[r.source] || r.source.toUpperCase())}</strong></td>
+        <td><strong>${esc(AN_SRC_LABELS[r.source] || r.source.toUpperCase())}</strong></td>
         <td>${r.total.toLocaleString("ru")}</td>
         <td>${r.processed.toLocaleString("ru")} <span class="an-pct">${pct}%</span></td>
         <td class="an-positive">${r.positive.toLocaleString("ru")} <span class="an-pct">${pp}%</span></td>
@@ -8939,6 +8953,242 @@ async function loadAnalytics() {
       </tr>`;
     }).join("") || '<tr><td colspan="5" class="small" style="color:#94a3b8;padding:16px">Нет данных</td></tr>';
   }
+
+  // Refresh comparison and trend with current source
+  const activeCmp = document.getElementById("anCompareWeekBtn")?.classList.contains("active") ? "week" : "month";
+  const activeTrend = document.getElementById("anTrendWeekBtn")?.classList.contains("active") ? "week" : "month";
+  loadAnalyticsComparison(activeCmp, false);
+  loadAnalyticsTrend(activeTrend, false);
+}
+
+// ── Export ────────────────────────────────────────────────────────────────────
+
+function exportAnalyticsReport() {
+  const { source, dateFrom, dateTo } = _anGetFilters();
+  if (!AN_EXPORT_SOURCES.has(source) || !dateFrom || !dateTo) return;
+  const q = new URLSearchParams({ source, date_from: dateFrom, date_to: dateTo });
+  window.open("/api/analytics/export?" + q.toString(), "_blank");
+}
+window.exportAnalyticsReport = exportAnalyticsReport;
+
+// ── Comparison widget ─────────────────────────────────────────────────────────
+
+function _anDateRange(mode) {
+  // Returns {curFrom, curTo, prevFrom, prevTo} as YYYY-MM-DD strings
+  const today = new Date();
+  const fmt = d => d.toISOString().slice(0, 10);
+  if (mode === "week") {
+    const curTo = new Date(today); curTo.setDate(today.getDate() - 1);
+    const curFrom = new Date(curTo); curFrom.setDate(curTo.getDate() - 6);
+    const prevTo = new Date(curFrom); prevTo.setDate(curFrom.getDate() - 1);
+    const prevFrom = new Date(prevTo); prevFrom.setDate(prevTo.getDate() - 6);
+    return { curFrom: fmt(curFrom), curTo: fmt(curTo), prevFrom: fmt(prevFrom), prevTo: fmt(prevTo) };
+  }
+  // month
+  const curTo = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+  const curFrom = new Date(today.getFullYear(), today.getMonth(), 1);
+  const prevTo = new Date(today.getFullYear(), today.getMonth(), 0);
+  const prevFrom = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  return { curFrom: fmt(curFrom), curTo: fmt(curTo), prevFrom: fmt(prevFrom), prevTo: fmt(prevTo) };
+}
+
+function _anFetchAnalytics(source, dateFrom, dateTo) {
+  const q = new URLSearchParams();
+  if (source) q.set("source", source);
+  if (dateFrom) q.set("date_from", dateFrom);
+  if (dateTo) q.set("date_to", dateTo);
+  return fetch("/api/analytics?" + q.toString()).then(r => r.json());
+}
+
+function _anAvgRating(data) {
+  const byRating = data.by_rating || {};
+  let sum = 0, cnt = 0;
+  for (let s = 1; s <= 5; s++) { sum += s * (byRating[s] || 0); cnt += (byRating[s] || 0); }
+  return cnt ? Math.round(sum / cnt * 10) / 10 : null;
+}
+
+function _anDeltaHtml(cur, prev, higherIsBetter = true) {
+  if (cur === null || prev === null) return `<span class="an-cmp-cur">—</span>`;
+  const delta = Math.round((cur - prev) * 10) / 10;
+  const improved = higherIsBetter ? delta > 0 : delta < 0;
+  const worsened = higherIsBetter ? delta < 0 : delta > 0;
+  const arrow = delta > 0 ? "▲" : delta < 0 ? "▼" : "—";
+  const cls = improved ? "an-delta-good" : worsened ? "an-delta-bad" : "an-delta-neutral";
+  const sign = delta > 0 ? "+" : "";
+  return `<span class="${cls}">${arrow} ${sign}${delta}</span>`;
+}
+
+let _anCompareMode = "week";
+
+async function loadAnalyticsComparison(mode, updateTabs = true) {
+  _anCompareMode = mode;
+  if (updateTabs) {
+    document.getElementById("anCompareWeekBtn")?.classList.toggle("active", mode === "week");
+    document.getElementById("anCompareMonthBtn")?.classList.toggle("active", mode === "month");
+  }
+  const body = document.getElementById("anCompareBody");
+  if (!body) return;
+  body.innerHTML = '<div class="an-compare-loading">Загрузка…</div>';
+
+  const { source } = _anGetFilters();
+  const { curFrom, curTo, prevFrom, prevTo } = _anDateRange(mode);
+  const modeLabel = mode === "week" ? "неделя" : "месяц";
+  const curLabel = mode === "week"
+    ? `${curFrom.slice(5).replace("-", ".")} — ${curTo.slice(5).replace("-", ".")}`
+    : new Date(curFrom).toLocaleString("ru", { month: "long", year: "numeric" });
+  const prevLabel = mode === "week"
+    ? `${prevFrom.slice(5).replace("-", ".")} — ${prevTo.slice(5).replace("-", ".")}`
+    : new Date(prevFrom).toLocaleString("ru", { month: "long", year: "numeric" });
+
+  try {
+    const [cur, prev] = await Promise.all([
+      _anFetchAnalytics(source, curFrom, curTo),
+      _anFetchAnalytics(source, prevFrom, prevTo),
+    ]);
+
+    const curRating = _anAvgRating(cur);
+    const prevRating = _anAvgRating(prev);
+    const curTotal = cur.total_reviews || 0;
+    const prevTotal = prev.total_reviews || 0;
+    const curPct = cur.processed_percent || 0;
+    const prevPct = prev.processed_percent || 0;
+    const curNeg = cur.low_rating_count || 0;
+    const prevNeg = prev.low_rating_count || 0;
+
+    body.innerHTML = `
+      <div class="an-cmp-periods">
+        <span class="an-cmp-label">Период</span>
+        <span class="an-cmp-prev-val an-cmp-header">${esc(prevLabel)}</span>
+        <span class="an-cmp-cur-val an-cmp-header">${esc(curLabel)}</span>
+        <span></span>
+      </div>
+      <div class="an-cmp-row">
+        <span class="an-cmp-label">Средний рейтинг</span>
+        <span class="an-cmp-prev-val">${prevRating ?? "—"} ★</span>
+        <span class="an-cmp-cur-val">${curRating ?? "—"} ★</span>
+        ${_anDeltaHtml(curRating, prevRating, true)}
+      </div>
+      <div class="an-cmp-row">
+        <span class="an-cmp-label">Всего отзывов</span>
+        <span class="an-cmp-prev-val">${prevTotal.toLocaleString("ru")}</span>
+        <span class="an-cmp-cur-val">${curTotal.toLocaleString("ru")}</span>
+        ${_anDeltaHtml(curTotal, prevTotal, true)}
+      </div>
+      <div class="an-cmp-row">
+        <span class="an-cmp-label">% обработки</span>
+        <span class="an-cmp-prev-val">${prevPct}%</span>
+        <span class="an-cmp-cur-val">${curPct}%</span>
+        ${_anDeltaHtml(curPct, prevPct, true)}
+      </div>
+      <div class="an-cmp-row">
+        <span class="an-cmp-label">Оценка 1–3 ★</span>
+        <span class="an-cmp-prev-val">${prevNeg.toLocaleString("ru")}</span>
+        <span class="an-cmp-cur-val">${curNeg.toLocaleString("ru")}</span>
+        ${_anDeltaHtml(curNeg, prevNeg, false)}
+      </div>
+    `;
+  } catch (e) {
+    body.innerHTML = '<div class="an-compare-loading" style="color:#94a3b8">Нет данных</div>';
+  }
+}
+window.loadAnalyticsComparison = loadAnalyticsComparison;
+
+// ── Trend chart ───────────────────────────────────────────────────────────────
+
+let _anTrendMode = "week";
+
+async function loadAnalyticsTrend(granularity, updateTabs = true) {
+  _anTrendMode = granularity;
+  if (updateTabs) {
+    document.getElementById("anTrendWeekBtn")?.classList.toggle("active", granularity === "week");
+    document.getElementById("anTrendMonthBtn")?.classList.toggle("active", granularity === "month");
+  }
+  const body = document.getElementById("anTrendBody");
+  if (!body) return;
+  body.innerHTML = '<div class="an-compare-loading">Загрузка…</div>';
+
+  const { source } = _anGetFilters();
+  const q = new URLSearchParams({ granularity });
+  if (source) q.set("source", source);
+
+  try {
+    const res = await fetch("/api/analytics/trend?" + q.toString());
+    if (!res.ok) { body.innerHTML = '<div class="an-compare-loading" style="color:#94a3b8">Нет данных</div>'; return; }
+    const points = await res.json(); // [{period, avg_rating, total, processed_pct}]
+    if (!points.length) { body.innerHTML = '<div class="an-compare-loading" style="color:#94a3b8">Нет данных за выбранный период</div>'; return; }
+    body.innerHTML = _anRenderTrend(points);
+  } catch (e) {
+    body.innerHTML = '<div class="an-compare-loading" style="color:#94a3b8">Нет данных</div>';
+  }
+}
+window.loadAnalyticsTrend = loadAnalyticsTrend;
+
+function _anRenderTrend(points) {
+  const W = 600, H = 160, PAD = { top: 16, right: 16, bottom: 28, left: 44 };
+  const chartW = W - PAD.left - PAD.right;
+  const chartH = H - PAD.top - PAD.bottom;
+  const n = points.length;
+
+  // Rating line (left axis 1–5)
+  const ratings = points.map(p => p.avg_rating || 0);
+  const rMin = Math.max(0, Math.min(...ratings.filter(Boolean)) - 0.3);
+  const rMax = Math.min(5, Math.max(...ratings.filter(Boolean)) + 0.3);
+
+  // Total bars (right side — just relative height)
+  const totals = points.map(p => p.total || 0);
+  const tMax = Math.max(...totals, 1);
+
+  const xStep = n > 1 ? chartW / (n - 1) : chartW;
+  const xOf = i => PAD.left + (n > 1 ? i * xStep : chartW / 2);
+  const yOfR = v => PAD.top + chartH - ((v - rMin) / (rMax - rMin || 1)) * chartH;
+  const yOfT = v => PAD.top + chartH - (v / tMax) * chartH * 0.8;
+
+  // Bars
+  const barW = Math.max(4, Math.min(20, xStep * 0.5));
+  let bars = points.map((p, i) => {
+    const bh = (p.total / tMax) * chartH * 0.8;
+    const by = PAD.top + chartH - bh;
+    return `<rect x="${xOf(i) - barW / 2}" y="${by}" width="${barW}" height="${bh}" fill="#bfdbfe" rx="2" opacity="0.7" />`;
+  }).join("");
+
+  // Rating line path
+  let linePath = "";
+  let dots = "";
+  for (let i = 0; i < n; i++) {
+    const x = xOf(i), y = yOfR(ratings[i] || 0);
+    linePath += i === 0 ? `M ${x} ${y}` : ` L ${x} ${y}`;
+    dots += `<circle cx="${x}" cy="${y}" r="3" fill="#2563eb" />`;
+  }
+
+  // X labels
+  const xLabels = points.map((p, i) => {
+    const label = String(p.period || "").slice(5); // MM-DD or month
+    return `<text x="${xOf(i)}" y="${H - 6}" text-anchor="middle" font-size="10" fill="#64748b">${label}</text>`;
+  }).join("");
+
+  // Y axis (rating)
+  const yTicks = [Math.ceil(rMin * 2) / 2, (rMin + rMax) / 2, Math.floor(rMax * 2) / 2].filter((v, i, a) => a.indexOf(v) === i);
+  const yAxis = yTicks.map(v =>
+    `<text x="${PAD.left - 6}" y="${yOfR(v) + 4}" text-anchor="end" font-size="10" fill="#64748b">${v.toFixed(1)}</text>
+     <line x1="${PAD.left}" y1="${yOfR(v)}" x2="${PAD.left + chartW}" y2="${yOfR(v)}" stroke="#f1f5f9" stroke-width="1" />`
+  ).join("");
+
+  return `
+    <div style="overflow-x:auto">
+      <svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;height:auto;display:block">
+        ${yAxis}
+        ${bars}
+        <polyline points="${points.map((p, i) => `${xOf(i)},${yOfR(ratings[i] || 0)}`).join(" ")}"
+          fill="none" stroke="#2563eb" stroke-width="2" stroke-linejoin="round" />
+        ${dots}
+        ${xLabels}
+        <text x="${PAD.left - 2}" y="${PAD.top - 4}" font-size="10" fill="#94a3b8">★ рейт.</text>
+      </svg>
+    </div>
+    <div class="an-trend-legend">
+      <span class="an-trend-dot" style="background:#bfdbfe"></span> Объём отзывов
+      <span class="an-trend-dot" style="background:#2563eb;margin-left:12px"></span> Ср. рейтинг
+    </div>`;
 }
 
 async function loadAccounts() {

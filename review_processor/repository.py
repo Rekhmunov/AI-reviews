@@ -6300,6 +6300,122 @@ class ReviewRepository:
             "by_source": by_source,
         }
 
+    # ── Analytics: trend & export ────────────────────────────────────────────
+
+    def get_analytics_trend(
+        self,
+        *,
+        user_id: int,
+        source: str | None = None,
+        granularity: str = "week",
+    ) -> list[dict[str, Any]]:
+        """Return time-series aggregation for the trend chart.
+        granularity: 'week' | 'month'
+        Returns up to 52 data points ordered by period.
+        """
+        source_clause = " AND source = ?" if source else ""
+        source_params: list[Any] = [source] if source else []
+
+        if self._use_postgres:
+            trunc_expr = "DATE_TRUNC('week', created_at::date)" if granularity == "week" else "DATE_TRUNC('month', created_at::date)"
+            period_fmt = "TO_CHAR({}, 'YYYY-MM-DD')".format(trunc_expr)
+        else:
+            # SQLite
+            if granularity == "week":
+                period_fmt = "strftime('%Y-W%W', created_at)"
+            else:
+                period_fmt = "strftime('%Y-%m', created_at)"
+
+        # Limit to recent 52 weeks or 24 months
+        limit_days = 52 * 7 if granularity == "week" else 24 * 30
+
+        if self._use_postgres:
+            cutoff_clause = f" AND created_at >= NOW() - INTERVAL '{limit_days} days'"
+        else:
+            cutoff_clause = f" AND created_at >= datetime('now', '-{limit_days} days')"
+
+        if self._use_postgres:
+            query = f"""
+                SELECT
+                    TO_CHAR(DATE_TRUNC('{granularity}', created_at::date), 'YYYY-MM-DD') AS period,
+                    COUNT(*) AS total,
+                    ROUND(AVG(rating) FILTER (WHERE rating IS NOT NULL)::numeric, 2) AS avg_rating,
+                    ROUND(
+                        100.0 * SUM(CASE WHEN status IN ('answered_auto','answered_manual','ignored') THEN 1 ELSE 0 END)::numeric
+                        / NULLIF(COUNT(*), 0), 1
+                    ) AS processed_pct
+                FROM review_items
+                WHERE user_id = ?{source_clause}{cutoff_clause}
+                GROUP BY DATE_TRUNC('{granularity}', created_at::date)
+                ORDER BY DATE_TRUNC('{granularity}', created_at::date)
+            """
+        else:
+            if granularity == "week":
+                grp = "strftime('%Y-W%W', created_at)"
+            else:
+                grp = "strftime('%Y-%m', created_at)"
+            query = f"""
+                SELECT
+                    {grp} AS period,
+                    COUNT(*) AS total,
+                    ROUND(AVG(CAST(rating AS REAL)), 2) AS avg_rating,
+                    ROUND(
+                        100.0 * SUM(CASE WHEN status IN ('answered_auto','answered_manual','ignored') THEN 1 ELSE 0 END)
+                        / MAX(1, COUNT(*)), 1
+                    ) AS processed_pct
+                FROM review_items
+                WHERE user_id = ?{source_clause}{cutoff_clause}
+                GROUP BY {grp}
+                ORDER BY {grp}
+            """
+
+        with self._connect() as conn:
+            rows = conn.execute(
+                self._sql(query),
+                (user_id, *source_params),
+            ).fetchall()
+
+        return [
+            {
+                "period": str(r["period"] or ""),
+                "total": int(r["total"] or 0),
+                "avg_rating": float(r["avg_rating"]) if r["avg_rating"] is not None else None,
+                "processed_pct": float(r["processed_pct"]) if r["processed_pct"] is not None else 0.0,
+            }
+            for r in rows
+        ]
+
+    def list_reviews_for_export(
+        self,
+        *,
+        user_id: int,
+        source: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return review rows for Excel export."""
+        conditions = ["user_id = ?"]
+        params: list[Any] = [user_id]
+        if source:
+            conditions.append("source = ?")
+            params.append(source)
+        if date_from:
+            conditions.append("created_at::date >= ?::date" if self._use_postgres else "date(created_at) >= date(?)")
+            params.append(date_from)
+        if date_to:
+            conditions.append("created_at::date <= ?::date" if self._use_postgres else "date(created_at) <= date(?)")
+            params.append(date_to)
+        where = " AND ".join(conditions)
+        query = f"""
+            SELECT created_at, source, rating, category, text, reply_text
+            FROM review_items
+            WHERE {where}
+            ORDER BY created_at ASC
+        """
+        with self._connect() as conn:
+            rows = conn.execute(self._sql(query), tuple(params)).fetchall()
+        return [self._row_to_dict(r) for r in rows]
+
     # ── Review contradiction rules ────────────────────────────────────────────
 
     def _migrate_review_contradiction_rules(self, conn) -> None:

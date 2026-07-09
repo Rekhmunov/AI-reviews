@@ -3594,6 +3594,104 @@ button.secondary.danger:hover {
 .an-positive { color: #16a34a !important; }
 .an-negative { color: #dc2626 !important; }
 
+/* ── Analytics: comparison widget ───────────────────────────────────────── */
+
+.an-compare-panel {
+  margin-top: 0;
+}
+
+.an-compare-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.an-compare-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.an-compare-tab {
+  background: transparent;
+  border: 1px solid rgba(147,197,253,0.5);
+  color: #475569;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  box-shadow: none;
+}
+.an-compare-tab:hover { background: #f1f5f9; }
+.an-compare-tab.active {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+  box-shadow: none;
+}
+
+.an-compare-body {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.an-compare-loading {
+  color: #94a3b8;
+  font-size: 13px;
+  padding: 12px 0;
+}
+
+.an-cmp-periods,
+.an-cmp-row {
+  display: grid;
+  grid-template-columns: 1fr 140px 140px 100px;
+  align-items: center;
+  padding: 9px 0;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 14px;
+  gap: 8px;
+}
+.an-cmp-periods { font-weight: 600; font-size: 12px; color: #64748b; }
+.an-cmp-row:last-child { border-bottom: none; }
+.an-cmp-label { color: #1e293b; }
+.an-cmp-prev-val { color: #64748b; }
+.an-cmp-cur-val { color: #1e293b; font-weight: 600; }
+.an-cmp-header { color: #475569 !important; font-size: 12px; }
+
+.an-delta-good  { color: #16a34a; font-weight: 600; font-size: 13px; }
+.an-delta-bad   { color: #dc2626; font-weight: 600; font-size: 13px; }
+.an-delta-neutral { color: #94a3b8; font-size: 13px; }
+
+/* ── Analytics: trend chart ──────────────────────────────────────────────── */
+
+.an-trend-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 8px;
+}
+.an-trend-dot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+}
+
+@media (max-width: 640px) {
+  .an-cmp-periods,
+  .an-cmp-row {
+    grid-template-columns: 1fr 90px 90px 70px;
+    font-size: 12px;
+  }
+}
+
 @media (max-width: 768px) {
   /* Hide emoji button in chat compose on mobile */
   .chat-emoji-wrap {
