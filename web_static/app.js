@@ -8980,7 +8980,6 @@ window.exportAnalyticsReport = exportAnalyticsReport;
 // ── Comparison widget ─────────────────────────────────────────────────────────
 
 function _anDateRange(mode) {
-  // Returns {curFrom, curTo, prevFrom, prevTo} as YYYY-MM-DD strings
   const today = new Date();
   const fmt = d => d.toISOString().slice(0, 10);
   if (mode === "week") {
@@ -8988,6 +8987,14 @@ function _anDateRange(mode) {
     const curFrom = new Date(curTo); curFrom.setDate(curTo.getDate() - 6);
     const prevTo = new Date(curFrom); prevTo.setDate(curFrom.getDate() - 1);
     const prevFrom = new Date(prevTo); prevFrom.setDate(prevTo.getDate() - 6);
+    return { curFrom: fmt(curFrom), curTo: fmt(curTo), prevFrom: fmt(prevFrom), prevTo: fmt(prevTo) };
+  }
+  if (mode === "quarter") {
+    const q = Math.floor(today.getMonth() / 3);
+    const curFrom = new Date(today.getFullYear(), q * 3, 1);
+    const curTo   = new Date(today.getFullYear(), q * 3 + 3, 0);
+    const prevFrom = new Date(today.getFullYear(), (q - 1) * 3, 1);
+    const prevTo   = new Date(today.getFullYear(), (q - 1) * 3 + 3, 0);
     return { curFrom: fmt(curFrom), curTo: fmt(curTo), prevFrom: fmt(prevFrom), prevTo: fmt(prevTo) };
   }
   // month
@@ -9031,6 +9038,7 @@ async function loadAnalyticsComparison(mode, updateTabs = true) {
   if (updateTabs) {
     document.getElementById("anCompareWeekBtn")?.classList.toggle("active", mode === "week");
     document.getElementById("anCompareMonthBtn")?.classList.toggle("active", mode === "month");
+    document.getElementById("anCompareQuarterBtn")?.classList.toggle("active", mode === "quarter");
   }
   const body = document.getElementById("anCompareBody");
   if (!body) return;
@@ -9039,11 +9047,19 @@ async function loadAnalyticsComparison(mode, updateTabs = true) {
   const { source } = _anGetFilters();
   const { curFrom, curTo, prevFrom, prevTo } = _anDateRange(mode);
   const modeLabel = mode === "week" ? "неделя" : "месяц";
+  const _quarterLabel = d => {
+    const dt = new Date(d); const q = Math.floor(dt.getMonth() / 3) + 1;
+    return `Q${q} ${dt.getFullYear()}`;
+  };
   const curLabel = mode === "week"
     ? `${_anFmtDate(curFrom)} — ${_anFmtDate(curTo)}`
+    : mode === "quarter"
+    ? _quarterLabel(curFrom)
     : new Date(curFrom).toLocaleString("ru", { month: "long", year: "numeric" });
   const prevLabel = mode === "week"
     ? `${_anFmtDate(prevFrom)} — ${_anFmtDate(prevTo)}`
+    : mode === "quarter"
+    ? _quarterLabel(prevFrom)
     : new Date(prevFrom).toLocaleString("ru", { month: "long", year: "numeric" });
 
   try {
