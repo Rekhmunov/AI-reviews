@@ -6378,13 +6378,13 @@ class ReviewRepository:
             SELECT created_at, source, rating, category, text,
                    COALESCE(manual_reply, auto_reply) AS reply_text,
                    COALESCE(
-                       metadata_json->'raw'->'productDetails'->>'vendorCode',
-                       metadata_json->'raw'->>'vendorCode',
-                       metadata_json->'raw'->>'vendor_code',
-                       metadata_json->'raw'->>'offerId',
-                       metadata_json->'raw'->>'offer_id',
-                       metadata_json->>'vendorCode',
-                       metadata_json->>'vendor_code',
+                       NULLIF(metadata_json->'raw'->'productDetails'->>'vendorCode', ''),
+                       NULLIF(metadata_json->'raw'->'productDetails'->>'supplierArticle', ''),
+                       NULLIF(metadata_json->'raw'->'productDetails'->>'offerId', ''),
+                       NULLIF(metadata_json->'raw'->>'vendorCode', ''),
+                       NULLIF(metadata_json->'raw'->>'vendor_code', ''),
+                       NULLIF(metadata_json->'raw'->>'offerId', ''),
+                       NULLIF(metadata_json->'raw'->>'nmId', ''),
                        ''
                    ) AS article
             FROM review_items

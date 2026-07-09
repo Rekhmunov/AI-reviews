@@ -3313,6 +3313,23 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         reviews = repository.list_reviews_for_export(user_id=uid, source=src, date_from=df, date_to=dt)
 
         src_label = {"wb": "ВБ (Wildberries)", "yandex": "ЯМ (Яндекс Маркет)"}.get(src, src.upper())
+        _CAT_RU = {
+            "positive": "Позитив",
+            "product_dissatisfaction": "Недовольство товаром",
+            "delivery_problems": "Проблемы при доставке",
+            "wrong_size": "Неправильный размер",
+            "tagged_reviews": "Отзывы с тегами",
+            "textless_ratings": "Оценки без текста",
+            "negative_delivery": "Негатив: доставка",
+            "negative_product": "Негатив: товар",
+            "negative_other": "Негатив: прочее",
+            "positive_quality": "Позитив: качество",
+            "positive_product": "Позитив: товар",
+            "neutral_other": "Нейтральный: прочее",
+            "ai_unclassified": "Не классифицирован",
+        }
+        def _cat_ru(key: str) -> str:
+            return _CAT_RU.get(str(key or ""), str(key or "—"))
         def _ru_date(d: str | None) -> str:
             if not d or len(d) < 10:
                 return d or "—"
@@ -3388,7 +3405,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         cat_total = sum(c["count"] for c in by_cat) or 1
         for cat in by_cat[:15]:
             r += 1
-            _row(ws1, r, [cat.get("category", ""), cat["count"], f"{round(cat['count']/cat_total*100)}%"])
+            _row(ws1, r, [_cat_ru(cat.get("category", "")), cat["count"], f"{round(cat['count']/cat_total*100)}%"])
 
         ws1.column_dimensions["A"].width = 28
         ws1.column_dimensions["B"].width = 20
@@ -3406,7 +3423,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 src_label,
                 rev.get("article") or "—",
                 rev.get("rating") or "—",
-                rev.get("category") or "—",
+                _cat_ru(rev.get("category") or ""),
                 rev.get("text") or "",
                 rev.get("reply_text") or "",
             ])
@@ -3424,7 +3441,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         ws3 = wb.create_sheet("По категориям")
         _hrow(ws3, 1, ["Категория", "Кол-во отзывов", "% от общего"])
         for i, cat in enumerate(by_cat, 2):
-            _row(ws3, i, [cat.get("category",""), cat["count"], f"{round(cat['count']/cat_total*100)}%"])
+            _row(ws3, i, [_cat_ru(cat.get("category", "")), cat["count"], f"{round(cat['count']/cat_total*100)}%"])
         ws3.column_dimensions["A"].width = 32; ws3.column_dimensions["B"].width = 18; ws3.column_dimensions["C"].width = 14
 
         buf = _io.BytesIO(); wb.save(buf); buf.seek(0)
