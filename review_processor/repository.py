@@ -6339,10 +6339,12 @@ class ReviewRepository:
                 SELECT
                     TO_CHAR(DATE_TRUNC('{granularity}', created_at::date), 'YYYY-MM-DD') AS period,
                     COUNT(*) AS total,
-                    ROUND(AVG(rating) FILTER (WHERE rating IS NOT NULL)::numeric, 2) AS avg_rating,
                     ROUND(
-                        100.0 * SUM(CASE WHEN status IN ('answered_auto','answered_manual','ignored') THEN 1 ELSE 0 END)::numeric
-                        / NULLIF(COUNT(*), 0), 1
+                        CAST(AVG(CASE WHEN rating IS NOT NULL THEN rating END) AS numeric), 2
+                    ) AS avg_rating,
+                    ROUND(
+                        100.0 * SUM(CASE WHEN status IN ('answered_auto','answered_manual','ignored') THEN 1 ELSE 0 END)
+                        / NULLIF(COUNT(*), 0)::numeric, 1
                     ) AS processed_pct
                 FROM review_items
                 WHERE user_id = ?{source_clause}{cutoff_clause}
@@ -6407,7 +6409,8 @@ class ReviewRepository:
             params.append(date_to)
         where = " AND ".join(conditions)
         query = f"""
-            SELECT created_at, source, rating, category, text, reply_text
+            SELECT created_at, source, rating, category, text,
+                   COALESCE(manual_reply, auto_reply) AS reply_text
             FROM review_items
             WHERE {where}
             ORDER BY created_at ASC
