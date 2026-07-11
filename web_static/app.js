@@ -8875,10 +8875,9 @@ function _anGetFilters() {
 
 function _anUpdateExportBtn() {
   const { source, dateFrom, dateTo } = _anGetFilters();
-  const btn = document.getElementById("anExportBtn");
-  if (!btn) return;
   const canExport = AN_EXPORT_SOURCES.has(source) && dateFrom && dateTo;
-  btn.classList.toggle("hidden", !canExport);
+  document.getElementById("anExportBtn")?.classList.toggle("hidden", !canExport);
+  document.getElementById("anContestBtn")?.classList.toggle("hidden", !canExport);
 }
 
 async function loadAnalytics() {
@@ -8976,6 +8975,156 @@ function exportAnalyticsReport() {
   window.open("/api/analytics/export?" + q.toString(), "_blank");
 }
 window.exportAnalyticsReport = exportAnalyticsReport;
+
+function _anUpdateContestBtn() {
+  const { source, dateFrom, dateTo } = _anGetFilters();
+  const btn = document.getElementById("anContestBtn");
+  if (!btn) return;
+  const canContest = AN_EXPORT_SOURCES.has(source) && dateFrom && dateTo;
+  btn.classList.toggle("hidden", !canContest);
+}
+
+// ── Contest analysis modal ────────────────────────────────────────────────────
+
+let _contestCachedRunId = null;
+let _contestActiveRunId = null;
+let _contestPollTimer = null;
+
+async function openContestModal() {
+  const { source, dateFrom, dateTo } = _anGetFilters();
+  if (!AN_EXPORT_SOURCES.has(source) || !dateFrom || !dateTo) return;
+
+  // Show modal in loading state
+  document.getElementById("contestPrepareInfo").textContent = "Загрузка…";
+  ["contestPrepareNormal","contestPrepareCache","contestNoGpt","contestPrepareError",
+   "contestDownloadCacheBtn","contestStartBtn"].forEach(id => {
+    const el = document.getElementById(id); if (el) el.classList.add("hidden");
+  });
+  document.getElementById("contestPrepareModal")?.classList.remove("hidden");
+
+  try {
+    const q = new URLSearchParams({ source, date_from: dateFrom, date_to: dateTo });
+    const res = await fetch("/api/analytics/contest/prepare?" + q.toString());
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Ошибка");
+
+    document.getElementById("contestPrepareInfo").textContent = "";
+
+    if (!data.has_gpt) {
+      document.getElementById("contestNoGpt")?.classList.remove("hidden");
+      return;
+    }
+
+    if (data.cached_run_id) {
+      _contestCachedRunId = data.cached_run_id;
+      document.getElementById("contestCachedViolations").textContent = data.cached_violations ?? 0;
+      document.getElementById("contestPrepareCache")?.classList.remove("hidden");
+      document.getElementById("contestDownloadCacheBtn")?.classList.remove("hidden");
+      document.getElementById("contestStartBtn")?.classList.remove("hidden");
+      document.getElementById("contestStartBtn").textContent = "↺ Анализировать заново";
+    } else {
+      _contestCachedRunId = null;
+      const count = data.count || 0;
+      const batches = Math.ceil(count / 5);
+      const mins = Math.max(1, Math.ceil(batches * 6 / 60));
+      document.getElementById("contestCount").textContent = count;
+      document.getElementById("contestEstTime").textContent = `~${mins} мин.`;
+      document.getElementById("contestPrepareNormal")?.classList.remove("hidden");
+      if (count > 0) document.getElementById("contestStartBtn")?.classList.remove("hidden");
+      else document.getElementById("contestPrepareInfo").textContent = "Нет отзывов с оценками 1–3★ и текстом.";
+    }
+  } catch (e) {
+    const errEl = document.getElementById("contestPrepareError");
+    if (errEl) { errEl.textContent = e.message; errEl.classList.remove("hidden"); }
+  }
+}
+window.openContestModal = openContestModal;
+
+function closeContestModal() {
+  document.getElementById("contestPrepareModal")?.classList.add("hidden");
+  _contestCachedRunId = null;
+}
+window.closeContestModal = closeContestModal;
+
+async function startContestAnalysis() {
+  const { source, dateFrom, dateTo } = _anGetFilters();
+  document.getElementById("contestPrepareModal")?.classList.add("hidden");
+
+  // Show progress modal
+  document.getElementById("contestProgressTitle").textContent = "Анализ отзывов…";
+  document.getElementById("contestProgressFill").style.width = "0%";
+  document.getElementById("contestProgressText").textContent = "Запуск…";
+  document.getElementById("contestViolationsText").textContent = "";
+  document.getElementById("contestProgressError")?.classList.add("hidden");
+  document.getElementById("contestProgressCloseBtn")?.classList.add("hidden");
+  document.getElementById("contestProgressDownloadBtn")?.classList.add("hidden");
+  document.getElementById("contestProgressModal")?.classList.remove("hidden");
+
+  try {
+    const q = new URLSearchParams({ source, date_from: dateFrom, date_to: dateTo });
+    const res = await fetch("/api/analytics/contest/start?" + q.toString(), { method: "POST", headers: jsonHeaders() });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Ошибка запуска");
+    _contestActiveRunId = data.run_id;
+    _pollContestStatus();
+  } catch (e) {
+    const errEl = document.getElementById("contestProgressError");
+    if (errEl) { errEl.textContent = e.message; errEl.classList.remove("hidden"); }
+    document.getElementById("contestProgressCloseBtn")?.classList.remove("hidden");
+  }
+}
+window.startContestAnalysis = startContestAnalysis;
+
+function _pollContestStatus() {
+  if (!_contestActiveRunId) return;
+  if (_contestPollTimer) clearTimeout(_contestPollTimer);
+  _contestPollTimer = setTimeout(async () => {
+    try {
+      const res = await fetch(`/api/analytics/contest/status/${_contestActiveRunId}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Ошибка");
+
+      const { status, total, processed, violations_found, error } = data;
+      const pct = total ? Math.round(processed / total * 100) : 0;
+      document.getElementById("contestProgressFill").style.width = pct + "%";
+      document.getElementById("contestProgressText").textContent = `${processed} / ${total} отзывов`;
+      if (violations_found > 0) {
+        document.getElementById("contestViolationsText").textContent = `Найдено нарушений: ${violations_found}`;
+      }
+
+      if (status === "completed") {
+        document.getElementById("contestProgressTitle").textContent = "Анализ завершён";
+        document.getElementById("contestProgressFill").style.width = "100%";
+        document.getElementById("contestProgressText").textContent = `Проверено: ${total}`;
+        document.getElementById("contestViolationsText").textContent =
+          violations_found > 0 ? `Потенциально оспариваемых: ${violations_found}` : "Нарушений не найдено";
+        document.getElementById("contestProgressCloseBtn")?.classList.remove("hidden");
+        if (violations_found > 0)
+          document.getElementById("contestProgressDownloadBtn")?.classList.remove("hidden");
+      } else if (status === "error") {
+        const errEl = document.getElementById("contestProgressError");
+        if (errEl) { errEl.textContent = error || "Ошибка анализа"; errEl.classList.remove("hidden"); }
+        document.getElementById("contestProgressCloseBtn")?.classList.remove("hidden");
+      } else {
+        _pollContestStatus(); // continue polling
+      }
+    } catch (e) {
+      _pollContestStatus(); // retry on network error
+    }
+  }, 2000);
+}
+
+function closeContestProgressModal() {
+  document.getElementById("contestProgressModal")?.classList.add("hidden");
+  if (_contestPollTimer) { clearTimeout(_contestPollTimer); _contestPollTimer = null; }
+}
+window.closeContestProgressModal = closeContestProgressModal;
+
+function downloadContestReport(runId) {
+  if (!runId) return;
+  window.open(`/api/analytics/contest/export/${runId}`, "_blank");
+}
+window.downloadContestReport = downloadContestReport;
 
 // ── Comparison widget ─────────────────────────────────────────────────────────
 

@@ -3269,6 +3269,226 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             date_to=date_to.strip() or None,
         )
 
+    # ── Contest analysis endpoints ────────────────────────────────────────────
+
+    @app.get("/api/analytics/contest/prepare")
+    def contest_prepare(
+        request: Request,
+        source: str = "",
+        date_from: str = "",
+        date_to: str = "",
+    ) -> dict[str, object]:
+        """Return review count + cached run info for the given filters."""
+        user = _require_analytics_access(request)
+        uid = int(user["id"])
+        src = source.strip() or None
+        df = date_from.strip() or None
+        dt = date_to.strip() or None
+
+        # Check Yandex AI config
+        ai_settings = repository.get_ai_settings(include_secrets=True)
+        has_gpt = bool(ai_settings.get("yandex_api_key") and ai_settings.get("yandex_folder_id"))
+
+        reviews = repository.list_reviews_for_contest(user_id=uid, source=src, date_from=df, date_to=dt)
+        count = len(reviews)
+
+        # Check if already analyzed
+        cached = repository.find_cached_contest_run(
+            user_id=uid, source=src or "", date_from=df or "", date_to=dt or ""
+        )
+        return {
+            "count": count,
+            "has_gpt": has_gpt,
+            "cached_run_id": int(cached["id"]) if cached else None,
+            "cached_violations": int(cached["violations_found"]) if cached else 0,
+        }
+
+    @app.post("/api/analytics/contest/start")
+    def contest_start(
+        request: Request,
+        source: str = "",
+        date_from: str = "",
+        date_to: str = "",
+    ) -> dict[str, object]:
+        """Start background contest analysis. Returns run_id immediately."""
+        user = _require_analytics_access(request)
+        uid = int(user["id"])
+        src = source.strip() or None
+        df = date_from.strip() or None
+        dt = date_to.strip() or None
+
+        ai_settings = repository.get_ai_settings(include_secrets=True)
+        api_key = str(ai_settings.get("yandex_api_key") or "").strip()
+        folder_id = str(ai_settings.get("yandex_folder_id") or "").strip()
+        model_uri = str(ai_settings.get("yandex_model_uri") or "").strip()
+        if not api_key or not folder_id:
+            raise HTTPException(status_code=400, detail="Яндекс GPT не настроен: укажите API-ключ и ID каталога в настройках.")
+
+        reviews = repository.list_reviews_for_contest(user_id=uid, source=src, date_from=df, date_to=dt)
+        if not reviews:
+            raise HTTPException(status_code=400, detail="Нет отзывов, подходящих под указанные фильтры.")
+
+        run_id = repository.create_contest_run(
+            user_id=uid, source=src or "", date_from=df or "", date_to=dt or "", total=len(reviews)
+        )
+
+        def _bg():
+            service.analyze_reviews_for_contest(
+                run_id=run_id, user_id=uid, reviews=reviews,
+                api_key=api_key, folder_id=folder_id,
+                model_uri=model_uri if model_uri else None,
+            )
+
+        import threading as _th
+        _th.Thread(target=_bg, daemon=True).start()
+        return {"ok": True, "run_id": run_id, "total": len(reviews)}
+
+    @app.get("/api/analytics/contest/status/{run_id}")
+    def contest_status(request: Request, run_id: int) -> dict[str, object]:
+        user = _require_analytics_access(request)
+        run = repository.get_contest_run(run_id=run_id, user_id=int(user["id"]))
+        if not run:
+            raise HTTPException(status_code=404, detail="Анализ не найден.")
+        return {
+            "run_id": run_id,
+            "status": run.get("status"),
+            "total": int(run.get("total") or 0),
+            "processed": int(run.get("processed") or 0),
+            "violations_found": int(run.get("violations_found") or 0),
+            "error": run.get("error"),
+        }
+
+    @app.get("/api/analytics/contest/export/{run_id}")
+    def contest_export(request: Request, run_id: int):
+        import io as _io, urllib.parse as _uparse
+        from openpyxl import Workbook as _WB
+        from openpyxl.styles import Font as _Font, PatternFill as _Fill, Alignment as _Align, Border as _Border, Side as _Side
+        from openpyxl.utils import get_column_letter as _gcl
+        from starlette.responses import StreamingResponse as _SR
+
+        user = _require_analytics_access(request)
+        uid = int(user["id"])
+        run = repository.get_contest_run(run_id=run_id, user_id=uid)
+        if not run:
+            raise HTTPException(status_code=404, detail="Анализ не найден.")
+        if run.get("status") != "completed":
+            raise HTTPException(status_code=400, detail="Анализ ещё не завершён.")
+
+        results = repository.get_contest_results_with_reviews(run_id=run_id, user_id=uid)
+        src = str(run.get("source") or "")
+        src_label = {"wb": "ВБ (Wildberries)", "yandex": "ЯМ (Яндекс Маркет)", "ozon": "ОЗОН"}.get(src, src.upper())
+        date_from = str(run.get("date_from") or "")
+        date_to = str(run.get("date_to") or "")
+
+        def _ru_date(d: str) -> str:
+            return f"{d[8:10]}.{d[5:7]}.{d[2:4]}" if d and len(d) >= 10 else d
+
+        from review_processor.service import ReviewProcessor as _RP
+        LABELS = _RP._CONTEST_VIOLATION_LABELS if hasattr(_RP, "_CONTEST_VIOLATION_LABELS") else {}
+        APPEALS = _RP._CONTEST_APPEAL_TEXTS if hasattr(_RP, "_CONTEST_APPEAL_TEXTS") else {}
+
+        # ── Helpers ──────────────────────────────────────────────────────────
+        import json as _j
+        wb = _WB()
+        H_FILL  = _Fill(fill_type="solid", fgColor="1E40AF")
+        H2_FILL = _Fill(fill_type="solid", fgColor="DBEAFE")
+        H_FONT  = _Font(bold=True, color="FFFFFF", size=11)
+        H2_FONT = _Font(bold=True, color="1E40AF", size=10)
+        BOLD    = _Font(bold=True, size=10)
+        NORM    = _Font(size=10)
+        thin    = _Side(style="thin", color="E2E8F0")
+        BORDER  = _Border(left=thin, right=thin, top=thin, bottom=thin)
+        CENTER  = _Align(horizontal="center", vertical="center", wrap_text=True)
+        VCENTER = _Align(vertical="center", wrap_text=True)
+
+        def _hrow(ws, row, values, fill=H_FILL, font=H_FONT):
+            for c, v in enumerate(values, 1):
+                cell = ws.cell(row=row, column=c, value=v)
+                cell.fill = fill; cell.font = font; cell.border = BORDER; cell.alignment = CENTER
+
+        def _row(ws, row, values):
+            for c, v in enumerate(values, 1):
+                cell = ws.cell(row=row, column=c, value=v)
+                cell.font = NORM; cell.border = BORDER; cell.alignment = VCENTER
+
+        # ── Sheet 1: Сводка ───────────────────────────────────────────────────
+        ws1 = wb.active; ws1.title = "Сводка"
+        ws1.merge_cells("A1:B1")
+        ws1["A1"] = "Отчёт для оспаривания отзывов"
+        ws1["A1"].font = _Font(bold=True, size=13, color="1E3A8A")
+        ws1["A1"].alignment = CENTER
+        ws1.row_dimensions[1].height = 22
+
+        meta = [
+            ("Источник", src_label),
+            ("Период", f"{_ru_date(date_from)} — {_ru_date(date_to)}"),
+            ("Всего проверено", int(run.get("total") or 0)),
+            ("Потенциально оспариваемых", int(run.get("violations_found") or 0)),
+        ]
+        for i, (k, v) in enumerate(meta, 3):
+            ws1.cell(row=i, column=1, value=k).font = BOLD
+            ws1.cell(row=i, column=1).border = BORDER
+            ws1.cell(row=i, column=2, value=v).font = NORM
+            ws1.cell(row=i, column=2).border = BORDER
+
+        r = len(meta) + 4
+        ws1.cell(row=r, column=1, value="По типам нарушений").font = BOLD
+        r += 1
+        _hrow(ws1, r, ["Тип нарушения", "Кол-во отзывов"], H2_FILL, H2_FONT)
+        violation_counts: dict[str, int] = {}
+        for res in results:
+            for v in (res.get("violations") or []):
+                violation_counts[v] = violation_counts.get(v, 0) + 1
+        for code, cnt in sorted(violation_counts.items(), key=lambda x: -x[1]):
+            r += 1
+            _row(ws1, r, [LABELS.get(code, code), cnt])
+        ws1.column_dimensions["A"].width = 30
+        ws1.column_dimensions["B"].width = 22
+
+        # ── Sheet 2: Отзывы ───────────────────────────────────────────────────
+        ws2 = wb.create_sheet("Отзывы к оспариванию")
+        _hrow(ws2, 1, ["Дата", "Источник", "Артикул", "Рейтинг", "Нарушения", "Текст отзыва", "Текст жалобы для МП"])
+        ws2.row_dimensions[1].height = 18
+        for i, res in enumerate(results, 2):
+            raw_dt = str(res.get("created_at") or "")
+            date_str = _ru_date(raw_dt[:10])
+            violations = res.get("violations") or []
+            violation_labels = "; ".join(LABELS.get(v, v) for v in violations)
+            # Build appeal text from all violation codes
+            appeal_parts = []
+            for v in violations:
+                appeal_text = APPEALS.get(v)
+                if appeal_text and appeal_text not in appeal_parts:
+                    appeal_parts.append(appeal_text)
+            appeal_combined = "\n".join(appeal_parts)
+            _row(ws2, i, [
+                date_str, src_label,
+                res.get("article") or "—",
+                res.get("rating") or "—",
+                violation_labels,
+                res.get("text") or "",
+                appeal_combined,
+            ])
+            ws2.row_dimensions[i].height = 60
+
+        ws2.column_dimensions["A"].width = 12
+        ws2.column_dimensions["B"].width = 14
+        ws2.column_dimensions["C"].width = 16
+        ws2.column_dimensions["D"].width = 9
+        ws2.column_dimensions["E"].width = 28
+        ws2.column_dimensions["F"].width = 50
+        ws2.column_dimensions["G"].width = 55
+        ws2.freeze_panes = "A2"
+
+        buf = _io.BytesIO(); wb.save(buf); buf.seek(0)
+        fname = f"Оспаривание_{src_label.split('(')[0].strip()}_{_ru_date(date_from)}_{_ru_date(date_to)}.xlsx"
+        encoded = _uparse.quote(fname, safe="")
+        return _SR(
+            buf,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded}"},
+        )
+
     @app.get("/api/analytics/trend")
     def analytics_trend(
         request: Request,

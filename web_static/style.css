@@ -3594,6 +3594,19 @@ button.secondary.danger:hover {
 .an-positive { color: #16a34a !important; }
 .an-negative { color: #dc2626 !important; }
 
+/* ── Analytics: contest modal ────────────────────────────────────────────── */
+
+.an-contest-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 14px;
+  color: #475569;
+}
+.an-contest-meta strong { color: #1e293b; font-size: 15px; }
+
 /* ── Analytics: comparison widget ───────────────────────────────────────── */
 
 .an-compare-panel {

@@ -5058,6 +5058,173 @@ class ReviewAutomationService:
             )
         return None
 
+    # ── Contest analysis (оспаривание отзывов) ────────────────────────────────
+
+    _CONTEST_SYSTEM_PROMPT = (
+        "Ты модератор отзывов на российских маркетплейсах (Wildberries, OZON, Яндекс Маркет).\n"
+        "Проверь каждый отзыв из списка на нарушение правил маркетплейсов.\n\n"
+        "Коды нарушений:\n"
+        "profanity     — мат, оскорбления, угрозы, агрессия\n"
+        "offtopic      — жалоба не о товаре: доставка МП, курьер, ПВЗ, сотрудники площадки\n"
+        "personal_data — персональные данные: ФИО, адрес, телефон, email\n"
+        "advertising   — реклама, ссылки на сторонние ресурсы, спам-призывы\n"
+        "spam          — бессмысленный текст, набор символов, явный дубль\n"
+        "false_facts   — явно ложные факты, прямо противоречащие логике покупки\n"
+        "wrong_product — отзыв явно о другом товаре (перепутан SKU)\n"
+        "fake          — явные признаки фейка: шаблонный текст без деталей, неестественный\n"
+        "prohibited    — экстремизм, дискриминация, контент 18+\n\n"
+        "Правила:\n"
+        "- Отвечай ТОЛЬКО JSON-массивом без пояснений и форматирования\n"
+        '- Формат: [{"id":"<id>","violations":["code"],"can_contest":true/false}]\n'
+        "- can_contest=true только если есть хотя бы одно нарушение\n"
+        "- Добавляй нарушение ТОЛЬКО при явных признаках, не догадывайся\n"
+        "- Жалобы на качество, брак, несоответствие товара — НЕ нарушения\n"
+        "- Нарушение offtopic: только если жалоба адресована службе МП, а не продавцу\n"
+        "- Нарушения false_facts, fake, wrong_product: только при очевидных признаках"
+    )
+
+    _CONTEST_VIOLATION_LABELS = {
+        "profanity":     "Мат / оскорбления / угрозы",
+        "offtopic":      "Не по теме товара (доставка МП)",
+        "personal_data": "Персональные данные",
+        "advertising":   "Реклама / ссылки",
+        "spam":          "Спам",
+        "false_facts":   "Ложные факты",
+        "wrong_product": "Перепутан товар / SKU",
+        "fake":          "Признаки фейка",
+        "prohibited":    "Запрещённый контент",
+    }
+
+    _CONTEST_APPEAL_TEXTS = {
+        "profanity":
+            "Отзыв содержит ненормативную лексику, оскорбления или угрозы, что нарушает Правила публикации отзывов площадки. Прошу удалить данный отзыв.",
+        "offtopic":
+            "Отзыв содержит претензии к работе службы доставки / ПВЗ / курьера маркетплейса, а не оценку товара продавца. Согласно правилам площадки, такой контент не должен влиять на рейтинг карточки товара. Прошу удалить отзыв из карточки товара.",
+        "personal_data":
+            "Отзыв содержит персональные данные третьих лиц (ФИО, адрес, телефон), что нарушает ФЗ №152 «О персональных данных» и правила площадки. Прошу удалить отзыв.",
+        "advertising":
+            "Отзыв содержит рекламные материалы и/или ссылки на сторонние ресурсы, что нарушает правила публикации отзывов. Прошу удалить отзыв.",
+        "spam":
+            "Отзыв является спамом и не содержит информации, связанной с товаром. Прошу удалить отзыв.",
+        "false_facts":
+            "Отзыв содержит заведомо ложные сведения, не соответствующие фактическим данным заказа. Прошу проверить корректность отзыва и удалить его при подтверждении нарушения.",
+        "wrong_product":
+            "Отзыв относится к другому товару — покупатель ошибочно привязал его к данной карточке (перепутан SKU). Прошу удалить отзыв из карточки данного товара.",
+        "fake":
+            "Отзыв имеет признаки фейка: содержание не соответствует реальному опыту покупки данного товара. Прошу проверить наличие подтверждённого заказа у автора отзыва.",
+        "prohibited":
+            "Отзыв содержит запрещённый контент (экстремизм, дискриминацию, материалы 18+ и т.д.), что нарушает законодательство РФ и правила площадки. Прошу незамедлительно удалить отзыв.",
+    }
+
+    def analyze_reviews_for_contest(
+        self,
+        *,
+        run_id: int,
+        user_id: int,
+        reviews: list[dict[str, Any]],
+        api_key: str,
+        folder_id: str,
+        model_uri: str | None = None,
+    ) -> None:
+        """Background worker: batch-analyze reviews via Yandex GPT and store results."""
+        import json as _j
+        if not model_uri:
+            model_uri = f"gpt://{folder_id}/yandexgpt-lite/latest"
+
+        batch_size = 5
+        total = len(reviews)
+        processed = 0
+        violations_found = 0
+
+        try:
+            for i in range(0, total, batch_size):
+                batch = reviews[i: i + batch_size]
+                batch_results: list[dict[str, Any]] = []
+
+                # Build user message
+                items_json = _j.dumps(
+                    [{"id": r["review_uid"], "rating": r.get("rating"), "text": (str(r.get("text") or ""))[:500]}
+                     for r in batch],
+                    ensure_ascii=False,
+                )
+                user_text = f"Отзывы:\n{items_json}"
+
+                body = {
+                    "modelUri": model_uri,
+                    "completionOptions": {"stream": False, "temperature": 0.0, "maxTokens": 512},
+                    "messages": [
+                        {"role": "system", "text": self._CONTEST_SYSTEM_PROMPT},
+                        {"role": "user", "text": user_text},
+                    ],
+                }
+                try:
+                    req = Request(
+                        "https://llm.api.cloud.yandex.net/foundationModels/v1/completion",
+                        method="POST",
+                        headers={"Authorization": f"Api-Key {api_key}", "Content-Type": "application/json"},
+                        data=_j.dumps(body).encode("utf-8"),
+                    )
+                    payload = _request_json(request=req, timeout=45, source="yandex", retries=1)
+                    result = payload.get("result") if isinstance(payload, Mapping) else {}
+                    alternatives = result.get("alternatives") if isinstance(result, Mapping) else []
+                    first = alternatives[0] if isinstance(alternatives, list) and alternatives else {}
+                    message = first.get("message") if isinstance(first, Mapping) else {}
+                    raw_text = str(message.get("text") or "").strip() if isinstance(message, Mapping) else ""
+
+                    # Parse JSON array from GPT response
+                    gpt_items: list[dict[str, Any]] = []
+                    try:
+                        # Strip markdown code blocks if present
+                        clean = raw_text.strip()
+                        if clean.startswith("```"):
+                            clean = "\n".join(clean.split("\n")[1:])
+                            clean = clean.rstrip("`").strip()
+                        gpt_items = _j.loads(clean)
+                        if not isinstance(gpt_items, list):
+                            gpt_items = []
+                    except Exception:
+                        gpt_items = []
+
+                    # Map results by id
+                    gpt_map = {str(item.get("id") or ""): item for item in gpt_items if isinstance(item, Mapping)}
+                    for rev in batch:
+                        uid = str(rev["review_uid"])
+                        gpt_item = gpt_map.get(uid, {})
+                        violations = [v for v in (gpt_item.get("violations") or []) if isinstance(v, str)]
+                        can_contest = bool(gpt_item.get("can_contest")) or bool(violations)
+                        batch_results.append({
+                            "review_uid": uid,
+                            "violations": violations,
+                            "can_contest": can_contest,
+                        })
+
+                except Exception as exc:
+                    _log.warning("contest batch %d-%d error: %s", i, i + batch_size, exc)
+                    # Mark batch reviews as not contestable on error
+                    for rev in batch:
+                        batch_results.append({
+                            "review_uid": str(rev["review_uid"]),
+                            "violations": [],
+                            "can_contest": False,
+                        })
+
+                self.repository.save_contest_results(run_id=run_id, results=batch_results)
+                processed += len(batch)
+                violations_found += sum(1 for r in batch_results if r["can_contest"])
+                self.repository.update_contest_run_progress(
+                    run_id=run_id, processed=processed, violations_found=violations_found
+                )
+
+            self.repository.update_contest_run_progress(
+                run_id=run_id, processed=total, violations_found=violations_found, status="completed"
+            )
+        except Exception as exc:
+            _log.error("contest analysis run %d failed: %s", run_id, exc, exc_info=True)
+            self.repository.update_contest_run_progress(
+                run_id=run_id, processed=processed, violations_found=violations_found,
+                status="error", error=str(exc)[:400],
+            )
+
     def check_yandex_connection(
         self,
         *,
