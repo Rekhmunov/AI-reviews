@@ -2802,7 +2802,7 @@
 
         <div class="row" style="justify-content:flex-end;gap:8px;margin-top:4px">
           <button class="secondary" onclick="closeContestModal()">Отмена</button>
-          <button id="contestDetailCacheBtn" class="secondary hidden" onclick="closeContestModal();openContestDetails(_contestCachedRunId)">
+          <button id="contestDetailCacheBtn" class="secondary hidden" onclick="openContestDetails(_contestCachedRunId);closeContestModal()">
             🔍 Детализация
           </button>
           <button id="contestDownloadCacheBtn" class="secondary hidden" onclick="downloadContestReport(_contestCachedRunId)">

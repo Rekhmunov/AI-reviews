@@ -9146,7 +9146,9 @@ let _cdData = [];
 let _cdFilter = "all";
 
 async function openContestDetails(runId) {
-  if (!runId) return;
+  const _runId = runId || _contestCachedRunId || _contestActiveRunId;
+  if (!_runId) return;
+  runId = _runId;
   document.getElementById("contestDetailsModal")?.classList.remove("hidden");
   document.getElementById("contestDetailsLoading").style.display = "";
   document.getElementById("contestDetailsTable")?.classList.add("hidden");
