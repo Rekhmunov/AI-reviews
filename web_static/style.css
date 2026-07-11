@@ -3607,6 +3607,19 @@ button.secondary.danger:hover {
 }
 .an-contest-meta strong { color: #1e293b; font-size: 15px; }
 
+.cd-violation-tag {
+  display: inline-block;
+  background: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 11px;
+  font-weight: 500;
+  margin: 2px 2px 2px 0;
+  white-space: nowrap;
+}
+
 /* ── Analytics: comparison widget ───────────────────────────────────────── */
 
 .an-compare-panel {

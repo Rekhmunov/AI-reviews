@@ -2802,6 +2802,9 @@
 
         <div class="row" style="justify-content:flex-end;gap:8px;margin-top:4px">
           <button class="secondary" onclick="closeContestModal()">Отмена</button>
+          <button id="contestDetailCacheBtn" class="secondary hidden" onclick="closeContestModal();openContestDetails(_contestCachedRunId)">
+            🔍 Детализация
+          </button>
           <button id="contestDownloadCacheBtn" class="secondary hidden" onclick="downloadContestReport(_contestCachedRunId)">
             ⬇ Скачать отчёт
           </button>
@@ -2830,10 +2833,53 @@
         <div id="contestProgressError" class="hidden" style="color:#b91c1c;font-size:13px"></div>
         <div class="row" style="justify-content:flex-end;gap:8px">
           <button id="contestProgressCloseBtn" class="secondary hidden" onclick="closeContestProgressModal()">Закрыть</button>
+          <button id="contestProgressDetailBtn" class="secondary hidden" onclick="openContestDetails(_contestActiveRunId)">
+            🔍 Детализация
+          </button>
           <button id="contestProgressDownloadBtn" class="hidden" onclick="downloadContestReport(_contestActiveRunId)">
             ⬇ Скачать отчёт
           </button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Contest details -->
+  <div id="contestDetailsModal" class="modal-overlay hidden" onclick="if(event.target===this)closeContestDetails()">
+    <div class="modal-card" style="max-width:860px;width:95%;max-height:90vh;display:flex;flex-direction:column">
+      <div class="modal-card-header">
+        <h4 class="no-margin">🔍 Детализация анализа</h4>
+        <button type="button" class="modal-close-btn" onclick="closeContestDetails()" aria-label="Закрыть">✕</button>
+      </div>
+      <div style="padding:16px 20px 0">
+        <!-- Stats row -->
+        <div id="contestDetailsStats" class="row" style="gap:16px;margin-bottom:12px;flex-wrap:wrap;font-size:13px;color:#64748b"></div>
+        <!-- Filter tabs -->
+        <div class="an-compare-tabs" style="margin-bottom:12px">
+          <button class="an-compare-tab active" id="cdTabAll"       onclick="filterContestDetails('all')">Все</button>
+          <button class="an-compare-tab"        id="cdTabViolation" onclick="filterContestDetails('violation')">🔴 С нарушениями</button>
+          <button class="an-compare-tab"        id="cdTabClean"     onclick="filterContestDetails('clean')">✅ Без нарушений</button>
+        </div>
+      </div>
+      <!-- Table -->
+      <div style="flex:1;overflow-y:auto;padding:0 20px 16px">
+        <div id="contestDetailsLoading" style="text-align:center;padding:32px;color:#94a3b8;font-size:14px">Загрузка…</div>
+        <table id="contestDetailsTable" class="hidden" style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead>
+            <tr style="background:#f8fafc;position:sticky;top:0;z-index:1">
+              <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #e2e8f0;width:20px"></th>
+              <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #e2e8f0;white-space:nowrap">Дата</th>
+              <th style="padding:8px 10px;text-align:center;border-bottom:2px solid #e2e8f0;white-space:nowrap">★</th>
+              <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #e2e8f0;white-space:nowrap">Артикул</th>
+              <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #e2e8f0">Текст отзыва</th>
+              <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #e2e8f0">Результат GPT</th>
+            </tr>
+          </thead>
+          <tbody id="contestDetailsTbody"></tbody>
+        </table>
+      </div>
+      <div style="padding:12px 20px;border-top:1px solid #e2e8f0;display:flex;justify-content:flex-end;gap:8px">
+        <button class="secondary" onclick="closeContestDetails()">Закрыть</button>
       </div>
     </div>
   </div>

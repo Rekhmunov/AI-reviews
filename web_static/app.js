@@ -9019,6 +9019,7 @@ async function openContestModal() {
       _contestCachedRunId = data.cached_run_id;
       document.getElementById("contestCachedViolations").textContent = data.cached_violations ?? 0;
       document.getElementById("contestPrepareCache")?.classList.remove("hidden");
+      document.getElementById("contestDetailCacheBtn")?.classList.remove("hidden");
       document.getElementById("contestDownloadCacheBtn")?.classList.remove("hidden");
       document.getElementById("contestStartBtn")?.classList.remove("hidden");
       document.getElementById("contestStartBtn").textContent = "↺ Анализировать заново";
@@ -9099,6 +9100,7 @@ function _pollContestStatus() {
         document.getElementById("contestViolationsText").textContent =
           violations_found > 0 ? `Потенциально оспариваемых: ${violations_found}` : "Нарушений не найдено";
         document.getElementById("contestProgressCloseBtn")?.classList.remove("hidden");
+        document.getElementById("contestProgressDetailBtn")?.classList.remove("hidden");
         if (violations_found > 0)
           document.getElementById("contestProgressDownloadBtn")?.classList.remove("hidden");
       } else if (status === "error") {
@@ -9125,6 +9127,118 @@ function downloadContestReport(runId) {
   window.open(`/api/analytics/contest/export/${runId}`, "_blank");
 }
 window.downloadContestReport = downloadContestReport;
+
+// ── Contest details modal ────────────────────────────────────────────────────
+
+const _CD_LABELS = {
+  profanity:     "Мат / оскорбления / угрозы",
+  offtopic:      "Не по теме товара",
+  personal_data: "Персональные данные",
+  advertising:   "Реклама / ссылки",
+  spam:          "Спам",
+  false_facts:   "Ложные факты",
+  wrong_product: "Перепутан товар / SKU",
+  fake:          "Признаки фейка",
+  prohibited:    "Запрещённый контент",
+};
+
+let _cdData = [];
+let _cdFilter = "all";
+
+async function openContestDetails(runId) {
+  if (!runId) return;
+  document.getElementById("contestDetailsModal")?.classList.remove("hidden");
+  document.getElementById("contestDetailsLoading").style.display = "";
+  document.getElementById("contestDetailsTable")?.classList.add("hidden");
+  document.getElementById("contestDetailsStats").innerHTML = "";
+  _cdData = [];
+  _cdFilter = "all";
+  ["cdTabAll","cdTabViolation","cdTabClean"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle("active", id === "cdTabAll");
+  });
+
+  try {
+    const res = await fetch(`/api/analytics/contest/details/${runId}`);
+    if (!res.ok) throw new Error("Ошибка загрузки");
+    _cdData = await res.json();
+    document.getElementById("contestDetailsLoading").style.display = "none";
+    _renderContestDetails();
+  } catch (e) {
+    document.getElementById("contestDetailsLoading").textContent = "Ошибка загрузки данных";
+  }
+}
+window.openContestDetails = openContestDetails;
+
+function closeContestDetails() {
+  document.getElementById("contestDetailsModal")?.classList.add("hidden");
+  _cdData = [];
+}
+window.closeContestDetails = closeContestDetails;
+
+function filterContestDetails(filter) {
+  _cdFilter = filter;
+  ["cdTabAll","cdTabViolation","cdTabClean"].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.classList.toggle("active",
+      (filter === "all" && id === "cdTabAll") ||
+      (filter === "violation" && id === "cdTabViolation") ||
+      (filter === "clean" && id === "cdTabClean")
+    );
+  });
+  _renderContestDetails();
+}
+window.filterContestDetails = filterContestDetails;
+
+function _renderContestDetails() {
+  const tbody = document.getElementById("contestDetailsTbody");
+  const table = document.getElementById("contestDetailsTable");
+  const stats = document.getElementById("contestDetailsStats");
+  if (!tbody || !table) return;
+
+  const total = _cdData.length;
+  const violations = _cdData.filter(r => r.can_contest).length;
+  const clean = total - violations;
+
+  if (stats) {
+    stats.innerHTML = `
+      <span>Всего проверено: <strong>${total}</strong></span>
+      <span style="color:#dc2626">🔴 С нарушениями: <strong>${violations}</strong></span>
+      <span style="color:#16a34a">✅ Без нарушений: <strong>${clean}</strong></span>
+    `;
+  }
+
+  const rows = _cdFilter === "violation" ? _cdData.filter(r => r.can_contest)
+             : _cdFilter === "clean"     ? _cdData.filter(r => !r.can_contest)
+             : _cdData;
+
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="6" style="padding:24px;text-align:center;color:#94a3b8">Нет данных</td></tr>`;
+    table.classList.remove("hidden");
+    return;
+  }
+
+  const tdStyle = "padding:8px 10px;border-bottom:1px solid #f1f5f9;vertical-align:top";
+  tbody.innerHTML = rows.map(r => {
+    const icon = r.can_contest ? "🔴" : "✅";
+    const dateStr = _anFmtDate(String(r.created_at || ""));
+    const ratingColor = r.rating <= 2 ? "#dc2626" : r.rating === 3 ? "#d97706" : "#16a34a";
+    const textPreview = esc((r.text || "").slice(0, 160) + (r.text?.length > 160 ? "…" : ""));
+    const violationsList = r.violations?.length
+      ? r.violations.map(v => `<span class="cd-violation-tag">${esc(_CD_LABELS[v] || v)}</span>`).join(" ")
+      : `<span style="color:#16a34a;font-size:12px">✓ Нарушений не найдено</span>`;
+    return `<tr>
+      <td style="${tdStyle};font-size:16px;width:24px">${icon}</td>
+      <td style="${tdStyle};white-space:nowrap;color:#64748b">${esc(dateStr)}</td>
+      <td style="${tdStyle};text-align:center;font-weight:700;color:${ratingColor}">${r.rating ?? "—"}</td>
+      <td style="${tdStyle};white-space:nowrap;color:#475569;font-size:12px">${esc(r.article || "—")}</td>
+      <td style="${tdStyle};max-width:320px;color:#1e293b">${textPreview}</td>
+      <td style="${tdStyle};min-width:180px">${violationsList}</td>
+    </tr>`;
+  }).join("");
+  table.classList.remove("hidden");
+}
 
 // ── Comparison widget ─────────────────────────────────────────────────────────
 

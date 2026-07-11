@@ -3517,6 +3517,28 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded}"},
         )
 
+    @app.get("/api/analytics/contest/details/{run_id}")
+    def contest_details(request: Request, run_id: int) -> list[dict[str, object]]:
+        """Return all processed reviews with their GPT results for the detail modal."""
+        user = _require_analytics_access(request)
+        uid = int(user["id"])
+        run = repository.get_contest_run(run_id=run_id, user_id=uid)
+        if not run:
+            raise HTTPException(status_code=404, detail="Анализ не найден.")
+        rows = repository.get_contest_details(run_id=run_id, user_id=uid)
+        return [
+            {
+                "review_uid": r.get("review_uid"),
+                "created_at": str(r.get("created_at") or "")[:10],
+                "rating": r.get("rating"),
+                "article": r.get("article") or "",
+                "text": (str(r.get("text") or ""))[:300],
+                "violations": r.get("violations") or [],
+                "can_contest": bool(r.get("can_contest")),
+            }
+            for r in rows
+        ]
+
     @app.get("/api/analytics/trend")
     def analytics_trend(
         request: Request,

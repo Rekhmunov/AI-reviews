@@ -6531,6 +6531,36 @@ class ReviewRepository:
             result.append(d)
         return result
 
+    def get_contest_details(self, *, run_id: int, user_id: int) -> list[dict[str, Any]]:
+        """Return ALL contest results (with and without violations) joined with review data."""
+        import json as _j
+        with self._connect() as conn:
+            rows = conn.execute(
+                self._sql("""
+                    SELECT ri.created_at, ri.source, ri.rating, ri.text,
+                           COALESCE(
+                               NULLIF(ri.metadata_json->'raw'->'productDetails'->>'vendorCode',''),
+                               NULLIF(ri.metadata_json->'raw'->'productDetails'->>'supplierArticle',''),
+                               ''
+                           ) AS article,
+                           cr.violations, cr.can_contest, cr.review_uid
+                    FROM contest_analysis_results cr
+                    JOIN review_items ri ON ri.review_uid = cr.review_uid
+                    WHERE cr.run_id = ? AND ri.user_id = ?
+                    ORDER BY cr.can_contest DESC, ri.rating ASC, ri.created_at DESC
+                """),
+                (run_id, user_id),
+            ).fetchall()
+        result = []
+        for row in rows:
+            d = self._row_to_dict(row)
+            try:
+                d["violations"] = _j.loads(d.get("violations") or "[]")
+            except Exception:
+                d["violations"] = []
+            result.append(d)
+        return result
+
     def list_reviews_for_contest(
         self, *, user_id: int, source: str | None = None, date_from: str | None = None, date_to: str | None = None
     ) -> list[dict[str, Any]]:
