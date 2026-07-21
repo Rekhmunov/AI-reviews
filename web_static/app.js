@@ -14083,12 +14083,12 @@ function openZayavkaModal() {
   }
   if (legalWarn) legalWarn.classList.toggle("hidden", supplierNames.length <= 1);
 
+  // ── Production detection ───────────────────────────────────────────────
+  const prodNames = [...new Set(_zSupplies.map(x => (x.production||"").trim()).filter(Boolean))];
+
   // ── Production warning ─────────────────────────────────────────────────
   const prodWarn = document.getElementById("zProdWarn");
   if (prodWarn) prodWarn.classList.toggle("hidden", prodNames.length <= 1);
-
-  // ── Production detection ───────────────────────────────────────────────
-  const prodNames = [...new Set(_zSupplies.map(x => (x.production||"").trim()).filter(Boolean))];
   const prodSel = document.getElementById("zProduction");
   if (prodSel) {
     prodSel.innerHTML = '<option value="">— Выберите производство —</option>' +
