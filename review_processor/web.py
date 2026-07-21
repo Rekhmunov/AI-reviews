@@ -11271,7 +11271,7 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
                       if can_supply_planning and can_view_supplies else "")
     _wb_link = ('<a id="nav-supplies-wb" class="nav-item" href="#" onclick="showSection(\'supplies-wb\')"><span class="nav-item-icon">▦</span> ВБ</a>'
                 if can_view_wb_supplies else "")
-    _ozon_link = ('<a id="nav-supplies-ozon" class="nav-item" href="#" onclick="showSection(\'supplies-ozon\')"><span class="nav-item-icon">◉</span> OZON</a>'
+    _ozon_link = ('<a id="nav-supplies-ozon" class="nav-item" href="#" onclick="showSection(\'supplies-ozon\')"><span class="nav-item-icon">◉</span> ОЗОН</a>'
                   if can_view_ozon_supplies else "")
     _poa_link = ('<a id="nav-supplies-poa" class="nav-item" href="#" onclick="showSection(\'supplies-poa\')"><span class="nav-item-icon">☐</span> Доверенности</a>'
                  if can_view_supply_poa else "")
