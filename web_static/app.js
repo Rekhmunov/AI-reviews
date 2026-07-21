@@ -14229,10 +14229,10 @@ function _getWhAddress(whName) {
 function _buildUnloadLines(groupedObj, bold = true) {
   return Object.entries(groupedObj).map(([wh, pal]) => {
     const addr = _getWhAddress(wh);
-    const boldWh = bold ? `<strong>${esc(wh)}</strong>` : esc(wh);
+    const boldWh = bold ? `<strong>${esc(wh)}</strong>` : `<b>${esc(wh)}</b>`;
     return addr
-      ? `${boldWh}, ${esc(addr)} (${pal} паллет)`
-      : `${boldWh} (${pal} паллет)`;
+      ? `склад ${boldWh}, ${esc(addr)} (${pal} паллет)`
+      : `склад ${boldWh} (${pal} паллет)`;
   });
 }
 
