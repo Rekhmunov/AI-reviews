@@ -14349,7 +14349,10 @@ async function generateZayavka() {
       <div class="sign-area">Подпись: _________________</div></td>
     <td><strong>Заказчик:</strong> ${esc(legal.full_name||"")}<br>
       ${esc(legal.requisites||"")}<br>
-      ${sigHtml}</td>
+      <div style="display:flex;align-items:flex-end;gap:12px;margin-top:4px">
+        ${sigHtml}
+        ${legal.signatories ? `<div style="font-size:10px;text-align:center">(${esc(legal.signatories)})</div>` : ""}
+      </div></td>
   </tr>
 </table>
 <script>window.onload=()=>window.print();</script>
@@ -14360,6 +14363,101 @@ async function generateZayavka() {
   closeZayavkaModal();
 }
 window.generateZayavka = generateZayavka;
+
+async function downloadZayavkaDocx() {
+  const legalId = document.getElementById("zLegalEntity")?.value;
+  const legal = (_supplyLegalEntitiesCache||[]).find(le => String(le.id) === legalId);
+  const prodName = document.getElementById("zProduction")?.value || "";
+  const driverName = document.getElementById("zDriver")?.value || "";
+  const driver = (_supplyDriversCache||[]).find(d => d.full_name === driverName);
+  const vehicle = document.getElementById("zVehicle")?.value || "";
+  const cargo = document.getElementById("zCargo")?.value || "";
+  const submitDate = document.getElementById("zSubmitDate")?.value || "";
+  const rate = document.getElementById("zRate")?.value || "";
+  const vat = document.getElementById("zVat")?.value || "Без НДС";
+  const extra = document.getElementById("zExtra")?.value || "";
+
+  const errEl = document.getElementById("zError");
+  if (!legal) { if(errEl) errEl.textContent = "Выберите юридическое лицо"; return; }
+  if (!driverName) { if(errEl) errEl.textContent = "Выберите водителя"; return; }
+  if (errEl) errEl.textContent = "";
+
+  const rateStr = rate ? `${rate} руб. ${vat}` : `(не указана) ${vat}`;
+  const allProdNames = [...new Set(_zSupplies.map(x => (x.production||"").trim()).filter(Boolean))];
+  const allProds = allProdNames.map(n => (_supplyProductionsCache||[]).find(p => p.name === n)).filter(Boolean);
+  const cities = [...new Set(allProds.map(p => _zExtractCity(p.address)).filter(Boolean))];
+  const warehouses = [...new Set(_zSupplies.map(x => (x.warehouse_name||"").trim()).filter(Boolean))];
+  const route = [...cities, ...warehouses].join(" — ");
+  const loadAddresses = [...new Set(allProds.map(p => p.address).filter(Boolean))].join(", ");
+  const loadContact = [...new Set(allProds.map(p => p.load_contact).filter(Boolean))].join(", ");
+  const grouped = {};
+  _zSupplies.forEach(x => { const wh = (x.warehouse_name||"—").trim(); grouped[wh] = (grouped[wh]||0) + (parseInt(x.pallets_count)||0); });
+  const unloadLines = Object.entries(grouped).map(([wh, pal]) => `${wh} (${pal} паллет)`).join(", ");
+  const supplyDates = _zSupplies.map(x => (x.supply_date||"").slice(0,10)).filter(Boolean).sort();
+  const deliveryDate = supplyDates[0] ? _zFmt(supplyDates[0]) : "";
+  const supplyIds = [..._selectedSupplyIds].join(", ");
+
+  const docHtml = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="utf-8">
+<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom></w:WordDocument></xml><![endif]-->
+<style>
+  @page { size: 210mm 297mm; margin: 10mm; }
+  body { font-family: Arial, sans-serif; font-size: 11pt; margin: 0; }
+  h2 { text-align: center; font-size: 13pt; margin: 0 0 2pt; font-weight: bold; }
+  .doc-title { text-align: center; font-size: 12pt; font-weight: bold; margin: 4pt 0 2pt; }
+  .doc-route { text-align: center; font-size: 11pt; margin: 0 0 8pt; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 6pt; }
+  td { border: 1px solid #000; padding: 3pt 5pt; vertical-align: top; line-height: 1.3; font-size: 10pt; }
+  .label { width: 30%; font-weight: bold; background: #f0f0f0; }
+  .footer-table td { border: 1px solid #000; padding: 5pt 6pt; vertical-align: top; width: 50%; }
+  .sign-area { min-height: 40pt; margin-top: 4pt; }
+  .legal-text { font-size: 8pt; margin-bottom: 6pt; line-height: 1.4; }
+  .legal-text p { margin: 2pt 0; }
+</style>
+</head><body>
+<h2>${esc(legal.full_name||legal.short_name||"")}</h2>
+<p class="doc-title">ДОГОВОР-ЗАЯВКА</p>
+<p class="doc-route">Маршрут: ${esc(route)}</p>
+<table>
+  <tr><td class="label">Марка, номер автомобиля</td><td>${esc(vehicle)}</td></tr>
+  <tr><td class="label">Наименование груза, вес и объём</td><td>${esc(cargo)}</td></tr>
+  <tr><td class="label">ФИО водителя, паспорт, телефон</td>
+    <td><b>${esc(driver?.full_name||driverName)}</b><br>${esc(driver?.documents||"")}${driver?.in_person?"<br>"+esc(driver.in_person):""}</td></tr>
+  <tr><td class="label">Адрес загрузки</td><td>${esc(loadAddresses)}</td></tr>
+  <tr><td class="label">Контактное лицо</td><td>${esc(loadContact)}</td></tr>
+  <tr><td class="label">Дата и время подачи а/м</td><td>${esc(submitDate)}</td></tr>
+  <tr><td class="label">Адрес разгрузки</td><td>${esc(unloadLines)}</td></tr>
+  <tr><td class="label">Дата доставки</td><td>${esc(deliveryDate)}</td></tr>
+  <tr><td class="label">Ставка и условия оплаты</td><td>${esc(rateStr)}</td></tr>
+  <tr><td class="label">Дополнительные требования</td><td><b>${esc(extra)}</b></td></tr>
+</table>
+<div class="legal-text">
+  <p>1. За несвоевременную подачу автомобиля на погрузку штраф 1500 руб.</p>
+  <p>2. Загрузка / разгрузка может занимать до 12 часов. Дальше идет простой автомобиля и оплачивается заказчиком в размере 1000 руб в сутки.</p>
+  <p>3. За срыв загрузки после подтверждения заявки, виновная сторона оплачивает потерпевшей стороне штраф в размере 20% стоимости фрахта.</p>
+  <p>4. Исполнитель несет полную материальную ответственность за недостачу, утрату, повреждение груза в процессе транспортировки.</p>
+  <p>5. Подписанная обеими сторонами Договор-Заявка и отправленная факсимильной связью имеет юридическую силу.</p>
+</div>
+<table class="footer-table">
+  <tr>
+    <td><b>Исполнитель:</b> ${esc(driver?.carrier||"")}<br>
+      <div class="sign-area">Подпись: _______________</div></td>
+    <td><b>Заказчик:</b> ${esc(legal.full_name||"")}<br>
+      ${esc(legal.requisites||"")}<br>
+      <div class="sign-area">Подпись: _______________ ${legal.signatories ? "("+esc(legal.signatories)+")" : ""}</div></td>
+  </tr>
+</table>
+</body></html>`;
+
+  const blob = new Blob(["\uFEFF" + docHtml], { type: "application/msword" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `Договор-заявка №${supplyIds}.doc`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+window.downloadZayavkaDocx = downloadZayavkaDocx;
 
 // ── Searchable select (ss) ────────────────────────────────────────────────
 // Usage: ssPopulate(wrapId, [{value, label}], onChangeFn)
