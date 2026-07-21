@@ -2378,12 +2378,15 @@ function _renderSupplyDocButtons(item) {
   const _pRow = `display:flex;flex-wrap:nowrap;align-items:center;gap:2px;width:100%;min-width:0`;
   const _pBtn = `flex:0 0 60px;min-width:60px;width:60px;height:28px;padding:0;font-size:15px;font-family:'Segoe UI Symbol','Arial Unicode MS',sans-serif`;
 
+  // Collect document buttons into a collapsible block
+  let docsHtml = "";
+
   // ШК поставки — per driver
   const _wbPassesUrl = `https://seller.wildberries.ru/supplies-management/all-supplies/supply-detail?preorderId&supplyId=${item.supply_id}&tab=passes`;
   validSlots.forEach((s, i) => {
     const dName = _shortDriverName(_effectiveName(s));
     const label = multi ? `⬇ ШК — ${dName || `Вод. ${i+1}`}` : "⬇ ШК поставки";
-    html += `<div style="${_pRow}">` +
+    docsHtml += `<div style="${_pRow}">` +
       `<button class="supply-detail-link supply-barcode-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none" onclick="downloadSupplyBarcode('${esc(s.pass_number)}',${item.supply_id})">${label}</button>` +
       `<button class="supply-detail-link supply-print-btn" style="${_pBtn}" onclick="window.open('${_wbPassesUrl}','_blank')" title="Проверка пропуска">⎙</button>` +
       `</div>`;
@@ -2394,7 +2397,7 @@ function _renderSupplyDocButtons(item) {
     if (!_isWbGiCode(s.pass_number)) return;
     const dName = _shortDriverName(_effectiveName(s));
     const label = multi ? `⬇ УЛ — ${dName || `Вод. ${i+1}`}` : "⬇ Упаковочный лист";
-    html += `<div style="${_pRow}"><button class="supply-detail-link supply-packing-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="downloadPackingListForSlot(${item.supply_id},${i})">${label}</button><button class="supply-detail-link supply-print-btn" style="${_pBtn}" onclick="printPackingListForSlot(${item.supply_id},${i})" title="Печать">⎙</button></div>`;
+    docsHtml += `<div style="${_pRow}"><button class="supply-detail-link supply-packing-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="downloadPackingListForSlot(${item.supply_id},${i})">${label}</button><button class="supply-detail-link supply-print-btn" style="${_pBtn}" onclick="printPackingListForSlot(${item.supply_id},${i})" title="Печать">⎙</button></div>`;
   });
 
   // Доверенность — per driver
@@ -2402,7 +2405,7 @@ function _renderSupplyDocButtons(item) {
     if (!_effectiveName(s)) return;
     const dName = _shortDriverName(_effectiveName(s));
     const label = multi ? `⬇ Довер. — ${dName}` : "⬇ Доверенность";
-    html += `<div style="${_pRow}"><button class="supply-detail-link supply-poa-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="downloadPoAForSlot(${item.supply_id},${i})">${label}</button><button class="supply-detail-link supply-print-btn" style="${_pBtn}" onclick="printPoAForSlot(${item.supply_id},${i})" title="Печать">⎙</button></div>`;
+    docsHtml += `<div style="${_pRow}"><button class="supply-detail-link supply-poa-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="downloadPoAForSlot(${item.supply_id},${i})">${label}</button><button class="supply-detail-link supply-print-btn" style="${_pBtn}" onclick="printPoAForSlot(${item.supply_id},${i})" title="Печать">⎙</button></div>`;
   });
 
   // ТТН — per driver
@@ -2410,8 +2413,17 @@ function _renderSupplyDocButtons(item) {
     if (!_effectiveName(s)) return;
     const dName = _shortDriverName(_effectiveName(s));
     const label = multi ? `⬇ ТТН — ${dName}` : "⬇ ТТН";
-    html += `<div style="${_pRow}"><button class="supply-detail-link supply-ttn-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="downloadTTNForSlot(${item.supply_id},${i})">${label}</button><button class="supply-detail-link supply-print-btn" style="${_pBtn}" onclick="printTTNForSlot(${item.supply_id},${i})" title="Печать">⎙</button></div>`;
+    docsHtml += `<div style="${_pRow}"><button class="supply-detail-link supply-ttn-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="downloadTTNForSlot(${item.supply_id},${i})">${label}</button><button class="supply-detail-link supply-print-btn" style="${_pBtn}" onclick="printTTNForSlot(${item.supply_id},${i})" title="Печать">⎙</button></div>`;
   });
+
+  // Wrap in collapsible toggle (independent per row, no auto-close on others)
+  if (docsHtml) {
+    const sid = item.supply_id;
+    html += `<button class="supply-docs-toggle" onclick="toggleSupplyDocs(this,'${sid}')">
+      <span class="supply-docs-arrow">▶</span> Скачать документы
+    </button>
+    <div class="supply-docs-collapse hidden" id="supply-docs-${sid}">${docsHtml}</div>`;
+  }
 
   return html;
 }
@@ -12469,6 +12481,16 @@ window.downloadPoA = downloadPoA;
 window.downloadTTN = downloadTTN;
 window.printTTN = printTTN;
 window.downloadSupplyBarcode = downloadSupplyBarcode;
+
+function toggleSupplyDocs(btn, supplyId) {
+  const container = document.getElementById(`supply-docs-${supplyId}`);
+  if (!container) return;
+  const isOpen = !container.classList.contains("hidden");
+  container.classList.toggle("hidden", isOpen);
+  const arrow = btn.querySelector(".supply-docs-arrow");
+  if (arrow) arrow.textContent = isOpen ? "▶" : "▼";
+}
+window.toggleSupplyDocs = toggleSupplyDocs;
 window.initSuppliesColumnResizer = initSuppliesColumnResizer;
 window.initOzonSuppliesColumnResizer = initOzonSuppliesColumnResizer;
 window.toggleSuppliesFilter = toggleSuppliesFilter;

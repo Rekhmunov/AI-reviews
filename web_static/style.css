@@ -6260,6 +6260,41 @@ button.secondary.danger:hover {
   letter-spacing: 0.04em;
 }
 
+/* ── Supply docs collapsible ─────────────────────────────────────────────── */
+
+.supply-docs-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  padding: 5px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #2563eb;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  cursor: pointer;
+  box-shadow: none;
+  margin-bottom: 2px;
+  transition: background 0.15s;
+}
+.supply-docs-toggle:hover { background: #dbeafe; }
+
+.supply-docs-arrow {
+  font-size: 10px;
+  line-height: 1;
+  display: inline-block;
+}
+
+.supply-docs-collapse {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 2px;
+}
+.supply-docs-collapse.hidden { display: none; }
+
 /* ── Searchable select ───────────────────────────────────────────────────── */
 
 .ss-wrap {
