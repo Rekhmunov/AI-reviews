@@ -14042,10 +14042,16 @@ function _zGetDriverName(item) {
 
 function _zExtractCity(address) {
   if (!address) return "";
-  // Try to get first word (city) from address like "г. Иваново, ул. ..."
-  const m = address.match(/г\.?\s*([А-ЯЁа-яё\-]+)/u);
-  if (m) return m[1];
-  return address.split(",")[0].trim().replace(/^г\.?\s*/u, "");
+  // Split by comma and find a segment that starts with city abbreviation
+  // Handle both Cyrillic г and Latin g (look-alike), and "г." or "г "
+  const parts = address.split(",").map(s => s.trim());
+  for (const part of parts) {
+    // Match Cyrillic г or Latin g followed by dot/space and city name
+    const m = part.match(/^[гgГG]\.?\s*([А-ЯЁа-яё][а-яёА-ЯЁ\-]+)/u);
+    if (m) return m[1];
+  }
+  // Fallback: return first part stripped of any г. prefix
+  return parts[0].replace(/^[гgГG]\.?\s*/u, "");
 }
 
 function _zFmt(dateStr) {
