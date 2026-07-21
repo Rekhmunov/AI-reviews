@@ -12489,7 +12489,6 @@ function toggleSupplyDocs(btn, supplyId) {
   container.classList.toggle("hidden", isOpen);
   const arrow = btn.querySelector(".supply-docs-arrow");
   if (arrow) arrow.textContent = isOpen ? "▶" : "▼";
-  btn.dataset.open = isOpen ? "" : "1";
 }
 window.toggleSupplyDocs = toggleSupplyDocs;
 window.initSuppliesColumnResizer = initSuppliesColumnResizer;
