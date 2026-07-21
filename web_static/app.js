@@ -14083,6 +14083,10 @@ function openZayavkaModal() {
   }
   if (legalWarn) legalWarn.classList.toggle("hidden", supplierNames.length <= 1);
 
+  // ── Production warning ─────────────────────────────────────────────────
+  const prodWarn = document.getElementById("zProdWarn");
+  if (prodWarn) prodWarn.classList.toggle("hidden", prodNames.length <= 1);
+
   // ── Production detection ───────────────────────────────────────────────
   const prodNames = [...new Set(_zSupplies.map(x => (x.production||"").trim()).filter(Boolean))];
   const prodSel = document.getElementById("zProduction");
@@ -14276,32 +14280,39 @@ function generateZayavka() {
   const docNum = _getCombinedDocNumber ? _getCombinedDocNumber() : new Date().toLocaleDateString("ru");
   const today = new Date().toLocaleDateString("ru");
 
+  // #4 supply IDs for filename
+  const supplyIds = [..._selectedSupplyIds].join(", ");
+  const docTitle = `Договор-заявка №${supplyIds}`;
+
   const html = `<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8">
-<title>Договор-заявка</title>
+<title>${esc(docTitle)}</title>
+<link rel="icon" href="data:,">
 <style>
-  @page { size: A4 portrait; margin: 10mm; }
+  /* #6: margin:0 removes browser running headers (date/time) in print */
+  @page { size: A4 portrait; margin: 0; }
   * { box-sizing: border-box; }
-  body { font-family: Arial, sans-serif; font-size: 10.5px; margin: 0; color: #000;
-         width: 190mm; }
-  h2 { text-align: center; font-size: 12px; margin: 0 0 2px; }
-  .subtitle { text-align: center; font-size: 10px; margin: 0 0 8px; }
+  body { font-family: Arial, sans-serif; font-size: 12px; margin: 0; color: #000;
+         width: 210mm; padding: 10mm; }
+  h2 { text-align: center; font-size: 13px; margin: 0 0 2px; font-weight: bold; }
+  .doc-title { text-align: center; font-size: 12px; font-weight: bold; margin: 4px 0 2px; letter-spacing: 0.5px; }
+  .doc-route { text-align: center; font-size: 11px; margin: 0 0 8px; }
   table { width: 100%; border-collapse: collapse; margin-bottom: 6px; }
-  td { border: 1px solid #000; padding: 3px 5px; vertical-align: top; line-height: 1.3; }
+  td { border: 1px solid #000; padding: 4px 6px; vertical-align: top; line-height: 1.4; }
   .label { width: 30%; font-weight: bold; background: #f0f0f0; }
   .footer-table td { border: 1px solid #000; padding: 5px 6px; vertical-align: top; width: 50%; }
-  .sign-area { min-height: 36px; margin-top: 4px; }
-  .legal-text { font-size: 9.5px; margin-bottom: 6px; line-height: 1.4; }
+  .sign-area { min-height: 40px; margin-top: 4px; }
+  .legal-text { font-size: 10px; margin-bottom: 6px; line-height: 1.45; }
   .legal-text p { margin: 2px 0; }
-  @media print { body { margin: 0; } }
 </style>
 </head><body>
 <h2>${esc(legal.full_name||legal.short_name||"")}</h2>
-<p class="subtitle">ДОГОВОР-ЗАЯВКА от ${today} &nbsp;&nbsp; Маршрут: ${esc(route)}</p>
+<p class="doc-title">ДОГОВОР-ЗАЯВКА</p>
+<p class="doc-route">Маршрут: ${esc(route)}</p>
 <table>
   <tr><td class="label">Марка, номер автомобиля</td><td>${esc(vehicle)}</td></tr>
   <tr><td class="label">Наименование груза, вес и объём</td><td>${esc(cargo)}</td></tr>
   <tr><td class="label">ФИО водителя, паспорт, телефон</td>
-    <td><strong>Водитель ${esc(driver?.full_name||driverName)}</strong><br>${esc(driver?.documents||"")}${driver?.in_person ? "<br>Тел. "+esc(driver.in_person) : ""}</td></tr>
+    <td><strong>${esc(driver?.full_name||driverName)}</strong><br>${esc(driver?.documents||"")}${driver?.in_person ? "<br>"+esc(driver.in_person) : ""}</td></tr>
   <tr><td class="label">Адрес загрузки</td><td>${esc(loadAddresses)}</td></tr>
   <tr><td class="label">Контактное лицо</td><td>${esc(loadContact)}</td></tr>
   <tr><td class="label">Дата и время подачи а/м</td><td>${esc(submitDate)}</td></tr>

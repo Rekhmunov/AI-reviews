@@ -2856,7 +2856,10 @@
           </div>
           <div class="wfg-field">
             <label class="wfg-label">Производство (Адрес загрузки)</label>
-            <select id="zProduction" onchange="onZProducChange()" style="width:100%"></select>
+            <div style="display:flex;gap:6px;align-items:center">
+              <select id="zProduction" onchange="onZProducChange()" style="flex:1"></select>
+              <span id="zProdWarn" class="hidden" style="color:#d97706;font-size:18px;cursor:help" title="Выбраны поставки с разными производствами">⚠</span>
+            </div>
             <div id="zProdInfo" class="small" style="color:#64748b;margin-top:3px"></div>
           </div>
         </div>
@@ -2901,10 +2904,12 @@
           <div class="wfg-field">
             <label class="wfg-label">НДС</label>
             <select id="zVat" style="width:100%">
-              <option value="Без НДС">Без НДС</option>
-              <option value="НДС 20%">НДС 20%</option>
-              <option value="НДС 10%">НДС 10%</option>
-            </select>
+                <option value="Без НДС">Без НДС</option>
+                <option value="НДС 5%">НДС 5%</option>
+                <option value="НДС 7%">НДС 7%</option>
+                <option value="НДС 10%">НДС 10%</option>
+                <option value="НДС 20%">НДС 20%</option>
+              </select>
           </div>
         </div>
 
