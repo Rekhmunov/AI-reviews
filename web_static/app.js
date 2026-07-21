@@ -14221,20 +14221,32 @@ function _updateZRoute() {
   routeEl.textContent = parts.length ? parts.join(" — ") : "—";
 }
 
+function _getWhAddress(whName) {
+  const wh = (_supplyWarehousesCache||[]).find(w => (w.warehouse_name||w.name||"") === whName);
+  return (wh?.address || "").trim();
+}
+
+function _buildUnloadLines(groupedObj, bold = true) {
+  return Object.entries(groupedObj).map(([wh, pal]) => {
+    const addr = _getWhAddress(wh);
+    const boldWh = bold ? `<strong>${esc(wh)}</strong>` : esc(wh);
+    return addr
+      ? `${boldWh}, ${esc(addr)} (${pal} паллет)`
+      : `${boldWh} (${pal} паллет)`;
+  });
+}
+
 function _updateZUnload() {
   const el = document.getElementById("zUnloadBlock");
   if (!el) return;
-  // Group by warehouse
   const grouped = {};
   _zSupplies.forEach(x => {
     const wh = (x.warehouse_name||"—").trim();
     grouped[wh] = (grouped[wh]||0) + (parseInt(x.pallets_count)||0);
   });
-  const lines = Object.entries(grouped).map(([wh, pal]) =>
-    `<span><strong>${esc(wh)}:</strong> ${pal} паллет</span>`
-  );
+  const lines = _buildUnloadLines(grouped);
   el.innerHTML = lines.length
-    ? `<div class="row" style="gap:16px;flex-wrap:wrap">${lines.join("")}</div>`
+    ? `<div style="display:flex;flex-direction:column;gap:2px">${lines.map(l=>`<span>${l}</span>`).join("")}</div>`
     : "";
 }
 
@@ -14268,13 +14280,13 @@ async function generateZayavka() {
   const loadAddresses = [...new Set(allProds.map(p => p.address).filter(Boolean))].join(", ");
   const loadContact = [...new Set(allProds.map(p => p.load_contact).filter(Boolean))].join(", ");
 
-  // Unload lines
+  // Unload lines (PDF — bold warehouse + address + pallets, newline per warehouse)
   const grouped = {};
   _zSupplies.forEach(x => {
     const wh = (x.warehouse_name||"—").trim();
     grouped[wh] = (grouped[wh]||0) + (parseInt(x.pallets_count)||0);
   });
-  const unloadLines = Object.entries(grouped).map(([wh, pal]) => `${wh} (${pal} паллет)`).join(", ");
+  const unloadLines = _buildUnloadLines(grouped, true).join("<br>");
 
   const supplyDates = _zSupplies.map(x => (x.supply_date||"").slice(0,10)).filter(Boolean).sort();
   const deliveryDate = supplyDates[0] ? _zFmt(supplyDates[0]) : "";
@@ -14337,7 +14349,7 @@ async function generateZayavka() {
   <tr><td class="label">Адрес загрузки</td><td>${esc(loadAddresses)}</td></tr>
   <tr><td class="label">Контактное лицо</td><td>${esc(loadContact)}</td></tr>
   <tr><td class="label">Дата и время подачи а/м</td><td>${esc(submitDate)}</td></tr>
-  <tr><td class="label">Адрес разгрузки</td><td>${esc(unloadLines)}</td></tr>
+  <tr><td class="label">Адрес разгрузки</td><td>${unloadLines}</td></tr>
   <tr><td class="label">Дата доставки</td><td>${esc(deliveryDate)}</td></tr>
   <tr><td class="label">Ставка и условия оплаты</td><td>${esc(rateStr)}</td></tr>
   <tr><td class="label">Дополнительные требования</td><td><strong>${esc(extra)}</strong></td></tr>
@@ -14398,7 +14410,10 @@ async function downloadZayavkaDocx() {
   const loadContact = [...new Set(allProds.map(p => p.load_contact).filter(Boolean))].join(", ");
   const grouped = {};
   _zSupplies.forEach(x => { const wh = (x.warehouse_name||"—").trim(); grouped[wh] = (grouped[wh]||0) + (parseInt(x.pallets_count)||0); });
-  const unloadLines = Object.entries(grouped).map(([wh, pal]) => `${wh} (${pal} паллет)`).join(", ");
+  // DOCX uses <b> instead of <strong>
+  const unloadLines = _buildUnloadLines(grouped, false)
+    .map(l => l.replace(/<strong>/g,"<b>").replace(/<\/strong>/g,"</b>"))
+    .join("<br>");
   const supplyDates = _zSupplies.map(x => (x.supply_date||"").slice(0,10)).filter(Boolean).sort();
   const deliveryDate = supplyDates[0] ? _zFmt(supplyDates[0]) : "";
   const supplyIds = [..._selectedSupplyIds].join(", ");
@@ -14432,7 +14447,7 @@ async function downloadZayavkaDocx() {
   <tr><td class="label">Адрес загрузки</td><td>${esc(loadAddresses)}</td></tr>
   <tr><td class="label">Контактное лицо</td><td>${esc(loadContact)}</td></tr>
   <tr><td class="label">Дата и время подачи а/м</td><td>${esc(submitDate)}</td></tr>
-  <tr><td class="label">Адрес разгрузки</td><td>${esc(unloadLines)}</td></tr>
+  <tr><td class="label">Адрес разгрузки</td><td>${unloadLines}</td></tr>
   <tr><td class="label">Дата доставки</td><td>${esc(deliveryDate)}</td></tr>
   <tr><td class="label">Ставка и условия оплаты</td><td>${esc(rateStr)}</td></tr>
   <tr><td class="label">Дополнительные требования</td><td><b>${esc(extra)}</b></td></tr>
