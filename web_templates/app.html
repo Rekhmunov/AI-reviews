@@ -1751,8 +1751,14 @@
           <div class="panel">
             <div class="table-wrap">
               <table class="supply-sources-table">
-                <colgroup><col style="width:4%"/><col style="width:22%"/><col style="width:18%"/><col style="width:18%"/><col/><col style="width:8%"/></colgroup>
-                <thead><tr><th>№</th><th>ФИО</th><th>В лице</th><th>Документы</th><th>Автомобили</th><th></th></tr></thead>
+                <thead id="supplyDriversThead"><tr>
+                  <th data-col="num" style="width:40px">№</th>
+                  <th data-col="name" style="width:180px">ФИО</th>
+                  <th data-col="inp" style="width:150px">В лице</th>
+                  <th data-col="docs" style="width:150px">Документы</th>
+                  <th data-col="veh">Автомобили</th>
+                  <th style="width:72px"></th>
+                </tr></thead>
                 <tbody id="supplyDriversTbody"></tbody>
               </table>
             </div>
@@ -1782,8 +1788,12 @@
           <div class="panel">
             <div class="table-wrap">
               <table class="supply-sources-table">
-                <colgroup><col style="width:5%"/><col style="width:23%"/><col/><col style="width:9%"/></colgroup>
-                <thead><tr><th>№</th><th>Склад</th><th>Адрес</th><th></th></tr></thead>
+                <thead id="supplyWarehousesThead"><tr>
+                  <th data-col="num" style="width:40px">№</th>
+                  <th data-col="name" style="width:200px">Склад</th>
+                  <th data-col="addr">Адрес</th>
+                  <th style="width:72px"></th>
+                </tr></thead>
                 <tbody id="supplyWarehousesTbody"></tbody>
               </table>
             </div>
@@ -1840,8 +1850,16 @@
           <div class="panel">
             <div class="table-wrap">
               <table class="supply-sources-table">
-                <colgroup><col style="width:3%"/><col style="width:11%"/><col style="width:15%"/><col style="width:15%"/><col style="width:13%"/><col style="width:13%"/><col/><col style="width:8%"/></colgroup>
-                <thead><tr><th>№</th><th>Короткое</th><th>Полное наименование</th><th>Реквизиты</th><th>Подписанты</th><th>В лице</th><th>Основание</th><th></th></tr></thead>
+                <thead id="supplyLegalEntitiesThead"><tr>
+                  <th data-col="num" style="width:36px">№</th>
+                  <th data-col="short" style="width:100px">Короткое</th>
+                  <th data-col="full" style="width:150px">Полное наименование</th>
+                  <th data-col="req" style="width:150px">Реквизиты</th>
+                  <th data-col="sign" style="width:130px">Подписанты</th>
+                  <th data-col="inp" style="width:130px">В лице</th>
+                  <th data-col="basis">Основание</th>
+                  <th style="width:72px"></th>
+                </tr></thead>
                 <tbody id="supplyLegalEntitiesTbody"></tbody>
               </table>
             </div>
@@ -1883,8 +1901,14 @@
           <div class="panel">
             <div class="table-wrap">
               <table class="supply-sources-table">
-                <colgroup><col style="width:4%"/><col style="width:18%"/><col style="width:16%"/><col/><col style="width:18%"/><col style="width:8%"/></colgroup>
-                <thead><tr><th>№</th><th>Наименование</th><th>Начальник</th><th>Адрес производства</th><th>Контактное лицо</th><th></th></tr></thead>
+                <thead id="supplyProductionsThead"><tr>
+                  <th data-col="num" style="width:40px">№</th>
+                  <th data-col="name" style="width:160px">Наименование</th>
+                  <th data-col="head" style="width:150px">Начальник</th>
+                  <th data-col="addr">Адрес производства</th>
+                  <th data-col="lc" style="width:180px">Контактное лицо</th>
+                  <th style="width:72px"></th>
+                </tr></thead>
                 <tbody id="supplyProductionsTbody"></tbody>
               </table>
             </div>
@@ -1914,8 +1938,12 @@
           <div class="panel">
             <div class="table-wrap">
               <table class="supply-sources-table">
-                <colgroup><col style="width:5%"/><col/><col/><col style="width:9%"/></colgroup>
-                <thead><tr><th>№</th><th>Контрагент</th><th>Реквизиты</th><th></th></tr></thead>
+                <thead id="supplyContractorsThead"><tr>
+                  <th data-col="num" style="width:40px">№</th>
+                  <th data-col="name" style="width:220px">Контрагент</th>
+                  <th data-col="req">Реквизиты</th>
+                  <th style="width:72px"></th>
+                </tr></thead>
                 <tbody id="supplyContractorsTbody"></tbody>
               </table>
             </div>

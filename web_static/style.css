@@ -3607,6 +3607,25 @@ button.secondary.danger:hover {
 }
 .an-contest-meta strong { color: #1e293b; font-size: 15px; }
 
+/* ── Supply settings tables: resizable columns ───────────────────────────── */
+
+.sst-resize-handle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 1;
+  background: transparent;
+}
+.sst-resize-handle:hover,
+.sst-resize-handle.sst-dragging {
+  background: rgba(37, 99, 235, 0.35);
+}
+
+/* ── Driver vehicle tag ───────────────────────────────────────────────────── */
+
 .driver-vehicle-tag {
   display: inline-block;
   background: #eff6ff;

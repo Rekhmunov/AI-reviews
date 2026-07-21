@@ -12549,6 +12549,78 @@ window.copySupplyDetails = copySupplyDetails;
 window.openSupplyDetailsModal = openSupplyDetailsModal;
 window.closeSupplyDetailsModal = closeSupplyDetailsModal;
 window.saveSupplyManualFields = saveSupplyManualFields;
+// ── Settings tables: resizable columns ───────────────────────────────────
+
+const _SST_TABLES = [
+  { thead: "supplyDriversThead",         key: "sst_drivers" },
+  { thead: "supplyWarehousesThead",       key: "sst_warehouses" },
+  { thead: "supplyLegalEntitiesThead",    key: "sst_legal" },
+  { thead: "supplyProductionsThead",      key: "sst_productions" },
+  { thead: "supplyContractorsThead",      key: "sst_contractors" },
+];
+const _sstInited = new Set();
+
+function initAllSettingResizers() {
+  _SST_TABLES.forEach(({ thead, key }) => {
+    if (_sstInited.has(thead)) return;
+    const theadEl = document.getElementById(thead);
+    if (!theadEl) return;
+    _sstInited.add(thead);
+
+    // Apply saved widths
+    const saved = _sstLoad(key);
+    const ths = theadEl.querySelectorAll("th[data-col]");
+    ths.forEach(th => {
+      if (saved[th.dataset.col]) th.style.width = saved[th.dataset.col] + "px";
+      // Ensure table can have fixed column layout
+      const table = th.closest("table");
+      if (table) table.style.tableLayout = "fixed";
+    });
+
+    // Add resize handles
+    ths.forEach(th => {
+      const handle = document.createElement("span");
+      handle.className = "sst-resize-handle";
+      th.style.position = "relative";
+      th.appendChild(handle);
+
+      handle.addEventListener("mousedown", e => {
+        e.preventDefault();
+        e.stopPropagation();
+        const startX = e.clientX;
+        const startW = th.offsetWidth;
+        handle.classList.add("sst-dragging");
+
+        const onMove = ev => {
+          const newW = Math.max(40, startW + (ev.clientX - startX));
+          th.style.width = newW + "px";
+        };
+        const onUp = () => {
+          handle.classList.remove("sst-dragging");
+          const widths = _sstLoad(key);
+          widths[th.dataset.col] = th.offsetWidth;
+          _sstSave(key, widths);
+          document.removeEventListener("mousemove", onMove);
+          document.removeEventListener("mouseup", onUp);
+          document.body.style.cursor = "";
+          document.body.style.userSelect = "";
+        };
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+        document.body.style.cursor = "col-resize";
+        document.body.style.userSelect = "none";
+      });
+    });
+  });
+}
+
+function _sstLoad(key) {
+  try { return JSON.parse(localStorage.getItem(key) || "{}"); } catch(_) { return {}; }
+}
+function _sstSave(key, widths) {
+  try { localStorage.setItem(key, JSON.stringify(widths)); } catch(_) {}
+}
+
 window.showSuppliesSettingsTab = function(tab) {
   const permissions = getPermissions();
   // Redirect manager (no settings access) away from sources tab to drivers
@@ -12558,6 +12630,8 @@ window.showSuppliesSettingsTab = function(tab) {
   document.querySelectorAll("[id^='supplies-settings-pane-']").forEach((p) => { p.classList.add("hidden"); p.style.display = "none"; });
   const pane = document.getElementById(`supplies-settings-pane-${tab}`);
   if (pane) { pane.classList.remove("hidden"); pane.style.display = ""; }
+  // Init resizers after pane becomes visible
+  requestAnimationFrame(initAllSettingResizers);
 };
 
 // -----------------------------------------------------------------------
