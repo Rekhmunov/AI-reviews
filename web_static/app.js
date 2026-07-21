@@ -14327,7 +14327,7 @@ async function generateZayavka() {
   <tr><td class="label">Марка, номер автомобиля</td><td>${esc(vehicle)}</td></tr>
   <tr><td class="label">Наименование груза, вес и объём</td><td>${esc(cargo)}</td></tr>
   <tr><td class="label">ФИО водителя, паспорт, телефон</td>
-    <td><strong>${esc(driver?.full_name||driverName)}</strong><br>${esc(driver?.documents||"")}${driver?.in_person ? "<br>"+esc(driver.in_person) : ""}</td></tr>
+    <td><strong>${esc(driver?.full_name||driverName)}</strong><br>${esc(driver?.documents||"")}</td></tr>
   <tr><td class="label">Адрес загрузки</td><td>${esc(loadAddresses)}</td></tr>
   <tr><td class="label">Контактное лицо</td><td>${esc(loadContact)}</td></tr>
   <tr><td class="label">Дата и время подачи а/м</td><td>${esc(submitDate)}</td></tr>
@@ -14422,7 +14422,7 @@ async function downloadZayavkaDocx() {
   <tr><td class="label">Марка, номер автомобиля</td><td>${esc(vehicle)}</td></tr>
   <tr><td class="label">Наименование груза, вес и объём</td><td>${esc(cargo)}</td></tr>
   <tr><td class="label">ФИО водителя, паспорт, телефон</td>
-    <td><b>${esc(driver?.full_name||driverName)}</b><br>${esc(driver?.documents||"")}${driver?.in_person?"<br>"+esc(driver.in_person):""}</td></tr>
+    <td><b>${esc(driver?.full_name||driverName)}</b><br>${esc(driver?.documents||"")}</td></tr>
   <tr><td class="label">Адрес загрузки</td><td>${esc(loadAddresses)}</td></tr>
   <tr><td class="label">Контактное лицо</td><td>${esc(loadContact)}</td></tr>
   <tr><td class="label">Дата и время подачи а/м</td><td>${esc(submitDate)}</td></tr>
