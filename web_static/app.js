@@ -791,7 +791,7 @@ function sectionLabel(section) {
     salary: "Моя зарплата",
     "salary-settings": "Зарплата — Настройки",
     team: "Команда",
-    "supplies-wb": "Поставки — WB",
+    "supplies-wb": "Поставки — ВБ",
     "supplies-settings": "Поставки — Настройки",
     profile: "Мой профиль",
   };
