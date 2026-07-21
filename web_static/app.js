@@ -14124,7 +14124,7 @@ function openZayavkaModal() {
   const earliestDate = supplyDates[0] || "";
   const submitDate = _zAddDays(earliestDate, -1);
   const submitInp = document.getElementById("zSubmitDate");
-  if (submitInp) submitInp.value = submitDate ? `${_zFmt(submitDate)}, с 08:00 до 19:00` : "";
+  if (submitInp) submitInp.value = submitDate ? _zFmt(submitDate) : "";
 
   const deliveryEl = document.getElementById("zDelivery");
   if (deliveryEl) deliveryEl.textContent = earliestDate ? _zFmt(earliestDate) : "—";
@@ -14232,7 +14232,7 @@ function _updateZUnload() {
     : "";
 }
 
-function generateZayavka() {
+async function generateZayavka() {
   const legalId = document.getElementById("zLegalEntity")?.value;
   const legal = (_supplyLegalEntitiesCache||[]).find(le => String(le.id) === legalId);
   const prodName = document.getElementById("zProduction")?.value || "";
@@ -14284,6 +14284,21 @@ function generateZayavka() {
   const supplyIds = [..._selectedSupplyIds].join(", ");
   const docTitle = `Договор-заявка №${supplyIds}`;
 
+  // Fetch signature image for legal entity
+  let sigImg = "";
+  if (legalId) {
+    try {
+      const sigRes = await fetch(`/api/supply-legal-entities/${legalId}/signature`);
+      if (sigRes.ok) {
+        const sigData = await sigRes.json();
+        sigImg = sigData.signature_image || "";
+      }
+    } catch(_) {}
+  }
+  const sigHtml = sigImg
+    ? `<img src="${sigImg}" style="max-height:25mm;max-width:60mm;object-fit:contain;vertical-align:middle;display:block;margin-top:4px" />`
+    : `<div style="min-height:28px;border-bottom:1px solid #000;margin-top:4px;width:140px"></div>`;
+
   const html = `<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8">
 <title>${esc(docTitle)}</title>
 <link rel="icon" href="data:,">
@@ -14317,7 +14332,7 @@ function generateZayavka() {
   <tr><td class="label">Контактное лицо</td><td>${esc(loadContact)}</td></tr>
   <tr><td class="label">Дата и время подачи а/м</td><td>${esc(submitDate)}</td></tr>
   <tr><td class="label">Адрес разгрузки</td><td>${esc(unloadLines)}</td></tr>
-  <tr><td class="label">Срок доставки</td><td>${esc(deliveryDate)}</td></tr>
+  <tr><td class="label">Дата доставки</td><td>${esc(deliveryDate)}</td></tr>
   <tr><td class="label">Ставка и условия оплаты</td><td>${esc(rateStr)}</td></tr>
   <tr><td class="label">Дополнительные требования</td><td><strong>${esc(extra)}</strong></td></tr>
 </table>
@@ -14334,7 +14349,7 @@ function generateZayavka() {
       <div class="sign-area">Подпись: _________________</div></td>
     <td><strong>Заказчик:</strong> ${esc(legal.full_name||"")}<br>
       ${esc(legal.requisites||"")}<br>
-      <div class="sign-area">Подпись: _________________</div></td>
+      ${sigHtml}</td>
   </tr>
 </table>
 <script>window.onload=()=>window.print();</script>
