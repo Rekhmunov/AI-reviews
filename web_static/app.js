@@ -11653,42 +11653,46 @@ async function loadPoARecords() {
 }
 
 function _populatePoAFilters() {
-  const cf = document.getElementById("poaContractorFilter");
-  const df = document.getElementById("poaDriverFilter");
-  if (cf) {
-    const contractors = [...new Map(_poaRecords.map(r => [r.contractor_id, r.c_name])).entries()];
-    cf.innerHTML = '<option value="">Все контрагенты</option>' +
-      contractors.map(([id, name]) => `<option value="${id}">${esc(name||"")}</option>`).join("");
-  }
-  if (df) {
-    // Catalog drivers: driver_id > 0, name from d_full
-    const catalogMap = new Map();
-    // Manual drivers: driver_id = 0, name from driver_manual_name
-    const manualNames = new Set();
-    for (const r of _poaRecords) {
-      if (r.driver_id && r.driver_id > 0 && r.d_full) {
-        catalogMap.set(r.driver_id, r.d_full);
-      } else if (r.driver_manual_name && r.driver_manual_name.trim()) {
-        manualNames.add(r.driver_manual_name.trim());
-      }
+  // Contractors
+  const contractorOpts = [{ value: "", label: "Все контрагенты" }];
+  const contractorMap = new Map();
+  for (const r of _poaRecords) {
+    if (r.contractor_id && r.c_name && !contractorMap.has(r.contractor_id)) {
+      contractorMap.set(r.contractor_id, r.c_name);
     }
-    const catalogOpts = [...catalogMap.entries()]
-      .sort((a, b) => (a[1] || "").localeCompare(b[1] || "", "ru"))
-      .map(([id, name]) => `<option value="d:${id}">${esc(name)}</option>`)
-      .join("");
-    const manualOpts = [...manualNames]
-      .sort((a, b) => a.localeCompare(b, "ru"))
-      .map(name => `<option value="m:${esc(name)}">${esc(name)}</option>`)
-      .join("");
-    df.innerHTML = '<option value="">Все водители</option>' + catalogOpts + manualOpts;
   }
+  [...contractorMap.entries()]
+    .sort((a, b) => (a[1]||"").localeCompare(b[1]||"", "ru"))
+    .forEach(([id, name]) => contractorOpts.push({ value: String(id), label: name }));
+
+  ssPopulate("poaContractorFilterWrap", contractorOpts, () => renderPoATable());
+
+  // Drivers: catalog (d:id) + manual (m:name)
+  const driverOpts = [{ value: "", label: "Все водители" }];
+  const catalogMap = new Map();
+  const manualNames = new Set();
+  for (const r of _poaRecords) {
+    if (r.driver_id && r.driver_id > 0 && r.d_full) {
+      catalogMap.set(r.driver_id, r.d_full);
+    } else if (r.driver_manual_name && r.driver_manual_name.trim()) {
+      manualNames.add(r.driver_manual_name.trim());
+    }
+  }
+  [...catalogMap.entries()]
+    .sort((a, b) => (a[1]||"").localeCompare(b[1]||"", "ru"))
+    .forEach(([id, name]) => driverOpts.push({ value: `d:${id}`, label: name }));
+  [...manualNames]
+    .sort((a, b) => a.localeCompare(b, "ru"))
+    .forEach(name => driverOpts.push({ value: `m:${name}`, label: name }));
+
+  ssPopulate("poaDriverFilterWrap", driverOpts, () => renderPoATable());
 }
 
 function renderPoATable() {
   const tbody = document.getElementById("poaTbody");
   if (!tbody) return;
-  const cf = document.getElementById("poaContractorFilter")?.value || "";
-  const df = document.getElementById("poaDriverFilter")?.value || "";
+  const cf = (document.getElementById("poaContractorFilter")?.value || "").trim();
+  const df = (document.getElementById("poaDriverFilter")?.value || "").trim();
   const sq = (document.getElementById("poaSearch")?.value || "").toLowerCase();
 
   let rows = _poaRecords;
@@ -13874,6 +13878,119 @@ window.pdimConfirmImport = async function() {
     if (btn) { btn.disabled = false; btn.textContent = "Загрузить данные"; }
   }
 };
+
+// ── Searchable select (ss) ────────────────────────────────────────────────
+// Usage: ssPopulate(wrapId, [{value, label}], onChangeFn)
+// HTML pattern: .ss-wrap > .ss-input + .ss-dropdown + input[type=hidden]
+
+const _ssState = {}; // wrapId → {options, onChange}
+
+function ssPopulate(wrapId, options, onChange) {
+  _ssState[wrapId] = { options: options || [], onChange: onChange || null };
+  // Rebuild dropdown items (keep current selection if still valid)
+  const hidden = document.getElementById(wrapId.replace("Wrap", ""));
+  const curVal = hidden ? hidden.value : "";
+  _ssRebuildDropdown(wrapId, options);
+  // Restore displayed text if selected value still exists
+  const match = options.find(o => String(o.value) === String(curVal));
+  const input = document.querySelector(`#${wrapId} .ss-input`);
+  if (input) input.value = match ? match.label : "";
+}
+
+function _ssRebuildDropdown(wrapId, items) {
+  const dd = document.getElementById(wrapId.replace("Wrap", "Dropdown") || `${wrapId}Dropdown`);
+  // Try the explicit id pattern first
+  const dropdownId = wrapId.replace("Wrap", "FilterDropdown")
+                    || wrapId.replace("Wrap", "Dropdown");
+  const dropdown = document.getElementById(
+    wrapId.includes("FilterWrap")
+      ? wrapId.replace("FilterWrap", "FilterDropdown")
+      : wrapId.replace("Wrap", "Dropdown")
+  );
+  if (!dropdown) return;
+  dropdown.innerHTML = items.map(o =>
+    `<div class="ss-option" data-value="${esc(String(o.value))}" onclick="ssPick('${wrapId}','${esc(String(o.value))}','${esc(o.label)}')">${esc(o.label)}</div>`
+  ).join("") || `<div class="ss-option ss-option-empty">Нет вариантов</div>`;
+}
+
+function ssOpen(wrapId) {
+  const input = document.querySelector(`#${wrapId} .ss-input`);
+  if (input) {
+    input.removeAttribute("readonly");
+    input.select();
+  }
+  // Show all options on open
+  ssFilter(wrapId, true);
+  const dropdown = _ssDd(wrapId);
+  if (dropdown) dropdown.classList.remove("hidden");
+  // Close other open dropdowns
+  document.querySelectorAll(".ss-dropdown:not(.hidden)").forEach(el => {
+    if (el.id !== _ssDdId(wrapId)) el.classList.add("hidden");
+  });
+}
+
+function ssFilter(wrapId, showAll) {
+  const input = document.querySelector(`#${wrapId} .ss-input`);
+  const q = showAll ? "" : (input?.value || "").toLowerCase().trim();
+  const state = _ssState[wrapId];
+  if (!state) return;
+  const filtered = q
+    ? state.options.filter(o => o.label.toLowerCase().includes(q))
+    : state.options;
+  const dropdown = _ssDd(wrapId);
+  if (!dropdown) return;
+  dropdown.innerHTML = filtered.map(o =>
+    `<div class="ss-option" data-value="${esc(String(o.value))}"
+      onclick="ssPick('${wrapId}','${esc(String(o.value))}','${esc(o.label)}')">${esc(o.label)}</div>`
+  ).join("") || `<div class="ss-option ss-option-empty">Нет совпадений</div>`;
+  dropdown.classList.remove("hidden");
+}
+
+function ssPick(wrapId, value, label) {
+  const input = document.querySelector(`#${wrapId} .ss-input`);
+  const hidden = _ssHidden(wrapId);
+  if (input) { input.value = label === (input.placeholder || "") ? "" : label; input.setAttribute("readonly", ""); }
+  if (hidden) hidden.value = value;
+  _ssDd(wrapId)?.classList.add("hidden");
+  const state = _ssState[wrapId];
+  if (state?.onChange) state.onChange(value, label);
+}
+
+function _ssDdId(wrapId) {
+  return wrapId.replace("FilterWrap", "FilterDropdown").replace("Wrap", "Dropdown");
+}
+function _ssDd(wrapId) { return document.getElementById(_ssDdId(wrapId)); }
+function _ssHidden(wrapId) {
+  return document.getElementById(wrapId.replace("FilterWrap", "Filter").replace("Wrap", ""));
+}
+
+// Close ss dropdowns when clicking outside
+document.addEventListener("click", e => {
+  if (!e.target.closest(".ss-wrap")) {
+    document.querySelectorAll(".ss-dropdown:not(.hidden)").forEach(dd => {
+      dd.classList.add("hidden");
+      const wrap = dd.closest(".ss-wrap");
+      const inp = wrap?.querySelector(".ss-input");
+      if (inp) {
+        inp.setAttribute("readonly", "");
+        // Restore display text from hidden value
+        const wrapId = wrap?.id;
+        if (wrapId) {
+          const hidden = _ssHidden(wrapId);
+          const state = _ssState[wrapId];
+          const curVal = hidden?.value || "";
+          const match = state?.options?.find(o => String(o.value) === curVal);
+          const placeholder = inp.placeholder || "";
+          inp.value = curVal && match ? match.label : "";
+        }
+      }
+    });
+  }
+});
+
+window.ssOpen = ssOpen;
+window.ssFilter = ssFilter;
+window.ssPick = ssPick;
 
 // ── Supply Planning ───────────────────────────────────────────────────────
 

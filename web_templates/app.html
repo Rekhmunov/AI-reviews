@@ -1555,12 +1555,22 @@
           <div class="supplies-top-controls">
             <div class="supplies-actions">
               <button onclick="openCreatePoAModal()">+ Создать доверенность</button>
-              <select id="poaContractorFilter" onchange="renderPoATable()">
-                <option value="">Все контрагенты</option>
-              </select>
-              <select id="poaDriverFilter" onchange="renderPoATable()">
-                <option value="">Все водители</option>
-              </select>
+              <div class="ss-wrap" id="poaContractorFilterWrap">
+                <input class="ss-input" id="poaContractorFilterInput" type="text"
+                       placeholder="Все контрагенты" autocomplete="off" readonly
+                       onfocus="ssOpen('poaContractorFilterWrap')"
+                       oninput="ssFilter('poaContractorFilterWrap')" />
+                <div class="ss-dropdown hidden" id="poaContractorFilterDropdown"></div>
+                <input type="hidden" id="poaContractorFilter" />
+              </div>
+              <div class="ss-wrap" id="poaDriverFilterWrap">
+                <input class="ss-input" id="poaDriverFilterInput" type="text"
+                       placeholder="Все водители" autocomplete="off" readonly
+                       onfocus="ssOpen('poaDriverFilterWrap')"
+                       oninput="ssFilter('poaDriverFilterWrap')" />
+                <div class="ss-dropdown hidden" id="poaDriverFilterDropdown"></div>
+                <input type="hidden" id="poaDriverFilter" />
+              </div>
               <input id="poaSearch" type="search" placeholder="🔍 Поиск..."
                      autocomplete="off" style="width:160px" oninput="renderPoATable()" />
             </div>

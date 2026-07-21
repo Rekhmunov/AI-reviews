@@ -6260,6 +6260,53 @@ button.secondary.danger:hover {
   letter-spacing: 0.04em;
 }
 
+/* ── Searchable select ───────────────────────────────────────────────────── */
+
+.ss-wrap {
+  position: relative;
+  display: inline-block;
+  min-width: 180px;
+}
+
+.ss-input {
+  width: 100%;
+  box-sizing: border-box;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2394a3b8' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 28px !important;
+}
+.ss-input:not([readonly]) { cursor: text; }
+
+.ss-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 100%;
+  max-height: 240px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid rgba(148, 182, 238, 0.6);
+  border-radius: var(--radius-sm, 8px);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.10);
+  z-index: 200;
+  padding: 4px 0;
+}
+
+.ss-option {
+  padding: 8px 12px;
+  font-size: 14px;
+  color: #1e293b;
+  cursor: pointer;
+  transition: background 0.1s;
+  white-space: nowrap;
+}
+.ss-option:hover { background: #f1f5f9; }
+.ss-option:first-child { color: #64748b; }
+.ss-option-empty { color: #94a3b8; cursor: default; }
+.ss-option-empty:hover { background: transparent; }
+
 /* ── Supply Planning table ──────────────────────────────────────────────── */
 
 .sp-th {
