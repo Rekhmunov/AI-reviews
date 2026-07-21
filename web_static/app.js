@@ -14231,7 +14231,7 @@ function _buildUnloadLines(groupedObj, bold = true) {
     const addr = _getWhAddress(wh);
     const boldWh = bold ? `<strong>${esc(wh)}</strong>` : `<b>${esc(wh)}</b>`;
     return addr
-      ? `склад ${boldWh}, ${esc(addr)} (${pal} паллет)`
+      ? `склад ${boldWh}, адрес склада: ${esc(addr)} (${pal} паллет)`
       : `склад ${boldWh} (${pal} паллет)`;
   });
 }
