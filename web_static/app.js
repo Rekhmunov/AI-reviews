@@ -11705,7 +11705,8 @@ function renderPoATable() {
   if (sq) rows = rows.filter(r =>
     (r.le_short||"").toLowerCase().includes(sq) ||
     (r.c_name||"").toLowerCase().includes(sq) ||
-    (r.d_full||"").toLowerCase().includes(sq)
+    (r.d_full||"").toLowerCase().includes(sq) ||
+    (r.driver_manual_name||"").toLowerCase().includes(sq)
   );
 
   if (!rows.length) {
