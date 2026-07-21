@@ -11661,9 +11661,26 @@ function _populatePoAFilters() {
       contractors.map(([id, name]) => `<option value="${id}">${esc(name||"")}</option>`).join("");
   }
   if (df) {
-    const drivers = [...new Map(_poaRecords.map(r => [r.driver_id, r.d_full])).entries()];
-    df.innerHTML = '<option value="">Все водители</option>' +
-      drivers.map(([id, name]) => `<option value="${id}">${esc(name||"")}</option>`).join("");
+    // Catalog drivers: driver_id > 0, name from d_full
+    const catalogMap = new Map();
+    // Manual drivers: driver_id = 0, name from driver_manual_name
+    const manualNames = new Set();
+    for (const r of _poaRecords) {
+      if (r.driver_id && r.driver_id > 0 && r.d_full) {
+        catalogMap.set(r.driver_id, r.d_full);
+      } else if (r.driver_manual_name && r.driver_manual_name.trim()) {
+        manualNames.add(r.driver_manual_name.trim());
+      }
+    }
+    const catalogOpts = [...catalogMap.entries()]
+      .sort((a, b) => (a[1] || "").localeCompare(b[1] || "", "ru"))
+      .map(([id, name]) => `<option value="d:${id}">${esc(name)}</option>`)
+      .join("");
+    const manualOpts = [...manualNames]
+      .sort((a, b) => a.localeCompare(b, "ru"))
+      .map(name => `<option value="m:${esc(name)}">${esc(name)}</option>`)
+      .join("");
+    df.innerHTML = '<option value="">Все водители</option>' + catalogOpts + manualOpts;
   }
 }
 
@@ -11676,7 +11693,15 @@ function renderPoATable() {
 
   let rows = _poaRecords;
   if (cf) rows = rows.filter(r => String(r.contractor_id) === cf);
-  if (df) rows = rows.filter(r => String(r.driver_id) === df);
+  if (df) {
+    if (df.startsWith("d:")) {
+      const driverId = df.slice(2);
+      rows = rows.filter(r => String(r.driver_id) === driverId);
+    } else if (df.startsWith("m:")) {
+      const manualName = df.slice(2);
+      rows = rows.filter(r => (r.driver_manual_name || "").trim() === manualName);
+    }
+  }
   if (sq) rows = rows.filter(r =>
     (r.le_short||"").toLowerCase().includes(sq) ||
     (r.c_name||"").toLowerCase().includes(sq) ||
