@@ -14206,12 +14206,12 @@ function _updateZRoute() {
 
   // All unique production names from supplies
   const allProdNames = [...new Set(_zSupplies.map(x => (x.production||"").trim()).filter(Boolean))];
-  // Get cities from production addresses
+  // Use full address in route (not just extracted city)
   const cities = [];
   allProdNames.forEach(pn => {
     const prod = (_supplyProductionsCache||[]).find(p => p.name === pn);
-    const city = prod ? _zExtractCity(prod.address) : pn;
-    if (city && !cities.includes(city)) cities.push(city);
+    const addr = (prod?.address || pn).trim();
+    if (addr && !cities.includes(addr)) cities.push(addr);
   });
 
   // Warehouses in order
