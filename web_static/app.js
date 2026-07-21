@@ -2534,15 +2534,38 @@ async function loadSupplyDrivers() {
   _populateDriverSelect();
 }
 
+function _driverVehiclesHtml(vehicles) {
+  if (!vehicles || !vehicles.length) return '<span style="color:#94a3b8;font-size:12px">—</span>';
+  return vehicles.map(v => `<span class="driver-vehicle-tag">${esc(v)}</span>`).join(" ");
+}
+
+function addDriverVehicleRow(listId, value = "") {
+  const list = document.getElementById(listId);
+  if (!list) return;
+  const row = document.createElement("div");
+  row.style.cssText = "display:flex;gap:4px;align-items:center";
+  row.innerHTML = `<input class="driver-vehicle-input" type="text" value="${esc(value)}" placeholder="Марка и номер, напр. MAN В849ВО37" autocomplete="off" style="flex:1" />
+    <button type="button" class="secondary icon-btn" style="min-width:28px;height:28px;padding:0;color:#b91c1c;border-color:#fca5a5;font-size:16px" onclick="this.closest('div').remove()">✕</button>`;
+  list.appendChild(row);
+}
+window.addDriverVehicleRow = addDriverVehicleRow;
+
+function _collectVehicles(listId) {
+  return Array.from(document.querySelectorAll(`#${listId} .driver-vehicle-input`))
+    .map(inp => inp.value.trim()).filter(Boolean);
+}
+
 function renderSupplyDriversTable() {
   const tbody = document.getElementById("supplyDriversTbody");
   if (!tbody) return;
   tbody.innerHTML = "";
   if (!_supplyDriversCache.length) {
-    tbody.innerHTML = '<tr><td colspan="5" class="empty-cell">Водители не добавлены</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-cell">Водители не добавлены</td></tr>';
     return;
   }
   _supplyDriversCache.forEach((d, idx) => {
+    let vehicles = [];
+    try { vehicles = JSON.parse(d.vehicles_json || "[]"); } catch(_) {}
     const tr = document.createElement("tr");
     tr.dataset.id = d.id;
     tr.innerHTML = `
@@ -2550,6 +2573,7 @@ function renderSupplyDriversTable() {
       <td class="editable-cell">${esc(d.full_name || "")}</td>
       <td class="editable-cell">${esc(d.in_person || "")}</td>
       <td class="editable-cell">${esc(d.documents || "")}</td>
+      <td class="editable-cell-vehicles">${_driverVehiclesHtml(vehicles)}</td>
       <td>
         <div class="row" style="gap:4px;flex-wrap:nowrap">
           <button class="secondary small-btn" onclick="startEditDriver(${d.id})">✏</button>
@@ -2591,22 +2615,21 @@ function toggleAddDriverForm(show) {
   form.classList.toggle("hidden", !show);
   form.style.display = show ? "" : "none";
   if (!show) {
-    const inp = document.getElementById("newDriverName");
-    if (inp) inp.value = "";
-    const ipEl = document.getElementById("newDriverInPerson");
-    if (ipEl) ipEl.value = "";
-    const docs = document.getElementById("newDriverDocuments");
-    if (docs) docs.value = "";
+    ["newDriverName","newDriverInPerson","newDriverDocuments"].forEach(id => {
+      const el = document.getElementById(id); if (el) el.value = "";
+    });
+    const vList = document.getElementById("newDriverVehiclesList");
+    if (vList) vList.innerHTML = "";
     const info = document.getElementById("addDriverInfo");
     if (info) { info.textContent = ""; info.style.color = ""; }
   }
 }
 
-async function _createDriverRequest(name, infoEl, documents, in_person) {
+async function _createDriverRequest(name, infoEl, documents, in_person, vehicles) {
   if (infoEl) { infoEl.textContent = "Сохранение…"; infoEl.style.color = ""; }
   const res = await fetch("/api/supply-drivers", {
     method: "POST", headers: jsonHeaders(),
-    body: JSON.stringify({ full_name: name, documents: documents || "", in_person: in_person || "" }),
+    body: JSON.stringify({ full_name: name, documents: documents || "", in_person: in_person || "", vehicles: vehicles || [] }),
   }).catch(() => null);
   if (!res || !res.ok) {
     const err = await res?.json().catch(() => ({})) || {};
@@ -2625,8 +2648,9 @@ async function saveSupplyDriver() {
   const name = (inp?.value || "").trim();
   const inpVal = document.getElementById("newDriverInPerson")?.value.trim() || "";
   const docs = document.getElementById("newDriverDocuments")?.value.trim() || "";
+  const vehicles = _collectVehicles("newDriverVehiclesList");
   if (!name) { if (info) { info.textContent = "Введите имя"; info.style.color = "#b91c1c"; } return; }
-  const ok = await _createDriverRequest(name, info, docs, inpVal);
+  const ok = await _createDriverRequest(name, info, docs, inpVal, vehicles);
   if (!ok) return;
   if (info) { info.textContent = "Добавлен"; info.style.color = "#16a34a"; }
   toggleAddDriverForm(false);
@@ -2642,10 +2666,21 @@ async function startEditDriver(id) {
   cells[0].innerHTML = `<input class="edit-inline-input" data-field="name" value="${esc(item.full_name||"")}" />`;
   cells[1].innerHTML = `<input class="edit-inline-input" data-field="inp" value="${esc(item.in_person||"")}" />`;
   cells[2].innerHTML = `<input class="edit-inline-input" data-field="docs" value="${esc(item.documents||"")}" />`;
+  // Vehicles cell
+  let vehicles = [];
+  try { vehicles = JSON.parse(item.vehicles_json || "[]"); } catch(_) {}
+  const vCell = tr.querySelector(".editable-cell-vehicles");
+  if (vCell) {
+    const listId = `editDriverVehicles_${id}`;
+    vCell.innerHTML = `<div id="${listId}" style="display:flex;flex-direction:column;gap:3px;margin-bottom:3px"></div>
+      <button type="button" class="secondary" style="font-size:11px;padding:2px 8px;margin-top:2px" onclick="addDriverVehicleRow('${listId}')">+ Авт.</button>`;
+    vehicles.forEach(v => addDriverVehicleRow(listId, v));
+    if (!vehicles.length) addDriverVehicleRow(listId, "");
+  }
   const actionCell = tr.cells[tr.cells.length - 1];
   actionCell.innerHTML = `<div class="row" style="gap:4px;flex-wrap:nowrap">
-    <button class="secondary small-btn" style="color:#16a34a;border-color:#86efac" onclick="saveEditDriver(${id})">Сохранить</button>
-    <button class="secondary small-btn" onclick="loadSupplyDrivers()">Отмена</button>
+    <button class="secondary small-btn" style="color:#16a34a;border-color:#86efac" onclick="saveEditDriver(${id})">Сохр.</button>
+    <button class="secondary small-btn" onclick="loadSupplyDrivers()">✕</button>
   </div>`;
   cells[0].querySelector("input")?.focus();
 }
@@ -2656,8 +2691,9 @@ async function saveEditDriver(id) {
   const name = tr.querySelector("[data-field='name']")?.value.trim() || "";
   const inp = tr.querySelector("[data-field='inp']")?.value.trim() || "";
   const docs = tr.querySelector("[data-field='docs']")?.value.trim() || "";
+  const vehicles = _collectVehicles(`editDriverVehicles_${id}`);
   if (!name) return;
-  await fetch(`/api/supply-drivers/${id}`, { method: "PATCH", headers: jsonHeaders(), body: JSON.stringify({ full_name: name, in_person: inp, documents: docs }) }).catch(() => null);
+  await fetch(`/api/supply-drivers/${id}`, { method: "PATCH", headers: jsonHeaders(), body: JSON.stringify({ full_name: name, in_person: inp, documents: docs, vehicles }) }).catch(() => null);
   await loadSupplyDrivers();
 }
 
@@ -11480,7 +11516,7 @@ function renderSupplyProductionsTbody() {
   if (!tbody) return;
   tbody.innerHTML = "";
   if (!_supplyProductionsCache.length) {
-    tbody.innerHTML = '<tr><td colspan="4" class="empty-cell">Производства не добавлены</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-cell">Производства не добавлены</td></tr>';
     return;
   }
   _supplyProductionsCache.forEach((p, i) => {
@@ -11489,6 +11525,8 @@ function renderSupplyProductionsTbody() {
     tr.innerHTML = `<td>${i+1}</td>
       <td class="editable-cell">${esc(p.name||"")}</td>
       <td class="editable-cell">${esc(p.head_name||"")}</td>
+      <td class="editable-cell">${esc(p.address||"")}</td>
+      <td class="editable-cell">${esc(p.load_contact||"")}</td>
       <td>
         <div class="row" style="gap:4px;flex-wrap:nowrap">
           <button class="secondary small-btn" onclick="startEditProduction(${p.id})">✏</button>
@@ -11505,22 +11543,25 @@ async function startEditProduction(id) {
   const tr = document.querySelector(`#supplyProductionsTbody tr[data-id="${id}"]`);
   if (!tr) return;
   const cells = tr.querySelectorAll(".editable-cell");
-  cells[0].innerHTML = `<input class="edit-inline-input" value="${esc(item.name||"")}" />`;
-  cells[1].innerHTML = `<input class="edit-inline-input" value="${esc(item.head_name||"")}" />`;
+  cells[0].innerHTML = `<input class="edit-inline-input" data-field="name" value="${esc(item.name||"")}" />`;
+  cells[1].innerHTML = `<input class="edit-inline-input" data-field="head" value="${esc(item.head_name||"")}" />`;
+  cells[2].innerHTML = `<input class="edit-inline-input" data-field="addr" value="${esc(item.address||"")}" />`;
+  cells[3].innerHTML = `<input class="edit-inline-input" data-field="lc" value="${esc(item.load_contact||"")}" />`;
   tr.cells[tr.cells.length-1].innerHTML = `<div class="row" style="gap:4px;flex-wrap:nowrap">
-    <button class="secondary small-btn" style="color:#16a34a;border-color:#86efac" onclick="saveEditProduction(${id})">Сохранить</button>
-    <button class="secondary small-btn" onclick="loadSupplyProductions()">Отмена</button>
+    <button class="secondary small-btn" style="color:#16a34a;border-color:#86efac" onclick="saveEditProduction(${id})">Сохр.</button>
+    <button class="secondary small-btn" onclick="loadSupplyProductions()">✕</button>
   </div>`;
 }
 
 async function saveEditProduction(id) {
   const tr = document.querySelector(`#supplyProductionsTbody tr[data-id="${id}"]`);
   if (!tr) return;
-  const inputs = tr.querySelectorAll(".edit-inline-input");
-  const name = inputs[0]?.value.trim() || "";
-  const head_name = inputs[1]?.value.trim() || "";
+  const name = tr.querySelector("[data-field='name']")?.value.trim() || "";
+  const head_name = tr.querySelector("[data-field='head']")?.value.trim() || "";
+  const address = tr.querySelector("[data-field='addr']")?.value.trim() || "";
+  const load_contact = tr.querySelector("[data-field='lc']")?.value.trim() || "";
   if (!name) return;
-  await fetch(`/api/supply-productions/${id}`, { method: "PATCH", headers: jsonHeaders(), body: JSON.stringify({ name, head_name }) }).catch(() => null);
+  await fetch(`/api/supply-productions/${id}`, { method: "PATCH", headers: jsonHeaders(), body: JSON.stringify({ name, head_name, address, load_contact }) }).catch(() => null);
   await loadSupplyProductions();
 }
 
@@ -11529,17 +11570,19 @@ function toggleAddProductionForm(show) {
   if (!form) return;
   form.classList.toggle("hidden", !show); form.style.display = show ? "" : "none";
   if (!show) {
-    ["newProductionName","newProductionHead"].forEach(id => { const el = document.getElementById(id); if(el) el.value=""; });
+    ["newProductionName","newProductionHead","newProductionAddress","newProductionLoadContact"].forEach(id => { const el = document.getElementById(id); if(el) el.value=""; });
   }
 }
 
 async function saveSupplyProduction() {
   const name = document.getElementById("newProductionName")?.value.trim();
   const head_name = document.getElementById("newProductionHead")?.value.trim() || "";
+  const address = document.getElementById("newProductionAddress")?.value.trim() || "";
+  const load_contact = document.getElementById("newProductionLoadContact")?.value.trim() || "";
   const info = document.getElementById("addProductionInfo");
   if (!name) { if (info) { info.textContent = "Введите название"; info.style.color = "#b91c1c"; } return; }
   if (info) { info.textContent = "Сохранение..."; info.style.color = ""; }
-  const res = await fetch("/api/supply-productions", { method: "POST", headers: jsonHeaders(), body: JSON.stringify({ name, head_name }) }).catch(() => null);
+  const res = await fetch("/api/supply-productions", { method: "POST", headers: jsonHeaders(), body: JSON.stringify({ name, head_name, address, load_contact }) }).catch(() => null);
   if (!res || !res.ok) { const e = await res?.json().catch(()=>({})) || {}; if (info) { info.textContent = e.detail||"Ошибка"; info.style.color = "#b91c1c"; } return; }
   if (info) { info.textContent = "Сохранено"; info.style.color = "#16a34a"; }
   toggleAddProductionForm(false);

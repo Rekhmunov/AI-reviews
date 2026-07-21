@@ -6963,6 +6963,9 @@ class ReviewRepository:
             "ALTER TABLE supply_drivers ADD COLUMN IF NOT EXISTS documents TEXT"
         )
         conn.execute(
+            "ALTER TABLE supply_drivers ADD COLUMN IF NOT EXISTS vehicles_json TEXT NOT NULL DEFAULT '[]'"
+        )
+        conn.execute(
             "ALTER TABLE supply_drivers ADD COLUMN IF NOT EXISTS in_person TEXT"
         )
         # ── OZON Supplies module (fully isolated from WB) ──────────────────────
@@ -7152,6 +7155,8 @@ class ReviewRepository:
             )
             """
         )
+        conn.execute("ALTER TABLE supply_productions ADD COLUMN IF NOT EXISTS address TEXT NOT NULL DEFAULT ''")
+        conn.execute("ALTER TABLE supply_productions ADD COLUMN IF NOT EXISTS load_contact TEXT NOT NULL DEFAULT ''")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS supply_contractors (
@@ -7204,13 +7209,15 @@ class ReviewRepository:
             ).fetchone()
         return row is not None
 
-    def create_supply_driver(self, *, user_id: int, full_name: str, documents: str = "", in_person: str = "") -> dict[str, Any]:
+    def create_supply_driver(self, *, user_id: int, full_name: str, documents: str = "", in_person: str = "", vehicles: list | None = None) -> dict[str, Any]:
+        import json as _j
         now = _utc_now()
+        vj = _j.dumps([v for v in (vehicles or []) if v and str(v).strip()], ensure_ascii=False)
         with self._connect() as conn:
             driver_id = self._insert_and_get_id(
                 conn,
-                "INSERT INTO supply_drivers (user_id, full_name, documents, in_person, created_at) VALUES (?, ?, ?, ?, ?)",
-                (user_id, full_name.strip(), (documents or "").strip() or None, (in_person or "").strip() or None, now),
+                "INSERT INTO supply_drivers (user_id, full_name, documents, in_person, vehicles_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (user_id, full_name.strip(), (documents or "").strip() or None, (in_person or "").strip() or None, vj, now),
             )
             row = conn.execute(
                 self._sql("SELECT * FROM supply_drivers WHERE id = ?"),
@@ -7218,11 +7225,13 @@ class ReviewRepository:
             ).fetchone()
         return self._row_to_dict(row) if row else {"id": driver_id, "full_name": full_name}
 
-    def update_supply_driver(self, *, user_id: int, driver_id: int, full_name: str, documents: str = "", in_person: str = "") -> bool:
+    def update_supply_driver(self, *, user_id: int, driver_id: int, full_name: str, documents: str = "", in_person: str = "", vehicles: list | None = None) -> bool:
+        import json as _j
+        vj = _j.dumps([v for v in (vehicles or []) if v and str(v).strip()], ensure_ascii=False)
         with self._connect() as conn:
             result = conn.execute(
-                self._sql("UPDATE supply_drivers SET full_name = ?, documents = ?, in_person = ? WHERE user_id = ? AND id = ?"),
-                (full_name.strip(), (documents or "").strip() or None, (in_person or "").strip() or None, user_id, driver_id),
+                self._sql("UPDATE supply_drivers SET full_name = ?, documents = ?, in_person = ?, vehicles_json = ? WHERE user_id = ? AND id = ?"),
+                (full_name.strip(), (documents or "").strip() or None, (in_person or "").strip() or None, vj, user_id, driver_id),
             )
         return bool(result.rowcount)
 
@@ -7352,22 +7361,22 @@ class ReviewRepository:
             ).fetchall()
         return [self._row_to_dict(r) for r in rows]
 
-    def create_supply_production(self, *, user_id: int, name: str, head_name: str = "") -> dict[str, Any]:
+    def create_supply_production(self, *, user_id: int, name: str, head_name: str = "", address: str = "", load_contact: str = "") -> dict[str, Any]:
         now = _utc_now()
         with self._connect() as conn:
             pid = self._insert_and_get_id(
                 conn,
-                "INSERT INTO supply_productions (user_id, name, head_name, created_at) VALUES (?, ?, ?, ?)",
-                (user_id, name.strip(), head_name.strip(), now),
+                "INSERT INTO supply_productions (user_id, name, head_name, address, load_contact, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (user_id, name.strip(), head_name.strip(), address.strip(), load_contact.strip(), now),
             )
             row = conn.execute(self._sql("SELECT * FROM supply_productions WHERE id = ?"), (pid,)).fetchone()
         return self._row_to_dict(row) if row else {"id": pid}
 
-    def update_supply_production(self, *, user_id: int, production_id: int, name: str, head_name: str = "") -> bool:
+    def update_supply_production(self, *, user_id: int, production_id: int, name: str, head_name: str = "", address: str = "", load_contact: str = "") -> bool:
         with self._connect() as conn:
             result = conn.execute(
-                self._sql("UPDATE supply_productions SET name = ?, head_name = ? WHERE user_id = ? AND id = ?"),
-                (name.strip(), head_name.strip(), user_id, production_id),
+                self._sql("UPDATE supply_productions SET name = ?, head_name = ?, address = ?, load_contact = ? WHERE user_id = ? AND id = ?"),
+                (name.strip(), head_name.strip(), address.strip(), load_contact.strip(), user_id, production_id),
             )
         return bool(result.rowcount)
 

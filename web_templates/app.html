@@ -1722,12 +1722,26 @@
               <button onclick="toggleAddDriverForm(true)">+ Добавить водителя</button>
             </div>
             <div id="addDriverForm" class="source-form hidden" style="margin-top:12px">
-              <div class="row">
-                <input id="newDriverName" type="text" placeholder="Имя и фамилия водителя" autocomplete="off" />
-                <input id="newDriverInPerson" type="text" placeholder="В лице (напр. Авдееву Анатолию Ивановичу)" autocomplete="off" />
-                <input id="newDriverDocuments" type="text" placeholder="Документы (серия, номер)" autocomplete="off" />
+              <div class="worker-form-grid">
+                <div class="wfg-field">
+                  <label class="wfg-label">ФИО водителя</label>
+                  <input id="newDriverName" type="text" placeholder="Фамилия Имя Отчество" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label">В лице</label>
+                  <input id="newDriverInPerson" type="text" placeholder="Дательный падеж" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label">Документы</label>
+                  <input id="newDriverDocuments" type="text" placeholder="Серия, номер паспорта" autocomplete="off" />
+                </div>
               </div>
-              <div class="row">
+              <div style="margin-top:10px">
+                <label class="wfg-label" style="display:block;margin-bottom:6px">Автомобили</label>
+                <div id="newDriverVehiclesList" style="display:flex;flex-direction:column;gap:4px;margin-bottom:4px"></div>
+                <button type="button" class="secondary" style="font-size:12px;padding:4px 10px" onclick="addDriverVehicleRow('newDriverVehiclesList')">+ Добавить автомобиль</button>
+              </div>
+              <div class="row" style="margin-top:10px;gap:8px">
                 <button onclick="saveSupplyDriver()">Сохранить</button>
                 <button class="secondary" onclick="toggleAddDriverForm(false)">Отмена</button>
                 <span id="addDriverInfo" class="small"></span>
@@ -1737,8 +1751,8 @@
           <div class="panel">
             <div class="table-wrap">
               <table class="supply-sources-table">
-                <colgroup><col style="width:5%"/><col style="width:28%"/><col/><col style="width:9%"/></colgroup>
-                <thead><tr><th>№</th><th>Имя и фамилия</th><th>В лице</th><th>Документы</th><th></th></tr></thead>
+                <colgroup><col style="width:4%"/><col style="width:22%"/><col style="width:18%"/><col style="width:18%"/><col/><col style="width:8%"/></colgroup>
+                <thead><tr><th>№</th><th>ФИО</th><th>В лице</th><th>Документы</th><th>Автомобили</th><th></th></tr></thead>
                 <tbody id="supplyDriversTbody"></tbody>
               </table>
             </div>
@@ -1841,13 +1855,25 @@
               <button onclick="toggleAddProductionForm(true)">+ Добавить</button>
             </div>
             <div id="addProductionForm" class="source-form hidden" style="margin-top:12px">
-              <div class="row">
-                <input id="newProductionName" type="text" placeholder="Наименование производства" autocomplete="off" />
+              <div class="worker-form-grid">
+                <div class="wfg-field">
+                  <label class="wfg-label">Наименование</label>
+                  <input id="newProductionName" type="text" placeholder="Наименование производства" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label">Начальник производства</label>
+                  <input id="newProductionHead" type="text" placeholder="ФИО начальника" autocomplete="off" />
+                </div>
+                <div class="wfg-field" style="grid-column:span 2">
+                  <label class="wfg-label">Адрес производства (загрузки)</label>
+                  <input id="newProductionAddress" type="text" placeholder="Город, улица, дом" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label">Контактное лицо (загрузка)</label>
+                  <input id="newProductionLoadContact" type="text" placeholder="ФИО, телефон" autocomplete="off" />
+                </div>
               </div>
-              <div class="row">
-                <input id="newProductionHead" type="text" placeholder="Начальник производства" autocomplete="off" />
-              </div>
-              <div class="row">
+              <div class="row" style="margin-top:10px;gap:8px">
                 <button onclick="saveSupplyProduction()">Сохранить</button>
                 <button class="secondary" onclick="toggleAddProductionForm(false)">Отмена</button>
                 <span id="addProductionInfo" class="small"></span>
@@ -1857,8 +1883,8 @@
           <div class="panel">
             <div class="table-wrap">
               <table class="supply-sources-table">
-                <colgroup><col style="width:5%"/><col/><col style="width:30%"/><col style="width:9%"/></colgroup>
-                <thead><tr><th>№</th><th>Наименование производства</th><th>Начальник производства</th><th></th></tr></thead>
+                <colgroup><col style="width:4%"/><col style="width:18%"/><col style="width:16%"/><col/><col style="width:18%"/><col style="width:8%"/></colgroup>
+                <thead><tr><th>№</th><th>Наименование</th><th>Начальник</th><th>Адрес производства</th><th>Контактное лицо</th><th></th></tr></thead>
                 <tbody id="supplyProductionsTbody"></tbody>
               </table>
             </div>

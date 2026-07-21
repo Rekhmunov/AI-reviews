@@ -430,11 +430,15 @@ class TemplateVariableDeleteRequest(BaseModel):
 class CreateSupplyProductionRequest(BaseModel):
     name: str
     head_name: str = ""
+    address: str = ""
+    load_contact: str = ""
 
 
 class UpdateSupplyProductionRequest(BaseModel):
     name: str
     head_name: str = ""
+    address: str = ""
+    load_contact: str = ""
 
 
 class CreatePoARecordRequest(BaseModel):
@@ -491,6 +495,7 @@ class CreateSupplyDriverRequest(BaseModel):
     full_name: str
     documents: str = ""
     in_person: str = ""
+    vehicles: list[str] = []
 
 
 class CreateSupplyWarehouseRequest(BaseModel):
@@ -528,6 +533,7 @@ class UpdateSupplyDriverRequest(BaseModel):
     full_name: str
     documents: str = ""
     in_person: str = ""
+    vehicles: list[str] = []
 
 
 class ManagerSuppliesAccessRequest(BaseModel):
@@ -10373,7 +10379,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         repository._ensure_supply_tables()
         if repository.driver_exists(user_id=owner_id, full_name=name):
             raise HTTPException(status_code=409, detail=f"Водитель «{name}» уже существует")
-        return repository.create_supply_driver(user_id=owner_id, full_name=name, documents=payload.documents, in_person=payload.in_person)
+        return repository.create_supply_driver(user_id=owner_id, full_name=name, documents=payload.documents, in_person=payload.in_person, vehicles=payload.vehicles)
 
     @app.patch("/api/supply-drivers/{driver_id}")
     def update_supply_driver_endpoint(request: Request, driver_id: int, payload: UpdateSupplyDriverRequest) -> dict[str, object]:
@@ -10383,7 +10389,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         name = payload.full_name.strip()
         if not name:
             raise HTTPException(status_code=400, detail="Имя не может быть пустым")
-        ok = repository.update_supply_driver(user_id=_supply_owner_id(user), driver_id=driver_id, full_name=name, documents=payload.documents, in_person=payload.in_person)
+        ok = repository.update_supply_driver(user_id=_supply_owner_id(user), driver_id=driver_id, full_name=name, documents=payload.documents, in_person=payload.in_person, vehicles=payload.vehicles)
         if not ok:
             raise HTTPException(status_code=404, detail="Водитель не найден")
         return {"ok": True}
@@ -10511,7 +10517,8 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         if not payload.name.strip():
             raise HTTPException(status_code=400, detail="Название не может быть пустым")
         return repository.create_supply_production(
-            user_id=_supply_owner_id(user), name=payload.name, head_name=payload.head_name
+            user_id=_supply_owner_id(user), name=payload.name, head_name=payload.head_name,
+            address=payload.address, load_contact=payload.load_contact
         )
 
     @app.patch("/api/supply-productions/{production_id}")
@@ -10523,7 +10530,8 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             raise HTTPException(status_code=400, detail="Название не может быть пустым")
         ok = repository.update_supply_production(
             user_id=_supply_owner_id(user), production_id=production_id,
-            name=payload.name, head_name=payload.head_name
+            name=payload.name, head_name=payload.head_name,
+            address=payload.address, load_contact=payload.load_contact
         )
         if not ok:
             raise HTTPException(status_code=404, detail="Производство не найдено")
