@@ -2573,6 +2573,7 @@ function renderSupplyDriversTable() {
       <td class="editable-cell">${esc(d.full_name || "")}</td>
       <td class="editable-cell">${esc(d.in_person || "")}</td>
       <td class="editable-cell">${esc(d.documents || "")}</td>
+      <td class="editable-cell">${esc(d.carrier || "")}</td>
       <td class="editable-cell-vehicles">${_driverVehiclesHtml(vehicles)}</td>
       <td>
         <div class="row" style="gap:4px;flex-wrap:nowrap">
@@ -2615,7 +2616,7 @@ function toggleAddDriverForm(show) {
   form.classList.toggle("hidden", !show);
   form.style.display = show ? "" : "none";
   if (!show) {
-    ["newDriverName","newDriverInPerson","newDriverDocuments"].forEach(id => {
+    ["newDriverName","newDriverInPerson","newDriverDocuments","newDriverCarrier"].forEach(id => {
       const el = document.getElementById(id); if (el) el.value = "";
     });
     const vList = document.getElementById("newDriverVehiclesList");
@@ -2625,11 +2626,11 @@ function toggleAddDriverForm(show) {
   }
 }
 
-async function _createDriverRequest(name, infoEl, documents, in_person, vehicles) {
+async function _createDriverRequest(name, infoEl, documents, in_person, vehicles, carrier) {
   if (infoEl) { infoEl.textContent = "Сохранение…"; infoEl.style.color = ""; }
   const res = await fetch("/api/supply-drivers", {
     method: "POST", headers: jsonHeaders(),
-    body: JSON.stringify({ full_name: name, documents: documents || "", in_person: in_person || "", vehicles: vehicles || [] }),
+    body: JSON.stringify({ full_name: name, documents: documents || "", in_person: in_person || "", vehicles: vehicles || [], carrier: carrier || "" }),
   }).catch(() => null);
   if (!res || !res.ok) {
     const err = await res?.json().catch(() => ({})) || {};
@@ -2648,9 +2649,10 @@ async function saveSupplyDriver() {
   const name = (inp?.value || "").trim();
   const inpVal = document.getElementById("newDriverInPerson")?.value.trim() || "";
   const docs = document.getElementById("newDriverDocuments")?.value.trim() || "";
+  const carrier = document.getElementById("newDriverCarrier")?.value.trim() || "";
   const vehicles = _collectVehicles("newDriverVehiclesList");
   if (!name) { if (info) { info.textContent = "Введите имя"; info.style.color = "#b91c1c"; } return; }
-  const ok = await _createDriverRequest(name, info, docs, inpVal, vehicles);
+  const ok = await _createDriverRequest(name, info, docs, inpVal, vehicles, carrier);
   if (!ok) return;
   if (info) { info.textContent = "Добавлен"; info.style.color = "#16a34a"; }
   toggleAddDriverForm(false);
@@ -2666,6 +2668,7 @@ async function startEditDriver(id) {
   cells[0].innerHTML = `<input class="edit-inline-input" data-field="name" value="${esc(item.full_name||"")}" />`;
   cells[1].innerHTML = `<input class="edit-inline-input" data-field="inp" value="${esc(item.in_person||"")}" />`;
   cells[2].innerHTML = `<input class="edit-inline-input" data-field="docs" value="${esc(item.documents||"")}" />`;
+  cells[3].innerHTML = `<input class="edit-inline-input" data-field="carrier" value="${esc(item.carrier||"")}" />`;
   // Vehicles cell
   let vehicles = [];
   try { vehicles = JSON.parse(item.vehicles_json || "[]"); } catch(_) {}
@@ -2691,9 +2694,10 @@ async function saveEditDriver(id) {
   const name = tr.querySelector("[data-field='name']")?.value.trim() || "";
   const inp = tr.querySelector("[data-field='inp']")?.value.trim() || "";
   const docs = tr.querySelector("[data-field='docs']")?.value.trim() || "";
+  const carrier = tr.querySelector("[data-field='carrier']")?.value.trim() || "";
   const vehicles = _collectVehicles(`editDriverVehicles_${id}`);
   if (!name) return;
-  await fetch(`/api/supply-drivers/${id}`, { method: "PATCH", headers: jsonHeaders(), body: JSON.stringify({ full_name: name, in_person: inp, documents: docs, vehicles }) }).catch(() => null);
+  await fetch(`/api/supply-drivers/${id}`, { method: "PATCH", headers: jsonHeaders(), body: JSON.stringify({ full_name: name, in_person: inp, documents: docs, carrier, vehicles }) }).catch(() => null);
   await loadSupplyDrivers();
 }
 

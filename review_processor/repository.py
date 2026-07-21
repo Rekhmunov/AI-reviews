@@ -6966,6 +6966,9 @@ class ReviewRepository:
             "ALTER TABLE supply_drivers ADD COLUMN IF NOT EXISTS vehicles_json TEXT NOT NULL DEFAULT '[]'"
         )
         conn.execute(
+            "ALTER TABLE supply_drivers ADD COLUMN IF NOT EXISTS carrier TEXT NOT NULL DEFAULT ''"
+        )
+        conn.execute(
             "ALTER TABLE supply_drivers ADD COLUMN IF NOT EXISTS in_person TEXT"
         )
         # ── OZON Supplies module (fully isolated from WB) ──────────────────────
@@ -7209,15 +7212,16 @@ class ReviewRepository:
             ).fetchone()
         return row is not None
 
-    def create_supply_driver(self, *, user_id: int, full_name: str, documents: str = "", in_person: str = "", vehicles: list | None = None) -> dict[str, Any]:
+    def create_supply_driver(self, *, user_id: int, full_name: str, documents: str = "", in_person: str = "", vehicles: list | None = None, carrier: str = "") -> dict[str, Any]:
         import json as _j
         now = _utc_now()
         vj = _j.dumps([v for v in (vehicles or []) if v and str(v).strip()], ensure_ascii=False)
+        carrier_val = (carrier or "").strip()
         with self._connect() as conn:
             driver_id = self._insert_and_get_id(
                 conn,
-                "INSERT INTO supply_drivers (user_id, full_name, documents, in_person, vehicles_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (user_id, full_name.strip(), (documents or "").strip() or None, (in_person or "").strip() or None, vj, now),
+                "INSERT INTO supply_drivers (user_id, full_name, documents, in_person, vehicles_json, carrier, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (user_id, full_name.strip(), (documents or "").strip() or None, (in_person or "").strip() or None, vj, carrier_val, now),
             )
             row = conn.execute(
                 self._sql("SELECT * FROM supply_drivers WHERE id = ?"),
@@ -7225,13 +7229,13 @@ class ReviewRepository:
             ).fetchone()
         return self._row_to_dict(row) if row else {"id": driver_id, "full_name": full_name}
 
-    def update_supply_driver(self, *, user_id: int, driver_id: int, full_name: str, documents: str = "", in_person: str = "", vehicles: list | None = None) -> bool:
+    def update_supply_driver(self, *, user_id: int, driver_id: int, full_name: str, documents: str = "", in_person: str = "", vehicles: list | None = None, carrier: str = "") -> bool:
         import json as _j
         vj = _j.dumps([v for v in (vehicles or []) if v and str(v).strip()], ensure_ascii=False)
         with self._connect() as conn:
             result = conn.execute(
-                self._sql("UPDATE supply_drivers SET full_name = ?, documents = ?, in_person = ?, vehicles_json = ? WHERE user_id = ? AND id = ?"),
-                (full_name.strip(), (documents or "").strip() or None, (in_person or "").strip() or None, vj, user_id, driver_id),
+                self._sql("UPDATE supply_drivers SET full_name = ?, documents = ?, in_person = ?, vehicles_json = ?, carrier = ? WHERE user_id = ? AND id = ?"),
+                (full_name.strip(), (documents or "").strip() or None, (in_person or "").strip() or None, vj, (carrier or "").strip(), user_id, driver_id),
             )
         return bool(result.rowcount)
 

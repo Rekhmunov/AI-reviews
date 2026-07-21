@@ -496,6 +496,7 @@ class CreateSupplyDriverRequest(BaseModel):
     documents: str = ""
     in_person: str = ""
     vehicles: list[str] = []
+    carrier: str = ""
 
 
 class CreateSupplyWarehouseRequest(BaseModel):
@@ -534,6 +535,7 @@ class UpdateSupplyDriverRequest(BaseModel):
     documents: str = ""
     in_person: str = ""
     vehicles: list[str] = []
+    carrier: str = ""
 
 
 class ManagerSuppliesAccessRequest(BaseModel):
@@ -10379,7 +10381,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         repository._ensure_supply_tables()
         if repository.driver_exists(user_id=owner_id, full_name=name):
             raise HTTPException(status_code=409, detail=f"Водитель «{name}» уже существует")
-        return repository.create_supply_driver(user_id=owner_id, full_name=name, documents=payload.documents, in_person=payload.in_person, vehicles=payload.vehicles)
+        return repository.create_supply_driver(user_id=owner_id, full_name=name, documents=payload.documents, in_person=payload.in_person, vehicles=payload.vehicles, carrier=payload.carrier)
 
     @app.patch("/api/supply-drivers/{driver_id}")
     def update_supply_driver_endpoint(request: Request, driver_id: int, payload: UpdateSupplyDriverRequest) -> dict[str, object]:
@@ -10389,7 +10391,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         name = payload.full_name.strip()
         if not name:
             raise HTTPException(status_code=400, detail="Имя не может быть пустым")
-        ok = repository.update_supply_driver(user_id=_supply_owner_id(user), driver_id=driver_id, full_name=name, documents=payload.documents, in_person=payload.in_person, vehicles=payload.vehicles)
+        ok = repository.update_supply_driver(user_id=_supply_owner_id(user), driver_id=driver_id, full_name=name, documents=payload.documents, in_person=payload.in_person, vehicles=payload.vehicles, carrier=payload.carrier)
         if not ok:
             raise HTTPException(status_code=404, detail="Водитель не найден")
         return {"ok": True}
