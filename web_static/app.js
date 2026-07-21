@@ -14272,7 +14272,7 @@ async function generateZayavka() {
   // Build route
   const allProdNames = [...new Set(_zSupplies.map(x => (x.production||"").trim()).filter(Boolean))];
   const allProds = allProdNames.map(n => (_supplyProductionsCache||[]).find(p => p.name === n)).filter(Boolean);
-  const cities = [...new Set(allProds.map(p => _zExtractCity(p.address)).filter(Boolean))];
+  const cities = [...new Set(allProds.map(p => (p.address||"").trim()).filter(Boolean))];
   const warehouses = [...new Set(_zSupplies.map(x => (x.warehouse_name||"").trim()).filter(Boolean))];
   const route = [...cities, ...warehouses].join(" — ");
 
@@ -14403,7 +14403,7 @@ async function downloadZayavkaDocx() {
   const rateStr = rate ? `${rate} руб. ${vat}` : `(не указана) ${vat}`;
   const allProdNames = [...new Set(_zSupplies.map(x => (x.production||"").trim()).filter(Boolean))];
   const allProds = allProdNames.map(n => (_supplyProductionsCache||[]).find(p => p.name === n)).filter(Boolean);
-  const cities = [...new Set(allProds.map(p => _zExtractCity(p.address)).filter(Boolean))];
+  const cities = [...new Set(allProds.map(p => (p.address||"").trim()).filter(Boolean))];
   const warehouses = [...new Set(_zSupplies.map(x => (x.warehouse_name||"").trim()).filter(Boolean))];
   const route = [...cities, ...warehouses].join(" — ");
   const loadAddresses = [...new Set(allProds.map(p => p.address).filter(Boolean))].join(", ");
