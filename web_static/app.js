@@ -5661,6 +5661,11 @@ function _updateBatchActionUI() {
   const wrap = document.getElementById("suppliesBatchWrap");
   const btn = document.getElementById("suppliesBatchBtn");
   const countEl = document.getElementById("suppliesBatchCount");
+  const zBtn = document.getElementById("zayavkaBtn");
+
+  // Заявка на перевозку: show for any selection (≥1)
+  if (zBtn) zBtn.style.display = count >= 1 ? "" : "none";
+
   if (!wrap) return;
 
   if (count < 2) {
@@ -14021,6 +14026,302 @@ window.pdimConfirmImport = async function() {
     if (btn) { btn.disabled = false; btn.textContent = "Загрузить данные"; }
   }
 };
+
+// ── Заявка на перевозку ───────────────────────────────────────────────────
+
+let _zSupplies = []; // selected supplies for current modal session
+
+function _zGetDriverName(item) {
+  try {
+    const slots = JSON.parse(item.drivers_json || "[]");
+    const name = (slots[0]?.driver_name || slots[0]?.manual_driver_name || "").trim();
+    if (name) return name;
+  } catch(_) {}
+  return (item.driver_name || "").trim();
+}
+
+function _zExtractCity(address) {
+  if (!address) return "";
+  // Try to get first word (city) from address like "г. Иваново, ул. ..."
+  const m = address.match(/г\.?\s*([А-ЯЁа-яё\-]+)/u);
+  if (m) return m[1];
+  return address.split(",")[0].trim().replace(/^г\.?\s*/u, "");
+}
+
+function _zFmt(dateStr) {
+  if (!dateStr || dateStr.length < 10) return dateStr || "";
+  return `${dateStr.slice(8,10)}.${dateStr.slice(5,7)}.${dateStr.slice(2,4)}`;
+}
+
+function _zAddDays(dateStr, days) {
+  if (!dateStr || dateStr.length < 10) return "";
+  const d = new Date(dateStr.slice(0,10));
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0,10);
+}
+
+function openZayavkaModal() {
+  _zSupplies = suppliesState.items.filter(x => _selectedSupplyIds.has(x.supply_id));
+  if (!_zSupplies.length) return;
+
+  // ── Legal entity detection ─────────────────────────────────────────────
+  const supplierNames = [...new Set(_zSupplies.map(x => (x.supplier_name||"").trim()).filter(Boolean))];
+  const legalSel = document.getElementById("zLegalEntity");
+  const legalWarn = document.getElementById("zLegalWarn");
+  if (legalSel) {
+    legalSel.innerHTML = '<option value="">— Выберите юр. лицо —</option>' +
+      (_supplyLegalEntitiesCache || []).map(le =>
+        `<option value="${esc(le.id)}">${esc(le.short_name||"")}</option>`
+      ).join("");
+    // Auto-select: try to match supplier_name with short_name
+    if (supplierNames.length === 1) {
+      const match = (_supplyLegalEntitiesCache||[]).find(le =>
+        (le.short_name||"").toLowerCase() === supplierNames[0].toLowerCase()
+      );
+      if (match) legalSel.value = String(match.id);
+    }
+  }
+  if (legalWarn) legalWarn.classList.toggle("hidden", supplierNames.length <= 1);
+
+  // ── Production detection ───────────────────────────────────────────────
+  const prodNames = [...new Set(_zSupplies.map(x => (x.production||"").trim()).filter(Boolean))];
+  const prodSel = document.getElementById("zProduction");
+  if (prodSel) {
+    prodSel.innerHTML = '<option value="">— Выберите производство —</option>' +
+      (_supplyProductionsCache||[]).map(p =>
+        `<option value="${esc(p.name)}">${esc(p.name)}</option>`
+      ).join("");
+    if (prodNames.length >= 1) prodSel.value = prodNames[0];
+  }
+  _updateZProdInfo(prodNames);
+  onZProducChange();
+
+  // ── Driver detection ───────────────────────────────────────────────────
+  const driverNames = [...new Set(_zSupplies.map(_zGetDriverName).filter(Boolean))];
+  const driverSel = document.getElementById("zDriver");
+  const driverWarn = document.getElementById("zDriverWarn");
+  if (driverSel) {
+    driverSel.innerHTML = '<option value="">— Выберите водителя —</option>' +
+      (_supplyDriversCache||[]).map(d =>
+        `<option value="${esc(d.full_name)}">${esc(d.full_name)}</option>`
+      ).join("");
+    if (driverNames.length >= 1) driverSel.value = driverNames[0];
+  }
+  if (driverWarn) driverWarn.classList.toggle("hidden", driverNames.length <= 1);
+  onZDriverChange();
+
+  // ── Cargo & dates ──────────────────────────────────────────────────────
+  const totalPallets = _zSupplies.reduce((s, x) => s + (parseInt(x.pallets_count)||0), 0);
+  const weightTons = (totalPallets * 0.2).toFixed(1);
+  const cargoInp = document.getElementById("zCargo");
+  if (cargoInp) cargoInp.value = `Текстиль. ${totalPallets} паллет, ${weightTons} т.`;
+
+  const supplyDates = _zSupplies.map(x => (x.supply_date||"").slice(0,10)).filter(Boolean).sort();
+  const earliestDate = supplyDates[0] || "";
+  const submitDate = _zAddDays(earliestDate, -1);
+  const submitInp = document.getElementById("zSubmitDate");
+  if (submitInp) submitInp.value = submitDate ? `${_zFmt(submitDate)}, с 08:00 до 19:00` : "";
+
+  const deliveryEl = document.getElementById("zDelivery");
+  if (deliveryEl) deliveryEl.textContent = earliestDate ? _zFmt(earliestDate) : "—";
+
+  const extraInp = document.getElementById("zExtra");
+  if (extraInp) extraInp.value = "Чистый сухой кузов!";
+
+  const rateInp = document.getElementById("zRate");
+  if (rateInp) rateInp.value = "";
+  const vatSel = document.getElementById("zVat");
+  if (vatSel) vatSel.value = "Без НДС";
+
+  const errEl = document.getElementById("zError");
+  if (errEl) errEl.textContent = "";
+
+  _updateZRoute();
+  _updateZUnload();
+
+  document.getElementById("zayavkaModal")?.classList.remove("hidden");
+}
+window.openZayavkaModal = openZayavkaModal;
+
+function closeZayavkaModal() {
+  document.getElementById("zayavkaModal")?.classList.add("hidden");
+}
+window.closeZayavkaModal = closeZayavkaModal;
+
+function _updateZProdInfo(prodNames) {
+  const info = document.getElementById("zProdInfo");
+  if (!info) return;
+  if (prodNames.length > 1) {
+    info.textContent = `Несколько производств: ${prodNames.join(", ")} — адреса объединены в маршрут`;
+  } else {
+    info.textContent = "";
+  }
+}
+
+function onZProducChange() {
+  _updateZRoute();
+  const sel = document.getElementById("zProduction");
+  const prod = (_supplyProductionsCache||[]).find(p => p.name === sel?.value);
+  // Update load contact display (informational)
+  const info = document.getElementById("zProdInfo");
+  const allProdNames = [...new Set(_zSupplies.map(x => (x.production||"").trim()).filter(Boolean))];
+  if (allProdNames.length > 1 && info) {
+    info.textContent = `Несколько производств: ${allProdNames.join(", ")}`;
+  } else if (prod?.load_contact && info) {
+    info.textContent = `Контакт: ${prod.load_contact}`;
+  } else if (info) {
+    info.textContent = "";
+  }
+}
+window.onZProducChange = onZProducChange;
+
+function onZDriverChange() {
+  const sel = document.getElementById("zDriver");
+  const vehSel = document.getElementById("zVehicle");
+  if (!sel || !vehSel) return;
+  const driver = (_supplyDriversCache||[]).find(d => d.full_name === sel.value);
+  let vehicles = [];
+  if (driver) {
+    try { vehicles = JSON.parse(driver.vehicles_json || "[]"); } catch(_) {}
+  }
+  vehSel.innerHTML = '<option value="">— Выберите автомобиль —</option>' +
+    vehicles.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
+  if (vehicles.length === 1) vehSel.value = vehicles[0];
+}
+window.onZDriverChange = onZDriverChange;
+
+function _updateZRoute() {
+  const routeEl = document.getElementById("zRoute");
+  if (!routeEl) return;
+
+  // All unique production names from supplies
+  const allProdNames = [...new Set(_zSupplies.map(x => (x.production||"").trim()).filter(Boolean))];
+  // Get cities from production addresses
+  const cities = [];
+  allProdNames.forEach(pn => {
+    const prod = (_supplyProductionsCache||[]).find(p => p.name === pn);
+    const city = prod ? _zExtractCity(prod.address) : pn;
+    if (city && !cities.includes(city)) cities.push(city);
+  });
+
+  // Warehouses in order
+  const warehouses = [...new Set(_zSupplies.map(x => (x.warehouse_name||"").trim()).filter(Boolean))];
+
+  const parts = [...cities, ...warehouses];
+  routeEl.textContent = parts.length ? parts.join(" — ") : "—";
+}
+
+function _updateZUnload() {
+  const el = document.getElementById("zUnloadBlock");
+  if (!el) return;
+  // Group by warehouse
+  const grouped = {};
+  _zSupplies.forEach(x => {
+    const wh = (x.warehouse_name||"—").trim();
+    grouped[wh] = (grouped[wh]||0) + (parseInt(x.pallets_count)||0);
+  });
+  const lines = Object.entries(grouped).map(([wh, pal]) =>
+    `<span><strong>${esc(wh)}:</strong> ${pal} паллет</span>`
+  );
+  el.innerHTML = lines.length
+    ? `<div class="row" style="gap:16px;flex-wrap:wrap">${lines.join("")}</div>`
+    : "";
+}
+
+function generateZayavka() {
+  const legalId = document.getElementById("zLegalEntity")?.value;
+  const legal = (_supplyLegalEntitiesCache||[]).find(le => String(le.id) === legalId);
+  const prodName = document.getElementById("zProduction")?.value || "";
+  const prod = (_supplyProductionsCache||[]).find(p => p.name === prodName);
+  const driverName = document.getElementById("zDriver")?.value || "";
+  const driver = (_supplyDriversCache||[]).find(d => d.full_name === driverName);
+  const vehicle = document.getElementById("zVehicle")?.value || "";
+  const cargo = document.getElementById("zCargo")?.value || "";
+  const submitDate = document.getElementById("zSubmitDate")?.value || "";
+  const rate = document.getElementById("zRate")?.value || "";
+  const vat = document.getElementById("zVat")?.value || "Без НДС";
+  const extra = document.getElementById("zExtra")?.value || "";
+
+  const errEl = document.getElementById("zError");
+  if (!legal) { if(errEl) errEl.textContent = "Выберите юридическое лицо"; return; }
+  if (!driverName) { if(errEl) errEl.textContent = "Выберите водителя"; return; }
+  if (errEl) errEl.textContent = "";
+
+  // Build route
+  const allProdNames = [...new Set(_zSupplies.map(x => (x.production||"").trim()).filter(Boolean))];
+  const allProds = allProdNames.map(n => (_supplyProductionsCache||[]).find(p => p.name === n)).filter(Boolean);
+  const cities = [...new Set(allProds.map(p => _zExtractCity(p.address)).filter(Boolean))];
+  const warehouses = [...new Set(_zSupplies.map(x => (x.warehouse_name||"").trim()).filter(Boolean))];
+  const route = [...cities, ...warehouses].join(" — ");
+
+  // Load addresses
+  const loadAddresses = [...new Set(allProds.map(p => p.address).filter(Boolean))].join(", ");
+  const loadContact = [...new Set(allProds.map(p => p.load_contact).filter(Boolean))].join(", ");
+
+  // Unload lines
+  const grouped = {};
+  _zSupplies.forEach(x => {
+    const wh = (x.warehouse_name||"—").trim();
+    grouped[wh] = (grouped[wh]||0) + (parseInt(x.pallets_count)||0);
+  });
+  const unloadLines = Object.entries(grouped).map(([wh, pal]) => `${wh} (${pal} паллет)`).join(", ");
+
+  const supplyDates = _zSupplies.map(x => (x.supply_date||"").slice(0,10)).filter(Boolean).sort();
+  const deliveryDate = supplyDates[0] ? _zFmt(supplyDates[0]) : "";
+
+  const totalPallets = _zSupplies.reduce((s, x) => s + (parseInt(x.pallets_count)||0), 0);
+  const rateStr = rate ? `${rate} руб. ${vat}` : `(не указана) ${vat}`;
+
+  // Document number
+  const docNum = _getCombinedDocNumber ? _getCombinedDocNumber() : new Date().toLocaleDateString("ru");
+  const today = new Date().toLocaleDateString("ru");
+
+  const html = `<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8">
+<title>Договор-заявка</title>
+<style>
+  body { font-family: Arial, sans-serif; font-size: 12px; margin: 20px; color: #000; }
+  h2 { text-align: center; font-size: 14px; margin-bottom: 4px; }
+  .subtitle { text-align: center; font-size: 11px; margin-bottom: 16px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+  td { border: 1px solid #000; padding: 5px 8px; vertical-align: top; }
+  .label { width: 32%; font-weight: bold; background: #f5f5f5; }
+  .footer-table td { border: 1px solid #000; padding: 6px; vertical-align: top; width: 50%; }
+  .sign-area { min-height: 50px; }
+  @media print { body { margin: 10mm; } }
+</style>
+</head><body>
+<h2>${esc(legal.full_name||legal.short_name||"")}</h2>
+<p class="subtitle">ДОГОВОР-ЗАЯВКА от ${today}<br>Маршрут: ${esc(route)}</p>
+<table>
+  <tr><td class="label">Марка, номер автомобиля</td><td>${esc(vehicle)}</td></tr>
+  <tr><td class="label">Наименование груза, вес и объём</td><td>${esc(cargo)}</td></tr>
+  <tr><td class="label">ФИО водителя, паспорт, телефон</td>
+    <td>Водитель ${esc(driver?.full_name||driverName)}<br>${esc(driver?.documents||"")}<br>${esc(driver?.in_person||"")}</td></tr>
+  <tr><td class="label">Адрес загрузки</td><td>${esc(loadAddresses)}</td></tr>
+  <tr><td class="label">Контактное лицо</td><td>${esc(loadContact)}</td></tr>
+  <tr><td class="label">Дата и время подачи а/м</td><td>${esc(submitDate)}</td></tr>
+  <tr><td class="label">Адрес разгрузки</td><td>${esc(unloadLines)}</td></tr>
+  <tr><td class="label">Срок доставки</td><td>${esc(deliveryDate)}</td></tr>
+  <tr><td class="label">Ставка и условия оплаты</td><td>${esc(rateStr)}</td></tr>
+  <tr><td class="label">Дополнительные требования</td><td><strong>${esc(extra)}</strong></td></tr>
+</table>
+<table class="footer-table">
+  <tr>
+    <td><strong>Исполнитель:</strong><br>${esc(driver?.carrier||"")}<br><br>
+      <div class="sign-area">Подпись: _________________</div></td>
+    <td><strong>Заказчик:</strong><br>${esc(legal.full_name||"")}<br>
+      ${esc(legal.requisites||"")}<br><br>
+      <div class="sign-area">Подпись: _________________</div></td>
+  </tr>
+</table>
+<script>window.onload=()=>window.print();</script>
+</body></html>`;
+
+  const win = window.open("", "_blank");
+  if (win) { win.document.write(html); win.document.close(); }
+  closeZayavkaModal();
+}
+window.generateZayavka = generateZayavka;
 
 // ── Searchable select (ss) ────────────────────────────────────────────────
 // Usage: ssPopulate(wrapId, [{value, label}], onChangeFn)
