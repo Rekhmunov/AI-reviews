@@ -14279,24 +14279,29 @@ function generateZayavka() {
   const html = `<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8">
 <title>Договор-заявка</title>
 <style>
-  body { font-family: Arial, sans-serif; font-size: 12px; margin: 20px; color: #000; }
-  h2 { text-align: center; font-size: 14px; margin-bottom: 4px; }
-  .subtitle { text-align: center; font-size: 11px; margin-bottom: 16px; }
-  table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
-  td { border: 1px solid #000; padding: 5px 8px; vertical-align: top; }
-  .label { width: 32%; font-weight: bold; background: #f5f5f5; }
-  .footer-table td { border: 1px solid #000; padding: 6px; vertical-align: top; width: 50%; }
-  .sign-area { min-height: 50px; }
-  @media print { body { margin: 10mm; } }
+  @page { size: A4 portrait; margin: 10mm; }
+  * { box-sizing: border-box; }
+  body { font-family: Arial, sans-serif; font-size: 10.5px; margin: 0; color: #000;
+         width: 190mm; }
+  h2 { text-align: center; font-size: 12px; margin: 0 0 2px; }
+  .subtitle { text-align: center; font-size: 10px; margin: 0 0 8px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 6px; }
+  td { border: 1px solid #000; padding: 3px 5px; vertical-align: top; line-height: 1.3; }
+  .label { width: 30%; font-weight: bold; background: #f0f0f0; }
+  .footer-table td { border: 1px solid #000; padding: 5px 6px; vertical-align: top; width: 50%; }
+  .sign-area { min-height: 36px; margin-top: 4px; }
+  .legal-text { font-size: 9.5px; margin-bottom: 6px; line-height: 1.4; }
+  .legal-text p { margin: 2px 0; }
+  @media print { body { margin: 0; } }
 </style>
 </head><body>
 <h2>${esc(legal.full_name||legal.short_name||"")}</h2>
-<p class="subtitle">ДОГОВОР-ЗАЯВКА от ${today}<br>Маршрут: ${esc(route)}</p>
+<p class="subtitle">ДОГОВОР-ЗАЯВКА от ${today} &nbsp;&nbsp; Маршрут: ${esc(route)}</p>
 <table>
   <tr><td class="label">Марка, номер автомобиля</td><td>${esc(vehicle)}</td></tr>
   <tr><td class="label">Наименование груза, вес и объём</td><td>${esc(cargo)}</td></tr>
   <tr><td class="label">ФИО водителя, паспорт, телефон</td>
-    <td>Водитель ${esc(driver?.full_name||driverName)}<br>${esc(driver?.documents||"")}<br>${esc(driver?.in_person||"")}</td></tr>
+    <td><strong>Водитель ${esc(driver?.full_name||driverName)}</strong><br>${esc(driver?.documents||"")}${driver?.in_person ? "<br>Тел. "+esc(driver.in_person) : ""}</td></tr>
   <tr><td class="label">Адрес загрузки</td><td>${esc(loadAddresses)}</td></tr>
   <tr><td class="label">Контактное лицо</td><td>${esc(loadContact)}</td></tr>
   <tr><td class="label">Дата и время подачи а/м</td><td>${esc(submitDate)}</td></tr>
@@ -14305,12 +14310,19 @@ function generateZayavka() {
   <tr><td class="label">Ставка и условия оплаты</td><td>${esc(rateStr)}</td></tr>
   <tr><td class="label">Дополнительные требования</td><td><strong>${esc(extra)}</strong></td></tr>
 </table>
+<div class="legal-text">
+  <p>1. За несвоевременную подачу автомобиля на погрузку штраф 1500 <u>руб.</u></p>
+  <p>2. Загрузка / разгрузка может занимать до 12 часов. Дальше идет простой автомобиля и оплачивается заказчиком в размере 1000 <u>руб</u> в сутки.</p>
+  <p>3. За срыв загрузки после подтверждения заявки, виновная сторона оплачивает потерпевшей стороне штраф в размере 20% стоимости фрахта.</p>
+  <p>4. Исполнитель несет полную материальную ответственность за недостачу, утрату, повреждение груза в процессе транспортировки.</p>
+  <p>5. Подписанная обеими сторонами Договор-Заявка и отправленная факсимильной связью имеет юридическую силу.</p>
+</div>
 <table class="footer-table">
   <tr>
-    <td><strong>Исполнитель:</strong><br>${esc(driver?.carrier||"")}<br><br>
+    <td><strong>Исполнитель:</strong> ${esc(driver?.carrier||"")}<br>
       <div class="sign-area">Подпись: _________________</div></td>
-    <td><strong>Заказчик:</strong><br>${esc(legal.full_name||"")}<br>
-      ${esc(legal.requisites||"")}<br><br>
+    <td><strong>Заказчик:</strong> ${esc(legal.full_name||"")}<br>
+      ${esc(legal.requisites||"")}<br>
       <div class="sign-area">Подпись: _________________</div></td>
   </tr>
 </table>
