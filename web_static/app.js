@@ -14061,6 +14061,7 @@ function _zNormalizeOzonItem(item) {
   return {
     supply_id: item.supply_order_id,    // unified ID field
     supply_order_id: item.supply_order_id,
+    supply_order_number: item.supply_order_number || "",
     warehouse_name: item.warehouse_name || "",
     supply_date: item.supply_date || "",
     production: item.production || "",
@@ -14818,8 +14819,10 @@ async function generateZayavka() {
   const activeTab = _zActiveDriver ? _zDriverTabs.find(t => t.name === _zActiveDriver) : null;
   const docSupplies = activeTab ? activeTab.suppliesForDriver : _zSupplies;
 
-  // Build route
-  const allProdNames = [...new Set(docSupplies.map(x => (x.production||"").trim()).filter(Boolean))];
+  // Production: prefer modal dropdown value (operator may select even if supply has none)
+  const modalProdName = document.getElementById("zProduction")?.value || "";
+  const supplyProdNames = [...new Set(docSupplies.map(x => (x.production||"").trim()).filter(Boolean))];
+  const allProdNames = modalProdName ? [modalProdName] : supplyProdNames;
   const allProds = allProdNames.map(n => (_supplyProductionsCache||[]).find(p => p.name === n)).filter(Boolean);
   const cities = [...new Set(allProds.map(p => (p.address||"").trim()).filter(Boolean))];
   const warehouses = [...new Set(docSupplies.map(x => (x.warehouse_name||"").trim()).filter(Boolean))];
@@ -14847,8 +14850,11 @@ async function generateZayavka() {
   const docNum = _getCombinedDocNumber ? _getCombinedDocNumber() : new Date().toLocaleDateString("ru");
   const today = new Date().toLocaleDateString("ru");
 
-  // #4 supply IDs for filename
-  const supplyIds = [..._selectedSupplyIds].join(", ");
+  // Supply numbers for filename: use readable order numbers if OZON
+  const isOzonContext = _zSupplies.some(x => x._is_ozon);
+  const supplyIds = isOzonContext
+    ? _zSupplies.map(x => x.supply_order_number || x.supply_order_id || x.supply_id).filter(Boolean).join(", ")
+    : [..._selectedSupplyIds].join(", ");
   const docTitle = `Договор-заявка №${supplyIds}`;
 
   // Fetch signature image for legal entity
@@ -14952,7 +14958,10 @@ async function downloadZayavkaDocx() {
   const rateStr = rate ? `${rate} руб. ${vat}` : `(не указана) ${vat}`;
   const activeTabD = _zActiveDriver ? _zDriverTabs.find(t => t.name === _zActiveDriver) : null;
   const docSuppliesD = activeTabD ? activeTabD.suppliesForDriver : _zSupplies;
-  const allProdNames = [...new Set(docSuppliesD.map(x => (x.production||"").trim()).filter(Boolean))];
+  // Production: prefer modal dropdown (allows selection even when supply has no production set)
+  const modalProdNameD = document.getElementById("zProduction")?.value || "";
+  const supplyProdNamesD = [...new Set(docSuppliesD.map(x => (x.production||"").trim()).filter(Boolean))];
+  const allProdNames = modalProdNameD ? [modalProdNameD] : supplyProdNamesD;
   const allProds = allProdNames.map(n => (_supplyProductionsCache||[]).find(p => p.name === n)).filter(Boolean);
   const cities = [...new Set(allProds.map(p => (p.address||"").trim()).filter(Boolean))];
   const warehouses = [...new Set(docSuppliesD.map(x => (x.warehouse_name||"").trim()).filter(Boolean))];
@@ -14967,7 +14976,11 @@ async function downloadZayavkaDocx() {
     .join("<br>");
   const supplyDates = _zSupplies.map(x => (x.supply_date||"").slice(0,10)).filter(Boolean).sort();
   const deliveryDate = supplyDates[0] ? _zFmt(supplyDates[0]) : "";
-  const supplyIds = [..._selectedSupplyIds].join(", ");
+  // Supply numbers: use readable order numbers for OZON
+  const isOzonContextD = _zSupplies.some(x => x._is_ozon);
+  const supplyIds = isOzonContextD
+    ? _zSupplies.map(x => x.supply_order_number || x.supply_order_id || x.supply_id).filter(Boolean).join(", ")
+    : [..._selectedSupplyIds].join(", ");
 
   const docHtml = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
 <head><meta charset="utf-8">
