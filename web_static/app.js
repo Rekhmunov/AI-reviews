@@ -14095,9 +14095,27 @@ function _zSelectDriverTab(driverName) {
   // Update vehicle based on driver
   // (already done in onZDriverChange)
 
-  // Update route + unload using this driver's supplies
-  _zUpdateRouteForDriver(tab.suppliesForDriver);
-  _zUpdateUnloadForDriver(tab.suppliesForDriver);
+  // Recalculate all fields for this driver's supplies
+  const ds = tab.suppliesForDriver;
+
+  // Cargo: pallets and weight for this driver
+  const totalPallets = ds.reduce((s, x) => s + (x._slot_pallets || parseInt(x.pallets_count)||0), 0);
+  const weightTons = (totalPallets * 0.2).toFixed(1);
+  const cargoInp = document.getElementById("zCargo");
+  if (cargoInp) cargoInp.value = `Текстиль. ${totalPallets} паллет, ${weightTons} т.`;
+
+  // Dates for this driver's supplies
+  const supplyDates = ds.map(x => (x.supply_date||"").slice(0,10)).filter(Boolean).sort();
+  const earliestDate = supplyDates[0] || "";
+  const submitDate = _zAddDays(earliestDate, -1);
+  const submitInp = document.getElementById("zSubmitDate");
+  if (submitInp) submitInp.value = submitDate ? _zFmt(submitDate) : "";
+  const deliveryEl = document.getElementById("zDelivery");
+  if (deliveryEl) deliveryEl.textContent = earliestDate ? _zFmt(earliestDate) : "—";
+
+  // Route + unload
+  _zUpdateRouteForDriver(ds);
+  _zUpdateUnloadForDriver(ds);
 }
 window._zSelectDriverTab = _zSelectDriverTab;
 
