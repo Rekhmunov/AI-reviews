@@ -5595,10 +5595,9 @@ function ozonBindDownload() {
 }
 window.ozonBindDownload = ozonBindDownload;
 
-function _bindLog(html, type) {
-  const log = document.getElementById("ozonBindLog");
+function _bindLogTo(logId, html, type) {
+  const log = document.getElementById(logId);
   if (!log) return;
-  // Clear placeholder on first real message
   if (log.querySelector("span[style*='94a3b8']")) log.innerHTML = "";
   const line = document.createElement("div");
   line.innerHTML = html;
@@ -5608,6 +5607,182 @@ function _bindLog(html, type) {
   log.appendChild(line);
   log.scrollTop = log.scrollHeight;
 }
+function _bindLog(html, type) { _bindLogTo("ozonBindLog", html, type); }
+
+// ── WB Binding Merge — same logic as OZON, separate state + UI IDs ─────────
+
+let _wbBindFiles  = [];
+let _wbBindMerged = [];
+
+function openWbBindingModal() {
+  document.getElementById("wbBindingModal")?.classList.remove("hidden");
+}
+window.openWbBindingModal = openWbBindingModal;
+
+function closeWbBindingModal() {
+  document.getElementById("wbBindingModal")?.classList.add("hidden");
+  _wbBindFiles = []; _wbBindMerged = [];
+  const log = document.getElementById("wbBindLog");
+  if (log) log.innerHTML = '<span style="color:#94a3b8">Загрузите файлы xlsx для начала работы…</span>';
+  const mb = document.getElementById("wbBindMergeBtn");
+  const db = document.getElementById("wbBindDownloadBtn");
+  if (mb) mb.disabled = true;
+  if (db) { db.disabled = true; db.style.opacity = "0.4"; }
+}
+window.closeWbBindingModal = closeWbBindingModal;
+
+function wbBindLoad() { document.getElementById("wbBindFileInput")?.click(); }
+window.wbBindLoad = wbBindLoad;
+
+async function wbBindOnFiles(fileList) {
+  if (!fileList?.length) return;
+  const JSZip = window.JSZip;
+  if (!JSZip) { _bindLogTo("wbBindLog", "⚠ JSZip не загружен", "err"); return; }
+  _wbBindMerged = [];
+  const db = document.getElementById("wbBindDownloadBtn");
+  if (db) { db.disabled = true; db.style.opacity = "0.4"; }
+  for (const file of Array.from(fileList)) {
+    if (file.name.toLowerCase().endsWith(".zip")) {
+      try {
+        const zip = await JSZip.loadAsync(await file.arrayBuffer());
+        const xlsxFiles = Object.keys(zip.files).filter(n => n.toLowerCase().endsWith(".xlsx") && !zip.files[n].dir);
+        for (const path of xlsxFiles) {
+          const ab = await zip.files[path].async("arraybuffer");
+          const fname = path.split("/").pop();
+          _wbBindFiles.push({ name: fname, normalizedName: _bindNormName(fname), arrayBuffer: ab });
+          _bindLogTo("wbBindLog", `📄 ${esc(fname)} (из zip)`, "");
+        }
+      } catch(e) { _bindLogTo("wbBindLog", `❌ Ошибка zip: ${esc(file.name)} — ${esc(String(e))}`, "err"); }
+    } else {
+      const ab = await file.arrayBuffer();
+      _wbBindFiles.push({ name: file.name, normalizedName: _bindNormName(file.name), arrayBuffer: ab });
+      _bindLogTo("wbBindLog", `📄 ${esc(file.name)}`, "");
+    }
+  }
+  const mb = document.getElementById("wbBindMergeBtn");
+  if (mb) mb.disabled = _wbBindFiles.length < 2;
+  const fi = document.getElementById("wbBindFileInput");
+  if (fi) fi.value = "";
+}
+window.wbBindOnFiles = wbBindOnFiles;
+
+function wbBindClear() {
+  _wbBindFiles = []; _wbBindMerged = [];
+  const log = document.getElementById("wbBindLog");
+  if (log) log.innerHTML = '<span style="color:#94a3b8">Загрузите файлы xlsx для начала работы…</span>';
+  const mb = document.getElementById("wbBindMergeBtn");
+  const db = document.getElementById("wbBindDownloadBtn");
+  if (mb) mb.disabled = true;
+  if (db) { db.disabled = true; db.style.opacity = "0.4"; }
+}
+window.wbBindClear = wbBindClear;
+
+async function wbBindMerge() {
+  if (!_wbBindFiles.length) return;
+  _wbBindMerged = [];
+  const log = document.getElementById("wbBindLog");
+  if (log) log.innerHTML = "";
+  const groups = {};
+  for (const f of _wbBindFiles) {
+    (groups[f.normalizedName] = groups[f.normalizedName] || []).push(f);
+  }
+  for (const [normName, files] of Object.entries(groups)) {
+    if (files.length === 1) {
+      const f = files[0];
+      const renamed = f._renamedAs || f.name;
+      _bindLogTo("wbBindLog",
+        `⚠ <b>${esc(f.name)}</b> — одиночный файл. ` +
+        `<button onclick="_wbBindStartRename('${esc(f.name)}')" style="font-size:12px;padding:2px 6px">Переименовать</button>`,
+        "warn");
+      _wbBindMerged.push({ name: renamed, blob: new Blob([f.arrayBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }) });
+    } else {
+      try {
+        const blob = await _bindMergeXlsx(files);
+        _wbBindMerged.push({ name: files[0].name, blob });
+        _bindLogTo("wbBindLog", `✅ Объединено ${files.length} файл(ов) → <b>${esc(files[0].name)}</b>`, "ok");
+      } catch(e) {
+        _bindLogTo("wbBindLog", `❌ Ошибка слияния группы «${esc(normName)}»: ${esc(String(e))}`, "err");
+      }
+    }
+  }
+  const db = document.getElementById("wbBindDownloadBtn");
+  if (db && _wbBindMerged.length) { db.disabled = false; db.style.opacity = "1"; }
+}
+window.wbBindMerge = wbBindMerge;
+
+function _wbBindStartRename(origName) {
+  const f = _wbBindFiles.find(x => x.name === origName);
+  if (!f) return;
+  const log = document.getElementById("wbBindLog");
+  if (!log) return;
+  const divs = Array.from(log.querySelectorAll("div"));
+  const target = divs.find(d => d.textContent.includes(origName));
+  if (!target) return;
+  target.innerHTML = `<span>✏ Переименовать <b>${esc(origName)}</b> → </span>
+    <input id="wbBindRenameInp" type="text" value="${esc(f._renamedAs || f.name.replace(/\.xlsx$/i,''))}" style="font-size:12px;padding:2px 6px;width:200px" />
+    <button onclick="_wbBindConfirmRename('${esc(origName)}')" style="font-size:12px;padding:2px 6px">OK</button>
+    <button onclick="wbBindMerge()" style="font-size:12px;padding:2px 6px">Отмена</button>`;
+}
+window._wbBindStartRename = _wbBindStartRename;
+
+function _wbBindConfirmRename(origName) {
+  const f = _wbBindFiles.find(x => x.name === origName);
+  const inp = document.getElementById("wbBindRenameInp");
+  if (!f || !inp) return;
+  const newBase = inp.value.trim();
+  if (!newBase) return;
+  const newFull = newBase.toLowerCase().endsWith(".xlsx") ? newBase : newBase + ".xlsx";
+  f._renamedAs = newFull;
+  f.normalizedName = _bindNormName(newFull);
+  _bindLogTo("wbBindLog", `✏ ${esc(origName)} → ${esc(newFull)}`, "");
+  wbBindMerge();
+}
+window._wbBindConfirmRename = _wbBindConfirmRename;
+
+function wbBindDownload() {
+  if (!_wbBindMerged.length) return;
+  _bindLogTo("wbBindLog", "═══════════════════════════════", "");
+  _bindLogTo("wbBindLog", `📂 Готово к скачиванию <b>${_wbBindMerged.length}</b> файлов — нажмите каждую кнопку:`, "");
+  const log = document.getElementById("wbBindLog");
+  _wbBindMerged.forEach(({ name, blob }) => {
+    const line = document.createElement("div");
+    line.style.cssText = "display:flex;align-items:center;gap:8px;margin:3px 0";
+    const btn = document.createElement("button");
+    btn.className = "secondary";
+    btn.style.cssText = "font-size:12px;padding:3px 10px;flex-shrink:0";
+    btn.textContent = "⬇ Скачать";
+    btn.onclick = async () => {
+      const dataUrl = await new Promise(resolve => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.readAsDataURL(blob);
+      });
+      const safeName = name.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+      const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(name)}</title></head>
+<body><p style="font-family:sans-serif;color:#64748b">Скачивание файла <b>${esc(name)}</b>…</p>
+<script>
+(function(){
+  var a=document.createElement('a');
+  a.href='${dataUrl}';
+  a.download='${safeName}';
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  setTimeout(function(){if(window.opener){try{window.opener.focus();}catch(e){}}window.close();},800);
+})();
+<\/script></body></html>`;
+      const htmlBlob = new Blob([html], {type:"text/html"});
+      const htmlUrl = URL.createObjectURL(htmlBlob);
+      window.open(htmlUrl, "_blank");
+      setTimeout(() => URL.revokeObjectURL(htmlUrl), 5000);
+      btn.textContent = "✓ Скачан"; btn.style.color = "#16a34a";
+    };
+    const nameSpan = document.createElement("span");
+    nameSpan.style.cssText = "font-size:12px;color:#1e293b;word-break:break-all";
+    nameSpan.textContent = name;
+    line.appendChild(btn); line.appendChild(nameSpan);
+    if (log) { log.appendChild(line); log.scrollTop = log.scrollHeight; }
+  });
+}
+window.wbBindDownload = wbBindDownload;
 window.onOzonDriverSelectChange = onOzonDriverSelectChange;
 
 function copyOzonDetails() {
