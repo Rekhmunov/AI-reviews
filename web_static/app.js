@@ -14460,7 +14460,7 @@ async function generateZayavka() {
   .legal-text p { margin: 2px 0; }
 </style>
 </head><body>
-<h2>${esc(legal.full_name||legal.short_name||"")}</h2>
+<h2>${esc(legal.short_name||legal.full_name||"")}</h2>
 <p class="doc-title">ДОГОВОР-ЗАЯВКА</p>
 <p class="doc-route">Маршрут: ${esc(route)}</p>
 <table>
@@ -14560,7 +14560,7 @@ async function downloadZayavkaDocx() {
   .legal-text p { margin: 2pt 0; }
 </style>
 </head><body>
-<h2>${esc(legal.full_name||legal.short_name||"")}</h2>
+<h2>${esc(legal.short_name||legal.full_name||"")}</h2>
 <p class="doc-title">ДОГОВОР-ЗАЯВКА</p>
 <p class="doc-route">Маршрут: ${esc(route)}</p>
 <table>
