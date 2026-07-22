@@ -14054,7 +14054,8 @@ function _zNormalizeOzonItem(item) {
   let cargoes = [];
   try { cargoes = JSON.parse(item.cargoes_json || "[]"); } catch(_) {}
   const calc = _zCalcOzonCargoWeight(cargoes);
-  const totalPalletEq = calc ? (calc.pallets + calc.boxes) : (parseInt(item.pallets_count) || parseInt(item.total_quantity) || 0);
+  const totalPalletEq = calc ? calc.pallets : (parseInt(item.pallets_count) || parseInt(item.total_quantity) || 0);
+  const totalBoxes = calc ? calc.boxes : 0;
   const vehicleStr = [vehicle.vehicle_model, vehicle.vehicle_number].filter(Boolean).join(" ").trim();
   const driverRaw = (vehicle.driver_name || "").trim();
   const matched = _zFuzzyMatchDriver(driverRaw);
@@ -14072,6 +14073,7 @@ function _zNormalizeOzonItem(item) {
     drivers_json: null,                 // OZON: single driver
     pallets_count: totalPalletEq,
     _slot_pallets: totalPalletEq,
+    _slot_boxes: totalBoxes,
     _ozon_cargoes: cargoes,
     _ozon_calc: calc,
     _ozon_vehicle: vehicleStr,
@@ -14407,7 +14409,13 @@ function _zUpdateUnloadForDriver(suppliesForDriver) {
   const grouped = {};
   suppliesForDriver.forEach(x => {
     const wh = (x.warehouse_name||"—").trim();
-    grouped[wh] = (grouped[wh]||0) + (x._slot_pallets || parseInt(x.pallets_count) || 0);
+    if (x._slot_boxes !== undefined) {
+      if (!grouped[wh]) grouped[wh] = { pallets: 0, boxes: 0 };
+      grouped[wh].pallets += (x._slot_pallets || 0);
+      grouped[wh].boxes += (x._slot_boxes || 0);
+    } else {
+      grouped[wh] = (grouped[wh]||0) + (x._slot_pallets || parseInt(x.pallets_count) || 0);
+    }
   });
   const lines = _buildUnloadLines(grouped);
   el.innerHTML = lines.length
@@ -14740,12 +14748,22 @@ function _getWhAddress(whName) {
 }
 
 function _buildUnloadLines(groupedObj, bold = true) {
-  return Object.entries(groupedObj).map(([wh, pal]) => {
+  return Object.entries(groupedObj).map(([wh, cargo]) => {
     const addr = _getWhAddress(wh);
     const boldWh = bold ? `<strong>${esc(wh)}</strong>` : `<b>${esc(wh)}</b>`;
+    // cargo can be a number (WB: pallets only) or {pallets, boxes} (OZON)
+    let cargoStr;
+    if (typeof cargo === "object") {
+      const parts = [];
+      if (cargo.pallets) parts.push(`${cargo.pallets} паллет`);
+      if (cargo.boxes) parts.push(`${cargo.boxes} коробов`);
+      cargoStr = parts.join(" и ") || "0";
+    } else {
+      cargoStr = `${cargo} паллет`;
+    }
     return addr
-      ? `склад ${boldWh}, адрес склада: ${esc(addr)} (${pal} паллет)`
-      : `склад ${boldWh} (${pal} паллет)`;
+      ? `склад ${boldWh}, адрес склада: ${esc(addr)} (${cargoStr})`
+      : `склад ${boldWh} (${cargoStr})`;
   });
 }
 
@@ -14755,7 +14773,13 @@ function _updateZUnload() {
   const grouped = {};
   _zSupplies.forEach(x => {
     const wh = (x.warehouse_name||"—").trim();
-    grouped[wh] = (grouped[wh]||0) + (parseInt(x.pallets_count)||0);
+    if (x._slot_boxes !== undefined) {
+      if (!grouped[wh]) grouped[wh] = { pallets: 0, boxes: 0 };
+      grouped[wh].pallets += (x._slot_pallets || 0);
+      grouped[wh].boxes += (x._slot_boxes || 0);
+    } else {
+      grouped[wh] = (grouped[wh]||0) + (x._slot_pallets || parseInt(x.pallets_count) || 0);
+    }
   });
   const lines = _buildUnloadLines(grouped);
   el.innerHTML = lines.length
@@ -14836,7 +14860,13 @@ async function generateZayavka() {
   const grouped = {};
   docSupplies.forEach(x => {
     const wh = (x.warehouse_name||"—").trim();
-    grouped[wh] = (grouped[wh]||0) + (x._slot_pallets || parseInt(x.pallets_count) || 0);
+    if (x._slot_boxes !== undefined) {
+      if (!grouped[wh]) grouped[wh] = { pallets: 0, boxes: 0 };
+      grouped[wh].pallets += (x._slot_pallets || 0);
+      grouped[wh].boxes += (x._slot_boxes || 0);
+    } else {
+      grouped[wh] = (grouped[wh]||0) + (x._slot_pallets || parseInt(x.pallets_count) || 0);
+    }
   });
   const unloadLines = _buildUnloadLines(grouped, true).join("<br>");
 
@@ -14969,7 +14999,16 @@ async function downloadZayavkaDocx() {
   const loadAddresses = [...new Set(allProds.map(p => p.address).filter(Boolean))].join(", ");
   const loadContact = [...new Set(allProds.map(p => p.load_contact).filter(Boolean))].join(", ");
   const grouped = {};
-  docSuppliesD.forEach(x => { const wh = (x.warehouse_name||"—").trim(); grouped[wh] = (grouped[wh]||0) + (x._slot_pallets || parseInt(x.pallets_count)||0); });
+  docSuppliesD.forEach(x => {
+    const wh = (x.warehouse_name||"—").trim();
+    if (x._slot_boxes !== undefined) {
+      if (!grouped[wh]) grouped[wh] = { pallets: 0, boxes: 0 };
+      grouped[wh].pallets += (x._slot_pallets || 0);
+      grouped[wh].boxes += (x._slot_boxes || 0);
+    } else {
+      grouped[wh] = (grouped[wh]||0) + (x._slot_pallets || parseInt(x.pallets_count)||0);
+    }
+  });
   // DOCX uses <b> instead of <strong>
   const unloadLines = _buildUnloadLines(grouped, false)
     .map(l => l.replace(/<strong>/g,"<b>").replace(/<\/strong>/g,"</b>"))
