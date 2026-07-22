@@ -14235,12 +14235,25 @@ function openZayavkaModal() {
   const tabsWrap = document.getElementById("zDriverTabsWrap");
   const tabsContainer = document.getElementById("zDriverTabs");
 
-  // Populate driver dropdown with catalog drivers
+  // Populate driver dropdown: catalog drivers + manual drivers from supplies
+  const manualDriverNames = [...new Set(
+    _zSupplies.flatMap(x => {
+      try {
+        const slots = JSON.parse(x.drivers_json || "[]");
+        return slots.map(s => (s.driver_name || s.manual_driver_name || "").trim()).filter(Boolean);
+      } catch(_) { return []; }
+    }).concat(_zSupplies.map(x => (x.driver_name||"").trim()))
+  )].filter(name => name && !(_supplyDriversCache||[]).find(d => d.full_name === name));
+
   if (driverSel) {
-    driverSel.innerHTML = '<option value="">— Выберите водителя —</option>' +
-      (_supplyDriversCache||[]).map(d =>
-        `<option value="${esc(d.full_name)}">${esc(d.full_name)}</option>`
-      ).join("");
+    const catalogOpts = (_supplyDriversCache||[]).map(d =>
+      `<option value="${esc(d.full_name)}">${esc(d.full_name)}</option>`
+    ).join("");
+    const manualOpts = manualDriverNames.map(n =>
+      `<option value="${esc(n)}">${esc(n)}</option>`
+    ).join("");
+    driverSel.innerHTML = '<option value="">— Выберите водителя —</option>' + catalogOpts +
+      (manualOpts ? `<optgroup label="Введены вручную в поставке">${manualOpts}</optgroup>` : "");
   }
 
   if (_zDriverTabs.length >= 2) {
@@ -14329,20 +14342,47 @@ function onZProducChange() {
 }
 window.onZProducChange = onZProducChange;
 
+function _zIsManualDriver(driverName) {
+  if (!driverName) return false;
+  return !(_supplyDriversCache||[]).find(d => d.full_name === driverName);
+}
+
 function onZDriverChange() {
   const sel = document.getElementById("zDriver");
   const vehSel = document.getElementById("zVehicle");
-  if (!sel || !vehSel) return;
-  const driver = (_supplyDriversCache||[]).find(d => d.full_name === sel.value);
-  let vehicles = [];
-  if (driver) {
-    try { vehicles = JSON.parse(driver.vehicles_json || "[]"); } catch(_) {}
+  const vehManual = document.getElementById("zVehicleManualInput");
+  if (!sel) return;
+
+  const driverName = sel.value;
+  const isManual = _zIsManualDriver(driverName);
+
+  if (isManual) {
+    // Manual driver: show text input, hide select
+    if (vehSel) vehSel.classList.add("hidden");
+    if (vehManual) { vehManual.classList.remove("hidden"); vehManual.value = ""; }
+  } else {
+    // Catalog driver: show select, hide text input
+    if (vehManual) { vehManual.classList.add("hidden"); vehManual.value = ""; }
+    if (vehSel) {
+      vehSel.classList.remove("hidden");
+      const driver = (_supplyDriversCache||[]).find(d => d.full_name === driverName);
+      let vehicles = [];
+      if (driver) { try { vehicles = JSON.parse(driver.vehicles_json || "[]"); } catch(_) {} }
+      vehSel.innerHTML = '<option value="">— Выберите автомобиль —</option>' +
+        vehicles.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
+      if (vehicles.length === 1) vehSel.value = vehicles[0];
+    }
   }
-  vehSel.innerHTML = '<option value="">— Выберите автомобиль —</option>' +
-    vehicles.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
-  if (vehicles.length === 1) vehSel.value = vehicles[0];
 }
 window.onZDriverChange = onZDriverChange;
+
+// Get current vehicle value from active input (select or manual)
+function _zGetVehicleValue() {
+  const vehSel = document.getElementById("zVehicle");
+  const vehManual = document.getElementById("zVehicleManualInput");
+  if (vehManual && !vehManual.classList.contains("hidden")) return vehManual.value.trim();
+  return vehSel?.value || "";
+}
 
 function _updateZRoute() {
   const routeEl = document.getElementById("zRoute");
@@ -14401,7 +14441,7 @@ async function generateZayavka() {
   const prod = (_supplyProductionsCache||[]).find(p => p.name === prodName);
   const driverName = document.getElementById("zDriver")?.value || "";
   const driver = (_supplyDriversCache||[]).find(d => d.full_name === driverName);
-  const vehicle = document.getElementById("zVehicle")?.value || "";
+  const vehicle = _zGetVehicleValue();
   const cargo = document.getElementById("zCargo")?.value || "";
   const submitDate = document.getElementById("zSubmitDate")?.value || "";
   const rate = document.getElementById("zRate")?.value || "";
@@ -14412,6 +14452,31 @@ async function generateZayavka() {
   if (!legal) { if(errEl) errEl.textContent = "Выберите юридическое лицо"; return; }
   if (!driverName) { if(errEl) errEl.textContent = "Выберите водителя"; return; }
   if (errEl) errEl.textContent = "";
+
+  // Save vehicle to supply_manual_data if manual driver + vehicle entered
+  if (_zIsManualDriver(driverName) && vehicle) {
+    const activeTab = _zActiveDriver ? _zDriverTabs.find(t => t.name === _zActiveDriver) : null;
+    const suppliesForSave = activeTab ? activeTab.suppliesForDriver : _zSupplies;
+    suppliesForSave.forEach(async (x) => {
+      try {
+        let slots = [];
+        try { slots = JSON.parse(x.drivers_json || "[]"); } catch(_) { slots = []; }
+        // Update or add slot for this driver
+        const idx = slots.findIndex(s =>
+          (s.driver_name || s.manual_driver_name || "") === driverName
+        );
+        if (idx >= 0) {
+          slots[idx].vehicle = vehicle;
+        } else {
+          slots.push({ driver_name: driverName, vehicle });
+        }
+        await fetch(`/api/supplies/${x.supply_id}/manual-fields`, {
+          method: "PATCH", headers: jsonHeaders(),
+          body: JSON.stringify({ drivers_json: JSON.stringify(slots) })
+        });
+      } catch(_) {}
+    });
+  }
 
   // Use driver-filtered supplies if multi-driver mode
   const activeTab = _zActiveDriver ? _zDriverTabs.find(t => t.name === _zActiveDriver) : null;
@@ -14536,7 +14601,7 @@ async function downloadZayavkaDocx() {
   const prodName = document.getElementById("zProduction")?.value || "";
   const driverName = document.getElementById("zDriver")?.value || "";
   const driver = (_supplyDriversCache||[]).find(d => d.full_name === driverName);
-  const vehicle = document.getElementById("zVehicle")?.value || "";
+  const vehicle = _zGetVehicleValue();
   const cargo = document.getElementById("zCargo")?.value || "";
   const submitDate = document.getElementById("zSubmitDate")?.value || "";
   const rate = document.getElementById("zRate")?.value || "";

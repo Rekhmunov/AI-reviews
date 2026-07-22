@@ -2883,9 +2883,12 @@
           </div>
           <div class="wfg-field">
             <label class="wfg-label">Автомобиль</label>
+            <!-- Catalog driver: dropdown; Manual driver: text input (auto-shown) -->
             <select id="zVehicle" style="width:100%">
               <option value="">— Выберите автомобиль —</option>
             </select>
+            <input id="zVehicleManualInput" type="text" placeholder="Марка и номер" autocomplete="off"
+                   class="hidden" style="width:100%" />
           </div>
         </div>
 
