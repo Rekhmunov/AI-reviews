@@ -14027,6 +14027,30 @@ window.pdimConfirmImport = async function() {
   }
 };
 
+// ── OZON cargo weight calculator ──────────────────────────────────────────
+// groups: [{type: "PALLET"|"BOX"|..., content_type: "MONO"|"MIXED"|..., count: N}]
+// Returns { pallets, boxes, weightTons, cargoLabel }
+
+const _OZON_CARGO_WEIGHT = { PALLET: 0.2, BOX: 0.0125 };
+
+function _zCalcOzonCargoWeight(groups) {
+  if (!Array.isArray(groups) || !groups.length) return null;
+  let pallets = 0, boxes = 0, totalTons = 0;
+  for (const g of groups) {
+    const type = (g.type || "").toUpperCase();
+    const count = parseInt(g.count) || 0;
+    const weight = _OZON_CARGO_WEIGHT[type] || 0;
+    totalTons += weight * count;
+    if (type === "PALLET") pallets += count;
+    else if (type === "BOX") boxes += count;
+  }
+  const parts = [];
+  if (pallets) parts.push(`${pallets} паллет`);
+  if (boxes) parts.push(`${boxes} коробов`);
+  const cargoLabel = `Текстиль. ${parts.join(", ")}, ${totalTons.toFixed(3).replace(/\.?0+$/, "")} т.`;
+  return { pallets, boxes, totalTons, cargoLabel };
+}
+
 // ── Заявка на перевозку ───────────────────────────────────────────────────
 
 let _zSupplies = []; // selected supplies for current modal session
