@@ -14725,8 +14725,11 @@ function _updateZRoute() {
   const routeEl = document.getElementById("zRoute");
   if (!routeEl) return;
 
-  // All unique production names from supplies
-  const allProdNames = [...new Set(_zSupplies.map(x => (x.production||"").trim()).filter(Boolean))];
+  // Production: prefer modal dropdown value (covers OZON where supply has no production)
+  const modalProd = document.getElementById("zProduction")?.value || "";
+  const supplyProdNames = [...new Set(_zSupplies.map(x => (x.production||"").trim()).filter(Boolean))];
+  const allProdNames = modalProd ? [modalProd] : supplyProdNames;
+
   // Use full address in route (not just extracted city)
   const cities = [];
   allProdNames.forEach(pn => {
