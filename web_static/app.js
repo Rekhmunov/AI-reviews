@@ -4764,6 +4764,7 @@ let _ozonBatchDocsAllowed = false;
 let _ozonBatchDocsReason = "";
 
 function _updateOzonBatchUI() {
+  _updateOzonZayavkaBtn();
   const wrap = document.getElementById("ozonBatchWrap");
   const countEl = document.getElementById("ozonBatchCount");
   if (!wrap) return;
@@ -14026,6 +14027,243 @@ window.pdimConfirmImport = async function() {
     if (btn) { btn.disabled = false; btn.textContent = "Загрузить данные"; }
   }
 };
+
+// ── OZON Заявка на перевозку ──────────────────────────────────────────────
+
+// Fuzzy driver name matching: all words from the shorter name must be in the longer
+function _zFuzzyMatchDriver(rawName) {
+  if (!rawName) return null;
+  const exact = (_supplyDriversCache||[]).find(d =>
+    d.full_name.toLowerCase() === rawName.toLowerCase()
+  );
+  if (exact) return exact;
+  const ozWords = rawName.toLowerCase().split(/\s+/).filter(Boolean);
+  if (ozWords.length < 2) return null;
+  return (_supplyDriversCache||[]).find(d => {
+    const catWords = d.full_name.toLowerCase().split(/\s+/).filter(Boolean);
+    const [shorter, longer] = ozWords.length <= catWords.length
+      ? [ozWords, catWords] : [catWords, ozWords];
+    return shorter.length >= 2 && shorter.every(w => longer.includes(w));
+  }) || null;
+}
+
+// Normalize OZON supply item to WB-compatible format for the shared modal
+function _zNormalizeOzonItem(item) {
+  let vehicle = {};
+  try { vehicle = JSON.parse(item.vehicle_json || "{}"); } catch(_) {}
+  let cargoes = [];
+  try { cargoes = JSON.parse(item.cargoes_json || "[]"); } catch(_) {}
+  const calc = _zCalcOzonCargoWeight(cargoes);
+  const totalPalletEq = calc ? (calc.pallets + calc.boxes) : (parseInt(item.pallets_count) || parseInt(item.total_quantity) || 0);
+  const vehicleStr = [vehicle.vehicle_model, vehicle.vehicle_number].filter(Boolean).join(" ").trim();
+  const driverRaw = (vehicle.driver_name || "").trim();
+  const matched = _zFuzzyMatchDriver(driverRaw);
+  return {
+    supply_id: item.supply_order_id,    // unified ID field
+    supply_order_id: item.supply_order_id,
+    warehouse_name: item.warehouse_name || "",
+    supply_date: item.supply_date || "",
+    production: item.production || "",
+    supplier_name: item.supplier_name || "",
+    driver_name: matched ? matched.full_name : driverRaw,
+    _raw_driver_name: driverRaw,        // original from OZON
+    _matched_driver: matched,           // catalog entry if found
+    drivers_json: null,                 // OZON: single driver
+    pallets_count: totalPalletEq,
+    _slot_pallets: totalPalletEq,
+    _ozon_cargoes: cargoes,
+    _ozon_calc: calc,
+    _ozon_vehicle: vehicleStr,
+    _is_ozon: true,
+  };
+}
+
+async function openZayavkaModalOzon() {
+  const ids = Array.from(_selectedOzonIds);
+  if (!ids.length) return;
+
+  // Get selected OZON items and normalize them
+  const rawItems = (ozonState.allItems || []).filter(x => ids.includes(x.supply_order_id));
+  if (!rawItems.length) return;
+
+  // Override _zSupplies with normalized OZON items
+  _zSupplies = rawItems.map(_zNormalizeOzonItem);
+  _zDriverTabs = [];
+  _zActiveDriver = null;
+
+  // Build driver tabs (same logic as WB but from normalized items)
+  const driverMap = new Map();
+  for (const item of _zSupplies) {
+    const name = item.driver_name || "";
+    if (!name) continue;
+    if (!driverMap.has(name)) {
+      driverMap.set(name, { name, driverObj: item._matched_driver, suppliesForDriver: [] });
+    }
+    driverMap.get(name).suppliesForDriver.push(item);
+  }
+  _zDriverTabs = [...driverMap.values()];
+
+  // Build driver dropdown: catalog + unmatched OZON drivers
+  const tabsWrap = document.getElementById("zDriverTabsWrap");
+  const tabsContainer = document.getElementById("zDriverTabs");
+  const driverSel = document.getElementById("zDriver");
+  const driverWarn = document.getElementById("zDriverWarn");
+
+  // Collect manual (unmatched) driver names for dropdown
+  const unmatchedNames = [...new Set(
+    _zSupplies.filter(x => x._is_ozon && !x._matched_driver && x._raw_driver_name)
+              .map(x => x._raw_driver_name)
+  )];
+
+  if (driverSel) {
+    const catalogOpts = (_supplyDriversCache||[]).map(d =>
+      `<option value="${esc(d.full_name)}">${esc(d.full_name)}</option>`
+    ).join("");
+    const manualOpts = unmatchedNames.map(n =>
+      `<option value="${esc(n)}">${esc(n)}</option>`
+    ).join("");
+    driverSel.innerHTML = '<option value="">— Выберите водителя —</option>' + catalogOpts +
+      (manualOpts ? `<optgroup label="Из ОЗОН (без совпадения)">${manualOpts}</optgroup>` : "");
+  }
+
+  // Tabs if 2+ drivers
+  if (_zDriverTabs.length >= 2) {
+    if (tabsWrap) tabsWrap.classList.remove("hidden");
+    if (driverWarn) driverWarn.classList.add("hidden");
+    if (tabsContainer) {
+      tabsContainer.innerHTML = _zDriverTabs.map(t =>
+        `<button class="z-driver-tab-btn" data-driver="${esc(t.name)}"
+          onclick="_zSelectDriverTab('${esc(t.name)}')">${esc(t.name)}</button>`
+      ).join("");
+    }
+    _zSelectDriverTab(_zDriverTabs[0].name);
+  } else {
+    if (tabsWrap) tabsWrap.classList.add("hidden");
+    const firstName = _zDriverTabs[0]?.name || "";
+    if (driverSel && firstName) driverSel.value = firstName;
+    if (driverWarn) driverWarn.classList.add("hidden");
+    onZDriverChange();
+    _zUpdateDriverInfoBlock(firstName);
+    // Pre-fill vehicle from OZON
+    _zPrefillOzonVehicle(firstName);
+  }
+
+  // Legal entity
+  const supplierNames = [...new Set(_zSupplies.map(x => (x.supplier_name||"").trim()).filter(Boolean))];
+  const legalSel = document.getElementById("zLegalEntity");
+  const legalWarn = document.getElementById("zLegalWarn");
+  if (legalSel) {
+    legalSel.innerHTML = '<option value="">— Выберите юр. лицо —</option>' +
+      (_supplyLegalEntitiesCache||[]).map(le =>
+        `<option value="${esc(le.id)}">${esc(le.short_name||"")}</option>`
+      ).join("");
+    if (supplierNames.length === 1) {
+      const match = (_supplyLegalEntitiesCache||[]).find(le =>
+        (le.short_name||"").toLowerCase() === supplierNames[0].toLowerCase()
+      );
+      if (match) legalSel.value = String(match.id);
+    }
+  }
+  if (legalWarn) legalWarn.classList.toggle("hidden", supplierNames.length <= 1);
+  onZLegalChange();
+
+  // Production
+  const prodNames = [...new Set(_zSupplies.map(x => (x.production||"").trim()).filter(Boolean))];
+  const prodSel = document.getElementById("zProduction");
+  const prodWarn = document.getElementById("zProdWarn");
+  if (prodSel) {
+    prodSel.innerHTML = '<option value="">— Выберите производство —</option>' +
+      (_supplyProductionsCache||[]).map(p =>
+        `<option value="${esc(p.name)}">${esc(p.name)}</option>`
+      ).join("");
+    if (prodNames.length >= 1) prodSel.value = prodNames[0];
+  }
+  if (prodWarn) prodWarn.classList.toggle("hidden", prodNames.length <= 1);
+  onZProducChange();
+
+  // Cargo: use OZON calc for single-driver or first tab
+  _zUpdateOzonCargoForSupplies(_zSupplies);
+
+  // Dates
+  const supplyDates = _zSupplies.map(x => (x.supply_date||"").slice(0,10)).filter(Boolean).sort();
+  const earliest = supplyDates[0] || "";
+  const submitInp = document.getElementById("zSubmitDate");
+  if (submitInp) submitInp.value = earliest ? _zFmt(_zAddDays(earliest, -1)) : "";
+  const deliveryEl = document.getElementById("zDelivery");
+  if (deliveryEl) deliveryEl.textContent = earliest ? _zFmt(earliest) : "—";
+
+  // Extras
+  const extraInp = document.getElementById("zExtra");
+  if (extraInp) extraInp.value = "Чистый сухой кузов!";
+  const rateInp = document.getElementById("zRate");
+  if (rateInp) rateInp.value = "";
+  const vatSel = document.getElementById("zVat");
+  if (vatSel) vatSel.value = "Без НДС";
+  const errEl = document.getElementById("zError");
+  if (errEl) errEl.textContent = "";
+
+  _updateZRoute();
+  _updateZUnload();
+
+  document.getElementById("zayavkaModal")?.classList.remove("hidden");
+}
+window.openZayavkaModalOzon = openZayavkaModalOzon;
+
+// Pre-fill vehicle from OZON data for the given driver
+function _zPrefillOzonVehicle(driverName) {
+  const item = _zSupplies.find(x => x.driver_name === driverName && x._ozon_vehicle);
+  if (!item) return;
+  const vehSel = document.getElementById("zVehicle");
+  const vehManual = document.getElementById("zVehicleManualInput");
+  if (vehManual && !vehManual.classList.contains("hidden")) {
+    vehManual.value = item._ozon_vehicle;
+  } else if (vehSel && item._ozon_vehicle) {
+    // Add OZON vehicle as option if not in catalog
+    let found = Array.from(vehSel.options).find(o => o.value === item._ozon_vehicle);
+    if (!found) {
+      const opt = document.createElement("option");
+      opt.value = item._ozon_vehicle; opt.textContent = item._ozon_vehicle;
+      vehSel.appendChild(opt);
+    }
+    vehSel.value = item._ozon_vehicle;
+  }
+}
+
+// Calculate cargo label from OZON supplies
+function _zUpdateOzonCargoForSupplies(supplies) {
+  const cargoInp = document.getElementById("zCargo");
+  if (!cargoInp) return;
+  const isOzon = supplies.some(x => x._is_ozon);
+  if (!isOzon) return;
+  let allCargoes = [];
+  supplies.forEach(x => { if (x._ozon_cargoes) allCargoes = allCargoes.concat(x._ozon_cargoes); });
+  // Merge groups
+  const merged = {};
+  allCargoes.forEach(g => {
+    const k = g.type; merged[k] = (merged[k] || 0) + (parseInt(g.count) || 0);
+  });
+  const mergedGroups = Object.entries(merged).map(([type, count]) => ({ type, count }));
+  const calc = _zCalcOzonCargoWeight(mergedGroups);
+  if (calc) cargoInp.value = calc.cargoLabel;
+}
+
+// Hook into _zSelectDriverTab to update OZON-specific fields
+const _zOrigSelectDriverTab = window._zSelectDriverTab;
+window._zSelectDriverTab = function(driverName) {
+  _zOrigSelectDriverTab(driverName);
+  // After tab switch, pre-fill OZON vehicle and recalculate cargo
+  const tab = _zDriverTabs.find(t => t.name === driverName);
+  if (tab && tab.suppliesForDriver.some(x => x._is_ozon)) {
+    _zPrefillOzonVehicle(driverName);
+    _zUpdateOzonCargoForSupplies(tab.suppliesForDriver);
+  }
+};
+
+// Show/hide OZON Заявка button based on selection
+function _updateOzonZayavkaBtn() {
+  const btn = document.getElementById("ozonZayavkaBtn");
+  if (btn) btn.style.display = _selectedOzonIds.size >= 1 ? "" : "none";
+}
 
 // ── OZON cargo weight calculator ──────────────────────────────────────────
 // groups: [{type: "PALLET"|"BOX"|..., content_type: "MONO"|"MIXED"|..., count: N}]
