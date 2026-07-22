@@ -14087,16 +14087,24 @@ function _zSelectDriverTab(driverName) {
   const tab = _zDriverTabs.find(t => t.name === driverName);
   if (!tab) return;
 
-  // Update driver select
+  // Recalculate all fields for this driver's supplies
+  const ds = tab.suppliesForDriver;
+
+  // Update driver select → triggers vehicle/carrier update
   const driverSel = document.getElementById("zDriver");
   if (driverSel) driverSel.value = driverName;
   onZDriverChange();
 
-  // Update vehicle based on driver
-  // (already done in onZDriverChange)
-
-  // Recalculate all fields for this driver's supplies
-  const ds = tab.suppliesForDriver;
+  // Update production → auto-fills load address and contact
+  const prodNamesForDriver = [...new Set(ds.map(x => (x.production||"").trim()).filter(Boolean))];
+  const prodSel = document.getElementById("zProduction");
+  if (prodSel && prodNamesForDriver.length >= 1) {
+    prodSel.value = prodNamesForDriver[0];
+  }
+  // Update production info / warnings
+  const prodWarn = document.getElementById("zProdWarn");
+  if (prodWarn) prodWarn.classList.toggle("hidden", prodNamesForDriver.length <= 1);
+  onZProducChange();
 
   // Cargo: pallets and weight for this driver
   const totalPallets = ds.reduce((s, x) => s + (x._slot_pallets || parseInt(x.pallets_count)||0), 0);
