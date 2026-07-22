@@ -14090,10 +14090,11 @@ function _zSelectDriverTab(driverName) {
   // Recalculate all fields for this driver's supplies
   const ds = tab.suppliesForDriver;
 
-  // Update driver select → triggers vehicle/carrier update
+  // Update driver select → triggers vehicle/carrier/info update
   const driverSel = document.getElementById("zDriver");
   if (driverSel) driverSel.value = driverName;
   onZDriverChange();
+  _zUpdateDriverInfoBlock(driverName);
 
   // Update production → auto-fills load address and contact
   const prodNamesForDriver = [...new Set(ds.map(x => (x.production||"").trim()).filter(Boolean))];
@@ -14208,6 +14209,7 @@ function openZayavkaModal() {
     }
   }
   if (legalWarn) legalWarn.classList.toggle("hidden", supplierNames.length <= 1);
+  onZLegalChange();
 
   // ── Production detection ───────────────────────────────────────────────
   const prodNames = [...new Set(_zSupplies.map(x => (x.production||"").trim()).filter(Boolean))];
@@ -14329,18 +14331,70 @@ function onZProducChange() {
   _updateZRoute();
   const sel = document.getElementById("zProduction");
   const prod = (_supplyProductionsCache||[]).find(p => p.name === sel?.value);
-  // Update load contact display (informational)
   const info = document.getElementById("zProdInfo");
+  if (!info) return;
   const allProdNames = [...new Set(_zSupplies.map(x => (x.production||"").trim()).filter(Boolean))];
-  if (allProdNames.length > 1 && info) {
-    info.textContent = `Несколько производств: ${allProdNames.join(", ")}`;
-  } else if (prod?.load_contact && info) {
-    info.textContent = `Контакт: ${prod.load_contact}`;
-  } else if (info) {
-    info.textContent = "";
+  if (allProdNames.length > 1) {
+    info.innerHTML = `<span class="z-info-row"><span class="z-info-label">Несколько производств:</span> ${esc(allProdNames.join(", "))}</span>`;
+    info.classList.remove("hidden");
+  } else if (prod) {
+    const rows = [
+      prod.address ? `<span class="z-info-label">Адрес:</span> ${esc(prod.address)}` : null,
+      prod.load_contact ? `<span class="z-info-label">Контакт:</span> ${esc(prod.load_contact)}` : null,
+    ].filter(Boolean).map(r => `<span class="z-info-row">${r}</span>`).join("");
+    if (rows) { info.innerHTML = rows; info.classList.remove("hidden"); }
+    else { info.innerHTML = ""; info.classList.add("hidden"); }
+  } else {
+    info.innerHTML = ""; info.classList.add("hidden");
   }
 }
 window.onZProducChange = onZProducChange;
+
+// ── Info block updaters ────────────────────────────────────────────────────
+
+function onZLegalChange() {
+  const legalId = document.getElementById("zLegalEntity")?.value;
+  const legal = (_supplyLegalEntitiesCache||[]).find(le => String(le.id) === legalId);
+  const block = document.getElementById("zLegalInfo");
+  if (!block) return;
+  if (!legal) { block.classList.add("hidden"); block.innerHTML = ""; return; }
+  const rows = [
+    legal.full_name ? `<span class="z-info-label">Полное:</span> ${esc(legal.full_name)}` : null,
+    legal.requisites ? `<span class="z-info-label">Реквизиты:</span> ${esc(legal.requisites)}` : null,
+    legal.signatories ? `<span class="z-info-label">Подписант:</span> ${esc(legal.signatories)}` : null,
+  ].filter(Boolean).map(r => `<span class="z-info-row">${r}</span>`).join("");
+  if (rows) { block.innerHTML = rows; block.classList.remove("hidden"); }
+  else block.classList.add("hidden");
+}
+window.onZLegalChange = onZLegalChange;
+
+function _zUpdateDriverInfoBlock(driverName) {
+  const isManual = _zIsManualDriver ? _zIsManualDriver(driverName) :
+    !(_supplyDriversCache||[]).find(d => d.full_name === driverName);
+  const driver = (_supplyDriversCache||[]).find(d => d.full_name === driverName);
+
+  // Docs field
+  const docsDisplay = document.getElementById("zDocsDisplay");
+  const docsInput = document.getElementById("zDocsInput");
+  if (isManual) {
+    if (docsDisplay) docsDisplay.classList.add("hidden");
+    if (docsInput) { docsInput.classList.remove("hidden"); }
+  } else {
+    if (docsInput) { docsInput.classList.add("hidden"); }
+    if (docsDisplay) { docsDisplay.textContent = driver?.documents || "—"; docsDisplay.classList.remove("hidden"); }
+  }
+
+  // Carrier field
+  const carrierDisplay = document.getElementById("zCarrierDisplay");
+  const carrierInput = document.getElementById("zCarrierInput");
+  if (isManual) {
+    if (carrierDisplay) carrierDisplay.classList.add("hidden");
+    if (carrierInput) { carrierInput.classList.remove("hidden"); }
+  } else {
+    if (carrierInput) { carrierInput.classList.add("hidden"); }
+    if (carrierDisplay) { carrierDisplay.textContent = driver?.carrier || "—"; carrierDisplay.classList.remove("hidden"); }
+  }
+}
 
 function _zIsManualDriver(driverName) {
   if (!driverName) return false;
@@ -14355,6 +14409,7 @@ function onZDriverChange() {
 
   const driverName = sel.value;
   const isManual = _zIsManualDriver(driverName);
+  _zUpdateDriverInfoBlock(driverName);
 
   if (isManual) {
     // Manual driver: show text input, hide select
@@ -14382,6 +14437,17 @@ function _zGetVehicleValue() {
   const vehManual = document.getElementById("zVehicleManualInput");
   if (vehManual && !vehManual.classList.contains("hidden")) return vehManual.value.trim();
   return vehSel?.value || "";
+}
+// Get docs and carrier from active fields (display or editable input)
+function _zGetDocsValue() {
+  const inp = document.getElementById("zDocsInput");
+  if (inp && !inp.classList.contains("hidden")) return inp.value.trim();
+  return document.getElementById("zDocsDisplay")?.textContent?.replace(/^—$/, "") || "";
+}
+function _zGetCarrierValue() {
+  const inp = document.getElementById("zCarrierInput");
+  if (inp && !inp.classList.contains("hidden")) return inp.value.trim();
+  return document.getElementById("zCarrierDisplay")?.textContent?.replace(/^—$/, "") || "";
 }
 
 function _updateZRoute() {
@@ -14465,10 +14531,18 @@ async function generateZayavka() {
         const idx = slots.findIndex(s =>
           (s.driver_name || s.manual_driver_name || "") === driverName
         );
+        const docs = _zGetDocsValue();
+        const carrier = _zGetCarrierValue();
         if (idx >= 0) {
           slots[idx].vehicle = vehicle;
+          if (docs) slots[idx].documents = docs;
+          if (carrier) slots[idx].carrier = carrier;
         } else {
-          slots.push({ driver_name: driverName, vehicle });
+          const slot = { driver_name: driverName };
+          if (vehicle) slot.vehicle = vehicle;
+          if (docs) slot.documents = docs;
+          if (carrier) slot.carrier = carrier;
+          slots.push(slot);
         }
         await fetch(`/api/supplies/${x.supply_id}/manual-fields`, {
           method: "PATCH", headers: jsonHeaders(),
