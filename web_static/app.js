@@ -14030,6 +14030,100 @@ window.pdimConfirmImport = async function() {
 // ── Заявка на перевозку ───────────────────────────────────────────────────
 
 let _zSupplies = []; // selected supplies for current modal session
+let _zDriverTabs = []; // [{name, driverObj, suppliesForDriver}] when multi-driver
+let _zActiveDriver = null; // currently selected driver name in tabs
+
+// Build per-driver data from selected supplies
+function _zBuildDriverData() {
+  const driverMap = new Map(); // driverName → {driverObj, suppliesForDriver}
+
+  for (const item of _zSupplies) {
+    let slots = [];
+    try { slots = JSON.parse(item.drivers_json || "[]"); } catch(_) {}
+
+    if (slots.length > 0) {
+      slots.forEach((s, idx) => {
+        const name = (s.driver_name || s.manual_driver_name || "").trim();
+        if (!name) return;
+        if (!driverMap.has(name)) {
+          const driverObj = (_supplyDriversCache||[]).find(d => d.full_name === name) || null;
+          driverMap.set(name, { name, driverObj, suppliesForDriver: [] });
+        }
+        // Attach this slot's data to the supply for later use
+        const dEntry = driverMap.get(name);
+        dEntry.suppliesForDriver.push({
+          ...item,
+          _slot_pallets: parseInt(s.pallets_count) || parseInt(item.pallets_count) || 0,
+          _slot_pass: s.pass_number || item.pass_number || "",
+        });
+      });
+    } else {
+      // Legacy single driver from driver_name
+      const name = _zGetDriverName(item);
+      if (!name) continue;
+      if (!driverMap.has(name)) {
+        const driverObj = (_supplyDriversCache||[]).find(d => d.full_name === name) || null;
+        driverMap.set(name, { name, driverObj, suppliesForDriver: [] });
+      }
+      driverMap.get(name).suppliesForDriver.push({
+        ...item,
+        _slot_pallets: parseInt(item.pallets_count) || 0,
+        _slot_pass: item.pass_number || "",
+      });
+    }
+  }
+  return [...driverMap.values()];
+}
+
+function _zSelectDriverTab(driverName) {
+  _zActiveDriver = driverName;
+
+  // Update tab button states
+  document.querySelectorAll(".z-driver-tab-btn").forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.driver === driverName);
+  });
+
+  // Find driver tab data
+  const tab = _zDriverTabs.find(t => t.name === driverName);
+  if (!tab) return;
+
+  // Update driver select
+  const driverSel = document.getElementById("zDriver");
+  if (driverSel) driverSel.value = driverName;
+  onZDriverChange();
+
+  // Update vehicle based on driver
+  // (already done in onZDriverChange)
+
+  // Update route + unload using this driver's supplies
+  _zUpdateRouteForDriver(tab.suppliesForDriver);
+  _zUpdateUnloadForDriver(tab.suppliesForDriver);
+}
+window._zSelectDriverTab = _zSelectDriverTab;
+
+function _zUpdateRouteForDriver(suppliesForDriver) {
+  const routeEl = document.getElementById("zRoute");
+  if (!routeEl) return;
+  const allProdNames = [...new Set(suppliesForDriver.map(x => (x.production||"").trim()).filter(Boolean))];
+  const allProds = allProdNames.map(n => (_supplyProductionsCache||[]).find(p => p.name === n)).filter(Boolean);
+  const cities = [...new Set(allProds.map(p => (p.address||"").trim()).filter(Boolean))];
+  const warehouses = [...new Set(suppliesForDriver.map(x => (x.warehouse_name||"").trim()).filter(Boolean))];
+  routeEl.textContent = [...cities, ...warehouses].filter(Boolean).join(" — ") || "—";
+}
+
+function _zUpdateUnloadForDriver(suppliesForDriver) {
+  const el = document.getElementById("zUnloadBlock");
+  if (!el) return;
+  const grouped = {};
+  suppliesForDriver.forEach(x => {
+    const wh = (x.warehouse_name||"—").trim();
+    grouped[wh] = (grouped[wh]||0) + (x._slot_pallets || parseInt(x.pallets_count) || 0);
+  });
+  const lines = _buildUnloadLines(grouped);
+  el.innerHTML = lines.length
+    ? `<div style="display:flex;flex-direction:column;gap:2px">${lines.map(l=>`<span>${l}</span>`).join("")}</div>`
+    : "";
+}
 
 function _zGetDriverName(item) {
   try {
@@ -14106,19 +14200,43 @@ function openZayavkaModal() {
   _updateZProdInfo(prodNames);
   onZProducChange();
 
-  // ── Driver detection ───────────────────────────────────────────────────
-  const driverNames = [...new Set(_zSupplies.map(_zGetDriverName).filter(Boolean))];
+  // ── Driver detection & tabs ───────────────────────────────────────────
+  _zDriverTabs = _zBuildDriverData();
+  _zActiveDriver = null;
+
   const driverSel = document.getElementById("zDriver");
   const driverWarn = document.getElementById("zDriverWarn");
+  const tabsWrap = document.getElementById("zDriverTabsWrap");
+  const tabsContainer = document.getElementById("zDriverTabs");
+
+  // Populate driver dropdown with catalog drivers
   if (driverSel) {
     driverSel.innerHTML = '<option value="">— Выберите водителя —</option>' +
       (_supplyDriversCache||[]).map(d =>
         `<option value="${esc(d.full_name)}">${esc(d.full_name)}</option>`
       ).join("");
-    if (driverNames.length >= 1) driverSel.value = driverNames[0];
   }
-  if (driverWarn) driverWarn.classList.toggle("hidden", driverNames.length <= 1);
-  onZDriverChange();
+
+  if (_zDriverTabs.length >= 2) {
+    // Multi-driver: show tabs, hide warning triangle
+    if (tabsWrap) tabsWrap.classList.remove("hidden");
+    if (driverWarn) driverWarn.classList.add("hidden");
+    if (tabsContainer) {
+      tabsContainer.innerHTML = _zDriverTabs.map(t =>
+        `<button class="z-driver-tab-btn" data-driver="${esc(t.name)}"
+          onclick="_zSelectDriverTab('${esc(t.name)}')">${esc(t.name)}</button>`
+      ).join("");
+    }
+    // Auto-select first driver
+    _zSelectDriverTab(_zDriverTabs[0].name);
+  } else {
+    // Single driver or none
+    if (tabsWrap) tabsWrap.classList.add("hidden");
+    const driverNames = [...new Set(_zSupplies.map(_zGetDriverName).filter(Boolean))];
+    if (driverSel && driverNames.length >= 1) driverSel.value = driverNames[0];
+    if (driverWarn) driverWarn.classList.toggle("hidden", driverNames.length <= 1);
+    onZDriverChange();
+  }
 
   // ── Cargo & dates ──────────────────────────────────────────────────────
   const totalPallets = _zSupplies.reduce((s, x) => s + (parseInt(x.pallets_count)||0), 0);
@@ -14269,11 +14387,15 @@ async function generateZayavka() {
   if (!driverName) { if(errEl) errEl.textContent = "Выберите водителя"; return; }
   if (errEl) errEl.textContent = "";
 
+  // Use driver-filtered supplies if multi-driver mode
+  const activeTab = _zActiveDriver ? _zDriverTabs.find(t => t.name === _zActiveDriver) : null;
+  const docSupplies = activeTab ? activeTab.suppliesForDriver : _zSupplies;
+
   // Build route
-  const allProdNames = [...new Set(_zSupplies.map(x => (x.production||"").trim()).filter(Boolean))];
+  const allProdNames = [...new Set(docSupplies.map(x => (x.production||"").trim()).filter(Boolean))];
   const allProds = allProdNames.map(n => (_supplyProductionsCache||[]).find(p => p.name === n)).filter(Boolean);
   const cities = [...new Set(allProds.map(p => (p.address||"").trim()).filter(Boolean))];
-  const warehouses = [...new Set(_zSupplies.map(x => (x.warehouse_name||"").trim()).filter(Boolean))];
+  const warehouses = [...new Set(docSupplies.map(x => (x.warehouse_name||"").trim()).filter(Boolean))];
   const route = [...cities, ...warehouses].join(" — ");
 
   // Load addresses
@@ -14282,9 +14404,9 @@ async function generateZayavka() {
 
   // Unload lines (PDF — bold warehouse + address + pallets, newline per warehouse)
   const grouped = {};
-  _zSupplies.forEach(x => {
+  docSupplies.forEach(x => {
     const wh = (x.warehouse_name||"—").trim();
-    grouped[wh] = (grouped[wh]||0) + (parseInt(x.pallets_count)||0);
+    grouped[wh] = (grouped[wh]||0) + (x._slot_pallets || parseInt(x.pallets_count) || 0);
   });
   const unloadLines = _buildUnloadLines(grouped, true).join("<br>");
 
@@ -14401,15 +14523,17 @@ async function downloadZayavkaDocx() {
   if (errEl) errEl.textContent = "";
 
   const rateStr = rate ? `${rate} руб. ${vat}` : `(не указана) ${vat}`;
-  const allProdNames = [...new Set(_zSupplies.map(x => (x.production||"").trim()).filter(Boolean))];
+  const activeTabD = _zActiveDriver ? _zDriverTabs.find(t => t.name === _zActiveDriver) : null;
+  const docSuppliesD = activeTabD ? activeTabD.suppliesForDriver : _zSupplies;
+  const allProdNames = [...new Set(docSuppliesD.map(x => (x.production||"").trim()).filter(Boolean))];
   const allProds = allProdNames.map(n => (_supplyProductionsCache||[]).find(p => p.name === n)).filter(Boolean);
   const cities = [...new Set(allProds.map(p => (p.address||"").trim()).filter(Boolean))];
-  const warehouses = [...new Set(_zSupplies.map(x => (x.warehouse_name||"").trim()).filter(Boolean))];
+  const warehouses = [...new Set(docSuppliesD.map(x => (x.warehouse_name||"").trim()).filter(Boolean))];
   const route = [...cities, ...warehouses].join(" — ");
   const loadAddresses = [...new Set(allProds.map(p => p.address).filter(Boolean))].join(", ");
   const loadContact = [...new Set(allProds.map(p => p.load_contact).filter(Boolean))].join(", ");
   const grouped = {};
-  _zSupplies.forEach(x => { const wh = (x.warehouse_name||"—").trim(); grouped[wh] = (grouped[wh]||0) + (parseInt(x.pallets_count)||0); });
+  docSuppliesD.forEach(x => { const wh = (x.warehouse_name||"—").trim(); grouped[wh] = (grouped[wh]||0) + (x._slot_pallets || parseInt(x.pallets_count)||0); });
   // DOCX uses <b> instead of <strong>
   const unloadLines = _buildUnloadLines(grouped, false)
     .map(l => l.replace(/<strong>/g,"<b>").replace(/<\/strong>/g,"</b>"))

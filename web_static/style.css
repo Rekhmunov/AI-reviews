@@ -3639,6 +3639,27 @@ button.secondary.danger:hover {
   white-space: nowrap;
 }
 
+/* ── Заявка: driver tabs ─────────────────────────────────────────────────── */
+
+.z-driver-tab-btn {
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  color: #475569;
+  cursor: pointer;
+  box-shadow: none;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.z-driver-tab-btn:hover { background: #e2e8f0; }
+.z-driver-tab-btn.active {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+}
+
 .cd-violation-tag {
   display: inline-block;
   background: #fef2f2;
