@@ -14761,14 +14761,21 @@ async function downloadZayavkaDocx() {
 
   const blob = new Blob(["\uFEFF" + docHtml], { type: "application/msword" });
   const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.target = "_blank";
-  a.download = `Договор-заявка №${supplyIds}.doc`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  const winDoc = window.open("", "_blank");
+  if (winDoc) {
+    const a = winDoc.document.createElement("a");
+    a.href = url;
+    a.download = `Договор-заявка №${supplyIds}.doc`;
+    winDoc.document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { try { winDoc.close(); } catch(_){} URL.revokeObjectURL(url); }, 1500);
+  } else {
+    // Fallback if popup blocked
+    const a = document.createElement("a");
+    a.href = url; a.download = `Договор-заявка №${supplyIds}.doc`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }
 }
 window.downloadZayavkaDocx = downloadZayavkaDocx;
 
