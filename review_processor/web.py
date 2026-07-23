@@ -9318,6 +9318,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         driver_name = ""
         name_map = repository.get_product_name_by_article(user_id=owner_id)
         wh_name = ""
+        transit_wh_name = ""
 
         for sid in supply_ids:
             try:
@@ -9328,7 +9329,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             if not le:
                 le = data.get("le") or {}
                 supplier_short = str(le.get("short_name") or "")
-                wh_name = str((data.get("item") or {}).get("warehouse_name") or "")
+                _item0 = data.get("item") or {}
+                wh_name = str(_item0.get("warehouse_name") or "")
+                transit_wh_name = str(_item0.get("transit_warehouse_name") or "")
             if not driver_name:
                 driver_name = data.get("driver_name") or ""
             price_map.update(data.get("price_map") or {})
@@ -9347,6 +9350,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         org_line = ", ".join(filter(None, [org_full, org_req]))
         signatories = str(le.get("signatories") or supplier_short or "—")
         VAT_RATE = 0.22
+
+        pickup_wh = (transit_wh_name or wh_name).strip()
+        warehouses = repository.list_supply_warehouses(user_id=owner_id)
+        wh_addr = next(
+            (str(w.get("address") or "").strip() for w in warehouses
+             if str(w.get("warehouse_name") or "").strip() == pickup_wh),
+            "",
+        )
+        recipient_line = "ООО «РВБ»" + (f", {wh_addr}" if wh_addr else "")
 
         def _rubles_in_words(n: int) -> str:
             ones_m=["","один","два","три","четыре","пять","шесть","семь","восемь","девять"]
@@ -9414,10 +9426,32 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 multi += r
             doc_xml = doc_xml.replace(row_tpl, multi, 1)
 
+        # Recipient for combined OZON TTN: first supply's transit/dest warehouse address
+        first_item = {}
+        for sid in supply_ids:
+            try:
+                _fd = _ozon_get_doc_data(owner_id, sid)
+            except Exception:
+                _fd = {}
+            if _fd:
+                first_item = _fd.get("item") or {}
+                break
+        dest_wh = str(first_item.get("warehouse_name") or wh_name or "").strip()
+        transit_wh = str(first_item.get("transit_warehouse_name") or "").strip()
+        pickup_wh = transit_wh or dest_wh
+        warehouses = repository.list_supply_warehouses(user_id=owner_id)
+        wh_addr = next(
+            (str(w.get("address") or "").strip() for w in warehouses
+             if str(w.get("warehouse_name") or "").strip() == pickup_wh),
+            "",
+        )
+        recipient_line = "ООО «Интернет решения»" + (f", {wh_addr}" if wh_addr else "")
+
         mon_names = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря']
         for ph, val in [
             ("{{TTN_NUMBER}}", doc_num), ("{{ORG_FULL}}", org_line), ("{{SUPPLIER}}", org_line),
-            ("{{PAYER}}", org_line), ("{{ORDER_DATE}}", doc_num), ("{{DOC_NUM_VAL}}", doc_num),
+            ("{{PAYER}}", org_line), ("{{RECIPIENT}}", recipient_line),
+            ("{{ORDER_DATE}}", doc_num), ("{{DOC_NUM_VAL}}", doc_num),
             ("{{DOC_DATE_VAL}}", supply_date_disp),
             ("{{GOODS_NAME}}", rows_data[0]["name"] if rows_data else "Товар"),
             ("{{ROW_NUM}}", "1"), ("{{PRICE}}", rows_data[0]["price_excl"] if rows_data else "—"),
@@ -9611,12 +9645,25 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 multi += r
             doc_xml = doc_xml.replace(row_tpl, multi, 1)
 
+        # Recipient: ООО «Интернет решения» + address of initial (transit) warehouse, else destination
+        dest_wh = str(item.get("warehouse_name") or "").strip()
+        transit_wh = str(item.get("transit_warehouse_name") or "").strip()
+        pickup_wh = transit_wh or dest_wh
+        warehouses = repository.list_supply_warehouses(user_id=owner_id)
+        wh_addr = next(
+            (str(w.get("address") or "").strip() for w in warehouses
+             if str(w.get("warehouse_name") or "").strip() == pickup_wh),
+            "",
+        )
+        recipient_line = "ООО «Интернет решения»" + (f", {wh_addr}" if wh_addr else "")
+
         mon_names = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря']
         for ph, val in [
             ("{{TTN_NUMBER}}",      supply_num),
             ("{{ORG_FULL}}",        org_line),
             ("{{SUPPLIER}}",        org_line),
             ("{{PAYER}}",           org_line),
+            ("{{RECIPIENT}}",       recipient_line),
             ("{{ORDER_DATE}}",      supply_num),
             ("{{DOC_NUM_VAL}}",     supply_num),
             ("{{DOC_DATE_VAL}}",    supply_date_disp),
