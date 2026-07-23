@@ -5709,6 +5709,7 @@ function _bindRenderTable(rows) {
       cell.style.cssText = isHeader
         ? "padding:4px 8px;border:1px solid #e2e8f0;background:#f1f5f9;font-size:11px;white-space:nowrap;color:#475569;max-width:160px;overflow:hidden;text-overflow:ellipsis"
         : "padding:3px 8px;border:1px solid #f1f5f9;font-size:11px;white-space:nowrap;max-width:160px;overflow:hidden;text-overflow:ellipsis";
+      tr.appendChild(cell);
     });
     return tr;
   };
