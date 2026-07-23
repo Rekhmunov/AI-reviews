@@ -5492,8 +5492,8 @@ async function _bindFindSheetPath(zip) {
 }
 
 function _bindExtractRows(sheetXml) {
-  // Extract <row ...>...</row> elements from sheetData
-  const sdMatch = sheetXml.match(/<sheetData>([\s\S]*?)<\/sheetData>/);
+  // Extract <row ...>...</row> elements from sheetData (handle attributes on sheetData tag)
+  const sdMatch = sheetXml.match(/<sheetData[^>]*>([\s\S]*?)<\/sheetData>/);
   if (!sdMatch) return [];
   const sdContent = sdMatch[1];
   const rows = [];
@@ -5638,39 +5638,51 @@ async function _bindParseXlsxRows(arrayBuffer) {
     const sheetXml = sheetPath ? await zip.files[sheetPath]?.async("text") : null;
     if (!sheetXml) return null;
 
-    let sharedStrings = [];
-    if (zip.files["xl/sharedStrings.xml"]) {
-      const ssXml = await zip.files["xl/sharedStrings.xml"].async("text");
-      sharedStrings = _bindGetSharedStrings(ssXml);
-    }
+    // _bindGetSharedStrings expects zip object (async, parses xl/sharedStrings.xml internally)
+    const sharedStrings = await _bindGetSharedStrings(zip);
 
     const rowXmls = _bindExtractRows(sheetXml);
     const unescape = s => s.replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&apos;/g,"'").replace(/&quot;/g,'"');
+
+    // Convert column letter(s) to 0-based index: A→0, B→1, Z→25, AA→26 ...
+    const colIdx = ref => {
+      const letters = (ref || "").replace(/[^A-Za-z]/g, "").toUpperCase();
+      let n = 0;
+      for (let i = 0; i < letters.length; i++) n = n * 26 + (letters.charCodeAt(i) - 64);
+      return n - 1;
+    };
+
     return rowXmls.map(rowXml => {
-      const cells = [];
-      // Match each cell including its full content
-      const cellRe = /<c(\s[^>]*)>([\s\S]*?)<\/c>/g;
+      const sparse = {}; // col index → value
+      let maxCol = -1;
+      // Match both regular <c ...>...</c> and self-closing <c ... />
+      const cellRe = /<c(\s[^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g;
       let cm;
       while ((cm = cellRe.exec(rowXml)) !== null) {
-        const attrs = cm[1], inner = cm[2];
+        const attrs = cm[1], inner = cm[2] || "";
+        const refM = /\br="([^"]+)"/.exec(attrs);
+        const col = refM ? colIdx(refM[1]) : maxCol + 1;
+        if (col > maxCol) maxCol = col;
         const typeM = /\bt="([^"]*)"/.exec(attrs);
         const t = typeM ? typeM[1] : "";
         let val = "";
         if (t === "s") {
-          // Shared string index
           const vM = /<v>(\d+)<\/v>/.exec(inner);
-          if (vM) val = sharedStrings[parseInt(vM[1])] || "";
+          if (vM) val = sharedStrings[parseInt(vM[1])] ?? "";
         } else if (t === "inlineStr") {
-          // Inline string: <is><t>...</t></is>
-          const tM = /<t[^>]*>([^<]*)<\/t>/.exec(inner);
-          if (tM) val = unescape(tM[1]);
+          const parts = []; const tRe = /<t[^>]*>([^<]*)<\/t>/g; let tm;
+          while ((tm = tRe.exec(inner)) !== null) parts.push(unescape(tm[1]));
+          val = parts.join("");
         } else {
-          // Numeric / formula result / bool
+          // Numeric / formula / bool / date
           const vM = /<v>([^<]*)<\/v>/.exec(inner);
           if (vM) val = vM[1].trim();
         }
-        cells.push(val);
+        sparse[col] = val;
       }
+      // Convert sparse map to dense array (fill gaps with "")
+      const cells = [];
+      for (let i = 0; i <= maxCol; i++) cells.push(sparse[i] ?? "");
       return cells;
     });
   } catch(_) { return null; }
@@ -5680,17 +5692,29 @@ async function _bindParseXlsxRows(arrayBuffer) {
 function _bindRenderTable(rows) {
   if (!rows || !rows.length) return '<p style="color:#94a3b8;font-size:12px;margin:4px 0">Нет данных</p>';
   const [header, ...data] = rows;
-  const th = header.map(h => `<th style="padding:4px 8px;border:1px solid #e2e8f0;background:#f1f5f9;font-size:11px;white-space:nowrap;color:#475569">${esc(h)}</th>`).join("");
-  const trs = data.map(row =>
-    `<tr>${row.map(c => `<td style="padding:3px 8px;border:1px solid #f1f5f9;font-size:11px;white-space:nowrap;max-width:240px;overflow:hidden;text-overflow:ellipsis">${esc(c)}</td>`).join("")}</tr>`
+  // Limit preview to first 8 columns so the table fits in the dialog
+  const MAX_COLS = 8;
+  const colCount = Math.min(header.length, MAX_COLS);
+  const trimmed = header.length > MAX_COLS;
+  const th = header.slice(0, colCount).map(h =>
+    `<th style="padding:4px 8px;border:1px solid #e2e8f0;background:#f1f5f9;font-size:11px;white-space:nowrap;color:#475569;max-width:160px;overflow:hidden;text-overflow:ellipsis">${esc(String(h || ""))}</th>`
   ).join("");
-  return `<div style="overflow-x:auto;margin:4px 0 8px">
-    <table style="border-collapse:collapse;font-size:11px">
+  const PREVIEW_ROWS = 20;
+  const slice = data.slice(0, PREVIEW_ROWS);
+  const trs = slice.map(row =>
+    `<tr>${row.slice(0, colCount).map(c =>
+      `<td style="padding:3px 8px;border:1px solid #f1f5f9;font-size:11px;white-space:nowrap;max-width:160px;overflow:hidden;text-overflow:ellipsis">${esc(String(c ?? ""))}</td>`
+    ).join("")}</tr>`
+  ).join("");
+  const moreRows = data.length > PREVIEW_ROWS ? `<span style="font-size:11px;color:#94a3b8"> … ещё ${data.length - PREVIEW_ROWS} строк</span>` : "";
+  const moreCols = trimmed ? `<span style="font-size:11px;color:#94a3b8"> (показаны первые ${MAX_COLS} из ${header.length} столбцов)</span>` : "";
+  return `<div style="max-width:680px;overflow-x:auto;margin:4px 0 8px;border:1px solid #e2e8f0;border-radius:4px">
+    <table style="border-collapse:collapse;font-size:11px;width:100%">
       <thead><tr>${th}</tr></thead>
       <tbody>${trs}</tbody>
     </table>
-    <span style="font-size:11px;color:#94a3b8">${data.length} строк(и)</span>
-  </div>`;
+  </div>
+  <span style="font-size:11px;color:#64748b">${data.length} строк(и)${moreRows ? ` (показаны первые ${PREVIEW_ROWS})` : ""}${moreCols}</span>${moreRows}`;
 }
 
 // Create a log line element with ▶ toggle preview and optional nested content
