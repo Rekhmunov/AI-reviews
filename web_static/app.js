@@ -3709,10 +3709,12 @@ async function downloadTTN(supplyId) {
   const orgReq  = le.requisites || "";
   const orgLine = [orgFull, orgReq].filter(Boolean).join(", ");
 
+  if (!_supplyWarehousesCache.length) await loadSupplyWarehouses();
   const destWh  = (item.warehouse_name || "").trim();
   const whMap   = Object.fromEntries(_supplyWarehousesCache.map((w) => [w.warehouse_name, w.address]));
   const whAddr  = whMap[destWh] || "";
-  const recipientLine = [destWh, whAddr].filter(Boolean).join(", ");
+  // Recipient: WB entity name + address from warehouse settings
+  const recipientLine = "ООО «РВБ»" + (whAddr ? `, ${whAddr}` : "");
 
   const driverName = item.driver_name || "";
   const pallets    = parseInt(item.pallets_count) || 0;
@@ -3767,6 +3769,7 @@ async function downloadTTN(supplyId) {
   docXml = rpl(docXml, "{{ORG_FULL}}",   orgLine);
   docXml = rpl(docXml, "{{SUPPLIER}}",   orgLine);
   docXml = rpl(docXml, "{{PAYER}}",      orgLine);
+  docXml = rpl(docXml, "{{RECIPIENT}}",  recipientLine);
   docXml = rpl(docXml, "{{ORDER_DATE}}",  supplyId_);
   docXml = rpl(docXml, "{{DOC_NUM_VAL}}",supplyId_);
   docXml = rpl(docXml, "{{DOC_DATE_VAL}}",dateDisp);
@@ -12738,7 +12741,10 @@ async function _printTTN_html_fallback(supplyId) {
   const supplyDate = item.supply_date
     ? new Date(item.supply_date).toLocaleDateString("ru-RU",{day:"2-digit",month:"2-digit",year:"numeric"})
     : dateDisp;
+  if (!_supplyWarehousesCache.length) await loadSupplyWarehouses();
   const wh = (item.warehouse_name || "").trim();
+  const whAddrFb = (_supplyWarehousesCache.find(w => w.warehouse_name === wh) || {}).address || "";
+  const recipientLineFb = "ООО «РВБ»" + (whAddrFb ? `, ${whAddrFb}` : "");
   const supplyId_ = String(item.supply_id || "");
   const driverName = item.driver_name || "";
   const VAT_RATE = 0.22;
@@ -12832,7 +12838,7 @@ body{font-family:"Times New Roman",serif;font-size:7.5pt;color:#000}
 <!-- HEADER: org info left, codes right -->
 <table class="t-hdr"><tr>
   <td class="td-org">
-    <div><b>Организация–грузоотправитель:</b> ООО «РВБ», Ногинский район, г.Электросталь, посёлок Случайный, д.5</div>
+    <div><b>Организация–грузоотправитель:</b> ${esc(recipientLineFb)}</div>
     <div style="font-size:6pt;color:#555">организация–грузоотправитель, адрес, номер телефона, банковские реквизиты / структурное подразделение</div>
   </td>
   <td class="td-codes" rowspan="5">
@@ -12846,7 +12852,7 @@ body{font-family:"Times New Roman",serif;font-size:7.5pt;color:#000}
   </td>
 </tr><tr>
   <td class="td-org" style="padding-top:3pt">
-    <div><b>Грузоотправитель:</b> ООО «РВБ», Ногинский район, г.Электросталь, посёлок Случайный, д.5</div>
+    <div><b>Грузоотправитель:</b> ${esc(recipientLineFb)}</div>
     <div style="font-size:6pt;color:#555">наименование организации, адрес, номер телефона, банковские реквизиты</div>
   </td>
 </tr><tr>

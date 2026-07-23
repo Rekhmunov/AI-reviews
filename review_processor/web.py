@@ -8353,6 +8353,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         VAT_RATE        = 0.22
         wh              = str(item.get("warehouse_name") or "").strip()
 
+        # ── Recipient (consignee) line from warehouse settings ─────────────
+        warehouses = repository.list_supply_warehouses(user_id=owner_id)
+        wh_addr = next((str(w.get("address") or "").strip() for w in warehouses
+                        if str(w.get("warehouse_name") or "").strip() == wh), "")
+        recipient_line = "ООО «РВБ»" + (f", {wh_addr}" if wh_addr else "")
+
         # ── Goods list ─────────────────────────────────────────────────────
         goods_list = _fetch_supply_goods_cached(owner_id, supply_id)
         name_map = repository.get_product_name_by_article(user_id=owner_id)
@@ -8494,6 +8500,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             ("{{ORG_FULL}}",        org_line),
             ("{{SUPPLIER}}",        org_line),
             ("{{PAYER}}",           org_line),
+            ("{{RECIPIENT}}",       recipient_line),
             ("{{ORDER_DATE}}",      supply_id_str),
             ("{{DOC_NUM_VAL}}",     supply_id_str),
             ("{{DOC_DATE_VAL}}",    supply_date_disp),
