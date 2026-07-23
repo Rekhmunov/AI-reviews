@@ -5562,8 +5562,8 @@ function ozonBindDownload() {
     // Preview button
     const ozPrevId = "ozDlPrev" + (++_bindPreviewCounter);
     const ozPrevBtn = document.createElement("button");
-    ozPrevBtn.className = "secondary";
-    ozPrevBtn.style.cssText = "font-size:11px;padding:1px 5px;flex-shrink:0;min-width:24px";
+    
+    ozPrevBtn.style.cssText = "cursor:pointer;color:#2563eb;font-size:11px;flex-shrink:0;user-select:none;padding:0 4px";
     ozPrevBtn.textContent = "▶"; ozPrevBtn.title = "Показать содержимое";
     const ozPrevContent = document.createElement("div");
     ozPrevContent.id = ozPrevId; ozPrevContent.style.cssText = "display:none;width:100%;padding-left:16px;margin-top:4px";
@@ -5645,24 +5645,29 @@ async function _bindParseXlsxRows(arrayBuffer) {
     }
 
     const rowXmls = _bindExtractRows(sheetXml);
+    const unescape = s => s.replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&apos;/g,"'").replace(/&quot;/g,'"');
     return rowXmls.map(rowXml => {
       const cells = [];
-      const cellRe = /<c\s[^>]*>([\s\S]*?)<\/c>/g;
+      // Match each cell including its full content
+      const cellRe = /<c(\s[^>]*)>([\s\S]*?)<\/c>/g;
       let cm;
       while ((cm = cellRe.exec(rowXml)) !== null) {
-        const full = cm[0], inner = cm[1];
-        const typeM = /\bt="([^"]*)/.exec(full);
+        const attrs = cm[1], inner = cm[2];
+        const typeM = /\bt="([^"]*)"/.exec(attrs);
         const t = typeM ? typeM[1] : "";
         let val = "";
         if (t === "s") {
+          // Shared string index
           const vM = /<v>(\d+)<\/v>/.exec(inner);
           if (vM) val = sharedStrings[parseInt(vM[1])] || "";
         } else if (t === "inlineStr") {
-          const tM = /<t[^>]*>([\s\S]*?)<\/t>/.exec(inner);
-          if (tM) val = tM[1].replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&apos;/g,"'").replace(/&quot;/g,'"');
+          // Inline string: <is><t>...</t></is>
+          const tM = /<t[^>]*>([^<]*)<\/t>/.exec(inner);
+          if (tM) val = unescape(tM[1]);
         } else {
-          const vM = /<v>([\s\S]*?)<\/v>/.exec(inner);
-          if (vM) val = vM[1];
+          // Numeric / formula result / bool
+          const vM = /<v>([^<]*)<\/v>/.exec(inner);
+          if (vM) val = vM[1].trim();
         }
         cells.push(val);
       }
@@ -5710,9 +5715,8 @@ function _bindMakePreviewLine(lineHtml, getRowsAsync, lineType, nestedEl) {
   if (nestedEl) content.appendChild(nestedEl);
 
   if (getRowsAsync || nestedEl) {
-    const btn = document.createElement("button");
-    btn.className = "secondary";
-    btn.style.cssText = "font-size:11px;padding:1px 5px;flex-shrink:0;min-width:24px;margin-top:1px";
+    const btn = document.createElement("span");
+    btn.style.cssText = "cursor:pointer;color:#2563eb;font-size:11px;flex-shrink:0;user-select:none;padding:0 4px";
     btn.textContent = "▶";
     btn.title = "Показать содержимое";
     btn.onclick = async () => {
@@ -5921,8 +5925,8 @@ function wbBindDownload() {
     // Preview button for the output file
     const prevId = "wbDlPrev" + (++_bindPreviewCounter);
     const prevBtn = document.createElement("button");
-    prevBtn.className = "secondary";
-    prevBtn.style.cssText = "font-size:11px;padding:1px 5px;flex-shrink:0;min-width:24px";
+    
+    prevBtn.style.cssText = "cursor:pointer;color:#2563eb;font-size:11px;flex-shrink:0;user-select:none;padding:0 4px";
     prevBtn.textContent = "▶"; prevBtn.title = "Показать содержимое";
     const prevContent = document.createElement("div");
     prevContent.id = prevId; prevContent.style.cssText = "display:none;width:100%;padding-left:16px;margin-top:4px";
