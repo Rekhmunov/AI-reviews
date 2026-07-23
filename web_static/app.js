@@ -5700,10 +5700,10 @@ function _bindMakePreviewLine(lineHtml, getRowsAsync, lineType, nestedEl) {
   wrap.style.cssText = "margin:2px 0";
 
   const topRow = document.createElement("div");
-  topRow.style.cssText = "display:flex;align-items:flex-start;gap:6px";
+  topRow.style.cssText = "display:flex;align-items:flex-start;gap:4px;flex-wrap:wrap";
 
   const textSpan = document.createElement("span");
-  textSpan.style.cssText = "flex:1;font-size:13px";
+  textSpan.style.cssText = "font-size:13px";
   textSpan.innerHTML = lineHtml;
   if (lineType === "err") textSpan.style.color = "#b91c1c";
   else if (lineType === "ok") textSpan.style.color = "#16a34a";
