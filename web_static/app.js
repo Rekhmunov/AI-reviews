@@ -2419,7 +2419,11 @@ function _renderSupplyDocButtons(item) {
   // Status indicators: visible even when collapsed
   const docTip = validSlots.map(s => s.pass_number).filter(Boolean).join("\n");
   const driverSlots = slots.filter(s => _effectiveName(s));
-  const driverTip = driverSlots.map(s => _effectiveName(s)).join("\n");
+  const driverTip = driverSlots.map(s => {
+    const name = _effectiveName(s);
+    const pal = parseInt(s.pallets_count) || 0;
+    return pal ? `${name} (${pal} пал.)` : name;
+  }).join("\n");
 
   // Wrap in collapsible toggle (independent per row, no auto-close on others)
   if (docsHtml) {
