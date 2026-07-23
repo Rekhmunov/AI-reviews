@@ -5561,8 +5561,7 @@ function ozonBindDownload() {
     btn.textContent = "⬇ Скачать";
     // Preview button
     const ozPrevId = "ozDlPrev" + (++_bindPreviewCounter);
-    const ozPrevBtn = document.createElement("button");
-    
+    const ozPrevBtn = document.createElement("span");
     ozPrevBtn.style.cssText = "cursor:pointer;color:#2563eb;font-size:11px;flex-shrink:0;user-select:none;padding:0 4px";
     ozPrevBtn.textContent = "▶"; ozPrevBtn.title = "Показать содержимое";
     const ozPrevContent = document.createElement("div");
@@ -5983,8 +5982,7 @@ function wbBindDownload() {
     btn.textContent = "⬇ Скачать";
     // Preview button for the output file
     const prevId = "wbDlPrev" + (++_bindPreviewCounter);
-    const prevBtn = document.createElement("button");
-    
+    const prevBtn = document.createElement("span");
     prevBtn.style.cssText = "cursor:pointer;color:#2563eb;font-size:11px;flex-shrink:0;user-select:none;padding:0 4px";
     prevBtn.textContent = "▶"; prevBtn.title = "Показать содержимое";
     const prevContent = document.createElement("div");
