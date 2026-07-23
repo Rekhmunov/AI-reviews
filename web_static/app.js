@@ -2417,19 +2417,21 @@ function _renderSupplyDocButtons(item) {
   });
 
   // Status indicators: visible even when collapsed
-  const hasDriver = slots.some(s => _effectiveName(s));
+  const docTip = validSlots.map(s => s.pass_number).filter(Boolean).join("\n");
+  const driverSlots = slots.filter(s => _effectiveName(s));
+  const driverTip = driverSlots.map(s => _effectiveName(s)).join("\n");
 
   // Wrap in collapsible toggle (independent per row, no auto-close on others)
   if (docsHtml) {
     const sid = item.supply_id;
-    const driverBadge = hasDriver
-      ? `<span class="supply-status-icon supply-status-icon--driver" title="Водитель введён">👤</span>`
+    const driverBadge = driverSlots.length
+      ? `<span class="supply-status-icon supply-status-icon--driver" title="${esc(driverTip)}">👤</span>`
       : "";
     html += `<div class="supply-docs-toggle-row">
       <button class="supply-docs-toggle" onclick="toggleSupplyDocs(this,'${sid}')">
         <span class="supply-docs-arrow">▶</span> Скачать документы
       </button>
-      <span class="supply-status-icon supply-status-icon--doc" title="ШК поставки введён">📋</span>
+      <span class="supply-status-icon supply-status-icon--doc" title="${esc(docTip)}">📋</span>
       ${driverBadge}
     </div>
     <div class="supply-docs-collapse hidden" id="supply-docs-${sid}">${docsHtml}</div>`;
