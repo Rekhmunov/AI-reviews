@@ -5258,8 +5258,9 @@ async function ozonBindOnFiles(fileList) {
           if (!fname.toLowerCase().endsWith(".xlsx")) continue;
           const xlsxBuf = await entry.async("arraybuffer");
           const norm = _bindNormName(fname);
-          _ozonBindFiles.push({ name: fname, normalizedName: norm, arrayBuffer: xlsxBuf });
-          _bindLog(`  ✓ Из архива: <b>${esc(fname)}</b>`, "ok");
+          const oze = { name: fname, normalizedName: norm, arrayBuffer: xlsxBuf };
+          _ozonBindFiles.push(oze);
+          _bindLogEl("ozonBindLog", _bindMakePreviewLine(`  ✓ Из архива: <b>${esc(fname)}</b>`, () => _bindParseXlsxRows(oze.arrayBuffer), "ok"));
           xlsxCount++;
           added++;
         }
@@ -5274,8 +5275,9 @@ async function ozonBindOnFiles(fileList) {
     } else {
       // Regular xlsx
       const norm = _bindNormName(file.name);
-      _ozonBindFiles.push({ name: file.name, normalizedName: norm, arrayBuffer: buf });
-      _bindLog(`✓ Загружен: <b>${esc(file.name)}</b>`, "ok");
+      const oze2 = { name: file.name, normalizedName: norm, arrayBuffer: buf };
+      _ozonBindFiles.push(oze2);
+      _bindLogEl("ozonBindLog", _bindMakePreviewLine(`✓ Загружен: <b>${esc(file.name)}</b>`, () => _bindParseXlsxRows(oze2.arrayBuffer), "ok"));
       added++;
     }
   }
@@ -5339,9 +5341,9 @@ async function ozonBindMerge() {
           <button class="secondary" style="font-size:11px;padding:2px 8px;height:22px;line-height:1"
             onclick="_bindCancelRename('${entryId}')">✕</button>
         </span>`;
-      _bindLog(html, "warn");
       const blob = new Blob([fileRef.arrayBuffer], {type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
-      _ozonBindMerged.push({ name: fileRef.name, blob });
+      _ozonBindMerged.push({ name: fileRef.name, blob, _sources: [fileRef] });
+      _bindLogEl("ozonBindLog", _bindMakePreviewLine(html, () => _bindParseXlsxRows(fileRef.arrayBuffer), "warn"));
       skippedCount++;
       continue;
     }
@@ -5355,8 +5357,12 @@ async function ozonBindMerge() {
       }
       const mergedBlob = await _bindMergeXlsx(files);
       const outputName = files[0].name; // Use first file's original name
-      _ozonBindMerged.push({ name: outputName, blob: mergedBlob });
-      _bindLog(`✅ Объединено → <b>${esc(outputName)}</b> (${files.length} источника)`, "ok");
+      _ozonBindMerged.push({ name: outputName, blob: mergedBlob, _sources: files });
+      const ozSrcEl = document.createElement("div");
+      for (const sf of files) {
+        ozSrcEl.appendChild(_bindMakePreviewLine(`📄 ${esc(sf.name)}`, () => _bindParseXlsxRows(sf.arrayBuffer), ""));
+      }
+      _bindLogEl("ozonBindLog", _bindMakePreviewLine(`✅ Объединено → <b>${esc(outputName)}</b> (${files.length} источника)`, null, "ok", ozSrcEl));
       mergedCount++;
     } catch (e) {
       _bindLog(`<span style="color:#b91c1c">❌ Ошибка объединения «${esc(files[0].name)}»: ${esc(String(e))}</span>`, "err");
@@ -5547,13 +5553,34 @@ function ozonBindDownload() {
   _bindLog("═══════════════════════════════", "info");
   _bindLog(`📂 Готово к скачиванию <b>${_ozonBindMerged.length}</b> файлов — нажмите каждую кнопку:`, "info");
   _ozonBindMerged.forEach(({ name, blob }, i) => {
-    const url = URL.createObjectURL(blob);
     const line = document.createElement("div");
-    line.style.cssText = "display:flex;align-items:center;gap:8px;margin:3px 0";
+    line.style.cssText = "display:flex;align-items:center;gap:8px;margin:3px 0;flex-wrap:wrap";
     const btn = document.createElement("button");
     btn.className = "secondary";
     btn.style.cssText = "font-size:12px;padding:3px 10px;flex-shrink:0";
     btn.textContent = "⬇ Скачать";
+    // Preview button
+    const ozPrevId = "ozDlPrev" + (++_bindPreviewCounter);
+    const ozPrevBtn = document.createElement("button");
+    ozPrevBtn.className = "secondary";
+    ozPrevBtn.style.cssText = "font-size:11px;padding:1px 5px;flex-shrink:0;min-width:24px";
+    ozPrevBtn.textContent = "▶"; ozPrevBtn.title = "Показать содержимое";
+    const ozPrevContent = document.createElement("div");
+    ozPrevContent.id = ozPrevId; ozPrevContent.style.cssText = "display:none;width:100%;padding-left:16px;margin-top:4px";
+    ozPrevBtn.onclick = async () => {
+      const isOpen = ozPrevContent.style.display !== "none";
+      if (isOpen) { ozPrevContent.style.display = "none"; ozPrevBtn.textContent = "▶"; }
+      else {
+        ozPrevContent.style.display = ""; ozPrevBtn.textContent = "▼";
+        if (!ozPrevContent.dataset.loaded) {
+          ozPrevContent.dataset.loaded = "1";
+          ozPrevContent.innerHTML = '<span style="color:#94a3b8;font-size:12px">Загрузка…</span>';
+          const ab = await new Promise(res => { const fr = new FileReader(); fr.onloadend = () => res(fr.result); fr.readAsArrayBuffer(blob); });
+          const rows = await _bindParseXlsxRows(ab);
+          ozPrevContent.innerHTML = _bindRenderTable(rows);
+        }
+      }
+    };
     btn.onclick = async () => {
       // Convert blob to base64 and embed in an HTML page that opens in new tab
       // This is the only cross-browser way to get both: new tab + correct filename
@@ -5589,11 +5616,130 @@ function ozonBindDownload() {
     nameSpan.textContent = name;
     line.appendChild(btn);
     line.appendChild(nameSpan);
+    line.appendChild(ozPrevBtn);
+    line.appendChild(ozPrevContent);
     const log = document.getElementById("ozonBindLog");
     if (log) { log.appendChild(line); log.scrollTop = log.scrollHeight; }
   });
 }
 window.ozonBindDownload = ozonBindDownload;
+
+// ── Binding: Excel preview utilities (shared WB + OZON) ───────────────────
+
+let _bindPreviewCounter = 0;
+
+// Parse XLSX ArrayBuffer → 2D array of strings [[row0cell0, row0cell1,...], ...]
+async function _bindParseXlsxRows(arrayBuffer) {
+  const JSZip = window.JSZip;
+  if (!JSZip || !arrayBuffer) return null;
+  try {
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const sheetPath = await _bindFindSheetPath(zip);
+    const sheetXml = sheetPath ? await zip.files[sheetPath]?.async("text") : null;
+    if (!sheetXml) return null;
+
+    let sharedStrings = [];
+    if (zip.files["xl/sharedStrings.xml"]) {
+      const ssXml = await zip.files["xl/sharedStrings.xml"].async("text");
+      sharedStrings = _bindGetSharedStrings(ssXml);
+    }
+
+    const rowXmls = _bindExtractRows(sheetXml);
+    return rowXmls.map(rowXml => {
+      const cells = [];
+      const cellRe = /<c\s[^>]*>([\s\S]*?)<\/c>/g;
+      let cm;
+      while ((cm = cellRe.exec(rowXml)) !== null) {
+        const full = cm[0], inner = cm[1];
+        const typeM = /\bt="([^"]*)/.exec(full);
+        const t = typeM ? typeM[1] : "";
+        let val = "";
+        if (t === "s") {
+          const vM = /<v>(\d+)<\/v>/.exec(inner);
+          if (vM) val = sharedStrings[parseInt(vM[1])] || "";
+        } else if (t === "inlineStr") {
+          const tM = /<t[^>]*>([\s\S]*?)<\/t>/.exec(inner);
+          if (tM) val = tM[1].replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&apos;/g,"'").replace(/&quot;/g,'"');
+        } else {
+          const vM = /<v>([\s\S]*?)<\/v>/.exec(inner);
+          if (vM) val = vM[1];
+        }
+        cells.push(val);
+      }
+      return cells;
+    });
+  } catch(_) { return null; }
+}
+
+// Render 2D array as HTML table string
+function _bindRenderTable(rows) {
+  if (!rows || !rows.length) return '<p style="color:#94a3b8;font-size:12px;margin:4px 0">Нет данных</p>';
+  const [header, ...data] = rows;
+  const th = header.map(h => `<th style="padding:4px 8px;border:1px solid #e2e8f0;background:#f1f5f9;font-size:11px;white-space:nowrap;color:#475569">${esc(h)}</th>`).join("");
+  const trs = data.map(row =>
+    `<tr>${row.map(c => `<td style="padding:3px 8px;border:1px solid #f1f5f9;font-size:11px;white-space:nowrap;max-width:240px;overflow:hidden;text-overflow:ellipsis">${esc(c)}</td>`).join("")}</tr>`
+  ).join("");
+  return `<div style="overflow-x:auto;margin:4px 0 8px">
+    <table style="border-collapse:collapse;font-size:11px">
+      <thead><tr>${th}</tr></thead>
+      <tbody>${trs}</tbody>
+    </table>
+    <span style="font-size:11px;color:#94a3b8">${data.length} строк(и)</span>
+  </div>`;
+}
+
+// Create a log line element with ▶ toggle preview and optional nested content
+function _bindMakePreviewLine(lineHtml, getRowsAsync, lineType, nestedEl) {
+  const id = "bindPrev" + (++_bindPreviewCounter);
+  const wrap = document.createElement("div");
+  wrap.style.cssText = "margin:2px 0";
+
+  const topRow = document.createElement("div");
+  topRow.style.cssText = "display:flex;align-items:flex-start;gap:6px";
+
+  const textSpan = document.createElement("span");
+  textSpan.style.cssText = "flex:1;font-size:13px";
+  textSpan.innerHTML = lineHtml;
+  if (lineType === "err") textSpan.style.color = "#b91c1c";
+  else if (lineType === "ok") textSpan.style.color = "#16a34a";
+  else if (lineType === "warn") textSpan.style.color = "#d97706";
+
+  const content = document.createElement("div");
+  content.id = id;
+  content.style.cssText = "display:none;padding-left:16px";
+  if (nestedEl) content.appendChild(nestedEl);
+
+  if (getRowsAsync || nestedEl) {
+    const btn = document.createElement("button");
+    btn.className = "secondary";
+    btn.style.cssText = "font-size:11px;padding:1px 5px;flex-shrink:0;min-width:24px;margin-top:1px";
+    btn.textContent = "▶";
+    btn.title = "Показать содержимое";
+    btn.onclick = async () => {
+      const isOpen = content.style.display !== "none";
+      if (isOpen) {
+        content.style.display = "none"; btn.textContent = "▶";
+      } else {
+        content.style.display = "";  btn.textContent = "▼";
+        if (getRowsAsync && !content.dataset.loaded) {
+          content.dataset.loaded = "1";
+          content.innerHTML = '<span style="color:#94a3b8;font-size:12px">Загрузка…</span>';
+          const rows = await getRowsAsync();
+          content.innerHTML = _bindRenderTable(rows);
+          if (nestedEl) content.appendChild(nestedEl);
+        }
+      }
+    };
+    topRow.appendChild(textSpan);
+    topRow.appendChild(btn);
+  } else {
+    topRow.appendChild(textSpan);
+  }
+
+  wrap.appendChild(topRow);
+  wrap.appendChild(content);
+  return wrap;
+}
 
 function _bindLogTo(logId, html, type) {
   const log = document.getElementById(logId);
@@ -5605,6 +5751,13 @@ function _bindLogTo(logId, html, type) {
   else if (type === "ok") line.style.color = "#16a34a";
   else if (type === "warn") line.style.color = "#d97706";
   log.appendChild(line);
+  log.scrollTop = log.scrollHeight;
+}
+function _bindLogEl(logId, el) {
+  const log = document.getElementById(logId);
+  if (!log) return;
+  if (log.querySelector("span[style*='94a3b8']")) log.innerHTML = "";
+  log.appendChild(el);
   log.scrollTop = log.scrollHeight;
 }
 function _bindLog(html, type) { _bindLogTo("ozonBindLog", html, type); }
@@ -5649,14 +5802,16 @@ async function wbBindOnFiles(fileList) {
         for (const path of xlsxFiles) {
           const ab = await zip.files[path].async("arraybuffer");
           const fname = path.split("/").pop();
-          _wbBindFiles.push({ name: fname, normalizedName: _bindNormName(fname), arrayBuffer: ab });
-          _bindLogTo("wbBindLog", `📄 ${esc(fname)} (из zip)`, "");
+          const ze = { name: fname, normalizedName: _bindNormName(fname), arrayBuffer: ab };
+          _wbBindFiles.push(ze);
+          _bindLogEl("wbBindLog", _bindMakePreviewLine(`📄 ${esc(fname)} (из zip)`, () => _bindParseXlsxRows(ze.arrayBuffer), ""));
         }
       } catch(e) { _bindLogTo("wbBindLog", `❌ Ошибка zip: ${esc(file.name)} — ${esc(String(e))}`, "err"); }
     } else {
       const ab = await file.arrayBuffer();
-      _wbBindFiles.push({ name: file.name, normalizedName: _bindNormName(file.name), arrayBuffer: ab });
-      _bindLogTo("wbBindLog", `📄 ${esc(file.name)}`, "");
+      const entry = { name: file.name, normalizedName: _bindNormName(file.name), arrayBuffer: ab };
+      _wbBindFiles.push(entry);
+      _bindLogEl("wbBindLog", _bindMakePreviewLine(`📄 ${esc(file.name)}`, () => _bindParseXlsxRows(entry.arrayBuffer), ""));
     }
   }
   const mb = document.getElementById("wbBindMergeBtn");
@@ -5690,16 +5845,28 @@ async function wbBindMerge() {
     if (files.length === 1) {
       const f = files[0];
       const renamed = f._renamedAs || f.name;
-      _bindLogTo("wbBindLog",
+      const mergedEntry = { name: renamed, blob: new Blob([f.arrayBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), _sources: [f] };
+      _wbBindMerged.push(mergedEntry);
+      _bindLogEl("wbBindLog", _bindMakePreviewLine(
         `⚠ <b>${esc(f.name)}</b> — одиночный файл. ` +
         `<button onclick="_wbBindStartRename('${esc(f.name)}')" style="font-size:12px;padding:2px 6px">Переименовать</button>`,
-        "warn");
-      _wbBindMerged.push({ name: renamed, blob: new Blob([f.arrayBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }) });
+        () => _bindParseXlsxRows(f.arrayBuffer), "warn"
+      ));
     } else {
       try {
         const blob = await _bindMergeXlsx(files);
-        _wbBindMerged.push({ name: files[0].name, blob });
-        _bindLogTo("wbBindLog", `✅ Объединено ${files.length} файл(ов) → <b>${esc(files[0].name)}</b>`, "ok");
+        const mergedEntry = { name: files[0].name, blob, _sources: files };
+        _wbBindMerged.push(mergedEntry);
+        // Build nested sources element
+        const sourcesEl = document.createElement("div");
+        for (const sf of files) {
+          const sfEl = _bindMakePreviewLine(`📄 ${esc(sf.name)}`, () => _bindParseXlsxRows(sf.arrayBuffer), "");
+          sourcesEl.appendChild(sfEl);
+        }
+        _bindLogEl("wbBindLog", _bindMakePreviewLine(
+          `✅ Объединено ${files.length} файл(ов) → <b>${esc(files[0].name)}</b>`,
+          null, "ok", sourcesEl
+        ));
       } catch(e) {
         _bindLogTo("wbBindLog", `❌ Ошибка слияния группы «${esc(normName)}»: ${esc(String(e))}`, "err");
       }
@@ -5746,11 +5913,33 @@ function wbBindDownload() {
   const log = document.getElementById("wbBindLog");
   _wbBindMerged.forEach(({ name, blob }) => {
     const line = document.createElement("div");
-    line.style.cssText = "display:flex;align-items:center;gap:8px;margin:3px 0";
+    line.style.cssText = "display:flex;align-items:center;gap:8px;margin:3px 0;flex-wrap:wrap";
     const btn = document.createElement("button");
     btn.className = "secondary";
     btn.style.cssText = "font-size:12px;padding:3px 10px;flex-shrink:0";
     btn.textContent = "⬇ Скачать";
+    // Preview button for the output file
+    const prevId = "wbDlPrev" + (++_bindPreviewCounter);
+    const prevBtn = document.createElement("button");
+    prevBtn.className = "secondary";
+    prevBtn.style.cssText = "font-size:11px;padding:1px 5px;flex-shrink:0;min-width:24px";
+    prevBtn.textContent = "▶"; prevBtn.title = "Показать содержимое";
+    const prevContent = document.createElement("div");
+    prevContent.id = prevId; prevContent.style.cssText = "display:none;width:100%;padding-left:16px;margin-top:4px";
+    prevBtn.onclick = async () => {
+      const isOpen = prevContent.style.display !== "none";
+      if (isOpen) { prevContent.style.display = "none"; prevBtn.textContent = "▶"; }
+      else {
+        prevContent.style.display = ""; prevBtn.textContent = "▼";
+        if (!prevContent.dataset.loaded) {
+          prevContent.dataset.loaded = "1";
+          prevContent.innerHTML = '<span style="color:#94a3b8;font-size:12px">Загрузка…</span>';
+          const ab = await new Promise(res => { const fr = new FileReader(); fr.onloadend = () => res(fr.result); fr.readAsArrayBuffer(blob); });
+          const rows = await _bindParseXlsxRows(ab);
+          prevContent.innerHTML = _bindRenderTable(rows);
+        }
+      }
+    };
     btn.onclick = async () => {
       const dataUrl = await new Promise(resolve => {
         const reader = new FileReader();
@@ -5778,7 +5967,8 @@ function wbBindDownload() {
     const nameSpan = document.createElement("span");
     nameSpan.style.cssText = "font-size:12px;color:#1e293b;word-break:break-all";
     nameSpan.textContent = name;
-    line.appendChild(btn); line.appendChild(nameSpan);
+    line.appendChild(btn); line.appendChild(nameSpan); line.appendChild(prevBtn);
+    line.appendChild(prevContent);
     if (log) { log.appendChild(line); log.scrollTop = log.scrollHeight; }
   });
 }
