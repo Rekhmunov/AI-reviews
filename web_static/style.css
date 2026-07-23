@@ -4791,17 +4791,14 @@ button.secondary.danger:hover {
   padding: 8px 12px;
   border-bottom: 1px solid #f1f5f9;
   vertical-align: middle;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 /* Resizable columns — widths are managed by JS via colgroup */
 .products-table th[data-col] {
   position: relative;
-}
-.products-table td {
-  white-space: nowrap;
 }
 
 .products-table tr:last-child td { border-bottom: none; }
