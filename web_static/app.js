@@ -11377,8 +11377,8 @@ function closeAddProductForm() {
 }
 
 // ── Products table column resizer ────────────────────────────────────────
-const PRODUCTS_COL_WIDTHS_KEY = "products_col_widths_v1";
-const PRODUCTS_DEFAULT_WIDTHS = [22, 23, 16, 16, 23]; // 5 resizable cols (% each)
+const PRODUCTS_COL_WIDTHS_KEY = "products_col_widths_v2";
+const PRODUCTS_DEFAULT_WIDTHS = [8, 20, 20, 14, 14, 14, 10]; // 7 cols: photo, name, seller, wb, ozon, ym, actions
 
 function initProductsColumnResizer() {
   const table = document.getElementById("productsTable");
