@@ -4771,6 +4771,7 @@ button.secondary.danger:hover {
   table-layout: fixed;
   border-collapse: collapse;
   font-size: 14px;
+  min-width: 600px;
 }
 
 .products-table th {
@@ -4793,17 +4794,13 @@ button.secondary.danger:hover {
   white-space: nowrap;
 }
 
-/* Article columns — fixed widths so long slugs don't blow out the layout */
-.products-table th:nth-child(2),
-.products-table td:nth-child(2) { width: 18%; white-space: normal; word-break: break-word; }
-.products-table th:nth-child(3),
-.products-table td:nth-child(3) { width: 20%; }
-.products-table th:nth-child(4),
-.products-table td:nth-child(4) { width: 14%; }
-.products-table th:nth-child(5),
-.products-table td:nth-child(5) { width: 14%; }
-.products-table th:nth-child(6),
-.products-table td:nth-child(6) { width: 20%; }
+/* Resizable columns — widths are managed by JS via colgroup */
+.products-table th[data-col] {
+  position: relative;
+}
+.products-table td {
+  white-space: nowrap;
+}
 
 .products-table tr:last-child td { border-bottom: none; }
 

@@ -11376,6 +11376,67 @@ function closeAddProductForm() {
   document.getElementById("productAddForm")?.classList.add("hidden");
 }
 
+// ── Products table column resizer ────────────────────────────────────────
+const PRODUCTS_COL_WIDTHS_KEY = "products_col_widths_v1";
+const PRODUCTS_DEFAULT_WIDTHS = [22, 23, 16, 16, 23]; // 5 resizable cols (% each)
+
+function initProductsColumnResizer() {
+  const table = document.getElementById("productsTable");
+  if (!table) return;
+  let widths = PRODUCTS_DEFAULT_WIDTHS.slice();
+  try {
+    const saved = JSON.parse(localStorage.getItem(PRODUCTS_COL_WIDTHS_KEY) || "null");
+    if (Array.isArray(saved) && saved.length === widths.length) widths = saved;
+  } catch (_) {}
+  _applyProductsColWidths(widths);
+
+  table.querySelectorAll("th[data-col] .col-resize-handle").forEach(handle => {
+    let startX = 0, colIdx = 0, startWidths = [];
+    handle.addEventListener("mousedown", e => {
+      e.preventDefault();
+      colIdx = parseInt(handle.closest("th").dataset.col);
+      startX = e.clientX;
+      startWidths = _getProductsColWidths();
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+    });
+    function onMove(e) {
+      const tbl = document.getElementById("productsTable");
+      if (!tbl) return;
+      const tableW = tbl.offsetWidth || 1;
+      const deltaPct = ((e.clientX - startX) / tableW) * 100;
+      const next = startWidths.slice();
+      const minPct = 5;
+      const nextIdx = colIdx < next.length - 1 ? colIdx + 1 : colIdx - 1;
+      let cur = Math.max(minPct, startWidths[colIdx] + deltaPct);
+      let nxt = Math.max(minPct, startWidths[nextIdx] - deltaPct);
+      if (nxt < minPct) { cur = startWidths[colIdx] + (startWidths[nextIdx] - minPct); nxt = minPct; }
+      next[colIdx] = Math.round(cur * 10) / 10;
+      next[nextIdx] = Math.round(nxt * 10) / 10;
+      _applyProductsColWidths(next);
+    }
+    function onUp() {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      try { localStorage.setItem(PRODUCTS_COL_WIDTHS_KEY, JSON.stringify(_getProductsColWidths())); } catch (_) {}
+    }
+  });
+}
+
+function _applyProductsColWidths(widths) {
+  const cols = Array.from(document.querySelectorAll("#productsColgroup col[data-col]"));
+  cols.forEach((col, i) => { if (widths[i] !== undefined) col.style.width = widths[i] + "%"; });
+}
+
+function _getProductsColWidths() {
+  const cols = Array.from(document.querySelectorAll("#productsColgroup col[data-col]"));
+  return cols.map((col, i) => parseFloat(col.style.width) || PRODUCTS_DEFAULT_WIDTHS[i] || 20);
+}
+
 async function loadProducts() {
   const tbody = document.getElementById("productsTbody");
   const info = document.getElementById("productsInfo");
@@ -11387,7 +11448,8 @@ async function loadProducts() {
     if (info) info.textContent = `Товаров: ${_productsCache.length}`;
     tbody.innerHTML = "";
     if (!_productsCache.length) {
-      tbody.innerHTML = '<tr><td colspan="6" class="small" style="color:#94a3b8;padding:16px">Нет товаров. Нажмите «+ Добавить товар»</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" class="small" style="color:#94a3b8;padding:16px">Нет товаров. Нажмите «+ Добавить товар»</td></tr>';
+      initProductsColumnResizer();
       return;
     }
     for (const item of _productsCache) {
@@ -11405,6 +11467,7 @@ async function loadProducts() {
         </td>`;
       tbody.appendChild(tr);
     }
+    initProductsColumnResizer();
   } catch (e) {
     if (info) info.textContent = "Ошибка загрузки";
   }
