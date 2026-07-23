@@ -5577,7 +5577,8 @@ function ozonBindDownload() {
           ozPrevContent.innerHTML = '<span style="color:#94a3b8;font-size:12px">Загрузка…</span>';
           const ab = await new Promise(res => { const fr = new FileReader(); fr.onloadend = () => res(fr.result); fr.readAsArrayBuffer(blob); });
           const rows = await _bindParseXlsxRows(ab);
-          ozPrevContent.innerHTML = _bindRenderTable(rows);
+          ozPrevContent.innerHTML = "";
+          ozPrevContent.appendChild(_bindRenderTable(rows));
         }
       }
     };
@@ -5690,31 +5691,64 @@ async function _bindParseXlsxRows(arrayBuffer) {
 
 // Render 2D array as HTML table string
 function _bindRenderTable(rows) {
-  if (!rows || !rows.length) return '<p style="color:#94a3b8;font-size:12px;margin:4px 0">Нет данных</p>';
+  const wrap = document.createElement("div");
+  if (!rows || !rows.length) {
+    wrap.innerHTML = '<p style="color:#94a3b8;font-size:12px;margin:4px 0">Нет данных</p>';
+    return wrap;
+  }
   const [header, ...data] = rows;
-  // Limit preview to first 8 columns so the table fits in the dialog
   const MAX_COLS = 8;
   const colCount = Math.min(header.length, MAX_COLS);
   const trimmed = header.length > MAX_COLS;
-  const th = header.slice(0, colCount).map(h =>
-    `<th style="padding:4px 8px;border:1px solid #e2e8f0;background:#f1f5f9;font-size:11px;white-space:nowrap;color:#475569;max-width:160px;overflow:hidden;text-overflow:ellipsis">${esc(String(h || ""))}</th>`
-  ).join("");
   const PREVIEW_ROWS = 20;
-  const slice = data.slice(0, PREVIEW_ROWS);
-  const trs = slice.map(row =>
-    `<tr>${row.slice(0, colCount).map(c =>
-      `<td style="padding:3px 8px;border:1px solid #f1f5f9;font-size:11px;white-space:nowrap;max-width:160px;overflow:hidden;text-overflow:ellipsis">${esc(String(c ?? ""))}</td>`
-    ).join("")}</tr>`
-  ).join("");
-  const moreRows = data.length > PREVIEW_ROWS ? `<span style="font-size:11px;color:#94a3b8"> … ещё ${data.length - PREVIEW_ROWS} строк</span>` : "";
-  const moreCols = trimmed ? `<span style="font-size:11px;color:#94a3b8"> (показаны первые ${MAX_COLS} из ${header.length} столбцов)</span>` : "";
-  return `<div style="max-width:680px;overflow-x:auto;margin:4px 0 8px;border:1px solid #e2e8f0;border-radius:4px">
-    <table style="border-collapse:collapse;font-size:11px;width:100%">
-      <thead><tr>${th}</tr></thead>
-      <tbody>${trs}</tbody>
-    </table>
-  </div>
-  <span style="font-size:11px;color:#64748b">${data.length} строк(и)${moreRows ? ` (показаны первые ${PREVIEW_ROWS})` : ""}${moreCols}</span>${moreRows}`;
+
+  const makeTr = (row, isHeader) => {
+    const tr = document.createElement("tr");
+    row.slice(0, colCount).forEach((c, i) => {
+      const cell = document.createElement(isHeader ? "th" : "td");
+      cell.textContent = String(c ?? "");
+      cell.style.cssText = isHeader
+        ? "padding:4px 8px;border:1px solid #e2e8f0;background:#f1f5f9;font-size:11px;white-space:nowrap;color:#475569;max-width:160px;overflow:hidden;text-overflow:ellipsis"
+        : "padding:3px 8px;border:1px solid #f1f5f9;font-size:11px;white-space:nowrap;max-width:160px;overflow:hidden;text-overflow:ellipsis";
+    });
+    return tr;
+  };
+
+  const tableWrap = document.createElement("div");
+  tableWrap.style.cssText = "max-width:680px;overflow-x:auto;margin:4px 0 6px;border:1px solid #e2e8f0;border-radius:4px";
+  const table = document.createElement("table");
+  table.style.cssText = "border-collapse:collapse;font-size:11px;width:100%";
+  const thead = document.createElement("thead");
+  thead.appendChild(makeTr(header, true));
+  const tbody = document.createElement("tbody");
+  data.slice(0, PREVIEW_ROWS).forEach(row => tbody.appendChild(makeTr(row, false)));
+  table.appendChild(thead);
+  table.appendChild(tbody);
+  tableWrap.appendChild(table);
+  wrap.appendChild(tableWrap);
+
+  const meta = document.createElement("span");
+  meta.style.cssText = "font-size:11px;color:#64748b";
+  let metaText = `${data.length} строк(и)`;
+  if (trimmed) metaText += ` · показаны первые ${MAX_COLS} из ${header.length} столбцов`;
+  meta.textContent = metaText;
+  wrap.appendChild(meta);
+
+  if (data.length > PREVIEW_ROWS) {
+    const remaining = data.length - PREVIEW_ROWS;
+    const moreLink = document.createElement("a");
+    moreLink.href = "#";
+    moreLink.style.cssText = "font-size:11px;color:#2563eb;margin-left:8px;text-decoration:underline";
+    moreLink.textContent = `ещё ${remaining} строк`;
+    moreLink.onclick = e => {
+      e.preventDefault();
+      data.slice(PREVIEW_ROWS).forEach(row => tbody.appendChild(makeTr(row, false)));
+      moreLink.remove();
+    };
+    wrap.appendChild(moreLink);
+  }
+
+  return wrap;
 }
 
 // Create a log line element with ▶ toggle preview and optional nested content
@@ -5753,7 +5787,8 @@ function _bindMakePreviewLine(lineHtml, getRowsAsync, lineType, nestedEl) {
           content.dataset.loaded = "1";
           content.innerHTML = '<span style="color:#94a3b8;font-size:12px">Загрузка…</span>';
           const rows = await getRowsAsync();
-          content.innerHTML = _bindRenderTable(rows);
+          content.innerHTML = "";
+          content.appendChild(_bindRenderTable(rows));
           if (nestedEl) content.appendChild(nestedEl);
         }
       }
@@ -5964,7 +5999,8 @@ function wbBindDownload() {
           prevContent.innerHTML = '<span style="color:#94a3b8;font-size:12px">Загрузка…</span>';
           const ab = await new Promise(res => { const fr = new FileReader(); fr.onloadend = () => res(fr.result); fr.readAsArrayBuffer(blob); });
           const rows = await _bindParseXlsxRows(ab);
-          prevContent.innerHTML = _bindRenderTable(rows);
+          prevContent.innerHTML = "";
+          prevContent.appendChild(_bindRenderTable(rows));
         }
       }
     };
