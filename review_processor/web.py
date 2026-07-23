@@ -8059,8 +8059,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         item = dict(item_row)
 
         entities = repository.list_supply_legal_entities(user_id=owner_id)
-        supplier_short = str(item.get("supplier_name") or "")
-        le = next((e for e in entities if e.get("short_name") == supplier_short), None) or (entities[0] if entities else {})
+        supplier_short = str(item.get("supplier_name") or "").strip()
+        # Exact match first, then case-insensitive strip match, then full_name match — never fall back to entities[0]
+        le = (
+            next((e for e in entities if str(e.get("short_name") or "").strip() == supplier_short), None)
+            or next((e for e in entities if str(e.get("short_name") or "").strip().lower() == supplier_short.lower()), None)
+            or next((e for e in entities if str(e.get("full_name") or "").strip() == supplier_short), None)
+            or {}
+        )
         org_full = le.get("full_name") or supplier_short
         org_req  = le.get("requisites") or ""
         org_line = ", ".join(filter(None, [org_full, org_req]))
@@ -8308,8 +8314,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
         # ── Legal entity ───────────────────────────────────────────────────
         entities = repository.list_supply_legal_entities(user_id=owner_id)
-        supplier_short = str(item.get("supplier_name") or "")
-        le = next((e for e in entities if e.get("short_name") == supplier_short), None) or (entities[0] if entities else {})
+        supplier_short = str(item.get("supplier_name") or "").strip()
+        le = (
+            next((e for e in entities if str(e.get("short_name") or "").strip() == supplier_short), None)
+            or next((e for e in entities if str(e.get("short_name") or "").strip().lower() == supplier_short.lower()), None)
+            or next((e for e in entities if str(e.get("full_name") or "").strip() == supplier_short), None)
+            or {}
+        )
         org_full = le.get("full_name") or supplier_short
         org_req  = le.get("requisites") or ""
         org_line = ", ".join(filter(None, [org_full, org_req]))
@@ -10080,8 +10091,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not ref_item:
             raise HTTPException(status_code=404, detail="Поставки не найдены")
 
-        supplier_short = str(ref_item.get("supplier_name") or "")
-        le = next((e for e in entities if e.get("short_name") == supplier_short), None) or (entities[0] if entities else {})
+        supplier_short = str(ref_item.get("supplier_name") or "").strip()
+        le = (
+            next((e for e in entities if str(e.get("short_name") or "").strip() == supplier_short), None)
+            or next((e for e in entities if str(e.get("short_name") or "").strip().lower() == supplier_short.lower()), None)
+            or next((e for e in entities if str(e.get("full_name") or "").strip() == supplier_short), None)
+            or {}
+        )
         org_full = le.get("full_name") or supplier_short
         org_line = ", ".join(filter(None, [org_full, le.get("requisites") or ""]))
         signatories = le.get("signatories") or supplier_short
@@ -10227,8 +10243,13 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         if not ref_item:
             raise HTTPException(status_code=404, detail="Поставки не найдены")
 
-        supplier_short = str(ref_item.get("supplier_name") or "")
-        le = next((e for e in entities if e.get("short_name") == supplier_short), None) or (entities[0] if entities else {})
+        supplier_short = str(ref_item.get("supplier_name") or "").strip()
+        le = (
+            next((e for e in entities if str(e.get("short_name") or "").strip() == supplier_short), None)
+            or next((e for e in entities if str(e.get("short_name") or "").strip().lower() == supplier_short.lower()), None)
+            or next((e for e in entities if str(e.get("full_name") or "").strip() == supplier_short), None)
+            or {}
+        )
         org_line = ", ".join(filter(None, [le.get("full_name") or supplier_short, le.get("requisites") or ""]))
         driver_name = str(ref_item.get("driver_name") or "")
 
