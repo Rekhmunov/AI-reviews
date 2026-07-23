@@ -6340,11 +6340,18 @@ button.secondary.danger:hover {
 
 /* ── Supply docs collapsible ─────────────────────────────────────────────── */
 
+.supply-docs-toggle-row {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  margin-bottom: 2px;
+}
+
 .supply-docs-toggle {
   display: flex;
   align-items: center;
   gap: 5px;
-  width: 100%;
+  flex: 1;
   padding: 5px 8px;
   font-size: 12px;
   font-weight: 500;
@@ -6354,10 +6361,31 @@ button.secondary.danger:hover {
   border-radius: 6px;
   cursor: pointer;
   box-shadow: none;
-  margin-bottom: 2px;
   transition: background 0.15s;
 }
 .supply-docs-toggle:hover { background: #dbeafe; }
+
+.supply-status-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: default;
+  border: 1px solid transparent;
+}
+.supply-status-icon--doc {
+  background: #dcfce7;
+  border-color: #86efac;
+  color: #15803d;
+}
+.supply-status-icon--driver {
+  background: #dcfce7;
+  border-color: #86efac;
+  color: #15803d;
+}
 
 .supply-docs-arrow {
   font-size: 10px;

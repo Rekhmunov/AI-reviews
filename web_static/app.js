@@ -2416,12 +2416,22 @@ function _renderSupplyDocButtons(item) {
     docsHtml += `<div style="${_pRow}"><button class="supply-detail-link supply-ttn-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="downloadTTNForSlot(${item.supply_id},${i})">${label}</button><button class="supply-detail-link supply-print-btn" style="${_pBtn}" onclick="printTTNForSlot(${item.supply_id},${i})" title="Печать">⎙</button></div>`;
   });
 
+  // Status indicators: visible even when collapsed
+  const hasDriver = slots.some(s => _effectiveName(s));
+
   // Wrap in collapsible toggle (independent per row, no auto-close on others)
   if (docsHtml) {
     const sid = item.supply_id;
-    html += `<button class="supply-docs-toggle" onclick="toggleSupplyDocs(this,'${sid}')">
-      <span class="supply-docs-arrow">▶</span> Скачать документы
-    </button>
+    const driverBadge = hasDriver
+      ? `<span class="supply-status-icon supply-status-icon--driver" title="Водитель введён">👤</span>`
+      : "";
+    html += `<div class="supply-docs-toggle-row">
+      <button class="supply-docs-toggle" onclick="toggleSupplyDocs(this,'${sid}')">
+        <span class="supply-docs-arrow">▶</span> Скачать документы
+      </button>
+      <span class="supply-status-icon supply-status-icon--doc" title="ШК поставки введён">📋</span>
+      ${driverBadge}
+    </div>
     <div class="supply-docs-collapse hidden" id="supply-docs-${sid}">${docsHtml}</div>`;
   }
 
