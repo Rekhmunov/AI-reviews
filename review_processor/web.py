@@ -8352,11 +8352,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             pallets     = int(item.get("pallets_count") or 0)
         VAT_RATE        = 0.22
         wh              = str(item.get("warehouse_name") or "").strip()
+        transit_wh      = str(item.get("transit_warehouse_name") or "").strip()
+        # Recipient address = initial (transit) warehouse; fallback to destination
+        pickup_wh       = transit_wh or wh
 
         # ── Recipient (consignee) line from warehouse settings ─────────────
         warehouses = repository.list_supply_warehouses(user_id=owner_id)
         wh_addr = next((str(w.get("address") or "").strip() for w in warehouses
-                        if str(w.get("warehouse_name") or "").strip() == wh), "")
+                        if str(w.get("warehouse_name") or "").strip() == pickup_wh), "")
         recipient_line = "ООО «РВБ»" + (f", {wh_addr}" if wh_addr else "")
 
         # ── Goods list ─────────────────────────────────────────────────────

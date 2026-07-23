@@ -3726,10 +3726,12 @@ async function downloadTTN(supplyId) {
   const orgLine = [orgFull, orgReq].filter(Boolean).join(", ");
 
   if (!_supplyWarehousesCache.length) await loadSupplyWarehouses();
-  const destWh  = (item.warehouse_name || "").trim();
-  const whMap   = Object.fromEntries(_supplyWarehousesCache.map((w) => [w.warehouse_name, w.address]));
-  const whAddr  = whMap[destWh] || "";
-  // Recipient: WB entity name + address from warehouse settings
+  // Recipient address = initial (transit) warehouse; fallback to destination if no transit
+  const destWh     = (item.warehouse_name || "").trim();
+  const transitWh  = (item.transit_warehouse_name || "").trim();
+  const pickupWh   = transitWh || destWh;
+  const whMap      = Object.fromEntries(_supplyWarehousesCache.map((w) => [w.warehouse_name, w.address]));
+  const whAddr     = whMap[pickupWh] || "";
   const recipientLine = "ООО «РВБ»" + (whAddr ? `, ${whAddr}` : "");
 
   const driverName = item.driver_name || "";
