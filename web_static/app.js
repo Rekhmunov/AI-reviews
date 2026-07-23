@@ -12824,7 +12824,9 @@ async function _printTTN_html_fallback(supplyId) {
     : dateDisp;
   if (!_supplyWarehousesCache.length) await loadSupplyWarehouses();
   const wh = (item.warehouse_name || "").trim();
-  const whAddrFb = (_supplyWarehousesCache.find(w => w.warehouse_name === wh) || {}).address || "";
+  const transitWhFb = (item.transit_warehouse_name || "").trim();
+  const pickupWhFb = transitWhFb || wh;
+  const whAddrFb = (_supplyWarehousesCache.find(w => w.warehouse_name === pickupWhFb) || {}).address || "";
   const recipientLineFb = "ООО «РВБ»" + (whAddrFb ? `, ${whAddrFb}` : "");
   const supplyId_ = String(item.supply_id || "");
   const driverName = item.driver_name || "";
