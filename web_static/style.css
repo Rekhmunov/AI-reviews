@@ -4768,6 +4768,7 @@ button.secondary.danger:hover {
 
 .products-table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   font-size: 14px;
 }
@@ -4787,7 +4788,22 @@ button.secondary.danger:hover {
   padding: 8px 12px;
   border-bottom: 1px solid #f1f5f9;
   vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+
+/* Article columns — fixed widths so long slugs don't blow out the layout */
+.products-table th:nth-child(2),
+.products-table td:nth-child(2) { width: 18%; white-space: normal; word-break: break-word; }
+.products-table th:nth-child(3),
+.products-table td:nth-child(3) { width: 20%; }
+.products-table th:nth-child(4),
+.products-table td:nth-child(4) { width: 14%; }
+.products-table th:nth-child(5),
+.products-table td:nth-child(5) { width: 14%; }
+.products-table th:nth-child(6),
+.products-table td:nth-child(6) { width: 20%; }
 
 .products-table tr:last-child td { border-bottom: none; }
 
