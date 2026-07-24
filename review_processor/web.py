@@ -8722,16 +8722,18 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         item_row = repository.get_ozon_supply_item_row(user_id=owner_id, supply_order_id=supply_order_id)
         if not item_row:
             return {"ok": False, "groups": []}
-        # Return cached if available
+        # Always try fresh OZON API; fall back to cache only on failure
+        cached_groups = None
         cached = str(item_row.get("cargoes_json") or "")
         if cached and cached != "[]":
             try:
-                return {"ok": True, "groups": _jj.loads(cached), "cached": True}
+                cached_groups = _jj.loads(cached)
             except Exception:
                 pass
-        # Fetch from OZON API
         src = repository.get_supply_source_with_key(user_id=owner_id, source_id=int(item_row["source_id"]))
         if not src or not src.get("api_key"):
+            if cached_groups is not None:
+                return {"ok": True, "groups": cached_groups, "cached": True}
             return {"ok": False, "groups": [], "error": "no_key"}
         client_id = str(src.get("client_id") or "")
         api_key = str(src["api_key"])
@@ -8769,15 +8771,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             groups = [{"type": k[0], "content_type": k[1], "count": v}
                       for k, v in groups_map.items()]
             cargoes_json_str = _jj.dumps(groups, ensure_ascii=False)
-            if groups:
-                repository.update_ozon_supply_cargoes(
-                    supply_order_id=supply_order_id, cargoes_json=cargoes_json_str)
+            repository.update_ozon_supply_cargoes(
+                supply_order_id=supply_order_id, cargoes_json=cargoes_json_str)
             return {"ok": True, "groups": groups}
         except Exception as ex:
             code = getattr(ex, "code", None)
             if code == 403:
-                return {"ok": False, "groups": [], "error": "no_role"}
+                return {"ok": False, "groups": cached_groups or [], "error": "no_role",
+                        "cached": bool(cached_groups)}
             _log.warning("ozon cargoes fetch sid=%d: %s", supply_order_id, ex)
+            if cached_groups is not None:
+                return {"ok": True, "groups": cached_groups, "cached": True, "error": str(ex)[:100]}
             return {"ok": False, "groups": [], "error": str(ex)[:100]}
 
     @app.get("/api/ozon-supplies/{supply_order_id}/vehicle")
@@ -8791,16 +8795,18 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         item_row = repository.get_ozon_supply_item_row(user_id=owner_id, supply_order_id=supply_order_id)
         if not item_row:
             return {"ok": False, "vehicle": None}
-        # Return cached vehicle data if available
+        # Always try fresh OZON API; fall back to cache only on failure
+        cached_vehicle = None
         cached = str(item_row.get("vehicle_json") or "")
-        if cached and cached != "{}":
+        if cached and cached not in ("{}", "null"):
             try:
-                return {"ok": True, "vehicle": _jj.loads(cached), "cached": True}
+                cached_vehicle = _jj.loads(cached)
             except Exception:
                 pass
-        # Fetch from OZON API
         src = repository.get_supply_source_with_key(user_id=owner_id, source_id=int(item_row["source_id"]))
         if not src or not src.get("api_key"):
+            if cached_vehicle is not None:
+                return {"ok": True, "vehicle": cached_vehicle, "cached": True}
             return {"ok": False, "vehicle": None, "error": "no_key"}
         client_id = str(src.get("client_id") or "")
         api_key = str(src["api_key"])
@@ -8816,15 +8822,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             vehicle_obj = data.get("vehicle") or {}
             vehicle_val = vehicle_obj.get("value") or {}
             vehicle_json_str = _jj.dumps(vehicle_val, ensure_ascii=False)
-            if vehicle_val:
-                repository.update_ozon_supply_vehicle(
-                    supply_order_id=supply_order_id, vehicle_json=vehicle_json_str)
+            repository.update_ozon_supply_vehicle(
+                supply_order_id=supply_order_id, vehicle_json=vehicle_json_str)
             return {"ok": True, "vehicle": vehicle_val}
         except Exception as ex:
             code = getattr(ex, "code", None)
             if code == 403:
-                return {"ok": False, "vehicle": None, "error": "no_role"}
+                return {"ok": False, "vehicle": cached_vehicle, "error": "no_role",
+                        "cached": bool(cached_vehicle)}
             _log.warning("ozon vehicle fetch sid=%d: %s", supply_order_id, ex)
+            if cached_vehicle is not None:
+                return {"ok": True, "vehicle": cached_vehicle, "cached": True, "error": str(ex)[:100]}
             return {"ok": False, "vehicle": None, "error": str(ex)[:100]}
 
     def _ozon_get_doc_data(owner_id: int, supply_order_id: int) -> dict:
@@ -9851,23 +9859,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     except Exception as ex:
                         _log.warning("ozon cluster cache: %s", ex)
 
-                    # Pre-load existing quantities and vehicle data to skip API calls
-                    existing_items = repository.list_ozon_supply_items(
-                        user_id=owner_id, source_id=int(src["id"])
-                    )
-                    existing_qty: dict[int, int] = {
-                        int(item.get("supply_order_id") or 0): int(item.get("total_quantity") or 0)
-                        for item in existing_items
-                        if item.get("supply_order_id")
-                    }
-                    existing_vehicle: dict[int, bool] = {
-                        int(item.get("supply_order_id") or 0): bool(
-                            str(item.get("vehicle_json") or "").strip() not in ("", "{}", "null")
-                        )
-                        for item in existing_items
-                        if item.get("supply_order_id")
-                    }
-
                     # Step 1: paginate supply order IDs via /v3/supply-order/list
                     # Pagination is cursor-based: last_id string returned in response
                     with _ozon_sync_lock:
@@ -9973,13 +9964,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                                 }
                                 item_id = repository.upsert_ozon_supply_item(source_id=int(src["id"]), data=data)
                                 order_ids_in_batch.append(oid)
-                                # Only fetch bundle quantity if not already loaded
-                                if existing_qty.get(oid, 0) == 0:
-                                    for s in supplies_list:
-                                        bid = str(s.get("bundle_id") or "")
-                                        if bid:
-                                            qty_batch.append((oid, bid, item_id))
-                                            break  # one bundle per order
+                                # Always refresh bundle quantity — seller can change it in OZON cabinet
+                                for s in supplies_list:
+                                    bid = str(s.get("bundle_id") or "")
+                                    if bid:
+                                        qty_batch.append((oid, bid, item_id))
+                                        break  # one bundle per order
                                 total_synced += 1
                         except Exception as ex:
                             _log.error("ozon supply get batch: %s", ex, exc_info=True)
@@ -10023,16 +10013,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                             if _ozon_sync_state.get("cancel_requested"):
                                 break
 
-                        # Load vehicle/driver data for orders without cached vehicle_json
-                        vehicle_order_ids = [
-                            oid for oid in order_ids_in_batch
-                            if not existing_vehicle.get(oid)
-                        ]
-                        if vehicle_order_ids:
-                            _ozon_sync_state["message"] = f"Загрузка водителей ({len(vehicle_order_ids)})…"
-                        for order_id in vehicle_order_ids:
+                        # Always refresh vehicle/driver + cargo places — seller can change them in OZON cabinet
+                        if order_ids_in_batch:
+                            _ozon_sync_state["message"] = f"Обновление водителей и мест ({len(order_ids_in_batch)})…"
+                        for order_id in order_ids_in_batch:
                             if _ozon_sync_state.get("cancel_requested"):
                                 break
+                            # Vehicle / driver
                             try:
                                 vbody = _jj.dumps({"order_id": order_id}).encode()
                                 v_req = _ul.Request(
@@ -10042,10 +10029,51 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                                 with _ul.urlopen(v_req, context=ctx, timeout=10) as vr:
                                     vdet = _jj.loads(vr.read())
                                 vval = (vdet.get("vehicle") or {}).get("value") or {}
-                                if vval:
-                                    repository.update_ozon_supply_vehicle(
+                                repository.update_ozon_supply_vehicle(
+                                    supply_order_id=order_id,
+                                    vehicle_json=_jj.dumps(vval, ensure_ascii=False))
+                                # Cargo places: need supply_id from details/supplies
+                                supplies_det = vdet.get("supplies") or []
+                                actual_supply_id = 0
+                                for s in supplies_det:
+                                    sid = int(s.get("supply_id") or 0)
+                                    if sid > 0:
+                                        actual_supply_id = sid
+                                        break
+                                if not actual_supply_id:
+                                    # fallback: read from stored raw_json
+                                    row = repository.get_ozon_supply_item_row(user_id=owner_id, supply_order_id=order_id)
+                                    raw_s = str((row or {}).get("raw_json") or "")
+                                    if raw_s:
+                                        try:
+                                            raw = _jj.loads(raw_s)
+                                            for s in (raw.get("supplies") or []):
+                                                sid = int(s.get("supply_id") or 0)
+                                                if sid > 0:
+                                                    actual_supply_id = sid
+                                                    break
+                                        except Exception:
+                                            pass
+                                if actual_supply_id:
+                                    cbody = _jj.dumps({"supply_ids": [actual_supply_id]}).encode()
+                                    c_req = _ul.Request(
+                                        "https://api-seller.ozon.ru/v1/cargoes/get",
+                                        data=cbody, method="POST", headers=headers,
+                                    )
+                                    with _ul.urlopen(c_req, context=ctx, timeout=10) as cr:
+                                        cdet = _jj.loads(cr.read())
+                                    cargoes = []
+                                    for s in (cdet.get("supply") or []):
+                                        cargoes.extend(s.get("cargoes") or [])
+                                    groups_map: dict = {}
+                                    for cg in cargoes:
+                                        key = (str(cg.get("type") or ""), str(cg.get("content_type") or ""))
+                                        groups_map[key] = groups_map.get(key, 0) + 1
+                                    groups = [{"type": k[0], "content_type": k[1], "count": v}
+                                              for k, v in groups_map.items()]
+                                    repository.update_ozon_supply_cargoes(
                                         supply_order_id=order_id,
-                                        vehicle_json=_jj.dumps(vval, ensure_ascii=False))
+                                        cargoes_json=_jj.dumps(groups, ensure_ascii=False))
                             except Exception as vex:
                                 code = getattr(vex, "code", None)
                                 if code == 403:
@@ -10053,7 +10081,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                                 elif code == 429:
                                     _t.sleep(2)
                                 else:
-                                    _log.debug("ozon vehicle order_id=%d: %s", order_id, vex)
+                                    _log.debug("ozon vehicle/cargoes order_id=%d: %s", order_id, vex)
                             _t.sleep(0.4)
 
                     # Mark source as synced (updates last_synced_at timestamp)
@@ -10512,7 +10540,16 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             raise HTTPException(status_code=400, detail="Название склада не может быть пустым")
         owner_id = _supply_owner_id(user)
         repository._ensure_supply_tables()
-        return repository.create_supply_warehouse(user_id=owner_id, warehouse_name=name, address=payload.address.strip())
+        existing = repository.list_supply_warehouses(user_id=owner_id)
+        if any(str(w.get("warehouse_name") or "").strip().lower() == name.lower() for w in existing):
+            raise HTTPException(status_code=400, detail=f"Склад «{name}» уже существует")
+        try:
+            return repository.create_supply_warehouse(user_id=owner_id, warehouse_name=name, address=payload.address.strip())
+        except Exception as ex:
+            msg = str(ex).lower()
+            if "unique" in msg or "duplicate" in msg:
+                raise HTTPException(status_code=400, detail=f"Склад «{name}» уже существует") from ex
+            raise
 
     @app.patch("/api/supply-warehouses/{warehouse_id}")
     def update_supply_warehouse_endpoint(request: Request, warehouse_id: int, payload: UpdateSupplyWarehouseRequest) -> dict[str, object]:
