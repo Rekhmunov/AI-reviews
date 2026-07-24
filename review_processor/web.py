@@ -9859,6 +9859,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     except Exception as ex:
                         _log.warning("ozon cluster cache: %s", ex)
 
+                    # Pre-load existing quantities — skip bundle API when already loaded (speed).
+                    # Vehicle/cargoes are always refreshed below — seller can change them in OZON.
+                    existing_items = repository.list_ozon_supply_items(
+                        user_id=owner_id, source_id=int(src["id"])
+                    )
+                    existing_qty: dict[int, int] = {
+                        int(item.get("supply_order_id") or 0): int(item.get("total_quantity") or 0)
+                        for item in existing_items
+                        if item.get("supply_order_id")
+                    }
+
                     # Step 1: paginate supply order IDs via /v3/supply-order/list
                     # Pagination is cursor-based: last_id string returned in response
                     with _ozon_sync_lock:
@@ -9899,6 +9910,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                         batch = all_order_ids[i:i+50]
                         order_ids_in_batch: list[int] = []
                         qty_batch: list = []  # (order_id, bundle_id, item_id)
+                        order_supply_ids: dict[int, int] = {}  # order_id → OZON supply_id for cargoes
                         try:
                             body2 = _jj.dumps({"order_ids": batch}).encode()
                             req2 = _ul.Request(
@@ -9964,12 +9976,18 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                                 }
                                 item_id = repository.upsert_ozon_supply_item(source_id=int(src["id"]), data=data)
                                 order_ids_in_batch.append(oid)
-                                # Always refresh bundle quantity — seller can change it in OZON cabinet
                                 for s in supplies_list:
-                                    bid = str(s.get("bundle_id") or "")
-                                    if bid:
-                                        qty_batch.append((oid, bid, item_id))
-                                        break  # one bundle per order
+                                    sid = int(s.get("supply_id") or 0)
+                                    if sid > 0:
+                                        order_supply_ids[oid] = sid
+                                        break
+                                # Bundle qty only if not loaded yet (expensive); vehicle/cargoes always refreshed
+                                if existing_qty.get(oid, 0) == 0:
+                                    for s in supplies_list:
+                                        bid = str(s.get("bundle_id") or "")
+                                        if bid:
+                                            qty_batch.append((oid, bid, item_id))
+                                            break  # one bundle per order
                                 total_synced += 1
                         except Exception as ex:
                             _log.error("ozon supply get batch: %s", ex, exc_info=True)
@@ -9977,6 +9995,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
                         # Load quantities for this batch via bundle API (1 call per order)
                         import time as _t
+                        if qty_batch:
+                            with _ozon_sync_lock:
+                                _ozon_sync_state["message"] = f"«{src['name']}»: количество товаров ({len(qty_batch)})…"
                         for (order_id, bundle_id, item_id) in qty_batch:
                             if _ozon_sync_state.get("cancel_requested"):
                                 break
@@ -10013,13 +10034,20 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                             if _ozon_sync_state.get("cancel_requested"):
                                 break
 
-                        # Always refresh vehicle/driver + cargo places — seller can change them in OZON cabinet
+                        # Always refresh vehicle/driver + cargo places
                         if order_ids_in_batch:
-                            _ozon_sync_state["message"] = f"Обновление водителей и мест ({len(order_ids_in_batch)})…"
-                        for order_id in order_ids_in_batch:
+                            with _ozon_sync_lock:
+                                _ozon_sync_state["message"] = (
+                                    f"«{src['name']}»: водители и места 0/{len(order_ids_in_batch)}…"
+                                )
+                        for vi, order_id in enumerate(order_ids_in_batch):
                             if _ozon_sync_state.get("cancel_requested"):
                                 break
-                            # Vehicle / driver
+                            if vi % 5 == 0:
+                                with _ozon_sync_lock:
+                                    _ozon_sync_state["message"] = (
+                                        f"«{src['name']}»: водители и места {vi}/{len(order_ids_in_batch)}…"
+                                    )
                             try:
                                 vbody = _jj.dumps({"order_id": order_id}).encode()
                                 v_req = _ul.Request(
@@ -10032,28 +10060,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                                 repository.update_ozon_supply_vehicle(
                                     supply_order_id=order_id,
                                     vehicle_json=_jj.dumps(vval, ensure_ascii=False))
-                                # Cargo places: need supply_id from details/supplies
-                                supplies_det = vdet.get("supplies") or []
-                                actual_supply_id = 0
-                                for s in supplies_det:
-                                    sid = int(s.get("supply_id") or 0)
-                                    if sid > 0:
-                                        actual_supply_id = sid
-                                        break
+                                actual_supply_id = order_supply_ids.get(order_id) or 0
                                 if not actual_supply_id:
-                                    # fallback: read from stored raw_json
-                                    row = repository.get_ozon_supply_item_row(user_id=owner_id, supply_order_id=order_id)
-                                    raw_s = str((row or {}).get("raw_json") or "")
-                                    if raw_s:
-                                        try:
-                                            raw = _jj.loads(raw_s)
-                                            for s in (raw.get("supplies") or []):
-                                                sid = int(s.get("supply_id") or 0)
-                                                if sid > 0:
-                                                    actual_supply_id = sid
-                                                    break
-                                        except Exception:
-                                            pass
+                                    for s in (vdet.get("supplies") or []):
+                                        sid = int(s.get("supply_id") or 0)
+                                        if sid > 0:
+                                            actual_supply_id = sid
+                                            break
                                 if actual_supply_id:
                                     cbody = _jj.dumps({"supply_ids": [actual_supply_id]}).encode()
                                     c_req = _ul.Request(
@@ -10082,7 +10095,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                                     _t.sleep(2)
                                 else:
                                     _log.debug("ozon vehicle/cargoes order_id=%d: %s", order_id, vex)
-                            _t.sleep(0.4)
+                            _t.sleep(0.25)
 
                     # Mark source as synced (updates last_synced_at timestamp)
                     try:
