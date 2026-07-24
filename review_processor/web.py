@@ -9698,7 +9698,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             ("{{DOC_DATE_FULL}}",   f"«{now.strftime('%d')}» {mon_names[now.month-1]} {now.year}"),
             ("{{ISSUED_BY}}",       supplier_short or "—"),
             ("{{SIGNATORIES}}",     signatories),
-            ("{{PROD_HEAD}}",       "—"),
+            ("{{PROD_HEAD}}",       next(
+                (str(p.get("head_name") or "").strip() or "—"
+                 for p in repository.list_supply_productions(user_id=owner_id)
+                 if str(p.get("name") or "").strip() == str(item.get("production") or "").strip()),
+                "—",
+            )),
             ("{{SIGN_SUPPLIER}}",   supplier_short),
             ("{{SIGN_DRIVER}}",     driver_name),
         ]:

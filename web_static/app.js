@@ -4709,10 +4709,11 @@ async function openOzonDetailsModal(supplyId) {
       if (!groups.length) { cargoEl.textContent = "Ещё не заполнены"; return; }
       const typeLabel = t => t === "BOX" ? "короба" : t === "PALLET" ? "паллета" : (t || "").toLowerCase();
       const contLabel = c => {
-        if (!c || c === "null" || c === "none" || c === "undefined") return "моно";
-        if (c === "MONO") return "моно";
-        if (c === "MIXED") return "микс";
-        return c.toLowerCase();
+        const v = String(c || "").trim().toUpperCase();
+        if (!v || v === "NULL" || v === "NONE" || v === "UNDEFINED") return "моно";
+        if (v === "MONO") return "моно";
+        if (v === "MIXED") return "микс";
+        return String(c).toLowerCase();
       };
       cargoEl.textContent = groups.map(g => `${g.count} ${typeLabel(g.type)} — ${contLabel(g.content_type)}`).join("\n");
     }).catch(() => { cargoEl.textContent = "Ещё не заполнены"; });
