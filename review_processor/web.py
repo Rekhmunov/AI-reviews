@@ -9817,7 +9817,18 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             return {"ok": False, "message": "Нет активных источников OZON"}
 
         # v3 API states (confirmed by live testing — v2 states return 404)
-        ACTIVE_STATES = ["DATA_FILLING", "READY_TO_SUPPLY", "IN_TRANSIT", "COMPLETED", "REPORTS_CONFIRMATION_AWAITING"]
+        # Keep list for sync/purge must include all non-cancelled progressive states,
+        # otherwise local rows in e.g. ACCEPTANCE_AT_STORAGE_WAREHOUSE get wiped.
+        ACTIVE_STATES = [
+            "DATA_FILLING",
+            "READY_TO_SUPPLY",
+            "ACCEPTED_AT_SUPPLY_WAREHOUSE",
+            "IN_TRANSIT",
+            "ACCEPTANCE_AT_STORAGE_WAREHOUSE",
+            "REPORTS_CONFIRMATION_AWAITING",
+            "REPORT_REJECTED",
+            "COMPLETED",
+        ]
         import threading as _thr
         from datetime import datetime as _odt, timezone as _otz, timedelta as _otd
         _ozon_now = _odt.now(_otz.utc)
