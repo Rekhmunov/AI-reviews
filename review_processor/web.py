@@ -9887,6 +9887,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                         _ozon_sync_state["message"] = f"«{src['name']}»: получение списка поставок…"
                     all_order_ids: list[str] = []
                     last_id_cursor = ""
+                    list_ok = True
                     while True:
                         req_body = {"filter": {"states": ACTIVE_STATES}, "limit": 100, "sort_by": 1}
                         if last_id_cursor:
@@ -9906,10 +9907,36 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                             if not last_id_cursor or len(page_ids) < 100:
                                 break
                         except Exception as ex:
+                            list_ok = False
                             _log.error("ozon sync list error src=%s: %s", src.get("name","?"), ex, exc_info=True)
                             errors.append(f"list: {ex}"); break
 
+                    # Purge local rows for cancelled/deleted Ozon orders.
+                    # Sync list excludes CANCELLED; orders deleted in Ozon LK disappear from
+                    # the active list but previously stayed forever as DATA_FILLING locally.
+                    if list_ok:
+                        keep_ids = [int(x) for x in all_order_ids if str(x).isdigit() and int(x) > 0]
+                        try:
+                            deleted_count = repository.delete_ozon_supply_items_not_in(
+                                source_id=int(src["id"]),
+                                keep_order_ids=keep_ids,
+                                delete_all_if_empty=True,
+                            )
+                            if deleted_count:
+                                _log.info(
+                                    "ozon sync: removed %d cancelled/missing supplies for source %s",
+                                    deleted_count,
+                                    src.get("id"),
+                                )
+                        except Exception as del_ex:
+                            _log.error("ozon sync purge error src=%s: %s", src.get("name", "?"), del_ex, exc_info=True)
+                            errors.append(f"purge: {del_ex}")
+
                     if not all_order_ids:
+                        try:
+                            repository.mark_supply_source_synced(source_id=int(src["id"]))
+                        except Exception:
+                            pass
                         continue
 
                     with _ozon_sync_lock:

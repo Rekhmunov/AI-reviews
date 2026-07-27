@@ -7584,6 +7584,39 @@ class ReviewRepository:
             )
         return result.rowcount
 
+    def delete_ozon_supply_items_not_in(
+        self,
+        *,
+        source_id: int,
+        keep_order_ids: list[int],
+        delete_all_if_empty: bool = False,
+    ) -> int:
+        """Delete ozon_supply_items for this source whose supply_order_id is NOT in keep_order_ids.
+
+        Used after sync to purge cancelled/deleted supplies that Ozon no longer returns
+        in the active list. When keep_order_ids is empty, deletes nothing unless
+        delete_all_if_empty=True (list API succeeded with zero orders).
+        """
+        keep_ids = [int(x) for x in keep_order_ids if int(x) > 0]
+        with self._connect() as conn:
+            if not keep_ids:
+                if not delete_all_if_empty:
+                    return 0
+                result = conn.execute(
+                    self._sql("DELETE FROM ozon_supply_items WHERE source_id = ?"),
+                    (source_id,),
+                )
+                return int(result.rowcount or 0)
+            placeholders = ",".join(["?" for _ in keep_ids])
+            result = conn.execute(
+                self._sql(
+                    f"DELETE FROM ozon_supply_items WHERE source_id = ? "
+                    f"AND supply_order_id NOT IN ({placeholders})"
+                ),
+                [source_id, *keep_ids],
+            )
+        return int(result.rowcount or 0)
+
     # ── Supply PoA Records CRUD ──
 
     def list_supply_poa_records(self, *, user_id: int) -> list[dict[str, Any]]:
