@@ -4936,6 +4936,13 @@ button.secondary.danger:hover {
   border-radius: 0 0 var(--radius-lg, 12px) var(--radius-lg, 12px);
 }
 .supplies-total { color: #64748b; font-size: 13px; }
+.supplies-filter-count {
+  color: #334155;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  padding: 0 4px;
+}
 .supplies-pagination { display: flex; align-items: center; gap: 8px; }
 .supplies-pagination .small { font-size: 13px; color: #64748b; min-width: 60px; text-align: center; }
 

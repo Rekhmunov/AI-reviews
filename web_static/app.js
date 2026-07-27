@@ -4417,16 +4417,40 @@ const OZON_STATUS_LABELS = {
   "CANCELLED":                        "Отменена",
 };
 
-const ozonState = { items: [], allItems: [], total: 0, page: 1, page_size: 50 };
+const ozonState = { items: [], allItems: [], rawItems: [], total: 0, page: 1, page_size: 50 };
 let _ozonSyncPollTimer = null;
 let _ozonDetailsCurrentId = null;
 let _selectedOzonIds = new Set();
+
+function _ozonHasActiveFilters() {
+  const statusF = document.getElementById("ozonStatusFilter")?.value || "";
+  const prodF = document.getElementById("ozonProductionFilter")?.value || "";
+  const whF = document.getElementById("ozonWarehouseFilter")?.value || "";
+  const sq = (document.getElementById("ozonSearchFilter")?.value || "").trim();
+  const dateFrom = document.getElementById("ozonDateFrom")?.value || "";
+  const dateTo = document.getElementById("ozonDateTo")?.value || "";
+  return Boolean(statusF || prodF || whF || sq || dateFrom || dateTo);
+}
+
+function _updateOzonFilterCount() {
+  const el = document.getElementById("ozonFilterCount");
+  if (!el) return;
+  if (!_ozonHasActiveFilters()) {
+    el.hidden = true;
+    el.textContent = "";
+    return;
+  }
+  const total = ozonState._filteredTotal !== undefined ? ozonState._filteredTotal : ozonState.total;
+  el.textContent = `Поставок: ${total}`;
+  el.hidden = false;
+}
 
 // ── Load & render ──────────────────────────────────────────────────────────
 async function loadOzonSupplies(resetPage = false) {
   if (resetPage) ozonState.page = 1;
   const statusF = document.getElementById("ozonStatusFilter")?.value || "";
   const prodF = document.getElementById("ozonProductionFilter")?.value || "";
+  const whF = document.getElementById("ozonWarehouseFilter")?.value || "";
   const dateFrom = document.getElementById("ozonDateFrom")?.value || "";
   const dateTo = document.getElementById("ozonDateTo")?.value || "";
   const params = new URLSearchParams({ page: ozonState.page, page_size: ozonState.page_size });
@@ -4434,15 +4458,18 @@ async function loadOzonSupplies(resetPage = false) {
   if (!res || !res.ok) return;
   const data = await res.json().catch(() => ({}));
   let items = data.items || [];
+  ozonState.rawItems = items;
+  _populateOzonProductionFilter();
+  _populateOzonWarehouseFilter();
   // Client-side filtering
   if (statusF) items = items.filter(x => (x.state || "") === statusF);
   if (prodF) items = items.filter(x => (x.production || "") === prodF);
+  if (whF) items = items.filter(x => (x.warehouse_name || "").trim() === whF);
   if (dateFrom) items = items.filter(x => { const d = (x.supply_date || "").slice(0,10); return !d || d >= dateFrom; });
   if (dateTo) items = items.filter(x => { const d = (x.supply_date || "").slice(0,10); return !d || d <= dateTo; });
-  ozonState.allItems = items;   // full filtered set
+  ozonState.allItems = items;   // full filtered set (except search)
   ozonState.total = items.length;
   ozonState._filteredTotal = undefined;
-  _populateOzonProductionFilter();
   _applyOzonPage();
   _updateOzonBatchUI();
 }
@@ -4467,6 +4494,7 @@ function _applyOzonPage() {
   ozonState._filteredTotal = filtered.length;
   renderOzonTable();
   _updateOzonPagination();
+  _updateOzonFilterCount();
 }
 
 function _populateOzonProductionFilter() {
@@ -4476,6 +4504,20 @@ function _populateOzonProductionFilter() {
   const prods = [...new Set(_supplyProductionsCache.map(p => p.name))];
   sel.innerHTML = '<option value="">Все производства</option>' +
     prods.map(n => `<option value="${esc(n)}"${n===cur?' selected':''}>${esc(n)}</option>`).join("");
+}
+
+function _populateOzonWarehouseFilter() {
+  const sel = document.getElementById("ozonWarehouseFilter");
+  if (!sel) return;
+  const cur = sel.value;
+  const names = [...new Set(
+    (ozonState.rawItems || [])
+      .map((x) => String(x.warehouse_name || "").trim())
+      .filter(Boolean)
+  )].sort((a, b) => a.localeCompare(b, "ru"));
+  sel.innerHTML = '<option value="">Все склады</option>' +
+    names.map((n) => `<option value="${esc(n)}"${n === cur ? " selected" : ""}>${esc(n)}</option>`).join("");
+  if (cur && !names.includes(cur)) sel.value = "";
 }
 
 function renderOzonTable() {
@@ -4595,7 +4637,8 @@ function _updateOzonPagination() {
 }
 
 function ozonChangePage(delta) {
-  const totalPages = Math.max(1, Math.ceil(ozonState.total / ozonState.page_size));
+  const total = ozonState._filteredTotal !== undefined ? ozonState._filteredTotal : ozonState.total;
+  const totalPages = Math.max(1, Math.ceil(total / ozonState.page_size));
   ozonState.page = Math.max(1, Math.min(totalPages, ozonState.page + delta));
   _applyOzonPage();
 }
