@@ -745,6 +745,7 @@ function showSection(section, options = {}) {
   }
   if (section === "supplies-ozon") {
     if (!ozonState.items.length) loadOzonSupplies(true);
+    else _populateOzonProductionFilter();
     initOzonSuppliesColumnResizer();
   }
   if (section === "supplies-certificates") {
@@ -4501,9 +4502,17 @@ function _populateOzonProductionFilter() {
   const sel = document.getElementById("ozonProductionFilter");
   if (!sel) return;
   const cur = sel.value;
-  const prods = [...new Set(_supplyProductionsCache.map(p => p.name))];
+  const fromCache = (_supplyProductionsCache || [])
+    .map((p) => String(p?.name || "").trim())
+    .filter(Boolean);
+  const fromItems = (ozonState.rawItems || [])
+    .map((x) => String(x.production || "").trim())
+    .filter(Boolean);
+  const prods = [...new Set([...fromCache, ...fromItems])]
+    .sort((a, b) => a.localeCompare(b, "ru"));
   sel.innerHTML = '<option value="">Все производства</option>' +
     prods.map(n => `<option value="${esc(n)}"${n===cur?' selected':''}>${esc(n)}</option>`).join("");
+  if (cur && !prods.includes(cur)) sel.value = "";
 }
 
 function _populateOzonWarehouseFilter() {
@@ -12066,14 +12075,18 @@ async function loadSupplyProductions() {
 }
 
 function _populateProductionSelects() {
-  const names = _supplyProductionsCache.map(p => p.name);
-  // Filter dropdown (top of table)
+  const names = (_supplyProductionsCache || [])
+    .map((p) => String(p?.name || "").trim())
+    .filter(Boolean);
+  // Filter dropdown (top of WB table)
   const filterSel = document.getElementById("suppliesProductionFilter");
   if (filterSel) {
     const cur = filterSel.value;
     filterSel.innerHTML = '<option value="">Все производства</option>' +
       names.map(n => `<option value="${esc(n)}"${n===cur?' selected':''}>${esc(n)}</option>`).join("");
   }
+  // Filter dropdown (top of OZON table)
+  _populateOzonProductionFilter();
   // Modal dropdown (WB)
   const modalSel = document.getElementById("sdProduction");
   if (modalSel) {
