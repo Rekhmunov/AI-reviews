@@ -1893,7 +1893,13 @@ class YandexMarketClient:
                     q_id = int(ext_id)
                 except (ValueError, TypeError):
                     return False
-                payload: dict[str, object] = {"answers": [{"questionId": q_id, "text": response_text}]}
+                # Current YM Partner API format:
+                # CREATE answer under parent question entity.
+                payload: dict[str, object] = {
+                    "operationType": "CREATE",
+                    "parentEntityId": {"id": q_id, "type": "QUESTION"},
+                    "text": response_text,
+                }
             else:
                 # feedback comment — feedbackId must be integer per YM API spec
                 path = f"/v2/businesses/{self.business_id}/goods-feedback/comments/update"
