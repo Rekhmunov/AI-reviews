@@ -2281,11 +2281,46 @@ async function deleteSupplySource(sourceId) {
   await loadSupplySources();
 }
 
+function _wbHasActiveFilters() {
+  const sourceId = document.getElementById("suppliesSourceFilter")?.value || "";
+  const statusId = document.getElementById("suppliesStatusFilter")?.value || "";
+  const productionFilter = document.getElementById("suppliesProductionFilter")?.value || "";
+  const warehouseFilter = document.getElementById("suppliesWarehouseFilter")?.value || "";
+  const searchFilter = document.getElementById("suppliesSearchFilter")?.value.trim() || "";
+  const dateFrom = document.getElementById("suppliesDateFrom")?.value || "";
+  const dateTo = document.getElementById("suppliesDateTo")?.value || "";
+  return Boolean(sourceId || statusId || productionFilter || warehouseFilter || searchFilter || dateFrom || dateTo);
+}
+
+function _updateWbFilterCount() {
+  const el = document.getElementById("suppliesFilterCount");
+  if (!el) return;
+  if (!_wbHasActiveFilters()) {
+    el.hidden = true;
+    el.textContent = "";
+    return;
+  }
+  el.textContent = `Поставок: ${suppliesState.total || 0}`;
+  el.hidden = false;
+}
+
+function _populateWbWarehouseFilter(names) {
+  const sel = document.getElementById("suppliesWarehouseFilter");
+  if (!sel) return;
+  const cur = sel.value;
+  const list = [...new Set((names || []).map((n) => String(n || "").trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, "ru"));
+  sel.innerHTML = '<option value="">Все склады</option>' +
+    list.map((n) => `<option value="${esc(n)}"${n === cur ? " selected" : ""}>${esc(n)}</option>`).join("");
+  if (cur && !list.includes(cur)) sel.value = "";
+}
+
 async function loadSupplies(resetPage = false) {
   if (resetPage) suppliesState.page = 1;
   const sourceId = document.getElementById("suppliesSourceFilter")?.value || "";
   const statusId = document.getElementById("suppliesStatusFilter")?.value || "";
   const productionFilter = document.getElementById("suppliesProductionFilter")?.value || "";
+  const warehouseFilter = document.getElementById("suppliesWarehouseFilter")?.value || "";
   const searchFilter = document.getElementById("suppliesSearchFilter")?.value.trim() || "";
   const dateFrom = document.getElementById("suppliesDateFrom")?.value || "";
   const dateTo = document.getElementById("suppliesDateTo")?.value || "";
@@ -2293,6 +2328,7 @@ async function loadSupplies(resetPage = false) {
   if (sourceId) params.set("source_id", sourceId);
   if (statusId) params.set("status_id", statusId);
   if (productionFilter) params.set("production", productionFilter);
+  if (warehouseFilter) params.set("warehouse", warehouseFilter);
   if (searchFilter) params.set("search", searchFilter);
   if (dateFrom) params.set("date_from", dateFrom);
   if (dateTo) params.set("date_to", dateTo);
@@ -2307,9 +2343,11 @@ async function loadSupplies(resetPage = false) {
   suppliesState.items = data.items || [];
   suppliesState.total = data.total || 0;
   suppliesState.page = data.page || 1;
+  _populateWbWarehouseFilter(data.warehouses || []);
   renderSuppliesTable();
   const totalPages = Math.max(1, Math.ceil(suppliesState.total / suppliesState.page_size));
   if (info) info.textContent = `Поставок: ${suppliesState.total}`;
+  _updateWbFilterCount();
   const pageInfo = document.getElementById("suppliesPageInfo");
   if (pageInfo) pageInfo.textContent = `${suppliesState.page} / ${totalPages}`;
   const prevBtn = document.getElementById("suppliesPrevBtn");

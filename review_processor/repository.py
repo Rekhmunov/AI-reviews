@@ -7936,6 +7936,29 @@ class ReviewRepository:
                     ),
                 )
 
+    def list_supply_warehouse_names(self, *, user_id: int, source_id: int | None = None) -> list[str]:
+        """Distinct destination warehouse names for WB supplies (filter dropdown)."""
+        conditions = ["ss.user_id = ?", "COALESCE(TRIM(si.warehouse_name), '') <> ''"]
+        params: list[Any] = [user_id]
+        if source_id:
+            conditions.append("si.source_id = ?")
+            params.append(source_id)
+        where = "WHERE " + " AND ".join(conditions)
+        with self._connect() as conn:
+            rows = conn.execute(
+                self._sql(
+                    f"""
+                    SELECT DISTINCT TRIM(si.warehouse_name) AS warehouse_name
+                    FROM supply_items si
+                    JOIN supply_sources ss ON ss.id = si.source_id
+                    {where}
+                    ORDER BY 1 ASC
+                    """
+                ),
+                tuple(params),
+            ).fetchall()
+        return [str(r["warehouse_name"]) for r in rows if r and r.get("warehouse_name")]
+
     def list_supply_items(
         self,
         *,
@@ -7945,6 +7968,7 @@ class ReviewRepository:
         date_from: str | None = None,
         date_to: str | None = None,
         production: str | None = None,
+        warehouse: str | None = None,
         search: str | None = None,
         page: int = 1,
         page_size: int = 50,
@@ -7966,6 +7990,9 @@ class ReviewRepository:
         if production:
             conditions.append("si.production = ?")
             params.append(production)
+        if warehouse:
+            conditions.append("TRIM(si.warehouse_name) = ?")
+            params.append(warehouse.strip())
         if search:
             s = f"%{search.strip()}%"
             conditions.append(
@@ -8006,7 +8033,14 @@ class ReviewRepository:
             d = self._row_to_dict(row)
             d.pop("raw_json", None)
             items.append(d)
-        return {"items": items, "total": total, "page": page, "page_size": page_size}
+        warehouses = self.list_supply_warehouse_names(user_id=user_id, source_id=source_id)
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "warehouses": warehouses,
+        }
 
     def clear_supply_items(self, *, user_id: int) -> int:
         """Delete all supply items (and cascaded goods) for this user. Returns deleted count."""
