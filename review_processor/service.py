@@ -1743,6 +1743,59 @@ class YandexMarketClient:
 
     # ── Questions ─────────────────────────────────────────────────────────────
 
+    def _fetch_need_answer_question_ids(
+        self,
+        *,
+        stop_requested: Callable[[], bool] | None = None,
+    ) -> set[str] | None:
+        """Return question IDs that still need a seller answer.
+
+        The goods-questions list payload often omits ``answersCount``, so we
+        cannot reliably detect answered questions from the full list alone.
+        ``needAnswer=true`` is the supported filter for unanswered questions.
+        Returns ``None`` when the helper request fails, so callers can fall
+        back without marking everything as answered.
+        """
+        try:
+            need_answer_ids: set[str] = set()
+            page_token: str | None = None
+            page = 0
+            path = f"/v1/businesses/{self.business_id}/goods-questions"
+            while page < self.max_pages:
+                _raise_if_stop_requested(stop_requested, source="yandex")
+                if page > 0:
+                    time.sleep(0.2)
+                qparams: dict[str, object] = {"limit": self.page_size}
+                if page_token:
+                    qparams["page_token"] = page_token
+                body = self._post(path, body={"needAnswer": True}, params=qparams)
+                if str(body.get("status") or "").upper() != "OK":
+                    return None
+                result = body.get("result") or {}
+                questions = result.get("questions") or []
+                if not questions:
+                    break
+                for q in questions:
+                    if not isinstance(q, dict):
+                        continue
+                    ids = q.get("questionIdentifiers") or {}
+                    external_id = str(
+                        (ids.get("id") or ids.get("questionId") if isinstance(ids, dict) else None)
+                        or q.get("id")
+                        or ""
+                    ).strip()
+                    if external_id:
+                        need_answer_ids.add(external_id)
+                page += 1
+                next_token = (result.get("paging") or {}).get("nextPageToken")
+                if not next_token:
+                    break
+                page_token = str(next_token)
+            return need_answer_ids
+        except Exception as exc:
+            _log.warning("yandex needAnswer question ids fetch failed: %s", exc)
+            return None
+
     def fetch_questions(
         self,
         *,
@@ -1750,6 +1803,7 @@ class YandexMarketClient:
     ) -> list[dict[str, object]]:
         if not self.api_key or not self.business_id:
             raise MarketplaceSyncError("yandex", "Не заданы Api-Key / business_id")
+        need_answer_ids = self._fetch_need_answer_question_ids(stop_requested=stop_requested)
         items: list[dict[str, object]] = []
         page_token: str | None = None
         page = 0
@@ -1772,7 +1826,7 @@ class YandexMarketClient:
             if not questions:
                 break
             for q in questions:
-                conv = self._to_question(q)
+                conv = self._to_question(q, need_answer_ids=need_answer_ids)
                 if conv:
                     items.append(conv)
             page += 1
@@ -1782,7 +1836,12 @@ class YandexMarketClient:
             page_token = next_token
         return items
 
-    def _to_question(self, item: dict[str, object]) -> dict[str, object] | None:
+    def _to_question(
+        self,
+        item: dict[str, object],
+        *,
+        need_answer_ids: set[str] | None = None,
+    ) -> dict[str, object] | None:
         ids = item.get("questionIdentifiers") or {}
         # YM API returns "id" inside questionIdentifiers (not "questionId")
         external_id = str(
@@ -1798,14 +1857,21 @@ class YandexMarketClient:
             if isinstance(author_obj, dict) else ""
         ) or None
         answers_count = int(item.get("answersCount") or 0)
-        status = "answered_manual" if answers_count > 0 else "open"
+        # Prefer needAnswer filter: list items usually omit answersCount.
+        if need_answer_ids is not None:
+            status = "open" if external_id in need_answer_ids else "answered_manual"
+        else:
+            status = "answered_manual" if answers_count > 0 else "open"
         created_at = str(item.get("createdAt") or "")
+        # Populate seller_replied_at for answered questions so upsert sets
+        # last_sent_at and the question stays in the Processed bucket.
+        seller_replied_at = created_at if status == "answered_manual" and created_at else None
         return {
             "external_id": external_id,
             "text": text,
             "customer_name": customer_name,
             "status": status,
-            "seller_replied_at": None,
+            "seller_replied_at": seller_replied_at,
             "last_message_at": created_at,
             "metadata": {
                 "raw": {
