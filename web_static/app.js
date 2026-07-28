@@ -10138,12 +10138,16 @@ async function loadAccounts() {
     const apiKeyPreview = String(account.api_key_preview || "-");
     const maskedApiKey = rawApiKey ? smartMaskSecret(rawApiKey) : apiKeyPreview;
     const apiKeyTooltip = rawApiKey || apiKeyPreview;
+    const extra = account.extra || {};
+    const clientOrBusinessId = String(account.marketplace || "").toLowerCase() === "yandex"
+      ? (extra.business_id || "-")
+      : (extra.client_id || "-");
     tr.innerHTML = `
       <td>${esc(account.id)}</td>
       <td>${esc(labelFromMap(marketplaceLabels, account.marketplace))}</td>
       <td>${esc(account.account_name)}</td>
       <td>${esc(account.api_url)}</td>
-      <td>${esc((account.extra || {}).client_id || "-")}</td>
+      <td>${esc(clientOrBusinessId)}</td>
       <td class="account-api-key-cell">
         <div class="account-api-key-wrap">
           <span class="account-api-key-text" title="${esc(apiKeyTooltip)}">${esc(maskedApiKey || "-")}</span>
