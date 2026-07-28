@@ -5584,10 +5584,14 @@ async function _bindMergeXlsx(files) {
   const newRows = [headerRow, ...numberedData].join("\n");
 
   // Replace sheetData in base XML
-  const newSheetXml = baseSheetXml.replace(
-    /<sheetData>[\s\S]*?<\/sheetData>/,
+  let newSheetXml = baseSheetXml.replace(
+    /<sheetData[^>]*>[\s\S]*?<\/sheetData>/,
     `<sheetData>\n${newRows}\n</sheetData>`
   );
+
+  // WB portal requires "кол-во товаров" as real numeric cells, not text/shared strings.
+  const baseSharedStrings = await _bindGetSharedStrings(baseZip);
+  newSheetXml = _bindCoerceQuantityColumn(newSheetXml, baseSharedStrings);
 
   // Build output zip (copy base, replace sheet)
   const outZip = new JSZip();
@@ -5603,6 +5607,121 @@ async function _bindMergeXlsx(files) {
   }
 
   return await outZip.generateAsync({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+}
+
+/** True for WB binding quantity header (and close variants). */
+function _bindIsQuantityHeader(text) {
+  const t = String(text || "").trim().toLowerCase().replace(/\s+/g, " ");
+  return t === "кол-во товаров" || t === "количество товаров" || /^кол-?во(\s+товаров)?$/.test(t);
+}
+
+function _bindParseQtyNumber(text) {
+  const s = String(text || "").trim().replace(/\s/g, "").replace(",", ".");
+  if (!s || !/^-?\d+(\.\d+)?$/.test(s)) return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+function _bindCellDisplayText(attrs, inner, sharedStrings) {
+  const typeM = /\bt="([^"]*)"/.exec(attrs || "");
+  const t = typeM ? typeM[1] : "";
+  const unescape = (s) => String(s || "")
+    .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/&apos;/g, "'").replace(/&quot;/g, '"');
+  if (t === "s") {
+    const vM = /<v>(\d+)<\/v>/.exec(inner || "");
+    if (!vM) return "";
+    return String(sharedStrings[parseInt(vM[1], 10)] ?? "");
+  }
+  if (t === "inlineStr") {
+    const parts = [];
+    const tRe = /<t[^>]*>([^<]*)<\/t>/g;
+    let tm;
+    while ((tm = tRe.exec(inner || "")) !== null) parts.push(unescape(tm[1]));
+    return parts.join("");
+  }
+  if (t === "str") {
+    const vM = /<v>([^<]*)<\/v>/.exec(inner || "");
+    return vM ? unescape(vM[1]) : "";
+  }
+  // Numeric / blank / other: keep raw <v> for header matching
+  const vM = /<v>([^<]*)<\/v>/.exec(inner || "");
+  return vM ? vM[1].trim() : "";
+}
+
+function _bindFindQuantityColLetter(headerRowXml, sharedStrings) {
+  const cellRe = /<c(\s[^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g;
+  let cm;
+  while ((cm = cellRe.exec(headerRowXml)) !== null) {
+    const attrs = cm[1] || "";
+    const inner = cm[2] || "";
+    const refM = /\br="([A-Z]+)(\d+)"/.exec(attrs);
+    if (!refM) continue;
+    const text = _bindCellDisplayText(attrs, inner, sharedStrings || []);
+    if (_bindIsQuantityHeader(text)) return refM[1];
+  }
+  return null;
+}
+
+function _bindCoerceQtyCellInRow(rowXml, colLetter, sharedStrings) {
+  const re = new RegExp(`<c(\\s[^>]*?\\br="${colLetter}\\d+"[^>]*?)(?:/>|>([\\s\\S]*?)<\\/c>)`, "g");
+  return rowXml.replace(re, (match, attrs, inner) => {
+    if (inner === undefined) return match;
+    const refM = /\br="([^"]+)"/.exec(attrs || "");
+    if (!refM) return match;
+    const typeM = /\bt="([^"]*)"/.exec(attrs || "");
+    const t = typeM ? typeM[1] : "";
+    // Already a real number cell (no type / n) — leave unchanged.
+    if (!t || t === "n") return match;
+    const text = _bindCellDisplayText(attrs, inner, sharedStrings || []);
+    const num = _bindParseQtyNumber(text);
+    if (num === null) return match;
+    const styleM = /\bs="([^"]*)"/.exec(attrs || "");
+    const styleAttr = styleM ? ` s="${styleM[1]}"` : "";
+    const v = Number.isInteger(num) ? String(num) : String(num);
+    return `<c r="${refM[1]}"${styleAttr}><v>${v}</v></c>`;
+  });
+}
+
+function _bindCoerceQuantityColumn(sheetXml, sharedStrings) {
+  const rows = _bindExtractRows(sheetXml);
+  if (rows.length < 2) return sheetXml;
+  const colLetter = _bindFindQuantityColLetter(rows[0], sharedStrings || []);
+  if (!colLetter) return sheetXml;
+  const newRows = [
+    rows[0],
+    ...rows.slice(1).map((r) => _bindCoerceQtyCellInRow(r, colLetter, sharedStrings || [])),
+  ];
+  return sheetXml.replace(
+    /<sheetData[^>]*>[\s\S]*?<\/sheetData>/,
+    `<sheetData>\n${newRows.join("\n")}\n</sheetData>`
+  );
+}
+
+/** Rewrite quantity column to numeric cells in a full xlsx ArrayBuffer/Blob source. */
+async function _bindNormalizeXlsxQuantity(arrayBuffer) {
+  const z = await JSZip.loadAsync(arrayBuffer);
+  const sheetPath = await _bindFindSheetPath(z);
+  const sheetFile = z.file(sheetPath);
+  if (!sheetFile) {
+    return new Blob([arrayBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  }
+  const sheetXml = await sheetFile.async("string");
+  const sharedStrings = await _bindGetSharedStrings(z);
+  const newSheetXml = _bindCoerceQuantityColumn(sheetXml, sharedStrings);
+  if (newSheetXml === sheetXml) {
+    return new Blob([arrayBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  }
+  const outZip = new JSZip();
+  for (const [path, zipObj] of Object.entries(z.files)) {
+    if (zipObj.dir) { outZip.folder(path); continue; }
+    if (path === sheetPath) outZip.file(path, newSheetXml);
+    else outZip.file(path, await zipObj.async("arraybuffer"));
+  }
+  return outZip.generateAsync({
+    type: "blob",
+    mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
 }
 
 async function _bindFindSheetPath(zip) {
@@ -6033,7 +6152,14 @@ async function wbBindMerge() {
     if (files.length === 1) {
       const f = files[0];
       const renamed = f._renamedAs || f.name;
-      const mergedEntry = { name: renamed, blob: new Blob([f.arrayBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), _sources: [f] };
+      // Normalize quantity column to numeric even for passthrough files.
+      let blob;
+      try {
+        blob = await _bindNormalizeXlsxQuantity(f.arrayBuffer);
+      } catch (_) {
+        blob = new Blob([f.arrayBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      }
+      const mergedEntry = { name: renamed, blob, _sources: [f] };
       _wbBindMerged.push(mergedEntry);
       _bindLogEl("wbBindLog", _bindMakePreviewLine(
         `⚠ <b>${esc(f.name)}</b> — одиночный файл. ` +
