@@ -1878,7 +1878,12 @@ class YandexMarketClient:
     ) -> bool:
         try:
             kind = str(conversation.get("kind") or "question")
-            ext_id = str(conversation.get("external_id") or "")
+            # DB rows use external_conversation_id; sync rows may use external_id
+            ext_id = str(
+                conversation.get("external_conversation_id")
+                or conversation.get("external_id")
+                or ""
+            ).strip()
             if not ext_id:
                 return False
             if kind == "question":
@@ -1895,7 +1900,8 @@ class YandexMarketClient:
                 payload = {"feedbackId": int(ext_id), "comment": {"text": response_text}}
             body = self._post(path, body=payload)
             return str(body.get("status") or "").upper() == "OK"
-        except Exception:
+        except Exception as exc:
+            _log.warning("yandex send_conversation_reply failed: %s", exc)
             return False
 
 
@@ -3850,7 +3856,9 @@ class ReviewAutomationService:
         except (TypeError, ValueError):
             account_id_value = None
 
-        if source not in {"wb", "ozon"} or account_id_value is None:
+        # Only mock/unknown sources skip marketplace API.
+        # Yandex questions must go through YandexMarketClient.send_conversation_reply.
+        if source not in {"wb", "ozon", "yandex"} or account_id_value is None:
             self.repository.mark_conversation_message_send_success(
                 user_id=user_id,
                 conversation_uid=conversation_uid,
