@@ -1185,7 +1185,10 @@ class ReviewRepository:
                 sources = _json.loads(d.get("sources_json") or "{}")
             except Exception:
                 sources = {}
-            if any(v.get("wb") or v.get("ozon") for v in sources.values()):
+            if any(
+                (isinstance(v, dict) and (v.get("wb") or v.get("wb_fbs") or v.get("ozon")))
+                for v in sources.values()
+            ):
                 continue  # has at least one source permission → legitimate
             # All supply permissions are false → stale flag
             conn.execute(

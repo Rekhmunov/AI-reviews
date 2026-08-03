@@ -545,7 +545,7 @@ class ManagerSuppliesAccessRequest(BaseModel):
     can_supply_poa: bool = False
     can_supply_certs: bool = False
     can_supply_planning: bool = False
-    supply_sources: dict = {}  # {source_id: {"wb": bool, "ozon": bool}}
+    supply_sources: dict = {}  # {source_id: {"wb": bool, "wb_fbs": bool, "ozon": bool}}
 
 
 class ManagerSalaryAccessRequest(BaseModel):
@@ -4000,6 +4000,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             _sp_sources = _supply_perms.get("sources") or {}
             can_view_any_supply = (
                 any(v.get("wb") for v in _sp_sources.values())
+                or any(v.get("wb_fbs") for v in _sp_sources.values())
                 or any(v.get("ozon") for v in _sp_sources.values())
                 or bool(_supply_perms.get("can_supply_poa"))
                 or bool(_supply_perms.get("can_supply_settings"))
@@ -5176,7 +5177,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 or payload.can_supply_settings
                 or payload.can_supply_poa
                 or payload.can_supply_certs
-                or any((v.get("wb") or v.get("ozon")) for v in sources.values())
+                or any(
+                    (v.get("wb") or v.get("wb_fbs") or v.get("ozon"))
+                    for v in sources.values()
+                    if isinstance(v, dict)
+                )
             )
             repository.set_user_can_supplies(user_id=target_user_id, can_supplies=has_any_supply)
             repository.set_manager_supply_permissions(
@@ -7722,6 +7727,21 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             return True
         return bool(user.get("can_supplies"))
 
+    def _can_view_wb_fbs(user: dict[str, object]) -> bool:
+        """True if user may open Поставки → ВБ ФБС (owner or explicit wb_fbs grant)."""
+        role = str(user.get("role") or ROLE_USER)
+        if role in ROLE_CAN_ACCESS_SETTINGS:
+            return True
+        if not bool(user.get("can_supplies")):
+            return False
+        perms = repository.get_manager_supply_permissions(manager_user_id=int(user["id"]))
+        sources = perms.get("sources") or {}
+        return any(
+            bool(v.get("wb_fbs"))
+            for v in sources.values()
+            if isinstance(v, dict)
+        )
+
     @app.get("/api/supply-sources")
     def list_supply_sources(request: Request) -> list[dict[str, object]]:
         user = _require_user(request)
@@ -8614,7 +8634,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.get("/api/wb-fbs/sources")
     def list_wb_fbs_sources(request: Request) -> list[dict[str, object]]:
         user = _require_user(request)
-        if not _can_view_supplies(user):
+        if not _can_view_wb_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
         owner_id = _supply_owner_id(user)
         repository._ensure_supply_tables()
@@ -8623,6 +8643,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             for s in repository.list_supply_sources(user_id=owner_id)
             if (s.get("marketplace") or "wb").lower() == "wb" and s.get("is_enabled")
         ]
+        role = str(user.get("role") or ROLE_USER)
+        if role not in ROLE_CAN_ACCESS_SETTINGS:
+            perms = repository.get_manager_supply_permissions(manager_user_id=int(user["id"]))
+            allowed = {
+                str(sid)
+                for sid, sv in (perms.get("sources") or {}).items()
+                if isinstance(sv, dict) and sv.get("wb_fbs")
+            }
+            sources = [s for s in sources if str(s.get("id")) in allowed]
         return sources
 
     @app.get("/api/wb-fbs/orders")
@@ -8635,7 +8664,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         page_size: int = 50,
     ) -> dict[str, object]:
         user = _require_user(request)
-        if not _can_view_supplies(user):
+        if not _can_view_wb_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
         owner_id = _supply_owner_id(user)
         return wb_fbs_mod.list_orders(
@@ -8655,7 +8684,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         only_open: bool = False,
     ) -> dict[str, object]:
         user = _require_user(request)
-        if not _can_view_supplies(user):
+        if not _can_view_wb_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
         owner_id = _supply_owner_id(user)
         items = wb_fbs_mod.list_supplies(
@@ -8681,7 +8710,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.post("/api/wb-fbs/sync")
     def sync_wb_fbs(request: Request, source_id: int | None = None) -> dict[str, object]:
         user = _require_user(request)
-        if not _can_view_supplies(user):
+        if not _can_view_wb_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
         owner_id = _supply_owner_id(user)
         repository._ensure_supply_tables()
@@ -8710,7 +8739,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.delete("/api/wb-fbs/orders")
     def clear_wb_fbs_orders(request: Request, source_id: int) -> dict[str, object]:
         user = _require_user(request)
-        if not _can_view_supplies(user):
+        if not _can_view_wb_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
         owner_id = _supply_owner_id(user)
         deleted = wb_fbs_mod.clear_source_data(repository, user_id=owner_id, source_id=int(source_id))
@@ -8719,7 +8748,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.post("/api/wb-fbs/stickers/orders")
     async def wb_fbs_order_stickers(request: Request) -> Response:
         user = _require_user(request)
-        if not _can_view_supplies(user):
+        if not _can_view_wb_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
         owner_id = _supply_owner_id(user)
         payload = await request.json()
@@ -8748,7 +8777,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         type: str = "png",
     ) -> Response:
         user = _require_user(request)
-        if not _can_view_supplies(user):
+        if not _can_view_wb_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
         owner_id = _supply_owner_id(user)
         sticker_type = type if type in {"png", "svg", "zplv", "zplh"} else "png"
@@ -8770,7 +8799,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.post("/api/wb-fbs/stickers/boxes")
     async def wb_fbs_box_stickers(request: Request) -> Response:
         user = _require_user(request)
-        if not _can_view_supplies(user):
+        if not _can_view_wb_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
         owner_id = _supply_owner_id(user)
         payload = await request.json()
@@ -11599,11 +11628,15 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
     _sp_sources = _supply_perms.get("sources") or {}
     can_view_wb_supplies = (
         role in ROLE_CAN_ACCESS_SETTINGS
-        or any(v.get("wb") for v in _sp_sources.values())
+        or any(v.get("wb") for v in _sp_sources.values() if isinstance(v, dict))
+    )
+    can_view_wb_fbs_supplies = (
+        role in ROLE_CAN_ACCESS_SETTINGS
+        or any(v.get("wb_fbs") for v in _sp_sources.values() if isinstance(v, dict))
     )
     can_view_ozon_supplies = (
         role in ROLE_CAN_ACCESS_SETTINGS
-        or any(v.get("ozon") for v in _sp_sources.values())
+        or any(v.get("ozon") for v in _sp_sources.values() if isinstance(v, dict))
     )
     can_view_supply_poa = (
         role in ROLE_CAN_ACCESS_SETTINGS
@@ -11619,6 +11652,7 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
     )
     can_view_any_supply = (
         can_view_wb_supplies
+        or can_view_wb_fbs_supplies
         or can_view_ozon_supplies
         or can_view_supply_poa
         or can_view_supply_settings
@@ -11676,7 +11710,7 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
     _wb_link = ('<a id="nav-supplies-wb" class="nav-item" href="#" onclick="showSection(\'supplies-wb\')"><span class="nav-item-icon">▦</span> ВБ</a>'
                 if can_view_wb_supplies else "")
     _wb_fbs_link = ('<a id="nav-supplies-wb-fbs" class="nav-item" href="#" onclick="showSection(\'supplies-wb-fbs\')"><span class="nav-item-icon">▣</span> ВБ ФБС</a>'
-                    if can_view_wb_supplies else "")
+                    if can_view_wb_fbs_supplies else "")
     _ozon_link = ('<a id="nav-supplies-ozon" class="nav-item" href="#" onclick="showSection(\'supplies-ozon\')"><span class="nav-item-icon">◉</span> ОЗОН</a>'
                   if can_view_ozon_supplies else "")
     _poa_link = ('<a id="nav-supplies-poa" class="nav-item" href="#" onclick="showSection(\'supplies-poa\')"><span class="nav-item-icon">☐</span> Доверенности</a>'
@@ -11708,6 +11742,9 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
             "CAN_VIEW_ANALYTICS": "true" if can_view_analytics else "false",
             "CAN_VIEW_SETTINGS": "true" if can_view_settings else "false",
             "CAN_VIEW_SUPPLIES": "true" if can_view_supplies else "false",
+            "CAN_VIEW_WB_SUPPLIES": "true" if can_view_wb_supplies else "false",
+            "CAN_VIEW_WB_FBS_SUPPLIES": "true" if can_view_wb_fbs_supplies else "false",
+            "CAN_VIEW_OZON_SUPPLIES": "true" if can_view_ozon_supplies else "false",
             "CAN_VIEW_FEEDBACK": "true" if can_view_feedback else "false",
             "CAN_VIEW_REVIEWS": "true" if can_view_reviews else "false",
             "CAN_VIEW_QUESTIONS": "true" if can_view_questions else "false",

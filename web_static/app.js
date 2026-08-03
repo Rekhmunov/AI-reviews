@@ -514,6 +514,9 @@ function getPermissions() {
     can_view_settings:  _b("can_view_settings", true),
     can_view_supplies:    _b("can_view_supplies", false),
     can_view_any_supply:  _b("can_view_any_supply", false),
+    can_view_wb_supplies: _b("can_view_wb_supplies", _b("can_view_supplies", false)),
+    can_view_wb_fbs_supplies: _b("can_view_wb_fbs_supplies", false),
+    can_view_ozon_supplies: _b("can_view_ozon_supplies", _b("can_view_supplies", false)),
     can_view_feedback:  _b("can_view_feedback", true),
     can_view_reviews:   _b("can_view_reviews", true),
     can_view_questions: _b("can_view_questions", true),
@@ -542,9 +545,9 @@ function canViewSection(section) {
   if (section === "chats")        return permissions.can_view_chats;
   if (section === "salary")         return permissions.can_view_salary || isTenantOwner();
   if (section === "salary-settings") return isTenantOwner() || permissions.can_view_salary_settings;
-  if (section === "supplies-wb")  return permissions.can_view_supplies;
-  if (section === "supplies-wb-fbs") return permissions.can_view_supplies;
-  if (section === "supplies-ozon") return permissions.can_view_supplies;
+  if (section === "supplies-wb")  return permissions.can_view_wb_supplies || (permissions.can_view_supplies && isTenantOwner());
+  if (section === "supplies-wb-fbs") return permissions.can_view_wb_fbs_supplies || (permissions.can_view_supplies && isTenantOwner());
+  if (section === "supplies-ozon") return permissions.can_view_ozon_supplies || (permissions.can_view_supplies && isTenantOwner());
   if (section === "supplies-poa") return permissions.can_view_supplies;
   if (section === "supplies-certificates") return permissions.can_view_supplies;
   if (section === "supplies-settings") return permissions.can_view_settings || permissions.can_view_supplies;
@@ -10625,7 +10628,7 @@ function renderManagerSupplyPermissionsRows(supplySources, supplyPerms) {
   if (!tbody) return;
   tbody.innerHTML = "";
   if (!supplySources || !supplySources.length) {
-    tbody.innerHTML = '<tr><td colspan="6" style="color:#94a3b8;font-size:12px;text-align:center">Нет источников поставок</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" style="color:#94a3b8;font-size:12px;text-align:center">Нет источников поставок</td></tr>';
     return;
   }
   const sources = supplyPerms?.sources || {};
@@ -10661,7 +10664,9 @@ function renderManagerSupplyPermissionsRows(supplySources, supplyPerms) {
     tr.innerHTML = `
       <td style="${tdSt}">${esc(src.name || `Источник #${sid}`)}</td>
       <td style="${tdCt}"><input type="checkbox" data-source-id="${sid}" data-col="wb"
-          ${srcPerms.wb ? "checked" : ""} ${wbDisabled} style="${wbStyle}" /></td>
+          ${srcPerms.wb ? "checked" : ""} ${wbDisabled} style="${wbStyle}" title="Поставки ВБ (FBW)" /></td>
+      <td style="${tdCt}"><input type="checkbox" data-source-id="${sid}" data-col="wb_fbs"
+          ${srcPerms.wb_fbs ? "checked" : ""} ${wbDisabled} style="${wbStyle}" title="Поставки ВБ ФБС" /></td>
       <td style="${tdCt}"><input type="checkbox" data-source-id="${sid}" data-col="ozon"
           ${srcPerms.ozon ? "checked" : ""} ${ozonDisabled} style="${ozonStyle}" /></td>
       ${settingsMerge}${poaMerge}${certsMerge}
@@ -10676,7 +10681,7 @@ function collectManagerSupplyPermissionsFromModal() {
     const sid = cb.getAttribute("data-source-id");
     const col = cb.getAttribute("data-col");
     if (!sid || !col) return;
-    if (!sources[sid]) sources[sid] = { wb: false, ozon: false };
+    if (!sources[sid]) sources[sid] = { wb: false, wb_fbs: false, ozon: false };
     sources[sid][col] = Boolean(cb.checked);
   });
   return {
@@ -10740,6 +10745,7 @@ function formatManagerPermissionsText(permissions, canSupplies, supplyPermission
   const supplyParts = [];
   for (const [sid, sv] of Object.entries(srcMap)) {
     if (sv.wb) supplyParts.push("ВБ");
+    if (sv.wb_fbs) supplyParts.push("ВБ ФБС");
     if (sv.ozon) supplyParts.push("ОЗОН");
   }
   if (sp.can_supply_settings) supplyParts.push("Настройки");
@@ -11123,7 +11129,7 @@ function applyManagerPermissionsSelection() {
   teamState.pendingCanSalaryZpExport = canSalaryZpExport;
   teamState.pendingCanSalaryProductions = salaryProductions;
   const hasAnySupply = supplyPerms.can_supply_settings || supplyPerms.can_supply_poa || supplyPerms.can_supply_certs ||
-    Object.values(supplyPerms.sources || {}).some(s => s.wb || s.ozon);
+    Object.values(supplyPerms.sources || {}).some(s => s.wb || s.wb_fbs || s.ozon);
   teamState.pendingCanSupplies = hasAnySupply;
   if (!permissions.length && !hasAnySupply && !canSalary && !canSalarySettings) {
     const info = document.getElementById("managerPermissionsInfo");
@@ -11979,6 +11985,21 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("section-supplies-wb")?.classList.add("hidden");
     document.getElementById("section-supplies-wb-fbs")?.classList.add("hidden");
     document.getElementById("section-supplies-settings")?.classList.add("hidden");
+  }
+  if (!permissions.can_view_wb_supplies && !isTenantOwner()) {
+    document.getElementById("section-supplies-wb")?.classList.add("hidden");
+    const navWb = document.getElementById("nav-supplies-wb");
+    if (navWb) navWb.style.display = "none";
+  }
+  if (!permissions.can_view_wb_fbs_supplies && !isTenantOwner()) {
+    document.getElementById("section-supplies-wb-fbs")?.classList.add("hidden");
+    const navFbs = document.getElementById("nav-supplies-wb-fbs");
+    if (navFbs) navFbs.style.display = "none";
+  }
+  if (!permissions.can_view_ozon_supplies && !isTenantOwner()) {
+    document.getElementById("section-supplies-ozon")?.classList.add("hidden");
+    const navOzon = document.getElementById("nav-supplies-ozon");
+    if (navOzon) navOzon.style.display = "none";
   }
   // Per-channel nav visibility: hide individual tabs the manager has no access to
   const channelMap = [
