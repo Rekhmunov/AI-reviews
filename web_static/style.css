@@ -7028,20 +7028,11 @@ tr.dnd-over td {
   font-size: 14px;
 }
 @media (max-width: 1100px) {
-  .wb-fbs-col-wh,
-  .wb-fbs-table th:nth-child(5),
-  .wb-fbs-table td:nth-child(5) { width: 120px; }
-  .wb-fbs-col-order,
-  .wb-fbs-table th:nth-child(2),
-  .wb-fbs-table td:nth-child(2) { width: 148px; }
   .wb-fbs-table-wrap { max-height: calc(100vh - 340px); }
 }
 @media (max-width: 900px) {
   .wb-fbs-search { width: 100%; }
   .wb-fbs-source-select { max-width: 100%; width: 100%; }
-  .wb-fbs-col-price,
-  .wb-fbs-table th:nth-child(4),
-  .wb-fbs-table td:nth-child(4) { width: 88px; }
   .wb-fbs-bottom-bar {
     left: 12px;
     right: 12px;
