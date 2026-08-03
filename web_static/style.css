@@ -6895,16 +6895,16 @@ tr.dnd-over td {
   color: #64748b;
 }
 .wb-fbs-row-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  z-index: 40;
-  min-width: 200px;
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 2200;
+  min-width: 220px;
   padding: 6px;
   border: 1px solid #e2e8f0;
   border-radius: 10px;
   background: #fff;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
   display: none;
 }
 .wb-fbs-row-menu.open { display: block; }

@@ -17624,20 +17624,64 @@ function _wbFbsSetSyncInfo(text, kind = "") {
   info.style.color = "";
 }
 
+function _wbFbsRestoreRowMenu(menu) {
+  if (!menu) return;
+  menu.classList.remove("open");
+  menu.style.top = "";
+  menu.style.left = "";
+  const wrapId = menu.dataset.wrapId;
+  const wrap = wrapId ? document.getElementById(wrapId) : null;
+  if (wrap && menu.parentElement !== wrap) wrap.appendChild(menu);
+}
+
 function _wbFbsCloseRowMenus(exceptId = null) {
-  document.querySelectorAll(".wb-fbs-row-menu.open").forEach((menu) => {
-    if (exceptId != null && menu.dataset.orderId === String(exceptId)) return;
-    menu.classList.remove("open");
+  document.querySelectorAll(".wb-fbs-row-menu.open, .wb-fbs-row-menu[data-ported='1']").forEach((menu) => {
+    if (exceptId != null && menu.dataset.orderId === String(exceptId) && menu.classList.contains("open")) {
+      return;
+    }
+    menu.dataset.ported = "";
+    _wbFbsRestoreRowMenu(menu);
   });
+}
+
+function _wbFbsPositionRowMenu(menu, anchorEl) {
+  const rect = anchorEl.getBoundingClientRect();
+  const menuW = Math.max(menu.offsetWidth || 220, 220);
+  const menuH = menu.offsetHeight || 96;
+  let left = rect.right - menuW;
+  if (left < 8) left = 8;
+  if (left + menuW > window.innerWidth - 8) left = Math.max(8, window.innerWidth - menuW - 8);
+  let top = rect.bottom + 4;
+  if (top + menuH > window.innerHeight - 8) {
+    top = Math.max(8, rect.top - menuH - 4);
+  }
+  menu.style.top = `${Math.round(top)}px`;
+  menu.style.left = `${Math.round(left)}px`;
 }
 
 function toggleWbFbsRowMenu(event, orderId) {
   event.stopPropagation();
+  const btn = event.currentTarget || event.target?.closest?.(".wb-fbs-row-menu-btn");
   const menu = document.getElementById(`wbFbsRowMenu_${orderId}`);
-  if (!menu) return;
+  if (!menu || !btn) return;
   const willOpen = !menu.classList.contains("open");
   _wbFbsCloseRowMenus(willOpen ? orderId : null);
-  menu.classList.toggle("open", willOpen);
+  if (!willOpen) {
+    menu.dataset.ported = "";
+    _wbFbsRestoreRowMenu(menu);
+    return;
+  }
+  const wrap = menu.closest(".wb-fbs-row-menu-wrap") || menu.parentElement;
+  if (wrap) {
+    if (!wrap.id) wrap.id = `wbFbsRowMenuWrap_${orderId}`;
+    menu.dataset.wrapId = wrap.id;
+  }
+  // Move to body so panel/table overflow and backdrop-filter cannot clip it.
+  document.body.appendChild(menu);
+  menu.dataset.ported = "1";
+  menu.classList.add("open");
+  _wbFbsPositionRowMenu(menu, btn);
+  requestAnimationFrame(() => _wbFbsPositionRowMenu(menu, btn));
 }
 window.toggleWbFbsRowMenu = toggleWbFbsRowMenu;
 
@@ -17814,12 +17858,20 @@ function _wbFbsUpdateBottomBar() {
 }
 
 document.addEventListener("click", (event) => {
-  if (event.target.closest(".wb-fbs-row-menu-wrap")) return;
+  if (event.target.closest(".wb-fbs-row-menu-wrap") || event.target.closest(".wb-fbs-row-menu")) return;
   _wbFbsCloseRowMenus();
 });
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") _wbFbsCloseRowMenus();
 });
+document.addEventListener("scroll", (event) => {
+  if (!document.querySelector(".wb-fbs-row-menu.open")) return;
+  // Close on table/page scroll so the fixed menu does not float away from its row.
+  if (event.target === document || event.target === document.documentElement || event.target === document.body
+      || event.target?.closest?.(".wb-fbs-table-wrap")) {
+    _wbFbsCloseRowMenus();
+  }
+}, true);
 
 function wbFbsChangePage(delta) {
   wbFbsState.page = Math.max(1, wbFbsState.page + delta);
