@@ -17561,7 +17561,7 @@ async function loadWbFbsOrders(resetPage = false) {
   const info = document.getElementById("wbFbsInfo");
   const tbody = document.getElementById("wbFbsOrdersTbody");
   if (!wbFbsState.sourceId) {
-    if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="small" style="padding:16px;color:#94a3b8">Выберите источник ВБ в Поставки → Настройки → Источники</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="small" style="padding:16px;color:#94a3b8">Выберите источник ВБ в Поставки → Настройки → Источники</td></tr>';
     if (info) info.textContent = "";
     _wbFbsUpdateCounts({});
     return;
@@ -17593,7 +17593,7 @@ async function loadWbFbsOrders(resetPage = false) {
     if (prevBtn) prevBtn.disabled = wbFbsState.page <= 1;
     if (nextBtn) nextBtn.disabled = wbFbsState.page >= totalPages;
   } catch (e) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="small" style="padding:16px;color:#b91c1c">${_wbFbsEsc(e.message || e)}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="small" style="padding:16px;color:#b91c1c">${_wbFbsEsc(e.message || e)}</td></tr>`;
   }
 }
 window.loadWbFbsOrders = loadWbFbsOrders;

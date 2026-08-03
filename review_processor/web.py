@@ -8770,11 +8770,16 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.delete("/api/wb-fbs/orders")
     def clear_wb_fbs_orders(request: Request, source_id: int) -> dict[str, object]:
+        """Owner/admin only. UI button removed; kept for emergency admin use."""
         user = _require_user(request)
-        if not _can_view_wb_fbs(user):
+        if str(user.get("role") or "") not in ROLE_CAN_ACCESS_SETTINGS:
             raise HTTPException(status_code=403, detail="Нет доступа")
         owner_id = _supply_owner_id(user)
-        deleted = wb_fbs_mod.clear_source_data(repository, user_id=owner_id, source_id=int(source_id))
+        sid = int(source_id)
+        src = repository.get_supply_source_with_key(user_id=owner_id, source_id=sid)
+        if not src or not wb_fbs_mod.is_fbs_source_name(src.get("name")):
+            raise HTTPException(status_code=404, detail="Источник ФБС не найден")
+        deleted = wb_fbs_mod.clear_source_data(repository, user_id=owner_id, source_id=sid)
         return {"ok": True, **deleted}
 
     @app.post("/api/wb-fbs/stickers/orders")
