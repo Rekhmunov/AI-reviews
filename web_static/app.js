@@ -11977,6 +11977,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   if (!permissions.can_view_supplies) {
     document.getElementById("section-supplies-wb")?.classList.add("hidden");
+    document.getElementById("section-supplies-wb-fbs")?.classList.add("hidden");
     document.getElementById("section-supplies-settings")?.classList.add("hidden");
   }
   // Per-channel nav visibility: hide individual tabs the manager has no access to
