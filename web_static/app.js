@@ -17710,8 +17710,16 @@ function renderWbFbsOrdersTable() {
     if (o.cargo_label) badges.push(`<span class="wb-fbs-badge cargo">${_wbFbsEsc(o.cargo_label)}</span>`);
     if (o.supply_id) badges.push(`<span class="wb-fbs-badge" title="Поставка">${_wbFbsEsc(o.supply_id)}</span>`);
     const photo = o.product_photo
-      ? `<img class="wb-fbs-product-photo" src="${_wbFbsEsc(o.product_photo)}" alt="" width="40" height="40" loading="lazy">`
+      ? `<img class="wb-fbs-product-photo" src="${_wbFbsEsc(o.product_photo)}" alt="" width="72" height="72" loading="lazy">`
       : `<span class="wb-fbs-product-ph" aria-hidden="true"></span>`;
+    const barcodes = Array.isArray(o.barcodes)
+      ? o.barcodes
+      : (Array.isArray(o.skus) ? o.skus : []);
+    const barcodeHtml = barcodes.length
+      ? `<div class="wb-fbs-barcodes" title="Штрихкод товара">${barcodes.map((b) =>
+          `<div class="wb-fbs-barcode">${_wbFbsEsc(b)}</div>`
+        ).join("")}</div>`
+      : "";
     return `<tr>
       <td><input type="checkbox" class="wb-fbs-row-cb" data-order-id="${oid}" ${checked} onchange="onWbFbsCheckboxChange()" /></td>
       <td>
@@ -17725,6 +17733,7 @@ function renderWbFbsOrdersTable() {
           <div class="wb-fbs-product-text">
             <div class="wb-fbs-product-name" title="${_wbFbsEsc(o.product_name || o.article || "")}">${_wbFbsEsc(o.product_name || o.article || "—")}</div>
             <div class="wb-fbs-product-sub">Арт. ${_wbFbsEsc(o.article || "—")}${o.nm_id ? " · nmId " + _wbFbsEsc(o.nm_id) : ""}</div>
+            ${barcodeHtml}
           </div>
         </div>
       </td>

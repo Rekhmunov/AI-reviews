@@ -609,8 +609,10 @@ def list_orders(
         params.append(tab)
     if search:
         q = f"%{search.strip()}%"
-        conditions.append("(CAST(order_id AS TEXT) ILIKE ? OR article ILIKE ? OR supply_id ILIKE ?)")
-        params.extend([q, q, q])
+        conditions.append(
+            "(CAST(order_id AS TEXT) ILIKE ? OR article ILIKE ? OR supply_id ILIKE ? OR skus_json ILIKE ?)"
+        )
+        params.extend([q, q, q, q])
     where = " AND ".join(conditions)
     safe_page = max(int(page), 1)
     safe_size = min(max(int(page_size), 1), 200)
@@ -665,6 +667,19 @@ def list_orders(
         d["warehouse_label"] = ", ".join(str(x) for x in d["offices"] if x) or (
             f"Склад {d.get('warehouse_id')}" if d.get("warehouse_id") else "—"
         )
+        # WB order.skus = product barcodes (ШК)
+        try:
+            skus_raw = json.loads(d.get("skus_json") or "[]")
+        except Exception:
+            skus_raw = []
+        barcodes: list[str] = []
+        if isinstance(skus_raw, list):
+            for sku in skus_raw:
+                text = str(sku or "").strip()
+                if text and text not in barcodes:
+                    barcodes.append(text)
+        d["barcodes"] = barcodes
+        d["skus"] = barcodes
         items.append(d)
     return {
         "items": items,

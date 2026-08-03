@@ -6793,19 +6793,19 @@ tr.dnd-over td {
 .wb-fbs-badge.cargo { background: #e0f2fe; color: #075985; }
 .wb-fbs-product {
   display: flex;
-  gap: 10px;
-  align-items: center;
+  gap: 12px;
+  align-items: flex-start;
   min-width: 0;
 }
 .wb-fbs-product-photo,
 .wb-fbs-product img,
 .wb-fbs-product-ph {
-  width: 40px !important;
-  height: 40px !important;
-  max-width: 40px !important;
-  max-height: 40px !important;
+  width: 72px !important;
+  height: 72px !important;
+  max-width: 72px !important;
+  max-height: 72px !important;
   object-fit: cover;
-  border-radius: 6px;
+  border-radius: 8px;
   border: 1px solid #e2e8f0;
   background: #f8fafc;
   flex-shrink: 0;
@@ -6826,6 +6826,21 @@ tr.dnd-over td {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+.wb-fbs-barcodes {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+}
+.wb-fbs-barcode {
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: #0f172a;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  word-break: break-all;
 }
 .wb-fbs-product-sub {
   color: #64748b;
