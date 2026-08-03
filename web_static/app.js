@@ -17505,11 +17505,22 @@ function _wbFbsUpdateCounts(counts) {
   }
 }
 
+function _wbFbsSetSyncInfo(text, kind = "") {
+  const info = document.getElementById("wbFbsSyncInfo");
+  if (!info) return;
+  const msg = String(text || "").trim();
+  info.textContent = msg;
+  info.hidden = !msg;
+  info.classList.toggle("is-error", kind === "error");
+  info.classList.toggle("is-ok", kind === "ok");
+  info.style.color = "";
+}
+
 function renderWbFbsOrdersTable() {
   const tbody = document.getElementById("wbFbsOrdersTbody");
   if (!tbody) return;
   if (!wbFbsState.items.length) {
-    tbody.innerHTML = '<tr><td colspan="6" class="small" style="padding:16px;color:#94a3b8">Нет заказов во вкладке. Нажмите «Синхронизировать».</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="wb-fbs-empty">Нет заказов во вкладке. Нажмите «Синхронизировать».</td></tr>';
     return;
   }
   tbody.innerHTML = wbFbsState.items.map((o) => {
@@ -17518,30 +17529,30 @@ function renderWbFbsOrdersTable() {
     const ago = _wbFbsAgo(o.created_at_wb);
     const badges = [];
     if (ago) badges.push(`<span class="wb-fbs-badge time">${_wbFbsEsc(ago)}</span>`);
-    if (o.cargo_label) badges.push(`<span class="wb-fbs-badge">${_wbFbsEsc(o.cargo_label)}</span>`);
-    if (o.supply_id) badges.push(`<span class="wb-fbs-badge">${_wbFbsEsc(o.supply_id)}</span>`);
+    if (o.cargo_label) badges.push(`<span class="wb-fbs-badge cargo">${_wbFbsEsc(o.cargo_label)}</span>`);
+    if (o.supply_id) badges.push(`<span class="wb-fbs-badge" title="Поставка">${_wbFbsEsc(o.supply_id)}</span>`);
     const photo = o.product_photo
-      ? `<img src="${_wbFbsEsc(o.product_photo)}" alt="">`
-      : `<div style="width:48px;height:48px;border-radius:6px;background:#f1f5f9;border:1px solid #e2e8f0;flex-shrink:0"></div>`;
+      ? `<img class="wb-fbs-product-photo" src="${_wbFbsEsc(o.product_photo)}" alt="" width="40" height="40" loading="lazy">`
+      : `<span class="wb-fbs-product-ph" aria-hidden="true"></span>`;
     return `<tr>
-      <td style="text-align:center"><input type="checkbox" class="wb-fbs-row-cb" data-order-id="${oid}" ${checked} onchange="onWbFbsCheckboxChange()" /></td>
+      <td><input type="checkbox" class="wb-fbs-row-cb" data-order-id="${oid}" ${checked} onchange="onWbFbsCheckboxChange()" /></td>
       <td>
         <div class="wb-fbs-order-id">${_wbFbsEsc(oid)}</div>
         <div class="wb-fbs-order-meta">от ${_wbFbsEsc(_wbFbsFmtDate(o.created_at_wb))}</div>
-        <div class="wb-fbs-badges">${badges.join("")}</div>
+        ${badges.length ? `<div class="wb-fbs-badges">${badges.join("")}</div>` : ""}
       </td>
       <td>
         <div class="wb-fbs-product">
           ${photo}
-          <div>
-            <div class="wb-fbs-product-name">${_wbFbsEsc(o.product_name || o.article || "—")}</div>
+          <div class="wb-fbs-product-text">
+            <div class="wb-fbs-product-name" title="${_wbFbsEsc(o.product_name || o.article || "")}">${_wbFbsEsc(o.product_name || o.article || "—")}</div>
             <div class="wb-fbs-product-sub">Арт. ${_wbFbsEsc(o.article || "—")}${o.nm_id ? " · nmId " + _wbFbsEsc(o.nm_id) : ""}</div>
           </div>
         </div>
       </td>
-      <td>${_wbFbsEsc(o.price_display || "—")}</td>
+      <td><span class="wb-fbs-price">${_wbFbsEsc(o.price_display || "—")}</span></td>
       <td>
-        <div style="font-weight:600">${_wbFbsEsc(o.warehouse_label || "—")}</div>
+        <div class="wb-fbs-wh-name" title="${_wbFbsEsc(o.warehouse_label || "")}">${_wbFbsEsc(o.warehouse_label || "—")}</div>
         <div class="wb-fbs-order-meta">${o.warehouse_id ? "ID " + _wbFbsEsc(o.warehouse_id) : ""}</div>
       </td>
       <td>
@@ -17627,10 +17638,9 @@ async function syncWbFbs() {
   }
   const syncBtn = document.getElementById("wbFbsSyncBtn");
   const stopBtn = document.getElementById("wbFbsStopBtn");
-  const info = document.getElementById("wbFbsSyncInfo");
   if (syncBtn) syncBtn.disabled = true;
   if (stopBtn) stopBtn.classList.remove("hidden");
-  if (info) info.textContent = "Запуск синхронизации…";
+  _wbFbsSetSyncInfo("Запуск синхронизации…");
   try {
     const res = await fetch(`/api/wb-fbs/sync?source_id=${wbFbsState.sourceId}`, {
       method: "POST",
@@ -17638,18 +17648,14 @@ async function syncWbFbs() {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.ok) {
-      if (info) {
-        info.textContent = data.message || data.detail || `Ошибка ${res.status || "сети"}`;
-        info.style.color = "#b91c1c";
-      }
+      _wbFbsSetSyncInfo(data.message || data.detail || `Ошибка ${res.status || "сети"}`, "error");
       if (syncBtn) syncBtn.disabled = false;
       if (stopBtn) stopBtn.classList.add("hidden");
       return;
     }
-    if (info) info.style.color = "";
     _wbFbsPollSync();
   } catch (e) {
-    if (info) info.textContent = String(e.message || e);
+    _wbFbsSetSyncInfo(String(e.message || e), "error");
     if (syncBtn) syncBtn.disabled = false;
     if (stopBtn) stopBtn.classList.add("hidden");
   }
@@ -17669,25 +17675,22 @@ function _wbFbsPollSync() {
     try {
       const res = await fetch("/api/wb-fbs/sync/status");
       const st = await res.json();
-      const info = document.getElementById("wbFbsSyncInfo");
-      if (info) {
-        const msg = String(st.message || "");
-        const scopeMsg = /нет ни одного источника с нужным api/i.test(msg);
-        // Never append raw WB JSON / HTTP dumps — only short friendly lines from backend.
-        const errs = scopeMsg
-          ? ""
-          : (st.errors || [])
-              .map((e) => String(e || "").trim())
-              .filter((e) => e && !/WB FBS HTTP|token scope not allowed|s2s-api-auth-marketplace|\{|"code":/i.test(e))
-              .slice(0, 2)
-              .join("; ");
-        info.textContent = `${msg}${errs ? " · " + errs : ""}`;
-        if (scopeMsg || (!st.in_progress && (st.errors || []).length)) {
-          info.style.color = "#b91c1c";
-        } else if (!st.in_progress) {
-          info.style.color = "";
-        }
+      const msg = String(st.message || "");
+      const scopeMsg = /нет ни одного источника с нужным api/i.test(msg);
+      const errs = scopeMsg
+        ? ""
+        : (st.errors || [])
+            .map((e) => String(e || "").trim())
+            .filter((e) => e && !/WB FBS HTTP|token scope not allowed|s2s-api-auth-marketplace|\{|"code":/i.test(e))
+            .slice(0, 2)
+            .join("; ");
+      const text = `${msg}${errs ? " · " + errs : ""}`.trim();
+      let kind = "";
+      if (!st.in_progress) {
+        if (scopeMsg || (st.errors || []).length || /ошибк/i.test(msg)) kind = "error";
+        else if (/готово/i.test(msg)) kind = "ok";
       }
+      _wbFbsSetSyncInfo(text, kind);
       if (!st.in_progress) {
         clearInterval(wbFbsState.pollTimer);
         wbFbsState.pollTimer = null;
@@ -17709,12 +17712,11 @@ async function clearWbFbsOrders() {
     headers: jsonHeaders(),
   });
   const data = await res.json().catch(() => ({}));
-  const info = document.getElementById("wbFbsSyncInfo");
   if (!res.ok) {
-    if (info) info.textContent = data.detail || `Ошибка ${res.status}`;
+    _wbFbsSetSyncInfo(data.detail || `Ошибка ${res.status}`, "error");
     return;
   }
-  if (info) info.textContent = `Удалено заказов: ${data.orders || 0}, поставок: ${data.supplies || 0}`;
+  _wbFbsSetSyncInfo(`Удалено заказов: ${data.orders || 0}, поставок: ${data.supplies || 0}`, "ok");
   clearWbFbsSelection();
   loadWbFbsOrders(true);
 }
