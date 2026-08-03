@@ -17425,8 +17425,8 @@ async function initWbFbsSection() {
 }
 
 // ── WB FBS column resizer (per-user localStorage) ──
-const WB_FBS_COL_WIDTHS_PREFIX = "wb_fbs_col_widths_v1";
-const WB_FBS_DEFAULT_WIDTHS = [20, 50, 13, 17]; // order, product, price, warehouse
+const WB_FBS_COL_WIDTHS_PREFIX = "wb_fbs_col_widths_v2";
+const WB_FBS_DEFAULT_WIDTHS = [24, 56, 20]; // order, product, warehouse (price column hidden in UI)
 let _wbFbsColResizerInited = false;
 
 function _wbFbsColWidthsKey() {
@@ -17742,7 +17742,7 @@ function renderWbFbsOrdersTable() {
   if (!tbody) return;
   _wbFbsCloseRowMenus();
   if (!wbFbsState.items.length) {
-    tbody.innerHTML = '<tr><td colspan="6" class="wb-fbs-empty">Нет заказов во вкладке. Нажмите «Синхронизировать».</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" class="wb-fbs-empty">Нет заказов во вкладке. Нажмите «Синхронизировать».</td></tr>';
     return;
   }
   tbody.innerHTML = wbFbsState.items.map((o) => {
@@ -17781,7 +17781,6 @@ function renderWbFbsOrdersTable() {
           </div>
         </div>
       </td>
-      <td><span class="wb-fbs-price">${_wbFbsEsc(o.price_display || "—")}</span></td>
       <td>
         <div class="wb-fbs-wh-name" title="${_wbFbsEsc(o.warehouse_label || "")}">${_wbFbsEsc(o.warehouse_label || "—")}</div>
         <div class="wb-fbs-order-meta">${o.warehouse_id ? "ID " + _wbFbsEsc(o.warehouse_id) : ""}</div>
