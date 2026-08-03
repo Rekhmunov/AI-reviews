@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import re
 import threading
 import time
 from datetime import UTC, datetime, timedelta
@@ -101,6 +102,26 @@ def is_marketplace_scope_error(exc: object) -> bool:
     )
 
 
+def friendly_sync_error(prefix: str, exc: object) -> str:
+    """Short UI-safe sync error — never include raw WB JSON bodies."""
+    if is_marketplace_scope_error(exc):
+        return SCOPE_ERROR_MESSAGE
+    text = str(exc or "")
+    lower = text.lower()
+    if "incorrectparameter" in lower or "incorrect parameter" in lower:
+        return f"{prefix}: некорректные параметры запроса к WB"
+    if "http 429" in lower:
+        return f"{prefix}: превышен лимит запросов WB, попробуйте позже"
+    if "http 401" in lower or "http 403" in lower:
+        return f"{prefix}: нет доступа к API WB"
+    if "http 5" in lower:
+        return f"{prefix}: временная ошибка WB API"
+    m = re.search(r"HTTP\s+(\d+)", text, flags=re.IGNORECASE)
+    if m:
+        return f"{prefix}: ошибка WB API (HTTP {m.group(1)})"
+    return f"{prefix}: не удалось загрузить данные"
+
+
 class WbFbsClient:
     def __init__(self, api_key: str, *, timeout: int = 30) -> None:
         self.api_key = str(api_key or "").strip()
@@ -151,13 +172,15 @@ class WbFbsClient:
         self,
         *,
         limit: int = 1000,
-        next_token: int | None = None,
+        next_token: int | None = 0,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
     ) -> tuple[list[dict[str, Any]], int | None]:
-        params: dict[str, object] = {"limit": max(1, min(int(limit), 1000))}
-        if next_token is not None:
-            params["next"] = int(next_token)
+        # WB requires limit + next (0 on first page). Omitting next -> IncorrectParameter.
+        params: dict[str, object] = {
+            "limit": max(1, min(int(limit), 1000)),
+            "next": int(next_token or 0),
+        }
         if date_from is not None:
             params["dateFrom"] = int(date_from.timestamp())
         if date_to is not None:
@@ -771,7 +794,7 @@ def sync_wb_fbs_source(
                 "scope_error": True,
                 "message": SCOPE_ERROR_MESSAGE,
             }
-        errors.append(f"new: {exc}")
+        errors.append(friendly_sync_error("new", exc))
 
     if _stopped():
         return {"orders": synced_orders, "supplies": synced_supplies, "errors": errors, "stopped": True}
@@ -780,7 +803,7 @@ def sync_wb_fbs_source(
     _prog("Заказы за период…", synced_orders)
     date_to = datetime.now(UTC)
     date_from = date_to - timedelta(days=max(1, min(lookback_days, 30)))
-    next_token: int | None = None
+    next_token: int | None = 0
     pages = 0
     try:
         while pages < 20:
@@ -789,7 +812,7 @@ def sync_wb_fbs_source(
                 break
             orders, next_token = client.get_orders_page(
                 limit=1000,
-                next_token=next_token,
+                next_token=next_token if next_token is not None else 0,
                 date_from=date_from,
                 date_to=date_to,
             )
@@ -814,7 +837,7 @@ def sync_wb_fbs_source(
                 "scope_error": True,
                 "message": SCOPE_ERROR_MESSAGE,
             }
-        errors.append(f"orders: {exc}")
+        errors.append(friendly_sync_error("orders", exc))
 
     if _stopped():
         return {"orders": synced_orders, "supplies": synced_supplies, "errors": errors, "stopped": True}
@@ -863,7 +886,7 @@ def sync_wb_fbs_source(
                     )
             time.sleep(0.2)
         except Exception as exc:
-            errors.append(f"status: {exc}")
+            errors.append(friendly_sync_error("status", exc))
             break
 
     if _stopped():
@@ -895,7 +918,7 @@ def sync_wb_fbs_source(
                         boxes = client.get_supply_boxes(sid)
                         time.sleep(0.15)
                     except Exception as exc:
-                        errors.append(f"supply {sid}: {exc}")
+                        errors.append(friendly_sync_error(f"supply {sid}", exc))
                 upsert_supply(
                     repo,
                     user_id=user_id,
@@ -934,7 +957,7 @@ def sync_wb_fbs_source(
                 break
             time.sleep(0.25)
     except Exception as exc:
-        errors.append(f"supplies: {exc}")
+        errors.append(friendly_sync_error("supplies", exc))
 
     if _stopped():
         return {"orders": synced_orders, "supplies": synced_supplies, "errors": errors, "stopped": True}
@@ -965,7 +988,7 @@ def sync_wb_fbs_source(
                 break
             time.sleep(0.25)
     except Exception as exc:
-        errors.append(f"archive: {exc}")
+        errors.append(friendly_sync_error("archive", exc))
 
     return {
         "orders": synced_orders,

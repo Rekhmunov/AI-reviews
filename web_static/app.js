@@ -17673,14 +17673,16 @@ function _wbFbsPollSync() {
       if (info) {
         const msg = String(st.message || "");
         const scopeMsg = /нет ни одного источника с нужным api/i.test(msg);
+        // Never append raw WB JSON / HTTP dumps — only short friendly lines from backend.
         const errs = scopeMsg
           ? ""
           : (st.errors || [])
-              .filter((e) => !/token scope not allowed|s2s-api-auth-marketplace/i.test(String(e || "")))
+              .map((e) => String(e || "").trim())
+              .filter((e) => e && !/WB FBS HTTP|token scope not allowed|s2s-api-auth-marketplace|\{|"code":/i.test(e))
               .slice(0, 2)
               .join("; ");
         info.textContent = `${msg}${errs ? " · " + errs : ""}`;
-        if (scopeMsg || (st.errors || []).some((e) => /token scope not allowed/i.test(String(e || "")))) {
+        if (scopeMsg || (!st.in_progress && (st.errors || []).length)) {
           info.style.color = "#b91c1c";
         } else if (!st.in_progress) {
           info.style.color = "";
