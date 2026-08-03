@@ -17885,17 +17885,19 @@ function changeWbFbsPageSize(v) {
 window.changeWbFbsPageSize = changeWbFbsPageSize;
 
 async function syncWbFbs() {
-  if (!wbFbsState.sourceId) {
-    alert("Нет активного источника ВБ");
+  // Sync every FBS source shown in the picker (name contains ФБС/FBS).
+  if (!wbFbsState.sources.length) {
+    alert("Нет источников с «ФБС» в названии");
     return;
   }
   const syncBtn = document.getElementById("wbFbsSyncBtn");
   const stopBtn = document.getElementById("wbFbsStopBtn");
   if (syncBtn) syncBtn.disabled = true;
   if (stopBtn) stopBtn.classList.remove("hidden");
-  _wbFbsSetSyncInfo("Запуск синхронизации…");
+  const n = wbFbsState.sources.length;
+  _wbFbsSetSyncInfo(`Запуск синхронизации… источников: ${n}`);
   try {
-    const res = await fetch(`/api/wb-fbs/sync?source_id=${wbFbsState.sourceId}`, {
+    const res = await fetch("/api/wb-fbs/sync", {
       method: "POST",
       headers: jsonHeaders(),
     });
@@ -17906,6 +17908,7 @@ async function syncWbFbs() {
       if (stopBtn) stopBtn.classList.add("hidden");
       return;
     }
+    if (data.message) _wbFbsSetSyncInfo(String(data.message));
     _wbFbsPollSync();
   } catch (e) {
     _wbFbsSetSyncInfo(String(e.message || e), "error");

@@ -8711,6 +8711,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.post("/api/wb-fbs/sync")
     def sync_wb_fbs(request: Request, source_id: int | None = None) -> dict[str, object]:
+        """Sync all visible FBS sources (name contains ФБС/FBS). source_id is ignored."""
         user = _require_user(request)
         if not _can_view_wb_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
@@ -8724,26 +8725,48 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             and s.get("is_enabled")
             and wb_fbs_mod.is_fbs_source_name(s.get("name"))
         ]
+        role = str(user.get("role") or ROLE_USER)
+        if role not in ROLE_CAN_ACCESS_SETTINGS:
+            perms = repository.get_manager_supply_permissions(manager_user_id=int(user["id"]))
+            allowed = {
+                str(sid)
+                for sid, sv in (perms.get("sources") or {}).items()
+                if isinstance(sv, dict) and sv.get("wb_fbs")
+            }
+            sources = [s for s in sources if str(s.get("id")) in allowed]
         if not sources:
             return {
                 "ok": False,
                 "message": "Нет источников с «ФБС» в названии. Добавьте источник в Поставки → Настройки → Источники.",
             }
-        selected_id = int(source_id) if source_id is not None else int(sources[0]["id"])
-        if not any(int(s["id"]) == selected_id for s in sources):
-            return {"ok": False, "message": "Источник не найден или отключён"}
-        src_full = repository.get_supply_source_with_key(user_id=owner_id, source_id=selected_id)
-        if not src_full or not src_full.get("api_key"):
+        # source_id kept for API compatibility but sync always covers the full FBS set.
+        _ = source_id
+        jobs: list[dict[str, object]] = []
+        for s in sources:
+            sid = int(s["id"])
+            src_full = repository.get_supply_source_with_key(user_id=owner_id, source_id=sid)
+            if not src_full or not src_full.get("api_key"):
+                continue
+            jobs.append(
+                {
+                    "source_id": sid,
+                    "api_key": str(src_full["api_key"]),
+                    "name": str(src_full.get("name") or s.get("name") or f"Источник {sid}"),
+                }
+            )
+        if not jobs:
             return {"ok": False, "message": wb_fbs_mod.SCOPE_ERROR_MESSAGE}
-        if not wb_fbs_mod.is_fbs_source_name(src_full.get("name")):
-            return {"ok": False, "message": "Для ВБ ФБС выберите источник с «ФБС» в названии"}
         ok, message = wb_fbs_mod.start_sync_thread(
             repo=repository,
             user_id=owner_id,
-            source_id=selected_id,
-            api_key=str(src_full["api_key"]),
+            sources=jobs,
         )
-        return {"ok": ok, "message": message, "source_id": selected_id}
+        return {
+            "ok": ok,
+            "message": message,
+            "source_ids": [int(j["source_id"]) for j in jobs],
+            "sources_count": len(jobs),
+        }
 
     @app.delete("/api/wb-fbs/orders")
     def clear_wb_fbs_orders(request: Request, source_id: int) -> dict[str, object]:

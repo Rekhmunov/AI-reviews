@@ -1118,6 +1118,7 @@ _wb_fbs_sync_state: dict[str, object] = {
     "errors": [],
     "cancel_requested": False,
     "source_id": None,
+    "source_ids": [],
 }
 _wb_fbs_sync_lock = threading.Lock()
 
@@ -1139,9 +1140,28 @@ def start_sync_thread(
     *,
     repo: ReviewRepository,
     user_id: int,
-    source_id: int,
-    api_key: str,
+    sources: list[dict[str, Any]],
 ) -> tuple[bool, str]:
+    """Sync all provided FBS sources sequentially (same set as the UI picker)."""
+    jobs: list[dict[str, Any]] = []
+    for raw in sources:
+        try:
+            sid = int(raw.get("source_id") or raw.get("id"))
+        except (TypeError, ValueError):
+            continue
+        api_key = str(raw.get("api_key") or "").strip()
+        if not api_key:
+            continue
+        jobs.append(
+            {
+                "source_id": sid,
+                "api_key": api_key,
+                "name": str(raw.get("name") or f"Источник {sid}"),
+            }
+        )
+    if not jobs:
+        return False, "Нет источников с «ФБС» в названии для синхронизации"
+
     with _wb_fbs_sync_lock:
         if _wb_fbs_sync_state.get("in_progress"):
             return False, "Синхронизация уже запущена"
@@ -1149,11 +1169,12 @@ def start_sync_thread(
             {
                 "in_progress": True,
                 "synced": 0,
-                "total": 0,
-                "message": "Запуск…",
+                "total": len(jobs),
+                "message": f"Запуск… источников: {len(jobs)}",
                 "errors": [],
                 "cancel_requested": False,
-                "source_id": source_id,
+                "source_id": jobs[0]["source_id"],
+                "source_ids": [j["source_id"] for j in jobs],
             }
         )
 
@@ -1162,55 +1183,99 @@ def start_sync_thread(
             with _wb_fbs_sync_lock:
                 return bool(_wb_fbs_sync_state.get("cancel_requested"))
 
-        def progress(msg: str, n: int) -> None:
-            with _wb_fbs_sync_lock:
-                _wb_fbs_sync_state["message"] = msg
-                _wb_fbs_sync_state["synced"] = n
+        total_orders = 0
+        total_supplies = 0
+        all_errors: list[str] = []
+        scope_failures = 0
+        stopped = False
+        synced_sources = 0
 
         try:
-            result = sync_wb_fbs_source(
-                repo,
-                user_id=user_id,
-                source_id=source_id,
-                api_key=api_key,
-                stop_requested=stop_requested,
-                progress=progress,
-            )
-            with _wb_fbs_sync_lock:
-                if result.get("scope_error"):
-                    _wb_fbs_sync_state["errors"] = []
-                    _wb_fbs_sync_state["synced"] = 0
-                    _wb_fbs_sync_state["message"] = str(
-                        result.get("message") or SCOPE_ERROR_MESSAGE
+            for idx, job in enumerate(jobs, start=1):
+                if stop_requested():
+                    stopped = True
+                    break
+                sid = int(job["source_id"])
+                label = str(job["name"])
+                with _wb_fbs_sync_lock:
+                    _wb_fbs_sync_state["source_id"] = sid
+                    _wb_fbs_sync_state["message"] = (
+                        f"Источник {idx}/{len(jobs)}: {label}"
                     )
-                else:
-                    errs = list(result.get("errors") or [])
-                    # Never surface raw WB auth/scope dumps in the UI.
-                    safe_errs = [e for e in errs if not is_marketplace_scope_error(e)]
-                    if errs and not safe_errs:
-                        _wb_fbs_sync_state["errors"] = []
-                        _wb_fbs_sync_state["synced"] = 0
-                        _wb_fbs_sync_state["message"] = SCOPE_ERROR_MESSAGE
+
+                def progress(msg: str, n: int, _label: str = label, _idx: int = idx) -> None:
+                    with _wb_fbs_sync_lock:
+                        _wb_fbs_sync_state["message"] = (
+                            f"[{_idx}/{len(jobs)}] {_label}: {msg}"
+                        )
+                        _wb_fbs_sync_state["synced"] = total_orders + int(n or 0)
+
+                try:
+                    result = sync_wb_fbs_source(
+                        repo,
+                        user_id=user_id,
+                        source_id=sid,
+                        api_key=str(job["api_key"]),
+                        stop_requested=stop_requested,
+                        progress=progress,
+                    )
+                except Exception as exc:
+                    _log.exception("wb_fbs sync failed for source %s", sid)
+                    if is_marketplace_scope_error(exc):
+                        scope_failures += 1
+                        all_errors.append(f"{label}: {SCOPE_ERROR_MESSAGE}")
                     else:
-                        _wb_fbs_sync_state["errors"] = safe_errs
-                        _wb_fbs_sync_state["synced"] = int(result.get("orders") or 0)
-                        if result.get("stopped"):
-                            _wb_fbs_sync_state["message"] = (
-                                f"Остановлено. Заказов: {result.get('orders', 0)}, "
-                                f"поставок: {result.get('supplies', 0)}"
-                            )
-                        elif safe_errs:
-                            _wb_fbs_sync_state["message"] = (
-                                f"Готово с ошибками. Заказов: {result.get('orders', 0)}, "
-                                f"поставок: {result.get('supplies', 0)}"
-                            )
-                        else:
-                            _wb_fbs_sync_state["message"] = (
-                                f"Готово. Заказов: {result.get('orders', 0)}, "
-                                f"поставок: {result.get('supplies', 0)}"
-                            )
+                        all_errors.append(f"{label}: {exc}")
+                    continue
+
+                if result.get("scope_error"):
+                    scope_failures += 1
+                    all_errors.append(
+                        f"{label}: {result.get('message') or SCOPE_ERROR_MESSAGE}"
+                    )
+                    continue
+
+                errs = list(result.get("errors") or [])
+                safe_errs = [e for e in errs if not is_marketplace_scope_error(e)]
+                if errs and not safe_errs:
+                    scope_failures += 1
+                    all_errors.append(f"{label}: {SCOPE_ERROR_MESSAGE}")
+                    continue
+
+                total_orders += int(result.get("orders") or 0)
+                total_supplies += int(result.get("supplies") or 0)
+                synced_sources += 1
+                for err in safe_errs:
+                    all_errors.append(f"{label}: {err}")
+                if result.get("stopped"):
+                    stopped = True
+                    break
+
+            with _wb_fbs_sync_lock:
+                _wb_fbs_sync_state["synced"] = total_orders
+                if synced_sources == 0 and scope_failures == len(jobs):
+                    _wb_fbs_sync_state["errors"] = []
+                    _wb_fbs_sync_state["message"] = SCOPE_ERROR_MESSAGE
+                else:
+                    _wb_fbs_sync_state["errors"] = all_errors[:8]
+                    src_part = f"источников: {synced_sources}/{len(jobs)}"
+                    if stopped:
+                        _wb_fbs_sync_state["message"] = (
+                            f"Остановлено. {src_part}, заказов: {total_orders}, "
+                            f"поставок: {total_supplies}"
+                        )
+                    elif all_errors:
+                        _wb_fbs_sync_state["message"] = (
+                            f"Готово с ошибками. {src_part}, заказов: {total_orders}, "
+                            f"поставок: {total_supplies}"
+                        )
+                    else:
+                        _wb_fbs_sync_state["message"] = (
+                            f"Готово. {src_part}, заказов: {total_orders}, "
+                            f"поставок: {total_supplies}"
+                        )
         except Exception as exc:
-            _log.exception("wb_fbs sync failed")
+            _log.exception("wb_fbs multi-source sync failed")
             with _wb_fbs_sync_lock:
                 if is_marketplace_scope_error(exc):
                     _wb_fbs_sync_state["errors"] = []
@@ -1224,4 +1289,4 @@ def start_sync_thread(
                 _wb_fbs_sync_state["cancel_requested"] = False
 
     threading.Thread(target=_run, daemon=True, name="wb-fbs-sync").start()
-    return True, "Синхронизация запущена"
+    return True, f"Синхронизация запущена ({len(jobs)} ист.)"
