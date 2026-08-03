@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=141" />
+  <link rel="stylesheet" href="/static/style.css?v=142" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1511,10 +1511,18 @@
         <div id="wbFbsBottomBar" class="wb-fbs-bottom-bar hidden">
           <span id="wbFbsSelectedLabel" class="wb-fbs-selected-label">Выбрано 0 заказов</span>
           <div class="wb-fbs-bottom-actions">
-            <button type="button" class="secondary" onclick="wbFbsPrintOrderStickers()">Стикеры товаров</button>
-            <button type="button" class="secondary" onclick="wbFbsPrintSupplySticker()">Стикер поставки</button>
-            <button type="button" class="secondary" onclick="wbFbsPrintBoxStickers()">Стикеры коробов</button>
-            <button type="button" class="icon-btn secondary" onclick="clearWbFbsSelection()" title="Сбросить выбор">✕</button>
+            <div id="wbFbsBottomNewActions" class="wb-fbs-bottom-group">
+              <button type="button" class="wb-fbs-bottom-primary" onclick="wbFbsStubNewSupplySelected()">
+                <span class="wb-fbs-ico-plus" aria-hidden="true">+</span>
+                Новая поставка
+              </button>
+            </div>
+            <div id="wbFbsBottomStickerActions" class="wb-fbs-bottom-group hidden">
+              <button type="button" class="secondary" onclick="wbFbsPrintOrderStickers()">Стикеры товаров</button>
+              <button type="button" class="secondary" onclick="wbFbsPrintSupplySticker()">Стикер поставки</button>
+              <button type="button" class="secondary" onclick="wbFbsPrintBoxStickers()">Стикеры коробов</button>
+            </div>
+            <button type="button" class="icon-btn secondary wb-fbs-bottom-close" onclick="clearWbFbsSelection()" title="Сбросить выбор">✕</button>
           </div>
         </div>
       </section>
@@ -3498,6 +3506,6 @@
   <script src="/static/jszip.min.js"></script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=315"></script>
+  <script src="/static/app.js?v=316"></script>
 </body>
 </html>

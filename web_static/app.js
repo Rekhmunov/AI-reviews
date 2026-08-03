@@ -17516,9 +17516,79 @@ function _wbFbsSetSyncInfo(text, kind = "") {
   info.style.color = "";
 }
 
+function _wbFbsCloseRowMenus(exceptId = null) {
+  document.querySelectorAll(".wb-fbs-row-menu.open").forEach((menu) => {
+    if (exceptId != null && menu.dataset.orderId === String(exceptId)) return;
+    menu.classList.remove("open");
+  });
+}
+
+function toggleWbFbsRowMenu(event, orderId) {
+  event.stopPropagation();
+  const menu = document.getElementById(`wbFbsRowMenu_${orderId}`);
+  if (!menu) return;
+  const willOpen = !menu.classList.contains("open");
+  _wbFbsCloseRowMenus(willOpen ? orderId : null);
+  menu.classList.toggle("open", willOpen);
+}
+window.toggleWbFbsRowMenu = toggleWbFbsRowMenu;
+
+function _wbFbsRowActionsHtml(oid) {
+  if (wbFbsState.tab === "new") {
+    return `<div class="wb-fbs-row-menu-wrap">
+      <button type="button" class="icon-btn secondary wb-fbs-row-menu-btn" title="Действия"
+              onclick="toggleWbFbsRowMenu(event, ${oid})" aria-haspopup="menu">⋮</button>
+      <div id="wbFbsRowMenu_${oid}" class="wb-fbs-row-menu" data-order-id="${oid}" role="menu">
+        <button type="button" class="wb-fbs-row-menu-item" role="menuitem"
+                onclick="wbFbsStubCreateSupply(${oid})">
+          <span class="wb-fbs-menu-ico circle" aria-hidden="true">+</span>
+          Создать поставку
+        </button>
+        <button type="button" class="wb-fbs-row-menu-item is-danger" role="menuitem"
+                onclick="wbFbsStubCancelOrder(${oid})">
+          <span class="wb-fbs-menu-ico" aria-hidden="true">✕</span>
+          Отменить заказ
+        </button>
+      </div>
+    </div>`;
+  }
+  return `<div class="wb-fbs-row-menu-wrap">
+    <button type="button" class="icon-btn secondary wb-fbs-row-menu-btn" title="Действия"
+            onclick="toggleWbFbsRowMenu(event, ${oid})" aria-haspopup="menu">⋮</button>
+    <div id="wbFbsRowMenu_${oid}" class="wb-fbs-row-menu" data-order-id="${oid}" role="menu">
+      <button type="button" class="wb-fbs-row-menu-item" role="menuitem"
+              onclick="wbFbsPrintOneOrderSticker(${oid})">Стикер товара</button>
+      <button type="button" class="wb-fbs-row-menu-item" role="menuitem"
+              onclick="wbFbsPrintSupplySticker()">Стикер поставки</button>
+      <button type="button" class="wb-fbs-row-menu-item" role="menuitem"
+              onclick="wbFbsPrintBoxStickers()">Стикеры коробов</button>
+    </div>
+  </div>`;
+}
+
+function wbFbsStubCreateSupply(orderId) {
+  _wbFbsCloseRowMenus();
+  alert(`Создание поставки для заказа ${orderId} — скоро.`);
+}
+window.wbFbsStubCreateSupply = wbFbsStubCreateSupply;
+
+function wbFbsStubCancelOrder(orderId) {
+  _wbFbsCloseRowMenus();
+  alert(`Отмена заказа ${orderId} — скоро.`);
+}
+window.wbFbsStubCancelOrder = wbFbsStubCancelOrder;
+
+function wbFbsStubNewSupplySelected() {
+  const n = wbFbsState.selected.size;
+  if (!n) return;
+  alert(`Новая поставка из ${n} заказ(ов) — скоро.`);
+}
+window.wbFbsStubNewSupplySelected = wbFbsStubNewSupplySelected;
+
 function renderWbFbsOrdersTable() {
   const tbody = document.getElementById("wbFbsOrdersTbody");
   if (!tbody) return;
+  _wbFbsCloseRowMenus();
   if (!wbFbsState.items.length) {
     tbody.innerHTML = '<tr><td colspan="6" class="wb-fbs-empty">Нет заказов во вкладке. Нажмите «Синхронизировать».</td></tr>';
     return;
@@ -17555,9 +17625,7 @@ function renderWbFbsOrdersTable() {
         <div class="wb-fbs-wh-name" title="${_wbFbsEsc(o.warehouse_label || "")}">${_wbFbsEsc(o.warehouse_label || "—")}</div>
         <div class="wb-fbs-order-meta">${o.warehouse_id ? "ID " + _wbFbsEsc(o.warehouse_id) : ""}</div>
       </td>
-      <td>
-        <button type="button" class="icon-btn secondary" title="Стикер товара" onclick="wbFbsPrintOneOrderSticker(${oid})">⋮</button>
-      </td>
+      <td>${_wbFbsRowActionsHtml(oid)}</td>
     </tr>`;
   }).join("");
   const selAll = document.getElementById("wbFbsSelectAll");
@@ -17614,10 +17682,27 @@ window.clearWbFbsSelection = clearWbFbsSelection;
 function _wbFbsUpdateBottomBar() {
   const bar = document.getElementById("wbFbsBottomBar");
   const label = document.getElementById("wbFbsSelectedLabel");
+  const newActions = document.getElementById("wbFbsBottomNewActions");
+  const stickerActions = document.getElementById("wbFbsBottomStickerActions");
   const n = wbFbsState.selected.size;
-  if (label) label.textContent = n === 1 ? "Выбран 1 заказ" : `Выбрано ${n} заказов`;
+  if (label) {
+    if (n === 1) label.textContent = "Выбран 1 заказ";
+    else if (n > 1 && n < 5) label.textContent = `Выбрано ${n} заказа`;
+    else label.textContent = `Выбрано ${n} заказов`;
+  }
+  const isNewTab = wbFbsState.tab === "new";
+  if (newActions) newActions.classList.toggle("hidden", !isNewTab);
+  if (stickerActions) stickerActions.classList.toggle("hidden", isNewTab);
   if (bar) bar.classList.toggle("hidden", n === 0);
 }
+
+document.addEventListener("click", (event) => {
+  if (event.target.closest(".wb-fbs-row-menu-wrap")) return;
+  _wbFbsCloseRowMenus();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") _wbFbsCloseRowMenus();
+});
 
 function wbFbsChangePage(delta) {
   wbFbsState.page = Math.max(1, wbFbsState.page + delta);
