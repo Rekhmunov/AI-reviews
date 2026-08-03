@@ -8641,7 +8641,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         sources = [
             s
             for s in repository.list_supply_sources(user_id=owner_id)
-            if (s.get("marketplace") or "wb").lower() == "wb" and s.get("is_enabled")
+            if (s.get("marketplace") or "wb").lower() == "wb"
+            and s.get("is_enabled")
+            and wb_fbs_mod.is_fbs_source_name(s.get("name"))
         ]
         role = str(user.get("role") or ROLE_USER)
         if role not in ROLE_CAN_ACCESS_SETTINGS:
@@ -8718,16 +8720,23 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         sources = [
             s
             for s in repository.list_supply_sources(user_id=owner_id)
-            if (s.get("marketplace") or "wb").lower() == "wb" and s.get("is_enabled")
+            if (s.get("marketplace") or "wb").lower() == "wb"
+            and s.get("is_enabled")
+            and wb_fbs_mod.is_fbs_source_name(s.get("name"))
         ]
         if not sources:
-            return {"ok": False, "message": wb_fbs_mod.SCOPE_ERROR_MESSAGE}
+            return {
+                "ok": False,
+                "message": "Нет источников с «ФБС» в названии. Добавьте источник в Поставки → Настройки → Источники.",
+            }
         selected_id = int(source_id) if source_id is not None else int(sources[0]["id"])
         if not any(int(s["id"]) == selected_id for s in sources):
             return {"ok": False, "message": "Источник не найден или отключён"}
         src_full = repository.get_supply_source_with_key(user_id=owner_id, source_id=selected_id)
         if not src_full or not src_full.get("api_key"):
             return {"ok": False, "message": wb_fbs_mod.SCOPE_ERROR_MESSAGE}
+        if not wb_fbs_mod.is_fbs_source_name(src_full.get("name")):
+            return {"ok": False, "message": "Для ВБ ФБС выберите источник с «ФБС» в названии"}
         ok, message = wb_fbs_mod.start_sync_thread(
             repo=repository,
             user_id=owner_id,

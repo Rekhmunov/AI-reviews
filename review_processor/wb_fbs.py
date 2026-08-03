@@ -91,6 +91,12 @@ def cargo_type_label(cargo_type: object) -> str:
 SCOPE_ERROR_MESSAGE = "Нет ни одного источника с нужным API (Marketplace)."
 
 
+def is_fbs_source_name(name: object) -> bool:
+    """True when supply source name is meant for FBS (contains ФБС/FBS)."""
+    text = str(name or "").casefold()
+    return "фбс" in text or "fbs" in text
+
+
 def is_marketplace_scope_error(exc: object) -> bool:
     """True when WB token has no Marketplace category for FBS API."""
     text = str(exc or "").lower()
