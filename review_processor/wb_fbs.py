@@ -80,6 +80,47 @@ def format_price_rub(price_kopecks: object, currency_code: object = 643) -> str:
     return f"{rub:.2f}"
 
 
+def _as_int_or_none(value: object) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def resolve_order_price(order: dict[str, Any]) -> tuple[int, int]:
+    """Pick the seller-facing price in kopecks + currency.
+
+    WB /orders often omits finalPrice/convertedFinalPrice and only has
+    price + convertedPrice. Prefer converted* (seller country, usually RUB)
+    so we never show sale-currency amount as ₽.
+    """
+    converted_final = _as_int_or_none(order.get("convertedFinalPrice"))
+    converted = _as_int_or_none(order.get("convertedPrice"))
+    final = _as_int_or_none(order.get("finalPrice"))
+    price = _as_int_or_none(order.get("price"))
+    converted_ccy = _as_int_or_none(order.get("convertedCurrencyCode")) or 643
+    sale_ccy = _as_int_or_none(order.get("currencyCode")) or 643
+
+    if converted_final is not None and converted_final > 0:
+        return converted_final, converted_ccy
+    if converted is not None and converted > 0:
+        return converted, converted_ccy
+    if final is not None and final > 0:
+        return final, sale_ccy
+    if price is not None and price > 0:
+        return price, sale_ccy
+    # Zero / missing — still prefer converted currency for display.
+    if converted_final is not None:
+        return converted_final, converted_ccy
+    if converted is not None:
+        return converted, converted_ccy
+    if final is not None:
+        return final, sale_ccy
+    return int(price or 0), sale_ccy
+
+
 def cargo_type_label(cargo_type: object) -> str:
     try:
         ct = int(cargo_type or 0)
@@ -437,17 +478,12 @@ def upsert_order(
     tab = compute_tab(supplier_status=ss, wb_status=ws, is_archive=is_archive)
     offices = order.get("offices") if isinstance(order.get("offices"), list) else []
     skus = order.get("skus") if isinstance(order.get("skus"), list) else []
-    price = order.get("finalPrice")
-    if price is None:
-        price = order.get("price") or 0
-    try:
-        price_i = int(price or 0)
-    except (TypeError, ValueError):
-        price_i = 0
-    try:
-        final_i = int(order.get("convertedFinalPrice") or order.get("finalPrice") or price_i)
-    except (TypeError, ValueError):
-        final_i = price_i
+    price_i, currency_i = resolve_order_price(order)
+    # Keep raw sale-currency price separately when available for debugging.
+    sale_price_i = _as_int_or_none(order.get("finalPrice"))
+    if sale_price_i is None:
+        sale_price_i = _as_int_or_none(order.get("price")) or 0
+    final_i = price_i
     now = _utc_now()
     with repo._connect() as conn:
         conn.execute(
@@ -513,9 +549,9 @@ def upsert_order(
                 order.get("nmId"),
                 order.get("chrtId"),
                 json.dumps(skus, ensure_ascii=False),
-                price_i,
+                int(sale_price_i or 0),
                 final_i,
-                int(order.get("convertedCurrencyCode") or order.get("currencyCode") or 643),
+                int(currency_i or 643),
                 order.get("warehouseId"),
                 order.get("officeId"),
                 json.dumps(offices, ensure_ascii=False),
@@ -663,7 +699,24 @@ def list_orders(
         nm_id = str(d.get("nm_id") or "").strip()
         d["product_name"] = name_map.get(article) or name_map.get(nm_id) or article or "—"
         d["product_photo"] = photo_map.get(article) or photo_map.get(nm_id) or ""
-        d["price_display"] = format_price_rub(d.get("final_price") or d.get("price"), d.get("currency_code"))
+        # Prefer live resolve from raw API payload — fixes rows synced before
+        # convertedPrice was used for seller-facing RUB amounts.
+        raw_order: dict[str, Any] = {}
+        try:
+            parsed_raw = json.loads(d.get("raw_json") or "{}")
+            if isinstance(parsed_raw, dict):
+                raw_order = parsed_raw
+        except Exception:
+            raw_order = {}
+        if raw_order:
+            amount, ccy = resolve_order_price(raw_order)
+            d["final_price"] = amount
+            d["currency_code"] = ccy
+            d["price_display"] = format_price_rub(amount, ccy)
+        else:
+            d["price_display"] = format_price_rub(
+                d.get("final_price") or d.get("price"), d.get("currency_code")
+            )
         d["cargo_label"] = cargo_type_label(d.get("cargo_type"))
         try:
             offices = json.loads(d.get("offices_json") or "[]")
