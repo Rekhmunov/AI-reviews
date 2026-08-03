@@ -17578,7 +17578,6 @@ async function loadWbFbsOrders(resetPage = false) {
     if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="small" style="padding:16px;color:#94a3b8">Выберите источник ВБ в Поставки → Настройки → Источники</td></tr>';
     if (info) info.textContent = "";
     _wbFbsUpdateCounts({});
-    _wbFbsUpdateSelectAllBanner();
     return;
   }
   const search = document.getElementById("wbFbsSearchFilter")?.value.trim() || "";
@@ -17830,7 +17829,6 @@ function renderWbFbsOrdersTable() {
     selAll.indeterminate = !selAll.checked && someOnPage;
   }
   _wbFbsUpdateBottomBar();
-  _wbFbsUpdateSelectAllBanner();
 }
 
 function onWbFbsCheckboxChange() {
@@ -17847,7 +17845,6 @@ function onWbFbsCheckboxChange() {
     }
   });
   _wbFbsUpdateBottomBar();
-  _wbFbsUpdateSelectAllBanner();
   const selAll = document.getElementById("wbFbsSelectAll");
   if (selAll) {
     const ids = wbFbsState.items.map((x) => Number(x.order_id));
@@ -17874,7 +17871,6 @@ function toggleSelectAllWbFbs(checked) {
     });
     wbFbsState.selectAllMatching = false;
     _wbFbsUpdateBottomBar();
-    _wbFbsUpdateSelectAllBanner();
     return;
   }
   wbFbsState.selectAllMatching = false;
@@ -17888,7 +17884,6 @@ function toggleSelectAllWbFbs(checked) {
   const selAll = document.getElementById("wbFbsSelectAll");
   if (selAll) selAll.indeterminate = false;
   _wbFbsUpdateBottomBar();
-  _wbFbsUpdateSelectAllBanner();
 }
 window.toggleSelectAllWbFbs = toggleSelectAllWbFbs;
 
@@ -17903,7 +17898,6 @@ function clearWbFbsSelection() {
     selAll.indeterminate = false;
   }
   _wbFbsUpdateBottomBar();
-  _wbFbsUpdateSelectAllBanner();
 }
 window.clearWbFbsSelection = clearWbFbsSelection;
 
@@ -17911,36 +17905,10 @@ function _wbFbsPageSelectedCount() {
   return wbFbsState.items.filter((x) => wbFbsState.selected.has(Number(x.order_id))).length;
 }
 
-function _wbFbsUpdateSelectAllBanner() {
-  const banner = document.getElementById("wbFbsSelectAllBanner");
-  if (!banner) return;
-  const pageCount = wbFbsState.items.length;
-  const pageSelected = _wbFbsPageSelectedCount();
-  const total = Number(wbFbsState.total || 0);
-  const allOnPage = pageCount > 0 && pageSelected === pageCount;
-  const moreBeyondPage = total > pageCount;
-
-  if (wbFbsState.selectAllMatching && wbFbsState.selected.size > 0) {
-    banner.innerHTML = `
-      <span>Выбраны <strong>все ${wbFbsState.selected.size}</strong> заказов по текущему фильтру.</span>
-      <button type="button" class="wb-fbs-select-all-link" onclick="clearWbFbsSelection()">Сбросить выбор</button>
-    `;
-    banner.classList.remove("hidden");
-    return;
-  }
-
-  if (allOnPage && moreBeyondPage) {
-    banner.innerHTML = `
-      <span>Выбрано <strong>${pageSelected}</strong> на странице.</span>
-      <button type="button" class="wb-fbs-select-all-link" id="wbFbsSelectAllMatchingBtn"
-              onclick="selectAllMatchingWbFbs()">Выбрать все ${total}</button>
-    `;
-    banner.classList.remove("hidden");
-    return;
-  }
-
-  banner.classList.add("hidden");
-  banner.innerHTML = "";
+function _wbFbsSelectedCountLabel(n) {
+  if (n === 1) return "Выбран 1 заказ";
+  if (n > 1 && n < 5) return `Выбрано ${n} заказа`;
+  return `Выбрано ${n} заказов`;
 }
 
 async function selectAllMatchingWbFbs() {
@@ -17948,7 +17916,7 @@ async function selectAllMatchingWbFbs() {
   const btn = document.getElementById("wbFbsSelectAllMatchingBtn");
   if (btn) {
     btn.disabled = true;
-    btn.textContent = "Загрузка…";
+    btn.textContent = "загрузка…";
   }
   const params = new URLSearchParams({
     source_id: String(wbFbsState.sourceId),
@@ -17978,7 +17946,7 @@ async function selectAllMatchingWbFbs() {
     renderWbFbsOrdersTable();
   } catch (e) {
     alert(String(e.message || e));
-    _wbFbsUpdateSelectAllBanner();
+    _wbFbsUpdateBottomBar();
   }
 }
 window.selectAllMatchingWbFbs = selectAllMatchingWbFbs;
@@ -17989,12 +17957,23 @@ function _wbFbsUpdateBottomBar() {
   const newActions = document.getElementById("wbFbsBottomNewActions");
   const stickerActions = document.getElementById("wbFbsBottomStickerActions");
   const n = wbFbsState.selected.size;
+  const pageCount = wbFbsState.items.length;
+  const pageSelected = _wbFbsPageSelectedCount();
+  const total = Number(wbFbsState.total || 0);
+  const allOnPage = pageCount > 0 && pageSelected === pageCount;
+  const canSelectAllMatching = allOnPage && total > pageCount && !wbFbsState.selectAllMatching;
+
   if (label) {
     if (wbFbsState.selectAllMatching && n > 0) {
       label.textContent = `Выбраны все ${n} заказов`;
-    } else if (n === 1) label.textContent = "Выбран 1 заказ";
-    else if (n > 1 && n < 5) label.textContent = `Выбрано ${n} заказа`;
-    else label.textContent = `Выбрано ${n} заказов`;
+    } else if (canSelectAllMatching) {
+      label.innerHTML =
+        `${_wbFbsEsc(_wbFbsSelectedCountLabel(n))} ` +
+        `(<button type="button" class="wb-fbs-select-all-link" id="wbFbsSelectAllMatchingBtn" ` +
+        `onclick="selectAllMatchingWbFbs()">выбрать все ${total}</button>)`;
+    } else {
+      label.textContent = _wbFbsSelectedCountLabel(n);
+    }
   }
   const isNewTab = wbFbsState.tab === "new";
   if (newActions) newActions.classList.toggle("hidden", !isNewTab);
