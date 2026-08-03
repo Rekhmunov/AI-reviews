@@ -17671,8 +17671,20 @@ function _wbFbsPollSync() {
       const st = await res.json();
       const info = document.getElementById("wbFbsSyncInfo");
       if (info) {
-        const errs = (st.errors || []).slice(0, 2).join("; ");
-        info.textContent = `${st.message || ""}${errs ? " · " + errs : ""}`;
+        const msg = String(st.message || "");
+        const scopeMsg = /нет ни одного источника с нужным api/i.test(msg);
+        const errs = scopeMsg
+          ? ""
+          : (st.errors || [])
+              .filter((e) => !/token scope not allowed|s2s-api-auth-marketplace/i.test(String(e || "")))
+              .slice(0, 2)
+              .join("; ");
+        info.textContent = `${msg}${errs ? " · " + errs : ""}`;
+        if (scopeMsg || (st.errors || []).some((e) => /token scope not allowed/i.test(String(e || "")))) {
+          info.style.color = "#b91c1c";
+        } else if (!st.in_progress) {
+          info.style.color = "";
+        }
       }
       if (!st.in_progress) {
         clearInterval(wbFbsState.pollTimer);

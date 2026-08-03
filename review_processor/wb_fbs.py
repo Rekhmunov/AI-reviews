@@ -87,6 +87,20 @@ def cargo_type_label(cargo_type: object) -> str:
     return {1: "МГТ", 2: "СГТ", 3: "КГТ+"}.get(ct, "")
 
 
+SCOPE_ERROR_MESSAGE = "Нет ни одного источника с нужным API (Marketplace)."
+
+
+def is_marketplace_scope_error(exc: object) -> bool:
+    """True when WB token has no Marketplace category for FBS API."""
+    text = str(exc or "").lower()
+    return (
+        "token scope not allowed" in text
+        or "s2s-api-auth-marketplace" in text
+        or ("http 401" in text and "unauthorized" in text and "marketplace" in text)
+        or ("http 403" in text and "scope" in text)
+    )
+
+
 class WbFbsClient:
     def __init__(self, api_key: str, *, timeout: int = 30) -> None:
         self.api_key = str(api_key or "").strip()
@@ -728,7 +742,7 @@ def sync_wb_fbs_source(
         if progress:
             progress(msg, n)
 
-    # 1) New orders
+    # 1) New orders — also probes Marketplace token scope early.
     _prog("Новые заказы…", synced_orders)
     try:
         new_orders = client.get_new_orders()
@@ -747,8 +761,17 @@ def sync_wb_fbs_source(
             synced_orders += 1
         time.sleep(0.2)
     except Exception as exc:
-        errors.append(f"new: {exc}")
         _log.warning("wb_fbs new orders failed: %s", exc)
+        if is_marketplace_scope_error(exc):
+            return {
+                "orders": 0,
+                "supplies": 0,
+                "errors": [],
+                "stopped": False,
+                "scope_error": True,
+                "message": SCOPE_ERROR_MESSAGE,
+            }
+        errors.append(f"new: {exc}")
 
     if _stopped():
         return {"orders": synced_orders, "supplies": synced_supplies, "errors": errors, "stopped": True}
@@ -781,8 +804,17 @@ def sync_wb_fbs_source(
                 break
             time.sleep(0.25)
     except Exception as exc:
-        errors.append(f"orders: {exc}")
         _log.warning("wb_fbs orders page failed: %s", exc)
+        if is_marketplace_scope_error(exc):
+            return {
+                "orders": synced_orders,
+                "supplies": synced_supplies,
+                "errors": [],
+                "stopped": False,
+                "scope_error": True,
+                "message": SCOPE_ERROR_MESSAGE,
+            }
+        errors.append(f"orders: {exc}")
 
     if _stopped():
         return {"orders": synced_orders, "supplies": synced_supplies, "errors": errors, "stopped": True}
@@ -1011,29 +1043,47 @@ def start_sync_thread(
                 progress=progress,
             )
             with _wb_fbs_sync_lock:
-                errs = list(result.get("errors") or [])
-                _wb_fbs_sync_state["errors"] = errs
-                _wb_fbs_sync_state["synced"] = int(result.get("orders") or 0)
-                if result.get("stopped"):
-                    _wb_fbs_sync_state["message"] = (
-                        f"Остановлено. Заказов: {result.get('orders', 0)}, "
-                        f"поставок: {result.get('supplies', 0)}"
-                    )
-                elif errs:
-                    _wb_fbs_sync_state["message"] = (
-                        f"Готово с ошибками. Заказов: {result.get('orders', 0)}, "
-                        f"поставок: {result.get('supplies', 0)}"
+                if result.get("scope_error"):
+                    _wb_fbs_sync_state["errors"] = []
+                    _wb_fbs_sync_state["synced"] = 0
+                    _wb_fbs_sync_state["message"] = str(
+                        result.get("message") or SCOPE_ERROR_MESSAGE
                     )
                 else:
-                    _wb_fbs_sync_state["message"] = (
-                        f"Готово. Заказов: {result.get('orders', 0)}, "
-                        f"поставок: {result.get('supplies', 0)}"
-                    )
+                    errs = list(result.get("errors") or [])
+                    # Never surface raw WB auth/scope dumps in the UI.
+                    safe_errs = [e for e in errs if not is_marketplace_scope_error(e)]
+                    if errs and not safe_errs:
+                        _wb_fbs_sync_state["errors"] = []
+                        _wb_fbs_sync_state["synced"] = 0
+                        _wb_fbs_sync_state["message"] = SCOPE_ERROR_MESSAGE
+                    else:
+                        _wb_fbs_sync_state["errors"] = safe_errs
+                        _wb_fbs_sync_state["synced"] = int(result.get("orders") or 0)
+                        if result.get("stopped"):
+                            _wb_fbs_sync_state["message"] = (
+                                f"Остановлено. Заказов: {result.get('orders', 0)}, "
+                                f"поставок: {result.get('supplies', 0)}"
+                            )
+                        elif safe_errs:
+                            _wb_fbs_sync_state["message"] = (
+                                f"Готово с ошибками. Заказов: {result.get('orders', 0)}, "
+                                f"поставок: {result.get('supplies', 0)}"
+                            )
+                        else:
+                            _wb_fbs_sync_state["message"] = (
+                                f"Готово. Заказов: {result.get('orders', 0)}, "
+                                f"поставок: {result.get('supplies', 0)}"
+                            )
         except Exception as exc:
             _log.exception("wb_fbs sync failed")
             with _wb_fbs_sync_lock:
-                _wb_fbs_sync_state["errors"] = [str(exc)]
-                _wb_fbs_sync_state["message"] = f"Ошибка: {exc}"
+                if is_marketplace_scope_error(exc):
+                    _wb_fbs_sync_state["errors"] = []
+                    _wb_fbs_sync_state["message"] = SCOPE_ERROR_MESSAGE
+                else:
+                    _wb_fbs_sync_state["errors"] = [str(exc)]
+                    _wb_fbs_sync_state["message"] = f"Ошибка: {exc}"
         finally:
             with _wb_fbs_sync_lock:
                 _wb_fbs_sync_state["in_progress"] = False

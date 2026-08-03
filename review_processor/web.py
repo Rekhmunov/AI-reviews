@@ -8692,13 +8692,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             if (s.get("marketplace") or "wb").lower() == "wb" and s.get("is_enabled")
         ]
         if not sources:
-            return {"ok": False, "message": "Нет активных источников ВБ"}
+            return {"ok": False, "message": wb_fbs_mod.SCOPE_ERROR_MESSAGE}
         selected_id = int(source_id) if source_id is not None else int(sources[0]["id"])
         if not any(int(s["id"]) == selected_id for s in sources):
             return {"ok": False, "message": "Источник не найден или отключён"}
         src_full = repository.get_supply_source_with_key(user_id=owner_id, source_id=selected_id)
         if not src_full or not src_full.get("api_key"):
-            return {"ok": False, "message": "Не удалось получить API-ключ источника"}
+            return {"ok": False, "message": wb_fbs_mod.SCOPE_ERROR_MESSAGE}
         ok, message = wb_fbs_mod.start_sync_thread(
             repo=repository,
             user_id=owner_id,
