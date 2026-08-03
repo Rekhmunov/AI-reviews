@@ -6828,7 +6828,7 @@ tr.dnd-over td {
 .wb-fbs-product-name {
   font-weight: 600;
   color: #0f172a;
-  font-size: 14px;
+  font-size: 16px;
   line-height: 1.35;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -6838,11 +6838,11 @@ tr.dnd-over td {
 .wb-fbs-barcodes {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  margin-top: 6px;
+  gap: 4px;
+  margin-top: 8px;
 }
 .wb-fbs-barcode {
-  font-size: 18px;
+  font-size: 22px;
   font-weight: 700;
   line-height: 1.25;
   color: #0f172a;
@@ -6852,9 +6852,9 @@ tr.dnd-over td {
 }
 .wb-fbs-product-sub {
   color: #64748b;
-  font-size: 12px;
-  margin-top: 2px;
-  line-height: 1.3;
+  font-size: 14px;
+  margin-top: 4px;
+  line-height: 1.35;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
