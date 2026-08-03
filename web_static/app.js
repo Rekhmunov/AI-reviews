@@ -17377,6 +17377,7 @@ const wbFbsState = {
   selected: new Set(),
   selectedMeta: {}, // orderId -> { supply_id }
   selectAllMatching: false,
+  lastSearch: "",
   pollTimer: null,
 };
 
@@ -17577,7 +17578,15 @@ async function loadWbFbsOrders(resetPage = false) {
     if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="small" style="padding:16px;color:#94a3b8">Выберите источник ВБ в Поставки → Настройки → Источники</td></tr>';
     if (info) info.textContent = "";
     _wbFbsUpdateCounts({});
+    _wbFbsUpdateSelectAllBanner();
     return;
+  }
+  const search = document.getElementById("wbFbsSearchFilter")?.value.trim() || "";
+  // Search/filter change invalidates «select all matching».
+  if (search !== wbFbsState.lastSearch) {
+    wbFbsState.lastSearch = search;
+    if (wbFbsState.selectAllMatching) clearWbFbsSelection();
+    else wbFbsState.selectAllMatching = false;
   }
   const params = new URLSearchParams({
     source_id: String(wbFbsState.sourceId),
@@ -17585,7 +17594,6 @@ async function loadWbFbsOrders(resetPage = false) {
     page: String(wbFbsState.page),
     page_size: String(wbFbsState.page_size),
   });
-  const search = document.getElementById("wbFbsSearchFilter")?.value.trim() || "";
   if (search) params.set("search", search);
   try {
     const res = await fetch(`/api/wb-fbs/orders?${params}`);
