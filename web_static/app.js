@@ -17957,24 +17957,6 @@ function _wbFbsPollSync() {
   }, 1000);
 }
 
-async function clearWbFbsOrders() {
-  if (!wbFbsState.sourceId) return;
-  if (!confirm("Удалить локальные заказы/поставки FBS для выбранного источника?")) return;
-  const res = await fetch(`/api/wb-fbs/orders?source_id=${wbFbsState.sourceId}`, {
-    method: "DELETE",
-    headers: jsonHeaders(),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    _wbFbsSetSyncInfo(data.detail || `Ошибка ${res.status}`, "error");
-    return;
-  }
-  _wbFbsSetSyncInfo(`Удалено заказов: ${data.orders || 0}, поставок: ${data.supplies || 0}`, "ok");
-  clearWbFbsSelection();
-  loadWbFbsOrders(true);
-}
-window.clearWbFbsOrders = clearWbFbsOrders;
-
 function _wbFbsOpenBase64Images(stickers, filenamePrefix) {
   const files = (stickers || []).map((s, i) => {
     const b64 = s.file || s.barcode || "";

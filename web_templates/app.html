@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=148" />
+  <link rel="stylesheet" href="/static/style.css?v=149" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1452,8 +1452,7 @@
           <div class="supplies-top-controls">
             <div class="supplies-actions">
               <button id="wbFbsSyncBtn" onclick="syncWbFbs()">Синхронизировать</button>
-              <button id="wbFbsStopBtn" class="secondary icon-btn wb-fbs-danger-btn hidden" onclick="stopWbFbsSync()" title="Остановить синхронизацию">■</button>
-              <button id="wbFbsClearBtn" class="secondary icon-btn wb-fbs-danger-btn" onclick="clearWbFbsOrders()" title="Очистить заказы источника">🗑</button>
+              <button id="wbFbsStopBtn" class="secondary icon-btn hidden" onclick="stopWbFbsSync()" style="color:#b91c1c;border-color:#fca5a5" title="Остановить синхронизацию">🛑</button>
             </div>
             <div class="wb-fbs-toolbar-right">
               <input id="wbFbsSearchFilter" class="wb-fbs-search" type="search" placeholder="Поиск по заказу, артикулу, ШК…"
@@ -3516,6 +3515,6 @@
   <script src="/static/jszip.min.js"></script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=322"></script>
+  <script src="/static/app.js?v=323"></script>
 </body>
 </html>
