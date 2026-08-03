@@ -17434,6 +17434,7 @@ function _wbFbsFmtDate(iso) {
 
 async function initWbFbsSection() {
   initWbFbsColumnResizer();
+  _wbFbsSyncActionsColumn();
   await loadWbFbsSources();
   await loadWbFbsOrders(true);
 }
