@@ -17342,8 +17342,34 @@ const wbFbsState = {
   page_size: 50,
   counts: {},
   selected: new Set(),
+  selectedMeta: {}, // orderId -> { supply_id }
   pollTimer: null,
 };
+
+function _wbFbsRememberMeta(order) {
+  const oid = Number(order?.order_id);
+  if (!Number.isFinite(oid)) return;
+  wbFbsState.selectedMeta[oid] = {
+    supply_id: String(order.supply_id || "").trim(),
+  };
+}
+
+function _wbFbsSelectedSupplyIds() {
+  const ids = [];
+  for (const oid of wbFbsState.selected) {
+    const meta = wbFbsState.selectedMeta[oid];
+    const sid = String(meta?.supply_id || "").trim();
+    if (sid) ids.push(sid);
+  }
+  // Fallback: current page items (for freshly checked rows)
+  for (const o of wbFbsState.items) {
+    const oid = Number(o.order_id);
+    if (!wbFbsState.selected.has(oid)) continue;
+    const sid = String(o.supply_id || "").trim();
+    if (sid) ids.push(sid);
+  }
+  return [...new Set(ids)];
+}
 
 function _wbFbsEsc(s) {
   return esc(String(s ?? ""));
@@ -17534,8 +17560,14 @@ function renderWbFbsOrdersTable() {
 function onWbFbsCheckboxChange() {
   document.querySelectorAll(".wb-fbs-row-cb").forEach((cb) => {
     const id = Number(cb.dataset.orderId);
-    if (cb.checked) wbFbsState.selected.add(id);
-    else wbFbsState.selected.delete(id);
+    if (cb.checked) {
+      wbFbsState.selected.add(id);
+      const row = wbFbsState.items.find((x) => Number(x.order_id) === id);
+      if (row) _wbFbsRememberMeta(row);
+    } else {
+      wbFbsState.selected.delete(id);
+      delete wbFbsState.selectedMeta[id];
+    }
   });
   _wbFbsUpdateBottomBar();
 }
@@ -17545,8 +17577,14 @@ function toggleSelectAllWbFbs(checked) {
   document.querySelectorAll(".wb-fbs-row-cb").forEach((cb) => {
     cb.checked = checked;
     const id = Number(cb.dataset.orderId);
-    if (checked) wbFbsState.selected.add(id);
-    else wbFbsState.selected.delete(id);
+    if (checked) {
+      wbFbsState.selected.add(id);
+      const row = wbFbsState.items.find((x) => Number(x.order_id) === id);
+      if (row) _wbFbsRememberMeta(row);
+    } else {
+      wbFbsState.selected.delete(id);
+      delete wbFbsState.selectedMeta[id];
+    }
   });
   _wbFbsUpdateBottomBar();
 }
@@ -17554,6 +17592,7 @@ window.toggleSelectAllWbFbs = toggleSelectAllWbFbs;
 
 function clearWbFbsSelection() {
   wbFbsState.selected.clear();
+  wbFbsState.selectedMeta = {};
   document.querySelectorAll(".wb-fbs-row-cb").forEach((cb) => { cb.checked = false; });
   const selAll = document.getElementById("wbFbsSelectAll");
   if (selAll) selAll.checked = false;
@@ -17593,14 +17632,21 @@ async function syncWbFbs() {
   if (stopBtn) stopBtn.classList.remove("hidden");
   if (info) info.textContent = "Запуск синхронизации…";
   try {
-    const res = await fetch(`/api/wb-fbs/sync?source_id=${wbFbsState.sourceId}`, { method: "POST" });
-    const data = await res.json();
-    if (!data.ok) {
-      if (info) info.textContent = data.message || "Не удалось запустить";
+    const res = await fetch(`/api/wb-fbs/sync?source_id=${wbFbsState.sourceId}`, {
+      method: "POST",
+      headers: jsonHeaders(),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) {
+      if (info) {
+        info.textContent = data.message || data.detail || `Ошибка ${res.status || "сети"}`;
+        info.style.color = "#b91c1c";
+      }
       if (syncBtn) syncBtn.disabled = false;
       if (stopBtn) stopBtn.classList.add("hidden");
       return;
     }
+    if (info) info.style.color = "";
     _wbFbsPollSync();
   } catch (e) {
     if (info) info.textContent = String(e.message || e);
@@ -17612,7 +17658,7 @@ window.syncWbFbs = syncWbFbs;
 
 async function stopWbFbsSync() {
   try {
-    await fetch("/api/wb-fbs/sync/stop", { method: "POST" });
+    await fetch("/api/wb-fbs/sync/stop", { method: "POST", headers: jsonHeaders() });
   } catch (_) {}
 }
 window.stopWbFbsSync = stopWbFbsSync;
@@ -17644,9 +17690,16 @@ function _wbFbsPollSync() {
 async function clearWbFbsOrders() {
   if (!wbFbsState.sourceId) return;
   if (!confirm("Удалить локальные заказы/поставки FBS для выбранного источника?")) return;
-  const res = await fetch(`/api/wb-fbs/orders?source_id=${wbFbsState.sourceId}`, { method: "DELETE" });
-  const data = await res.json();
+  const res = await fetch(`/api/wb-fbs/orders?source_id=${wbFbsState.sourceId}`, {
+    method: "DELETE",
+    headers: jsonHeaders(),
+  });
+  const data = await res.json().catch(() => ({}));
   const info = document.getElementById("wbFbsSyncInfo");
+  if (!res.ok) {
+    if (info) info.textContent = data.detail || `Ошибка ${res.status}`;
+    return;
+  }
   if (info) info.textContent = `Удалено заказов: ${data.orders || 0}, поставок: ${data.supplies || 0}`;
   clearWbFbsSelection();
   loadWbFbsOrders(true);
@@ -17678,10 +17731,10 @@ async function wbFbsPrintOrderStickers() {
   if (!ids.length || !wbFbsState.sourceId) return;
   const res = await fetch("/api/wb-fbs/stickers/orders", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: jsonHeaders(),
     body: JSON.stringify({ source_id: wbFbsState.sourceId, order_ids: ids, type: "png" }),
   });
-  const data = await res.json();
+  const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     alert(data.detail || "Ошибка стикеров");
     return;
@@ -17691,7 +17744,11 @@ async function wbFbsPrintOrderStickers() {
 window.wbFbsPrintOrderStickers = wbFbsPrintOrderStickers;
 
 async function wbFbsPrintOneOrderSticker(orderId) {
-  wbFbsState.selected = new Set([Number(orderId)]);
+  const oid = Number(orderId);
+  wbFbsState.selected = new Set([oid]);
+  const row = wbFbsState.items.find((x) => Number(x.order_id) === oid);
+  wbFbsState.selectedMeta = {};
+  if (row) _wbFbsRememberMeta(row);
   _wbFbsUpdateBottomBar();
   await wbFbsPrintOrderStickers();
 }
@@ -17699,8 +17756,7 @@ window.wbFbsPrintOneOrderSticker = wbFbsPrintOneOrderSticker;
 
 async function wbFbsPrintSupplySticker() {
   if (!wbFbsState.sourceId) return;
-  const selected = wbFbsState.items.filter((o) => wbFbsState.selected.has(Number(o.order_id)));
-  const supplyIds = [...new Set(selected.map((o) => String(o.supply_id || "").trim()).filter(Boolean))];
+  const supplyIds = _wbFbsSelectedSupplyIds();
   if (!supplyIds.length) {
     alert("У выбранных заказов нет ID поставки. Стикер поставки доступен после сборки на портале ВБ.");
     return;
@@ -17718,8 +17774,7 @@ window.wbFbsPrintSupplySticker = wbFbsPrintSupplySticker;
 
 async function wbFbsPrintBoxStickers() {
   if (!wbFbsState.sourceId) return;
-  const selected = wbFbsState.items.filter((o) => wbFbsState.selected.has(Number(o.order_id)));
-  const supplyIds = [...new Set(selected.map((o) => String(o.supply_id || "").trim()).filter(Boolean))];
+  const supplyIds = _wbFbsSelectedSupplyIds();
   if (!supplyIds.length) {
     alert("У выбранных заказов нет ID поставки — короба недоступны.");
     return;
@@ -17727,10 +17782,10 @@ async function wbFbsPrintBoxStickers() {
   for (const sid of supplyIds) {
     const res = await fetch("/api/wb-fbs/stickers/boxes", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders(),
       body: JSON.stringify({ source_id: wbFbsState.sourceId, supply_id: sid, type: "png" }),
     });
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       alert(data.detail || `Ошибка стикеров коробов для ${sid}`);
       continue;

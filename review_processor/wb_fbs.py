@@ -443,7 +443,13 @@ def upsert_order(
                         WHEN EXCLUDED.wb_status != '' THEN EXCLUDED.wb_status
                         ELSE wb_fbs_orders.wb_status
                     END,
-                    tab = EXCLUDED.tab,
+                    -- GET /orders often omits statuses; do not reset tab to "new".
+                    tab = CASE
+                        WHEN EXCLUDED.is_archive THEN 'archive'
+                        WHEN EXCLUDED.supplier_status != '' OR EXCLUDED.wb_status != ''
+                            THEN EXCLUDED.tab
+                        ELSE wb_fbs_orders.tab
+                    END,
                     supply_id = CASE
                         WHEN EXCLUDED.supply_id != '' THEN EXCLUDED.supply_id
                         ELSE wb_fbs_orders.supply_id
