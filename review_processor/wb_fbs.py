@@ -754,19 +754,35 @@ def sync_wb_fbs_source(
     ensure_wb_fbs_tables(repo)
     client = WbFbsClient(api_key)
     stopped = False
-    synced_orders = 0
-    synced_supplies = 0
+    # Unique IDs — same order can appear in /new and /orders; do not double-count.
+    seen_order_ids: set[int] = set()
+    seen_supply_ids: set[str] = set()
     errors: list[str] = []
 
     def _stopped() -> bool:
         return bool(stop_requested and stop_requested())
 
-    def _prog(msg: str, n: int = 0) -> None:
+    def _order_count() -> int:
+        return len(seen_order_ids)
+
+    def _supply_count() -> int:
+        return len(seen_supply_ids)
+
+    def _note_order(order: dict[str, Any]) -> None:
+        oid = order.get("id")
+        if oid is None:
+            return
+        try:
+            seen_order_ids.add(int(oid))
+        except (TypeError, ValueError):
+            return
+
+    def _prog(msg: str, n: int | None = None) -> None:
         if progress:
-            progress(msg, n)
+            progress(msg, _order_count() if n is None else n)
 
     # 1) New orders — also probes Marketplace token scope early.
-    _prog("Новые заказы…", synced_orders)
+    _prog("Новые заказы…")
     try:
         new_orders = client.get_new_orders()
         for order in new_orders:
@@ -781,7 +797,7 @@ def sync_wb_fbs_source(
                 supplier_status="new",
                 is_archive=False,
             )
-            synced_orders += 1
+            _note_order(order)
         time.sleep(0.2)
     except Exception as exc:
         _log.warning("wb_fbs new orders failed: %s", exc)
@@ -797,10 +813,15 @@ def sync_wb_fbs_source(
         errors.append(friendly_sync_error("new", exc))
 
     if _stopped():
-        return {"orders": synced_orders, "supplies": synced_supplies, "errors": errors, "stopped": True}
+        return {
+            "orders": _order_count(),
+            "supplies": _supply_count(),
+            "errors": errors,
+            "stopped": True,
+        }
 
     # 2) Recent orders pages
-    _prog("Заказы за период…", synced_orders)
+    _prog("Заказы за период…")
     date_to = datetime.now(UTC)
     date_from = date_to - timedelta(days=max(1, min(lookback_days, 30)))
     next_token: int | None = 0
@@ -820,9 +841,9 @@ def sync_wb_fbs_source(
                 break
             for order in orders:
                 upsert_order(repo, user_id=user_id, source_id=source_id, order=order)
-                synced_orders += 1
+                _note_order(order)
             pages += 1
-            _prog(f"Заказы… стр. {pages}", synced_orders)
+            _prog(f"Заказы… стр. {pages}")
             if next_token is None:
                 break
             time.sleep(0.25)
@@ -830,8 +851,8 @@ def sync_wb_fbs_source(
         _log.warning("wb_fbs orders page failed: %s", exc)
         if is_marketplace_scope_error(exc):
             return {
-                "orders": synced_orders,
-                "supplies": synced_supplies,
+                "orders": _order_count(),
+                "supplies": _supply_count(),
                 "errors": [],
                 "stopped": False,
                 "scope_error": True,
@@ -840,10 +861,15 @@ def sync_wb_fbs_source(
         errors.append(friendly_sync_error("orders", exc))
 
     if _stopped():
-        return {"orders": synced_orders, "supplies": synced_supplies, "errors": errors, "stopped": True}
+        return {
+            "orders": _order_count(),
+            "supplies": _supply_count(),
+            "errors": errors,
+            "stopped": True,
+        }
 
     # 3) Refresh statuses for known non-archive orders
-    _prog("Статусы…", synced_orders)
+    _prog("Статусы…")
     with repo._connect() as conn:
         id_rows = conn.execute(
             repo._sql(
@@ -890,10 +916,15 @@ def sync_wb_fbs_source(
             break
 
     if _stopped():
-        return {"orders": synced_orders, "supplies": synced_supplies, "errors": errors, "stopped": True}
+        return {
+            "orders": _order_count(),
+            "supplies": _supply_count(),
+            "errors": errors,
+            "stopped": True,
+        }
 
     # 4) Supplies (+ order ids / boxes for open ones only)
-    _prog("Поставки FBS…", synced_supplies)
+    _prog("Поставки FBS…", _supply_count())
     next_sup = 0
     sup_pages = 0
     try:
@@ -927,6 +958,8 @@ def sync_wb_fbs_source(
                     order_ids=order_ids,
                     boxes=boxes,
                 )
+                if sid:
+                    seen_supply_ids.add(sid)
                 # Link orders to supply + mark assembly if still new
                 if order_ids:
                     with repo._connect() as conn:
@@ -950,9 +983,8 @@ def sync_wb_fbs_source(
                                 ),
                                 (sid, _utc_now(), user_id, source_id, oid),
                             )
-                synced_supplies += 1
             sup_pages += 1
-            _prog(f"Поставки… стр. {sup_pages}", synced_supplies)
+            _prog(f"Поставки… стр. {sup_pages}", _supply_count())
             if not next_sup:
                 break
             time.sleep(0.25)
@@ -960,10 +992,15 @@ def sync_wb_fbs_source(
         errors.append(friendly_sync_error("supplies", exc))
 
     if _stopped():
-        return {"orders": synced_orders, "supplies": synced_supplies, "errors": errors, "stopped": True}
+        return {
+            "orders": _order_count(),
+            "supplies": _supply_count(),
+            "errors": errors,
+            "stopped": True,
+        }
 
     # 5) Archive — limited pages
-    _prog("Архив…", synced_orders)
+    _prog("Архив…")
     arch_next = 0
     try:
         for _ in range(max(0, archive_pages)):
@@ -983,7 +1020,7 @@ def sync_wb_fbs_source(
                     supplier_status=str(order.get("supplierStatus") or ""),
                     wb_status=str(order.get("wbStatus") or "sold"),
                 )
-                synced_orders += 1
+                _note_order(order)
             if not arch_next:
                 break
             time.sleep(0.25)
@@ -991,8 +1028,8 @@ def sync_wb_fbs_source(
         errors.append(friendly_sync_error("archive", exc))
 
     return {
-        "orders": synced_orders,
-        "supplies": synced_supplies,
+        "orders": _order_count(),
+        "supplies": _supply_count(),
         "errors": errors,
         "stopped": stopped,
     }
