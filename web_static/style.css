@@ -6718,9 +6718,11 @@ button.wb-fbs-select-all-link {
   box-shadow: none !important;
   outline: none;
   background: transparent !important;
-  padding: 0;
+  padding: 0 !important;
   margin: 0;
-  color: inherit;
+  min-height: 0 !important;
+  height: auto !important;
+  color: inherit !important;
   font: inherit;
   font-weight: inherit;
   line-height: inherit;
@@ -6728,11 +6730,15 @@ button.wb-fbs-select-all-link {
   cursor: pointer;
   white-space: nowrap;
   border-radius: 0;
+  transform: none !important;
 }
 .wb-fbs-selected-label .wb-fbs-select-all-link:hover,
 button.wb-fbs-select-all-link:hover {
-  color: inherit;
+  color: inherit !important;
   background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  transform: none !important;
   text-decoration: underline;
   text-underline-offset: 2px;
 }
