@@ -6876,6 +6876,23 @@ button.wb-fbs-select-all-link:disabled {
   gap: 4px;
   margin-top: 8px;
 }
+.wb-fbs-cancel-reason {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 8px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .wb-fbs-barcode {
   font-size: 22px;
   font-weight: 700;

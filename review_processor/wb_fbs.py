@@ -129,6 +129,23 @@ def cargo_type_label(cargo_type: object) -> str:
     return {1: "МГТ", 2: "СГТ", 3: "КГТ+"}.get(ct, "")
 
 
+def cancel_reason_label(*, supplier_status: object = "", wb_status: object = "") -> str:
+    """Human-readable cancel reason from WB status codes (no free-text in API)."""
+    ws = str(wb_status or "").strip().lower()
+    ss = str(supplier_status or "").strip().lower()
+    if ws == "declined_by_client":
+        return "Покупатель в первый час"
+    if ws == "canceled_by_client":
+        return "Покупатель при получении"
+    if ws == "defect":
+        return "Брак"
+    if ws == "canceled_by_carrier" or ss == "cancel_carrier":
+        return "Перевозчик"
+    if ws == "canceled" or ss == "cancel":
+        return "Отмена продавцом"
+    return ""
+
+
 SCOPE_ERROR_MESSAGE = "Нет ни одного источника с нужным API (Marketplace)."
 
 
@@ -781,6 +798,10 @@ def list_orders(
                 d.get("final_price") or d.get("price"), d.get("currency_code")
             )
         d["cargo_label"] = cargo_type_label(d.get("cargo_type"))
+        d["cancel_reason_label"] = cancel_reason_label(
+            supplier_status=d.get("supplier_status"),
+            wb_status=d.get("wb_status"),
+        )
         try:
             offices = json.loads(d.get("offices_json") or "[]")
         except Exception:

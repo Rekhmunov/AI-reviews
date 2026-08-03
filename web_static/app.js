@@ -17796,6 +17796,10 @@ function renderWbFbsOrdersTable() {
           `<div class="wb-fbs-barcode">${_wbFbsEsc(b)}</div>`
         ).join("")}</div>`
       : "";
+    const cancelReason = String(o.cancel_reason_label || "").trim();
+    const cancelBadgeHtml = (wbFbsState.tab === "cancelled" && cancelReason)
+      ? `<div class="wb-fbs-cancel-reason" title="${_wbFbsEsc(cancelReason)}">${_wbFbsEsc(cancelReason)}</div>`
+      : "";
     return `<tr>
       <td><input type="checkbox" class="wb-fbs-row-cb" data-order-id="${oid}" ${checked} onchange="onWbFbsCheckboxChange()" /></td>
       <td>
@@ -17810,6 +17814,7 @@ function renderWbFbsOrdersTable() {
             <div class="wb-fbs-product-name" title="${_wbFbsEsc(o.product_name || o.article || "")}">${_wbFbsEsc(o.product_name || o.article || "—")}</div>
             <div class="wb-fbs-product-sub">Арт. ${_wbFbsEsc(o.article || "—")}${o.nm_id ? " · nmId " + _wbFbsEsc(o.nm_id) : ""}</div>
             ${barcodeHtml}
+            ${cancelBadgeHtml}
           </div>
         </div>
       </td>
