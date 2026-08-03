@@ -630,6 +630,81 @@ def upsert_supply(
         )
 
 
+def _orders_filter_sql(
+    *,
+    user_id: int,
+    source_id: int | None,
+    tab: str | None = None,
+    search: str | None = None,
+) -> tuple[str, list[Any]]:
+    conditions = ["user_id = ?"]
+    params: list[Any] = [user_id]
+    if source_id:
+        conditions.append("source_id = ?")
+        params.append(int(source_id))
+    if tab:
+        conditions.append("tab = ?")
+        params.append(tab)
+    if search:
+        q = f"%{str(search).strip()}%"
+        conditions.append(
+            "(CAST(order_id AS TEXT) ILIKE ? OR article ILIKE ? OR supply_id ILIKE ? OR skus_json ILIKE ?)"
+        )
+        params.extend([q, q, q, q])
+    return " AND ".join(conditions), params
+
+
+def list_order_ids(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int | None,
+    tab: str | None = None,
+    search: str | None = None,
+    limit: int = 5000,
+) -> dict[str, Any]:
+    """Lightweight id list for «select all matching» (no product enrichment)."""
+    ensure_wb_fbs_tables(repo)
+    where, params = _orders_filter_sql(
+        user_id=user_id, source_id=source_id, tab=tab, search=search
+    )
+    safe_limit = min(max(int(limit or 5000), 1), 10000)
+    with repo._connect() as conn:
+        total_row = conn.execute(
+            repo._sql(f"SELECT COUNT(*) AS n FROM wb_fbs_orders WHERE {where}"),
+            tuple(params),
+        ).fetchone()
+        rows = conn.execute(
+            repo._sql(
+                f"""
+                SELECT order_id, supply_id
+                FROM wb_fbs_orders
+                WHERE {where}
+                ORDER BY created_at_wb DESC NULLS LAST, order_id DESC
+                LIMIT ?
+                """
+            ),
+            tuple(params + [safe_limit]),
+        ).fetchall()
+    total = int(total_row["n"]) if total_row else 0
+    order_ids: list[int] = []
+    meta: dict[str, dict[str, str]] = {}
+    for row in rows:
+        d = repo._row_to_dict(row)
+        try:
+            oid = int(d.get("order_id"))
+        except (TypeError, ValueError):
+            continue
+        order_ids.append(oid)
+        meta[str(oid)] = {"supply_id": str(d.get("supply_id") or "").strip()}
+    return {
+        "order_ids": order_ids,
+        "total": total,
+        "truncated": total > len(order_ids),
+        "meta": meta,
+    }
+
+
 def list_orders(
     repo: ReviewRepository,
     *,
@@ -641,21 +716,9 @@ def list_orders(
     page_size: int = 50,
 ) -> dict[str, Any]:
     ensure_wb_fbs_tables(repo)
-    conditions = ["user_id = ?"]
-    params: list[Any] = [user_id]
-    if source_id:
-        conditions.append("source_id = ?")
-        params.append(int(source_id))
-    if tab:
-        conditions.append("tab = ?")
-        params.append(tab)
-    if search:
-        q = f"%{search.strip()}%"
-        conditions.append(
-            "(CAST(order_id AS TEXT) ILIKE ? OR article ILIKE ? OR supply_id ILIKE ? OR skus_json ILIKE ?)"
-        )
-        params.extend([q, q, q, q])
-    where = " AND ".join(conditions)
+    where, params = _orders_filter_sql(
+        user_id=user_id, source_id=source_id, tab=tab, search=search
+    )
     safe_page = max(int(page), 1)
     safe_size = min(max(int(page_size), 1), 200)
     offset = (safe_page - 1) * safe_size

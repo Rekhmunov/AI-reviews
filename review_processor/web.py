@@ -8679,6 +8679,26 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             page_size=page_size,
         )
 
+    @app.get("/api/wb-fbs/orders/ids")
+    def list_wb_fbs_order_ids(
+        request: Request,
+        source_id: int | None = None,
+        tab: str | None = None,
+        search: str | None = None,
+    ) -> dict[str, object]:
+        """IDs for current filters — used by «select all matching» in the UI."""
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        return wb_fbs_mod.list_order_ids(
+            repository,
+            user_id=owner_id,
+            source_id=source_id,
+            tab=tab or None,
+            search=search or None,
+        )
+
     @app.get("/api/wb-fbs/supplies")
     def list_wb_fbs_supplies(
         request: Request,

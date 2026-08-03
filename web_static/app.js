@@ -17376,6 +17376,7 @@ const wbFbsState = {
   counts: {},
   selected: new Set(),
   selectedMeta: {}, // orderId -> { supply_id }
+  selectAllMatching: false,
   pollTimer: null,
 };
 
@@ -17815,9 +17816,13 @@ function renderWbFbsOrdersTable() {
   const selAll = document.getElementById("wbFbsSelectAll");
   if (selAll) {
     const ids = wbFbsState.items.map((x) => Number(x.order_id));
-    selAll.checked = ids.length > 0 && ids.every((id) => wbFbsState.selected.has(id));
+    const allOnPage = ids.length > 0 && ids.every((id) => wbFbsState.selected.has(id));
+    const someOnPage = ids.some((id) => wbFbsState.selected.has(id));
+    selAll.checked = allOnPage || wbFbsState.selectAllMatching;
+    selAll.indeterminate = !selAll.checked && someOnPage;
   }
   _wbFbsUpdateBottomBar();
+  _wbFbsUpdateSelectAllBanner();
 }
 
 function onWbFbsCheckboxChange() {
@@ -17830,38 +17835,145 @@ function onWbFbsCheckboxChange() {
     } else {
       wbFbsState.selected.delete(id);
       delete wbFbsState.selectedMeta[id];
+      wbFbsState.selectAllMatching = false;
     }
   });
   _wbFbsUpdateBottomBar();
+  _wbFbsUpdateSelectAllBanner();
+  const selAll = document.getElementById("wbFbsSelectAll");
+  if (selAll) {
+    const ids = wbFbsState.items.map((x) => Number(x.order_id));
+    const allOnPage = ids.length > 0 && ids.every((id) => wbFbsState.selected.has(id));
+    const someOnPage = ids.some((id) => wbFbsState.selected.has(id));
+    selAll.checked = allOnPage;
+    selAll.indeterminate = !allOnPage && someOnPage;
+  }
 }
 window.onWbFbsCheckboxChange = onWbFbsCheckboxChange;
 
 function toggleSelectAllWbFbs(checked) {
-  document.querySelectorAll(".wb-fbs-row-cb").forEach((cb) => {
-    cb.checked = checked;
-    const id = Number(cb.dataset.orderId);
-    if (checked) {
-      wbFbsState.selected.add(id);
-      const row = wbFbsState.items.find((x) => Number(x.order_id) === id);
-      if (row) _wbFbsRememberMeta(row);
-    } else {
+  if (!checked) {
+    // Uncheck header = clear only current page, or full clear if all-matching.
+    if (wbFbsState.selectAllMatching) {
+      clearWbFbsSelection();
+      return;
+    }
+    document.querySelectorAll(".wb-fbs-row-cb").forEach((cb) => {
+      cb.checked = false;
+      const id = Number(cb.dataset.orderId);
       wbFbsState.selected.delete(id);
       delete wbFbsState.selectedMeta[id];
-    }
+    });
+    wbFbsState.selectAllMatching = false;
+    _wbFbsUpdateBottomBar();
+    _wbFbsUpdateSelectAllBanner();
+    return;
+  }
+  wbFbsState.selectAllMatching = false;
+  document.querySelectorAll(".wb-fbs-row-cb").forEach((cb) => {
+    cb.checked = true;
+    const id = Number(cb.dataset.orderId);
+    wbFbsState.selected.add(id);
+    const row = wbFbsState.items.find((x) => Number(x.order_id) === id);
+    if (row) _wbFbsRememberMeta(row);
   });
+  const selAll = document.getElementById("wbFbsSelectAll");
+  if (selAll) selAll.indeterminate = false;
   _wbFbsUpdateBottomBar();
+  _wbFbsUpdateSelectAllBanner();
 }
 window.toggleSelectAllWbFbs = toggleSelectAllWbFbs;
 
 function clearWbFbsSelection() {
   wbFbsState.selected.clear();
   wbFbsState.selectedMeta = {};
+  wbFbsState.selectAllMatching = false;
   document.querySelectorAll(".wb-fbs-row-cb").forEach((cb) => { cb.checked = false; });
   const selAll = document.getElementById("wbFbsSelectAll");
-  if (selAll) selAll.checked = false;
+  if (selAll) {
+    selAll.checked = false;
+    selAll.indeterminate = false;
+  }
   _wbFbsUpdateBottomBar();
+  _wbFbsUpdateSelectAllBanner();
 }
 window.clearWbFbsSelection = clearWbFbsSelection;
+
+function _wbFbsPageSelectedCount() {
+  return wbFbsState.items.filter((x) => wbFbsState.selected.has(Number(x.order_id))).length;
+}
+
+function _wbFbsUpdateSelectAllBanner() {
+  const banner = document.getElementById("wbFbsSelectAllBanner");
+  if (!banner) return;
+  const pageCount = wbFbsState.items.length;
+  const pageSelected = _wbFbsPageSelectedCount();
+  const total = Number(wbFbsState.total || 0);
+  const allOnPage = pageCount > 0 && pageSelected === pageCount;
+  const moreBeyondPage = total > pageCount;
+
+  if (wbFbsState.selectAllMatching && wbFbsState.selected.size > 0) {
+    banner.innerHTML = `
+      <span>Выбраны <strong>все ${wbFbsState.selected.size}</strong> заказов по текущему фильтру.</span>
+      <button type="button" class="wb-fbs-select-all-link" onclick="clearWbFbsSelection()">Сбросить выбор</button>
+    `;
+    banner.classList.remove("hidden");
+    return;
+  }
+
+  if (allOnPage && moreBeyondPage) {
+    banner.innerHTML = `
+      <span>Выбрано <strong>${pageSelected}</strong> на странице.</span>
+      <button type="button" class="wb-fbs-select-all-link" id="wbFbsSelectAllMatchingBtn"
+              onclick="selectAllMatchingWbFbs()">Выбрать все ${total}</button>
+    `;
+    banner.classList.remove("hidden");
+    return;
+  }
+
+  banner.classList.add("hidden");
+  banner.innerHTML = "";
+}
+
+async function selectAllMatchingWbFbs() {
+  if (!wbFbsState.sourceId) return;
+  const btn = document.getElementById("wbFbsSelectAllMatchingBtn");
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Загрузка…";
+  }
+  const params = new URLSearchParams({
+    source_id: String(wbFbsState.sourceId),
+    tab: wbFbsState.tab,
+  });
+  const search = document.getElementById("wbFbsSearchFilter")?.value.trim() || "";
+  if (search) params.set("search", search);
+  try {
+    const res = await fetch(`/api/wb-fbs/orders/ids?${params}`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || `Ошибка ${res.status}`);
+    const ids = Array.isArray(data.order_ids) ? data.order_ids : [];
+    const meta = data.meta && typeof data.meta === "object" ? data.meta : {};
+    wbFbsState.selected = new Set(ids.map((x) => Number(x)).filter((n) => Number.isFinite(n)));
+    wbFbsState.selectedMeta = {};
+    for (const oid of wbFbsState.selected) {
+      const m = meta[String(oid)] || {};
+      wbFbsState.selectedMeta[oid] = { supply_id: String(m.supply_id || "").trim() };
+    }
+    wbFbsState.selectAllMatching = true;
+    if (data.truncated) {
+      _wbFbsSetSyncInfo(
+        `Выбраны первые ${ids.length} из ${data.total || ids.length} заказов (лимит).`,
+        "error"
+      );
+    }
+    renderWbFbsOrdersTable();
+  } catch (e) {
+    alert(String(e.message || e));
+    _wbFbsUpdateSelectAllBanner();
+  }
+}
+window.selectAllMatchingWbFbs = selectAllMatchingWbFbs;
 
 function _wbFbsUpdateBottomBar() {
   const bar = document.getElementById("wbFbsBottomBar");
@@ -17870,7 +17982,9 @@ function _wbFbsUpdateBottomBar() {
   const stickerActions = document.getElementById("wbFbsBottomStickerActions");
   const n = wbFbsState.selected.size;
   if (label) {
-    if (n === 1) label.textContent = "Выбран 1 заказ";
+    if (wbFbsState.selectAllMatching && n > 0) {
+      label.textContent = `Выбраны все ${n} заказов`;
+    } else if (n === 1) label.textContent = "Выбран 1 заказ";
     else if (n > 1 && n < 5) label.textContent = `Выбрано ${n} заказа`;
     else label.textContent = `Выбрано ${n} заказов`;
   }
