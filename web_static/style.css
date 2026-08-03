@@ -6628,14 +6628,6 @@ tr.dnd-over td {
   max-width: 100%;
   height: 36px;
 }
-.wb-fbs-danger-btn {
-  color: #b91c1c;
-  border-color: #fca5a5;
-}
-.wb-fbs-danger-btn:hover {
-  background: #fef2f2;
-  border-color: #f87171;
-}
 .wb-fbs-sync-info {
   margin-top: 8px;
   padding: 8px 12px;
