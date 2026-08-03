@@ -17565,17 +17565,35 @@ function setWbFbsTab(tab) {
   document.querySelectorAll("#wbFbsTabs .wb-fbs-tab").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.tab === tab);
   });
+  _wbFbsSyncActionsColumn();
   clearWbFbsSelection();
   loadWbFbsOrders(true);
 }
 window.setWbFbsTab = setWbFbsTab;
+
+function _wbFbsHasRowActions() {
+  // Cancelled tab has no row ⋮ menu / actions column.
+  return wbFbsState.tab !== "cancelled";
+}
+
+function _wbFbsColspan() {
+  return _wbFbsHasRowActions() ? 5 : 4;
+}
+
+function _wbFbsSyncActionsColumn() {
+  const show = _wbFbsHasRowActions();
+  const col = document.querySelector("#wbFbsColgroup .wb-fbs-col-act");
+  const th = document.querySelector("#wbFbsOrdersTable .wb-fbs-th-act");
+  if (col) col.style.display = show ? "" : "none";
+  if (th) th.style.display = show ? "" : "none";
+}
 
 async function loadWbFbsOrders(resetPage = false) {
   if (resetPage) wbFbsState.page = 1;
   const info = document.getElementById("wbFbsInfo");
   const tbody = document.getElementById("wbFbsOrdersTbody");
   if (!wbFbsState.sourceId) {
-    if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="small" style="padding:16px;color:#94a3b8">Выберите источник ВБ в Поставки → Настройки → Источники</td></tr>';
+    if (tbody) tbody.innerHTML = `<tr><td colspan="${_wbFbsColspan()}" class="small" style="padding:16px;color:#94a3b8">Выберите источник ВБ в Поставки → Настройки → Источники</td></tr>`;
     if (info) info.textContent = "";
     _wbFbsUpdateCounts({});
     return;
@@ -17613,7 +17631,7 @@ async function loadWbFbsOrders(resetPage = false) {
     if (prevBtn) prevBtn.disabled = wbFbsState.page <= 1;
     if (nextBtn) nextBtn.disabled = wbFbsState.page >= totalPages;
   } catch (e) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="small" style="padding:16px;color:#b91c1c">${_wbFbsEsc(e.message || e)}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="${_wbFbsColspan()}" class="small" style="padding:16px;color:#b91c1c">${_wbFbsEsc(e.message || e)}</td></tr>`;
   }
 }
 window.loadWbFbsOrders = loadWbFbsOrders;
@@ -17711,6 +17729,7 @@ function _wbFbsCanCancelOrder() {
 }
 
 function _wbFbsRowActionsHtml(oid) {
+  if (!_wbFbsHasRowActions()) return "";
   if (wbFbsState.tab === "new") {
     const cancelItem = _wbFbsCanCancelOrder()
       ? `<button type="button" class="wb-fbs-row-menu-item is-danger" role="menuitem"
@@ -17773,10 +17792,13 @@ function renderWbFbsOrdersTable() {
   const tbody = document.getElementById("wbFbsOrdersTbody");
   if (!tbody) return;
   _wbFbsCloseRowMenus();
+  _wbFbsSyncActionsColumn();
+  const colspan = _wbFbsColspan();
   if (!wbFbsState.items.length) {
-    tbody.innerHTML = '<tr><td colspan="5" class="wb-fbs-empty">Нет заказов во вкладке. Нажмите «Синхронизировать».</td></tr>';
+    tbody.innerHTML = `<tr><td colspan="${colspan}" class="wb-fbs-empty">Нет заказов во вкладке. Нажмите «Синхронизировать».</td></tr>`;
     return;
   }
+  const showActions = _wbFbsHasRowActions();
   tbody.innerHTML = wbFbsState.items.map((o) => {
     const oid = Number(o.order_id);
     const checked = wbFbsState.selected.has(oid) ? "checked" : "";
@@ -17800,6 +17822,7 @@ function renderWbFbsOrdersTable() {
     const cancelBadgeHtml = (wbFbsState.tab === "cancelled" && cancelReason)
       ? `<div class="wb-fbs-cancel-reason" title="${_wbFbsEsc(cancelReason)}">${_wbFbsEsc(cancelReason)}</div>`
       : "";
+    const actionsTd = showActions ? `<td>${_wbFbsRowActionsHtml(oid)}</td>` : "";
     return `<tr>
       <td><input type="checkbox" class="wb-fbs-row-cb" data-order-id="${oid}" ${checked} onchange="onWbFbsCheckboxChange()" /></td>
       <td>
@@ -17822,7 +17845,7 @@ function renderWbFbsOrdersTable() {
         <div class="wb-fbs-wh-name" title="${_wbFbsEsc(o.warehouse_label || "")}">${_wbFbsEsc(o.warehouse_label || "—")}</div>
         <div class="wb-fbs-order-meta">${o.warehouse_id ? "ID " + _wbFbsEsc(o.warehouse_id) : ""}</div>
       </td>
-      <td>${_wbFbsRowActionsHtml(oid)}</td>
+      ${actionsTd}
     </tr>`;
   }).join("");
   const selAll = document.getElementById("wbFbsSelectAll");
@@ -17981,8 +18004,9 @@ function _wbFbsUpdateBottomBar() {
     }
   }
   const isNewTab = wbFbsState.tab === "new";
+  const showStickers = _wbFbsHasRowActions() && !isNewTab;
   if (newActions) newActions.classList.toggle("hidden", !isNewTab);
-  if (stickerActions) stickerActions.classList.toggle("hidden", isNewTab);
+  if (stickerActions) stickerActions.classList.toggle("hidden", !showStickers);
   if (bar) bar.classList.toggle("hidden", n === 0);
 }
 
