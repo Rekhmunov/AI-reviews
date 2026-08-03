@@ -4758,8 +4758,18 @@ function _ozonPollSync() {
 }
 
 async function clearOzonSupplies() {
+  const perms = getPermissions();
+  if (!perms.can_view_settings && !isTenantOwner() && !perms.is_admin) {
+    alert("Удаление поставок доступно только владельцу");
+    return;
+  }
   if (!confirm("Удалить все поставки OZON?")) return;
-  await fetch("/api/ozon-supplies", { method: "DELETE", headers: jsonHeaders() });
+  const res = await fetch("/api/ozon-supplies", { method: "DELETE", headers: jsonHeaders() });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    alert(data.detail || "Нет доступа к удалению поставок OZON");
+    return;
+  }
   await loadOzonSupplies(true);
 }
 
@@ -12186,10 +12196,12 @@ document.addEventListener("DOMContentLoaded", () => {
       const suppliesNavLabel = document.getElementById("nav-section-supplies");
       if (suppliesNavLabel) suppliesNavLabel.style.display = "flex";
     }
-    // "Удалить поставки" — только для владельцев, не для менеджеров
+    // "Удалить поставки" — только для владельцев/админов, не для менеджеров
     if (!permissions.can_view_settings) {
       const clearBtn = document.getElementById("suppliesClearBtn");
       if (clearBtn) clearBtn.style.display = "none";
+      const ozonClearBtn = document.getElementById("ozonClearBtn");
+      if (ozonClearBtn) ozonClearBtn.style.display = "none";
       // Скрыть вкладку "Источники" в настройках поставок — только водители
       const sourcesTab = document.getElementById("supplies-settings-tab-sources");
       if (sourcesTab) sourcesTab.style.display = "none";
@@ -17685,8 +17697,20 @@ function toggleWbFbsRowMenu(event, orderId) {
 }
 window.toggleWbFbsRowMenu = toggleWbFbsRowMenu;
 
+function _wbFbsCanCancelOrder() {
+  // Cancel is owner/admin only — assigned managers must not see it.
+  return isTenantOwner() || Boolean((window.APP_PERMISSIONS || {}).is_admin);
+}
+
 function _wbFbsRowActionsHtml(oid) {
   if (wbFbsState.tab === "new") {
+    const cancelItem = _wbFbsCanCancelOrder()
+      ? `<button type="button" class="wb-fbs-row-menu-item is-danger" role="menuitem"
+                onclick="wbFbsStubCancelOrder(${oid})">
+          <span class="wb-fbs-menu-ico" aria-hidden="true">✕</span>
+          Отменить заказ
+        </button>`
+      : "";
     return `<div class="wb-fbs-row-menu-wrap">
       <button type="button" class="icon-btn secondary wb-fbs-row-menu-btn" title="Действия"
               onclick="toggleWbFbsRowMenu(event, ${oid})" aria-haspopup="menu">⋮</button>
@@ -17696,11 +17720,7 @@ function _wbFbsRowActionsHtml(oid) {
           <span class="wb-fbs-menu-ico circle" aria-hidden="true">+</span>
           Создать поставку
         </button>
-        <button type="button" class="wb-fbs-row-menu-item is-danger" role="menuitem"
-                onclick="wbFbsStubCancelOrder(${oid})">
-          <span class="wb-fbs-menu-ico" aria-hidden="true">✕</span>
-          Отменить заказ
-        </button>
+        ${cancelItem}
       </div>
     </div>`;
   }
@@ -17726,6 +17746,10 @@ window.wbFbsStubCreateSupply = wbFbsStubCreateSupply;
 
 function wbFbsStubCancelOrder(orderId) {
   _wbFbsCloseRowMenus();
+  if (!_wbFbsCanCancelOrder()) {
+    alert("Отмена заказа доступна только владельцу");
+    return;
+  }
   alert(`Отмена заказа ${orderId} — скоро.`);
 }
 window.wbFbsStubCancelOrder = wbFbsStubCancelOrder;
