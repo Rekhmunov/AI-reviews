@@ -7053,7 +7053,12 @@ tr.dnd-over td {
     bottom: 12px;
   }
   .wb-fbs-bottom-actions { margin-left: 0; width: 100%; }
-  .wb-fbs-bottom-actions .secondary { flex: 1 1 auto; }
+  .wb-fbs-bottom-actions .secondary,
+  .wb-fbs-bottom-primary { flex: 1 1 auto; }
   .wb-fbs-table-wrap { max-height: calc(100vh - 360px); }
+  .wb-fbs-row-menu {
+    right: auto;
+    left: 0;
+  }
 }
 
