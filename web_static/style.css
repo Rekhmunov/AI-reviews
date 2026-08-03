@@ -6732,11 +6732,8 @@ tr.dnd-over td {
   overscroll-behavior: contain;
 }
 .wb-fbs-col-check { width: 40px; }
-.wb-fbs-col-order { width: 168px; }
-.wb-fbs-col-product { width: auto; }
-.wb-fbs-col-price { width: 104px; }
-.wb-fbs-col-wh { width: 140px; }
 .wb-fbs-col-act { width: 48px; }
+.wb-fbs-table th[data-col] { position: relative; }
 .wb-fbs-table {
   font-size: 14px;
 }
