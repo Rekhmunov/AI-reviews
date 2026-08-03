@@ -4758,8 +4758,18 @@ function _ozonPollSync() {
 }
 
 async function clearOzonSupplies() {
+  const perms = getPermissions();
+  if (!perms.can_view_settings && !isTenantOwner() && !perms.is_admin) {
+    alert("Удаление поставок доступно только владельцу");
+    return;
+  }
   if (!confirm("Удалить все поставки OZON?")) return;
-  await fetch("/api/ozon-supplies", { method: "DELETE", headers: jsonHeaders() });
+  const res = await fetch("/api/ozon-supplies", { method: "DELETE", headers: jsonHeaders() });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    alert(data.detail || "Нет доступа к удалению поставок OZON");
+    return;
+  }
   await loadOzonSupplies(true);
 }
 
@@ -12186,10 +12196,12 @@ document.addEventListener("DOMContentLoaded", () => {
       const suppliesNavLabel = document.getElementById("nav-section-supplies");
       if (suppliesNavLabel) suppliesNavLabel.style.display = "flex";
     }
-    // "Удалить поставки" — только для владельцев, не для менеджеров
+    // "Удалить поставки" — только для владельцев/админов, не для менеджеров
     if (!permissions.can_view_settings) {
       const clearBtn = document.getElementById("suppliesClearBtn");
       if (clearBtn) clearBtn.style.display = "none";
+      const ozonClearBtn = document.getElementById("ozonClearBtn");
+      if (ozonClearBtn) ozonClearBtn.style.display = "none";
       // Скрыть вкладку "Источники" в настройках поставок — только водители
       const sourcesTab = document.getElementById("supplies-settings-tab-sources");
       if (sourcesTab) sourcesTab.style.display = "none";
