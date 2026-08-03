@@ -6796,26 +6796,34 @@ tr.dnd-over td {
   gap: 12px;
   align-items: flex-start;
   min-width: 0;
+  width: 100%;
 }
 .wb-fbs-product-photo,
 .wb-fbs-product img,
 .wb-fbs-product-ph {
-  width: 72px !important;
-  height: 72px !important;
-  max-width: 72px !important;
-  max-height: 72px !important;
+  width: 144px !important;
+  height: 144px !important;
+  max-width: 144px !important;
+  max-height: 144px !important;
+  min-width: 144px;
+  min-height: 144px;
+  box-sizing: border-box;
   object-fit: cover;
   border-radius: 8px;
   border: 1px solid #e2e8f0;
   background: #f8fafc;
-  flex-shrink: 0;
+  flex: 0 0 144px;
 }
 .wb-fbs-product-ph {
   display: block;
 }
 .wb-fbs-product-text {
   min-width: 0;
-  flex: 1;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+.wb-fbs-table td:nth-child(3) {
+  vertical-align: top !important;
 }
 .wb-fbs-product-name {
   font-weight: 600;

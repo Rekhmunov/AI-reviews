@@ -17426,7 +17426,7 @@ async function initWbFbsSection() {
 
 // ── WB FBS column resizer (per-user localStorage) ──
 const WB_FBS_COL_WIDTHS_PREFIX = "wb_fbs_col_widths_v1";
-const WB_FBS_DEFAULT_WIDTHS = [22, 46, 14, 18]; // order, product, price, warehouse
+const WB_FBS_DEFAULT_WIDTHS = [20, 50, 13, 17]; // order, product, price, warehouse
 let _wbFbsColResizerInited = false;
 
 function _wbFbsColWidthsKey() {
@@ -17754,7 +17754,7 @@ function renderWbFbsOrdersTable() {
     if (o.cargo_label) badges.push(`<span class="wb-fbs-badge cargo">${_wbFbsEsc(o.cargo_label)}</span>`);
     if (o.supply_id) badges.push(`<span class="wb-fbs-badge" title="Поставка">${_wbFbsEsc(o.supply_id)}</span>`);
     const photo = o.product_photo
-      ? `<img class="wb-fbs-product-photo" src="${_wbFbsEsc(o.product_photo)}" alt="" width="72" height="72" loading="lazy">`
+      ? `<img class="wb-fbs-product-photo" src="${_wbFbsEsc(o.product_photo)}" alt="" width="144" height="144" loading="lazy">`
       : `<span class="wb-fbs-product-ph" aria-hidden="true"></span>`;
     const barcodes = Array.isArray(o.barcodes)
       ? o.barcodes
