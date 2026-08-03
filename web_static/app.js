@@ -17685,8 +17685,20 @@ function toggleWbFbsRowMenu(event, orderId) {
 }
 window.toggleWbFbsRowMenu = toggleWbFbsRowMenu;
 
+function _wbFbsCanCancelOrder() {
+  // Cancel is owner/admin only — assigned managers must not see it.
+  return isTenantOwner() || Boolean((window.APP_PERMISSIONS || {}).is_admin);
+}
+
 function _wbFbsRowActionsHtml(oid) {
   if (wbFbsState.tab === "new") {
+    const cancelItem = _wbFbsCanCancelOrder()
+      ? `<button type="button" class="wb-fbs-row-menu-item is-danger" role="menuitem"
+                onclick="wbFbsStubCancelOrder(${oid})">
+          <span class="wb-fbs-menu-ico" aria-hidden="true">✕</span>
+          Отменить заказ
+        </button>`
+      : "";
     return `<div class="wb-fbs-row-menu-wrap">
       <button type="button" class="icon-btn secondary wb-fbs-row-menu-btn" title="Действия"
               onclick="toggleWbFbsRowMenu(event, ${oid})" aria-haspopup="menu">⋮</button>
@@ -17696,11 +17708,7 @@ function _wbFbsRowActionsHtml(oid) {
           <span class="wb-fbs-menu-ico circle" aria-hidden="true">+</span>
           Создать поставку
         </button>
-        <button type="button" class="wb-fbs-row-menu-item is-danger" role="menuitem"
-                onclick="wbFbsStubCancelOrder(${oid})">
-          <span class="wb-fbs-menu-ico" aria-hidden="true">✕</span>
-          Отменить заказ
-        </button>
+        ${cancelItem}
       </div>
     </div>`;
   }
@@ -17726,6 +17734,10 @@ window.wbFbsStubCreateSupply = wbFbsStubCreateSupply;
 
 function wbFbsStubCancelOrder(orderId) {
   _wbFbsCloseRowMenus();
+  if (!_wbFbsCanCancelOrder()) {
+    alert("Отмена заказа доступна только владельцу");
+    return;
+  }
   alert(`Отмена заказа ${orderId} — скоро.`);
 }
 window.wbFbsStubCancelOrder = wbFbsStubCancelOrder;
