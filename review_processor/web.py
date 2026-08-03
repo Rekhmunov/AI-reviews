@@ -19,7 +19,7 @@ import urllib.error
 import urllib.request
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -31,6 +31,7 @@ from .repository import ReviewRepository
 from .service import MarketplaceSyncError, ReviewAutomationService, _normalize_timestamp, _parse_ozon_message_text, _wb_image_url
 from .models import ReviewInput
 from .stock_service import StockScheduler, sync_stock_source
+from . import wb_fbs as wb_fbs_mod
 
 try:  # pragma: no cover - optional in sqlite-only environments
     import psycopg  # type: ignore
@@ -8608,6 +8609,212 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             headers={"Content-Disposition": f'inline; filename="TTN_{supply_id}.pdf"'},
         )
 
+    # ── WB FBS Orders (marketplace-api; isolated from FBW supplies) ──────────
+
+    @app.get("/api/wb-fbs/sources")
+    def list_wb_fbs_sources(request: Request) -> list[dict[str, object]]:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        repository._ensure_supply_tables()
+        sources = [
+            s
+            for s in repository.list_supply_sources(user_id=owner_id)
+            if (s.get("marketplace") or "wb").lower() == "wb" and s.get("is_enabled")
+        ]
+        return sources
+
+    @app.get("/api/wb-fbs/orders")
+    def list_wb_fbs_orders(
+        request: Request,
+        source_id: int | None = None,
+        tab: str | None = None,
+        search: str | None = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        return wb_fbs_mod.list_orders(
+            repository,
+            user_id=owner_id,
+            source_id=source_id,
+            tab=tab or None,
+            search=search or None,
+            page=page,
+            page_size=page_size,
+        )
+
+    @app.get("/api/wb-fbs/supplies")
+    def list_wb_fbs_supplies(
+        request: Request,
+        source_id: int | None = None,
+        only_open: bool = False,
+    ) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        items = wb_fbs_mod.list_supplies(
+            repository,
+            user_id=owner_id,
+            source_id=source_id,
+            only_open=only_open,
+        )
+        return {"items": items, "total": len(items)}
+
+    @app.get("/api/wb-fbs/sync/status")
+    def get_wb_fbs_sync_status(request: Request) -> dict[str, object]:
+        _require_user(request)
+        return wb_fbs_mod.get_sync_state()
+
+    @app.post("/api/wb-fbs/sync/stop")
+    def stop_wb_fbs_sync(request: Request) -> dict[str, object]:
+        _require_user(request)
+        if wb_fbs_mod.request_sync_stop():
+            return {"ok": True, "message": "Остановка синхронизации ВБ ФБС…"}
+        return {"ok": False, "message": "Синхронизация не запущена"}
+
+    @app.post("/api/wb-fbs/sync")
+    def sync_wb_fbs(request: Request, source_id: int | None = None) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        repository._ensure_supply_tables()
+        wb_fbs_mod.ensure_wb_fbs_tables(repository)
+        sources = [
+            s
+            for s in repository.list_supply_sources(user_id=owner_id)
+            if (s.get("marketplace") or "wb").lower() == "wb" and s.get("is_enabled")
+        ]
+        if not sources:
+            return {"ok": False, "message": "Нет активных источников ВБ"}
+        selected_id = int(source_id) if source_id is not None else int(sources[0]["id"])
+        if not any(int(s["id"]) == selected_id for s in sources):
+            return {"ok": False, "message": "Источник не найден или отключён"}
+        src_full = repository.get_supply_source_with_key(user_id=owner_id, source_id=selected_id)
+        if not src_full or not src_full.get("api_key"):
+            return {"ok": False, "message": "Не удалось получить API-ключ источника"}
+        ok, message = wb_fbs_mod.start_sync_thread(
+            repo=repository,
+            user_id=owner_id,
+            source_id=selected_id,
+            api_key=str(src_full["api_key"]),
+        )
+        return {"ok": ok, "message": message, "source_id": selected_id}
+
+    @app.delete("/api/wb-fbs/orders")
+    def clear_wb_fbs_orders(request: Request, source_id: int) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        deleted = wb_fbs_mod.clear_source_data(repository, user_id=owner_id, source_id=int(source_id))
+        return {"ok": True, **deleted}
+
+    @app.post("/api/wb-fbs/stickers/orders")
+    async def wb_fbs_order_stickers(request: Request) -> Response:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        payload = await request.json()
+        source_id = int(payload.get("source_id") or 0)
+        order_ids = [int(x) for x in (payload.get("order_ids") or []) if str(x).strip().isdigit() or isinstance(x, int)]
+        sticker_type = str(payload.get("type") or "png").strip().lower()
+        if sticker_type not in {"png", "svg", "zplv", "zplh"}:
+            sticker_type = "png"
+        if not source_id or not order_ids:
+            raise HTTPException(status_code=400, detail="Укажите source_id и order_ids")
+        src_full = repository.get_supply_source_with_key(user_id=owner_id, source_id=source_id)
+        if not src_full or not src_full.get("api_key"):
+            raise HTTPException(status_code=400, detail="Источник не найден")
+        client = wb_fbs_mod.WbFbsClient(str(src_full["api_key"]))
+        try:
+            stickers = client.get_order_stickers(order_ids[:100], sticker_type=sticker_type)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return JSONResponse({"stickers": stickers})
+
+    @app.get("/api/wb-fbs/stickers/supply/{supply_id}")
+    def wb_fbs_supply_sticker(
+        request: Request,
+        supply_id: str,
+        source_id: int,
+        type: str = "png",
+    ) -> Response:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        sticker_type = type if type in {"png", "svg", "zplv", "zplh"} else "png"
+        src_full = repository.get_supply_source_with_key(user_id=owner_id, source_id=source_id)
+        if not src_full or not src_full.get("api_key"):
+            raise HTTPException(status_code=400, detail="Источник не найден")
+        client = wb_fbs_mod.WbFbsClient(str(src_full["api_key"]))
+        try:
+            raw = client.get_supply_barcode(supply_id, sticker_type=sticker_type)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        media = "image/png" if sticker_type == "png" else "application/octet-stream"
+        return Response(
+            content=raw,
+            media_type=media,
+            headers={"Content-Disposition": f'attachment; filename="supply_{supply_id}.{sticker_type}"'},
+        )
+
+    @app.post("/api/wb-fbs/stickers/boxes")
+    async def wb_fbs_box_stickers(request: Request) -> Response:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        payload = await request.json()
+        source_id = int(payload.get("source_id") or 0)
+        supply_id = str(payload.get("supply_id") or "").strip()
+        box_ids = [str(x) for x in (payload.get("box_ids") or []) if str(x).strip()]
+        sticker_type = str(payload.get("type") or "png").strip().lower()
+        if sticker_type not in {"png", "svg", "zplv", "zplh"}:
+            sticker_type = "png"
+        if not source_id or not supply_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
+        src_full = repository.get_supply_source_with_key(user_id=owner_id, source_id=source_id)
+        if not src_full or not src_full.get("api_key"):
+            raise HTTPException(status_code=400, detail="Источник не найден")
+        client = wb_fbs_mod.WbFbsClient(str(src_full["api_key"]))
+        # If box_ids omitted — load from local cache / API
+        if not box_ids:
+            supplies = wb_fbs_mod.list_supplies(
+                repository, user_id=owner_id, source_id=source_id, only_open=False
+            )
+            for s in supplies:
+                if str(s.get("supply_id")) == supply_id:
+                    for b in s.get("boxes") or []:
+                        bid = str((b.get("id") if isinstance(b, dict) else b) or "").strip()
+                        if bid:
+                            box_ids.append(bid)
+                    break
+            if not box_ids:
+                try:
+                    boxes = client.get_supply_boxes(supply_id)
+                    for b in boxes:
+                        bid = str((b.get("id") if isinstance(b, dict) else b) or "").strip()
+                        if bid:
+                            box_ids.append(bid)
+                except Exception:
+                    pass
+        if not box_ids:
+            raise HTTPException(status_code=404, detail="Короба не найдены")
+        try:
+            stickers = client.get_box_stickers(supply_id, box_ids[:100], sticker_type=sticker_type)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return JSONResponse({"stickers": stickers, "box_ids": box_ids})
+
     # ── OZON Supplies endpoints (isolated from WB) ──────────────────────────
 
     _ozon_sync_state: dict[str, object] = {"in_progress": False, "synced": 0, "total": 0, "message": "", "errors": [], "cancel_requested": False}
@@ -11468,13 +11675,15 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
                       if can_supply_planning and can_view_supplies else "")
     _wb_link = ('<a id="nav-supplies-wb" class="nav-item" href="#" onclick="showSection(\'supplies-wb\')"><span class="nav-item-icon">▦</span> ВБ</a>'
                 if can_view_wb_supplies else "")
+    _wb_fbs_link = ('<a id="nav-supplies-wb-fbs" class="nav-item" href="#" onclick="showSection(\'supplies-wb-fbs\')"><span class="nav-item-icon">▣</span> ВБ ФБС</a>'
+                    if can_view_wb_supplies else "")
     _ozon_link = ('<a id="nav-supplies-ozon" class="nav-item" href="#" onclick="showSection(\'supplies-ozon\')"><span class="nav-item-icon">◉</span> ОЗОН</a>'
                   if can_view_ozon_supplies else "")
     _poa_link = ('<a id="nav-supplies-poa" class="nav-item" href="#" onclick="showSection(\'supplies-poa\')"><span class="nav-item-icon">☐</span> Доверенности</a>'
                  if can_view_supply_poa else "")
     _certs_link = ('<a id="nav-supplies-certificates" class="nav-item" href="#" onclick="showSection(\'supplies-certificates\')"><span class="nav-item-icon">✦</span> Сертификаты</a>'
                    if can_view_supply_certs else "")
-    nav_supplies_wb = _wb_link + _ozon_link + _poa_link + _certs_link if can_view_supplies else ""
+    nav_supplies_wb = _wb_link + _wb_fbs_link + _ozon_link + _poa_link + _certs_link if can_view_supplies else ""
     nav_supplies_settings = (
         '<a id="nav-supplies-settings" class="nav-item" href="#" onclick="showSection(\'supplies-settings\')"><span class="nav-item-icon">≡</span> Настройки</a>'
         if (can_view_settings or can_view_supply_settings) else ""

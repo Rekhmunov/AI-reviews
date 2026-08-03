@@ -1092,6 +1092,13 @@ class ReviewRepository:
         self._migrate_manually_closed_at(conn)
         # Supply module tables (FBW/FBS)
         self._migrate_supply_tables(conn)
+        # WB FBS orders (marketplace-api) — isolated from FBW supplies
+        try:
+            from .wb_fbs import ensure_wb_fbs_tables
+
+            ensure_wb_fbs_tables(self)
+        except Exception:
+            pass
         # One-time cleanup: reset stale can_salary / can_supplies flags on managers
         self._run_migration_once(conn, "cleanup_stale_manager_access_flags", self._cleanup_stale_manager_access_flags)
         # Remove tagged_reviews group — it is no longer supported.

@@ -119,7 +119,7 @@ const UI_REFRESH_MS = 60000;        // refresh chat list from DB every 60s (afte
 const CHANNEL_ICONS = { "Отзывы": "⭐", "Вопросы": "❓", "Чаты": "💬" };
 const ACTIVE_SECTION_STORAGE_KEY = "feedpilot_active_section";
 const ACTIVE_SETTINGS_TAB_STORAGE_KEY = "feedpilot_active_settings_tab";
-const SECTION_IDS = ["reviews", "conversations", "chats", "analytics", "settings", "stock-settings", "stock-work", "supplies-wb", "supplies-ozon", "supplies-poa", "supplies-certificates", "supplies-settings", "supply-planning", "salary", "salary-settings", "team", "profile"];
+const SECTION_IDS = ["reviews", "conversations", "chats", "analytics", "settings", "stock-settings", "stock-work", "supplies-wb", "supplies-wb-fbs", "supplies-ozon", "supplies-poa", "supplies-certificates", "supplies-settings", "supply-planning", "salary", "salary-settings", "team", "profile"];
 const SETTINGS_TAB_IDS = ["sources", "rules", "templates", "recommendations", "products", "template-variables"];
 const APP_BOOT_HIDE_CLASS = "app-boot-hidden";
 const MOBILE_NAV_BREAKPOINT_PX = 900;
@@ -543,6 +543,7 @@ function canViewSection(section) {
   if (section === "salary")         return permissions.can_view_salary || isTenantOwner();
   if (section === "salary-settings") return isTenantOwner() || permissions.can_view_salary_settings;
   if (section === "supplies-wb")  return permissions.can_view_supplies;
+  if (section === "supplies-wb-fbs") return permissions.can_view_supplies;
   if (section === "supplies-ozon") return permissions.can_view_supplies;
   if (section === "supplies-poa") return permissions.can_view_supplies;
   if (section === "supplies-certificates") return permissions.can_view_supplies;
@@ -728,6 +729,9 @@ function showSection(section, options = {}) {
   if (section === "supply-planning") {
     loadSupplyPlanningSection();
   }
+  if (section === "supplies-wb-fbs") {
+    initWbFbsSection();
+  }
   if (section === "salary-settings") {
     showSalarySettingsTab("workers");
     toggleSalaryWorkerForm(false);
@@ -793,6 +797,7 @@ function sectionLabel(section) {
     "salary-settings": "Зарплата — Настройки",
     team: "Команда",
     "supplies-wb": "Поставки — ВБ",
+    "supplies-wb-fbs": "Поставки — ВБ ФБС",
     "supplies-settings": "Поставки — Настройки",
     profile: "Мой профиль",
   };
@@ -17321,3 +17326,417 @@ function formatSalaryAmount(value) {
   const num = Number(value || 0);
   return num.toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// WB FBS Orders (marketplace-api) — isolated from FBW supplies
+// ═══════════════════════════════════════════════════════════════════════════
+
+const wbFbsState = {
+  sourceId: null,
+  sources: [],
+  tab: "new",
+  items: [],
+  total: 0,
+  page: 1,
+  page_size: 50,
+  counts: {},
+  selected: new Set(),
+  pollTimer: null,
+};
+
+function _wbFbsEsc(s) {
+  return esc(String(s ?? ""));
+}
+
+function _wbFbsAgo(iso) {
+  if (!iso) return "";
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return "";
+  const sec = Math.max(0, Math.floor((Date.now() - t) / 1000));
+  if (sec < 60) return `${sec} сек назад`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min} мин назад`;
+  const h = Math.floor(min / 60);
+  const rem = min % 60;
+  if (h < 48) return rem ? `${h} ч ${rem} мин назад` : `${h} ч назад`;
+  const d = Math.floor(h / 24);
+  return `${d} дн назад`;
+}
+
+function _wbFbsFmtDate(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+async function initWbFbsSection() {
+  await loadWbFbsSources();
+  await loadWbFbsOrders(true);
+}
+
+async function loadWbFbsSources() {
+  const sel = document.getElementById("wbFbsSourceSelect");
+  if (!sel) return;
+  try {
+    const res = await fetch("/api/wb-fbs/sources");
+    const data = await res.json();
+    wbFbsState.sources = Array.isArray(data) ? data : [];
+    const prev = wbFbsState.sourceId;
+    sel.innerHTML = wbFbsState.sources.length
+      ? wbFbsState.sources.map((s) =>
+          `<option value="${_wbFbsEsc(s.id)}">${_wbFbsEsc(s.name || ("Источник " + s.id))}</option>`
+        ).join("")
+      : '<option value="">Нет активных источников ВБ</option>';
+    if (prev && wbFbsState.sources.some((s) => Number(s.id) === Number(prev))) {
+      sel.value = String(prev);
+      wbFbsState.sourceId = Number(prev);
+    } else if (wbFbsState.sources.length) {
+      wbFbsState.sourceId = Number(wbFbsState.sources[0].id);
+      sel.value = String(wbFbsState.sourceId);
+    } else {
+      wbFbsState.sourceId = null;
+    }
+  } catch (e) {
+    sel.innerHTML = '<option value="">Ошибка загрузки источников</option>';
+    wbFbsState.sourceId = null;
+  }
+}
+
+function onWbFbsSourceChange() {
+  const sel = document.getElementById("wbFbsSourceSelect");
+  wbFbsState.sourceId = sel?.value ? Number(sel.value) : null;
+  clearWbFbsSelection();
+  loadWbFbsOrders(true);
+}
+window.onWbFbsSourceChange = onWbFbsSourceChange;
+
+function setWbFbsTab(tab) {
+  wbFbsState.tab = tab;
+  document.querySelectorAll("#wbFbsTabs .wb-fbs-tab").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.tab === tab);
+  });
+  clearWbFbsSelection();
+  loadWbFbsOrders(true);
+}
+window.setWbFbsTab = setWbFbsTab;
+
+async function loadWbFbsOrders(resetPage = false) {
+  if (resetPage) wbFbsState.page = 1;
+  const info = document.getElementById("wbFbsInfo");
+  const tbody = document.getElementById("wbFbsOrdersTbody");
+  if (!wbFbsState.sourceId) {
+    if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="small" style="padding:16px;color:#94a3b8">Выберите источник ВБ в Поставки → Настройки → Источники</td></tr>';
+    if (info) info.textContent = "";
+    _wbFbsUpdateCounts({});
+    return;
+  }
+  const params = new URLSearchParams({
+    source_id: String(wbFbsState.sourceId),
+    tab: wbFbsState.tab,
+    page: String(wbFbsState.page),
+    page_size: String(wbFbsState.page_size),
+  });
+  const search = document.getElementById("wbFbsSearchFilter")?.value.trim() || "";
+  if (search) params.set("search", search);
+  try {
+    const res = await fetch(`/api/wb-fbs/orders?${params}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Ошибка загрузки");
+    wbFbsState.items = data.items || [];
+    wbFbsState.total = data.total || 0;
+    wbFbsState.page = data.page || 1;
+    wbFbsState.counts = data.counts || {};
+    _wbFbsUpdateCounts(wbFbsState.counts);
+    renderWbFbsOrdersTable();
+    const totalPages = Math.max(1, Math.ceil(wbFbsState.total / wbFbsState.page_size));
+    if (info) info.textContent = `Заказов: ${wbFbsState.total}`;
+    const pageInfo = document.getElementById("wbFbsPageInfo");
+    if (pageInfo) pageInfo.textContent = `${wbFbsState.page} / ${totalPages}`;
+    const prevBtn = document.getElementById("wbFbsPrevBtn");
+    const nextBtn = document.getElementById("wbFbsNextBtn");
+    if (prevBtn) prevBtn.disabled = wbFbsState.page <= 1;
+    if (nextBtn) nextBtn.disabled = wbFbsState.page >= totalPages;
+  } catch (e) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="small" style="padding:16px;color:#b91c1c">${_wbFbsEsc(e.message || e)}</td></tr>`;
+  }
+}
+window.loadWbFbsOrders = loadWbFbsOrders;
+
+function _wbFbsUpdateCounts(counts) {
+  const map = {
+    new: "wbFbsCountNew",
+    assembly: "wbFbsCountAssembly",
+    delivery: "wbFbsCountDelivery",
+    finished: "wbFbsCountFinished",
+    cancelled: "wbFbsCountCancelled",
+    archive: "wbFbsCountArchive",
+  };
+  for (const [tab, id] of Object.entries(map)) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = String(counts[tab] || 0);
+  }
+}
+
+function renderWbFbsOrdersTable() {
+  const tbody = document.getElementById("wbFbsOrdersTbody");
+  if (!tbody) return;
+  if (!wbFbsState.items.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="small" style="padding:16px;color:#94a3b8">Нет заказов во вкладке. Нажмите «Синхронизировать».</td></tr>';
+    return;
+  }
+  tbody.innerHTML = wbFbsState.items.map((o) => {
+    const oid = Number(o.order_id);
+    const checked = wbFbsState.selected.has(oid) ? "checked" : "";
+    const ago = _wbFbsAgo(o.created_at_wb);
+    const badges = [];
+    if (ago) badges.push(`<span class="wb-fbs-badge time">${_wbFbsEsc(ago)}</span>`);
+    if (o.cargo_label) badges.push(`<span class="wb-fbs-badge">${_wbFbsEsc(o.cargo_label)}</span>`);
+    if (o.supply_id) badges.push(`<span class="wb-fbs-badge">${_wbFbsEsc(o.supply_id)}</span>`);
+    const photo = o.product_photo
+      ? `<img src="${_wbFbsEsc(o.product_photo)}" alt="">`
+      : `<div style="width:48px;height:48px;border-radius:6px;background:#f1f5f9;border:1px solid #e2e8f0;flex-shrink:0"></div>`;
+    return `<tr>
+      <td style="text-align:center"><input type="checkbox" class="wb-fbs-row-cb" data-order-id="${oid}" ${checked} onchange="onWbFbsCheckboxChange()" /></td>
+      <td>
+        <div class="wb-fbs-order-id">${_wbFbsEsc(oid)}</div>
+        <div class="wb-fbs-order-meta">от ${_wbFbsEsc(_wbFbsFmtDate(o.created_at_wb))}</div>
+        <div class="wb-fbs-badges">${badges.join("")}</div>
+      </td>
+      <td>
+        <div class="wb-fbs-product">
+          ${photo}
+          <div>
+            <div class="wb-fbs-product-name">${_wbFbsEsc(o.product_name || o.article || "—")}</div>
+            <div class="wb-fbs-product-sub">Арт. ${_wbFbsEsc(o.article || "—")}${o.nm_id ? " · nmId " + _wbFbsEsc(o.nm_id) : ""}</div>
+          </div>
+        </div>
+      </td>
+      <td>${_wbFbsEsc(o.price_display || "—")}</td>
+      <td>
+        <div style="font-weight:600">${_wbFbsEsc(o.warehouse_label || "—")}</div>
+        <div class="wb-fbs-order-meta">${o.warehouse_id ? "ID " + _wbFbsEsc(o.warehouse_id) : ""}</div>
+      </td>
+      <td>
+        <button type="button" class="icon-btn secondary" title="Стикер товара" onclick="wbFbsPrintOneOrderSticker(${oid})">⋮</button>
+      </td>
+    </tr>`;
+  }).join("");
+  const selAll = document.getElementById("wbFbsSelectAll");
+  if (selAll) {
+    const ids = wbFbsState.items.map((x) => Number(x.order_id));
+    selAll.checked = ids.length > 0 && ids.every((id) => wbFbsState.selected.has(id));
+  }
+  _wbFbsUpdateBottomBar();
+}
+
+function onWbFbsCheckboxChange() {
+  document.querySelectorAll(".wb-fbs-row-cb").forEach((cb) => {
+    const id = Number(cb.dataset.orderId);
+    if (cb.checked) wbFbsState.selected.add(id);
+    else wbFbsState.selected.delete(id);
+  });
+  _wbFbsUpdateBottomBar();
+}
+window.onWbFbsCheckboxChange = onWbFbsCheckboxChange;
+
+function toggleSelectAllWbFbs(checked) {
+  document.querySelectorAll(".wb-fbs-row-cb").forEach((cb) => {
+    cb.checked = checked;
+    const id = Number(cb.dataset.orderId);
+    if (checked) wbFbsState.selected.add(id);
+    else wbFbsState.selected.delete(id);
+  });
+  _wbFbsUpdateBottomBar();
+}
+window.toggleSelectAllWbFbs = toggleSelectAllWbFbs;
+
+function clearWbFbsSelection() {
+  wbFbsState.selected.clear();
+  document.querySelectorAll(".wb-fbs-row-cb").forEach((cb) => { cb.checked = false; });
+  const selAll = document.getElementById("wbFbsSelectAll");
+  if (selAll) selAll.checked = false;
+  _wbFbsUpdateBottomBar();
+}
+window.clearWbFbsSelection = clearWbFbsSelection;
+
+function _wbFbsUpdateBottomBar() {
+  const bar = document.getElementById("wbFbsBottomBar");
+  const label = document.getElementById("wbFbsSelectedLabel");
+  const n = wbFbsState.selected.size;
+  if (label) label.textContent = n === 1 ? "Выбран 1 заказ" : `Выбрано ${n} заказов`;
+  if (bar) bar.classList.toggle("hidden", n === 0);
+}
+
+function wbFbsChangePage(delta) {
+  wbFbsState.page = Math.max(1, wbFbsState.page + delta);
+  loadWbFbsOrders(false);
+}
+window.wbFbsChangePage = wbFbsChangePage;
+
+function changeWbFbsPageSize(v) {
+  wbFbsState.page_size = Number(v) || 50;
+  loadWbFbsOrders(true);
+}
+window.changeWbFbsPageSize = changeWbFbsPageSize;
+
+async function syncWbFbs() {
+  if (!wbFbsState.sourceId) {
+    alert("Нет активного источника ВБ");
+    return;
+  }
+  const syncBtn = document.getElementById("wbFbsSyncBtn");
+  const stopBtn = document.getElementById("wbFbsStopBtn");
+  const info = document.getElementById("wbFbsSyncInfo");
+  if (syncBtn) syncBtn.disabled = true;
+  if (stopBtn) stopBtn.classList.remove("hidden");
+  if (info) info.textContent = "Запуск синхронизации…";
+  try {
+    const res = await fetch(`/api/wb-fbs/sync?source_id=${wbFbsState.sourceId}`, { method: "POST" });
+    const data = await res.json();
+    if (!data.ok) {
+      if (info) info.textContent = data.message || "Не удалось запустить";
+      if (syncBtn) syncBtn.disabled = false;
+      if (stopBtn) stopBtn.classList.add("hidden");
+      return;
+    }
+    _wbFbsPollSync();
+  } catch (e) {
+    if (info) info.textContent = String(e.message || e);
+    if (syncBtn) syncBtn.disabled = false;
+    if (stopBtn) stopBtn.classList.add("hidden");
+  }
+}
+window.syncWbFbs = syncWbFbs;
+
+async function stopWbFbsSync() {
+  try {
+    await fetch("/api/wb-fbs/sync/stop", { method: "POST" });
+  } catch (_) {}
+}
+window.stopWbFbsSync = stopWbFbsSync;
+
+function _wbFbsPollSync() {
+  if (wbFbsState.pollTimer) clearInterval(wbFbsState.pollTimer);
+  wbFbsState.pollTimer = setInterval(async () => {
+    try {
+      const res = await fetch("/api/wb-fbs/sync/status");
+      const st = await res.json();
+      const info = document.getElementById("wbFbsSyncInfo");
+      if (info) {
+        const errs = (st.errors || []).slice(0, 2).join("; ");
+        info.textContent = `${st.message || ""}${errs ? " · " + errs : ""}`;
+      }
+      if (!st.in_progress) {
+        clearInterval(wbFbsState.pollTimer);
+        wbFbsState.pollTimer = null;
+        const syncBtn = document.getElementById("wbFbsSyncBtn");
+        const stopBtn = document.getElementById("wbFbsStopBtn");
+        if (syncBtn) syncBtn.disabled = false;
+        if (stopBtn) stopBtn.classList.add("hidden");
+        loadWbFbsOrders(false);
+      }
+    } catch (_) {}
+  }, 1000);
+}
+
+async function clearWbFbsOrders() {
+  if (!wbFbsState.sourceId) return;
+  if (!confirm("Удалить локальные заказы/поставки FBS для выбранного источника?")) return;
+  const res = await fetch(`/api/wb-fbs/orders?source_id=${wbFbsState.sourceId}`, { method: "DELETE" });
+  const data = await res.json();
+  const info = document.getElementById("wbFbsSyncInfo");
+  if (info) info.textContent = `Удалено заказов: ${data.orders || 0}, поставок: ${data.supplies || 0}`;
+  clearWbFbsSelection();
+  loadWbFbsOrders(true);
+}
+window.clearWbFbsOrders = clearWbFbsOrders;
+
+function _wbFbsOpenBase64Images(stickers, filenamePrefix) {
+  const files = (stickers || []).map((s, i) => {
+    const b64 = s.file || s.barcode || "";
+    const part = s.partA && s.partB ? `${s.partA}${s.partB}` : (s.orderId || s.barcode || i);
+    return { name: `${filenamePrefix}_${part}.png`, b64 };
+  }).filter((x) => x.b64);
+  if (!files.length) {
+    alert("WB не вернул файлы стикеров. Проверьте статус заказа (нужны «На сборке» / «В доставке»).");
+    return;
+  }
+  files.forEach((f) => {
+    const a = document.createElement("a");
+    a.href = `data:image/png;base64,${f.b64}`;
+    a.download = f.name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  });
+}
+
+async function wbFbsPrintOrderStickers() {
+  const ids = [...wbFbsState.selected];
+  if (!ids.length || !wbFbsState.sourceId) return;
+  const res = await fetch("/api/wb-fbs/stickers/orders", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ source_id: wbFbsState.sourceId, order_ids: ids, type: "png" }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    alert(data.detail || "Ошибка стикеров");
+    return;
+  }
+  _wbFbsOpenBase64Images(data.stickers, "order");
+}
+window.wbFbsPrintOrderStickers = wbFbsPrintOrderStickers;
+
+async function wbFbsPrintOneOrderSticker(orderId) {
+  wbFbsState.selected = new Set([Number(orderId)]);
+  _wbFbsUpdateBottomBar();
+  await wbFbsPrintOrderStickers();
+}
+window.wbFbsPrintOneOrderSticker = wbFbsPrintOneOrderSticker;
+
+async function wbFbsPrintSupplySticker() {
+  if (!wbFbsState.sourceId) return;
+  const selected = wbFbsState.items.filter((o) => wbFbsState.selected.has(Number(o.order_id)));
+  const supplyIds = [...new Set(selected.map((o) => String(o.supply_id || "").trim()).filter(Boolean))];
+  if (!supplyIds.length) {
+    alert("У выбранных заказов нет ID поставки. Стикер поставки доступен после сборки на портале ВБ.");
+    return;
+  }
+  for (const sid of supplyIds) {
+    const a = document.createElement("a");
+    a.href = `/api/wb-fbs/stickers/supply/${encodeURIComponent(sid)}?source_id=${wbFbsState.sourceId}&type=png`;
+    a.download = `supply_${sid}.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+}
+window.wbFbsPrintSupplySticker = wbFbsPrintSupplySticker;
+
+async function wbFbsPrintBoxStickers() {
+  if (!wbFbsState.sourceId) return;
+  const selected = wbFbsState.items.filter((o) => wbFbsState.selected.has(Number(o.order_id)));
+  const supplyIds = [...new Set(selected.map((o) => String(o.supply_id || "").trim()).filter(Boolean))];
+  if (!supplyIds.length) {
+    alert("У выбранных заказов нет ID поставки — короба недоступны.");
+    return;
+  }
+  for (const sid of supplyIds) {
+    const res = await fetch("/api/wb-fbs/stickers/boxes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source_id: wbFbsState.sourceId, supply_id: sid, type: "png" }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.detail || `Ошибка стикеров коробов для ${sid}`);
+      continue;
+    }
+    _wbFbsOpenBase64Images(data.stickers, `box_${sid}`);
+  }
+}
+window.wbFbsPrintBoxStickers = wbFbsPrintBoxStickers;
+
+window.initWbFbsSection = initWbFbsSection;

@@ -1442,6 +1442,75 @@
         </div>
       </section>
 
+      <!-- ── Поставки: WB FBS (marketplace orders; isolated from FBW) ── -->
+      <section id="section-supplies-wb-fbs" class="hidden">
+        <div class="wb-fbs-title-row">
+          <h3 class="section-title no-margin">Поставки — ВБ ФБС</h3>
+          <select id="wbFbsSourceSelect" class="wb-fbs-source-select" onchange="onWbFbsSourceChange()" title="Источник"></select>
+        </div>
+        <div class="panel supplies-toolbar-panel">
+          <div class="supplies-top-controls">
+            <div class="supplies-actions">
+              <button id="wbFbsSyncBtn" onclick="syncWbFbs()">🔄 Синхронизировать</button>
+              <button id="wbFbsStopBtn" class="secondary icon-btn hidden" onclick="stopWbFbsSync()" style="color:#b91c1c;border-color:#fca5a5" title="Остановить синхронизацию">🛑</button>
+              <button id="wbFbsClearBtn" class="secondary icon-btn" onclick="clearWbFbsOrders()" style="color:#b91c1c;border-color:#fca5a5" title="Очистить заказы источника">🗑</button>
+            </div>
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+              <input id="wbFbsSearchFilter" type="search" placeholder="🔍 Поиск..."
+                     autocomplete="off" style="width:160px" oninput="loadWbFbsOrders(true)" />
+            </div>
+          </div>
+          <div id="wbFbsSyncInfo" class="supplies-sync-info"></div>
+        </div>
+        <div class="wb-fbs-tabs" id="wbFbsTabs" role="tablist">
+          <button type="button" class="wb-fbs-tab active" data-tab="new" onclick="setWbFbsTab('new')">Новые <span class="wb-fbs-tab-count" id="wbFbsCountNew">0</span></button>
+          <button type="button" class="wb-fbs-tab" data-tab="assembly" onclick="setWbFbsTab('assembly')">На сборке <span class="wb-fbs-tab-count" id="wbFbsCountAssembly">0</span></button>
+          <button type="button" class="wb-fbs-tab" data-tab="delivery" onclick="setWbFbsTab('delivery')">В доставке <span class="wb-fbs-tab-count" id="wbFbsCountDelivery">0</span></button>
+          <button type="button" class="wb-fbs-tab" data-tab="finished" onclick="setWbFbsTab('finished')">Завершённые <span class="wb-fbs-tab-count" id="wbFbsCountFinished">0</span></button>
+          <button type="button" class="wb-fbs-tab" data-tab="cancelled" onclick="setWbFbsTab('cancelled')">Отменённые <span class="wb-fbs-tab-count" id="wbFbsCountCancelled">0</span></button>
+          <button type="button" class="wb-fbs-tab" data-tab="archive" onclick="setWbFbsTab('archive')">Архив <span class="wb-fbs-tab-count" id="wbFbsCountArchive">0</span></button>
+        </div>
+        <div class="panel supplies-table-panel">
+          <div class="supplies-table-wrap">
+            <table class="supplies-main-table wb-fbs-table">
+              <thead>
+                <tr>
+                  <th style="width:36px;text-align:center"><input type="checkbox" id="wbFbsSelectAll" onchange="toggleSelectAllWbFbs(this.checked)" /></th>
+                  <th>Заказ</th>
+                  <th>Товар</th>
+                  <th>Стоимость</th>
+                  <th>Склад</th>
+                  <th style="width:48px"></th>
+                </tr>
+              </thead>
+              <tbody id="wbFbsOrdersTbody"></tbody>
+            </table>
+          </div>
+          <div class="supplies-footer">
+            <span id="wbFbsInfo" class="small supplies-total"></span>
+            <div class="supplies-pagination">
+              <button class="secondary" id="wbFbsPrevBtn" onclick="wbFbsChangePage(-1)">← Назад</button>
+              <span id="wbFbsPageInfo" class="small"></span>
+              <button class="secondary" id="wbFbsNextBtn" onclick="wbFbsChangePage(1)">Вперёд →</button>
+              <select id="wbFbsPageSizeSelect" onchange="changeWbFbsPageSize(this.value)" style="height:32px;margin-left:8px;font-size:13px">
+                <option value="30">30 / стр.</option>
+                <option value="50" selected>50 / стр.</option>
+                <option value="100">100 / стр.</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div id="wbFbsBottomBar" class="wb-fbs-bottom-bar hidden">
+          <span id="wbFbsSelectedLabel">Выбрано 0 заказов</span>
+          <div class="wb-fbs-bottom-actions">
+            <button type="button" class="secondary" onclick="wbFbsPrintOrderStickers()">🏷 Стикеры товаров</button>
+            <button type="button" class="secondary" onclick="wbFbsPrintSupplySticker()">📦 Стикер поставки</button>
+            <button type="button" class="secondary" onclick="wbFbsPrintBoxStickers()">📦 Стикеры коробов</button>
+            <button type="button" class="icon-btn secondary" onclick="clearWbFbsSelection()" title="Сбросить выбор">✕</button>
+          </div>
+        </div>
+      </section>
+
       <!-- ── Поставки: Настройки ── -->
       <!-- ── Поставки: Сертификаты ── -->
       <section id="section-supplies-certificates" class="hidden">
@@ -3421,6 +3490,6 @@
   <script src="/static/jszip.min.js"></script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=310"></script>
+  <script src="/static/app.js?v=311"></script>
 </body>
 </html>
