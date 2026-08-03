@@ -17845,6 +17845,7 @@ async function wbFbsPrintOrderStickers() {
 window.wbFbsPrintOrderStickers = wbFbsPrintOrderStickers;
 
 async function wbFbsPrintOneOrderSticker(orderId) {
+  _wbFbsCloseRowMenus();
   const oid = Number(orderId);
   wbFbsState.selected = new Set([oid]);
   const row = wbFbsState.items.find((x) => Number(x.order_id) === oid);
