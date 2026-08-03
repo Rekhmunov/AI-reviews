@@ -6710,29 +6710,42 @@ tr.dnd-over td {
   background: var(--primary-soft);
   color: var(--primary-strong);
 }
-.wb-fbs-select-all-link {
+.wb-fbs-selected-label .wb-fbs-select-all-link,
+button.wb-fbs-select-all-link {
   appearance: none;
-  border: none;
-  background: transparent;
+  -webkit-appearance: none;
+  border: 0 !important;
+  box-shadow: none !important;
+  outline: none;
+  background: transparent !important;
   padding: 0;
   margin: 0;
-  color: var(--primary-strong, #1d4ed8);
+  color: inherit;
   font: inherit;
-  font-weight: 700;
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  font-weight: inherit;
+  line-height: inherit;
+  text-decoration: none;
   cursor: pointer;
   white-space: nowrap;
+  border-radius: 0;
 }
-.wb-fbs-select-all-link:hover { color: #1e40af; }
-.wb-fbs-select-all-link:focus-visible {
+.wb-fbs-selected-label .wb-fbs-select-all-link:hover,
+button.wb-fbs-select-all-link:hover {
+  color: inherit;
+  background: transparent !important;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.wb-fbs-selected-label .wb-fbs-select-all-link:focus-visible,
+button.wb-fbs-select-all-link:focus-visible {
   outline: 2px solid var(--primary, #2563eb);
   outline-offset: 2px;
-  border-radius: 4px;
 }
-.wb-fbs-select-all-link:disabled {
+.wb-fbs-selected-label .wb-fbs-select-all-link:disabled,
+button.wb-fbs-select-all-link:disabled {
   opacity: 0.55;
   cursor: wait;
+  text-decoration: none;
 }
 .wb-fbs-table-panel {
   display: flex;
