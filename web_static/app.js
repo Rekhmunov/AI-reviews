@@ -17961,7 +17961,9 @@ function renderWbFbsSuppliesTable() {
       ? `<div class="wb-fbs-order-meta">от ${_wbFbsEsc(_wbFbsFmtDate(s.created_at_wb))}</div>`
       : "";
     const status = String(s.status_label || "Отгрузите поставку");
-    const statusClass = s.done ? "is-done" : (s.scan_dt ? "is-scanned" : "is-ship");
+    // Portal: orange «Отгрузите…» until scan; blue «В обработке» after scanDt.
+    // Do not use API done=true (set on /deliver) as «Завершена».
+    const statusClass = s.scan_dt ? "is-scanned" : "is-ship";
     const ordersCount = Number(s.order_count || 0);
     const boxesCount = Number(s.boxes_count || 0);
     const boxesLabel = boxesCount === 1

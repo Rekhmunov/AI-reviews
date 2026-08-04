@@ -132,13 +132,13 @@ def cargo_type_label(cargo_type: object) -> str:
 def supply_status_label(*, done: object = False, scan_dt: object = None) -> str:
     """Map WB supply flags to seller-portal labels («В доставке»).
 
-    WB API has no status string on supplies — only done / scanDt / closedAt:
+    WB API has no status string — only done / scanDt / closedAt.
+    Important: after PATCH /deliver the API sets done=true (supply closed for
+    edits), but the portal still shows «Отгрузите поставку» until scanDt.
     - no scanDt → «Отгрузите поставку»
-    - scanDt set, not done → «Поставка в обработке»
-    - done → «Завершена»
+    - scanDt set → «Поставка в обработке»
     """
-    if bool(done):
-        return "Завершена"
+    del done  # not used for portal label; kept for call-site compatibility
     if scan_dt:
         return "Поставка в обработке"
     return "Отгрузите поставку"
