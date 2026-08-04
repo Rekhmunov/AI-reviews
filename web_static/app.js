@@ -18186,10 +18186,7 @@ function renderWbFbsSupplyDetail(data) {
     chips.push(`<span class="wb-fbs-sd-chip">Заказы ${_wbFbsEsc(data.order_count || 0)}</span>`);
     chips.push(`<span class="wb-fbs-sd-chip">Грузоместа ${_wbFbsEsc(data.boxes_count || 0)}</span>`);
     chips.push(`<span class="wb-fbs-sd-chip">Создана ${_wbFbsEsc(data.created_date || "—")}</span>`);
-    chips.push(
-      `<span class="wb-fbs-sd-chip">QR поставки ${_wbFbsEsc(sid)}` +
-      `<button type="button" class="copy" title="Копировать" onclick="wbFbsCopyText('${_wbFbsEsc(sid)}')">⧉</button></span>`
-    );
+    chips.push(`<span class="wb-fbs-sd-chip">QR поставки ${_wbFbsEsc(sid)}</span>`);
     meta.innerHTML = chips.join("");
   }
   const orders = Array.isArray(data.orders) ? data.orders : [];
@@ -18292,22 +18289,6 @@ function toggleSelectAllWbFbsDetail(checked) {
   if (selAll) selAll.indeterminate = false;
 }
 window.toggleSelectAllWbFbsDetail = toggleSelectAllWbFbsDetail;
-
-function wbFbsCopyText(text) {
-  const value = String(text || "");
-  if (!value) return;
-  if (navigator.clipboard?.writeText) {
-    navigator.clipboard.writeText(value).catch(() => {});
-    return;
-  }
-  const ta = document.createElement("textarea");
-  ta.value = value;
-  document.body.appendChild(ta);
-  ta.select();
-  try { document.execCommand("copy"); } catch (_) {}
-  ta.remove();
-}
-window.wbFbsCopyText = wbFbsCopyText;
 
 function wbFbsOpenPickingList() {
   const sid = String(wbFbsDetailState.supplyId || "").trim();

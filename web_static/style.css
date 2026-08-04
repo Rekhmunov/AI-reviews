@@ -7519,17 +7519,6 @@ button.wb-fbs-select-all-link:disabled {
   font-weight: 600;
   color: #334155;
 }
-.wb-fbs-sd-chip button.copy {
-  margin-left: 6px;
-  border: 0;
-  background: transparent;
-  color: #64748b;
-  cursor: pointer;
-  padding: 0 2px;
-  font-size: 14px;
-  line-height: 1;
-}
-.wb-fbs-sd-chip button.copy:hover { color: #1d4ed8; }
 .wb-fbs-sd-actions {
   display: flex;
   flex-wrap: wrap;
