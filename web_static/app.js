@@ -18339,7 +18339,7 @@ function renderWbFbsSupplyDetail(data) {
         <div class="wb-fbs-product">
           ${photo}
           <div class="wb-fbs-product-text">
-            <div class="wb-fbs-product-name" title="${_wbFbsEsc(o.product_name || "")}">${_wbFbsEsc(o.product_name || "—")}</div>
+            <div class="wb-fbs-product-name" title="${_wbFbsEsc(o.product_name || o.article || "")}">${_wbFbsEsc(o.product_name || o.article || "—")}</div>
             <div class="wb-fbs-product-sub">Арт. ${_wbFbsEsc(o.article || "—")}${o.nm_id ? " · nmId " + _wbFbsEsc(o.nm_id) : ""}</div>
           </div>
         </div>

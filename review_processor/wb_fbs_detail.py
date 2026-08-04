@@ -323,6 +323,7 @@ def _load_local_orders(
         ).fetchall()
     by_id = {int(r["order_id"]): repo._row_to_dict(r) for r in rows}
     catalog = repo.get_product_catalog_map(user_id=user_id)
+    catalog_ci = {str(k).casefold(): v for k, v in catalog.items() if k}
     photo_map = repo.get_product_photo_map(user_id=user_id)
     items: list[dict[str, Any]] = []
     for oid in order_ids:
@@ -331,9 +332,10 @@ def _load_local_orders(
             d = {"order_id": int(oid), "article": "", "nm_id": None, "raw_json": "{}"}
         article = str(d.get("article") or "").strip()
         nm_id = str(d.get("nm_id") or "").strip()
-        cat = catalog.get(article) or {}
-        # Product title: our product_catalog only (not WB content title).
-        product_name = str(cat.get("product_name") or "").strip() or article or "—"
+        cat = catalog.get(article) or catalog_ci.get(article.casefold()) or {}
+        # Наименование только из «Обратная связь → Настройки → Товары».
+        # Не подменяем артикулом — в листе подбора имя идёт отдельной строкой выше артикула.
+        product_name = str(cat.get("product_name") or "").strip()
         d["product_name"] = product_name
         d["product_photo"] = photo_map.get(article) or photo_map.get(nm_id) or ""
         raw_order: dict[str, Any] = {}
@@ -397,7 +399,7 @@ def _sort_groups_like_wb(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
         g["qty"] = len(orders)
     groups.sort(
         key=lambda g: (
-            str(g.get("product_name") or "").casefold(),
+            str(g.get("product_name") or g.get("article") or "").casefold(),
             str(g.get("article") or "").casefold(),
             str(g.get("nm_id") or ""),
         )
@@ -663,7 +665,8 @@ def get_supply_detail(
                 "order_id": o.get("order_id"),
                 "article": o.get("article") or "",
                 "nm_id": o.get("nm_id"),
-                "product_name": o.get("product_name") or "—",
+                # Только наименование из «Настройки → Товары» (без подмены артикулом).
+                "product_name": o.get("product_name") or "",
                 "product_photo": o.get("product_photo") or "",
                 "price_display": o.get("price_display") or "—",
                 "created_at_wb": o.get("created_at_wb"),
@@ -782,7 +785,7 @@ def _detail_from_local(
                 "order_id": o.get("order_id"),
                 "article": o.get("article") or "",
                 "nm_id": o.get("nm_id"),
-                "product_name": o.get("product_name") or "—",
+                "product_name": o.get("product_name") or "",
                 "product_photo": o.get("product_photo") or "",
                 "price_display": o.get("price_display") or "—",
                 "created_at_wb": o.get("created_at_wb"),
@@ -933,8 +936,8 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
         )
         color = str(g.get("color") or "").strip()
         brand = str(g.get("brand") or "").strip()
-        meta_bits = [x for x in [brand, str(g.get("article") or "")] if x]
-        meta = " · ".join(meta_bits)
+        article = str(g.get("article") or "").strip()
+        product_name = str(g.get("product_name") or "").strip()
         color_html = f'<div class="color">Цвет: {_esc(color)}</div>' if color else ""
         order_lines = []
         for idx, o in enumerate(g.get("orders") or [], start=1):
@@ -948,9 +951,15 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
                   <td class="partb">{part_b}</td>
                 </tr>"""
             )
+        # Порядок как в ЛК WB: наименование (из настроек Товары) → бренд → артикул → цвет.
         meta_lines = []
-        if meta:
-            meta_lines.append(f'<div class="sku-meta">{_esc(meta)}</div>')
+        meta_lines.append(
+            f'<div class="sku-title">{_esc(product_name or "—")}</div>'
+        )
+        if brand:
+            meta_lines.append(f'<div class="sku-meta">{_esc(brand)}</div>')
+        if article:
+            meta_lines.append(f'<div class="sku-article">{_esc(article)}</div>')
         if color_html:
             meta_lines.append(color_html)
         meta_lines.append(f'<div class="sku-qty">{qty} шт</div>')
@@ -960,7 +969,6 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
               <div class="sku-head">
                 {photo_html}
                 <div class="sku-text">
-                  <div class="sku-title">{_esc(g.get("product_name"))}</div>
                   {''.join(meta_lines)}
                 </div>
                 <div class="sku-stats">
@@ -1045,6 +1053,9 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
     }}
     .sku-meta, .color {{
       margin: 0 0 4px; color: #64748b; font-size: 12px; line-height: 1.3;
+    }}
+    .sku-article {{
+      margin: 0 0 4px; color: #0f172a; font-size: 12px; font-weight: 700; line-height: 1.3;
     }}
     .sku-qty {{
       margin: 0; font-size: 12px; font-weight: 700; line-height: 1.3; color: #0f172a;
