@@ -17,6 +17,7 @@ import hashlib
 import html
 import json
 import logging
+import re
 import threading
 import time
 from datetime import datetime, timezone
@@ -228,6 +229,19 @@ def _brand_from_card(card: dict[str, Any]) -> str:
     return str(card.get("brand") or card.get("brandName") or "").strip()
 
 
+def _title_from_card(card: dict[str, Any]) -> str:
+    """Official WB card title as in ЛК picking list (includes size wording).
+
+    Only ``title`` / ``imtName`` — never ``subjectName`` (category like
+    «Наматрасники»), which collapses all groups and breaks portal order.
+    """
+    for key in ("title", "imtName"):
+        text = str(card.get(key) or "").strip()
+        if text:
+            return text
+    return ""
+
+
 def _cards_from_content_response(data: dict[str, Any]) -> list[dict[str, Any]]:
     cards = data.get("cards") if isinstance(data.get("cards"), list) else []
     if not cards and isinstance(data.get("data"), dict):
@@ -243,7 +257,7 @@ def fetch_card_meta_by_nm(
     max_cards: int = 40,
     network: bool = True,
 ) -> dict[int, dict[str, str]]:
-    """Color/brand from Content API cards (official). Keys = nmID.
+    """Color/brand/title from Content API cards (official). Keys = nmID.
 
     Uses a process-local TTL cache so picking list + stickers share one Content
     pass per nmID. When ``network=False``, only cache hits are returned (fast path
@@ -270,19 +284,24 @@ def fetch_card_meta_by_nm(
     with _cache_lock:
         for nm in uniq:
             item = _card_meta_cache.get((fp, nm))
-            if item and (now - item[0]) <= _CARD_META_TTL_SEC:
+            # Older cache entries without title are stale for ЛК-like group sort.
+            if (
+                item
+                and (now - item[0]) <= _CARD_META_TTL_SEC
+                and "title" in item[1]
+            ):
                 out[nm] = dict(item[1])
             else:
                 missing.append(nm)
 
     if not network:
         for nm in missing:
-            out[nm] = {"color": "", "brand": ""}
+            out[nm] = {"color": "", "brand": "", "title": ""}
         return out
 
     for nm in missing:
         card: dict[str, Any] = {}
-        meta = {"color": "", "brand": ""}
+        meta = {"color": "", "brand": "", "title": ""}
         try:
             data = _content_request(
                 api_key,
@@ -303,6 +322,7 @@ def fetch_card_meta_by_nm(
             meta = {
                 "color": _color_from_card(card),
                 "brand": _brand_from_card(card),
+                "title": _title_from_card(card),
             }
         out[nm] = meta
         with _cache_lock:
@@ -396,28 +416,58 @@ def _int_or_zero(value: object) -> int:
         return 0
 
 
+def _portal_title_sort_key(value: object) -> tuple:
+    """ЛК sorts groups by card title string; keep digits numeric-aware.
+
+    Example order from portal:
+    «…160х200 см…» → «…180х200 на резинке с бортами…» → «…180х200 см…»
+    («на» < «см» after the shared size prefix).
+    """
+    text = str(value or "")
+    parts = re.split(r"(\d+)", text)
+    key: list[tuple[int, object]] = []
+    for part in parts:
+        if not part:
+            continue
+        if part.isdigit():
+            key.append((0, int(part)))
+        else:
+            key.append((1, part.casefold()))
+    return tuple(key)
+
+
 def _order_sticker_sort_key(order: dict[str, Any]) -> tuple[int, int, int]:
     """WB portal sorts rows inside an article by sticker partB, then partA."""
+    pb = str(order.get("sticker_part_b") or "").strip()
+    pa = str(order.get("sticker_part_a") or "").strip()
     return (
-        _int_or_zero(order.get("sticker_part_b")),
-        _int_or_zero(order.get("sticker_part_a")),
+        _int_or_zero(pb) if pb else 10**9,
+        _int_or_zero(pa) if pa else 10**9,
         _int_or_zero(order.get("order_id")),
     )
 
 
 def _sort_groups_like_wb(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Match seller-portal picking list order.
+    """Match seller-portal (ЛК) picking list order.
 
-    Groups: keep first-seen article order from WB supply orderIds
-    (portal 80х160 → 80х190 → …). Do NOT re-sort by product name / article
-    alphabet — that diverges from ЛК when Settings names omit sizes.
-    Orders inside a group: sticker partB ascending (as in ЛК).
+    Groups: by official WB card title (alphabet / size wording), then article.
+    Not by Settings name and not by seller-article alphabet alone.
+    Orders inside a group: sticker partB ascending.
     """
     for g in groups:
         orders = list(g.get("orders") or [])
         orders.sort(key=_order_sticker_sort_key)
         g["orders"] = orders
         g["qty"] = len(orders)
+    groups.sort(
+        key=lambda g: (
+            _portal_title_sort_key(
+                g.get("wb_title") or g.get("product_name") or g.get("article") or ""
+            ),
+            str(g.get("article") or "").casefold(),
+            str(g.get("nm_id") or ""),
+        )
+    )
     return groups
 
 
@@ -972,6 +1022,8 @@ def build_article_groups_for_print(
             **o,
             "color": meta.get("color") or "",
             "brand": meta.get("brand") or "",
+            # ЛК group order key — official card title (size text included).
+            "wb_title": str(meta.get("title") or "").strip(),
             "sticker_part_a": str(st.get("partA") or "").strip(),
             "sticker_part_b": str(st.get("partB") or "").strip(),
         }
@@ -983,10 +1035,11 @@ def build_article_groups_for_print(
     groups = _group_orders_by_article(orders_full)
     for g in groups:
         first = g["orders"][0] if g["orders"] else {}
-        # Каталожное наименование (может быть пустым — тогда в PDF выше артикула «—»).
+        # Display name: Settings → Products. Sort key: wb_title from Content.
         g["product_name"] = str(
             g.get("product_name") or first.get("product_name") or ""
         ).strip()
+        g["wb_title"] = str(first.get("wb_title") or "").strip()
         g["color"] = str(first.get("color") or "")
         g["brand"] = str(first.get("brand") or "")
     groups = _sort_groups_like_wb(groups)
@@ -994,6 +1047,7 @@ def build_article_groups_for_print(
         first = g["orders"][0] if g["orders"] else {}
         g["color"] = str(first.get("color") or g.get("color") or "")
         g["brand"] = str(first.get("brand") or g.get("brand") or "")
+        g["wb_title"] = str(first.get("wb_title") or g.get("wb_title") or "").strip()
         g["product_name"] = str(
             g.get("product_name") or first.get("product_name") or ""
         ).strip()
