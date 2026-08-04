@@ -7457,7 +7457,7 @@ button.wb-fbs-select-all-link:disabled {
   /* Cap at 1440px on large screens; never exceed overlay content box. */
   width: min(1440px, 100%);
   max-width: min(1440px, 100%);
-  max-height: min(960px, calc(100vh - 40px));
+  max-height: calc(100vh - 40px);
   padding: 0;
   display: flex;
   flex-direction: column;
@@ -7641,7 +7641,7 @@ button.wb-fbs-sd-portal-btn:focus-visible {
   /* Cap at 1440px on large screens; never exceed overlay content box. */
   width: min(1440px, 100%);
   max-width: min(1440px, 100%);
-  max-height: min(960px, calc(100vh - 40px));
+  max-height: calc(100vh - 40px);
   padding: 0;
   display: flex;
   flex-direction: column;
@@ -7966,8 +7966,9 @@ button.wb-fbs-kiz-add:disabled {
 }
 @media (max-width: 900px) {
   .wb-fbs-kiz-modal {
-    width: calc(100vw - 16px);
-    max-height: calc(100vh - 16px);
+    width: 100%;
+    max-width: 100%;
+    max-height: calc(100vh - 32px);
   }
   .wb-fbs-kiz-header,
   .wb-fbs-kiz-toolbar,
