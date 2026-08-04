@@ -2,15 +2,23 @@
 
 Marketplace API has no ready-made «лист подбора» / separator stickers.
 We compose them from official methods + local catalog names.
+
+Print speed: short in-process caches reuse modal detail, sticker PNG map,
+and Content color/brand so picking-list + stickers do not re-hit WB for the
+same supply within a short TTL. No WB write calls; stickers always come from
+the official stickers endpoint (or its fresh cache).
 """
 from __future__ import annotations
 
+import copy
+import hashlib
 import html
 import json
 import logging
+import threading
 import time
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -20,6 +28,95 @@ from .repository import ReviewRepository
 _log = logging.getLogger(__name__)
 
 WB_CONTENT_API = "https://content-api.wildberries.ru"
+
+# In-process caches (per worker). Detail/stickers are short-lived so print after
+# opening the modal skips Marketplace re-reads; colors last longer.
+_DETAIL_TTL_SEC = 120.0
+_STICKERS_TTL_SEC = 120.0
+_CARD_META_TTL_SEC = 1800.0
+_cache_lock = threading.Lock()
+_detail_cache: dict[tuple[int, int, str], tuple[float, dict[str, Any]]] = {}
+_stickers_cache: dict[tuple[str, tuple[int, ...]], tuple[float, dict[int, dict[str, Any]]]] = {}
+_card_meta_cache: dict[tuple[str, int], tuple[float, dict[str, str]]] = {}
+
+
+def _api_key_fp(api_key: str) -> str:
+    return hashlib.sha256((api_key or "").encode("utf-8")).hexdigest()[:16]
+
+
+def invalidate_supply_detail_cache(
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+) -> None:
+    sid = str(supply_id or "").strip()
+    if not sid:
+        return
+    with _cache_lock:
+        _detail_cache.pop((int(user_id), int(source_id), sid), None)
+
+
+def _cache_put_detail(
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+    detail: dict[str, Any],
+) -> None:
+    sid = str(supply_id or "").strip()
+    if not sid or not detail:
+        return
+    with _cache_lock:
+        _detail_cache[(int(user_id), int(source_id), sid)] = (
+            time.monotonic(),
+            copy.deepcopy(detail),
+        )
+
+
+def _cache_get_detail(
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+) -> dict[str, Any] | None:
+    sid = str(supply_id or "").strip()
+    key = (int(user_id), int(source_id), sid)
+    with _cache_lock:
+        item = _detail_cache.get(key)
+        if not item:
+            return None
+        ts, payload = item
+        if (time.monotonic() - ts) > _DETAIL_TTL_SEC:
+            _detail_cache.pop(key, None)
+            return None
+        return copy.deepcopy(payload)
+
+
+def _cache_get_stickers(
+    api_key: str,
+    order_ids: list[int],
+) -> dict[int, dict[str, Any]] | None:
+    key = (_api_key_fp(api_key), tuple(int(x) for x in order_ids))
+    with _cache_lock:
+        item = _stickers_cache.get(key)
+        if not item:
+            return None
+        ts, payload = item
+        if (time.monotonic() - ts) > _STICKERS_TTL_SEC:
+            _stickers_cache.pop(key, None)
+            return None
+        return copy.deepcopy(payload)
+
+
+def _cache_put_stickers(
+    api_key: str,
+    order_ids: list[int],
+    stickers: dict[int, dict[str, Any]],
+) -> None:
+    key = (_api_key_fp(api_key), tuple(int(x) for x in order_ids))
+    with _cache_lock:
+        _stickers_cache[key] = (time.monotonic(), copy.deepcopy(stickers))
 
 
 def _esc(value: object) -> str:
@@ -139,7 +236,11 @@ def fetch_card_meta_by_nm(
     *,
     max_cards: int = 40,
 ) -> dict[int, dict[str, str]]:
-    """Color/brand from Content API cards (official). Keys = nmID."""
+    """Color/brand from Content API cards (official). Keys = nmID.
+
+    Uses a process-local TTL cache so picking list + stickers share one Content
+    pass per nmID. Missing/empty color is still cached briefly to avoid hammering.
+    """
     out: dict[int, dict[str, str]] = {}
     uniq: list[int] = []
     seen: set[int] = set()
@@ -154,8 +255,21 @@ def fetch_card_meta_by_nm(
         uniq.append(n)
         if len(uniq) >= max_cards:
             break
-    for nm in uniq:
+
+    fp = _api_key_fp(api_key)
+    missing: list[int] = []
+    now = time.monotonic()
+    with _cache_lock:
+        for nm in uniq:
+            item = _card_meta_cache.get((fp, nm))
+            if item and (now - item[0]) <= _CARD_META_TTL_SEC:
+                out[nm] = dict(item[1])
+            else:
+                missing.append(nm)
+
+    for nm in missing:
         card: dict[str, Any] = {}
+        meta = {"color": "", "brand": ""}
         try:
             data = _content_request(
                 api_key,
@@ -173,10 +287,13 @@ def fetch_card_meta_by_nm(
             _log.debug("content card nm=%s: %s", nm, exc)
             card = {}
         if card:
-            out[nm] = {
+            meta = {
                 "color": _color_from_card(card),
                 "brand": _brand_from_card(card),
             }
+        out[nm] = meta
+        with _cache_lock:
+            _card_meta_cache[(fp, nm)] = (time.monotonic(), dict(meta))
         time.sleep(0.21)
     return out
 
@@ -283,10 +400,20 @@ def _group_orders_by_article(orders: list[dict[str, Any]]) -> list[dict[str, Any
 def _fetch_stickers_map(
     client: wb.WbFbsClient,
     order_ids: list[int],
+    *,
+    api_key: str = "",
 ) -> dict[int, dict[str, Any]]:
+    """Official PNG stickers (partA/partB/file). Cached briefly per order-id set."""
+    ids = [int(x) for x in order_ids if x is not None]
+    if not ids:
+        return {}
+    if api_key:
+        cached = _cache_get_stickers(api_key, ids)
+        if cached is not None:
+            return cached
     result: dict[int, dict[str, Any]] = {}
-    for i in range(0, len(order_ids), 100):
-        chunk = order_ids[i : i + 100]
+    for i in range(0, len(ids), 100):
+        chunk = ids[i : i + 100]
         if not chunk:
             continue
         stickers = client.get_order_stickers(chunk, sticker_type="png", width=58, height=40)
@@ -299,6 +426,8 @@ def _fetch_stickers_map(
                 continue
             result[oid] = s
         time.sleep(0.21)
+    if api_key and result:
+        _cache_put_stickers(api_key, ids, result)
     return result
 
 
@@ -478,7 +607,7 @@ def get_supply_detail(
         o["color"] = ""
         o["brand"] = ""
 
-    return {
+    result = {
         "supply_id": sid,
         "source_id": source_id,
         "name": name,
@@ -511,6 +640,163 @@ def get_supply_detail(
             for o in orders
         ],
     }
+    _cache_put_detail(
+        user_id=user_id, source_id=source_id, supply_id=sid, detail=result
+    )
+    return result
+
+
+def _detail_from_local(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    api_key: str,
+    supply_id: str,
+    refresh_order_ids: bool = True,
+) -> dict[str, Any]:
+    """Assemble print detail from local DB; optionally one live order-ids check.
+
+    Skips get_supply + boxes (not needed for picking list / sticker HTML).
+    """
+    sid = str(supply_id or "").strip()
+    if not sid:
+        raise ValueError("Не указан ID поставки")
+
+    order_ids: list[int] = []
+    if refresh_order_ids:
+        client = wb.WbFbsClient(api_key)
+        try:
+            order_ids = client.get_supply_order_ids(sid)
+        except Exception as exc:
+            _log.warning("print order-ids %s: %s", sid, exc)
+            order_ids = []
+        time.sleep(0.21)
+    if not order_ids:
+        order_ids = _local_order_ids_for_supply(
+            repo, user_id=user_id, source_id=source_id, supply_id=sid
+        )
+
+    local = None
+    boxes_count = 0
+    wb.ensure_wb_fbs_tables(repo)
+    with repo._connect() as conn:
+        row = conn.execute(
+            repo._sql(
+                """
+                SELECT * FROM wb_fbs_supplies
+                WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                """
+            ),
+            (user_id, source_id, sid),
+        ).fetchone()
+        if row:
+            local = repo._row_to_dict(row)
+    if local:
+        try:
+            boxes_raw = json.loads(local.get("boxes_json") or "[]")
+            if isinstance(boxes_raw, list):
+                boxes_count = len(boxes_raw)
+        except Exception:
+            boxes_count = int(local.get("boxes_count") or 0) if local.get("boxes_count") else 0
+
+    orders = _load_local_orders(
+        repo, user_id=user_id, source_id=source_id, order_ids=order_ids
+    )
+    warehouse_label = ""
+    for o in orders:
+        try:
+            offices = json.loads(o.get("offices_json") or "[]")
+        except Exception:
+            offices = []
+        names = [str(x).strip() for x in offices if str(x or "").strip()]
+        if names:
+            warehouse_label = ", ".join(names)
+            break
+    if not warehouse_label and local:
+        dest = local.get("destination_office_id")
+        warehouse_label = str(dest) if dest else "—"
+    if not warehouse_label:
+        warehouse_label = "—"
+
+    name = str((local or {}).get("name") or "").strip()
+    created_at = (local or {}).get("created_at_wb")
+    if not name:
+        name = f"Поставка от {_fmt_date(created_at)}" if created_at else f"Поставка {sid}"
+    cargo = (local or {}).get("cargo_type") if local else 0
+    pickup_allowed = False
+
+    result = {
+        "supply_id": sid,
+        "source_id": source_id,
+        "name": name,
+        "warehouse_label": _warehouse_display(warehouse_label),
+        "cargo_type": cargo or 0,
+        "cargo_label": wb.cargo_type_label(cargo),
+        "order_count": len(orders),
+        "boxes_count": boxes_count,
+        "created_at_wb": created_at,
+        "created_date": _fmt_date(created_at),
+        "pickup_allowed": pickup_allowed,
+        "done": bool((local or {}).get("done")),
+        "orders": [
+            {
+                "order_id": o.get("order_id"),
+                "article": o.get("article") or "",
+                "nm_id": o.get("nm_id"),
+                "product_name": o.get("product_name") or "—",
+                "product_photo": o.get("product_photo") or "",
+                "price_display": o.get("price_display") or "—",
+                "created_at_wb": o.get("created_at_wb"),
+                "created_date": _fmt_date(o.get("created_at_wb")),
+                "created_ago": o.get("created_ago") or "",
+                "pickup_allowed": bool(o.get("pickup_allowed")),
+                "barcodes": o.get("barcodes") or [],
+                "color": "",
+                "brand": "",
+                "cargo_label": o.get("cargo_label") or "",
+            }
+            for o in orders
+        ],
+    }
+    _cache_put_detail(
+        user_id=user_id, source_id=source_id, supply_id=sid, detail=result
+    )
+    return result
+
+
+def get_supply_detail_for_print(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    api_key: str,
+    supply_id: str,
+) -> dict[str, Any]:
+    """Detail for print: modal cache → local + one order-ids refresh → full detail."""
+    cached = _cache_get_detail(
+        user_id=user_id, source_id=source_id, supply_id=supply_id
+    )
+    if cached and cached.get("orders") is not None:
+        return cached
+    try:
+        return _detail_from_local(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            api_key=api_key,
+            supply_id=supply_id,
+            refresh_order_ids=True,
+        )
+    except Exception as exc:
+        _log.warning("print local detail fallback %s: %s", supply_id, exc)
+        return get_supply_detail(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            api_key=api_key,
+            supply_id=supply_id,
+        )
 
 
 def build_article_groups_for_print(
@@ -520,8 +806,14 @@ def build_article_groups_for_print(
     source_id: int,
     api_key: str,
     supply_id: str,
+    mode: Literal["picking_list", "stickers"] = "stickers",
 ) -> dict[str, Any]:
-    detail = get_supply_detail(
+    """Build grouped print payload.
+
+    ``picking_list`` needs partA/partB (+ color); ``stickers`` also needs PNG file.
+    Both share detail/sticker/color caches so the second print is cheap.
+    """
+    detail = get_supply_detail_for_print(
         repo,
         user_id=user_id,
         source_id=source_id,
@@ -530,7 +822,8 @@ def build_article_groups_for_print(
     )
     order_ids = [int(o["order_id"]) for o in detail["orders"] if o.get("order_id") is not None]
     client = wb.WbFbsClient(api_key)
-    stickers = _fetch_stickers_map(client, order_ids)
+    # Always fetch/cache full PNG stickers (official). Picking list only embeds codes.
+    stickers = _fetch_stickers_map(client, order_ids, api_key=api_key)
     nm_ids: list[int] = []
     for o in detail["orders"]:
         try:
@@ -538,6 +831,7 @@ def build_article_groups_for_print(
         except (TypeError, ValueError):
             continue
     card_meta = fetch_card_meta_by_nm(api_key, nm_ids)
+    include_files = mode == "stickers"
     orders_full = []
     for o in detail["orders"]:
         oid = int(o["order_id"])
@@ -547,23 +841,29 @@ def build_article_groups_for_print(
         except (TypeError, ValueError):
             nm = 0
         meta = card_meta.get(nm) or {}
-        orders_full.append(
-            {
-                **o,
-                "color": meta.get("color") or "",
-                "brand": meta.get("brand") or "",
-                "sticker_part_a": str(st.get("partA") or "").strip(),
-                "sticker_part_b": str(st.get("partB") or "").strip(),
-                "sticker_file": str(st.get("file") or "").strip(),
-            }
-        )
+        row = {
+            **o,
+            "color": meta.get("color") or "",
+            "brand": meta.get("brand") or "",
+            "sticker_part_a": str(st.get("partA") or "").strip(),
+            "sticker_part_b": str(st.get("partB") or "").strip(),
+        }
+        if include_files:
+            row["sticker_file"] = str(st.get("file") or "").strip()
+        else:
+            row["sticker_file"] = ""
+        orders_full.append(row)
     groups = _group_orders_by_article(orders_full)
     for g in groups:
         first = g["orders"][0] if g["orders"] else {}
         g["color"] = str(first.get("color") or "")
         g["brand"] = str(first.get("brand") or "")
         g["product_name"] = str(first.get("product_name") or g["article"])
-    return {"detail": detail, "groups": groups, "stickers": stickers}
+    return {
+        "detail": detail,
+        "groups": groups,
+        "stickers": stickers if include_files else {},
+    }
 
 
 def render_picking_list_html(payload: dict[str, Any]) -> str:

@@ -8765,7 +8765,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not wb_fbs_mod.is_fbs_source_name(src_full.get("name")):
             raise HTTPException(status_code=400, detail="Источник не является ФБС")
         try:
-            return wb_fbs_mod.rename_supply(
+            result = wb_fbs_mod.rename_supply(
                 repository,
                 user_id=owner_id,
                 source_id=source_id,
@@ -8777,6 +8777,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        try:
+            from . import wb_fbs_detail as wb_detail
+
+            wb_detail.invalidate_supply_detail_cache(
+                user_id=owner_id, source_id=source_id, supply_id=sid
+            )
+        except Exception:
+            pass
+        return result
 
     def _wb_fbs_source_key(owner_id: int, source_id: int) -> str:
         src_full = repository.get_supply_source_with_key(user_id=owner_id, source_id=source_id)
@@ -8840,6 +8849,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 source_id=int(source_id),
                 api_key=api_key,
                 supply_id=sid,
+                mode="picking_list",
             )
             html_doc = wb_detail.render_picking_list_html(payload)
         except ValueError as exc:
@@ -8872,6 +8882,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 source_id=int(source_id),
                 api_key=api_key,
                 supply_id=sid,
+                mode="stickers",
             )
             html_doc = wb_detail.render_stickers_print_html(payload)
         except ValueError as exc:
