@@ -1340,12 +1340,12 @@ def render_picking_list_pdf(
     *,
     repo: ReviewRepository | None = None,
     user_id: int | None = None,
-    embed_photos: bool = False,
+    embed_photos: bool = True,
 ) -> bytes:
     """A4 picking list as PDF for direct print/download (no HTML page).
 
-    Photo embedding is off by default: local photos are already in DB, but
-    inlining dozens of images makes LibreOffice conversion the slow step.
+    Embeds local Settings→Products photos from disk (no network). Caps count so
+    LibreOffice stays reasonable on large supplies.
     """
     html_doc = render_picking_list_html(payload, for_pdf=True)
     if embed_photos and repo is not None and user_id is not None:
@@ -1359,7 +1359,7 @@ def render_picking_list_pdf(
             html_doc,
             list(payload.get("groups") or []),
             local_photo_paths=local_paths,
-            max_photos=12,
+            max_photos=60,
         )
     return html_to_pdf_bytes(html_doc, basename="wb_fbs_picking_list")
 
