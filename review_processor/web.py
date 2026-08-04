@@ -3051,7 +3051,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     # ── Product photos catalog ────────────────────────────────────────────────
 
     import os as _os
-    _PHOTO_DIR = str(_os.path.join(_os.path.dirname(__file__), "..", "product_photos")).rstrip("/")
+    _PHOTO_DIR = _os.path.abspath(
+        _os.path.join(_os.path.dirname(__file__), "..", "product_photos")
+    )
 
     def _ensure_product_photos_table() -> None:
         try:
@@ -3059,6 +3061,48 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 repository._migrate_product_photos(conn)
         except Exception:
             pass
+
+    async def _save_product_photo_upload(photo: UploadFile) -> str:
+        """Resize upload to WebP and store under product_photos/. Raises HTTPException on failure."""
+        import io as _io
+        import uuid as _uuid
+
+        filename = str(photo.filename or "").strip()
+        if not filename:
+            raise HTTPException(status_code=400, detail="Не выбран файл фото")
+        try:
+            content = await photo.read()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Не удалось прочитать файл фото") from exc
+        if not content:
+            raise HTTPException(status_code=400, detail="Пустой файл фото")
+        if len(content) > 12 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="Фото больше 12 МБ")
+        try:
+            from PIL import Image as _PilImage
+
+            resample = getattr(getattr(_PilImage, "Resampling", _PilImage), "LANCZOS", _PilImage.LANCZOS)
+            img = _PilImage.open(_io.BytesIO(content))
+            img = img.convert("RGB")
+            img.thumbnail((200, 200), resample)
+            _os.makedirs(_PHOTO_DIR, exist_ok=True)
+            fname = f"{_uuid.uuid4().hex}.webp"
+            fpath = _os.path.join(_PHOTO_DIR, fname)
+            img.save(fpath, "WEBP", quality=85)
+            if not _os.path.isfile(fpath):
+                raise RuntimeError(f"file not written: {fpath}")
+            return fname
+        except HTTPException:
+            raise
+        except Exception as exc:
+            _log.warning("product photo processing failed: %s", exc)
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Не удалось обработать фото. "
+                    "Используйте JPG, PNG или WEBP (не HEIC/AVIF)."
+                ),
+            ) from exc
 
     @app.get("/api/products")
     def _list_products_ensure(request: Request) -> dict[str, object]:
@@ -3083,21 +3127,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         _ensure_product_photos_table()
         owner_uid = _tenant_owner_id(user)
         photo_path: str | None = None
-        if photo and photo.filename:
-            import io as _io
-            try:
-                from PIL import Image as _PilImage
-                content = await photo.read()
-                img = _PilImage.open(_io.BytesIO(content)).convert("RGB")
-                img.thumbnail((200, 200), _PilImage.LANCZOS)
-                _os.makedirs(_PHOTO_DIR, exist_ok=True)
-                import uuid as _uuid
-                fname = f"{_uuid.uuid4().hex}.webp"
-                fpath = _os.path.join(_PHOTO_DIR, fname)
-                img.save(fpath, "WEBP", quality=85)
-                photo_path = fname
-            except Exception as _e:
-                _log.warning("add_product: photo processing failed: %s", _e)
+        if photo is not None and str(photo.filename or "").strip():
+            photo_path = await _save_product_photo_upload(photo)
         item = repository.add_product_photo(
             user_id=owner_uid, name=name.strip(), supplier_article=supplier_article.strip(),
             wb_nmid=wb_nmid.strip(), ozon_sku=ozon_sku.strip(),
@@ -3121,21 +3152,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         user = _require_settings_access(request)
         owner_uid = _tenant_owner_id(user)
         new_photo_path: str | None = None
-        if photo and photo.filename:
-            import io as _io
-            try:
-                from PIL import Image as _PilImage
-                content = await photo.read()
-                img = _PilImage.open(_io.BytesIO(content)).convert("RGB")
-                img.thumbnail((200, 200), _PilImage.LANCZOS)
-                _os.makedirs(_PHOTO_DIR, exist_ok=True)
-                import uuid as _uuid
-                fname = f"{_uuid.uuid4().hex}.webp"
-                fpath = _os.path.join(_PHOTO_DIR, fname)
-                img.save(fpath, "WEBP", quality=85)
-                new_photo_path = fname
-            except Exception as _e:
-                _log.warning("update_product: photo processing failed: %s", _e)
+        if photo is not None and str(photo.filename or "").strip():
+            new_photo_path = await _save_product_photo_upload(photo)
         ok = repository.update_product_photo(
             user_id=owner_uid, product_id=product_id, name=name.strip(),
             supplier_article=supplier_article.strip(), wb_nmid=wb_nmid.strip(),
@@ -3144,7 +3162,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
         if not ok:
             raise HTTPException(status_code=404, detail="Товар не найден")
-        return {"ok": True}
+        item = next(
+            (
+                i
+                for i in repository.list_product_photos(user_id=owner_uid)
+                if int(i.get("id") or 0) == int(product_id)
+            ),
+            None,
+        )
+        if item:
+            item["photo_url"] = f"/api/products/photo/{item['id']}" if item.get("photo_path") else None
+        return {"ok": True, "item": item}
 
     @app.delete("/api/products/{product_id}")
     def delete_product(product_id: int, request: Request) -> dict[str, object]:

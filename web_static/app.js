@@ -11956,8 +11956,21 @@ async function saveProduct() {
     const url = editId ? `/api/products/${editId}` : "/api/products";
     const method = editId ? "PUT" : "POST";
     const res = await fetch(url, { method, body: fd, headers: withCsrfHeaders() });
-    const data = await res.json();
-    if (!res.ok) { if (info) info.textContent = data.detail || "Ошибка"; return; }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const detail = data.detail;
+      if (info) {
+        info.textContent = typeof detail === "string"
+          ? detail
+          : (Array.isArray(detail) ? (detail[0]?.msg || "Ошибка") : "Ошибка");
+      }
+      return;
+    }
+    if (photoFile && data.item && !data.item.photo_url) {
+      if (info) info.textContent = "Товар сохранён, но фото не загрузилось";
+      await loadProducts();
+      return;
+    }
     closeAddProductForm();
     await loadProducts();
   } catch (e) { if (info) info.textContent = "Ошибка сохранения"; }
