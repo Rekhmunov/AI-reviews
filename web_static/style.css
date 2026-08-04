@@ -5038,8 +5038,8 @@ button.secondary.danger:hover {
 
 /* OZON returns giveout barcode modal */
 .ozon-returns-modal-card {
-  width: clamp(360px, 640px, 92vw);
-  max-height: 88vh;
+  width: clamp(360px, 920px, 96vw);
+  max-height: 90vh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -5166,13 +5166,15 @@ button.secondary.danger:hover {
 .ozon-returns-table-wrap {
   border: 1px solid #e2e8f0;
   border-radius: 8px;
-  overflow: auto;
-  max-height: 280px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  max-height: 360px;
 }
 .ozon-returns-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 14px;
+  table-layout: fixed;
 }
 .ozon-returns-table th,
 .ozon-returns-table td {
@@ -5180,6 +5182,8 @@ button.secondary.danger:hover {
   text-align: left;
   border-bottom: 1px solid #e2e8f0;
   vertical-align: top;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 .ozon-returns-table th {
   background: #f8fafc;
@@ -5213,6 +5217,8 @@ button.secondary.danger:hover {
 .ozon-returns-table th.ozon-returns-col-qty,
 .ozon-returns-table td.ozon-returns-col-qty {
   text-align: right;
+  word-break: normal;
+  overflow-wrap: normal;
 }
 .ozon-returns-empty {
   text-align: center;
