@@ -5494,6 +5494,8 @@ async function refreshOzonReturnsModal() {
     _ozonReturnsShowError("Не удалось загрузить штрихкод возвратов");
     _ozonReturnsState.sourceId = 0;
     _ozonReturnsState.barcode = "";
+    _ozonReturnsState.validUntil = "";
+    _ozonReturnsState.validUntilLabel = "";
   } finally {
     if (reqId !== _ozonReturnsState.reqId) return;
     _ozonReturnsState.loading = false;
