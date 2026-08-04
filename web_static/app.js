@@ -18505,6 +18505,67 @@ function _wbFbsKizNormalizeMark(value) {
     .trim();
 }
 
+/** GS1 AI 01 → 14-digit GTIN from the start of a КИЗ / sgtin payload. */
+function _wbFbsKizExtractGtin14(mark) {
+  const raw = _wbFbsKizNormalizeMark(mark);
+  if (!raw) return "";
+  const m = raw.match(/^01(\d{14})/);
+  if (m) return m[1];
+  const m2 = raw.match(/(?:^|[\u001D])01(\d{14})/);
+  return m2 ? m2[1] : "";
+}
+
+/** Product ШК candidates from GTIN-14: drop leading 0 → EAN-13 (0467… → 467…). */
+function _wbFbsKizGtinToProductSkus(gtin14) {
+  const g = String(gtin14 || "").replace(/\D/g, "");
+  if (g.length !== 14) return [];
+  const out = [g];
+  if (g.startsWith("0")) out.push(g.slice(1));
+  return out;
+}
+
+function _wbFbsKizOrderSkuSet(row) {
+  const set = new Set();
+  for (const b of row?.barcodes || []) {
+    const raw = String(b || "").trim();
+    if (raw) set.add(raw);
+    const digits = raw.replace(/\D/g, "");
+    if (digits) set.add(digits);
+  }
+  return set;
+}
+
+/**
+ * Before putting a mark into the order row: GTIN (without leading 0) must match
+ * one of the order product barcodes (ШК).
+ */
+function _wbFbsKizValidateMarkForOrder(mark, row) {
+  const gtin14 = _wbFbsKizExtractGtin14(mark);
+  if (!gtin14) {
+    return {
+      ok: false,
+      error: "Не удалось выделить GTIN из кода маркировки (ожидается префикс 01 и 14 цифр).",
+    };
+  }
+  const candidates = _wbFbsKizGtinToProductSkus(gtin14);
+  const orderSkus = _wbFbsKizOrderSkuSet(row);
+  if (!orderSkus.size) {
+    return {
+      ok: false,
+      error: "У заказа нет штрихкодов товара — нельзя сверить GTIN маркировки.",
+    };
+  }
+  if (!candidates.some((c) => orderSkus.has(c))) {
+    const shown = gtin14.startsWith("0") ? gtin14.slice(1) : gtin14;
+    const skuList = [...orderSkus].filter((s) => /^\d+$/.test(s)).slice(0, 6).join(", ");
+    return {
+      ok: false,
+      error: `GTIN ${shown} не совпадает ни с одним ШК товара в заказе${skuList ? ` (${skuList})` : ""}.`,
+    };
+  }
+  return { ok: true, gtin14 };
+}
+
 function closeWbFbsKizModal() {
   cancelWbFbsKizMarkScan();
   setModalVisibility("wbFbsKizModal", false);
@@ -18801,6 +18862,12 @@ function onWbFbsKizMarkScanKey(event) {
     cancelWbFbsKizMarkScan();
     return;
   }
+  const check = _wbFbsKizValidateMarkForOrder(mark, row);
+  if (!check.ok) {
+    _wbFbsKizSetInfo(check.error || "Маркировка не подходит к ШК товара в заказе");
+    if (event.target) event.target.select();
+    return;
+  }
   if (!Array.isArray(row.kiz_codes) || !row.kiz_codes.length) row.kiz_codes = [""];
   let placed = false;
   for (let i = 0; i < row.kiz_codes.length; i += 1) {
@@ -18878,6 +18945,7 @@ async function uploadWbFbsKizTemplate(event) {
     }
     let applied = 0;
     let skippedEmpty = 0;
+    let rejected = 0;
     for (const row of wbFbsKizState.rows) {
       const oid = Number(row.order_id);
       if (!Object.prototype.hasOwnProperty.call(byOrder, oid)) continue;
@@ -18886,14 +18954,36 @@ async function uploadWbFbsKizTemplate(event) {
         skippedEmpty += 1;
         continue;
       }
-      row.kiz_codes = byOrder[oid].slice();
+      const accepted = [];
+      let rowErr = "";
+      for (const code of byOrder[oid]) {
+        const check = _wbFbsKizValidateMarkForOrder(code, row);
+        if (!check.ok) {
+          rejected += 1;
+          rowErr = check.error || "GTIN не совпадает с ШК товара";
+          continue;
+        }
+        accepted.push(code);
+      }
+      if (!accepted.length) {
+        wbFbsKizState.errors[oid] = rowErr || "Коды КИЗ не прошли сверку с ШК";
+        continue;
+      }
+      row.kiz_codes = accepted;
       delete wbFbsKizState.errors[oid];
       applied += 1;
     }
     renderWbFbsKizTable({ skipCollect: true });
     if (applied) {
-      const skipNote = skippedEmpty ? `, пропущено пустых: ${skippedEmpty}` : "";
-      _wbFbsKizSetInfo(`Загружено строк: ${applied}${skipNote}`, true);
+      const notes = [];
+      if (skippedEmpty) notes.push(`пустых: ${skippedEmpty}`);
+      if (rejected) notes.push(`отклонено по ШК: ${rejected}`);
+      _wbFbsKizSetInfo(
+        `Загружено строк: ${applied}${notes.length ? ` (${notes.join(", ")})` : ""}`,
+        true
+      );
+    } else if (rejected) {
+      _wbFbsKizSetInfo("Коды из файла не совпали с ШК товаров в заказах");
     } else if (skippedEmpty) {
       _wbFbsKizSetInfo("В файле нет кодов КИЗ — текущие значения не изменены");
     } else {
@@ -18911,17 +19001,41 @@ async function saveWbFbsKizModal() {
   _wbFbsKizCollectFromDom();
   // Persist only on Save: send codes, or clear WB when row was bound and is now empty.
   const items = [];
+  let gtinErrors = 0;
+  wbFbsKizState.errors = {};
   for (const r of wbFbsKizState.rows) {
     const codes = (Array.isArray(r.kiz_codes) ? r.kiz_codes : [])
       .map((c) => _wbFbsKizNormalizeMark(c))
       .filter(Boolean);
     const wasBound = !!r.kiz_bound;
     if (!codes.length && !wasBound) continue; // never saved → nothing to clear
+    if (codes.length) {
+      let bad = "";
+      for (const code of codes) {
+        const check = _wbFbsKizValidateMarkForOrder(code, r);
+        if (!check.ok) {
+          bad = check.error || "GTIN не совпадает с ШК товара";
+          break;
+        }
+      }
+      if (bad) {
+        wbFbsKizState.errors[Number(r.order_id)] = bad;
+        gtinErrors += 1;
+        continue;
+      }
+    }
     items.push({
       order_id: Number(r.order_id),
       kiz_codes: codes,
       clear: !codes.length && wasBound,
     });
+  }
+  if (gtinErrors) {
+    renderWbFbsKizTable({ skipCollect: true });
+    _wbFbsKizSetInfo(
+      `Сохранение остановлено: у ${gtinErrors} заказ(ов) GTIN маркировки не совпадает с ШК товара`
+    );
+    return;
   }
   if (!items.length) {
     _wbFbsKizSetInfo("Нет изменений для сохранения в WB");
