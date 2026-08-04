@@ -7195,6 +7195,18 @@ class ReviewRepository:
             )
             """
         )
+        # Last Ozon giveout barcode-reset time (for 24h validity / 6h auto-refresh).
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ozon_giveout_barcode_state (
+                user_id BIGINT NOT NULL,
+                source_id BIGINT NOT NULL,
+                reset_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (user_id, source_id)
+            )
+            """
+        )
 
     def _ensure_supply_tables(self) -> None:
         with self._connect() as conn:
@@ -7593,6 +7605,49 @@ class ReviewRepository:
                 (user_id,),
             )
         return result.rowcount
+
+    def get_ozon_giveout_barcode_reset_at(self, *, user_id: int, source_id: int) -> str | None:
+        """Return ISO timestamp of last giveout barcode-reset, or None."""
+        self._ensure_supply_tables()
+        with self._connect() as conn:
+            row = conn.execute(
+                self._sql(
+                    "SELECT reset_at FROM ozon_giveout_barcode_state "
+                    "WHERE user_id = ? AND source_id = ?"
+                ),
+                (user_id, source_id),
+            ).fetchone()
+        if row is None:
+            return None
+        d = self._row_to_dict(row)
+        value = str(d.get("reset_at") or "").strip()
+        return value or None
+
+    def set_ozon_giveout_barcode_reset_at(
+        self,
+        *,
+        user_id: int,
+        source_id: int,
+        reset_at: str | None = None,
+    ) -> str:
+        """Upsert last giveout barcode-reset time. Returns stored ISO timestamp."""
+        self._ensure_supply_tables()
+        now = _utc_now()
+        value = str(reset_at or now).strip() or now
+        with self._connect() as conn:
+            conn.execute(
+                self._sql(
+                    """
+                    INSERT INTO ozon_giveout_barcode_state (user_id, source_id, reset_at, updated_at)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT (user_id, source_id) DO UPDATE SET
+                        reset_at = excluded.reset_at,
+                        updated_at = excluded.updated_at
+                    """
+                ),
+                (user_id, source_id, value, now),
+            )
+        return value
 
     def delete_ozon_supply_items_not_in(
         self,

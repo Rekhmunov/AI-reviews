@@ -5365,7 +5365,8 @@ function openOzonReturnsModal() {
   if (!m) return;
   m.classList.remove("hidden");
   m.setAttribute("aria-hidden", "false");
-  refreshOzonReturnsModal();
+  // On open: reset only if no stored date or ≤6h remaining (server-side).
+  refreshOzonReturnsModal(false);
 }
 window.openOzonReturnsModal = openOzonReturnsModal;
 
@@ -5442,7 +5443,7 @@ function _renderOzonReturnsGiveouts(giveouts) {
   }).join("");
 }
 
-async function refreshOzonReturnsModal() {
+async function refreshOzonReturnsModal(force = false) {
   if (_ozonReturnsState.loading) return;
   const reqId = ++_ozonReturnsState.reqId;
   _ozonReturnsSetLoading(true);
@@ -5451,6 +5452,7 @@ async function refreshOzonReturnsModal() {
       method: "POST",
       headers: jsonHeaders(),
       credentials: "same-origin",
+      body: JSON.stringify({ force: !!force }),
     }).catch(() => null);
     if (reqId !== _ozonReturnsState.reqId) return;
     const data = res ? await res.json().catch(() => ({})) : {};

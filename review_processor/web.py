@@ -10695,29 +10695,116 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 break
         return rows
 
+    def _ozon_giveout_moscow_tz():
+        from zoneinfo import ZoneInfo
+
+        try:
+            return ZoneInfo("Europe/Moscow")
+        except Exception:
+            from datetime import timezone as _tz
+
+            return _tz(timedelta(hours=3))
+
+    def _ozon_parse_iso_dt(value: object):
+        from datetime import datetime as _dt
+
+        raw = str(value or "").strip()
+        if not raw:
+            return None
+        try:
+            dt = _dt.fromisoformat(raw.replace("Z", "+00:00"))
+        except Exception:
+            return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=UTC)
+        return dt
+
+    def _ozon_giveout_valid_until_label(valid_until_iso: str = "") -> str:
+        """Format giveout validity like the modal: '4 августа, 15:38' (Moscow)."""
+        from datetime import datetime as _dt
+
+        months = (
+            "",
+            "января",
+            "февраля",
+            "марта",
+            "апреля",
+            "мая",
+            "июня",
+            "июля",
+            "августа",
+            "сентября",
+            "октября",
+            "ноября",
+            "декабря",
+        )
+        tz = _ozon_giveout_moscow_tz()
+        dt = _ozon_parse_iso_dt(valid_until_iso)
+        if dt is None:
+            dt = _dt.now(tz) + timedelta(hours=24)
+        else:
+            dt = dt.astimezone(tz)
+        return f"{dt.day} {months[dt.month]}, {dt.strftime('%H:%M')}"
+
     @app.post("/api/ozon-returns/giveout")
-    def ozon_returns_giveout_refresh(request: Request) -> dict[str, object]:
-        """Reset giveout barcode and return modal payload (PNG + list)."""
+    async def ozon_returns_giveout_refresh(request: Request) -> dict[str, object]:
+        """Return giveout barcode modal payload; reset only when needed or forced."""
         import base64 as _b64
         from datetime import datetime as _dt
-        from zoneinfo import ZoneInfo
 
         user = _require_user(request)
         if not _can_view_supplies(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
         owner_id = _supply_owner_id(user)
         repository._ensure_supply_tables()
+
+        force = False
+        try:
+            payload = await request.json()
+            if isinstance(payload, dict):
+                force = bool(payload.get("force"))
+        except Exception:
+            force = False
+
         src = _ozon_find_giveout_source(owner_id)
         client_id = src["client_id"]
         api_key = src["api_key"]
+        source_id = int(src["id"])
 
-        # Always refresh so barcode is valid for the next ~24 hours
-        reset_data = _ozon_giveout_post(
-            client_id=client_id,
-            api_key=api_key,
-            path="/v1/return/giveout/barcode-reset",
+        now_utc = _dt.now(UTC)
+        stored_reset_raw = repository.get_ozon_giveout_barcode_reset_at(
+            user_id=owner_id, source_id=source_id
         )
-        png_bytes = _ozon_extract_giveout_bytes(reset_data, expect="png")
+        stored_reset_at = _ozon_parse_iso_dt(stored_reset_raw)
+
+        # Validity window: 24h from last reset. Auto-reset when unknown or ≤6h left.
+        should_reset = bool(force)
+        if not should_reset:
+            if stored_reset_at is None:
+                should_reset = True
+            else:
+                remaining = (stored_reset_at + timedelta(hours=24)) - now_utc
+                if remaining <= timedelta(hours=6):
+                    should_reset = True
+
+        png_bytes: bytes | None = None
+        reset_at = stored_reset_at or now_utc
+        did_reset = False
+        if should_reset:
+            reset_data = _ozon_giveout_post(
+                client_id=client_id,
+                api_key=api_key,
+                path="/v1/return/giveout/barcode-reset",
+            )
+            png_bytes = _ozon_extract_giveout_bytes(reset_data, expect="png")
+            reset_at = now_utc
+            did_reset = True
+            repository.set_ozon_giveout_barcode_reset_at(
+                user_id=owner_id,
+                source_id=source_id,
+                reset_at=reset_at.isoformat(),
+            )
+
         if not png_bytes:
             png_data = _ozon_giveout_post(
                 client_id=client_id,
@@ -10737,92 +10824,28 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             )
             barcode = str(barcode_data.get("barcode") or "").strip()
         except Exception as ex:
-            _log.warning("ozon giveout barcode text failed source=%s: %s", src["id"], ex)
+            _log.warning("ozon giveout barcode text failed source=%s: %s", source_id, ex)
         try:
             giveouts = _ozon_fetch_giveout_list(client_id, api_key)
         except Exception as ex:
-            _log.warning("ozon giveout list failed source=%s: %s", src["id"], ex)
+            _log.warning("ozon giveout list failed source=%s: %s", source_id, ex)
             giveouts = []
 
-        try:
-            tz = ZoneInfo("Europe/Moscow")
-        except Exception:
-            from datetime import timezone as _tz
-
-            tz = _tz(timedelta(hours=3))
-        valid_until_dt = _dt.now(tz) + timedelta(hours=24)
-        # "4 августа, 15:38"
-        months = (
-            "",
-            "января",
-            "февраля",
-            "марта",
-            "апреля",
-            "мая",
-            "июня",
-            "июля",
-            "августа",
-            "сентября",
-            "октября",
-            "ноября",
-            "декабря",
-        )
-        valid_until_label = (
-            f"{valid_until_dt.day} {months[valid_until_dt.month]}, "
-            f"{valid_until_dt.strftime('%H:%M')}"
-        )
+        valid_until_dt = reset_at + timedelta(hours=24)
+        valid_until_label = _ozon_giveout_valid_until_label(valid_until_dt.isoformat())
 
         return {
             "ok": True,
-            "source_id": src["id"],
+            "source_id": source_id,
             "source_name": src["name"],
             "barcode": barcode,
             "barcode_png_base64": _b64.b64encode(png_bytes).decode("ascii"),
             "valid_until": valid_until_dt.isoformat(),
             "valid_until_label": valid_until_label,
+            "reset": did_reset,
+            "force": force,
             "giveouts": giveouts,
         }
-
-    def _ozon_giveout_valid_until_label(valid_until_iso: str = "") -> str:
-        """Format giveout validity like the modal: '4 августа, 15:38' (Moscow)."""
-        from datetime import datetime as _dt
-        from zoneinfo import ZoneInfo
-
-        months = (
-            "",
-            "января",
-            "февраля",
-            "марта",
-            "апреля",
-            "мая",
-            "июня",
-            "июля",
-            "августа",
-            "сентября",
-            "октября",
-            "ноября",
-            "декабря",
-        )
-        try:
-            tz = ZoneInfo("Europe/Moscow")
-        except Exception:
-            from datetime import timezone as _tz
-
-            tz = _tz(timedelta(hours=3))
-
-        dt = None
-        raw = str(valid_until_iso or "").strip()
-        if raw:
-            try:
-                dt = _dt.fromisoformat(raw.replace("Z", "+00:00"))
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=tz)
-                dt = dt.astimezone(tz)
-            except Exception:
-                dt = None
-        if dt is None:
-            dt = _dt.now(tz) + timedelta(hours=24)
-        return f"{dt.day} {months[dt.month]}, {dt.strftime('%H:%M')}"
 
     def _ozon_build_tall_barcode_pdf(
         png_bytes: bytes,
