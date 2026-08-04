@@ -1600,6 +1600,50 @@
             </div>
           </div>
         </div>
+
+        <div id="wbFbsSupplyDetailModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="wbFbsSupplyDetailTitle"
+             onclick="if(event.target===this)closeWbFbsSupplyDetailModal()">
+          <div class="modal-card wb-fbs-supply-detail-modal">
+            <div class="wb-fbs-sd-header">
+              <div class="wb-fbs-sd-title-row">
+                <h3 id="wbFbsSupplyDetailTitle" class="wb-fbs-sd-title">Поставка</h3>
+                <button type="button" class="icon-btn secondary wb-fbs-sd-rename-btn" id="wbFbsSupplyDetailRenameBtn"
+                        title="Переименовать поставку" aria-label="Переименовать поставку"
+                        onclick="wbFbsRenameFromDetail()">
+                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                    <path d="M11.5 3.5l3 3L6.75 14.25H3.75v-3L11.5 3.5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+                    <path d="M10.25 4.75l3 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+                  </svg>
+                </button>
+                <button type="button" class="icon-btn secondary wb-fbs-sd-close" onclick="closeWbFbsSupplyDetailModal()" aria-label="Закрыть">✕</button>
+              </div>
+              <div id="wbFbsSupplyDetailWarehouse" class="wb-fbs-sd-warehouse">—</div>
+              <div id="wbFbsSupplyDetailMeta" class="wb-fbs-sd-meta"></div>
+              <div class="wb-fbs-sd-actions">
+                <button type="button" class="secondary" id="wbFbsSupplyDetailPickingBtn" onclick="wbFbsOpenPickingList()">Лист подбора</button>
+                <button type="button" class="secondary" id="wbFbsSupplyDetailStickersBtn" onclick="wbFbsOpenStickersPrint()">Распечатать стикеры</button>
+              </div>
+            </div>
+            <div id="wbFbsSupplyDetailInfo" class="wb-fbs-sd-info" hidden></div>
+            <div class="wb-fbs-sd-table-wrap">
+              <table class="wb-fbs-sd-table">
+                <thead>
+                  <tr>
+                    <th class="wb-fbs-sd-col-check"><input type="checkbox" id="wbFbsSupplyDetailSelectAll" onchange="toggleSelectAllWbFbsDetail(this.checked)" /></th>
+                    <th>Заказ</th>
+                    <th>Товар</th>
+                    <th>Стоимость</th>
+                    <th class="wb-fbs-sd-col-act"></th>
+                  </tr>
+                </thead>
+                <tbody id="wbFbsSupplyDetailTbody">
+                  <tr><td colspan="5" class="wb-fbs-empty">Загрузка…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
       </section>
 
       <!-- ── Поставки: Настройки ── -->

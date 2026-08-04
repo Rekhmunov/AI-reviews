@@ -8778,6 +8778,144 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    def _wb_fbs_source_key(owner_id: int, source_id: int) -> str:
+        src_full = repository.get_supply_source_with_key(user_id=owner_id, source_id=source_id)
+        if not src_full or not src_full.get("api_key"):
+            raise HTTPException(status_code=400, detail="Источник не найден")
+        if not wb_fbs_mod.is_fbs_source_name(src_full.get("name")):
+            raise HTTPException(status_code=400, detail="Источник не является ФБС")
+        return str(src_full["api_key"])
+
+    @app.get("/api/wb-fbs/supplies/{supply_id}/detail")
+    def wb_fbs_supply_detail(
+        request: Request,
+        supply_id: str,
+        source_id: int,
+    ) -> dict[str, object]:
+        """Portal-like supply card for «На сборке» modal."""
+        from . import wb_fbs_detail as wb_detail
+
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        sid = str(supply_id or "").strip()
+        if not sid or not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
+        api_key = _wb_fbs_source_key(owner_id, int(source_id))
+        try:
+            return wb_detail.get_supply_detail(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                api_key=api_key,
+                supply_id=sid,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/wb-fbs/supplies/{supply_id}/picking-list")
+    def wb_fbs_supply_picking_list(
+        request: Request,
+        supply_id: str,
+        source_id: int,
+    ) -> Response:
+        """A4 portrait picking list HTML (print in new tab)."""
+        from . import wb_fbs_detail as wb_detail
+
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        sid = str(supply_id or "").strip()
+        if not sid or not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
+        api_key = _wb_fbs_source_key(owner_id, int(source_id))
+        try:
+            payload = wb_detail.build_article_groups_for_print(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                api_key=api_key,
+                supply_id=sid,
+            )
+            html_doc = wb_detail.render_picking_list_html(payload)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return Response(content=html_doc, media_type="text/html; charset=utf-8")
+
+    @app.get("/api/wb-fbs/supplies/{supply_id}/stickers-print")
+    def wb_fbs_supply_stickers_print(
+        request: Request,
+        supply_id: str,
+        source_id: int,
+    ) -> Response:
+        """58×40 thermal stickers HTML: article separators + WB stickers."""
+        from . import wb_fbs_detail as wb_detail
+
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        sid = str(supply_id or "").strip()
+        if not sid or not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
+        api_key = _wb_fbs_source_key(owner_id, int(source_id))
+        try:
+            payload = wb_detail.build_article_groups_for_print(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                api_key=api_key,
+                supply_id=sid,
+            )
+            html_doc = wb_detail.render_stickers_print_html(payload)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return Response(content=html_doc, media_type="text/html; charset=utf-8")
+
+    @app.get("/api/wb-fbs/orders/{order_id}/sticker-print")
+    def wb_fbs_order_sticker_print(
+        request: Request,
+        order_id: int,
+        source_id: int,
+    ) -> Response:
+        """Single order sticker 58×40 HTML for print."""
+        from . import wb_fbs_detail as wb_detail
+
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        if not source_id or not order_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id и order_id")
+        api_key = _wb_fbs_source_key(owner_id, int(source_id))
+        client = wb_fbs_mod.WbFbsClient(api_key)
+        try:
+            stickers = client.get_order_stickers(
+                [int(order_id)], sticker_type="png", width=58, height=40
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        file_b64 = ""
+        for s in stickers:
+            if isinstance(s, dict) and str(s.get("file") or "").strip():
+                file_b64 = str(s.get("file") or "").strip()
+                break
+        try:
+            html_doc = wb_detail.render_single_sticker_html(
+                order_id=int(order_id), file_b64=file_b64
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return Response(content=html_doc, media_type="text/html; charset=utf-8")
+
     @app.get("/api/wb-fbs/sync/status")
     def get_wb_fbs_sync_status(request: Request) -> dict[str, object]:
         _require_user(request)
