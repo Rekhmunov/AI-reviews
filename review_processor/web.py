@@ -11147,7 +11147,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         barcode: str = "",
         valid_until_label: str = "",
     ) -> str:
-        """A4 print page: barcode ~2x taller + Ozon pickup instructions."""
+        """A4 print page: compact barcode (~2x bar height) + pickup instructions."""
         import base64 as _b64
         import html as _html
         import io as _io
