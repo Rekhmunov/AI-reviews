@@ -18650,6 +18650,18 @@ window.addWbFbsKizCode = addWbFbsKizCode;
 function _wbFbsKizFindBySticker(scan) {
   const raw = _wbFbsKizNormalizeScan(scan);
   if (!raw) return { row: null, ambiguous: false };
+  // Primary: QR / 1D scan value from WB stickers.barcode (e.g. !uKEtQZVx).
+  const byBarcode = [];
+  for (const row of wbFbsKizState.rows) {
+    const bc = _wbFbsKizNormalizeScan(row.sticker_barcode);
+    if (bc && bc === raw) byBarcode.push(row);
+  }
+  if (byBarcode.length === 1) return { row: byBarcode[0], ambiguous: false };
+  if (byBarcode.length > 1) {
+    return { row: null, ambiguous: true, matches: byBarcode };
+  }
+
+  // Fallback: human-readable partA+partB / partB (portal sticker number).
   const digits = raw.replace(/\D+/g, "");
   const matches = [];
   for (const row of wbFbsKizState.rows) {
@@ -18666,7 +18678,6 @@ function _wbFbsKizFindBySticker(scan) {
   }
   if (matches.length === 1) return { row: matches[0], ambiguous: false };
   if (matches.length > 1) {
-    // Prefer exact full sticker match when several share partB.
     const exact = matches.find((r) => _wbFbsKizNormalizeScan(r.sticker_number) === raw
       || _wbFbsKizNormalizeScan(r.sticker_number).replace(/\D+/g, "") === digits);
     if (exact) return { row: exact, ambiguous: false };
@@ -18686,15 +18697,15 @@ function onWbFbsKizStickerScanKey(event) {
   if (found.ambiguous) {
     const ids = (found.matches || []).map((r) => r.order_id).slice(0, 5).join(", ");
     _wbFbsKizSetInfo(
-      `Короткий код стикера совпадает у нескольких заказов (${ids}${
+      `Код стикера совпадает у нескольких заказов (${ids}${
         (found.matches || []).length > 5 ? "…" : ""
-      }). Отсканируйте полный номер стикера.`
+      }). Отсканируйте QR стикера ещё раз.`
     );
     if (input) input.select();
     return;
   }
   if (!found.row) {
-    _wbFbsKizSetInfo(`Стикер не найден: ${scan}`);
+    _wbFbsKizSetInfo(`Заказ со стикером не найден: ${scan}`);
     if (input) input.select();
     return;
   }

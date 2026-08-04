@@ -947,6 +947,8 @@ def build_kiz_marking_payload(
         st = stickers.get(oid) or {}
         part_a = str(st.get("partA") or "").strip()
         part_b = str(st.get("partB") or "").strip()
+        # Machine-readable value from sticker QR / 1D barcode (e.g. !uKEtQZVx).
+        sticker_barcode = str(st.get("barcode") or "").strip()
         codes = [str(x).strip() for x in (o.get("kiz_codes") or []) if str(x or "").strip()]
         if not codes:
             codes = [""]
@@ -965,6 +967,7 @@ def build_kiz_marking_payload(
                 "brand": brand,
                 "nm_id": o.get("nm_id"),
                 "barcodes": list(o.get("barcodes") or []),
+                "sticker_barcode": sticker_barcode,
                 "sticker_part_a": part_a,
                 "sticker_part_b": part_b,
                 "sticker_number": _sticker_number(part_a, part_b),
