@@ -5405,8 +5405,10 @@ function _ozonReturnsShowError(message) {
   const errEl = document.getElementById("ozonReturnsError");
   const contentEl = document.getElementById("ozonReturnsContent");
   const loadingEl = document.getElementById("ozonReturnsLoading");
+  const img = document.getElementById("ozonReturnsBarcodeImg");
   if (loadingEl) loadingEl.classList.add("hidden");
   if (contentEl) contentEl.classList.add("hidden");
+  if (img) img.removeAttribute("src");
   if (errEl) {
     errEl.textContent = message || "Не удалось загрузить штрихкод возвратов";
     errEl.classList.remove("hidden");

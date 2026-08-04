@@ -10549,7 +10549,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         *,
         expect: str = "png",
     ) -> bytes | None:
-        """Decode Ozon file_content (base64) and validate magic bytes."""
+        """Decode Ozon base64 payload and validate magic bytes."""
         import base64 as _b64
 
         if value is None:
@@ -10579,6 +10579,24 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             if not raw.startswith(b"\x89PNG\r\n\x1a\n"):
                 return None
         return raw
+
+    def _ozon_extract_giveout_bytes(data: dict, *, expect: str = "png") -> bytes | None:
+        """Extract PNG/PDF bytes from giveout API response.
+
+        Live Seller API returns ``{"png": "<base64>"}`` / ``{"pdf": "<base64>"}``.
+        Older docs also mention ``file_content`` — support both.
+        """
+        if not isinstance(data, dict):
+            return None
+        if expect == "pdf":
+            keys = ("pdf", "file_content", "barcode_pdf")
+        else:
+            keys = ("png", "file_content", "barcode_png")
+        for key in keys:
+            raw = _ozon_decode_file_content(data.get(key), expect=expect)
+            if raw:
+                return raw
+        return None
 
     def _ozon_find_giveout_source(owner_id: int) -> dict:
         """Pick first enabled Ozon supply source where giveout is enabled."""
@@ -10711,14 +10729,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             api_key=api_key,
             path="/v1/return/giveout/barcode-reset",
         )
-        png_bytes = _ozon_decode_file_content(reset_data.get("file_content"), expect="png")
+        png_bytes = _ozon_extract_giveout_bytes(reset_data, expect="png")
         if not png_bytes:
             png_data = _ozon_giveout_post(
                 client_id=client_id,
                 api_key=api_key,
                 path="/v1/return/giveout/get-png",
             )
-            png_bytes = _ozon_decode_file_content(png_data.get("file_content"), expect="png")
+            png_bytes = _ozon_extract_giveout_bytes(png_data, expect="png")
         if not png_bytes:
             raise HTTPException(status_code=400, detail="Не удалось получить изображение штрихкода")
 
@@ -10801,7 +10819,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             api_key=src["api_key"],
             path="/v1/return/giveout/get-pdf",
         )
-        pdf_bytes = _ozon_decode_file_content(pdf_data.get("file_content"), expect="pdf")
+        pdf_bytes = _ozon_extract_giveout_bytes(pdf_data, expect="pdf")
         if not pdf_bytes:
             raise HTTPException(status_code=400, detail="Не удалось получить PDF штрихкода")
         fname = str(pdf_data.get("file_name") or "ozon_returns_barcode.pdf").strip() or "ozon_returns_barcode.pdf"
