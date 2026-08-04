@@ -5,3 +5,4 @@ cryptography
 openpyxl
 xlrd
 psycopg[binary]
+Pillow
