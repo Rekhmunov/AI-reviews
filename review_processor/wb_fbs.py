@@ -430,7 +430,8 @@ class WbFbsClient:
         Official: ``PUT /api/v3/orders/{orderId}/meta/sgtin``.
         Order must be in confirm status; ``sgtin`` must be allowed for the order.
         """
-        codes = [str(x).strip() for x in (sgtins or []) if str(x or "").strip()]
+        # Do not use str.strip() — it removes GS (\\u001D) as whitespace.
+        codes = [_kiz_code_clean(x) for x in (sgtins or []) if _kiz_code_clean(x)]
         if not codes:
             raise ValueError("Укажите хотя бы один код КИЗ (sgtin)")
         self._request(
@@ -646,6 +647,16 @@ def ensure_wb_fbs_tables(repo: ReviewRepository) -> None:
         )
 
 
+def _kiz_code_clean(value: object) -> str:
+    """Normalize one sgtin: trim space/CR/LF only — never strip GS (\\u001D).
+
+    Python's default ``str.strip()`` treats \\u001D as whitespace and would
+    destroy Honest Sign separators at the ends of a code.
+    """
+    text = str(value or "")
+    return text.strip(" \t\r\n")
+
+
 def update_order_kiz_codes(
     repo: ReviewRepository,
     *,
@@ -654,14 +665,17 @@ def update_order_kiz_codes(
     order_id: int,
     kiz_codes: list[str],
     wb_synced: bool = False,
-) -> None:
-    """Persist КИЗ codes locally; ``wb_synced`` marks successful WB API push."""
+) -> bool:
+    """Persist КИЗ codes locally; ``wb_synced`` marks successful WB API push.
+
+    Returns False when no local order row was updated.
+    """
     ensure_wb_fbs_tables(repo)
-    codes = [str(x) for x in (kiz_codes or []) if str(x or "").strip()]
+    codes = [_kiz_code_clean(x) for x in (kiz_codes or []) if _kiz_code_clean(x)]
     payload = json.dumps(codes, ensure_ascii=False)
     saved_at = _utc_now()
     with repo._connect() as conn:
-        conn.execute(
+        cur = conn.execute(
             repo._sql(
                 """
                 UPDATE wb_fbs_orders
@@ -678,6 +692,11 @@ def update_order_kiz_codes(
                 int(order_id),
             ),
         )
+        try:
+            updated = int(cur.rowcount or 0)
+        except Exception:
+            updated = 0
+    return updated > 0
 
 
 def load_order_kiz_map(
@@ -687,7 +706,7 @@ def load_order_kiz_map(
     source_id: int,
     order_ids: list[int],
 ) -> dict[int, dict[str, Any]]:
-    """Map order_id → {codes, wb_synced} from local wb_fbs_orders."""
+    """Map order_id → {codes, wb_synced, saved_at} from local wb_fbs_orders."""
     ids = [int(x) for x in order_ids if x is not None]
     if not ids:
         return {}
@@ -698,7 +717,7 @@ def load_order_kiz_map(
         rows = conn.execute(
             repo._sql(
                 f"""
-                SELECT order_id, kiz_codes_json, kiz_wb_synced
+                SELECT order_id, kiz_codes_json, kiz_wb_synced, kiz_saved_at
                 FROM wb_fbs_orders
                 WHERE user_id = ? AND source_id = ? AND order_id IN ({placeholders})
                 """
@@ -714,14 +733,22 @@ def load_order_kiz_map(
         try:
             parsed = json.loads(row["kiz_codes_json"] or "[]")
             if isinstance(parsed, list):
-                codes = [str(x) for x in parsed if str(x or "").strip()]
+                codes = [_kiz_code_clean(x) for x in parsed if _kiz_code_clean(x)]
         except Exception:
             codes = []
         try:
             synced = bool(row["kiz_wb_synced"])
         except (KeyError, IndexError):
             synced = False
-        out[oid] = {"codes": codes, "wb_synced": synced}
+        try:
+            saved_at = row["kiz_saved_at"]
+        except (KeyError, IndexError):
+            saved_at = None
+        out[oid] = {
+            "codes": codes,
+            "wb_synced": synced,
+            "saved_at": saved_at,
+        }
     return out
 
 

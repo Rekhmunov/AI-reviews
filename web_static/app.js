@@ -19022,7 +19022,7 @@ async function saveWbFbsKizModal() {
       if (bad) {
         wbFbsKizState.errors[Number(r.order_id)] = bad;
         gtinErrors += 1;
-        continue;
+        continue; // skip bad row; still save the rest
       }
     }
     items.push({
@@ -19031,15 +19031,13 @@ async function saveWbFbsKizModal() {
       clear: !codes.length && (wasBound || hadLocal),
     });
   }
-  if (gtinErrors) {
+  if (!items.length) {
     renderWbFbsKizTable({ skipCollect: true });
     _wbFbsKizSetInfo(
-      `Сохранение остановлено: у ${gtinErrors} заказ(ов) GTIN маркировки не совпадает с ШК товара`
+      gtinErrors
+        ? `Нет строк для сохранения: у ${gtinErrors} заказ(ов) GTIN не совпадает с ШК товара`
+        : "Нет изменений для сохранения"
     );
-    return;
-  }
-  if (!items.length) {
-    _wbFbsKizSetInfo("Нет изменений для сохранения");
     return;
   }
   const btn = document.getElementById("wbFbsKizSaveBtn");
@@ -19066,11 +19064,13 @@ async function saveWbFbsKizModal() {
       if (row && Array.isArray(r.kiz_codes)) {
         row.kiz_codes = r.kiz_codes.length ? r.kiz_codes.slice() : [""];
         if (r.local_ok) {
-          row.kiz_local = r.kiz_codes.length > 0;
+          // Keep draft flag even for empty clear so retry still sends clear.
+          row.kiz_local = true;
         }
         if (r.wb_ok) {
           row.kiz_bound = r.kiz_codes.length > 0;
           row.kiz_wb_synced = true;
+          row.kiz_local = r.kiz_codes.length > 0;
         } else if (r.local_ok) {
           row.kiz_wb_synced = false;
         }
@@ -19085,17 +19085,18 @@ async function saveWbFbsKizModal() {
     const savedWb = Number(data.saved || 0);
     const savedLocal = Number(data.saved_local || 0);
     const failed = Number(data.failed || 0);
+    const gtinNote = gtinErrors ? ` Пропущено по GTIN/ШК: ${gtinErrors}.` : "";
     if (failed) {
       const detail = wbFailNotes.slice(0, 3).join("; ");
       const more = wbFailNotes.length > 3 ? "…" : "";
       _wbFbsKizSetInfo(
         `Сохранено в FeedPilot: ${savedLocal}. В WB не записалось (${failed}): ${detail}${more}. ` +
-        `Окно не закрыто — нажмите «Сохранить» ещё раз, чтобы повторить отправку в WB.`
+        `Окно не закрыто — нажмите «Сохранить» ещё раз, чтобы повторить отправку в WB.${gtinNote}`
       );
     } else {
       _wbFbsKizSetInfo(
-        `Всё успешно: КИЗ сохранены в FeedPilot и отправлены в WB (${savedWb}).`,
-        true
+        `Всё успешно: КИЗ сохранены в FeedPilot и отправлены в WB (${savedWb}).${gtinNote}`,
+        !gtinErrors
       );
     }
     // Soft-refresh detail badges only for WB-ok rows; keep modal open.

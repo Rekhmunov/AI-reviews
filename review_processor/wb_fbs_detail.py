@@ -954,15 +954,20 @@ def build_kiz_marking_payload(
         # Machine-readable value from sticker QR / 1D barcode (e.g. !uKEtQZVx).
         sticker_barcode = str(st.get("barcode") or "").strip()
         wb_codes = [
-            str(x).strip() for x in (o.get("kiz_codes") or []) if str(x or "").strip()
+            wb._kiz_code_clean(x)
+            for x in (o.get("kiz_codes") or [])
+            if wb._kiz_code_clean(x)
         ]
         local = local_kiz.get(oid) or {}
         local_codes = [
-            str(x).strip() for x in (local.get("codes") or []) if str(x or "").strip()
+            wb._kiz_code_clean(x)
+            for x in (local.get("codes") or [])
+            if wb._kiz_code_clean(x)
         ]
-        # Prefer local draft (incl. unsynced after WB failure) so Save can retry.
-        if local_codes:
-            codes = local_codes
+        # Prefer any local Save draft (incl. empty clear) when kiz_saved_at is set.
+        has_local_draft = local.get("saved_at") is not None
+        if has_local_draft:
+            codes = local_codes or [""]
         elif wb_codes:
             codes = wb_codes
         else:
@@ -988,9 +993,9 @@ def build_kiz_marking_payload(
                 "sticker_number": _sticker_number(part_a, part_b),
                 "kiz_codes": codes,
                 "kiz_bound": bool(o.get("kiz_bound")),
-                "kiz_local": bool(local_codes),
+                "kiz_local": bool(has_local_draft),
                 "kiz_wb_synced": bool(local.get("wb_synced"))
-                if local_codes
+                if has_local_draft
                 else bool(o.get("kiz_bound")),
             }
         )
@@ -1044,9 +1049,9 @@ def save_kiz_marking(
             )
             continue
         codes = [
-            str(x).strip()
+            wb._kiz_code_clean(x)
             for x in (raw.get("kiz_codes") or [])
-            if str(x or "").strip()
+            if wb._kiz_code_clean(x)
         ]
         # Deduplicate preserving order.
         seen: set[str] = set()
@@ -1065,7 +1070,7 @@ def save_kiz_marking(
         if repo is not None and user_id is not None and source_id is not None:
             try:
                 # Always persist locally first (even if WB will fail).
-                wb.update_order_kiz_codes(
+                local_ok = wb.update_order_kiz_codes(
                     repo,
                     user_id=int(user_id),
                     source_id=int(source_id),
@@ -1073,8 +1078,21 @@ def save_kiz_marking(
                     kiz_codes=uniq,
                     wb_synced=False,
                 )
-                local_ok = True
-                local_n += 1
+                if local_ok:
+                    local_n += 1
+                else:
+                    err_n += 1
+                    results.append(
+                        {
+                            "order_id": oid,
+                            "ok": False,
+                            "local_ok": False,
+                            "wb_ok": False,
+                            "kiz_codes": uniq,
+                            "error": "Заказ не найден локально — синхронизируйте FBS и повторите",
+                        }
+                    )
+                    continue
             except Exception as local_exc:
                 _log.warning("local kiz save order %s failed: %s", oid, local_exc)
                 err_n += 1

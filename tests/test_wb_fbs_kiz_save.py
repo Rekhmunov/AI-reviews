@@ -5,7 +5,16 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+from review_processor.wb_fbs import _kiz_code_clean
 from review_processor.wb_fbs_detail import save_kiz_marking
+
+
+def test_kiz_code_clean_keeps_group_separator() -> None:
+    raw = "01046701724227242150B:\u001d91EE11\u001d92pxuu="
+    assert _kiz_code_clean(raw) == raw
+    # Default str.strip() would wipe a lone GS; our helper must not.
+    assert _kiz_code_clean("\u001d") == "\u001d"
+    assert _kiz_code_clean("  " + raw + "\n") == raw
 
 
 def _client_mock() -> MagicMock:
@@ -98,6 +107,7 @@ def test_save_local_first_then_wb(
 ) -> None:
     client = _client_mock()
     mock_cls.return_value = client
+    mock_local.return_value = True
     repo = MagicMock()
     result = save_kiz_marking(
         api_key="k",
@@ -126,6 +136,7 @@ def test_save_keeps_local_when_wb_fails(
     client = _client_mock()
     client.set_order_sgtin.side_effect = RuntimeError("WB 409 conflict")
     mock_cls.return_value = client
+    mock_local.return_value = True
     repo = MagicMock()
     result = save_kiz_marking(
         api_key="k",
