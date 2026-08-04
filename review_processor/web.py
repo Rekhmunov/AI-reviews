@@ -8868,27 +8868,37 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
 
     @app.get("/api/wb-fbs/supplies/{supply_id}/picking-list")
-    def wb_fbs_supply_picking_list_legacy(
+    def wb_fbs_supply_picking_list(
         request: Request,
         supply_id: str,
         source_id: int,
     ) -> Response:
-        """Compat redirect to PDF picking list."""
-        from fastapi.responses import RedirectResponse
+        """A4 picking list as HTML for browser print (CSS layout stays intact)."""
+        from . import wb_fbs_detail as wb_detail
 
         user = _require_user(request)
         if not _can_view_wb_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
         sid = str(supply_id or "").strip()
         if not sid or not source_id:
             raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
-        return RedirectResponse(
-            url=(
-                f"/api/wb-fbs/supplies/{sid}/picking-list.pdf"
-                f"?source_id={int(source_id)}"
-            ),
-            status_code=307,
-        )
+        api_key = _wb_fbs_source_key(owner_id, int(source_id))
+        try:
+            payload = wb_detail.build_article_groups_for_print(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                api_key=api_key,
+                supply_id=sid,
+                mode="picking_list",
+            )
+            html_doc = wb_detail.render_picking_list_html(payload, for_pdf=False)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return Response(content=html_doc, media_type="text/html; charset=utf-8")
 
     @app.get("/api/wb-fbs/supplies/{supply_id}/stickers-print")
     def wb_fbs_supply_stickers_print(
