@@ -1573,8 +1573,8 @@ def render_stickers_print_html(payload: dict[str, Any]) -> str:
 <head>
   <meta charset="utf-8" />
   <title>Стикеры поставки {_esc(payload.get("detail", {}).get("supply_id"))}</title>
-  <!-- feedpilot-stickers:20260804c -->
-  <meta name="feedpilot-build" content="picking-20260804c" />
+  <!-- feedpilot-stickers:20260804d -->
+  <meta name="feedpilot-build" content="picking-20260804d" />
   <style>
     @page {{ size: 58mm 40mm; margin: 0; }}
     * {{ box-sizing: border-box; }}
