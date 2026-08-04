@@ -5525,7 +5525,8 @@ function downloadOzonReturnsPdf() {
   const url = sid
     ? `/api/ozon-returns/giveout/pdf?source_id=${sid}`
     : "/api/ozon-returns/giveout/pdf";
-  window.open(url, "_blank");
+  // Open PDF inline in a new tab so the browser print dialog is available.
+  window.open(url, "_blank", "noopener");
 }
 window.downloadOzonReturnsPdf = downloadOzonReturnsPdf;
 

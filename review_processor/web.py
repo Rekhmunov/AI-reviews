@@ -10816,7 +10816,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         return Response(
             content=pdf_bytes,
             media_type="application/pdf",
-            headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+            headers={"Content-Disposition": f'inline; filename="{fname}"'},
         )
 
     # ── End OZON Supplies ────────────────────────────────────────────────────
