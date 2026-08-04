@@ -1011,8 +1011,9 @@ def build_article_groups_for_print(
 def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) -> str:
     """Browser-print picking list (HTML+CSS). Matches WB portal structure.
 
-    3 columns: content | Собрано | Упаковано.
-    Product header row, then order rows; thick border between articles.
+    3 columns on order rows: content | Собрано | Упаковано.
+    Totals row only once at the top (not repeated on later print pages).
+    Product rows span full width (no per-article 0/qty counters).
     Prefer HTML print over LibreOffice PDF — LO breaks modern CSS.
     """
     detail = payload["detail"]
@@ -1069,14 +1070,12 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
 
         body_rows.append(
             f"""<tr class="product-row">
-              <td class="main">
+              <td class="main" colspan="3">
                 <div class="sku-cell">
                   {photo_html}
                   <div class="sku-text">{''.join(meta_bits)}</div>
                 </div>
               </td>
-              <td class="check"><strong>0/{qty}</strong></td>
-              <td class="check"><strong>0/{qty}</strong></td>
             </tr>"""
         )
         is_last_group = g_idx >= len(printable_groups) - 1
@@ -1107,6 +1106,15 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
             )
 
     if body_rows:
+        # Totals as first tbody row (not <thead>) so print does not repeat it
+        # on every subsequent page.
+        totals_row = f"""
+            <tr class="totals-row">
+              <th class="main">Всего {total} {order_word}</th>
+              <th class="check">Собрано<br /><span class="sub">0 / {total}</span></th>
+              <th class="check">Упаковано<br /><span class="sub">0 / {total}</span></th>
+            </tr>
+        """
         table_html = f"""
         <table class="picking">
           <colgroup>
@@ -1114,14 +1122,7 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
             <col class="c-check" />
             <col class="c-check" />
           </colgroup>
-          <thead>
-            <tr>
-              <th class="main">Всего {total} {order_word}</th>
-              <th class="check">Собрано<br /><span class="sub">0 / {total}</span></th>
-              <th class="check">Упаковано<br /><span class="sub">0 / {total}</span></th>
-            </tr>
-          </thead>
-          <tbody>{''.join(body_rows)}</tbody>
+          <tbody>{totals_row}{''.join(body_rows)}</tbody>
         </table>
         """
     else:
@@ -1163,7 +1164,7 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
       padding: 8px;
       vertical-align: middle;
     }}
-    table.picking thead th {{
+    table.picking .totals-row th {{
       background: #f1f5f9;
       font-weight: 700;
     }}
@@ -1182,6 +1183,9 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
       font-size: 12px;
     }}
     td.main {{ text-align: left; }}
+    tr.product-row td.main {{
+      width: 100%;
+    }}
     td.check {{
       text-align: center;
       width: 72px;
