@@ -18603,6 +18603,7 @@ function renderWbFbsKizTable(opts) {
       : `<span class="wb-fbs-product-ph" aria-hidden="true"></span>`;
     const brandArt = [r.brand, r.article ? `Арт. ${r.article}` : ""].filter(Boolean).join(" · ");
     // Do not put КИЗ into value="" via innerHTML — \\u001D is dropped by HTML parser.
+    const canRemove = codes.length > 1;
     const codeHtml = codes.map((_code, idx) => `
       <div class="wb-fbs-kiz-code-row">
         <span class="wb-fbs-kiz-code-idx">${idx + 1}</span>
@@ -18610,6 +18611,11 @@ function renderWbFbsKizTable(opts) {
                data-order-id="${oid}" data-idx="${idx}"
                autocomplete="off"
                oninput="onWbFbsKizCodeInput(${oid})" />
+        ${canRemove
+          ? `<button type="button" class="wb-fbs-kiz-remove" title="Удалить строку КИЗ"
+                     aria-label="Удалить строку КИЗ"
+                     onclick="removeWbFbsKizCode(${oid}, ${idx})">×</button>`
+          : ""}
       </div>`).join("");
     return `<tr class="wb-fbs-kiz-row${pending === oid ? " is-active" : ""}" data-order-id="${oid}">
       <td>
@@ -18660,12 +18666,31 @@ function addWbFbsKizCode(orderId) {
   if (!row) return;
   if (!Array.isArray(row.kiz_codes)) row.kiz_codes = [""];
   row.kiz_codes.push("");
-  renderWbFbsKizTable();
+  renderWbFbsKizTable({ skipCollect: true });
   const inputs = document.querySelectorAll(`.wb-fbs-kiz-code-input[data-order-id="${oid}"]`);
   const last = inputs[inputs.length - 1];
   if (last) last.focus();
 }
 window.addWbFbsKizCode = addWbFbsKizCode;
+
+function removeWbFbsKizCode(orderId, idx) {
+  _wbFbsKizCollectFromDom();
+  const oid = Number(orderId);
+  const removeIdx = Number(idx);
+  const row = wbFbsKizState.rows.find((r) => Number(r.order_id) === oid);
+  if (!row || !Number.isFinite(removeIdx)) return;
+  if (!Array.isArray(row.kiz_codes)) row.kiz_codes = [""];
+  if (row.kiz_codes.length <= 1) {
+    // Always keep one empty field.
+    row.kiz_codes = [""];
+  } else {
+    row.kiz_codes.splice(removeIdx, 1);
+    if (!row.kiz_codes.length) row.kiz_codes = [""];
+  }
+  delete wbFbsKizState.errors[oid];
+  renderWbFbsKizTable({ skipCollect: true });
+}
+window.removeWbFbsKizCode = removeWbFbsKizCode;
 
 function _wbFbsKizFindBySticker(scan) {
   const raw = _wbFbsKizNormalizeScan(scan);

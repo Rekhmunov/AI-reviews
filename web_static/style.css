@@ -7858,6 +7858,28 @@ button.wb-fbs-select-all-link:disabled {
   text-align: left;
 }
 .wb-fbs-kiz-add:hover { color: #1d4ed8; }
+.wb-fbs-kiz-remove {
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  color: #64748b;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+.wb-fbs-kiz-remove:hover {
+  color: #b91c1c;
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+.wb-fbs-kiz-remove:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 1px;
+}
 .wb-fbs-kiz-row-error {
   margin-top: 6px;
   font-size: 13px;
