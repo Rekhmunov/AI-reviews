@@ -1,7 +1,8 @@
 """WB FBS supply detail modal: picking list + sticker print (portal-like).
 
-Marketplace API has no ready-made «лист подбора» / separator stickers.
-We compose them from official methods + local catalog names.
+Marketplace API has no ready-made «лист подбора» PDF / separator stickers.
+We compose a printable A4 PDF from official stickers + local catalog names
+(same pattern as other supply PDFs in the app).
 
 Print speed: short in-process caches reuse modal detail, sticker PNG map,
 and Content color/brand so picking-list + stickers do not re-hit WB for the
@@ -10,6 +11,7 @@ the official stickers endpoint (or its fresh cache).
 """
 from __future__ import annotations
 
+import base64
 import copy
 import hashlib
 import html
@@ -366,8 +368,45 @@ def _load_local_orders(
     return items
 
 
+def _int_or_zero(value: object) -> int:
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return 0
+
+
+def _order_sticker_sort_key(order: dict[str, Any]) -> tuple[int, int, int]:
+    """WB portal sorts rows inside an article by sticker partB, then partA."""
+    return (
+        _int_or_zero(order.get("sticker_part_b")),
+        _int_or_zero(order.get("sticker_part_a")),
+        _int_or_zero(order.get("order_id")),
+    )
+
+
+def _sort_groups_like_wb(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Match seller-portal picking list order.
+
+    Groups: by product name, then seller article (portal lists 80×160 → 80×190 → …).
+    Orders: by sticker partB ascending (not by order id).
+    """
+    for g in groups:
+        orders = list(g.get("orders") or [])
+        orders.sort(key=_order_sticker_sort_key)
+        g["orders"] = orders
+        g["qty"] = len(orders)
+    groups.sort(
+        key=lambda g: (
+            str(g.get("product_name") or "").casefold(),
+            str(g.get("article") or "").casefold(),
+            str(g.get("nm_id") or ""),
+        )
+    )
+    return groups
+
+
 def _group_orders_by_article(orders: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Group by seller article (stable: first-seen article order, then order_id)."""
+    """Group by seller article. Final order is applied by ``_sort_groups_like_wb``."""
     groups: dict[str, dict[str, Any]] = {}
     order_keys: list[str] = []
     for o in orders:
@@ -392,7 +431,6 @@ def _group_orders_by_article(orders: list[dict[str, Any]]) -> list[dict[str, Any
             if b not in g["barcodes"]:
                 g["barcodes"].append(b)
     for key in order_keys:
-        groups[key]["orders"].sort(key=lambda x: int(x.get("order_id") or 0))
         groups[key]["qty"] = len(groups[key]["orders"])
     return [groups[k] for k in order_keys]
 
@@ -855,10 +893,20 @@ def build_article_groups_for_print(
         orders_full.append(row)
     groups = _group_orders_by_article(orders_full)
     for g in groups:
+        # Prefer catalog name already on rows; keep stable before WB-like sort.
+        if not str(g.get("product_name") or "").strip():
+            first = g["orders"][0] if g["orders"] else {}
+            g["product_name"] = str(first.get("product_name") or g["article"])
         first = g["orders"][0] if g["orders"] else {}
         g["color"] = str(first.get("color") or "")
         g["brand"] = str(first.get("brand") or "")
-        g["product_name"] = str(first.get("product_name") or g["article"])
+    groups = _sort_groups_like_wb(groups)
+    # Color/brand from first row after sticker sort (same article → same meta).
+    for g in groups:
+        first = g["orders"][0] if g["orders"] else {}
+        g["color"] = str(first.get("color") or g.get("color") or "")
+        g["brand"] = str(first.get("brand") or g.get("brand") or "")
+        g["product_name"] = str(g.get("product_name") or first.get("product_name") or g["article"])
     return {
         "detail": detail,
         "groups": groups,
@@ -866,7 +914,7 @@ def build_article_groups_for_print(
     }
 
 
-def render_picking_list_html(payload: dict[str, Any]) -> str:
+def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) -> str:
     detail = payload["detail"]
     groups = payload["groups"]
     sid = _esc(detail.get("supply_id"))
@@ -1046,7 +1094,7 @@ def render_picking_list_html(payload: dict[str, Any]) -> str:
   </style>
 </head>
 <body>
-  <div class="toolbar no-print"><button type="button" onclick="window.print()">Печать</button></div>
+  {"" if for_pdf else '<div class="toolbar no-print"><button type="button" onclick="window.print()">Печать</button></div>'}
   <div class="doc-kicker">Лист подбора {sid} от {created}</div>
   <h1>{name}</h1>
   <div class="meta">
@@ -1061,9 +1109,104 @@ def render_picking_list_html(payload: dict[str, Any]) -> str:
   </div>
   {''.join(rows_html) if rows_html else '<p class="empty">Нет заказов в поставке.</p>'}
   <div class="foot">Сформировано в FeedPilot · A4 книжная</div>
-  <script>window.addEventListener('load',function(){{ setTimeout(function(){{ window.print(); }}, 250); }});</script>
 </body>
 </html>"""
+
+
+def _photo_data_uri(url: str, *, timeout: float = 4.0) -> str:
+    """Embed remote product photos for headless HTML→PDF (LibreOffice)."""
+    text = str(url or "").strip()
+    if not text or text.startswith("data:"):
+        return text
+    if not (text.startswith("https://") or text.startswith("http://")):
+        return ""
+    try:
+        req = Request(
+            text,
+            headers={"User-Agent": "FeedPilot-WBFBS/1.0", "Accept": "image/*"},
+            method="GET",
+        )
+        with urlopen(req, timeout=timeout) as resp:
+            raw = resp.read()
+            ctype = str(resp.headers.get("Content-Type") or "image/jpeg").split(";")[0].strip()
+        if not raw or len(raw) > 2_000_000:
+            return ""
+        if ctype not in {"image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"}:
+            ctype = "image/jpeg"
+        return f"data:{ctype};base64,{base64.b64encode(raw).decode('ascii')}"
+    except Exception as exc:
+        _log.debug("picking photo fetch: %s", exc)
+        return ""
+
+
+def _embed_picking_list_photos(html_doc: str, groups: list[dict[str, Any]]) -> str:
+    out = html_doc
+    for g in groups:
+        src = str(g.get("product_photo") or "").strip()
+        if not src or src.startswith("data:"):
+            continue
+        data_uri = _photo_data_uri(src)
+        if data_uri:
+            out = out.replace(f'src="{_esc(src)}"', f'src="{data_uri}"', 1)
+    return out
+
+
+def html_to_pdf_bytes(html_doc: str, *, basename: str = "document") -> bytes:
+    """Convert HTML to PDF via LibreOffice (same approach as packing-list.pdf)."""
+    import os
+    import pathlib
+    import subprocess
+    import tempfile
+
+    tmp_dir = tempfile.mkdtemp()
+    html_path = pathlib.Path(tmp_dir) / f"{basename}.html"
+    pdf_path = pathlib.Path(tmp_dir) / f"{basename}.pdf"
+    html_path.write_text(html_doc, encoding="utf-8")
+
+    lo_env = dict(os.environ)
+    lo_env["HOME"] = tmp_dir
+    lo_env["XDG_CACHE_HOME"] = tmp_dir
+    lo_env["XDG_CONFIG_HOME"] = tmp_dir
+    lo_env["XDG_RUNTIME_DIR"] = tmp_dir
+    lo_env["DCONF_PROFILE"] = "/dev/null"
+
+    for binary in (
+        "/usr/bin/soffice",
+        "/usr/lib/libreoffice/program/soffice",
+        "soffice",
+        "libreoffice",
+    ):
+        try:
+            result = subprocess.run(
+                [
+                    binary,
+                    "--headless",
+                    "--norestore",
+                    f"-env:UserInstallation=file://{tmp_dir}/lo_profile",
+                    "--convert-to",
+                    "pdf",
+                    "--outdir",
+                    tmp_dir,
+                    str(html_path),
+                ],
+                capture_output=True,
+                timeout=90,
+                env=lo_env,
+            )
+        except FileNotFoundError:
+            continue
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError("Таймаут конвертации листа подбора в PDF") from exc
+        if result.returncode == 0 and pdf_path.exists():
+            return pdf_path.read_bytes()
+    raise RuntimeError("Не удалось сформировать PDF листа подбора (LibreOffice)")
+
+
+def render_picking_list_pdf(payload: dict[str, Any]) -> bytes:
+    """A4 picking list as PDF for direct print/download (no HTML page)."""
+    html_doc = render_picking_list_html(payload, for_pdf=True)
+    html_doc = _embed_picking_list_photos(html_doc, list(payload.get("groups") or []))
+    return html_to_pdf_bytes(html_doc, basename="wb_fbs_picking_list")
 
 
 def render_stickers_print_html(payload: dict[str, Any]) -> str:

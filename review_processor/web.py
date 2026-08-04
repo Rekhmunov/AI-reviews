@@ -8825,13 +8825,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    @app.get("/api/wb-fbs/supplies/{supply_id}/picking-list")
-    def wb_fbs_supply_picking_list(
+    @app.get("/api/wb-fbs/supplies/{supply_id}/picking-list.pdf")
+    def wb_fbs_supply_picking_list_pdf(
         request: Request,
         supply_id: str,
         source_id: int,
     ) -> Response:
-        """A4 portrait picking list HTML (print in new tab)."""
+        """A4 picking list PDF for direct print (WB has no public picking-list API)."""
         from . import wb_fbs_detail as wb_detail
 
         user = _require_user(request)
@@ -8851,12 +8851,37 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 supply_id=sid,
                 mode="picking_list",
             )
-            html_doc = wb_detail.render_picking_list_html(payload)
+            pdf_bytes = wb_detail.render_picking_list_pdf(payload)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return Response(content=html_doc, media_type="text/html; charset=utf-8")
+        safe_name = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in sid)[:80]
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'inline; filename="PickingList_{safe_name}.pdf"'
+            },
+        )
+
+    @app.get("/api/wb-fbs/supplies/{supply_id}/picking-list")
+    def wb_fbs_supply_picking_list_legacy(
+        request: Request,
+        supply_id: str,
+        source_id: int,
+    ) -> Response:
+        """Compat redirect to PDF picking list."""
+        from fastapi.responses import RedirectResponse
+
+        sid = str(supply_id or "").strip()
+        return RedirectResponse(
+            url=(
+                f"/api/wb-fbs/supplies/{sid}/picking-list.pdf"
+                f"?source_id={int(source_id)}"
+            ),
+            status_code=307,
+        )
 
     @app.get("/api/wb-fbs/supplies/{supply_id}/stickers-print")
     def wb_fbs_supply_stickers_print(

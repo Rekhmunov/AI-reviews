@@ -18425,8 +18425,9 @@ function wbFbsOpenPickingList() {
   if (!sid || !wbFbsState.sourceId) return;
   const btn = document.getElementById("wbFbsSupplyDetailPickingBtn");
   if (btn) btn.disabled = true;
+  // Official WB API has no picking-list endpoint; we compose A4 PDF (like portal print).
   const url =
-    `/api/wb-fbs/supplies/${encodeURIComponent(sid)}/picking-list` +
+    `/api/wb-fbs/supplies/${encodeURIComponent(sid)}/picking-list.pdf` +
     `?source_id=${wbFbsState.sourceId}`;
   const win = window.open(url, "_blank");
   if (!win) alert("Разрешите всплывающие окна для листа подбора");
