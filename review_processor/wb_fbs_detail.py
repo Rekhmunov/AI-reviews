@@ -1133,6 +1133,8 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
 <head>
   <meta charset="utf-8" />
   <title>Лист подбора {sid} от {created}</title>
+  <!-- feedpilot-picking-list:20260804c -->
+  <meta name="feedpilot-build" content="picking-20260804c" />
   <style>
     @page {{ size: A4 portrait; margin: 10mm; }}
     * {{ box-sizing: border-box; }}
@@ -1564,6 +1566,8 @@ def render_stickers_print_html(payload: dict[str, Any]) -> str:
 <head>
   <meta charset="utf-8" />
   <title>Стикеры поставки {_esc(payload.get("detail", {}).get("supply_id"))}</title>
+  <!-- feedpilot-stickers:20260804c -->
+  <meta name="feedpilot-build" content="picking-20260804c" />
   <style>
     @page {{ size: 58mm 40mm; margin: 0; }}
     * {{ box-sizing: border-box; }}

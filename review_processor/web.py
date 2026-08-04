@@ -8898,7 +8898,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return Response(content=html_doc, media_type="text/html; charset=utf-8")
+        return Response(
+            content=html_doc,
+            media_type="text/html; charset=utf-8",
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate",
+                "Pragma": "no-cache",
+                "X-Feedpilot-Build": "picking-20260804c",
+            },
+        )
 
     @app.get("/api/wb-fbs/supplies/{supply_id}/stickers-print")
     def wb_fbs_supply_stickers_print(
@@ -8931,7 +8939,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return Response(content=html_doc, media_type="text/html; charset=utf-8")
+        return Response(
+            content=html_doc,
+            media_type="text/html; charset=utf-8",
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate",
+                "Pragma": "no-cache",
+                "X-Feedpilot-Build": "picking-20260804c",
+            },
+        )
 
     @app.get("/api/wb-fbs/orders/{order_id}/sticker-print")
     def wb_fbs_order_sticker_print(
