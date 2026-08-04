@@ -17865,6 +17865,15 @@ function _wbFbsRowActionsHtml(oid) {
   </div>`;
 }
 
+function _wbFbsQrMenuIconHtml() {
+  return `<span class="wb-fbs-menu-ico wb-fbs-menu-ico-qr" aria-hidden="true">
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M2 2h5v5H2V2zm1.5 1.5v2h2v-2h-2zM11 2h5v5h-5V2zm1.5 1.5v2h2v-2h-2zM2 11h5v5H2v-5zm1.5 1.5v2h2v-2h-2z" fill="currentColor"/>
+      <path d="M11 11h2v2h-2v-2zm3 0h2v2h-2v-2zm-3 3h2v2h-2v-2zm3 0h1v1h-1v-1zm1 1h1v2h-2v-1h1v-1z" fill="currentColor"/>
+    </svg>
+  </span>`;
+}
+
 function _wbFbsSupplyRowActionsHtml(supplyId) {
   const sid = String(supplyId || "").trim();
   if (!sid) return "";
@@ -17874,28 +17883,58 @@ function _wbFbsSupplyRowActionsHtml(supplyId) {
             onclick="toggleWbFbsRowMenu(event, '${_wbFbsEsc(safeKey)}')" aria-haspopup="menu">⋮</button>
     <div id="wbFbsRowMenu_${safeKey}" class="wb-fbs-row-menu" data-order-id="${_wbFbsEsc(safeKey)}" data-supply-id="${_wbFbsEsc(sid)}" role="menu">
       <button type="button" class="wb-fbs-row-menu-item" role="menuitem"
-              onclick="wbFbsSelectSupplyAndPrint('${_wbFbsEsc(sid)}', 'supply')">Стикер поставки</button>
-      <button type="button" class="wb-fbs-row-menu-item" role="menuitem"
-              onclick="wbFbsSelectSupplyAndPrint('${_wbFbsEsc(sid)}', 'boxes')">Стикеры коробов</button>
-      <button type="button" class="wb-fbs-row-menu-item" role="menuitem"
-              onclick="wbFbsSelectSupplyAndPrint('${_wbFbsEsc(sid)}', 'orders')">Стикеры товаров</button>
+              onclick="wbFbsOpenSupplyQr('${_wbFbsEsc(sid)}')">
+        ${_wbFbsQrMenuIconHtml()}
+        Напечатать QR-код поставки
+      </button>
     </div>
   </div>`;
 }
 
-function wbFbsSelectSupplyAndPrint(supplyId, kind) {
+async function wbFbsOpenSupplyQr(supplyId) {
   _wbFbsCloseRowMenus();
   const sid = String(supplyId || "").trim();
-  if (!sid) return;
-  wbFbsState.selected = new Set([sid]);
-  wbFbsState.selectedMeta = {};
-  wbFbsState.selectAllMatching = false;
-  _wbFbsUpdateBottomBar();
-  if (kind === "boxes") return wbFbsPrintBoxStickers();
-  if (kind === "orders") return wbFbsPrintOrderStickers();
-  return wbFbsPrintSupplySticker();
+  if (!sid || !wbFbsState.sourceId) return;
+  const url =
+    `/api/wb-fbs/stickers/supply/${encodeURIComponent(sid)}` +
+    `?source_id=${wbFbsState.sourceId}&type=png&disposition=inline`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.detail || `Ошибка ${res.status}`);
+    }
+    const pngBlob = await res.blob();
+    const jsPdfNs = window.jspdf || {};
+    const JsPDF = jsPdfNs.jsPDF;
+    let openUrl = "";
+    if (typeof JsPDF === "function") {
+      // WB sticker is 580×400 px — open as PDF in a new tab (portal-like).
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error("Не удалось прочитать этикетку"));
+        reader.readAsDataURL(pngBlob);
+      });
+      const doc = new JsPDF({ orientation: "landscape", unit: "mm", format: [58, 40] });
+      doc.addImage(dataUrl, "PNG", 0, 0, 58, 40);
+      const pdfBlob = doc.output("blob");
+      openUrl = URL.createObjectURL(pdfBlob);
+    } else {
+      openUrl = URL.createObjectURL(pngBlob);
+    }
+    const win = window.open(openUrl, "_blank");
+    if (!win) {
+      URL.revokeObjectURL(openUrl);
+      alert("Разрешите всплывающие окна, чтобы открыть QR-код поставки");
+      return;
+    }
+    setTimeout(() => URL.revokeObjectURL(openUrl), 60_000);
+  } catch (e) {
+    alert(String(e.message || e || "Не удалось получить QR-код поставки"));
+  }
 }
-window.wbFbsSelectSupplyAndPrint = wbFbsSelectSupplyAndPrint;
+window.wbFbsOpenSupplyQr = wbFbsOpenSupplyQr;
 
 function wbFbsStubCreateSupply(orderId) {
   _wbFbsCloseRowMenus();
@@ -18466,12 +18505,7 @@ async function wbFbsPrintSupplySticker() {
     return;
   }
   for (const sid of supplyIds) {
-    const a = document.createElement("a");
-    a.href = `/api/wb-fbs/stickers/supply/${encodeURIComponent(sid)}?source_id=${wbFbsState.sourceId}&type=png`;
-    a.download = `supply_${sid}.png`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    await wbFbsOpenSupplyQr(sid);
   }
 }
 window.wbFbsPrintSupplySticker = wbFbsPrintSupplySticker;

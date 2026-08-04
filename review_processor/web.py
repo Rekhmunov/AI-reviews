@@ -8846,12 +8846,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         supply_id: str,
         source_id: int,
         type: str = "png",
+        disposition: str = "inline",
     ) -> Response:
         user = _require_user(request)
         if not _can_view_wb_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
         owner_id = _supply_owner_id(user)
         sticker_type = type if type in {"png", "svg", "zplv", "zplh"} else "png"
+        disp = "attachment" if str(disposition or "").strip().lower() == "attachment" else "inline"
         src_full = repository.get_supply_source_with_key(user_id=owner_id, source_id=source_id)
         if not src_full or not src_full.get("api_key"):
             raise HTTPException(status_code=400, detail="Источник не найден")
@@ -8860,11 +8862,16 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raw = client.get_supply_barcode(supply_id, sticker_type=sticker_type)
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        media = "image/png" if sticker_type == "png" else "application/octet-stream"
+        if sticker_type == "png":
+            media = "image/png"
+        elif sticker_type == "svg":
+            media = "image/svg+xml"
+        else:
+            media = "application/octet-stream"
         return Response(
             content=raw,
             media_type=media,
-            headers={"Content-Disposition": f'attachment; filename="supply_{supply_id}.{sticker_type}"'},
+            headers={"Content-Disposition": f'{disp}; filename="supply_{supply_id}.{sticker_type}"'},
         )
 
     @app.post("/api/wb-fbs/stickers/boxes")

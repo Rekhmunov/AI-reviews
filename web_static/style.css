@@ -7026,6 +7026,11 @@ button.wb-fbs-select-all-link:disabled {
   font-size: 12px;
   font-weight: 600;
 }
+.wb-fbs-menu-ico-qr svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+}
 .wb-fbs-bottom-bar {
   position: fixed;
   left: 50%;
