@@ -1623,6 +1623,7 @@
               <div class="wb-fbs-sd-actions">
                 <button type="button" class="secondary" id="wbFbsSupplyDetailPickingBtn" onclick="wbFbsOpenPickingList()">Лист подбора</button>
                 <button type="button" class="secondary" id="wbFbsSupplyDetailStickersBtn" onclick="wbFbsOpenStickersPrint()">Распечатать стикеры</button>
+                <button type="button" class="secondary" id="wbFbsSupplyDetailKizBtn" onclick="openWbFbsKizModal()" hidden>Указать маркировку</button>
               </div>
             </div>
             <div id="wbFbsSupplyDetailInfo" class="wb-fbs-sd-info" hidden></div>
@@ -1640,6 +1641,71 @@
                   <tr><td colspan="4" class="wb-fbs-empty">Загрузка…</td></tr>
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+
+        <div id="wbFbsKizModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="wbFbsKizTitle"
+             onclick="if(event.target===this)closeWbFbsKizModal()">
+          <div class="modal-card wb-fbs-kiz-modal">
+            <div class="wb-fbs-kiz-header">
+              <div class="wb-fbs-kiz-header-main">
+                <h3 id="wbFbsKizTitle" class="wb-fbs-kiz-title">КИЗ</h3>
+                <p class="wb-fbs-kiz-sub">Контрольный идентификационный знак, похожий на QR-код. Нужен для маркировки товаров в системе «Честный знак»</p>
+              </div>
+              <div class="wb-fbs-kiz-header-actions">
+                <button type="button" id="wbFbsKizSaveBtn" onclick="saveWbFbsKizModal()">Сохранить</button>
+                <button type="button" class="icon-btn secondary" onclick="closeWbFbsKizModal()" aria-label="Закрыть">✕</button>
+              </div>
+            </div>
+            <div class="wb-fbs-kiz-toolbar">
+              <div class="wb-fbs-kiz-filters">
+                <label class="wb-fbs-kiz-check"><input type="checkbox" id="wbFbsKizFilterEmpty" onchange="renderWbFbsKizTable()" /> Только незаполненные</label>
+                <label class="wb-fbs-kiz-check"><input type="checkbox" id="wbFbsKizFilterErrors" onchange="renderWbFbsKizTable()" /> Только с ошибками</label>
+              </div>
+              <div class="wb-fbs-kiz-toolbar-actions">
+                <button type="button" class="secondary" onclick="downloadWbFbsKizTemplate()">Скачать шаблон</button>
+                <button type="button" class="secondary" onclick="document.getElementById('wbFbsKizUploadInput')?.click()">Загрузить</button>
+                <input type="file" id="wbFbsKizUploadInput" accept=".csv,text/csv" hidden onchange="uploadWbFbsKizTemplate(event)" />
+              </div>
+            </div>
+            <div class="wb-fbs-kiz-scan-bar">
+              <label class="wb-fbs-kiz-scan-label" for="wbFbsKizStickerScan">Сканирование</label>
+              <input id="wbFbsKizStickerScan" class="wb-fbs-kiz-scan-input" type="text" autocomplete="off"
+                     placeholder="Сканируйте стикер заказа"
+                     onkeydown="onWbFbsKizStickerScanKey(event)" />
+            </div>
+            <div id="wbFbsKizInfo" class="wb-fbs-kiz-info" hidden></div>
+            <div class="wb-fbs-kiz-table-wrap">
+              <table class="wb-fbs-kiz-table">
+                <thead>
+                  <tr>
+                    <th class="wb-fbs-kiz-col-order">Заказ</th>
+                    <th class="wb-fbs-kiz-col-product">Товар</th>
+                    <th class="wb-fbs-kiz-col-sticker">Номер стикера</th>
+                    <th class="wb-fbs-kiz-col-kiz">КИЗ</th>
+                  </tr>
+                </thead>
+                <tbody id="wbFbsKizTbody">
+                  <tr><td colspan="4" class="wb-fbs-empty">Загрузка…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div id="wbFbsKizScanPrompt" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="wbFbsKizScanPromptTitle"
+             onclick="if(event.target===this)cancelWbFbsKizMarkScan()">
+          <div class="modal-card wb-fbs-kiz-scan-prompt">
+            <h4 id="wbFbsKizScanPromptTitle" class="wb-fbs-kiz-scan-prompt-title">Просканируйте маркировку</h4>
+            <p id="wbFbsKizScanPromptMeta" class="wb-fbs-kiz-scan-prompt-meta">Заказ —</p>
+            <input id="wbFbsKizMarkScan" class="wb-fbs-kiz-scan-input" type="text" autocomplete="off"
+                   placeholder="Сканируйте КИЗ с того же изделия"
+                   onkeydown="onWbFbsKizMarkScanKey(event)" />
+            <div class="row" style="gap:10px;margin-top:16px">
+              <button type="button" class="secondary" onclick="cancelWbFbsKizMarkScan()">Отмена</button>
             </div>
           </div>
         </div>

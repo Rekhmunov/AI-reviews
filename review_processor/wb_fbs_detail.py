@@ -846,6 +846,7 @@ def get_supply_detail(
                 "cargo_label": o.get("cargo_label") or "",
                 "kiz_required": bool(kiz.get("kiz_required")),
                 "kiz_bound": bool(kiz.get("kiz_bound")),
+                "kiz_codes": list(kiz.get("kiz_codes") or []),
             }
         )
 
@@ -868,6 +869,162 @@ def get_supply_detail(
         user_id=user_id, source_id=source_id, supply_id=sid, detail=result
     )
     return result
+
+
+def _sticker_number(part_a: object, part_b: object) -> str:
+    """Portal «номер стикера» = partA + partB (e.g. 5662692 + 5731)."""
+    a = str(part_a or "").strip()
+    b = str(part_b or "").strip()
+    if a and b:
+        return f"{a}{b}"
+    return a or b
+
+
+def build_kiz_marking_payload(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    api_key: str,
+    supply_id: str,
+) -> dict[str, Any]:
+    """Rows for «Указать маркировку» modal: only orders that accept sgtin."""
+    # Fresh meta so bound codes match ЛК.
+    invalidate_supply_detail_cache(
+        user_id=user_id, source_id=source_id, supply_id=supply_id
+    )
+    detail = get_supply_detail(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        api_key=api_key,
+        supply_id=supply_id,
+    )
+    required_orders = [
+        o for o in (detail.get("orders") or []) if o.get("kiz_required")
+    ]
+    order_ids = [
+        int(o["order_id"])
+        for o in required_orders
+        if o.get("order_id") is not None
+    ]
+    client = wb.WbFbsClient(api_key)
+    stickers = _fetch_stickers_map(
+        client,
+        order_ids,
+        api_key=api_key,
+        sticker_type="svg",
+        keep_files=False,
+    )
+    if order_ids:
+        missing = sum(
+            1
+            for oid in order_ids
+            if not str((stickers.get(oid) or {}).get("partB") or "").strip()
+        )
+        if missing > max(1, len(order_ids) // 2):
+            stickers = _fetch_stickers_map(
+                client,
+                order_ids,
+                api_key=api_key,
+                sticker_type="png",
+                keep_files=False,
+            )
+    rows: list[dict[str, Any]] = []
+    for o in required_orders:
+        try:
+            oid = int(o["order_id"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        st = stickers.get(oid) or {}
+        part_a = str(st.get("partA") or "").strip()
+        part_b = str(st.get("partB") or "").strip()
+        codes = [str(x).strip() for x in (o.get("kiz_codes") or []) if str(x or "").strip()]
+        if not codes:
+            codes = [""]
+        rows.append(
+            {
+                "order_id": oid,
+                "created_date": o.get("created_date") or "—",
+                "product_name": o.get("product_name") or "",
+                "product_photo": o.get("product_photo") or "",
+                "article": o.get("article") or "",
+                "brand": o.get("brand") or "",
+                "nm_id": o.get("nm_id"),
+                "barcodes": list(o.get("barcodes") or []),
+                "sticker_part_a": part_a,
+                "sticker_part_b": part_b,
+                "sticker_number": _sticker_number(part_a, part_b),
+                "kiz_codes": codes,
+                "kiz_bound": bool(o.get("kiz_bound")),
+            }
+        )
+    return {
+        "supply_id": detail.get("supply_id"),
+        "source_id": source_id,
+        "name": detail.get("name") or "",
+        "order_count": len(rows),
+        "rows": rows,
+    }
+
+
+def save_kiz_marking(
+    *,
+    api_key: str,
+    items: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Push sgtin lists to WB for each order. Returns per-order results."""
+    client = wb.WbFbsClient(api_key)
+    results: list[dict[str, Any]] = []
+    ok_n = 0
+    err_n = 0
+    for raw in items:
+        if not isinstance(raw, dict):
+            continue
+        try:
+            oid = int(raw.get("order_id"))
+        except (TypeError, ValueError):
+            continue
+        codes = [
+            str(x).strip()
+            for x in (raw.get("kiz_codes") or [])
+            if str(x or "").strip()
+        ]
+        # Deduplicate preserving order.
+        seen: set[str] = set()
+        uniq: list[str] = []
+        for c in codes:
+            if c in seen:
+                continue
+            seen.add(c)
+            uniq.append(c)
+        try:
+            if uniq:
+                client.set_order_sgtin(oid, uniq)
+            else:
+                client.delete_order_meta(oid, "sgtin")
+            time.sleep(0.07)
+            results.append(
+                {
+                    "order_id": oid,
+                    "ok": True,
+                    "kiz_codes": uniq,
+                    "error": "",
+                }
+            )
+            ok_n += 1
+        except Exception as exc:
+            err_n += 1
+            results.append(
+                {
+                    "order_id": oid,
+                    "ok": False,
+                    "kiz_codes": uniq,
+                    "error": str(exc)[:300],
+                }
+            )
+            time.sleep(0.07)
+    return {"ok": err_n == 0, "saved": ok_n, "failed": err_n, "results": results}
 
 
 def _detail_from_local(

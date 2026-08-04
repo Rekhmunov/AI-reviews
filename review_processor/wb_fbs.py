@@ -439,6 +439,17 @@ class WbFbsClient:
             body={"sgtins": codes},
         )
 
+    def delete_order_meta(self, order_id: int, key: str) -> None:
+        """Remove metadata key from an assembly order (e.g. ``sgtin``)."""
+        meta_key = str(key or "").strip()
+        if not meta_key:
+            raise ValueError("Укажите ключ метаданных")
+        self._request(
+            "DELETE",
+            f"/api/v3/orders/{int(order_id)}/meta",
+            params={"key": meta_key},
+        )
+
     def get_supply(self, supply_id: str) -> dict[str, Any]:
         data = self._request("GET", f"/api/v3/supplies/{supply_id}")
         return data if isinstance(data, dict) else {}

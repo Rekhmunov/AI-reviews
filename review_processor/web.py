@@ -8949,6 +8949,72 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             },
         )
 
+    @app.get("/api/wb-fbs/supplies/{supply_id}/kiz")
+    def wb_fbs_supply_kiz_list(
+        request: Request,
+        supply_id: str,
+        source_id: int,
+    ) -> dict[str, object]:
+        """Orders in supply that need КИЗ (sgtin), with sticker numbers and codes."""
+        from . import wb_fbs_detail as wb_detail
+
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        sid = str(supply_id or "").strip()
+        if not sid or not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
+        api_key = _wb_fbs_source_key(owner_id, int(source_id))
+        try:
+            return wb_detail.build_kiz_marking_payload(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                api_key=api_key,
+                supply_id=sid,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.put("/api/wb-fbs/supplies/{supply_id}/kiz")
+    async def wb_fbs_supply_kiz_save(
+        request: Request,
+        supply_id: str,
+        source_id: int,
+    ) -> dict[str, object]:
+        """Save КИЗ codes to WB for orders in the supply."""
+        from . import wb_fbs_detail as wb_detail
+
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        sid = str(supply_id or "").strip()
+        if not sid or not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
+        try:
+            body = await request.json()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Некорректный JSON") from exc
+        items = body.get("items") if isinstance(body, dict) else None
+        if not isinstance(items, list):
+            raise HTTPException(status_code=400, detail="Укажите items[]")
+        api_key = _wb_fbs_source_key(owner_id, int(source_id))
+        try:
+            result = wb_detail.save_kiz_marking(api_key=api_key, items=items)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        # Detail cache may still show old kiz_bound badges.
+        wb_detail.invalidate_supply_detail_cache(
+            user_id=owner_id, source_id=int(source_id), supply_id=sid
+        )
+        return result
+
     @app.get("/api/wb-fbs/orders/{order_id}/sticker-print")
     def wb_fbs_order_sticker_print(
         request: Request,
