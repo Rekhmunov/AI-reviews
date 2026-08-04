@@ -19070,10 +19070,16 @@ async function saveWbFbsKizModal() {
     renderWbFbsKizTable({ skipCollect: true });
     const skipped = Number(data.skipped || 0);
     if (data.failed) {
-      _wbFbsKizSetInfo(`Сохранено: ${data.saved || 0}, с ошибками: ${data.failed}`);
+      _wbFbsKizSetInfo(
+        `В WB сохранено: ${data.saved || 0}, с ошибками: ${data.failed}` +
+        (data.saved_local ? `; локально: ${data.saved_local}` : "")
+      );
     } else {
       const skipNote = skipped ? ` (без изменений: ${skipped})` : "";
-      _wbFbsKizSetInfo(`Сохранено заказов: ${data.saved || 0}${skipNote}`, true);
+      _wbFbsKizSetInfo(
+        `Сохранено в WB и в FeedPilot: ${data.saved || 0}${skipNote}`,
+        true
+      );
     }
     // Soft-refresh detail badges without closing the KIZ modal.
     _wbFbsKizRefreshDetailBadges(data.results || []);

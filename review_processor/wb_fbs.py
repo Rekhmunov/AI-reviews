@@ -625,6 +625,45 @@ def ensure_wb_fbs_tables(repo: ReviewRepository) -> None:
                 "ON wb_fbs_supplies(user_id, source_id, done, created_at_wb DESC)"
             )
         )
+        # Local copy of КИЗ codes after Save (WB API remains source of truth for badges).
+        conn.execute(
+            """
+            ALTER TABLE wb_fbs_orders
+            ADD COLUMN IF NOT EXISTS kiz_codes_json TEXT NOT NULL DEFAULT '[]'
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE wb_fbs_orders
+            ADD COLUMN IF NOT EXISTS kiz_saved_at TIMESTAMPTZ
+            """
+        )
+
+
+def update_order_kiz_codes(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    order_id: int,
+    kiz_codes: list[str],
+) -> None:
+    """Persist КИЗ codes locally after a successful WB meta/sgtin write."""
+    ensure_wb_fbs_tables(repo)
+    codes = [str(x) for x in (kiz_codes or []) if str(x or "").strip()]
+    payload = json.dumps(codes, ensure_ascii=False)
+    saved_at = _utc_now() if codes else None
+    with repo._connect() as conn:
+        conn.execute(
+            repo._sql(
+                """
+                UPDATE wb_fbs_orders
+                SET kiz_codes_json = ?, kiz_saved_at = ?
+                WHERE user_id = ? AND source_id = ? AND order_id = ?
+                """
+            ),
+            (payload, saved_at, int(user_id), int(source_id), int(order_id)),
+        )
 
 
 def _parse_dt(value: object) -> str | None:

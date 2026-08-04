@@ -88,3 +88,33 @@ def test_save_sets_sgtin(mock_cls: Any, _sleep: Any) -> None:
     assert result["ok"] is True
     assert result["saved"] == 1
     client.set_order_sgtin.assert_called_once_with(5, ["AAA", "BBB"])
+
+
+@patch("review_processor.wb_fbs_detail.time.sleep", return_value=None)
+@patch("review_processor.wb_fbs_detail.wb.update_order_kiz_codes")
+@patch("review_processor.wb_fbs_detail.wb.WbFbsClient")
+def test_save_mirrors_to_local_db(
+    mock_cls: Any, mock_local: Any, _sleep: Any
+) -> None:
+    client = _client_mock()
+    mock_cls.return_value = client
+    repo = MagicMock()
+    result = save_kiz_marking(
+        api_key="k",
+        items=[{"order_id": 7, "kiz_codes": ["CODE1"]}],
+        allowed_order_ids={7},
+        repo=repo,
+        user_id=11,
+        source_id=22,
+    )
+    assert result["ok"] is True
+    assert result["saved"] == 1
+    assert result["saved_local"] == 1
+    client.set_order_sgtin.assert_called_once_with(7, ["CODE1"])
+    mock_local.assert_called_once_with(
+        repo,
+        user_id=11,
+        source_id=22,
+        order_id=7,
+        kiz_codes=["CODE1"],
+    )

@@ -989,8 +989,11 @@ def save_kiz_marking(
     api_key: str,
     items: list[dict[str, Any]],
     allowed_order_ids: set[int] | None = None,
+    repo: ReviewRepository | None = None,
+    user_id: int | None = None,
+    source_id: int | None = None,
 ) -> dict[str, Any]:
-    """Push sgtin lists to WB for each order. Returns per-order results.
+    """Push sgtin to WB API and mirror successful writes into local wb_fbs_orders.
 
     Empty ``kiz_codes`` clears WB meta only when ``clear`` is true (was bound
     before). Unchanged empty rows are skipped — otherwise Save would DELETE
@@ -1001,6 +1004,7 @@ def save_kiz_marking(
     ok_n = 0
     err_n = 0
     skipped_n = 0
+    local_n = 0
     for raw in items:
         if not isinstance(raw, dict):
             continue
@@ -1042,6 +1046,23 @@ def save_kiz_marking(
             else:
                 client.delete_order_meta(oid, "sgtin")
             time.sleep(0.07)
+            # Mirror into FeedPilot DB only after WB accepted the write.
+            if repo is not None and user_id is not None and source_id is not None:
+                try:
+                    wb.update_order_kiz_codes(
+                        repo,
+                        user_id=int(user_id),
+                        source_id=int(source_id),
+                        order_id=oid,
+                        kiz_codes=uniq,
+                    )
+                    local_n += 1
+                except Exception as local_exc:
+                    _log.warning(
+                        "local kiz save order %s failed after WB ok: %s",
+                        oid,
+                        local_exc,
+                    )
             results.append(
                 {
                     "order_id": oid,
@@ -1067,6 +1088,7 @@ def save_kiz_marking(
         "saved": ok_n,
         "failed": err_n,
         "skipped": skipped_n,
+        "saved_local": local_n,
         "results": results,
     }
 

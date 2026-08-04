@@ -9021,6 +9021,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 api_key=api_key,
                 items=items,
                 allowed_order_ids=allowed,
+                repo=repository,
+                user_id=owner_id,
+                source_id=int(source_id),
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
