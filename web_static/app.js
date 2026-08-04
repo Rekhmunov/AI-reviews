@@ -18497,6 +18497,14 @@ function _wbFbsKizNormalizeScan(value) {
   return String(value || "").replace(/\s+/g, "").trim();
 }
 
+/** КИЗ / Data Matrix: scanners often emit ↔ instead of GS (\\u001D). */
+function _wbFbsKizNormalizeMark(value) {
+  return String(value || "")
+    .replace(/\u2194/g, "\u001D") // ↔
+    .replace(/\r?\n/g, "")
+    .trim();
+}
+
 function closeWbFbsKizModal() {
   cancelWbFbsKizMarkScan();
   setModalVisibility("wbFbsKizModal", false);
@@ -18559,7 +18567,7 @@ function _wbFbsKizCollectFromDom() {
     const row = byId[oid];
     if (!row || !Number.isFinite(idx)) return;
     if (!Array.isArray(row.kiz_codes)) row.kiz_codes = [];
-    row.kiz_codes[idx] = String(input.value || "");
+    row.kiz_codes[idx] = _wbFbsKizNormalizeMark(input.value);
   });
 }
 
@@ -18748,7 +18756,7 @@ function onWbFbsKizMarkScanKey(event) {
   if (!event || event.key !== "Enter") return;
   event.preventDefault();
   const oid = Number(wbFbsKizState.pendingOrderId);
-  const mark = _wbFbsKizNormalizeScan(event.target?.value);
+  const mark = _wbFbsKizNormalizeMark(event.target?.value);
   if (!oid || !mark) return;
   _wbFbsKizCollectFromDom();
   const row = wbFbsKizState.rows.find((r) => Number(r.order_id) === oid);
@@ -18818,7 +18826,7 @@ async function uploadWbFbsKizTemplate(event) {
     for (const line of lines.slice(1)) {
       const parts = line.includes(";") ? line.split(";") : line.split(",");
       const oid = Number(String(parts[0] || "").trim());
-      const kiz = String(parts[2] ?? parts[1] ?? "").trim();
+      const kiz = _wbFbsKizNormalizeMark(parts[2] ?? parts[1] ?? "");
       if (!Number.isFinite(oid)) continue;
       if (!byOrder[oid]) byOrder[oid] = [];
       if (kiz) byOrder[oid].push(kiz);
@@ -18860,7 +18868,7 @@ async function saveWbFbsKizModal() {
   const items = [];
   for (const r of wbFbsKizState.rows) {
     const codes = (Array.isArray(r.kiz_codes) ? r.kiz_codes : [])
-      .map((c) => String(c || "").trim())
+      .map((c) => _wbFbsKizNormalizeMark(c))
       .filter(Boolean);
     const wasBound = !!r.kiz_bound;
     if (!codes.length && !wasBound) continue;
