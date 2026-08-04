@@ -18705,7 +18705,9 @@ function onWbFbsKizStickerScanKey(event) {
     return;
   }
   if (!found.row) {
-    _wbFbsKizSetInfo(`Заказ со стикером не найден: ${scan}`);
+    _wbFbsKizSetInfo(
+      `Такого заказа нет в этой поставке. Стикер «${scan}» не найден среди заказов с КИЗ.`
+    );
     if (input) input.select();
     return;
   }
