@@ -960,8 +960,8 @@ def build_article_groups_for_print(
             nm_ids.append(int(o.get("nm_id")))
         except (TypeError, ValueError):
             continue
-    # Content color/brand is not part of FBS sync — skip live Content for picking list.
-    card_meta = fetch_card_meta_by_nm(api_key, nm_ids, network=not picking)
+    # Color/brand come from Content API (not FBS sync). Cache makes repeat prints cheap.
+    card_meta = fetch_card_meta_by_nm(api_key, nm_ids, network=True, max_cards=200)
     include_files = mode == "stickers"
     orders_full = []
     for o in detail["orders"]:
@@ -1064,6 +1064,7 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
                 + "".join(f'<div class="sku-barcode">{_esc(b)}</div>' for b in barcodes)
                 + "</div>"
             )
+        # Color directly under barcode(s) — operator cue while picking.
         if color:
             meta_bits.append(f'<div class="sku-color">Цвет: {_esc(color)}</div>')
         meta_bits.append(f'<div class="sku-qty">{qty} шт</div>')
@@ -1133,8 +1134,8 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
 <head>
   <meta charset="utf-8" />
   <title>Лист подбора {sid} от {created}</title>
-  <!-- feedpilot-picking-list:20260804c -->
-  <meta name="feedpilot-build" content="picking-20260804c" />
+  <!-- feedpilot-picking-list:20260804d -->
+  <meta name="feedpilot-build" content="picking-20260804d" />
   <style>
     @page {{ size: A4 portrait; margin: 10mm; }}
     * {{ box-sizing: border-box; }}
@@ -1216,8 +1217,7 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
       font-weight: 800;
       line-height: 1.25;
     }}
-    .sku-meta,
-    .sku-color {{
+    .sku-meta {{
       margin: 0 0 2px;
       color: #475569;
       font-size: 11px;
@@ -1239,6 +1239,13 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
       letter-spacing: 0.02em;
       font-variant-numeric: tabular-nums;
       word-break: break-all;
+    }}
+    .sku-color {{
+      margin: 0 0 2px;
+      font-size: 14px;
+      font-weight: 700;
+      line-height: 1.3;
+      color: #0f172a;
     }}
     .sku-qty {{
       margin: 4px 0 0;
