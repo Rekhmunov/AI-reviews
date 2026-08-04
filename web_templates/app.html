@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=158" />
+  <link rel="stylesheet" href="/static/style.css?v=159" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1518,6 +1518,17 @@
               <button type="button" class="secondary" onclick="wbFbsPrintOrderStickers()">Стикеры товаров</button>
               <button type="button" class="secondary" onclick="wbFbsPrintSupplySticker()">Стикер поставки</button>
               <button type="button" class="secondary" onclick="wbFbsPrintBoxStickers()">Стикеры коробов</button>
+            </div>
+            <div id="wbFbsBottomDeliveryActions" class="wb-fbs-bottom-group hidden">
+              <button type="button" class="wb-fbs-bottom-qr-link" onclick="wbFbsPrintSelectedSupplyQr()">
+                <span class="wb-fbs-menu-ico wb-fbs-menu-ico-qr" aria-hidden="true">
+                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M2 2h5v5H2V2zm1.5 1.5v2h2v-2h-2zM11 2h5v5h-5V2zm1.5 1.5v2h2v-2h-2zM2 11h5v5H2v-5zm1.5 1.5v2h2v-2h-2z" fill="currentColor"/>
+                    <path d="M11 11h2v2h-2v-2zm3 0h2v2h-2v-2zm-3 3h2v2h-2v-2zm3 0h1v1h-1v-1zm1 1h1v2h-2v-1h1v-1z" fill="currentColor"/>
+                  </svg>
+                </span>
+                Напечатать QR-код поставки
+              </button>
             </div>
             <button type="button" class="icon-btn secondary wb-fbs-bottom-close" onclick="clearWbFbsSelection()" title="Сбросить выбор">✕</button>
           </div>
@@ -3515,6 +3526,6 @@
   <script src="/static/jszip.min.js"></script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=335"></script>
+  <script src="/static/app.js?v=336"></script>
 </body>
 </html>

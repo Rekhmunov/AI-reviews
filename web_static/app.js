@@ -18271,6 +18271,7 @@ function _wbFbsUpdateBottomBar() {
   const label = document.getElementById("wbFbsSelectedLabel");
   const newActions = document.getElementById("wbFbsBottomNewActions");
   const stickerActions = document.getElementById("wbFbsBottomStickerActions");
+  const deliveryActions = document.getElementById("wbFbsBottomDeliveryActions");
   const n = wbFbsState.selected.size;
   const pageCount = wbFbsState.items.length;
   const pageSelected = _wbFbsPageSelectedCount();
@@ -18294,11 +18295,25 @@ function _wbFbsUpdateBottomBar() {
     }
   }
   const isNewTab = wbFbsState.tab === "new";
-  const showStickers = (_wbFbsHasRowActions() && !isNewTab) || suppliesMode;
+  // Delivery tab: only QR-print link (same as row ⋮). Other tabs keep order stickers.
+  const showStickers = _wbFbsHasRowActions() && !isNewTab && !suppliesMode;
   if (newActions) newActions.classList.toggle("hidden", !isNewTab);
   if (stickerActions) stickerActions.classList.toggle("hidden", !showStickers);
+  if (deliveryActions) deliveryActions.classList.toggle("hidden", !suppliesMode || n === 0);
   if (bar) bar.classList.toggle("hidden", n === 0);
 }
+
+function wbFbsPrintSelectedSupplyQr() {
+  const supplyIds = _wbFbsSelectedSupplyIds();
+  if (!supplyIds.length) {
+    alert("Выберите поставку.");
+    return;
+  }
+  for (const sid of supplyIds) {
+    wbFbsOpenSupplyQr(sid);
+  }
+}
+window.wbFbsPrintSelectedSupplyQr = wbFbsPrintSelectedSupplyQr;
 
 document.addEventListener("click", (event) => {
   if (event.target.closest(".wb-fbs-row-menu-wrap") || event.target.closest(".wb-fbs-row-menu")) return;
