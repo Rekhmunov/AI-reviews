@@ -7121,10 +7121,23 @@ button.wb-fbs-select-all-link:disabled {
   background: #f1f5f9;
   border-color: #cbd5e1;
 }
+.wb-fbs-kiz.is-pending {
+  color: #92400e;
+  background: #fef3c7;
+  border-color: #fcd34d;
+  text-transform: none;
+  letter-spacing: 0.01em;
+}
+.wb-fbs-kiz.is-ok,
 .wb-fbs-kiz.is-bound {
   color: #166534;
   background: #dcfce7;
   border-color: #86efac;
+}
+.wb-fbs-kiz.is-error {
+  color: #991b1b;
+  background: #fee2e2;
+  border-color: #fca5a5;
 }
 .wb-fbs-product-sub {
   color: #64748b;

@@ -18340,14 +18340,8 @@ function renderWbFbsSupplyDetail(data) {
           `<div class="wb-fbs-barcode">${_wbFbsEsc(b)}</div>`
         ).join("")}</div>`
       : "";
-    // КИЗ only for orders that accept sgtin in FBS metadata.
-    const kizHtml = o.kiz_required
-      ? `<div class="wb-fbs-kiz ${o.kiz_bound ? "is-bound" : "is-empty"}" title="${
-          o.kiz_bound
-            ? "КИЗ привязан к заказу"
-            : "Требуется маркировка (КИЗ). Код ещё не привязан"
-        }">КИЗ</div>`
-      : "";
+    // КИЗ: empty (gray) → pending (на проверке) → ok (green) / error (red).
+    const kizHtml = o.kiz_required ? _wbFbsKizBadgeHtml(o) : "";
     const safeKey = `sd_${oid}`;
     return `<tr class="wb-fbs-sd-click-row">
       <td><input type="checkbox" class="wb-fbs-sd-cb" data-order-id="${oid}" ${checked} onchange="onWbFbsDetailCheckboxChange()" /></td>
@@ -18477,6 +18471,27 @@ const wbFbsKizState = {
   pendingOrderId: null,
   saving: false,
 };
+
+function _wbFbsKizBadgeHtml(order) {
+  const status = String(order?.kiz_status || (order?.kiz_bound ? "ok" : "empty"));
+  let cls = "is-empty";
+  let label = "КИЗ";
+  let title = "Требуется маркировка (КИЗ). Код ещё не привязан";
+  if (status === "pending") {
+    cls = "is-pending";
+    label = "На проверке";
+    title = "КИЗ отправлен, ожидается проверка Wildberries / Честный знак";
+  } else if (status === "ok") {
+    cls = "is-ok";
+    label = "КИЗ";
+    title = "Проверка КИЗ пройдена";
+  } else if (status === "error") {
+    cls = "is-error";
+    label = "КИЗ";
+    title = "Проверка КИЗ не пройдена";
+  }
+  return `<div class="wb-fbs-kiz ${cls}" title="${_wbFbsEsc(title)}">${_wbFbsEsc(label)}</div>`;
+}
 
 function _wbFbsKizSetInfo(text, ok) {
   const el = document.getElementById("wbFbsKizInfo");
@@ -19115,13 +19130,18 @@ function _wbFbsKizRefreshDetailBadges(results) {
   if (!Array.isArray(orders)) return;
   let changed = false;
   for (const r of results) {
-    if (!r || !r.ok) continue;
+    if (!r || !r.wb_ok) continue;
     const oid = Number(r.order_id);
     const order = orders.find((o) => Number(o.order_id) === oid);
     if (!order) continue;
-    const codes = Array.isArray(r.kiz_codes) ? r.kiz_codes.filter((c) => String(c || "").trim()) : [];
+    const codes = Array.isArray(r.kiz_codes)
+      ? r.kiz_codes.filter((c) => String(c || "").trim())
+      : [];
     order.kiz_codes = codes;
     order.kiz_bound = codes.length > 0;
+    // After successful WB write: «на проверке» until next sync gets filled/invalid.
+    order.kiz_status = codes.length ? "pending" : "empty";
+    order.kiz_decision = codes.length ? "required" : "";
     changed = true;
   }
   if (changed) {

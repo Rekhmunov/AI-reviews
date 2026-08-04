@@ -422,29 +422,51 @@ def _kiz_codes_from_value(value: object) -> list[str]:
     if isinstance(value, dict):
         return _kiz_codes_from_value(value.get("value"))
     if isinstance(value, list):
-        return [str(x).strip() for x in value if str(x or "").strip()]
-    text = str(value).strip()
+        return [wb._kiz_code_clean(x) for x in value if wb._kiz_code_clean(x)]
+    text = wb._kiz_code_clean(value)
     return [text] if text else []
 
 
-def _kiz_from_meta_row(row: dict[str, Any]) -> tuple[bool, bool, list[str]]:
-    """Parse POST /orders/meta row → (kiz_required, kiz_bound, codes).
+def _kiz_status_from_decision(decision: str, codes: list[str]) -> str:
+    """UI status: empty | pending | ok | error."""
+    dec = str(decision or "").strip().lower()
+    if dec == "invalid":
+        return "error"
+    if dec == "filled":
+        return "ok"
+    if codes:
+        # Codes attached, WB check not finished yet (required/optional/…).
+        return "pending"
+    return "empty"
 
-    КИЗ applies only when WB returns an ``sgtin`` slot for the order.
-    """
+
+def _kiz_from_meta_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Parse POST /orders/meta row for sgtin slot + verification decision."""
     meta = row.get("meta") if isinstance(row.get("meta"), dict) else {}
-    if "sgtin" in meta:
-        codes = _kiz_codes_from_value(meta.get("sgtin"))
-        return True, bool(codes), codes
     details = row.get("metaDetails") if isinstance(row.get("metaDetails"), list) else []
+    required = False
+    codes: list[str] = []
+    decision = ""
     for item in details:
         if not isinstance(item, dict):
             continue
         if str(item.get("key") or "").strip().lower() != "sgtin":
             continue
+        required = True
         codes = _kiz_codes_from_value(item.get("value"))
-        return True, bool(codes), codes
-    return False, False, []
+        decision = str(item.get("decision") or "").strip().lower()
+        break
+    if not required and "sgtin" in meta:
+        required = True
+        codes = _kiz_codes_from_value(meta.get("sgtin"))
+    status = _kiz_status_from_decision(decision, codes) if required else "empty"
+    return {
+        "kiz_required": required,
+        "kiz_bound": bool(codes),
+        "kiz_codes": codes,
+        "kiz_decision": decision,
+        "kiz_status": status,
+    }
 
 
 def _kiz_required_from_raw(raw: dict[str, Any]) -> bool:
@@ -462,8 +484,12 @@ def _kiz_required_from_raw(raw: dict[str, Any]) -> bool:
 def _fetch_kiz_map(
     client: wb.WbFbsClient,
     orders: list[dict[str, Any]],
+    *,
+    repo: ReviewRepository | None = None,
+    user_id: int | None = None,
+    source_id: int | None = None,
 ) -> dict[int, dict[str, Any]]:
-    """Map order_id → {kiz_required, kiz_bound, kiz_codes} for supply detail UI."""
+    """Map order_id → kiz fields for supply detail UI (meta + local draft)."""
     out: dict[int, dict[str, Any]] = {}
     ids: list[int] = []
     for o in orders:
@@ -484,6 +510,8 @@ def _fetch_kiz_map(
             "kiz_required": _kiz_required_from_raw(raw),
             "kiz_bound": False,
             "kiz_codes": [],
+            "kiz_decision": "",
+            "kiz_status": "empty",
         }
     if not ids:
         return out
@@ -491,7 +519,7 @@ def _fetch_kiz_map(
         rows = client.get_orders_meta(ids)
     except Exception as exc:
         _log.debug("orders meta (kiz): %s", exc)
-        return out
+        rows = []
     for row in rows:
         try:
             oid = int(row.get("id") or row.get("orderId") or 0)
@@ -500,12 +528,36 @@ def _fetch_kiz_map(
         if oid <= 0:
             continue
         # Live meta row is authoritative: no sgtin key ⇒ badge hidden.
-        required, bound, codes = _kiz_from_meta_row(row)
-        out[oid] = {
-            "kiz_required": required,
-            "kiz_bound": bound,
-            "kiz_codes": codes,
-        }
+        out[oid] = _kiz_from_meta_row(row)
+
+    # Local Save drafts: codes waiting for WB check → «на проверке».
+    if repo is not None and user_id is not None and source_id is not None:
+        local_map = wb.load_order_kiz_map(
+            repo, user_id=int(user_id), source_id=int(source_id), order_ids=ids
+        )
+        for oid, local in local_map.items():
+            cur = out.get(oid)
+            if not cur or not cur.get("kiz_required"):
+                continue
+            local_codes = [
+                wb._kiz_code_clean(x)
+                for x in (local.get("codes") or [])
+                if wb._kiz_code_clean(x)
+            ]
+            has_draft = local.get("saved_at") is not None
+            status = str(cur.get("kiz_status") or "empty")
+            # WB already decided → keep filled/invalid from meta.
+            if status in ("ok", "error"):
+                continue
+            if local_codes:
+                cur["kiz_codes"] = local_codes or list(cur.get("kiz_codes") or [])
+                cur["kiz_bound"] = True
+                cur["kiz_status"] = "pending"
+            elif has_draft and not local_codes and status == "pending":
+                # Cleared locally; keep pending until WB meta catches up, or empty.
+                cur["kiz_codes"] = []
+                cur["kiz_bound"] = False
+                cur["kiz_status"] = "empty"
     return out
 
 
@@ -823,10 +875,17 @@ def get_supply_detail(
         o["brand"] = ""
 
     # КИЗ (sgtin): only for orders that accept Data Matrix in FBS metadata.
-    kiz_map = _fetch_kiz_map(client, orders)
+    kiz_map = _fetch_kiz_map(
+        client,
+        orders,
+        repo=repo,
+        user_id=user_id,
+        source_id=source_id,
+    )
     order_rows: list[dict[str, Any]] = []
     for o in orders:
         kiz = kiz_map.get(_int_or_zero(o.get("order_id"))) or {}
+        status = str(kiz.get("kiz_status") or "empty")
         order_rows.append(
             {
                 "order_id": o.get("order_id"),
@@ -847,6 +906,8 @@ def get_supply_detail(
                 "kiz_required": bool(kiz.get("kiz_required")),
                 "kiz_bound": bool(kiz.get("kiz_bound")),
                 "kiz_codes": list(kiz.get("kiz_codes") or []),
+                "kiz_decision": str(kiz.get("kiz_decision") or ""),
+                "kiz_status": status,
             }
         )
 
