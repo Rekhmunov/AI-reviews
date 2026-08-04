@@ -8851,7 +8851,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 supply_id=sid,
                 mode="picking_list",
             )
-            pdf_bytes = wb_detail.render_picking_list_pdf(payload)
+            pdf_bytes = wb_detail.render_picking_list_pdf(
+                payload, repo=repository, user_id=owner_id
+            )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:

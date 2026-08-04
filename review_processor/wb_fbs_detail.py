@@ -322,8 +322,10 @@ def _load_local_orders(
             tuple([user_id, source_id, *order_ids]),
         ).fetchall()
     by_id = {int(r["order_id"]): repo._row_to_dict(r) for r in rows}
-    catalog = repo.get_product_catalog_map(user_id=user_id)
-    catalog_ci = {str(k).casefold(): v for k, v in catalog.items() if k}
+    # Feedback → Settings → Products (product_photos), same source as WB FBS lists.
+    name_map = repo.get_product_name_by_article(user_id=user_id)
+    stock_catalog = repo.get_product_catalog_map(user_id=user_id)
+    stock_ci = {str(k).casefold(): v for k, v in stock_catalog.items() if k}
     photo_map = repo.get_product_photo_map(user_id=user_id)
     items: list[dict[str, Any]] = []
     for oid in order_ids:
@@ -332,10 +334,16 @@ def _load_local_orders(
             d = {"order_id": int(oid), "article": "", "nm_id": None, "raw_json": "{}"}
         article = str(d.get("article") or "").strip()
         nm_id = str(d.get("nm_id") or "").strip()
-        cat = catalog.get(article) or catalog_ci.get(article.casefold()) or {}
-        # Наименование только из «Обратная связь → Настройки → Товары».
-        # Не подменяем артикулом — в листе подбора имя идёт отдельной строкой выше артикула.
-        product_name = str(cat.get("product_name") or "").strip()
+        product_name = (
+            name_map.get(article)
+            or name_map.get(article.casefold())
+            or name_map.get(nm_id)
+            or ""
+        ).strip()
+        if not product_name:
+            cat = stock_catalog.get(article) or stock_ci.get(article.casefold()) or {}
+            product_name = str(cat.get("product_name") or "").strip()
+        # Не подменяем артикулом — имя отдельной строкой выше артикула в листе подбора.
         d["product_name"] = product_name
         d["product_photo"] = photo_map.get(article) or photo_map.get(nm_id) or ""
         raw_order: dict[str, Any] = {}
@@ -840,19 +848,29 @@ def get_supply_detail_for_print(
         )
 
 
-def _refresh_catalog_product_names(
+def _refresh_product_names(
     repo: ReviewRepository,
     *,
     user_id: int,
     orders: list[dict[str, Any]],
 ) -> None:
-    """Always resolve names from Settings → Products at print time (ignore stale cache)."""
-    catalog = repo.get_product_catalog_map(user_id=user_id)
-    catalog_ci = {str(k).casefold(): v for k, v in catalog.items() if k}
+    """Resolve names from Feedback → Settings → Products at print time."""
+    name_map = repo.get_product_name_by_article(user_id=user_id)
+    stock_catalog = repo.get_product_catalog_map(user_id=user_id)
+    stock_ci = {str(k).casefold(): v for k, v in stock_catalog.items() if k}
     for o in orders:
         article = str(o.get("article") or "").strip()
-        cat = catalog.get(article) or catalog_ci.get(article.casefold()) or {}
-        o["product_name"] = str(cat.get("product_name") or "").strip()
+        nm_id = str(o.get("nm_id") or "").strip()
+        name = (
+            name_map.get(article)
+            or name_map.get(article.casefold())
+            or name_map.get(nm_id)
+            or ""
+        ).strip()
+        if not name:
+            cat = stock_catalog.get(article) or stock_ci.get(article.casefold()) or {}
+            name = str(cat.get("product_name") or "").strip()
+        o["product_name"] = name
 
 
 def build_article_groups_for_print(
@@ -876,8 +894,8 @@ def build_article_groups_for_print(
         api_key=api_key,
         supply_id=supply_id,
     )
-    # Detail cache may be from modal open — refresh catalog names for print.
-    _refresh_catalog_product_names(repo, user_id=user_id, orders=detail.get("orders") or [])
+    # Detail cache may be from modal open — refresh product names for print.
+    _refresh_product_names(repo, user_id=user_id, orders=detail.get("orders") or [])
     order_ids = [int(o["order_id"]) for o in detail["orders"] if o.get("order_id") is not None]
     client = wb.WbFbsClient(api_key)
     # Always fetch/cache full PNG stickers (official). Picking list only embeds codes.
@@ -942,6 +960,7 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
     name = _esc(detail.get("name"))
     created = _esc(detail.get("created_date"))
     cargo = _esc(detail.get("cargo_label") or "")
+    warehouse = _esc(_warehouse_display(detail.get("warehouse_label")))
     total = int(detail.get("order_count") or 0)
     body_rows: list[str] = []
     printable_groups = [g for g in groups if list(g.get("orders") or [])]
@@ -952,21 +971,24 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
         photo_html = (
             f'<img class="photo" src="{_esc(photo)}" alt="" />'
             if photo
-            else '<div class="photo ph"></div>'
+            else '<div class="photo ph" aria-hidden="true"></div>'
         )
         color = str(g.get("color") or "").strip()
         brand = str(g.get("brand") or "").strip()
         article = str(g.get("article") or "").strip()
         product_name = str(g.get("product_name") or "").strip()
+        # Hierarchy: name → article → brand/color → qty
         meta_bits = [
-            f'<div class="sku-title">{_esc(product_name or "—")}</div>'
+            f'<div class="sku-title">{_esc(product_name or "—")}</div>',
+            f'<div class="sku-article">{_esc(article or "—")}</div>',
         ]
+        sub = []
         if brand:
-            meta_bits.append(f'<div class="sku-meta">{_esc(brand)}</div>')
-        if article:
-            meta_bits.append(f'<div class="sku-article">{_esc(article)}</div>')
+            sub.append(_esc(brand))
         if color:
-            meta_bits.append(f'<div class="color">Цвет: {_esc(color)}</div>')
+            sub.append(f"Цвет: {_esc(color)}")
+        if sub:
+            meta_bits.append(f'<div class="sku-sub">{" · ".join(sub)}</div>')
         meta_bits.append(f'<div class="sku-qty">{qty} шт</div>')
         product_html = (
             f'<div class="sku-cell">{photo_html}'
@@ -975,7 +997,6 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
         is_last_group = g_idx >= len(printable_groups) - 1
         for idx, o in enumerate(orders, start=1):
             is_last_order = idx == len(orders)
-            # Жирный низ после последнего заказа артикула (кроме самого конца таблицы).
             row_cls = "order-row"
             if is_last_order and not is_last_group:
                 row_cls += " article-end"
@@ -984,21 +1005,21 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
             lead = ""
             if idx == 1:
                 lead = (
-                    f'<td class="photo-td" rowspan="{len(orders)}">{product_html}</td>'
+                    f'<td class="product-td" rowspan="{len(orders)}">{product_html}</td>'
                 )
             body_rows.append(
                 f"""<tr class="{row_cls}">
                   {lead}
                   <td class="idx">{idx}</td>
-                  <td class="oid">Заказ: {_esc(o.get("order_id"))}</td>
-                  <td class="sticker">Стикер WB: {part_a}</td>
+                  <td class="oid">{_esc(o.get("order_id"))}</td>
+                  <td class="sticker">{part_a}</td>
                   <td class="partb">{part_b}</td>
                   <td class="check"><span class="box"></span></td>
                   <td class="check"><span class="box"></span></td>
                 </tr>"""
             )
-    table_html = (
-        f"""
+    if printable_groups:
+        table_html = f"""
         <table class="picking">
           <colgroup>
             <col class="c-product" />
@@ -1014,8 +1035,8 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
               <th class="product-h">Товар</th>
               <th>№</th>
               <th>Заказ</th>
-              <th>Стикер WB</th>
-              <th></th>
+              <th>Стикер</th>
+              <th>Код</th>
               <th>Собрано</th>
               <th>Упаковано</th>
             </tr>
@@ -1025,9 +1046,8 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
           </tbody>
         </table>
         """
-        if groups
-        else '<p class="empty">Нет заказов в поставке.</p>'
-    )
+    else:
+        table_html = '<p class="empty">Нет заказов в поставке.</p>'
     return f"""<!doctype html>
 <html lang="ru">
 <head>
@@ -1049,10 +1069,11 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
       border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; cursor: pointer;
     }}
     .doc-kicker {{
-      margin: 0 0 4px; color: #64748b; font-size: 12px; line-height: 1.3;
+      margin: 0 0 4px; color: #64748b; font-size: 11px; line-height: 1.3;
+      letter-spacing: 0.02em; text-transform: uppercase; font-weight: 700;
     }}
     h1 {{
-      margin: 0 0 8px; font-size: 20px; font-weight: 700; line-height: 1.25;
+      margin: 0 0 8px; font-size: 18px; font-weight: 700; line-height: 1.25;
     }}
     .meta {{
       display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px;
@@ -1060,13 +1081,13 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
     .pill {{
       display: inline-flex; align-items: center;
       min-height: 24px; padding: 4px 8px;
-      border: 1px solid #cbd5e1; border-radius: 6px;
-      background: #f8fafc; font-size: 12px; font-weight: 600; line-height: 1.2;
+      border: 1px solid #cbd5e1; border-radius: 4px;
+      background: #fff; font-size: 12px; font-weight: 600; line-height: 1.2;
     }}
     .summary {{
       display: grid; grid-template-columns: 1fr 1fr 1fr;
-      margin: 0 0 12px; border: 1px solid #0f172a; border-collapse: collapse;
-      background: #eef2f7;
+      margin: 0 0 12px; border: 1px solid #0f172a;
+      background: #f8fafc;
     }}
     .summary div {{
       padding: 8px 12px; font-size: 12px; font-weight: 700; line-height: 1.3;
@@ -1080,78 +1101,81 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
       border: 1px solid #0f172a;
       background: #fff;
     }}
-    table.picking .c-product {{ width: 28%; }}
-    table.picking .c-idx {{ width: 28px; }}
-    table.picking .c-oid {{ width: 18%; }}
-    table.picking .c-sticker {{ width: 18%; }}
+    table.picking .c-product {{ width: 34%; }}
+    table.picking .c-idx {{ width: 32px; }}
+    table.picking .c-oid {{ width: 16%; }}
+    table.picking .c-sticker {{ width: 14%; }}
     table.picking .c-partb {{ width: 12%; }}
-    table.picking .c-check {{ width: 64px; }}
+    table.picking .c-check {{ width: 56px; }}
     table.picking th,
     table.picking td {{
       border: 1px solid #0f172a;
-      padding: 6px 8px;
+      padding: 8px;
       vertical-align: middle;
       font-size: 12px;
       line-height: 1.3;
     }}
     table.picking thead th {{
-      background: #f1f5f9;
+      background: #e2e8f0;
+      font-size: 11px;
       font-weight: 700;
       text-align: center;
+      letter-spacing: 0.01em;
     }}
     table.picking th.product-h {{ text-align: left; }}
     .sku-cell {{
       display: flex; align-items: flex-start; gap: 8px;
     }}
     .photo {{
-      width: 48px; height: 48px; object-fit: cover;
-      border: 1px solid #cbd5e1; display: block; flex: 0 0 48px;
+      width: 52px; height: 52px; object-fit: cover;
+      border: 1px solid #cbd5e1; display: block; flex: 0 0 52px;
+      background: #fff;
     }}
-    .photo.ph {{ background: #f1f5f9; }}
-    .sku-text {{ min-width: 0; }}
+    .photo.ph {{ background: #e2e8f0; }}
+    .sku-text {{ min-width: 0; flex: 1; }}
     .sku-title {{
-      margin: 0 0 2px; font-size: 12px; font-weight: 700; line-height: 1.25;
-      white-space: normal;
-    }}
-    .sku-meta, .color {{
-      margin: 0 0 2px; color: #475569; font-size: 11px; line-height: 1.25;
-      white-space: normal;
+      margin: 0 0 4px; font-size: 13px; font-weight: 700; line-height: 1.25;
+      white-space: normal; color: #0f172a;
     }}
     .sku-article {{
-      margin: 0 0 2px; color: #0f172a; font-size: 12px; font-weight: 700; line-height: 1.25;
+      margin: 0 0 4px; color: #0f172a; font-size: 12px; font-weight: 700; line-height: 1.25;
+      white-space: normal; word-break: break-word;
+    }}
+    .sku-sub {{
+      margin: 0 0 4px; color: #475569; font-size: 11px; line-height: 1.25;
       white-space: normal;
     }}
     .sku-qty {{
       margin: 0; font-size: 12px; font-weight: 700; line-height: 1.25; color: #0f172a;
     }}
-    .photo-td {{ vertical-align: top; background: #fafafa; }}
+    .product-td {{ vertical-align: top; }}
     .order-row .idx {{
       color: #64748b; font-weight: 600; text-align: center; white-space: nowrap;
     }}
     .order-row .oid,
     .order-row .sticker {{
-      color: #334155; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      font-variant-numeric: tabular-nums;
     }}
     .order-row .partb {{
       text-align: right;
-      font-size: 15px; font-weight: 800; letter-spacing: 0.02em; color: #0f172a;
-      white-space: nowrap;
+      font-size: 16px; font-weight: 800; letter-spacing: 0.02em; color: #0f172a;
+      white-space: nowrap; font-variant-numeric: tabular-nums;
     }}
     .order-row .check {{
-      text-align: center; width: 64px;
+      text-align: center; padding-top: 10px; padding-bottom: 10px;
     }}
     .order-row .check .box {{
       display: inline-block;
-      width: 16px; height: 16px;
+      width: 18px; height: 18px;
       border: 1.5px solid #0f172a;
       background: #fff;
       vertical-align: middle;
     }}
-    /* Жирный разделитель между артикулами внутри одной таблицы */
     tr.article-end > td {{
       border-bottom: 3px solid #0f172a;
     }}
-    .empty {{ margin: 0; padding: 12px; color: #64748b; text-align: center; }}
+    .empty {{ margin: 0; padding: 16px; color: #64748b; text-align: center; }}
     .foot {{
       margin: 12px 0 0; color: #94a3b8; font-size: 11px; line-height: 1.3;
     }}
@@ -1165,12 +1189,12 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
 </head>
 <body>
   {"" if for_pdf else '<div class="toolbar no-print"><button type="button" onclick="window.print()">Печать</button></div>'}
-  <div class="doc-kicker">Лист подбора {sid} от {created}</div>
+  <div class="doc-kicker">Лист подбора · {sid} · {created}</div>
   <h1>{name}</h1>
   <div class="meta">
     {f'<span class="pill">{cargo}</span>' if cargo else ''}
-    <span class="pill">{_esc(_warehouse_display(detail.get("warehouse_label")))}</span>
-    <span class="pill">QR поставки {sid}</span>
+    <span class="pill">{warehouse}</span>
+    <span class="pill">QR {sid}</span>
   </div>
   <div class="summary">
     <div>Всего {total} заказов</div>
@@ -1178,16 +1202,60 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
     <div>Упаковано 0 / {total}</div>
   </div>
   {table_html}
-  <div class="foot">Сформировано в FeedPilot · A4 книжная</div>
+  <div class="foot">FeedPilot · A4</div>
 </body>
 </html>"""
 
 
-def _photo_data_uri(url: str, *, timeout: float = 4.0) -> str:
-    """Embed remote product photos for headless HTML→PDF (LibreOffice)."""
+def _product_photos_dir() -> str:
+    import os
+
+    return os.path.normpath(
+        os.path.join(os.path.dirname(__file__), "..", "product_photos")
+    )
+
+
+def _photo_data_uri_from_bytes(raw: bytes, ctype: str = "image/jpeg") -> str:
+    if not raw or len(raw) > 2_000_000:
+        return ""
+    if ctype not in {"image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"}:
+        ctype = "image/jpeg"
+    return f"data:{ctype};base64,{base64.b64encode(raw).decode('ascii')}"
+
+
+def _photo_data_uri(
+    url: str,
+    *,
+    timeout: float = 4.0,
+    local_photo_paths: dict[int, str] | None = None,
+) -> str:
+    """Embed product photos for headless HTML→PDF (local files or remote URL)."""
+    import os
+    import re
+
     text = str(url or "").strip()
     if not text or text.startswith("data:"):
         return text
+    m = re.match(r"^/api/products/photo/(\d+)/?$", text)
+    if m and local_photo_paths is not None:
+        path = local_photo_paths.get(int(m.group(1))) or ""
+        if path and os.path.isfile(path):
+            try:
+                with open(path, "rb") as fh:
+                    raw = fh.read()
+                ext = os.path.splitext(path)[1].lower()
+                ctype = {
+                    ".png": "image/png",
+                    ".jpg": "image/jpeg",
+                    ".jpeg": "image/jpeg",
+                    ".webp": "image/webp",
+                    ".gif": "image/gif",
+                }.get(ext, "image/webp")
+                return _photo_data_uri_from_bytes(raw, ctype)
+            except Exception as exc:
+                _log.debug("picking local photo: %s", exc)
+                return ""
+        return ""
     if not (text.startswith("https://") or text.startswith("http://")):
         return ""
     try:
@@ -1199,14 +1267,29 @@ def _photo_data_uri(url: str, *, timeout: float = 4.0) -> str:
         with urlopen(req, timeout=timeout) as resp:
             raw = resp.read()
             ctype = str(resp.headers.get("Content-Type") or "image/jpeg").split(";")[0].strip()
-        if not raw or len(raw) > 2_000_000:
-            return ""
-        if ctype not in {"image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"}:
-            ctype = "image/jpeg"
-        return f"data:{ctype};base64,{base64.b64encode(raw).decode('ascii')}"
+        return _photo_data_uri_from_bytes(raw, ctype)
     except Exception as exc:
         _log.debug("picking photo fetch: %s", exc)
         return ""
+
+
+def _local_photo_paths_for_user(repo: ReviewRepository, *, user_id: int) -> dict[int, str]:
+    import os
+
+    root = _product_photos_dir()
+    out: dict[int, str] = {}
+    for row in repo.list_product_photos(user_id=user_id):
+        try:
+            pid = int(row.get("id"))
+        except (TypeError, ValueError):
+            continue
+        rel = str(row.get("photo_path") or "").strip()
+        if not rel:
+            continue
+        path = os.path.join(root, rel)
+        if os.path.isfile(path):
+            out[pid] = path
+    return out
 
 
 def _embed_picking_list_photos(
@@ -1214,6 +1297,7 @@ def _embed_picking_list_photos(
     groups: list[dict[str, Any]],
     *,
     max_photos: int = 40,
+    local_photo_paths: dict[int, str] | None = None,
 ) -> str:
     """Embed a bounded number of photos so PDF gen cannot stall on large supplies."""
     out = html_doc
@@ -1224,7 +1308,9 @@ def _embed_picking_list_photos(
         src = str(g.get("product_photo") or "").strip()
         if not src or src.startswith("data:"):
             continue
-        data_uri = _photo_data_uri(src, timeout=2.5)
+        data_uri = _photo_data_uri(
+            src, timeout=2.5, local_photo_paths=local_photo_paths
+        )
         if data_uri:
             out = out.replace(f'src="{_esc(src)}"', f'src="{data_uri}"', 1)
             embedded += 1
@@ -1282,10 +1368,26 @@ def html_to_pdf_bytes(html_doc: str, *, basename: str = "document") -> bytes:
     raise RuntimeError("Не удалось сформировать PDF листа подбора (LibreOffice)")
 
 
-def render_picking_list_pdf(payload: dict[str, Any]) -> bytes:
+def render_picking_list_pdf(
+    payload: dict[str, Any],
+    *,
+    repo: ReviewRepository | None = None,
+    user_id: int | None = None,
+) -> bytes:
     """A4 picking list as PDF for direct print/download (no HTML page)."""
     html_doc = render_picking_list_html(payload, for_pdf=True)
-    html_doc = _embed_picking_list_photos(html_doc, list(payload.get("groups") or []))
+    local_paths: dict[int, str] | None = None
+    if repo is not None and user_id is not None:
+        try:
+            local_paths = _local_photo_paths_for_user(repo, user_id=int(user_id))
+        except Exception as exc:
+            _log.debug("picking local photo map: %s", exc)
+            local_paths = None
+    html_doc = _embed_picking_list_photos(
+        html_doc,
+        list(payload.get("groups") or []),
+        local_photo_paths=local_paths,
+    )
     return html_to_pdf_bytes(html_doc, basename="wb_fbs_picking_list")
 
 
