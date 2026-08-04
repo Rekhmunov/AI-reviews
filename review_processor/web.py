@@ -10642,68 +10642,56 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         raise HTTPException(status_code=400, detail=last_err)
 
     def _ozon_fetch_giveout_list(client_id: str, api_key: str) -> list[dict[str, object]]:
-        """Fetch giveout list pages and map to UI rows."""
+        """Fetch returns waiting at drop-off points for the barcode modal table.
+
+        Portal «Список возвратов» comes from ``/v1/returns/company/fbs/info``
+        (drop-off points with returns_count), not from empty ``giveout/list``.
+        """
         rows: list[dict[str, object]] = []
         last_id = 0
         for _ in range(20):
-            payload: dict[str, object] = {"limit": 100}
+            pagination: dict[str, object] = {"limit": 100}
             if last_id:
-                payload["last_id"] = last_id
+                pagination["last_id"] = last_id
             data = _ozon_giveout_post(
                 client_id=client_id,
                 api_key=api_key,
-                path="/v1/return/giveout/list",
-                payload=payload,
+                path="/v1/returns/company/fbs/info",
+                payload={"filter": {}, "pagination": pagination},
             )
-            giveouts = data.get("giveouts") or []
-            if not isinstance(giveouts, list) or not giveouts:
+            points = data.get("drop_off_points") or []
+            if not isinstance(points, list) or not points:
                 break
-            # Always advance cursor from the raw page (even if all rows filtered),
-            # otherwise a full page of completed giveouts would loop forever.
             page_last_id = last_id
-            last_item = giveouts[-1]
+            last_item = points[-1]
             if isinstance(last_item, dict):
                 try:
-                    page_last_id = int(last_item.get("giveout_id") or last_item.get("id") or last_id)
+                    page_last_id = int(last_item.get("id") or last_id)
                 except Exception:
                     page_last_id = last_id
-            for g in giveouts:
-                if not isinstance(g, dict):
+            for p in points:
+                if not isinstance(p, dict):
                     continue
-                status = str(g.get("giveout_status") or g.get("status") or "")
-                if status in {
-                    "GIVEOUT_STATUS_COMPLETED",
-                    "GIVEOUT_STATUS_CANCELLED",
-                    "COMPLETED",
-                    "CANCELLED",
-                }:
-                    continue
-                qty = g.get("total_articles_count")
-                if qty is None:
-                    qty = g.get("approved_articles_count")
-                if qty is None:
-                    qty = g.get("items_count")
                 try:
-                    qty_n = int(qty or 0)
+                    qty_n = int(p.get("returns_count") or 0)
                 except Exception:
                     qty_n = 0
-                gid = g.get("giveout_id") or g.get("id") or 0
                 try:
-                    gid_n = int(gid or 0)
+                    pid = int(p.get("id") or p.get("place_id") or 0)
                 except Exception:
-                    gid_n = 0
+                    pid = 0
                 rows.append(
                     {
-                        "giveout_id": gid_n,
-                        "warehouse_name": str(g.get("warehouse_name") or "").strip(),
-                        "warehouse_address": str(g.get("warehouse_address") or "").strip(),
+                        "giveout_id": pid,
+                        "warehouse_name": str(p.get("name") or "").strip(),
+                        "warehouse_address": str(p.get("address") or "").strip(),
                         "quantity": qty_n,
                     }
                 )
             if page_last_id == last_id:
                 break
             last_id = page_last_id
-            if len(giveouts) < 100:
+            if not bool(data.get("has_next")) or len(points) < 100:
                 break
         return rows
 
