@@ -17,7 +17,6 @@ import hashlib
 import html
 import json
 import logging
-import re
 import threading
 import time
 from datetime import datetime, timezone
@@ -229,15 +228,6 @@ def _brand_from_card(card: dict[str, Any]) -> str:
     return str(card.get("brand") or card.get("brandName") or "").strip()
 
 
-def _title_from_card(card: dict[str, Any]) -> str:
-    """Official WB card title (includes size: «… 80х160 см») — portal sort key."""
-    for key in ("title", "imtName", "name", "subjectName"):
-        text = str(card.get(key) or "").strip()
-        if text:
-            return text
-    return ""
-
-
 def _cards_from_content_response(data: dict[str, Any]) -> list[dict[str, Any]]:
     cards = data.get("cards") if isinstance(data.get("cards"), list) else []
     if not cards and isinstance(data.get("data"), dict):
@@ -253,7 +243,7 @@ def fetch_card_meta_by_nm(
     max_cards: int = 40,
     network: bool = True,
 ) -> dict[int, dict[str, str]]:
-    """Color/brand/title from Content API cards (official). Keys = nmID.
+    """Color/brand from Content API cards (official). Keys = nmID.
 
     Uses a process-local TTL cache so picking list + stickers share one Content
     pass per nmID. When ``network=False``, only cache hits are returned (fast path
@@ -280,24 +270,19 @@ def fetch_card_meta_by_nm(
     with _cache_lock:
         for nm in uniq:
             item = _card_meta_cache.get((fp, nm))
-            # Require title in cache — older color/brand-only entries are stale for sort.
-            if (
-                item
-                and (now - item[0]) <= _CARD_META_TTL_SEC
-                and "title" in item[1]
-            ):
+            if item and (now - item[0]) <= _CARD_META_TTL_SEC:
                 out[nm] = dict(item[1])
             else:
                 missing.append(nm)
 
     if not network:
         for nm in missing:
-            out[nm] = {"color": "", "brand": "", "title": ""}
+            out[nm] = {"color": "", "brand": ""}
         return out
 
     for nm in missing:
         card: dict[str, Any] = {}
-        meta = {"color": "", "brand": "", "title": ""}
+        meta = {"color": "", "brand": ""}
         try:
             data = _content_request(
                 api_key,
@@ -318,7 +303,6 @@ def fetch_card_meta_by_nm(
             meta = {
                 "color": _color_from_card(card),
                 "brand": _brand_from_card(card),
-                "title": _title_from_card(card),
             }
         out[nm] = meta
         with _cache_lock:
@@ -412,28 +396,11 @@ def _int_or_zero(value: object) -> int:
         return 0
 
 
-def _natural_sort_key(value: object) -> tuple:
-    """Numeric-aware key so 80х40 < 80х160 < 80х190 (string sort breaks this)."""
-    text = str(value or "")
-    parts = re.split(r"(\d+)", text)
-    key: list[tuple[int, object]] = []
-    for part in parts:
-        if not part:
-            continue
-        if part.isdigit():
-            key.append((0, int(part)))
-        else:
-            key.append((1, part.casefold()))
-    return tuple(key)
-
-
 def _order_sticker_sort_key(order: dict[str, Any]) -> tuple[int, int, int]:
     """WB portal sorts rows inside an article by sticker partB, then partA."""
-    pb = str(order.get("sticker_part_b") or "").strip()
-    pa = str(order.get("sticker_part_a") or "").strip()
     return (
-        _int_or_zero(pb) if pb else 10**9,
-        _int_or_zero(pa) if pa else 10**9,
+        _int_or_zero(order.get("sticker_part_b")),
+        _int_or_zero(order.get("sticker_part_a")),
         _int_or_zero(order.get("order_id")),
     )
 
@@ -441,28 +408,16 @@ def _order_sticker_sort_key(order: dict[str, Any]) -> tuple[int, int, int]:
 def _sort_groups_like_wb(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Match seller-portal picking list order.
 
-    Groups: by official WB card title (size in name: 80х160 → 80х190 → 90х190),
-    then seller article. Not by Settings product name / raw article alphabet
-    (that put ``nepnam…`` before ``white23``).
-    Orders: by sticker partB ascending (not by order id).
+    Groups: keep first-seen article order from WB supply orderIds
+    (portal 80х160 → 80х190 → …). Do NOT re-sort by product name / article
+    alphabet — that diverges from ЛК when Settings names omit sizes.
+    Orders inside a group: sticker partB ascending (as in ЛК).
     """
     for g in groups:
         orders = list(g.get("orders") or [])
         orders.sort(key=_order_sticker_sort_key)
         g["orders"] = orders
         g["qty"] = len(orders)
-    groups.sort(
-        key=lambda g: (
-            _natural_sort_key(
-                g.get("wb_title")
-                or g.get("product_name")
-                or g.get("article")
-                or ""
-            ),
-            _natural_sort_key(g.get("article") or ""),
-            str(g.get("nm_id") or ""),
-        )
-    )
     return groups
 
 
@@ -554,11 +509,37 @@ def _local_order_ids_for_supply(
     source_id: int,
     supply_id: str,
 ) -> list[int]:
-    """Fallback when WB order-ids is empty/unavailable — use synced DB links."""
+    """Fallback when WB order-ids is empty/unavailable — use synced DB links.
+
+    Prefer ``order_ids_json`` (WB sequence from sync) over ``ORDER BY order_id`` —
+    numeric id order is not the portal picking order.
+    """
     wb.ensure_wb_fbs_tables(repo)
     sid = str(supply_id or "").strip()
     ids: list[int] = []
     with repo._connect() as conn:
+        row = conn.execute(
+            repo._sql(
+                """
+                SELECT order_ids_json FROM wb_fbs_supplies
+                WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                """
+            ),
+            (user_id, source_id, sid),
+        ).fetchone()
+        if row:
+            try:
+                raw = json.loads(row["order_ids_json"] or "[]")
+            except Exception:
+                raw = []
+            if isinstance(raw, list):
+                for item in raw:
+                    try:
+                        ids.append(int(item))
+                    except (TypeError, ValueError):
+                        continue
+                if ids:
+                    return ids
         rows = conn.execute(
             repo._sql(
                 """
@@ -574,31 +555,6 @@ def _local_order_ids_for_supply(
                 ids.append(int(row["order_id"]))
             except (TypeError, ValueError):
                 continue
-        if ids:
-            return ids
-        # Also try cached array on supply row.
-        row = conn.execute(
-            repo._sql(
-                """
-                SELECT order_ids_json FROM wb_fbs_supplies
-                WHERE user_id = ? AND source_id = ? AND supply_id = ?
-                """
-            ),
-            (user_id, source_id, sid),
-        ).fetchone()
-    if not row:
-        return []
-    try:
-        raw = json.loads(row["order_ids_json"] or "[]")
-    except Exception:
-        return []
-    if not isinstance(raw, list):
-        return []
-    for item in raw:
-        try:
-            ids.append(int(item))
-        except (TypeError, ValueError):
-            continue
     return ids
 
 
@@ -963,8 +919,8 @@ def build_article_groups_for_print(
         source_id=source_id,
         api_key=api_key,
         supply_id=supply_id,
-        # Sync already linked orders locally — skip live order-ids for picking list.
-        refresh_order_ids=not picking,
+        # Need WB supply orderIds sequence so article groups match portal order.
+        refresh_order_ids=True,
     )
     # Detail cache may be from modal open — refresh product names for print.
     _refresh_product_names(repo, user_id=user_id, orders=detail.get("orders") or [])
@@ -1016,8 +972,6 @@ def build_article_groups_for_print(
             **o,
             "color": meta.get("color") or "",
             "brand": meta.get("brand") or "",
-            # Portal group order follows official card title (with size).
-            "wb_title": str(meta.get("title") or "").strip(),
             "sticker_part_a": str(st.get("partA") or "").strip(),
             "sticker_part_b": str(st.get("partB") or "").strip(),
         }
@@ -1029,11 +983,10 @@ def build_article_groups_for_print(
     groups = _group_orders_by_article(orders_full)
     for g in groups:
         first = g["orders"][0] if g["orders"] else {}
-        # Display name stays from Settings → Products; wb_title is sort-only.
+        # Каталожное наименование (может быть пустым — тогда в PDF выше артикула «—»).
         g["product_name"] = str(
             g.get("product_name") or first.get("product_name") or ""
         ).strip()
-        g["wb_title"] = str(first.get("wb_title") or "").strip()
         g["color"] = str(first.get("color") or "")
         g["brand"] = str(first.get("brand") or "")
     groups = _sort_groups_like_wb(groups)
@@ -1041,7 +994,6 @@ def build_article_groups_for_print(
         first = g["orders"][0] if g["orders"] else {}
         g["color"] = str(first.get("color") or g.get("color") or "")
         g["brand"] = str(first.get("brand") or g.get("brand") or "")
-        g["wb_title"] = str(first.get("wb_title") or g.get("wb_title") or "").strip()
         g["product_name"] = str(
             g.get("product_name") or first.get("product_name") or ""
         ).strip()
@@ -1169,8 +1121,8 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
 <head>
   <meta charset="utf-8" />
   <title>Лист подбора {sid} от {created}</title>
-  <!-- feedpilot-picking-list:20260804g -->
-  <meta name="feedpilot-build" content="picking-20260804g" />
+  <!-- feedpilot-picking-list:20260804f -->
+  <meta name="feedpilot-build" content="picking-20260804h" />
   <style>
     @page {{ size: A4 portrait; margin: 10mm; }}
     * {{ box-sizing: border-box; }}
@@ -1595,7 +1547,7 @@ def render_stickers_print_html(payload: dict[str, Any]) -> str:
   <meta charset="utf-8" />
   <title>Стикеры поставки {_esc(payload.get("detail", {}).get("supply_id"))}</title>
   <!-- feedpilot-stickers:20260804d -->
-  <meta name="feedpilot-build" content="picking-20260804d" />
+  <meta name="feedpilot-build" content="picking-20260804h" />
   <style>
     @page {{ size: 58mm 40mm; margin: 0; }}
     * {{ box-sizing: border-box; }}
