@@ -3077,7 +3077,28 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 continue
         return preferred
 
-    _PHOTO_DIR = _product_photos_dir()
+    def _product_photo_candidate_dirs() -> list[str]:
+        root = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), ".."))
+        dirs = [
+            _product_photos_dir(),
+            _os.path.join(root, "data", "product_photos"),
+            _os.path.join(root, "product_photos"),
+        ]
+        out: list[str] = []
+        for path in dirs:
+            if path and path not in out:
+                out.append(path)
+        return out
+
+    def _resolve_product_photo_file(photo_path: str) -> str | None:
+        name = _os.path.basename(str(photo_path or "").strip())
+        if not name or name in {".", ".."}:
+            return None
+        for folder in _product_photo_candidate_dirs():
+            fpath = _os.path.join(folder, name)
+            if _os.path.isfile(fpath):
+                return fpath
+        return None
 
     def _ensure_product_photos_table() -> None:
         try:
@@ -3217,12 +3238,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         deleted = repository.delete_product_photo(user_id=_tenant_owner_id(user), product_id=product_id)
         if not deleted:
             raise HTTPException(status_code=404, detail="Товар не найден")
-        # Delete physical file
+        # Delete physical file from any known photos dir.
         if deleted.get("photo_path"):
-            try:
-                _os.remove(_os.path.join(_PHOTO_DIR, deleted["photo_path"]))
-            except Exception:
-                pass
+            fpath = _resolve_product_photo_file(str(deleted.get("photo_path") or ""))
+            if fpath:
+                try:
+                    _os.remove(fpath)
+                except Exception:
+                    pass
         return {"ok": True}
 
     @app.get("/api/products/photo/{product_id}")
@@ -3233,10 +3256,18 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         item = next((i for i in items if i.get("id") == product_id), None)
         if not item or not item.get("photo_path"):
             raise HTTPException(status_code=404, detail="Фото не найдено")
-        fpath = _os.path.join(_PHOTO_DIR, item["photo_path"])
-        if not _os.path.exists(fpath):
+        fpath = _resolve_product_photo_file(str(item.get("photo_path") or ""))
+        if not fpath:
             raise HTTPException(status_code=404, detail="Файл не найден")
-        return _FileResp(fpath, media_type="image/webp")
+        ext = _os.path.splitext(fpath)[1].lower()
+        media = {
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".png": "image/png",
+            ".webp": "image/webp",
+            ".gif": "image/gif",
+        }.get(ext, "image/webp")
+        return _FileResp(fpath, media_type=media)
 
     # Enrich /api/reviews and /api/conversations with product_photo_url
     # (done inline in list_reviews and list_conversations endpoints)

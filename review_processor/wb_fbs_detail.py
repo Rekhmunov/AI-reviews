@@ -1913,9 +1913,12 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
 def _product_photos_dir() -> str:
     import os
 
-    return os.path.normpath(
-        os.path.join(os.path.dirname(__file__), "..", "product_photos")
-    )
+    root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    preferred = os.path.join(root, "data", "product_photos")
+    legacy = os.path.join(root, "product_photos")
+    if os.path.isdir(preferred):
+        return preferred
+    return legacy
 
 
 def _photo_data_uri_from_bytes(raw: bytes, ctype: str = "image/jpeg") -> str:
