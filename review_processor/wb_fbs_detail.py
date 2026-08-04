@@ -1009,10 +1009,11 @@ def build_article_groups_for_print(
 
 
 def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) -> str:
-    """WB-portal-like picking list: 3-col monolithic table (info | Собрано | Упаковано).
+    """Browser-print picking list (HTML+CSS). Matches WB portal structure.
 
-    LibreOffice ignores many CSS layout features — use nested tables, HTML borders,
-    and inline styles so PDF matches the portal screenshot.
+    3 columns: content | Собрано | Упаковано.
+    Product header row, then order rows; thick border between articles.
+    Prefer HTML print over LibreOffice PDF — LO breaks modern CSS.
     """
     detail = payload["detail"]
     groups = payload["groups"]
@@ -1022,20 +1023,7 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
     order_word = "заказ" if total % 10 == 1 and total % 100 != 11 else (
         "заказа" if 2 <= total % 10 <= 4 and not (12 <= total % 100 <= 14) else "заказов"
     )
-
-    # LO-friendly cell styles (explicit borders survive HTML→PDF).
-    bd = "border:1px solid #94a3b8;"
-    bd_thick = "border:1px solid #94a3b8;border-bottom:3px solid #0f172a;"
-    td_main = f'style="padding:8px;vertical-align:middle;{bd}"'
-    td_main_end = f'style="padding:8px;vertical-align:middle;{bd_thick}"'
-    td_check = f'width="72" align="center" valign="middle" style="padding:8px;width:72px;text-align:center;vertical-align:middle;{bd}"'
-    td_check_end = f'width="72" align="center" valign="middle" style="padding:8px;width:72px;text-align:center;vertical-align:middle;{bd_thick}"'
-    th_main = f'align="left" style="padding:8px 10px;background:#f1f5f9;font-size:13px;font-weight:700;{bd}"'
-    th_check = f'width="72" align="center" style="padding:8px;width:72px;background:#f1f5f9;font-size:11px;font-weight:700;text-align:center;{bd}"'
-    box = (
-        '<span style="display:inline-block;width:18px;height:18px;'
-        'border:1.5px solid #0f172a;background:#fff;">&nbsp;</span>'
-    )
+    box = '<span class="box" aria-hidden="true"></span>'
 
     body_rows: list[str] = []
     printable_groups = [g for g in groups if list(g.get("orders") or [])]
@@ -1043,117 +1031,88 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
         orders = list(g.get("orders") or [])
         qty = int(g.get("qty") or len(orders) or 0)
         photo = str(g.get("product_photo") or "").strip()
-        if photo:
-            photo_html = (
-                f'<img src="{_esc(photo)}" width="56" height="56" alt="" '
-                f'style="width:56px;height:56px;object-fit:cover;border:1px solid #cbd5e1;display:block;" />'
-            )
-        else:
-            photo_html = (
-                '<div style="width:56px;height:56px;background:#e2e8f0;'
-                'border:1px solid #cbd5e1;">&nbsp;</div>'
-            )
+        photo_html = (
+            f'<img class="photo" src="{_esc(photo)}" alt="" width="56" height="56" />'
+            if photo
+            else '<div class="photo ph" aria-hidden="true"></div>'
+        )
         color = str(g.get("color") or "").strip()
         brand = str(g.get("brand") or "").strip()
         article = str(g.get("article") or "").strip()
         product_name = str(g.get("product_name") or "").strip() or "—"
-        meta_lines = [
-            f'<div style="font-size:13px;font-weight:700;line-height:1.3;margin:0 0 4px;">{_esc(product_name)}</div>',
-        ]
-        if brand:
-            meta_lines.append(
-                f'<div style="font-size:11px;color:#475569;line-height:1.3;margin:0 0 2px;">{_esc(brand)}</div>'
-            )
-        if article:
-            meta_lines.append(
-                f'<div style="font-size:12px;font-weight:700;line-height:1.3;margin:0 0 2px;word-break:break-all;">{_esc(article)}</div>'
-            )
         barcodes = [
-            str(b).strip()
-            for b in (g.get("barcodes") or [])
-            if str(b or "").strip()
+            str(b).strip() for b in (g.get("barcodes") or []) if str(b or "").strip()
         ]
+        meta_bits = [f'<div class="sku-title">{_esc(product_name)}</div>']
+        if brand:
+            meta_bits.append(f'<div class="sku-meta">{_esc(brand)}</div>')
+        if article:
+            meta_bits.append(f'<div class="sku-article">{_esc(article)}</div>')
         if barcodes:
-            barcode_lines = "".join(
-                f'<div style="font-size:16px;font-weight:800;line-height:1.25;'
-                f'letter-spacing:0.02em;font-variant-numeric:tabular-nums;'
-                f'word-break:break-all;margin:0 0 2px;">{_esc(b)}</div>'
-                for b in barcodes
-            )
-            meta_lines.append(
-                f'<div style="margin:4px 0 2px;">{barcode_lines}</div>'
+            meta_bits.append(
+                '<div class="sku-barcodes">'
+                + "".join(f'<div class="sku-barcode">{_esc(b)}</div>' for b in barcodes)
+                + "</div>"
             )
         if color:
-            meta_lines.append(
-                f'<div style="font-size:11px;color:#475569;line-height:1.3;margin:0 0 2px;">Цвет: {_esc(color)}</div>'
-            )
-        meta_lines.append(
-            f'<div style="font-size:12px;font-weight:700;line-height:1.3;margin:4px 0 0;">{qty} шт</div>'
-        )
-        product_cell = f"""
-          <table border="0" cellspacing="0" cellpadding="0" width="100%">
-            <tr>
-              <td width="64" valign="top" style="width:64px;padding:0 8px 0 0;vertical-align:top;">{photo_html}</td>
-              <td valign="top" style="vertical-align:top;">{''.join(meta_lines)}</td>
-            </tr>
-          </table>
-        """
-        # Product header row (full width info + per-SKU progress).
+            meta_bits.append(f'<div class="sku-color">Цвет: {_esc(color)}</div>')
+        meta_bits.append(f'<div class="sku-qty">{qty} шт</div>')
+
         body_rows.append(
-            f"""<tr>
-              <td {td_main}>{product_cell}</td>
-              <td {td_check}><div style="font-size:13px;font-weight:700;">0/{qty}</div></td>
-              <td {td_check}><div style="font-size:13px;font-weight:700;">0/{qty}</div></td>
+            f"""<tr class="product-row">
+              <td class="main">
+                <div class="sku-cell">
+                  {photo_html}
+                  <div class="sku-text">{''.join(meta_bits)}</div>
+                </div>
+              </td>
+              <td class="check"><strong>0/{qty}</strong></td>
+              <td class="check"><strong>0/{qty}</strong></td>
             </tr>"""
         )
         is_last_group = g_idx >= len(printable_groups) - 1
         for idx, o in enumerate(orders, start=1):
             is_last_order = idx == len(orders)
-            use_main = td_main_end if (is_last_order and not is_last_group) else td_main
-            use_check = td_check_end if (is_last_order and not is_last_group) else td_check
+            row_cls = "order-row"
+            if is_last_order and not is_last_group:
+                row_cls += " article-end"
             part_a = _esc(o.get("sticker_part_a") or "—")
             part_b = _esc(o.get("sticker_part_b") or "")
-            order_cell = f"""
-              <table border="0" cellspacing="0" cellpadding="0" width="100%">
-                <tr>
-                  <td width="28" style="width:28px;color:#64748b;font-weight:600;white-space:nowrap;">{idx}.</td>
-                  <td style="padding:0 8px;white-space:nowrap;">Заказ: {_esc(o.get("order_id"))}</td>
-                  <td style="padding:0 8px;white-space:nowrap;">Стикер WB: {part_a}</td>
-                  <td align="right" style="text-align:right;font-size:16px;font-weight:800;letter-spacing:0.02em;white-space:nowrap;">{part_b}</td>
-                </tr>
-              </table>
-            """
             body_rows.append(
-                f"""<tr>
-                  <td {use_main}>{order_cell}</td>
-                  <td {use_check}>{box}</td>
-                  <td {use_check}>{box}</td>
+                f"""<tr class="{row_cls}">
+                  <td class="main">
+                    <div class="order-line">
+                      <span class="idx">{idx}.</span>
+                      <span class="oid">Заказ: {_esc(o.get("order_id"))}</span>
+                      <span class="sticker">Стикер WB: {part_a}</span>
+                      <span class="partb">{part_b}</span>
+                    </div>
+                  </td>
+                  <td class="check">{box}</td>
+                  <td class="check">{box}</td>
                 </tr>"""
             )
 
     if body_rows:
         table_html = f"""
-        <table class="picking" border="1" cellspacing="0" cellpadding="0" width="100%"
-               style="width:100%;border-collapse:collapse;border:1px solid #0f172a;table-layout:fixed;">
+        <table class="picking">
           <colgroup>
-            <col />
-            <col style="width:72px" />
-            <col style="width:72px" />
+            <col class="c-main" />
+            <col class="c-check" />
+            <col class="c-check" />
           </colgroup>
           <thead>
             <tr>
-              <th {th_main}>Всего {total} {order_word}</th>
-              <th {th_check}>Собрано<br /><span style="font-size:12px;">0 / {total}</span></th>
-              <th {th_check}>Упаковано<br /><span style="font-size:12px;">0 / {total}</span></th>
+              <th class="main">Всего {total} {order_word}</th>
+              <th class="check">Собрано<br /><span class="sub">0 / {total}</span></th>
+              <th class="check">Упаковано<br /><span class="sub">0 / {total}</span></th>
             </tr>
           </thead>
-          <tbody>
-            {''.join(body_rows)}
-          </tbody>
+          <tbody>{''.join(body_rows)}</tbody>
         </table>
         """
     else:
-        table_html = '<p style="padding:16px;color:#64748b;">Нет заказов в поставке.</p>'
+        table_html = '<p class="empty">Нет заказов в поставке.</p>'
 
     return f"""<!doctype html>
 <html lang="ru">
@@ -1169,12 +1128,142 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
       color: #0f172a;
       font-size: 12px;
       line-height: 1.3;
+      background: #fff;
     }}
     .toolbar {{ margin: 0 0 12px; }}
     .toolbar button {{
       min-height: 36px; padding: 8px 12px; font-size: 14px;
       border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; cursor: pointer;
     }}
+    table.picking {{
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      border: 1px solid #94a3b8;
+      background: #fff;
+    }}
+    table.picking .c-main {{ width: auto; }}
+    table.picking .c-check {{ width: 72px; }}
+    table.picking th,
+    table.picking td {{
+      border: 1px solid #94a3b8;
+      padding: 8px;
+      vertical-align: middle;
+    }}
+    table.picking thead th {{
+      background: #f1f5f9;
+      font-weight: 700;
+    }}
+    table.picking th.main {{
+      text-align: left;
+      font-size: 14px;
+    }}
+    table.picking th.check {{
+      text-align: center;
+      font-size: 11px;
+      line-height: 1.25;
+    }}
+    table.picking th.check .sub {{
+      display: inline-block;
+      margin-top: 2px;
+      font-size: 12px;
+    }}
+    td.main {{ text-align: left; }}
+    td.check {{
+      text-align: center;
+      width: 72px;
+      font-size: 13px;
+      font-weight: 700;
+    }}
+    .sku-cell {{
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+    }}
+    .photo {{
+      width: 56px;
+      height: 56px;
+      object-fit: cover;
+      border: 1px solid #cbd5e1;
+      display: block;
+      flex: 0 0 56px;
+      background: #fff;
+    }}
+    .photo.ph {{ background: #e2e8f0; }}
+    .sku-text {{ min-width: 0; flex: 1; }}
+    .sku-title {{
+      margin: 0 0 4px;
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.3;
+    }}
+    .sku-meta,
+    .sku-color {{
+      margin: 0 0 2px;
+      color: #475569;
+      font-size: 11px;
+      line-height: 1.3;
+    }}
+    .sku-article {{
+      margin: 0 0 2px;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1.3;
+      word-break: break-word;
+    }}
+    .sku-barcodes {{ margin: 4px 0 2px; }}
+    .sku-barcode {{
+      margin: 0 0 2px;
+      font-size: 16px;
+      font-weight: 800;
+      line-height: 1.25;
+      letter-spacing: 0.02em;
+      font-variant-numeric: tabular-nums;
+      word-break: break-all;
+    }}
+    .sku-qty {{
+      margin: 4px 0 0;
+      font-size: 12px;
+      font-weight: 700;
+    }}
+    .order-line {{
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      width: 100%;
+      min-height: 24px;
+    }}
+    .order-line .idx {{
+      flex: 0 0 28px;
+      color: #64748b;
+      font-weight: 600;
+    }}
+    .order-line .oid,
+    .order-line .sticker {{
+      flex: 0 1 auto;
+      white-space: nowrap;
+      color: #0f172a;
+    }}
+    .order-line .partb {{
+      margin-left: auto;
+      font-size: 16px;
+      font-weight: 800;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }}
+    .box {{
+      display: inline-block;
+      width: 18px;
+      height: 18px;
+      border: 1.5px solid #0f172a;
+      background: #fff;
+      vertical-align: middle;
+    }}
+    tr.article-end > td {{
+      border-bottom: 3px solid #0f172a;
+    }}
+    .empty {{ margin: 0; padding: 16px; color: #64748b; }}
     @media print {{
       .no-print {{ display: none !important; }}
       body {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
@@ -1185,6 +1274,7 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
 <body>
   {"" if for_pdf else '<div class="toolbar no-print"><button type="button" onclick="window.print()">Печать</button></div>'}
   {table_html}
+  {"" if for_pdf else "<script>window.addEventListener('load',function(){ setTimeout(function(){ window.print(); }, 300); });</script>"}
 </body>
 </html>"""
 
