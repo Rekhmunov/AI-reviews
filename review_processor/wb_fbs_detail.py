@@ -840,6 +840,21 @@ def get_supply_detail_for_print(
         )
 
 
+def _refresh_catalog_product_names(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    orders: list[dict[str, Any]],
+) -> None:
+    """Always resolve names from Settings → Products at print time (ignore stale cache)."""
+    catalog = repo.get_product_catalog_map(user_id=user_id)
+    catalog_ci = {str(k).casefold(): v for k, v in catalog.items() if k}
+    for o in orders:
+        article = str(o.get("article") or "").strip()
+        cat = catalog.get(article) or catalog_ci.get(article.casefold()) or {}
+        o["product_name"] = str(cat.get("product_name") or "").strip()
+
+
 def build_article_groups_for_print(
     repo: ReviewRepository,
     *,
@@ -861,6 +876,8 @@ def build_article_groups_for_print(
         api_key=api_key,
         supply_id=supply_id,
     )
+    # Detail cache may be from modal open — refresh catalog names for print.
+    _refresh_catalog_product_names(repo, user_id=user_id, orders=detail.get("orders") or [])
     order_ids = [int(o["order_id"]) for o in detail["orders"] if o.get("order_id") is not None]
     client = wb.WbFbsClient(api_key)
     # Always fetch/cache full PNG stickers (official). Picking list only embeds codes.
@@ -1151,15 +1168,25 @@ def _photo_data_uri(url: str, *, timeout: float = 4.0) -> str:
         return ""
 
 
-def _embed_picking_list_photos(html_doc: str, groups: list[dict[str, Any]]) -> str:
+def _embed_picking_list_photos(
+    html_doc: str,
+    groups: list[dict[str, Any]],
+    *,
+    max_photos: int = 40,
+) -> str:
+    """Embed a bounded number of photos so PDF gen cannot stall on large supplies."""
     out = html_doc
+    embedded = 0
     for g in groups:
+        if embedded >= max_photos:
+            break
         src = str(g.get("product_photo") or "").strip()
         if not src or src.startswith("data:"):
             continue
-        data_uri = _photo_data_uri(src)
+        data_uri = _photo_data_uri(src, timeout=2.5)
         if data_uri:
             out = out.replace(f'src="{_esc(src)}"', f'src="{data_uri}"', 1)
+            embedded += 1
     return out
 
 

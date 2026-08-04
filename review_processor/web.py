@@ -8874,7 +8874,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         """Compat redirect to PDF picking list."""
         from fastapi.responses import RedirectResponse
 
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
         sid = str(supply_id or "").strip()
+        if not sid or not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
         return RedirectResponse(
             url=(
                 f"/api/wb-fbs/supplies/{sid}/picking-list.pdf"
