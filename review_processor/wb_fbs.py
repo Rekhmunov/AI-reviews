@@ -1422,7 +1422,8 @@ def sync_wb_fbs_source(
                 sid = str(supply.get("id") or "")
                 order_ids: list[int] = []
                 boxes: list[dict[str, Any]] = []
-                if sid and not bool(supply.get("done")):
+                is_done = bool(supply.get("done"))
+                if sid and not is_done:
                     try:
                         order_ids = client.get_supply_order_ids(sid)
                         time.sleep(0.15)
@@ -1430,6 +1431,14 @@ def sync_wb_fbs_source(
                         time.sleep(0.15)
                     except Exception as exc:
                         errors.append(friendly_sync_error(f"supply {sid}", exc))
+                elif sid and is_done:
+                    # After PATCH /deliver WB sets done=true, but the supply stays
+                    # on portal «В доставке» — still need trbx cargo places.
+                    try:
+                        boxes = client.get_supply_boxes(sid)
+                        time.sleep(0.15)
+                    except Exception as exc:
+                        _log.debug("boxes for done supply %s: %s", sid, exc)
                 upsert_supply(
                     repo,
                     user_id=user_id,
