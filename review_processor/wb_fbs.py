@@ -1023,7 +1023,7 @@ def _list_supplies_for_orders_tab(
     offset = (safe_page - 1) * safe_size
 
     with repo._connect() as conn:
-        # One row per supply_id among delivery orders; left-join supply metadata.
+        # One row per supply_id among tab orders; left-join supply metadata.
         total_row = conn.execute(
             repo._sql(
                 f"""
