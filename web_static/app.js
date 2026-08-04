@@ -19065,15 +19065,14 @@ async function saveWbFbsKizModal() {
       const row = wbFbsKizState.rows.find((x) => Number(x.order_id) === oid);
       if (row && Array.isArray(r.kiz_codes)) {
         row.kiz_codes = r.kiz_codes.length ? r.kiz_codes.slice() : [""];
-        row.kiz_local = !!(r.local_ok && r.kiz_codes.length) || (!!r.local_ok && !r.kiz_codes.length && !!r.clear);
-        // Bound in WB only when API succeeded with codes.
+        if (r.local_ok) {
+          row.kiz_local = r.kiz_codes.length > 0;
+        }
         if (r.wb_ok) {
           row.kiz_bound = r.kiz_codes.length > 0;
           row.kiz_wb_synced = true;
-          row.kiz_local = r.kiz_codes.length > 0;
         } else if (r.local_ok) {
           row.kiz_wb_synced = false;
-          row.kiz_local = r.kiz_codes.length > 0 || !!row.kiz_local;
         }
       }
       if (!r.wb_ok) {

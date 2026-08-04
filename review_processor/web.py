@@ -8985,7 +8985,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         supply_id: str,
         source_id: int,
     ) -> dict[str, object]:
-        """Save КИЗ codes to WB for orders in the supply."""
+        """Save КИЗ codes to WB API and mirror into local wb_fbs_orders."""
         from . import wb_fbs_detail as wb_detail
 
         user = _require_user(request)
