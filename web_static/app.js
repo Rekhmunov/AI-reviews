@@ -18576,8 +18576,10 @@ function _wbFbsKizRowIsEmpty(row) {
   return !codes.some((c) => String(c || "").trim());
 }
 
-function renderWbFbsKizTable() {
-  _wbFbsKizCollectFromDom();
+function renderWbFbsKizTable(opts) {
+  // After programmatic state updates (scan/CSV/save) skip DOM collect —
+  // otherwise empty inputs overwrite the just-assigned КИЗ codes.
+  if (!(opts && opts.skipCollect)) _wbFbsKizCollectFromDom();
   const tbody = document.getElementById("wbFbsKizTbody");
   if (!tbody) return;
   const onlyEmpty = !!document.getElementById("wbFbsKizFilterEmpty")?.checked;
@@ -18777,7 +18779,7 @@ function onWbFbsKizMarkScanKey(event) {
   delete wbFbsKizState.errors[oid];
   setModalVisibility("wbFbsKizScanPrompt", false);
   wbFbsKizState.pendingOrderId = null;
-  renderWbFbsKizTable();
+  renderWbFbsKizTable({ skipCollect: true });
   _wbFbsKizSetInfo(`КИЗ добавлен к заказу ${oid}`, true);
   const sticker = document.getElementById("wbFbsKizStickerScan");
   if (sticker) {
