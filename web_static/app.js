@@ -5348,6 +5348,163 @@ async function downloadOzonPoA(supplyId) {
 window.downloadOzonPoA = downloadOzonPoA;
 
 // ═══════════════════════════════════════════════════════════════════════════
+// OZON RETURNS GIVEOUT BARCODE (Получение возвратов)
+// ═══════════════════════════════════════════════════════════════════════════
+
+let _ozonReturnsState = {
+  sourceId: 0,
+  barcode: "",
+  loading: false,
+};
+
+function openOzonReturnsModal() {
+  const m = document.getElementById("ozonReturnsModal");
+  if (!m) return;
+  m.classList.remove("hidden");
+  m.setAttribute("aria-hidden", "false");
+  refreshOzonReturnsModal();
+}
+window.openOzonReturnsModal = openOzonReturnsModal;
+
+function closeOzonReturnsModal() {
+  const m = document.getElementById("ozonReturnsModal");
+  if (!m) return;
+  m.classList.add("hidden");
+  m.setAttribute("aria-hidden", "true");
+  _ozonReturnsState.loading = false;
+}
+window.closeOzonReturnsModal = closeOzonReturnsModal;
+
+function _ozonReturnsSetLoading(isLoading) {
+  _ozonReturnsState.loading = !!isLoading;
+  const loadingEl = document.getElementById("ozonReturnsLoading");
+  const contentEl = document.getElementById("ozonReturnsContent");
+  const errEl = document.getElementById("ozonReturnsError");
+  const refreshBtn = document.getElementById("ozonReturnsRefreshBtn");
+  const pdfBtn = document.getElementById("ozonReturnsPdfBtn");
+  if (loadingEl) loadingEl.classList.toggle("hidden", !isLoading);
+  if (isLoading) {
+    if (contentEl) contentEl.classList.add("hidden");
+    if (errEl) {
+      errEl.classList.add("hidden");
+      errEl.textContent = "";
+    }
+  }
+  if (refreshBtn) refreshBtn.disabled = !!isLoading;
+  if (pdfBtn) pdfBtn.disabled = !!isLoading || !_ozonReturnsState.sourceId;
+}
+
+function _ozonReturnsShowError(message) {
+  const errEl = document.getElementById("ozonReturnsError");
+  const contentEl = document.getElementById("ozonReturnsContent");
+  const loadingEl = document.getElementById("ozonReturnsLoading");
+  if (loadingEl) loadingEl.classList.add("hidden");
+  if (contentEl) contentEl.classList.add("hidden");
+  if (errEl) {
+    errEl.textContent = message || "Не удалось загрузить штрихкод возвратов";
+    errEl.classList.remove("hidden");
+  }
+}
+
+function _renderOzonReturnsGiveouts(giveouts) {
+  const tbody = document.getElementById("ozonReturnsTbody");
+  if (!tbody) return;
+  const rows = Array.isArray(giveouts) ? giveouts : [];
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="2" class="ozon-returns-empty">Нет активных возвратов</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map((g) => {
+    const name = esc(g.warehouse_name || "—");
+    const addr = String(g.warehouse_address || "").trim();
+    const addrHtml = addr
+      ? `<div class="ozon-returns-wh-addr">${esc(addr)}</div>`
+      : "";
+    const qty = Number.isFinite(Number(g.quantity)) ? Number(g.quantity) : 0;
+    return `<tr>
+      <td>
+        <div class="ozon-returns-wh-name">${name}</div>
+        ${addrHtml}
+      </td>
+      <td class="ozon-returns-col-qty">${qty}</td>
+    </tr>`;
+  }).join("");
+}
+
+async function refreshOzonReturnsModal() {
+  if (_ozonReturnsState.loading) return;
+  _ozonReturnsSetLoading(true);
+  try {
+    const res = await fetch("/api/ozon-returns/giveout", {
+      method: "POST",
+      headers: jsonHeaders(),
+    }).catch(() => null);
+    const data = res ? await res.json().catch(() => ({})) : {};
+    if (!res || !res.ok || !data.ok) {
+      const detail = data.detail || data.message || (res ? `Ошибка ${res.status}` : "Нет ответа сервера");
+      _ozonReturnsShowError(typeof detail === "string" ? detail : "Не удалось обновить штрихкод");
+      _ozonReturnsState.sourceId = 0;
+      _ozonReturnsState.barcode = "";
+      return;
+    }
+    _ozonReturnsState.sourceId = Number(data.source_id) || 0;
+    _ozonReturnsState.barcode = String(data.barcode || "");
+
+    const img = document.getElementById("ozonReturnsBarcodeImg");
+    if (img && data.barcode_png_base64) {
+      img.src = `data:image/png;base64,${data.barcode_png_base64}`;
+    }
+    const codeEl = document.getElementById("ozonReturnsBarcodeText");
+    if (codeEl) codeEl.textContent = _ozonReturnsState.barcode || "—";
+    const validEl = document.getElementById("ozonReturnsValidUntil");
+    if (validEl) {
+      validEl.textContent = data.valid_until_label
+        ? `Действует до ${data.valid_until_label}`
+        : "Действует 24 часа";
+    }
+    _renderOzonReturnsGiveouts(data.giveouts || []);
+
+    const contentEl = document.getElementById("ozonReturnsContent");
+    const loadingEl = document.getElementById("ozonReturnsLoading");
+    const errEl = document.getElementById("ozonReturnsError");
+    if (loadingEl) loadingEl.classList.add("hidden");
+    if (errEl) errEl.classList.add("hidden");
+    if (contentEl) contentEl.classList.remove("hidden");
+  } finally {
+    _ozonReturnsState.loading = false;
+    const refreshBtn = document.getElementById("ozonReturnsRefreshBtn");
+    const pdfBtn = document.getElementById("ozonReturnsPdfBtn");
+    if (refreshBtn) refreshBtn.disabled = false;
+    if (pdfBtn) pdfBtn.disabled = !_ozonReturnsState.sourceId;
+  }
+}
+window.refreshOzonReturnsModal = refreshOzonReturnsModal;
+
+function copyOzonReturnsBarcode() {
+  const text = String(_ozonReturnsState.barcode || "").trim();
+  if (!text) return;
+  const done = () => {
+    const btn = document.getElementById("ozonReturnsBarcodeCopy");
+    if (!btn) return;
+    btn.classList.add("copied");
+    setTimeout(() => btn.classList.remove("copied"), 1200);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(() => {});
+  }
+}
+window.copyOzonReturnsBarcode = copyOzonReturnsBarcode;
+
+function downloadOzonReturnsPdf() {
+  const sid = Number(_ozonReturnsState.sourceId) || 0;
+  const url = sid
+    ? `/api/ozon-returns/giveout/pdf?source_id=${sid}`
+    : "/api/ozon-returns/giveout/pdf";
+  window.open(url, "_blank");
+}
+window.downloadOzonReturnsPdf = downloadOzonReturnsPdf;
+
+// ═══════════════════════════════════════════════════════════════════════════
 // OZON BINDING MERGE MODULE
 // ═══════════════════════════════════════════════════════════════════════════
 

@@ -10491,6 +10491,297 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         deleted = repository.clear_ozon_supply_items(user_id=_supply_owner_id(user))
         return {"ok": True, "deleted": deleted}
 
+    # ── OZON return giveout barcode (Получение возвратов) ───────────────────
+
+    def _ozon_giveout_post(
+        *,
+        client_id: str,
+        api_key: str,
+        path: str,
+        payload: dict | None = None,
+        timeout: int = 30,
+    ) -> dict:
+        """POST to Ozon return/giveout API. Returns parsed JSON dict."""
+        import json as _jj
+        import ssl as _sl
+        import urllib.error as _ue
+        import urllib.request as _ul
+
+        body = _jj.dumps(payload if payload is not None else {}).encode("utf-8")
+        headers = {
+            "Client-Id": client_id,
+            "Api-Key": api_key,
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0",
+        }
+        req = _ul.Request(
+            f"https://api-seller.ozon.ru{path}",
+            data=body,
+            method="POST",
+            headers=headers,
+        )
+        ctx = _sl.create_default_context()
+        try:
+            with _ul.urlopen(req, context=ctx, timeout=timeout) as resp:
+                raw = resp.read()
+        except _ue.HTTPError as exc:
+            err_body = ""
+            try:
+                err_body = exc.read().decode("utf-8", errors="replace")[:500]
+            except Exception:
+                pass
+            raise HTTPException(
+                status_code=400,
+                detail=f"Ozon API {path}: HTTP {exc.code}" + (f" — {err_body}" if err_body else ""),
+            ) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Ozon API {path}: {exc}") from exc
+        if not raw:
+            return {}
+        try:
+            data = _jj.loads(raw.decode("utf-8"))
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Ozon API {path}: некорректный JSON") from exc
+        return data if isinstance(data, dict) else {}
+
+    def _ozon_decode_file_content(value: object) -> bytes | None:
+        """Decode Ozon file_content (base64 or raw bytes-as-str) to bytes."""
+        import base64 as _b64
+
+        if value is None:
+            return None
+        if isinstance(value, (bytes, bytearray)):
+            return bytes(value)
+        text = str(value).strip()
+        if not text:
+            return None
+        if text.startswith("data:") and "," in text:
+            text = text.split(",", 1)[1]
+        try:
+            return _b64.b64decode(text, validate=False)
+        except Exception:
+            try:
+                return text.encode("latin-1")
+            except Exception:
+                return None
+
+    def _ozon_find_giveout_source(owner_id: int) -> dict:
+        """Pick first enabled Ozon supply source where giveout is enabled."""
+        sources = [
+            s
+            for s in repository.list_supply_sources(user_id=owner_id)
+            if (s.get("marketplace") or "wb").lower() == "ozon" and s.get("is_enabled")
+        ]
+        if not sources:
+            raise HTTPException(status_code=400, detail="Нет активных источников OZON")
+        last_err = "Нет источника OZON с доступом к получению возвратов"
+        for src in sources:
+            src_full = repository.get_supply_source_with_key(
+                user_id=owner_id, source_id=int(src["id"])
+            )
+            if not src_full:
+                continue
+            api_key = str(src_full.get("api_key") or "").strip()
+            client_id = str(src_full.get("client_id") or "").strip()
+            if not api_key or not client_id:
+                continue
+            try:
+                enabled_data = _ozon_giveout_post(
+                    client_id=client_id,
+                    api_key=api_key,
+                    path="/v1/return/giveout/is-enabled",
+                )
+            except HTTPException as exc:
+                last_err = str(exc.detail)
+                continue
+            if not bool(enabled_data.get("enabled")):
+                last_err = (
+                    f"У источника «{src_full.get('name') or src['id']}» "
+                    "получение возвратов по штрихкоду недоступно"
+                )
+                continue
+            return {
+                "id": int(src_full["id"]),
+                "name": str(src_full.get("name") or ""),
+                "client_id": client_id,
+                "api_key": api_key,
+            }
+        raise HTTPException(status_code=400, detail=last_err)
+
+    def _ozon_fetch_giveout_list(client_id: str, api_key: str) -> list[dict[str, object]]:
+        """Fetch giveout list pages and map to UI rows."""
+        rows: list[dict[str, object]] = []
+        last_id = 0
+        for _ in range(20):
+            payload: dict[str, object] = {"limit": 100}
+            if last_id:
+                payload["last_id"] = last_id
+            data = _ozon_giveout_post(
+                client_id=client_id,
+                api_key=api_key,
+                path="/v1/return/giveout/list",
+                payload=payload,
+            )
+            giveouts = data.get("giveouts") or []
+            if not isinstance(giveouts, list) or not giveouts:
+                break
+            for g in giveouts:
+                if not isinstance(g, dict):
+                    continue
+                status = str(g.get("giveout_status") or g.get("status") or "")
+                if status in {
+                    "GIVEOUT_STATUS_COMPLETED",
+                    "GIVEOUT_STATUS_CANCELLED",
+                    "COMPLETED",
+                    "CANCELLED",
+                }:
+                    continue
+                qty = g.get("total_articles_count")
+                if qty is None:
+                    qty = g.get("approved_articles_count")
+                if qty is None:
+                    qty = g.get("items_count")
+                try:
+                    qty_n = int(qty or 0)
+                except Exception:
+                    qty_n = 0
+                gid = g.get("giveout_id") or g.get("id") or 0
+                try:
+                    last_id = int(gid or last_id)
+                except Exception:
+                    pass
+                rows.append(
+                    {
+                        "giveout_id": int(gid or 0),
+                        "warehouse_name": str(g.get("warehouse_name") or "").strip(),
+                        "warehouse_address": str(g.get("warehouse_address") or "").strip(),
+                        "quantity": qty_n,
+                    }
+                )
+            if len(giveouts) < 100:
+                break
+        return rows
+
+    @app.post("/api/ozon-returns/giveout")
+    def ozon_returns_giveout_refresh(request: Request) -> dict[str, object]:
+        """Reset giveout barcode and return modal payload (PNG + list)."""
+        import base64 as _b64
+        from datetime import datetime as _dt
+        from zoneinfo import ZoneInfo
+
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        repository._ensure_supply_tables()
+        src = _ozon_find_giveout_source(owner_id)
+        client_id = src["client_id"]
+        api_key = src["api_key"]
+
+        # Always refresh so barcode is valid for the next ~24 hours
+        reset_data = _ozon_giveout_post(
+            client_id=client_id,
+            api_key=api_key,
+            path="/v1/return/giveout/barcode-reset",
+        )
+        png_bytes = _ozon_decode_file_content(reset_data.get("file_content"))
+        if not png_bytes:
+            png_data = _ozon_giveout_post(
+                client_id=client_id,
+                api_key=api_key,
+                path="/v1/return/giveout/get-png",
+            )
+            png_bytes = _ozon_decode_file_content(png_data.get("file_content"))
+        if not png_bytes:
+            raise HTTPException(status_code=400, detail="Не удалось получить изображение штрихкода")
+
+        barcode_data = _ozon_giveout_post(
+            client_id=client_id,
+            api_key=api_key,
+            path="/v1/return/giveout/barcode",
+        )
+        barcode = str(barcode_data.get("barcode") or "").strip()
+        try:
+            giveouts = _ozon_fetch_giveout_list(client_id, api_key)
+        except Exception as ex:
+            _log.warning("ozon giveout list failed source=%s: %s", src["id"], ex)
+            giveouts = []
+
+        try:
+            tz = ZoneInfo("Europe/Moscow")
+        except Exception:
+            from datetime import timezone as _tz
+
+            tz = _tz(timedelta(hours=3))
+        valid_until_dt = _dt.now(tz) + timedelta(hours=24)
+        # "4 августа, 15:38"
+        months = (
+            "",
+            "января",
+            "февраля",
+            "марта",
+            "апреля",
+            "мая",
+            "июня",
+            "июля",
+            "августа",
+            "сентября",
+            "октября",
+            "ноября",
+            "декабря",
+        )
+        valid_until_label = (
+            f"{valid_until_dt.day} {months[valid_until_dt.month]}, "
+            f"{valid_until_dt.strftime('%H:%M')}"
+        )
+
+        return {
+            "ok": True,
+            "source_id": src["id"],
+            "source_name": src["name"],
+            "barcode": barcode,
+            "barcode_png_base64": _b64.b64encode(png_bytes).decode("ascii"),
+            "valid_until": valid_until_dt.isoformat(),
+            "valid_until_label": valid_until_label,
+            "giveouts": giveouts,
+        }
+
+    @app.get("/api/ozon-returns/giveout/pdf")
+    def ozon_returns_giveout_pdf(request: Request, source_id: int = 0) -> Response:
+        """Download giveout barcode PDF for a previously selected Ozon source."""
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        if source_id:
+            src_full = repository.get_supply_source_with_key(user_id=owner_id, source_id=source_id)
+            if not src_full or (src_full.get("marketplace") or "").lower() != "ozon":
+                raise HTTPException(status_code=400, detail="Источник OZON не найден")
+            api_key = str(src_full.get("api_key") or "").strip()
+            client_id = str(src_full.get("client_id") or "").strip()
+            if not api_key or not client_id:
+                raise HTTPException(status_code=400, detail="Нет ключей источника OZON")
+            src = {"id": source_id, "client_id": client_id, "api_key": api_key}
+        else:
+            src = _ozon_find_giveout_source(owner_id)
+
+        pdf_data = _ozon_giveout_post(
+            client_id=src["client_id"],
+            api_key=src["api_key"],
+            path="/v1/return/giveout/get-pdf",
+        )
+        pdf_bytes = _ozon_decode_file_content(pdf_data.get("file_content"))
+        if not pdf_bytes:
+            raise HTTPException(status_code=400, detail="Не удалось получить PDF штрихкода")
+        fname = str(pdf_data.get("file_name") or "ozon_returns_barcode.pdf").strip() or "ozon_returns_barcode.pdf"
+        if "/" in fname or "\\" in fname:
+            fname = "ozon_returns_barcode.pdf"
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+        )
+
     # ── End OZON Supplies ────────────────────────────────────────────────────
 
     @app.get("/api/supplies/combined-poa.pdf")

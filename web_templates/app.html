@@ -1145,6 +1145,7 @@
               <button id="ozonSyncBtn" onclick="syncOzonSupplies()">🔄 Синхронизировать</button>
               <button id="ozonStopBtn" class="secondary icon-btn hidden" onclick="stopOzonSync()" style="color:#b91c1c;border-color:#fca5a5" title="Остановить синхронизацию OZON">🛑</button>
               <button id="ozonClearBtn" class="secondary icon-btn" onclick="clearOzonSupplies()" style="color:#b91c1c;border-color:#fca5a5" title="Удалить поставки OZON">🗑</button>
+              <button type="button" id="ozonReturnsBtn" class="secondary icon-btn" onclick="openOzonReturnsModal()" title="Получение возвратов">↩️</button>
               <button type="button" class="secondary" onclick="openOzonBindingModal()" style="white-space:nowrap">📎 Объединение привязки</button>
               <button id="ozonZayavkaBtn" class="secondary" style="display:none;height:34px;padding:0 12px;white-space:nowrap"
                       onclick="openZayavkaModalOzon()">📋 Заявка на перевозку</button>
@@ -1255,6 +1256,55 @@
       </div>
 
       <!-- OZON Binding Merge Modal -->
+      <!-- OZON Returns giveout barcode modal -->
+      <div id="ozonReturnsModal" class="modal-overlay hidden" onclick="if(event.target===this)closeOzonReturnsModal()" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="ozonReturnsTitle">
+        <div class="modal-card ozon-returns-modal-card">
+          <div class="modal-card-header">
+            <h4 class="no-margin" id="ozonReturnsTitle">Получение возвратов</h4>
+            <button type="button" class="modal-close-btn" onclick="closeOzonReturnsModal()" aria-label="Закрыть">✕</button>
+          </div>
+          <div class="ozon-returns-body">
+            <div id="ozonReturnsError" class="ozon-returns-error hidden"></div>
+            <div id="ozonReturnsLoading" class="ozon-returns-loading">Загрузка штрихкода…</div>
+            <div id="ozonReturnsContent" class="ozon-returns-content hidden">
+              <div class="ozon-returns-barcode-panel">
+                <div class="ozon-returns-barcode-visual">
+                  <img id="ozonReturnsBarcodeImg" alt="Штрихкод возвратов" />
+                  <div class="ozon-returns-barcode-meta">
+                    <button type="button" id="ozonReturnsBarcodeCopy" class="ozon-returns-barcode-code" onclick="copyOzonReturnsBarcode()" title="Скопировать">
+                      <span id="ozonReturnsBarcodeText">—</span>
+                      <span class="ozon-returns-copy-icon" aria-hidden="true">⧉</span>
+                    </button>
+                    <div id="ozonReturnsValidUntil" class="ozon-returns-valid">—</div>
+                  </div>
+                </div>
+              </div>
+              <div class="ozon-returns-actions">
+                <button type="button" class="secondary" id="ozonReturnsPdfBtn" onclick="downloadOzonReturnsPdf()">Скачать в PDF</button>
+                <button type="button" class="secondary" id="ozonReturnsRefreshBtn" onclick="refreshOzonReturnsModal()">Обновить</button>
+                <span class="ozon-returns-hint">Штрихкод обновляется раз в сутки</span>
+              </div>
+              <div class="ozon-returns-list-wrap">
+                <div class="ozon-returns-list-title">Список возвратов</div>
+                <div class="table-wrap ozon-returns-table-wrap">
+                  <table class="ozon-returns-table" id="ozonReturnsTable">
+                    <thead>
+                      <tr>
+                        <th>Пункт выдачи или СЦ</th>
+                        <th class="ozon-returns-col-qty">Количество</th>
+                      </tr>
+                    </thead>
+                    <tbody id="ozonReturnsTbody">
+                      <tr><td colspan="2" class="ozon-returns-empty">Нет активных возвратов</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div id="ozonBindingModal" class="modal-overlay hidden" onclick="if(event.target===this)closeOzonBindingModal()" aria-hidden="true">
         <div style="background:#fff;border-radius:12px;box-shadow:0 8px 40px rgba(15,23,42,0.18);width:90vw;height:90vh;min-width:400px;display:flex;flex-direction:column;overflow:hidden">
           <!-- Header -->
