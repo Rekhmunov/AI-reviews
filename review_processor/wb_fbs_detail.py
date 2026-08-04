@@ -595,11 +595,17 @@ def render_picking_list_html(payload: dict[str, Any]) -> str:
             order_lines.append(
                 f"""<tr class="order-row">
                   <td class="idx">{idx}</td>
-                  <td>Заказ: {_esc(o.get("order_id"))}</td>
-                  <td>Стикер WB: {part_a}</td>
+                  <td class="oid">Заказ: {_esc(o.get("order_id"))}</td>
+                  <td class="sticker">Стикер WB: {part_a}</td>
                   <td class="partb">{part_b}</td>
                 </tr>"""
             )
+        meta_lines = []
+        if meta:
+            meta_lines.append(f'<div class="sku-meta">{_esc(meta)}</div>')
+        if color_html:
+            meta_lines.append(color_html)
+        meta_lines.append(f'<div class="sku-qty">{qty} шт</div>')
         rows_html.append(
             f"""
             <section class="sku-block">
@@ -607,16 +613,19 @@ def render_picking_list_html(payload: dict[str, Any]) -> str:
                 {photo_html}
                 <div class="sku-text">
                   <div class="sku-title">{_esc(g.get("product_name"))}</div>
-                  <div class="sku-meta">{_esc(meta)}</div>
-                  {color_html}
-                  <div class="sku-qty">{qty} шт</div>
+                  {''.join(meta_lines)}
                 </div>
                 <div class="sku-stats">
-                  <div><span>Собрано</span><strong>0/{qty}</strong></div>
-                  <div><span>Упаковано</span><strong>0/{qty}</strong></div>
+                  <div class="stat"><span>Собрано</span><strong>0/{qty}</strong></div>
+                  <div class="stat"><span>Упаковано</span><strong>0/{qty}</strong></div>
                 </div>
               </div>
-              <table class="orders">{''.join(order_lines)}</table>
+              <table class="orders">
+                <colgroup>
+                  <col class="c-idx" /><col class="c-oid" /><col class="c-sticker" /><col class="c-partb" />
+                </colgroup>
+                <tbody>{''.join(order_lines)}</tbody>
+              </table>
             </section>
             """
         )
@@ -626,49 +635,119 @@ def render_picking_list_html(payload: dict[str, Any]) -> str:
   <meta charset="utf-8" />
   <title>Лист подбора {sid} от {created}</title>
   <style>
-    @page {{ size: A4 portrait; margin: 12mm; }}
+    @page {{ size: A4 portrait; margin: 10mm; }}
     * {{ box-sizing: border-box; }}
     body {{
-      margin: 0; font-family: Arial, sans-serif; color: #0f172a;
-      font-size: 12px; line-height: 1.35;
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      color: #0f172a;
+      font-size: 12px;
+      line-height: 1.3;
     }}
-    h1 {{ font-size: 20px; margin: 0 0 4px; }}
-    .sub {{ color: #475569; margin: 0 0 12px; }}
-    .meta {{ display: flex; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 12px; }}
+    .toolbar {{ margin: 0 0 12px; }}
+    .toolbar button {{
+      min-height: 36px; padding: 8px 12px; font-size: 14px;
+      border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; cursor: pointer;
+    }}
+    .doc-kicker {{
+      margin: 0 0 4px; color: #64748b; font-size: 12px; line-height: 1.3;
+    }}
+    h1 {{
+      margin: 0 0 8px; font-size: 20px; font-weight: 700; line-height: 1.25;
+    }}
+    .meta {{
+      display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px;
+    }}
     .pill {{
-      display: inline-flex; align-items: center; min-height: 24px;
-      padding: 2px 8px; border: 1px solid #cbd5e1; border-radius: 6px;
-      background: #f8fafc; font-weight: 600;
+      display: inline-flex; align-items: center;
+      min-height: 24px; padding: 4px 8px;
+      border: 1px solid #cbd5e1; border-radius: 6px;
+      background: #f8fafc; font-size: 12px; font-weight: 600; line-height: 1.2;
     }}
     .summary {{
-      display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 0;
-      background: #e2e8f0; border: 1px solid #cbd5e1; margin-bottom: 16px;
+      display: grid; grid-template-columns: 1fr 1fr 1fr;
+      margin: 0 0 12px; border: 1px solid #cbd5e1; background: #eef2f7;
     }}
-    .summary div {{ padding: 10px 12px; border-right: 1px solid #cbd5e1; font-weight: 600; }}
+    .summary div {{
+      padding: 8px 12px; font-size: 12px; font-weight: 700; line-height: 1.3;
+      border-right: 1px solid #cbd5e1;
+    }}
     .summary div:last-child {{ border-right: 0; }}
-    .sku-block {{ border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 12px; overflow: hidden; page-break-inside: avoid; }}
-    .sku-head {{ display: grid; grid-template-columns: 64px 1fr 140px; gap: 12px; padding: 12px; background: #fff; }}
-    .photo {{ width: 64px; height: 64px; object-fit: cover; border-radius: 6px; border: 1px solid #e2e8f0; }}
+    .sku-block {{
+      margin: 0 0 8px; border: 1px solid #e2e8f0; border-radius: 8px;
+      overflow: hidden; page-break-inside: avoid; background: #fff;
+    }}
+    .sku-block:last-of-type {{ margin-bottom: 0; }}
+    .sku-head {{
+      display: grid;
+      grid-template-columns: 56px minmax(0, 1fr) 104px;
+      column-gap: 12px;
+      align-items: start;
+      padding: 12px;
+      border-bottom: 1px solid #f1f5f9;
+    }}
+    .photo {{
+      width: 56px; height: 56px; object-fit: cover;
+      border-radius: 6px; border: 1px solid #e2e8f0; display: block;
+    }}
     .photo.ph {{ background: #f1f5f9; }}
-    .sku-title {{ font-weight: 700; font-size: 13px; margin-bottom: 4px; }}
-    .sku-meta, .color {{ color: #64748b; margin-bottom: 2px; }}
-    .sku-qty {{ font-weight: 700; margin-top: 4px; }}
-    .sku-stats {{ display: flex; flex-direction: column; gap: 8px; text-align: right; color: #64748b; }}
-    .sku-stats strong {{ display: block; color: #0f172a; font-size: 14px; }}
-    table.orders {{ width: 100%; border-collapse: collapse; }}
-    .order-row td {{ padding: 6px 10px; border-top: 1px solid #f1f5f9; }}
-    .order-row .idx {{ width: 36px; color: #94a3b8; }}
-    .order-row .partb {{ text-align: right; font-size: 18px; font-weight: 800; letter-spacing: 0.04em; }}
-    .foot {{ margin-top: 16px; color: #94a3b8; font-size: 11px; }}
+    .sku-text {{ min-width: 0; }}
+    .sku-title {{
+      margin: 0 0 4px; font-size: 13px; font-weight: 700; line-height: 1.3;
+    }}
+    .sku-meta, .color {{
+      margin: 0 0 4px; color: #64748b; font-size: 12px; line-height: 1.3;
+    }}
+    .sku-qty {{
+      margin: 0; font-size: 12px; font-weight: 700; line-height: 1.3; color: #0f172a;
+    }}
+    .sku-stats {{
+      display: grid; grid-template-columns: 1fr 1fr; column-gap: 8px;
+      align-self: start; text-align: right;
+    }}
+    .sku-stats .stat span {{
+      display: block; margin: 0 0 4px; color: #64748b;
+      font-size: 11px; font-weight: 600; line-height: 1.2;
+    }}
+    .sku-stats .stat strong {{
+      display: block; margin: 0; color: #0f172a;
+      font-size: 14px; font-weight: 700; line-height: 1.2;
+    }}
+    table.orders {{
+      width: 100%; border-collapse: collapse; table-layout: fixed;
+    }}
+    table.orders .c-idx {{ width: 32px; }}
+    table.orders .c-oid {{ width: 34%; }}
+    table.orders .c-sticker {{ width: 38%; }}
+    table.orders .c-partb {{ width: auto; }}
+    .order-row td {{
+      padding: 8px 12px; border-top: 1px solid #f1f5f9;
+      vertical-align: middle; font-size: 12px; line-height: 1.3;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }}
+    .order-row:first-child td {{ border-top: 0; }}
+    .order-row .idx {{
+      padding-left: 12px; color: #94a3b8; font-weight: 600; text-align: left;
+    }}
+    .order-row .oid, .order-row .sticker {{ color: #334155; }}
+    .order-row .partb {{
+      padding-right: 12px; text-align: right;
+      font-size: 16px; font-weight: 800; letter-spacing: 0.02em; color: #0f172a;
+    }}
+    .empty {{ margin: 0; padding: 16px 0; color: #64748b; }}
+    .foot {{
+      margin: 12px 0 0; color: #94a3b8; font-size: 11px; line-height: 1.3;
+    }}
     @media print {{
       .no-print {{ display: none !important; }}
       body {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+      .sku-block {{ break-inside: avoid; }}
     }}
   </style>
 </head>
 <body>
-  <button class="no-print" onclick="window.print()" style="margin:0 0 12px;padding:8px 12px">Печать</button>
-  <div class="sub">Лист подбора {sid} от {created}</div>
+  <div class="toolbar no-print"><button type="button" onclick="window.print()">Печать</button></div>
+  <div class="doc-kicker">Лист подбора {sid} от {created}</div>
   <h1>{name}</h1>
   <div class="meta">
     {f'<span class="pill">{cargo}</span>' if cargo else ''}
@@ -680,7 +759,7 @@ def render_picking_list_html(payload: dict[str, Any]) -> str:
     <div>Собрано 0 / {total}</div>
     <div>Упаковано 0 / {total}</div>
   </div>
-  {''.join(rows_html) if rows_html else '<p>Нет заказов в поставке.</p>'}
+  {''.join(rows_html) if rows_html else '<p class="empty">Нет заказов в поставке.</p>'}
   <div class="foot">Сформировано в FeedPilot · A4 книжная</div>
   <script>window.addEventListener('load',function(){{ setTimeout(function(){{ window.print(); }}, 250); }});</script>
 </body>
