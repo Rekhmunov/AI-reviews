@@ -18602,12 +18602,13 @@ function renderWbFbsKizTable(opts) {
       ? `<img class="wb-fbs-product-photo" src="${_wbFbsEsc(r.product_photo)}" alt="" width="56" height="56" loading="lazy">`
       : `<span class="wb-fbs-product-ph" aria-hidden="true"></span>`;
     const brandArt = [r.brand, r.article ? `Арт. ${r.article}` : ""].filter(Boolean).join(" · ");
-    const codeHtml = codes.map((code, idx) => `
+    // Do not put КИЗ into value="" via innerHTML — \\u001D is dropped by HTML parser.
+    const codeHtml = codes.map((_code, idx) => `
       <div class="wb-fbs-kiz-code-row">
         <span class="wb-fbs-kiz-code-idx">${idx + 1}</span>
         <input class="wb-fbs-kiz-code-input${err ? " is-error" : ""}" type="text"
                data-order-id="${oid}" data-idx="${idx}"
-               value="${_wbFbsEsc(code)}" autocomplete="off"
+               autocomplete="off"
                oninput="onWbFbsKizCodeInput(${oid})" />
       </div>`).join("");
     return `<tr class="wb-fbs-kiz-row${pending === oid ? " is-active" : ""}" data-order-id="${oid}">
@@ -18632,6 +18633,15 @@ function renderWbFbsKizTable(opts) {
       </td>
     </tr>`;
   }).join("");
+  // Assign codes via DOM property so GS (\\u001D) survives.
+  tbody.querySelectorAll(".wb-fbs-kiz-code-input").forEach((input) => {
+    const oid = Number(input.dataset.orderId);
+    const idx = Number(input.dataset.idx);
+    const row = wbFbsKizState.rows.find((r) => Number(r.order_id) === oid);
+    if (!row || !Number.isFinite(idx)) return;
+    const codes = Array.isArray(row.kiz_codes) ? row.kiz_codes : [];
+    input.value = String(codes[idx] ?? "");
+  });
 }
 window.renderWbFbsKizTable = renderWbFbsKizTable;
 
@@ -18779,8 +18789,16 @@ function onWbFbsKizMarkScanKey(event) {
   delete wbFbsKizState.errors[oid];
   setModalVisibility("wbFbsKizScanPrompt", false);
   wbFbsKizState.pendingOrderId = null;
+  // Show the filled row even if «только незаполненные» was on.
+  const emptyFilter = document.getElementById("wbFbsKizFilterEmpty");
+  if (emptyFilter) emptyFilter.checked = false;
   renderWbFbsKizTable({ skipCollect: true });
-  _wbFbsKizSetInfo(`КИЗ добавлен к заказу ${oid}`, true);
+  _wbFbsKizSetInfo(
+    `КИЗ добавлен в строку заказа ${oid}. Нажмите «Сохранить», чтобы записать в WB.`,
+    true
+  );
+  const rowEl = document.querySelector(`#wbFbsKizTbody tr[data-order-id="${oid}"]`);
+  if (rowEl) rowEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
   const sticker = document.getElementById("wbFbsKizStickerScan");
   if (sticker) {
     sticker.value = "";
@@ -18847,7 +18865,7 @@ async function uploadWbFbsKizTemplate(event) {
       delete wbFbsKizState.errors[oid];
       applied += 1;
     }
-    renderWbFbsKizTable();
+    renderWbFbsKizTable({ skipCollect: true });
     if (applied) {
       const skipNote = skippedEmpty ? `, пропущено пустых: ${skippedEmpty}` : "";
       _wbFbsKizSetInfo(`Загружено строк: ${applied}${skipNote}`, true);
@@ -18866,14 +18884,14 @@ async function saveWbFbsKizModal() {
   const sid = String(wbFbsDetailState.supplyId || "").trim();
   if (!sid || !wbFbsState.sourceId || wbFbsKizState.saving) return;
   _wbFbsKizCollectFromDom();
-  // Send only rows with codes, or previously bound rows cleared (clear:true).
+  // Persist only on Save: send codes, or clear WB when row was bound and is now empty.
   const items = [];
   for (const r of wbFbsKizState.rows) {
     const codes = (Array.isArray(r.kiz_codes) ? r.kiz_codes : [])
       .map((c) => _wbFbsKizNormalizeMark(c))
       .filter(Boolean);
     const wasBound = !!r.kiz_bound;
-    if (!codes.length && !wasBound) continue;
+    if (!codes.length && !wasBound) continue; // never saved → nothing to clear
     items.push({
       order_id: Number(r.order_id),
       kiz_codes: codes,
@@ -18881,7 +18899,7 @@ async function saveWbFbsKizModal() {
     });
   }
   if (!items.length) {
-    _wbFbsKizSetInfo("Нет изменений для сохранения");
+    _wbFbsKizSetInfo("Нет изменений для сохранения в WB");
     return;
   }
   const btn = document.getElementById("wbFbsKizSaveBtn");
@@ -18910,7 +18928,7 @@ async function saveWbFbsKizModal() {
       }
       if (!r.ok) wbFbsKizState.errors[oid] = r.error || "Ошибка сохранения";
     }
-    renderWbFbsKizTable();
+    renderWbFbsKizTable({ skipCollect: true });
     const skipped = Number(data.skipped || 0);
     if (data.failed) {
       _wbFbsKizSetInfo(`Сохранено: ${data.saved || 0}, с ошибками: ${data.failed}`);
