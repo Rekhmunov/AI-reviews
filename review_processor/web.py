@@ -3051,9 +3051,33 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     # ── Product photos catalog ────────────────────────────────────────────────
 
     import os as _os
-    _PHOTO_DIR = _os.path.abspath(
-        _os.path.join(_os.path.dirname(__file__), "..", "product_photos")
-    )
+
+    def _product_photos_dir() -> str:
+        """Writable catalog for Settings → Products thumbnails.
+
+        Prefer ``data/product_photos`` (deploy-owned), then legacy ``product_photos``,
+        then ``FEEDPILOT_PRODUCT_PHOTOS_DIR`` override.
+        """
+        override = str(_os.environ.get("FEEDPILOT_PRODUCT_PHOTOS_DIR") or "").strip()
+        if override:
+            return _os.path.abspath(override)
+        root = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), ".."))
+        preferred = _os.path.join(root, "data", "product_photos")
+        legacy = _os.path.join(root, "product_photos")
+        # Prefer the dir we can actually write when both exist.
+        for path in (preferred, legacy):
+            try:
+                _os.makedirs(path, exist_ok=True)
+                probe = _os.path.join(path, ".write_probe")
+                with open(probe, "wb") as fh:
+                    fh.write(b"ok")
+                _os.remove(probe)
+                return path
+            except Exception:
+                continue
+        return preferred
+
+    _PHOTO_DIR = _product_photos_dir()
 
     def _ensure_product_photos_table() -> None:
         try:
@@ -3063,7 +3087,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             pass
 
     async def _save_product_photo_upload(photo: UploadFile) -> str:
-        """Resize upload to WebP and store under product_photos/. Raises HTTPException on failure."""
+        """Resize upload to WebP and store under product photos dir. Raises HTTPException on failure."""
         import io as _io
         import uuid as _uuid
 
@@ -3078,6 +3102,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="Пустой файл фото")
         if len(content) > 12 * 1024 * 1024:
             raise HTTPException(status_code=400, detail="Фото больше 12 МБ")
+        photo_dir = _product_photos_dir()
         try:
             from PIL import Image as _PilImage
 
@@ -3085,15 +3110,27 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             img = _PilImage.open(_io.BytesIO(content))
             img = img.convert("RGB")
             img.thumbnail((200, 200), resample)
-            _os.makedirs(_PHOTO_DIR, exist_ok=True)
+            _os.makedirs(photo_dir, exist_ok=True)
             fname = f"{_uuid.uuid4().hex}.webp"
-            fpath = _os.path.join(_PHOTO_DIR, fname)
-            img.save(fpath, "WEBP", quality=85)
+            fpath = _os.path.join(photo_dir, fname)
+            try:
+                img.save(fpath, "WEBP", quality=85)
+            except Exception:
+                # Some hosts ship Pillow without WebP encoder.
+                fname = f"{_uuid.uuid4().hex}.jpg"
+                fpath = _os.path.join(photo_dir, fname)
+                img.save(fpath, "JPEG", quality=85)
             if not _os.path.isfile(fpath):
                 raise RuntimeError(f"file not written: {fpath}")
             return fname
         except HTTPException:
             raise
+        except PermissionError as exc:
+            _log.warning("product photo permission failed dir=%s: %s", photo_dir, exc)
+            raise HTTPException(
+                status_code=500,
+                detail="Нет прав на запись фото на сервере. Обратитесь к администратору.",
+            ) from exc
         except Exception as exc:
             _log.warning("product photo processing failed: %s", exc)
             raise HTTPException(
