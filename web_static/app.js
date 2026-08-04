@@ -5355,6 +5355,7 @@ let _ozonReturnsState = {
   sourceId: 0,
   barcode: "",
   loading: false,
+  reqId: 0,
 };
 
 function openOzonReturnsModal() {
@@ -5371,7 +5372,13 @@ function closeOzonReturnsModal() {
   if (!m) return;
   m.classList.add("hidden");
   m.setAttribute("aria-hidden", "true");
+  // Invalidate in-flight response so a closed modal is not overwritten later.
+  _ozonReturnsState.reqId += 1;
   _ozonReturnsState.loading = false;
+  const refreshBtn = document.getElementById("ozonReturnsRefreshBtn");
+  const pdfBtn = document.getElementById("ozonReturnsPdfBtn");
+  if (refreshBtn) refreshBtn.disabled = false;
+  if (pdfBtn) pdfBtn.disabled = !_ozonReturnsState.sourceId;
 }
 window.closeOzonReturnsModal = closeOzonReturnsModal;
 
@@ -5433,13 +5440,17 @@ function _renderOzonReturnsGiveouts(giveouts) {
 
 async function refreshOzonReturnsModal() {
   if (_ozonReturnsState.loading) return;
+  const reqId = ++_ozonReturnsState.reqId;
   _ozonReturnsSetLoading(true);
   try {
     const res = await fetch("/api/ozon-returns/giveout", {
       method: "POST",
       headers: jsonHeaders(),
+      credentials: "same-origin",
     }).catch(() => null);
+    if (reqId !== _ozonReturnsState.reqId) return;
     const data = res ? await res.json().catch(() => ({})) : {};
+    if (reqId !== _ozonReturnsState.reqId) return;
     if (!res || !res.ok || !data.ok) {
       const detail = data.detail || data.message || (res ? `Ошибка ${res.status}` : "Нет ответа сервера");
       _ozonReturnsShowError(typeof detail === "string" ? detail : "Не удалось обновить штрихкод");
@@ -5470,7 +5481,13 @@ async function refreshOzonReturnsModal() {
     if (loadingEl) loadingEl.classList.add("hidden");
     if (errEl) errEl.classList.add("hidden");
     if (contentEl) contentEl.classList.remove("hidden");
+  } catch (err) {
+    if (reqId !== _ozonReturnsState.reqId) return;
+    _ozonReturnsShowError("Не удалось загрузить штрихкод возвратов");
+    _ozonReturnsState.sourceId = 0;
+    _ozonReturnsState.barcode = "";
   } finally {
+    if (reqId !== _ozonReturnsState.reqId) return;
     _ozonReturnsState.loading = false;
     const refreshBtn = document.getElementById("ozonReturnsRefreshBtn");
     const pdfBtn = document.getElementById("ozonReturnsPdfBtn");
@@ -5490,7 +5507,13 @@ function copyOzonReturnsBarcode() {
     setTimeout(() => btn.classList.remove("copied"), 1200);
   };
   if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text).then(done).catch(() => {});
+    navigator.clipboard.writeText(text).then(done).catch(() => {
+      if (typeof _copyFallback === "function") _copyFallback(text);
+      done();
+    });
+  } else if (typeof _copyFallback === "function") {
+    _copyFallback(text);
+    done();
   }
 }
 window.copyOzonReturnsBarcode = copyOzonReturnsBarcode;

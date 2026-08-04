@@ -10544,26 +10544,41 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=f"Ozon API {path}: некорректный JSON") from exc
         return data if isinstance(data, dict) else {}
 
-    def _ozon_decode_file_content(value: object) -> bytes | None:
-        """Decode Ozon file_content (base64 or raw bytes-as-str) to bytes."""
+    def _ozon_decode_file_content(
+        value: object,
+        *,
+        expect: str = "png",
+    ) -> bytes | None:
+        """Decode Ozon file_content (base64) and validate magic bytes."""
         import base64 as _b64
 
         if value is None:
             return None
         if isinstance(value, (bytes, bytearray)):
-            return bytes(value)
-        text = str(value).strip()
-        if not text:
-            return None
-        if text.startswith("data:") and "," in text:
-            text = text.split(",", 1)[1]
-        try:
-            return _b64.b64decode(text, validate=False)
-        except Exception:
-            try:
-                return text.encode("latin-1")
-            except Exception:
+            raw = bytes(value)
+        else:
+            text = str(value).strip()
+            if not text:
                 return None
+            if text.startswith("data:") and "," in text:
+                text = text.split(",", 1)[1]
+            try:
+                raw = _b64.b64decode(text, validate=False)
+            except Exception:
+                try:
+                    raw = text.encode("latin-1")
+                except Exception:
+                    return None
+        if not raw:
+            return None
+        # Reject false-positive base64 that is not a real image/pdf.
+        if expect == "pdf":
+            if not raw.startswith(b"%PDF"):
+                return None
+        else:
+            if not raw.startswith(b"\x89PNG\r\n\x1a\n"):
+                return None
+        return raw
 
     def _ozon_find_giveout_source(owner_id: int) -> dict:
         """Pick first enabled Ozon supply source where giveout is enabled."""
@@ -10625,6 +10640,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             giveouts = data.get("giveouts") or []
             if not isinstance(giveouts, list) or not giveouts:
                 break
+            # Always advance cursor from the raw page (even if all rows filtered),
+            # otherwise a full page of completed giveouts would loop forever.
+            page_last_id = last_id
+            last_item = giveouts[-1]
+            if isinstance(last_item, dict):
+                try:
+                    page_last_id = int(last_item.get("giveout_id") or last_item.get("id") or last_id)
+                except Exception:
+                    page_last_id = last_id
             for g in giveouts:
                 if not isinstance(g, dict):
                     continue
@@ -10647,17 +10671,20 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     qty_n = 0
                 gid = g.get("giveout_id") or g.get("id") or 0
                 try:
-                    last_id = int(gid or last_id)
+                    gid_n = int(gid or 0)
                 except Exception:
-                    pass
+                    gid_n = 0
                 rows.append(
                     {
-                        "giveout_id": int(gid or 0),
+                        "giveout_id": gid_n,
                         "warehouse_name": str(g.get("warehouse_name") or "").strip(),
                         "warehouse_address": str(g.get("warehouse_address") or "").strip(),
                         "quantity": qty_n,
                     }
                 )
+            if page_last_id == last_id:
+                break
+            last_id = page_last_id
             if len(giveouts) < 100:
                 break
         return rows
@@ -10684,23 +10711,27 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             api_key=api_key,
             path="/v1/return/giveout/barcode-reset",
         )
-        png_bytes = _ozon_decode_file_content(reset_data.get("file_content"))
+        png_bytes = _ozon_decode_file_content(reset_data.get("file_content"), expect="png")
         if not png_bytes:
             png_data = _ozon_giveout_post(
                 client_id=client_id,
                 api_key=api_key,
                 path="/v1/return/giveout/get-png",
             )
-            png_bytes = _ozon_decode_file_content(png_data.get("file_content"))
+            png_bytes = _ozon_decode_file_content(png_data.get("file_content"), expect="png")
         if not png_bytes:
             raise HTTPException(status_code=400, detail="Не удалось получить изображение штрихкода")
 
-        barcode_data = _ozon_giveout_post(
-            client_id=client_id,
-            api_key=api_key,
-            path="/v1/return/giveout/barcode",
-        )
-        barcode = str(barcode_data.get("barcode") or "").strip()
+        barcode = ""
+        try:
+            barcode_data = _ozon_giveout_post(
+                client_id=client_id,
+                api_key=api_key,
+                path="/v1/return/giveout/barcode",
+            )
+            barcode = str(barcode_data.get("barcode") or "").strip()
+        except Exception as ex:
+            _log.warning("ozon giveout barcode text failed source=%s: %s", src["id"], ex)
         try:
             giveouts = _ozon_fetch_giveout_list(client_id, api_key)
         except Exception as ex:
@@ -10770,7 +10801,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             api_key=src["api_key"],
             path="/v1/return/giveout/get-pdf",
         )
-        pdf_bytes = _ozon_decode_file_content(pdf_data.get("file_content"))
+        pdf_bytes = _ozon_decode_file_content(pdf_data.get("file_content"), expect="pdf")
         if not pdf_bytes:
             raise HTTPException(status_code=400, detail="Не удалось получить PDF штрихкода")
         fname = str(pdf_data.get("file_name") or "ozon_returns_barcode.pdf").strip() or "ozon_returns_barcode.pdf"
