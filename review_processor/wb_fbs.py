@@ -1331,7 +1331,7 @@ def enrich_delivery_supplies_from_wb(
         if need_meta:
             try:
                 supply = client.get_supply(sid)
-                time.sleep(0.12)
+                time.sleep(0.21)
             except Exception as exc:
                 _log.debug("enrich get_supply %s: %s", sid, exc)
                 supply = {}
@@ -1366,7 +1366,7 @@ def enrich_delivery_supplies_from_wb(
         if need_boxes:
             try:
                 boxes = client.get_supply_boxes(sid)
-                time.sleep(0.12)
+                time.sleep(0.21)
             except Exception as exc:
                 _log.debug("enrich get_supply_boxes %s: %s", sid, exc)
                 boxes = []
@@ -1459,7 +1459,7 @@ def sync_wb_fbs_source(
                 is_archive=False,
             )
             _note_order(order)
-        time.sleep(0.2)
+        time.sleep(0.21)
     except Exception as exc:
         _log.warning("wb_fbs new orders failed: %s", exc)
         if is_marketplace_scope_error(exc):
