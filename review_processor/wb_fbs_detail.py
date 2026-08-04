@@ -1703,8 +1703,8 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
 <head>
   <meta charset="utf-8" />
   <title>Лист подбора {sid} от {created}</title>
-  <!-- feedpilot-picking-list:20260804j -->
-  <meta name="feedpilot-build" content="picking-20260804j" />
+  <!-- feedpilot-picking-list:20260804k -->
+  <meta name="feedpilot-build" content="picking-20260804k" />
   <style>
     @page {{ size: A4 portrait; margin: 10mm; }}
     * {{ box-sizing: border-box; }}
@@ -1771,8 +1771,8 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
       font-weight: 800;
       line-height: 1.25;
       white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      overflow: visible;
+      max-width: 100%;
     }}
     .sku-meta {{
       margin: 0 0 2px;
@@ -1883,7 +1883,29 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
 <body>
   {"" if for_pdf else '<div class="toolbar no-print"><button type="button" onclick="window.print()">Печать</button></div>'}
   {table_html}
-  {"" if for_pdf else "<script>window.addEventListener('load',function(){ setTimeout(function(){ window.print(); }, 300); });</script>"}
+  {"" if for_pdf else '''<script>
+(function () {
+  function fitSkuTitles() {
+    document.querySelectorAll(".sku-title").forEach(function (el) {
+      var size = 20;
+      el.style.fontSize = size + "px";
+      // Shrink until the full title fits on one line (no ellipsis / wrap).
+      while (size > 10 && el.scrollWidth > el.clientWidth + 1) {
+        size -= 0.5;
+        el.style.fontSize = size + "px";
+      }
+    });
+  }
+  function ready() {
+    fitSkuTitles();
+    setTimeout(function () { window.print(); }, 300);
+  }
+  window.addEventListener("beforeprint", fitSkuTitles);
+  window.addEventListener("resize", fitSkuTitles);
+  if (document.readyState === "complete") ready();
+  else window.addEventListener("load", ready);
+})();
+</script>'''}
 </body>
 </html>"""
 
