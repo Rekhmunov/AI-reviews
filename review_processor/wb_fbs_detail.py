@@ -930,6 +930,14 @@ def build_kiz_marking_payload(
                 sticker_type="png",
                 keep_files=False,
             )
+    nm_ids: list[int] = []
+    for o in required_orders:
+        try:
+            nm_ids.append(int(o.get("nm_id")))
+        except (TypeError, ValueError):
+            continue
+    card_meta = fetch_card_meta_by_nm(api_key, nm_ids, network=True, max_cards=200)
+
     rows: list[dict[str, Any]] = []
     for o in required_orders:
         try:
@@ -942,6 +950,11 @@ def build_kiz_marking_payload(
         codes = [str(x).strip() for x in (o.get("kiz_codes") or []) if str(x or "").strip()]
         if not codes:
             codes = [""]
+        try:
+            nm = int(o.get("nm_id"))
+        except (TypeError, ValueError):
+            nm = 0
+        brand = str((card_meta.get(nm) or {}).get("brand") or o.get("brand") or "").strip()
         rows.append(
             {
                 "order_id": oid,
@@ -949,7 +962,7 @@ def build_kiz_marking_payload(
                 "product_name": o.get("product_name") or "",
                 "product_photo": o.get("product_photo") or "",
                 "article": o.get("article") or "",
-                "brand": o.get("brand") or "",
+                "brand": brand,
                 "nm_id": o.get("nm_id"),
                 "barcodes": list(o.get("barcodes") or []),
                 "sticker_part_a": part_a,
@@ -972,18 +985,36 @@ def save_kiz_marking(
     *,
     api_key: str,
     items: list[dict[str, Any]],
+    allowed_order_ids: set[int] | None = None,
 ) -> dict[str, Any]:
-    """Push sgtin lists to WB for each order. Returns per-order results."""
+    """Push sgtin lists to WB for each order. Returns per-order results.
+
+    Empty ``kiz_codes`` clears WB meta only when ``clear`` is true (was bound
+    before). Unchanged empty rows are skipped — otherwise Save would DELETE
+    sgtin for every unbound order in the supply.
+    """
     client = wb.WbFbsClient(api_key)
     results: list[dict[str, Any]] = []
     ok_n = 0
     err_n = 0
+    skipped_n = 0
     for raw in items:
         if not isinstance(raw, dict):
             continue
         try:
             oid = int(raw.get("order_id"))
         except (TypeError, ValueError):
+            continue
+        if allowed_order_ids is not None and oid not in allowed_order_ids:
+            err_n += 1
+            results.append(
+                {
+                    "order_id": oid,
+                    "ok": False,
+                    "kiz_codes": [],
+                    "error": "Заказ не входит в эту поставку",
+                }
+            )
             continue
         codes = [
             str(x).strip()
@@ -998,6 +1029,10 @@ def save_kiz_marking(
                 continue
             seen.add(c)
             uniq.append(c)
+        clear = bool(raw.get("clear"))
+        if not uniq and not clear:
+            skipped_n += 1
+            continue
         try:
             if uniq:
                 client.set_order_sgtin(oid, uniq)
@@ -1024,7 +1059,13 @@ def save_kiz_marking(
                 }
             )
             time.sleep(0.07)
-    return {"ok": err_n == 0, "saved": ok_n, "failed": err_n, "results": results}
+    return {
+        "ok": err_n == 0,
+        "saved": ok_n,
+        "failed": err_n,
+        "skipped": skipped_n,
+        "results": results,
+    }
 
 
 def _detail_from_local(

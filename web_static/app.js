@@ -18649,7 +18649,7 @@ window.addWbFbsKizCode = addWbFbsKizCode;
 
 function _wbFbsKizFindBySticker(scan) {
   const raw = _wbFbsKizNormalizeScan(scan);
-  if (!raw) return null;
+  if (!raw) return { row: null, ambiguous: false };
   const digits = raw.replace(/\D+/g, "");
   const matches = [];
   for (const row of wbFbsKizState.rows) {
@@ -18664,14 +18664,15 @@ function _wbFbsKizFindBySticker(scan) {
       matches.push(row);
     }
   }
-  if (matches.length === 1) return matches[0];
+  if (matches.length === 1) return { row: matches[0], ambiguous: false };
   if (matches.length > 1) {
     // Prefer exact full sticker match when several share partB.
     const exact = matches.find((r) => _wbFbsKizNormalizeScan(r.sticker_number) === raw
       || _wbFbsKizNormalizeScan(r.sticker_number).replace(/\D+/g, "") === digits);
-    return exact || matches[0];
+    if (exact) return { row: exact, ambiguous: false };
+    return { row: null, ambiguous: true, matches };
   }
-  return null;
+  return { row: null, ambiguous: false };
 }
 
 function onWbFbsKizStickerScanKey(event) {
@@ -18681,15 +18682,25 @@ function onWbFbsKizStickerScanKey(event) {
   const scan = _wbFbsKizNormalizeScan(input?.value);
   if (!scan) return;
   _wbFbsKizCollectFromDom();
-  const row = _wbFbsKizFindBySticker(scan);
-  if (!row) {
+  const found = _wbFbsKizFindBySticker(scan);
+  if (found.ambiguous) {
+    const ids = (found.matches || []).map((r) => r.order_id).slice(0, 5).join(", ");
+    _wbFbsKizSetInfo(
+      `Короткий код стикера совпадает у нескольких заказов (${ids}${
+        (found.matches || []).length > 5 ? "…" : ""
+      }). Отсканируйте полный номер стикера.`
+    );
+    if (input) input.select();
+    return;
+  }
+  if (!found.row) {
     _wbFbsKizSetInfo(`Стикер не найден: ${scan}`);
     if (input) input.select();
     return;
   }
   _wbFbsKizSetInfo("");
   if (input) input.value = "";
-  beginWbFbsKizMarkScan(Number(row.order_id));
+  beginWbFbsKizMarkScan(Number(found.row.order_id));
 }
 window.onWbFbsKizStickerScanKey = onWbFbsKizStickerScanKey;
 
@@ -18800,15 +18811,28 @@ async function uploadWbFbsKizTemplate(event) {
       if (kiz) byOrder[oid].push(kiz);
     }
     let applied = 0;
+    let skippedEmpty = 0;
     for (const row of wbFbsKizState.rows) {
       const oid = Number(row.order_id);
-      if (!byOrder[oid]) continue;
-      row.kiz_codes = byOrder[oid].length ? byOrder[oid].slice() : [""];
+      if (!Object.prototype.hasOwnProperty.call(byOrder, oid)) continue;
+      // Empty kiz column must not wipe already filled codes.
+      if (!byOrder[oid].length) {
+        skippedEmpty += 1;
+        continue;
+      }
+      row.kiz_codes = byOrder[oid].slice();
       delete wbFbsKizState.errors[oid];
       applied += 1;
     }
     renderWbFbsKizTable();
-    _wbFbsKizSetInfo(applied ? `Загружено строк: ${applied}` : "В файле нет совпадений с заказами поставки", !!applied);
+    if (applied) {
+      const skipNote = skippedEmpty ? `, пропущено пустых: ${skippedEmpty}` : "";
+      _wbFbsKizSetInfo(`Загружено строк: ${applied}${skipNote}`, true);
+    } else if (skippedEmpty) {
+      _wbFbsKizSetInfo("В файле нет кодов КИЗ — текущие значения не изменены");
+    } else {
+      _wbFbsKizSetInfo("В файле нет совпадений с заказами поставки");
+    }
   } catch (e) {
     _wbFbsKizSetInfo(String(e.message || e));
   }
@@ -18819,12 +18843,24 @@ async function saveWbFbsKizModal() {
   const sid = String(wbFbsDetailState.supplyId || "").trim();
   if (!sid || !wbFbsState.sourceId || wbFbsKizState.saving) return;
   _wbFbsKizCollectFromDom();
-  const items = wbFbsKizState.rows.map((r) => ({
-    order_id: Number(r.order_id),
-    kiz_codes: (Array.isArray(r.kiz_codes) ? r.kiz_codes : [])
+  // Send only rows with codes, or previously bound rows cleared (clear:true).
+  const items = [];
+  for (const r of wbFbsKizState.rows) {
+    const codes = (Array.isArray(r.kiz_codes) ? r.kiz_codes : [])
       .map((c) => String(c || "").trim())
-      .filter(Boolean),
-  }));
+      .filter(Boolean);
+    const wasBound = !!r.kiz_bound;
+    if (!codes.length && !wasBound) continue;
+    items.push({
+      order_id: Number(r.order_id),
+      kiz_codes: codes,
+      clear: !codes.length && wasBound,
+    });
+  }
+  if (!items.length) {
+    _wbFbsKizSetInfo("Нет изменений для сохранения");
+    return;
+  }
   const btn = document.getElementById("wbFbsKizSaveBtn");
   wbFbsKizState.saving = true;
   if (btn) btn.disabled = true;
@@ -18852,20 +18888,44 @@ async function saveWbFbsKizModal() {
       if (!r.ok) wbFbsKizState.errors[oid] = r.error || "Ошибка сохранения";
     }
     renderWbFbsKizTable();
+    const skipped = Number(data.skipped || 0);
     if (data.failed) {
       _wbFbsKizSetInfo(`Сохранено: ${data.saved || 0}, с ошибками: ${data.failed}`);
     } else {
-      _wbFbsKizSetInfo(`Сохранено заказов: ${data.saved || 0}`, true);
+      const skipNote = skipped ? ` (без изменений: ${skipped})` : "";
+      _wbFbsKizSetInfo(`Сохранено заказов: ${data.saved || 0}${skipNote}`, true);
     }
-    // Refresh supply detail badges.
-    if (wbFbsDetailState.supplyId) {
-      openWbFbsSupplyDetailModal(wbFbsDetailState.supplyId);
-    }
+    // Soft-refresh detail badges without closing the KIZ modal.
+    _wbFbsKizRefreshDetailBadges(data.results || []);
   } catch (e) {
     _wbFbsKizSetInfo(String(e.message || e));
   } finally {
     wbFbsKizState.saving = false;
     if (btn) btn.disabled = false;
+  }
+}
+
+function _wbFbsKizRefreshDetailBadges(results) {
+  if (!Array.isArray(results) || !wbFbsDetailState.supply) return;
+  const orders = wbFbsDetailState.supply.orders;
+  if (!Array.isArray(orders)) return;
+  let changed = false;
+  for (const r of results) {
+    if (!r || !r.ok) continue;
+    const oid = Number(r.order_id);
+    const order = orders.find((o) => Number(o.order_id) === oid);
+    if (!order) continue;
+    const codes = Array.isArray(r.kiz_codes) ? r.kiz_codes.filter((c) => String(c || "").trim()) : [];
+    order.kiz_codes = codes;
+    order.kiz_bound = codes.length > 0;
+    changed = true;
+  }
+  if (changed) {
+    try {
+      renderWbFbsSupplyDetail(wbFbsDetailState.supply);
+    } catch (_) {
+      /* ignore render glitches while KIZ modal is open */
+    }
   }
 }
 window.saveWbFbsKizModal = saveWbFbsKizModal;
