@@ -8904,7 +8904,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             headers={
                 "Cache-Control": "no-store, no-cache, must-revalidate",
                 "Pragma": "no-cache",
-                "X-Feedpilot-Build": "picking-20260804e",
+                "X-Feedpilot-Build": "picking-20260804f",
             },
         )
 
@@ -8945,7 +8945,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             headers={
                 "Cache-Control": "no-store, no-cache, must-revalidate",
                 "Pragma": "no-cache",
-                "X-Feedpilot-Build": "picking-20260804e",
+                "X-Feedpilot-Build": "picking-20260804f",
             },
         )
 

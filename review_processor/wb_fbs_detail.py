@@ -1125,8 +1125,8 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
 <head>
   <meta charset="utf-8" />
   <title>Лист подбора {sid} от {created}</title>
-  <!-- feedpilot-picking-list:20260804e -->
-  <meta name="feedpilot-build" content="picking-20260804e" />
+  <!-- feedpilot-picking-list:20260804f -->
+  <meta name="feedpilot-build" content="picking-20260804f" />
   <style>
     @page {{ size: A4 portrait; margin: 10mm; }}
     * {{ box-sizing: border-box; }}
@@ -1225,8 +1225,9 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
     }}
     .sku-qty {{
       margin: 4px 0 0;
-      font-size: 12px;
-      font-weight: 700;
+      font-size: 20px;
+      font-weight: 800;
+      line-height: 1.25;
     }}
     .order-line {{
       display: flex;
