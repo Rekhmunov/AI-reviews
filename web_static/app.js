@@ -17605,8 +17605,8 @@ function setWbFbsTab(tab) {
 window.setWbFbsTab = setWbFbsTab;
 
 function _wbFbsHasRowActions() {
-  // Cancelled tab has no row ⋮ menu / actions column.
-  return wbFbsState.tab !== "cancelled";
+  // No row ⋮ menu / actions column on New and Cancelled tabs.
+  return wbFbsState.tab !== "cancelled" && wbFbsState.tab !== "new";
 }
 
 function _wbFbsColspan() {
@@ -17848,27 +17848,6 @@ function _wbFbsCanCancelOrder() {
 
 function _wbFbsRowActionsHtml(oid) {
   if (!_wbFbsHasRowActions()) return "";
-  if (wbFbsState.tab === "new") {
-    const cancelItem = _wbFbsCanCancelOrder()
-      ? `<button type="button" class="wb-fbs-row-menu-item is-danger" role="menuitem"
-                onclick="wbFbsStubCancelOrder(${oid})">
-          <span class="wb-fbs-menu-ico" aria-hidden="true">✕</span>
-          Отменить заказ
-        </button>`
-      : "";
-    return `<div class="wb-fbs-row-menu-wrap">
-      <button type="button" class="icon-btn secondary wb-fbs-row-menu-btn" title="Действия"
-              onclick="toggleWbFbsRowMenu(event, ${oid})" aria-haspopup="menu">⋮</button>
-      <div id="wbFbsRowMenu_${oid}" class="wb-fbs-row-menu" data-order-id="${oid}" role="menu">
-        <button type="button" class="wb-fbs-row-menu-item" role="menuitem"
-                onclick="wbFbsStubCreateSupply(${oid})">
-          <span class="wb-fbs-menu-ico circle" aria-hidden="true">+</span>
-          Создать поставку
-        </button>
-        ${cancelItem}
-      </div>
-    </div>`;
-  }
   return `<div class="wb-fbs-row-menu-wrap">
     <button type="button" class="icon-btn secondary wb-fbs-row-menu-btn" title="Действия"
             onclick="toggleWbFbsRowMenu(event, ${oid})" aria-haspopup="menu">⋮</button>
