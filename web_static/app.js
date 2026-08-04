@@ -5354,6 +5354,8 @@ window.downloadOzonPoA = downloadOzonPoA;
 let _ozonReturnsState = {
   sourceId: 0,
   barcode: "",
+  validUntil: "",
+  validUntilLabel: "",
   loading: false,
   reqId: 0,
 };
@@ -5458,10 +5460,14 @@ async function refreshOzonReturnsModal() {
       _ozonReturnsShowError(typeof detail === "string" ? detail : "Не удалось обновить штрихкод");
       _ozonReturnsState.sourceId = 0;
       _ozonReturnsState.barcode = "";
+      _ozonReturnsState.validUntil = "";
+      _ozonReturnsState.validUntilLabel = "";
       return;
     }
     _ozonReturnsState.sourceId = Number(data.source_id) || 0;
     _ozonReturnsState.barcode = String(data.barcode || "");
+    _ozonReturnsState.validUntil = String(data.valid_until || "");
+    _ozonReturnsState.validUntilLabel = String(data.valid_until_label || "");
 
     const img = document.getElementById("ozonReturnsBarcodeImg");
     if (img && data.barcode_png_base64) {
@@ -5471,8 +5477,8 @@ async function refreshOzonReturnsModal() {
     if (codeEl) codeEl.textContent = _ozonReturnsState.barcode || "—";
     const validEl = document.getElementById("ozonReturnsValidUntil");
     if (validEl) {
-      validEl.textContent = data.valid_until_label
-        ? `Действует до ${data.valid_until_label}`
+      validEl.textContent = _ozonReturnsState.validUntilLabel
+        ? `Действует до ${_ozonReturnsState.validUntilLabel}`
         : "Действует 24 часа";
     }
     _renderOzonReturnsGiveouts(data.giveouts || []);
@@ -5521,10 +5527,18 @@ function copyOzonReturnsBarcode() {
 window.copyOzonReturnsBarcode = copyOzonReturnsBarcode;
 
 function downloadOzonReturnsPdf() {
+  const params = new URLSearchParams();
   const sid = Number(_ozonReturnsState.sourceId) || 0;
-  const url = sid
-    ? `/api/ozon-returns/giveout/pdf?source_id=${sid}`
-    : "/api/ozon-returns/giveout/pdf";
+  if (sid) params.set("source_id", String(sid));
+  // Pass the same validity text shown in the modal to keep PDF in sync.
+  if (_ozonReturnsState.validUntilLabel) {
+    params.set("valid_until_label", _ozonReturnsState.validUntilLabel);
+  }
+  if (_ozonReturnsState.validUntil) {
+    params.set("valid_until", _ozonReturnsState.validUntil);
+  }
+  const qs = params.toString();
+  const url = qs ? `/api/ozon-returns/giveout/pdf?${qs}` : "/api/ozon-returns/giveout/pdf";
   // Open PDF inline in a new tab so the browser print dialog is available.
   window.open(url, "_blank", "noopener");
 }
