@@ -944,11 +944,10 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
     cargo = _esc(detail.get("cargo_label") or "")
     total = int(detail.get("order_count") or 0)
     body_rows: list[str] = []
-    for g_idx, g in enumerate(groups):
+    printable_groups = [g for g in groups if list(g.get("orders") or [])]
+    for g_idx, g in enumerate(printable_groups):
         orders = list(g.get("orders") or [])
         qty = int(g.get("qty") or len(orders) or 0)
-        if qty <= 0:
-            continue
         photo = str(g.get("product_photo") or "")
         photo_html = (
             f'<img class="photo" src="{_esc(photo)}" alt="" />'
@@ -973,7 +972,7 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
             f'<div class="sku-cell">{photo_html}'
             f'<div class="sku-text">{"".join(meta_bits)}</div></div>'
         )
-        is_last_group = g_idx >= len(groups) - 1
+        is_last_group = g_idx >= len(printable_groups) - 1
         for idx, o in enumerate(orders, start=1):
             is_last_order = idx == len(orders)
             # Жирный низ после последнего заказа артикула (кроме самого конца таблицы).
