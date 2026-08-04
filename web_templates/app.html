@@ -1583,6 +1583,23 @@
             <button type="button" class="icon-btn secondary wb-fbs-bottom-close" onclick="clearWbFbsSelection()" title="Сбросить выбор">✕</button>
           </div>
         </div>
+
+        <div id="wbFbsRenameSupplyModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="wbFbsRenameSupplyTitle"
+             onclick="if(event.target===this)closeWbFbsRenameSupplyModal()">
+          <div class="modal-card wb-fbs-rename-modal">
+            <h4 id="wbFbsRenameSupplyTitle" class="no-margin" style="margin-bottom:8px">Переименовать поставку</h4>
+            <p class="small" style="color:#64748b;margin:0 0 16px">Сохранение отправит название в API WB — оно должно совпасть с ЛК продавца.</p>
+            <label class="wb-fbs-rename-label" for="wbFbsRenameSupplyInput">Название</label>
+            <input id="wbFbsRenameSupplyInput" class="wb-fbs-rename-input" type="text" maxlength="128"
+                   autocomplete="off" placeholder="Например: Поставка от 04.08.2026" />
+            <div id="wbFbsRenameSupplyError" class="wb-fbs-rename-error" hidden></div>
+            <div class="row" style="gap:10px;margin-top:20px">
+              <button type="button" id="wbFbsRenameSupplySaveBtn" onclick="submitWbFbsRenameSupply()">Сохранить</button>
+              <button type="button" class="secondary" onclick="closeWbFbsRenameSupplyModal()">Отмена</button>
+            </div>
+          </div>
+        </div>
       </section>
 
       <!-- ── Поставки: Настройки ── -->

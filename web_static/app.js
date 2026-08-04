@@ -18098,22 +18098,136 @@ function _wbFbsQrMenuIconHtml() {
   </span>`;
 }
 
+function _wbFbsRenameMenuIconHtml() {
+  return `<span class="wb-fbs-menu-ico" aria-hidden="true">
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M11.5 3.5l3 3L6.75 14.25H3.75v-3L11.5 3.5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" fill="none"/>
+      <path d="M10.25 4.75l3 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+    </svg>
+  </span>`;
+}
+
 function _wbFbsSupplyRowActionsHtml(supplyId) {
   const sid = String(supplyId || "").trim();
   if (!sid) return "";
   const safeKey = sid.replace(/[^a-zA-Z0-9_-]/g, "_");
+  const isAssembly = wbFbsState.tab === "assembly";
+  // QR-код поставки — только после передачи в доставку (GET …/barcode).
+  // На «На сборке» в меню — переименование (как в ЛК WB).
+  const menuItems = isAssembly
+    ? `<button type="button" class="wb-fbs-row-menu-item" role="menuitem"
+              onclick="openWbFbsRenameSupplyModal('${_wbFbsEsc(sid)}')">
+        ${_wbFbsRenameMenuIconHtml()}
+        Переименовать поставку
+      </button>`
+    : `<button type="button" class="wb-fbs-row-menu-item" role="menuitem"
+              onclick="wbFbsOpenSupplyQr('${_wbFbsEsc(sid)}')">
+        ${_wbFbsQrMenuIconHtml()}
+        Напечатать QR-код поставки
+      </button>`;
   return `<div class="wb-fbs-row-menu-wrap">
     <button type="button" class="icon-btn secondary wb-fbs-row-menu-btn" title="Действия"
             onclick="toggleWbFbsRowMenu(event, '${_wbFbsEsc(safeKey)}')" aria-haspopup="menu">⋮</button>
     <div id="wbFbsRowMenu_${safeKey}" class="wb-fbs-row-menu" data-order-id="${_wbFbsEsc(safeKey)}" data-supply-id="${_wbFbsEsc(sid)}" role="menu">
-      <button type="button" class="wb-fbs-row-menu-item" role="menuitem"
-              onclick="wbFbsOpenSupplyQr('${_wbFbsEsc(sid)}')">
-        ${_wbFbsQrMenuIconHtml()}
-        Напечатать QR-код поставки
-      </button>
+      ${menuItems}
     </div>
   </div>`;
 }
+
+function openWbFbsRenameSupplyModal(supplyId) {
+  _wbFbsCloseRowMenus();
+  const sid = String(supplyId || "").trim();
+  if (!sid || !wbFbsState.sourceId) return;
+  const row = wbFbsState.items.find((x) => String(x.supply_id || "").trim() === sid);
+  const input = document.getElementById("wbFbsRenameSupplyInput");
+  const err = document.getElementById("wbFbsRenameSupplyError");
+  const saveBtn = document.getElementById("wbFbsRenameSupplySaveBtn");
+  if (err) {
+    err.hidden = true;
+    err.textContent = "";
+  }
+  if (saveBtn) saveBtn.disabled = false;
+  if (input) {
+    input.value = String(row?.name || "").trim();
+    input.dataset.supplyId = sid;
+    input.onkeydown = (ev) => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        submitWbFbsRenameSupply();
+      } else if (ev.key === "Escape") {
+        ev.preventDefault();
+        closeWbFbsRenameSupplyModal();
+      }
+    };
+  }
+  setModalVisibility("wbFbsRenameSupplyModal", true);
+  setTimeout(() => {
+    input?.focus();
+    input?.select();
+  }, 0);
+}
+window.openWbFbsRenameSupplyModal = openWbFbsRenameSupplyModal;
+
+function closeWbFbsRenameSupplyModal() {
+  const input = document.getElementById("wbFbsRenameSupplyInput");
+  if (input) input.dataset.supplyId = "";
+  setModalVisibility("wbFbsRenameSupplyModal", false);
+}
+window.closeWbFbsRenameSupplyModal = closeWbFbsRenameSupplyModal;
+
+async function submitWbFbsRenameSupply() {
+  const input = document.getElementById("wbFbsRenameSupplyInput");
+  const err = document.getElementById("wbFbsRenameSupplyError");
+  const saveBtn = document.getElementById("wbFbsRenameSupplySaveBtn");
+  const sid = String(input?.dataset.supplyId || "").trim();
+  const name = String(input?.value || "").trim();
+  if (!sid || !wbFbsState.sourceId) return;
+  if (!name) {
+    if (err) {
+      err.hidden = false;
+      err.textContent = "Укажите название поставки";
+    }
+    input?.focus();
+    return;
+  }
+  if (name.length > 128) {
+    if (err) {
+      err.hidden = false;
+      err.textContent = "Название не длиннее 128 символов";
+    }
+    return;
+  }
+  if (saveBtn) saveBtn.disabled = true;
+  if (err) {
+    err.hidden = true;
+    err.textContent = "";
+  }
+  try {
+    const res = await fetch(`/api/wb-fbs/supplies/${encodeURIComponent(sid)}`, {
+      method: "PATCH",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ source_id: wbFbsState.sourceId, name }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || `Ошибка ${res.status}`);
+    const newName = String(data.name || name).trim();
+    const row = wbFbsState.items.find((x) => String(x.supply_id || "").trim() === sid);
+    if (row) row.name = newName;
+    closeWbFbsRenameSupplyModal();
+    renderWbFbsSuppliesTable();
+    _wbFbsSetSyncInfo(`Поставка переименована: ${newName}`, "ok");
+  } catch (e) {
+    if (err) {
+      err.hidden = false;
+      err.textContent = String(e.message || e);
+    } else {
+      alert(String(e.message || e));
+    }
+  } finally {
+    if (saveBtn) saveBtn.disabled = false;
+  }
+}
+window.submitWbFbsRenameSupply = submitWbFbsRenameSupply;
 
 async function wbFbsOpenSupplyQr(supplyId) {
   _wbFbsCloseRowMenus();
@@ -18534,11 +18648,12 @@ function _wbFbsUpdateBottomBar() {
     }
   }
   const isNewTab = wbFbsState.tab === "new";
-  // Delivery tab: only QR-print link (same as row ⋮). Other tabs keep order stickers.
+  // Delivery tab: only QR-print link (same as row ⋮). QR unavailable on assembly per WB API.
   const showStickers = _wbFbsHasRowActions() && !isNewTab && !suppliesMode;
+  const showDeliveryQr = wbFbsState.tab === "delivery" && n > 0;
   if (newActions) newActions.classList.toggle("hidden", !isNewTab);
   if (stickerActions) stickerActions.classList.toggle("hidden", !showStickers);
-  if (deliveryActions) deliveryActions.classList.toggle("hidden", !suppliesMode || n === 0);
+  if (deliveryActions) deliveryActions.classList.toggle("hidden", !showDeliveryQr);
   if (bar) bar.classList.toggle("hidden", n === 0);
 }
 
