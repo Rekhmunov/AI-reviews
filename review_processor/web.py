@@ -8715,7 +8715,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         owner_id = _supply_owner_id(user)
         # «В доставке» — rows are supplies (поставки), not assembly orders.
         if (tab or "").strip().lower() == "delivery":
-            return wb_fbs_mod.list_delivery_supplies(
+            result = wb_fbs_mod.list_delivery_supplies(
                 repository,
                 user_id=owner_id,
                 source_id=source_id,
@@ -8723,6 +8723,21 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 page=page,
                 page_size=page_size,
             )
+            # Live-refresh status flags + trbx cargo places from WB for the page.
+            if source_id and result.get("items"):
+                src_full = repository.get_supply_source_with_key(
+                    user_id=owner_id, source_id=int(source_id)
+                )
+                api_key = str((src_full or {}).get("api_key") or "").strip()
+                if api_key:
+                    result["items"] = wb_fbs_mod.enrich_delivery_supplies_from_wb(
+                        repository,
+                        user_id=owner_id,
+                        source_id=int(source_id),
+                        api_key=api_key,
+                        items=list(result["items"]),
+                    )
+            return result
         items = wb_fbs_mod.list_supplies(
             repository,
             user_id=owner_id,

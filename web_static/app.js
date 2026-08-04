@@ -17608,7 +17608,7 @@ function _wbFbsHasRowActions() {
 }
 
 function _wbFbsColspan() {
-  if (_wbFbsIsSuppliesTab()) return 9;
+  if (_wbFbsIsSuppliesTab()) return 8;
   return _wbFbsHasRowActions() ? 5 : 4;
 }
 
@@ -17640,13 +17640,12 @@ function _wbFbsSyncTableMode() {
   if (supplies) {
     colgroup.innerHTML = `
       <col data-fixed="1" class="wb-fbs-col-check" style="width:40px" />
-      <col data-col="0" class="wb-fbs-col-supply" style="width:18%" />
+      <col data-col="0" class="wb-fbs-col-supply" style="width:20%" />
       <col data-col="1" class="wb-fbs-col-qr" style="width:14%" />
       <col data-col="2" class="wb-fbs-col-status" style="width:14%" />
-      <col data-col="3" class="wb-fbs-col-scan" style="width:12%" />
-      <col data-col="4" class="wb-fbs-col-orders" style="width:12%" />
-      <col data-col="5" class="wb-fbs-col-wh" style="width:16%" />
-      <col data-col="6" class="wb-fbs-col-rating" style="width:10%" />
+      <col data-col="3" class="wb-fbs-col-scan" style="width:14%" />
+      <col data-col="4" class="wb-fbs-col-orders" style="width:14%" />
+      <col data-col="5" class="wb-fbs-col-wh" style="width:18%" />
       <col data-fixed="1" class="wb-fbs-col-act" style="width:48px" />
     `;
     thead.innerHTML = `
@@ -17657,7 +17656,6 @@ function _wbFbsSyncTableMode() {
       <th data-col="3">Время сканирования QR-кода поставки</th>
       <th data-col="4">Заказы и грузоместа</th>
       <th data-col="5">Склад</th>
-      <th data-col="6">Оценка пункта приема</th>
       <th class="wb-fbs-th-act"></th>
     `;
   } else {
@@ -17895,55 +17893,14 @@ async function wbFbsOpenSupplyQr(supplyId) {
   _wbFbsCloseRowMenus();
   const sid = String(supplyId || "").trim();
   if (!sid || !wbFbsState.sourceId) return;
-  // Open synchronously in the click gesture — otherwise browsers block the popup
-  // after the async fetch/PDF conversion.
-  const win = window.open("about:blank", "_blank");
-  if (!win) {
-    alert("Разрешите всплывающие окна, чтобы открыть QR-код поставки");
-    return;
-  }
-  try {
-    win.document.title = "QR-код поставки…";
-  } catch (_) {}
+  // Sticker comes from WB GET /api/v3/supplies/{id}/barcode (PNG 580×400:
+  // QR + WB-GI + qty + city). Open the proxied API file in a new tab.
   const url =
     `/api/wb-fbs/stickers/supply/${encodeURIComponent(sid)}` +
     `?source_id=${wbFbsState.sourceId}&type=png&disposition=inline`;
-  let openUrl = "";
-  try {
-    const res = await fetch(url);
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      const detail = data.detail;
-      const msg = Array.isArray(detail)
-        ? detail.map((x) => x.msg || x).join("; ")
-        : (detail || `Ошибка ${res.status}`);
-      throw new Error(msg);
-    }
-    const pngBlob = await res.blob();
-    const jsPdfNs = window.jspdf || {};
-    const JsPDF = jsPdfNs.jsPDF;
-    if (typeof JsPDF === "function") {
-      // WB sticker is 580×400 px — open as PDF in a new tab (portal-like).
-      const dataUrl = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = () => reject(new Error("Не удалось прочитать этикетку"));
-        reader.readAsDataURL(pngBlob);
-      });
-      const doc = new JsPDF({ orientation: "landscape", unit: "mm", format: [58, 40] });
-      doc.addImage(dataUrl, "PNG", 0, 0, 58, 40);
-      openUrl = URL.createObjectURL(doc.output("blob"));
-    } else {
-      openUrl = URL.createObjectURL(pngBlob);
-    }
-    win.location.href = openUrl;
-    setTimeout(() => {
-      if (openUrl) URL.revokeObjectURL(openUrl);
-    }, 60_000);
-  } catch (e) {
-    try { win.close(); } catch (_) {}
-    if (openUrl) URL.revokeObjectURL(openUrl);
-    alert(String(e.message || e || "Не удалось получить QR-код поставки"));
+  const win = window.open(url, "_blank");
+  if (!win) {
+    alert("Разрешите всплывающие окна, чтобы открыть QR-код поставки");
   }
 }
 window.wbFbsOpenSupplyQr = wbFbsOpenSupplyQr;
@@ -18010,9 +17967,6 @@ function renderWbFbsSuppliesTable() {
     const boxesLabel = boxesCount === 1
       ? "1 грузоместо"
       : (boxesCount > 1 && boxesCount < 5 ? `${boxesCount} грузоместа` : `${boxesCount} грузомест`);
-    const rating = s.accept_rating != null && s.accept_rating !== ""
-      ? _wbFbsEsc(s.accept_rating)
-      : "—";
     return `<tr>
       <td><input type="checkbox" class="wb-fbs-row-cb" data-supply-id="${_wbFbsEsc(sid)}" ${checked} onchange="onWbFbsCheckboxChange()" /></td>
       <td>
@@ -18034,7 +17988,6 @@ function renderWbFbsSuppliesTable() {
           : ""}
         <div class="wb-fbs-order-meta">${s.warehouse_id ? "ID " + _wbFbsEsc(s.warehouse_id) : ""}</div>
       </td>
-      <td><div class="wb-fbs-order-meta">${rating}</div></td>
       <td>${_wbFbsSupplyRowActionsHtml(sid)}</td>
     </tr>`;
   }).join("");

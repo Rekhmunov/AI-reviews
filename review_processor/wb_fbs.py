@@ -130,11 +130,17 @@ def cargo_type_label(cargo_type: object) -> str:
 
 
 def supply_status_label(*, done: object = False, scan_dt: object = None) -> str:
-    """Portal-like status for a supply in the delivery tab."""
+    """Map WB supply flags to seller-portal labels («В доставке»).
+
+    WB API has no status string on supplies — only done / scanDt / closedAt:
+    - no scanDt → «Отгрузите поставку»
+    - scanDt set, not done → «Поставка в обработке»
+    - done → «Завершена»
+    """
     if bool(done):
         return "Завершена"
     if scan_dt:
-        return "На складе WB"
+        return "Поставка в обработке"
     return "Отгрузите поставку"
 
 
@@ -369,6 +375,10 @@ class WbFbsClient:
         stickers = data.get("stickers") if isinstance(data, dict) else None
         return list(stickers or []) if isinstance(stickers, list) else []
 
+    def get_supply(self, supply_id: str) -> dict[str, Any]:
+        data = self._request("GET", f"/api/v3/supplies/{supply_id}")
+        return data if isinstance(data, dict) else {}
+
     def get_supply_barcode(self, supply_id: str, *, sticker_type: str = "png") -> bytes:
         payload, _headers, _status = self._request(
             "GET",
@@ -376,28 +386,36 @@ class WbFbsClient:
             params={"type": sticker_type},
             raw=True,
         )
-        # Some WB versions return JSON with base64
+        # WB returns JSON: { barcode: "WB-GI-…", file: "<base64 sticker>" }.
+        # Never treat `barcode` (supply id string) as image payload.
         try:
             parsed = json.loads(payload.decode("utf-8"))
             if isinstance(parsed, dict):
-                b64 = parsed.get("file") or parsed.get("barcode") or ""
-                if b64:
+                b64 = parsed.get("file")
+                if isinstance(b64, str) and b64.strip():
                     return base64.b64decode(b64)
         except Exception:
             pass
-        return bytes(payload)
+        raw = bytes(payload)
+        if raw[:8] == b"\x89PNG\r\n\x1a\n" or raw[:5] == b"%PDF-" or raw.lstrip().startswith(b"<"):
+            return raw
+        raise RuntimeError(f"WB не вернул файл стикера поставки {supply_id}")
 
     def get_supply_boxes(self, supply_id: str) -> list[dict[str, Any]]:
-        try:
-            data = self._request("GET", f"/api/v3/supplies/{supply_id}/trbx")
-            if isinstance(data, dict) and isinstance(data.get("trbxes"), list):
-                return list(data["trbxes"])
-            if isinstance(data, dict) and isinstance(data.get("boxes"), list):
-                return list(data["boxes"])
-            if isinstance(data, list):
-                return list(data)
-        except Exception as exc:
-            _log.debug("get_supply_boxes failed: %s", exc)
+        for path in (
+            f"/api/v3/supplies/{supply_id}/trbx",
+            f"/api/marketplace/v3/supplies/{supply_id}/trbx",
+        ):
+            try:
+                data = self._request("GET", path)
+                if isinstance(data, dict) and isinstance(data.get("trbxes"), list):
+                    return list(data["trbxes"])
+                if isinstance(data, dict) and isinstance(data.get("boxes"), list):
+                    return list(data["boxes"])
+                if isinstance(data, list):
+                    return list(data)
+            except Exception as exc:
+                _log.debug("get_supply_boxes %s failed: %s", path, exc)
         return []
 
     def get_box_stickers(
@@ -1068,7 +1086,6 @@ def list_delivery_supplies(
                 "warehouse_label": warehouse_label,
                 "warehouse_sub": warehouse_sub,
                 "destination_office_id": d.get("destination_office_id"),
-                "accept_rating": None,
             }
         )
 
@@ -1079,6 +1096,113 @@ def list_delivery_supplies(
         "page_size": safe_size,
         "counts": _tab_counts(repo, user_id=user_id, source_id=source_id),
     }
+
+
+def _persist_supply_boxes(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+    boxes: list[dict[str, Any]],
+) -> None:
+    if not supply_id or not boxes:
+        return
+    with repo._connect() as conn:
+        conn.execute(
+            repo._sql(
+                """
+                UPDATE wb_fbs_supplies
+                SET boxes_json = ?, synced_at = ?
+                WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                """
+            ),
+            (json.dumps(boxes, ensure_ascii=False), _utc_now(), user_id, source_id, supply_id),
+        )
+
+
+def enrich_delivery_supplies_from_wb(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    api_key: str,
+    items: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Refresh cargo boxes (trbx) + supply flags from WB when local cache is incomplete."""
+    if not items or not api_key or not source_id:
+        return items
+    client = WbFbsClient(api_key)
+    for item in items:
+        sid = str(item.get("supply_id") or "").strip()
+        if not sid:
+            continue
+        # Always normalize portal status from done/scanDt (API has no status string).
+        item["status_label"] = supply_status_label(
+            done=item.get("done"), scan_dt=item.get("scan_dt")
+        )
+        need_meta = not str(item.get("name") or "").strip()
+        need_boxes = int(item.get("boxes_count") or 0) <= 0
+        if not need_meta and not need_boxes:
+            continue
+
+        supply: dict[str, Any] = {}
+        if need_meta:
+            try:
+                supply = client.get_supply(sid)
+                time.sleep(0.12)
+            except Exception as exc:
+                _log.debug("enrich get_supply %s: %s", sid, exc)
+                supply = {}
+        if supply:
+            done = bool(supply.get("done"))
+            scan_dt = _parse_dt(supply.get("scanDt"))
+            name = str(supply.get("name") or "").strip()
+            item["done"] = done
+            if scan_dt:
+                item["scan_dt"] = scan_dt
+            item["closed_at_wb"] = _parse_dt(supply.get("closedAt")) or item.get("closed_at_wb")
+            if name:
+                item["name"] = name
+            if supply.get("cargoType") is not None:
+                item["cargo_type"] = int(supply.get("cargoType") or 0)
+                item["cargo_label"] = cargo_type_label(item["cargo_type"])
+            item["pickup_allowed"] = bool(supply.get("isPickupPointShipmentAllowed"))
+            item["destination_office_id"] = supply.get("destinationOfficeId")
+            item["status_label"] = supply_status_label(done=done, scan_dt=item.get("scan_dt"))
+            try:
+                upsert_supply(
+                    repo,
+                    user_id=user_id,
+                    source_id=source_id,
+                    supply=supply,
+                    order_ids=None,
+                    boxes=None,
+                )
+            except Exception as exc:
+                _log.debug("enrich upsert_supply %s: %s", sid, exc)
+
+        if need_boxes:
+            try:
+                boxes = client.get_supply_boxes(sid)
+                time.sleep(0.12)
+            except Exception as exc:
+                _log.debug("enrich get_supply_boxes %s: %s", sid, exc)
+                boxes = []
+            if boxes:
+                item["boxes"] = boxes
+                item["boxes_count"] = len(boxes)
+                try:
+                    _persist_supply_boxes(
+                        repo,
+                        user_id=user_id,
+                        source_id=int(source_id),
+                        supply_id=sid,
+                        boxes=boxes,
+                    )
+                except Exception as exc:
+                    _log.debug("enrich persist boxes %s: %s", sid, exc)
+    return items
 
 
 def clear_source_data(repo: ReviewRepository, *, user_id: int, source_id: int) -> dict[str, int]:
