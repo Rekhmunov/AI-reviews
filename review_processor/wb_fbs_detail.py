@@ -680,7 +680,7 @@ def render_picking_list_html(payload: dict[str, Any]) -> str:
     .sku-block:last-of-type {{ margin-bottom: 0; }}
     .sku-head {{
       display: grid;
-      grid-template-columns: 56px minmax(0, 1fr) 104px;
+      grid-template-columns: 56px minmax(0, 1fr) 88px;
       column-gap: 12px;
       align-items: start;
       padding: 12px;
@@ -702,11 +702,11 @@ def render_picking_list_html(payload: dict[str, Any]) -> str:
       margin: 0; font-size: 12px; font-weight: 700; line-height: 1.3; color: #0f172a;
     }}
     .sku-stats {{
-      display: grid; grid-template-columns: 1fr 1fr; column-gap: 8px;
-      align-self: start; text-align: right;
+      display: flex; flex-direction: column; gap: 8px;
+      align-items: flex-end; text-align: right;
     }}
     .sku-stats .stat span {{
-      display: block; margin: 0 0 4px; color: #64748b;
+      display: block; margin: 0 0 2px; color: #64748b;
       font-size: 11px; font-weight: 600; line-height: 1.2;
     }}
     .sku-stats .stat strong {{
@@ -716,9 +716,9 @@ def render_picking_list_html(payload: dict[str, Any]) -> str:
     table.orders {{
       width: 100%; border-collapse: collapse; table-layout: fixed;
     }}
-    table.orders .c-idx {{ width: 32px; }}
-    table.orders .c-oid {{ width: 34%; }}
-    table.orders .c-sticker {{ width: 38%; }}
+    table.orders .c-idx {{ width: 40px; }}
+    table.orders .c-oid {{ width: 32%; }}
+    table.orders .c-sticker {{ width: 40%; }}
     table.orders .c-partb {{ width: auto; }}
     .order-row td {{
       padding: 8px 12px; border-top: 1px solid #f1f5f9;
@@ -727,11 +727,11 @@ def render_picking_list_html(payload: dict[str, Any]) -> str:
     }}
     .order-row:first-child td {{ border-top: 0; }}
     .order-row .idx {{
-      padding-left: 12px; color: #94a3b8; font-weight: 600; text-align: left;
+      color: #94a3b8; font-weight: 600; text-align: left;
     }}
     .order-row .oid, .order-row .sticker {{ color: #334155; }}
     .order-row .partb {{
-      padding-right: 12px; text-align: right;
+      text-align: right;
       font-size: 16px; font-weight: 800; letter-spacing: 0.02em; color: #0f172a;
     }}
     .empty {{ margin: 0; padding: 16px 0; color: #64748b; }}
