@@ -18999,7 +18999,7 @@ async function saveWbFbsKizModal() {
   const sid = String(wbFbsDetailState.supplyId || "").trim();
   if (!sid || !wbFbsState.sourceId || wbFbsKizState.saving) return;
   _wbFbsKizCollectFromDom();
-  // Persist only on Save: send codes, or clear WB when row was bound and is now empty.
+  // Save: local DB first, then WB. Modal stays open; retry WB on next Save.
   const items = [];
   let gtinErrors = 0;
   wbFbsKizState.errors = {};
@@ -19008,7 +19008,8 @@ async function saveWbFbsKizModal() {
       .map((c) => _wbFbsKizNormalizeMark(c))
       .filter(Boolean);
     const wasBound = !!r.kiz_bound;
-    if (!codes.length && !wasBound) continue; // never saved → nothing to clear
+    const hadLocal = !!r.kiz_local;
+    if (!codes.length && !wasBound && !hadLocal) continue;
     if (codes.length) {
       let bad = "";
       for (const code of codes) {
@@ -19027,7 +19028,7 @@ async function saveWbFbsKizModal() {
     items.push({
       order_id: Number(r.order_id),
       kiz_codes: codes,
-      clear: !codes.length && wasBound,
+      clear: !codes.length && (wasBound || hadLocal),
     });
   }
   if (gtinErrors) {
@@ -19038,13 +19039,13 @@ async function saveWbFbsKizModal() {
     return;
   }
   if (!items.length) {
-    _wbFbsKizSetInfo("Нет изменений для сохранения в WB");
+    _wbFbsKizSetInfo("Нет изменений для сохранения");
     return;
   }
   const btn = document.getElementById("wbFbsKizSaveBtn");
   wbFbsKizState.saving = true;
   if (btn) btn.disabled = true;
-  _wbFbsKizSetInfo("Сохранение в WB…");
+  _wbFbsKizSetInfo("Сохранение…");
   try {
     const params = new URLSearchParams({ source_id: String(wbFbsState.sourceId) });
     const res = await fetch(
@@ -19058,31 +19059,48 @@ async function saveWbFbsKizModal() {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || `Ошибка ${res.status}`);
     wbFbsKizState.errors = {};
+    const wbFailNotes = [];
     for (const r of data.results || []) {
       const oid = Number(r.order_id);
       const row = wbFbsKizState.rows.find((x) => Number(x.order_id) === oid);
       if (row && Array.isArray(r.kiz_codes)) {
         row.kiz_codes = r.kiz_codes.length ? r.kiz_codes.slice() : [""];
-        row.kiz_bound = r.kiz_codes.length > 0;
+        row.kiz_local = !!(r.local_ok && r.kiz_codes.length) || (!!r.local_ok && !r.kiz_codes.length && !!r.clear);
+        // Bound in WB only when API succeeded with codes.
+        if (r.wb_ok) {
+          row.kiz_bound = r.kiz_codes.length > 0;
+          row.kiz_wb_synced = true;
+          row.kiz_local = r.kiz_codes.length > 0;
+        } else if (r.local_ok) {
+          row.kiz_wb_synced = false;
+          row.kiz_local = r.kiz_codes.length > 0 || !!row.kiz_local;
+        }
       }
-      if (!r.ok) wbFbsKizState.errors[oid] = r.error || "Ошибка сохранения";
+      if (!r.wb_ok) {
+        const err = r.error || "Ошибка записи в WB";
+        wbFbsKizState.errors[oid] = err;
+        wbFailNotes.push(`заказ ${oid}: ${err}`);
+      }
     }
     renderWbFbsKizTable({ skipCollect: true });
-    const skipped = Number(data.skipped || 0);
-    if (data.failed) {
+    const savedWb = Number(data.saved || 0);
+    const savedLocal = Number(data.saved_local || 0);
+    const failed = Number(data.failed || 0);
+    if (failed) {
+      const detail = wbFailNotes.slice(0, 3).join("; ");
+      const more = wbFailNotes.length > 3 ? "…" : "";
       _wbFbsKizSetInfo(
-        `В WB сохранено: ${data.saved || 0}, с ошибками: ${data.failed}` +
-        (data.saved_local ? `; локально: ${data.saved_local}` : "")
+        `Сохранено в FeedPilot: ${savedLocal}. В WB не записалось (${failed}): ${detail}${more}. ` +
+        `Окно не закрыто — нажмите «Сохранить» ещё раз, чтобы повторить отправку в WB.`
       );
     } else {
-      const skipNote = skipped ? ` (без изменений: ${skipped})` : "";
       _wbFbsKizSetInfo(
-        `Сохранено в WB и в FeedPilot: ${data.saved || 0}${skipNote}`,
+        `Всё успешно: КИЗ сохранены в FeedPilot и отправлены в WB (${savedWb}).`,
         true
       );
     }
-    // Soft-refresh detail badges without closing the KIZ modal.
-    _wbFbsKizRefreshDetailBadges(data.results || []);
+    // Soft-refresh detail badges only for WB-ok rows; keep modal open.
+    _wbFbsKizRefreshDetailBadges((data.results || []).filter((r) => r && r.wb_ok));
   } catch (e) {
     _wbFbsKizSetInfo(String(e.message || e));
   } finally {

@@ -938,6 +938,10 @@ def build_kiz_marking_payload(
             continue
     card_meta = fetch_card_meta_by_nm(api_key, nm_ids, network=True, max_cards=200)
 
+    local_kiz = wb.load_order_kiz_map(
+        repo, user_id=user_id, source_id=source_id, order_ids=order_ids
+    )
+
     rows: list[dict[str, Any]] = []
     for o in required_orders:
         try:
@@ -949,8 +953,19 @@ def build_kiz_marking_payload(
         part_b = str(st.get("partB") or "").strip()
         # Machine-readable value from sticker QR / 1D barcode (e.g. !uKEtQZVx).
         sticker_barcode = str(st.get("barcode") or "").strip()
-        codes = [str(x).strip() for x in (o.get("kiz_codes") or []) if str(x or "").strip()]
-        if not codes:
+        wb_codes = [
+            str(x).strip() for x in (o.get("kiz_codes") or []) if str(x or "").strip()
+        ]
+        local = local_kiz.get(oid) or {}
+        local_codes = [
+            str(x).strip() for x in (local.get("codes") or []) if str(x or "").strip()
+        ]
+        # Prefer local draft (incl. unsynced after WB failure) so Save can retry.
+        if local_codes:
+            codes = local_codes
+        elif wb_codes:
+            codes = wb_codes
+        else:
             codes = [""]
         try:
             nm = int(o.get("nm_id"))
@@ -973,6 +988,10 @@ def build_kiz_marking_payload(
                 "sticker_number": _sticker_number(part_a, part_b),
                 "kiz_codes": codes,
                 "kiz_bound": bool(o.get("kiz_bound")),
+                "kiz_local": bool(local_codes),
+                "kiz_wb_synced": bool(local.get("wb_synced"))
+                if local_codes
+                else bool(o.get("kiz_bound")),
             }
         )
     return {
@@ -993,11 +1012,10 @@ def save_kiz_marking(
     user_id: int | None = None,
     source_id: int | None = None,
 ) -> dict[str, Any]:
-    """Push sgtin to WB API and mirror successful writes into local wb_fbs_orders.
+    """Save КИЗ locally first, then push to WB; keep local on WB failure for retry.
 
-    Empty ``kiz_codes`` clears WB meta only when ``clear`` is true (was bound
-    before). Unchanged empty rows are skipped — otherwise Save would DELETE
-    sgtin for every unbound order in the supply.
+    Empty ``kiz_codes`` clears only when ``clear`` is true. Unchanged empty
+    rows are skipped.
     """
     client = wb.WbFbsClient(api_key)
     results: list[dict[str, Any]] = []
@@ -1018,6 +1036,8 @@ def save_kiz_marking(
                 {
                     "order_id": oid,
                     "ok": False,
+                    "local_ok": False,
+                    "wb_ok": False,
                     "kiz_codes": [],
                     "error": "Заказ не входит в эту поставку",
                 }
@@ -1040,49 +1060,88 @@ def save_kiz_marking(
         if not uniq and not clear:
             skipped_n += 1
             continue
+
+        local_ok = False
+        if repo is not None and user_id is not None and source_id is not None:
+            try:
+                # Always persist locally first (even if WB will fail).
+                wb.update_order_kiz_codes(
+                    repo,
+                    user_id=int(user_id),
+                    source_id=int(source_id),
+                    order_id=oid,
+                    kiz_codes=uniq,
+                    wb_synced=False,
+                )
+                local_ok = True
+                local_n += 1
+            except Exception as local_exc:
+                _log.warning("local kiz save order %s failed: %s", oid, local_exc)
+                err_n += 1
+                results.append(
+                    {
+                        "order_id": oid,
+                        "ok": False,
+                        "local_ok": False,
+                        "wb_ok": False,
+                        "kiz_codes": uniq,
+                        "error": f"Не удалось сохранить локально: {str(local_exc)[:200]}",
+                    }
+                )
+                continue
+
+        wb_ok = False
+        wb_error = ""
         try:
             if uniq:
                 client.set_order_sgtin(oid, uniq)
             else:
                 client.delete_order_meta(oid, "sgtin")
+            wb_ok = True
             time.sleep(0.07)
-            # Mirror into FeedPilot DB only after WB accepted the write.
-            if repo is not None and user_id is not None and source_id is not None:
-                try:
-                    wb.update_order_kiz_codes(
-                        repo,
-                        user_id=int(user_id),
-                        source_id=int(source_id),
-                        order_id=oid,
-                        kiz_codes=uniq,
-                    )
-                    local_n += 1
-                except Exception as local_exc:
-                    _log.warning(
-                        "local kiz save order %s failed after WB ok: %s",
-                        oid,
-                        local_exc,
-                    )
+        except Exception as exc:
+            wb_error = str(exc)[:300]
+            time.sleep(0.07)
+
+        if wb_ok and local_ok and repo is not None and user_id is not None and source_id is not None:
+            try:
+                wb.update_order_kiz_codes(
+                    repo,
+                    user_id=int(user_id),
+                    source_id=int(source_id),
+                    order_id=oid,
+                    kiz_codes=uniq,
+                    wb_synced=True,
+                )
+            except Exception as local_exc:
+                _log.warning(
+                    "local kiz wb_synced flag order %s failed: %s", oid, local_exc
+                )
+
+        if wb_ok:
+            ok_n += 1
             results.append(
                 {
                     "order_id": oid,
                     "ok": True,
+                    "local_ok": local_ok,
+                    "wb_ok": True,
                     "kiz_codes": uniq,
                     "error": "",
                 }
             )
-            ok_n += 1
-        except Exception as exc:
+        else:
             err_n += 1
             results.append(
                 {
                     "order_id": oid,
                     "ok": False,
+                    "local_ok": local_ok,
+                    "wb_ok": False,
                     "kiz_codes": uniq,
-                    "error": str(exc)[:300],
+                    "error": wb_error or "Ошибка записи в WB",
                 }
             )
-            time.sleep(0.07)
     return {
         "ok": err_n == 0,
         "saved": ok_n,

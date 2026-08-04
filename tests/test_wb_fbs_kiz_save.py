@@ -1,4 +1,4 @@
-"""Unit tests for КИЗ save scoping and clear semantics."""
+"""Unit tests for КИЗ save scoping, local-first, and clear semantics."""
 
 from __future__ import annotations
 
@@ -93,7 +93,7 @@ def test_save_sets_sgtin(mock_cls: Any, _sleep: Any) -> None:
 @patch("review_processor.wb_fbs_detail.time.sleep", return_value=None)
 @patch("review_processor.wb_fbs_detail.wb.update_order_kiz_codes")
 @patch("review_processor.wb_fbs_detail.wb.WbFbsClient")
-def test_save_mirrors_to_local_db(
+def test_save_local_first_then_wb(
     mock_cls: Any, mock_local: Any, _sleep: Any
 ) -> None:
     client = _client_mock()
@@ -111,10 +111,40 @@ def test_save_mirrors_to_local_db(
     assert result["saved"] == 1
     assert result["saved_local"] == 1
     client.set_order_sgtin.assert_called_once_with(7, ["CODE1"])
-    mock_local.assert_called_once_with(
-        repo,
+    # Local pending, then local synced after WB ok.
+    assert mock_local.call_count == 2
+    assert mock_local.call_args_list[0].kwargs["wb_synced"] is False
+    assert mock_local.call_args_list[1].kwargs["wb_synced"] is True
+
+
+@patch("review_processor.wb_fbs_detail.time.sleep", return_value=None)
+@patch("review_processor.wb_fbs_detail.wb.update_order_kiz_codes")
+@patch("review_processor.wb_fbs_detail.wb.WbFbsClient")
+def test_save_keeps_local_when_wb_fails(
+    mock_cls: Any, mock_local: Any, _sleep: Any
+) -> None:
+    client = _client_mock()
+    client.set_order_sgtin.side_effect = RuntimeError("WB 409 conflict")
+    mock_cls.return_value = client
+    repo = MagicMock()
+    result = save_kiz_marking(
+        api_key="k",
+        items=[{"order_id": 8, "kiz_codes": ["CODE2"]}],
+        allowed_order_ids={8},
+        repo=repo,
         user_id=11,
         source_id=22,
-        order_id=7,
-        kiz_codes=["CODE1"],
     )
+    assert result["ok"] is False
+    assert result["saved"] == 0
+    assert result["failed"] == 1
+    assert result["saved_local"] == 1
+    row = result["results"][0]
+    assert row["local_ok"] is True
+    assert row["wb_ok"] is False
+    assert "409" in row["error"]
+    assert row["kiz_codes"] == ["CODE2"]
+    # Only pending local write — no wb_synced=True update.
+    mock_local.assert_called_once()
+    assert mock_local.call_args.kwargs["wb_synced"] is False
+    assert mock_local.call_args.kwargs["kiz_codes"] == ["CODE2"]

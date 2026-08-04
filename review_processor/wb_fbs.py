@@ -625,7 +625,7 @@ def ensure_wb_fbs_tables(repo: ReviewRepository) -> None:
                 "ON wb_fbs_supplies(user_id, source_id, done, created_at_wb DESC)"
             )
         )
-        # Local copy of КИЗ codes after Save (WB API remains source of truth for badges).
+        # Local КИЗ draft/copy: kept even when WB API fails (retry on next Save).
         conn.execute(
             """
             ALTER TABLE wb_fbs_orders
@@ -638,6 +638,12 @@ def ensure_wb_fbs_tables(repo: ReviewRepository) -> None:
             ADD COLUMN IF NOT EXISTS kiz_saved_at TIMESTAMPTZ
             """
         )
+        conn.execute(
+            """
+            ALTER TABLE wb_fbs_orders
+            ADD COLUMN IF NOT EXISTS kiz_wb_synced BOOLEAN NOT NULL DEFAULT FALSE
+            """
+        )
 
 
 def update_order_kiz_codes(
@@ -647,23 +653,76 @@ def update_order_kiz_codes(
     source_id: int,
     order_id: int,
     kiz_codes: list[str],
+    wb_synced: bool = False,
 ) -> None:
-    """Persist КИЗ codes locally after a successful WB meta/sgtin write."""
+    """Persist КИЗ codes locally; ``wb_synced`` marks successful WB API push."""
     ensure_wb_fbs_tables(repo)
     codes = [str(x) for x in (kiz_codes or []) if str(x or "").strip()]
     payload = json.dumps(codes, ensure_ascii=False)
-    saved_at = _utc_now() if codes else None
+    saved_at = _utc_now()
     with repo._connect() as conn:
         conn.execute(
             repo._sql(
                 """
                 UPDATE wb_fbs_orders
-                SET kiz_codes_json = ?, kiz_saved_at = ?
+                SET kiz_codes_json = ?, kiz_saved_at = ?, kiz_wb_synced = ?
                 WHERE user_id = ? AND source_id = ? AND order_id = ?
                 """
             ),
-            (payload, saved_at, int(user_id), int(source_id), int(order_id)),
+            (
+                payload,
+                saved_at,
+                bool(wb_synced),
+                int(user_id),
+                int(source_id),
+                int(order_id),
+            ),
         )
+
+
+def load_order_kiz_map(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    order_ids: list[int],
+) -> dict[int, dict[str, Any]]:
+    """Map order_id → {codes, wb_synced} from local wb_fbs_orders."""
+    ids = [int(x) for x in order_ids if x is not None]
+    if not ids:
+        return {}
+    ensure_wb_fbs_tables(repo)
+    placeholders = ", ".join("?" for _ in ids)
+    out: dict[int, dict[str, Any]] = {}
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                f"""
+                SELECT order_id, kiz_codes_json, kiz_wb_synced
+                FROM wb_fbs_orders
+                WHERE user_id = ? AND source_id = ? AND order_id IN ({placeholders})
+                """
+            ),
+            tuple([int(user_id), int(source_id), *ids]),
+        ).fetchall()
+    for row in rows:
+        try:
+            oid = int(row["order_id"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        codes: list[str] = []
+        try:
+            parsed = json.loads(row["kiz_codes_json"] or "[]")
+            if isinstance(parsed, list):
+                codes = [str(x) for x in parsed if str(x or "").strip()]
+        except Exception:
+            codes = []
+        try:
+            synced = bool(row["kiz_wb_synced"])
+        except (KeyError, IndexError):
+            synced = False
+        out[oid] = {"codes": codes, "wb_synced": synced}
+    return out
 
 
 def _parse_dt(value: object) -> str | None:
