@@ -17380,6 +17380,8 @@ const wbFbsState = {
   lastSearch: "",
   pollTimer: null,
   viewMode: "orders", // "orders" | "supplies"
+  loadSeq: 0,
+  loadAbort: null,
 };
 
 function _wbFbsIsSuppliesTab() {
@@ -17622,7 +17624,9 @@ function _wbFbsSyncActionsColumn() {
 
 function _wbFbsSyncTableMode() {
   const supplies = _wbFbsIsSuppliesTab();
-  wbFbsState.viewMode = supplies ? "supplies" : "orders";
+  const nextMode = supplies ? "supplies" : "orders";
+  const modeChanged = wbFbsState.viewMode !== nextMode;
+  wbFbsState.viewMode = nextMode;
   const table = document.getElementById("wbFbsOrdersTable");
   const colgroup = document.getElementById("wbFbsColgroup");
   const thead = table?.querySelector("thead tr");
@@ -17635,6 +17639,11 @@ function _wbFbsSyncTableMode() {
   }
   if (!colgroup || !thead) {
     _wbFbsSyncActionsColumn();
+    return;
+  }
+  // Avoid rebuilding thead/colgroup on every fetch — only when tab mode changes.
+  if (!modeChanged && colgroup.children.length) {
+    if (!supplies) _wbFbsSyncActionsColumn();
     return;
   }
   if (supplies) {
@@ -17705,9 +17714,18 @@ async function loadWbFbsOrders(resetPage = false) {
   if (search) params.set("search", search);
   const suppliesMode = _wbFbsIsSuppliesTab();
   const url = suppliesMode ? `/api/wb-fbs/supplies?${params}` : `/api/wb-fbs/orders?${params}`;
+  const seq = ++wbFbsState.loadSeq;
+  if (wbFbsState.loadAbort) {
+    try { wbFbsState.loadAbort.abort(); } catch (_) {}
+  }
+  wbFbsState.loadAbort = (typeof AbortController !== "undefined") ? new AbortController() : null;
+  if (tbody) {
+    tbody.innerHTML = `<tr><td colspan="${_wbFbsColspan()}" class="wb-fbs-empty">Загрузка…</td></tr>`;
+  }
   try {
-    const res = await fetch(url);
+    const res = await fetch(url, wbFbsState.loadAbort ? { signal: wbFbsState.loadAbort.signal } : undefined);
     const data = await res.json();
+    if (seq !== wbFbsState.loadSeq) return; // newer tab/load won
     if (!res.ok) throw new Error(data.detail || "Ошибка загрузки");
     wbFbsState.items = data.items || [];
     wbFbsState.total = data.total || 0;
@@ -17729,6 +17747,8 @@ async function loadWbFbsOrders(resetPage = false) {
     if (prevBtn) prevBtn.disabled = wbFbsState.page <= 1;
     if (nextBtn) nextBtn.disabled = wbFbsState.page >= totalPages;
   } catch (e) {
+    if (e && (e.name === "AbortError" || String(e.message || "").includes("aborted"))) return;
+    if (seq !== wbFbsState.loadSeq) return;
     if (tbody) tbody.innerHTML = `<tr><td colspan="${_wbFbsColspan()}" class="small" style="padding:16px;color:#b91c1c">${_wbFbsEsc(e.message || e)}</td></tr>`;
   }
 }
