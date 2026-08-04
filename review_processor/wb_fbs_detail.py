@@ -1027,6 +1027,15 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
 
     body_rows: list[str] = []
     printable_groups = [g for g in groups if list(g.get("orders") or [])]
+    # Highlight partB codes that repeat across the supply (operator risk).
+    part_b_counts: dict[str, int] = {}
+    for g in printable_groups:
+        for o in g.get("orders") or []:
+            pb = str(o.get("sticker_part_b") or "").strip()
+            if pb:
+                part_b_counts[pb] = part_b_counts.get(pb, 0) + 1
+    dup_part_b = {pb for pb, n in part_b_counts.items() if n > 1}
+
     for g_idx, g in enumerate(printable_groups):
         orders = list(g.get("orders") or [])
         qty = int(g.get("qty") or len(orders) or 0)
@@ -1077,15 +1086,19 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
             if is_last_order and not is_last_group:
                 row_cls += " article-end"
             part_a = _esc(o.get("sticker_part_a") or "—")
-            part_b = _esc(o.get("sticker_part_b") or "")
+            part_b_raw = str(o.get("sticker_part_b") or "").strip()
+            part_b = _esc(part_b_raw)
+            part_b_cls = "partb partb-dup" if part_b_raw in dup_part_b else "partb"
             body_rows.append(
                 f"""<tr class="{row_cls}">
                   <td class="main">
                     <div class="order-line">
                       <span class="idx">{idx}.</span>
                       <span class="oid">Заказ: {_esc(o.get("order_id"))}</span>
-                      <span class="sticker">Стикер WB: {part_a}</span>
-                      <span class="partb">{part_b}</span>
+                      <span class="sticker-group">
+                        <span class="sticker">Стикер WB: {part_a}</span>
+                        <span class="{part_b_cls}">{part_b}</span>
+                      </span>
                     </div>
                   </td>
                   <td class="check">{box}</td>
@@ -1231,26 +1244,46 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
       align-items: center;
       gap: 12px;
       width: 100%;
-      min-height: 24px;
+      min-height: 28px;
     }}
     .order-line .idx {{
       flex: 0 0 28px;
       color: #64748b;
       font-weight: 600;
     }}
-    .order-line .oid,
+    .order-line .oid {{
+      flex: 1 1 auto;
+      min-width: 0;
+      white-space: nowrap;
+      color: #0f172a;
+    }}
+    .order-line .sticker-group {{
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-left: auto;
+      flex: 0 0 auto;
+    }}
     .order-line .sticker {{
-      flex: 0 1 auto;
       white-space: nowrap;
       color: #0f172a;
     }}
     .order-line .partb {{
-      margin-left: auto;
       font-size: 16px;
       font-weight: 800;
       letter-spacing: 0.02em;
       white-space: nowrap;
       font-variant-numeric: tabular-nums;
+      line-height: 1.2;
+    }}
+    /* Duplicate short sticker codes across the supply — force operator attention */
+    .order-line .partb-dup {{
+      border: 2.5px solid #0f172a;
+      padding: 2px 6px;
+      display: inline-block;
+      min-width: 2.5em;
+      text-align: center;
     }}
     .box {{
       display: inline-block;
@@ -1268,6 +1301,11 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
       .no-print {{ display: none !important; }}
       body {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
       tr {{ page-break-inside: avoid; }}
+      .order-line .partb-dup {{
+        border: 2.5px solid #0f172a;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }}
     }}
   </style>
 </head>
