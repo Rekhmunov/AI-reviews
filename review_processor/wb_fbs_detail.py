@@ -302,6 +302,79 @@ def _fetch_stickers_map(
     return result
 
 
+def _local_order_ids_for_supply(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+) -> list[int]:
+    """Fallback when WB order-ids is empty/unavailable — use synced DB links."""
+    wb.ensure_wb_fbs_tables(repo)
+    sid = str(supply_id or "").strip()
+    ids: list[int] = []
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                """
+                SELECT order_id FROM wb_fbs_orders
+                WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                ORDER BY order_id ASC
+                """
+            ),
+            (user_id, source_id, sid),
+        ).fetchall()
+        for row in rows:
+            try:
+                ids.append(int(row["order_id"]))
+            except (TypeError, ValueError):
+                continue
+        if ids:
+            return ids
+        # Also try cached array on supply row.
+        row = conn.execute(
+            repo._sql(
+                """
+                SELECT order_ids_json FROM wb_fbs_supplies
+                WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                """
+            ),
+            (user_id, source_id, sid),
+        ).fetchone()
+    if not row:
+        return []
+    try:
+        raw = json.loads(row["order_ids_json"] or "[]")
+    except Exception:
+        return []
+    if not isinstance(raw, list):
+        return []
+    for item in raw:
+        try:
+            ids.append(int(item))
+        except (TypeError, ValueError):
+            continue
+    return ids
+
+
+def _warehouse_display(label: object) -> str:
+    text = str(label or "").strip()
+    if not text or text == "—":
+        return "—"
+    if text.lower().startswith("склад"):
+        return text
+    return f"Склад {text}"
+
+
+def _safe_b64(value: object) -> str:
+    """Keep only base64 alphabet so sticker HTML cannot inject markup."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    allowed = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=")
+    return "".join(ch for ch in text if ch in allowed)
+
+
 def get_supply_detail(
     repo: ReviewRepository,
     *,
@@ -315,9 +388,19 @@ def get_supply_detail(
     if not sid:
         raise ValueError("Не указан ID поставки")
     client = wb.WbFbsClient(api_key)
-    supply = client.get_supply(sid)
+    supply: dict[str, Any] = {}
+    try:
+        supply = client.get_supply(sid)
+    except Exception as exc:
+        _log.warning("detail get_supply %s: %s", sid, exc)
+        supply = {}
     time.sleep(0.21)
-    order_ids = client.get_supply_order_ids(sid)
+    order_ids: list[int] = []
+    try:
+        order_ids = client.get_supply_order_ids(sid)
+    except Exception as exc:
+        _log.warning("detail order-ids %s: %s", sid, exc)
+        order_ids = []
     time.sleep(0.21)
     boxes: list[dict[str, Any]] = []
     try:
@@ -340,6 +423,11 @@ def get_supply_detail(
         ).fetchone()
         if row:
             local = repo._row_to_dict(row)
+
+    if not order_ids:
+        order_ids = _local_order_ids_for_supply(
+            repo, user_id=user_id, source_id=source_id, supply_id=sid
+        )
 
     if supply:
         try:
@@ -372,7 +460,7 @@ def get_supply_detail(
         dest = (supply or {}).get("destinationOfficeId") if supply else None
         if dest is None and local:
             dest = local.get("destination_office_id")
-        warehouse_label = f"Склад {dest}" if dest else "—"
+        warehouse_label = str(dest) if dest else "—"
 
     name = str((supply or {}).get("name") or (local or {}).get("name") or "").strip()
     if not name:
@@ -394,7 +482,7 @@ def get_supply_detail(
         "supply_id": sid,
         "source_id": source_id,
         "name": name,
-        "warehouse_label": warehouse_label,
+        "warehouse_label": _warehouse_display(warehouse_label),
         "cargo_type": cargo or 0,
         "cargo_label": wb.cargo_type_label(cargo),
         "order_count": len(orders),
@@ -484,7 +572,6 @@ def render_picking_list_html(payload: dict[str, Any]) -> str:
     sid = _esc(detail.get("supply_id"))
     name = _esc(detail.get("name"))
     created = _esc(detail.get("created_date"))
-    warehouse = _esc(detail.get("warehouse_label") or "—")
     cargo = _esc(detail.get("cargo_label") or "")
     total = int(detail.get("order_count") or 0)
     rows_html: list[str] = []
@@ -585,7 +672,7 @@ def render_picking_list_html(payload: dict[str, Any]) -> str:
   <h1>{name}</h1>
   <div class="meta">
     {f'<span class="pill">{cargo}</span>' if cargo else ''}
-    <span class="pill">Склад {warehouse}</span>
+    <span class="pill">{_esc(_warehouse_display(detail.get("warehouse_label")))}</span>
     <span class="pill">QR поставки {sid}</span>
   </div>
   <div class="summary">
@@ -630,7 +717,7 @@ def render_stickers_print_html(payload: dict[str, Any]) -> str:
             """
         )
         for o in g.get("orders") or []:
-            b64 = str(o.get("sticker_file") or "").strip()
+            b64 = _safe_b64(o.get("sticker_file"))
             if not b64:
                 pages.append(
                     f"""
@@ -662,6 +749,7 @@ def render_stickers_print_html(payload: dict[str, Any]) -> str:
       width: 58mm; height: 40mm; page-break-after: always;
       overflow: hidden; position: relative;
     }}
+    .label:last-child {{ page-break-after: auto; }}
     .label.separator {{
       padding: 2.5mm 3mm; background: #fff;
       border: 0.3mm dashed #94a3b8;
@@ -700,7 +788,7 @@ def render_stickers_print_html(payload: dict[str, Any]) -> str:
 
 
 def render_single_sticker_html(*, order_id: int, file_b64: str) -> str:
-    b64 = str(file_b64 or "").strip()
+    b64 = _safe_b64(file_b64)
     if not b64:
         raise ValueError("WB не вернул стикер")
     return f"""<!doctype html>

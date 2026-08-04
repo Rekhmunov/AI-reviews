@@ -18299,12 +18299,7 @@ function renderWbFbsSupplyDetail(data) {
   const tbody = document.getElementById("wbFbsSupplyDetailTbody");
   const sid = String(data.supply_id || "").trim();
   if (title) title.textContent = data.name || (`Поставка ${sid}`);
-  if (wh) {
-    const rawWh = String(data.warehouse_label || "").trim();
-    wh.textContent = !rawWh || rawWh === "—"
-      ? "—"
-      : (rawWh.toLowerCase().startsWith("склад") ? rawWh : `Склад ${rawWh}`);
-  }
+  if (wh) wh.textContent = String(data.warehouse_label || "—").trim() || "—";
   if (meta) {
     const chips = [];
     if (data.cargo_label) chips.push(`<span class="wb-fbs-sd-chip">${_wbFbsEsc(data.cargo_label)}</span>`);
@@ -18428,22 +18423,28 @@ window.wbFbsRenameFromDetail = wbFbsRenameFromDetail;
 function wbFbsOpenPickingList() {
   const sid = String(wbFbsDetailState.supplyId || "").trim();
   if (!sid || !wbFbsState.sourceId) return;
+  const btn = document.getElementById("wbFbsSupplyDetailPickingBtn");
+  if (btn) btn.disabled = true;
   const url =
     `/api/wb-fbs/supplies/${encodeURIComponent(sid)}/picking-list` +
     `?source_id=${wbFbsState.sourceId}`;
   const win = window.open(url, "_blank");
   if (!win) alert("Разрешите всплывающие окна для листа подбора");
+  setTimeout(() => { if (btn) btn.disabled = false; }, 1500);
 }
 window.wbFbsOpenPickingList = wbFbsOpenPickingList;
 
 function wbFbsOpenStickersPrint() {
   const sid = String(wbFbsDetailState.supplyId || "").trim();
   if (!sid || !wbFbsState.sourceId) return;
+  const btn = document.getElementById("wbFbsSupplyDetailStickersBtn");
+  if (btn) btn.disabled = true;
   const url =
     `/api/wb-fbs/supplies/${encodeURIComponent(sid)}/stickers-print` +
     `?source_id=${wbFbsState.sourceId}`;
   const win = window.open(url, "_blank");
   if (!win) alert("Разрешите всплывающие окна для стикеров");
+  setTimeout(() => { if (btn) btn.disabled = false; }, 1500);
 }
 window.wbFbsOpenStickersPrint = wbFbsOpenStickersPrint;
 
