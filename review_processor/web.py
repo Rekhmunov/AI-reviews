@@ -11141,9 +11141,142 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "giveouts": giveouts,
         }
 
+    def _ozon_build_giveout_print_html(
+        *,
+        png_bytes: bytes,
+        barcode: str = "",
+        valid_until_label: str = "",
+    ) -> str:
+        """A4 print page: barcode ~2x taller + Ozon pickup instructions."""
+        import base64 as _b64
+        import html as _html
+        import io as _io
+
+        from PIL import Image as _PilImage
+
+        img = _PilImage.open(_io.BytesIO(png_bytes)).convert("RGB")
+        _w, h = img.size
+        # ~2x bar height for easier scanning; cap so instructions stay on page.
+        print_h = max(1, min(h * 2, 280))
+        b64 = _b64.b64encode(png_bytes).decode("ascii")
+        code = _html.escape(str(barcode or "").strip())
+        valid = _html.escape(str(valid_until_label or "").strip())
+        valid_html = (
+            f'<div class="valid">Действует до {valid}</div>' if valid else ""
+        )
+        code_html = f'<div class="code">{code}</div>' if code else ""
+        return f"""<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <title>Штрихкод получения возвратов Ozon</title>
+  <style>
+    @page {{ size: A4 portrait; margin: 14mm 16mm; }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      color: #0f172a;
+      font-size: 14px;
+      line-height: 1.45;
+      background: #fff;
+    }}
+    .toolbar {{ margin: 0 0 12px; }}
+    .toolbar button {{
+      min-height: 36px; padding: 8px 12px; font-size: 14px;
+      border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; cursor: pointer;
+    }}
+    .sheet {{ max-width: 180mm; margin: 0 auto; }}
+    .barcode-wrap {{
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin: 0 0 20px;
+    }}
+    .barcode-wrap img {{
+      display: block;
+      width: 100%;
+      max-width: 170mm;
+      height: {print_h}px;
+      object-fit: fill;
+      image-rendering: pixelated;
+      background: #fff;
+    }}
+    .code {{
+      margin-top: 10px;
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      font-variant-numeric: tabular-nums;
+    }}
+    .valid {{
+      margin-top: 4px;
+      font-size: 14px;
+      color: #475569;
+    }}
+    .instructions {{
+      margin: 0;
+      padding: 0 0 0 20px;
+    }}
+    .instructions > li {{
+      margin: 0 0 10px;
+    }}
+    .instructions ul {{
+      margin: 6px 0 0;
+      padding: 0 0 0 18px;
+    }}
+    .instructions ul li {{
+      margin: 0 0 6px;
+    }}
+    .footer {{
+      margin-top: 12px;
+      color: #334155;
+    }}
+    @media print {{
+      .no-print {{ display: none !important; }}
+      body {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+    }}
+  </style>
+</head>
+<body>
+  <div class="toolbar no-print"><button type="button" onclick="window.print()">Печать</button></div>
+  <div class="sheet">
+    <div class="barcode-wrap">
+      <img src="data:image/png;base64,{b64}" alt="Штрихкод возвратов Ozon" />
+      {code_html}
+      {valid_html}
+    </div>
+    <ol class="instructions">
+      <li>Проверьте срок действия штрихкода. Если он истёк или вы не успеете приехать вовремя, распечатайте новый.</li>
+      <li>Покажите штрихкод сотруднику пункта выдачи, сортировочного центра или курьеру Ozon.</li>
+      <li>Проверьте товары:
+        <ul>
+          <li>В пункте выдачи или в сортировочном центре — сравните выданные товары со списком в отчёте по возвратам. Если выдали не все возвраты, попросите у сотрудника акт об отказе в выдаче.</li>
+          <li>У курьера — сравните выданные товары со списком в отчёте по возвратам. Если выдали не все возвраты, убедитесь, что курьер изменил список в приложении.</li>
+        </ul>
+      </li>
+      <li>Снова покажите штрихкод сотруднику пункта выдачи заказов или курьеру Ozon. В сортировочном центре достаточно показать штрихкод только один раз.</li>
+    </ol>
+    <div class="footer">Все документы отправим на электронную почту продавца.</div>
+  </div>
+  <script>
+    window.addEventListener("load", function () {{
+      setTimeout(function () {{ window.print(); }}, 300);
+    }});
+  </script>
+</body>
+</html>"""
+
     @app.get("/api/ozon-returns/giveout/pdf")
-    def ozon_returns_giveout_pdf(request: Request, source_id: int = 0) -> Response:
-        """Open official Ozon giveout barcode PDF (barcode + instruction text)."""
+    def ozon_returns_giveout_pdf(
+        request: Request,
+        source_id: int = 0,
+        valid_until: str = "",
+        valid_until_label: str = "",
+    ) -> Response:
+        """Print page: giveout barcode (~2x taller) + Ozon pickup instructions."""
+        from fastapi.responses import HTMLResponse
+
         user = _require_user(request)
         if not _can_view_supplies(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
@@ -11160,24 +11293,41 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         else:
             src = _ozon_find_giveout_source(owner_id)
 
-        # Use Ozon's own PDF — it includes the pickup instructions under the barcode.
-        # Custom PNG→PDF stretch dropped that text and filled the page with bars.
-        pdf_data = _ozon_giveout_post(
+        png_data = _ozon_giveout_post(
             client_id=src["client_id"],
             api_key=src["api_key"],
-            path="/v1/return/giveout/get-pdf",
+            path="/v1/return/giveout/get-png",
         )
-        pdf_bytes = _ozon_extract_giveout_bytes(pdf_data, expect="pdf")
-        if not pdf_bytes:
-            raise HTTPException(status_code=400, detail="Не удалось получить PDF штрихкода")
-        fname = str(pdf_data.get("file_name") or "ozon_returns_barcode.pdf").strip() or "ozon_returns_barcode.pdf"
-        if "/" in fname or "\\" in fname:
-            fname = "ozon_returns_barcode.pdf"
-        return Response(
-            content=pdf_bytes,
-            media_type="application/pdf",
-            headers={"Content-Disposition": f'inline; filename="{fname}"'},
-        )
+        png_bytes = _ozon_extract_giveout_bytes(png_data, expect="png")
+        if not png_bytes:
+            raise HTTPException(status_code=400, detail="Не удалось получить изображение штрихкода")
+
+        barcode = ""
+        try:
+            barcode_data = _ozon_giveout_post(
+                client_id=src["client_id"],
+                api_key=src["api_key"],
+                path="/v1/return/giveout/barcode",
+            )
+            barcode = str(barcode_data.get("barcode") or "").strip()
+        except Exception as ex:
+            _log.warning("ozon giveout print barcode text failed source=%s: %s", src["id"], ex)
+
+        label = str(valid_until_label or "").strip()
+        if not label:
+            label = _ozon_giveout_valid_until_label(valid_until)
+
+        try:
+            html_doc = _ozon_build_giveout_print_html(
+                png_bytes=png_bytes,
+                barcode=barcode,
+                valid_until_label=label,
+            )
+        except Exception as ex:
+            _log.warning("ozon giveout print html failed: %s", ex)
+            raise HTTPException(status_code=400, detail="Не удалось сформировать страницу штрихкода") from ex
+
+        return HTMLResponse(content=html_doc)
 
     # ── End OZON Supplies ────────────────────────────────────────────────────
 

@@ -5534,9 +5534,15 @@ function downloadOzonReturnsPdf() {
   const params = new URLSearchParams();
   const sid = Number(_ozonReturnsState.sourceId) || 0;
   if (sid) params.set("source_id", String(sid));
+  if (_ozonReturnsState.validUntilLabel) {
+    params.set("valid_until_label", _ozonReturnsState.validUntilLabel);
+  }
+  if (_ozonReturnsState.validUntil) {
+    params.set("valid_until", _ozonReturnsState.validUntil);
+  }
   const qs = params.toString();
   const url = qs ? `/api/ozon-returns/giveout/pdf?${qs}` : "/api/ozon-returns/giveout/pdf";
-  // Official Ozon PDF (barcode + pickup instructions) opens inline for print.
+  // Print page: ~2x taller barcode + Ozon pickup instructions.
   window.open(url, "_blank", "noopener");
 }
 window.downloadOzonReturnsPdf = downloadOzonReturnsPdf;
