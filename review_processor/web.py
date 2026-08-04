@@ -10794,7 +10794,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         img = _PilImage.open(_io.BytesIO(png_bytes)).convert("RGB")
         w, h = img.size
         # Stretch barcode bars vertically ~3x (nearest keeps edges crisp).
-        tall = img.resize((w, max(1, h * 3)), _PilImage.Resampling.NEAREST)
+        resample = getattr(getattr(_PilImage, "Resampling", _PilImage), "NEAREST", _PilImage.NEAREST)
+        tall = img.resize((w, max(1, h * 3)), resample)
 
         pad_x, pad_top, gap, text_h, pad_bottom = 40, 40, 20, 48, 40
         page_w = tall.width + pad_x * 2
