@@ -417,7 +417,7 @@ def _group_orders_by_article(orders: list[dict[str, Any]]) -> list[dict[str, Any
             order_keys.append(article)
             groups[article] = {
                 "article": article,
-                "product_name": str(o.get("product_name") or article),
+                "product_name": str(o.get("product_name") or "").strip(),
                 "product_photo": str(o.get("product_photo") or ""),
                 "nm_id": o.get("nm_id"),
                 "barcodes": list(o.get("barcodes") or []),
@@ -896,20 +896,21 @@ def build_article_groups_for_print(
         orders_full.append(row)
     groups = _group_orders_by_article(orders_full)
     for g in groups:
-        # Prefer catalog name already on rows; keep stable before WB-like sort.
-        if not str(g.get("product_name") or "").strip():
-            first = g["orders"][0] if g["orders"] else {}
-            g["product_name"] = str(first.get("product_name") or g["article"])
         first = g["orders"][0] if g["orders"] else {}
+        # Каталожное наименование (может быть пустым — тогда в PDF выше артикула «—»).
+        g["product_name"] = str(
+            g.get("product_name") or first.get("product_name") or ""
+        ).strip()
         g["color"] = str(first.get("color") or "")
         g["brand"] = str(first.get("brand") or "")
     groups = _sort_groups_like_wb(groups)
-    # Color/brand from first row after sticker sort (same article → same meta).
     for g in groups:
         first = g["orders"][0] if g["orders"] else {}
         g["color"] = str(first.get("color") or g.get("color") or "")
         g["brand"] = str(first.get("brand") or g.get("brand") or "")
-        g["product_name"] = str(g.get("product_name") or first.get("product_name") or g["article"])
+        g["product_name"] = str(
+            g.get("product_name") or first.get("product_name") or ""
+        ).strip()
     return {
         "detail": detail,
         "groups": groups,
@@ -1229,7 +1230,7 @@ def render_stickers_print_html(payload: dict[str, Any]) -> str:
         color = str(g.get("color") or "").strip()
         brand = str(g.get("brand") or "").strip()
         article = str(g.get("article") or "")
-        name = str(g.get("product_name") or article)
+        name = str(g.get("product_name") or "").strip() or "—"
         barcodes = g.get("barcodes") or []
         barcode = str(barcodes[0] if barcodes else "")
         nm = g.get("nm_id") or "—"
