@@ -23,8 +23,6 @@ from .repository import ReviewRepository
 _log = logging.getLogger(__name__)
 
 WB_FBS_API = "https://marketplace-api.wildberries.ru"
-# Same limit used by community SDKs for POST /api/v3/supplies name.
-SUPPLY_NAME_MAX_LEN = 128
 
 # UI tab <- supplierStatus / wbStatus / archive flag
 TAB_NEW = "new"
@@ -154,16 +152,6 @@ def assembly_stage_label(*, done: object = False, boxes_count: int = 0) -> str:
     """
     del done, boxes_count
     return "Сборка заказов"
-
-
-def normalize_supply_name(name: object) -> str:
-    """Validate supply name the same way as create (POST /api/v3/supplies)."""
-    text = " ".join(str(name or "").split())
-    if not text:
-        raise ValueError("Укажите название поставки")
-    if len(text) > SUPPLY_NAME_MAX_LEN:
-        raise ValueError(f"Название не длиннее {SUPPLY_NAME_MAX_LEN} символов")
-    return text
 
 
 def _parse_json_list(raw: object) -> list[Any]:
@@ -454,50 +442,6 @@ class WbFbsClient:
     def get_supply(self, supply_id: str) -> dict[str, Any]:
         data = self._request("GET", f"/api/v3/supplies/{supply_id}")
         return data if isinstance(data, dict) else {}
-
-    def rename_supply(self, supply_id: str, name: str) -> dict[str, Any]:
-        """Rename an open FBS supply so ЛК shows the same title.
-
-        OpenAPI Orders FBS documents ``name`` on create (POST /api/v3/supplies)
-        only. Portal renames open supplies; we call
-        ``PATCH /api/v3/supplies/{supplyId}`` with ``{"name": "..."}`` (same
-        host/token as other FBS supply methods) and **always** confirm via GET.
-        If WB rejects or ignores the write, we fail instead of updating only DB.
-        """
-        sid = str(supply_id or "").strip()
-        new_name = normalize_supply_name(name)
-        if not sid:
-            raise ValueError("Не указан ID поставки")
-        # Portal allows rename while supply is still in assembly (done=false).
-        current = self.get_supply(sid)
-        if bool(current.get("done")):
-            raise RuntimeError(
-                "Нельзя переименовать поставку, уже переданную в доставку"
-            )
-        time.sleep(0.21)  # FBS limit: ≥200 ms between requests
-        try:
-            self._request("PATCH", f"/api/v3/supplies/{sid}", body={"name": new_name})
-        except RuntimeError as exc:
-            text = str(exc)
-            lower = text.lower()
-            if any(code in text for code in ("HTTP 404", "HTTP 405", "HTTP 501")) or (
-                "method not allowed" in lower
-            ):
-                raise RuntimeError(
-                    "WB API отклонил переименование поставки. "
-                    "В документации Orders FBS название задаётся при создании "
-                    "(POST /api/v3/supplies); отдельного метода rename нет."
-                ) from exc
-            raise
-        time.sleep(0.21)
-        supply = self.get_supply(sid)
-        actual = str(supply.get("name") or "").strip()
-        if actual != new_name:
-            raise RuntimeError(
-                "WB не применил новое название поставки. "
-                "Переименование через Marketplace API недоступно для этого ключа."
-            )
-        return supply
 
     def get_supply_barcode(self, supply_id: str, *, sticker_type: str = "png") -> bytes:
         payload, _headers, _status = self._request(
@@ -872,74 +816,6 @@ def upsert_order(
                 now,
             ),
         )
-
-
-def update_local_supply_name(
-    repo: ReviewRepository,
-    *,
-    user_id: int,
-    source_id: int,
-    supply_id: str,
-    name: str,
-) -> bool:
-    """Persist renamed supply title after a successful WB rename."""
-    ensure_wb_fbs_tables(repo)
-    sid = str(supply_id or "").strip()
-    new_name = normalize_supply_name(name)
-    if not sid:
-        return False
-    with repo._connect() as conn:
-        cur = conn.execute(
-            repo._sql(
-                """
-                UPDATE wb_fbs_supplies
-                SET name = ?, synced_at = ?
-                WHERE user_id = ? AND source_id = ? AND supply_id = ?
-                """
-            ),
-            (new_name, _utc_now(), user_id, int(source_id), sid),
-        )
-        return int(cur.rowcount or 0) > 0
-
-
-def rename_supply(
-    repo: ReviewRepository,
-    *,
-    user_id: int,
-    source_id: int,
-    api_key: str,
-    supply_id: str,
-    name: str,
-) -> dict[str, Any]:
-    """Rename supply on WB and mirror the name in local cache."""
-    client = WbFbsClient(api_key)
-    supply = client.rename_supply(supply_id, name)
-    new_name = str(supply.get("name") or "").strip() or normalize_supply_name(name)
-    update_local_supply_name(
-        repo,
-        user_id=user_id,
-        source_id=source_id,
-        supply_id=str(supply.get("id") or supply_id),
-        name=new_name,
-    )
-    # Keep upsert path warm so cargo/flags stay aligned with GET payload.
-    try:
-        upsert_supply(
-            repo,
-            user_id=user_id,
-            source_id=source_id,
-            supply=supply,
-            order_ids=None,
-            boxes=None,
-        )
-    except Exception as exc:
-        _log.debug("rename upsert_supply %s: %s", supply_id, exc)
-    return {
-        "ok": True,
-        "supply_id": str(supply.get("id") or supply_id).strip(),
-        "name": new_name,
-        "supply": supply,
-    }
 
 
 def upsert_supply(

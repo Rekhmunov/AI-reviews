@@ -17812,7 +17812,7 @@ function _wbFbsHasRowActions() {
 
 function _wbFbsColspan() {
   if (wbFbsState.tab === "delivery") return 8;
-  if (wbFbsState.tab === "assembly") return 7;
+  if (wbFbsState.tab === "assembly") return 6;
   return _wbFbsHasRowActions() ? 5 : 4;
 }
 
@@ -17855,14 +17855,14 @@ function _wbFbsSyncTableMode() {
   }
   if (supplies && wbFbsState.tab === "assembly") {
     // Portal «На сборке»: Поставка / QR / Заказы / Этап сборки / Склад
+    // No ⋮ column — WB API cannot rename supplies; QR is only after delivery.
     colgroup.innerHTML = `
       <col data-fixed="1" class="wb-fbs-col-check" style="width:40px" />
-      <col data-col="0" class="wb-fbs-col-supply" style="width:24%" />
+      <col data-col="0" class="wb-fbs-col-supply" style="width:26%" />
       <col data-col="1" class="wb-fbs-col-qr" style="width:16%" />
       <col data-col="2" class="wb-fbs-col-orders" style="width:14%" />
       <col data-col="3" class="wb-fbs-col-status" style="width:16%" />
-      <col data-col="4" class="wb-fbs-col-wh" style="width:22%" />
-      <col data-fixed="1" class="wb-fbs-col-act" style="width:48px" />
+      <col data-col="4" class="wb-fbs-col-wh" style="width:24%" />
     `;
     thead.innerHTML = `
       <th class="wb-fbs-th-check"><input type="checkbox" id="wbFbsSelectAll" onchange="toggleSelectAllWbFbs(this.checked)" title="Выбрать все на странице" /></th>
@@ -17871,7 +17871,6 @@ function _wbFbsSyncTableMode() {
       <th data-col="2">Заказы и грузоместа</th>
       <th data-col="3">Этап сборки</th>
       <th data-col="4">Склад</th>
-      <th class="wb-fbs-th-act"></th>
     `;
   } else if (supplies) {
     colgroup.innerHTML = `
@@ -18098,144 +18097,25 @@ function _wbFbsQrMenuIconHtml() {
   </span>`;
 }
 
-function _wbFbsRenameMenuIconHtml() {
-  return `<span class="wb-fbs-menu-ico" aria-hidden="true">
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M11.5 3.5l3 3L6.75 14.25H3.75v-3L11.5 3.5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" fill="none"/>
-      <path d="M10.25 4.75l3 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
-    </svg>
-  </span>`;
-}
-
 function _wbFbsSupplyRowActionsHtml(supplyId) {
   const sid = String(supplyId || "").trim();
   if (!sid) return "";
-  const safeKey = sid.replace(/[^a-zA-Z0-9_-]/g, "_");
-  const isAssembly = wbFbsState.tab === "assembly";
   // QR-код поставки — только после передачи в доставку (GET …/barcode).
-  // На «На сборке» в меню — переименование (как в ЛК WB).
-  const menuItems = isAssembly
-    ? `<button type="button" class="wb-fbs-row-menu-item" role="menuitem"
-              onclick="openWbFbsRenameSupplyModal('${_wbFbsEsc(sid)}')">
-        ${_wbFbsRenameMenuIconHtml()}
-        Переименовать поставку
-      </button>`
-    : `<button type="button" class="wb-fbs-row-menu-item" role="menuitem"
-              onclick="wbFbsOpenSupplyQr('${_wbFbsEsc(sid)}')">
-        ${_wbFbsQrMenuIconHtml()}
-        Напечатать QR-код поставки
-      </button>`;
+  // На «На сборке» меню нет: WB API не умеет переименовывать поставки.
+  if (wbFbsState.tab === "assembly") return "";
+  const safeKey = sid.replace(/[^a-zA-Z0-9_-]/g, "_");
   return `<div class="wb-fbs-row-menu-wrap">
     <button type="button" class="icon-btn secondary wb-fbs-row-menu-btn" title="Действия"
             onclick="toggleWbFbsRowMenu(event, '${_wbFbsEsc(safeKey)}')" aria-haspopup="menu">⋮</button>
     <div id="wbFbsRowMenu_${safeKey}" class="wb-fbs-row-menu" data-order-id="${_wbFbsEsc(safeKey)}" data-supply-id="${_wbFbsEsc(sid)}" role="menu">
-      ${menuItems}
+      <button type="button" class="wb-fbs-row-menu-item" role="menuitem"
+              onclick="wbFbsOpenSupplyQr('${_wbFbsEsc(sid)}')">
+        ${_wbFbsQrMenuIconHtml()}
+        Напечатать QR-код поставки
+      </button>
     </div>
   </div>`;
 }
-
-function openWbFbsRenameSupplyModal(supplyId) {
-  _wbFbsCloseRowMenus();
-  const sid = String(supplyId || "").trim();
-  if (!sid || !wbFbsState.sourceId) return;
-  const row = wbFbsState.items.find((x) => String(x.supply_id || "").trim() === sid);
-  const detailName = (wbFbsDetailState.supply && String(wbFbsDetailState.supply.supply_id) === sid)
-    ? String(wbFbsDetailState.supply.name || "").trim()
-    : "";
-  const input = document.getElementById("wbFbsRenameSupplyInput");
-  const err = document.getElementById("wbFbsRenameSupplyError");
-  const saveBtn = document.getElementById("wbFbsRenameSupplySaveBtn");
-  if (err) {
-    err.hidden = true;
-    err.textContent = "";
-  }
-  if (saveBtn) saveBtn.disabled = false;
-  if (input) {
-    input.value = detailName || String(row?.name || "").trim();
-    input.dataset.supplyId = sid;
-    input.onkeydown = (ev) => {
-      if (ev.key === "Enter") {
-        ev.preventDefault();
-        submitWbFbsRenameSupply();
-      } else if (ev.key === "Escape") {
-        ev.preventDefault();
-        closeWbFbsRenameSupplyModal();
-      }
-    };
-  }
-  setModalVisibility("wbFbsRenameSupplyModal", true);
-  setTimeout(() => {
-    input?.focus();
-    input?.select();
-  }, 0);
-}
-window.openWbFbsRenameSupplyModal = openWbFbsRenameSupplyModal;
-
-function closeWbFbsRenameSupplyModal() {
-  const input = document.getElementById("wbFbsRenameSupplyInput");
-  if (input) input.dataset.supplyId = "";
-  setModalVisibility("wbFbsRenameSupplyModal", false);
-}
-window.closeWbFbsRenameSupplyModal = closeWbFbsRenameSupplyModal;
-
-async function submitWbFbsRenameSupply() {
-  const input = document.getElementById("wbFbsRenameSupplyInput");
-  const err = document.getElementById("wbFbsRenameSupplyError");
-  const saveBtn = document.getElementById("wbFbsRenameSupplySaveBtn");
-  const sid = String(input?.dataset.supplyId || "").trim();
-  const name = String(input?.value || "").trim();
-  if (!sid || !wbFbsState.sourceId) return;
-  if (!name) {
-    if (err) {
-      err.hidden = false;
-      err.textContent = "Укажите название поставки";
-    }
-    input?.focus();
-    return;
-  }
-  if (name.length > 128) {
-    if (err) {
-      err.hidden = false;
-      err.textContent = "Название не длиннее 128 символов";
-    }
-    return;
-  }
-  if (saveBtn) saveBtn.disabled = true;
-  if (err) {
-    err.hidden = true;
-    err.textContent = "";
-  }
-  try {
-    const res = await fetch(`/api/wb-fbs/supplies/${encodeURIComponent(sid)}`, {
-      method: "PATCH",
-      headers: jsonHeaders(),
-      body: JSON.stringify({ source_id: wbFbsState.sourceId, name }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.detail || `Ошибка ${res.status}`);
-    const newName = String(data.name || name).trim();
-    const row = wbFbsState.items.find((x) => String(x.supply_id || "").trim() === sid);
-    if (row) row.name = newName;
-    if (wbFbsDetailState.supply && String(wbFbsDetailState.supply.supply_id) === sid) {
-      wbFbsDetailState.supply.name = newName;
-      const title = document.getElementById("wbFbsSupplyDetailTitle");
-      if (title) title.textContent = newName;
-    }
-    closeWbFbsRenameSupplyModal();
-    renderWbFbsSuppliesTable();
-    _wbFbsSetSyncInfo(`Поставка переименована: ${newName}`, "ok");
-  } catch (e) {
-    if (err) {
-      err.hidden = false;
-      err.textContent = String(e.message || e);
-    } else {
-      alert(String(e.message || e));
-    }
-  } finally {
-    if (saveBtn) saveBtn.disabled = false;
-  }
-}
-window.submitWbFbsRenameSupply = submitWbFbsRenameSupply;
 
 const wbFbsDetailState = {
   supplyId: "",
@@ -18428,13 +18308,6 @@ function wbFbsCopyText(text) {
   ta.remove();
 }
 window.wbFbsCopyText = wbFbsCopyText;
-
-function wbFbsRenameFromDetail() {
-  const sid = String(wbFbsDetailState.supplyId || wbFbsDetailState.supply?.supply_id || "").trim();
-  if (!sid) return;
-  openWbFbsRenameSupplyModal(sid);
-}
-window.wbFbsRenameFromDetail = wbFbsRenameFromDetail;
 
 function wbFbsOpenPickingList() {
   const sid = String(wbFbsDetailState.supplyId || "").trim();
@@ -19340,7 +19213,7 @@ function renderWbFbsSuppliesTable() {
           ? `<div class="wb-fbs-wh-address" title="${_wbFbsEsc(s.warehouse_sub)}">${_wbFbsEsc(s.warehouse_sub)}</div>`
           : ""}
       </td>
-      <td>${_wbFbsSupplyRowActionsHtml(sid)}</td>
+      ${isAssembly ? "" : `<td>${_wbFbsSupplyRowActionsHtml(sid)}</td>`}
     </tr>`;
   }).join("");
   const selAll = document.getElementById("wbFbsSelectAll");

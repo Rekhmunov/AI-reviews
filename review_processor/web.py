@@ -8743,50 +8743,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
         return {"items": items, "total": len(items)}
 
-    @app.patch("/api/wb-fbs/supplies/{supply_id}")
-    async def rename_wb_fbs_supply(request: Request, supply_id: str) -> dict[str, object]:
-        """Rename an open FBS supply on WB (PATCH /api/v3/supplies/{id}) and local DB."""
-        user = _require_user(request)
-        if not _can_view_wb_fbs(user):
-            raise HTTPException(status_code=403, detail="Нет доступа")
-        owner_id = _supply_owner_id(user)
-        payload = await request.json()
-        source_id = int(payload.get("source_id") or 0)
-        try:
-            new_name = wb_fbs_mod.normalize_supply_name(payload.get("name"))
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        sid = str(supply_id or "").strip()
-        if not source_id or not sid:
-            raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
-        src_full = repository.get_supply_source_with_key(user_id=owner_id, source_id=source_id)
-        if not src_full or not src_full.get("api_key"):
-            raise HTTPException(status_code=400, detail="Источник не найден")
-        if not wb_fbs_mod.is_fbs_source_name(src_full.get("name")):
-            raise HTTPException(status_code=400, detail="Источник не является ФБС")
-        try:
-            result = wb_fbs_mod.rename_supply(
-                repository,
-                user_id=owner_id,
-                source_id=source_id,
-                api_key=str(src_full["api_key"]),
-                supply_id=sid,
-                name=new_name,
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except RuntimeError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        try:
-            from . import wb_fbs_detail as wb_detail
-
-            wb_detail.invalidate_supply_detail_cache(
-                user_id=owner_id, source_id=source_id, supply_id=sid
-            )
-        except Exception:
-            pass
-        return result
-
     def _wb_fbs_source_key(owner_id: int, source_id: int) -> str:
         src_full = repository.get_supply_source_with_key(user_id=owner_id, source_id=source_id)
         if not src_full or not src_full.get("api_key"):
