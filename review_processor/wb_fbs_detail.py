@@ -1023,11 +1023,11 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
         orders = list(g.get("orders") or [])
         qty = int(g.get("qty") or len(orders) or 0)
         photo = str(g.get("product_photo") or "")
-        photo_html = (
-            f'<img class="photo" src="{_esc(photo)}" alt="" />'
-            if photo
-            else '<div class="photo ph" aria-hidden="true"></div>'
-        )
+        # PDF path skips remote/local URL fetches by default — keep a clean placeholder.
+        if photo and not for_pdf:
+            photo_html = f'<img class="photo" src="{_esc(photo)}" alt="" />'
+        else:
+            photo_html = '<div class="photo ph" aria-hidden="true"></div>'
         color = str(g.get("color") or "").strip()
         brand = str(g.get("brand") or "").strip()
         article = str(g.get("article") or "").strip()
