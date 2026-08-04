@@ -5084,11 +5084,14 @@ button.secondary.danger:hover {
   gap: 12px;
 }
 .ozon-returns-barcode-visual img {
-  max-width: min(100%, 320px);
-  height: auto;
+  display: block;
+  width: min(100%, 520px);
+  max-width: 100%;
+  height: 160px;
+  object-fit: fill;
   image-rendering: pixelated;
   background: #fff;
-  padding: 8px 12px;
+  padding: 12px 16px;
   border-radius: 8px;
   border: 1px solid #e2e8f0;
 }
