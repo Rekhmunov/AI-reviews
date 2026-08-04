@@ -11154,10 +11154,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
         from PIL import Image as _PilImage
 
-        img = _PilImage.open(_io.BytesIO(png_bytes)).convert("RGB")
-        _w, h = img.size
-        # ~2x bar height for easier scanning; cap so instructions stay on page.
-        print_h = max(1, min(h * 2, 280))
+        # Validate image; print size is fixed in mm so PNG pixel size cannot blow up the page.
+        _PilImage.open(_io.BytesIO(png_bytes)).convert("RGB")
         b64 = _b64.b64encode(png_bytes).decode("ascii")
         code = _html.escape(str(barcode or "").strip())
         valid = _html.escape(str(valid_until_label or "").strip())
@@ -11195,23 +11193,24 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     }}
     .barcode-wrap img {{
       display: block;
-      width: 100%;
-      max-width: 170mm;
-      height: {print_h}px;
+      width: 110mm;
+      max-width: 100%;
+      /* ~2x typical Ozon bar height, compact sticker — not full page */
+      height: 28mm;
       object-fit: fill;
       image-rendering: pixelated;
       background: #fff;
     }}
     .code {{
       margin-top: 10px;
-      font-size: 18px;
+      font-size: 16px;
       font-weight: 700;
       letter-spacing: 0.02em;
       font-variant-numeric: tabular-nums;
     }}
     .valid {{
       margin-top: 4px;
-      font-size: 14px;
+      font-size: 13px;
       color: #475569;
     }}
     .instructions {{
