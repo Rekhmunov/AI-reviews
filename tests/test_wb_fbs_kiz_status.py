@@ -22,6 +22,10 @@ def test_status_ok_and_error() -> None:
     assert _kiz_status_from_decision("invalid", []) == "error"
     assert _kiz_status_from_decision("FAILED", ["01…"]) == "error"
     assert _kiz_status_from_decision("sgtinInvalid", ["01…"]) == "error"
+    # Live WB values from POST /orders/meta:
+    assert _kiz_status_from_decision("sgtinNotFound", ["01…"]) == "error"
+    assert _kiz_status_from_decision("sgtinIntroduced", ["01…"]) == "ok"
+    assert _kiz_status_from_decision("optional", []) == "empty"
 
 
 def test_meta_row_decision_filled() -> None:

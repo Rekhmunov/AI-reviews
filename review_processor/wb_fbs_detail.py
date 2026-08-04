@@ -442,26 +442,53 @@ def _kiz_decision_raw(item: dict[str, Any]) -> str:
 def _kiz_status_from_decision(decision: str, codes: list[str]) -> str:
     """UI status: empty | pending | ok | error.
 
-    WB metaDetails.decision (known): filled | optional | required | invalid.
-    Enum is non-exhaustive — also treat common error synonyms as ``error``.
+    Live WB metaDetails.decision values observed for sgtin include:
+    ``optional``, ``required``, ``filled``, ``invalid``, ``sgtinNotFound``,
+    ``sgtinIntroduced`` (enum is non-exhaustive).
     """
     dec = str(decision or "").strip().lower()
     if not dec and not codes:
         return "empty"
     # Failed Честный знак / WB validation (ЛК «с ошибкой»).
+    # Real API uses sgtinNotFound / invalid — not only plain "invalid".
     if (
-        dec == "invalid"
+        dec in {
+            "invalid",
+            "sgtinnotfound",
+            "sgtin_not_found",
+            "notfound",
+            "error",
+            "failed",
+            "fail",
+            "rejected",
+            "reject",
+            "ошибка",
+        }
         or "invalid" in dec
-        or dec in {"error", "failed", "fail", "rejected", "reject", "ошибка"}
+        or "notfound" in dec
+        or "not_found" in dec
+        or ("error" in dec and "sgtin" in dec)
         or "fail" in dec
-        or "error" in dec
     ):
         return "error"
-    # Passed / accepted.
-    if dec in {"filled", "ok", "valid", "success", "passed", "approved"}:
+    # Passed / accepted / introduced into circulation.
+    if dec in {
+        "filled",
+        "sgtinintroduced",
+        "sgtin_introduced",
+        "introduced",
+        "ok",
+        "valid",
+        "success",
+        "passed",
+        "approved",
+    } or "introduced" in dec:
         return "ok"
+    # Slot exists but empty / still optional-required without a verdict.
+    if dec in {"optional", "required"} and not codes:
+        return "empty"
     if codes:
-        # Codes attached; check not finished (required/optional/…) or unknown decision.
+        # Codes attached; check not finished yet.
         return "pending"
     return "empty"
 
