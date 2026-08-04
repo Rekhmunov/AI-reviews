@@ -18473,7 +18473,8 @@ const wbFbsKizState = {
 };
 
 function _wbFbsKizBadgeHtml(order) {
-  const status = String(order?.kiz_status || (order?.kiz_bound ? "ok" : "empty"));
+  // Codes without a WB decision → pending (not green).
+  const status = String(order?.kiz_status || (order?.kiz_bound ? "pending" : "empty"));
   let cls = "is-empty";
   let label = "КИЗ";
   let title = "Требуется маркировка (КИЗ). Код ещё не привязан";
