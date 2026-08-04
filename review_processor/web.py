@@ -8713,11 +8713,21 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not _can_view_wb_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
         owner_id = _supply_owner_id(user)
-        # «В доставке» — rows are supplies (поставки), not assembly orders.
+        # «На сборке» / «В доставке» — rows are supplies (поставки), not orders.
         # Serve from DB only (no live WB enrich) so tab switches stay fast;
         # boxes/status are filled during sync.
-        if (tab or "").strip().lower() == "delivery":
+        tab_key = (tab or "").strip().lower()
+        if tab_key == "delivery":
             return wb_fbs_mod.list_delivery_supplies(
+                repository,
+                user_id=owner_id,
+                source_id=source_id,
+                search=search or None,
+                page=page,
+                page_size=page_size,
+            )
+        if tab_key == "assembly":
+            return wb_fbs_mod.list_assembly_supplies(
                 repository,
                 user_id=owner_id,
                 source_id=source_id,

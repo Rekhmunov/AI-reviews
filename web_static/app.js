@@ -17580,13 +17580,13 @@ const wbFbsState = {
   selectAllMatching: false,
   lastSearch: "",
   pollTimer: null,
-  viewMode: "orders", // "orders" | "supplies"
+  viewMode: "orders", // "orders" | "supplies-assembly" | "supplies-delivery"
   loadSeq: 0,
   loadAbort: null,
 };
 
 function _wbFbsIsSuppliesTab() {
-  return wbFbsState.tab === "delivery";
+  return wbFbsState.tab === "delivery" || wbFbsState.tab === "assembly";
 }
 
 function _wbFbsRememberMeta(order) {
@@ -17811,7 +17811,8 @@ function _wbFbsHasRowActions() {
 }
 
 function _wbFbsColspan() {
-  if (_wbFbsIsSuppliesTab()) return 8;
+  if (wbFbsState.tab === "delivery") return 8;
+  if (wbFbsState.tab === "assembly") return 7;
   return _wbFbsHasRowActions() ? 5 : 4;
 }
 
@@ -17825,14 +17826,19 @@ function _wbFbsSyncActionsColumn() {
 
 function _wbFbsSyncTableMode() {
   const supplies = _wbFbsIsSuppliesTab();
-  const nextMode = supplies ? "supplies" : "orders";
+  const nextMode = supplies
+    ? (wbFbsState.tab === "assembly" ? "supplies-assembly" : "supplies-delivery")
+    : "orders";
   const modeChanged = wbFbsState.viewMode !== nextMode;
   wbFbsState.viewMode = nextMode;
   const table = document.getElementById("wbFbsOrdersTable");
   const colgroup = document.getElementById("wbFbsColgroup");
   const thead = table?.querySelector("thead tr");
   const search = document.getElementById("wbFbsSearchFilter");
-  if (table) table.classList.toggle("wb-fbs-table--supplies", supplies);
+  if (table) {
+    table.classList.toggle("wb-fbs-table--supplies", supplies);
+    table.classList.toggle("wb-fbs-table--assembly", wbFbsState.tab === "assembly");
+  }
   if (search) {
     search.placeholder = supplies
       ? "Поиск по поставке, заказу, складу…"
@@ -17847,7 +17853,27 @@ function _wbFbsSyncTableMode() {
     if (!supplies) _wbFbsSyncActionsColumn();
     return;
   }
-  if (supplies) {
+  if (supplies && wbFbsState.tab === "assembly") {
+    // Portal «На сборке»: Поставка / QR / Заказы / Этап сборки / Склад
+    colgroup.innerHTML = `
+      <col data-fixed="1" class="wb-fbs-col-check" style="width:40px" />
+      <col data-col="0" class="wb-fbs-col-supply" style="width:24%" />
+      <col data-col="1" class="wb-fbs-col-qr" style="width:16%" />
+      <col data-col="2" class="wb-fbs-col-orders" style="width:14%" />
+      <col data-col="3" class="wb-fbs-col-status" style="width:16%" />
+      <col data-col="4" class="wb-fbs-col-wh" style="width:22%" />
+      <col data-fixed="1" class="wb-fbs-col-act" style="width:48px" />
+    `;
+    thead.innerHTML = `
+      <th class="wb-fbs-th-check"><input type="checkbox" id="wbFbsSelectAll" onchange="toggleSelectAllWbFbs(this.checked)" title="Выбрать все на странице" /></th>
+      <th data-col="0">Поставка</th>
+      <th data-col="1">QR-код поставки</th>
+      <th data-col="2">Заказы и грузоместа</th>
+      <th data-col="3">Этап сборки</th>
+      <th data-col="4">Склад</th>
+      <th class="wb-fbs-th-act"></th>
+    `;
+  } else if (supplies) {
     colgroup.innerHTML = `
       <col data-fixed="1" class="wb-fbs-col-check" style="width:40px" />
       <col data-col="0" class="wb-fbs-col-supply" style="width:20%" />
@@ -18146,6 +18172,7 @@ function renderWbFbsSuppliesTable() {
   if (!tbody) return;
   _wbFbsCloseRowMenus();
   const colspan = _wbFbsColspan();
+  const isAssembly = wbFbsState.tab === "assembly";
   if (!wbFbsState.items.length) {
     tbody.innerHTML = `<tr><td colspan="${colspan}" class="wb-fbs-empty">Нет поставок во вкладке. Нажмите «Синхронизировать».</td></tr>`;
     _wbFbsUpdateBottomBar();
@@ -18160,15 +18187,31 @@ function renderWbFbsSuppliesTable() {
     const createdMeta = s.created_at_wb
       ? `<div class="wb-fbs-order-meta">от ${_wbFbsEsc(_wbFbsFmtDate(s.created_at_wb))}</div>`
       : "";
-    const status = String(s.status_label || "Отгрузите поставку");
-    // Portal: orange «Отгрузите…» until scan; blue «В обработке» after scanDt.
-    // Do not use API done=true (set on /deliver) as «Завершена».
-    const statusClass = s.scan_dt ? "is-scanned" : "is-ship";
+    const status = String(
+      s.status_label || (isAssembly ? "Сборка заказов" : "Отгрузите поставку")
+    );
+    // Delivery: orange until scan, blue after scanDt. Assembly: light «Сборка заказов».
+    const statusClass = isAssembly
+      ? "is-assembly"
+      : (s.scan_dt ? "is-scanned" : "is-ship");
     const ordersCount = Number(s.order_count || 0);
     const boxesCount = Number(s.boxes_count || 0);
     const boxesLabel = boxesCount === 1
       ? "1 грузоместо"
       : (boxesCount > 1 && boxesCount < 5 ? `${boxesCount} грузоместа` : `${boxesCount} грузомест`);
+    const ordersCell = `
+      <td>
+        <div class="wb-fbs-supply-orders">${_wbFbsEsc(ordersCount)}</div>
+        <div class="wb-fbs-order-meta">${_wbFbsEsc(boxesLabel)}</div>
+      </td>`;
+    const statusCell = `<td><span class="wb-fbs-supply-status ${statusClass}">${_wbFbsEsc(status)}</span></td>`;
+    const scanCell = isAssembly
+      ? ""
+      : `<td><div class="wb-fbs-order-meta">${_wbFbsEsc(_wbFbsFmtDateTime(s.scan_dt))}</div></td>`;
+    // Assembly column order matches portal: orders before stage.
+    const midCells = isAssembly
+      ? `${ordersCell}${statusCell}`
+      : `${statusCell}${scanCell}${ordersCell}`;
     return `<tr>
       <td><input type="checkbox" class="wb-fbs-row-cb" data-supply-id="${_wbFbsEsc(sid)}" ${checked} onchange="onWbFbsCheckboxChange()" /></td>
       <td>
@@ -18177,18 +18220,12 @@ function renderWbFbsSuppliesTable() {
         ${badges.length ? `<div class="wb-fbs-badges">${badges.join("")}</div>` : ""}
       </td>
       <td><div class="wb-fbs-supply-qr" title="${_wbFbsEsc(sid)}">${_wbFbsEsc(sid || "—")}</div></td>
-      <td><span class="wb-fbs-supply-status ${statusClass}">${_wbFbsEsc(status)}</span></td>
-      <td><div class="wb-fbs-order-meta">${_wbFbsEsc(_wbFbsFmtDateTime(s.scan_dt))}</div></td>
-      <td>
-        <div class="wb-fbs-supply-orders">${_wbFbsEsc(ordersCount)}</div>
-        <div class="wb-fbs-order-meta">${_wbFbsEsc(boxesLabel)}</div>
-      </td>
+      ${midCells}
       <td>
         <div class="wb-fbs-wh-name" title="${_wbFbsEsc(s.warehouse_label || "")}">${_wbFbsEsc(s.warehouse_label || "—")}</div>
         ${s.warehouse_sub
           ? `<div class="wb-fbs-wh-address" title="${_wbFbsEsc(s.warehouse_sub)}">${_wbFbsEsc(s.warehouse_sub)}</div>`
           : ""}
-        <div class="wb-fbs-order-meta">${s.warehouse_id ? "ID " + _wbFbsEsc(s.warehouse_id) : ""}</div>
       </td>
       <td>${_wbFbsSupplyRowActionsHtml(sid)}</td>
     </tr>`;
@@ -18393,7 +18430,7 @@ function _wbFbsSelectedCountLabel(n) {
 async function selectAllMatchingWbFbs() {
   if (!wbFbsState.sourceId) return;
   if (_wbFbsIsSuppliesTab()) {
-    // Load all pages of delivery supplies for current filter.
+    // Load supplies pages for current supplies tab (assembly / delivery).
     const btn = document.getElementById("wbFbsSelectAllMatchingBtn");
     if (btn) {
       btn.disabled = true;
@@ -18403,7 +18440,7 @@ async function selectAllMatchingWbFbs() {
       const search = document.getElementById("wbFbsSearchFilter")?.value.trim() || "";
       const params = new URLSearchParams({
         source_id: String(wbFbsState.sourceId),
-        tab: "delivery",
+        tab: wbFbsState.tab,
         page: "1",
         page_size: "200",
       });

@@ -7393,6 +7393,11 @@ button.wb-fbs-select-all-link:disabled {
   color: #1d4ed8;
   border-color: #93c5fd;
 }
+.wb-fbs-supply-status.is-assembly {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-color: #93c5fd;
+}
 .wb-fbs-supply-status.is-done {
   background: #f0fdf4;
   color: #166534;

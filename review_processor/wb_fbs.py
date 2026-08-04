@@ -144,6 +144,15 @@ def supply_status_label(*, done: object = False, scan_dt: object = None) -> str:
     return "Отгрузите поставку"
 
 
+def assembly_stage_label(*, done: object = False, boxes_count: int = 0) -> str:
+    """Portal «Этап сборки» for open supplies on «На сборке».
+
+    API has no stage enum; open (not delivered) supplies show «Сборка заказов».
+    """
+    del done, boxes_count
+    return "Сборка заказов"
+
+
 def _parse_json_list(raw: object) -> list[Any]:
     try:
         data = json.loads(raw or "[]")
@@ -950,9 +959,53 @@ def list_delivery_supplies(
     page_size: int = 50,
 ) -> dict[str, Any]:
     """Supplies (поставки) for the «В доставке» tab — one row per supply, not orders."""
+    return _list_supplies_for_orders_tab(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        tab=TAB_DELIVERY,
+        search=search,
+        page=page,
+        page_size=page_size,
+    )
+
+
+def list_assembly_supplies(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int | None,
+    search: str | None = None,
+    page: int = 1,
+    page_size: int = 50,
+) -> dict[str, Any]:
+    """Supplies (поставки) for the «На сборке» tab — one row per supply, not orders."""
+    return _list_supplies_for_orders_tab(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        tab=TAB_ASSEMBLY,
+        search=search,
+        page=page,
+        page_size=page_size,
+    )
+
+
+def _list_supplies_for_orders_tab(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int | None,
+    tab: str,
+    search: str | None = None,
+    page: int = 1,
+    page_size: int = 50,
+) -> dict[str, Any]:
+    """Aggregate orders of a tab into supply rows (portal-like)."""
     ensure_wb_fbs_tables(repo)
+    tab_key = str(tab or "").strip().lower() or TAB_DELIVERY
     conditions = ["o.user_id = ?", "o.tab = ?", "o.supply_id != ''"]
-    params: list[Any] = [user_id, TAB_DELIVERY]
+    params: list[Any] = [user_id, tab_key]
     if source_id:
         conditions.append("o.source_id = ?")
         params.append(int(source_id))
@@ -1064,6 +1117,10 @@ def list_delivery_supplies(
         pickup_allowed = bool(raw.get("isPickupPointShipmentAllowed"))
         order_count = int(d.get("order_count") or 0) or len(order_ids)
         boxes_count = len(boxes)
+        if tab_key == TAB_ASSEMBLY:
+            status_label = assembly_stage_label(done=done, boxes_count=boxes_count)
+        else:
+            status_label = supply_status_label(done=done, scan_dt=scan_dt)
 
         items.append(
             {
@@ -1077,7 +1134,7 @@ def list_delivery_supplies(
                 "created_at_wb": d.get("created_at_wb"),
                 "closed_at_wb": d.get("closed_at_wb"),
                 "scan_dt": scan_dt,
-                "status_label": supply_status_label(done=done, scan_dt=scan_dt),
+                "status_label": status_label,
                 "order_count": order_count,
                 "boxes_count": boxes_count,
                 "order_ids": order_ids,
