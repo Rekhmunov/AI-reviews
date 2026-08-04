@@ -7543,29 +7543,30 @@ button.wb-fbs-sd-portal-btn {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: #1d4ed8;
-  border-color: rgba(147, 197, 253, 0.85);
-  background: #eff6ff;
+  color: #8b2fc9;
+  border: 1px solid rgba(196, 141, 232, 0.55);
+  background: #faf5ff;
   box-shadow: none;
 }
 button.wb-fbs-sd-portal-btn svg {
   flex: 0 0 auto;
 }
 button.wb-fbs-sd-portal-btn:hover {
-  color: #1e40af;
-  border-color: rgba(96, 165, 250, 0.95);
-  background: #dbeafe;
+  color: #7a1fb8;
+  border-color: rgba(168, 85, 247, 0.45);
+  background: #f3e8ff;
   box-shadow: none;
   transform: none;
 }
 button.wb-fbs-sd-portal-btn:active {
-  color: #1e3a8a;
-  background: #bfdbfe;
+  color: #6b21a8;
+  border-color: rgba(147, 51, 234, 0.4);
+  background: #ede0ff;
   box-shadow: none;
   transform: none;
 }
 button.wb-fbs-sd-portal-btn:focus-visible {
-  outline: 2px solid #93c5fd;
+  outline: 2px solid #d8b4fe;
   outline-offset: 2px;
   box-shadow: none;
 }
