@@ -18465,6 +18465,17 @@ function wbFbsOpenStickersPrint() {
 }
 window.wbFbsOpenStickersPrint = wbFbsOpenStickersPrint;
 
+function openWbFbsSupplyPortal() {
+  const sid = String(wbFbsDetailState.supplyId || wbFbsDetailState.supply?.supply_id || "").trim();
+  if (!sid) return;
+  const url =
+    "https://seller.wildberries.ru/marketplace-orders-fbs/supply-detail/orders" +
+    `?supplyID=${encodeURIComponent(sid)}`;
+  const win = window.open(url, "_blank", "noopener,noreferrer");
+  if (!win) alert("Разрешите всплывающие окна для перехода на портал");
+}
+window.openWbFbsSupplyPortal = openWbFbsSupplyPortal;
+
 const wbFbsKizState = {
   rows: [],
   errors: {},

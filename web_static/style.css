@@ -7580,6 +7580,36 @@ button.wb-fbs-select-all-link:disabled {
   min-height: 40px;
   padding: 8px 14px;
 }
+button.wb-fbs-sd-portal-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #1d4ed8;
+  border-color: rgba(147, 197, 253, 0.85);
+  background: #eff6ff;
+  box-shadow: none;
+}
+button.wb-fbs-sd-portal-btn svg {
+  flex: 0 0 auto;
+}
+button.wb-fbs-sd-portal-btn:hover {
+  color: #1e40af;
+  border-color: rgba(96, 165, 250, 0.95);
+  background: #dbeafe;
+  box-shadow: none;
+  transform: none;
+}
+button.wb-fbs-sd-portal-btn:active {
+  color: #1e3a8a;
+  background: #bfdbfe;
+  box-shadow: none;
+  transform: none;
+}
+button.wb-fbs-sd-portal-btn:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+  box-shadow: none;
+}
 .wb-fbs-sd-info {
   padding: 8px 24px;
   font-size: 14px;
