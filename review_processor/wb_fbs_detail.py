@@ -1206,9 +1206,9 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
     .sku-text {{ min-width: 0; flex: 1; }}
     .sku-title {{
       margin: 0 0 4px;
-      font-size: 13px;
-      font-weight: 700;
-      line-height: 1.3;
+      font-size: 16px;
+      font-weight: 800;
+      line-height: 1.25;
     }}
     .sku-meta,
     .sku-color {{
@@ -1577,8 +1577,8 @@ def render_stickers_print_html(payload: dict[str, Any]) -> str:
     }}
     .label.separator .qty {{ font-size: 16px; font-weight: 800; }}
     .label.separator .title {{
-      font-size: 9px; font-weight: 700; line-height: 1.2;
-      max-height: 12mm; overflow: hidden;
+      font-size: 12px; font-weight: 800; line-height: 1.2;
+      max-height: 14mm; overflow: hidden;
     }}
     .label.separator .line {{ font-size: 8px; line-height: 1.25; }}
     .label.separator .hint {{
