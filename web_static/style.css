@@ -6920,11 +6920,23 @@ button.wb-fbs-select-all-link:disabled {
 .wb-fbs-wh-name {
   font-weight: 600;
   color: #0f172a;
-  font-size: 13px;
-  line-height: 1.3;
+  font-size: 16px;
+  line-height: 1.35;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.wb-fbs-wh-address {
+  color: #64748b;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.35;
+  margin-top: 4px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
 }
 .wb-fbs-footer {
   flex-shrink: 0;

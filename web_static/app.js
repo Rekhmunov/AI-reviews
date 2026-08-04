@@ -17844,6 +17844,9 @@ function renderWbFbsOrdersTable() {
       </td>
       <td>
         <div class="wb-fbs-wh-name" title="${_wbFbsEsc(o.warehouse_label || "")}">${_wbFbsEsc(o.warehouse_label || "—")}</div>
+        ${o.warehouse_address
+          ? `<div class="wb-fbs-wh-address" title="${_wbFbsEsc(o.warehouse_address)}">${_wbFbsEsc(o.warehouse_address)}</div>`
+          : ""}
         <div class="wb-fbs-order-meta">${o.warehouse_id ? "ID " + _wbFbsEsc(o.warehouse_id) : ""}</div>
       </td>
       ${actionsTd}

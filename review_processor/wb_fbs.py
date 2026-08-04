@@ -807,9 +807,19 @@ def list_orders(
         except Exception:
             offices = []
         d["offices"] = offices if isinstance(offices, list) else []
-        d["warehouse_label"] = ", ".join(str(x) for x in d["offices"] if x) or (
+        office_names = [str(x).strip() for x in d["offices"] if str(x or "").strip()]
+        d["warehouse_label"] = ", ".join(office_names) or (
             f"Склад {d.get('warehouse_id')}" if d.get("warehouse_id") else "—"
         )
+        # Delivery / office address from WB payload (often empty for pure FBS).
+        warehouse_address = ""
+        if isinstance(raw_order, dict):
+            addr = raw_order.get("address")
+            if isinstance(addr, dict):
+                warehouse_address = str(addr.get("fullAddress") or "").strip()
+            elif isinstance(addr, str):
+                warehouse_address = addr.strip()
+        d["warehouse_address"] = warehouse_address
         # WB order.skus = product barcodes (ШК)
         try:
             skus_raw = json.loads(d.get("skus_json") or "[]")
