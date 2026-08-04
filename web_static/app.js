@@ -17416,6 +17416,7 @@ function _wbFbsSelectedSupplyIds() {
 
 function _wbFbsSelectedOrderIdsFromSupplies() {
   const ids = [];
+  // Prefer order_ids from currently loaded supply rows.
   for (const item of wbFbsState.items) {
     const sid = String(item.supply_id || "").trim();
     if (!wbFbsState.selected.has(sid)) continue;
@@ -17425,6 +17426,8 @@ function _wbFbsSelectedOrderIdsFromSupplies() {
       if (Number.isFinite(n)) ids.push(n);
     }
   }
+  // If selection includes off-page supplies (select-all), fall back is empty —
+  // sticker button should warn; keep page-local orders when available.
   return [...new Set(ids)];
 }
 
@@ -17895,19 +17898,33 @@ async function wbFbsOpenSupplyQr(supplyId) {
   _wbFbsCloseRowMenus();
   const sid = String(supplyId || "").trim();
   if (!sid || !wbFbsState.sourceId) return;
+  // Open synchronously in the click gesture — otherwise browsers block the popup
+  // after the async fetch/PDF conversion.
+  const win = window.open("about:blank", "_blank");
+  if (!win) {
+    alert("Разрешите всплывающие окна, чтобы открыть QR-код поставки");
+    return;
+  }
+  try {
+    win.document.title = "QR-код поставки…";
+  } catch (_) {}
   const url =
     `/api/wb-fbs/stickers/supply/${encodeURIComponent(sid)}` +
     `?source_id=${wbFbsState.sourceId}&type=png&disposition=inline`;
+  let openUrl = "";
   try {
     const res = await fetch(url);
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      throw new Error(data.detail || `Ошибка ${res.status}`);
+      const detail = data.detail;
+      const msg = Array.isArray(detail)
+        ? detail.map((x) => x.msg || x).join("; ")
+        : (detail || `Ошибка ${res.status}`);
+      throw new Error(msg);
     }
     const pngBlob = await res.blob();
     const jsPdfNs = window.jspdf || {};
     const JsPDF = jsPdfNs.jsPDF;
-    let openUrl = "";
     if (typeof JsPDF === "function") {
       // WB sticker is 580×400 px — open as PDF in a new tab (portal-like).
       const dataUrl = await new Promise((resolve, reject) => {
@@ -17918,19 +17935,17 @@ async function wbFbsOpenSupplyQr(supplyId) {
       });
       const doc = new JsPDF({ orientation: "landscape", unit: "mm", format: [58, 40] });
       doc.addImage(dataUrl, "PNG", 0, 0, 58, 40);
-      const pdfBlob = doc.output("blob");
-      openUrl = URL.createObjectURL(pdfBlob);
+      openUrl = URL.createObjectURL(doc.output("blob"));
     } else {
       openUrl = URL.createObjectURL(pngBlob);
     }
-    const win = window.open(openUrl, "_blank");
-    if (!win) {
-      URL.revokeObjectURL(openUrl);
-      alert("Разрешите всплывающие окна, чтобы открыть QR-код поставки");
-      return;
-    }
-    setTimeout(() => URL.revokeObjectURL(openUrl), 60_000);
+    win.location.href = openUrl;
+    setTimeout(() => {
+      if (openUrl) URL.revokeObjectURL(openUrl);
+    }, 60_000);
   } catch (e) {
+    try { win.close(); } catch (_) {}
+    if (openUrl) URL.revokeObjectURL(openUrl);
     alert(String(e.message || e || "Не удалось получить QR-код поставки"));
   }
 }
