@@ -1066,6 +1066,15 @@ def build_kiz_marking_payload(
         except (TypeError, ValueError):
             nm = 0
         brand = str((card_meta.get(nm) or {}).get("brand") or o.get("brand") or "").strip()
+        kiz_status = str(o.get("kiz_status") or "empty")
+        kiz_decision = str(o.get("kiz_decision") or "")
+        # Local unsynced codes → «на проверке» in the marking modal too.
+        if (
+            kiz_status == "empty"
+            and any(wb._kiz_code_clean(c) for c in codes)
+            and (has_local_draft or o.get("kiz_bound"))
+        ):
+            kiz_status = "pending"
         rows.append(
             {
                 "order_id": oid,
@@ -1086,6 +1095,8 @@ def build_kiz_marking_payload(
                 "kiz_wb_synced": bool(local.get("wb_synced"))
                 if has_local_draft
                 else bool(o.get("kiz_bound")),
+                "kiz_status": kiz_status,
+                "kiz_decision": kiz_decision,
             }
         )
     return {

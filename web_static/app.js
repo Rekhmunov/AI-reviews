@@ -18655,6 +18655,33 @@ function _wbFbsKizRowIsEmpty(row) {
   return !codes.some((c) => String(c || "").trim());
 }
 
+/** Status chip under a filled КИЗ code in the marking modal (never for empty). */
+function _wbFbsKizCodeStatusChip(row, codeValue, saveError) {
+  const filled = String(codeValue || "").trim();
+  if (!filled) return "";
+  let status = String(row?.kiz_status || "").trim();
+  if ((!status || status === "empty") && saveError) status = "error";
+  if (!status || status === "empty") return "";
+  const decision = String(row?.kiz_decision || "").trim();
+  let cls = "is-pending";
+  let label = "На проверке";
+  if (status === "ok") {
+    cls = "is-ok";
+    label = "Проверка пройдена";
+  } else if (status === "error") {
+    cls = "is-error";
+    label = saveError
+      ? `Ошибка: ${saveError}`
+      : (decision ? `Ошибка проверки (${decision})` : "Ошибка проверки");
+  } else if (status === "pending") {
+    cls = "is-pending";
+    label = "На проверке";
+  } else {
+    return "";
+  }
+  return `<div class="wb-fbs-kiz-code-status ${cls}">${_wbFbsEsc(label)}</div>`;
+}
+
 function renderWbFbsKizTable(opts) {
   // After programmatic state updates (scan/CSV/save) skip DOM collect —
   // otherwise empty inputs overwrite the just-assigned КИЗ codes.
@@ -18666,7 +18693,12 @@ function renderWbFbsKizTable(opts) {
   const pending = wbFbsKizState.pendingOrderId;
   let rows = wbFbsKizState.rows.slice();
   if (onlyEmpty) rows = rows.filter((r) => _wbFbsKizRowIsEmpty(r));
-  if (onlyErrors) rows = rows.filter((r) => wbFbsKizState.errors[Number(r.order_id)]);
+  if (onlyErrors) {
+    rows = rows.filter((r) => {
+      const oid = Number(r.order_id);
+      return wbFbsKizState.errors[oid] || String(r.kiz_status || "") === "error";
+    });
+  }
   if (!rows.length) {
     tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">${
       wbFbsKizState.rows.length ? "Нет строк по выбранным фильтрам" : "Нет заказов с КИЗ"
@@ -18683,19 +18715,25 @@ function renderWbFbsKizTable(opts) {
     const brandArt = [r.brand, r.article ? `Арт. ${r.article}` : ""].filter(Boolean).join(" · ");
     // Do not put КИЗ into value="" via innerHTML — \\u001D is dropped by HTML parser.
     const canRemove = codes.length > 1;
-    const codeHtml = codes.map((_code, idx) => `
-      <div class="wb-fbs-kiz-code-row">
-        <span class="wb-fbs-kiz-code-idx">${idx + 1}</span>
-        <input class="wb-fbs-kiz-code-input${err ? " is-error" : ""}" type="text"
-               data-order-id="${oid}" data-idx="${idx}"
-               autocomplete="off"
-               oninput="onWbFbsKizCodeInput(${oid})" />
-        ${canRemove
-          ? `<button type="button" class="wb-fbs-kiz-remove" title="Удалить строку КИЗ"
-                     aria-label="Удалить строку КИЗ"
-                     onclick="removeWbFbsKizCode(${oid}, ${idx})">×</button>`
-          : ""}
-      </div>`).join("");
+    const codeHtml = codes.map((code, idx) => {
+      const statusChip = _wbFbsKizCodeStatusChip(r, code, err);
+      return `
+      <div class="wb-fbs-kiz-code-block">
+        <div class="wb-fbs-kiz-code-row">
+          <span class="wb-fbs-kiz-code-idx">${idx + 1}</span>
+          <input class="wb-fbs-kiz-code-input${err && String(code || "").trim() ? " is-error" : ""}" type="text"
+                 data-order-id="${oid}" data-idx="${idx}"
+                 autocomplete="off"
+                 oninput="onWbFbsKizCodeInput(${oid})" />
+          ${canRemove
+            ? `<button type="button" class="wb-fbs-kiz-remove" title="Удалить строку КИЗ"
+                       aria-label="Удалить строку КИЗ"
+                       onclick="removeWbFbsKizCode(${oid}, ${idx})">×</button>`
+            : ""}
+        </div>
+        ${statusChip}
+      </div>`;
+    }).join("");
     return `<tr class="wb-fbs-kiz-row${pending === oid ? " is-active" : ""}" data-order-id="${oid}">
       <td>
         <div class="wb-fbs-kiz-order-id">${_wbFbsEsc(oid)}</div>
@@ -18714,7 +18752,6 @@ function renderWbFbsKizTable(opts) {
       <td>
         <div class="wb-fbs-kiz-codes">${codeHtml}</div>
         <button type="button" class="wb-fbs-kiz-add" onclick="addWbFbsKizCode(${oid})">+ Добавить КИЗ</button>
-        ${err ? `<div class="wb-fbs-kiz-row-error">${_wbFbsEsc(err)}</div>` : ""}
       </td>
     </tr>`;
   }).join("");
