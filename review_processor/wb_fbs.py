@@ -1,7 +1,8 @@
 """WB FBS orders module — isolated from FBW supplies.
 
 Uses marketplace-api.wildberries.ru and credentials from supply_sources (marketplace=wb).
-Does not create/modify supplies on WB; sync + stickers + local read models only.
+Does not create/modify supplies on WB; sync + stickers + order metadata (КИЗ)
+and local read models only.
 """
 from __future__ import annotations
 
@@ -395,6 +396,48 @@ class WbFbsClient:
         )
         stickers = data.get("stickers") if isinstance(data, dict) else None
         return list(stickers or []) if isinstance(stickers, list) else []
+
+    def get_orders_meta(self, order_ids: list[int]) -> list[dict[str, Any]]:
+        """Batch metadata for assembly orders (КИЗ/sgtin, IMEI, UIN, …).
+
+        Official: ``POST /api/marketplace/v3/orders/meta`` (≤100 ids/request).
+        If ``sgtin`` is absent from the response for an order, that order does
+        not accept Data Matrix / КИЗ.
+        """
+        ids = [int(x) for x in order_ids if x is not None]
+        if not ids:
+            return []
+        out: list[dict[str, Any]] = []
+        for i in range(0, len(ids), 100):
+            chunk = ids[i : i + 100]
+            if not chunk:
+                continue
+            data = self._request(
+                "POST",
+                "/api/marketplace/v3/orders/meta",
+                body={"orders": chunk},
+            )
+            orders = data.get("orders") if isinstance(data, dict) else None
+            if isinstance(orders, list):
+                out.extend(o for o in orders if isinstance(o, dict))
+            if i + 100 < len(ids):
+                time.sleep(0.21)
+        return out
+
+    def set_order_sgtin(self, order_id: int, sgtins: list[str]) -> None:
+        """Attach Chestny ZNAK Data Matrix codes (КИЗ) to an assembly order.
+
+        Official: ``PUT /api/v3/orders/{orderId}/meta/sgtin``.
+        Order must be in confirm status; ``sgtin`` must be allowed for the order.
+        """
+        codes = [str(x).strip() for x in (sgtins or []) if str(x or "").strip()]
+        if not codes:
+            raise ValueError("Укажите хотя бы один код КИЗ (sgtin)")
+        self._request(
+            "PUT",
+            f"/api/v3/orders/{int(order_id)}/meta/sgtin",
+            body={"sgtins": codes},
+        )
 
     def get_supply(self, supply_id: str) -> dict[str, Any]:
         data = self._request("GET", f"/api/v3/supplies/{supply_id}")

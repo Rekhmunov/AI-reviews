@@ -18335,6 +18335,14 @@ function renderWbFbsSupplyDetail(data) {
           `<div class="wb-fbs-barcode">${_wbFbsEsc(b)}</div>`
         ).join("")}</div>`
       : "";
+    // КИЗ only for orders that accept sgtin in FBS metadata.
+    const kizHtml = o.kiz_required
+      ? `<div class="wb-fbs-kiz ${o.kiz_bound ? "is-bound" : "is-empty"}" title="${
+          o.kiz_bound
+            ? "КИЗ привязан к заказу"
+            : "Требуется маркировка (КИЗ). Код ещё не привязан"
+        }">КИЗ</div>`
+      : "";
     const safeKey = `sd_${oid}`;
     return `<tr class="wb-fbs-sd-click-row">
       <td><input type="checkbox" class="wb-fbs-sd-cb" data-order-id="${oid}" ${checked} onchange="onWbFbsDetailCheckboxChange()" /></td>
@@ -18350,6 +18358,7 @@ function renderWbFbsSupplyDetail(data) {
             <div class="wb-fbs-product-name" title="${_wbFbsEsc(o.product_name || o.article || "")}">${_wbFbsEsc(o.product_name || o.article || "—")}</div>
             <div class="wb-fbs-product-sub">Арт. ${_wbFbsEsc(o.article || "—")}${o.nm_id ? " · nmId " + _wbFbsEsc(o.nm_id) : ""}</div>
             ${barcodeHtml}
+            ${kizHtml}
           </div>
         </div>
       </td>

@@ -416,6 +416,99 @@ def _int_or_zero(value: object) -> int:
         return 0
 
 
+def _kiz_codes_from_value(value: object) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, dict):
+        return _kiz_codes_from_value(value.get("value"))
+    if isinstance(value, list):
+        return [str(x).strip() for x in value if str(x or "").strip()]
+    text = str(value).strip()
+    return [text] if text else []
+
+
+def _kiz_from_meta_row(row: dict[str, Any]) -> tuple[bool, bool, list[str]]:
+    """Parse POST /orders/meta row → (kiz_required, kiz_bound, codes).
+
+    КИЗ applies only when WB returns an ``sgtin`` slot for the order.
+    """
+    meta = row.get("meta") if isinstance(row.get("meta"), dict) else {}
+    if "sgtin" in meta:
+        codes = _kiz_codes_from_value(meta.get("sgtin"))
+        return True, bool(codes), codes
+    details = row.get("metaDetails") if isinstance(row.get("metaDetails"), list) else []
+    for item in details:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("key") or "").strip().lower() != "sgtin":
+            continue
+        codes = _kiz_codes_from_value(item.get("value"))
+        return True, bool(codes), codes
+    return False, False, []
+
+
+def _kiz_required_from_raw(raw: dict[str, Any]) -> bool:
+    """Fallback when live meta is unavailable: requiredMeta/optionalMeta on order."""
+    for key in ("requiredMeta", "optionalMeta"):
+        vals = raw.get(key)
+        if not isinstance(vals, list):
+            continue
+        for item in vals:
+            if str(item or "").strip().lower() == "sgtin":
+                return True
+    return False
+
+
+def _fetch_kiz_map(
+    client: wb.WbFbsClient,
+    orders: list[dict[str, Any]],
+) -> dict[int, dict[str, Any]]:
+    """Map order_id → {kiz_required, kiz_bound, kiz_codes} for supply detail UI."""
+    out: dict[int, dict[str, Any]] = {}
+    ids: list[int] = []
+    for o in orders:
+        try:
+            oid = int(o["order_id"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        ids.append(oid)
+        raw: dict[str, Any] = {}
+        try:
+            parsed = json.loads(o.get("raw_json") or "{}")
+            if isinstance(parsed, dict):
+                raw = parsed
+        except Exception:
+            raw = {}
+        # Fallback until live meta answers (or if meta request fails).
+        out[oid] = {
+            "kiz_required": _kiz_required_from_raw(raw),
+            "kiz_bound": False,
+            "kiz_codes": [],
+        }
+    if not ids:
+        return out
+    try:
+        rows = client.get_orders_meta(ids)
+    except Exception as exc:
+        _log.debug("orders meta (kiz): %s", exc)
+        return out
+    for row in rows:
+        try:
+            oid = int(row.get("id") or row.get("orderId") or 0)
+        except (TypeError, ValueError):
+            continue
+        if oid <= 0:
+            continue
+        # Live meta row is authoritative: no sgtin key ⇒ badge hidden.
+        required, bound, codes = _kiz_from_meta_row(row)
+        out[oid] = {
+            "kiz_required": required,
+            "kiz_bound": bound,
+            "kiz_codes": codes,
+        }
+    return out
+
+
 def _portal_title_sort_key(value: object) -> tuple:
     """ЛК sorts groups by card title string; keep digits numeric-aware.
 
@@ -729,20 +822,12 @@ def get_supply_detail(
         o["color"] = ""
         o["brand"] = ""
 
-    result = {
-        "supply_id": sid,
-        "source_id": source_id,
-        "name": name,
-        "warehouse_label": _warehouse_display(warehouse_label),
-        "cargo_type": cargo or 0,
-        "cargo_label": wb.cargo_type_label(cargo),
-        "order_count": len(orders),
-        "boxes_count": len(boxes),
-        "created_at_wb": created_at,
-        "created_date": _fmt_date(created_at),
-        "pickup_allowed": pickup_allowed,
-        "done": bool((supply or {}).get("done") if supply else (local or {}).get("done")),
-        "orders": [
+    # КИЗ (sgtin): only for orders that accept Data Matrix in FBS metadata.
+    kiz_map = _fetch_kiz_map(client, orders)
+    order_rows: list[dict[str, Any]] = []
+    for o in orders:
+        kiz = kiz_map.get(_int_or_zero(o.get("order_id"))) or {}
+        order_rows.append(
             {
                 "order_id": o.get("order_id"),
                 "article": o.get("article") or "",
@@ -759,9 +844,25 @@ def get_supply_detail(
                 "color": o.get("color") or "",
                 "brand": o.get("brand") or "",
                 "cargo_label": o.get("cargo_label") or "",
+                "kiz_required": bool(kiz.get("kiz_required")),
+                "kiz_bound": bool(kiz.get("kiz_bound")),
             }
-            for o in orders
-        ],
+        )
+
+    result = {
+        "supply_id": sid,
+        "source_id": source_id,
+        "name": name,
+        "warehouse_label": _warehouse_display(warehouse_label),
+        "cargo_type": cargo or 0,
+        "cargo_label": wb.cargo_type_label(cargo),
+        "order_count": len(orders),
+        "boxes_count": len(boxes),
+        "created_at_wb": created_at,
+        "created_date": _fmt_date(created_at),
+        "pickup_allowed": pickup_allowed,
+        "done": bool((supply or {}).get("done") if supply else (local or {}).get("done")),
+        "orders": order_rows,
     }
     _cache_put_detail(
         user_id=user_id, source_id=source_id, supply_id=sid, detail=result

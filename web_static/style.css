@@ -7100,6 +7100,32 @@ button.wb-fbs-select-all-link:disabled {
   letter-spacing: 0.02em;
   word-break: break-all;
 }
+.wb-fbs-kiz {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 8px;
+  min-height: 28px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  user-select: none;
+}
+.wb-fbs-kiz.is-empty {
+  color: #94a3b8;
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+.wb-fbs-kiz.is-bound {
+  color: #166534;
+  background: #dcfce7;
+  border-color: #86efac;
+}
 .wb-fbs-product-sub {
   color: #64748b;
   font-size: 14px;
