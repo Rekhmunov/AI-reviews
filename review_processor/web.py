@@ -11141,78 +11141,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "giveouts": giveouts,
         }
 
-    def _ozon_build_tall_barcode_pdf(
-        png_bytes: bytes,
-        barcode: str = "",
-        valid_until_label: str = "",
-    ) -> bytes:
-        """Build a print PDF with barcode stretched ~3x in height."""
-        import io as _io
-
-        from PIL import Image as _PilImage
-        from PIL import ImageDraw as _PilDraw
-        from PIL import ImageFont as _PilFont
-
-        img = _PilImage.open(_io.BytesIO(png_bytes)).convert("RGB")
-        w, h = img.size
-        # Stretch barcode bars vertically ~3x (nearest keeps edges crisp).
-        resample = getattr(getattr(_PilImage, "Resampling", _PilImage), "NEAREST", _PilImage.NEAREST)
-        tall = img.resize((w, max(1, h * 3)), resample)
-
-        lines: list[tuple[str, int, tuple[int, int, int]]] = []
-        if barcode:
-            lines.append((str(barcode), 28, (15, 23, 42)))
-        if valid_until_label:
-            lines.append((f"Действует до {valid_until_label}", 22, (100, 116, 139)))
-
-        pad_x, pad_top, gap, pad_bottom = 40, 40, 16, 40
-        text_block_h = 0
-        if lines:
-            text_block_h = gap + sum(size + 10 for _, size, _ in lines)
-        page_w = tall.width + pad_x * 2
-        page_h = pad_top + tall.height + text_block_h + pad_bottom
-        page = _PilImage.new("RGB", (page_w, page_h), (255, 255, 255))
-        page.paste(tall, (pad_x, pad_top))
-
-        if lines:
-            draw = _PilDraw.Draw(page)
-
-            def _font(size: int):
-                for path in (
-                    "DejaVuSans.ttf",
-                    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-                    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-                ):
-                    try:
-                        return _PilFont.truetype(path, size)
-                    except Exception:
-                        continue
-                return _PilFont.load_default()
-
-            ty = pad_top + tall.height + gap
-            for text, size, color in lines:
-                font = _font(size)
-                try:
-                    bbox = draw.textbbox((0, 0), text, font=font)
-                    tw = bbox[2] - bbox[0]
-                except Exception:
-                    tw = len(text) * max(8, size // 2)
-                tx = max(0, (page_w - tw) // 2)
-                draw.text((tx, ty), text, fill=color, font=font)
-                ty += size + 10
-
-        out = _io.BytesIO()
-        page.save(out, format="PDF", resolution=150.0)
-        return out.getvalue()
-
     @app.get("/api/ozon-returns/giveout/pdf")
-    def ozon_returns_giveout_pdf(
-        request: Request,
-        source_id: int = 0,
-        valid_until: str = "",
-        valid_until_label: str = "",
-    ) -> Response:
-        """Open giveout barcode PDF in browser (tall barcode for printing)."""
+    def ozon_returns_giveout_pdf(request: Request, source_id: int = 0) -> Response:
+        """Open official Ozon giveout barcode PDF (barcode + instruction text)."""
         user = _require_user(request)
         if not _can_view_supplies(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
@@ -11229,38 +11160,19 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         else:
             src = _ozon_find_giveout_source(owner_id)
 
-        png_data = _ozon_giveout_post(
+        # Use Ozon's own PDF — it includes the pickup instructions under the barcode.
+        # Custom PNG→PDF stretch dropped that text and filled the page with bars.
+        pdf_data = _ozon_giveout_post(
             client_id=src["client_id"],
             api_key=src["api_key"],
-            path="/v1/return/giveout/get-png",
+            path="/v1/return/giveout/get-pdf",
         )
-        png_bytes = _ozon_extract_giveout_bytes(png_data, expect="png")
-        if not png_bytes:
-            raise HTTPException(status_code=400, detail="Не удалось получить изображение штрихкода")
-
-        barcode = ""
-        try:
-            barcode_data = _ozon_giveout_post(
-                client_id=src["client_id"],
-                api_key=src["api_key"],
-                path="/v1/return/giveout/barcode",
-            )
-            barcode = str(barcode_data.get("barcode") or "").strip()
-        except Exception as ex:
-            _log.warning("ozon giveout pdf barcode text failed source=%s: %s", src["id"], ex)
-
-        # Prefer the exact label shown in the modal to avoid timezone/recompute drift.
-        label = str(valid_until_label or "").strip()
-        if not label:
-            label = _ozon_giveout_valid_until_label(valid_until)
-
-        try:
-            pdf_bytes = _ozon_build_tall_barcode_pdf(png_bytes, barcode, label)
-        except Exception as ex:
-            _log.warning("ozon giveout tall pdf build failed: %s", ex)
-            raise HTTPException(status_code=400, detail="Не удалось сформировать PDF штрихкода") from ex
-
-        fname = "ozon_returns_barcode.pdf"
+        pdf_bytes = _ozon_extract_giveout_bytes(pdf_data, expect="pdf")
+        if not pdf_bytes:
+            raise HTTPException(status_code=400, detail="Не удалось получить PDF штрихкода")
+        fname = str(pdf_data.get("file_name") or "ozon_returns_barcode.pdf").strip() or "ozon_returns_barcode.pdf"
+        if "/" in fname or "\\" in fname:
+            fname = "ozon_returns_barcode.pdf"
         return Response(
             content=pdf_bytes,
             media_type="application/pdf",
