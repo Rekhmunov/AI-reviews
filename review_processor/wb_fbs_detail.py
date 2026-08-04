@@ -427,15 +427,41 @@ def _kiz_codes_from_value(value: object) -> list[str]:
     return [text] if text else []
 
 
+def _kiz_decision_raw(item: dict[str, Any]) -> str:
+    """Read WB validation flag from metaDetails (field names vary slightly)."""
+    for key in ("decision", "status", "validationStatus", "state"):
+        val = item.get(key)
+        if val is None:
+            continue
+        text = str(val).strip()
+        if text:
+            return text
+    return ""
+
+
 def _kiz_status_from_decision(decision: str, codes: list[str]) -> str:
-    """UI status: empty | pending | ok | error."""
+    """UI status: empty | pending | ok | error.
+
+    WB metaDetails.decision (known): filled | optional | required | invalid.
+    Enum is non-exhaustive — also treat common error synonyms as ``error``.
+    """
     dec = str(decision or "").strip().lower()
-    if dec == "invalid":
+    if not dec and not codes:
+        return "empty"
+    # Failed Честный знак / WB validation (ЛК «с ошибкой»).
+    if (
+        dec == "invalid"
+        or "invalid" in dec
+        or dec in {"error", "failed", "fail", "rejected", "reject", "ошибка"}
+        or "fail" in dec
+        or "error" in dec
+    ):
         return "error"
-    if dec == "filled":
+    # Passed / accepted.
+    if dec in {"filled", "ok", "valid", "success", "passed", "approved"}:
         return "ok"
     if codes:
-        # Codes attached, WB check not finished yet (required/optional/…).
+        # Codes attached; check not finished (required/optional/…) or unknown decision.
         return "pending"
     return "empty"
 
@@ -454,11 +480,12 @@ def _kiz_from_meta_row(row: dict[str, Any]) -> dict[str, Any]:
             continue
         required = True
         codes = _kiz_codes_from_value(item.get("value"))
-        decision = str(item.get("decision") or "").strip().lower()
+        decision = _kiz_decision_raw(item)
         break
     if not required and "sgtin" in meta:
         required = True
         codes = _kiz_codes_from_value(meta.get("sgtin"))
+        # Legacy ``meta`` has no decision — only codes presence.
     status = _kiz_status_from_decision(decision, codes) if required else "empty"
     return {
         "kiz_required": required,
@@ -530,7 +557,7 @@ def _fetch_kiz_map(
         # Live meta row is authoritative: no sgtin key ⇒ badge hidden.
         out[oid] = _kiz_from_meta_row(row)
 
-    # Local Save drafts: codes waiting for WB check → «на проверке».
+    # Local Save drafts only fill gaps. Never override WB ok/error/pending-from-meta.
     if repo is not None and user_id is not None and source_id is not None:
         local_map = wb.load_order_kiz_map(
             repo, user_id=int(user_id), source_id=int(source_id), order_ids=ids
@@ -546,15 +573,16 @@ def _fetch_kiz_map(
             ]
             has_draft = local.get("saved_at") is not None
             status = str(cur.get("kiz_status") or "empty")
-            # WB already decided → keep filled/invalid from meta.
-            if status in ("ok", "error"):
+            wb_codes = list(cur.get("kiz_codes") or [])
+            wb_decision = str(cur.get("kiz_decision") or "").strip()
+            # Live meta already has a verdict or in-progress codes → trust WB.
+            if status in ("ok", "error") or (wb_codes and wb_decision):
                 continue
-            if local_codes:
-                cur["kiz_codes"] = local_codes or list(cur.get("kiz_codes") or [])
+            if local_codes and status == "empty":
+                cur["kiz_codes"] = local_codes
                 cur["kiz_bound"] = True
                 cur["kiz_status"] = "pending"
-            elif has_draft and not local_codes and status == "pending":
-                # Cleared locally; keep pending until WB meta catches up, or empty.
+            elif has_draft and not local_codes and not wb_codes:
                 cur["kiz_codes"] = []
                 cur["kiz_bound"] = False
                 cur["kiz_status"] = "empty"

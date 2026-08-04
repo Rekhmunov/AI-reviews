@@ -18475,6 +18475,7 @@ const wbFbsKizState = {
 function _wbFbsKizBadgeHtml(order) {
   // Codes without a WB decision → pending (not green).
   const status = String(order?.kiz_status || (order?.kiz_bound ? "pending" : "empty"));
+  const decision = String(order?.kiz_decision || "").trim();
   let cls = "is-empty";
   let label = "КИЗ";
   let title = "Требуется маркировка (КИЗ). Код ещё не привязан";
@@ -18489,8 +18490,9 @@ function _wbFbsKizBadgeHtml(order) {
   } else if (status === "error") {
     cls = "is-error";
     label = "КИЗ";
-    title = "Проверка КИЗ не пройдена";
+    title = "Проверка КИЗ не пройдена (ошибка)";
   }
+  if (decision) title += ` · WB decision: ${decision}`;
   return `<div class="wb-fbs-kiz ${cls}" title="${_wbFbsEsc(title)}">${_wbFbsEsc(label)}</div>`;
 }
 

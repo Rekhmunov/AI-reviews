@@ -20,6 +20,8 @@ def test_status_ok_and_error() -> None:
     assert _kiz_status_from_decision("filled", ["01…"]) == "ok"
     assert _kiz_status_from_decision("invalid", ["01…"]) == "error"
     assert _kiz_status_from_decision("invalid", []) == "error"
+    assert _kiz_status_from_decision("FAILED", ["01…"]) == "error"
+    assert _kiz_status_from_decision("sgtinInvalid", ["01…"]) == "error"
 
 
 def test_meta_row_decision_filled() -> None:
