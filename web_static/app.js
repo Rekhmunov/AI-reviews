@@ -17416,7 +17416,6 @@ function _wbFbsSelectedSupplyIds() {
 
 function _wbFbsSelectedOrderIdsFromSupplies() {
   const ids = [];
-  // Prefer order_ids from currently loaded supply rows.
   for (const item of wbFbsState.items) {
     const sid = String(item.supply_id || "").trim();
     if (!wbFbsState.selected.has(sid)) continue;
@@ -17426,8 +17425,6 @@ function _wbFbsSelectedOrderIdsFromSupplies() {
       if (Number.isFinite(n)) ids.push(n);
     }
   }
-  // If selection includes off-page supplies (select-all), fall back is empty —
-  // sticker button should warn; keep page-local orders when available.
   return [...new Set(ids)];
 }
 
