@@ -7454,8 +7454,8 @@ button.wb-fbs-select-all-link:disabled {
   text-decoration: underline;
 }
 .wb-fbs-supply-detail-modal {
-  width: min(1120px, calc(100vw - 32px));
-  max-width: 1120px;
+  width: min(1440px, calc(100vw - 32px));
+  max-width: 1440px;
   max-height: calc(100vh - 32px);
   padding: 0;
   display: flex;
@@ -7635,8 +7635,8 @@ button.wb-fbs-sd-portal-btn:focus-visible {
 
 /* ── WB FBS КИЗ marking modal ── */
 .wb-fbs-kiz-modal {
-  width: min(1120px, calc(100vw - 32px));
-  max-width: 1120px;
+  width: min(1440px, calc(100vw - 32px));
+  max-width: 1440px;
   max-height: calc(100vh - 32px);
   padding: 0;
   display: flex;
