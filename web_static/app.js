@@ -18271,7 +18271,7 @@ async function openWbFbsSupplyDetailModal(supplyId) {
     info.hidden = true;
     info.textContent = "";
   }
-  if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="wb-fbs-empty">Загрузка…</td></tr>`;
+  if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">Загрузка…</td></tr>`;
   try {
     const params = new URLSearchParams({ source_id: String(wbFbsState.sourceId) });
     const res = await fetch(`/api/wb-fbs/supplies/${encodeURIComponent(sid)}/detail?${params}`);
@@ -18286,7 +18286,7 @@ async function openWbFbsSupplyDetailModal(supplyId) {
       info.textContent = String(e.message || e);
     }
     if (tbody) {
-      tbody.innerHTML = `<tr><td colspan="5" class="wb-fbs-empty" style="color:#b91c1c">${_wbFbsEsc(e.message || e)}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty" style="color:#b91c1c">${_wbFbsEsc(e.message || e)}</td></tr>`;
     }
   }
 }
@@ -18315,7 +18315,7 @@ function renderWbFbsSupplyDetail(data) {
   const orders = Array.isArray(data.orders) ? data.orders : [];
   if (!tbody) return;
   if (!orders.length) {
-    tbody.innerHTML = `<tr><td colspan="5" class="wb-fbs-empty">В поставке нет заказов</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">В поставке нет заказов</td></tr>`;
     return;
   }
   tbody.innerHTML = orders.map((o) => {
@@ -18353,7 +18353,6 @@ function renderWbFbsSupplyDetail(data) {
           </div>
         </div>
       </td>
-      <td><div class="wb-fbs-sd-order-id">${_wbFbsEsc(o.price_display || "—")}</div></td>
       <td>
         <div class="wb-fbs-row-menu-wrap">
           <button type="button" class="icon-btn secondary wb-fbs-row-menu-btn" title="Действия"
