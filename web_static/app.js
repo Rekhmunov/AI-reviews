@@ -18139,6 +18139,9 @@ function openWbFbsRenameSupplyModal(supplyId) {
   const sid = String(supplyId || "").trim();
   if (!sid || !wbFbsState.sourceId) return;
   const row = wbFbsState.items.find((x) => String(x.supply_id || "").trim() === sid);
+  const detailName = (wbFbsDetailState.supply && String(wbFbsDetailState.supply.supply_id) === sid)
+    ? String(wbFbsDetailState.supply.name || "").trim()
+    : "";
   const input = document.getElementById("wbFbsRenameSupplyInput");
   const err = document.getElementById("wbFbsRenameSupplyError");
   const saveBtn = document.getElementById("wbFbsRenameSupplySaveBtn");
@@ -18148,7 +18151,7 @@ function openWbFbsRenameSupplyModal(supplyId) {
   }
   if (saveBtn) saveBtn.disabled = false;
   if (input) {
-    input.value = String(row?.name || "").trim();
+    input.value = detailName || String(row?.name || "").trim();
     input.dataset.supplyId = sid;
     input.onkeydown = (ev) => {
       if (ev.key === "Enter") {
