@@ -1040,12 +1040,6 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
     for g_idx, g in enumerate(printable_groups):
         orders = list(g.get("orders") or [])
         qty = int(g.get("qty") or len(orders) or 0)
-        photo = str(g.get("product_photo") or "").strip()
-        photo_html = (
-            f'<img class="photo" src="{_esc(photo)}" alt="" width="56" height="56" />'
-            if photo
-            else '<div class="photo ph" aria-hidden="true"></div>'
-        )
         color = str(g.get("color") or "").strip()
         brand = str(g.get("brand") or "").strip()
         article = str(g.get("article") or "").strip()
@@ -1072,10 +1066,7 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
         body_rows.append(
             f"""<tr class="product-row">
               <td class="main" colspan="3">
-                <div class="sku-cell">
-                  {photo_html}
-                  <div class="sku-text">{''.join(meta_bits)}</div>
-                </div>
+                <div class="sku-text">{''.join(meta_bits)}</div>
               </td>
             </tr>"""
         )
@@ -1134,8 +1125,8 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
 <head>
   <meta charset="utf-8" />
   <title>Лист подбора {sid} от {created}</title>
-  <!-- feedpilot-picking-list:20260804d -->
-  <meta name="feedpilot-build" content="picking-20260804d" />
+  <!-- feedpilot-picking-list:20260804e -->
+  <meta name="feedpilot-build" content="picking-20260804e" />
   <style>
     @page {{ size: A4 portrait; margin: 10mm; }}
     * {{ box-sizing: border-box; }}
@@ -1195,25 +1186,10 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
       font-size: 13px;
       font-weight: 700;
     }}
-    .sku-cell {{
-      display: flex;
-      align-items: flex-start;
-      gap: 8px;
-    }}
-    .photo {{
-      width: 56px;
-      height: 56px;
-      object-fit: cover;
-      border: 1px solid #cbd5e1;
-      display: block;
-      flex: 0 0 56px;
-      background: #fff;
-    }}
-    .photo.ph {{ background: #e2e8f0; }}
-    .sku-text {{ min-width: 0; flex: 1; }}
+    .sku-text {{ min-width: 0; }}
     .sku-title {{
       margin: 0 0 4px;
-      font-size: 16px;
+      font-size: 20px;
       font-weight: 800;
       line-height: 1.25;
     }}
@@ -1233,7 +1209,7 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
     .sku-barcodes {{ margin: 4px 0 2px; }}
     .sku-barcode {{
       margin: 0 0 2px;
-      font-size: 16px;
+      font-size: 20px;
       font-weight: 800;
       line-height: 1.25;
       letter-spacing: 0.02em;
