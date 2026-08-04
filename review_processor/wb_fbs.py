@@ -129,6 +129,31 @@ def cargo_type_label(cargo_type: object) -> str:
     return {1: "МГТ", 2: "СГТ", 3: "КГТ+"}.get(ct, "")
 
 
+def supply_status_label(*, done: object = False, scan_dt: object = None) -> str:
+    """Portal-like status for a supply in the delivery tab."""
+    if bool(done):
+        return "Завершена"
+    if scan_dt:
+        return "На складе WB"
+    return "Отгрузите поставку"
+
+
+def _parse_json_list(raw: object) -> list[Any]:
+    try:
+        data = json.loads(raw or "[]")
+    except Exception:
+        return []
+    return data if isinstance(data, list) else []
+
+
+def _parse_json_obj(raw: object) -> dict[str, Any]:
+    try:
+        data = json.loads(raw or "{}")
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def cancel_reason_label(*, supplier_status: object = "", wb_status: object = "") -> str:
     """Human-readable cancel reason from WB status codes (no free-text in API)."""
     ws = str(wb_status or "").strip().lower()
@@ -755,20 +780,7 @@ def list_orders(
             ),
             tuple(params + [safe_size, offset]),
         ).fetchall()
-        # counts by tab for current source
-        count_conditions = ["user_id = ?"]
-        count_params: list[Any] = [user_id]
-        if source_id:
-            count_conditions.append("source_id = ?")
-            count_params.append(int(source_id))
-        count_where = " AND ".join(count_conditions)
-        count_rows = conn.execute(
-            repo._sql(
-                f"SELECT tab, COUNT(*) AS n FROM wb_fbs_orders WHERE {count_where} GROUP BY tab"
-            ),
-            tuple(count_params),
-        ).fetchall()
-    counts = {str(r["tab"]): int(r["n"]) for r in count_rows}
+    counts = _tab_counts(repo, user_id=user_id, source_id=source_id)
     name_map = repo.get_product_name_by_article(user_id=user_id)
     photo_map = repo.get_product_photo_map(user_id=user_id)
     # also map by wb_nmid
@@ -839,14 +851,7 @@ def list_orders(
         "total": int(total["n"]) if total else 0,
         "page": safe_page,
         "page_size": safe_size,
-        "counts": {
-            TAB_NEW: counts.get(TAB_NEW, 0),
-            TAB_ASSEMBLY: counts.get(TAB_ASSEMBLY, 0),
-            TAB_DELIVERY: counts.get(TAB_DELIVERY, 0),
-            TAB_FINISHED: counts.get(TAB_FINISHED, 0),
-            TAB_CANCELLED: counts.get(TAB_CANCELLED, 0),
-            TAB_ARCHIVE: counts.get(TAB_ARCHIVE, 0),
-        },
+        "counts": counts,
     }
 
 
@@ -881,16 +886,199 @@ def list_supplies(
     result = []
     for row in rows:
         d = repo._row_to_dict(row)
-        try:
-            d["order_ids"] = json.loads(d.get("order_ids_json") or "[]")
-        except Exception:
-            d["order_ids"] = []
-        try:
-            d["boxes"] = json.loads(d.get("boxes_json") or "[]")
-        except Exception:
-            d["boxes"] = []
+        d["order_ids"] = _parse_json_list(d.get("order_ids_json"))
+        d["boxes"] = _parse_json_list(d.get("boxes_json"))
         result.append(d)
     return result
+
+
+def _tab_counts(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int | None,
+) -> dict[str, int]:
+    count_conditions = ["user_id = ?"]
+    count_params: list[Any] = [user_id]
+    if source_id:
+        count_conditions.append("source_id = ?")
+        count_params.append(int(source_id))
+    count_where = " AND ".join(count_conditions)
+    with repo._connect() as conn:
+        count_rows = conn.execute(
+            repo._sql(
+                f"SELECT tab, COUNT(*) AS n FROM wb_fbs_orders WHERE {count_where} GROUP BY tab"
+            ),
+            tuple(count_params),
+        ).fetchall()
+    counts = {str(r["tab"]): int(r["n"]) for r in count_rows}
+    return {
+        TAB_NEW: counts.get(TAB_NEW, 0),
+        TAB_ASSEMBLY: counts.get(TAB_ASSEMBLY, 0),
+        TAB_DELIVERY: counts.get(TAB_DELIVERY, 0),
+        TAB_FINISHED: counts.get(TAB_FINISHED, 0),
+        TAB_CANCELLED: counts.get(TAB_CANCELLED, 0),
+        TAB_ARCHIVE: counts.get(TAB_ARCHIVE, 0),
+    }
+
+
+def list_delivery_supplies(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int | None,
+    search: str | None = None,
+    page: int = 1,
+    page_size: int = 50,
+) -> dict[str, Any]:
+    """Supplies (поставки) for the «В доставке» tab — one row per supply, not orders."""
+    ensure_wb_fbs_tables(repo)
+    conditions = ["o.user_id = ?", "o.tab = ?", "o.supply_id != ''"]
+    params: list[Any] = [user_id, TAB_DELIVERY]
+    if source_id:
+        conditions.append("o.source_id = ?")
+        params.append(int(source_id))
+    q = str(search or "").strip()
+    if q:
+        like = f"%{q}%"
+        conditions.append(
+            "(o.supply_id ILIKE ? OR CAST(o.order_id AS TEXT) ILIKE ? OR o.article ILIKE ?"
+            " OR COALESCE(s.name, '') ILIKE ? OR COALESCE(o.offices_json, '') ILIKE ?)"
+        )
+        params.extend([like, like, like, like, like])
+    where = " AND ".join(conditions)
+    safe_page = max(int(page), 1)
+    safe_size = min(max(int(page_size), 1), 200)
+    offset = (safe_page - 1) * safe_size
+
+    with repo._connect() as conn:
+        # One row per supply_id among delivery orders; left-join supply metadata.
+        total_row = conn.execute(
+            repo._sql(
+                f"""
+                SELECT COUNT(*) AS n FROM (
+                    SELECT o.supply_id
+                    FROM wb_fbs_orders o
+                    LEFT JOIN wb_fbs_supplies s
+                      ON s.user_id = o.user_id
+                     AND s.source_id = o.source_id
+                     AND s.supply_id = o.supply_id
+                    WHERE {where}
+                    GROUP BY o.user_id, o.source_id, o.supply_id
+                ) t
+                """
+            ),
+            tuple(params),
+        ).fetchone()
+        rows = conn.execute(
+            repo._sql(
+                f"""
+                SELECT
+                    o.supply_id AS supply_id,
+                    o.source_id AS source_id,
+                    COUNT(*) AS order_count,
+                    ARRAY_AGG(o.order_id ORDER BY o.order_id) AS order_ids_agg,
+                    MAX(o.warehouse_id) AS warehouse_id,
+                    MAX(o.offices_json) AS offices_json,
+                    MAX(o.cargo_type) AS order_cargo_type,
+                    MAX(s.name) AS name,
+                    MAX(CASE WHEN s.done THEN 1 ELSE 0 END) AS done_int,
+                    MAX(s.cargo_type) AS cargo_type,
+                    MAX(s.destination_office_id) AS destination_office_id,
+                    MAX(COALESCE(s.created_at_wb, o.created_at_wb)) AS created_at_wb,
+                    MAX(s.closed_at_wb) AS closed_at_wb,
+                    MAX(s.scan_dt) AS scan_dt,
+                    MAX(s.boxes_json) AS boxes_json,
+                    MAX(s.raw_json) AS raw_json
+                FROM wb_fbs_orders o
+                LEFT JOIN wb_fbs_supplies s
+                  ON s.user_id = o.user_id
+                 AND s.source_id = o.source_id
+                 AND s.supply_id = o.supply_id
+                WHERE {where}
+                GROUP BY o.user_id, o.source_id, o.supply_id
+                ORDER BY MAX(COALESCE(s.created_at_wb, o.created_at_wb)) DESC NULLS LAST,
+                         o.supply_id DESC
+                LIMIT ? OFFSET ?
+                """
+            ),
+            tuple(params + [safe_size, offset]),
+        ).fetchall()
+
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        d = repo._row_to_dict(row)
+        supply_id = str(d.get("supply_id") or "").strip()
+        raw = _parse_json_obj(d.get("raw_json"))
+        order_ids_agg = d.get("order_ids_agg") or []
+        order_ids: list[int] = []
+        if isinstance(order_ids_agg, (list, tuple)):
+            for oid in order_ids_agg:
+                try:
+                    order_ids.append(int(oid))
+                except (TypeError, ValueError):
+                    continue
+        boxes = _parse_json_list(d.get("boxes_json"))
+        offices = _parse_json_list(d.get("offices_json"))
+        office_names = [str(x).strip() for x in offices if str(x or "").strip()]
+        cargo_type = d.get("cargo_type") if d.get("cargo_type") not in (None, 0) else d.get("order_cargo_type")
+        done = bool(int(d.get("done_int") or 0))
+        scan_dt = d.get("scan_dt")
+        name = str(d.get("name") or "").strip()
+        if not name and d.get("created_at_wb"):
+            # Fallback like portal: «Поставка от DD.MM.YYYY»
+            try:
+                created = datetime.fromisoformat(str(d["created_at_wb"]).replace("Z", "+00:00"))
+                name = f"Поставка от {created.strftime('%d.%m.%Y')}"
+            except Exception:
+                name = f"Поставка {supply_id}"
+        elif not name:
+            name = f"Поставка {supply_id}" if supply_id else "Поставка"
+
+        # Portal shows seller WH + destination office; API gives destination in offices[].
+        warehouse_label = ", ".join(office_names) if office_names else (
+            f"Склад {d.get('warehouse_id')}" if d.get("warehouse_id") else "—"
+        )
+        warehouse_sub = ""
+        if d.get("destination_office_id") and not office_names:
+            warehouse_sub = f"Офис {d.get('destination_office_id')}"
+
+        pickup_allowed = bool(raw.get("isPickupPointShipmentAllowed"))
+        order_count = int(d.get("order_count") or 0) or len(order_ids)
+        boxes_count = len(boxes)
+
+        items.append(
+            {
+                "supply_id": supply_id,
+                "source_id": d.get("source_id"),
+                "name": name,
+                "done": done,
+                "cargo_type": cargo_type or 0,
+                "cargo_label": cargo_type_label(cargo_type),
+                "pickup_allowed": pickup_allowed,
+                "created_at_wb": d.get("created_at_wb"),
+                "closed_at_wb": d.get("closed_at_wb"),
+                "scan_dt": scan_dt,
+                "status_label": supply_status_label(done=done, scan_dt=scan_dt),
+                "order_count": order_count,
+                "boxes_count": boxes_count,
+                "order_ids": order_ids,
+                "boxes": boxes,
+                "warehouse_id": d.get("warehouse_id"),
+                "warehouse_label": warehouse_label,
+                "warehouse_sub": warehouse_sub,
+                "destination_office_id": d.get("destination_office_id"),
+                "accept_rating": None,
+            }
+        )
+
+    return {
+        "items": items,
+        "total": int(total_row["n"]) if total_row else 0,
+        "page": safe_page,
+        "page_size": safe_size,
+        "counts": _tab_counts(repo, user_id=user_id, source_id=source_id),
+    }
 
 
 def clear_source_data(repo: ReviewRepository, *, user_id: int, source_id: int) -> dict[str, int]:

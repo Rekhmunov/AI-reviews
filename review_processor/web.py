@@ -8704,11 +8704,25 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         request: Request,
         source_id: int | None = None,
         only_open: bool = False,
+        tab: str | None = None,
+        search: str | None = None,
+        page: int = 1,
+        page_size: int = 50,
     ) -> dict[str, object]:
         user = _require_user(request)
         if not _can_view_wb_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
         owner_id = _supply_owner_id(user)
+        # «В доставке» — rows are supplies (поставки), not assembly orders.
+        if (tab or "").strip().lower() == "delivery":
+            return wb_fbs_mod.list_delivery_supplies(
+                repository,
+                user_id=owner_id,
+                source_id=source_id,
+                search=search or None,
+                page=page,
+                page_size=page_size,
+            )
         items = wb_fbs_mod.list_supplies(
             repository,
             user_id=owner_id,

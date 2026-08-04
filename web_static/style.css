@@ -7115,6 +7115,60 @@ button.wb-fbs-select-all-link:disabled {
   text-align: center;
   font-size: 14px;
 }
+.wb-fbs-table--supplies {
+  min-width: 1100px;
+}
+.wb-fbs-table--supplies th {
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: normal;
+  vertical-align: bottom;
+}
+.wb-fbs-supply-name {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.3;
+}
+.wb-fbs-supply-qr {
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+  word-break: break-all;
+}
+.wb-fbs-supply-orders {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.3;
+}
+.wb-fbs-supply-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+  background: #fff7ed;
+  color: #c2410c;
+  border: 1px solid #fdba74;
+}
+.wb-fbs-supply-status.is-scanned {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-color: #93c5fd;
+}
+.wb-fbs-supply-status.is-done {
+  background: #f0fdf4;
+  color: #166534;
+  border-color: #86efac;
+}
+.wb-fbs-badge.pvz {
+  background: #f1f5f9;
+  color: #334155;
+}
 @media (max-width: 1100px) {
   .wb-fbs-table-wrap { max-height: calc(100vh - 340px); }
 }

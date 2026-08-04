@@ -17379,7 +17379,12 @@ const wbFbsState = {
   selectAllMatching: false,
   lastSearch: "",
   pollTimer: null,
+  viewMode: "orders", // "orders" | "supplies"
 };
+
+function _wbFbsIsSuppliesTab() {
+  return wbFbsState.tab === "delivery";
+}
 
 function _wbFbsRememberMeta(order) {
   const oid = Number(order?.order_id);
@@ -17390,6 +17395,9 @@ function _wbFbsRememberMeta(order) {
 }
 
 function _wbFbsSelectedSupplyIds() {
+  if (_wbFbsIsSuppliesTab()) {
+    return [...wbFbsState.selected].map((x) => String(x || "").trim()).filter(Boolean);
+  }
   const ids = [];
   for (const oid of wbFbsState.selected) {
     const meta = wbFbsState.selectedMeta[oid];
@@ -17402,6 +17410,20 @@ function _wbFbsSelectedSupplyIds() {
     if (!wbFbsState.selected.has(oid)) continue;
     const sid = String(o.supply_id || "").trim();
     if (sid) ids.push(sid);
+  }
+  return [...new Set(ids)];
+}
+
+function _wbFbsSelectedOrderIdsFromSupplies() {
+  const ids = [];
+  for (const item of wbFbsState.items) {
+    const sid = String(item.supply_id || "").trim();
+    if (!wbFbsState.selected.has(sid)) continue;
+    const orderIds = Array.isArray(item.order_ids) ? item.order_ids : [];
+    for (const oid of orderIds) {
+      const n = Number(oid);
+      if (Number.isFinite(n)) ids.push(n);
+    }
   }
   return [...new Set(ids)];
 }
@@ -17434,7 +17456,7 @@ function _wbFbsFmtDate(iso) {
 
 async function initWbFbsSection() {
   initWbFbsColumnResizer();
-  _wbFbsSyncActionsColumn();
+  _wbFbsSyncTableMode();
   await loadWbFbsSources();
   await loadWbFbsOrders(true);
 }
@@ -17464,63 +17486,71 @@ function _getWbFbsColWidths() {
 function initWbFbsColumnResizer() {
   const table = document.getElementById("wbFbsOrdersTable");
   if (!table) return;
-
-  let widths = WB_FBS_DEFAULT_WIDTHS.slice();
-  try {
-    const saved = JSON.parse(localStorage.getItem(_wbFbsColWidthsKey()) || "null");
-    if (Array.isArray(saved) && saved.length === widths.length) widths = saved;
-    else if (Array.isArray(saved)) localStorage.removeItem(_wbFbsColWidthsKey());
-  } catch (_) {}
-  _applyWbFbsColWidths(widths);
+  // Supplies table has fixed columns; only restore widths in orders mode.
+  if (!_wbFbsIsSuppliesTab()) {
+    let widths = WB_FBS_DEFAULT_WIDTHS.slice();
+    try {
+      const saved = JSON.parse(localStorage.getItem(_wbFbsColWidthsKey()) || "null");
+      if (Array.isArray(saved) && saved.length === widths.length) widths = saved;
+      else if (Array.isArray(saved)) localStorage.removeItem(_wbFbsColWidthsKey());
+    } catch (_) {}
+    _applyWbFbsColWidths(widths);
+  }
 
   if (_wbFbsColResizerInited) return;
   _wbFbsColResizerInited = true;
 
-  table.querySelectorAll("th .col-resize-handle").forEach((handle) => {
-    let startX = 0;
-    let colIdx = 0;
-    let startWidths = [];
-    handle.addEventListener("mousedown", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const th = handle.parentElement;
-      colIdx = parseInt(th.getAttribute("data-col") || "0", 10);
-      startX = e.clientX;
-      startWidths = _getWbFbsColWidths();
-      document.addEventListener("mousemove", onMouseMove);
-      document.addEventListener("mouseup", onMouseUp);
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
-      handle.classList.add("dragging");
-    });
-    function onMouseMove(e) {
-      const tableEl = document.getElementById("wbFbsOrdersTable");
-      if (!tableEl) return;
-      const tableW = tableEl.offsetWidth || 1;
-      const deltaPct = ((e.clientX - startX) / tableW) * 100;
-      const newWidths = startWidths.slice();
-      const minPct = 8;
-      const nextIdx = colIdx < newWidths.length - 1 ? colIdx + 1 : colIdx - 1;
-      let newCur = Math.max(minPct, startWidths[colIdx] + deltaPct);
-      let newNext = Math.max(minPct, startWidths[nextIdx] - deltaPct);
-      if (newNext < minPct) {
-        newCur = startWidths[colIdx] + (startWidths[nextIdx] - minPct);
-        newNext = minPct;
-      }
-      newWidths[colIdx] = Math.round(newCur * 10) / 10;
-      newWidths[nextIdx] = Math.round(newNext * 10) / 10;
-      _applyWbFbsColWidths(newWidths);
+  let startX = 0;
+  let colIdx = 0;
+  let startWidths = [];
+  let activeHandle = null;
+
+  function onMouseMove(e) {
+    const tableEl = document.getElementById("wbFbsOrdersTable");
+    if (!tableEl || _wbFbsIsSuppliesTab()) return;
+    const tableW = tableEl.offsetWidth || 1;
+    const deltaPct = ((e.clientX - startX) / tableW) * 100;
+    const newWidths = startWidths.slice();
+    const minPct = 8;
+    const nextIdx = colIdx < newWidths.length - 1 ? colIdx + 1 : colIdx - 1;
+    let newCur = Math.max(minPct, startWidths[colIdx] + deltaPct);
+    let newNext = Math.max(minPct, startWidths[nextIdx] - deltaPct);
+    if (newNext < minPct) {
+      newCur = startWidths[colIdx] + (startWidths[nextIdx] - minPct);
+      newNext = minPct;
     }
-    function onMouseUp() {
-      document.removeEventListener("mousemove", onMouseMove);
-      document.removeEventListener("mouseup", onMouseUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      handle.classList.remove("dragging");
-      try {
-        localStorage.setItem(_wbFbsColWidthsKey(), JSON.stringify(_getWbFbsColWidths()));
-      } catch (_) {}
-    }
+    newWidths[colIdx] = Math.round(newCur * 10) / 10;
+    newWidths[nextIdx] = Math.round(newNext * 10) / 10;
+    _applyWbFbsColWidths(newWidths);
+  }
+  function onMouseUp() {
+    document.removeEventListener("mousemove", onMouseMove);
+    document.removeEventListener("mouseup", onMouseUp);
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+    if (activeHandle) activeHandle.classList.remove("dragging");
+    activeHandle = null;
+    if (_wbFbsIsSuppliesTab()) return;
+    try {
+      localStorage.setItem(_wbFbsColWidthsKey(), JSON.stringify(_getWbFbsColWidths()));
+    } catch (_) {}
+  }
+
+  table.addEventListener("mousedown", (e) => {
+    const handle = e.target?.closest?.(".col-resize-handle");
+    if (!handle || _wbFbsIsSuppliesTab()) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const th = handle.parentElement;
+    colIdx = parseInt(th.getAttribute("data-col") || "0", 10);
+    startX = e.clientX;
+    startWidths = _getWbFbsColWidths();
+    activeHandle = handle;
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    handle.classList.add("dragging");
   });
 }
 window.initWbFbsColumnResizer = initWbFbsColumnResizer;
@@ -17566,7 +17596,7 @@ function setWbFbsTab(tab) {
   document.querySelectorAll("#wbFbsTabs .wb-fbs-tab").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.tab === tab);
   });
-  _wbFbsSyncActionsColumn();
+  _wbFbsSyncTableMode();
   clearWbFbsSelection();
   loadWbFbsOrders(true);
 }
@@ -17578,6 +17608,7 @@ function _wbFbsHasRowActions() {
 }
 
 function _wbFbsColspan() {
+  if (_wbFbsIsSuppliesTab()) return 9;
   return _wbFbsHasRowActions() ? 5 : 4;
 }
 
@@ -17589,10 +17620,71 @@ function _wbFbsSyncActionsColumn() {
   if (th) th.style.display = show ? "" : "none";
 }
 
+function _wbFbsSyncTableMode() {
+  const supplies = _wbFbsIsSuppliesTab();
+  wbFbsState.viewMode = supplies ? "supplies" : "orders";
+  const table = document.getElementById("wbFbsOrdersTable");
+  const colgroup = document.getElementById("wbFbsColgroup");
+  const thead = table?.querySelector("thead tr");
+  const search = document.getElementById("wbFbsSearchFilter");
+  if (table) table.classList.toggle("wb-fbs-table--supplies", supplies);
+  if (search) {
+    search.placeholder = supplies
+      ? "Поиск по поставке, заказу, складу…"
+      : "Поиск по заказу, артикулу, ШК…";
+  }
+  if (!colgroup || !thead) {
+    _wbFbsSyncActionsColumn();
+    return;
+  }
+  if (supplies) {
+    colgroup.innerHTML = `
+      <col data-fixed="1" class="wb-fbs-col-check" style="width:40px" />
+      <col data-col="0" class="wb-fbs-col-supply" style="width:18%" />
+      <col data-col="1" class="wb-fbs-col-qr" style="width:14%" />
+      <col data-col="2" class="wb-fbs-col-status" style="width:14%" />
+      <col data-col="3" class="wb-fbs-col-scan" style="width:12%" />
+      <col data-col="4" class="wb-fbs-col-orders" style="width:12%" />
+      <col data-col="5" class="wb-fbs-col-wh" style="width:16%" />
+      <col data-col="6" class="wb-fbs-col-rating" style="width:10%" />
+      <col data-fixed="1" class="wb-fbs-col-act" style="width:48px" />
+    `;
+    thead.innerHTML = `
+      <th class="wb-fbs-th-check"><input type="checkbox" id="wbFbsSelectAll" onchange="toggleSelectAllWbFbs(this.checked)" title="Выбрать все на странице" /></th>
+      <th data-col="0">Поставка</th>
+      <th data-col="1">QR-код поставки</th>
+      <th data-col="2">Статус</th>
+      <th data-col="3">Время сканирования QR-кода поставки</th>
+      <th data-col="4">Заказы и грузоместа</th>
+      <th data-col="5">Склад</th>
+      <th data-col="6">Оценка пункта приема</th>
+      <th class="wb-fbs-th-act"></th>
+    `;
+  } else {
+    colgroup.innerHTML = `
+      <col data-fixed="1" class="wb-fbs-col-check" style="width:40px" />
+      <col data-col="0" class="wb-fbs-col-order" />
+      <col data-col="1" class="wb-fbs-col-product" />
+      <col data-col="2" class="wb-fbs-col-wh" />
+      <col data-fixed="1" class="wb-fbs-col-act" style="width:48px" />
+    `;
+    thead.innerHTML = `
+      <th class="wb-fbs-th-check"><input type="checkbox" id="wbFbsSelectAll" onchange="toggleSelectAllWbFbs(this.checked)" title="Выбрать все на странице" /></th>
+      <th data-col="0">Заказ<span class="col-resize-handle"></span></th>
+      <th data-col="1">Товар<span class="col-resize-handle"></span></th>
+      <th data-col="2">Склад<span class="col-resize-handle"></span></th>
+      <th class="wb-fbs-th-act"></th>
+    `;
+    initWbFbsColumnResizer();
+    _wbFbsSyncActionsColumn();
+  }
+}
+
 async function loadWbFbsOrders(resetPage = false) {
   if (resetPage) wbFbsState.page = 1;
   const info = document.getElementById("wbFbsInfo");
   const tbody = document.getElementById("wbFbsOrdersTbody");
+  _wbFbsSyncTableMode();
   if (!wbFbsState.sourceId) {
     if (tbody) tbody.innerHTML = `<tr><td colspan="${_wbFbsColspan()}" class="small" style="padding:16px;color:#94a3b8">Выберите источник ВБ в Поставки → Настройки → Источники</td></tr>`;
     if (info) info.textContent = "";
@@ -17613,8 +17705,10 @@ async function loadWbFbsOrders(resetPage = false) {
     page_size: String(wbFbsState.page_size),
   });
   if (search) params.set("search", search);
+  const suppliesMode = _wbFbsIsSuppliesTab();
+  const url = suppliesMode ? `/api/wb-fbs/supplies?${params}` : `/api/wb-fbs/orders?${params}`;
   try {
-    const res = await fetch(`/api/wb-fbs/orders?${params}`);
+    const res = await fetch(url);
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || "Ошибка загрузки");
     wbFbsState.items = data.items || [];
@@ -17622,9 +17716,14 @@ async function loadWbFbsOrders(resetPage = false) {
     wbFbsState.page = data.page || 1;
     wbFbsState.counts = data.counts || {};
     _wbFbsUpdateCounts(wbFbsState.counts);
-    renderWbFbsOrdersTable();
+    if (suppliesMode) renderWbFbsSuppliesTable();
+    else renderWbFbsOrdersTable();
     const totalPages = Math.max(1, Math.ceil(wbFbsState.total / wbFbsState.page_size));
-    if (info) info.textContent = `Заказов: ${wbFbsState.total}`;
+    if (info) {
+      info.textContent = suppliesMode
+        ? `Поставок: ${wbFbsState.total}`
+        : `Заказов: ${wbFbsState.total}`;
+    }
     const pageInfo = document.getElementById("wbFbsPageInfo");
     if (pageInfo) pageInfo.textContent = `${wbFbsState.page} / ${totalPages}`;
     const prevBtn = document.getElementById("wbFbsPrevBtn");
@@ -17766,6 +17865,38 @@ function _wbFbsRowActionsHtml(oid) {
   </div>`;
 }
 
+function _wbFbsSupplyRowActionsHtml(supplyId) {
+  const sid = String(supplyId || "").trim();
+  if (!sid) return "";
+  const safeKey = sid.replace(/[^a-zA-Z0-9_-]/g, "_");
+  return `<div class="wb-fbs-row-menu-wrap">
+    <button type="button" class="icon-btn secondary wb-fbs-row-menu-btn" title="Действия"
+            onclick="toggleWbFbsRowMenu(event, '${_wbFbsEsc(safeKey)}')" aria-haspopup="menu">⋮</button>
+    <div id="wbFbsRowMenu_${safeKey}" class="wb-fbs-row-menu" data-order-id="${_wbFbsEsc(safeKey)}" data-supply-id="${_wbFbsEsc(sid)}" role="menu">
+      <button type="button" class="wb-fbs-row-menu-item" role="menuitem"
+              onclick="wbFbsSelectSupplyAndPrint('${_wbFbsEsc(sid)}', 'supply')">Стикер поставки</button>
+      <button type="button" class="wb-fbs-row-menu-item" role="menuitem"
+              onclick="wbFbsSelectSupplyAndPrint('${_wbFbsEsc(sid)}', 'boxes')">Стикеры коробов</button>
+      <button type="button" class="wb-fbs-row-menu-item" role="menuitem"
+              onclick="wbFbsSelectSupplyAndPrint('${_wbFbsEsc(sid)}', 'orders')">Стикеры товаров</button>
+    </div>
+  </div>`;
+}
+
+function wbFbsSelectSupplyAndPrint(supplyId, kind) {
+  _wbFbsCloseRowMenus();
+  const sid = String(supplyId || "").trim();
+  if (!sid) return;
+  wbFbsState.selected = new Set([sid]);
+  wbFbsState.selectedMeta = {};
+  wbFbsState.selectAllMatching = false;
+  _wbFbsUpdateBottomBar();
+  if (kind === "boxes") return wbFbsPrintBoxStickers();
+  if (kind === "orders") return wbFbsPrintOrderStickers();
+  return wbFbsPrintSupplySticker();
+}
+window.wbFbsSelectSupplyAndPrint = wbFbsSelectSupplyAndPrint;
+
 function wbFbsStubCreateSupply(orderId) {
   _wbFbsCloseRowMenus();
   alert(`Создание поставки для заказа ${orderId} — скоро.`);
@@ -17788,6 +17919,84 @@ function wbFbsStubNewSupplySelected() {
   alert(`Новая поставка из ${n} заказ(ов) — скоро.`);
 }
 window.wbFbsStubNewSupplySelected = wbFbsStubNewSupplySelected;
+
+function _wbFbsFmtDateTime(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function renderWbFbsSuppliesTable() {
+  const tbody = document.getElementById("wbFbsOrdersTbody");
+  if (!tbody) return;
+  _wbFbsCloseRowMenus();
+  const colspan = _wbFbsColspan();
+  if (!wbFbsState.items.length) {
+    tbody.innerHTML = `<tr><td colspan="${colspan}" class="wb-fbs-empty">Нет поставок во вкладке. Нажмите «Синхронизировать».</td></tr>`;
+    _wbFbsUpdateBottomBar();
+    return;
+  }
+  tbody.innerHTML = wbFbsState.items.map((s) => {
+    const sid = String(s.supply_id || "").trim();
+    const checked = wbFbsState.selected.has(sid) ? "checked" : "";
+    const badges = [];
+    if (s.cargo_label) badges.push(`<span class="wb-fbs-badge cargo">${_wbFbsEsc(s.cargo_label)}</span>`);
+    if (s.pickup_allowed) badges.push(`<span class="wb-fbs-badge pvz">Можно в ПВЗ</span>`);
+    const createdMeta = s.created_at_wb
+      ? `<div class="wb-fbs-order-meta">от ${_wbFbsEsc(_wbFbsFmtDate(s.created_at_wb))}</div>`
+      : "";
+    const status = String(s.status_label || "Отгрузите поставку");
+    const statusClass = s.done ? "is-done" : (s.scan_dt ? "is-scanned" : "is-ship");
+    const ordersCount = Number(s.order_count || 0);
+    const boxesCount = Number(s.boxes_count || 0);
+    const boxesLabel = boxesCount === 1
+      ? "1 грузоместо"
+      : (boxesCount > 1 && boxesCount < 5 ? `${boxesCount} грузоместа` : `${boxesCount} грузомест`);
+    const rating = s.accept_rating != null && s.accept_rating !== ""
+      ? _wbFbsEsc(s.accept_rating)
+      : "—";
+    return `<tr>
+      <td><input type="checkbox" class="wb-fbs-row-cb" data-supply-id="${_wbFbsEsc(sid)}" ${checked} onchange="onWbFbsCheckboxChange()" /></td>
+      <td>
+        <div class="wb-fbs-supply-name">${_wbFbsEsc(s.name || ("Поставка " + sid))}</div>
+        ${createdMeta}
+        ${badges.length ? `<div class="wb-fbs-badges">${badges.join("")}</div>` : ""}
+      </td>
+      <td><div class="wb-fbs-supply-qr" title="${_wbFbsEsc(sid)}">${_wbFbsEsc(sid || "—")}</div></td>
+      <td><span class="wb-fbs-supply-status ${statusClass}">${_wbFbsEsc(status)}</span></td>
+      <td><div class="wb-fbs-order-meta">${_wbFbsEsc(_wbFbsFmtDateTime(s.scan_dt))}</div></td>
+      <td>
+        <div class="wb-fbs-supply-orders">${_wbFbsEsc(ordersCount)}</div>
+        <div class="wb-fbs-order-meta">${_wbFbsEsc(boxesLabel)}</div>
+      </td>
+      <td>
+        <div class="wb-fbs-wh-name" title="${_wbFbsEsc(s.warehouse_label || "")}">${_wbFbsEsc(s.warehouse_label || "—")}</div>
+        ${s.warehouse_sub
+          ? `<div class="wb-fbs-wh-address" title="${_wbFbsEsc(s.warehouse_sub)}">${_wbFbsEsc(s.warehouse_sub)}</div>`
+          : ""}
+        <div class="wb-fbs-order-meta">${s.warehouse_id ? "ID " + _wbFbsEsc(s.warehouse_id) : ""}</div>
+      </td>
+      <td><div class="wb-fbs-order-meta">${rating}</div></td>
+      <td>${_wbFbsSupplyRowActionsHtml(sid)}</td>
+    </tr>`;
+  }).join("");
+  const selAll = document.getElementById("wbFbsSelectAll");
+  if (selAll) {
+    const ids = wbFbsState.items.map((x) => String(x.supply_id || "").trim()).filter(Boolean);
+    const allOnPage = ids.length > 0 && ids.every((id) => wbFbsState.selected.has(id));
+    const someOnPage = ids.some((id) => wbFbsState.selected.has(id));
+    selAll.checked = allOnPage || wbFbsState.selectAllMatching;
+    selAll.indeterminate = !selAll.checked && someOnPage;
+  }
+  _wbFbsUpdateBottomBar();
+}
 
 function renderWbFbsOrdersTable() {
   const tbody = document.getElementById("wbFbsOrdersTbody");
@@ -17864,7 +18073,18 @@ function renderWbFbsOrdersTable() {
 }
 
 function onWbFbsCheckboxChange() {
+  const suppliesMode = _wbFbsIsSuppliesTab();
   document.querySelectorAll(".wb-fbs-row-cb").forEach((cb) => {
+    if (suppliesMode) {
+      const sid = String(cb.dataset.supplyId || "").trim();
+      if (!sid) return;
+      if (cb.checked) wbFbsState.selected.add(sid);
+      else {
+        wbFbsState.selected.delete(sid);
+        wbFbsState.selectAllMatching = false;
+      }
+      return;
+    }
     const id = Number(cb.dataset.orderId);
     if (cb.checked) {
       wbFbsState.selected.add(id);
@@ -17879,7 +18099,9 @@ function onWbFbsCheckboxChange() {
   _wbFbsUpdateBottomBar();
   const selAll = document.getElementById("wbFbsSelectAll");
   if (selAll) {
-    const ids = wbFbsState.items.map((x) => Number(x.order_id));
+    const ids = suppliesMode
+      ? wbFbsState.items.map((x) => String(x.supply_id || "").trim()).filter(Boolean)
+      : wbFbsState.items.map((x) => Number(x.order_id));
     const allOnPage = ids.length > 0 && ids.every((id) => wbFbsState.selected.has(id));
     const someOnPage = ids.some((id) => wbFbsState.selected.has(id));
     selAll.checked = allOnPage;
@@ -17889,6 +18111,7 @@ function onWbFbsCheckboxChange() {
 window.onWbFbsCheckboxChange = onWbFbsCheckboxChange;
 
 function toggleSelectAllWbFbs(checked) {
+  const suppliesMode = _wbFbsIsSuppliesTab();
   if (!checked) {
     // Uncheck header = clear only current page, or full clear if all-matching.
     if (wbFbsState.selectAllMatching) {
@@ -17897,9 +18120,14 @@ function toggleSelectAllWbFbs(checked) {
     }
     document.querySelectorAll(".wb-fbs-row-cb").forEach((cb) => {
       cb.checked = false;
-      const id = Number(cb.dataset.orderId);
-      wbFbsState.selected.delete(id);
-      delete wbFbsState.selectedMeta[id];
+      if (suppliesMode) {
+        const sid = String(cb.dataset.supplyId || "").trim();
+        if (sid) wbFbsState.selected.delete(sid);
+      } else {
+        const id = Number(cb.dataset.orderId);
+        wbFbsState.selected.delete(id);
+        delete wbFbsState.selectedMeta[id];
+      }
     });
     wbFbsState.selectAllMatching = false;
     _wbFbsUpdateBottomBar();
@@ -17908,6 +18136,11 @@ function toggleSelectAllWbFbs(checked) {
   wbFbsState.selectAllMatching = false;
   document.querySelectorAll(".wb-fbs-row-cb").forEach((cb) => {
     cb.checked = true;
+    if (suppliesMode) {
+      const sid = String(cb.dataset.supplyId || "").trim();
+      if (sid) wbFbsState.selected.add(sid);
+      return;
+    }
     const id = Number(cb.dataset.orderId);
     wbFbsState.selected.add(id);
     const row = wbFbsState.items.find((x) => Number(x.order_id) === id);
@@ -17934,10 +18167,18 @@ function clearWbFbsSelection() {
 window.clearWbFbsSelection = clearWbFbsSelection;
 
 function _wbFbsPageSelectedCount() {
+  if (_wbFbsIsSuppliesTab()) {
+    return wbFbsState.items.filter((x) => wbFbsState.selected.has(String(x.supply_id || "").trim())).length;
+  }
   return wbFbsState.items.filter((x) => wbFbsState.selected.has(Number(x.order_id))).length;
 }
 
 function _wbFbsSelectedCountLabel(n) {
+  if (_wbFbsIsSuppliesTab()) {
+    if (n === 1) return "Выбрана 1 поставка";
+    if (n > 1 && n < 5) return `Выбрано ${n} поставки`;
+    return `Выбрано ${n} поставок`;
+  }
   if (n === 1) return "Выбран 1 заказ";
   if (n > 1 && n < 5) return `Выбрано ${n} заказа`;
   return `Выбрано ${n} заказов`;
@@ -17945,6 +18186,44 @@ function _wbFbsSelectedCountLabel(n) {
 
 async function selectAllMatchingWbFbs() {
   if (!wbFbsState.sourceId) return;
+  if (_wbFbsIsSuppliesTab()) {
+    // Load all pages of delivery supplies for current filter.
+    const btn = document.getElementById("wbFbsSelectAllMatchingBtn");
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "загрузка…";
+    }
+    try {
+      const search = document.getElementById("wbFbsSearchFilter")?.value.trim() || "";
+      const params = new URLSearchParams({
+        source_id: String(wbFbsState.sourceId),
+        tab: "delivery",
+        page: "1",
+        page_size: "200",
+      });
+      if (search) params.set("search", search);
+      const res = await fetch(`/api/wb-fbs/supplies?${params}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || `Ошибка ${res.status}`);
+      const ids = (data.items || [])
+        .map((x) => String(x.supply_id || "").trim())
+        .filter(Boolean);
+      wbFbsState.selected = new Set(ids);
+      wbFbsState.selectedMeta = {};
+      wbFbsState.selectAllMatching = true;
+      if ((data.total || 0) > ids.length) {
+        _wbFbsSetSyncInfo(
+          `Выбраны первые ${ids.length} из ${data.total} поставок (лимит).`,
+          "error"
+        );
+      }
+      renderWbFbsSuppliesTable();
+    } catch (e) {
+      alert(String(e.message || e));
+      _wbFbsUpdateBottomBar();
+    }
+    return;
+  }
   const btn = document.getElementById("wbFbsSelectAllMatchingBtn");
   if (btn) {
     btn.disabled = true;
@@ -17994,10 +18273,13 @@ function _wbFbsUpdateBottomBar() {
   const total = Number(wbFbsState.total || 0);
   const allOnPage = pageCount > 0 && pageSelected === pageCount;
   const canSelectAllMatching = allOnPage && total > pageCount && !wbFbsState.selectAllMatching;
+  const suppliesMode = _wbFbsIsSuppliesTab();
 
   if (label) {
     if (wbFbsState.selectAllMatching && n > 0) {
-      label.textContent = `Выбраны все ${n} заказов`;
+      label.textContent = suppliesMode
+        ? `Выбраны все ${n} поставок`
+        : `Выбраны все ${n} заказов`;
     } else if (canSelectAllMatching) {
       label.innerHTML =
         `${_wbFbsEsc(_wbFbsSelectedCountLabel(n))} ` +
@@ -18008,7 +18290,7 @@ function _wbFbsUpdateBottomBar() {
     }
   }
   const isNewTab = wbFbsState.tab === "new";
-  const showStickers = _wbFbsHasRowActions() && !isNewTab;
+  const showStickers = (_wbFbsHasRowActions() && !isNewTab) || suppliesMode;
   if (newActions) newActions.classList.toggle("hidden", !isNewTab);
   if (stickerActions) stickerActions.classList.toggle("hidden", !showStickers);
   if (bar) bar.classList.toggle("hidden", n === 0);
@@ -18139,8 +18421,15 @@ function _wbFbsOpenBase64Images(stickers, filenamePrefix) {
 }
 
 async function wbFbsPrintOrderStickers() {
-  const ids = [...wbFbsState.selected];
-  if (!ids.length || !wbFbsState.sourceId) return;
+  const ids = _wbFbsIsSuppliesTab()
+    ? _wbFbsSelectedOrderIdsFromSupplies()
+    : [...wbFbsState.selected].map((x) => Number(x)).filter((n) => Number.isFinite(n));
+  if (!ids.length || !wbFbsState.sourceId) {
+    if (_wbFbsIsSuppliesTab()) {
+      alert("У выбранных поставок нет списка заказов. Синхронизируйте источник ещё раз.");
+    }
+    return;
+  }
   const res = await fetch("/api/wb-fbs/stickers/orders", {
     method: "POST",
     headers: jsonHeaders(),
@@ -18171,7 +18460,9 @@ async function wbFbsPrintSupplySticker() {
   if (!wbFbsState.sourceId) return;
   const supplyIds = _wbFbsSelectedSupplyIds();
   if (!supplyIds.length) {
-    alert("У выбранных заказов нет ID поставки. Стикер поставки доступен после сборки на портале ВБ.");
+    alert(_wbFbsIsSuppliesTab()
+      ? "Выберите поставку."
+      : "У выбранных заказов нет ID поставки. Стикер поставки доступен после сборки на портале ВБ.");
     return;
   }
   for (const sid of supplyIds) {
@@ -18189,7 +18480,9 @@ async function wbFbsPrintBoxStickers() {
   if (!wbFbsState.sourceId) return;
   const supplyIds = _wbFbsSelectedSupplyIds();
   if (!supplyIds.length) {
-    alert("У выбранных заказов нет ID поставки — короба недоступны.");
+    alert(_wbFbsIsSuppliesTab()
+      ? "Выберите поставку."
+      : "У выбранных заказов нет ID поставки — короба недоступны.");
     return;
   }
   for (const sid of supplyIds) {
