@@ -18327,6 +18327,14 @@ function renderWbFbsSupplyDetail(data) {
     const badges = [];
     if (o.created_ago) badges.push(`<span class="wb-fbs-badge time">${_wbFbsEsc(o.created_ago)}</span>`);
     if (o.pickup_allowed) badges.push(`<span class="wb-fbs-badge pvz">Можно в ПВЗ</span>`);
+    const barcodes = Array.isArray(o.barcodes)
+      ? o.barcodes
+      : (Array.isArray(o.skus) ? o.skus : []);
+    const barcodeHtml = barcodes.length
+      ? `<div class="wb-fbs-barcodes" title="Штрихкод товара">${barcodes.map((b) =>
+          `<div class="wb-fbs-barcode">${_wbFbsEsc(b)}</div>`
+        ).join("")}</div>`
+      : "";
     const safeKey = `sd_${oid}`;
     return `<tr class="wb-fbs-sd-click-row">
       <td><input type="checkbox" class="wb-fbs-sd-cb" data-order-id="${oid}" ${checked} onchange="onWbFbsDetailCheckboxChange()" /></td>
@@ -18341,6 +18349,7 @@ function renderWbFbsSupplyDetail(data) {
           <div class="wb-fbs-product-text">
             <div class="wb-fbs-product-name" title="${_wbFbsEsc(o.product_name || o.article || "")}">${_wbFbsEsc(o.product_name || o.article || "—")}</div>
             <div class="wb-fbs-product-sub">Арт. ${_wbFbsEsc(o.article || "—")}${o.nm_id ? " · nmId " + _wbFbsEsc(o.nm_id) : ""}</div>
+            ${barcodeHtml}
           </div>
         </div>
       </td>

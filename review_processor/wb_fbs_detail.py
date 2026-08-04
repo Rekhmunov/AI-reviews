@@ -1068,6 +1068,21 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
             meta_lines.append(
                 f'<div style="font-size:12px;font-weight:700;line-height:1.3;margin:0 0 2px;word-break:break-all;">{_esc(article)}</div>'
             )
+        barcodes = [
+            str(b).strip()
+            for b in (g.get("barcodes") or [])
+            if str(b or "").strip()
+        ]
+        if barcodes:
+            barcode_lines = "".join(
+                f'<div style="font-size:16px;font-weight:800;line-height:1.25;'
+                f'letter-spacing:0.02em;font-variant-numeric:tabular-nums;'
+                f'word-break:break-all;margin:0 0 2px;">{_esc(b)}</div>'
+                for b in barcodes
+            )
+            meta_lines.append(
+                f'<div style="margin:4px 0 2px;">{barcode_lines}</div>'
+            )
         if color:
             meta_lines.append(
                 f'<div style="font-size:11px;color:#475569;line-height:1.3;margin:0 0 2px;">Цвет: {_esc(color)}</div>'
