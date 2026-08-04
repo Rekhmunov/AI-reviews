@@ -38,7 +38,7 @@ _STICKERS_TTL_SEC = 120.0
 _CARD_META_TTL_SEC = 1800.0
 _cache_lock = threading.Lock()
 _detail_cache: dict[tuple[int, int, str], tuple[float, dict[str, Any]]] = {}
-_stickers_cache: dict[tuple[str, tuple[int, ...]], tuple[float, dict[int, dict[str, Any]]]] = {}
+_stickers_cache: dict[tuple[str, str, tuple[int, ...]], tuple[float, dict[int, dict[str, Any]]]] = {}
 _card_meta_cache: dict[tuple[str, int], tuple[float, dict[str, str]]] = {}
 
 
@@ -98,8 +98,10 @@ def _cache_get_detail(
 def _cache_get_stickers(
     api_key: str,
     order_ids: list[int],
+    *,
+    sticker_type: str = "png",
 ) -> dict[int, dict[str, Any]] | None:
-    key = (_api_key_fp(api_key), tuple(int(x) for x in order_ids))
+    key = (_api_key_fp(api_key), str(sticker_type or "png"), tuple(int(x) for x in order_ids))
     with _cache_lock:
         item = _stickers_cache.get(key)
         if not item:
@@ -115,8 +117,10 @@ def _cache_put_stickers(
     api_key: str,
     order_ids: list[int],
     stickers: dict[int, dict[str, Any]],
+    *,
+    sticker_type: str = "png",
 ) -> None:
-    key = (_api_key_fp(api_key), tuple(int(x) for x in order_ids))
+    key = (_api_key_fp(api_key), str(sticker_type or "png"), tuple(int(x) for x in order_ids))
     with _cache_lock:
         _stickers_cache[key] = (time.monotonic(), copy.deepcopy(stickers))
 
@@ -237,11 +241,13 @@ def fetch_card_meta_by_nm(
     nm_ids: list[int],
     *,
     max_cards: int = 40,
+    network: bool = True,
 ) -> dict[int, dict[str, str]]:
     """Color/brand from Content API cards (official). Keys = nmID.
 
     Uses a process-local TTL cache so picking list + stickers share one Content
-    pass per nmID. Missing/empty color is still cached briefly to avoid hammering.
+    pass per nmID. When ``network=False``, only cache hits are returned (fast path
+    for picking list — sync does not preload Content colors).
     """
     out: dict[int, dict[str, str]] = {}
     uniq: list[int] = []
@@ -268,6 +274,11 @@ def fetch_card_meta_by_nm(
                 out[nm] = dict(item[1])
             else:
                 missing.append(nm)
+
+    if not network:
+        for nm in missing:
+            out[nm] = {"color": "", "brand": ""}
+        return out
 
     for nm in missing:
         card: dict[str, Any] = {}
@@ -450,13 +461,20 @@ def _fetch_stickers_map(
     order_ids: list[int],
     *,
     api_key: str = "",
+    sticker_type: str = "png",
+    keep_files: bool = True,
 ) -> dict[int, dict[str, Any]]:
-    """Official PNG stickers (partA/partB/file). Cached briefly per order-id set."""
+    """Official stickers (partA/partB[/file]). Cached briefly per order-id set + type.
+
+    Picking list only needs partA/partB — use ``sticker_type='svg'`` and
+    ``keep_files=False`` to avoid downloading/storing heavy PNG payloads.
+    """
     ids = [int(x) for x in order_ids if x is not None]
     if not ids:
         return {}
+    stype = str(sticker_type or "png").strip().lower() or "png"
     if api_key:
-        cached = _cache_get_stickers(api_key, ids)
+        cached = _cache_get_stickers(api_key, ids, sticker_type=stype)
         if cached is not None:
             return cached
     result: dict[int, dict[str, Any]] = {}
@@ -464,7 +482,9 @@ def _fetch_stickers_map(
         chunk = ids[i : i + 100]
         if not chunk:
             continue
-        stickers = client.get_order_stickers(chunk, sticker_type="png", width=58, height=40)
+        stickers = client.get_order_stickers(
+            chunk, sticker_type=stype, width=58, height=40
+        )
         for s in stickers:
             if not isinstance(s, dict):
                 continue
@@ -472,10 +492,18 @@ def _fetch_stickers_map(
                 oid = int(s.get("orderId"))
             except (TypeError, ValueError):
                 continue
-            result[oid] = s
+            if keep_files:
+                result[oid] = s
+            else:
+                result[oid] = {
+                    "orderId": oid,
+                    "partA": s.get("partA"),
+                    "partB": s.get("partB"),
+                    "barcode": s.get("barcode"),
+                }
         time.sleep(0.21)
     if api_key and result:
-        _cache_put_stickers(api_key, ids, result)
+        _cache_put_stickers(api_key, ids, result, sticker_type=stype)
     return result
 
 
@@ -821,8 +849,9 @@ def get_supply_detail_for_print(
     source_id: int,
     api_key: str,
     supply_id: str,
+    refresh_order_ids: bool = True,
 ) -> dict[str, Any]:
-    """Detail for print: modal cache → local + one order-ids refresh → full detail."""
+    """Detail for print: modal cache → local (+ optional order-ids) → full detail."""
     cached = _cache_get_detail(
         user_id=user_id, source_id=source_id, supply_id=supply_id
     )
@@ -835,7 +864,7 @@ def get_supply_detail_for_print(
             source_id=source_id,
             api_key=api_key,
             supply_id=supply_id,
-            refresh_order_ids=True,
+            refresh_order_ids=refresh_order_ids,
         )
     except Exception as exc:
         _log.warning("print local detail fallback %s: %s", supply_id, exc)
@@ -887,26 +916,52 @@ def build_article_groups_for_print(
     ``picking_list`` needs partA/partB (+ color); ``stickers`` also needs PNG file.
     Both share detail/sticker/color caches so the second print is cheap.
     """
+    picking = mode == "picking_list"
     detail = get_supply_detail_for_print(
         repo,
         user_id=user_id,
         source_id=source_id,
         api_key=api_key,
         supply_id=supply_id,
+        # Sync already linked orders locally — skip live order-ids for picking list.
+        refresh_order_ids=not picking,
     )
     # Detail cache may be from modal open — refresh product names for print.
     _refresh_product_names(repo, user_id=user_id, orders=detail.get("orders") or [])
     order_ids = [int(o["order_id"]) for o in detail["orders"] if o.get("order_id") is not None]
     client = wb.WbFbsClient(api_key)
-    # Always fetch/cache full PNG stickers (official). Picking list only embeds codes.
-    stickers = _fetch_stickers_map(client, order_ids, api_key=api_key)
+    # Picking list needs only partA/partB (SVG is much lighter than PNG base64).
+    # Stickers print still uses official PNG files.
+    stickers = _fetch_stickers_map(
+        client,
+        order_ids,
+        api_key=api_key,
+        sticker_type="svg" if picking else "png",
+        keep_files=not picking,
+    )
+    if picking:
+        # If SVG response lacked codes, fall back once to PNG metadata (still no keep_files).
+        missing_codes = sum(
+            1
+            for oid in order_ids
+            if not str((stickers.get(oid) or {}).get("partB") or "").strip()
+        )
+        if order_ids and missing_codes > max(1, len(order_ids) // 2):
+            stickers = _fetch_stickers_map(
+                client,
+                order_ids,
+                api_key=api_key,
+                sticker_type="png",
+                keep_files=False,
+            )
     nm_ids: list[int] = []
     for o in detail["orders"]:
         try:
             nm_ids.append(int(o.get("nm_id")))
         except (TypeError, ValueError):
             continue
-    card_meta = fetch_card_meta_by_nm(api_key, nm_ids)
+    # Content color/brand is not part of FBS sync — skip live Content for picking list.
+    card_meta = fetch_card_meta_by_nm(api_key, nm_ids, network=not picking)
     include_files = mode == "stickers"
     orders_full = []
     for o in detail["orders"]:
@@ -1373,21 +1428,27 @@ def render_picking_list_pdf(
     *,
     repo: ReviewRepository | None = None,
     user_id: int | None = None,
+    embed_photos: bool = False,
 ) -> bytes:
-    """A4 picking list as PDF for direct print/download (no HTML page)."""
+    """A4 picking list as PDF for direct print/download (no HTML page).
+
+    Photo embedding is off by default: local photos are already in DB, but
+    inlining dozens of images makes LibreOffice conversion the slow step.
+    """
     html_doc = render_picking_list_html(payload, for_pdf=True)
-    local_paths: dict[int, str] | None = None
-    if repo is not None and user_id is not None:
+    if embed_photos and repo is not None and user_id is not None:
+        local_paths: dict[int, str] | None = None
         try:
             local_paths = _local_photo_paths_for_user(repo, user_id=int(user_id))
         except Exception as exc:
             _log.debug("picking local photo map: %s", exc)
             local_paths = None
-    html_doc = _embed_picking_list_photos(
-        html_doc,
-        list(payload.get("groups") or []),
-        local_photo_paths=local_paths,
-    )
+        html_doc = _embed_picking_list_photos(
+            html_doc,
+            list(payload.get("groups") or []),
+            local_photo_paths=local_paths,
+            max_photos=12,
+        )
     return html_to_pdf_bytes(html_doc, basename="wb_fbs_picking_list")
 
 
