@@ -7893,18 +7893,47 @@ button.wb-fbs-select-all-link:disabled {
   border-color: #f87171;
   background: #fef2f2;
 }
-.wb-fbs-kiz-add {
-  margin-top: 4px;
+button.wb-fbs-kiz-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  min-height: 32px;
+  padding: 4px 10px;
   border: 0;
+  border-radius: 8px;
   background: transparent;
+  box-shadow: none;
   color: #2563eb;
   font-size: 14px;
   font-weight: 600;
+  line-height: 1.2;
   cursor: pointer;
-  padding: 4px 0;
   text-align: left;
+  transform: none;
 }
-.wb-fbs-kiz-add:hover { color: #1d4ed8; }
+button.wb-fbs-kiz-add:hover {
+  color: #1d4ed8;
+  background: #eff6ff;
+  box-shadow: none;
+  transform: none;
+}
+button.wb-fbs-kiz-add:active {
+  color: #1e40af;
+  background: #dbeafe;
+  box-shadow: none;
+  transform: none;
+}
+button.wb-fbs-kiz-add:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+  box-shadow: none;
+}
+button.wb-fbs-kiz-add:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background: transparent;
+}
 .wb-fbs-kiz-remove {
   flex: 0 0 32px;
   width: 32px;
