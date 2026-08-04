@@ -19126,14 +19126,21 @@ async function saveWbFbsKizModal() {
           row.kiz_bound = r.kiz_codes.length > 0;
           row.kiz_wb_synced = true;
           row.kiz_local = r.kiz_codes.length > 0;
+          row.kiz_status = r.kiz_codes.length ? "pending" : "empty";
+          row.kiz_decision = r.kiz_codes.length ? "required" : "";
         } else if (r.local_ok) {
           row.kiz_wb_synced = false;
+          row.kiz_status = r.kiz_codes.length ? "pending" : "empty";
         }
       }
       if (!r.wb_ok) {
         const err = r.error || "Ошибка записи в WB";
         wbFbsKizState.errors[oid] = err;
         wbFailNotes.push(`заказ ${oid}: ${err}`);
+        if (row && Array.isArray(r.kiz_codes) && r.kiz_codes.length) {
+          // Save/API failure on a filled code → show error under the code.
+          row.kiz_status = "error";
+        }
       }
     }
     renderWbFbsKizTable({ skipCollect: true });
