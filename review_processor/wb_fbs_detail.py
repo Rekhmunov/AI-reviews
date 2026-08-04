@@ -943,9 +943,12 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
     created = _esc(detail.get("created_date"))
     cargo = _esc(detail.get("cargo_label") or "")
     total = int(detail.get("order_count") or 0)
-    rows_html: list[str] = []
-    for g in groups:
-        qty = int(g.get("qty") or 0)
+    body_rows: list[str] = []
+    for g_idx, g in enumerate(groups):
+        orders = list(g.get("orders") or [])
+        qty = int(g.get("qty") or len(orders) or 0)
+        if qty <= 0:
+            continue
         photo = str(g.get("product_photo") or "")
         photo_html = (
             f'<img class="photo" src="{_esc(photo)}" alt="" />'
@@ -956,53 +959,76 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
         brand = str(g.get("brand") or "").strip()
         article = str(g.get("article") or "").strip()
         product_name = str(g.get("product_name") or "").strip()
-        color_html = f'<div class="color">Цвет: {_esc(color)}</div>' if color else ""
-        order_lines = []
-        for idx, o in enumerate(g.get("orders") or [], start=1):
+        meta_bits = [
+            f'<div class="sku-title">{_esc(product_name or "—")}</div>'
+        ]
+        if brand:
+            meta_bits.append(f'<div class="sku-meta">{_esc(brand)}</div>')
+        if article:
+            meta_bits.append(f'<div class="sku-article">{_esc(article)}</div>')
+        if color:
+            meta_bits.append(f'<div class="color">Цвет: {_esc(color)}</div>')
+        meta_bits.append(f'<div class="sku-qty">{qty} шт</div>')
+        product_html = (
+            f'<div class="sku-cell">{photo_html}'
+            f'<div class="sku-text">{"".join(meta_bits)}</div></div>'
+        )
+        is_last_group = g_idx >= len(groups) - 1
+        for idx, o in enumerate(orders, start=1):
+            is_last_order = idx == len(orders)
+            # Жирный низ после последнего заказа артикула (кроме самого конца таблицы).
+            row_cls = "order-row"
+            if is_last_order and not is_last_group:
+                row_cls += " article-end"
             part_a = _esc(o.get("sticker_part_a") or "—")
             part_b = _esc(o.get("sticker_part_b") or "")
-            order_lines.append(
-                f"""<tr class="order-row">
+            lead = ""
+            if idx == 1:
+                lead = (
+                    f'<td class="photo-td" rowspan="{len(orders)}">{product_html}</td>'
+                )
+            body_rows.append(
+                f"""<tr class="{row_cls}">
+                  {lead}
                   <td class="idx">{idx}</td>
                   <td class="oid">Заказ: {_esc(o.get("order_id"))}</td>
                   <td class="sticker">Стикер WB: {part_a}</td>
                   <td class="partb">{part_b}</td>
+                  <td class="check"><span class="box"></span></td>
+                  <td class="check"><span class="box"></span></td>
                 </tr>"""
             )
-        # Порядок как в ЛК WB: наименование (из настроек Товары) → бренд → артикул → цвет.
-        meta_lines = []
-        meta_lines.append(
-            f'<div class="sku-title">{_esc(product_name or "—")}</div>'
-        )
-        if brand:
-            meta_lines.append(f'<div class="sku-meta">{_esc(brand)}</div>')
-        if article:
-            meta_lines.append(f'<div class="sku-article">{_esc(article)}</div>')
-        if color_html:
-            meta_lines.append(color_html)
-        meta_lines.append(f'<div class="sku-qty">{qty} шт</div>')
-        rows_html.append(
-            f"""
-            <section class="sku-block">
-              <div class="sku-head">
-                {photo_html}
-                <div class="sku-text">
-                  {''.join(meta_lines)}
-                </div>
-                <div class="sku-stats">
-                  <div class="stat"><span>Собрано</span><strong>0/{qty}</strong></div>
-                  <div class="stat"><span>Упаковано</span><strong>0/{qty}</strong></div>
-                </div>
-              </div>
-              <table class="orders">
-                <colgroup>
-                  <col class="c-idx" /><col class="c-oid" /><col class="c-sticker" /><col class="c-partb" />
-                </colgroup>
-                <tbody>{''.join(order_lines)}</tbody>
-              </table>
-            </section>
-            """
-        )
+    table_html = (
+        f"""
+        <table class="picking">
+          <colgroup>
+            <col class="c-product" />
+            <col class="c-idx" />
+            <col class="c-oid" />
+            <col class="c-sticker" />
+            <col class="c-partb" />
+            <col class="c-check" />
+            <col class="c-check" />
+          </colgroup>
+          <thead>
+            <tr>
+              <th class="product-h">Товар</th>
+              <th>№</th>
+              <th>Заказ</th>
+              <th>Стикер WB</th>
+              <th></th>
+              <th>Собрано</th>
+              <th>Упаковано</th>
+            </tr>
+          </thead>
+          <tbody>
+            {''.join(body_rows) if body_rows else '<tr><td colspan="7" class="empty">Нет заказов в поставке.</td></tr>'}
+          </tbody>
+        </table>
+        """
+        if groups
+        else '<p class="empty">Нет заказов в поставке.</p>'
+    )
     return f"""<!doctype html>
 <html lang="ru">
 <head>
@@ -1040,85 +1066,101 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
     }}
     .summary {{
       display: grid; grid-template-columns: 1fr 1fr 1fr;
-      margin: 0 0 12px; border: 1px solid #cbd5e1; background: #eef2f7;
+      margin: 0 0 12px; border: 1px solid #0f172a; border-collapse: collapse;
+      background: #eef2f7;
     }}
     .summary div {{
       padding: 8px 12px; font-size: 12px; font-weight: 700; line-height: 1.3;
-      border-right: 1px solid #cbd5e1;
+      border-right: 1px solid #0f172a;
     }}
     .summary div:last-child {{ border-right: 0; }}
-    .sku-block {{
-      margin: 0 0 8px; border: 1px solid #e2e8f0; border-radius: 8px;
-      overflow: hidden; page-break-inside: avoid; background: #fff;
+    table.picking {{
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      border: 1px solid #0f172a;
+      background: #fff;
     }}
-    .sku-block:last-of-type {{ margin-bottom: 0; }}
-    .sku-head {{
-      display: grid;
-      grid-template-columns: 56px minmax(0, 1fr) 88px;
-      column-gap: 12px;
-      align-items: start;
-      padding: 12px;
-      border-bottom: 1px solid #f1f5f9;
+    table.picking .c-product {{ width: 28%; }}
+    table.picking .c-idx {{ width: 28px; }}
+    table.picking .c-oid {{ width: 18%; }}
+    table.picking .c-sticker {{ width: 18%; }}
+    table.picking .c-partb {{ width: 12%; }}
+    table.picking .c-check {{ width: 64px; }}
+    table.picking th,
+    table.picking td {{
+      border: 1px solid #0f172a;
+      padding: 6px 8px;
+      vertical-align: middle;
+      font-size: 12px;
+      line-height: 1.3;
+    }}
+    table.picking thead th {{
+      background: #f1f5f9;
+      font-weight: 700;
+      text-align: center;
+    }}
+    table.picking th.product-h {{ text-align: left; }}
+    .sku-cell {{
+      display: flex; align-items: flex-start; gap: 8px;
     }}
     .photo {{
-      width: 56px; height: 56px; object-fit: cover;
-      border-radius: 6px; border: 1px solid #e2e8f0; display: block;
+      width: 48px; height: 48px; object-fit: cover;
+      border: 1px solid #cbd5e1; display: block; flex: 0 0 48px;
     }}
     .photo.ph {{ background: #f1f5f9; }}
     .sku-text {{ min-width: 0; }}
     .sku-title {{
-      margin: 0 0 4px; font-size: 13px; font-weight: 700; line-height: 1.3;
+      margin: 0 0 2px; font-size: 12px; font-weight: 700; line-height: 1.25;
+      white-space: normal;
     }}
     .sku-meta, .color {{
-      margin: 0 0 4px; color: #64748b; font-size: 12px; line-height: 1.3;
+      margin: 0 0 2px; color: #475569; font-size: 11px; line-height: 1.25;
+      white-space: normal;
     }}
     .sku-article {{
-      margin: 0 0 4px; color: #0f172a; font-size: 12px; font-weight: 700; line-height: 1.3;
+      margin: 0 0 2px; color: #0f172a; font-size: 12px; font-weight: 700; line-height: 1.25;
+      white-space: normal;
     }}
     .sku-qty {{
-      margin: 0; font-size: 12px; font-weight: 700; line-height: 1.3; color: #0f172a;
+      margin: 0; font-size: 12px; font-weight: 700; line-height: 1.25; color: #0f172a;
     }}
-    .sku-stats {{
-      display: flex; flex-direction: column; gap: 8px;
-      align-items: flex-end; text-align: right;
-    }}
-    .sku-stats .stat span {{
-      display: block; margin: 0 0 2px; color: #64748b;
-      font-size: 11px; font-weight: 600; line-height: 1.2;
-    }}
-    .sku-stats .stat strong {{
-      display: block; margin: 0; color: #0f172a;
-      font-size: 14px; font-weight: 700; line-height: 1.2;
-    }}
-    table.orders {{
-      width: 100%; border-collapse: collapse; table-layout: fixed;
-    }}
-    table.orders .c-idx {{ width: 40px; }}
-    table.orders .c-oid {{ width: 32%; }}
-    table.orders .c-sticker {{ width: 40%; }}
-    table.orders .c-partb {{ width: auto; }}
-    .order-row td {{
-      padding: 8px 12px; border-top: 1px solid #f1f5f9;
-      vertical-align: middle; font-size: 12px; line-height: 1.3;
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    }}
-    .order-row:first-child td {{ border-top: 0; }}
+    .photo-td {{ vertical-align: top; background: #fafafa; }}
     .order-row .idx {{
-      color: #94a3b8; font-weight: 600; text-align: left;
+      color: #64748b; font-weight: 600; text-align: center; white-space: nowrap;
     }}
-    .order-row .oid, .order-row .sticker {{ color: #334155; }}
+    .order-row .oid,
+    .order-row .sticker {{
+      color: #334155; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }}
     .order-row .partb {{
       text-align: right;
-      font-size: 16px; font-weight: 800; letter-spacing: 0.02em; color: #0f172a;
+      font-size: 15px; font-weight: 800; letter-spacing: 0.02em; color: #0f172a;
+      white-space: nowrap;
     }}
-    .empty {{ margin: 0; padding: 16px 0; color: #64748b; }}
+    .order-row .check {{
+      text-align: center; width: 64px;
+    }}
+    .order-row .check .box {{
+      display: inline-block;
+      width: 16px; height: 16px;
+      border: 1.5px solid #0f172a;
+      background: #fff;
+      vertical-align: middle;
+    }}
+    /* Жирный разделитель между артикулами внутри одной таблицы */
+    tr.article-end > td {{
+      border-bottom: 3px solid #0f172a;
+    }}
+    .empty {{ margin: 0; padding: 12px; color: #64748b; text-align: center; }}
     .foot {{
       margin: 12px 0 0; color: #94a3b8; font-size: 11px; line-height: 1.3;
     }}
     @media print {{
       .no-print {{ display: none !important; }}
       body {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
-      .sku-block {{ break-inside: avoid; }}
+      table.picking {{ page-break-inside: auto; }}
+      tr {{ page-break-inside: avoid; }}
     }}
   </style>
 </head>
@@ -1136,7 +1178,7 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
     <div>Собрано 0 / {total}</div>
     <div>Упаковано 0 / {total}</div>
   </div>
-  {''.join(rows_html) if rows_html else '<p class="empty">Нет заказов в поставке.</p>'}
+  {table_html}
   <div class="foot">Сформировано в FeedPilot · A4 книжная</div>
 </body>
 </html>"""
