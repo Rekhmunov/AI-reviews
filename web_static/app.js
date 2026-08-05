@@ -4751,7 +4751,16 @@ function _ozonPollSync() {
       const stopBtn = document.getElementById("ozonStopBtn");
       if (btn) { btn.disabled = false; btn.textContent = "🔄 Синхронизировать"; }
       if (stopBtn) { stopBtn.classList.add("hidden"); stopBtn.disabled = false; stopBtn.textContent = "🛑"; }
-      if (info) { info.textContent = d.message || `Готово. Загружено ${synced} поставок.`; info.style.color = "#16a34a"; }
+      const hasErrors = Array.isArray(d.errors) && d.errors.length;
+      if (info) {
+        let finalText = d.message || `Готово. Загружено ${synced} поставок.`;
+        // Prefer explicit error texts if message only has a count
+        if (hasErrors && !/Ошибки\s*\(\d+\):/.test(finalText) && !/; /.test(finalText)) {
+          finalText = `Готово. Загружено ${synced} поставок. Ошибки (${d.errors.length}): ${d.errors.join("; ")}`;
+        }
+        info.textContent = finalText;
+        info.style.color = hasErrors ? "#b45309" : "#16a34a";
+      }
       await loadOzonSupplies(true);
     }
   }, 1000);

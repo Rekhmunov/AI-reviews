@@ -10633,8 +10633,16 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                                 break
                         except Exception as ex:
                             list_ok = False
+                            code = getattr(ex, "code", None)
                             _log.error("ozon sync list error src=%s: %s", src.get("name","?"), ex, exc_info=True)
-                            errors.append(f"list: {ex}"); break
+                            if code == 403:
+                                # Typical for returns-only / limited API keys — skip source, keep syncing others.
+                                errors.append(
+                                    f"«{src.get('name') or '?'}»: нет прав на поставки (403 Forbidden)"
+                                )
+                            else:
+                                errors.append(f"«{src.get('name') or '?'}»: list: {ex}")
+                            break
 
                     # Purge local rows for cancelled/deleted Ozon orders.
                     # Sync list excludes CANCELLED; orders deleted in Ozon LK disappear from
@@ -10880,10 +10888,23 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             finally:
                 cancelled = bool(_ozon_sync_state.get("cancel_requested"))
                 with _ozon_sync_lock:
-                    _ozon_sync_state.update({"in_progress": False, "synced": total_synced, "errors": errors,
+                    if cancelled:
+                        msg = f"Остановлено. Загружено {total_synced} поставок OZON."
+                    else:
+                        msg = f"Готово. Загружено {total_synced} поставок OZON."
+                        if errors:
+                            # Show actual texts — UI used to display only "Ошибки: N".
+                            detail = "; ".join(str(e) for e in errors[:3])
+                            if len(errors) > 3:
+                                detail += f" … (+{len(errors) - 3})"
+                            msg += f" Ошибки ({len(errors)}): {detail}"
+                    _ozon_sync_state.update({
+                        "in_progress": False,
+                        "synced": total_synced,
+                        "errors": errors,
                         "cancel_requested": False,
-                        "message": (f"Остановлено. Загружено {total_synced} поставок OZON." if cancelled
-                                    else f"Готово. Загружено {total_synced} поставок OZON." + (f" Ошибки: {len(errors)}" if errors else ""))})
+                        "message": msg,
+                    })
 
         _thr.Thread(target=_run_ozon_sync, daemon=True).start()
         return {"ok": True, "message": "Синхронизация OZON запущена"}
