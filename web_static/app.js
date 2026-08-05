@@ -18426,10 +18426,13 @@ function _wbFbsKizNormalizeScan(value) {
 
 /** КИЗ / Data Matrix: scanners often emit ↔ instead of GS (\\u001D). */
 function _wbFbsKizNormalizeMark(value) {
-  return String(value || "")
-    .replace(/\u2194/g, "\u001D") // ↔
-    .replace(/\r?\n/g, "")
-    .trim();
+  // Also fix RU keyboard layout: crypto/tail letters of sgtin arrive as Cyrillic
+  // when the OS layout is Russian (same wedge-scanner issue as sticker QR).
+  return _wbFbsFixRuKeyboardLayout(
+    String(value || "")
+      .replace(/\u2194/g, "\u001D") // ↔
+      .replace(/\r?\n/g, "")
+  ).trim();
 }
 
 /** GS1 AI 01 → 14-digit GTIN from the start of a КИЗ / sgtin payload. */
@@ -18821,8 +18824,16 @@ function onWbFbsKizMarkScanKey(event) {
   if (!event || event.key !== "Enter") return;
   event.preventDefault();
   const oid = Number(wbFbsKizState.pendingOrderId);
-  const mark = _wbFbsKizNormalizeMark(event.target?.value);
+  const input = event.target;
+  const rawTyped = String(input?.value || "").replace(/\r?\n/g, "");
+  const mark = _wbFbsKizNormalizeMark(rawTyped);
   if (!oid || !mark) return;
+  if (input && mark !== _wbFbsKizNormalizeMark(rawTyped.replace(/[а-яёА-ЯЁ]/g, "\0"))) {
+    // If RU letters were remapped, keep the corrected Latin mark in the field.
+    input.value = mark.replace(/\u001D/g, "\u2194");
+  } else if (input && /[а-яёА-ЯЁ]/.test(rawTyped)) {
+    input.value = mark.replace(/\u001D/g, "\u2194");
+  }
   _wbFbsKizCollectFromDom();
   const row = wbFbsKizState.rows.find((r) => Number(r.order_id) === oid);
   if (!row) {
@@ -18832,7 +18843,7 @@ function onWbFbsKizMarkScanKey(event) {
   const check = _wbFbsKizValidateMarkForOrder(mark, row);
   if (!check.ok) {
     _wbFbsKizSetInfo(check.error || "Маркировка не подходит к ШК товара в заказе");
-    if (event.target) event.target.select();
+    if (input) input.select();
     return;
   }
   if (!Array.isArray(row.kiz_codes) || !row.kiz_codes.length) row.kiz_codes = [""];
