@@ -5209,6 +5209,7 @@ async function ozonCombinedTTN() {
 window.loadOzonSupplies = loadOzonSupplies;
 window.renderOzonTable = renderOzonTable;
 window.syncOzonSupplies = syncOzonSupplies;
+window._ozonToggleSyncDetails = _ozonToggleSyncDetails;
 window.stopOzonSync = stopOzonSync;
 window.copyOzonDetails = copyOzonDetails;
 window.clearOzonSupplies = clearOzonSupplies;
