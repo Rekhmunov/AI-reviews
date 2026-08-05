@@ -9338,23 +9338,34 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         # Build name map from our product catalog — OZON: by SKU first
         name_map = repository.get_product_name_by_ozon_sku(user_id=owner_id)
         name_map_art = repository.get_product_name_by_article(user_id=owner_id)
-        cached = repository.get_ozon_supply_goods(user_id=owner_id, supply_order_id=supply_order_id)
-        if cached:
-            for g in cached:
+        # Editable in Ozon LK — do not trust local composition cache for these states.
+        _ozon_composition_refresh_states = frozenset({"DATA_FILLING", "READY_TO_SUPPLY"})
+
+        def _apply_product_names(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+            for g in rows:
                 sku_key = str(g.get("sku") or "").strip()
                 offer_id = str(g.get("offer_id") or "").strip()
-                g["product_name"] = name_map.get(sku_key) or name_map_art.get(offer_id) or offer_id or g.get("name") or ""
-            return cached
-        # Lazy-load from OZON API
-        import urllib.request as _ul, json as _jj, ssl as _sl
+                g["product_name"] = (
+                    name_map.get(sku_key) or name_map_art.get(offer_id) or offer_id or g.get("name") or ""
+                )
+            return rows
+
         item_row = repository.get_ozon_supply_item_row(user_id=owner_id, supply_order_id=supply_order_id)
         if not item_row:
             _log.warning("ozon goods: item_row not found for supply_order_id=%d user=%d", supply_order_id, owner_id)
             return []
+        state = str(item_row.get("state") or "")
+        cached = repository.get_ozon_supply_goods(user_id=owner_id, supply_order_id=supply_order_id)
+        # Frozen supplies: serve DB cache. Editable: refresh from Ozon so LK edits show up.
+        if cached and state not in _ozon_composition_refresh_states:
+            return _apply_product_names(cached)
+
+        # Lazy-load / refresh from OZON API
+        import urllib.request as _ul, json as _jj, ssl as _sl
         src = repository.get_supply_source_with_key(user_id=owner_id, source_id=int(item_row["source_id"]))
         if not src or not src.get("api_key"):
             _log.warning("ozon goods: no api_key for source_id=%s", item_row.get("source_id"))
-            return []
+            return _apply_product_names(cached) if cached else []
         client_id = str(src.get("client_id") or "")
         api_key = str(src["api_key"])
         ctx = _sl.create_default_context()
@@ -9384,7 +9395,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
         if not bundle_ids:
             _log.warning("ozon goods: still no bundle_ids for supply_order_id=%d", supply_order_id)
-            return []
+            return _apply_product_names(cached) if cached else []
 
         goods = []
         try:
@@ -9394,30 +9405,20 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             with _ul.urlopen(req, context=ctx, timeout=15) as r:
                 resp = _jj.loads(r.read())
             goods = resp.get("items") or []
-            if goods and item_row.get("id"):
+            if item_row.get("id"):
                 repository.upsert_ozon_supply_goods(supply_item_id=int(item_row["id"]), goods=goods)
                 total_qty = sum(int(g.get("quantity") or 0) for g in goods)
-                if total_qty > 0:
-                    repository.update_ozon_supply_total_quantity(
-                        supply_order_id=supply_order_id, total_quantity=total_qty)
+                repository.update_ozon_supply_total_quantity(
+                    supply_order_id=supply_order_id, total_quantity=total_qty)
         except Exception as ex:
             _log.warning("ozon goods bundle call sid=%d: %s", supply_order_id, ex)
+            if cached:
+                return _apply_product_names(cached)
         result = repository.get_ozon_supply_goods(user_id=owner_id, supply_order_id=supply_order_id) or [
             {"sku": g.get("sku"), "name": g.get("name"), "quantity": g.get("quantity"),
              "barcode": g.get("barcode"), "offer_id": g.get("offer_id")} for g in goods
         ]
-        # Apply product name — OZON: SKU first, fallback to offer_id
-        for g in result:
-            sku_key = str(g.get("sku") or "").strip()
-            offer_id = str(g.get("offer_id") or "").strip()
-            g["product_name"] = name_map.get(sku_key) or name_map_art.get(offer_id) or offer_id or g.get("name") or ""
-        # Recalculate total_quantity from what we have and update DB
-        if result:
-            total_qty = sum(int(g.get("quantity") or 0) for g in result)
-            if total_qty > 0:
-                repository.update_ozon_supply_total_quantity(
-                    supply_order_id=supply_order_id, total_quantity=total_qty)
-        return result
+        return _apply_product_names(result)
 
     @app.get("/api/ozon-supplies/{supply_order_id}/cargoes-info")
     def get_ozon_supply_cargoes(request: Request, supply_order_id: int) -> dict[str, object]:
@@ -10537,6 +10538,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "REPORT_REJECTED",
             "COMPLETED",
         ]
+        # Composition can still change in Ozon LK while supply is being filled / ready.
+        # Later states are frozen — skip bundle re-fetch there for sync speed.
+        COMPOSITION_REFRESH_STATES = frozenset({"DATA_FILLING", "READY_TO_SUPPLY"})
         import threading as _thr
         from datetime import datetime as _odt, timezone as _otz, timedelta as _otd
         _ozon_now = _odt.now(_otz.utc)
@@ -10589,8 +10593,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     except Exception as ex:
                         _log.warning("ozon cluster cache: %s", ex)
 
-                    # Pre-load existing quantities — skip bundle API when already loaded (speed).
-                    # Vehicle/cargoes are always refreshed below — seller can change them in OZON.
+                    # Pre-load existing quantities — skip bundle API for frozen supplies (speed).
+                    # Editable states (DATA_FILLING / READY_TO_SUPPLY) always refresh composition:
+                    # seller can change goods in Ozon LK after the first sync.
+                    # Vehicle/cargoes are always refreshed below.
                     existing_items = repository.list_ozon_supply_items(
                         user_id=owner_id, source_id=int(src["id"])
                     )
@@ -10738,8 +10744,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                                     if sid > 0:
                                         order_supply_ids[oid] = sid
                                         break
-                                # Bundle qty only if not loaded yet (expensive); vehicle/cargoes always refreshed
-                                if existing_qty.get(oid, 0) == 0:
+                                # Bundle: first load, or editable states where LK composition may change
+                                state = str(order.get("state") or "")
+                                need_bundle = (
+                                    existing_qty.get(oid, 0) == 0
+                                    or state in COMPOSITION_REFRESH_STATES
+                                )
+                                if need_bundle:
                                     for s in supplies_list:
                                         bid = str(s.get("bundle_id") or "")
                                         if bid:
@@ -10769,11 +10780,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                                         bq_resp = _jj.loads(bq_r.read())
                                     goods = bq_resp.get("items") or []
                                     total_qty = sum(int(g.get("quantity") or 0) for g in goods)
-                                    if total_qty > 0:
-                                        repository.update_ozon_supply_total_quantity(
-                                            supply_order_id=order_id, total_quantity=total_qty)
-                                    if goods and item_id:
-                                        repository.upsert_ozon_supply_goods(supply_item_id=item_id, goods=goods)
+                                    # Always replace local composition after a successful bundle fetch
+                                    # (including empty / reduced qty — otherwise LK edits stay stale).
+                                    if item_id:
+                                        repository.upsert_ozon_supply_goods(
+                                            supply_item_id=item_id, goods=goods
+                                        )
+                                    repository.update_ozon_supply_total_quantity(
+                                        supply_order_id=order_id, total_quantity=total_qty
+                                    )
                                     break  # success
                                 except Exception as bex:
                                     code = getattr(bex, "code", None)
