@@ -18696,6 +18696,14 @@ function renderWbFbsKizTable(opts) {
       ? `<img class="wb-fbs-product-photo" src="${_wbFbsEsc(r.product_photo)}" alt="" width="56" height="56" loading="lazy">`
       : `<span class="wb-fbs-product-ph" aria-hidden="true"></span>`;
     const brandArt = [r.brand, r.article ? `Арт. ${r.article}` : ""].filter(Boolean).join(" · ");
+    const barcodes = Array.isArray(r.barcodes)
+      ? r.barcodes
+      : (Array.isArray(r.skus) ? r.skus : []);
+    const barcodeHtml = barcodes.length
+      ? `<div class="wb-fbs-kiz-barcodes" title="Штрихкод товара">${barcodes.map((b) =>
+          `<div class="wb-fbs-kiz-barcode">${_wbFbsEsc(b)}</div>`
+        ).join("")}</div>`
+      : "";
     // Do not put КИЗ into value="" via innerHTML — \\u001D is dropped by HTML parser.
     const canRemove = codes.length > 1;
     const codeHtml = codes.map((code, idx) => {
@@ -18728,6 +18736,7 @@ function renderWbFbsKizTable(opts) {
           <div class="wb-fbs-product-text">
             <div class="wb-fbs-product-name" title="${_wbFbsEsc(r.product_name || r.article || "")}">${_wbFbsEsc(r.product_name || r.article || "—")}</div>
             <div class="wb-fbs-product-sub">${_wbFbsEsc(brandArt || "—")}</div>
+            ${barcodeHtml}
           </div>
         </div>
       </td>
