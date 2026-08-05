@@ -18388,8 +18388,40 @@ function _wbFbsKizSetInfo(text, ok) {
   el.classList.toggle("is-ok", !!ok);
 }
 
+/**
+ * Keyboard-wedge scanners type as a keyboard. With RU layout, Latin sticker
+ * barcodes (e.g. !uKEtQZVx) arrive as Cyrillic on the same physical keys.
+ * Map ЙЦУКЕН → QWERTY before order lookup.
+ */
+const _WB_FBS_RU_LAYOUT_TO_EN = {
+  "й": "q", "ц": "w", "у": "e", "к": "r", "е": "t", "н": "y", "г": "u", "ш": "i",
+  "щ": "o", "з": "p", "х": "[", "ъ": "]",
+  "ф": "a", "ы": "s", "в": "d", "а": "f", "п": "g", "р": "h", "о": "j", "л": "k",
+  "д": "l", "ж": ";", "э": "'",
+  "я": "z", "ч": "x", "с": "c", "м": "v", "и": "b", "т": "n", "ь": "m", "б": ",",
+  "ю": ".", "ё": "`",
+  "Й": "Q", "Ц": "W", "У": "E", "К": "R", "Е": "T", "Н": "Y", "Г": "U", "Ш": "I",
+  "Щ": "O", "З": "P", "Х": "{", "Ъ": "}",
+  "Ф": "A", "Ы": "S", "В": "D", "А": "F", "П": "G", "Р": "H", "О": "J", "Л": "K",
+  "Д": "L", "Ж": ":", "Э": "\"",
+  "Я": "Z", "Ч": "X", "С": "C", "М": "V", "И": "B", "Т": "N", "Ь": "M", "Б": "<",
+  "Ю": ">", "Ё": "~",
+};
+
+function _wbFbsFixRuKeyboardLayout(value) {
+  const text = String(value || "");
+  if (!/[а-яёА-ЯЁ]/.test(text)) return text;
+  let out = "";
+  for (const ch of text) {
+    out += Object.prototype.hasOwnProperty.call(_WB_FBS_RU_LAYOUT_TO_EN, ch)
+      ? _WB_FBS_RU_LAYOUT_TO_EN[ch]
+      : ch;
+  }
+  return out;
+}
+
 function _wbFbsKizNormalizeScan(value) {
-  return String(value || "").replace(/\s+/g, "").trim();
+  return _wbFbsFixRuKeyboardLayout(String(value || "").replace(/\s+/g, "")).trim();
 }
 
 /** КИЗ / Data Matrix: scanners often emit ↔ instead of GS (\\u001D). */
@@ -18728,8 +18760,11 @@ function onWbFbsKizStickerScanKey(event) {
   if (!event || event.key !== "Enter") return;
   event.preventDefault();
   const input = event.target;
-  const scan = _wbFbsKizNormalizeScan(input?.value);
+  const rawTyped = String(input?.value || "").replace(/\s+/g, "").trim();
+  const scan = _wbFbsKizNormalizeScan(rawTyped);
   if (!scan) return;
+  // Show Latin barcode after RU-layout correction so the operator sees the fix.
+  if (input && scan !== rawTyped) input.value = scan;
   _wbFbsKizCollectFromDom();
   const found = _wbFbsKizFindBySticker(scan);
   if (found.ambiguous) {
