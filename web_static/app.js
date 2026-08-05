@@ -18825,13 +18825,11 @@ function onWbFbsKizMarkScanKey(event) {
   event.preventDefault();
   const oid = Number(wbFbsKizState.pendingOrderId);
   const input = event.target;
-  const rawTyped = String(input?.value || "").replace(/\r?\n/g, "");
+  const rawTyped = String(input?.value || "");
   const mark = _wbFbsKizNormalizeMark(rawTyped);
   if (!oid || !mark) return;
-  if (input && mark !== _wbFbsKizNormalizeMark(rawTyped.replace(/[а-яёА-ЯЁ]/g, "\0"))) {
-    // If RU letters were remapped, keep the corrected Latin mark in the field.
-    input.value = mark.replace(/\u001D/g, "\u2194");
-  } else if (input && /[а-яёА-ЯЁ]/.test(rawTyped)) {
+  // Show Latin mark after RU-layout correction (↔ stands in for GS in the field).
+  if (input && /[а-яёА-ЯЁ]/.test(rawTyped)) {
     input.value = mark.replace(/\u001D/g, "\u2194");
   }
   _wbFbsKizCollectFromDom();
