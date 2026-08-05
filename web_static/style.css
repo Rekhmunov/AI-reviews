@@ -7875,6 +7875,18 @@ button.wb-fbs-sd-portal-btn:focus-visible {
   font-variant-numeric: tabular-nums;
   color: #0f172a;
   word-break: break-all;
+  line-height: 1.2;
+}
+.wb-fbs-kiz-sticker-head {
+  font-size: 14px;
+  font-weight: 600;
+  color: #334155;
+}
+.wb-fbs-kiz-sticker-tail {
+  font-size: 22px;
+  font-weight: 700;
+  color: #0f172a;
+  margin-left: 2px;
 }
 .wb-fbs-kiz-codes {
   display: flex;

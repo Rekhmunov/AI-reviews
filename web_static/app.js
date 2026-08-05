@@ -18618,6 +18618,34 @@ async function openWbFbsKizModal() {
 }
 window.openWbFbsKizModal = openWbFbsKizModal;
 
+/** Sticker number: prefix + last 4 digits (partB) larger. */
+function _wbFbsKizStickerHtml(row) {
+  const partA = String(row?.sticker_part_a || "").trim();
+  const partB = String(row?.sticker_part_b || "").trim();
+  const full = String(row?.sticker_number || "").trim();
+  let head = partA;
+  let tail = partB;
+  if ((!head || !tail) && full) {
+    if (full.length > 4) {
+      head = full.slice(0, -4);
+      tail = full.slice(-4);
+    } else {
+      head = "";
+      tail = full;
+    }
+  }
+  if (!head && !tail) {
+    return `<div class="wb-fbs-kiz-sticker">—</div>`;
+  }
+  if (!tail) {
+    return `<div class="wb-fbs-kiz-sticker">${_wbFbsEsc(head)}</div>`;
+  }
+  return `<div class="wb-fbs-kiz-sticker">` +
+    (head ? `<span class="wb-fbs-kiz-sticker-head">${_wbFbsEsc(head)}</span>` : "") +
+    `<span class="wb-fbs-kiz-sticker-tail">${_wbFbsEsc(tail)}</span>` +
+    `</div>`;
+}
+
 function _wbFbsKizCollectFromDom() {
   const byId = {};
   for (const row of wbFbsKizState.rows) {
@@ -18740,7 +18768,7 @@ function renderWbFbsKizTable(opts) {
           </div>
         </div>
       </td>
-      <td><div class="wb-fbs-kiz-sticker">${_wbFbsEsc(r.sticker_number || "—")}</div></td>
+      <td>${_wbFbsKizStickerHtml(r)}</td>
       <td>
         <div class="wb-fbs-kiz-codes">${codeHtml}</div>
         <button type="button" class="wb-fbs-kiz-add" onclick="addWbFbsKizCode(${oid})">+ Добавить КИЗ</button>
