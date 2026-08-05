@@ -1647,8 +1647,8 @@
                 <label class="wb-fbs-kiz-check"><input type="checkbox" id="wbFbsKizFilterErrors" onchange="renderWbFbsKizTable()" /> Только с ошибками</label>
               </div>
               <div class="wb-fbs-kiz-toolbar-actions">
-                <button type="button" class="secondary" onclick="downloadWbFbsKizTemplate()">Скачать шаблон</button>
-                <button type="button" class="secondary" onclick="document.getElementById('wbFbsKizUploadInput')?.click()">Загрузить</button>
+                <button type="button" class="secondary hidden" onclick="downloadWbFbsKizTemplate()" hidden>Скачать шаблон</button>
+                <button type="button" class="secondary hidden" onclick="document.getElementById('wbFbsKizUploadInput')?.click()" hidden>Загрузить</button>
                 <input type="file" id="wbFbsKizUploadInput" accept=".csv,text/csv" hidden onchange="uploadWbFbsKizTemplate(event)" />
               </div>
             </div>
