@@ -9316,7 +9316,16 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     # ── OZON Supplies endpoints (isolated from WB) ──────────────────────────
 
-    _ozon_sync_state: dict[str, object] = {"in_progress": False, "synced": 0, "total": 0, "message": "", "errors": [], "cancel_requested": False}
+    _ozon_sync_state: dict[str, object] = {
+        "in_progress": False,
+        "synced": 0,
+        "total": 0,
+        "message": "",
+        "errors": [],
+        "processed_sources": [],
+        "failed_sources": [],
+        "cancel_requested": False,
+    }
     _ozon_sync_lock = threading.Lock()
 
     @app.get("/api/ozon-supplies")
@@ -10549,11 +10558,24 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
         def _run_ozon_sync():
             with _ozon_sync_lock:
-                _ozon_sync_state.update({"in_progress": True, "synced": 0, "total": 0, "errors": [], "message": "Запуск…", "cancel_requested": False})
+                _ozon_sync_state.update({
+                    "in_progress": True,
+                    "synced": 0,
+                    "total": 0,
+                    "errors": [],
+                    "processed_sources": [],
+                    "failed_sources": [],
+                    "message": "Запуск…",
+                    "cancel_requested": False,
+                })
             total_synced = 0
-            errors = []
+            errors: list[str] = []
+            processed_sources: list[dict[str, object]] = []
+            failed_sources: list[dict[str, object]] = []
             try:
                 for src in sources:
+                    src_name = str(src.get("name") or "?")
+                    src_synced_before = total_synced
                     # list_supply_sources strips the real key — fetch it properly
                     src_full = repository.get_supply_source_with_key(
                         user_id=owner_id, source_id=int(src["id"])
@@ -10634,42 +10656,46 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                         except Exception as ex:
                             list_ok = False
                             code = getattr(ex, "code", None)
-                            _log.error("ozon sync list error src=%s: %s", src.get("name","?"), ex, exc_info=True)
+                            _log.error("ozon sync list error src=%s: %s", src_name, ex, exc_info=True)
                             if code == 403:
                                 # Typical for returns-only / limited API keys — skip source, keep syncing others.
-                                errors.append(
-                                    f"«{src.get('name') or '?'}»: нет прав на поставки (403 Forbidden)"
-                                )
+                                err_text = "нет прав на поставки (403 Forbidden)"
                             else:
-                                errors.append(f"«{src.get('name') or '?'}»: list: {ex}")
+                                err_text = f"list: {ex}"
+                            errors.append(f"«{src_name}»: {err_text}")
+                            failed_sources.append({"name": src_name, "error": err_text})
                             break
+
+                    # List failed (e.g. 403) — do not treat as processed / synced.
+                    if not list_ok:
+                        continue
 
                     # Purge local rows for cancelled/deleted Ozon orders.
                     # Sync list excludes CANCELLED; orders deleted in Ozon LK disappear from
                     # the active list but previously stayed forever as DATA_FILLING locally.
-                    if list_ok:
-                        keep_ids = [int(x) for x in all_order_ids if str(x).isdigit() and int(x) > 0]
-                        try:
-                            deleted_count = repository.delete_ozon_supply_items_not_in(
-                                source_id=int(src["id"]),
-                                keep_order_ids=keep_ids,
-                                delete_all_if_empty=True,
+                    keep_ids = [int(x) for x in all_order_ids if str(x).isdigit() and int(x) > 0]
+                    try:
+                        deleted_count = repository.delete_ozon_supply_items_not_in(
+                            source_id=int(src["id"]),
+                            keep_order_ids=keep_ids,
+                            delete_all_if_empty=True,
+                        )
+                        if deleted_count:
+                            _log.info(
+                                "ozon sync: removed %d cancelled/missing supplies for source %s",
+                                deleted_count,
+                                src.get("id"),
                             )
-                            if deleted_count:
-                                _log.info(
-                                    "ozon sync: removed %d cancelled/missing supplies for source %s",
-                                    deleted_count,
-                                    src.get("id"),
-                                )
-                        except Exception as del_ex:
-                            _log.error("ozon sync purge error src=%s: %s", src.get("name", "?"), del_ex, exc_info=True)
-                            errors.append(f"purge: {del_ex}")
+                    except Exception as del_ex:
+                        _log.error("ozon sync purge error src=%s: %s", src_name, del_ex, exc_info=True)
+                        errors.append(f"«{src_name}»: purge: {del_ex}")
 
                     if not all_order_ids:
                         try:
                             repository.mark_supply_source_synced(source_id=int(src["id"]))
                         except Exception:
                             pass
+                        processed_sources.append({"name": src_name, "synced": 0})
                         continue
 
                     with _ozon_sync_lock:
@@ -10882,6 +10908,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                         repository.mark_supply_source_synced(source_id=int(src["id"]))
                     except Exception:
                         pass
+                    processed_sources.append({
+                        "name": src_name,
+                        "synced": max(0, total_synced - src_synced_before),
+                    })
                     with _ozon_sync_lock:
                         if _ozon_sync_state.get("cancel_requested"):
                             break
@@ -10891,17 +10921,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     if cancelled:
                         msg = f"Остановлено. Загружено {total_synced} поставок OZON."
                     else:
+                        # Keep success line clean — errors go to failed_sources for the UI.
                         msg = f"Готово. Загружено {total_synced} поставок OZON."
-                        if errors:
-                            # Show actual texts — UI used to display only "Ошибки: N".
-                            detail = "; ".join(str(e) for e in errors[:3])
-                            if len(errors) > 3:
-                                detail += f" … (+{len(errors) - 3})"
-                            msg += f" Ошибки ({len(errors)}): {detail}"
                     _ozon_sync_state.update({
                         "in_progress": False,
                         "synced": total_synced,
                         "errors": errors,
+                        "processed_sources": processed_sources,
+                        "failed_sources": failed_sources,
                         "cancel_requested": False,
                         "message": msg,
                     })

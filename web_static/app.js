@@ -4731,6 +4731,76 @@ async function stopOzonSync() {
   // If data.ok = true, poll timer will handle restoring the button when sync finishes
 }
 
+function _ozonEscHtml(s) {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function _ozonToggleSyncDetails(btn) {
+  const detailsId = btn?.getAttribute("aria-controls");
+  const details = detailsId ? document.getElementById(detailsId) : null;
+  if (!details) return;
+  const open = details.hidden;
+  details.hidden = !open;
+  btn.setAttribute("aria-expanded", open ? "true" : "false");
+  btn.textContent = open ? "▼" : "▶";
+}
+
+function _renderOzonSyncResult(d) {
+  const info = document.getElementById("ozonSyncInfo");
+  if (!info) return;
+  const synced = Number(d.synced ?? 0);
+  const okMsg = String(d.message || `Готово. Загружено ${synced} поставок OZON.`).replace(/\s*Ошибки.*$/, "").trim();
+  const processed = Array.isArray(d.processed_sources) ? d.processed_sources : [];
+  const failed = Array.isArray(d.failed_sources) && d.failed_sources.length
+    ? d.failed_sources
+    : (Array.isArray(d.errors) ? d.errors.map((e) => ({ name: "", error: e })) : []);
+
+  const okList = processed.length
+    ? processed.map((s) => {
+        const name = _ozonEscHtml(s.name || "—");
+        const n = Number(s.synced);
+        const suffix = Number.isFinite(n) ? ` — ${n} пост.` : "";
+        return `<li>${name}${suffix}</li>`;
+      }).join("")
+    : `<li class="ozon-sync-empty">Нет обработанных источников</li>`;
+
+  const failList = failed.length
+    ? failed.map((s) => {
+        const name = String(s.name || "").trim();
+        const err = String(s.error || s || "").trim();
+        const label = name ? `«${name}»: ${err}` : err;
+        return `<li>${_ozonEscHtml(label)}</li>`;
+      }).join("")
+    : "";
+
+  let html = `
+    <div class="ozon-sync-result">
+      <div class="ozon-sync-result-row ozon-sync-ok">
+        <span class="ozon-sync-result-text">${_ozonEscHtml(okMsg)}</span>
+        <button type="button" class="ozon-sync-toggle" aria-expanded="false" aria-controls="ozonSyncOkDetails"
+                onclick="_ozonToggleSyncDetails(this)" title="Показать источники">▶</button>
+      </div>
+      <ul id="ozonSyncOkDetails" class="ozon-sync-details" hidden>${okList}</ul>`;
+
+  if (failed.length) {
+    html += `
+      <div class="ozon-sync-result-row ozon-sync-warn">
+        <span class="ozon-sync-result-text">Источники обработанные с ошибками</span>
+        <button type="button" class="ozon-sync-toggle" aria-expanded="false" aria-controls="ozonSyncFailDetails"
+                onclick="_ozonToggleSyncDetails(this)" title="Показать ошибки">▶</button>
+      </div>
+      <ul id="ozonSyncFailDetails" class="ozon-sync-details ozon-sync-details-warn" hidden>${failList}</ul>`;
+  }
+
+  html += `</div>`;
+  info.innerHTML = html;
+  info.style.color = "";
+}
+
 function _ozonPollSync() {
   if (_ozonSyncPollTimer) clearInterval(_ozonSyncPollTimer);
   _ozonSyncPollTimer = setInterval(async () => {
@@ -4751,16 +4821,7 @@ function _ozonPollSync() {
       const stopBtn = document.getElementById("ozonStopBtn");
       if (btn) { btn.disabled = false; btn.textContent = "🔄 Синхронизировать"; }
       if (stopBtn) { stopBtn.classList.add("hidden"); stopBtn.disabled = false; stopBtn.textContent = "🛑"; }
-      const hasErrors = Array.isArray(d.errors) && d.errors.length;
-      if (info) {
-        let finalText = d.message || `Готово. Загружено ${synced} поставок.`;
-        // Prefer explicit error texts if message only has a count
-        if (hasErrors && !/Ошибки\s*\(\d+\):/.test(finalText) && !/; /.test(finalText)) {
-          finalText = `Готово. Загружено ${synced} поставок. Ошибки (${d.errors.length}): ${d.errors.join("; ")}`;
-        }
-        info.textContent = finalText;
-        info.style.color = hasErrors ? "#b45309" : "#16a34a";
-      }
+      _renderOzonSyncResult(d);
       await loadOzonSupplies(true);
     }
   }, 1000);
