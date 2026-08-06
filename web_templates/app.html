@@ -2214,7 +2214,7 @@
                 <input id="newLegalFullName" type="text" placeholder="Полное наименование для документов" autocomplete="off" />
               </div>
               <div class="row">
-                <input id="newLegalRequisites" type="text" placeholder="Реквизиты (ИНН, адрес и т.д.)" autocomplete="off" />
+                <input id="newLegalRequisites" type="text" placeholder="Реквизиты (ИНН, КПП и т.д.)" autocomplete="off" />
               </div>
               <div class="row">
                 <input id="newLegalSignatories" type="text" placeholder="Подписанты (ФИО руководителя, бухгалтера и т.д.)" autocomplete="off" />
@@ -2224,6 +2224,9 @@
               </div>
               <div class="row">
                 <input id="newLegalBasis" type="text" placeholder="Основание (напр. Устава, Доверенности № ...)" autocomplete="off" />
+              </div>
+              <div class="row">
+                <input id="newLegalAddress" type="text" placeholder="Юридический адрес" autocomplete="off" />
               </div>
               <div class="row" style="align-items:center;gap:8px">
                 <span class="small" style="color:#64748b">Подпись:</span>
@@ -2256,7 +2259,8 @@
                   <th data-col="req" style="width:150px">Реквизиты</th>
                   <th data-col="sign" style="width:130px">Подписанты</th>
                   <th data-col="inp" style="width:130px">В лице</th>
-                  <th data-col="basis">Основание</th>
+                  <th data-col="basis" style="width:120px">Основание</th>
+                  <th data-col="addr">Адрес</th>
                   <th style="width:72px"></th>
                 </tr></thead>
                 <tbody id="supplyLegalEntitiesTbody"></tbody>

@@ -134,15 +134,13 @@ def test_etrn_xml_incomplete_legal_address_still_adr_rf():
 
 
 def test_etrn_shipper_address_from_legal_entity_not_load():
-    """Грузоотправитель address = юр.лица requisites, not production/warehouse."""
+    """Грузоотправитель address = юр.лица.address (else requisites), not warehouse."""
     root = ET.fromstring(
         _build(
             le={
                 "full_name": 'ООО "Тест"',
-                "requisites": (
-                    "ИНН 7701234567 КПП 770101001 "
-                    "141200, Московская область, г. Пушкино, ул. Лесная, д. 5"
-                ),
+                "requisites": "ИНН 7701234567 КПП 770101001",
+                "address": "141200, Московская область, г. Пушкино, ул. Лесная, д. 5",
                 "signatories": "Иванов Иван Иванович",
             },
             load_address=(
@@ -159,3 +157,22 @@ def test_etrn_shipper_address_from_legal_entity_not_load():
     # Load address still goes to ФАдресПогр.
     load_xml = ET.tostring(root.find("Документ/СодИнфГО/СвПогруз/ФАдресПогр"), encoding="unicode")
     assert "Хоругвино" in load_xml
+
+
+def test_etrn_shipper_address_prefers_address_over_requisites():
+    root = ET.fromstring(
+        _build(
+            le={
+                "full_name": 'ООО "Тест"',
+                "requisites": "ИНН 7701234567 адрес: г. Москва, ул. Старая, д. 1",
+                "address": "141200, г. Пушкино, ул. Новая, д. 9",
+                "signatories": "Иванов Иван Иванович",
+            }
+        )
+    )
+    shipper_xml = ET.tostring(
+        root.find("Документ/СодИнфГО/СвГО/РекИдентГО/Адрес/АдрРФ"),
+        encoding="unicode",
+    )
+    assert "Новая" in shipper_xml or "Пушкино" in shipper_xml
+    assert "Старая" not in shipper_xml

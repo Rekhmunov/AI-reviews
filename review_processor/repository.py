@@ -7215,6 +7215,9 @@ class ReviewRepository:
             "ALTER TABLE supply_legal_entities ADD COLUMN IF NOT EXISTS basis TEXT"
         )
         conn.execute(
+            "ALTER TABLE supply_legal_entities ADD COLUMN IF NOT EXISTS address TEXT"
+        )
+        conn.execute(
             "ALTER TABLE supply_legal_entities ADD COLUMN IF NOT EXISTS signature_image TEXT"
         )
         conn.execute(
@@ -7415,7 +7418,12 @@ class ReviewRepository:
     def list_supply_legal_entities(self, *, user_id: int) -> list[dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(
-                self._sql("SELECT id, user_id, short_name, full_name, requisites, signatories, in_person, basis, created_at, (signature_image IS NOT NULL AND signature_image != '') AS has_signature FROM supply_legal_entities WHERE user_id = ? ORDER BY short_name ASC"),
+                self._sql(
+                    "SELECT id, user_id, short_name, full_name, requisites, signatories, "
+                    "in_person, basis, address, created_at, "
+                    "(signature_image IS NOT NULL AND signature_image != '') AS has_signature "
+                    "FROM supply_legal_entities WHERE user_id = ? ORDER BY short_name ASC"
+                ),
                 (user_id,),
             ).fetchall()
         return [self._row_to_dict(row) for row in rows]
@@ -7440,7 +7448,21 @@ class ReviewRepository:
             )
         return bool(result.rowcount)
 
-    def update_supply_legal_entity(self, *, user_id: int, entity_id: int, short_name: str, full_name: str, requisites: str = "", signatories: str = "", in_person: str = "", basis: str = "", signature_image: str | None = None, clear_signature: bool = False) -> bool:
+    def update_supply_legal_entity(
+        self,
+        *,
+        user_id: int,
+        entity_id: int,
+        short_name: str,
+        full_name: str,
+        requisites: str = "",
+        signatories: str = "",
+        in_person: str = "",
+        basis: str = "",
+        address: str = "",
+        signature_image: str | None = None,
+        clear_signature: bool = False,
+    ) -> bool:
         with self._connect() as conn:
             if clear_signature:
                 sig_val = None
@@ -7451,18 +7473,58 @@ class ReviewRepository:
                 existing = conn.execute(self._sql("SELECT signature_image FROM supply_legal_entities WHERE id = ?"), (entity_id,)).fetchone()
                 sig_val = self._row_to_dict(existing).get("signature_image") if existing else None
             result = conn.execute(
-                self._sql("UPDATE supply_legal_entities SET short_name = ?, full_name = ?, requisites = ?, signatories = ?, in_person = ?, basis = ?, signature_image = ? WHERE user_id = ? AND id = ?"),
-                (short_name.strip(), full_name.strip(), (requisites or "").strip() or None, (signatories or "").strip() or None, (in_person or "").strip() or None, (basis or "").strip() or None, sig_val, user_id, entity_id),
+                self._sql(
+                    "UPDATE supply_legal_entities SET short_name = ?, full_name = ?, requisites = ?, "
+                    "signatories = ?, in_person = ?, basis = ?, address = ?, signature_image = ? "
+                    "WHERE user_id = ? AND id = ?"
+                ),
+                (
+                    short_name.strip(),
+                    full_name.strip(),
+                    (requisites or "").strip() or None,
+                    (signatories or "").strip() or None,
+                    (in_person or "").strip() or None,
+                    (basis or "").strip() or None,
+                    (address or "").strip() or None,
+                    sig_val,
+                    user_id,
+                    entity_id,
+                ),
             )
         return bool(result.rowcount)
 
-    def create_supply_legal_entity(self, *, user_id: int, short_name: str, full_name: str, requisites: str = "", signatories: str = "", in_person: str = "", basis: str = "", signature_image: str | None = None) -> dict[str, Any]:
+    def create_supply_legal_entity(
+        self,
+        *,
+        user_id: int,
+        short_name: str,
+        full_name: str,
+        requisites: str = "",
+        signatories: str = "",
+        in_person: str = "",
+        basis: str = "",
+        address: str = "",
+        signature_image: str | None = None,
+    ) -> dict[str, Any]:
         now = _utc_now()
         with self._connect() as conn:
             eid = self._insert_and_get_id(
                 conn,
-                "INSERT INTO supply_legal_entities (user_id, short_name, full_name, requisites, signatories, in_person, basis, signature_image, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (user_id, short_name.strip(), full_name.strip(), (requisites or "").strip() or None, (signatories or "").strip() or None, (in_person or "").strip() or None, (basis or "").strip() or None, signature_image or None, now),
+                "INSERT INTO supply_legal_entities "
+                "(user_id, short_name, full_name, requisites, signatories, in_person, basis, address, signature_image, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    user_id,
+                    short_name.strip(),
+                    full_name.strip(),
+                    (requisites or "").strip() or None,
+                    (signatories or "").strip() or None,
+                    (in_person or "").strip() or None,
+                    (basis or "").strip() or None,
+                    (address or "").strip() or None,
+                    signature_image or None,
+                    now,
+                ),
             )
             row = conn.execute(self._sql("SELECT * FROM supply_legal_entities WHERE id = ?"), (eid,)).fetchone()
         return self._row_to_dict(row) if row else {"id": eid}
