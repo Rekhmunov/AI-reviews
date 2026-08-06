@@ -7104,6 +7104,7 @@ button.wb-fbs-collect-mgt-btn.hidden {
   color: #b91c1c;
   font-size: 14px;
   line-height: 1.45;
+  white-space: pre-line;
 }
 .wb-fbs-collect-mgt-err[hidden] { display: none !important; }
 .wb-fbs-collect-mgt-footer {

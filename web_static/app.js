@@ -19293,13 +19293,16 @@ window.wbFbsStubNewSupplySelected = wbFbsStubNewSupplySelected;
 
 const wbFbsCollectMgtState = {
   preview: null,
+  sourceId: null,
   busy: false,
 };
 
 function closeWbFbsCollectMgtModal() {
+  if (wbFbsCollectMgtState.busy) return;
   const modal = document.getElementById("wbFbsCollectMgtModal");
   if (modal) modal.classList.add("hidden");
   wbFbsCollectMgtState.preview = null;
+  wbFbsCollectMgtState.sourceId = null;
   const err = document.getElementById("wbFbsCollectMgtErr");
   if (err) {
     err.hidden = true;
@@ -19339,6 +19342,11 @@ function _wbFbsCollectMgtShowResult(data) {
   if (errors.length) {
     html += `<p class="wb-fbs-collect-mgt-result-err">Ошибки:</p><ul class="wb-fbs-collect-mgt-result-err">` +
       errors.map((e) => `<li>${_wbFbsEsc(e)}</li>`).join("") + "</ul>";
+  }
+  const warnings = Array.isArray(data?.warnings) ? data.warnings : [];
+  if (warnings.length) {
+    html += `<p>Предупреждения:</p><ul>` +
+      warnings.map((e) => `<li>${_wbFbsEsc(e)}</li>`).join("") + "</ul>";
   }
   if (skipped.length) {
     html += `<p class="small">Пропущено заказов: ${skipped.length}</p>`;
@@ -19441,6 +19449,16 @@ function wbFbsCollectMgtNameInput(input) {
 }
 window.wbFbsCollectMgtNameInput = wbFbsCollectMgtNameInput;
 
+function _wbFbsCollectMgtDetailText(detail) {
+  if (detail == null) return "";
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail.map((x) => (typeof x === "string" ? x : (x?.msg || JSON.stringify(x)))).join("; ");
+  }
+  if (typeof detail === "object" && detail.msg) return String(detail.msg);
+  try { return JSON.stringify(detail); } catch (_) { return String(detail); }
+}
+
 function _wbFbsCollectMgtCollectDecisions() {
   const preview = wbFbsCollectMgtState.preview;
   const groups = Array.isArray(preview?.groups) ? preview.groups : [];
@@ -19450,6 +19468,7 @@ function _wbFbsCollectMgtCollectDecisions() {
     (Array.isArray(preview?.existing_names) ? preview.existing_names : [])
       .map((x) => String(x || "").trim()).filter(Boolean)
   );
+  const usedNames = new Set();
   for (const g of groups) {
     const isB2b = !!g.is_b2b;
     const flag = isB2b ? "b2b" : "non";
@@ -19462,10 +19481,11 @@ function _wbFbsCollectMgtCollectDecisions() {
         errors.push(`${label}: укажите название поставки`);
         continue;
       }
-      if (existing.has(name)) {
+      if (existing.has(name) || usedNames.has(name)) {
         errors.push(`${label}: поставка «${name}» уже есть — измените название`);
         continue;
       }
+      usedNames.add(name);
       decisions.push({ is_b2b: isB2b, action: "create", name });
     } else if (mode === "choose") {
       const checked = document.querySelector(`input[name="wbFbsCollectMgtSupply_${flag}"]:checked`);
@@ -19486,16 +19506,16 @@ function _wbFbsCollectMgtCollectDecisions() {
   return { decisions, errors };
 }
 
-async function _wbFbsCollectMgtExecute(decisions) {
-  const sourceId = wbFbsState.sourceId;
-  if (!sourceId) throw new Error("Выберите источник");
+async function _wbFbsCollectMgtExecute(decisions, sourceId) {
+  const sid = Number(sourceId || wbFbsCollectMgtState.sourceId || wbFbsState.sourceId || 0);
+  if (!sid) throw new Error("Выберите источник");
   const res = await fetch("/api/wb-fbs/collect-mgt", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ source_id: sourceId, decisions }),
+    headers: jsonHeaders(),
+    body: JSON.stringify({ source_id: sid, decisions }),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.detail || "Ошибка сборки МГТ");
+  if (!res.ok) throw new Error(_wbFbsCollectMgtDetailText(data.detail) || "Ошибка сборки МГТ");
   return data;
 }
 
@@ -19510,14 +19530,17 @@ async function openWbFbsCollectMgt() {
   const btn = document.getElementById("wbFbsCollectMgtBtn");
   const confirmBtn = document.getElementById("wbFbsCollectMgtConfirmBtn");
   wbFbsCollectMgtState.busy = true;
+  wbFbsCollectMgtState.sourceId = sourceId;
   if (btn) btn.disabled = true;
   try {
     const res = await fetch(`/api/wb-fbs/collect-mgt/preview?source_id=${encodeURIComponent(sourceId)}`);
     const preview = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(preview.detail || "Не удалось подготовить сборку");
+    if (!res.ok) throw new Error(_wbFbsCollectMgtDetailText(preview.detail) || "Не удалось подготовить сборку");
     if (!preview.mgt_count) {
       alert("В «Новых» нет МГТ-заказов");
-      _wbFbsSyncCollectMgtBtn(wbFbsState.counts || {});
+      wbFbsState.counts = { ...(wbFbsState.counts || {}), mgt_new: 0 };
+      _wbFbsSyncCollectMgtBtn(wbFbsState.counts);
+      loadWbFbsOrders(true);
       return;
     }
     wbFbsCollectMgtState.preview = preview;
@@ -19527,7 +19550,8 @@ async function openWbFbsCollectMgt() {
         action: "add",
         supply_id: String(g.default_supply_id || ""),
       }));
-      const data = await _wbFbsCollectMgtExecute(decisions);
+      const data = await _wbFbsCollectMgtExecute(decisions, sourceId);
+      wbFbsCollectMgtState.busy = false;
       closeWbFbsCollectMgtModal();
       _wbFbsCollectMgtShowResult(data);
       if (data.goto_assembly) setWbFbsTab("assembly");
@@ -19538,6 +19562,7 @@ async function openWbFbsCollectMgt() {
     document.getElementById("wbFbsCollectMgtModal")?.classList.remove("hidden");
     if (confirmBtn) confirmBtn.disabled = false;
   } catch (e) {
+    wbFbsCollectMgtState.sourceId = null;
     alert(e.message || String(e));
   } finally {
     wbFbsCollectMgtState.busy = false;
@@ -19549,8 +19574,13 @@ window.openWbFbsCollectMgt = openWbFbsCollectMgt;
 async function confirmWbFbsCollectMgt() {
   if (wbFbsCollectMgtState.busy) return;
   if (!wbFbsCollectMgtState.preview) return;
+  if (wbFbsState.tab !== "new") {
+    alert("Сборка МГТ доступна только на вкладке «Новые»");
+    return;
+  }
   const errEl = document.getElementById("wbFbsCollectMgtErr");
   const confirmBtn = document.getElementById("wbFbsCollectMgtConfirmBtn");
+  const sourceId = wbFbsCollectMgtState.sourceId || wbFbsState.sourceId;
   const { decisions, errors } = _wbFbsCollectMgtCollectDecisions();
   if (errors.length) {
     if (errEl) {
@@ -19566,17 +19596,19 @@ async function confirmWbFbsCollectMgt() {
     errEl.textContent = "";
   }
   try {
-    const data = await _wbFbsCollectMgtExecute(decisions);
+    const data = await _wbFbsCollectMgtExecute(decisions, sourceId);
+    wbFbsCollectMgtState.busy = false;
     closeWbFbsCollectMgtModal();
     _wbFbsCollectMgtShowResult(data);
     if (data.goto_assembly) setWbFbsTab("assembly");
     else loadWbFbsOrders(true);
   } catch (e) {
-    if (errEl) {
+    const msg = e.message || String(e);
+    if (errEl && !document.getElementById("wbFbsCollectMgtModal")?.classList.contains("hidden")) {
       errEl.hidden = false;
-      errEl.textContent = e.message || String(e);
+      errEl.textContent = msg;
     } else {
-      alert(e.message || String(e));
+      alert(msg);
     }
   } finally {
     wbFbsCollectMgtState.busy = false;

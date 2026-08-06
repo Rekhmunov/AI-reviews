@@ -129,21 +129,37 @@ def cargo_type_label(cargo_type: object) -> str:
     return {1: "МГТ", 2: "СГТ", 3: "КГТ+"}.get(ct, "")
 
 
-def _order_is_b2b(order: dict[str, Any] | None) -> bool:
-    """WB order B2B flag: ``options.isB2b`` (also accepts flat ``is_b2b`` / ``isB2b``)."""
+def _coalesce_b2b_flag(obj: dict[str, Any] | None) -> bool | None:
+    """Read WB B2B flag. Accepts ``isB2b`` / ``isB2B`` / ``is_b2b``.
+
+    Returns ``None`` when the key is absent or the value is JSON null.
+    """
+    if not isinstance(obj, dict):
+        return None
+    for key in ("isB2b", "isB2B", "is_b2b"):
+        if key in obj and obj.get(key) is not None:
+            return bool(obj.get(key))
+    return None
+
+
+def _order_b2b_flag(order: dict[str, Any] | None) -> bool | None:
+    """B2B flag from order payload, or ``None`` if WB omitted it."""
     if not isinstance(order, dict):
-        return False
+        return None
     opts = order.get("options")
-    if isinstance(opts, dict) and "isB2b" in opts:
-        return bool(opts.get("isB2b"))
-    if "isB2b" in order:
-        return bool(order.get("isB2b"))
-    return bool(order.get("is_b2b"))
+    if isinstance(opts, dict):
+        flag = _coalesce_b2b_flag(opts)
+        if flag is not None:
+            return flag
+    return _coalesce_b2b_flag(order)
+
+
+def _order_is_b2b(order: dict[str, Any] | None) -> bool:
+    """WB order B2B flag: ``options.isB2B`` / ``options.isB2b`` (bool, default False)."""
+    return bool(_order_b2b_flag(order))
 
 
 def _row_order_is_b2b(row: dict[str, Any]) -> bool:
-    if row.get("is_b2b") is not None and "raw_json" not in row:
-        return bool(row.get("is_b2b"))
     if row.get("is_b2b"):
         return True
     raw = _parse_json_obj(row.get("raw_json"))
@@ -805,7 +821,10 @@ def upsert_order(
     if sale_price_i is None:
         sale_price_i = _as_int_or_none(order.get("price")) or 0
     final_i = price_i
-    is_b2b = _order_is_b2b(order)
+    b2b_flag = _order_b2b_flag(order)
+    # Insert default False when WB omitted the field; on update keep previous value.
+    is_b2b = bool(b2b_flag) if b2b_flag is not None else False
+    has_b2b_signal = b2b_flag is not None
     now = _utc_now()
     with repo._connect() as conn:
         conn.execute(
@@ -856,7 +875,11 @@ def upsert_order(
                         ELSE wb_fbs_orders.supply_id
                     END,
                     is_archive = EXCLUDED.is_archive OR wb_fbs_orders.is_archive,
-                    is_b2b = EXCLUDED.is_b2b,
+                    -- Period sync may omit options.isB2B — do not wipe a known True.
+                    is_b2b = CASE
+                        WHEN ? THEN EXCLUDED.is_b2b
+                        ELSE wb_fbs_orders.is_b2b
+                    END,
                     comment_text = EXCLUDED.comment_text,
                     created_at_wb = COALESCE(EXCLUDED.created_at_wb, wb_fbs_orders.created_at_wb),
                     raw_json = EXCLUDED.raw_json,
@@ -890,6 +913,7 @@ def upsert_order(
                 _parse_dt(order.get("createdAt")),
                 json.dumps(order, ensure_ascii=False),
                 now,
+                bool(has_b2b_signal),
             ),
         )
 
@@ -907,6 +931,8 @@ def upsert_supply(
     if not supply_id:
         return
     now = _utc_now()
+    supply_b2b = _coalesce_b2b_flag(supply)
+    has_supply_b2b = supply_b2b is not None
     with repo._connect() as conn:
         conn.execute(
             repo._sql(
@@ -919,7 +945,11 @@ def upsert_supply(
                     name = EXCLUDED.name,
                     done = EXCLUDED.done,
                     cargo_type = EXCLUDED.cargo_type,
-                    is_b2b = EXCLUDED.is_b2b,
+                    -- Empty WB supplies send isB2b=null; keep previous local flag.
+                    is_b2b = CASE
+                        WHEN ? THEN EXCLUDED.is_b2b
+                        ELSE wb_fbs_supplies.is_b2b
+                    END,
                     destination_office_id = EXCLUDED.destination_office_id,
                     created_at_wb = COALESCE(EXCLUDED.created_at_wb, wb_fbs_supplies.created_at_wb),
                     closed_at_wb = COALESCE(EXCLUDED.closed_at_wb, wb_fbs_supplies.closed_at_wb),
@@ -943,7 +973,7 @@ def upsert_supply(
                 str(supply.get("name") or ""),
                 bool(supply.get("done")),
                 int(supply.get("cargoType") or 0),
-                bool(supply.get("isB2b")),
+                bool(supply_b2b) if supply_b2b is not None else False,
                 supply.get("destinationOfficeId"),
                 _parse_dt(supply.get("createdAt")),
                 _parse_dt(supply.get("closedAt")),
@@ -952,6 +982,7 @@ def upsert_supply(
                 json.dumps(boxes or [], ensure_ascii=False),
                 json.dumps(supply, ensure_ascii=False),
                 now,
+                bool(has_supply_b2b),
             ),
         )
 
@@ -2074,11 +2105,14 @@ def _load_new_mgt_orders(
 
 
 def _supply_is_empty(supply: dict[str, Any]) -> bool:
+    """True only for unset cargo (no goods yet). Never treat SGT/KGT as empty."""
     cargo = int(supply.get("cargo_type") or 0)
+    if cargo != 0:
+        return False
     order_ids = supply.get("order_ids")
     if not isinstance(order_ids, list):
         order_ids = _parse_json_list(supply.get("order_ids_json"))
-    return cargo == 0 or not order_ids
+    return not order_ids
 
 
 def _plan_mgt_group(
@@ -2150,8 +2184,9 @@ def preview_collect_mgt(
         if not s.get("is_b2b"):
             # Infer from raw if column false/missing on older rows.
             raw = _parse_json_obj(s.get("raw_json"))
-            if "isB2b" in raw:
-                s["is_b2b"] = bool(raw.get("isB2b"))
+            inferred = _coalesce_b2b_flag(raw)
+            if inferred is not None:
+                s["is_b2b"] = inferred
 
     mgt_non: list[dict[str, Any]] = []
     mgt_b2b: list[dict[str, Any]] = []
@@ -2174,7 +2209,7 @@ def preview_collect_mgt(
         if str(s.get("name") or "").strip()
     }
 
-    # Non-B2B first — claims empty supplies before B2B.
+    # Non-B2B first — empties are reserved for that group when it has orders.
     group_non = _plan_mgt_group(
         is_b2b=False,
         order_ids=non_b2b_ids,
@@ -2182,6 +2217,9 @@ def preview_collect_mgt(
         empties=empties,
         existing_names=existing_names,
     )
+    if group_non.get("mode") != "skip":
+        # Even in choose mode, do not offer the same empties to B2B.
+        empties.clear()
     group_b2b = _plan_mgt_group(
         is_b2b=True,
         order_ids=b2b_ids,
@@ -2238,6 +2276,7 @@ def execute_collect_mgt(
 
     skipped_cancelled: list[int] = []
     errors: list[str] = []
+    warnings: list[str] = []
     created_supplies: list[dict[str, Any]] = []
     added_total = 0
     group_results: list[dict[str, Any]] = []
@@ -2261,10 +2300,9 @@ def execute_collect_mgt(
             if _is_cancelled_status(supplier_status=ss, wb_status=ws):
                 skipped_cancelled.append(oid)
                 continue
-            # Keep only still-new (or unknown status — allow; WB will reject if wrong).
+            # Skip not-new without treating as hard error (spec: refresh + skip).
             if ss and ss != "new":
                 skipped_cancelled.append(oid)
-                errors.append(f"{label}: заказ {oid} уже не в «Новых» ({ss})")
                 continue
             live_ids.append(oid)
         if not live_ids:
@@ -2277,21 +2315,25 @@ def execute_collect_mgt(
             continue
 
         mode = str(planned.get("mode") or "create")
-        action = str(decision.get("action") or "").strip() or (
-            "add" if mode == "add_one" else ("choose" if mode == "choose" else "create")
-        )
+        explicit = str(decision.get("action") or "").strip().lower()
         supply_id = str(decision.get("supply_id") or planned.get("default_supply_id") or "").strip()
         name = str(decision.get("name") or planned.get("suggested_name") or "").strip()
 
-        if mode == "choose" or action == "choose":
-            if not supply_id:
-                errors.append(f"{label}: не выбрана поставка")
-                continue
+        # Honor explicit FE action; fall back to planned mode.
+        if explicit == "create" or (not explicit and mode == "create"):
+            action = "create"
+        elif explicit in ("choose", "add") or mode in ("choose", "add_one"):
             action = "add"
-        if mode == "add_one":
-            action = "add"
-            supply_id = supply_id or str(planned.get("default_supply_id") or "")
-        if action == "create" or mode == "create":
+            if mode == "choose" or explicit == "choose":
+                if not supply_id:
+                    errors.append(f"{label}: не выбрана поставка")
+                    continue
+            if mode == "add_one":
+                supply_id = supply_id or str(planned.get("default_supply_id") or "")
+        else:
+            action = "create"
+
+        if action == "create":
             if not name:
                 errors.append(f"{label}: пустое название поставки")
                 continue
@@ -2344,7 +2386,8 @@ def execute_collect_mgt(
                     f"{label}: поставка {supply_id} не МГТ (cargoType={live_cargo})"
                 )
                 continue
-            if live_cargo == 1 and bool(live_supply.get("isB2b")) != is_b2b:
+            live_b2b = _coalesce_b2b_flag(live_supply)
+            if live_cargo == 1 and live_b2b is not None and live_b2b != is_b2b:
                 errors.append(
                     f"{label}: поставка {supply_id} другого типа B2B"
                 )
@@ -2360,8 +2403,8 @@ def execute_collect_mgt(
                 client.add_orders_to_supply(supply_id, chunk)
                 added += len(chunk)
                 # Reflect locally: orders → assembly
-                for oid in chunk:
-                    with repo._connect() as conn:
+                with repo._connect() as conn:
+                    for oid in chunk:
                         conn.execute(
                             repo._sql(
                                 """
@@ -2391,7 +2434,7 @@ def execute_collect_mgt(
                 time.sleep(0.25)
 
         if added:
-            # Refresh supply order ids locally
+            # Refresh supply order ids locally (WB already updated).
             try:
                 oids = client.get_supply_order_ids(supply_id)
                 live_supply = client.get_supply(supply_id)
@@ -2403,7 +2446,9 @@ def execute_collect_mgt(
                     order_ids=oids or live_ids,
                 )
             except Exception as exc:
-                errors.append(f"{label}: поставка обновлена на WB, локальный кэш — {exc}")
+                warnings.append(
+                    f"{label}: заказы добавлены на WB, локальный кэш поставки — {exc}"
+                )
 
         added_total += added
         group_results.append({
@@ -2424,10 +2469,13 @@ def execute_collect_mgt(
         message = "Нечего добавлять."
     if skipped_cancelled:
         message += f" Пропущено (отмена/не new): {len(skipped_cancelled)}."
+    if warnings:
+        message += f" Предупреждений: {len(warnings)}."
     return {
         "ok": ok,
         "message": message,
         "errors": errors,
+        "warnings": warnings,
         "added": added_total,
         "created_supplies": created_supplies,
         "skipped_cancelled": skipped_cancelled,
