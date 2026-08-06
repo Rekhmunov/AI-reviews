@@ -103,6 +103,7 @@ def test_etrn_xml_core_schema_shape():
     assert op.find("ПлМасГруз").attrib.get("МасБрутЗнач")
     assert sod.find("СвПогруз").attrib.get("МетОпрМасс") == "03"
     assert op.attrib.get("СостГруз") == "Без повреждений"
+    assert op.attrib.get("СпУпак") == "Коробки"
 
 
 def test_etrn_xml_empty_cargoes_still_has_required_mass_places():

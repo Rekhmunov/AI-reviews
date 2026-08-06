@@ -624,7 +624,7 @@ def build_ozon_etrn_xml(
         "ОпГруз",
         НаимГруз=cargo["cargo_name"],
         СостГруз="Без повреждений",
-        СпУпак=cargo["places_label"],
+        СпУпак="Коробки",
         ВидТар="00",
         КолМестГр=str(cargo["total_places"]),
         УчГосСист="0",
