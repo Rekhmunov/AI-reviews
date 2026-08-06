@@ -8009,12 +8009,19 @@ button.wb-fbs-sd-portal-btn:focus-visible {
 }
 .wb-fbs-sd-sticker .wb-fbs-kiz-sticker {
   margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
 }
 .wb-fbs-sd-sticker .wb-fbs-kiz-sticker-head {
-  font-size: 13px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
 }
 .wb-fbs-sd-sticker .wb-fbs-kiz-sticker-tail {
   font-size: 20px;
+  font-weight: 700;
+  color: #0f172a;
 }
 .wb-fbs-sd-click-row {
   cursor: default;
