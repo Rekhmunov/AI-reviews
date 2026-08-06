@@ -12250,6 +12250,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         name = payload.short_name.strip()
         if not name:
             raise HTTPException(status_code=400, detail="Короткое наименование не может быть пустым")
+        repository._ensure_supply_tables()
         ok = repository.update_supply_legal_entity(
             user_id=_supply_owner_id(user),
             entity_id=entity_id,
