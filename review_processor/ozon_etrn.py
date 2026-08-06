@@ -3,6 +3,11 @@
 Builds formal title-1 XML (КНД 1110339, ON_TRNACLGROT, ВерсФорм 5.01)
 from FeedPilot supply / legal-entity / driver / cargo data. Intended as a
 draft the user uploads into Kontur.Logistics and completes/signs there.
+
+Schema references:
+- FNS order ЕД-7-26/1065@ (format 5.01)
+- Diadoc GenerateTitleXml sample (АдресРФ vs АдрРФ, Подписант)
+- Kontur.Logistics InfPol keys (ORDERS / Значение)
 """
 from __future__ import annotations
 
@@ -24,15 +29,36 @@ OZON_CONSIGNEE_EDO_GUID = "2BM-7704217370-774301001-201407110916237240124"
 
 _CARGO_WEIGHT_TONS = {"PALLET": 0.2, "BOX": 0.0125}
 
-
-def _xml_escape_attr(value: object) -> str:
-    return (
-        str(value or "")
-        .replace("&", "&amp;")
-        .replace('"', "&quot;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-    )
+# Best-effort region codes for common city/region names (OKATO/КЛАДР first digits).
+_REGION_BY_NAME: tuple[tuple[str, str], ...] = (
+    ("москва", "77"),
+    ("санкт-петербург", "78"),
+    ("петербург", "78"),
+    ("ленинград", "47"),
+    ("московск", "50"),
+    ("новосибирск", "54"),
+    ("екатеринбург", "66"),
+    ("свердловск", "66"),
+    ("казань", "16"),
+    ("татарстан", "16"),
+    ("нижегород", "52"),
+    ("нижегородская", "52"),
+    ("краснодар", "23"),
+    ("ростов", "61"),
+    ("самар", "63"),
+    ("челябинск", "74"),
+    ("омск", "55"),
+    ("воронеж", "36"),
+    ("перм", "59"),
+    ("волгоград", "34"),
+    ("красноярск", "24"),
+    ("саратов", "64"),
+    ("тюмен", "72"),
+    ("уфа", "02"),
+    ("башкортостан", "02"),
+    ("тула", "71"),
+    ("калининград", "39"),
+)
 
 
 def _parse_inn_kpp(text: str) -> tuple[str, str]:
@@ -77,10 +103,29 @@ def _split_fio(full_name: str) -> tuple[str, str, str]:
     return parts[0], parts[1], " ".join(parts[2:])
 
 
-def _region_code_from_index(index: str) -> str:
+def _region_code_from_text(address: str, index: str = "") -> str:
+    low = str(address or "").lower()
+    for needle, code in _REGION_BY_NAME:
+        if needle in low:
+            return code
+    # Postal index first two digits are only a rough fallback (not always OKATO).
     idx = re.sub(r"\D", "", str(index or ""))
     if len(idx) >= 2:
         return idx[:2]
+    return ""
+
+
+def _extract_address_from_requisites(requisites: str) -> str:
+    raw = str(requisites or "")
+    if not raw:
+        return ""
+    m = re.search(
+        r"(?:юр\.?\s*адрес|юридический\s*адрес|адрес)\s*[:=]?\s*(.+?)(?:\n|$)",
+        raw,
+        flags=re.I,
+    )
+    if m:
+        return m.group(1).strip(" .;")
     return ""
 
 
@@ -104,31 +149,70 @@ def _parse_ru_address(address: str) -> dict[str, str]:
     idx_m = re.search(r"\b(\d{6})\b", raw)
     if idx_m:
         out["Индекс"] = idx_m.group(1)
-        out["КодРегион"] = _region_code_from_index(idx_m.group(1))
-    # street + house
+    out["КодРегион"] = _region_code_from_text(raw, out["Индекс"])
+
     street_m = re.search(
         r"(?:ул\.?|улица|пр-кт|проспект|пер\.?|переулок|ш\.?|шоссе|б-р|бульвар)\s*"
-        r"([^,]+?)(?:,|\s+д\.?\s*|\s+дом\s*|$)",
+        r"([^,]+?)(?=,|\s+(?:д\.?|дом)\s*\d|$)",
         raw,
         flags=re.I,
     )
     if street_m:
         out["Улица"] = street_m.group(0).strip().rstrip(",")
-    house_m = re.search(r"(?:д\.?|дом)\s*([0-9A-Za-zА-Яа-я/-]+)", raw, flags=re.I)
+
+    # Avoid matching «д» inside street names: require boundary before д/дом.
+    house_m = re.search(
+        r"(?:^|[\s,])(?:д\.?|дом)\s*([0-9A-Za-zА-Яа-я/-]+)",
+        raw,
+        flags=re.I,
+    )
     if house_m:
         out["Дом"] = house_m.group(1)
-    # settlement / city leftovers
-    if "г." in raw.lower() or "город" in raw.lower():
-        city_m = re.search(r"(?:г\.|город)\s*([^,]+)", raw, flags=re.I)
-        if city_m:
-            out["Город"] = city_m.group(1).strip()
-    if "с." in raw.lower() or "село" in raw.lower() or "п." in raw.lower():
-        sett_m = re.search(r"(?:с\.|село|п\.|поселок|посёлок)\s*([^,]+)", raw, flags=re.I)
-        if sett_m:
-            out["НаселПункт"] = sett_m.group(1).strip()
+
+    city_m = re.search(r"(?:г\.|город)\s*([^,]+)", raw, flags=re.I)
+    if city_m:
+        out["Город"] = city_m.group(1).strip()
+    sett_m = re.search(r"(?:с\.|село|п\.|поселок|посёлок)\s*([^,]+)", raw, flags=re.I)
+    if sett_m:
+        out["НаселПункт"] = sett_m.group(1).strip()
     district_m = re.search(r"(?:р-н|район)\s*([^,]+)", raw, flags=re.I)
     if district_m:
         out["Район"] = ("р-н " + district_m.group(1).strip()).strip()
+    return out
+
+
+def _parse_driver_license(documents: str) -> dict[str, str]:
+    """Extract VU series/number/date or INNFL from free-text driver documents."""
+    raw = str(documents or "")
+    out = {"СерВУ": "", "НомВУ": "", "ДатаВыдВУ": "", "ИННФЛ": ""}
+    if not raw:
+        return out
+    inn_m = re.search(r"ИНН\s*[:=]?\s*(\d{12})", raw, flags=re.I)
+    if inn_m:
+        out["ИННФЛ"] = inn_m.group(1)
+    date_m = re.search(
+        r"(?:выд|выдач|от)\s*[.:]?\s*(\d{2}\.\d{2}\.\d{4})",
+        raw,
+        flags=re.I,
+    )
+    if date_m:
+        out["ДатаВыдВУ"] = date_m.group(1)
+    # «ВУ 99 00 123456» / «серия 99 00 номер 123456»
+    vu_m = re.search(
+        r"(?:ву|в/у|водительск\w*\s*уд\w*)\s*[:.]?\s*"
+        r"(\d{2})\s*(\d{2})\s+(\d{6})",
+        raw,
+        flags=re.I,
+    )
+    if vu_m:
+        out["СерВУ"] = f"{vu_m.group(1)}{vu_m.group(2)}"
+        out["НомВУ"] = vu_m.group(3)
+        return out
+    ser_m = re.search(r"сери[яи]\s*[:=]?\s*(\d{2})\s*(\d{2})", raw, flags=re.I)
+    num_m = re.search(r"(?:номер|№)\s*[:=]?\s*(\d{6})", raw, flags=re.I)
+    if ser_m and num_m:
+        out["СерВУ"] = f"{ser_m.group(1)}{ser_m.group(2)}"
+        out["НомВУ"] = num_m.group(1)
     return out
 
 
@@ -170,6 +254,13 @@ def _cargo_stats(cargoes_json: object) -> dict[str, Any]:
     if places_label:
         cargo_name = f"Текстиль. {places_label}"
     kg = int(round(tons * 1000)) if tons > 0 else 0
+    # Required by schema: never emit empty place/mass fields.
+    if total_places <= 0:
+        total_places = 1
+        places_label = places_label or "1 место (уточнить)"
+        cargo_name = "Текстиль (количество мест уточнить)"
+    if kg <= 0:
+        kg = 1
     return {
         "pallets": pallets,
         "boxes": boxes,
@@ -177,7 +268,7 @@ def _cargo_stats(cargoes_json: object) -> dict[str, Any]:
         "total_places": total_places,
         "tons": tons,
         "kg": kg,
-        "places_label": places_label,
+        "places_label": places_label or "Отсутствует",
         "cargo_name": cargo_name,
     }
 
@@ -204,7 +295,6 @@ def _find_driver(drivers: list[dict[str, Any]], driver_name: str) -> dict[str, A
         name = str(d.get("full_name") or "").strip().lower()
         if name == target:
             return d
-    # fuzzy: all tokens present
     tokens = [t for t in target.split() if t]
     for d in drivers:
         name = str(d.get("full_name") or "").strip().lower()
@@ -228,7 +318,6 @@ def _vehicle_parts(vehicle_json: object, fallback_line: str = "") -> tuple[str, 
     model = str(data.get("vehicle_model") or "").strip()
     number = str(data.get("vehicle_number") or "").strip()
     if not model and not number and fallback_line:
-        # "MODEL A123BC77" — last token often plate
         parts = str(fallback_line).strip().split()
         if parts:
             maybe_plate = parts[-1]
@@ -237,6 +326,9 @@ def _vehicle_parts(vehicle_json: object, fallback_line: str = "") -> tuple[str, 
                 model = " ".join(parts[:-1]).strip()
             else:
                 model = str(fallback_line).strip()
+    # РегНомер is T(1-9) in schema — keep first 9 chars if longer.
+    if len(number) > 9:
+        number = number[:9]
     return model, number
 
 
@@ -248,12 +340,54 @@ def _el(parent: ET.Element, tag: str, text: str | None = None, **attrs: str) -> 
     return node
 
 
+def _add_phone(parent: ET.Element, tag: str, phone: str) -> None:
+    phone = str(phone or "").strip()
+    if phone:
+        _el(parent, tag, phone)
+
+
+def _add_contact(parent: ET.Element, phone: str) -> None:
+    phone = str(phone or "").strip()
+    if not phone:
+        return
+    contact = _el(parent, "Контакт")
+    _el(contact, "Тлф", phone)
+
+
+def _add_adr_rf(parent: ET.Element, tag: str, addr: dict[str, str]) -> None:
+    """Add АдрРФ (legal address) or АдресРФ (user/delivery/loading address)."""
+    attrs = {
+        k: addr[k]
+        for k in ("Индекс", "КодРегион", "Район", "Город", "НаселПункт", "Улица", "Дом", "Корпус", "Кварт")
+        if addr.get(k)
+    }
+    # АдрРФТип requires Индекс + КодРегион; otherwise fall back to free-text address.
+    if attrs.get("Индекс") and attrs.get("КодРегион"):
+        _el(parent, tag, **attrs)
+        return
+    raw = str(addr.get("raw") or "").strip()
+    if tag == "АдрРФ":
+        # Under АдресТип the free-text choice is АдрИнф.
+        if raw:
+            _el(parent, "АдрИнф", КодСтр="643", АдрТекст=raw[:1000])
+        return
+    # АдресПользТип free-text choice is АдресИнф.
+    if raw:
+        _el(parent, "АдресИнф", КодСтр="643", АдрТекст=raw[:1000])
+    elif attrs:
+        # Partial structured data without index — keep as free text comment.
+        pieces = [attrs[k] for k in ("Город", "НаселПункт", "Улица", "Дом") if attrs.get(k)]
+        if pieces:
+            _el(parent, "АдресИнф", КодСтр="643", АдрТекст=", ".join(pieces)[:1000])
+
+
 def build_ozon_etrn_xml(
     *,
     item: dict[str, Any],
     le: dict[str, Any] | None = None,
     driver_name: str = "",
     driver_phone: str = "",
+    driver_documents: str = "",
     vehicle_line: str = "",
     vehicle_json: object = None,
     cargoes_json: object = None,
@@ -275,31 +409,48 @@ def build_ozon_etrn_xml(
 
     load_addr = _parse_ru_address(load_address)
     dest_addr = _parse_ru_address(delivery_address)
-    # Prefer structured production address for shipper legal address if requisites lack one
-    shipper_addr = load_addr if load_addr.get("raw") else dest_addr
+    legal_addr_raw = _extract_address_from_requisites(org_req)
+    shipper_addr = _parse_ru_address(legal_addr_raw) if legal_addr_raw else (
+        load_addr if load_addr.get("raw") else dest_addr
+    )
 
     cargo = _cargo_stats(cargoes_json if cargoes_json is not None else item.get("cargoes_json"))
     fam, imya, otch = _split_fio(driver_name)
+    if not fam:
+        fam, imya = "Не", "указан"
     v_model, v_number = _vehicle_parts(
         vehicle_json if vehicle_json is not None else item.get("vehicle_json"),
         fallback_line=vehicle_line,
     )
     carrier_name, carrier_inn, carrier_kpp = _parse_carrier(carrier_text)
+    if not carrier_name:
+        carrier_name = "Перевозчик (уточнить)"
+    vu = _parse_driver_license(driver_documents)
+
+    signer_src = str(le.get("signatories") or le.get("in_person") or "").strip()
+    s_fam, s_imya, s_otch = _split_fio(signer_src)
+    if not s_fam:
+        s_fam, s_imya = "Не", "указан"
+
+    contact_phone = str(driver_phone or "").strip()
+    if not contact_phone:
+        phone_m = re.search(r"(?:\+7|8)\s*[\d\-()\s]{9,}", org_req)
+        if phone_m:
+            contact_phone = re.sub(r"\s+", "", phone_m.group(0))
 
     date_ru = now.strftime("%d.%m.%Y")
     time_ru = now.strftime("%H:%M:%S")
     date_file = now.strftime("%Y%m%d")
     file_guid = str(uuid.uuid4())
 
-    shipper_edo = ""
-    if inn:
-        shipper_edo = f"2BM-{inn}-{kpp or '000000000'}-DRAFT"
-    # A=carrier empty, E=Ozon GUID, O=shipper draft id (Kontur may rewrite on import)
+    # A=carrier FNS id (unknown for draft), E=Ozon GUID, O=shipper draft id.
+    # Kontur rewrites ИдФайл on import when needed.
+    shipper_edo = f"2BM-{inn}-{kpp or '000000000'}-DRAFT" if inn else "2BM-DRAFT-SHIPPER"
     id_file = (
         f"ON_TRNACLGROT_"
-        f"_"
+        f"_"  # carrier FNSId unknown in FeedPilot
         f"{OZON_CONSIGNEE_EDO_GUID}_"
-        f"{shipper_edo or 'DRAFT'}_"
+        f"{shipper_edo}_"
         f"0_"
         f"{date_file}_"
         f"{file_guid}"
@@ -328,42 +479,28 @@ def build_ozon_etrn_xml(
             "Лицом, осуществляющим погрузку груза, при указанных обстоятельствах "
             "передан водителю груз с указанными характеристиками"
         ),
-        НомерТрН=supply_num,
+        НомерТрН=supply_num or "Без номера",
         ДатаТрН=date_ru,
         НомЗак=supply_num or "Без номера",
         ДатаЗак=date_ru,
     )
 
-    # Ozon-required supply number
-    if supply_num:
-        inf = _el(sod, "ИнфПол")
-        _el(inf, "ТекстИнф", Идентиф="Orders", Значен=supply_num)
-
-    # Shipper
+    # --- СвГО ---
     sv_go = _el(sod, "СвГО", ГОЭксп="0")
     rek_go = _el(sv_go, "РекИдентГО")
     id_go = _el(rek_go, "ИдСв")
-    go_attrs = {"НаимОрг": org_full}
+    go_attrs = {"НаимОрг": org_full or "Грузоотправитель"}
     if inn:
         go_attrs["ИННЮЛ"] = inn
     if kpp:
         go_attrs["КПП"] = kpp
     _el(id_go, "СвЮЛУч", **go_attrs)
-    adr_go = _el(rek_go, "Адрес")
-    adr_rf_attrs = {
-        k: shipper_addr[k]
-        for k in ("Индекс", "КодРегион", "Район", "Город", "НаселПункт", "Улица", "Дом")
-        if shipper_addr.get(k)
-    }
-    if adr_rf_attrs:
-        _el(adr_go, "АдрРФ", **adr_rf_attrs)
-    elif shipper_addr.get("raw"):
-        # Keep raw address visible for manual fix in Kontur
-        _el(adr_go, "АдрРФ", Улица=shipper_addr["raw"][:255])
-    contact_go = _el(rek_go, "Контакт")
-    _el(contact_go, "Тлф")
+    if shipper_addr.get("raw") or shipper_addr.get("Индекс"):
+        adr_go = _el(rek_go, "Адрес")
+        _add_adr_rf(adr_go, "АдрРФ", shipper_addr)
+    _add_contact(rek_go, contact_phone)
 
-    # Consignee — Ozon
+    # --- СвГП (Ozon) ---
     sv_gp = _el(sod, "СвГП")
     rek_gp = _el(sv_gp, "РекИдентГП")
     id_gp = _el(rek_gp, "ИдСв")
@@ -374,41 +511,31 @@ def build_ozon_etrn_xml(
         ИННЮЛ=OZON_CONSIGNEE_INN,
         КПП=OZON_CONSIGNEE_KPP,
     )
-    contact_gp = _el(rek_gp, "Контакт")
-    _el(contact_gp, "Тлф")
     adr_dost = _el(sv_gp, "АдресДостГр")
-    dest_attrs = {
-        k: dest_addr[k]
-        for k in ("Индекс", "КодРегион", "Район", "Город", "НаселПункт", "Улица", "Дом")
-        if dest_addr.get(k)
-    }
-    if dest_attrs:
-        _el(adr_dost, "АдрРФ", **dest_attrs)
-    elif dest_addr.get("raw"):
-        _el(adr_dost, "АдрРФ", Улица=dest_addr["raw"][:255])
-    else:
-        _el(adr_dost, "КодГАР")
+    if not dest_addr.get("raw"):
+        dest_addr = {
+            **dest_addr,
+            "raw": str(item.get("warehouse_name") or item.get("transit_warehouse_name") or "Склад Ozon"),
+        }
+    _add_adr_rf(adr_dost, "АдресРФ", dest_addr)
 
-    # Cargo
+    # --- СвГруз ---
     sv_gruz = _el(sod, "СвГруз")
-    op_attrs = {
-        "НаимГруз": cargo["cargo_name"],
-        "СостГруз": "Исправное",
-        "СпУпак": cargo["places_label"] or "Отсутствует",
-        "ВидТар": "00",
-        "УчГосСист": "0",
-    }
-    if cargo["total_places"]:
-        op_attrs["КолМестГр"] = str(cargo["total_places"])
-    op = _el(sv_gruz, "ОпГруз", **op_attrs)
+    op = _el(
+        sv_gruz,
+        "ОпГруз",
+        НаимГруз=cargo["cargo_name"],
+        СостГруз="Исправное",
+        СпУпак=cargo["places_label"],
+        ВидТар="00",
+        КолМестГр=str(cargo["total_places"]),
+        УчГосСист="0",
+    )
     _el(op, "Марк", "Отсутствует")
-    mass_attrs = {}
-    if cargo["kg"]:
-        mass_attrs["МасБрутЗнач"] = str(cargo["kg"])
-    _el(op, "ПлМасГруз", **mass_attrs)
+    _el(op, "ПлМасГруз", МасБрутЗнач=str(cargo["kg"]))
 
-    # Instructions
-    ukaz = _el(sod, "УказГО", УкНормПрвз="Отсутствует", ЗапрПерегруз="0")
+    # --- УказГО ---
+    ukaz = _el(sod, "УказГО", УкНормПрвз="Отсутствуют", ЗапрПерегруз="0")
     sv_pa = _el(
         ukaz,
         "СвПА",
@@ -416,9 +543,9 @@ def build_ozon_etrn_xml(
         ЛицоПА="Грузоотправитель",
     )
     kont_pa = _el(sv_pa, "КонтПА")
-    _el(kont_pa, "Тлф")
+    _el(kont_pa, "Тлф", contact_phone or "не указан")
 
-    # Carrier
+    # --- СвПер ---
     sv_per = _el(sod, "СвПер")
     id_per = _el(sv_per, "ИдСв")
     per_attrs = {"НаимОрг": carrier_name}
@@ -427,62 +554,66 @@ def build_ozon_etrn_xml(
     if carrier_kpp:
         per_attrs["КПП"] = carrier_kpp
     _el(id_per, "СвЮЛУч", **per_attrs)
-    contact_per = _el(sv_per, "Контакт")
-    _el(contact_per, "Тлф")
+    _add_contact(sv_per, contact_phone)
 
-    # Driver
-    sv_vod = _el(sod, "СвВодит")
-    if driver_phone:
-        _el(sv_vod, "Тлф", driver_phone)
+    # --- СвВодит ---
+    vod_attrs: dict[str, str] = {}
+    if vu.get("ИННФЛ"):
+        vod_attrs["ИННФЛ"] = vu["ИННФЛ"]
     else:
-        _el(sv_vod, "Тлф")
-    fio_attrs = {"Фамилия": fam, "Имя": imya}
+        if vu.get("НомВУ"):
+            vod_attrs["НомВУ"] = vu["НомВУ"]
+        if vu.get("СерВУ"):
+            vod_attrs["СерВУ"] = vu["СерВУ"]
+        if vu.get("ДатаВыдВУ"):
+            vod_attrs["ДатаВыдВУ"] = vu["ДатаВыдВУ"]
+        # Schema: VU trio OR ИННФЛ required — draft placeholders when unknown.
+        if not (vod_attrs.get("НомВУ") and vod_attrs.get("СерВУ") and vod_attrs.get("ДатаВыдВУ")):
+            vod_attrs.setdefault("СерВУ", "0000")
+            vod_attrs.setdefault("НомВУ", "000000")
+            vod_attrs.setdefault("ДатаВыдВУ", "01.01.2000")
+    sv_vod = _el(sod, "СвВодит", **vod_attrs)
+    _el(sv_vod, "Тлф", contact_phone or "не указан")
+    fio_attrs = {"Фамилия": fam, "Имя": imya or "не указано"}
     if otch:
         fio_attrs["Отчество"] = otch
     _el(sv_vod, "ФИО", **fio_attrs)
 
-    # Vehicle
+    # --- СвТС ---
     sv_ts = _el(sod, "СвТС")
-    ts_attrs = {}
-    if v_number:
-        ts_attrs["РегНомер"] = v_number
-    ts_attrs["ТипВлад"] = ts_attrs.get("ТипВлад") or ""
-    ts = _el(sv_ts, "ТС", **{k: v for k, v in ts_attrs.items() if v != "" or k == "ТипВлад"})
-    # Ensure РегНомер/ТипВлад exist like template even if empty
-    if "РегНомер" not in ts.attrib:
-        ts.set("РегНомер", v_number)
-    if "ТипВлад" not in ts.attrib:
-        ts.set("ТипВлад", "")
-    part_attrs = {"Тип": "", "Марка": v_model, "Грузопод": "", "Вместим": ""}
-    _el(ts, "ПарТС", **part_attrs)
+    ts = _el(
+        sv_ts,
+        "ТС",
+        РегНомер=v_number or "А000АА00",
+        ТипВлад="1",  # 1 = собственность (draft default)
+    )
+    _el(
+        ts,
+        "ПарТС",
+        Тип="грузовой автомобиль",
+        Марка=v_model or "не указана",
+        Грузопод="20",
+        Вместим="20",
+    )
 
-    # Loading
-    load_attrs = {
-        "ЗаявПогр": f"{date_ru}T00:00:00+03:00",
-        "НалКоорТочВрЗаяв": "1",
-        "ФДатВрПриб": f"{date_ru}T00:00:00+03:00",
-        "НалКоорТочВрФПогр": "1",
-        "ФДатВрУбыт": f"{date_ru}T00:00:00+03:00",
-        "НалКоорТочВрФУбыт": "1",
-        "МетОпрМасс": "01",
-    }
-    if cargo["kg"]:
-        load_attrs["МасБрутОтгр"] = str(cargo["kg"])
-    if cargo["total_places"]:
-        load_attrs["КолМестПрием"] = str(cargo["total_places"])
-    sv_pogr = _el(sod, "СвПогруз", **load_attrs)
+    # --- СвПогруз ---
+    sv_pogr = _el(
+        sod,
+        "СвПогруз",
+        ЗаявПогр=f"{date_ru}T00:00:00+03:00",
+        НалКоорТочВрЗаяв="1",
+        ФДатВрПриб=f"{date_ru}T00:00:00+03:00",
+        НалКоорТочВрФПогр="1",
+        ФДатВрУбыт=f"{date_ru}T00:00:00+03:00",
+        НалКоорТочВрФУбыт="1",
+        МасБрутОтгр=str(cargo["kg"]),
+        МетОпрМасс="01",
+        КолМестПрием=str(cargo["total_places"]),
+    )
     f_adr = _el(sv_pogr, "ФАдресПогр")
-    load_rf = {
-        k: load_addr[k]
-        for k in ("Индекс", "КодРегион", "Район", "Город", "НаселПункт", "Улица", "Дом")
-        if load_addr.get(k)
-    }
-    if load_rf:
-        _el(f_adr, "АдрРФ", **load_rf)
-    elif load_addr.get("raw"):
-        _el(f_adr, "АдрРФ", Улица=load_addr["raw"][:255])
-    else:
-        _el(f_adr, "КодГАР")
+    if not load_addr.get("raw"):
+        load_addr = {**load_addr, "raw": "Адрес погрузки уточнить"}
+    _add_adr_rf(f_adr, "АдресРФ", load_addr)
 
     lich = _el(sv_pogr, "СвЛицПогрГр", СовпГОП="1")
     ident = _el(lich, "ИдентРекГО")
@@ -493,11 +624,23 @@ def build_ozon_etrn_xml(
     if inn:
         _el(ident2, "ИННЮЛ", inn)
 
+    # ИнфПол must be last in СодИнфГО sequence (table 5.3).
+    # Ozon matches supply by Orders; Kontur EDI convention uses ORDERS.
+    if supply_num:
+        inf = _el(sod, "ИнфПол")
+        _el(inf, "ТекстИнф", Идентиф="Orders", Значение=supply_num)
+        _el(inf, "ТекстИнф", Идентиф="ORDERS", Значение=supply_num)
+
+    # Подписант is required under Документ (table 5.2).
+    signer = _el(doc, "Подписант", СтатПодп="1", Должн="Уполномоченное лицо")
+    signer_fio = {"Фамилия": s_fam, "Имя": s_imya or "не указано"}
+    if s_otch:
+        signer_fio["Отчество"] = s_otch
+    _el(signer, "ФИО", **signer_fio)
+
     rough = ET.tostring(root, encoding="utf-8")
     try:
-        pretty = minidom.parseString(rough).toprettyxml(indent="  ", encoding="utf-8")
-        # minidom adds XML declaration; ensure no extra blank first line issues
-        return pretty
+        return minidom.parseString(rough).toprettyxml(indent="  ", encoding="utf-8")
     except Exception:
         _log.exception("ozon_etrn: pretty print failed")
         return b'<?xml version="1.0" encoding="utf-8"?>\n' + rough
@@ -518,6 +661,7 @@ def collect_ozon_etrn_context(
     drivers = repository.list_supply_drivers(user_id=owner_id)
     driver_row = _find_driver(drivers, driver_name)
     carrier_text = str((driver_row or {}).get("carrier") or "")
+    driver_documents = str((driver_row or {}).get("documents") or "")
 
     production_name = str(item.get("production") or "").strip()
     load_address = ""
@@ -546,5 +690,6 @@ def collect_ozon_etrn_context(
         "delivery_address": delivery_address,
         "driver_name": driver_name,
         "driver_phone": driver_phone,
+        "driver_documents": driver_documents,
         "vehicle_line": vehicle_line,
     }

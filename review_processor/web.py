@@ -10672,8 +10672,18 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not data or not data.get("item"):
             raise HTTPException(status_code=404, detail="Поставка не найдена")
         item = data["item"]
-        # Prefer freshest cargoes cache; if empty try cargoes-info path via DB only.
         cargoes_json = item.get("cargoes_json")
+        # Refresh cargo places from Ozon when cache is empty so КолМестГр/масса не пустые.
+        cached_empty = not cargoes_json or str(cargoes_json).strip() in ("", "[]", "null")
+        if cached_empty:
+            try:
+                cargo_resp = get_ozon_supply_cargoes(request, supply_order_id)
+                groups = (cargo_resp or {}).get("groups") or []
+                if groups:
+                    import json as _jj
+                    cargoes_json = _jj.dumps(groups, ensure_ascii=False)
+            except Exception as ex:
+                _log.debug("ozon etrn cargoes refresh sid=%s: %s", supply_order_id, ex)
         ctx = _ozon_etrn.collect_ozon_etrn_context(
             repository=repository,
             owner_id=owner_id,
@@ -10688,6 +10698,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 le=ctx.get("le") or data.get("le") or {},
                 driver_name=str(ctx.get("driver_name") or ""),
                 driver_phone=str(ctx.get("driver_phone") or ""),
+                driver_documents=str(ctx.get("driver_documents") or ""),
                 vehicle_line=str(ctx.get("vehicle_line") or ""),
                 vehicle_json=item.get("vehicle_json"),
                 cargoes_json=cargoes_json,
