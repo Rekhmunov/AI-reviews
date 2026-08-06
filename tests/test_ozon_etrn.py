@@ -65,10 +65,13 @@ def test_etrn_xml_core_schema_shape():
         assert "Значен" not in t.attrib
 
     # Delivery / loading use АдресРФ; legal address under Адрес uses АдрРФ.
+    # Never emit АдрИнф/АдресИнф — Kontur treats that as foreign address type.
     assert sod.find("СвГП/АдресДостГр/АдресРФ") is not None
     assert sod.find("СвГП/АдресДостГр/АдрРФ") is None
     assert sod.find("СвПогруз/ФАдресПогр/АдресРФ") is not None
     assert sod.find("СвГО/РекИдентГО/Адрес/АдрРФ") is not None
+    assert sod.find(".//АдрИнф") is None
+    assert sod.find(".//АдресИнф") is None
 
     # No empty GAR / phone stubs.
     assert sod.find(".//КодГАР") is None
@@ -106,3 +109,25 @@ def test_etrn_xml_empty_cargoes_still_has_required_mass_places():
     assert op is not None
     assert int(op.attrib["КолМестГр"]) >= 1
     assert int(op.find("ПлМасГруз").attrib["МасБрутЗнач"]) >= 1
+
+
+def test_etrn_xml_incomplete_legal_address_still_adr_rf():
+    """Unparseable legal address must stay АдрРФ, not АдрИнф (foreign)."""
+    root = ET.fromstring(
+        _build(
+            le={
+                "full_name": 'ООО "Тест"',
+                "requisites": "ИНН 7701234567 КПП 770101001 адрес: деревня БезИндекса, участок 7",
+                "signatories": "Иванов Иван Иванович",
+            },
+            load_address="",
+            delivery_address="склад без индекса",
+        )
+    )
+    adr = root.find("Документ/СодИнфГО/СвГО/РекИдентГО/Адрес/АдрРФ")
+    assert adr is not None
+    assert root.find("Документ/СодИнфГО/СвГО/РекИдентГО/Адрес/АдрИнф") is None
+    assert root.find(".//АдрИнф") is None
+    assert root.find(".//АдресИнф") is None
+    assert root.find("Документ/СодИнфГО/СвГП/АдресДостГр/АдресРФ") is not None
+    assert root.find("Документ/СодИнфГО/СвПогруз/ФАдресПогр/АдресРФ") is not None

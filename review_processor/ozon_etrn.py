@@ -120,12 +120,16 @@ def _extract_address_from_requisites(requisites: str) -> str:
     if not raw:
         return ""
     m = re.search(
-        r"(?:юр\.?\s*адрес|юридический\s*адрес|адрес)\s*[:=]?\s*(.+?)(?:\n|$)",
+        r"(?:юр\.?\s*адрес|юридический\s*адрес|фактический\s*адрес|адрес)\s*[:=]?\s*(.+?)(?:\n|$)",
         raw,
         flags=re.I,
     )
     if m:
         return m.group(1).strip(" .;")
+    # Fallback: line that looks like a RU postal address.
+    idx_m = re.search(r"\b\d{6}\b[^.\n]{5,200}", raw)
+    if idx_m:
+        return idx_m.group(0).strip(" .;")
     return ""
 
 
@@ -355,30 +359,28 @@ def _add_contact(parent: ET.Element, phone: str) -> None:
 
 
 def _add_adr_rf(parent: ET.Element, tag: str, addr: dict[str, str]) -> None:
-    """Add АдрРФ (legal address) or АдресРФ (user/delivery/loading address)."""
+    """Always emit АдрРФ / АдресРФ (never АдрИнф — Kontur shows that as foreign)."""
+    raw = str(addr.get("raw") or "").strip()
     attrs = {
         k: addr[k]
         for k in ("Индекс", "КодРегион", "Район", "Город", "НаселПункт", "Улица", "Дом", "Корпус", "Кварт")
         if addr.get(k)
     }
-    # АдрРФТип requires Индекс + КодРегион; otherwise fall back to free-text address.
-    if attrs.get("Индекс") and attrs.get("КодРегион"):
-        _el(parent, tag, **attrs)
+    if not attrs.get("КодРегион"):
+        code = _region_code_from_text(raw, attrs.get("Индекс", ""))
+        if code:
+            attrs["КодРегион"] = code
+    # Keep Russian address type even when parsing is incomplete: put full text in Улица.
+    if raw and not attrs.get("Улица"):
+        if not attrs.get("Индекс") or not any(
+            attrs.get(k) for k in ("Город", "НаселПункт", "Дом")
+        ):
+            attrs["Улица"] = raw[:255]
+    if not attrs and not raw:
         return
-    raw = str(addr.get("raw") or "").strip()
-    if tag == "АдрРФ":
-        # Under АдресТип the free-text choice is АдрИнф.
-        if raw:
-            _el(parent, "АдрИнф", КодСтр="643", АдрТекст=raw[:1000])
-        return
-    # АдресПользТип free-text choice is АдресИнф.
-    if raw:
-        _el(parent, "АдресИнф", КодСтр="643", АдрТекст=raw[:1000])
-    elif attrs:
-        # Partial structured data without index — keep as free text comment.
-        pieces = [attrs[k] for k in ("Город", "НаселПункт", "Улица", "Дом") if attrs.get(k)]
-        if pieces:
-            _el(parent, "АдресИнф", КодСтр="643", АдрТекст=", ".join(pieces)[:1000])
+    if not attrs:
+        attrs = {"Улица": raw[:255]}
+    _el(parent, tag, **attrs)
 
 
 def build_ozon_etrn_xml(
