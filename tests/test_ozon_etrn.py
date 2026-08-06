@@ -176,3 +176,23 @@ def test_etrn_shipper_address_prefers_address_over_requisites():
     )
     assert "Новая" in shipper_xml or "Пушкино" in shipper_xml
     assert "Старая" not in shipper_xml
+
+
+def test_etrn_ryazan_index_is_not_kaliningrad():
+    """390xxx is Ryazan (62); index[:2]==39 must not become Kaliningrad."""
+    root = ET.fromstring(
+        _build(
+            le={
+                "full_name": 'ООО "Тест"',
+                "requisites": "ИНН 7701234567",
+                "address": "390528, Рязанская область, с. Алеканово, ул. Полевая, д.62г",
+                "signatories": "Иванов Иван Иванович",
+            }
+        )
+    )
+    adr = root.find("Документ/СодИнфГО/СвГО/РекИдентГО/Адрес/АдрРФ")
+    assert adr is not None
+    assert adr.attrib.get("КодРегион") == "62"
+    assert adr.attrib.get("Индекс") == "390528"
+    assert "Полевая" in adr.attrib.get("Улица", "")
+    assert adr.attrib.get("НаселПункт") == "Алеканово"
