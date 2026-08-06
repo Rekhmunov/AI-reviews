@@ -9240,6 +9240,102 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             decisions=decisions,
         )
 
+    def _wb_fbs_parse_order_ids(payload: dict[str, object]) -> list[int]:
+        raw = payload.get("order_ids") or []
+        if not isinstance(raw, list):
+            raise HTTPException(status_code=400, detail="order_ids должен быть списком")
+        out: list[int] = []
+        for x in raw:
+            try:
+                out.append(int(x))
+            except (TypeError, ValueError):
+                continue
+        if not out:
+            raise HTTPException(status_code=400, detail="Укажите order_ids")
+        if len(out) > 5000:
+            raise HTTPException(status_code=400, detail="Слишком много заказов (макс. 5000)")
+        return out
+
+    @app.post("/api/wb-fbs/selection/preview")
+    async def wb_fbs_selection_preview(request: Request) -> dict[str, object]:
+        """Validate selected New-tab orders; return name suggestion + compatible supplies."""
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        try:
+            payload = await request.json()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Некорректный JSON") from exc
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=400, detail="Некорректное тело запроса")
+        sid = int(payload.get("source_id") or 0)
+        if not sid:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        _wb_fbs_source_key(owner_id, sid)
+        order_ids = _wb_fbs_parse_order_ids(payload)
+        return wb_fbs_mod.preview_selection_supply(
+            repository, user_id=owner_id, source_id=sid, order_ids=order_ids
+        )
+
+    @app.post("/api/wb-fbs/selection/create-supply")
+    async def wb_fbs_selection_create_supply(request: Request) -> dict[str, object]:
+        """Create supply and add selected New-tab orders (WB POST /api/v3/supplies + PATCH orders)."""
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        try:
+            payload = await request.json()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Некорректный JSON") from exc
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=400, detail="Некорректное тело запроса")
+        sid = int(payload.get("source_id") or 0)
+        if not sid:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        api_key = _wb_fbs_source_key(owner_id, sid)
+        order_ids = _wb_fbs_parse_order_ids(payload)
+        name = str(payload.get("name") or "").strip()
+        return wb_fbs_mod.create_supply_from_selection(
+            repository,
+            user_id=owner_id,
+            source_id=sid,
+            api_key=api_key,
+            order_ids=order_ids,
+            name=name,
+        )
+
+    @app.post("/api/wb-fbs/selection/add-to-supply")
+    async def wb_fbs_selection_add_to_supply(request: Request) -> dict[str, object]:
+        """Add selected New-tab orders to an existing open supply."""
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        try:
+            payload = await request.json()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Некорректный JSON") from exc
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=400, detail="Некорректное тело запроса")
+        sid = int(payload.get("source_id") or 0)
+        if not sid:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        api_key = _wb_fbs_source_key(owner_id, sid)
+        order_ids = _wb_fbs_parse_order_ids(payload)
+        supply_id = str(payload.get("supply_id") or "").strip()
+        if not supply_id:
+            raise HTTPException(status_code=400, detail="Укажите supply_id")
+        return wb_fbs_mod.add_selection_to_supply(
+            repository,
+            user_id=owner_id,
+            source_id=sid,
+            api_key=api_key,
+            order_ids=order_ids,
+            supply_id=supply_id,
+        )
+
     @app.delete("/api/wb-fbs/orders")
     def clear_wb_fbs_orders(request: Request, source_id: int) -> dict[str, object]:
         """Owner/admin only. UI button removed; kept for emergency admin use."""

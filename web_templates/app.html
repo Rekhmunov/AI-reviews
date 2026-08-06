@@ -1556,6 +1556,23 @@
             </div>
           </div>
         </div>
+        <div id="wbFbsSelectionSupplyModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="wbFbsSelectionSupplyTitle"
+             onclick="if(event.target===this)closeWbFbsSelectionSupplyModal()">
+          <div class="modal-card wb-fbs-collect-mgt-modal">
+            <div class="wb-fbs-collect-mgt-header">
+              <h3 id="wbFbsSelectionSupplyTitle" class="wb-fbs-collect-mgt-title">Новая поставка</h3>
+              <button type="button" class="icon-btn secondary" onclick="closeWbFbsSelectionSupplyModal()" aria-label="Закрыть">✕</button>
+            </div>
+            <p id="wbFbsSelectionSupplyLead" class="wb-fbs-collect-mgt-lead"></p>
+            <div id="wbFbsSelectionSupplyBody" class="wb-fbs-collect-mgt-body"></div>
+            <div id="wbFbsSelectionSupplyErr" class="wb-fbs-collect-mgt-err" hidden></div>
+            <div class="wb-fbs-collect-mgt-footer">
+              <button type="button" class="secondary" onclick="closeWbFbsSelectionSupplyModal()">Отмена</button>
+              <button type="button" id="wbFbsSelectionSupplyConfirmBtn" onclick="confirmWbFbsSelectionSupply()">Создать</button>
+            </div>
+          </div>
+        </div>
         <div class="panel supplies-table-panel wb-fbs-table-panel">
           <div class="supplies-table-wrap wb-fbs-table-wrap">
             <table id="wbFbsOrdersTable" class="supplies-main-table wb-fbs-table">
@@ -1596,9 +1613,13 @@
           <span id="wbFbsSelectedLabel" class="wb-fbs-selected-label">Выбрано 0 заказов</span>
           <div class="wb-fbs-bottom-actions">
             <div id="wbFbsBottomNewActions" class="wb-fbs-bottom-group">
-              <button type="button" class="wb-fbs-bottom-primary" onclick="wbFbsStubNewSupplySelected()">
+              <button type="button" class="wb-fbs-bottom-primary" onclick="openWbFbsNewSupplyFromSelection()">
                 <span class="wb-fbs-ico-plus" aria-hidden="true">+</span>
                 Новая поставка
+              </button>
+              <button type="button" id="wbFbsAddToSupplyBtn" class="secondary wb-fbs-bottom-add-existing hidden"
+                      onclick="openWbFbsAddToExistingSupply()">
+                Добавить к существующей
               </button>
             </div>
             <div id="wbFbsBottomStickerActions" class="wb-fbs-bottom-group hidden">

@@ -7129,6 +7129,26 @@ button.wb-fbs-collect-mgt-btn.hidden {
 }
 .wb-fbs-collect-mgt-result-ok { color: #166534; }
 .wb-fbs-collect-mgt-result-err { color: #b91c1c; }
+button.wb-fbs-bottom-add-existing.hidden {
+  display: none !important;
+}
+.wb-fbs-selection-traits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 16px;
+}
+.wb-fbs-selection-trait {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: #f1f5f9;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 600;
+}
 @media (max-width: 720px) {
   .wb-fbs-tabs-row {
     flex-wrap: wrap;

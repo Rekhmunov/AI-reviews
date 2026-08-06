@@ -1242,6 +1242,18 @@ def _tab_counts(
             tuple(count_params + [TAB_NEW]),
         ).fetchone()
         mgt_new = int(mgt_row["n"]) if mgt_row else 0
+    open_supplies = 0
+    with repo._connect() as conn:
+        open_row = conn.execute(
+            repo._sql(
+                f"""
+                SELECT COUNT(*) AS n FROM wb_fbs_supplies
+                WHERE {count_where} AND COALESCE(done, FALSE) = FALSE
+                """
+            ),
+            tuple(count_params),
+        ).fetchone()
+        open_supplies = int(open_row["n"]) if open_row else 0
     return {
         TAB_NEW: counts.get(TAB_NEW, 0),
         TAB_ASSEMBLY: counts.get(TAB_ASSEMBLY, 0),
@@ -1250,6 +1262,7 @@ def _tab_counts(
         TAB_CANCELLED: counts.get(TAB_CANCELLED, 0),
         TAB_ARCHIVE: counts.get(TAB_ARCHIVE, 0),
         "mgt_new": mgt_new,
+        "open_supplies": open_supplies,
     }
 
 
@@ -2481,4 +2494,733 @@ def execute_collect_mgt(
         "skipped_cancelled": skipped_cancelled,
         "groups": group_results,
         "goto_assembly": bool(added_total > 0 and not errors),
+    }
+
+
+def _row_cross_border(row: dict[str, Any]) -> int | None:
+    """Order/supply ``crossBorderType``: 0 / 1 / None if unset."""
+    raw = _parse_json_obj(row.get("raw_json"))
+    if "crossBorderType" in raw and raw.get("crossBorderType") is not None:
+        try:
+            return int(raw.get("crossBorderType"))
+        except (TypeError, ValueError):
+            return None
+    if "cross_border_type" in row and row.get("cross_border_type") is not None:
+        try:
+            return int(row.get("cross_border_type"))
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _load_orders_by_ids(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    order_ids: list[int],
+) -> list[dict[str, Any]]:
+    ensure_wb_fbs_tables(repo)
+    ids = sorted({int(x) for x in order_ids if x is not None})
+    if not ids:
+        return []
+    out: list[dict[str, Any]] = []
+    # Chunk IN-lists to stay under parameter limits.
+    with repo._connect() as conn:
+        for i in range(0, len(ids), 500):
+            chunk = ids[i : i + 500]
+            placeholders = ", ".join("?" for _ in chunk)
+            rows = conn.execute(
+                repo._sql(
+                    f"""
+                    SELECT order_id, cargo_type, supplier_status, wb_status, tab, is_b2b,
+                           warehouse_id, supply_id, raw_json, is_archive
+                    FROM wb_fbs_orders
+                    WHERE user_id = ? AND source_id = ?
+                      AND order_id IN ({placeholders})
+                    """
+                ),
+                tuple([user_id, source_id, *chunk]),
+            ).fetchall()
+            for row in rows:
+                d = repo._row_to_dict(row)
+                d["is_b2b"] = _row_order_is_b2b(d)
+                d["cross_border_type"] = _row_cross_border(d)
+                out.append(d)
+    out.sort(key=lambda x: int(x.get("order_id") or 0))
+    return out
+
+
+def _selection_mix_errors(orders: list[dict[str, Any]]) -> list[str]:
+    """WB-compatible homogeneity checks for a selected set of orders."""
+    errors: list[str] = []
+    if not orders:
+        return ["Не выбраны заказы"]
+
+    cargo_labels: dict[int, str] = {}
+    for o in orders:
+        try:
+            ct = int(o.get("cargo_type") or 0)
+        except (TypeError, ValueError):
+            ct = 0
+        label = cargo_type_label(ct) or ("неизвестно" if ct == 0 else str(ct))
+        cargo_labels[ct] = label
+    known_cargos = {c for c in cargo_labels if c in (1, 2, 3)}
+    if len(known_cargos) > 1:
+        pretty = ", ".join(cargo_labels[c] for c in sorted(known_cargos))
+        errors.append(
+            f"В выборе смешаны типы габарита: {pretty}. "
+            "По API WB в одной поставке могут быть только заказы одного типа "
+            "(МГТ / СГТ / КГТ+)."
+        )
+    elif 0 in cargo_labels and known_cargos:
+        errors.append(
+            "У части выбранных заказов не определён тип габарита (cargoType). "
+            "Снимите их с выбора или дождитесь синхронизации."
+        )
+    elif 0 in cargo_labels and not known_cargos:
+        errors.append(
+            "Не удалось определить тип габарита (МГТ/СГТ/КГТ+) у выбранных заказов. "
+            "Обновите синхронизацию и попробуйте снова."
+        )
+
+    b2b_flags = {_row_order_is_b2b(o) for o in orders}
+    if len(b2b_flags) > 1:
+        errors.append(
+            "В выборе есть и B2B, и обычные заказы. "
+            "С 19.03.2026 WB не позволяет смешивать их в одной поставке."
+        )
+
+    warehouses: set[object] = set()
+    for o in orders:
+        wh = o.get("warehouse_id")
+        warehouses.add(int(wh) if wh is not None and str(wh).strip() != "" else None)
+    if None in warehouses and len(warehouses) > 1:
+        errors.append(
+            "У части заказов не указан склад WB (warehouseId), а у других указан. "
+            "В одну поставку можно добавить только заказы одного склада."
+        )
+    elif len(warehouses) > 1:
+        errors.append(
+            "Выбраны заказы с разных складов WB. "
+            "По API WB заказы с разных warehouseId нельзя объединить в одну поставку."
+        )
+
+    borders = {_row_cross_border(o) for o in orders}
+    known_borders = {b for b in borders if b is not None}
+    if len(known_borders) > 1:
+        errors.append(
+            "В выборе смешаны кроссбордер и обычные заказы (crossBorderType). "
+            "WB разрешает в одной поставке только один тип."
+        )
+    return errors
+
+
+def _selection_traits(orders: list[dict[str, Any]]) -> dict[str, Any]:
+    cargo = 0
+    for o in orders:
+        try:
+            ct = int(o.get("cargo_type") or 0)
+        except (TypeError, ValueError):
+            ct = 0
+        if ct in (1, 2, 3):
+            cargo = ct
+            break
+    is_b2b = _row_order_is_b2b(orders[0]) if orders else False
+    warehouse_id = None
+    if orders and orders[0].get("warehouse_id") is not None:
+        try:
+            warehouse_id = int(orders[0].get("warehouse_id"))
+        except (TypeError, ValueError):
+            warehouse_id = None
+    cross_border = _row_cross_border(orders[0]) if orders else None
+    return {
+        "cargo_type": cargo,
+        "cargo_label": cargo_type_label(cargo) or "",
+        "is_b2b": bool(is_b2b),
+        "warehouse_id": warehouse_id,
+        "cross_border_type": cross_border,
+    }
+
+
+def _supply_warehouse_id(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply: dict[str, Any],
+) -> int | None:
+    order_ids = supply.get("order_ids")
+    if not isinstance(order_ids, list):
+        order_ids = _parse_json_list(supply.get("order_ids_json"))
+    ids = [int(x) for x in order_ids if x is not None]
+    if not ids:
+        return None
+    whs: set[int] = set()
+    with repo._connect() as conn:
+        for i in range(0, len(ids), 500):
+            chunk = ids[i : i + 500]
+            placeholders = ", ".join("?" for _ in chunk)
+            rows = conn.execute(
+                repo._sql(
+                    f"""
+                    SELECT DISTINCT warehouse_id FROM wb_fbs_orders
+                    WHERE user_id = ? AND source_id = ?
+                      AND order_id IN ({placeholders})
+                      AND warehouse_id IS NOT NULL
+                    """
+                ),
+                tuple([user_id, source_id, *chunk]),
+            ).fetchall()
+            for row in rows:
+                try:
+                    whs.add(int(row["warehouse_id"]))
+                except (TypeError, ValueError, KeyError):
+                    continue
+    if len(whs) == 1:
+        return next(iter(whs))
+    return None
+
+
+def _compatible_supplies_for_traits(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    traits: dict[str, Any],
+) -> list[dict[str, Any]]:
+    cargo = int(traits.get("cargo_type") or 0)
+    is_b2b = bool(traits.get("is_b2b"))
+    warehouse_id = traits.get("warehouse_id")
+    cross_border = traits.get("cross_border_type")
+    open_supplies = list_supplies(repo, user_id=user_id, source_id=source_id, only_open=True)
+    out: list[dict[str, Any]] = []
+    for s in open_supplies:
+        s["order_ids"] = s.get("order_ids") or _parse_json_list(s.get("order_ids_json"))
+        raw = _parse_json_obj(s.get("raw_json"))
+        inferred_b2b = _coalesce_b2b_flag(raw)
+        if inferred_b2b is not None:
+            s["is_b2b"] = inferred_b2b
+        empty = _supply_is_empty(s)
+        scargo = int(s.get("cargo_type") or 0)
+        supply_wh = None
+        if not empty:
+            if scargo not in (0, cargo):
+                continue
+            sb = _coalesce_b2b_flag(raw)
+            if sb is None and s.get("is_b2b") is not None:
+                sb = bool(s.get("is_b2b"))
+            if scargo != 0 and sb is not None and sb != is_b2b:
+                continue
+            supply_wh = _supply_warehouse_id(
+                repo, user_id=user_id, source_id=source_id, supply=s
+            )
+            if (
+                warehouse_id is not None
+                and supply_wh is not None
+                and int(warehouse_id) != int(supply_wh)
+            ):
+                continue
+            supply_border = _row_cross_border(s)
+            if (
+                cross_border is not None
+                and supply_border is not None
+                and int(cross_border) != int(supply_border)
+            ):
+                continue
+        out.append(
+            {
+                "supply_id": str(s.get("supply_id") or ""),
+                "name": str(s.get("name") or s.get("supply_id") or ""),
+                "cargo_type": scargo,
+                "cargo_label": cargo_type_label(scargo) or ("пустая" if empty else ""),
+                "is_b2b": bool(s.get("is_b2b")) if not empty else None,
+                "is_empty": empty,
+                "orders_count": len(s.get("order_ids") or []),
+                "warehouse_id": supply_wh,
+            }
+        )
+    out = [x for x in out if x.get("supply_id")]
+    out.sort(key=lambda x: (not x.get("is_empty"), str(x.get("name") or "").lower()))
+    return out
+
+
+def preview_selection_supply(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    order_ids: list[int],
+) -> dict[str, Any]:
+    """Validate selected New-tab orders and list compatible open supplies."""
+    ensure_wb_fbs_tables(repo)
+    wanted = sorted({int(x) for x in order_ids if x is not None})
+    orders = _load_orders_by_ids(
+        repo, user_id=user_id, source_id=source_id, order_ids=wanted
+    )
+    found = {int(o["order_id"]) for o in orders}
+    missing = [oid for oid in wanted if oid not in found]
+    errors: list[str] = []
+    if missing:
+        errors.append(
+            f"Не найдены заказы в текущем кабинете: {', '.join(map(str, missing[:10]))}"
+            + ("…" if len(missing) > 10 else "")
+        )
+
+    usable: list[dict[str, Any]] = []
+    for o in orders:
+        if bool(o.get("is_archive")):
+            errors.append(f"Заказ {o.get('order_id')} в архиве")
+            continue
+        if str(o.get("tab") or "") != TAB_NEW:
+            errors.append(
+                f"Заказ {o.get('order_id')} не во вкладке «Новые» "
+                f"(сейчас: {o.get('tab') or '—'})"
+            )
+            continue
+        if _is_cancelled_status(
+            supplier_status=o.get("supplier_status"),
+            wb_status=o.get("wb_status"),
+        ):
+            errors.append(f"Заказ {o.get('order_id')} отменён")
+            continue
+        usable.append(o)
+
+    mix_errors = _selection_mix_errors(usable) if usable else (["Нет подходящих заказов"] if not errors else [])
+    errors.extend(mix_errors)
+    # Deduplicate while preserving order
+    seen: set[str] = set()
+    uniq_errors: list[str] = []
+    for e in errors:
+        if e in seen:
+            continue
+        seen.add(e)
+        uniq_errors.append(e)
+
+    traits = _selection_traits(usable) if usable and not mix_errors else {
+        "cargo_type": 0,
+        "cargo_label": "",
+        "is_b2b": False,
+        "warehouse_id": None,
+        "cross_border_type": None,
+    }
+    open_supplies = list_supplies(
+        repo, user_id=user_id, source_id=source_id, only_open=True
+    )
+    existing_names = sorted(
+        {
+            str(s.get("name") or "").strip()
+            for s in open_supplies
+            if str(s.get("name") or "").strip()
+        }
+    )
+    compatible: list[dict[str, Any]] = []
+    if usable and not mix_errors:
+        compatible = _compatible_supplies_for_traits(
+            repo, user_id=user_id, source_id=source_id, traits=traits
+        )
+
+    suggested = default_mgt_supply_name(is_b2b=bool(traits.get("is_b2b")))
+    return {
+        "ok": not uniq_errors,
+        "errors": uniq_errors,
+        "order_ids": [int(o["order_id"]) for o in usable],
+        "order_count": len(usable),
+        "traits": traits,
+        "suggested_name": suggested,
+        "name_conflict": suggested in set(existing_names),
+        "existing_names": existing_names,
+        "compatible_supplies": compatible,
+        "has_open_supplies": bool(open_supplies),
+    }
+
+
+def _filter_live_new_order_ids(
+    client: WbFbsClient,
+    order_ids: list[int],
+) -> tuple[list[int], list[int], list[str]]:
+    """Refresh statuses; return (live_new_ids, skipped, fatal_errors)."""
+    skipped: list[int] = []
+    errors: list[str] = []
+    status_map: dict[int, dict[str, Any]] = {}
+    ids = [int(x) for x in order_ids]
+    for i in range(0, len(ids), 1000):
+        chunk = ids[i : i + 1000]
+        try:
+            for st in client.get_statuses(chunk):
+                if isinstance(st, dict) and st.get("id") is not None:
+                    status_map[int(st["id"])] = st
+        except Exception as exc:
+            return [], [], [f"Не удалось проверить статусы заказов: {exc}"]
+        if i + 1000 < len(ids):
+            time.sleep(0.21)
+    live: list[int] = []
+    for oid in ids:
+        st = status_map.get(oid) or {}
+        ss = str(st.get("supplierStatus") or "").strip().lower()
+        ws = str(st.get("wbStatus") or "").strip().lower()
+        if _is_cancelled_status(supplier_status=ss, wb_status=ws):
+            skipped.append(oid)
+            continue
+        if ss and ss != "new":
+            skipped.append(oid)
+            continue
+        live.append(oid)
+    return live, skipped, errors
+
+
+def _add_orders_to_supply_local(
+    repo: ReviewRepository,
+    client: WbFbsClient,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+    order_ids: list[int],
+    is_b2b: bool,
+    name: str = "",
+) -> tuple[int, list[str], list[str]]:
+    """PATCH orders to WB supply in chunks; update local cache. Returns added, errors, warnings."""
+    errors: list[str] = []
+    warnings: list[str] = []
+    added = 0
+    for i in range(0, len(order_ids), 100):
+        chunk = order_ids[i : i + 100]
+        try:
+            client.add_orders_to_supply(supply_id, chunk)
+            added += len(chunk)
+            with repo._connect() as conn:
+                for oid in chunk:
+                    conn.execute(
+                        repo._sql(
+                            """
+                            UPDATE wb_fbs_orders
+                            SET supply_id = ?, tab = ?, supplier_status = ?,
+                                is_b2b = ?, synced_at = ?
+                            WHERE user_id = ? AND source_id = ? AND order_id = ?
+                            """
+                        ),
+                        (
+                            supply_id,
+                            TAB_ASSEMBLY,
+                            "confirm",
+                            is_b2b,
+                            _utc_now(),
+                            user_id,
+                            source_id,
+                            oid,
+                        ),
+                    )
+        except Exception as exc:
+            errors.append(
+                f"Не удалось добавить заказы {chunk[0]}… ({len(chunk)} шт.) "
+                f"в {supply_id}: {exc}"
+            )
+        if i + 100 < len(order_ids):
+            time.sleep(0.25)
+    if added:
+        try:
+            oids = client.get_supply_order_ids(supply_id)
+            live_supply = client.get_supply(supply_id)
+            upsert_supply(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                supply=live_supply
+                or {"id": supply_id, "name": name, "isB2b": is_b2b},
+                order_ids=oids or order_ids[:added],
+            )
+        except Exception as exc:
+            warnings.append(f"Заказы добавлены на WB, локальный кэш поставки: {exc}")
+    return added, errors, warnings
+
+
+def create_supply_from_selection(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    api_key: str,
+    order_ids: list[int],
+    name: str,
+) -> dict[str, Any]:
+    """Create a new WB supply and add the selected New-tab orders."""
+    preview = preview_selection_supply(
+        repo, user_id=user_id, source_id=source_id, order_ids=order_ids
+    )
+    if not preview.get("ok"):
+        return {
+            "ok": False,
+            "message": "Нельзя создать поставку из выбранных заказов.",
+            "errors": preview.get("errors") or [],
+            "added": 0,
+            "goto_assembly": False,
+        }
+    title = str(name or preview.get("suggested_name") or "").strip()
+    if not title:
+        return {
+            "ok": False,
+            "message": "Укажите название поставки.",
+            "errors": ["Пустое название поставки"],
+            "added": 0,
+            "goto_assembly": False,
+        }
+    existing = set(preview.get("existing_names") or [])
+    if title in existing:
+        return {
+            "ok": False,
+            "message": "Поставка с таким названием уже есть.",
+            "errors": [f"Поставка «{title}» уже есть — измените название"],
+            "added": 0,
+            "goto_assembly": False,
+        }
+
+    client = WbFbsClient(api_key)
+    live_ids, skipped, fatal = _filter_live_new_order_ids(
+        client, list(preview.get("order_ids") or [])
+    )
+    if fatal:
+        return {
+            "ok": False,
+            "message": fatal[0],
+            "errors": fatal,
+            "added": 0,
+            "skipped_cancelled": skipped,
+            "goto_assembly": False,
+        }
+    if not live_ids:
+        return {
+            "ok": False,
+            "message": "Нет актуальных заказов со статусом «new».",
+            "errors": ["Все выбранные заказы уже не в «Новых» или отменены"],
+            "added": 0,
+            "skipped_cancelled": skipped,
+            "goto_assembly": False,
+        }
+
+    traits = preview.get("traits") or {}
+    is_b2b = bool(traits.get("is_b2b"))
+    try:
+        created = client.create_supply(name=title)
+        supply_id = str(created.get("id") or "").strip()
+        if not supply_id:
+            raise RuntimeError("WB не вернул id поставки")
+        upsert_supply(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            supply={
+                "id": supply_id,
+                "name": title,
+                "done": False,
+                "cargoType": 0,
+                "isB2b": is_b2b,
+            },
+            order_ids=[],
+        )
+    except Exception as exc:
+        return {
+            "ok": False,
+            "message": "Не удалось создать поставку на WB.",
+            "errors": [str(exc)],
+            "added": 0,
+            "skipped_cancelled": skipped,
+            "goto_assembly": False,
+        }
+
+    added, errors, warnings = _add_orders_to_supply_local(
+        repo,
+        client,
+        user_id=user_id,
+        source_id=source_id,
+        supply_id=supply_id,
+        order_ids=live_ids,
+        is_b2b=is_b2b,
+        name=title,
+    )
+    ok = added > 0 and not errors
+    message = (
+        f"Готово: создана поставка «{title}», добавлено {added} из {len(live_ids)}."
+        if ok
+        else (
+            f"Частично: добавлено {added}. Есть ошибки."
+            if added
+            else "Не удалось добавить заказы в новую поставку."
+        )
+    )
+    if skipped:
+        message += f" Пропущено: {len(skipped)}."
+    return {
+        "ok": ok,
+        "message": message,
+        "errors": errors,
+        "warnings": warnings,
+        "added": added,
+        "supply_id": supply_id,
+        "supply_name": title,
+        "skipped_cancelled": skipped,
+        "goto_assembly": bool(added > 0 and not errors),
+    }
+
+
+def add_selection_to_supply(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    api_key: str,
+    order_ids: list[int],
+    supply_id: str,
+) -> dict[str, Any]:
+    """Add selected New-tab orders to an existing open WB supply."""
+    sid = str(supply_id or "").strip()
+    preview = preview_selection_supply(
+        repo, user_id=user_id, source_id=source_id, order_ids=order_ids
+    )
+    if not preview.get("ok"):
+        return {
+            "ok": False,
+            "message": "Нельзя добавить выбранные заказы в поставку.",
+            "errors": preview.get("errors") or [],
+            "added": 0,
+            "goto_assembly": False,
+        }
+    if not sid:
+        return {
+            "ok": False,
+            "message": "Не выбрана поставка.",
+            "errors": ["Укажите supply_id"],
+            "added": 0,
+            "goto_assembly": False,
+        }
+    compatible_ids = {
+        str(s.get("supply_id") or "")
+        for s in (preview.get("compatible_supplies") or [])
+    }
+    if sid not in compatible_ids:
+        return {
+            "ok": False,
+            "message": "Выбранная поставка не совместима с заказами.",
+            "errors": [
+                "Поставка другого типа габарита/B2B/склада или уже закрыта. "
+                "Выберите совместимую поставку из списка."
+            ],
+            "added": 0,
+            "goto_assembly": False,
+        }
+
+    client = WbFbsClient(api_key)
+    traits = preview.get("traits") or {}
+    is_b2b = bool(traits.get("is_b2b"))
+    cargo = int(traits.get("cargo_type") or 0)
+    try:
+        live_supply = client.get_supply(sid)
+        if bool(live_supply.get("done")):
+            return {
+                "ok": False,
+                "message": "Поставка уже закрыта на WB.",
+                "errors": [f"Поставка {sid} закрыта (done=true)"],
+                "added": 0,
+                "goto_assembly": False,
+            }
+        live_cargo = int(live_supply.get("cargoType") or 0)
+        if live_cargo not in (0, cargo):
+            return {
+                "ok": False,
+                "message": "Тип габарита поставки не совпадает.",
+                "errors": [
+                    f"Поставка {sid}: cargoType={live_cargo}, "
+                    f"у заказов {cargo_type_label(cargo) or cargo}."
+                ],
+                "added": 0,
+                "goto_assembly": False,
+            }
+        live_b2b = _coalesce_b2b_flag(live_supply)
+        if live_cargo != 0 and live_b2b is not None and live_b2b != is_b2b:
+            return {
+                "ok": False,
+                "message": "Тип B2B поставки не совпадает.",
+                "errors": [f"Поставка {sid} другого типа B2B"],
+                "added": 0,
+                "goto_assembly": False,
+            }
+        live_border = live_supply.get("crossBorderType")
+        sel_border = traits.get("cross_border_type")
+        if (
+            live_cargo != 0
+            and live_border is not None
+            and sel_border is not None
+            and int(live_border) != int(sel_border)
+        ):
+            return {
+                "ok": False,
+                "message": "Тип cross-border поставки не совпадает.",
+                "errors": [f"Поставка {sid}: другой crossBorderType"],
+                "added": 0,
+                "goto_assembly": False,
+            }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "message": "Не удалось проверить поставку на WB.",
+            "errors": [str(exc)],
+            "added": 0,
+            "goto_assembly": False,
+        }
+
+    live_ids, skipped, fatal = _filter_live_new_order_ids(
+        client, list(preview.get("order_ids") or [])
+    )
+    if fatal:
+        return {
+            "ok": False,
+            "message": fatal[0],
+            "errors": fatal,
+            "added": 0,
+            "skipped_cancelled": skipped,
+            "goto_assembly": False,
+        }
+    if not live_ids:
+        return {
+            "ok": False,
+            "message": "Нет актуальных заказов со статусом «new».",
+            "errors": ["Все выбранные заказы уже не в «Новых» или отменены"],
+            "added": 0,
+            "skipped_cancelled": skipped,
+            "goto_assembly": False,
+        }
+
+    supply_name = str(live_supply.get("name") or sid)
+    added, errors, warnings = _add_orders_to_supply_local(
+        repo,
+        client,
+        user_id=user_id,
+        source_id=source_id,
+        supply_id=sid,
+        order_ids=live_ids,
+        is_b2b=is_b2b,
+        name=supply_name,
+    )
+    ok = added > 0 and not errors
+    message = (
+        f"Готово: в «{supply_name}» добавлено {added} из {len(live_ids)}."
+        if ok
+        else (
+            f"Частично: добавлено {added}. Есть ошибки."
+            if added
+            else "Не удалось добавить заказы в поставку."
+        )
+    )
+    if skipped:
+        message += f" Пропущено: {len(skipped)}."
+    return {
+        "ok": ok,
+        "message": message,
+        "errors": errors,
+        "warnings": warnings,
+        "added": added,
+        "supply_id": sid,
+        "supply_name": supply_name,
+        "skipped_cancelled": skipped,
+        "goto_assembly": bool(added > 0 and not errors),
     }
