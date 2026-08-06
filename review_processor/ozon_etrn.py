@@ -199,12 +199,13 @@ def _extract_address_from_requisites(requisites: str) -> str:
     if idx_m:
         return idx_m.group(0).strip(" ,.;")[:500]
     if re.search(
-        r"(?:г\.|город|ул\.|улица|д\.|дом|обл|край|район|пос|деревн|стр\.|строение)",
+        r"(?:\b\d{6}\b|г\.|город|ул\.|улица|д\.|дом|обл|край|район|пос|деревн|стр\.|строение)",
         cleaned,
         flags=re.I,
     ):
         return cleaned[:500]
-    return cleaned[:500]
+    # Do not treat leftover org name / ИНН stubs as an address.
+    return ""
 
 
 def _parse_ru_address(address: str) -> dict[str, str]:
@@ -652,6 +653,19 @@ def build_ozon_etrn_xml(
     if carrier_kpp:
         per_attrs["КПП"] = carrier_kpp
     _el(id_per, "СвЮЛУч", **per_attrs)
+    # Always Russian АдрРФ (without it Kontur shows foreign address type).
+    carrier_addr = _parse_ru_address(_extract_address_from_requisites(carrier_text))
+    if not (carrier_addr.get("Индекс") or carrier_addr.get("КодРегион") or carrier_addr.get("Улица")):
+        carrier_addr = shipper_addr if (shipper_addr.get("raw") or shipper_addr.get("Индекс")) else {}
+    adr_per = _el(sv_per, "Адрес")
+    if carrier_addr.get("raw") or carrier_addr.get("Индекс") or carrier_addr.get("КодРегион"):
+        _add_adr_rf(adr_per, "АдрРФ", carrier_addr)
+    else:
+        inn_region = (
+            carrier_inn[:2] if carrier_inn and len(carrier_inn) >= 2
+            else (inn[:2] if inn and len(inn) >= 2 else "77")
+        )
+        _el(adr_per, "АдрРФ", КодРегион=inn_region)
     _add_contact(sv_per, contact_phone)
 
     # --- СвВодит ---

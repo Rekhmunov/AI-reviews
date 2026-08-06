@@ -192,6 +192,14 @@ def test_etrn_consignee_addresses_are_russian_rf():
     assert legal.attrib.get("КодРегион") == "77"
 
 
+def test_etrn_carrier_address_is_russian_rf():
+    root = ET.fromstring(_build())
+    adr = root.find("Документ/СодИнфГО/СвПер/Адрес/АдрРФ")
+    assert adr is not None
+    assert root.find("Документ/СодИнфГО/СвПер/Адрес/АдрИнф") is None
+    assert adr.attrib.get("КодРегион")  # RF type needs region
+
+
 def test_etrn_ryazan_index_is_not_kaliningrad():
     """390xxx is Ryazan (62); index[:2]==39 must not become Kaliningrad."""
     root = ET.fromstring(
