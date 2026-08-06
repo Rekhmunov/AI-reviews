@@ -1503,6 +1503,9 @@
             <div class="supplies-actions">
               <button id="wbFbsSyncBtn" onclick="syncWbFbs()">Синхронизировать</button>
               <button id="wbFbsStopBtn" class="secondary icon-btn hidden" onclick="stopWbFbsSync()" style="color:#b91c1c;border-color:#fca5a5" title="Остановить синхронизацию">🛑</button>
+              <button type="button" id="wbFbsAutoSyncSettingsBtn" class="secondary icon-btn"
+                      onclick="openWbFbsAutoSyncSettings()" title="Настройки автоматической синхронизации"
+                      aria-label="Настройки автоматической синхронизации">⚙</button>
             </div>
             <div class="wb-fbs-toolbar-right">
               <input id="wbFbsSearchFilter" class="wb-fbs-search" type="search" placeholder="Поиск по заказу, артикулу, ШК…"
@@ -1570,6 +1573,43 @@
             <div class="wb-fbs-collect-mgt-footer">
               <button type="button" class="secondary" onclick="closeWbFbsSelectionSupplyModal()">Отмена</button>
               <button type="button" id="wbFbsSelectionSupplyConfirmBtn" onclick="confirmWbFbsSelectionSupply()">Создать</button>
+            </div>
+          </div>
+        </div>
+        <div id="wbFbsAutoSyncModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="wbFbsAutoSyncTitle"
+             onclick="if(event.target===this)closeWbFbsAutoSyncSettings()">
+          <div class="modal-card wb-fbs-auto-sync-modal">
+            <div class="wb-fbs-auto-sync-header">
+              <h3 id="wbFbsAutoSyncTitle" class="wb-fbs-auto-sync-title">Автоматическая синхронизация</h3>
+              <button type="button" class="icon-btn secondary" onclick="closeWbFbsAutoSyncSettings()" aria-label="Закрыть">✕</button>
+            </div>
+            <p class="wb-fbs-auto-sync-lead">Ручная синхронизация работает всегда. Автозапуск — по выбранному периоду для всех источников ФБС.</p>
+            <div class="wb-fbs-auto-sync-row">
+              <div class="wb-fbs-auto-sync-label">
+                <span>Автоматическая синхронизация</span>
+                <span id="wbFbsAutoSyncEnabledText" class="wb-fbs-auto-sync-state">Выкл</span>
+              </div>
+              <label class="switch" title="Включить или выключить">
+                <input type="checkbox" id="wbFbsAutoSyncEnabled" onchange="onWbFbsAutoSyncToggle()" />
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div class="wb-fbs-auto-sync-field">
+              <label for="wbFbsAutoSyncInterval">Период</label>
+              <select id="wbFbsAutoSyncInterval">
+                <option value="1">Каждый 1 час</option>
+                <option value="2">Каждые 2 часа</option>
+                <option value="3">Каждые 3 часа</option>
+                <option value="6">Каждые 6 часов</option>
+                <option value="12">Каждые 12 часов</option>
+                <option value="24">Каждые 24 часа</option>
+              </select>
+            </div>
+            <div id="wbFbsAutoSyncInfo" class="wb-fbs-auto-sync-info" hidden></div>
+            <div class="wb-fbs-auto-sync-footer">
+              <button type="button" class="secondary" onclick="closeWbFbsAutoSyncSettings()">Отмена</button>
+              <button type="button" id="wbFbsAutoSyncSaveBtn" onclick="saveWbFbsAutoSyncSettings()">Сохранить</button>
             </div>
           </div>
         </div>

@@ -798,6 +798,11 @@ class StockSourceUpdateRequest(BaseModel):
     is_active: bool | None = None
 
 
+class WbFbsAutoSyncSettingsRequest(BaseModel):
+    enabled: bool = False
+    interval_hours: int = Field(default=1, ge=1, le=24)
+
+
 ROLE_ADMIN = "admin"
 ROLE_USER = "user"
 ROLE_FEEDBACK_MANAGER = "feedback_manager"
@@ -903,6 +908,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     rate_buckets: dict[str, list[float]] = {}
     failed_login_attempts: dict[str, list[float]] = {}
     stock_scheduler = StockScheduler(repository)
+    wb_fbs_scheduler = wb_fbs_mod.WbFbsScheduler(repository)
 
     def _client_ip(request: Request) -> str:
         forwarded = str(request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
@@ -7566,6 +7572,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             stock_scheduler.start()
         except Exception as _exc:
             _log.warning("restore_auto_sync_on_startup: stock_scheduler start failed: %s", _exc)
+        try:
+            wb_fbs_scheduler.start()
+        except Exception as _exc:
+            _log.warning("restore_auto_sync_on_startup: wb_fbs_scheduler start failed: %s", _exc)
 
     # ── Stock module endpoints ────────────────────────────────────────────────
 
@@ -9135,6 +9145,39 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             return {"ok": True, "message": "Остановка синхронизации ВБ ФБС…"}
         return {"ok": False, "message": "Синхронизация не запущена"}
 
+    @app.get("/api/wb-fbs/auto-sync-settings")
+    def get_wb_fbs_auto_sync_settings(request: Request) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        settings = repository.get_wb_fbs_auto_sync_settings(user_id=owner_id)
+        role = str(user.get("role") or ROLE_USER)
+        settings["can_edit"] = role in ROLE_CAN_ACCESS_SETTINGS
+        return settings
+
+    @app.put("/api/wb-fbs/auto-sync-settings")
+    def update_wb_fbs_auto_sync_settings(
+        request: Request, payload: WbFbsAutoSyncSettingsRequest
+    ) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        role = str(user.get("role") or ROLE_USER)
+        if role not in ROLE_CAN_ACCESS_SETTINGS:
+            raise HTTPException(status_code=403, detail="Недостаточно прав для изменения настроек")
+        owner_id = _supply_owner_id(user)
+        updated = repository.save_wb_fbs_auto_sync_settings(
+            user_id=owner_id,
+            enabled=bool(payload.enabled),
+            interval_hours=int(payload.interval_hours),
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        settings = repository.get_wb_fbs_auto_sync_settings(user_id=owner_id)
+        settings["can_edit"] = True
+        return {"ok": True, "settings": settings}
+
     @app.post("/api/wb-fbs/sync")
     def sync_wb_fbs(request: Request, source_id: int | None = None) -> dict[str, object]:
         """Sync all visible FBS sources (name contains ФБС/FBS). source_id is ignored."""
@@ -9144,13 +9187,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         owner_id = _supply_owner_id(user)
         repository._ensure_supply_tables()
         wb_fbs_mod.ensure_wb_fbs_tables(repository)
-        sources = [
-            s
-            for s in repository.list_supply_sources(user_id=owner_id)
-            if (s.get("marketplace") or "wb").lower() == "wb"
-            and s.get("is_enabled")
-            and wb_fbs_mod.is_fbs_source_name(s.get("name"))
-        ]
+        # source_id kept for API compatibility but sync always covers the full FBS set.
+        _ = source_id
+        jobs = wb_fbs_mod.list_fbs_sync_jobs(repository, user_id=owner_id)
         role = str(user.get("role") or ROLE_USER)
         if role not in ROLE_CAN_ACCESS_SETTINGS:
             perms = repository.get_manager_supply_permissions(manager_user_id=int(user["id"]))
@@ -9159,28 +9198,29 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 for sid, sv in (perms.get("sources") or {}).items()
                 if isinstance(sv, dict) and sv.get("wb_fbs")
             }
-            sources = [s for s in sources if str(s.get("id")) in allowed]
-        if not sources:
-            return {
-                "ok": False,
-                "message": "Нет источников с «ФБС» в названии. Добавьте источник в Поставки → Настройки → Источники.",
-            }
-        # source_id kept for API compatibility but sync always covers the full FBS set.
-        _ = source_id
-        jobs: list[dict[str, object]] = []
-        for s in sources:
-            sid = int(s["id"])
-            src_full = repository.get_supply_source_with_key(user_id=owner_id, source_id=sid)
-            if not src_full or not src_full.get("api_key"):
-                continue
-            jobs.append(
-                {
-                    "source_id": sid,
-                    "api_key": str(src_full["api_key"]),
-                    "name": str(src_full.get("name") or s.get("name") or f"Источник {sid}"),
-                }
-            )
+            jobs = [j for j in jobs if str(j.get("source_id")) in allowed]
         if not jobs:
+            # Distinguish "no FBS sources" vs "sources without keys".
+            named = [
+                s
+                for s in repository.list_supply_sources(user_id=owner_id)
+                if (s.get("marketplace") or "wb").lower() == "wb"
+                and s.get("is_enabled")
+                and wb_fbs_mod.is_fbs_source_name(s.get("name"))
+            ]
+            if role not in ROLE_CAN_ACCESS_SETTINGS:
+                perms = repository.get_manager_supply_permissions(manager_user_id=int(user["id"]))
+                allowed = {
+                    str(sid)
+                    for sid, sv in (perms.get("sources") or {}).items()
+                    if isinstance(sv, dict) and sv.get("wb_fbs")
+                }
+                named = [s for s in named if str(s.get("id")) in allowed]
+            if not named:
+                return {
+                    "ok": False,
+                    "message": "Нет источников с «ФБС» в названии. Добавьте источник в Поставки → Настройки → Источники.",
+                }
             return {"ok": False, "message": wb_fbs_mod.SCOPE_ERROR_MESSAGE}
         ok, message = wb_fbs_mod.start_sync_thread(
             repo=repository,
@@ -12757,6 +12797,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
     def stop_auto_sync_worker() -> None:
         auto_sync_stop_event.set()
         stock_scheduler.stop()
+        wb_fbs_scheduler.stop()
         worker = auto_sync_worker.get("thread")
         if isinstance(worker, threading.Thread) and worker.is_alive():
             worker.join(timeout=1.5)

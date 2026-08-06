@@ -278,6 +278,18 @@ class ReviewRepository:
         )
         conn.execute(
             """
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS wb_fbs_auto_sync_enabled BOOLEAN NOT NULL DEFAULT FALSE
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS wb_fbs_auto_sync_interval_hours INTEGER NOT NULL DEFAULT 1
+            """
+        )
+        conn.execute(
+            """
             UPDATE users
             SET owner_user_id = id
             WHERE owner_user_id IS NULL
@@ -2349,6 +2361,56 @@ class ReviewRepository:
                 WHERE id = ? AND is_deleted = FALSE
                 """,
                 (self._bool_db(use_sync_start_date), normalized_date, user_id),
+            )
+        return result.rowcount > 0
+
+    _WB_FBS_AUTO_SYNC_INTERVALS = (1, 2, 3, 6, 12, 24)
+
+    def get_wb_fbs_auto_sync_settings(self, *, user_id: int) -> dict[str, Any]:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT wb_fbs_auto_sync_enabled, wb_fbs_auto_sync_interval_hours
+                FROM users
+                WHERE id = ? AND is_deleted = ?
+                """,
+                (user_id, self._bool_db(False)),
+            ).fetchone()
+        if row is None:
+            raise RuntimeError("User not found")
+        try:
+            interval = int(row["wb_fbs_auto_sync_interval_hours"] or 1)
+        except (TypeError, ValueError):
+            interval = 1
+        if interval not in self._WB_FBS_AUTO_SYNC_INTERVALS:
+            interval = 1
+        return {
+            "enabled": bool(row["wb_fbs_auto_sync_enabled"]),
+            "interval_hours": interval,
+            "allowed_intervals": list(self._WB_FBS_AUTO_SYNC_INTERVALS),
+        }
+
+    def save_wb_fbs_auto_sync_settings(
+        self,
+        *,
+        user_id: int,
+        enabled: bool,
+        interval_hours: int,
+    ) -> bool:
+        try:
+            interval = int(interval_hours)
+        except (TypeError, ValueError):
+            interval = 1
+        if interval not in self._WB_FBS_AUTO_SYNC_INTERVALS:
+            interval = 1
+        with self._connect() as conn:
+            result = conn.execute(
+                """
+                UPDATE users
+                SET wb_fbs_auto_sync_enabled = ?, wb_fbs_auto_sync_interval_hours = ?
+                WHERE id = ? AND is_deleted = FALSE
+                """,
+                (self._bool_db(bool(enabled)), interval, user_id),
             )
         return result.rowcount > 0
 

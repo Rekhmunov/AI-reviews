@@ -2035,6 +2035,10 @@ def start_sync_thread(
                 total_orders += int(result.get("orders") or 0)
                 total_supplies += int(result.get("supplies") or 0)
                 synced_sources += 1
+                try:
+                    repo.mark_supply_source_synced(source_id=sid)
+                except Exception:
+                    _log.warning("wb_fbs: failed to update last_synced_at for source %s", sid)
                 for err in safe_errs:
                     all_errors.append(f"{label}: {err}")
                 if result.get("stopped"):
@@ -2080,6 +2084,140 @@ def start_sync_thread(
 
     threading.Thread(target=_run, daemon=True, name="wb-fbs-sync").start()
     return True, f"Синхронизация запущена ({len(jobs)} ист.)"
+
+
+def list_fbs_sync_jobs(repo: ReviewRepository, *, user_id: int) -> list[dict[str, Any]]:
+    """Build sync jobs for all enabled WB sources whose name contains ФБС/FBS."""
+    sources = [
+        s
+        for s in repo.list_supply_sources(user_id=user_id)
+        if (s.get("marketplace") or "wb").lower() == "wb"
+        and s.get("is_enabled")
+        and is_fbs_source_name(s.get("name"))
+    ]
+    jobs: list[dict[str, Any]] = []
+    for s in sources:
+        try:
+            sid = int(s["id"])
+        except (TypeError, ValueError):
+            continue
+        src_full = repo.get_supply_source_with_key(user_id=user_id, source_id=sid)
+        if not src_full or not src_full.get("api_key"):
+            continue
+        jobs.append(
+            {
+                "source_id": sid,
+                "api_key": str(src_full["api_key"]),
+                "name": str(src_full.get("name") or s.get("name") or f"Источник {sid}"),
+                "last_synced_at": s.get("last_synced_at") or src_full.get("last_synced_at"),
+            }
+        )
+    return jobs
+
+
+def _fbs_auto_sync_is_due(jobs: list[dict[str, Any]], *, interval_hours: int) -> bool:
+    if not jobs:
+        return False
+    now = datetime.now(UTC)
+    oldest: datetime | None = None
+    for job in jobs:
+        last = job.get("last_synced_at")
+        if not last:
+            return True
+        try:
+            last_dt = datetime.fromisoformat(str(last).replace("Z", "+00:00"))
+        except ValueError:
+            return True
+        if last_dt.tzinfo is None:
+            last_dt = last_dt.replace(tzinfo=UTC)
+        if oldest is None or last_dt < oldest:
+            oldest = last_dt
+    if oldest is None:
+        return True
+    return (now - oldest).total_seconds() / 3600.0 >= float(interval_hours)
+
+
+class WbFbsScheduler:
+    """Background hourly (configurable) sync for tenants with auto-sync enabled."""
+
+    def __init__(self, repository: ReviewRepository) -> None:
+        self.repository = repository
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._lock = threading.Lock()
+
+    def start(self) -> None:
+        with self._lock:
+            if self._thread and self._thread.is_alive():
+                return
+            self._stop_event.clear()
+            self._thread = threading.Thread(
+                target=self._loop,
+                name="feedpilot-wb-fbs-scheduler",
+                daemon=True,
+            )
+            self._thread.start()
+            _log.info("WbFbsScheduler: started")
+
+    def stop(self) -> None:
+        self._stop_event.set()
+
+    def _loop(self) -> None:
+        check_interval = 60
+        while not self._stop_event.is_set():
+            self._stop_event.wait(check_interval)
+            if self._stop_event.is_set():
+                break
+            try:
+                self._run_due_owners()
+            except Exception as exc:
+                _log.warning("WbFbsScheduler loop error: %s", exc)
+
+    def _run_due_owners(self) -> None:
+        if get_sync_state().get("in_progress"):
+            return
+        try:
+            users = self.repository.list_users(owner_only=True)
+        except Exception:
+            return
+        for user in users:
+            if self._stop_event.is_set() or get_sync_state().get("in_progress"):
+                return
+            user_id = int(user.get("id") or 0)
+            if not user_id:
+                continue
+            try:
+                settings = self.repository.get_wb_fbs_auto_sync_settings(user_id=user_id)
+            except Exception:
+                continue
+            if not settings.get("enabled"):
+                continue
+            interval_hours = int(settings.get("interval_hours") or 1)
+            try:
+                jobs = list_fbs_sync_jobs(self.repository, user_id=user_id)
+            except Exception as exc:
+                _log.warning("WbFbsScheduler user %s list jobs error: %s", user_id, exc)
+                continue
+            if not jobs or not _fbs_auto_sync_is_due(jobs, interval_hours=interval_hours):
+                continue
+            ok, message = start_sync_thread(
+                repo=self.repository,
+                user_id=user_id,
+                sources=jobs,
+            )
+            if ok:
+                _log.info(
+                    "WbFbsScheduler: started auto-sync user=%s sources=%s interval=%sh",
+                    user_id,
+                    len(jobs),
+                    interval_hours,
+                )
+            else:
+                _log.info(
+                    "WbFbsScheduler: skip user=%s (%s)",
+                    user_id,
+                    message,
+                )
 
 
 def _load_new_mgt_orders(

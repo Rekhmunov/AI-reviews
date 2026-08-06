@@ -17744,6 +17744,7 @@ async function initWbFbsSection() {
   initWbFbsColumnResizer();
   _wbFbsSyncTableMode();
   await loadWbFbsSources();
+  _wbFbsRefreshAutoSyncGear();
   await loadWbFbsOrders(true);
 }
 
@@ -20444,6 +20445,126 @@ function changeWbFbsPageSize(v) {
   loadWbFbsOrders(true);
 }
 window.changeWbFbsPageSize = changeWbFbsPageSize;
+
+function _wbFbsAutoSyncSetInfo(text, kind) {
+  const el = document.getElementById("wbFbsAutoSyncInfo");
+  if (!el) return;
+  const msg = String(text || "").trim();
+  if (!msg) {
+    el.hidden = true;
+    el.textContent = "";
+    el.classList.remove("is-error", "is-ok");
+    return;
+  }
+  el.hidden = false;
+  el.textContent = msg;
+  el.classList.toggle("is-error", kind === "error");
+  el.classList.toggle("is-ok", kind === "ok");
+}
+
+function _wbFbsAutoSyncApplyEnabledUi() {
+  const enabled = !!document.getElementById("wbFbsAutoSyncEnabled")?.checked;
+  const state = document.getElementById("wbFbsAutoSyncEnabledText");
+  const interval = document.getElementById("wbFbsAutoSyncInterval");
+  if (state) state.textContent = enabled ? "Вкл" : "Выкл";
+  if (interval) interval.disabled = !enabled;
+}
+
+function _wbFbsAutoSyncMarkGear(enabled) {
+  const btn = document.getElementById("wbFbsAutoSyncSettingsBtn");
+  if (btn) btn.classList.toggle("is-auto-on", !!enabled);
+}
+
+function onWbFbsAutoSyncToggle() {
+  _wbFbsAutoSyncApplyEnabledUi();
+}
+window.onWbFbsAutoSyncToggle = onWbFbsAutoSyncToggle;
+
+async function openWbFbsAutoSyncSettings() {
+  const modal = document.getElementById("wbFbsAutoSyncModal");
+  if (!modal) return;
+  modal.classList.remove("hidden");
+  _wbFbsAutoSyncSetInfo("");
+  const saveBtn = document.getElementById("wbFbsAutoSyncSaveBtn");
+  const enabledEl = document.getElementById("wbFbsAutoSyncEnabled");
+  const intervalEl = document.getElementById("wbFbsAutoSyncInterval");
+  if (saveBtn) saveBtn.disabled = true;
+  try {
+    const res = await fetch("/api/wb-fbs/auto-sync-settings");
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || `Ошибка ${res.status}`);
+    if (enabledEl) enabledEl.checked = !!data.enabled;
+    if (intervalEl) {
+      const val = String(data.interval_hours || 1);
+      if (![...intervalEl.options].some((o) => o.value === val)) {
+        intervalEl.value = "1";
+      } else {
+        intervalEl.value = val;
+      }
+    }
+    const canEdit = data.can_edit !== false;
+    if (enabledEl) enabledEl.disabled = !canEdit;
+    if (intervalEl) intervalEl.disabled = !canEdit || !enabledEl?.checked;
+    if (saveBtn) {
+      saveBtn.disabled = !canEdit;
+      saveBtn.title = canEdit ? "" : "Недостаточно прав для изменения настроек";
+    }
+    if (!canEdit) {
+      _wbFbsAutoSyncSetInfo("Просмотр настроек. Изменять может только владелец кабинета.");
+    }
+    _wbFbsAutoSyncApplyEnabledUi();
+    if (!canEdit && intervalEl) intervalEl.disabled = true;
+    _wbFbsAutoSyncMarkGear(!!data.enabled);
+  } catch (e) {
+    _wbFbsAutoSyncSetInfo(String(e.message || e), "error");
+  }
+}
+window.openWbFbsAutoSyncSettings = openWbFbsAutoSyncSettings;
+
+function closeWbFbsAutoSyncSettings() {
+  const modal = document.getElementById("wbFbsAutoSyncModal");
+  if (modal) modal.classList.add("hidden");
+}
+window.closeWbFbsAutoSyncSettings = closeWbFbsAutoSyncSettings;
+
+async function saveWbFbsAutoSyncSettings() {
+  const enabled = !!document.getElementById("wbFbsAutoSyncEnabled")?.checked;
+  const intervalHours = Number(document.getElementById("wbFbsAutoSyncInterval")?.value || 1);
+  const saveBtn = document.getElementById("wbFbsAutoSyncSaveBtn");
+  if (saveBtn) saveBtn.disabled = true;
+  _wbFbsAutoSyncSetInfo("Сохранение…");
+  try {
+    const res = await fetch("/api/wb-fbs/auto-sync-settings", {
+      method: "PUT",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        enabled,
+        interval_hours: intervalHours,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) {
+      throw new Error(data.detail || data.message || `Ошибка ${res.status}`);
+    }
+    const settings = data.settings || {};
+    _wbFbsAutoSyncMarkGear(!!settings.enabled);
+    _wbFbsAutoSyncSetInfo("Сохранено", "ok");
+    setTimeout(() => closeWbFbsAutoSyncSettings(), 400);
+  } catch (e) {
+    _wbFbsAutoSyncSetInfo(String(e.message || e), "error");
+    if (saveBtn) saveBtn.disabled = false;
+  }
+}
+window.saveWbFbsAutoSyncSettings = saveWbFbsAutoSyncSettings;
+
+async function _wbFbsRefreshAutoSyncGear() {
+  try {
+    const res = await fetch("/api/wb-fbs/auto-sync-settings");
+    if (!res.ok) return;
+    const data = await res.json().catch(() => ({}));
+    _wbFbsAutoSyncMarkGear(!!data.enabled);
+  } catch (_) {}
+}
 
 async function syncWbFbs() {
   // Sync every FBS source shown in the picker (name contains ФБС/FBS).
