@@ -10657,6 +10657,56 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{_qp(fname)}"})
 
+    @app.get("/api/ozon-supplies/{supply_order_id}/etrn.xml")
+    def get_ozon_etrn_xml(request: Request, supply_order_id: int) -> "Response":
+        """Download eTrN title-1 XML draft for Kontur.Logistics upload."""
+        from fastapi.responses import Response
+        from urllib.parse import quote as _qp
+        from . import ozon_etrn as _ozon_etrn
+
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        data = _ozon_get_doc_data(owner_id, supply_order_id)
+        if not data or not data.get("item"):
+            raise HTTPException(status_code=404, detail="Поставка не найдена")
+        item = data["item"]
+        # Prefer freshest cargoes cache; if empty try cargoes-info path via DB only.
+        cargoes_json = item.get("cargoes_json")
+        ctx = _ozon_etrn.collect_ozon_etrn_context(
+            repository=repository,
+            owner_id=owner_id,
+            item=item,
+            driver_name=str(data.get("driver_name") or ""),
+            driver_phone=str(data.get("driver_docs") or ""),
+            vehicle_line=str(data.get("vehicle_num") or ""),
+        )
+        try:
+            xml_bytes = _ozon_etrn.build_ozon_etrn_xml(
+                item=item,
+                le=ctx.get("le") or data.get("le") or {},
+                driver_name=str(ctx.get("driver_name") or ""),
+                driver_phone=str(ctx.get("driver_phone") or ""),
+                vehicle_line=str(ctx.get("vehicle_line") or ""),
+                vehicle_json=item.get("vehicle_json"),
+                cargoes_json=cargoes_json,
+                load_address=str(ctx.get("load_address") or ""),
+                delivery_address=str(ctx.get("delivery_address") or ""),
+                carrier_text=str(ctx.get("carrier_text") or ""),
+            )
+        except Exception as exc:
+            _log.exception("ozon etrn xml failed for %s", supply_order_id)
+            raise HTTPException(status_code=500, detail=f"Не удалось сформировать эТрН: {exc}") from exc
+        supply_num = str(item.get("supply_order_number") or supply_order_id)
+        supplier_short = str((ctx.get("le") or data.get("le") or {}).get("short_name") or "")
+        fname = f"эТрН №{supply_num}{', ' + supplier_short if supplier_short else ''}.xml"
+        return Response(
+            content=xml_bytes,
+            media_type="application/xml; charset=utf-8",
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{_qp(fname)}"},
+        )
+
     @app.get("/api/ozon-supplies/{supply_order_id}/ttn.pdf")
     def get_ozon_ttn_pdf_ep(request: Request, supply_order_id: int) -> "Response":
         import subprocess as _sp, tempfile as _tf, pathlib as _pl, os as _os

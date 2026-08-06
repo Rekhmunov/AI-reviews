@@ -4627,6 +4627,9 @@ function renderOzonTable() {
           <button class="supply-detail-link" onclick="openOzonDetailsModal(${item.supply_order_id})">☰ Детали поставки</button>
           <div style="display:flex;flex-wrap:nowrap;align-items:center;gap:2px;width:100%;min-width:0"><button class="supply-detail-link supply-poa-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="downloadOzonPoA(${item.supply_order_id})">⬇ Доверенность</button><button class="supply-detail-link supply-print-btn" style="flex:0 0 60px;min-width:60px;width:60px;height:28px;padding:0;font-size:13px;font-family:'Segoe UI Symbol','Arial Unicode MS',sans-serif;display:flex;align-items:center;justify-content:center" onclick="window.open('/api/ozon-supplies/${item.supply_order_id}/poa.pdf','_blank')" title="Печать">⎙</button></div>
           <div style="display:flex;flex-wrap:nowrap;align-items:center;gap:2px;width:100%;min-width:0"><button class="supply-detail-link supply-ttn-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="window.open('/api/ozon-supplies/${item.supply_order_id}/ttn.docx','_blank')">⬇ ТТН</button><button class="supply-detail-link supply-print-btn" style="flex:0 0 60px;min-width:60px;width:60px;height:28px;padding:0;font-size:13px;font-family:'Segoe UI Symbol','Arial Unicode MS',sans-serif;display:flex;align-items:center;justify-content:center" onclick="window.open('/api/ozon-supplies/${item.supply_order_id}/ttn.pdf','_blank')" title="Печать">⎙</button></div>
+          <button class="supply-detail-link supply-etrn-link" style="width:100%;text-align:left"
+                  onclick="window.open('/api/ozon-supplies/${item.supply_order_id}/etrn.xml','_blank')"
+                  title="Скачать XML эТрН для загрузки в Контур.Логистику">⬇ эТрН</button>
         </div>
       </td>`;
     tbody.appendChild(tr);
