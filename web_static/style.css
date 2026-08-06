@@ -6946,6 +6946,12 @@ tr.dnd-over td {
   cursor: not-allowed;
   background: #f1f5f9;
 }
+.wb-fbs-auto-sync-last {
+  margin: 16px 24px 0;
+  font-size: 14px;
+  line-height: 1.4;
+  color: #475569;
+}
 .wb-fbs-auto-sync-info {
   margin: 12px 24px 0;
   font-size: 14px;

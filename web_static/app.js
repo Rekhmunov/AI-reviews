@@ -20477,6 +20477,26 @@ function _wbFbsAutoSyncMarkGear(enabled) {
   if (btn) btn.classList.toggle("is-auto-on", !!enabled);
 }
 
+function _wbFbsAutoSyncFormatLast(iso) {
+  const raw = String(iso || "").trim();
+  if (!raw) return "—";
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function _wbFbsAutoSyncSetLast(iso) {
+  const el = document.getElementById("wbFbsAutoSyncLast");
+  if (!el) return;
+  el.textContent = `Последняя синхронизация: ${_wbFbsAutoSyncFormatLast(iso)}`;
+}
+
 function onWbFbsAutoSyncToggle() {
   _wbFbsAutoSyncApplyEnabledUi();
 }
@@ -20487,6 +20507,7 @@ async function openWbFbsAutoSyncSettings() {
   if (!modal) return;
   modal.classList.remove("hidden");
   _wbFbsAutoSyncSetInfo("");
+  _wbFbsAutoSyncSetLast(null);
   const saveBtn = document.getElementById("wbFbsAutoSyncSaveBtn");
   const enabledEl = document.getElementById("wbFbsAutoSyncEnabled");
   const intervalEl = document.getElementById("wbFbsAutoSyncInterval");
@@ -20504,6 +20525,7 @@ async function openWbFbsAutoSyncSettings() {
         intervalEl.value = val;
       }
     }
+    _wbFbsAutoSyncSetLast(data.last_synced_at);
     const canEdit = data.can_edit !== false;
     if (enabledEl) enabledEl.disabled = !canEdit;
     if (intervalEl) intervalEl.disabled = !canEdit || !enabledEl?.checked;
