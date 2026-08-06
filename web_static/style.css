@@ -8013,7 +8013,17 @@ button.wb-fbs-sd-portal-btn:focus-visible {
 .wb-fbs-kiz-toolbar-actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
   gap: 8px;
+  margin-left: auto;
+}
+.wb-fbs-kiz-scan-count {
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+  white-space: nowrap;
+  text-align: right;
 }
 .wb-fbs-kiz-toolbar-actions .secondary {
   min-height: 36px;

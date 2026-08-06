@@ -1705,6 +1705,7 @@
                 <label class="wb-fbs-kiz-check"><input type="checkbox" id="wbFbsKizFilterErrors" onchange="renderWbFbsKizTable()" /> Только с ошибками</label>
               </div>
               <div class="wb-fbs-kiz-toolbar-actions">
+                <div id="wbFbsKizScanCount" class="wb-fbs-kiz-scan-count" aria-live="polite">Просканировано 0 из 0 КИЗ</div>
                 <button type="button" class="secondary hidden" onclick="downloadWbFbsKizTemplate()" hidden>Скачать шаблон</button>
                 <button type="button" class="secondary hidden" onclick="document.getElementById('wbFbsKizUploadInput')?.click()" hidden>Загрузить</button>
                 <input type="file" id="wbFbsKizUploadInput" accept=".csv,text/csv" hidden onchange="uploadWbFbsKizTemplate(event)" />

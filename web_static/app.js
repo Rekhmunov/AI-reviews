@@ -18673,6 +18673,24 @@ function _wbFbsKizCollectFromDom() {
   });
 }
 
+/** N = filled KIZ inputs; M = all KIZ input slots (empty + filled), filters ignored. */
+function _wbFbsKizUpdateScanCounter() {
+  const el = document.getElementById("wbFbsKizScanCount");
+  if (!el) return;
+  let filled = 0;
+  let total = 0;
+  for (const row of wbFbsKizState.rows) {
+    const codes = Array.isArray(row?.kiz_codes) && row.kiz_codes.length
+      ? row.kiz_codes
+      : [""];
+    total += codes.length;
+    for (const code of codes) {
+      if (String(code || "").trim()) filled += 1;
+    }
+  }
+  el.textContent = `Просканировано ${filled} из ${total} КИЗ`;
+}
+
 function _wbFbsKizRowIsEmpty(row) {
   const codes = Array.isArray(row?.kiz_codes) ? row.kiz_codes : [];
   return !codes.some((c) => String(c || "").trim());
@@ -18726,6 +18744,7 @@ function renderWbFbsKizTable(opts) {
     tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">${
       wbFbsKizState.rows.length ? "Нет строк по выбранным фильтрам" : "Нет заказов с КИЗ"
     }</td></tr>`;
+    _wbFbsKizUpdateScanCounter();
     return;
   }
   tbody.innerHTML = rows.map((r) => {
@@ -18796,6 +18815,7 @@ function renderWbFbsKizTable(opts) {
     const codes = Array.isArray(row.kiz_codes) ? row.kiz_codes : [];
     input.value = String(codes[idx] ?? "");
   });
+  _wbFbsKizUpdateScanCounter();
 }
 window.renderWbFbsKizTable = renderWbFbsKizTable;
 
@@ -18804,6 +18824,8 @@ function onWbFbsKizCodeInput(orderId) {
   if (wbFbsKizState.errors[oid]) {
     delete wbFbsKizState.errors[oid];
   }
+  _wbFbsKizCollectFromDom();
+  _wbFbsKizUpdateScanCounter();
 }
 window.onWbFbsKizCodeInput = onWbFbsKizCodeInput;
 
