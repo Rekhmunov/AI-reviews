@@ -18316,10 +18316,12 @@ function renderWbFbsSupplyDetail(data) {
     // КИЗ: empty (gray) → pending (на проверке) → ok (green) / error (red).
     const kizHtml = o.kiz_required ? _wbFbsKizBadgeHtml(o) : "";
     const safeKey = `sd_${oid}`;
+    const stickerHtml = _wbFbsKizStickerHtml(o);
     return `<tr class="wb-fbs-sd-click-row">
       <td><input type="checkbox" class="wb-fbs-sd-cb" data-order-id="${oid}" ${checked} onchange="onWbFbsDetailCheckboxChange()" /></td>
       <td>
         <div class="wb-fbs-sd-order-id">${_wbFbsEsc(oid)}</div>
+        <div class="wb-fbs-sd-sticker">${stickerHtml}</div>
         <div class="wb-fbs-order-meta">от ${_wbFbsEsc(o.created_date || "—")}</div>
         ${badges.length ? `<div class="wb-fbs-badges">${badges.join("")}</div>` : ""}
       </td>

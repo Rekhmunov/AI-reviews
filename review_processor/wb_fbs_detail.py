@@ -937,10 +937,32 @@ def get_supply_detail(
         user_id=user_id,
         source_id=source_id,
     )
+    # Sticker partA/partB for modal (last 4 digits emphasized under order id).
+    detail_order_ids = [
+        _int_or_zero(o.get("order_id"))
+        for o in orders
+        if _int_or_zero(o.get("order_id"))
+    ]
+    stickers: dict[int, dict[str, Any]] = {}
+    try:
+        stickers = _fetch_stickers_map(
+            client,
+            detail_order_ids,
+            api_key=api_key,
+            sticker_type="svg",
+            keep_files=False,
+        )
+    except Exception as exc:
+        _log.warning("detail stickers %s: %s", sid, exc)
+        stickers = {}
     order_rows: list[dict[str, Any]] = []
     for o in orders:
-        kiz = kiz_map.get(_int_or_zero(o.get("order_id"))) or {}
+        oid = _int_or_zero(o.get("order_id"))
+        kiz = kiz_map.get(oid) or {}
         status = str(kiz.get("kiz_status") or "empty")
+        st = stickers.get(oid) or {}
+        part_a = str(st.get("partA") or "").strip()
+        part_b = str(st.get("partB") or "").strip()
         order_rows.append(
             {
                 "order_id": o.get("order_id"),
@@ -958,6 +980,9 @@ def get_supply_detail(
                 "color": o.get("color") or "",
                 "brand": o.get("brand") or "",
                 "cargo_label": o.get("cargo_label") or "",
+                "sticker_part_a": part_a,
+                "sticker_part_b": part_b,
+                "sticker_number": _sticker_number(part_a, part_b),
                 "kiz_required": bool(kiz.get("kiz_required")),
                 "kiz_bound": bool(kiz.get("kiz_bound")),
                 "kiz_codes": list(kiz.get("kiz_codes") or []),

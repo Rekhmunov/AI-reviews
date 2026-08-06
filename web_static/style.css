@@ -7998,6 +7998,18 @@ button.wb-fbs-sd-portal-btn:focus-visible {
   color: #0f172a;
   margin-bottom: 4px;
 }
+.wb-fbs-sd-sticker {
+  margin: 0 0 4px;
+}
+.wb-fbs-sd-sticker .wb-fbs-kiz-sticker {
+  margin: 0;
+}
+.wb-fbs-sd-sticker .wb-fbs-kiz-sticker-head {
+  font-size: 13px;
+}
+.wb-fbs-sd-sticker .wb-fbs-kiz-sticker-tail {
+  font-size: 20px;
+}
 .wb-fbs-sd-click-row {
   cursor: default;
 }
