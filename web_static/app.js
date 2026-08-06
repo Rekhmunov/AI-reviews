@@ -18764,9 +18764,10 @@ function renderWbFbsKizTable(opts) {
         ).join("")}</div>`
       : "";
     // Do not put КИЗ into value="" via innerHTML — \\u001D is dropped by HTML parser.
-    const canRemove = codes.length > 1;
+    const canRemoveRow = codes.length > 1;
     const codeHtml = codes.map((code, idx) => {
       const statusChip = _wbFbsKizCodeStatusChip(r, code, err);
+      const clearTitle = canRemoveRow ? "Удалить строку КИЗ" : "Очистить маркировку";
       return `
       <div class="wb-fbs-kiz-code-block">
         <div class="wb-fbs-kiz-code-row">
@@ -18775,11 +18776,9 @@ function renderWbFbsKizTable(opts) {
                  data-order-id="${oid}" data-idx="${idx}"
                  autocomplete="off"
                  oninput="onWbFbsKizCodeInput(${oid})" />
-          ${canRemove
-            ? `<button type="button" class="wb-fbs-kiz-remove" title="Удалить строку КИЗ"
-                       aria-label="Удалить строку КИЗ"
-                       onclick="removeWbFbsKizCode(${oid}, ${idx})">×</button>`
-            : ""}
+          <button type="button" class="wb-fbs-kiz-remove" title="${clearTitle}"
+                  aria-label="${clearTitle}"
+                  onclick="removeWbFbsKizCode(${oid}, ${idx})">×</button>
         </div>
         ${statusChip}
       </div>`;
