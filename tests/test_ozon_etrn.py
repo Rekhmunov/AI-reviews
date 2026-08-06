@@ -131,3 +131,31 @@ def test_etrn_xml_incomplete_legal_address_still_adr_rf():
     assert root.find(".//АдресИнф") is None
     assert root.find("Документ/СодИнфГО/СвГП/АдресДостГр/АдресРФ") is not None
     assert root.find("Документ/СодИнфГО/СвПогруз/ФАдресПогр/АдресРФ") is not None
+
+
+def test_etrn_shipper_address_from_legal_entity_not_load():
+    """Грузоотправитель address = юр.лица requisites, not production/warehouse."""
+    root = ET.fromstring(
+        _build(
+            le={
+                "full_name": 'ООО "Тест"',
+                "requisites": (
+                    "ИНН 7701234567 КПП 770101001 "
+                    "141200, Московская область, г. Пушкино, ул. Лесная, д. 5"
+                ),
+                "signatories": "Иванов Иван Иванович",
+            },
+            load_address=(
+                "Московская область, Солнечногорский район, "
+                "сельское поселение Пешковское, деревня Хоругвино, строение 32/2"
+            ),
+        )
+    )
+    adr = root.find("Документ/СодИнфГО/СвГО/РекИдентГО/Адрес/АдрРФ")
+    assert adr is not None
+    shipper_xml = ET.tostring(adr, encoding="unicode")
+    assert "Хоругвино" not in shipper_xml
+    assert "Пушкино" in shipper_xml or "Лесная" in shipper_xml
+    # Load address still goes to ФАдресПогр.
+    load_xml = ET.tostring(root.find("Документ/СодИнфГО/СвПогруз/ФАдресПогр"), encoding="unicode")
+    assert "Хоругвино" in load_xml

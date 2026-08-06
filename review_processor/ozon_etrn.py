@@ -116,21 +116,44 @@ def _region_code_from_text(address: str, index: str = "") -> str:
 
 
 def _extract_address_from_requisites(requisites: str) -> str:
-    raw = str(requisites or "")
+    """Pull legal address text from supply legal-entity requisites field only."""
+    raw = str(requisites or "").strip()
     if not raw:
         return ""
     m = re.search(
-        r"(?:юр\.?\s*адрес|юридический\s*адрес|фактический\s*адрес|адрес)\s*[:=]?\s*(.+?)(?:\n|$)",
+        r"(?:юр\.?\s*адрес|юридический\s*адрес|фактический\s*адрес|адрес)\s*[:=]?\s*(.+)",
         raw,
-        flags=re.I,
+        flags=re.I | re.S,
     )
     if m:
-        return m.group(1).strip(" .;")
-    # Fallback: line that looks like a RU postal address.
-    idx_m = re.search(r"\b\d{6}\b[^.\n]{5,200}", raw)
+        candidate = m.group(1).strip()
+        candidate = re.split(
+            r"\n|(?:р/?с|к/?с|расчетн|бик|банк)\b",
+            candidate,
+            maxsplit=1,
+            flags=re.I,
+        )[0].strip(" .;,")
+        if candidate:
+            return candidate[:500]
+
+    cleaned = raw
+    cleaned = re.sub(r"ИНН\s*[:=]?\s*\d{10,12}", " ", cleaned, flags=re.I)
+    cleaned = re.sub(r"КПП\s*[:=]?\s*\d{9}", " ", cleaned, flags=re.I)
+    cleaned = re.sub(r"ОГРН\s*[:=]?\s*\d+", " ", cleaned, flags=re.I)
+    cleaned = re.sub(r"(?:р/?с|к/?с|бик|банк)[^\n]*", " ", cleaned, flags=re.I)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip(" ,.;")
+    if not cleaned:
+        return ""
+    idx_m = re.search(r"\b\d{6}\b.{5,300}", cleaned)
     if idx_m:
-        return idx_m.group(0).strip(" .;")
-    return ""
+        return idx_m.group(0).strip(" ,.;")[:500]
+    if re.search(
+        r"(?:г\.|город|ул\.|улица|д\.|дом|обл|край|район|пос|деревн|стр\.|строение)",
+        cleaned,
+        flags=re.I,
+    ):
+        return cleaned[:500]
+    return cleaned[:500]
 
 
 def _parse_ru_address(address: str) -> dict[str, str]:
@@ -155,33 +178,44 @@ def _parse_ru_address(address: str) -> dict[str, str]:
         out["Индекс"] = idx_m.group(1)
     out["КодРегион"] = _region_code_from_text(raw, out["Индекс"])
 
+    # Word-bounded street markers only (bare «ш»/«д» must not match inside words).
     street_m = re.search(
-        r"(?:ул\.?|улица|пр-кт|проспект|пер\.?|переулок|ш\.?|шоссе|б-р|бульвар)\s*"
-        r"([^,]+?)(?=,|\s+(?:д\.?|дом)\s*\d|$)",
+        r"(?<![А-Яа-яA-Za-z])"
+        r"(?:ул\.|улица|пр-кт|проспект|пер\.|переулок|ш\.|шоссе|б-р|бульвар)"
+        r"\s*([^,]+?)(?=,|\s+(?:д\.|дом)\s*\d|$)",
         raw,
         flags=re.I,
     )
     if street_m:
         out["Улица"] = street_m.group(0).strip().rstrip(",")
 
-    # Avoid matching «д» inside street names: require boundary before д/дом.
+    # House: «д.» / «дом» / «стр.» / «строение» — never bare «д» (деревня).
     house_m = re.search(
-        r"(?:^|[\s,])(?:д\.?|дом)\s*([0-9A-Za-zА-Яа-я/-]+)",
+        r"(?:^|[\s,])(?:д\.|дом|стр\.|строение)\s*([0-9A-Za-zА-Яа-я/-]+)",
         raw,
         flags=re.I,
     )
     if house_m:
         out["Дом"] = house_m.group(1)
 
-    city_m = re.search(r"(?:г\.|город)\s*([^,]+)", raw, flags=re.I)
+    city_m = re.search(r"(?<![А-Яа-яA-Za-z])(?:г\.|город)\s*([^,]+)", raw, flags=re.I)
     if city_m:
         out["Город"] = city_m.group(1).strip()
-    sett_m = re.search(r"(?:с\.|село|п\.|поселок|посёлок)\s*([^,]+)", raw, flags=re.I)
+    # Village / settlement name (деревня X / пос. X).
+    sett_m = re.search(
+        r"(?<![А-Яа-яA-Za-z])(?:деревня|село|посёлок|поселок|пос\.)\s*([^,]+)",
+        raw,
+        flags=re.I,
+    )
     if sett_m:
         out["НаселПункт"] = sett_m.group(1).strip()
-    district_m = re.search(r"(?:р-н|район)\s*([^,]+)", raw, flags=re.I)
+    district_m = re.search(
+        r"([^,]+?)\s+(?:р-н|район)\b",
+        raw,
+        flags=re.I,
+    )
     if district_m:
-        out["Район"] = ("р-н " + district_m.group(1).strip()).strip()
+        out["Район"] = district_m.group(1).strip() + " р-н"
     return out
 
 
@@ -370,12 +404,13 @@ def _add_adr_rf(parent: ET.Element, tag: str, addr: dict[str, str]) -> None:
         code = _region_code_from_text(raw, attrs.get("Индекс", ""))
         if code:
             attrs["КодРегион"] = code
-    # Keep Russian address type even when parsing is incomplete: put full text in Улица.
-    if raw and not attrs.get("Улица"):
-        if not attrs.get("Индекс") or not any(
-            attrs.get(k) for k in ("Город", "НаселПункт", "Дом")
-        ):
-            attrs["Улица"] = raw[:255]
+    # Keep Russian address type; if structured parse is weak, prefer full raw in Улица.
+    if raw and not attrs.get("Улица") and not attrs.get("Индекс"):
+        attrs["Улица"] = raw[:255]
+    elif raw and not attrs.get("Улица") and not any(
+        attrs.get(k) for k in ("Город", "НаселПункт", "Дом")
+    ):
+        attrs["Улица"] = raw[:255]
     if not attrs and not raw:
         return
     if not attrs:
@@ -411,10 +446,10 @@ def build_ozon_etrn_xml(
 
     load_addr = _parse_ru_address(load_address)
     dest_addr = _parse_ru_address(delivery_address)
+    # Shipper legal address MUST come from Поставки → Настройки → Юр.лица (requisites).
+    # Never substitute production/warehouse (load/delivery) addresses here.
     legal_addr_raw = _extract_address_from_requisites(org_req)
-    shipper_addr = _parse_ru_address(legal_addr_raw) if legal_addr_raw else (
-        load_addr if load_addr.get("raw") else dest_addr
-    )
+    shipper_addr = _parse_ru_address(legal_addr_raw)
 
     cargo = _cargo_stats(cargoes_json if cargoes_json is not None else item.get("cargoes_json"))
     fam, imya, otch = _split_fio(driver_name)
