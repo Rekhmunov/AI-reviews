@@ -1511,13 +1511,50 @@
           </div>
           <div id="wbFbsSyncInfo" class="wb-fbs-sync-info" hidden></div>
         </div>
-        <div class="wb-fbs-tabs" id="wbFbsTabs" role="tablist">
-          <button type="button" class="wb-fbs-tab active" data-tab="new" onclick="setWbFbsTab('new')">Новые <span class="wb-fbs-tab-count" id="wbFbsCountNew">0</span></button>
-          <button type="button" class="wb-fbs-tab" data-tab="assembly" onclick="setWbFbsTab('assembly')">На сборке <span class="wb-fbs-tab-count" id="wbFbsCountAssembly">0</span></button>
-          <button type="button" class="wb-fbs-tab" data-tab="delivery" onclick="setWbFbsTab('delivery')">В доставке <span class="wb-fbs-tab-count" id="wbFbsCountDelivery">0</span></button>
-          <button type="button" class="wb-fbs-tab" data-tab="finished" onclick="setWbFbsTab('finished')">Завершённые <span class="wb-fbs-tab-count" id="wbFbsCountFinished">0</span></button>
-          <button type="button" class="wb-fbs-tab" data-tab="cancelled" onclick="setWbFbsTab('cancelled')">Отменённые <span class="wb-fbs-tab-count" id="wbFbsCountCancelled">0</span></button>
-          <button type="button" class="wb-fbs-tab" data-tab="archive" onclick="setWbFbsTab('archive')">Архив <span class="wb-fbs-tab-count" id="wbFbsCountArchive">0</span></button>
+        <div class="wb-fbs-tabs-row">
+          <div class="wb-fbs-tabs" id="wbFbsTabs" role="tablist">
+            <button type="button" class="wb-fbs-tab active" data-tab="new" onclick="setWbFbsTab('new')">Новые <span class="wb-fbs-tab-count" id="wbFbsCountNew">0</span></button>
+            <button type="button" class="wb-fbs-tab" data-tab="assembly" onclick="setWbFbsTab('assembly')">На сборке <span class="wb-fbs-tab-count" id="wbFbsCountAssembly">0</span></button>
+            <button type="button" class="wb-fbs-tab" data-tab="delivery" onclick="setWbFbsTab('delivery')">В доставке <span class="wb-fbs-tab-count" id="wbFbsCountDelivery">0</span></button>
+            <button type="button" class="wb-fbs-tab" data-tab="finished" onclick="setWbFbsTab('finished')">Завершённые <span class="wb-fbs-tab-count" id="wbFbsCountFinished">0</span></button>
+            <button type="button" class="wb-fbs-tab" data-tab="cancelled" onclick="setWbFbsTab('cancelled')">Отменённые <span class="wb-fbs-tab-count" id="wbFbsCountCancelled">0</span></button>
+            <button type="button" class="wb-fbs-tab" data-tab="archive" onclick="setWbFbsTab('archive')">Архив <span class="wb-fbs-tab-count" id="wbFbsCountArchive">0</span></button>
+          </div>
+          <button type="button" id="wbFbsCollectMgtBtn" class="wb-fbs-collect-mgt-btn hidden"
+                  onclick="openWbFbsCollectMgt()" title="Собрать все МГТ-заказы текущего кабинета">
+            Собрать все МГТ-заказы
+          </button>
+        </div>
+        <div id="wbFbsCollectMgtModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="wbFbsCollectMgtTitle"
+             onclick="if(event.target===this)closeWbFbsCollectMgtModal()">
+          <div class="modal-card wb-fbs-collect-mgt-modal">
+            <div class="wb-fbs-collect-mgt-header">
+              <h3 id="wbFbsCollectMgtTitle" class="wb-fbs-collect-mgt-title">Собрать все МГТ-заказы</h3>
+              <button type="button" class="icon-btn secondary" onclick="closeWbFbsCollectMgtModal()" aria-label="Закрыть">✕</button>
+            </div>
+            <p id="wbFbsCollectMgtLead" class="wb-fbs-collect-mgt-lead"></p>
+            <div id="wbFbsCollectMgtBody" class="wb-fbs-collect-mgt-body"></div>
+            <div id="wbFbsCollectMgtErr" class="wb-fbs-collect-mgt-err" hidden></div>
+            <div class="wb-fbs-collect-mgt-footer">
+              <button type="button" class="secondary" onclick="closeWbFbsCollectMgtModal()">Отмена</button>
+              <button type="button" id="wbFbsCollectMgtConfirmBtn" class="wb-fbs-collect-mgt-btn" onclick="confirmWbFbsCollectMgt()">Собрать</button>
+            </div>
+          </div>
+        </div>
+        <div id="wbFbsCollectMgtResultModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="wbFbsCollectMgtResultTitle"
+             onclick="if(event.target===this)closeWbFbsCollectMgtResultModal()">
+          <div class="modal-card wb-fbs-collect-mgt-result-modal">
+            <div class="wb-fbs-collect-mgt-header">
+              <h3 id="wbFbsCollectMgtResultTitle" class="wb-fbs-collect-mgt-title">Результат</h3>
+              <button type="button" class="icon-btn secondary" onclick="closeWbFbsCollectMgtResultModal()" aria-label="Закрыть">✕</button>
+            </div>
+            <div id="wbFbsCollectMgtResultBody" class="wb-fbs-collect-mgt-result-body"></div>
+            <div class="wb-fbs-collect-mgt-footer">
+              <button type="button" onclick="closeWbFbsCollectMgtResultModal()">Понятно</button>
+            </div>
+          </div>
         </div>
         <div class="panel supplies-table-panel wb-fbs-table-panel">
           <div class="supplies-table-wrap wb-fbs-table-wrap">

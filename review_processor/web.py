@@ -9194,6 +9194,52 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "sources_count": len(jobs),
         }
 
+    @app.get("/api/wb-fbs/collect-mgt/preview")
+    def wb_fbs_collect_mgt_preview(request: Request, source_id: int) -> dict[str, object]:
+        """Plan «Собрать все МГТ-заказы» for the current FBS source (New tab)."""
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        sid = int(source_id or 0)
+        if not sid:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        _wb_fbs_source_key(owner_id, sid)  # validates FBS source exists
+        return wb_fbs_mod.preview_collect_mgt(
+            repository, user_id=owner_id, source_id=sid
+        )
+
+    @app.post("/api/wb-fbs/collect-mgt")
+    async def wb_fbs_collect_mgt(request: Request) -> dict[str, object]:
+        """Create/choose supplies and add all New-tab MGT orders for one FBS source."""
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        try:
+            payload = await request.json()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Некорректный JSON") from exc
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=400, detail="Некорректное тело запроса")
+        sid = int(payload.get("source_id") or 0)
+        if not sid:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        api_key = _wb_fbs_source_key(owner_id, sid)
+        decisions_raw = payload.get("decisions") or []
+        if not isinstance(decisions_raw, list):
+            raise HTTPException(status_code=400, detail="decisions должен быть списком")
+        decisions: list[dict[str, object]] = [
+            d for d in decisions_raw if isinstance(d, dict)
+        ]
+        return wb_fbs_mod.execute_collect_mgt(
+            repository,
+            user_id=owner_id,
+            source_id=sid,
+            api_key=api_key,
+            decisions=decisions,
+        )
+
     @app.delete("/api/wb-fbs/orders")
     def clear_wb_fbs_orders(request: Request, source_id: int) -> dict[str, object]:
         """Owner/admin only. UI button removed; kept for emergency admin use."""

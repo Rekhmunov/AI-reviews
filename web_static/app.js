@@ -17883,6 +17883,7 @@ function setWbFbsTab(tab) {
     btn.classList.toggle("active", btn.dataset.tab === tab);
   });
   _wbFbsSyncTableMode();
+  _wbFbsSyncCollectMgtBtn(wbFbsState.counts || {});
   clearWbFbsSelection();
   loadWbFbsOrders(true);
 }
@@ -18076,6 +18077,15 @@ function _wbFbsUpdateCounts(counts) {
     const el = document.getElementById(id);
     if (el) el.textContent = String(counts[tab] || 0);
   }
+  _wbFbsSyncCollectMgtBtn(counts);
+}
+
+function _wbFbsSyncCollectMgtBtn(counts) {
+  const btn = document.getElementById("wbFbsCollectMgtBtn");
+  if (!btn) return;
+  const mgtNew = Number((counts && counts.mgt_new) || 0);
+  const show = wbFbsState.tab === "new" && mgtNew > 0 && !!wbFbsState.sourceId;
+  btn.classList.toggle("hidden", !show);
 }
 
 function _wbFbsSetSyncInfo(text, kind = "") {
@@ -19280,6 +19290,300 @@ function wbFbsStubNewSupplySelected() {
   alert(`Новая поставка из ${n} заказ(ов) — скоро.`);
 }
 window.wbFbsStubNewSupplySelected = wbFbsStubNewSupplySelected;
+
+const wbFbsCollectMgtState = {
+  preview: null,
+  busy: false,
+};
+
+function closeWbFbsCollectMgtModal() {
+  const modal = document.getElementById("wbFbsCollectMgtModal");
+  if (modal) modal.classList.add("hidden");
+  wbFbsCollectMgtState.preview = null;
+  const err = document.getElementById("wbFbsCollectMgtErr");
+  if (err) {
+    err.hidden = true;
+    err.textContent = "";
+  }
+}
+window.closeWbFbsCollectMgtModal = closeWbFbsCollectMgtModal;
+
+function closeWbFbsCollectMgtResultModal() {
+  document.getElementById("wbFbsCollectMgtResultModal")?.classList.add("hidden");
+}
+window.closeWbFbsCollectMgtResultModal = closeWbFbsCollectMgtResultModal;
+
+function _wbFbsCollectMgtShowResult(data) {
+  const modal = document.getElementById("wbFbsCollectMgtResultModal");
+  const title = document.getElementById("wbFbsCollectMgtResultTitle");
+  const body = document.getElementById("wbFbsCollectMgtResultBody");
+  if (!modal || !body) {
+    alert(data?.message || "Готово");
+    return;
+  }
+  const ok = !!data?.ok;
+  if (title) title.textContent = ok ? "Готово" : "Есть проблемы";
+  const errors = Array.isArray(data?.errors) ? data.errors : [];
+  const groups = Array.isArray(data?.groups) ? data.groups : [];
+  const created = Array.isArray(data?.created_supplies) ? data.created_supplies : [];
+  const skipped = Array.isArray(data?.skipped_cancelled) ? data.skipped_cancelled : [];
+  let html = `<p class="${ok ? "wb-fbs-collect-mgt-result-ok" : "wb-fbs-collect-mgt-result-err"}">${_wbFbsEsc(data?.message || "")}</p>`;
+  if (groups.length) {
+    html += "<ul>" + groups.map((g) => `<li>${_wbFbsEsc(g.message || "")}</li>`).join("") + "</ul>";
+  }
+  if (created.length) {
+    html += "<p>Созданы поставки:</p><ul>" + created.map((s) =>
+      `<li>${_wbFbsEsc(s.name || s.supply_id || "")}</li>`
+    ).join("") + "</ul>";
+  }
+  if (errors.length) {
+    html += `<p class="wb-fbs-collect-mgt-result-err">Ошибки:</p><ul class="wb-fbs-collect-mgt-result-err">` +
+      errors.map((e) => `<li>${_wbFbsEsc(e)}</li>`).join("") + "</ul>";
+  }
+  if (skipped.length) {
+    html += `<p class="small">Пропущено заказов: ${skipped.length}</p>`;
+  }
+  body.innerHTML = html;
+  modal.classList.remove("hidden");
+}
+
+function _wbFbsCollectMgtRenderModal(preview) {
+  const body = document.getElementById("wbFbsCollectMgtBody");
+  const lead = document.getElementById("wbFbsCollectMgtLead");
+  const err = document.getElementById("wbFbsCollectMgtErr");
+  if (err) {
+    err.hidden = true;
+    err.textContent = "";
+  }
+  const groups = Array.isArray(preview?.groups) ? preview.groups : [];
+  const existing = new Set(
+    (Array.isArray(preview?.existing_names) ? preview.existing_names : [])
+      .map((x) => String(x || "").trim()).filter(Boolean)
+  );
+  if (lead) {
+    lead.textContent = `МГТ-заказов в «Новых»: ${preview?.mgt_count || 0}. ` +
+      "B2B и обычные заказы собираются в разные поставки.";
+  }
+  if (!body) return;
+  body.innerHTML = groups.map((g, idx) => {
+    const flag = g.is_b2b ? "b2b" : "non";
+    const label = g.label || (g.is_b2b ? "B2B" : "не B2B");
+    const mode = String(g.mode || "create");
+    const count = Number(g.order_count || (g.order_ids || []).length || 0);
+    let inner = "";
+    if (mode === "create") {
+      const name = String(g.suggested_name || "");
+      const conflict = existing.has(name.trim());
+      inner = `
+        <div class="wb-fbs-collect-mgt-field">
+          <label for="wbFbsCollectMgtName_${flag}">Название новой поставки</label>
+          <input type="text" id="wbFbsCollectMgtName_${flag}" data-group-idx="${idx}"
+                 value="${_wbFbsEsc(name)}" autocomplete="off"
+                 oninput="wbFbsCollectMgtNameInput(this)" />
+          <p class="wb-fbs-collect-mgt-warn" id="wbFbsCollectMgtWarn_${flag}" ${conflict ? "" : "hidden"}>
+            Поставка с таким названием уже есть — измените название.
+          </p>
+        </div>`;
+    } else if (mode === "choose") {
+      const supplies = Array.isArray(g.compatible_supplies) ? g.compatible_supplies : [];
+      inner = `
+        <div class="wb-fbs-collect-mgt-field">
+          <label>Выберите поставку</label>
+          <div class="wb-fbs-collect-mgt-supplies">
+            ${supplies.map((s, si) => {
+              const sid = String(s.supply_id || "");
+              const sname = String(s.name || sid);
+              const meta = [
+                s.is_empty ? "пустая" : "МГТ",
+                s.is_b2b ? "B2B" : null,
+                `${Number(s.orders_count || 0)} заказ.`,
+              ].filter(Boolean).join(" · ");
+              return `
+                <label class="wb-fbs-collect-mgt-supply">
+                  <input type="radio" name="wbFbsCollectMgtSupply_${flag}" value="${_wbFbsEsc(sid)}" ${si === 0 ? "checked" : ""} />
+                  <span>
+                    <span class="wb-fbs-collect-mgt-supply-name">${_wbFbsEsc(sname)}</span>
+                    <span class="wb-fbs-collect-mgt-supply-meta">${_wbFbsEsc(meta)}</span>
+                  </span>
+                </label>`;
+            }).join("")}
+          </div>
+        </div>`;
+    } else {
+      const sid = String(g.default_supply_id || "");
+      const match = (Array.isArray(g.compatible_supplies) ? g.compatible_supplies : [])
+        .find((s) => String(s.supply_id || "") === sid);
+      const sname = match ? String(match.name || sid) : sid;
+      inner = `<div class="wb-fbs-collect-mgt-auto">Будет добавлено в поставку «${_wbFbsEsc(sname)}».</div>`;
+    }
+    return `
+      <section class="wb-fbs-collect-mgt-group" data-is-b2b="${g.is_b2b ? "1" : "0"}" data-mode="${_wbFbsEsc(mode)}">
+        <h4 class="wb-fbs-collect-mgt-group-title">${_wbFbsEsc(label)}</h4>
+        <p class="wb-fbs-collect-mgt-group-meta">${count} заказ(ов)</p>
+        ${inner}
+      </section>`;
+  }).join("");
+}
+
+function wbFbsCollectMgtNameInput(input) {
+  if (!input) return;
+  const preview = wbFbsCollectMgtState.preview;
+  const existing = new Set(
+    (Array.isArray(preview?.existing_names) ? preview.existing_names : [])
+      .map((x) => String(x || "").trim()).filter(Boolean)
+  );
+  const id = String(input.id || "");
+  const flag = id.endsWith("_b2b") ? "b2b" : "non";
+  const warn = document.getElementById(`wbFbsCollectMgtWarn_${flag}`);
+  if (!warn) return;
+  const name = String(input.value || "").trim();
+  warn.hidden = !(name && existing.has(name));
+}
+window.wbFbsCollectMgtNameInput = wbFbsCollectMgtNameInput;
+
+function _wbFbsCollectMgtCollectDecisions() {
+  const preview = wbFbsCollectMgtState.preview;
+  const groups = Array.isArray(preview?.groups) ? preview.groups : [];
+  const decisions = [];
+  const errors = [];
+  const existing = new Set(
+    (Array.isArray(preview?.existing_names) ? preview.existing_names : [])
+      .map((x) => String(x || "").trim()).filter(Boolean)
+  );
+  for (const g of groups) {
+    const isB2b = !!g.is_b2b;
+    const flag = isB2b ? "b2b" : "non";
+    const mode = String(g.mode || "create");
+    const label = g.label || (isB2b ? "B2B" : "не B2B");
+    if (mode === "create") {
+      const input = document.getElementById(`wbFbsCollectMgtName_${flag}`);
+      const name = String(input?.value || g.suggested_name || "").trim();
+      if (!name) {
+        errors.push(`${label}: укажите название поставки`);
+        continue;
+      }
+      if (existing.has(name)) {
+        errors.push(`${label}: поставка «${name}» уже есть — измените название`);
+        continue;
+      }
+      decisions.push({ is_b2b: isB2b, action: "create", name });
+    } else if (mode === "choose") {
+      const checked = document.querySelector(`input[name="wbFbsCollectMgtSupply_${flag}"]:checked`);
+      const supplyId = String(checked?.value || "").trim();
+      if (!supplyId) {
+        errors.push(`${label}: выберите поставку`);
+        continue;
+      }
+      decisions.push({ is_b2b: isB2b, action: "choose", supply_id: supplyId });
+    } else {
+      decisions.push({
+        is_b2b: isB2b,
+        action: "add",
+        supply_id: String(g.default_supply_id || ""),
+      });
+    }
+  }
+  return { decisions, errors };
+}
+
+async function _wbFbsCollectMgtExecute(decisions) {
+  const sourceId = wbFbsState.sourceId;
+  if (!sourceId) throw new Error("Выберите источник");
+  const res = await fetch("/api/wb-fbs/collect-mgt", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ source_id: sourceId, decisions }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || "Ошибка сборки МГТ");
+  return data;
+}
+
+async function openWbFbsCollectMgt() {
+  if (wbFbsCollectMgtState.busy) return;
+  if (wbFbsState.tab !== "new") return;
+  const sourceId = wbFbsState.sourceId;
+  if (!sourceId) {
+    alert("Выберите источник ВБ ФБС");
+    return;
+  }
+  const btn = document.getElementById("wbFbsCollectMgtBtn");
+  const confirmBtn = document.getElementById("wbFbsCollectMgtConfirmBtn");
+  wbFbsCollectMgtState.busy = true;
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch(`/api/wb-fbs/collect-mgt/preview?source_id=${encodeURIComponent(sourceId)}`);
+    const preview = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(preview.detail || "Не удалось подготовить сборку");
+    if (!preview.mgt_count) {
+      alert("В «Новых» нет МГТ-заказов");
+      _wbFbsSyncCollectMgtBtn(wbFbsState.counts || {});
+      return;
+    }
+    wbFbsCollectMgtState.preview = preview;
+    if (!preview.needs_modal) {
+      const decisions = (preview.groups || []).map((g) => ({
+        is_b2b: !!g.is_b2b,
+        action: "add",
+        supply_id: String(g.default_supply_id || ""),
+      }));
+      const data = await _wbFbsCollectMgtExecute(decisions);
+      closeWbFbsCollectMgtModal();
+      _wbFbsCollectMgtShowResult(data);
+      if (data.goto_assembly) setWbFbsTab("assembly");
+      else loadWbFbsOrders(true);
+      return;
+    }
+    _wbFbsCollectMgtRenderModal(preview);
+    document.getElementById("wbFbsCollectMgtModal")?.classList.remove("hidden");
+    if (confirmBtn) confirmBtn.disabled = false;
+  } catch (e) {
+    alert(e.message || String(e));
+  } finally {
+    wbFbsCollectMgtState.busy = false;
+    if (btn) btn.disabled = false;
+  }
+}
+window.openWbFbsCollectMgt = openWbFbsCollectMgt;
+
+async function confirmWbFbsCollectMgt() {
+  if (wbFbsCollectMgtState.busy) return;
+  if (!wbFbsCollectMgtState.preview) return;
+  const errEl = document.getElementById("wbFbsCollectMgtErr");
+  const confirmBtn = document.getElementById("wbFbsCollectMgtConfirmBtn");
+  const { decisions, errors } = _wbFbsCollectMgtCollectDecisions();
+  if (errors.length) {
+    if (errEl) {
+      errEl.hidden = false;
+      errEl.textContent = errors.join("\n");
+    }
+    return;
+  }
+  wbFbsCollectMgtState.busy = true;
+  if (confirmBtn) confirmBtn.disabled = true;
+  if (errEl) {
+    errEl.hidden = true;
+    errEl.textContent = "";
+  }
+  try {
+    const data = await _wbFbsCollectMgtExecute(decisions);
+    closeWbFbsCollectMgtModal();
+    _wbFbsCollectMgtShowResult(data);
+    if (data.goto_assembly) setWbFbsTab("assembly");
+    else loadWbFbsOrders(true);
+  } catch (e) {
+    if (errEl) {
+      errEl.hidden = false;
+      errEl.textContent = e.message || String(e);
+    } else {
+      alert(e.message || String(e));
+    }
+  } finally {
+    wbFbsCollectMgtState.busy = false;
+    if (confirmBtn) confirmBtn.disabled = false;
+  }
+}
+window.confirmWbFbsCollectMgt = confirmWbFbsCollectMgt;
 
 function _wbFbsFmtDateTime(iso) {
   if (!iso) return "—";
