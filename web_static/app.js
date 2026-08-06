@@ -20572,6 +20572,7 @@ async function saveWbFbsAutoSyncSettings() {
     }
     const settings = data.settings || {};
     _wbFbsAutoSyncMarkGear(!!settings.enabled);
+    _wbFbsAutoSyncSetLast(settings.last_synced_at);
     _wbFbsAutoSyncSetInfo("Сохранено", "ok");
     setTimeout(() => closeWbFbsAutoSyncSettings(), 400);
   } catch (e) {
