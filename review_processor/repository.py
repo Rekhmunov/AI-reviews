@@ -290,6 +290,12 @@ class ReviewRepository:
         )
         conn.execute(
             """
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS wb_fbs_last_synced_at TIMESTAMPTZ
+            """
+        )
+        conn.execute(
+            """
             UPDATE users
             SET owner_user_id = id
             WHERE owner_user_id IS NULL
@@ -2370,7 +2376,8 @@ class ReviewRepository:
         with self._connect() as conn:
             row = conn.execute(
                 """
-                SELECT wb_fbs_auto_sync_enabled, wb_fbs_auto_sync_interval_hours
+                SELECT wb_fbs_auto_sync_enabled, wb_fbs_auto_sync_interval_hours,
+                       wb_fbs_last_synced_at
                 FROM users
                 WHERE id = ? AND is_deleted = ?
                 """,
@@ -2384,10 +2391,17 @@ class ReviewRepository:
             interval = 1
         if interval not in self._WB_FBS_AUTO_SYNC_INTERVALS:
             interval = 1
+        last_synced = row["wb_fbs_last_synced_at"]
+        if last_synced is not None and not isinstance(last_synced, str):
+            try:
+                last_synced = last_synced.isoformat()
+            except Exception:
+                last_synced = str(last_synced)
         return {
             "enabled": bool(row["wb_fbs_auto_sync_enabled"]),
             "interval_hours": interval,
             "allowed_intervals": list(self._WB_FBS_AUTO_SYNC_INTERVALS),
+            "last_synced_at": str(last_synced) if last_synced else None,
         }
 
     def save_wb_fbs_auto_sync_settings(
@@ -2399,10 +2413,13 @@ class ReviewRepository:
     ) -> bool:
         try:
             interval = int(interval_hours)
-        except (TypeError, ValueError):
-            interval = 1
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Недопустимый период синхронизации") from exc
         if interval not in self._WB_FBS_AUTO_SYNC_INTERVALS:
-            interval = 1
+            raise ValueError(
+                "Период должен быть одним из: "
+                + ", ".join(str(v) for v in self._WB_FBS_AUTO_SYNC_INTERVALS)
+            )
         with self._connect() as conn:
             result = conn.execute(
                 """
@@ -2413,6 +2430,18 @@ class ReviewRepository:
                 (self._bool_db(bool(enabled)), interval, user_id),
             )
         return result.rowcount > 0
+
+    def mark_wb_fbs_synced(self, *, user_id: int) -> None:
+        """Record last successful WB FBS orders sync (tenant-level, not FBW supplies)."""
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE users
+                SET wb_fbs_last_synced_at = ?
+                WHERE id = ? AND is_deleted = FALSE
+                """,
+                (_utc_now(), user_id),
+            )
 
     def save_payment_record(
         self,

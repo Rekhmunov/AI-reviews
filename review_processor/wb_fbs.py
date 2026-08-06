@@ -2035,15 +2035,19 @@ def start_sync_thread(
                 total_orders += int(result.get("orders") or 0)
                 total_supplies += int(result.get("supplies") or 0)
                 synced_sources += 1
-                try:
-                    repo.mark_supply_source_synced(source_id=sid)
-                except Exception:
-                    _log.warning("wb_fbs: failed to update last_synced_at for source %s", sid)
                 for err in safe_errs:
                     all_errors.append(f"{label}: {err}")
                 if result.get("stopped"):
                     stopped = True
                     break
+
+            if synced_sources > 0:
+                # Tenant-level FBS timestamp — do NOT reuse supply_sources.last_synced_at
+                # (that column is shared with FBW/Ozon supplies sync).
+                try:
+                    repo.mark_wb_fbs_synced(user_id=user_id)
+                except Exception:
+                    _log.warning("wb_fbs: failed to update wb_fbs_last_synced_at for user %s", user_id)
 
             with _wb_fbs_sync_lock:
                 _wb_fbs_sync_state["synced"] = total_orders
@@ -2109,32 +2113,22 @@ def list_fbs_sync_jobs(repo: ReviewRepository, *, user_id: int) -> list[dict[str
                 "source_id": sid,
                 "api_key": str(src_full["api_key"]),
                 "name": str(src_full.get("name") or s.get("name") or f"Источник {sid}"),
-                "last_synced_at": s.get("last_synced_at") or src_full.get("last_synced_at"),
             }
         )
     return jobs
 
 
-def _fbs_auto_sync_is_due(jobs: list[dict[str, Any]], *, interval_hours: int) -> bool:
-    if not jobs:
-        return False
-    now = datetime.now(UTC)
-    oldest: datetime | None = None
-    for job in jobs:
-        last = job.get("last_synced_at")
-        if not last:
-            return True
-        try:
-            last_dt = datetime.fromisoformat(str(last).replace("Z", "+00:00"))
-        except ValueError:
-            return True
-        if last_dt.tzinfo is None:
-            last_dt = last_dt.replace(tzinfo=UTC)
-        if oldest is None or last_dt < oldest:
-            oldest = last_dt
-    if oldest is None:
+def _fbs_auto_sync_is_due(*, last_synced_at: str | None, interval_hours: int) -> bool:
+    """Due when FBS orders sync never ran or interval elapsed since last FBS sync."""
+    if not last_synced_at:
         return True
-    return (now - oldest).total_seconds() / 3600.0 >= float(interval_hours)
+    try:
+        last_dt = datetime.fromisoformat(str(last_synced_at).replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    if last_dt.tzinfo is None:
+        last_dt = last_dt.replace(tzinfo=UTC)
+    return (datetime.now(UTC) - last_dt).total_seconds() / 3600.0 >= float(interval_hours)
 
 
 class WbFbsScheduler:
@@ -2193,12 +2187,17 @@ class WbFbsScheduler:
             if not settings.get("enabled"):
                 continue
             interval_hours = int(settings.get("interval_hours") or 1)
+            if not _fbs_auto_sync_is_due(
+                last_synced_at=settings.get("last_synced_at"),
+                interval_hours=interval_hours,
+            ):
+                continue
             try:
                 jobs = list_fbs_sync_jobs(self.repository, user_id=user_id)
             except Exception as exc:
                 _log.warning("WbFbsScheduler user %s list jobs error: %s", user_id, exc)
                 continue
-            if not jobs or not _fbs_auto_sync_is_due(jobs, interval_hours=interval_hours):
+            if not jobs:
                 continue
             ok, message = start_sync_thread(
                 repo=self.repository,

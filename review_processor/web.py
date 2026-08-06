@@ -802,6 +802,15 @@ class WbFbsAutoSyncSettingsRequest(BaseModel):
     enabled: bool = False
     interval_hours: int = Field(default=1, ge=1, le=24)
 
+    def validated_interval(self) -> int:
+        allowed = (1, 2, 3, 6, 12, 24)
+        hours = int(self.interval_hours)
+        if hours not in allowed:
+            raise ValueError(
+                "Период должен быть одним из: " + ", ".join(str(v) for v in allowed)
+            )
+        return hours
+
 
 ROLE_ADMIN = "admin"
 ROLE_USER = "user"
@@ -9151,7 +9160,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not _can_view_wb_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
         owner_id = _supply_owner_id(user)
-        settings = repository.get_wb_fbs_auto_sync_settings(user_id=owner_id)
+        try:
+            settings = repository.get_wb_fbs_auto_sync_settings(user_id=owner_id)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
         role = str(user.get("role") or ROLE_USER)
         settings["can_edit"] = role in ROLE_CAN_ACCESS_SETTINGS
         return settings
@@ -9167,11 +9179,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if role not in ROLE_CAN_ACCESS_SETTINGS:
             raise HTTPException(status_code=403, detail="Недостаточно прав для изменения настроек")
         owner_id = _supply_owner_id(user)
-        updated = repository.save_wb_fbs_auto_sync_settings(
-            user_id=owner_id,
-            enabled=bool(payload.enabled),
-            interval_hours=int(payload.interval_hours),
-        )
+        try:
+            interval_hours = payload.validated_interval()
+            updated = repository.save_wb_fbs_auto_sync_settings(
+                user_id=owner_id,
+                enabled=bool(payload.enabled),
+                interval_hours=interval_hours,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         if not updated:
             raise HTTPException(status_code=404, detail="Пользователь не найден")
         settings = repository.get_wb_fbs_auto_sync_settings(user_id=owner_id)
