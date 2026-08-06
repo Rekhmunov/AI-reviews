@@ -68,6 +68,8 @@ def test_etrn_xml_core_schema_shape():
     # Never emit АдрИнф/АдресИнф — Kontur treats that as foreign address type.
     assert sod.find("СвГП/АдресДостГр/АдресРФ") is not None
     assert sod.find("СвГП/АдресДостГр/АдрРФ") is None
+    assert sod.find("СвГП/РекИдентГП/Адрес/АдрРФ") is not None
+    assert sod.find("СвГП/РекИдентГП/Адрес/АдрРФ").attrib.get("КодРегион") == "77"
     assert sod.find("СвПогруз/ФАдресПогр/АдресРФ") is not None
     assert sod.find("СвГО/РекИдентГО/Адрес/АдрРФ") is not None
     assert sod.find(".//АдрИнф") is None
@@ -176,6 +178,17 @@ def test_etrn_shipper_address_prefers_address_over_requisites():
     )
     assert "Новая" in shipper_xml or "Пушкино" in shipper_xml
     assert "Старая" not in shipper_xml
+
+
+def test_etrn_consignee_addresses_are_russian_rf():
+    root = ET.fromstring(_build())
+    legal = root.find("Документ/СодИнфГО/СвГП/РекИдентГП/Адрес/АдрРФ")
+    dost = root.find("Документ/СодИнфГО/СвГП/АдресДостГр/АдресРФ")
+    assert legal is not None
+    assert dost is not None
+    assert root.find("Документ/СодИнфГО/СвГП//АдрИнф") is None
+    assert root.find("Документ/СодИнфГО/СвГП//АдресИнф") is None
+    assert legal.attrib.get("КодРегион") == "77"
 
 
 def test_etrn_ryazan_index_is_not_kaliningrad():

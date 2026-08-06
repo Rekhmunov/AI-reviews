@@ -26,6 +26,8 @@ OZON_CONSIGNEE_NAME = 'Общество с ограниченной ответс
 OZON_CONSIGNEE_INN = "7704217370"
 OZON_CONSIGNEE_KPP = "997750001"
 OZON_CONSIGNEE_EDO_GUID = "2BM-7704217370-774301001-201407110916237240124"
+# Legal address of Ozon (ООО «Интернет Решения») — always emit as АдрРФ (Russian).
+OZON_CONSIGNEE_ADDRESS = "123112, г. Москва, Пресненская наб., д. 10"
 
 _CARGO_WEIGHT_TONS = {"PALLET": 0.2, "BOX": 0.0125}
 
@@ -464,6 +466,11 @@ def _add_adr_rf(parent: ET.Element, tag: str, addr: dict[str, str]) -> None:
         return
     if not attrs:
         attrs = {"Улица": raw[:255]}
+    # Schema marks КодРегион required for АдрРФТип — keep RF type visible in Kontur.
+    if not attrs.get("КодРегион") and attrs.get("Индекс"):
+        code = _region_from_postal_index(attrs["Индекс"])
+        if code:
+            attrs["КодРегион"] = code
     _el(parent, tag, **attrs)
 
 
@@ -598,6 +605,10 @@ def build_ozon_etrn_xml(
         ИННЮЛ=OZON_CONSIGNEE_INN,
         КПП=OZON_CONSIGNEE_KPP,
     )
+    # Legal address of consignee — always Russian АдрРФ (same rule as shipper).
+    adr_gp = _el(rek_gp, "Адрес")
+    _add_adr_rf(adr_gp, "АдрРФ", _parse_ru_address(OZON_CONSIGNEE_ADDRESS))
+    # Delivery point — always АдресРФ, never АдресИнф.
     adr_dost = _el(sv_gp, "АдресДостГр")
     if not dest_addr.get("raw"):
         dest_addr = {
