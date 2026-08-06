@@ -2451,12 +2451,22 @@ def execute_collect_mgt(
             try:
                 oids = client.get_supply_order_ids(supply_id)
                 live_supply = client.get_supply(supply_id)
+                if oids:
+                    refresh_ids = oids
+                else:
+                    prev = _local_supply_order_ids(
+                        repo,
+                        user_id=user_id,
+                        source_id=source_id,
+                        supply_id=supply_id,
+                    )
+                    refresh_ids = sorted(set(prev) | set(live_ids[:added]))
                 upsert_supply(
                     repo,
                     user_id=user_id,
                     source_id=source_id,
                     supply=live_supply or {"id": supply_id, "name": name, "isB2b": is_b2b},
-                    order_ids=oids or live_ids,
+                    order_ids=refresh_ids,
                 )
             except Exception as exc:
                 warnings.append(
@@ -2594,7 +2604,13 @@ def _selection_mix_errors(orders: list[dict[str, Any]]) -> list[str]:
     warehouses: set[object] = set()
     for o in orders:
         wh = o.get("warehouse_id")
-        warehouses.add(int(wh) if wh is not None and str(wh).strip() != "" else None)
+        if wh is None or str(wh).strip() == "":
+            warehouses.add(None)
+            continue
+        try:
+            warehouses.add(int(wh))
+        except (TypeError, ValueError):
+            warehouses.add(None)
     if None in warehouses and len(warehouses) > 1:
         errors.append(
             "У части заказов не указан склад WB (warehouseId), а у других указан. "
@@ -2612,6 +2628,11 @@ def _selection_mix_errors(orders: list[dict[str, Any]]) -> list[str]:
         errors.append(
             "В выборе смешаны кроссбордер и обычные заказы (crossBorderType). "
             "WB разрешает в одной поставке только один тип."
+        )
+    elif None in borders and known_borders:
+        errors.append(
+            "У части выбранных заказов не определён crossBorderType. "
+            "Снимите их с выбора или дождитесь синхронизации."
         )
     return errors
 
@@ -2710,7 +2731,8 @@ def _compatible_supplies_for_traits(
             sb = _coalesce_b2b_flag(raw)
             if sb is None and s.get("is_b2b") is not None:
                 sb = bool(s.get("is_b2b"))
-            if scargo != 0 and sb is not None and sb != is_b2b:
+            # Non-empty supply must match B2B even if local cargo_type is still 0.
+            if sb is not None and sb != is_b2b:
                 continue
             supply_wh = _supply_warehouse_id(
                 repo, user_id=user_id, source_id=source_id, supply=s
@@ -2869,6 +2891,28 @@ def _filter_live_new_order_ids(
     return live, skipped, errors
 
 
+def _local_supply_order_ids(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+) -> list[int]:
+    with repo._connect() as conn:
+        row = conn.execute(
+            repo._sql(
+                """
+                SELECT order_ids_json FROM wb_fbs_supplies
+                WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                """
+            ),
+            (user_id, source_id, str(supply_id)),
+        ).fetchone()
+    if not row:
+        return []
+    return [int(x) for x in _parse_json_list(row["order_ids_json"]) if x is not None]
+
+
 def _add_orders_to_supply_local(
     repo: ReviewRepository,
     client: WbFbsClient,
@@ -2884,6 +2928,9 @@ def _add_orders_to_supply_local(
     errors: list[str] = []
     warnings: list[str] = []
     added = 0
+    prev_ids = _local_supply_order_ids(
+        repo, user_id=user_id, source_id=source_id, supply_id=supply_id
+    )
     for i in range(0, len(order_ids), 100):
         chunk = order_ids[i : i + 100]
         try:
@@ -2922,13 +2969,19 @@ def _add_orders_to_supply_local(
         try:
             oids = client.get_supply_order_ids(supply_id)
             live_supply = client.get_supply(supply_id)
+            # Never replace an existing supply with only the newly added chunk:
+            # empty/failed order-ids response would wipe previous members locally.
+            if oids:
+                refresh_ids = oids
+            else:
+                refresh_ids = sorted(set(prev_ids) | set(order_ids[:added]))
             upsert_supply(
                 repo,
                 user_id=user_id,
                 source_id=source_id,
                 supply=live_supply
                 or {"id": supply_id, "name": name, "isB2b": is_b2b},
-                order_ids=oids or order_ids[:added],
+                order_ids=refresh_ids,
             )
         except Exception as exc:
             warnings.append(f"Заказы добавлены на WB, локальный кэш поставки: {exc}")
@@ -3039,15 +3092,16 @@ def create_supply_from_selection(
         name=title,
     )
     ok = added > 0 and not errors
-    message = (
-        f"Готово: создана поставка «{title}», добавлено {added} из {len(live_ids)}."
-        if ok
-        else (
-            f"Частично: добавлено {added}. Есть ошибки."
-            if added
-            else "Не удалось добавить заказы в новую поставку."
+    if ok:
+        message = (
+            f"Готово: создана поставка «{title}», добавлено {added} из {len(live_ids)}."
         )
-    )
+    elif added:
+        message = f"Частично: добавлено {added}. Есть ошибки."
+    else:
+        message = (
+            f"Поставка «{title}» ({supply_id}) создана, но заказы не добавились."
+        )
     if skipped:
         message += f" Пропущено: {len(skipped)}."
     return {
@@ -3159,6 +3213,32 @@ def add_selection_to_supply(
                 "added": 0,
                 "goto_assembly": False,
             }
+        sel_wh = traits.get("warehouse_id")
+        if live_cargo != 0 and sel_wh is not None:
+            try:
+                live_oids = client.get_supply_order_ids(sid)
+            except Exception:
+                live_oids = []
+            wh_ids = live_oids or _local_supply_order_ids(
+                repo, user_id=user_id, source_id=source_id, supply_id=sid
+            )
+            supply_wh = _supply_warehouse_id(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                supply={"order_ids": wh_ids},
+            )
+            if supply_wh is not None and int(supply_wh) != int(sel_wh):
+                return {
+                    "ok": False,
+                    "message": "Склад поставки не совпадает с выбранными заказами.",
+                    "errors": [
+                        f"Поставка {sid}: склад {supply_wh}, "
+                        f"у заказов склад {sel_wh}."
+                    ],
+                    "added": 0,
+                    "goto_assembly": False,
+                }
     except Exception as exc:
         return {
             "ok": False,

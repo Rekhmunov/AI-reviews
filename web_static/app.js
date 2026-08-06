@@ -17872,6 +17872,7 @@ async function loadWbFbsSources() {
 function onWbFbsSourceChange() {
   const sel = document.getElementById("wbFbsSourceSelect");
   wbFbsState.sourceId = sel?.value ? Number(sel.value) : null;
+  closeWbFbsSelectionSupplyModal();
   clearWbFbsSelection();
   loadWbFbsOrders(true);
 }
@@ -17884,6 +17885,7 @@ function setWbFbsTab(tab) {
   });
   _wbFbsSyncTableMode();
   _wbFbsSyncCollectMgtBtn(wbFbsState.counts || {});
+  closeWbFbsSelectionSupplyModal();
   clearWbFbsSelection();
   loadWbFbsOrders(true);
 }
@@ -19440,17 +19442,32 @@ function wbFbsSelectionSupplyNameInput(input) {
 }
 window.wbFbsSelectionSupplyNameInput = wbFbsSelectionSupplyNameInput;
 
-function _wbFbsShowSelectionErrors(errors) {
+function _wbFbsShowSelectionErrors(errors, mode = "") {
   const list = Array.isArray(errors) ? errors.filter(Boolean) : [];
   if (!list.length) {
     alert("Нельзя выполнить действие с выбранными заказами.");
     return;
   }
+  const msg = mode === "create"
+    ? "Нельзя создать поставку из выбранных заказов."
+    : "Нельзя добавить выбранные заказы в одну поставку.";
   _wbFbsCollectMgtShowResult({
     ok: false,
-    message: "Нельзя добавить выбранные заказы в одну поставку.",
+    message: msg,
     errors: list,
   });
+}
+
+async function _wbFbsSelectionPreviewForSource(sourceId, orderIds) {
+  if (!sourceId) throw new Error("Выберите источник ВБ ФБС");
+  const res = await fetch("/api/wb-fbs/selection/preview", {
+    method: "POST",
+    headers: jsonHeaders(),
+    body: JSON.stringify({ source_id: sourceId, order_ids: orderIds }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(_wbFbsCollectMgtDetailText(data.detail) || "Не удалось проверить выбор");
+  return data;
 }
 
 async function openWbFbsNewSupplyFromSelection() {
@@ -19461,22 +19478,35 @@ async function openWbFbsNewSupplyFromSelection() {
     alert("Выберите заказы во вкладке «Новые»");
     return;
   }
+  const sourceId = wbFbsState.sourceId;
+  if (!sourceId) {
+    alert("Выберите источник ВБ ФБС");
+    return;
+  }
   wbFbsSelectionSupplyState.busy = true;
+  wbFbsSelectionSupplyState.sourceId = sourceId;
+  const errEl = document.getElementById("wbFbsSelectionSupplyErr");
+  if (errEl) { errEl.hidden = true; errEl.textContent = ""; }
   try {
-    const preview = await _wbFbsSelectionPreview(orderIds);
+    const preview = await _wbFbsSelectionPreviewForSource(sourceId, orderIds);
+    if (wbFbsState.sourceId !== sourceId) {
+      // Cabinet changed while preview was in flight — abort.
+      return;
+    }
     if (!preview.ok) {
-      _wbFbsShowSelectionErrors(preview.errors);
+      _wbFbsShowSelectionErrors(preview.errors, "create");
       return;
     }
     wbFbsSelectionSupplyState.mode = "create";
     wbFbsSelectionSupplyState.preview = preview;
     wbFbsSelectionSupplyState.orderIds = Array.isArray(preview.order_ids) ? preview.order_ids : orderIds;
-    wbFbsSelectionSupplyState.sourceId = wbFbsState.sourceId;
+    wbFbsSelectionSupplyState.sourceId = sourceId;
     _wbFbsRenderSelectionCreateModal(preview);
     const confirmBtn = document.getElementById("wbFbsSelectionSupplyConfirmBtn");
     if (confirmBtn) confirmBtn.disabled = false;
     document.getElementById("wbFbsSelectionSupplyModal")?.classList.remove("hidden");
   } catch (e) {
+    wbFbsSelectionSupplyState.sourceId = null;
     alert(e.message || String(e));
   } finally {
     wbFbsSelectionSupplyState.busy = false;
@@ -19492,11 +19522,20 @@ async function openWbFbsAddToExistingSupply() {
     alert("Выберите заказы во вкладке «Новые»");
     return;
   }
+  const sourceId = wbFbsState.sourceId;
+  if (!sourceId) {
+    alert("Выберите источник ВБ ФБС");
+    return;
+  }
   wbFbsSelectionSupplyState.busy = true;
+  wbFbsSelectionSupplyState.sourceId = sourceId;
+  const errEl = document.getElementById("wbFbsSelectionSupplyErr");
+  if (errEl) { errEl.hidden = true; errEl.textContent = ""; }
   try {
-    const preview = await _wbFbsSelectionPreview(orderIds);
+    const preview = await _wbFbsSelectionPreviewForSource(sourceId, orderIds);
+    if (wbFbsState.sourceId !== sourceId) return;
     if (!preview.ok) {
-      _wbFbsShowSelectionErrors(preview.errors);
+      _wbFbsShowSelectionErrors(preview.errors, "add");
       return;
     }
     if (!preview.has_open_supplies) {
@@ -19506,10 +19545,11 @@ async function openWbFbsAddToExistingSupply() {
     wbFbsSelectionSupplyState.mode = "add";
     wbFbsSelectionSupplyState.preview = preview;
     wbFbsSelectionSupplyState.orderIds = Array.isArray(preview.order_ids) ? preview.order_ids : orderIds;
-    wbFbsSelectionSupplyState.sourceId = wbFbsState.sourceId;
+    wbFbsSelectionSupplyState.sourceId = sourceId;
     _wbFbsRenderSelectionAddModal(preview);
     document.getElementById("wbFbsSelectionSupplyModal")?.classList.remove("hidden");
   } catch (e) {
+    wbFbsSelectionSupplyState.sourceId = null;
     alert(e.message || String(e));
   } finally {
     wbFbsSelectionSupplyState.busy = false;
@@ -19527,7 +19567,8 @@ async function confirmWbFbsSelectionSupply() {
   const mode = wbFbsSelectionSupplyState.mode;
   const errEl = document.getElementById("wbFbsSelectionSupplyErr");
   const confirmBtn = document.getElementById("wbFbsSelectionSupplyConfirmBtn");
-  const sourceId = wbFbsSelectionSupplyState.sourceId || wbFbsState.sourceId;
+  // Always use the source pinned at preview time — never the live select value.
+  const sourceId = wbFbsSelectionSupplyState.sourceId;
   const orderIds = wbFbsSelectionSupplyState.orderIds || [];
   if (!sourceId || !orderIds.length) return;
 
@@ -19576,6 +19617,15 @@ async function confirmWbFbsSelectionSupply() {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(_wbFbsCollectMgtDetailText(data.detail) || "Ошибка операции");
+    if (!data.ok && !(Number(data.added || 0) > 0)) {
+      // Soft validation/business failure with nothing added — keep modal to retry.
+      const errs = Array.isArray(data.errors) ? data.errors : [];
+      if (errEl) {
+        errEl.hidden = false;
+        errEl.textContent = errs.length ? errs.join("\n") : (data.message || "Операция не выполнена");
+      }
+      return;
+    }
     wbFbsSelectionSupplyState.busy = false;
     closeWbFbsSelectionSupplyModal();
     clearWbFbsSelection();
