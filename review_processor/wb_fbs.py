@@ -2093,7 +2093,8 @@ def _load_new_mgt_orders(
         rows = conn.execute(
             repo._sql(
                 """
-                SELECT order_id, cargo_type, supplier_status, wb_status, tab, is_b2b, raw_json, supply_id
+                SELECT order_id, cargo_type, supplier_status, wb_status, tab, is_b2b,
+                       warehouse_id, raw_json, supply_id
                 FROM wb_fbs_orders
                 WHERE user_id = ? AND source_id = ?
                   AND tab = ?
@@ -2113,6 +2114,13 @@ def _load_new_mgt_orders(
         ):
             continue
         d["is_b2b"] = _row_order_is_b2b(d)
+        d["cross_border_type"] = _row_cross_border(d)
+        try:
+            d["warehouse_id"] = (
+                int(d["warehouse_id"]) if d.get("warehouse_id") is not None else None
+            )
+        except (TypeError, ValueError):
+            d["warehouse_id"] = None
         out.append(d)
     return out
 
@@ -2128,6 +2136,71 @@ def _supply_is_empty(supply: dict[str, Any]) -> bool:
     return not order_ids
 
 
+def _mgt_group_key(*, is_b2b: bool, warehouse_id: object, cross_border_type: object) -> str:
+    wh = "na" if warehouse_id is None else str(int(warehouse_id))
+    cb = "na" if cross_border_type is None else str(int(cross_border_type))
+    return f"{'b2b' if is_b2b else 'non'}_wh{wh}_cb{cb}"
+
+
+def _mgt_group_label(*, is_b2b: bool, warehouse_id: object, cross_border_type: object) -> str:
+    parts = ["B2B" if is_b2b else "не B2B"]
+    if warehouse_id is not None:
+        parts.append(f"склад {warehouse_id}")
+    if cross_border_type == 1:
+        parts.append("кроссбордер")
+    elif cross_border_type == 0:
+        parts.append("не кроссбордер")
+    return " · ".join(parts)
+
+
+def _unique_supply_name(base: str, existing_names: set[str]) -> str:
+    name = str(base or "").strip() or "Поставка"
+    if name not in existing_names:
+        return name
+    for i in range(2, 100):
+        candidate = f"{name} ({i})"
+        if candidate not in existing_names:
+            return candidate
+    return f"{name} · {int(time.time())}"
+
+
+def _supply_matches_mgt_traits(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply: dict[str, Any],
+    is_b2b: bool,
+    warehouse_id: object,
+    cross_border_type: object,
+) -> bool:
+    """True if open supply can accept this MGT bucket (or is empty)."""
+    if _supply_is_empty(supply):
+        return True
+    cargo = int(supply.get("cargo_type") or 0)
+    if cargo != 1:
+        return False
+    raw = _parse_json_obj(supply.get("raw_json"))
+    sb = _coalesce_b2b_flag(raw)
+    if sb is None and supply.get("is_b2b") is not None:
+        sb = bool(supply.get("is_b2b"))
+    if sb is not None and bool(sb) != bool(is_b2b):
+        return False
+    supply_wh = _supply_warehouse_id(
+        repo, user_id=user_id, source_id=source_id, supply=supply
+    )
+    if warehouse_id is not None and supply_wh is not None and int(warehouse_id) != int(supply_wh):
+        return False
+    supply_cb = _row_cross_border(supply)
+    if (
+        cross_border_type is not None
+        and supply_cb is not None
+        and int(cross_border_type) != int(supply_cb)
+    ):
+        return False
+    return True
+
+
 def _plan_mgt_group(
     *,
     is_b2b: bool,
@@ -2135,13 +2208,31 @@ def _plan_mgt_group(
     mgt_matching: list[dict[str, Any]],
     empties: list[dict[str, Any]],
     existing_names: set[str],
+    warehouse_id: object = None,
+    cross_border_type: object = None,
 ) -> dict[str, Any]:
-    """Plan one B2B/non-B2B group. Mutates ``empties`` when claiming an empty supply."""
-    suggested = default_mgt_supply_name(is_b2b=is_b2b)
+    """Plan one MGT bucket. Mutates ``empties`` when claiming an empty supply."""
+    group_key = _mgt_group_key(
+        is_b2b=is_b2b,
+        warehouse_id=warehouse_id,
+        cross_border_type=cross_border_type,
+    )
+    label = _mgt_group_label(
+        is_b2b=is_b2b,
+        warehouse_id=warehouse_id,
+        cross_border_type=cross_border_type,
+    )
+    base_name = default_mgt_supply_name(is_b2b=is_b2b)
+    if warehouse_id is not None:
+        base_name = f"{base_name} · склад {warehouse_id}"
+    suggested = _unique_supply_name(base_name, existing_names)
     candidates = list(mgt_matching) + list(empties)
     group: dict[str, Any] = {
+        "group_key": group_key,
         "is_b2b": bool(is_b2b),
-        "label": "B2B" if is_b2b else "не B2B",
+        "warehouse_id": warehouse_id,
+        "cross_border_type": cross_border_type,
+        "label": label,
         "order_ids": order_ids,
         "order_count": len(order_ids),
         "suggested_name": suggested,
@@ -2166,6 +2257,7 @@ def _plan_mgt_group(
         return group
     if not candidates:
         group["mode"] = "create"
+        existing_names.add(suggested)
         return group
     if len(candidates) == 1:
         chosen = candidates[0]
@@ -2176,6 +2268,16 @@ def _plan_mgt_group(
             empties[:] = [s for s in empties if str(s.get("supply_id") or "") != sid]
         return group
     group["mode"] = "choose"
+    # Reserve empties offered in choose so another bucket cannot claim the same ones.
+    claimed_empty_ids = {
+        str(s.get("supply_id") or "")
+        for s in empties
+        if str(s.get("supply_id") or "").strip()
+    }
+    if claimed_empty_ids:
+        empties[:] = [
+            s for s in empties if str(s.get("supply_id") or "") not in claimed_empty_ids
+        ]
     return group
 
 
@@ -2185,36 +2287,39 @@ def preview_collect_mgt(
     user_id: int,
     source_id: int,
 ) -> dict[str, Any]:
-    """Build collect plan for New-tab MGT orders of one FBS source."""
+    """Build collect plan for New-tab MGT orders of one FBS source.
+
+    Splits by B2B × warehouse × crossBorder so WB will not 409-mix buckets.
+    """
     ensure_wb_fbs_tables(repo)
     orders = _load_new_mgt_orders(repo, user_id=user_id, source_id=source_id)
-    non_b2b_ids = [int(o["order_id"]) for o in orders if not o.get("is_b2b")]
-    b2b_ids = [int(o["order_id"]) for o in orders if o.get("is_b2b")]
+
+    # Bucket orders — never mix warehouse/crossBorder in one supply.
+    buckets: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
+    for o in orders:
+        key = (
+            bool(o.get("is_b2b")),
+            o.get("warehouse_id"),
+            o.get("cross_border_type"),
+        )
+        buckets.setdefault(key, []).append(o)
 
     open_supplies = list_supplies(repo, user_id=user_id, source_id=source_id, only_open=True)
     for s in open_supplies:
         s["order_ids"] = s.get("order_ids") or _parse_json_list(s.get("order_ids_json"))
-        if not s.get("is_b2b"):
-            # Infer from raw if column false/missing on older rows.
-            raw = _parse_json_obj(s.get("raw_json"))
-            inferred = _coalesce_b2b_flag(raw)
-            if inferred is not None:
-                s["is_b2b"] = inferred
+        raw = _parse_json_obj(s.get("raw_json"))
+        inferred = _coalesce_b2b_flag(raw)
+        if inferred is not None:
+            s["is_b2b"] = inferred
 
-    mgt_non: list[dict[str, Any]] = []
-    mgt_b2b: list[dict[str, Any]] = []
     empties: list[dict[str, Any]] = []
+    mgt_supplies: list[dict[str, Any]] = []
     for s in open_supplies:
-        cargo = int(s.get("cargo_type") or 0)
         if _supply_is_empty(s):
             empties.append(s)
             continue
-        if cargo != 1:
-            continue  # SGT/KGT — ignore (treat as no compatible supply)
-        if s.get("is_b2b"):
-            mgt_b2b.append(s)
-        else:
-            mgt_non.append(s)
+        if int(s.get("cargo_type") or 0) == 1:
+            mgt_supplies.append(s)
 
     existing_names = {
         str(s.get("name") or "").strip()
@@ -2222,25 +2327,40 @@ def preview_collect_mgt(
         if str(s.get("name") or "").strip()
     }
 
-    # Non-B2B first — empties are reserved for that group when it has orders.
-    group_non = _plan_mgt_group(
-        is_b2b=False,
-        order_ids=non_b2b_ids,
-        mgt_matching=mgt_non,
-        empties=empties,
-        existing_names=existing_names,
-    )
-    if group_non.get("mode") != "skip":
-        # Even in choose mode, do not offer the same empties to B2B.
-        empties.clear()
-    group_b2b = _plan_mgt_group(
-        is_b2b=True,
-        order_ids=b2b_ids,
-        mgt_matching=mgt_b2b,
-        empties=empties,
-        existing_names=existing_names,
-    )
-    groups = [g for g in (group_non, group_b2b) if g.get("mode") != "skip"]
+    # Non-B2B buckets first — they claim empty supplies before B2B.
+    ordered_keys = sorted(buckets.keys(), key=lambda k: (bool(k[0]), str(k[1]), str(k[2])))
+    groups: list[dict[str, Any]] = []
+    for is_b2b, warehouse_id, cross_border_type in ordered_keys:
+        bucket_orders = buckets[(is_b2b, warehouse_id, cross_border_type)]
+        order_ids = [int(o["order_id"]) for o in bucket_orders]
+        matching = [
+            s
+            for s in mgt_supplies
+            if _supply_matches_mgt_traits(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                supply=s,
+                is_b2b=bool(is_b2b),
+                warehouse_id=warehouse_id,
+                cross_border_type=cross_border_type,
+            )
+        ]
+        # Empties pool: only for this bucket's planning; non-B2B clears claimed ones.
+        group = _plan_mgt_group(
+            is_b2b=bool(is_b2b),
+            order_ids=order_ids,
+            mgt_matching=matching,
+            empties=empties,
+            existing_names=existing_names,
+            warehouse_id=warehouse_id,
+            cross_border_type=cross_border_type,
+        )
+        if group.get("mode") == "create":
+            existing_names.add(str(group.get("suggested_name") or ""))
+        if group.get("mode") != "skip":
+            groups.append(group)
+
     needs_modal = any(g.get("mode") in ("create", "choose") for g in groups)
     return {
         "ok": True,
@@ -2259,15 +2379,29 @@ def execute_collect_mgt(
     api_key: str,
     decisions: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Execute collect plan: create supplies / add orders. Always reports failures."""
+    """Execute collect plan: create supplies / add orders. Always reports leftovers."""
     ensure_wb_fbs_tables(repo)
     client = WbFbsClient(api_key)
     preview = preview_collect_mgt(repo, user_id=user_id, source_id=source_id)
-    groups_by_flag = {bool(g["is_b2b"]): g for g in preview.get("groups") or []}
+    planned_groups = list(preview.get("groups") or [])
     existing_names = set(preview.get("existing_names") or [])
+    decisions_by_key = {
+        str(d.get("group_key") or ""): d
+        for d in decisions
+        if isinstance(d, dict) and str(d.get("group_key") or "").strip()
+    }
+    # Back-compat: old FE sent only is_b2b without group_key.
+    if not decisions_by_key:
+        for d in decisions:
+            if not isinstance(d, dict):
+                continue
+            flag = bool(d.get("is_b2b"))
+            for g in planned_groups:
+                if bool(g.get("is_b2b")) == flag and str(g.get("group_key") or "") not in decisions_by_key:
+                    decisions_by_key[str(g.get("group_key") or "")] = d
+                    break
 
-    # Live status filter — drop cancelled / not-new before add.
-    all_ids = [int(x) for g in groups_by_flag.values() for x in (g.get("order_ids") or [])]
+    all_ids = [int(x) for g in planned_groups for x in (g.get("order_ids") or [])]
     status_map: dict[int, dict[str, Any]] = {}
     for i in range(0, len(all_ids), 1000):
         chunk = all_ids[i : i + 1000]
@@ -2283,27 +2417,28 @@ def execute_collect_mgt(
                 "added": 0,
                 "created_supplies": [],
                 "skipped_cancelled": [],
+                "not_added": all_ids,
+                "remaining_in_new": all_ids,
+                "goto_assembly": False,
             }
         if i + 1000 < len(all_ids):
             time.sleep(0.21)
 
     skipped_cancelled: list[int] = []
+    not_added: list[int] = []
     errors: list[str] = []
     warnings: list[str] = []
     created_supplies: list[dict[str, Any]] = []
     added_total = 0
+    added_ids: list[int] = []
     group_results: list[dict[str, Any]] = []
+    planned_live_total = 0
 
-    # Process non-B2B first, then B2B — same order as planning.
-    for is_b2b in (False, True):
-        planned = groups_by_flag.get(is_b2b)
-        if not planned:
-            continue
-        decision = next(
-            (d for d in decisions if bool(d.get("is_b2b")) == is_b2b),
-            {},
-        )
-        label = "B2B" if is_b2b else "не B2B"
+    for planned in planned_groups:
+        group_key = str(planned.get("group_key") or "")
+        decision = decisions_by_key.get(group_key) or {}
+        is_b2b = bool(planned.get("is_b2b"))
+        label = str(planned.get("label") or ("B2B" if is_b2b else "не B2B"))
         raw_ids = [int(x) for x in (planned.get("order_ids") or [])]
         live_ids: list[int] = []
         for oid in raw_ids:
@@ -2313,17 +2448,19 @@ def execute_collect_mgt(
             if _is_cancelled_status(supplier_status=ss, wb_status=ws):
                 skipped_cancelled.append(oid)
                 continue
-            # Skip not-new without treating as hard error (spec: refresh + skip).
             if ss and ss != "new":
                 skipped_cancelled.append(oid)
                 continue
             live_ids.append(oid)
+        planned_live_total += len(live_ids)
         if not live_ids:
             group_results.append({
+                "group_key": group_key,
                 "is_b2b": is_b2b,
                 "added": 0,
                 "supply_id": "",
                 "message": f"{label}: нет актуальных МГТ-заказов",
+                "not_added": [],
             })
             continue
 
@@ -2332,7 +2469,6 @@ def execute_collect_mgt(
         supply_id = str(decision.get("supply_id") or planned.get("default_supply_id") or "").strip()
         name = str(decision.get("name") or planned.get("suggested_name") or "").strip()
 
-        # Honor explicit FE action; fall back to planned mode.
         if explicit == "create" or (not explicit and mode == "create"):
             action = "create"
         elif explicit in ("choose", "add") or mode in ("choose", "add_one"):
@@ -2340,6 +2476,15 @@ def execute_collect_mgt(
             if mode == "choose" or explicit == "choose":
                 if not supply_id:
                     errors.append(f"{label}: не выбрана поставка")
+                    not_added.extend(live_ids)
+                    group_results.append({
+                        "group_key": group_key,
+                        "is_b2b": is_b2b,
+                        "added": 0,
+                        "supply_id": "",
+                        "message": f"{label}: не выбрана поставка",
+                        "not_added": list(live_ids),
+                    })
                     continue
             if mode == "add_one":
                 supply_id = supply_id or str(planned.get("default_supply_id") or "")
@@ -2349,11 +2494,13 @@ def execute_collect_mgt(
         if action == "create":
             if not name:
                 errors.append(f"{label}: пустое название поставки")
+                not_added.extend(live_ids)
                 continue
             if name in existing_names:
                 errors.append(
                     f"{label}: поставка «{name}» уже есть — измените название"
                 )
+                not_added.extend(live_ids)
                 continue
             try:
                 created = client.create_supply(name=name)
@@ -2378,44 +2525,79 @@ def execute_collect_mgt(
                     "supply_id": supply_id,
                     "name": name,
                     "is_b2b": is_b2b,
+                    "group_key": group_key,
                 })
             except Exception as exc:
                 errors.append(f"{label}: не удалось создать поставку — {exc}")
+                not_added.extend(live_ids)
                 continue
 
         if not supply_id:
             errors.append(f"{label}: не указана поставка")
+            not_added.extend(live_ids)
             continue
 
-        # Verify target still open / compatible.
         try:
             live_supply = client.get_supply(supply_id)
             if bool(live_supply.get("done")):
                 errors.append(f"{label}: поставка {supply_id} уже закрыта на WB")
+                not_added.extend(live_ids)
                 continue
             live_cargo = int(live_supply.get("cargoType") or 0)
             if live_cargo not in (0, 1):
                 errors.append(
                     f"{label}: поставка {supply_id} не МГТ (cargoType={live_cargo})"
                 )
+                not_added.extend(live_ids)
                 continue
             live_b2b = _coalesce_b2b_flag(live_supply)
             if live_cargo == 1 and live_b2b is not None and live_b2b != is_b2b:
-                errors.append(
-                    f"{label}: поставка {supply_id} другого типа B2B"
+                errors.append(f"{label}: поставка {supply_id} другого типа B2B")
+                not_added.extend(live_ids)
+                continue
+            sel_wh = planned.get("warehouse_id")
+            sel_cb = planned.get("cross_border_type")
+            if live_cargo == 1 and sel_wh is not None:
+                try:
+                    live_oids = client.get_supply_order_ids(supply_id)
+                except Exception:
+                    live_oids = []
+                wh_ids = live_oids or _local_supply_order_ids(
+                    repo, user_id=user_id, source_id=source_id, supply_id=supply_id
                 )
+                supply_wh = _supply_warehouse_id(
+                    repo,
+                    user_id=user_id,
+                    source_id=source_id,
+                    supply={"order_ids": wh_ids},
+                )
+                if supply_wh is not None and int(supply_wh) != int(sel_wh):
+                    errors.append(
+                        f"{label}: склад поставки {supply_wh} ≠ склад заказов {sel_wh}"
+                    )
+                    not_added.extend(live_ids)
+                    continue
+            live_cb = live_supply.get("crossBorderType")
+            if (
+                live_cargo == 1
+                and live_cb is not None
+                and sel_cb is not None
+                and int(live_cb) != int(sel_cb)
+            ):
+                errors.append(f"{label}: поставка {supply_id} другого crossBorderType")
+                not_added.extend(live_ids)
                 continue
         except Exception as exc:
             errors.append(f"{label}: проверка поставки {supply_id} — {exc}")
+            not_added.extend(live_ids)
             continue
 
-        added = 0
+        group_added_ids: list[int] = []
         for i in range(0, len(live_ids), 100):
             chunk = live_ids[i : i + 100]
             try:
                 client.add_orders_to_supply(supply_id, chunk)
-                added += len(chunk)
-                # Reflect locally: orders → assembly
+                group_added_ids.extend(chunk)
                 with repo._connect() as conn:
                     for oid in chunk:
                         conn.execute(
@@ -2443,11 +2625,21 @@ def execute_collect_mgt(
                     f"{label}: не удалось добавить заказы {chunk[0]}… "
                     f"({len(chunk)} шт.) в {supply_id} — {exc}"
                 )
+                not_added.extend(chunk)
+                # Remaining chunks of this group also stay out.
+                rest = live_ids[i + 100 :]
+                if rest:
+                    not_added.extend(rest)
+                    errors.append(
+                        f"{label}: оставшиеся {len(rest)} заказ(ов) не отправлены "
+                        "после ошибки чанка — они остались в «Новых»"
+                    )
+                break
             if i + 100 < len(live_ids):
                 time.sleep(0.25)
 
+        added = len(group_added_ids)
         if added:
-            # Refresh supply order ids locally (WB already updated).
             try:
                 oids = client.get_supply_order_ids(supply_id)
                 live_supply = client.get_supply(supply_id)
@@ -2460,7 +2652,7 @@ def execute_collect_mgt(
                         source_id=source_id,
                         supply_id=supply_id,
                     )
-                    refresh_ids = sorted(set(prev) | set(live_ids[:added]))
+                    refresh_ids = sorted(set(prev) | set(group_added_ids))
                 upsert_supply(
                     repo,
                     user_id=user_id,
@@ -2474,18 +2666,41 @@ def execute_collect_mgt(
                 )
 
         added_total += added
+        added_ids.extend(group_added_ids)
+        group_not_added = [oid for oid in live_ids if oid not in set(group_added_ids)]
         group_results.append({
+            "group_key": group_key,
             "is_b2b": is_b2b,
             "added": added,
             "supply_id": supply_id,
             "message": f"{label}: добавлено {added} из {len(live_ids)}",
+            "not_added": group_not_added,
         })
 
-    ok = added_total > 0 and not errors
-    if added_total > 0 and errors:
-        message = f"Частично: добавлено {added_total}. Есть ошибки."
-    elif added_total > 0:
-        message = f"Готово: добавлено {added_total} МГТ-заказов."
+    # Deduplicate not_added while preserving order.
+    seen_na: set[int] = set()
+    not_added_uniq: list[int] = []
+    for oid in not_added:
+        if oid in seen_na:
+            continue
+        seen_na.add(oid)
+        not_added_uniq.append(oid)
+    not_added = not_added_uniq
+
+    remaining_in_new = list(not_added)
+    ok = (
+        planned_live_total > 0
+        and added_total == planned_live_total
+        and not errors
+        and not not_added
+    )
+    if ok:
+        message = f"Готово: добавлено все {added_total} актуальных МГТ-заказов."
+    elif added_total > 0 and (errors or not_added):
+        message = (
+            f"Частично: добавлено {added_total} из {planned_live_total}. "
+            f"В «Новых» осталось {len(remaining_in_new)}."
+        )
     elif errors:
         message = "Не удалось собрать МГТ-заказы."
     else:
@@ -2500,10 +2715,14 @@ def execute_collect_mgt(
         "errors": errors,
         "warnings": warnings,
         "added": added_total,
+        "added_ids": added_ids,
+        "planned_live": planned_live_total,
         "created_supplies": created_supplies,
         "skipped_cancelled": skipped_cancelled,
+        "not_added": not_added,
+        "remaining_in_new": remaining_in_new,
         "groups": group_results,
-        "goto_assembly": bool(added_total > 0 and not errors),
+        "goto_assembly": bool(ok),
     }
 
 
