@@ -18584,6 +18584,7 @@ function _wbFbsKizValidateMarkForOrder(mark, row) {
 
 function closeWbFbsKizModal() {
   cancelWbFbsKizMarkScan();
+  _wbFbsCloseRowMenus();
   setModalVisibility("wbFbsKizModal", false);
   wbFbsKizState.rows = [];
   wbFbsKizState.errors = {};
@@ -18786,9 +18787,12 @@ function renderWbFbsKizTable(opts) {
         ${statusChip}
       </div>`;
     }).join("");
+    const stickerHtml = _wbFbsKizStickerHtml(r);
+    const safeKey = `kiz_${oid}`;
     return `<tr class="wb-fbs-kiz-row${pending === oid ? " is-active" : ""}" data-order-id="${oid}">
       <td>
         <div class="wb-fbs-kiz-order-id">${_wbFbsEsc(oid)}</div>
+        <div class="wb-fbs-kiz-order-sticker">${stickerHtml}</div>
         <div class="wb-fbs-kiz-order-date">от ${_wbFbsEsc(r.created_date || "—")}</div>
       </td>
       <td>
@@ -18801,10 +18805,22 @@ function renderWbFbsKizTable(opts) {
           </div>
         </div>
       </td>
-      <td>${_wbFbsKizStickerHtml(r)}</td>
       <td>
         <div class="wb-fbs-kiz-codes">${codeHtml}</div>
         <button type="button" class="wb-fbs-kiz-add" onclick="addWbFbsKizCode(${oid})">+ Добавить КИЗ</button>
+      </td>
+      <td>
+        <div class="wb-fbs-row-menu-wrap">
+          <button type="button" class="icon-btn secondary wb-fbs-row-menu-btn" title="Действия"
+                  onclick="toggleWbFbsRowMenu(event, '${safeKey}')" aria-haspopup="menu">⋮</button>
+          <div id="wbFbsRowMenu_${safeKey}" class="wb-fbs-row-menu" data-order-id="${safeKey}" role="menu">
+            <button type="button" class="wb-fbs-row-menu-item" role="menuitem"
+                    onclick="wbFbsPrintOneOrderStickerFromDetail(${oid})">
+              ${_wbFbsQrMenuIconHtml()}
+              Напечатать стикер
+            </button>
+          </div>
+        </div>
       </td>
     </tr>`;
   }).join("");

@@ -8219,12 +8219,31 @@ button.wb-fbs-sd-portal-btn:focus-visible {
   font-size: 13px;
 }
 .wb-fbs-kiz-col-order { width: 160px; }
-.wb-fbs-kiz-col-sticker { width: 160px; }
 .wb-fbs-kiz-col-kiz { width: 320px; }
+.wb-fbs-kiz-col-act { width: 48px; }
 .wb-fbs-kiz-order-id {
   font-weight: 700;
   color: #0f172a;
   margin-bottom: 4px;
+}
+.wb-fbs-kiz-order-sticker {
+  margin: 0 0 4px;
+}
+.wb-fbs-kiz-order-sticker .wb-fbs-kiz-sticker {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+}
+.wb-fbs-kiz-order-sticker .wb-fbs-kiz-sticker-head {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+}
+.wb-fbs-kiz-order-sticker .wb-fbs-kiz-sticker-tail {
+  font-size: 20px;
+  font-weight: 700;
+  color: #0f172a;
 }
 .wb-fbs-kiz-order-date {
   color: #64748b;
@@ -8430,7 +8449,6 @@ button.wb-fbs-kiz-add:disabled {
   .wb-fbs-kiz-toolbar,
   .wb-fbs-kiz-scan-bar { padding-left: 16px; padding-right: 16px; }
   .wb-fbs-kiz-title { font-size: 24px; }
-  .wb-fbs-kiz-col-order,
-  .wb-fbs-kiz-col-sticker { width: 120px; }
+  .wb-fbs-kiz-col-order { width: 120px; }
 }
 
