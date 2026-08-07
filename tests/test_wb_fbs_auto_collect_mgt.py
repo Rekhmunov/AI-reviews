@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 from review_processor.repository import ReviewRepository
 from review_processor.wb_fbs import (
     _msk_time_in_active_window,
+    auto_collect_reason_ru,
     default_mgt_supply_name,
     plan_auto_collect_mgt_decisions,
 )
@@ -178,3 +179,11 @@ def test_parse_hhmm_accepts_browser_seconds() -> None:
         "06:00:00", field="t", default="00:00"
     ) == "06:00"
     assert ReviewRepository._normalize_hhmm("9:05:00", default="12:00") == "09:05"
+
+
+def test_auto_collect_reason_ru_human_readable() -> None:
+    assert "несколько поставок" in auto_collect_reason_ru("several_open_supplies").lower()
+    assert "назван" in auto_collect_reason_ru("name_conflict").lower()
+    assert "выбор" in auto_collect_reason_ru("needs_choice").lower()
+    assert "новые" in auto_collect_reason_ru("no_mgt").lower()
+    assert "источников" in auto_collect_reason_ru("list_jobs_error: boom").lower()

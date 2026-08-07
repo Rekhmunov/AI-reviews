@@ -2249,6 +2249,48 @@ def plan_auto_collect_mgt_decisions(
     return decisions, ""
 
 
+_AUTO_COLLECT_REASON_RU: dict[str, str] = {
+    "several_open_supplies": (
+        "На сборке несколько поставок (МГТ или пустых) — доступен только ручной сбор"
+    ),
+    "needs_choice": "Нужен выбор поставки оператором",
+    "name_conflict": "Поставка с названием шаблона уже есть — автосбор пропущен",
+    "no_mgt": "Нет МГТ-заказов во вкладке «Новые»",
+    "missing_supply": "Не найдена поставка для автоматического добавления",
+    "invalid_group": "Некорректная группа заказов для автосбора",
+    "no_decisions": "Нет безопасных действий для автосбора",
+    "no_fbs_sources": "Нет источников ФБС для автосбора",
+    "nothing_to_do": "Нечего выполнять",
+    "disabled": "Автосбор МГТ выключен",
+    "outside_window": "Вне окна активности (МСК)",
+    "not_due": "Интервал автосбора ещё не прошёл",
+}
+
+
+def auto_collect_reason_ru(code: object) -> str:
+    """Human-readable reason for auto-collect skip/error codes."""
+    key = str(code or "").strip()
+    if not key:
+        return ""
+    if key in _AUTO_COLLECT_REASON_RU:
+        return _AUTO_COLLECT_REASON_RU[key]
+    if key.startswith("list_jobs_error:"):
+        return "Ошибка получения списка источников: " + key.split(":", 1)[-1].strip()
+    if key.startswith("unsupported_mode:"):
+        return "Неподдерживаемый режим сборки — нужен ручной сбор"
+    return key
+
+
+def _auto_collect_supply_name_map(open_supplies: list[dict[str, Any]]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for s in open_supplies:
+        sid = str(s.get("supply_id") or "").strip()
+        if not sid:
+            continue
+        out[sid] = str(s.get("name") or sid).strip() or sid
+    return out
+
+
 def run_auto_collect_mgt_for_owner(
     repo: ReviewRepository,
     *,
@@ -2280,29 +2322,71 @@ def run_auto_collect_mgt_for_owner(
     ):
         return {"ok": True, "ran": False, "message": "not_due"}
 
+    ran_at = _utc_now()
+    ran_at_msk = _msk_now().strftime("%d.%m.%Y %H:%M")
+
+    def _persist(status: str, detail: dict[str, Any]) -> None:
+        try:
+            repo.mark_wb_fbs_auto_collect_mgt_run(
+                user_id=user_id, status=status, detail=detail
+            )
+        except Exception as exc:
+            _log.warning("mark auto collect run user=%s: %s", user_id, exc)
+
     try:
         jobs = list_fbs_sync_jobs(repo, user_id=user_id)
     except Exception as exc:
-        status = f"list_jobs_error: {exc}"
-        try:
-            repo.mark_wb_fbs_auto_collect_mgt_run(user_id=user_id, status=status)
-        except Exception:
-            pass
-        return {"ok": False, "ran": True, "message": status}
+        code = f"list_jobs_error:{exc}"
+        status = auto_collect_reason_ru(code)
+        detail = {
+            "ran_at": ran_at,
+            "ran_at_msk": ran_at_msk,
+            "outcome": "error",
+            "summary": status,
+            "added_total": 0,
+            "sources": [],
+            "errors": [str(exc)],
+        }
+        _persist(status, detail)
+        return {"ok": False, "ran": True, "message": status, "detail": detail}
 
     if not jobs:
-        status = "no_fbs_sources"
-        repo.mark_wb_fbs_auto_collect_mgt_run(user_id=user_id, status=status)
-        return {"ok": True, "ran": True, "message": status}
+        status = auto_collect_reason_ru("no_fbs_sources")
+        detail = {
+            "ran_at": ran_at,
+            "ran_at_msk": ran_at_msk,
+            "outcome": "skipped",
+            "summary": status,
+            "added_total": 0,
+            "sources": [],
+        }
+        _persist(status, detail)
+        return {"ok": True, "ran": True, "message": status, "detail": detail}
 
-    summaries: list[str] = []
-    any_added = False
+    source_rows: list[dict[str, Any]] = []
+    added_total = 0
+    any_error = False
+    any_skip = False
+    any_success = False
+
     for job in jobs:
         sid = int(job.get("source_id") or 0)
         api_key = str(job.get("api_key") or "")
         name = str(job.get("name") or sid)
         if not sid or not api_key:
             continue
+        row: dict[str, Any] = {
+            "source_id": sid,
+            "source_name": name,
+            "outcome": "skipped",
+            "reason_code": "",
+            "reason": "",
+            "mgt_found": 0,
+            "added": 0,
+            "planned": 0,
+            "supplies": [],
+            "errors": [],
+        }
         try:
             preview = preview_collect_mgt(repo, user_id=user_id, source_id=sid)
             open_supplies = list_supplies(
@@ -2312,15 +2396,23 @@ def run_auto_collect_mgt_for_owner(
                 s["order_ids"] = s.get("order_ids") or _parse_json_list(
                     s.get("order_ids_json")
                 )
+            name_map = _auto_collect_supply_name_map(open_supplies)
+            mgt_found = int(preview.get("mgt_count") or 0)
+            row["mgt_found"] = mgt_found
             decisions, skip_reason = plan_auto_collect_mgt_decisions(
                 preview, open_supplies=open_supplies
             )
             if decisions is None:
+                row["reason_code"] = skip_reason
+                row["reason"] = auto_collect_reason_ru(skip_reason)
                 if skip_reason == "no_mgt":
-                    summaries.append(f"{name}: нет МГТ")
+                    row["outcome"] = "empty"
                 else:
-                    summaries.append(f"{name}: пропуск ({skip_reason})")
+                    row["outcome"] = "skipped"
+                    any_skip = True
+                source_rows.append(row)
                 continue
+
             result = execute_collect_mgt(
                 repo,
                 user_id=user_id,
@@ -2329,28 +2421,127 @@ def run_auto_collect_mgt_for_owner(
                 decisions=decisions,
             )
             added = int(result.get("added") or 0)
-            if added:
-                any_added = True
-            msg = str(result.get("message") or ("ok" if result.get("ok") else "error"))
-            summaries.append(f"{name}: {msg} (+{added})")
+            planned = int(result.get("planned_live") or 0)
+            row["added"] = added
+            row["planned"] = planned
+            added_total += added
+            errors = [
+                str(x) for x in (result.get("errors") or []) if str(x or "").strip()
+            ]
+            row["errors"] = errors
+            created_by_id = {
+                str(c.get("id") or c.get("supply_id") or "").strip(): str(
+                    c.get("name") or ""
+                ).strip()
+                for c in (result.get("created_supplies") or [])
+                if isinstance(c, dict)
+            }
+            supplies_out: list[dict[str, Any]] = []
+            for gr in result.get("groups") or []:
+                if not isinstance(gr, dict):
+                    continue
+                gsid = str(gr.get("supply_id") or "").strip()
+                gadded = int(gr.get("added") or 0)
+                if not gsid and not gadded:
+                    continue
+                gname = (
+                    created_by_id.get(gsid)
+                    or name_map.get(gsid)
+                    or gsid
+                )
+                # Infer action from decisions for this group.
+                gkey = str(gr.get("group_key") or "")
+                action = "add"
+                for d in decisions:
+                    if str(d.get("group_key") or "") == gkey:
+                        action = str(d.get("action") or "add")
+                        if action == "create" and d.get("name"):
+                            gname = str(d.get("name") or gname)
+                        break
+                supplies_out.append(
+                    {
+                        "action": action,
+                        "supply_id": gsid,
+                        "name": gname or gsid,
+                        "added": gadded,
+                    }
+                )
+            row["supplies"] = supplies_out
+            if errors and added <= 0:
+                row["outcome"] = "error"
+                row["reason"] = str(result.get("message") or "Ошибка автосбора")
+                any_error = True
+            elif errors or (planned and added < planned):
+                row["outcome"] = "partial"
+                row["reason"] = str(result.get("message") or "Частично выполнено")
+                any_success = True
+                any_skip = True
+            elif added > 0:
+                row["outcome"] = "added"
+                row["reason"] = str(
+                    result.get("message") or f"Добавлено {added} заказов на сборку"
+                )
+                any_success = True
+            else:
+                row["outcome"] = "empty"
+                row["reason"] = str(result.get("message") or "Нечего добавлять")
+            source_rows.append(row)
         except Exception as exc:
             _log.warning(
                 "auto collect MGT user=%s source=%s error: %s", user_id, sid, exc
             )
-            summaries.append(f"{name}: ошибка {exc}")
+            row["outcome"] = "error"
+            row["reason"] = f"Ошибка API/сети: {exc}"
+            row["errors"] = [str(exc)]
+            any_error = True
+            source_rows.append(row)
 
-    status = "; ".join(summaries) if summaries else "nothing_to_do"
-    if len(status) > 500:
-        status = status[:497] + "…"
-    try:
-        repo.mark_wb_fbs_auto_collect_mgt_run(user_id=user_id, status=status)
-    except Exception as exc:
-        _log.warning("mark auto collect run user=%s: %s", user_id, exc)
+    if any_error and any_success:
+        outcome = "partial"
+    elif any_error:
+        outcome = "error"
+    elif any_success and any_skip:
+        outcome = "partial"
+    elif any_success:
+        outcome = "success"
+    elif any_skip:
+        outcome = "skipped"
+    else:
+        outcome = "empty"
+
+    if added_total > 0:
+        summary = f"Добавлено на сборку: {added_total} заказ(ов)"
+        if any_skip or any_error:
+            summary += " · есть пропуски/ошибки"
+    elif any_error:
+        summary = "Автосбор завершился с ошибкой"
+    elif any_skip:
+        reasons = sorted(
+            {
+                str(r.get("reason") or "").strip()
+                for r in source_rows
+                if r.get("outcome") == "skipped" and r.get("reason")
+            }
+        )
+        summary = reasons[0] if len(reasons) == 1 else "Автосбор пропущен — нужна ручная обработка"
+    else:
+        summary = auto_collect_reason_ru("no_mgt")
+
+    detail = {
+        "ran_at": ran_at,
+        "ran_at_msk": ran_at_msk,
+        "outcome": outcome,
+        "summary": summary,
+        "added_total": added_total,
+        "sources": source_rows,
+    }
+    _persist(summary, detail)
     return {
-        "ok": True,
+        "ok": not any_error or any_success,
         "ran": True,
-        "added": any_added,
-        "message": status,
+        "added": added_total > 0,
+        "message": summary,
+        "detail": detail,
     }
 
 
