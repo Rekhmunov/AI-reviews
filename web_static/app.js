@@ -18364,6 +18364,26 @@ function _wbFbsTrbxApiError(data, status) {
   return `Ошибка ${status || ""}`.trim();
 }
 
+function _wbFbsTrbxApplyListPayload(data) {
+  if (!data || typeof data !== "object") return;
+  const remaining = Math.max(0, Number(data.remaining || 0));
+  wbFbsDetailState.trbxRemaining = remaining;
+  wbFbsDetailState.trbxLoaded = true;
+  _wbFbsRenderTrbxBoxesList(data.boxes || []);
+  if (wbFbsDetailState.supply) {
+    wbFbsDetailState.supply.boxes_count = Number(data.boxes_count || 0);
+    if (Number.isFinite(Number(data.order_count))) {
+      wbFbsDetailState.supply.order_count = Number(data.order_count);
+    }
+  }
+  const input = document.getElementById("wbFbsCreateTrbxAmount");
+  if (input) input.max = String(remaining);
+  // Refresh chips in the supply modal without reopening/covering this modal.
+  try {
+    if (wbFbsDetailState.supply) renderWbFbsSupplyDetail(wbFbsDetailState.supply);
+  } catch (_) {}
+}
+
 function _wbFbsRenderTrbxBoxesList(boxes) {
   const section = document.getElementById("wbFbsTrbxPrintSection");
   const list = document.getElementById("wbFbsTrbxBoxesList");
@@ -18384,12 +18404,20 @@ function _wbFbsRenderTrbxBoxesList(boxes) {
   list.innerHTML = wbFbsDetailState.trbxBoxes.map((b) => {
     const safeAttr = _wbFbsEsc(b.id);
     const safeJs = JSON.stringify(b.id);
-    return `<li>
-      <span class="wb-fbs-trbx-box-id">${safeAttr}</span>
-      <button type="button" class="wb-fbs-trbx-box-print" title="Печать QR"
-              aria-label="Печать ${safeAttr}"
-              onclick='wbFbsPrintTrbxStickers(${safeJs})'>⎙</button>
-    </li>`;
+    const busy = wbFbsDetailState.trbxBusy ? "disabled" : "";
+    return `<tr>
+      <td><span class="wb-fbs-trbx-box-id">${safeAttr}</span></td>
+      <td class="wb-fbs-trbx-boxes-col-act">
+        <div class="wb-fbs-trbx-box-actions">
+          <button type="button" class="wb-fbs-trbx-box-print" title="Печать QR"
+                  aria-label="Печать ${safeAttr}" ${busy}
+                  onclick='wbFbsPrintTrbxStickers(${safeJs})'>⎙</button>
+          <button type="button" class="wb-fbs-trbx-box-delete" title="Удалить короб"
+                  aria-label="Удалить ${safeAttr}" ${busy}
+                  onclick='wbFbsDeleteTrbxBox(${safeJs})'>✕</button>
+        </div>
+      </td>
+    </tr>`;
   }).join("");
 }
 
@@ -18409,18 +18437,8 @@ async function loadWbFbsTrbxBoxes({ keepInfo = false } = {}) {
     if (!res.ok || !data.ok) {
       throw new Error(_wbFbsTrbxApiError(data, res.status));
     }
+    _wbFbsTrbxApplyListPayload(data);
     const remaining = Math.max(0, Number(data.remaining || 0));
-    wbFbsDetailState.trbxRemaining = remaining;
-    wbFbsDetailState.trbxLoaded = true;
-    _wbFbsRenderTrbxBoxesList(data.boxes || []);
-    if (wbFbsDetailState.supply) {
-      wbFbsDetailState.supply.boxes_count = Number(data.boxes_count || 0);
-      if (Number.isFinite(Number(data.order_count))) {
-        wbFbsDetailState.supply.order_count = Number(data.order_count);
-      }
-    }
-    const input = document.getElementById("wbFbsCreateTrbxAmount");
-    if (input) input.max = String(remaining);
     if (!keepInfo) {
       if (remaining < 1) {
         _wbFbsCreateTrbxSetInfo(
@@ -18466,6 +18484,8 @@ function openWbFbsCreateTrbxModal() {
   _wbFbsCreateTrbxSetInfo("Загружаем грузоместа с портала…");
   wbFbsTrbxAmountChanged();
   modal.classList.remove("hidden");
+  modal.style.display = "flex";
+  modal.setAttribute("aria-hidden", "false");
   loadWbFbsTrbxBoxes().catch(() => {});
 }
 window.openWbFbsCreateTrbxModal = openWbFbsCreateTrbxModal;
@@ -18473,7 +18493,10 @@ window.openWbFbsCreateTrbxModal = openWbFbsCreateTrbxModal;
 function closeWbFbsCreateTrbxModal() {
   if (wbFbsDetailState.trbxBusy) return;
   const modal = document.getElementById("wbFbsCreateTrbxModal");
-  if (modal) modal.classList.add("hidden");
+  if (modal) {
+    modal.classList.add("hidden");
+    modal.style.display = "none";
+  }
   _wbFbsCreateTrbxSetInfo("");
   wbFbsDetailState.trbxBoxes = [];
   wbFbsDetailState.trbxLoaded = false;
@@ -18498,6 +18521,42 @@ function wbFbsPrintTrbxStickers(boxId) {
 }
 window.wbFbsPrintTrbxStickers = wbFbsPrintTrbxStickers;
 
+async function wbFbsDeleteTrbxBox(boxId) {
+  const sid = String(wbFbsDetailState.supplyId || "").trim();
+  const bid = String(boxId || "").trim();
+  if (!sid || !bid || !wbFbsState.sourceId || wbFbsDetailState.trbxBusy) return;
+  if (!confirm(`Удалить грузоместо ${bid}?`)) return;
+  wbFbsDetailState.trbxBusy = true;
+  _wbFbsTrbxSetCreateEnabled(false);
+  _wbFbsRenderTrbxBoxesList(wbFbsDetailState.trbxBoxes);
+  _wbFbsCreateTrbxSetInfo("Удаляем грузоместо…");
+  try {
+    const res = await fetch(`/api/wb-fbs/supplies/${encodeURIComponent(sid)}/trbx`, {
+      method: "DELETE",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ source_id: wbFbsState.sourceId, box_ids: [bid] }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!_wbFbsTrbxModalOpen() || wbFbsDetailState.supplyId !== sid) return;
+    if (!res.ok || !data.ok) {
+      throw new Error(_wbFbsTrbxApiError(data, res.status));
+    }
+    _wbFbsTrbxApplyListPayload(data);
+    _wbFbsCreateTrbxSetInfo("Грузоместо удалено", "ok");
+  } catch (e) {
+    if (_wbFbsTrbxModalOpen() && wbFbsDetailState.supplyId === sid) {
+      _wbFbsCreateTrbxSetInfo(String(e.message || e), "error");
+    }
+  } finally {
+    wbFbsDetailState.trbxBusy = false;
+    if (_wbFbsTrbxModalOpen() && wbFbsDetailState.supplyId === sid) {
+      wbFbsTrbxAmountChanged();
+      _wbFbsRenderTrbxBoxesList(wbFbsDetailState.trbxBoxes);
+    }
+  }
+}
+window.wbFbsDeleteTrbxBox = wbFbsDeleteTrbxBox;
+
 async function submitWbFbsCreateTrbx() {
   const sid = String(wbFbsDetailState.supplyId || "").trim();
   if (!sid || !wbFbsState.sourceId || wbFbsDetailState.trbxBusy) return;
@@ -18518,6 +18577,7 @@ async function submitWbFbsCreateTrbx() {
     if (!res.ok || !data.ok) {
       throw new Error(_wbFbsTrbxApiError(data, res.status));
     }
+    // Defensive: never auto-download stickers from create response.
     // User may have closed the modal while the request was in flight.
     if (!_wbFbsTrbxModalOpen() || wbFbsDetailState.supplyId !== sid) return;
     const input = document.getElementById("wbFbsCreateTrbxAmount");
@@ -18526,12 +18586,8 @@ async function submitWbFbsCreateTrbx() {
     try {
       await loadWbFbsTrbxBoxes({ keepInfo: true });
     } catch (_) {}
-    // Refresh supply detail meta; keep trbx modal open (do not reopen if closed).
-    if (_wbFbsTrbxModalOpen() && wbFbsDetailState.supplyId === sid) {
-      try {
-        await openWbFbsSupplyDetailModal(sid);
-      } catch (_) {}
-    }
+    // Do NOT reopen/refetch supply-detail modal here: same z-index overlays
+    // made the create modal look closed. Meta chips update via list payload.
     if (wbFbsState.tab === "assembly") {
       try { loadWbFbsOrders(false); } catch (_) {}
     }
@@ -18543,6 +18599,7 @@ async function submitWbFbsCreateTrbx() {
     wbFbsDetailState.trbxBusy = false;
     if (_wbFbsTrbxModalOpen() && wbFbsDetailState.supplyId === sid) {
       wbFbsTrbxAmountChanged();
+      _wbFbsRenderTrbxBoxesList(wbFbsDetailState.trbxBoxes);
     }
   }
 }

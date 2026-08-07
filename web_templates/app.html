@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=160" />
+  <link rel="stylesheet" href="/static/style.css?v=161" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1825,7 +1825,17 @@
               <div id="wbFbsTrbxPrintSection" class="wb-fbs-trbx-print-section" hidden>
                 <button type="button" id="wbFbsTrbxPrintAllBtn" class="secondary wb-fbs-trbx-print-all-btn"
                         onclick="wbFbsPrintTrbxStickers()">Распечатать QR-коды грузовых мест</button>
-                <ul id="wbFbsTrbxBoxesList" class="wb-fbs-trbx-boxes-list" aria-label="Грузоместа"></ul>
+                <div class="wb-fbs-trbx-boxes-wrap">
+                  <table class="wb-fbs-trbx-boxes-table" aria-label="Грузоместа">
+                    <thead>
+                      <tr>
+                        <th>Грузоместо</th>
+                        <th class="wb-fbs-trbx-boxes-col-act">Действия</th>
+                      </tr>
+                    </thead>
+                    <tbody id="wbFbsTrbxBoxesList"></tbody>
+                  </table>
+                </div>
               </div>
             </div>
           </div>
@@ -3925,6 +3935,6 @@
   <script src="/static/jszip.min.js"></script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=341"></script>
+  <script src="/static/app.js?v=342"></script>
 </body>
 </html>

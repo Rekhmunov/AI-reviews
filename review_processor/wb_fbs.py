@@ -599,6 +599,20 @@ class WbFbsClient:
             return []
         return [str(x).strip() for x in ids if str(x or "").strip()]
 
+    def delete_supply_boxes(self, supply_id: str, box_ids: list[str]) -> None:
+        """Remove cargo places: ``DELETE /api/v3/supplies/{id}/trbx`` + ``trbxIds``."""
+        sid = str(supply_id or "").strip()
+        if not sid:
+            raise ValueError("Не указан ID поставки")
+        ids = [str(x).strip() for x in (box_ids or []) if str(x or "").strip()]
+        if not ids:
+            raise ValueError("Укажите ID грузомест для удаления")
+        self._request(
+            "DELETE",
+            f"/api/v3/supplies/{sid}/trbx",
+            body={"trbxIds": ids[:100]},
+        )
+
     def get_box_stickers(
         self,
         supply_id: str,
@@ -855,6 +869,47 @@ def list_supply_trbx(
         "max_total": max_total,
         "remaining": remaining,
     }
+
+
+def delete_supply_trbx(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    api_key: str,
+    supply_id: str,
+    box_ids: list[str],
+) -> dict[str, Any]:
+    """Delete cargo places on WB and return the refreshed live list."""
+    sid = str(supply_id or "").strip()
+    if not sid:
+        raise ValueError("Не указан ID поставки")
+    ids = [str(x).strip() for x in (box_ids or []) if str(x or "").strip()]
+    if not ids:
+        raise ValueError("Укажите ID грузомест для удаления")
+
+    client = WbFbsClient(api_key)
+    try:
+        live = client.get_supply(sid)
+    except Exception as exc:
+        raise RuntimeError(f"Не удалось проверить поставку: {exc}") from exc
+    if isinstance(live, dict) and bool(live.get("done")):
+        raise ValueError("Поставка уже закрыта — грузоместа удалить нельзя")
+
+    try:
+        time.sleep(0.21)
+        client.delete_supply_boxes(sid, ids)
+    except Exception as exc:
+        raise RuntimeError(str(exc)) from exc
+
+    # Always return fresh list after delete (also refreshes local cache).
+    return list_supply_trbx(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        api_key=api_key,
+        supply_id=sid,
+    )
 
 
 def fetch_trbx_stickers(

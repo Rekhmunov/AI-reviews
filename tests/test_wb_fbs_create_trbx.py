@@ -16,6 +16,14 @@ def test_create_supply_boxes_rejects_bad_amount():
         client.create_supply_boxes("", 1)
 
 
+def test_delete_supply_boxes_validation():
+    client = WbFbsClient("dummy-key")
+    with pytest.raises(ValueError, match="ID поставки"):
+        client.delete_supply_boxes("", ["WB-TRBX-1"])
+    with pytest.raises(ValueError, match="ID грузомест"):
+        client.delete_supply_boxes("WB-GI-1", [])
+
+
 def test_ui_remaining_boxes_formula():
     # Mirror front-end: remaining = min(1000, max(1, orders+1) - existing)
     def remaining(orders: int, existing: int) -> int:
