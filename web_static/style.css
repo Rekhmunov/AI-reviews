@@ -8165,8 +8165,17 @@ button.wb-fbs-sd-portal-btn:focus-visible {
   font-weight: 600;
   color: #475569;
 }
-.wb-fbs-kiz-scan-input {
+.wb-fbs-kiz-scan-field {
   flex: 1 1 280px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.wb-fbs-kiz-scan-input {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
   min-height: 40px;
   padding: 8px 12px;
   border: 1px solid #cbd5e1;
@@ -8179,6 +8188,35 @@ button.wb-fbs-sd-portal-btn:focus-visible {
   outline: 2px solid #93c5fd;
   outline-offset: 1px;
   border-color: #60a5fa;
+}
+.wb-fbs-kiz-scan-clear {
+  flex: 0 0 auto;
+  width: 40px;
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #64748b;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.wb-fbs-kiz-scan-clear:hover {
+  color: #0f172a;
+  border-color: #94a3b8;
+  background: #f8fafc;
+}
+.wb-fbs-kiz-scan-clear:active {
+  background: #f1f5f9;
+}
+.wb-fbs-kiz-scan-clear:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 1px;
 }
 .wb-fbs-kiz-info {
   padding: 8px 24px;
@@ -8439,9 +8477,16 @@ button.wb-fbs-kiz-add:disabled {
   font-size: 14px;
   color: #64748b;
 }
+.wb-fbs-kiz-scan-prompt-actions {
+  gap: 12px;
+  margin-top: 16px;
+}
 .wb-fbs-kiz-ru-layout-modal {
   width: min(420px, calc(100vw - 32px));
   padding: 24px;
+}
+#wbFbsKizRuLayoutModal {
+  z-index: 1300;
 }
 .wb-fbs-kiz-ru-layout-title {
   margin: 0 0 12px;

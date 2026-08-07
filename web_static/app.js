@@ -18441,6 +18441,8 @@ const wbFbsKizState = {
   saving: false,
   /** Input id to refocus after RU-layout warning is dismissed. */
   ruLayoutFocusId: null,
+  /** Timestamp when RU-layout warning opened (ignore scanner Enter briefly). */
+  ruLayoutOpenedAt: 0,
 };
 
 function _wbFbsKizBadgeHtml(order) {
@@ -18523,15 +18525,40 @@ function _wbFbsKizBlockRuLayout(inputEl) {
   const focusId = String(inputEl?.id || "");
   if (inputEl) inputEl.value = "";
   wbFbsKizState.ruLayoutFocusId = focusId || null;
+  wbFbsKizState.ruLayoutOpenedAt = Date.now();
   setModalVisibility("wbFbsKizRuLayoutModal", true);
-  setTimeout(() => document.getElementById("wbFbsKizRuLayoutOk")?.focus(), 40);
+  // Do not focus OK: wedge scanners end with Enter and would auto-dismiss.
+  document.removeEventListener("keydown", _wbFbsKizRuLayoutSwallowKeys, true);
+  document.addEventListener("keydown", _wbFbsKizRuLayoutSwallowKeys, true);
   return true;
 }
 
+/** Swallow trailing scanner keystrokes while the RU-layout warning is open. */
+function _wbFbsKizRuLayoutSwallowKeys(event) {
+  if (!_wbFbsKizRuLayoutModalOpen()) return;
+  const elapsed = Date.now() - Number(wbFbsKizState.ruLayoutOpenedAt || 0);
+  // First ~500ms: ignore everything (scanner finishing the same read).
+  if (elapsed < 500) {
+    event.preventDefault();
+    event.stopPropagation();
+    return;
+  }
+  // Later: still ignore printable keys / Enter so focus doesn't fill fields under the modal.
+  const key = String(event.key || "");
+  if (key === "Enter" || key === "Tab" || key.length === 1) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+}
+
 function dismissWbFbsKizRuLayoutWarning() {
+  // Ignore accidental Enter from the same scanner burst that triggered the warning.
+  if (Date.now() - Number(wbFbsKizState.ruLayoutOpenedAt || 0) < 500) return;
+  document.removeEventListener("keydown", _wbFbsKizRuLayoutSwallowKeys, true);
   setModalVisibility("wbFbsKizRuLayoutModal", false);
   const id = wbFbsKizState.ruLayoutFocusId;
   wbFbsKizState.ruLayoutFocusId = null;
+  wbFbsKizState.ruLayoutOpenedAt = 0;
   const el = id ? document.getElementById(id) : null;
   if (el) {
     el.value = "";
@@ -18544,6 +18571,14 @@ function _wbFbsKizRuLayoutModalOpen() {
   const modal = document.getElementById("wbFbsKizRuLayoutModal");
   return !!(modal && !modal.classList.contains("hidden"));
 }
+
+function clearWbFbsKizScanField(inputId) {
+  const el = document.getElementById(String(inputId || ""));
+  if (!el) return;
+  el.value = "";
+  el.focus();
+}
+window.clearWbFbsKizScanField = clearWbFbsKizScanField;
 
 /** Live check while the wedge scanner types into sticker / КИЗ scan fields. */
 function onWbFbsKizScanInputCheck(event) {
@@ -18637,6 +18672,7 @@ function _wbFbsKizValidateMarkForOrder(mark, row) {
 function closeWbFbsKizModal() {
   cancelWbFbsKizMarkScan();
   _wbFbsCloseRowMenus();
+  document.removeEventListener("keydown", _wbFbsKizRuLayoutSwallowKeys, true);
   setModalVisibility("wbFbsKizRuLayoutModal", false);
   setModalVisibility("wbFbsKizScanPrompt", false);
   setModalVisibility("wbFbsKizModal", false);
@@ -18644,6 +18680,7 @@ function closeWbFbsKizModal() {
   wbFbsKizState.errors = {};
   wbFbsKizState.pendingOrderId = null;
   wbFbsKizState.ruLayoutFocusId = null;
+  wbFbsKizState.ruLayoutOpenedAt = 0;
   _wbFbsKizSetInfo("");
 }
 window.closeWbFbsKizModal = closeWbFbsKizModal;

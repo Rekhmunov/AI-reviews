@@ -1754,10 +1754,15 @@
             </div>
             <div class="wb-fbs-kiz-scan-bar">
               <label class="wb-fbs-kiz-scan-label" for="wbFbsKizStickerScan">Сканирование</label>
-              <input id="wbFbsKizStickerScan" class="wb-fbs-kiz-scan-input" type="text" autocomplete="off"
-                     placeholder="Сканируйте QR стикера заказа"
-                     oninput="onWbFbsKizScanInputCheck(event)"
-                     onkeydown="onWbFbsKizStickerScanKey(event)" />
+              <div class="wb-fbs-kiz-scan-field">
+                <input id="wbFbsKizStickerScan" class="wb-fbs-kiz-scan-input" type="text" autocomplete="off"
+                       placeholder="Сканируйте QR стикера заказа"
+                       oninput="onWbFbsKizScanInputCheck(event)"
+                       onkeydown="onWbFbsKizStickerScanKey(event)" />
+                <button type="button" class="wb-fbs-kiz-scan-clear" title="Очистить"
+                        aria-label="Очистить поле сканирования"
+                        onclick="clearWbFbsKizScanField('wbFbsKizStickerScan')">✕</button>
+              </div>
             </div>
             <div id="wbFbsKizInfo" class="wb-fbs-kiz-info" hidden></div>
             <div class="wb-fbs-kiz-table-wrap">
@@ -1784,11 +1789,16 @@
           <div class="modal-card wb-fbs-kiz-scan-prompt">
             <h4 id="wbFbsKizScanPromptTitle" class="wb-fbs-kiz-scan-prompt-title">Просканируйте маркировку</h4>
             <p id="wbFbsKizScanPromptMeta" class="wb-fbs-kiz-scan-prompt-meta">Заказ —</p>
-            <input id="wbFbsKizMarkScan" class="wb-fbs-kiz-scan-input" type="text" autocomplete="off"
-                   placeholder="Сканируйте КИЗ с того же изделия"
-                   oninput="onWbFbsKizScanInputCheck(event)"
-                   onkeydown="onWbFbsKizMarkScanKey(event)" />
-            <div class="row" style="gap:10px;margin-top:16px">
+            <div class="wb-fbs-kiz-scan-field">
+              <input id="wbFbsKizMarkScan" class="wb-fbs-kiz-scan-input" type="text" autocomplete="off"
+                     placeholder="Сканируйте КИЗ с того же изделия"
+                     oninput="onWbFbsKizScanInputCheck(event)"
+                     onkeydown="onWbFbsKizMarkScanKey(event)" />
+              <button type="button" class="wb-fbs-kiz-scan-clear" title="Очистить"
+                      aria-label="Очистить поле маркировки"
+                      onclick="clearWbFbsKizScanField('wbFbsKizMarkScan')">✕</button>
+            </div>
+            <div class="row wb-fbs-kiz-scan-prompt-actions">
               <button type="button" class="secondary" onclick="cancelWbFbsKizMarkScan()">Отмена</button>
             </div>
           </div>
