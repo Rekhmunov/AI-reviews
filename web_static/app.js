@@ -20462,12 +20462,11 @@ function renderWbFbsOrdersTable() {
       ? `<div class="wb-fbs-cancel-reason" title="${_wbFbsEsc(cancelReason)}">${_wbFbsEsc(cancelReason)}</div>`
       : "";
     const finishedStatus = String(o.finished_status_label || "").trim();
-    const finishedStatusClass = (String(o.wb_status || "").trim().toLowerCase() === "sold")
-      ? "wb-fbs-finished-status is-sold"
-      : "wb-fbs-finished-status is-refused";
+    // Same placement/style as cancel reason: under barcodes in the product column.
     const finishedStatusHtml = (wbFbsState.tab === "finished" && finishedStatus)
-      ? `<div class="${finishedStatusClass}" title="${_wbFbsEsc(finishedStatus)}">${_wbFbsEsc(finishedStatus)}</div>`
+      ? `<div class="wb-fbs-cancel-reason wb-fbs-cancel-reason--sold" title="${_wbFbsEsc(finishedStatus)}">${_wbFbsEsc(finishedStatus)}</div>`
       : "";
+    const statusUnderSkuHtml = cancelBadgeHtml || finishedStatusHtml;
     const actionsTd = showActions ? `<td>${_wbFbsRowActionsHtml(oid)}</td>` : "";
     return `<tr>
       <td><input type="checkbox" class="wb-fbs-row-cb" data-order-id="${oid}" ${checked} onchange="onWbFbsCheckboxChange()" /></td>
@@ -20475,7 +20474,6 @@ function renderWbFbsOrdersTable() {
         <div class="wb-fbs-order-id">${_wbFbsEsc(oid)}</div>
         <div class="wb-fbs-order-meta">от ${_wbFbsEsc(_wbFbsFmtDate(o.created_at_wb))}</div>
         ${badges.length ? `<div class="wb-fbs-badges">${badges.join("")}</div>` : ""}
-        ${finishedStatusHtml}
       </td>
       <td>
         <div class="wb-fbs-product">
@@ -20484,7 +20482,7 @@ function renderWbFbsOrdersTable() {
             <div class="wb-fbs-product-name" title="${_wbFbsEsc(o.product_name || o.article || "")}">${_wbFbsEsc(o.product_name || o.article || "—")}</div>
             <div class="wb-fbs-product-sub">Арт. ${_wbFbsEsc(o.article || "—")}${o.nm_id ? " · nmId " + _wbFbsEsc(o.nm_id) : ""}</div>
             ${barcodeHtml}
-            ${cancelBadgeHtml}
+            ${statusUnderSkuHtml}
           </div>
         </div>
       </td>
