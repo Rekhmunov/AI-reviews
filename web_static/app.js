@@ -18443,6 +18443,11 @@ const wbFbsKizState = {
   ruLayoutFocusId: null,
   /** Timestamp when RU-layout warning opened (ignore scanner Enter briefly). */
   ruLayoutOpenedAt: 0,
+  /**
+   * Snapshot of normalized КИЗ lists by order_id at modal open / after WB-ok
+   * save. Used to skip unchanged rows on the next Save.
+   */
+  baselineByOrder: {},
 };
 
 function _wbFbsKizBadgeHtml(order) {
@@ -18690,6 +18695,7 @@ function closeWbFbsKizModal() {
   wbFbsKizState.pendingOrderId = null;
   wbFbsKizState.ruLayoutFocusId = null;
   wbFbsKizState.ruLayoutOpenedAt = 0;
+  wbFbsKizState.baselineByOrder = {};
   _wbFbsKizResetFilters();
   _wbFbsKizSetInfo("");
 }
@@ -18702,6 +18708,7 @@ async function openWbFbsKizModal() {
   wbFbsKizState.rows = [];
   wbFbsKizState.errors = {};
   wbFbsKizState.pendingOrderId = null;
+  wbFbsKizState.baselineByOrder = {};
   _wbFbsKizResetFilters();
   _wbFbsKizSetInfo("");
   const tbody = document.getElementById("wbFbsKizTbody");
@@ -18717,6 +18724,7 @@ async function openWbFbsKizModal() {
       ...r,
       kiz_codes: Array.isArray(r.kiz_codes) && r.kiz_codes.length ? r.kiz_codes.slice() : [""],
     })) : [];
+    _wbFbsKizCaptureBaseline();
     renderWbFbsKizTable();
     if (!wbFbsKizState.rows.length) {
       _wbFbsKizSetInfo("В поставке нет заказов, требующих маркировки КИЗ");
@@ -18801,6 +18809,41 @@ function _wbFbsKizUpdateScanCounter() {
 function _wbFbsKizRowIsEmpty(row) {
   const codes = Array.isArray(row?.kiz_codes) ? row.kiz_codes : [];
   return !codes.some((c) => String(c || "").trim());
+}
+
+/** Normalize + dedupe КИЗ list the same way Save / WB push does. */
+function _wbFbsKizNormalizeCodesList(codes) {
+  const seen = new Set();
+  const out = [];
+  for (const c of Array.isArray(codes) ? codes : []) {
+    const n = _wbFbsKizNormalizeMark(c);
+    if (!n || seen.has(n)) continue;
+    seen.add(n);
+    out.push(n);
+  }
+  return out;
+}
+
+function _wbFbsKizCaptureBaseline() {
+  const map = {};
+  for (const r of wbFbsKizState.rows) {
+    const oid = Number(r.order_id);
+    if (!Number.isFinite(oid)) continue;
+    map[oid] = _wbFbsKizNormalizeCodesList(r.kiz_codes);
+  }
+  wbFbsKizState.baselineByOrder = map;
+}
+
+function _wbFbsKizBaselineEquals(orderId, codes) {
+  const oid = Number(orderId);
+  const base = wbFbsKizState.baselineByOrder?.[oid];
+  if (!Array.isArray(base)) return false;
+  const cur = _wbFbsKizNormalizeCodesList(codes);
+  if (base.length !== cur.length) return false;
+  for (let i = 0; i < base.length; i += 1) {
+    if (base[i] !== cur[i]) return false;
+  }
+  return true;
 }
 
 function _wbFbsKizRowMatchesSearch(row, query) {
@@ -19301,13 +19344,14 @@ async function saveWbFbsKizModal() {
   if (!sid || !wbFbsState.sourceId || wbFbsKizState.saving) return;
   _wbFbsKizCollectFromDom();
   // Save: local DB first, then WB. Modal stays open; retry WB on next Save.
+  // Skip rows whose КИЗ list is unchanged vs baseline (unless WB sync pending).
   const items = [];
   let gtinErrors = 0;
+  let skippedUnchanged = 0;
   wbFbsKizState.errors = {};
   for (const r of wbFbsKizState.rows) {
-    const codes = (Array.isArray(r.kiz_codes) ? r.kiz_codes : [])
-      .map((c) => _wbFbsKizNormalizeMark(c))
-      .filter(Boolean);
+    const oid = Number(r.order_id);
+    const codes = _wbFbsKizNormalizeCodesList(r.kiz_codes);
     const wasBound = !!r.kiz_bound;
     const hadLocal = !!r.kiz_local;
     if (!codes.length && !wasBound && !hadLocal) continue;
@@ -19321,24 +19365,35 @@ async function saveWbFbsKizModal() {
         }
       }
       if (bad) {
-        wbFbsKizState.errors[Number(r.order_id)] = bad;
+        wbFbsKizState.errors[oid] = bad;
         gtinErrors += 1;
         continue; // skip bad row; still save the rest
       }
     }
+    const unchanged = _wbFbsKizBaselineEquals(oid, codes);
+    // Keep retrying failed WB pushes even when the code list looks the same.
+    const needsWbRetry = r.kiz_wb_synced === false;
+    if (unchanged && !needsWbRetry) {
+      skippedUnchanged += 1;
+      continue;
+    }
     items.push({
-      order_id: Number(r.order_id),
+      order_id: oid,
       kiz_codes: codes,
       clear: !codes.length && (wasBound || hadLocal),
     });
   }
   if (!items.length) {
     renderWbFbsKizTable({ skipCollect: true });
-    _wbFbsKizSetInfo(
-      gtinErrors
-        ? `Нет строк для сохранения: у ${gtinErrors} заказ(ов) GTIN не совпадает с ШК товара`
-        : "Нет изменений для сохранения"
-    );
+    if (gtinErrors) {
+      _wbFbsKizSetInfo(
+        `Нет строк для сохранения: у ${gtinErrors} заказ(ов) GTIN не совпадает с ШК товара`
+      );
+    } else if (skippedUnchanged) {
+      _wbFbsKizSetInfo("Нет изменений для сохранения — неизменённые КИЗ не отправлялись", true);
+    } else {
+      _wbFbsKizSetInfo("Нет изменений для сохранения");
+    }
     return;
   }
   const btn = document.getElementById("wbFbsKizSaveBtn");
@@ -19374,6 +19429,9 @@ async function saveWbFbsKizModal() {
           row.kiz_local = r.kiz_codes.length > 0;
           row.kiz_status = r.kiz_codes.length ? "pending" : "empty";
           row.kiz_decision = r.kiz_codes.length ? "required" : "";
+          // Advance baseline only after WB accepted the write.
+          if (!wbFbsKizState.baselineByOrder) wbFbsKizState.baselineByOrder = {};
+          wbFbsKizState.baselineByOrder[oid] = _wbFbsKizNormalizeCodesList(r.kiz_codes);
         } else if (r.local_ok) {
           row.kiz_wb_synced = false;
           row.kiz_status = r.kiz_codes.length ? "pending" : "empty";
@@ -19394,16 +19452,19 @@ async function saveWbFbsKizModal() {
     const savedLocal = Number(data.saved_local || 0);
     const failed = Number(data.failed || 0);
     const gtinNote = gtinErrors ? ` Пропущено по GTIN/ШК: ${gtinErrors}.` : "";
+    const skipNote = skippedUnchanged
+      ? ` Без изменений не отправлялось: ${skippedUnchanged}.`
+      : "";
     if (failed) {
       const detail = wbFailNotes.slice(0, 3).join("; ");
       const more = wbFailNotes.length > 3 ? "…" : "";
       _wbFbsKizSetInfo(
         `Сохранено в FeedPilot: ${savedLocal}. В WB не записалось (${failed}): ${detail}${more}. ` +
-        `Окно не закрыто — нажмите «Сохранить» ещё раз, чтобы повторить отправку в WB.${gtinNote}`
+        `Окно не закрыто — нажмите «Сохранить» ещё раз, чтобы повторить отправку в WB.${gtinNote}${skipNote}`
       );
     } else {
       _wbFbsKizSetInfo(
-        `Всё успешно: КИЗ сохранены в FeedPilot и отправлены в WB (${savedWb}).${gtinNote}`,
+        `Всё успешно: КИЗ сохранены в FeedPilot и отправлены в WB (${savedWb}).${gtinNote}${skipNote}`,
         !gtinErrors
       );
     }
