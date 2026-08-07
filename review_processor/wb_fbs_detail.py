@@ -1614,8 +1614,9 @@ def build_article_groups_for_print(
 def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) -> str:
     """Browser-print picking list (HTML+CSS). Matches WB portal structure.
 
-    3 columns on order rows: content | Собрано | Упаковано.
-    Totals row only once at the top (not repeated on later print pages).
+    Page 1: summary by product name — «Всего N заказов» + column «Собрано».
+    From page 2: detailed list with content | Собрано | Упаковано.
+    Totals row only once at the top of the detail table (not repeated on later pages).
     Product rows span full width (no per-article 0/qty counters).
     Prefer HTML print over LibreOffice PDF — LO breaks modern CSS.
     """
@@ -1639,6 +1640,49 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
             if pb:
                 part_b_counts[pb] = part_b_counts.get(pb, 0) + 1
     dup_part_b = {pb for pb, n in part_b_counts.items() if n > 1}
+
+    # Page 1 summary: aggregate qty by product name (preserve first-seen order).
+    summary_qty: dict[str, int] = {}
+    summary_order: list[str] = []
+    for g in printable_groups:
+        orders = list(g.get("orders") or [])
+        qty = int(g.get("qty") or len(orders) or 0)
+        product_name = str(g.get("product_name") or "").strip() or "—"
+        if product_name not in summary_qty:
+            summary_order.append(product_name)
+            summary_qty[product_name] = 0
+        summary_qty[product_name] += qty
+
+    summary_rows: list[str] = []
+    for name in summary_order:
+        qty = summary_qty[name]
+        summary_rows.append(
+            f"""<tr class="summary-row">
+              <td class="main">{_esc(name)} — {qty} шт.</td>
+              <td class="check">{box}</td>
+            </tr>"""
+        )
+
+    if summary_rows:
+        summary_html = f"""
+        <section class="summary-page">
+          <table class="picking summary">
+            <colgroup>
+              <col class="c-main" />
+              <col class="c-check" />
+            </colgroup>
+            <tbody>
+              <tr class="totals-row">
+                <th class="main">Всего {total} {order_word}</th>
+                <th class="check">Собрано</th>
+              </tr>
+              {''.join(summary_rows)}
+            </tbody>
+          </table>
+        </section>
+        """
+    else:
+        summary_html = ""
 
     for g_idx, g in enumerate(printable_groups):
         orders = list(g.get("orders") or [])
@@ -1710,26 +1754,28 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
               <th class="check">Упаковано<br /><span class="sub">0 / {total}</span></th>
             </tr>
         """
-        table_html = f"""
-        <table class="picking">
-          <colgroup>
-            <col class="c-main" />
-            <col class="c-check" />
-            <col class="c-check" />
-          </colgroup>
-          <tbody>{totals_row}{''.join(body_rows)}</tbody>
-        </table>
+        detail_html = f"""
+        <section class="detail-page">
+          <table class="picking">
+            <colgroup>
+              <col class="c-main" />
+              <col class="c-check" />
+              <col class="c-check" />
+            </colgroup>
+            <tbody>{totals_row}{''.join(body_rows)}</tbody>
+          </table>
+        </section>
         """
     else:
-        table_html = '<p class="empty">Нет заказов в поставке.</p>'
+        detail_html = '<p class="empty">Нет заказов в поставке.</p>'
 
     return f"""<!doctype html>
 <html lang="ru">
 <head>
   <meta charset="utf-8" />
   <title>Лист подбора {sid} от {created}</title>
-  <!-- feedpilot-picking-list:20260804k -->
-  <meta name="feedpilot-build" content="picking-20260804k" />
+  <!-- feedpilot-picking-list:20260807a -->
+  <meta name="feedpilot-build" content="picking-20260807a" />
   <style>
     @page {{ size: A4 portrait; margin: 10mm; }}
     * {{ box-sizing: border-box; }}
@@ -1745,6 +1791,10 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
     .toolbar button {{
       min-height: 36px; padding: 8px 12px; font-size: 14px;
       border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; cursor: pointer;
+    }}
+    .summary-page {{
+      page-break-after: always;
+      break-after: page;
     }}
     table.picking {{
       width: 100%;
@@ -1778,6 +1828,11 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
       display: inline-block;
       margin-top: 2px;
       font-size: 12px;
+    }}
+    table.picking.summary td.main {{
+      font-size: 14px;
+      font-weight: 600;
+      line-height: 1.35;
     }}
     td.main {{ text-align: left; }}
     tr.product-row td.main {{
@@ -1897,6 +1952,10 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
       .no-print {{ display: none !important; }}
       body {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
       tr {{ page-break-inside: avoid; }}
+      .summary-page {{
+        page-break-after: always;
+        break-after: page;
+      }}
       .order-line .partb-dup {{
         border: 2.5px solid #0f172a;
         -webkit-print-color-adjust: exact;
@@ -1907,7 +1966,8 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
 </head>
 <body>
   {"" if for_pdf else '<div class="toolbar no-print"><button type="button" onclick="window.print()">Печать</button></div>'}
-  {table_html}
+  {summary_html}
+  {detail_html}
   {"" if for_pdf else '''<script>
 (function () {
   function fitSkuTitles() {
