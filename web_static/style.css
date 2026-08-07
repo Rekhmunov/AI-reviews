@@ -7904,11 +7904,23 @@ button.wb-fbs-select-all-link:disabled {
   background: no-repeat center / contain;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpath d='M12 21s7-5.3 7-11a7 7 0 1 0-14 0c0 5.7 7 11 7 11z'/%3E%3Ccircle cx='12' cy='10' r='2.5'/%3E%3C/svg%3E");
 }
+.wb-fbs-sd-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
 .wb-fbs-sd-meta {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-bottom: 16px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.wb-fbs-sd-meta-row .wb-fbs-kiz-search {
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 .wb-fbs-sd-chip {
   display: inline-flex;
@@ -8103,6 +8115,11 @@ button.wb-fbs-sd-portal-btn:focus-visible {
   .wb-fbs-sd-title { font-size: 20px; }
   .wb-fbs-sd-table th,
   .wb-fbs-sd-table td { padding: 10px 12px; }
+  .wb-fbs-sd-meta-row .wb-fbs-kiz-search {
+    width: 100%;
+    min-width: 160px;
+    margin-left: 0;
+  }
 }
 @media (max-width: 1100px) {
   .wb-fbs-table-wrap { max-height: calc(100vh - 340px); }

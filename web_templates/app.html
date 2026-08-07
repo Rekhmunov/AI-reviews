@@ -1693,7 +1693,13 @@
                 <button type="button" class="icon-btn secondary wb-fbs-sd-close" onclick="closeWbFbsSupplyDetailModal()" aria-label="Закрыть">✕</button>
               </div>
               <div id="wbFbsSupplyDetailWarehouse" class="wb-fbs-sd-warehouse">—</div>
-              <div id="wbFbsSupplyDetailMeta" class="wb-fbs-sd-meta"></div>
+              <div class="wb-fbs-sd-meta-row">
+                <div id="wbFbsSupplyDetailMeta" class="wb-fbs-sd-meta"></div>
+                <input id="wbFbsSupplyDetailSearchFilter" class="wb-fbs-kiz-search" type="search"
+                       placeholder="🔍 Поиск..." autocomplete="off"
+                       title="Поиск по заказу, стикеру, названию товара и ШК"
+                       oninput="renderWbFbsSupplyDetail()" />
+              </div>
               <div class="wb-fbs-sd-actions">
                 <div class="wb-fbs-picking-split" id="wbFbsPickingSplit">
                   <button type="button" class="secondary" id="wbFbsSupplyDetailPickingBtn"
