@@ -1611,15 +1611,26 @@ def build_article_groups_for_print(
     }
 
 
-def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) -> str:
+def render_picking_list_html(
+    payload: dict[str, Any],
+    *,
+    for_pdf: bool = False,
+    variant: str = "summary",
+) -> str:
     """Browser-print picking list (HTML+CSS). Matches WB portal structure.
 
-    Page 1: summary by product name — «Всего N заказов» + column «Собрано».
-    From page 2: detailed list with content | Собрано | Упаковано.
+    ``variant``:
+      - ``summary`` — compact list by product name + column «Собрано»
+      - ``extended`` — detailed list with content | Собрано | Упаковано
+
     Totals row only once at the top of the detail table (not repeated on later pages).
     Product rows span full width (no per-article 0/qty counters).
     Prefer HTML print over LibreOffice PDF — LO breaks modern CSS.
     """
+    mode = str(variant or "summary").strip().lower()
+    if mode not in {"summary", "extended"}:
+        mode = "summary"
+
     detail = payload["detail"]
     groups = payload["groups"]
     sid = _esc(detail.get("supply_id"))
@@ -1629,42 +1640,37 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
         "заказа" if 2 <= total % 10 <= 4 and not (12 <= total % 100 <= 14) else "заказов"
     )
     box = '<span class="box" aria-hidden="true"></span>'
-
-    body_rows: list[str] = []
     printable_groups = [g for g in groups if list(g.get("orders") or [])]
-    # Highlight partB codes that repeat across the supply (operator risk).
-    part_b_counts: dict[str, int] = {}
-    for g in printable_groups:
-        for o in g.get("orders") or []:
-            pb = str(o.get("sticker_part_b") or "").strip()
-            if pb:
-                part_b_counts[pb] = part_b_counts.get(pb, 0) + 1
-    dup_part_b = {pb for pb, n in part_b_counts.items() if n > 1}
 
-    # Page 1 summary: aggregate qty by product name (preserve first-seen order).
-    summary_qty: dict[str, int] = {}
-    summary_order: list[str] = []
-    for g in printable_groups:
-        orders = list(g.get("orders") or [])
-        qty = int(g.get("qty") or len(orders) or 0)
-        product_name = str(g.get("product_name") or "").strip() or "—"
-        if product_name not in summary_qty:
-            summary_order.append(product_name)
-            summary_qty[product_name] = 0
-        summary_qty[product_name] += qty
+    summary_html = ""
+    detail_html = ""
+    title_prefix = "Лист подбора"
 
-    summary_rows: list[str] = []
-    for name in summary_order:
-        qty = summary_qty[name]
-        summary_rows.append(
-            f"""<tr class="summary-row">
+    if mode == "summary":
+        # Aggregate qty by product name (preserve first-seen order).
+        summary_qty: dict[str, int] = {}
+        summary_order: list[str] = []
+        for g in printable_groups:
+            orders = list(g.get("orders") or [])
+            qty = int(g.get("qty") or len(orders) or 0)
+            product_name = str(g.get("product_name") or "").strip() or "—"
+            if product_name not in summary_qty:
+                summary_order.append(product_name)
+                summary_qty[product_name] = 0
+            summary_qty[product_name] += qty
+
+        summary_rows: list[str] = []
+        for name in summary_order:
+            qty = summary_qty[name]
+            summary_rows.append(
+                f"""<tr class="summary-row">
               <td class="main">{_esc(name)} — {qty} шт.</td>
               <td class="check">{box}</td>
             </tr>"""
-        )
+            )
 
-    if summary_rows:
-        summary_html = f"""
+        if summary_rows:
+            summary_html = f"""
         <section class="summary-page">
           <table class="picking summary">
             <colgroup>
@@ -1681,54 +1687,65 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
           </table>
         </section>
         """
+        else:
+            summary_html = '<p class="empty">Нет заказов в поставке.</p>'
     else:
-        summary_html = ""
+        title_prefix = "Расширенный лист подбора"
+        body_rows: list[str] = []
+        # Highlight partB codes that repeat across the supply (operator risk).
+        part_b_counts: dict[str, int] = {}
+        for g in printable_groups:
+            for o in g.get("orders") or []:
+                pb = str(o.get("sticker_part_b") or "").strip()
+                if pb:
+                    part_b_counts[pb] = part_b_counts.get(pb, 0) + 1
+        dup_part_b = {pb for pb, n in part_b_counts.items() if n > 1}
 
-    for g_idx, g in enumerate(printable_groups):
-        orders = list(g.get("orders") or [])
-        qty = int(g.get("qty") or len(orders) or 0)
-        color = str(g.get("color") or "").strip()
-        brand = str(g.get("brand") or "").strip()
-        article = str(g.get("article") or "").strip()
-        product_name = str(g.get("product_name") or "").strip() or "—"
-        barcodes = [
-            str(b).strip() for b in (g.get("barcodes") or []) if str(b or "").strip()
-        ]
-        meta_bits = [f'<div class="sku-title">{_esc(product_name)}</div>']
-        if brand:
-            meta_bits.append(f'<div class="sku-meta">{_esc(brand)}</div>')
-        if article:
-            meta_bits.append(f'<div class="sku-article">{_esc(article)}</div>')
-        if barcodes:
-            meta_bits.append(
-                '<div class="sku-barcodes">'
-                + "".join(f'<div class="sku-barcode">{_esc(b)}</div>' for b in barcodes)
-                + "</div>"
-            )
-        # Color directly under barcode(s) — operator cue while picking.
-        if color:
-            meta_bits.append(f'<div class="sku-color">Цвет: {_esc(color)}</div>')
-        meta_bits.append(f'<div class="sku-qty">{qty} шт</div>')
+        for g_idx, g in enumerate(printable_groups):
+            orders = list(g.get("orders") or [])
+            qty = int(g.get("qty") or len(orders) or 0)
+            color = str(g.get("color") or "").strip()
+            brand = str(g.get("brand") or "").strip()
+            article = str(g.get("article") or "").strip()
+            product_name = str(g.get("product_name") or "").strip() or "—"
+            barcodes = [
+                str(b).strip() for b in (g.get("barcodes") or []) if str(b or "").strip()
+            ]
+            meta_bits = [f'<div class="sku-title">{_esc(product_name)}</div>']
+            if brand:
+                meta_bits.append(f'<div class="sku-meta">{_esc(brand)}</div>')
+            if article:
+                meta_bits.append(f'<div class="sku-article">{_esc(article)}</div>')
+            if barcodes:
+                meta_bits.append(
+                    '<div class="sku-barcodes">'
+                    + "".join(f'<div class="sku-barcode">{_esc(b)}</div>' for b in barcodes)
+                    + "</div>"
+                )
+            # Color directly under barcode(s) — operator cue while picking.
+            if color:
+                meta_bits.append(f'<div class="sku-color">Цвет: {_esc(color)}</div>')
+            meta_bits.append(f'<div class="sku-qty">{qty} шт</div>')
 
-        body_rows.append(
-            f"""<tr class="product-row">
+            body_rows.append(
+                f"""<tr class="product-row">
               <td class="main" colspan="3">
                 <div class="sku-text">{''.join(meta_bits)}</div>
               </td>
             </tr>"""
-        )
-        is_last_group = g_idx >= len(printable_groups) - 1
-        for idx, o in enumerate(orders, start=1):
-            is_last_order = idx == len(orders)
-            row_cls = "order-row"
-            if is_last_order and not is_last_group:
-                row_cls += " article-end"
-            part_a = _esc(o.get("sticker_part_a") or "—")
-            part_b_raw = str(o.get("sticker_part_b") or "").strip()
-            part_b = _esc(part_b_raw)
-            part_b_cls = "partb partb-dup" if part_b_raw in dup_part_b else "partb"
-            body_rows.append(
-                f"""<tr class="{row_cls}">
+            )
+            is_last_group = g_idx >= len(printable_groups) - 1
+            for idx, o in enumerate(orders, start=1):
+                is_last_order = idx == len(orders)
+                row_cls = "order-row"
+                if is_last_order and not is_last_group:
+                    row_cls += " article-end"
+                part_a = _esc(o.get("sticker_part_a") or "—")
+                part_b_raw = str(o.get("sticker_part_b") or "").strip()
+                part_b = _esc(part_b_raw)
+                part_b_cls = "partb partb-dup" if part_b_raw in dup_part_b else "partb"
+                body_rows.append(
+                    f"""<tr class="{row_cls}">
                   <td class="main">
                     <div class="order-line">
                       <span class="idx">{idx}.</span>
@@ -1742,19 +1759,19 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
                   <td class="check">{box}</td>
                   <td class="check">{box}</td>
                 </tr>"""
-            )
+                )
 
-    if body_rows:
-        # Totals as first tbody row (not <thead>) so print does not repeat it
-        # on every subsequent page.
-        totals_row = f"""
+        if body_rows:
+            # Totals as first tbody row (not <thead>) so print does not repeat it
+            # on every subsequent page.
+            totals_row = f"""
             <tr class="totals-row">
               <th class="main">Всего {total} {order_word}</th>
               <th class="check">Собрано<br /><span class="sub">0 / {total}</span></th>
               <th class="check">Упаковано<br /><span class="sub">0 / {total}</span></th>
             </tr>
         """
-        detail_html = f"""
+            detail_html = f"""
         <section class="detail-page">
           <table class="picking">
             <colgroup>
@@ -1766,16 +1783,52 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
           </table>
         </section>
         """
-    else:
-        detail_html = '<p class="empty">Нет заказов в поставке.</p>'
+        else:
+            detail_html = '<p class="empty">Нет заказов в поставке.</p>'
+
+    fit_titles_script = ""
+    if not for_pdf and mode == "extended":
+        fit_titles_script = '''<script>
+(function () {
+  function fitSkuTitles() {
+    document.querySelectorAll(".sku-title").forEach(function (el) {
+      var size = 20;
+      el.style.fontSize = size + "px";
+      // Shrink until the full title fits on one line (no ellipsis / wrap).
+      while (size > 10 && el.scrollWidth > el.clientWidth + 1) {
+        size -= 0.5;
+        el.style.fontSize = size + "px";
+      }
+    });
+  }
+  function ready() {
+    fitSkuTitles();
+    setTimeout(function () { window.print(); }, 300);
+  }
+  window.addEventListener("beforeprint", fitSkuTitles);
+  window.addEventListener("resize", fitSkuTitles);
+  if (document.readyState === "complete") ready();
+  else window.addEventListener("load", ready);
+})();
+</script>'''
+    elif not for_pdf:
+        fit_titles_script = '''<script>
+(function () {
+  function ready() {
+    setTimeout(function () { window.print(); }, 300);
+  }
+  if (document.readyState === "complete") ready();
+  else window.addEventListener("load", ready);
+})();
+</script>'''
 
     return f"""<!doctype html>
 <html lang="ru">
 <head>
   <meta charset="utf-8" />
-  <title>Лист подбора {sid} от {created}</title>
-  <!-- feedpilot-picking-list:20260807b -->
-  <meta name="feedpilot-build" content="picking-20260807b" />
+  <title>{title_prefix} {sid} от {created}</title>
+  <!-- feedpilot-picking-list:20260807c -->
+  <meta name="feedpilot-build" content="picking-20260807c" />
   <style>
     @page {{ size: A4 portrait; margin: 10mm; }}
     * {{ box-sizing: border-box; }}
@@ -1791,10 +1844,6 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
     .toolbar button {{
       min-height: 36px; padding: 8px 12px; font-size: 14px;
       border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; cursor: pointer;
-    }}
-    .summary-page {{
-      page-break-after: always;
-      break-after: page;
     }}
     table.picking {{
       width: 100%;
@@ -1962,10 +2011,6 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
       .no-print {{ display: none !important; }}
       body {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
       tr {{ page-break-inside: avoid; }}
-      .summary-page {{
-        page-break-after: always;
-        break-after: page;
-      }}
       .order-line .partb-dup {{
         border: 2.5px solid #0f172a;
         -webkit-print-color-adjust: exact;
@@ -1978,32 +2023,9 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
   {"" if for_pdf else '<div class="toolbar no-print"><button type="button" onclick="window.print()">Печать</button></div>'}
   {summary_html}
   {detail_html}
-  {"" if for_pdf else '''<script>
-(function () {
-  function fitSkuTitles() {
-    document.querySelectorAll(".sku-title").forEach(function (el) {
-      var size = 20;
-      el.style.fontSize = size + "px";
-      // Shrink until the full title fits on one line (no ellipsis / wrap).
-      while (size > 10 && el.scrollWidth > el.clientWidth + 1) {
-        size -= 0.5;
-        el.style.fontSize = size + "px";
-      }
-    });
-  }
-  function ready() {
-    fitSkuTitles();
-    setTimeout(function () { window.print(); }, 300);
-  }
-  window.addEventListener("beforeprint", fitSkuTitles);
-  window.addEventListener("resize", fitSkuTitles);
-  if (document.readyState === "complete") ready();
-  else window.addEventListener("load", ready);
-})();
-</script>'''}
+  {fit_titles_script}
 </body>
 </html>"""
-
 
 def _product_photos_dir() -> str:
     import os
@@ -2175,13 +2197,14 @@ def render_picking_list_pdf(
     repo: ReviewRepository | None = None,
     user_id: int | None = None,
     embed_photos: bool = True,
+    variant: str = "summary",
 ) -> bytes:
     """A4 picking list as PDF for direct print/download (no HTML page).
 
     Embeds local Settings→Products photos from disk (no network). Caps count so
     LibreOffice stays reasonable on large supplies.
     """
-    html_doc = render_picking_list_html(payload, for_pdf=True)
+    html_doc = render_picking_list_html(payload, for_pdf=True, variant=variant)
     if embed_photos and repo is not None and user_id is not None:
         local_paths: dict[int, str] | None = None
         try:

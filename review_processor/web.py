@@ -8903,8 +8903,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         request: Request,
         supply_id: str,
         source_id: int,
+        variant: str = "summary",
     ) -> Response:
-        """A4 picking list PDF for direct print (WB has no public picking-list API)."""
+        """A4 picking list PDF for direct print (WB has no public picking-list API).
+
+        ``variant``: ``summary`` (default) or ``extended``.
+        """
         from . import wb_fbs_detail as wb_detail
 
         user = _require_user(request)
@@ -8914,6 +8918,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         sid = str(supply_id or "").strip()
         if not sid or not source_id:
             raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
+        pick_variant = str(variant or "summary").strip().lower()
+        if pick_variant not in {"summary", "extended"}:
+            pick_variant = "summary"
         api_key = _wb_fbs_source_key(owner_id, int(source_id))
         try:
             payload = wb_detail.build_article_groups_for_print(
@@ -8925,18 +8932,24 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 mode="picking_list",
             )
             pdf_bytes = wb_detail.render_picking_list_pdf(
-                payload, repo=repository, user_id=owner_id
+                payload,
+                repo=repository,
+                user_id=owner_id,
+                variant=pick_variant,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         safe_name = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in sid)[:80]
+        suffix = "Extended" if pick_variant == "extended" else "Summary"
         return Response(
             content=pdf_bytes,
             media_type="application/pdf",
             headers={
-                "Content-Disposition": f'inline; filename="PickingList_{safe_name}.pdf"'
+                "Content-Disposition": (
+                    f'inline; filename="PickingList_{suffix}_{safe_name}.pdf"'
+                )
             },
         )
 
@@ -8945,8 +8958,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         request: Request,
         supply_id: str,
         source_id: int,
+        variant: str = "summary",
     ) -> Response:
-        """A4 picking list as HTML for browser print (CSS layout stays intact)."""
+        """A4 picking list as HTML for browser print (CSS layout stays intact).
+
+        ``variant``: ``summary`` (default compact sheet) or ``extended`` (detailed).
+        """
         from . import wb_fbs_detail as wb_detail
 
         user = _require_user(request)
@@ -8956,6 +8973,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         sid = str(supply_id or "").strip()
         if not sid or not source_id:
             raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
+        pick_variant = str(variant or "summary").strip().lower()
+        if pick_variant not in {"summary", "extended"}:
+            pick_variant = "summary"
         api_key = _wb_fbs_source_key(owner_id, int(source_id))
         try:
             payload = wb_detail.build_article_groups_for_print(
@@ -8966,7 +8986,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 supply_id=sid,
                 mode="picking_list",
             )
-            html_doc = wb_detail.render_picking_list_html(payload, for_pdf=False)
+            html_doc = wb_detail.render_picking_list_html(
+                payload, for_pdf=False, variant=pick_variant
+            )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:
@@ -8977,7 +8999,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             headers={
                 "Cache-Control": "no-store, no-cache, must-revalidate",
                 "Pragma": "no-cache",
-                "X-Feedpilot-Build": "picking-20260804i",
+                "X-Feedpilot-Build": "picking-20260807c",
             },
         )
 

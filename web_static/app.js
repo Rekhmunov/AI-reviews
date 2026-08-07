@@ -18394,18 +18394,48 @@ function toggleSelectAllWbFbsDetail(checked) {
 }
 window.toggleSelectAllWbFbsDetail = toggleSelectAllWbFbsDetail;
 
-function wbFbsOpenPickingList() {
+function _wbFbsClosePickingMenu() {
+  const menu = document.getElementById("wbFbsPickingMenu");
+  const caret = document.getElementById("wbFbsSupplyDetailPickingMenuBtn");
+  if (menu) menu.hidden = true;
+  if (caret) caret.setAttribute("aria-expanded", "false");
+}
+
+function toggleWbFbsPickingMenu(event) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  const menu = document.getElementById("wbFbsPickingMenu");
+  const caret = document.getElementById("wbFbsSupplyDetailPickingMenuBtn");
+  if (!menu || !caret) return;
+  const willOpen = menu.hidden;
+  menu.hidden = !willOpen;
+  caret.setAttribute("aria-expanded", willOpen ? "true" : "false");
+}
+window.toggleWbFbsPickingMenu = toggleWbFbsPickingMenu;
+
+function wbFbsOpenPickingList(variant) {
   const sid = String(wbFbsDetailState.supplyId || "").trim();
   if (!sid || !wbFbsState.sourceId) return;
+  const mode = String(variant || "summary").trim().toLowerCase() === "extended"
+    ? "extended"
+    : "summary";
+  _wbFbsClosePickingMenu();
   const btn = document.getElementById("wbFbsSupplyDetailPickingBtn");
+  const caret = document.getElementById("wbFbsSupplyDetailPickingMenuBtn");
   if (btn) btn.disabled = true;
+  if (caret) caret.disabled = true;
   // HTML print page (browser CSS). LibreOffice PDF breaks the layout.
   const url =
     `/api/wb-fbs/supplies/${encodeURIComponent(sid)}/picking-list` +
-    `?source_id=${wbFbsState.sourceId}`;
+    `?source_id=${wbFbsState.sourceId}&variant=${encodeURIComponent(mode)}`;
   const win = window.open(url, "_blank");
   if (!win) alert("Разрешите всплывающие окна для листа подбора");
-  setTimeout(() => { if (btn) btn.disabled = false; }, 1500);
+  setTimeout(() => {
+    if (btn) btn.disabled = false;
+    if (caret) caret.disabled = false;
+  }, 1500);
 }
 window.wbFbsOpenPickingList = wbFbsOpenPickingList;
 
@@ -20658,11 +20688,15 @@ function wbFbsPrintSelectedSupplyQr() {
 window.wbFbsPrintSelectedSupplyQr = wbFbsPrintSelectedSupplyQr;
 
 document.addEventListener("click", (event) => {
+  if (!event.target.closest("#wbFbsPickingSplit")) _wbFbsClosePickingMenu();
   if (event.target.closest(".wb-fbs-row-menu-wrap") || event.target.closest(".wb-fbs-row-menu")) return;
   _wbFbsCloseRowMenus();
 });
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") _wbFbsCloseRowMenus();
+  if (event.key === "Escape") {
+    _wbFbsClosePickingMenu();
+    _wbFbsCloseRowMenus();
+  }
 });
 document.addEventListener("scroll", (event) => {
   if (!document.querySelector(".wb-fbs-row-menu.open")) return;
