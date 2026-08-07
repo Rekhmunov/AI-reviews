@@ -47,3 +47,61 @@ def test_render_trbx_stickers_html():
     assert "window.print()" in html_doc
     with pytest.raises(ValueError, match="не вернул"):
         render_trbx_stickers_html(supply_id="WB-GI-1", stickers=[])
+
+
+def test_list_supply_trbx_skips_stub_upsert(monkeypatch):
+    """Failed get_supply must not wipe local name/done via stub upsert."""
+    from review_processor import wb_fbs as mod
+
+    calls = {"upsert": 0, "persist": 0}
+
+    class FakeClient:
+        def __init__(self, _key):
+            pass
+
+        def get_supply(self, _sid):
+            raise RuntimeError("wb down")
+
+        def get_supply_boxes(self, _sid):
+            return [{"id": "WB-TRBX-1"}]
+
+        def get_supply_order_ids(self, _sid):
+            return [11, 22]
+
+    monkeypatch.setattr(mod, "WbFbsClient", FakeClient)
+    monkeypatch.setattr(mod, "ensure_wb_fbs_tables", lambda _repo: None)
+    monkeypatch.setattr(
+        mod,
+        "_local_supply_order_ids",
+        lambda *_a, **_k: [],
+    )
+
+    def fake_upsert(*_a, **_k):
+        calls["upsert"] += 1
+
+    def fake_persist(*_a, **_k):
+        calls["persist"] += 1
+
+    monkeypatch.setattr(mod, "upsert_supply", fake_upsert)
+    monkeypatch.setattr(mod, "_persist_supply_boxes", fake_persist)
+    monkeypatch.setattr(mod.time, "sleep", lambda *_a, **_k: None)
+
+    class _Detail:
+        @staticmethod
+        def invalidate_supply_detail_cache(**_k):
+            return None
+
+    monkeypatch.setitem(__import__("sys").modules, "review_processor.wb_fbs_detail", _Detail)
+
+    out = mod.list_supply_trbx(
+        repo=object(),
+        user_id=1,
+        source_id=2,
+        api_key="k",
+        supply_id="WB-GI-1",
+    )
+    assert out["ok"] is True
+    assert out["boxes"] == [{"id": "WB-TRBX-1"}]
+    assert out["remaining"] == 2  # max(1, 2+1) - 1 box
+    assert calls["upsert"] == 0
+    assert calls["persist"] == 1

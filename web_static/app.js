@@ -18347,6 +18347,23 @@ function wbFbsTrbxStep(delta) {
 }
 window.wbFbsTrbxStep = wbFbsTrbxStep;
 
+function _wbFbsTrbxModalOpen() {
+  const modal = document.getElementById("wbFbsCreateTrbxModal");
+  return !!(modal && !modal.classList.contains("hidden"));
+}
+
+function _wbFbsTrbxApiError(data, status) {
+  const d = data && data.detail;
+  if (typeof d === "string" && d.trim()) return d;
+  if (Array.isArray(d) && d.length) {
+    const first = d[0];
+    if (typeof first === "string") return first;
+    if (first && typeof first.msg === "string") return first.msg;
+  }
+  if (data && typeof data.message === "string" && data.message.trim()) return data.message;
+  return `Ошибка ${status || ""}`.trim();
+}
+
 function _wbFbsRenderTrbxBoxesList(boxes) {
   const section = document.getElementById("wbFbsTrbxPrintSection");
   const list = document.getElementById("wbFbsTrbxBoxesList");
@@ -18365,12 +18382,13 @@ function _wbFbsRenderTrbxBoxesList(boxes) {
   section.hidden = false;
   if (printAll) printAll.disabled = !!wbFbsDetailState.trbxBusy;
   list.innerHTML = wbFbsDetailState.trbxBoxes.map((b) => {
-    const id = _wbFbsEsc(b.id);
+    const safeAttr = _wbFbsEsc(b.id);
+    const safeJs = JSON.stringify(b.id);
     return `<li>
-      <span class="wb-fbs-trbx-box-id">${id}</span>
+      <span class="wb-fbs-trbx-box-id">${safeAttr}</span>
       <button type="button" class="wb-fbs-trbx-box-print" title="Печать QR"
-              aria-label="Печать ${_wbFbsEsc(b.id)}"
-              onclick="wbFbsPrintTrbxStickers('${id}')">⎙</button>
+              aria-label="Печать ${safeAttr}"
+              onclick='wbFbsPrintTrbxStickers(${safeJs})'>⎙</button>
     </li>`;
   }).join("");
 }
@@ -18387,8 +18405,9 @@ async function loadWbFbsTrbxBoxes({ keepInfo = false } = {}) {
       `/api/wb-fbs/supplies/${encodeURIComponent(sid)}/trbx?${params}`
     );
     const data = await res.json().catch(() => ({}));
+    if (!_wbFbsTrbxModalOpen() || wbFbsDetailState.supplyId !== sid) return null;
     if (!res.ok || !data.ok) {
-      throw new Error(data.detail || data.message || `Ошибка ${res.status}`);
+      throw new Error(_wbFbsTrbxApiError(data, res.status));
     }
     const remaining = Math.max(0, Number(data.remaining || 0));
     wbFbsDetailState.trbxRemaining = remaining;
@@ -18413,11 +18432,15 @@ async function loadWbFbsTrbxBoxes({ keepInfo = false } = {}) {
     }
     return data;
   } catch (e) {
-    if (!keepInfo) _wbFbsCreateTrbxSetInfo(String(e.message || e), "error");
+    if (_wbFbsTrbxModalOpen() && wbFbsDetailState.supplyId === sid && !keepInfo) {
+      _wbFbsCreateTrbxSetInfo(String(e.message || e), "error");
+    }
     throw e;
   } finally {
-    wbFbsDetailState.trbxLoading = false;
-    wbFbsTrbxAmountChanged();
+    if (wbFbsDetailState.supplyId === sid) {
+      wbFbsDetailState.trbxLoading = false;
+      wbFbsTrbxAmountChanged();
+    }
   }
 }
 
@@ -18493,26 +18516,34 @@ async function submitWbFbsCreateTrbx() {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.ok) {
-      throw new Error(data.detail || data.message || `Ошибка ${res.status}`);
+      throw new Error(_wbFbsTrbxApiError(data, res.status));
     }
+    // User may have closed the modal while the request was in flight.
+    if (!_wbFbsTrbxModalOpen() || wbFbsDetailState.supplyId !== sid) return;
     const input = document.getElementById("wbFbsCreateTrbxAmount");
     if (input) input.value = "0";
     _wbFbsCreateTrbxSetInfo("Грузоместа на портале созданы", "ok");
     try {
       await loadWbFbsTrbxBoxes({ keepInfo: true });
     } catch (_) {}
-    // Refresh supply detail meta in background; keep trbx modal open.
-    try {
-      await openWbFbsSupplyDetailModal(sid);
-    } catch (_) {}
+    // Refresh supply detail meta; keep trbx modal open (do not reopen if closed).
+    if (_wbFbsTrbxModalOpen() && wbFbsDetailState.supplyId === sid) {
+      try {
+        await openWbFbsSupplyDetailModal(sid);
+      } catch (_) {}
+    }
     if (wbFbsState.tab === "assembly") {
       try { loadWbFbsOrders(false); } catch (_) {}
     }
   } catch (e) {
-    _wbFbsCreateTrbxSetInfo(String(e.message || e), "error");
+    if (_wbFbsTrbxModalOpen() && wbFbsDetailState.supplyId === sid) {
+      _wbFbsCreateTrbxSetInfo(String(e.message || e), "error");
+    }
   } finally {
     wbFbsDetailState.trbxBusy = false;
-    wbFbsTrbxAmountChanged();
+    if (_wbFbsTrbxModalOpen() && wbFbsDetailState.supplyId === sid) {
+      wbFbsTrbxAmountChanged();
+    }
   }
 }
 window.submitWbFbsCreateTrbx = submitWbFbsCreateTrbx;

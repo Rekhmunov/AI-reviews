@@ -769,13 +769,14 @@ def list_supply_trbx(
 
     client = WbFbsClient(api_key)
     live: dict[str, Any] = {}
+    live_ok = False
     try:
         live = client.get_supply(sid)
+        live_ok = isinstance(live, dict) and bool(live)
     except Exception as exc:
         _log.debug("list_supply_trbx get_supply %s: %s", sid, exc)
-    if not isinstance(live, dict) or not live:
-        live = {"id": sid}
-    if not str(live.get("id") or "").strip():
+        live = {}
+    if live_ok and not str(live.get("id") or "").strip():
         live["id"] = sid
 
     try:
@@ -809,14 +810,35 @@ def list_supply_trbx(
             repo, user_id=user_id, source_id=source_id, supply_id=sid
         )
 
-    upsert_supply(
-        repo,
-        user_id=user_id,
-        source_id=source_id,
-        supply=live,
-        order_ids=order_ids or [],
-        boxes=boxes,
-    )
+    # Never upsert a stub supply: failed get_supply would wipe name/done.
+    if live_ok:
+        upsert_supply(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            supply=live,
+            order_ids=order_ids or [],
+            boxes=boxes,
+        )
+    else:
+        _persist_supply_boxes(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            supply_id=sid,
+            boxes=boxes,
+            allow_empty=True,
+        )
+    # upsert_supply keeps previous boxes_json when new list is []; force live truth.
+    if live_ok and not boxes:
+        _persist_supply_boxes(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            supply_id=sid,
+            boxes=[],
+            allow_empty=True,
+        )
     wb_detail.invalidate_supply_detail_cache(
         user_id=user_id, source_id=source_id, supply_id=sid
     )
@@ -826,7 +848,7 @@ def list_supply_trbx(
     return {
         "ok": True,
         "supply_id": sid,
-        "done": bool(live.get("done")),
+        "done": bool(live.get("done")) if live_ok else False,
         "boxes": [{"id": str(b.get("id") or "")} for b in boxes if str(b.get("id") or "")],
         "boxes_count": len(boxes),
         "order_count": len(order_ids),
@@ -1782,8 +1804,11 @@ def _persist_supply_boxes(
     source_id: int,
     supply_id: str,
     boxes: list[dict[str, Any]],
+    allow_empty: bool = False,
 ) -> None:
-    if not supply_id or not boxes:
+    if not supply_id:
+        return
+    if not boxes and not allow_empty:
         return
     with repo._connect() as conn:
         conn.execute(
@@ -1794,7 +1819,7 @@ def _persist_supply_boxes(
                 WHERE user_id = ? AND source_id = ? AND supply_id = ?
                 """
             ),
-            (json.dumps(boxes, ensure_ascii=False), _utc_now(), user_id, source_id, supply_id),
+            (json.dumps(boxes or [], ensure_ascii=False), _utc_now(), user_id, source_id, supply_id),
         )
 
 
