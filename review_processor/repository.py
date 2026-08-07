@@ -296,6 +296,42 @@ class ReviewRepository:
         )
         conn.execute(
             """
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS wb_fbs_auto_collect_mgt_enabled BOOLEAN NOT NULL DEFAULT FALSE
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS wb_fbs_auto_collect_mgt_interval_hours INTEGER NOT NULL DEFAULT 1
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS wb_fbs_auto_collect_mgt_active_from TEXT NOT NULL DEFAULT '12:00'
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS wb_fbs_auto_collect_mgt_active_to TEXT NOT NULL DEFAULT '06:00'
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS wb_fbs_auto_collect_mgt_last_run_at TIMESTAMPTZ
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS wb_fbs_auto_collect_mgt_last_status TEXT NOT NULL DEFAULT ''
+            """
+        )
+        conn.execute(
+            """
             UPDATE users
             SET owner_user_id = id
             WHERE owner_user_id IS NULL
@@ -2372,12 +2408,47 @@ class ReviewRepository:
 
     _WB_FBS_AUTO_SYNC_INTERVALS = (1, 2, 3, 6, 12, 24)
 
+    @staticmethod
+    def _normalize_hhmm(value: object, *, default: str) -> str:
+        raw = str(value or "").strip()
+        if not raw:
+            return default
+        parts = raw.split(":")
+        if len(parts) < 2:
+            return default
+        try:
+            hour = int(parts[0])
+            minute = int(parts[1])
+        except (TypeError, ValueError):
+            return default
+        if hour < 0 or hour > 23 or minute < 0 or minute > 59:
+            return default
+        return f"{hour:02d}:{minute:02d}"
+
+    @classmethod
+    def _parse_hhmm_strict(cls, value: object, *, field: str, default: str) -> str:
+        raw = str(value or "").strip()
+        if not raw:
+            return default
+        if not re.fullmatch(r"\d{1,2}:\d{2}", raw):
+            raise ValueError(f"Некорректное время {field} (ЧЧ:ММ)")
+        normalized = cls._normalize_hhmm(raw, default="")
+        if not normalized:
+            raise ValueError(f"Некорректное время {field} (ЧЧ:ММ)")
+        return normalized
+
     def get_wb_fbs_auto_sync_settings(self, *, user_id: int) -> dict[str, Any]:
         with self._connect() as conn:
             row = conn.execute(
                 """
                 SELECT wb_fbs_auto_sync_enabled, wb_fbs_auto_sync_interval_hours,
-                       wb_fbs_last_synced_at
+                       wb_fbs_last_synced_at,
+                       wb_fbs_auto_collect_mgt_enabled,
+                       wb_fbs_auto_collect_mgt_interval_hours,
+                       wb_fbs_auto_collect_mgt_active_from,
+                       wb_fbs_auto_collect_mgt_active_to,
+                       wb_fbs_auto_collect_mgt_last_run_at,
+                       wb_fbs_auto_collect_mgt_last_status
                 FROM users
                 WHERE id = ? AND is_deleted = ?
                 """,
@@ -2391,17 +2462,41 @@ class ReviewRepository:
             interval = 1
         if interval not in self._WB_FBS_AUTO_SYNC_INTERVALS:
             interval = 1
+        try:
+            collect_interval = int(row["wb_fbs_auto_collect_mgt_interval_hours"] or 1)
+        except (TypeError, ValueError):
+            collect_interval = 1
+        if collect_interval not in self._WB_FBS_AUTO_SYNC_INTERVALS:
+            collect_interval = 1
         last_synced = row["wb_fbs_last_synced_at"]
         if last_synced is not None and not isinstance(last_synced, str):
             try:
                 last_synced = last_synced.isoformat()
             except Exception:
                 last_synced = str(last_synced)
+        last_collect = row["wb_fbs_auto_collect_mgt_last_run_at"]
+        if last_collect is not None and not isinstance(last_collect, str):
+            try:
+                last_collect = last_collect.isoformat()
+            except Exception:
+                last_collect = str(last_collect)
         return {
             "enabled": bool(row["wb_fbs_auto_sync_enabled"]),
             "interval_hours": interval,
             "allowed_intervals": list(self._WB_FBS_AUTO_SYNC_INTERVALS),
             "last_synced_at": str(last_synced) if last_synced else None,
+            "collect_mgt_enabled": bool(row["wb_fbs_auto_collect_mgt_enabled"]),
+            "collect_mgt_interval_hours": collect_interval,
+            "collect_mgt_active_from": self._normalize_hhmm(
+                row["wb_fbs_auto_collect_mgt_active_from"], default="12:00"
+            ),
+            "collect_mgt_active_to": self._normalize_hhmm(
+                row["wb_fbs_auto_collect_mgt_active_to"], default="06:00"
+            ),
+            "collect_mgt_last_run_at": str(last_collect) if last_collect else None,
+            "collect_mgt_last_status": str(
+                row["wb_fbs_auto_collect_mgt_last_status"] or ""
+            ).strip(),
         }
 
     def save_wb_fbs_auto_sync_settings(
@@ -2410,24 +2505,53 @@ class ReviewRepository:
         user_id: int,
         enabled: bool,
         interval_hours: int,
+        collect_mgt_enabled: bool = False,
+        collect_mgt_interval_hours: int = 1,
+        collect_mgt_active_from: str = "12:00",
+        collect_mgt_active_to: str = "06:00",
     ) -> bool:
         try:
             interval = int(interval_hours)
+            collect_interval = int(collect_mgt_interval_hours)
         except (TypeError, ValueError) as exc:
-            raise ValueError("Недопустимый период синхронизации") from exc
+            raise ValueError("Недопустимый период") from exc
         if interval not in self._WB_FBS_AUTO_SYNC_INTERVALS:
             raise ValueError(
-                "Период должен быть одним из: "
+                "Период синхронизации должен быть одним из: "
                 + ", ".join(str(v) for v in self._WB_FBS_AUTO_SYNC_INTERVALS)
             )
+        if collect_interval not in self._WB_FBS_AUTO_SYNC_INTERVALS:
+            raise ValueError(
+                "Период автосбора МГТ должен быть одним из: "
+                + ", ".join(str(v) for v in self._WB_FBS_AUTO_SYNC_INTERVALS)
+            )
+        active_from = self._parse_hhmm_strict(
+            collect_mgt_active_from, field="начала окна автосбора МГТ", default="12:00"
+        )
+        active_to = self._parse_hhmm_strict(
+            collect_mgt_active_to, field="конца окна автосбора МГТ", default="06:00"
+        )
         with self._connect() as conn:
             result = conn.execute(
                 """
                 UPDATE users
-                SET wb_fbs_auto_sync_enabled = ?, wb_fbs_auto_sync_interval_hours = ?
+                SET wb_fbs_auto_sync_enabled = ?,
+                    wb_fbs_auto_sync_interval_hours = ?,
+                    wb_fbs_auto_collect_mgt_enabled = ?,
+                    wb_fbs_auto_collect_mgt_interval_hours = ?,
+                    wb_fbs_auto_collect_mgt_active_from = ?,
+                    wb_fbs_auto_collect_mgt_active_to = ?
                 WHERE id = ? AND is_deleted = FALSE
                 """,
-                (self._bool_db(bool(enabled)), interval, user_id),
+                (
+                    self._bool_db(bool(enabled)),
+                    interval,
+                    self._bool_db(bool(collect_mgt_enabled)),
+                    collect_interval,
+                    active_from,
+                    active_to,
+                    user_id,
+                ),
             )
         return result.rowcount > 0
 
@@ -2441,6 +2565,24 @@ class ReviewRepository:
                 WHERE id = ? AND is_deleted = FALSE
                 """,
                 (_utc_now(), user_id),
+            )
+
+    def mark_wb_fbs_auto_collect_mgt_run(
+        self,
+        *,
+        user_id: int,
+        status: str,
+    ) -> None:
+        """Record last auto-collect MGT attempt (success, skip, or partial)."""
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE users
+                SET wb_fbs_auto_collect_mgt_last_run_at = ?,
+                    wb_fbs_auto_collect_mgt_last_status = ?
+                WHERE id = ? AND is_deleted = FALSE
+                """,
+                (_utc_now(), str(status or "")[:500], user_id),
             )
 
     def save_payment_record(
