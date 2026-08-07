@@ -2410,6 +2410,7 @@ class ReviewRepository:
 
     @staticmethod
     def _normalize_hhmm(value: object, *, default: str) -> str:
+        """Normalize to HH:MM. Accepts HH:MM or HH:MM:SS (browser <input type=time>)."""
         raw = str(value or "").strip()
         if not raw:
             return default
@@ -2430,7 +2431,8 @@ class ReviewRepository:
         raw = str(value or "").strip()
         if not raw:
             return default
-        if not re.fullmatch(r"\d{1,2}:\d{2}", raw):
+        # Browsers may send seconds (12:00:00) from <input type="time">.
+        if not re.fullmatch(r"\d{1,2}:\d{2}(:\d{2})?", raw):
             raise ValueError(f"Некорректное время {field} (ЧЧ:ММ)")
         normalized = cls._normalize_hhmm(raw, default="")
         if not normalized:
