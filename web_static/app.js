@@ -18930,6 +18930,8 @@ const wbFbsKizState = {
   saving: false,
   /** True while supply-detail refresh control is polling WB meta. */
   statusRefreshing: false,
+  /** Monotonic token so a stale refresh cannot re-enable the wrong modal. */
+  statusRefreshGen: 0,
   /** Input id to refocus after RU-layout warning is dismissed. */
   ruLayoutFocusId: null,
   /** Timestamp when RU-layout warning opened (ignore scanner Enter briefly). */
@@ -18951,6 +18953,15 @@ function _wbFbsKizSplitSetTone(tone) {
   // pending / none / unknown → leave default secondary styling
 }
 
+function _wbFbsKizClearOrderFields(order) {
+  if (!order || typeof order !== "object") return;
+  order.kiz_required = false;
+  order.kiz_bound = false;
+  order.kiz_codes = [];
+  order.kiz_decision = "";
+  order.kiz_status = "empty";
+}
+
 function _wbFbsKizMergeStatusIntoDetail(orders) {
   const supply = wbFbsDetailState.supply;
   if (!supply || !Array.isArray(supply.orders) || !Array.isArray(orders)) return;
@@ -18959,12 +18970,20 @@ function _wbFbsKizMergeStatusIntoDetail(orders) {
     const oid = Number(row?.order_id);
     if (Number.isFinite(oid) && oid > 0) byId.set(oid, row);
   });
-  if (!byId.size) return;
+  // Empty live result ⇒ no KIZ-required orders left in supply.
+  if (!byId.size) {
+    supply.orders.forEach((o) => _wbFbsKizClearOrderFields(o));
+    return;
+  }
   supply.orders.forEach((o) => {
     const oid = Number(o?.order_id);
     const upd = byId.get(oid);
-    if (!upd) return;
-    o.kiz_required = true;
+    if (!upd) {
+      // Order disappeared from live supply composition.
+      _wbFbsKizClearOrderFields(o);
+      return;
+    }
+    o.kiz_required = !!upd.kiz_required;
     o.kiz_bound = !!upd.kiz_bound;
     o.kiz_codes = Array.isArray(upd.kiz_codes) ? upd.kiz_codes.slice() : [];
     o.kiz_decision = String(upd.kiz_decision || "");
@@ -18981,6 +19000,8 @@ async function refreshWbFbsKizStatus(event) {
   if (!sid || !wbFbsState.sourceId || wbFbsKizState.statusRefreshing) return;
   const refreshBtn = document.getElementById("wbFbsSupplyDetailKizRefreshBtn");
   const kizBtn = document.getElementById("wbFbsSupplyDetailKizBtn");
+  const refreshGen = Number(wbFbsKizState.statusRefreshGen || 0) + 1;
+  wbFbsKizState.statusRefreshGen = refreshGen;
   wbFbsKizState.statusRefreshing = true;
   if (refreshBtn) {
     refreshBtn.disabled = true;
@@ -18997,6 +19018,7 @@ async function refreshWbFbsKizStatus(event) {
       throw new Error(data.detail || `Ошибка ${res.status}`);
     }
     if (wbFbsDetailState.supplyId !== sid) return;
+    if (wbFbsKizState.statusRefreshGen !== refreshGen) return;
     _wbFbsKizMergeStatusIntoDetail(data.orders || []);
     _wbFbsKizSplitSetTone(data.status);
     const info = document.getElementById("wbFbsSupplyDetailInfo");
@@ -19006,7 +19028,10 @@ async function refreshWbFbsKizStatus(event) {
     }
     if (wbFbsDetailState.supply) renderWbFbsSupplyDetail(wbFbsDetailState.supply);
   } catch (e) {
-    if (wbFbsDetailState.supplyId === sid) {
+    if (
+      wbFbsDetailState.supplyId === sid
+      && wbFbsKizState.statusRefreshGen === refreshGen
+    ) {
       const info = document.getElementById("wbFbsSupplyDetailInfo");
       if (info) {
         info.hidden = false;
@@ -19014,12 +19039,14 @@ async function refreshWbFbsKizStatus(event) {
       }
     }
   } finally {
-    wbFbsKizState.statusRefreshing = false;
-    if (refreshBtn) {
-      refreshBtn.disabled = false;
-      refreshBtn.classList.remove("is-spinning");
+    if (wbFbsKizState.statusRefreshGen === refreshGen) {
+      wbFbsKizState.statusRefreshing = false;
+      if (refreshBtn) {
+        refreshBtn.disabled = false;
+        refreshBtn.classList.remove("is-spinning");
+      }
+      if (kizBtn) kizBtn.disabled = false;
     }
-    if (kizBtn) kizBtn.disabled = false;
   }
 }
 window.refreshWbFbsKizStatus = refreshWbFbsKizStatus;

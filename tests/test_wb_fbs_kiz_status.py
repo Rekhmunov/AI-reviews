@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock, patch
+
+import pytest
+
 from review_processor.wb_fbs_detail import (
     _kiz_from_meta_row,
     _kiz_status_from_decision,
+    check_supply_kiz_status,
     summarize_kiz_check_status,
 )
 
@@ -80,3 +85,61 @@ def test_summarize_kiz_check_status() -> None:
     assert summarize_kiz_check_status(["ok", "pending"]) == "pending"
     assert summarize_kiz_check_status(["empty", "pending"]) == "pending"
     assert summarize_kiz_check_status(["empty"]) == "pending"
+
+
+def test_check_supply_kiz_status_live_ok_and_not_required() -> None:
+    client = MagicMock()
+    client.get_supply_order_ids.return_value = [11, 22]
+    client.get_orders_meta.return_value = [
+        {
+            "id": 11,
+            "metaDetails": [
+                {"key": "sgtin", "value": ["010467…"], "decision": "filled"}
+            ],
+        },
+        {"id": 22, "metaDetails": []},
+    ]
+    with (
+        patch("review_processor.wb_fbs_detail.wb.WbFbsClient", return_value=client),
+        patch("review_processor.wb_fbs_detail._cache_get_detail", return_value=None),
+        patch(
+            "review_processor.wb_fbs_detail._local_order_ids_for_supply",
+            return_value=[],
+        ),
+    ):
+        payload = check_supply_kiz_status(
+            MagicMock(),
+            user_id=1,
+            source_id=2,
+            api_key="key",
+            supply_id="S1",
+        )
+    assert payload["status"] == "ok"
+    assert payload["counts"]["required"] == 1
+    assert payload["counts"]["ok"] == 1
+    by_id = {row["order_id"]: row for row in payload["orders"]}
+    assert by_id[11]["kiz_required"] is True
+    assert by_id[11]["kiz_status"] == "ok"
+    assert by_id[22]["kiz_required"] is False
+
+
+def test_check_supply_kiz_status_raises_on_meta_failure() -> None:
+    client = MagicMock()
+    client.get_supply_order_ids.return_value = [11]
+    client.get_orders_meta.side_effect = RuntimeError("wb down")
+    with (
+        patch("review_processor.wb_fbs_detail.wb.WbFbsClient", return_value=client),
+        patch("review_processor.wb_fbs_detail._cache_get_detail", return_value=None),
+        patch(
+            "review_processor.wb_fbs_detail._local_order_ids_for_supply",
+            return_value=[],
+        ),
+        pytest.raises(RuntimeError, match="Не удалось проверить КИЗ"),
+    ):
+        check_supply_kiz_status(
+            MagicMock(),
+            user_id=1,
+            source_id=2,
+            api_key="key",
+            supply_id="S1",
+        )

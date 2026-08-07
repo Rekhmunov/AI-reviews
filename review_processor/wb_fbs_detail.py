@@ -555,6 +555,9 @@ def check_supply_kiz_status(
 
     Intended for the refresh control next to «Маркировка»: cheap pre-flight
     against POST /orders/meta without opening the marking modal.
+
+    Unlike supply-detail load, meta failures are not swallowed: the refresh
+    control must not paint a false green/default from local fallbacks.
     """
     sid = str(supply_id or "").strip()
     if not sid:
@@ -565,8 +568,22 @@ def check_supply_kiz_status(
     cached = _cache_get_detail(
         user_id=user_id, source_id=source_id, supply_id=sid
     )
+    client = wb.WbFbsClient(api_key)
+
+    # Prefer live supply composition so refresh sees add/remove while modal is open.
     order_ids: list[int] = []
-    if cached and isinstance(cached.get("orders"), list):
+    try:
+        for item in client.get_supply_order_ids(sid) or []:
+            try:
+                oid = int(item)
+            except (TypeError, ValueError):
+                continue
+            if oid > 0:
+                order_ids.append(oid)
+    except Exception as exc:
+        _log.debug("kiz status order-ids %s: %s", sid, exc)
+        order_ids = []
+    if not order_ids and cached and isinstance(cached.get("orders"), list):
         for o in cached["orders"]:
             if not isinstance(o, dict):
                 continue
@@ -577,59 +594,87 @@ def check_supply_kiz_status(
         order_ids = _local_order_ids_for_supply(
             repo, user_id=user_id, source_id=source_id, supply_id=sid
         )
-    if not order_ids:
-        client = wb.WbFbsClient(api_key)
+
+    # Dedupe, keep first-seen order (WB sequence).
+    seen: set[int] = set()
+    unique_ids: list[int] = []
+    for oid in order_ids:
+        if oid in seen:
+            continue
+        seen.add(oid)
+        unique_ids.append(oid)
+    order_ids = unique_ids
+
+    kiz_map: dict[int, dict[str, Any]] = {
+        oid: {
+            "kiz_required": False,
+            "kiz_bound": False,
+            "kiz_codes": [],
+            "kiz_decision": "",
+            "kiz_status": "empty",
+        }
+        for oid in order_ids
+    }
+    if order_ids:
         try:
-            order_ids = [int(x) for x in (client.get_supply_order_ids(sid) or [])]
+            meta_rows = client.get_orders_meta(order_ids)
         except Exception as exc:
-            _log.debug("kiz status order-ids %s: %s", sid, exc)
-            order_ids = []
-
-    orders = _load_local_orders(
-        repo, user_id=user_id, source_id=source_id, order_ids=order_ids
-    )
-    # Keep WB supply order sequence when local rows are sparse.
-    if not orders and order_ids:
-        orders = [{"order_id": oid, "raw_json": "{}"} for oid in order_ids]
-
-    client = wb.WbFbsClient(api_key)
-    kiz_map = _fetch_kiz_map(
-        client,
-        orders,
-        repo=repo,
-        user_id=user_id,
-        source_id=source_id,
-    )
+            raise RuntimeError(
+                f"Не удалось проверить КИЗ на Wildberries: {exc}"
+            ) from exc
+        if not isinstance(meta_rows, list):
+            raise RuntimeError("Некорректный ответ Wildberries при проверке КИЗ")
+        seen_meta: set[int] = set()
+        for row in meta_rows:
+            if not isinstance(row, dict):
+                continue
+            try:
+                oid = int(row.get("id") or row.get("orderId") or 0)
+            except (TypeError, ValueError):
+                continue
+            if oid <= 0 or oid not in kiz_map:
+                continue
+            # Live meta is authoritative: no sgtin key ⇒ not required.
+            kiz_map[oid] = _kiz_from_meta_row(row)
+            seen_meta.add(oid)
+        if not seen_meta:
+            raise RuntimeError("Wildberries не вернул статусы КИЗ")
+        missing = [oid for oid in order_ids if oid not in seen_meta]
+        if missing:
+            raise RuntimeError(
+                f"Wildberries не вернул статусы КИЗ для {len(missing)} заказ(ов)"
+            )
 
     rows: list[dict[str, Any]] = []
+    required_statuses: list[str] = []
     for oid in order_ids:
         kiz = kiz_map.get(oid) or {}
-        if not kiz.get("kiz_required"):
-            continue
-        rows.append(
-            {
-                "order_id": oid,
-                "kiz_required": True,
-                "kiz_bound": bool(kiz.get("kiz_bound")),
-                "kiz_codes": list(kiz.get("kiz_codes") or []),
-                "kiz_decision": str(kiz.get("kiz_decision") or ""),
-                "kiz_status": str(kiz.get("kiz_status") or "empty"),
-            }
-        )
+        status = str(kiz.get("kiz_status") or "empty")
+        row = {
+            "order_id": oid,
+            "kiz_required": bool(kiz.get("kiz_required")),
+            "kiz_bound": bool(kiz.get("kiz_bound")),
+            "kiz_codes": list(kiz.get("kiz_codes") or []),
+            "kiz_decision": str(kiz.get("kiz_decision") or ""),
+            "kiz_status": status,
+        }
+        rows.append(row)
+        if row["kiz_required"]:
+            required_statuses.append(status)
 
-    status_list = [str(r.get("kiz_status") or "empty") for r in rows]
-    tone = summarize_kiz_check_status(status_list)
+    tone = summarize_kiz_check_status(required_statuses)
     counts = {
-        "required": len(rows),
-        "ok": sum(1 for s in status_list if s == "ok"),
-        "error": sum(1 for s in status_list if s == "error"),
-        "pending": sum(1 for s in status_list if s == "pending"),
-        "empty": sum(1 for s in status_list if s == "empty"),
+        "required": len(required_statuses),
+        "ok": sum(1 for s in required_statuses if s == "ok"),
+        "error": sum(1 for s in required_statuses if s == "error"),
+        "pending": sum(1 for s in required_statuses if s == "pending"),
+        "empty": sum(1 for s in required_statuses if s == "empty"),
     }
 
     # Patch open-modal cache so badges match the live check without
     # dropping sticker data (do not invalidate the whole detail entry).
     if cached and isinstance(cached.get("orders"), list):
+        live_set = set(order_ids)
         for o in cached["orders"]:
             if not isinstance(o, dict):
                 continue
@@ -637,7 +682,14 @@ def check_supply_kiz_status(
             if not oid:
                 continue
             kiz = kiz_map.get(oid)
-            if not kiz:
+            if kiz is None:
+                # Order no longer in live supply composition.
+                if live_set:
+                    o["kiz_required"] = False
+                    o["kiz_bound"] = False
+                    o["kiz_codes"] = []
+                    o["kiz_decision"] = ""
+                    o["kiz_status"] = "empty"
                 continue
             o["kiz_required"] = bool(kiz.get("kiz_required"))
             o["kiz_bound"] = bool(kiz.get("kiz_bound"))
