@@ -17,6 +17,30 @@ def test_kiz_code_clean_keeps_group_separator() -> None:
     assert _kiz_code_clean("  " + raw + "\n") == raw
 
 
+def test_kiz_code_clean_repairs_ru_layout_ampersand() -> None:
+    """Shift+7 under RU OS layout turns EN & into ? — ChZ then rejects the code."""
+    good = "0104670172422571215OPA&):rs\u001d91EE11\u001d92UxEVQeciJYj5Ax7cB3znnOGzLXx9mkVUV8NR9.pgeMc="
+    bad = good.replace("&", "?")
+    assert "?" in bad
+    assert _kiz_code_clean(bad) == good
+    assert _kiz_code_clean(good) == good
+
+
+def test_kiz_code_clean_repairs_cyrillic_ru_layout_and_ampersand() -> None:
+    # Serial typed on RU layout: Latin OPA + Cyrillic letters + ? instead of &
+    raw = "0104670172422571215OPA?):ыы\u001d91EE11\u001d92ab="
+    assert _kiz_code_clean(raw) == "0104670172422571215OPA&):ss\u001d91EE11\u001d92ab="
+
+
+def test_kiz_code_clean_keeps_passing_codes_without_ampersand() -> None:
+    samples = [
+        "0104670172422571215SE*oJ*w,lZXA\u001d91EE11\u001d92yTIexkpOaGtFR7ORKRRqQsvMSCeGhU.SIv6GbqAJzug=",
+        "0104670172422571215khF9t5*CBjWY\u001d91EE11\u001d92UxEVQeciJYj5Ax7cB3znnOGzLXx9mkVUV8NR9.pgeMc=",
+    ]
+    for raw in samples:
+        assert _kiz_code_clean(raw) == raw
+
+
 def _client_mock() -> MagicMock:
     client = MagicMock()
     client.set_order_sgtin = MagicMock()
