@@ -6872,7 +6872,7 @@ tr.dnd-over td {
   z-index: 1300;
 }
 .wb-fbs-create-trbx-modal {
-  max-width: 560px;
+  max-width: 728px;
   width: calc(100% - 32px);
   max-height: calc(100vh - 40px);
   padding: 0;
@@ -7014,7 +7014,7 @@ tr.dnd-over td {
 .wb-fbs-trbx-boxes-wrap {
   border: 1px solid #e2e8f0;
   border-radius: 8px;
-  max-height: 280px;
+  max-height: 364px;
   overflow: auto;
   background: #fff;
 }
