@@ -18439,6 +18439,8 @@ const wbFbsKizState = {
   errors: {},
   pendingOrderId: null,
   saving: false,
+  /** Input id to refocus after RU-layout warning is dismissed. */
+  ruLayoutFocusId: null,
 };
 
 function _wbFbsKizBadgeHtml(order) {
@@ -18511,6 +18513,50 @@ function _wbFbsFixRuKeyboardLayout(value) {
   }
   return out;
 }
+
+function _wbFbsKizHasCyrillic(value) {
+  return /[а-яёА-ЯЁ]/.test(String(value || ""));
+}
+
+/** Block scan when RU layout produced Cyrillic; operator must switch to EN. */
+function _wbFbsKizBlockRuLayout(inputEl) {
+  const focusId = String(inputEl?.id || "");
+  if (inputEl) inputEl.value = "";
+  wbFbsKizState.ruLayoutFocusId = focusId || null;
+  setModalVisibility("wbFbsKizRuLayoutModal", true);
+  setTimeout(() => document.getElementById("wbFbsKizRuLayoutOk")?.focus(), 40);
+  return true;
+}
+
+function dismissWbFbsKizRuLayoutWarning() {
+  setModalVisibility("wbFbsKizRuLayoutModal", false);
+  const id = wbFbsKizState.ruLayoutFocusId;
+  wbFbsKizState.ruLayoutFocusId = null;
+  const el = id ? document.getElementById(id) : null;
+  if (el) {
+    el.value = "";
+    setTimeout(() => el.focus(), 40);
+  }
+}
+window.dismissWbFbsKizRuLayoutWarning = dismissWbFbsKizRuLayoutWarning;
+
+function _wbFbsKizRuLayoutModalOpen() {
+  const modal = document.getElementById("wbFbsKizRuLayoutModal");
+  return !!(modal && !modal.classList.contains("hidden"));
+}
+
+/** Live check while the wedge scanner types into sticker / КИЗ scan fields. */
+function onWbFbsKizScanInputCheck(event) {
+  const input = event?.target;
+  if (!input) return;
+  if (_wbFbsKizRuLayoutModalOpen()) {
+    input.value = "";
+    return;
+  }
+  if (!_wbFbsKizHasCyrillic(input.value)) return;
+  _wbFbsKizBlockRuLayout(input);
+}
+window.onWbFbsKizScanInputCheck = onWbFbsKizScanInputCheck;
 
 function _wbFbsKizNormalizeScan(value) {
   return _wbFbsFixRuKeyboardLayout(String(value || "").replace(/\s+/g, "")).trim();
@@ -18591,10 +18637,13 @@ function _wbFbsKizValidateMarkForOrder(mark, row) {
 function closeWbFbsKizModal() {
   cancelWbFbsKizMarkScan();
   _wbFbsCloseRowMenus();
+  setModalVisibility("wbFbsKizRuLayoutModal", false);
+  setModalVisibility("wbFbsKizScanPrompt", false);
   setModalVisibility("wbFbsKizModal", false);
   wbFbsKizState.rows = [];
   wbFbsKizState.errors = {};
   wbFbsKizState.pendingOrderId = null;
+  wbFbsKizState.ruLayoutFocusId = null;
   _wbFbsKizSetInfo("");
 }
 window.closeWbFbsKizModal = closeWbFbsKizModal;
@@ -18928,12 +18977,17 @@ function _wbFbsKizFindBySticker(scan) {
 function onWbFbsKizStickerScanKey(event) {
   if (!event || event.key !== "Enter") return;
   event.preventDefault();
+  if (_wbFbsKizRuLayoutModalOpen()) return;
   const input = event.target;
   const rawTyped = String(input?.value || "").replace(/\s+/g, "").trim();
+  if (!rawTyped) return;
+  // Cyrillic first — before sticker↔order match and further checks.
+  if (_wbFbsKizHasCyrillic(rawTyped)) {
+    _wbFbsKizBlockRuLayout(input);
+    return;
+  }
   const scan = _wbFbsKizNormalizeScan(rawTyped);
   if (!scan) return;
-  // Show Latin barcode after RU-layout correction so the operator sees the fix.
-  if (input && scan !== rawTyped) input.value = scan;
   _wbFbsKizCollectFromDom();
   const found = _wbFbsKizFindBySticker(scan);
   if (found.ambiguous) {
@@ -18989,15 +19043,18 @@ window.cancelWbFbsKizMarkScan = cancelWbFbsKizMarkScan;
 function onWbFbsKizMarkScanKey(event) {
   if (!event || event.key !== "Enter") return;
   event.preventDefault();
+  if (_wbFbsKizRuLayoutModalOpen()) return;
   const oid = Number(wbFbsKizState.pendingOrderId);
   const input = event.target;
   const rawTyped = String(input?.value || "");
-  const mark = _wbFbsKizNormalizeMark(rawTyped);
-  if (!oid || !mark) return;
-  // Show Latin mark after RU-layout correction (↔ stands in for GS in the field).
-  if (input && /[а-яёА-ЯЁ]/.test(rawTyped)) {
-    input.value = mark.replace(/\u001D/g, "\u2194");
+  if (!oid || !String(rawTyped || "").replace(/\s+/g, "")) return;
+  // Cyrillic first — before GTIN / order checks and accepting the code.
+  if (_wbFbsKizHasCyrillic(rawTyped)) {
+    _wbFbsKizBlockRuLayout(input);
+    return;
   }
+  const mark = _wbFbsKizNormalizeMark(rawTyped);
+  if (!mark) return;
   _wbFbsKizCollectFromDom();
   const row = wbFbsKizState.rows.find((r) => Number(r.order_id) === oid);
   if (!row) {

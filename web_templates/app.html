@@ -1756,6 +1756,7 @@
               <label class="wb-fbs-kiz-scan-label" for="wbFbsKizStickerScan">Сканирование</label>
               <input id="wbFbsKizStickerScan" class="wb-fbs-kiz-scan-input" type="text" autocomplete="off"
                      placeholder="Сканируйте QR стикера заказа"
+                     oninput="onWbFbsKizScanInputCheck(event)"
                      onkeydown="onWbFbsKizStickerScanKey(event)" />
             </div>
             <div id="wbFbsKizInfo" class="wb-fbs-kiz-info" hidden></div>
@@ -1785,9 +1786,25 @@
             <p id="wbFbsKizScanPromptMeta" class="wb-fbs-kiz-scan-prompt-meta">Заказ —</p>
             <input id="wbFbsKizMarkScan" class="wb-fbs-kiz-scan-input" type="text" autocomplete="off"
                    placeholder="Сканируйте КИЗ с того же изделия"
+                   oninput="onWbFbsKizScanInputCheck(event)"
                    onkeydown="onWbFbsKizMarkScanKey(event)" />
             <div class="row" style="gap:10px;margin-top:16px">
               <button type="button" class="secondary" onclick="cancelWbFbsKizMarkScan()">Отмена</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="wbFbsKizRuLayoutModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="wbFbsKizRuLayoutTitle"
+             onclick="if(event.target===this)dismissWbFbsKizRuLayoutWarning()">
+          <div class="modal-card wb-fbs-kiz-ru-layout-modal">
+            <h4 id="wbFbsKizRuLayoutTitle" class="wb-fbs-kiz-ru-layout-title">Русская раскладка</h4>
+            <p class="wb-fbs-kiz-ru-layout-text">
+              Сканер вводит код как с клавиатуры. Переключите раскладку на английскую (EN)
+              и отсканируйте код снова.
+            </p>
+            <div class="wb-fbs-kiz-ru-layout-actions">
+              <button type="button" id="wbFbsKizRuLayoutOk" onclick="dismissWbFbsKizRuLayoutWarning()">Понятно</button>
             </div>
           </div>
         </div>

@@ -8439,6 +8439,30 @@ button.wb-fbs-kiz-add:disabled {
   font-size: 14px;
   color: #64748b;
 }
+.wb-fbs-kiz-ru-layout-modal {
+  width: min(420px, calc(100vw - 32px));
+  padding: 24px;
+}
+.wb-fbs-kiz-ru-layout-title {
+  margin: 0 0 12px;
+  font-size: 20px;
+  font-weight: 700;
+  color: #0f172a;
+}
+.wb-fbs-kiz-ru-layout-text {
+  margin: 0 0 24px;
+  font-size: 16px;
+  line-height: 1.45;
+  color: #334155;
+}
+.wb-fbs-kiz-ru-layout-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+.wb-fbs-kiz-ru-layout-actions button {
+  min-height: 40px;
+  padding: 8px 16px;
+}
 @media (max-width: 900px) {
   .wb-fbs-kiz-modal {
     width: 100%;
