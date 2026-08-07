@@ -19877,15 +19877,12 @@ function _wbFbsCollectMgtRenderModal(preview) {
       .map((x) => String(x || "").trim()).filter(Boolean)
   );
   if (lead) {
-    lead.textContent = `МГТ-заказов в «Новых»: ${preview?.mgt_count || 0}. ` +
-      "Разные B2B / склад / cross-border собираются отдельно — так WB не смешает несовместимые заказы.";
+    lead.textContent = `Новых МГТ заказов: ${preview?.mgt_count || 0}.`;
   }
   if (!body) return;
   body.innerHTML = groups.map((g, idx) => {
     const gkey = String(g.group_key || `g${idx}`);
-    const label = g.label || (g.is_b2b ? "B2B" : "не B2B");
     const mode = String(g.mode || "create");
-    const count = Number(g.order_count || (g.order_ids || []).length || 0);
     let inner = "";
     if (mode === "create") {
       const name = String(g.suggested_name || "");
@@ -19934,8 +19931,6 @@ function _wbFbsCollectMgtRenderModal(preview) {
     }
     return `
       <section class="wb-fbs-collect-mgt-group" data-group-key="${_wbFbsEsc(gkey)}" data-is-b2b="${g.is_b2b ? "1" : "0"}" data-mode="${_wbFbsEsc(mode)}">
-        <h4 class="wb-fbs-collect-mgt-group-title">${_wbFbsEsc(label)}</h4>
-        <p class="wb-fbs-collect-mgt-group-meta">${count} заказ(ов)</p>
         ${inner}
       </section>`;
   }).join("");
