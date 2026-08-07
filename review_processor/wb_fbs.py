@@ -680,99 +680,14 @@ def ensure_wb_fbs_tables(repo: ReviewRepository) -> None:
         )
 
 
-_KIZ_RU_LAYOUT_TO_EN = {
-    "й": "q",
-    "ц": "w",
-    "у": "e",
-    "к": "r",
-    "е": "t",
-    "н": "y",
-    "г": "u",
-    "ш": "i",
-    "щ": "o",
-    "з": "p",
-    "х": "[",
-    "ъ": "]",
-    "ф": "a",
-    "ы": "s",
-    "в": "d",
-    "а": "f",
-    "п": "g",
-    "р": "h",
-    "о": "j",
-    "л": "k",
-    "д": "l",
-    "ж": ";",
-    "э": "'",
-    "я": "z",
-    "ч": "x",
-    "с": "c",
-    "м": "v",
-    "и": "b",
-    "т": "n",
-    "ь": "m",
-    "б": ",",
-    "ю": ".",
-    "ё": "`",
-    "Й": "Q",
-    "Ц": "W",
-    "У": "E",
-    "К": "R",
-    "Е": "T",
-    "Н": "Y",
-    "Г": "U",
-    "Ш": "I",
-    "Щ": "O",
-    "З": "P",
-    "Х": "{",
-    "Ъ": "}",
-    "Ф": "A",
-    "Ы": "S",
-    "В": "D",
-    "А": "F",
-    "П": "G",
-    "Р": "H",
-    "О": "J",
-    "Л": "K",
-    "Д": "L",
-    "Ж": ":",
-    "Э": '"',
-    "Я": "Z",
-    "Ч": "X",
-    "С": "C",
-    "М": "V",
-    "И": "B",
-    "Т": "N",
-    "Ь": "M",
-    "Б": "<",
-    "Ю": ">",
-    "Ё": "~",
-    # Shift+7: EN & → RU ? (wedge scanner + Russian OS layout).
-    "?": "&",
-}
-
-
-def _kiz_fix_ru_keyboard_layout(text: str) -> str:
-    """Map RU-layout wedge characters to EN equivalents when Cyrillic is present."""
-    if not any("а" <= ch.lower() <= "я" or ch.lower() == "ё" for ch in text):
-        # Fast path: no Cyrillic — still repair Shift+7 corruption for КИЗ.
-        return text.replace("?", "&") if "?" in text else text
-    return "".join(_KIZ_RU_LAYOUT_TO_EN.get(ch, ch) for ch in text)
-
-
 def _kiz_code_clean(value: object) -> str:
-    """Normalize one sgtin: trim space/CR/LF, fix RU wedge layout — keep GS (\\u001D).
+    """Normalize one sgtin: trim space/CR/LF only — never strip GS (\\u001D).
 
     Python's default ``str.strip()`` treats \\u001D as whitespace and would
     destroy Honest Sign separators at the ends of a code.
-
-    Also repairs ``?``→``&`` (RU layout Shift+7): codes without ``&`` pass ChZ,
-    while the same serial with ``?`` is rejected as «не найден в ЧЗ».
     """
-    text = str(value or "").strip(" \t\r\n")
-    if not text:
-        return text
-    return _kiz_fix_ru_keyboard_layout(text)
+    text = str(value or "")
+    return text.strip(" \t\r\n")
 
 
 def update_order_kiz_codes(

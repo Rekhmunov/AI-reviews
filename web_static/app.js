@@ -18498,9 +18498,6 @@ const _WB_FBS_RU_LAYOUT_TO_EN = {
   "Д": "L", "Ж": ":", "Э": "\"",
   "Я": "Z", "Ч": "X", "С": "C", "М": "V", "И": "B", "Т": "N", "Ь": "M", "Б": "<",
   "Ю": ">", "Ё": "~",
-  // Digit-row Shift mismatches (RU OS layout + EN HID wedge).
-  // Shift+7: EN & → RU ? — common in КИЗ serial; without this ChZ rejects the code.
-  "?": "&",
 };
 
 function _wbFbsFixRuKeyboardLayout(value) {
@@ -18523,15 +18520,11 @@ function _wbFbsKizNormalizeScan(value) {
 function _wbFbsKizNormalizeMark(value) {
   // Also fix RU keyboard layout: crypto/tail letters of sgtin arrive as Cyrillic
   // when the OS layout is Russian (same wedge-scanner issue as sticker QR).
-  // Always map ?→& for КИЗ: Shift+7 under RU layout; ? is not used in valid ChZ
-  // payloads from this flow, and already-saved bad codes may have Latin + "?" only.
   return _wbFbsFixRuKeyboardLayout(
     String(value || "")
       .replace(/\u2194/g, "\u001D") // ↔
       .replace(/\r?\n/g, "")
-  )
-    .replace(/\?/g, "&")
-    .trim();
+  ).trim();
 }
 
 /** GS1 AI 01 → 14-digit GTIN from the start of a КИЗ / sgtin payload. */
