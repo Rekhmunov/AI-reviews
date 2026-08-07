@@ -18403,6 +18403,7 @@ function _wbFbsRenderTrbxBoxesList(boxes) {
   const section = document.getElementById("wbFbsTrbxPrintSection");
   const list = document.getElementById("wbFbsTrbxBoxesList");
   const printAll = document.getElementById("wbFbsTrbxPrintAllBtn");
+  const deleteAll = document.getElementById("wbFbsTrbxDeleteAllBtn");
   if (!section || !list) return;
   const items = Array.isArray(boxes) ? boxes : [];
   wbFbsDetailState.trbxBoxes = items.map((b) => ({
@@ -18412,10 +18413,12 @@ function _wbFbsRenderTrbxBoxesList(boxes) {
     section.hidden = true;
     list.innerHTML = "";
     if (printAll) printAll.disabled = true;
+    if (deleteAll) deleteAll.disabled = true;
     return;
   }
   section.hidden = false;
   if (printAll) printAll.disabled = !!wbFbsDetailState.trbxBusy;
+  if (deleteAll) deleteAll.disabled = !!wbFbsDetailState.trbxBusy;
   list.innerHTML = wbFbsDetailState.trbxBoxes.map((b) => {
     const safeAttr = _wbFbsEsc(b.id);
     const safeJs = JSON.stringify(b.id);
@@ -18507,6 +18510,7 @@ window.openWbFbsCreateTrbxModal = openWbFbsCreateTrbxModal;
 
 function closeWbFbsCreateTrbxModal() {
   if (wbFbsDetailState.trbxBusy) return;
+  closeWbFbsTrbxDeleteAllConfirm();
   const modal = document.getElementById("wbFbsCreateTrbxModal");
   if (modal) {
     modal.classList.add("hidden");
@@ -18536,32 +18540,35 @@ function wbFbsPrintTrbxStickers(boxId) {
 }
 window.wbFbsPrintTrbxStickers = wbFbsPrintTrbxStickers;
 
-async function wbFbsDeleteTrbxBox(boxId) {
+async function _wbFbsDeleteTrbxBoxes(boxIds, { okMessage = "Грузоместа удалены" } = {}) {
   const sid = String(wbFbsDetailState.supplyId || "").trim();
-  const bid = String(boxId || "").trim();
-  if (!sid || !bid || !wbFbsState.sourceId || wbFbsDetailState.trbxBusy) return;
-  if (!confirm(`Удалить грузоместо ${bid}?`)) return;
+  const ids = (Array.isArray(boxIds) ? boxIds : [])
+    .map((x) => String(x || "").trim())
+    .filter(Boolean);
+  if (!sid || !ids.length || !wbFbsState.sourceId || wbFbsDetailState.trbxBusy) return false;
   wbFbsDetailState.trbxBusy = true;
   _wbFbsTrbxSetCreateEnabled(false);
   _wbFbsRenderTrbxBoxesList(wbFbsDetailState.trbxBoxes);
-  _wbFbsCreateTrbxSetInfo("Удаляем грузоместо…");
+  _wbFbsCreateTrbxSetInfo(ids.length === 1 ? "Удаляем грузоместо…" : "Удаляем грузоместа…");
   try {
     const res = await fetch(`/api/wb-fbs/supplies/${encodeURIComponent(sid)}/trbx`, {
       method: "DELETE",
       headers: jsonHeaders(),
-      body: JSON.stringify({ source_id: wbFbsState.sourceId, box_ids: [bid] }),
+      body: JSON.stringify({ source_id: wbFbsState.sourceId, box_ids: ids }),
     });
     const data = await res.json().catch(() => ({}));
-    if (!_wbFbsTrbxModalOpen() || wbFbsDetailState.supplyId !== sid) return;
+    if (!_wbFbsTrbxModalOpen() || wbFbsDetailState.supplyId !== sid) return false;
     if (!res.ok || !data.ok) {
       throw new Error(_wbFbsTrbxApiError(data, res.status));
     }
     _wbFbsTrbxApplyListPayload(data);
-    _wbFbsCreateTrbxSetInfo("Грузоместо удалено", "ok");
+    _wbFbsCreateTrbxSetInfo(okMessage, "ok");
+    return true;
   } catch (e) {
     if (_wbFbsTrbxModalOpen() && wbFbsDetailState.supplyId === sid) {
       _wbFbsCreateTrbxSetInfo(String(e.message || e), "error");
     }
+    return false;
   } finally {
     wbFbsDetailState.trbxBusy = false;
     if (_wbFbsTrbxModalOpen() && wbFbsDetailState.supplyId === sid) {
@@ -18570,7 +18577,48 @@ async function wbFbsDeleteTrbxBox(boxId) {
     }
   }
 }
+
+async function wbFbsDeleteTrbxBox(boxId) {
+  const bid = String(boxId || "").trim();
+  if (!bid) return;
+  if (!confirm(`Удалить грузоместо ${bid}?`)) return;
+  await _wbFbsDeleteTrbxBoxes([bid], { okMessage: "Грузоместо удалено" });
+}
 window.wbFbsDeleteTrbxBox = wbFbsDeleteTrbxBox;
+
+function openWbFbsTrbxDeleteAllConfirm() {
+  if (wbFbsDetailState.trbxBusy || !wbFbsDetailState.trbxBoxes.length) return;
+  const modal = document.getElementById("wbFbsTrbxDeleteAllConfirmModal");
+  if (!modal) return;
+  modal.classList.remove("hidden");
+  modal.style.display = "flex";
+  modal.setAttribute("aria-hidden", "false");
+}
+window.openWbFbsTrbxDeleteAllConfirm = openWbFbsTrbxDeleteAllConfirm;
+
+function closeWbFbsTrbxDeleteAllConfirm() {
+  const modal = document.getElementById("wbFbsTrbxDeleteAllConfirmModal");
+  if (!modal) return;
+  modal.classList.add("hidden");
+  modal.style.display = "none";
+  modal.setAttribute("aria-hidden", "true");
+  const yesBtn = document.getElementById("wbFbsTrbxDeleteAllConfirmYesBtn");
+  if (yesBtn) yesBtn.disabled = false;
+}
+window.closeWbFbsTrbxDeleteAllConfirm = closeWbFbsTrbxDeleteAllConfirm;
+
+async function confirmWbFbsDeleteAllTrbx() {
+  const ids = (wbFbsDetailState.trbxBoxes || []).map((b) => b.id).filter(Boolean);
+  if (!ids.length || wbFbsDetailState.trbxBusy) {
+    closeWbFbsTrbxDeleteAllConfirm();
+    return;
+  }
+  const yesBtn = document.getElementById("wbFbsTrbxDeleteAllConfirmYesBtn");
+  if (yesBtn) yesBtn.disabled = true;
+  closeWbFbsTrbxDeleteAllConfirm();
+  await _wbFbsDeleteTrbxBoxes(ids, { okMessage: "Все грузоместа удалены" });
+}
+window.confirmWbFbsDeleteAllTrbx = confirmWbFbsDeleteAllTrbx;
 
 async function submitWbFbsCreateTrbx() {
   const sid = String(wbFbsDetailState.supplyId || "").trim();

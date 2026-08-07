@@ -6996,10 +6996,24 @@ tr.dnd-over td {
   flex-direction: column;
   gap: 12px;
 }
-.wb-fbs-trbx-print-all-btn {
-  align-self: flex-start;
+.wb-fbs-trbx-print-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.wb-fbs-trbx-print-all-btn,
+.wb-fbs-trbx-delete-all-btn {
   min-height: 40px;
   padding: 8px 16px;
+}
+.wb-fbs-trbx-delete-all-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.wb-fbs-trbx-delete-all-btn svg {
+  flex: 0 0 auto;
 }
 .wb-fbs-trbx-print-all-btn:hover:not(:disabled) {
   background: #f1f5f9;
@@ -7007,7 +7021,62 @@ tr.dnd-over td {
 .wb-fbs-trbx-print-all-btn:active:not(:disabled) {
   background: #e2e8f0;
 }
-.wb-fbs-trbx-print-all-btn:disabled {
+.wb-fbs-trbx-print-all-btn:disabled,
+.wb-fbs-trbx-delete-all-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.wb-fbs-trbx-delete-all-btn:focus-visible {
+  outline: 2px solid #dc2626;
+  outline-offset: 2px;
+}
+#wbFbsTrbxDeleteAllConfirmModal.modal-overlay {
+  z-index: 1400;
+}
+.wb-fbs-trbx-delete-confirm-modal {
+  max-width: 440px;
+  width: calc(100% - 32px);
+  padding: 24px;
+}
+.wb-fbs-trbx-delete-confirm-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.35;
+}
+.wb-fbs-trbx-delete-confirm-text {
+  margin: 12px 0 0;
+  font-size: 16px;
+  line-height: 1.45;
+  color: #334155;
+}
+.wb-fbs-trbx-delete-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 24px;
+}
+.wb-fbs-trbx-delete-confirm-yes {
+  min-height: 40px;
+  padding: 8px 20px;
+  background: #dc2626;
+  border: 1px solid #dc2626;
+  color: #fff;
+}
+.wb-fbs-trbx-delete-confirm-yes:hover:not(:disabled) {
+  background: #b91c1c;
+  border-color: #b91c1c;
+}
+.wb-fbs-trbx-delete-confirm-yes:active:not(:disabled) {
+  background: #991b1b;
+  border-color: #991b1b;
+}
+.wb-fbs-trbx-delete-confirm-yes:focus-visible {
+  outline: 2px solid #dc2626;
+  outline-offset: 2px;
+}
+.wb-fbs-trbx-delete-confirm-yes:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }

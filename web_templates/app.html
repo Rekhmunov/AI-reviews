@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=163" />
+  <link rel="stylesheet" href="/static/style.css?v=164" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1823,8 +1823,18 @@
               </div>
               <div id="wbFbsCreateTrbxInfo" class="wb-fbs-create-trbx-info" hidden></div>
               <div id="wbFbsTrbxPrintSection" class="wb-fbs-trbx-print-section" hidden>
-                <button type="button" id="wbFbsTrbxPrintAllBtn" class="secondary wb-fbs-trbx-print-all-btn"
-                        onclick="wbFbsPrintTrbxStickers()">Распечатать QR-коды грузовых мест</button>
+                <div class="wb-fbs-trbx-print-actions">
+                  <button type="button" id="wbFbsTrbxPrintAllBtn" class="secondary wb-fbs-trbx-print-all-btn"
+                          onclick="wbFbsPrintTrbxStickers()">Распечатать QR-коды грузовых мест</button>
+                  <button type="button" id="wbFbsTrbxDeleteAllBtn" class="secondary danger wb-fbs-trbx-delete-all-btn"
+                          onclick="openWbFbsTrbxDeleteAllConfirm()" disabled>
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                      <path d="M3.5 4.5h9M6.5 4.5V3.5a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v1M5.5 4.5v8a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-8M7 7v4M9 7v4"
+                            stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    <span>Удалить все грузоместа</span>
+                  </button>
+                </div>
                 <div class="wb-fbs-trbx-boxes-wrap">
                   <table class="wb-fbs-trbx-boxes-table" aria-label="Грузоместа">
                     <thead>
@@ -1837,6 +1847,25 @@
                   </table>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="wbFbsTrbxDeleteAllConfirmModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="wbFbsTrbxDeleteAllConfirmTitle"
+             onclick="if(event.target===this)closeWbFbsTrbxDeleteAllConfirm()">
+          <div class="modal-card wb-fbs-trbx-delete-confirm-modal">
+            <h3 id="wbFbsTrbxDeleteAllConfirmTitle" class="wb-fbs-trbx-delete-confirm-title">
+              Удаление грузомест
+            </h3>
+            <p class="wb-fbs-trbx-delete-confirm-text">
+              Вы действительно хотите удалить все грузоместа?
+            </p>
+            <div class="wb-fbs-trbx-delete-confirm-actions">
+              <button type="button" id="wbFbsTrbxDeleteAllConfirmYesBtn"
+                      class="wb-fbs-trbx-delete-confirm-yes"
+                      onclick="confirmWbFbsDeleteAllTrbx()">Да</button>
+              <button type="button" class="secondary" onclick="closeWbFbsTrbxDeleteAllConfirm()">Нет</button>
             </div>
           </div>
         </div>
@@ -3935,6 +3964,6 @@
   <script src="/static/jszip.min.js"></script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=343"></script>
+  <script src="/static/app.js?v=344"></script>
 </body>
 </html>
