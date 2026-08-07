@@ -8536,5 +8536,6 @@ button.wb-fbs-kiz-add:disabled {
   .wb-fbs-kiz-scan-bar { padding-left: 16px; padding-right: 16px; }
   .wb-fbs-kiz-title { font-size: 24px; }
   .wb-fbs-kiz-col-order { width: 120px; }
+  .wb-fbs-kiz-search { width: 100%; min-width: 160px; }
 }
 
