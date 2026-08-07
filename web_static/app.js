@@ -19085,7 +19085,10 @@ function onWbFbsKizCodeInput(orderId, event) {
       if (row && Array.isArray(row.kiz_codes) && Number.isFinite(idx) && idx >= 0) {
         row.kiz_codes[idx] = "";
       }
+      if (wbFbsKizState.errors[oid]) delete wbFbsKizState.errors[oid];
       _wbFbsKizBlockRuLayout(input);
+      // Counter reads state, not the cleared input — refresh after wipe.
+      _wbFbsKizUpdateScanCounter();
       return;
     }
   }
