@@ -332,6 +332,12 @@ class ReviewRepository:
         )
         conn.execute(
             """
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS wb_fbs_auto_collect_mgt_last_detail TEXT NOT NULL DEFAULT ''
+            """
+        )
+        conn.execute(
+            """
             UPDATE users
             SET owner_user_id = id
             WHERE owner_user_id IS NULL
@@ -2450,7 +2456,8 @@ class ReviewRepository:
                        wb_fbs_auto_collect_mgt_active_from,
                        wb_fbs_auto_collect_mgt_active_to,
                        wb_fbs_auto_collect_mgt_last_run_at,
-                       wb_fbs_auto_collect_mgt_last_status
+                       wb_fbs_auto_collect_mgt_last_status,
+                       wb_fbs_auto_collect_mgt_last_detail
                 FROM users
                 WHERE id = ? AND is_deleted = ?
                 """,
@@ -2482,6 +2489,15 @@ class ReviewRepository:
                 last_collect = last_collect.isoformat()
             except Exception:
                 last_collect = str(last_collect)
+        detail_raw = str(row["wb_fbs_auto_collect_mgt_last_detail"] or "").strip()
+        detail: dict[str, Any] | None = None
+        if detail_raw:
+            try:
+                parsed = json.loads(detail_raw)
+                if isinstance(parsed, dict):
+                    detail = parsed
+            except Exception:
+                detail = None
         return {
             "enabled": bool(row["wb_fbs_auto_sync_enabled"]),
             "interval_hours": interval,
@@ -2499,6 +2515,7 @@ class ReviewRepository:
             "collect_mgt_last_status": str(
                 row["wb_fbs_auto_collect_mgt_last_status"] or ""
             ).strip(),
+            "collect_mgt_last_detail": detail,
         }
 
     def save_wb_fbs_auto_sync_settings(
@@ -2574,17 +2591,27 @@ class ReviewRepository:
         *,
         user_id: int,
         status: str,
+        detail: dict[str, Any] | None = None,
     ) -> None:
         """Record last auto-collect MGT attempt (success, skip, or partial)."""
+        detail_json = ""
+        if isinstance(detail, dict) and detail:
+            try:
+                detail_json = json.dumps(detail, ensure_ascii=False, default=str)
+            except Exception:
+                detail_json = ""
+            if len(detail_json) > 20000:
+                detail_json = detail_json[:19997] + "…"
         with self._connect() as conn:
             conn.execute(
                 """
                 UPDATE users
                 SET wb_fbs_auto_collect_mgt_last_run_at = ?,
-                    wb_fbs_auto_collect_mgt_last_status = ?
+                    wb_fbs_auto_collect_mgt_last_status = ?,
+                    wb_fbs_auto_collect_mgt_last_detail = ?
                 WHERE id = ? AND is_deleted = FALSE
                 """,
-                (_utc_now(), str(status or "")[:500], user_id),
+                (_utc_now(), str(status or "")[:500], detail_json, user_id),
             )
 
     def save_payment_record(

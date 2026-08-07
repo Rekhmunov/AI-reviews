@@ -7031,6 +7031,89 @@ tr.dnd-over td {
   color: #64748b;
   word-break: break-word;
 }
+.wb-fbs-auto-collect-status.is-ok { color: #15803d; }
+.wb-fbs-auto-collect-status.is-warn { color: #b45309; }
+.wb-fbs-auto-collect-status.is-error { color: #b91c1c; }
+.wb-fbs-auto-collect-detail-wrap {
+  margin: 12px 0 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 0 12px;
+}
+.wb-fbs-auto-collect-detail-wrap > summary {
+  cursor: pointer;
+  list-style: none;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: #334155;
+  user-select: none;
+}
+.wb-fbs-auto-collect-detail-wrap > summary::-webkit-details-marker { display: none; }
+.wb-fbs-auto-collect-detail-wrap > summary::after {
+  content: "▾";
+  margin-left: auto;
+  color: #64748b;
+  font-weight: 500;
+}
+.wb-fbs-auto-collect-detail-wrap[open] > summary::after { content: "▴"; }
+.wb-fbs-auto-collect-detail {
+  padding: 0 0 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.wb-fbs-auto-collect-detail-meta {
+  font-size: 13px;
+  color: #64748b;
+  line-height: 1.4;
+}
+.wb-fbs-auto-collect-source {
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+}
+.wb-fbs-auto-collect-source-title {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+}
+.wb-fbs-auto-collect-source-reason {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #475569;
+}
+.wb-fbs-auto-collect-source-reason.is-error { color: #b91c1c; }
+.wb-fbs-auto-collect-source-stats {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: #64748b;
+}
+.wb-fbs-auto-collect-supplies {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.wb-fbs-auto-collect-supplies li {
+  font-size: 13px;
+  color: #334155;
+  line-height: 1.35;
+}
+.wb-fbs-auto-collect-errors {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: #b91c1c;
+  font-size: 13px;
+}
 #wbFbsAutoSyncSettingsBtn.is-auto-on {
   color: #1d4ed8;
   border-color: #93c5fd;

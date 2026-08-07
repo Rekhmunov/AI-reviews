@@ -20812,17 +20812,128 @@ function _wbFbsAutoSyncSetLast(iso) {
   el.textContent = `Последняя синхронизация: ${_wbFbsAutoSyncFormatLast(iso)}`;
 }
 
-function _wbFbsAutoCollectSetLast(iso, status) {
+function _wbFbsAutoCollectOutcomeLabel(outcome) {
+  switch (String(outcome || "")) {
+    case "success":
+    case "added":
+      return "Успешно";
+    case "partial":
+      return "Частично";
+    case "skipped":
+      return "Пропуск";
+    case "error":
+      return "Ошибка";
+    case "empty":
+      return "Нет МГТ";
+    default:
+      return "—";
+  }
+}
+
+function _wbFbsAutoCollectRenderDetail(detail) {
+  const wrap = document.getElementById("wbFbsAutoCollectDetailWrap");
+  const box = document.getElementById("wbFbsAutoCollectDetail");
+  const summaryEl = document.getElementById("wbFbsAutoCollectSummary");
+  if (!wrap || !box) return;
+  const d = detail && typeof detail === "object" ? detail : null;
+  if (!d) {
+    wrap.hidden = true;
+    box.innerHTML = "";
+    if (summaryEl) {
+      summaryEl.hidden = true;
+      summaryEl.textContent = "";
+      summaryEl.classList.remove("is-ok", "is-warn", "is-error");
+    }
+    return;
+  }
+  const summary = String(d.summary || "").trim();
+  const outcome = String(d.outcome || "");
+  if (summaryEl) {
+    summaryEl.hidden = !summary;
+    summaryEl.textContent = summary ? `Итог: ${summary}` : "";
+    summaryEl.classList.toggle("is-ok", outcome === "success" || outcome === "added");
+    summaryEl.classList.toggle("is-warn", outcome === "partial" || outcome === "skipped");
+    summaryEl.classList.toggle("is-error", outcome === "error");
+  }
+  const sources = Array.isArray(d.sources) ? d.sources : [];
+  const whenMsk = String(d.ran_at_msk || "").trim();
+  const addedTotal = Number(d.added_total || 0);
+  let html = `<div class="wb-fbs-auto-collect-detail-meta">`;
+  html += `<div>Когда (МСК): ${_wbFbsEsc(whenMsk || "—")}</div>`;
+  html += `<div>Результат: ${_wbFbsEsc(_wbFbsAutoCollectOutcomeLabel(outcome))}</div>`;
+  html += `<div>Всего ушло на сборку: ${_wbFbsEsc(addedTotal)} заказ(ов)</div>`;
+  html += `</div>`;
+  if (!sources.length) {
+    html += `<p class="wb-fbs-auto-collect-source-reason">${_wbFbsEsc(summary || "Нет данных по источникам")}</p>`;
+  } else {
+    html += sources.map((s) => {
+      const sname = String(s.source_name || s.source_id || "Источник");
+      const reason = String(s.reason || "").trim();
+      const sOutcome = String(s.outcome || "");
+      const mgtFound = Number(s.mgt_found || 0);
+      const added = Number(s.added || 0);
+      const planned = Number(s.planned || 0);
+      const supplies = Array.isArray(s.supplies) ? s.supplies : [];
+      const errors = Array.isArray(s.errors) ? s.errors.filter(Boolean) : [];
+      let block = `<section class="wb-fbs-auto-collect-source">`;
+      block += `<h5 class="wb-fbs-auto-collect-source-title">${_wbFbsEsc(sname)}</h5>`;
+      block += `<p class="wb-fbs-auto-collect-source-reason${sOutcome === "error" ? " is-error" : ""}">`;
+      block += `${_wbFbsEsc(_wbFbsAutoCollectOutcomeLabel(sOutcome))}`;
+      if (reason) block += `: ${_wbFbsEsc(reason)}`;
+      block += `</p>`;
+      block += `<div class="wb-fbs-auto-collect-source-stats">`;
+      block += `Найдено МГТ в «Новых»: ${_wbFbsEsc(mgtFound)}`;
+      if (planned || added) {
+        block += ` · На сборку: ${_wbFbsEsc(added)}${planned ? ` из ${_wbFbsEsc(planned)}` : ""}`;
+      }
+      block += `</div>`;
+      if (supplies.length) {
+        block += `<ul class="wb-fbs-auto-collect-supplies">`;
+        block += supplies.map((sp) => {
+          const action = String(sp.action || "") === "create" ? "Создана" : "Добавлено в";
+          const spName = String(sp.name || sp.supply_id || "поставка");
+          const spAdded = Number(sp.added || 0);
+          return `<li>${_wbFbsEsc(action)} «${_wbFbsEsc(spName)}» — ${_wbFbsEsc(spAdded)} заказ(ов)</li>`;
+        }).join("");
+        block += `</ul>`;
+      }
+      if (errors.length) {
+        block += `<ul class="wb-fbs-auto-collect-errors">`;
+        block += errors.map((e) => `<li>${_wbFbsEsc(e)}</li>`).join("");
+        block += `</ul>`;
+      }
+      block += `</section>`;
+      return block;
+    }).join("");
+  }
+  box.innerHTML = html;
+  wrap.hidden = false;
+}
+
+function _wbFbsAutoCollectSetLast(iso, status, detail) {
   const el = document.getElementById("wbFbsAutoCollectLast");
-  const statusEl = document.getElementById("wbFbsAutoCollectStatus");
   if (el) {
-    el.textContent = `Последний автосбор МГТ: ${_wbFbsAutoSyncFormatLast(iso)}`;
+    const when = detail && detail.ran_at_msk
+      ? String(detail.ran_at_msk)
+      : _wbFbsAutoSyncFormatLast(iso);
+    el.textContent = `Последний автосбор МГТ: ${when || "—"}`;
   }
-  if (statusEl) {
-    const msg = String(status || "").trim();
-    statusEl.hidden = !msg;
-    statusEl.textContent = msg ? `Статус: ${msg}` : "";
+  // Prefer structured detail; fall back to plain status string.
+  if (detail && typeof detail === "object") {
+    _wbFbsAutoCollectRenderDetail(detail);
+    return;
   }
+  const summaryEl = document.getElementById("wbFbsAutoCollectSummary");
+  const wrap = document.getElementById("wbFbsAutoCollectDetailWrap");
+  const box = document.getElementById("wbFbsAutoCollectDetail");
+  const msg = String(status || "").trim();
+  if (summaryEl) {
+    summaryEl.hidden = !msg;
+    summaryEl.textContent = msg ? `Итог: ${msg}` : "";
+    summaryEl.classList.remove("is-ok", "is-warn", "is-error");
+  }
+  if (wrap) wrap.hidden = true;
+  if (box) box.innerHTML = "";
 }
 
 function _wbFbsSetSelectValue(selectEl, value, fallback) {
@@ -20871,7 +20982,11 @@ async function openWbFbsAutoSyncSettings() {
     if (collectFromEl) collectFromEl.value = String(data.collect_mgt_active_from || "12:00");
     if (collectToEl) collectToEl.value = String(data.collect_mgt_active_to || "06:00");
     _wbFbsAutoSyncSetLast(data.last_synced_at);
-    _wbFbsAutoCollectSetLast(data.collect_mgt_last_run_at, data.collect_mgt_last_status);
+    _wbFbsAutoCollectSetLast(
+      data.collect_mgt_last_run_at,
+      data.collect_mgt_last_status,
+      data.collect_mgt_last_detail
+    );
     const canEdit = data.can_edit !== false;
     if (enabledEl) enabledEl.disabled = !canEdit;
     if (collectEnabledEl) collectEnabledEl.disabled = !canEdit;
@@ -20952,7 +21067,8 @@ async function saveWbFbsAutoSyncSettings() {
     _wbFbsAutoSyncSetLast(settings.last_synced_at);
     _wbFbsAutoCollectSetLast(
       settings.collect_mgt_last_run_at,
-      settings.collect_mgt_last_status
+      settings.collect_mgt_last_status,
+      settings.collect_mgt_last_detail
     );
     _wbFbsAutoSyncSetInfo("Сохранено", "ok");
     setTimeout(() => closeWbFbsAutoSyncSettings(), 400);
