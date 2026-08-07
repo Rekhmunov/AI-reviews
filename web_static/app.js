@@ -18972,14 +18972,21 @@ function removeWbFbsKizCode(orderId, idx) {
 }
 window.removeWbFbsKizCode = removeWbFbsKizCode;
 
+function _wbFbsKizScanKey(value) {
+  // WB sticker barcodes are case-sensitive on their side, but scanners / manual
+  // entry often flip the last letter (e.g. *DTFHq/hj vs *DTFHq/hJ).
+  return _wbFbsKizNormalizeScan(value).toLocaleLowerCase("en-US");
+}
+
 function _wbFbsKizFindBySticker(scan) {
   const raw = _wbFbsKizNormalizeScan(scan);
   if (!raw) return { row: null, ambiguous: false };
+  const rawKey = _wbFbsKizScanKey(raw);
   // Primary: QR / 1D scan value from WB stickers.barcode (e.g. !uKEtQZVx).
   const byBarcode = [];
   for (const row of wbFbsKizState.rows) {
     const bc = _wbFbsKizNormalizeScan(row.sticker_barcode);
-    if (bc && bc === raw) byBarcode.push(row);
+    if (bc && _wbFbsKizScanKey(bc) === rawKey) byBarcode.push(row);
   }
   if (byBarcode.length === 1) return { row: byBarcode[0], ambiguous: false };
   if (byBarcode.length > 1) {
@@ -18994,17 +19001,19 @@ function _wbFbsKizFindBySticker(scan) {
     const partA = _wbFbsKizNormalizeScan(row.sticker_part_a);
     const partB = _wbFbsKizNormalizeScan(row.sticker_part_b);
     if (
-      (full && (raw === full || digits === full.replace(/\D+/g, ""))) ||
+      (full && (rawKey === _wbFbsKizScanKey(full) || digits === full.replace(/\D+/g, ""))) ||
       (partA && partB && digits === `${partA}${partB}`.replace(/\D+/g, "")) ||
-      (partB && (raw === partB || digits === partB.replace(/\D+/g, "")))
+      (partB && (rawKey === _wbFbsKizScanKey(partB) || digits === partB.replace(/\D+/g, "")))
     ) {
       matches.push(row);
     }
   }
   if (matches.length === 1) return { row: matches[0], ambiguous: false };
   if (matches.length > 1) {
-    const exact = matches.find((r) => _wbFbsKizNormalizeScan(r.sticker_number) === raw
-      || _wbFbsKizNormalizeScan(r.sticker_number).replace(/\D+/g, "") === digits);
+    const exact = matches.find((r) => {
+      const full = _wbFbsKizNormalizeScan(r.sticker_number);
+      return _wbFbsKizScanKey(full) === rawKey || full.replace(/\D+/g, "") === digits;
+    });
     if (exact) return { row: exact, ambiguous: false };
     return { row: null, ambiguous: true, matches };
   }
