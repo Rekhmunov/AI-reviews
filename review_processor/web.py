@@ -8958,12 +8958,75 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    @app.get("/api/wb-fbs/supplies/{supply_id}/trbx")
+    def wb_fbs_list_supply_trbx(
+        request: Request,
+        supply_id: str,
+        source_id: int,
+    ) -> dict[str, object]:
+        """List cargo places from WB (always live) and refresh local cache."""
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        sid = str(supply_id or "").strip()
+        if not sid or not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
+        api_key = _wb_fbs_source_key(owner_id, int(source_id))
+        try:
+            return wb_fbs_mod.list_supply_trbx(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                api_key=api_key,
+                supply_id=sid,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/wb-fbs/supplies/{supply_id}/trbx/stickers-print")
+    def wb_fbs_trbx_stickers_print(
+        request: Request,
+        supply_id: str,
+        source_id: int,
+        box_ids: str = "",
+    ) -> Response:
+        """HTML print page for cargo-place QR stickers (all or selected)."""
+        from . import wb_fbs_detail as wb_detail
+
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        sid = str(supply_id or "").strip()
+        if not sid or not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
+        ids = [x.strip() for x in str(box_ids or "").split(",") if x.strip()]
+        api_key = _wb_fbs_source_key(owner_id, int(source_id))
+        try:
+            stickers = wb_fbs_mod.fetch_trbx_stickers(
+                api_key=api_key,
+                supply_id=sid,
+                box_ids=ids or None,
+                sticker_type="png",
+            )
+            html_doc = wb_detail.render_trbx_stickers_html(
+                supply_id=sid, stickers=stickers
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return Response(content=html_doc, media_type="text/html; charset=utf-8")
+
     @app.post("/api/wb-fbs/supplies/{supply_id}/trbx")
     async def wb_fbs_create_supply_trbx(
         request: Request,
         supply_id: str,
     ) -> dict[str, object]:
-        """Create cargo places (короба) on an open FBS supply and return stickers."""
+        """Create cargo places (короба) on an open FBS supply."""
         user = _require_user(request)
         if not _can_view_wb_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
@@ -8991,7 +9054,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 api_key=api_key,
                 supply_id=sid,
                 amount=amount,
-                fetch_stickers=True,
+                fetch_stickers=False,
                 sticker_type="png",
             )
         except ValueError as exc:

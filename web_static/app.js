@@ -18265,6 +18265,10 @@ const wbFbsDetailState = {
   supply: null,
   selected: new Set(),
   trbxBusy: false,
+  trbxBoxes: [],
+  trbxRemaining: 0,
+  trbxLoaded: false,
+  trbxLoading: false,
 };
 
 function _wbFbsSupplyDetailResetSearch() {
@@ -18277,6 +18281,10 @@ function closeWbFbsSupplyDetailModal() {
   wbFbsDetailState.supply = null;
   wbFbsDetailState.selected.clear();
   wbFbsDetailState.trbxBusy = false;
+  wbFbsDetailState.trbxBoxes = [];
+  wbFbsDetailState.trbxRemaining = 0;
+  wbFbsDetailState.trbxLoaded = false;
+  wbFbsDetailState.trbxLoading = false;
   _wbFbsCloseRowMenus();
   _wbFbsClosePickingMenu();
   _wbFbsSupplyDetailResetSearch();
@@ -18286,6 +18294,10 @@ function closeWbFbsSupplyDetailModal() {
 window.closeWbFbsSupplyDetailModal = closeWbFbsSupplyDetailModal;
 
 function _wbFbsTrbxMaxAmount() {
+  // Prefer live remaining from last WB list; fall back to supply detail meta.
+  if (wbFbsDetailState.trbxLoaded) {
+    return Math.max(0, Math.min(1000, Number(wbFbsDetailState.trbxRemaining) || 0));
+  }
   const supply = wbFbsDetailState.supply || {};
   const orders = Number(supply.order_count || 0);
   const existing = Number(supply.boxes_count || 0);
@@ -18304,6 +18316,13 @@ function _wbFbsCreateTrbxSetInfo(text, kind = "") {
   el.classList.toggle("is-ok", kind === "ok");
 }
 
+function _wbFbsTrbxSetCreateEnabled(enabled) {
+  const input = document.getElementById("wbFbsCreateTrbxAmount");
+  const steppers = document.querySelectorAll(".wb-fbs-trbx-stepper-btn");
+  steppers.forEach((btn) => { btn.disabled = !enabled || !!wbFbsDetailState.trbxBusy; });
+  if (input) input.disabled = !enabled || !!wbFbsDetailState.trbxBusy;
+}
+
 function wbFbsTrbxAmountChanged() {
   const input = document.getElementById("wbFbsCreateTrbxAmount");
   const btn = document.getElementById("wbFbsCreateTrbxSubmitBtn");
@@ -18313,18 +18332,94 @@ function wbFbsTrbxAmountChanged() {
   const max = _wbFbsTrbxMaxAmount();
   if (n > max) n = max;
   input.value = String(n);
-  if (btn) btn.disabled = n < 1 || !!wbFbsDetailState.trbxBusy;
+  const canCreate = max >= 1 && !wbFbsDetailState.trbxBusy && !wbFbsDetailState.trbxLoading;
+  _wbFbsTrbxSetCreateEnabled(canCreate);
+  if (btn) btn.disabled = n < 1 || !canCreate;
 }
 window.wbFbsTrbxAmountChanged = wbFbsTrbxAmountChanged;
 
 function wbFbsTrbxStep(delta) {
   const input = document.getElementById("wbFbsCreateTrbxAmount");
-  if (!input || wbFbsDetailState.trbxBusy) return;
+  if (!input || wbFbsDetailState.trbxBusy || input.disabled) return;
   const cur = Math.floor(Number(input.value) || 0);
   input.value = String(Math.max(0, cur + Number(delta || 0)));
   wbFbsTrbxAmountChanged();
 }
 window.wbFbsTrbxStep = wbFbsTrbxStep;
+
+function _wbFbsRenderTrbxBoxesList(boxes) {
+  const section = document.getElementById("wbFbsTrbxPrintSection");
+  const list = document.getElementById("wbFbsTrbxBoxesList");
+  const printAll = document.getElementById("wbFbsTrbxPrintAllBtn");
+  if (!section || !list) return;
+  const items = Array.isArray(boxes) ? boxes : [];
+  wbFbsDetailState.trbxBoxes = items.map((b) => ({
+    id: String((b && b.id) || "").trim(),
+  })).filter((b) => b.id);
+  if (!wbFbsDetailState.trbxBoxes.length) {
+    section.hidden = true;
+    list.innerHTML = "";
+    if (printAll) printAll.disabled = true;
+    return;
+  }
+  section.hidden = false;
+  if (printAll) printAll.disabled = !!wbFbsDetailState.trbxBusy;
+  list.innerHTML = wbFbsDetailState.trbxBoxes.map((b) => {
+    const id = _wbFbsEsc(b.id);
+    return `<li>
+      <span class="wb-fbs-trbx-box-id">${id}</span>
+      <button type="button" class="wb-fbs-trbx-box-print" title="Печать QR"
+              aria-label="Печать ${_wbFbsEsc(b.id)}"
+              onclick="wbFbsPrintTrbxStickers('${id}')">⎙</button>
+    </li>`;
+  }).join("");
+}
+
+async function loadWbFbsTrbxBoxes({ keepInfo = false } = {}) {
+  const sid = String(wbFbsDetailState.supplyId || "").trim();
+  if (!sid || !wbFbsState.sourceId) return null;
+  wbFbsDetailState.trbxLoading = true;
+  wbFbsTrbxAmountChanged();
+  if (!keepInfo) _wbFbsCreateTrbxSetInfo("Загружаем грузоместа с портала…");
+  try {
+    const params = new URLSearchParams({ source_id: String(wbFbsState.sourceId) });
+    const res = await fetch(
+      `/api/wb-fbs/supplies/${encodeURIComponent(sid)}/trbx?${params}`
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) {
+      throw new Error(data.detail || data.message || `Ошибка ${res.status}`);
+    }
+    const remaining = Math.max(0, Number(data.remaining || 0));
+    wbFbsDetailState.trbxRemaining = remaining;
+    wbFbsDetailState.trbxLoaded = true;
+    _wbFbsRenderTrbxBoxesList(data.boxes || []);
+    if (wbFbsDetailState.supply) {
+      wbFbsDetailState.supply.boxes_count = Number(data.boxes_count || 0);
+      if (Number.isFinite(Number(data.order_count))) {
+        wbFbsDetailState.supply.order_count = Number(data.order_count);
+      }
+    }
+    const input = document.getElementById("wbFbsCreateTrbxAmount");
+    if (input) input.max = String(remaining);
+    if (!keepInfo) {
+      if (remaining < 1) {
+        _wbFbsCreateTrbxSetInfo(
+          `Лимит грузомест достигнут (макс. ${Number(data.max_total || 0)} = заказы+1)`
+        );
+      } else {
+        _wbFbsCreateTrbxSetInfo(`Можно добавить ещё: ${remaining}`);
+      }
+    }
+    return data;
+  } catch (e) {
+    if (!keepInfo) _wbFbsCreateTrbxSetInfo(String(e.message || e), "error");
+    throw e;
+  } finally {
+    wbFbsDetailState.trbxLoading = false;
+    wbFbsTrbxAmountChanged();
+  }
+}
 
 function openWbFbsCreateTrbxModal() {
   const sid = String(wbFbsDetailState.supplyId || "").trim();
@@ -18334,22 +18429,21 @@ function openWbFbsCreateTrbxModal() {
     alert("Поставка уже закрыта — грузоместа добавить нельзя");
     return;
   }
-  const remaining = _wbFbsTrbxMaxAmount();
-  if (remaining < 1) {
-    const orders = Number(supply.order_count || 0);
-    alert(`Достигнут лимит грузомест (макс. ${orders + 1} = заказы+1 по правилам WB)`);
-    return;
-  }
   const modal = document.getElementById("wbFbsCreateTrbxModal");
   if (!modal) return;
+  wbFbsDetailState.trbxBoxes = [];
+  wbFbsDetailState.trbxLoaded = false;
+  wbFbsDetailState.trbxRemaining = 0;
   const input = document.getElementById("wbFbsCreateTrbxAmount");
   if (input) {
     input.value = "0";
-    input.max = String(remaining);
+    input.max = String(_wbFbsTrbxMaxAmount());
   }
-  _wbFbsCreateTrbxSetInfo(`Можно добавить ещё: ${remaining}`);
+  _wbFbsRenderTrbxBoxesList([]);
+  _wbFbsCreateTrbxSetInfo("Загружаем грузоместа с портала…");
   wbFbsTrbxAmountChanged();
   modal.classList.remove("hidden");
+  loadWbFbsTrbxBoxes().catch(() => {});
 }
 window.openWbFbsCreateTrbxModal = openWbFbsCreateTrbxModal;
 
@@ -18358,8 +18452,28 @@ function closeWbFbsCreateTrbxModal() {
   const modal = document.getElementById("wbFbsCreateTrbxModal");
   if (modal) modal.classList.add("hidden");
   _wbFbsCreateTrbxSetInfo("");
+  wbFbsDetailState.trbxBoxes = [];
+  wbFbsDetailState.trbxLoaded = false;
+  wbFbsDetailState.trbxRemaining = 0;
+  const list = document.getElementById("wbFbsTrbxBoxesList");
+  if (list) list.innerHTML = "";
+  const section = document.getElementById("wbFbsTrbxPrintSection");
+  if (section) section.hidden = true;
 }
 window.closeWbFbsCreateTrbxModal = closeWbFbsCreateTrbxModal;
+
+function wbFbsPrintTrbxStickers(boxId) {
+  const sid = String(wbFbsDetailState.supplyId || "").trim();
+  if (!sid || !wbFbsState.sourceId) return;
+  const params = new URLSearchParams({ source_id: String(wbFbsState.sourceId) });
+  const one = String(boxId || "").trim();
+  if (one) params.set("box_ids", one);
+  const url =
+    `/api/wb-fbs/supplies/${encodeURIComponent(sid)}/trbx/stickers-print?${params}`;
+  const win = window.open(url, "_blank");
+  if (!win) alert("Разрешите всплывающие окна для печати QR грузомест");
+}
+window.wbFbsPrintTrbxStickers = wbFbsPrintTrbxStickers;
 
 async function submitWbFbsCreateTrbx() {
   const sid = String(wbFbsDetailState.supplyId || "").trim();
@@ -18369,6 +18483,7 @@ async function submitWbFbsCreateTrbx() {
   const submitBtn = document.getElementById("wbFbsCreateTrbxSubmitBtn");
   wbFbsDetailState.trbxBusy = true;
   if (submitBtn) submitBtn.disabled = true;
+  _wbFbsTrbxSetCreateEnabled(false);
   _wbFbsCreateTrbxSetInfo("Создаём грузоместа…");
   try {
     const res = await fetch(`/api/wb-fbs/supplies/${encodeURIComponent(sid)}/trbx`, {
@@ -18380,28 +18495,22 @@ async function submitWbFbsCreateTrbx() {
     if (!res.ok || !data.ok) {
       throw new Error(data.detail || data.message || `Ошибка ${res.status}`);
     }
-    const created = Array.isArray(data.trbx_ids) ? data.trbx_ids.length : amount;
-    if (Array.isArray(data.stickers) && data.stickers.length) {
-      _wbFbsOpenBase64Images(data.stickers, `box_${sid}`);
-    } else if (data.stickers_error) {
-      alert(String(data.stickers_error));
-    }
-    wbFbsDetailState.trbxBusy = false;
-    closeWbFbsCreateTrbxModal();
-    // Refresh detail meta (boxes count) without closing the supply modal.
-    await openWbFbsSupplyDetailModal(sid);
+    const input = document.getElementById("wbFbsCreateTrbxAmount");
+    if (input) input.value = "0";
+    _wbFbsCreateTrbxSetInfo("Грузоместа на портале созданы", "ok");
+    try {
+      await loadWbFbsTrbxBoxes({ keepInfo: true });
+    } catch (_) {}
+    // Refresh supply detail meta in background; keep trbx modal open.
+    try {
+      await openWbFbsSupplyDetailModal(sid);
+    } catch (_) {}
     if (wbFbsState.tab === "assembly") {
       try { loadWbFbsOrders(false); } catch (_) {}
     }
-    if (created) {
-      const info = document.getElementById("wbFbsSupplyDetailInfo");
-      if (info) {
-        info.hidden = false;
-        info.textContent = `Создано грузомест: ${created}`;
-      }
-    }
   } catch (e) {
     _wbFbsCreateTrbxSetInfo(String(e.message || e), "error");
+  } finally {
     wbFbsDetailState.trbxBusy = false;
     wbFbsTrbxAmountChanged();
   }

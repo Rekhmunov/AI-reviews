@@ -745,6 +745,138 @@ def create_supply_trbx(
     }
 
 
+def _trbx_box_id(box: object) -> str:
+    if isinstance(box, dict):
+        return str(box.get("id") or box.get("trbxId") or box.get("barcode") or "").strip()
+    return str(box or "").strip()
+
+
+def list_supply_trbx(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    api_key: str,
+    supply_id: str,
+) -> dict[str, Any]:
+    """Load cargo places from WB, refresh local cache, return list + limits."""
+    from . import wb_fbs_detail as wb_detail
+
+    ensure_wb_fbs_tables(repo)
+    sid = str(supply_id or "").strip()
+    if not sid:
+        raise ValueError("Не указан ID поставки")
+
+    client = WbFbsClient(api_key)
+    live: dict[str, Any] = {}
+    try:
+        live = client.get_supply(sid)
+    except Exception as exc:
+        _log.debug("list_supply_trbx get_supply %s: %s", sid, exc)
+    if not isinstance(live, dict) or not live:
+        live = {"id": sid}
+    if not str(live.get("id") or "").strip():
+        live["id"] = sid
+
+    try:
+        time.sleep(0.21)
+        boxes_raw = client.get_supply_boxes(sid)
+    except Exception as exc:
+        raise RuntimeError(f"Не удалось загрузить грузоместа: {exc}") from exc
+
+    boxes: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for b in boxes_raw or []:
+        bid = _trbx_box_id(b)
+        if not bid or bid in seen:
+            continue
+        seen.add(bid)
+        if isinstance(b, dict):
+            row = dict(b)
+            row["id"] = bid
+            boxes.append(row)
+        else:
+            boxes.append({"id": bid})
+
+    order_ids: list[int] = []
+    try:
+        time.sleep(0.21)
+        order_ids = client.get_supply_order_ids(sid)
+    except Exception as exc:
+        _log.debug("list_supply_trbx order ids %s: %s", sid, exc)
+    if not order_ids:
+        order_ids = _local_supply_order_ids(
+            repo, user_id=user_id, source_id=source_id, supply_id=sid
+        )
+
+    upsert_supply(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        supply=live,
+        order_ids=order_ids or [],
+        boxes=boxes,
+    )
+    wb_detail.invalidate_supply_detail_cache(
+        user_id=user_id, source_id=source_id, supply_id=sid
+    )
+
+    max_total = max(1, len(order_ids) + 1)
+    remaining = max(0, max_total - len(boxes))
+    return {
+        "ok": True,
+        "supply_id": sid,
+        "done": bool(live.get("done")),
+        "boxes": [{"id": str(b.get("id") or "")} for b in boxes if str(b.get("id") or "")],
+        "boxes_count": len(boxes),
+        "order_count": len(order_ids),
+        "max_total": max_total,
+        "remaining": remaining,
+    }
+
+
+def fetch_trbx_stickers(
+    *,
+    api_key: str,
+    supply_id: str,
+    box_ids: list[str] | None = None,
+    sticker_type: str = "png",
+) -> list[dict[str, Any]]:
+    """Fetch trbx stickers from WB for given ids (or all boxes on the supply)."""
+    sid = str(supply_id or "").strip()
+    if not sid:
+        raise ValueError("Не указан ID поставки")
+    stype = str(sticker_type or "png").strip().lower()
+    if stype not in {"png", "svg", "zplv", "zplh"}:
+        stype = "png"
+    client = WbFbsClient(api_key)
+    ids = [str(x).strip() for x in (box_ids or []) if str(x or "").strip()]
+    if not ids:
+        try:
+            boxes = client.get_supply_boxes(sid)
+        except Exception as exc:
+            raise RuntimeError(f"Не удалось загрузить грузоместа: {exc}") from exc
+        ids = []
+        seen: set[str] = set()
+        for b in boxes or []:
+            bid = _trbx_box_id(b)
+            if bid and bid not in seen:
+                seen.add(bid)
+                ids.append(bid)
+    if not ids:
+        raise ValueError("Грузоместа не найдены")
+    try:
+        stickers = client.get_box_stickers(sid, ids[:100], sticker_type=stype)
+    except Exception as exc:
+        raise RuntimeError(str(exc)) from exc
+    if not stickers:
+        raise RuntimeError(
+            "WB не вернул стикеры грузомест "
+            "(иногда они доступны после распределения заказов по коробам)"
+        )
+    return stickers
+
+
 def ensure_wb_fbs_tables(repo: ReviewRepository) -> None:
     with repo._connect() as conn:
         conn.execute(

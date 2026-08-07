@@ -2347,3 +2347,71 @@ def render_single_sticker_html(*, order_id: int, file_b64: str) -> str:
   <script>window.addEventListener('load',function(){{ setTimeout(function(){{ window.print(); }}, 200); }});</script>
 </body>
 </html>"""
+
+
+def render_trbx_stickers_html(*, supply_id: str, stickers: list[dict[str, Any]]) -> str:
+    """Printable HTML for one or many cargo-place (trbx) QR stickers."""
+    pages: list[str] = []
+    for i, s in enumerate(stickers or []):
+        if not isinstance(s, dict):
+            continue
+        b64 = _safe_b64(s.get("file"))
+        label = str(
+            s.get("barcode") or s.get("trbxId") or s.get("id") or f"box-{i + 1}"
+        ).strip()
+        if not b64:
+            pages.append(
+                f"""
+                <section class="label missing">
+                  <div>Нет стикера</div>
+                  <div>{_esc(label)}</div>
+                </section>
+                """
+            )
+            continue
+        pages.append(
+            f"""
+            <section class="label sticker">
+              <img src="data:image/png;base64,{b64}" alt="trbx {_esc(label)}" />
+            </section>
+            """
+        )
+    if not pages:
+        raise ValueError("WB не вернул стикеры грузомест")
+    sid = str(supply_id or "").strip()
+    return f"""<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <title>QR грузомест {_esc(sid)}</title>
+  <style>
+    @page {{ size: 58mm 40mm; margin: 0; }}
+    * {{ box-sizing: border-box; }}
+    html, body {{ margin: 0; padding: 0; }}
+    body {{ font-family: Arial, sans-serif; color: #0f172a; }}
+    .label {{
+      width: 58mm; height: 40mm; page-break-after: always;
+      overflow: hidden; position: relative;
+    }}
+    .label:last-child {{ page-break-after: auto; }}
+    .label.sticker {{ display: flex; align-items: center; justify-content: center; }}
+    .label.sticker img {{ width: 58mm; height: 40mm; object-fit: contain; }}
+    .label.missing {{
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      font-size: 10px; color: #b91c1c; gap: 4px;
+    }}
+    .toolbar {{ padding: 8px 12px; }}
+    @media print {{
+      .toolbar {{ display: none !important; }}
+    }}
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <button onclick="window.print()">Печать</button>
+    <span style="margin-left:8px;color:#64748b;font-size:13px">QR грузомест · {_esc(sid)}</span>
+  </div>
+  {''.join(pages)}
+  <script>window.addEventListener('load',function(){{ setTimeout(function(){{ window.print(); }}, 300); }});</script>
+</body>
+</html>"""
