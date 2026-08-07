@@ -2359,9 +2359,8 @@ def _plan_mgt_group(
         warehouse_id=warehouse_id,
         cross_border_type=cross_border_type,
     )
+    # Title is date (+ B2B) only — warehouse stays in group label, not in supply name.
     base_name = default_mgt_supply_name(is_b2b=is_b2b)
-    if warehouse_id is not None:
-        base_name = f"{base_name} · склад {warehouse_id}"
     suggested = _unique_supply_name(base_name, existing_names)
     candidates = list(mgt_matching) + list(empties)
     group: dict[str, Any] = {
@@ -2373,7 +2372,8 @@ def _plan_mgt_group(
         "order_ids": order_ids,
         "order_count": len(order_ids),
         "suggested_name": suggested,
-        "name_conflict": suggested in existing_names,
+        # suggested is always unique vs existing_names (_unique_supply_name).
+        "name_conflict": False,
         "compatible_supplies": [
             {
                 "supply_id": str(s.get("supply_id") or ""),
@@ -2458,11 +2458,16 @@ def preview_collect_mgt(
         if int(s.get("cargo_type") or 0) == 1:
             mgt_supplies.append(s)
 
+    # Real open-supply titles only (returned to FE for conflict checks).
     existing_names = {
         str(s.get("name") or "").strip()
         for s in open_supplies
         if str(s.get("name") or "").strip()
     }
+    # Working set also reserves suggested titles across buckets so groups
+    # don't collide — must NOT be leaked into existing_names (that caused a
+    # false «поставка уже есть» on the suggested name itself).
+    reserved_names = set(existing_names)
 
     # Non-B2B buckets first — they claim empty supplies before B2B.
     ordered_keys = sorted(buckets.keys(), key=lambda k: (bool(k[0]), str(k[1]), str(k[2])))
@@ -2489,12 +2494,10 @@ def preview_collect_mgt(
             order_ids=order_ids,
             mgt_matching=matching,
             empties=empties,
-            existing_names=existing_names,
+            existing_names=reserved_names,
             warehouse_id=warehouse_id,
             cross_border_type=cross_border_type,
         )
-        if group.get("mode") == "create":
-            existing_names.add(str(group.get("suggested_name") or ""))
         if group.get("mode") != "skip":
             groups.append(group)
 
@@ -2521,7 +2524,12 @@ def execute_collect_mgt(
     client = WbFbsClient(api_key)
     preview = preview_collect_mgt(repo, user_id=user_id, source_id=source_id)
     planned_groups = list(preview.get("groups") or [])
-    existing_names = set(preview.get("existing_names") or [])
+    # Only real open-supply names (preview no longer includes suggested titles).
+    existing_names = {
+        str(x or "").strip()
+        for x in (preview.get("existing_names") or [])
+        if str(x or "").strip()
+    }
     decisions_by_key = {
         str(d.get("group_key") or ""): d
         for d in decisions
