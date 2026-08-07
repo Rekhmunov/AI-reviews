@@ -1774,8 +1774,8 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
 <head>
   <meta charset="utf-8" />
   <title>Лист подбора {sid} от {created}</title>
-  <!-- feedpilot-picking-list:20260807a -->
-  <meta name="feedpilot-build" content="picking-20260807a" />
+  <!-- feedpilot-picking-list:20260807b -->
+  <meta name="feedpilot-build" content="picking-20260807b" />
   <style>
     @page {{ size: A4 portrait; margin: 10mm; }}
     * {{ box-sizing: border-box; }}
@@ -1829,10 +1829,20 @@ def render_picking_list_html(payload: dict[str, Any], *, for_pdf: bool = False) 
       margin-top: 2px;
       font-size: 12px;
     }}
+    table.picking.summary th.main {{
+      font-size: 16px;
+    }}
+    table.picking.summary th.check {{
+      font-size: 13px;
+    }}
     table.picking.summary td.main {{
-      font-size: 14px;
+      font-size: 16px;
       font-weight: 600;
       line-height: 1.35;
+    }}
+    table.picking.summary .box {{
+      width: 20px;
+      height: 20px;
     }}
     td.main {{ text-align: left; }}
     tr.product-row td.main {{
