@@ -18906,10 +18906,11 @@ function renderWbFbsKizTable(opts) {
       <div class="wb-fbs-kiz-code-block">
         <div class="wb-fbs-kiz-code-row">
           <span class="wb-fbs-kiz-code-idx">${idx + 1}</span>
-          <input class="wb-fbs-kiz-code-input${err && String(code || "").trim() ? " is-error" : ""}" type="text"
+          <input id="wbFbsKizCode_${oid}_${idx}"
+                 class="wb-fbs-kiz-code-input${err && String(code || "").trim() ? " is-error" : ""}" type="text"
                  data-order-id="${oid}" data-idx="${idx}"
                  autocomplete="off"
-                 oninput="onWbFbsKizCodeInput(${oid})" />
+                 oninput="onWbFbsKizCodeInput(${oid}, event)" />
           <button type="button" class="wb-fbs-kiz-remove" title="${clearTitle}"
                   aria-label="${clearTitle}"
                   onclick="removeWbFbsKizCode(${oid}, ${idx})">×</button>
@@ -18967,8 +18968,25 @@ function renderWbFbsKizTable(opts) {
 }
 window.renderWbFbsKizTable = renderWbFbsKizTable;
 
-function onWbFbsKizCodeInput(orderId) {
+function onWbFbsKizCodeInput(orderId, event) {
   const oid = Number(orderId);
+  const input = event?.target;
+  // Same RU-layout gate as sticker / mark scan — first and extra КИЗ rows.
+  if (input) {
+    if (_wbFbsKizRuLayoutModalOpen()) {
+      input.value = "";
+      return;
+    }
+    if (_wbFbsKizHasCyrillic(input.value)) {
+      const idx = Number(input.dataset.idx);
+      const row = wbFbsKizState.rows.find((r) => Number(r.order_id) === oid);
+      if (row && Array.isArray(row.kiz_codes) && Number.isFinite(idx) && idx >= 0) {
+        row.kiz_codes[idx] = "";
+      }
+      _wbFbsKizBlockRuLayout(input);
+      return;
+    }
+  }
   if (wbFbsKizState.errors[oid]) {
     delete wbFbsKizState.errors[oid];
   }
