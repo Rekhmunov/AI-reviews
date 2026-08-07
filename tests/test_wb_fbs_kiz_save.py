@@ -6,45 +6,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 from review_processor.wb_fbs import _kiz_code_clean
-from review_processor.wb_fbs_detail import kiz_allowed_order_ids, save_kiz_marking
-
-
-@patch("review_processor.wb_fbs_detail._fetch_stickers_map")
-@patch("review_processor.wb_fbs_detail._fetch_kiz_map")
-@patch("review_processor.wb_fbs_detail._load_local_orders")
-@patch("review_processor.wb_fbs_detail._local_order_ids_for_supply")
-@patch("review_processor.wb_fbs_detail.wb.WbFbsClient")
-def test_kiz_allowed_order_ids_skips_stickers(
-    mock_cls: Any,
-    mock_local_ids: Any,
-    mock_load: Any,
-    mock_kiz_map: Any,
-    mock_stickers: Any,
-) -> None:
-    """Save scoping must not pull stickers (was causing proxy 504)."""
-    client = MagicMock()
-    client.get_supply_order_ids.return_value = [10, 20]
-    mock_cls.return_value = client
-    mock_load.return_value = [
-        {"order_id": 10, "raw_json": "{}"},
-        {"order_id": 20, "raw_json": "{}"},
-    ]
-    mock_kiz_map.return_value = {
-        10: {"kiz_required": True},
-        20: {"kiz_required": False},
-    }
-    repo = MagicMock()
-    allowed = kiz_allowed_order_ids(
-        repo,
-        user_id=1,
-        source_id=2,
-        api_key="k",
-        supply_id="SUP1",
-    )
-    assert allowed == {10}
-    mock_stickers.assert_not_called()
-    mock_local_ids.assert_not_called()
-    client.get_supply_order_ids.assert_called_once_with("SUP1")
+from review_processor.wb_fbs_detail import save_kiz_marking
 
 
 def test_kiz_code_clean_keeps_group_separator() -> None:

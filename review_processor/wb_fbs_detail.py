@@ -1160,60 +1160,6 @@ def build_kiz_marking_payload(
     }
 
 
-def kiz_allowed_order_ids(
-    repo: ReviewRepository,
-    *,
-    user_id: int,
-    source_id: int,
-    api_key: str,
-    supply_id: str,
-) -> set[int]:
-    """Order IDs in this supply that accept sgtin — no stickers / full detail.
-
-    Used by PUT /kiz so save does not re-download stickers (that path easily
-    exceeds reverse-proxy timeouts → HTTP 504 on large supplies).
-    """
-    sid = str(supply_id or "").strip()
-    if not sid:
-        return set()
-    cached = _cache_get_detail(
-        user_id=user_id, source_id=source_id, supply_id=sid
-    )
-    if cached:
-        return {
-            int(o["order_id"])
-            for o in (cached.get("orders") or [])
-            if o.get("kiz_required") and o.get("order_id") is not None
-        }
-
-    client = wb.WbFbsClient(api_key)
-    order_ids: list[int] = []
-    try:
-        order_ids = client.get_supply_order_ids(sid)
-    except Exception as exc:
-        _log.warning("kiz allowed order-ids %s: %s", sid, exc)
-        order_ids = []
-    if not order_ids:
-        order_ids = _local_order_ids_for_supply(
-            repo, user_id=user_id, source_id=source_id, supply_id=sid
-        )
-    if not order_ids:
-        return set()
-
-    # Minimal rows for meta lookup (raw_json → requiredMeta fallback).
-    orders = _load_local_orders(
-        repo, user_id=user_id, source_id=source_id, order_ids=order_ids
-    )
-    kiz_map = _fetch_kiz_map(
-        client,
-        orders,
-        repo=repo,
-        user_id=user_id,
-        source_id=source_id,
-    )
-    return {oid for oid, info in kiz_map.items() if info.get("kiz_required")}
-
-
 def save_kiz_marking(
     *,
     api_key: str,

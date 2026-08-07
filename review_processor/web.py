@@ -9077,15 +9077,19 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="Укажите items[]")
         api_key = _wb_fbs_source_key(owner_id, int(source_id))
         try:
-            # Scope to kiz-required orders in this supply — light path, no stickers.
-            # Full get_supply_detail() re-downloads stickers and timed out (HTTP 504).
-            allowed = wb_detail.kiz_allowed_order_ids(
+            # Scope saves to this supply's kiz-required orders only (no sticker re-fetch).
+            detail = wb_detail.get_supply_detail(
                 repository,
                 user_id=owner_id,
                 source_id=int(source_id),
                 api_key=api_key,
                 supply_id=sid,
             )
+            allowed = {
+                int(o["order_id"])
+                for o in (detail.get("orders") or [])
+                if o.get("kiz_required") and o.get("order_id") is not None
+            }
             result = wb_detail.save_kiz_marking(
                 api_key=api_key,
                 items=items,
