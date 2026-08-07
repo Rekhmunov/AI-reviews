@@ -18229,11 +18229,18 @@ const wbFbsDetailState = {
   selected: new Set(),
 };
 
+function _wbFbsSupplyDetailResetSearch() {
+  const search = document.getElementById("wbFbsSupplyDetailSearchFilter");
+  if (search) search.value = "";
+}
+
 function closeWbFbsSupplyDetailModal() {
   wbFbsDetailState.supplyId = "";
   wbFbsDetailState.supply = null;
   wbFbsDetailState.selected.clear();
   _wbFbsCloseRowMenus();
+  _wbFbsClosePickingMenu();
+  _wbFbsSupplyDetailResetSearch();
   setModalVisibility("wbFbsSupplyDetailModal", false);
 }
 window.closeWbFbsSupplyDetailModal = closeWbFbsSupplyDetailModal;
@@ -18244,6 +18251,7 @@ async function openWbFbsSupplyDetailModal(supplyId) {
   if (!sid || !wbFbsState.sourceId) return;
   wbFbsDetailState.supplyId = sid;
   wbFbsDetailState.selected.clear();
+  _wbFbsSupplyDetailResetSearch();
   setModalVisibility("wbFbsSupplyDetailModal", true);
   const title = document.getElementById("wbFbsSupplyDetailTitle");
   const wh = document.getElementById("wbFbsSupplyDetailWarehouse");
@@ -18279,31 +18287,47 @@ async function openWbFbsSupplyDetailModal(supplyId) {
 window.openWbFbsSupplyDetailModal = openWbFbsSupplyDetailModal;
 
 function renderWbFbsSupplyDetail(data) {
+  const supply = data || wbFbsDetailState.supply;
+  if (!supply) return;
+  if (data) wbFbsDetailState.supply = data;
   const title = document.getElementById("wbFbsSupplyDetailTitle");
   const wh = document.getElementById("wbFbsSupplyDetailWarehouse");
   const meta = document.getElementById("wbFbsSupplyDetailMeta");
   const tbody = document.getElementById("wbFbsSupplyDetailTbody");
-  const sid = String(data.supply_id || "").trim();
-  if (title) title.textContent = data.name || (`Поставка ${sid}`);
-  if (wh) wh.textContent = String(data.warehouse_label || "—").trim() || "—";
+  const sid = String(supply.supply_id || "").trim();
+  if (title) title.textContent = supply.name || (`Поставка ${sid}`);
+  if (wh) wh.textContent = String(supply.warehouse_label || "—").trim() || "—";
   if (meta) {
     const chips = [];
-    if (data.cargo_label) chips.push(`<span class="wb-fbs-sd-chip">${_wbFbsEsc(data.cargo_label)}</span>`);
-    chips.push(`<span class="wb-fbs-sd-chip">Заказы ${_wbFbsEsc(data.order_count || 0)}</span>`);
-    chips.push(`<span class="wb-fbs-sd-chip">Грузоместа ${_wbFbsEsc(data.boxes_count || 0)}</span>`);
-    chips.push(`<span class="wb-fbs-sd-chip">Создана ${_wbFbsEsc(data.created_date || "—")}</span>`);
+    if (supply.cargo_label) chips.push(`<span class="wb-fbs-sd-chip">${_wbFbsEsc(supply.cargo_label)}</span>`);
+    chips.push(`<span class="wb-fbs-sd-chip">Заказы ${_wbFbsEsc(supply.order_count || 0)}</span>`);
+    chips.push(`<span class="wb-fbs-sd-chip">Грузоместа ${_wbFbsEsc(supply.boxes_count || 0)}</span>`);
+    chips.push(`<span class="wb-fbs-sd-chip">Создана ${_wbFbsEsc(supply.created_date || "—")}</span>`);
     chips.push(`<span class="wb-fbs-sd-chip">QR поставки ${_wbFbsEsc(sid)}</span>`);
     meta.innerHTML = chips.join("");
   }
-  const orders = Array.isArray(data.orders) ? data.orders : [];
+  const allOrders = Array.isArray(supply.orders) ? supply.orders : [];
+  const searchQ = document.getElementById("wbFbsSupplyDetailSearchFilter")?.value || "";
+  const orders = String(searchQ || "").trim()
+    ? allOrders.filter((o) => _wbFbsKizRowMatchesSearch(o, searchQ))
+    : allOrders;
   const kizBtn = document.getElementById("wbFbsSupplyDetailKizBtn");
   if (kizBtn) {
-    const needsKiz = orders.some((o) => o && o.kiz_required);
+    const needsKiz = allOrders.some((o) => o && o.kiz_required);
     kizBtn.hidden = !needsKiz;
   }
   if (!tbody) return;
-  if (!orders.length) {
+  if (!allOrders.length) {
     tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">В поставке нет заказов</td></tr>`;
+    return;
+  }
+  if (!orders.length) {
+    tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">Нет заказов по выбранному фильтру</td></tr>`;
+    const selAllEmpty = document.getElementById("wbFbsSupplyDetailSelectAll");
+    if (selAllEmpty) {
+      selAllEmpty.checked = false;
+      selAllEmpty.indeterminate = false;
+    }
     return;
   }
   tbody.innerHTML = orders.map((o) => {
@@ -18368,6 +18392,7 @@ function renderWbFbsSupplyDetail(data) {
     selAll.indeterminate = !selAll.checked && ids.some((id) => wbFbsDetailState.selected.has(id));
   }
 }
+window.renderWbFbsSupplyDetail = renderWbFbsSupplyDetail;
 
 function onWbFbsDetailCheckboxChange() {
   document.querySelectorAll(".wb-fbs-sd-cb").forEach((cb) => {
