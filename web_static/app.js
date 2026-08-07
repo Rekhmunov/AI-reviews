@@ -20775,9 +20775,21 @@ function _wbFbsAutoSyncApplyEnabledUi() {
   if (interval) interval.disabled = !enabled;
 }
 
-function _wbFbsAutoSyncMarkGear(enabled) {
+function _wbFbsAutoCollectApplyEnabledUi() {
+  const enabled = !!document.getElementById("wbFbsAutoCollectEnabled")?.checked;
+  const state = document.getElementById("wbFbsAutoCollectEnabledText");
+  const interval = document.getElementById("wbFbsAutoCollectInterval");
+  const fromEl = document.getElementById("wbFbsAutoCollectFrom");
+  const toEl = document.getElementById("wbFbsAutoCollectTo");
+  if (state) state.textContent = enabled ? "Вкл" : "Выкл";
+  if (interval) interval.disabled = !enabled;
+  if (fromEl) fromEl.disabled = !enabled;
+  if (toEl) toEl.disabled = !enabled;
+}
+
+function _wbFbsAutoSyncMarkGear(syncEnabled, collectEnabled) {
   const btn = document.getElementById("wbFbsAutoSyncSettingsBtn");
-  if (btn) btn.classList.toggle("is-auto-on", !!enabled);
+  if (btn) btn.classList.toggle("is-auto-on", !!(syncEnabled || collectEnabled));
 }
 
 function _wbFbsAutoSyncFormatLast(iso) {
@@ -20800,10 +20812,38 @@ function _wbFbsAutoSyncSetLast(iso) {
   el.textContent = `Последняя синхронизация: ${_wbFbsAutoSyncFormatLast(iso)}`;
 }
 
+function _wbFbsAutoCollectSetLast(iso, status) {
+  const el = document.getElementById("wbFbsAutoCollectLast");
+  const statusEl = document.getElementById("wbFbsAutoCollectStatus");
+  if (el) {
+    el.textContent = `Последний автосбор МГТ: ${_wbFbsAutoSyncFormatLast(iso)}`;
+  }
+  if (statusEl) {
+    const msg = String(status || "").trim();
+    statusEl.hidden = !msg;
+    statusEl.textContent = msg ? `Статус: ${msg}` : "";
+  }
+}
+
+function _wbFbsSetSelectValue(selectEl, value, fallback) {
+  if (!selectEl) return;
+  const val = String(value || fallback || "1");
+  if (![...selectEl.options].some((o) => o.value === val)) {
+    selectEl.value = String(fallback || "1");
+  } else {
+    selectEl.value = val;
+  }
+}
+
 function onWbFbsAutoSyncToggle() {
   _wbFbsAutoSyncApplyEnabledUi();
 }
 window.onWbFbsAutoSyncToggle = onWbFbsAutoSyncToggle;
+
+function onWbFbsAutoCollectToggle() {
+  _wbFbsAutoCollectApplyEnabledUi();
+}
+window.onWbFbsAutoCollectToggle = onWbFbsAutoCollectToggle;
 
 async function openWbFbsAutoSyncSettings() {
   const modal = document.getElementById("wbFbsAutoSyncModal");
@@ -20811,27 +20851,30 @@ async function openWbFbsAutoSyncSettings() {
   modal.classList.remove("hidden");
   _wbFbsAutoSyncSetInfo("");
   _wbFbsAutoSyncSetLast(null);
+  _wbFbsAutoCollectSetLast(null, "");
   const saveBtn = document.getElementById("wbFbsAutoSyncSaveBtn");
   const enabledEl = document.getElementById("wbFbsAutoSyncEnabled");
   const intervalEl = document.getElementById("wbFbsAutoSyncInterval");
+  const collectEnabledEl = document.getElementById("wbFbsAutoCollectEnabled");
+  const collectIntervalEl = document.getElementById("wbFbsAutoCollectInterval");
+  const collectFromEl = document.getElementById("wbFbsAutoCollectFrom");
+  const collectToEl = document.getElementById("wbFbsAutoCollectTo");
   if (saveBtn) saveBtn.disabled = true;
   try {
     const res = await fetch("/api/wb-fbs/auto-sync-settings");
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || `Ошибка ${res.status}`);
     if (enabledEl) enabledEl.checked = !!data.enabled;
-    if (intervalEl) {
-      const val = String(data.interval_hours || 1);
-      if (![...intervalEl.options].some((o) => o.value === val)) {
-        intervalEl.value = "1";
-      } else {
-        intervalEl.value = val;
-      }
-    }
+    _wbFbsSetSelectValue(intervalEl, data.interval_hours, 1);
+    if (collectEnabledEl) collectEnabledEl.checked = !!data.collect_mgt_enabled;
+    _wbFbsSetSelectValue(collectIntervalEl, data.collect_mgt_interval_hours, 1);
+    if (collectFromEl) collectFromEl.value = String(data.collect_mgt_active_from || "12:00");
+    if (collectToEl) collectToEl.value = String(data.collect_mgt_active_to || "06:00");
     _wbFbsAutoSyncSetLast(data.last_synced_at);
+    _wbFbsAutoCollectSetLast(data.collect_mgt_last_run_at, data.collect_mgt_last_status);
     const canEdit = data.can_edit !== false;
     if (enabledEl) enabledEl.disabled = !canEdit;
-    if (intervalEl) intervalEl.disabled = !canEdit || !enabledEl?.checked;
+    if (collectEnabledEl) collectEnabledEl.disabled = !canEdit;
     if (saveBtn) {
       saveBtn.disabled = !canEdit;
       saveBtn.title = canEdit ? "" : "Недостаточно прав для изменения настроек";
@@ -20840,8 +20883,14 @@ async function openWbFbsAutoSyncSettings() {
       _wbFbsAutoSyncSetInfo("Просмотр настроек. Изменять может только владелец кабинета.");
     }
     _wbFbsAutoSyncApplyEnabledUi();
-    if (!canEdit && intervalEl) intervalEl.disabled = true;
-    _wbFbsAutoSyncMarkGear(!!data.enabled);
+    _wbFbsAutoCollectApplyEnabledUi();
+    if (!canEdit) {
+      if (intervalEl) intervalEl.disabled = true;
+      if (collectIntervalEl) collectIntervalEl.disabled = true;
+      if (collectFromEl) collectFromEl.disabled = true;
+      if (collectToEl) collectToEl.disabled = true;
+    }
+    _wbFbsAutoSyncMarkGear(!!data.enabled, !!data.collect_mgt_enabled);
   } catch (e) {
     _wbFbsAutoSyncSetInfo(String(e.message || e), "error");
   }
@@ -20857,6 +20906,12 @@ window.closeWbFbsAutoSyncSettings = closeWbFbsAutoSyncSettings;
 async function saveWbFbsAutoSyncSettings() {
   const enabled = !!document.getElementById("wbFbsAutoSyncEnabled")?.checked;
   const intervalHours = Number(document.getElementById("wbFbsAutoSyncInterval")?.value || 1);
+  const collectEnabled = !!document.getElementById("wbFbsAutoCollectEnabled")?.checked;
+  const collectIntervalHours = Number(
+    document.getElementById("wbFbsAutoCollectInterval")?.value || 1
+  );
+  const collectFrom = String(document.getElementById("wbFbsAutoCollectFrom")?.value || "12:00");
+  const collectTo = String(document.getElementById("wbFbsAutoCollectTo")?.value || "06:00");
   const saveBtn = document.getElementById("wbFbsAutoSyncSaveBtn");
   if (saveBtn) saveBtn.disabled = true;
   _wbFbsAutoSyncSetInfo("Сохранение…");
@@ -20867,6 +20922,10 @@ async function saveWbFbsAutoSyncSettings() {
       body: JSON.stringify({
         enabled,
         interval_hours: intervalHours,
+        collect_mgt_enabled: collectEnabled,
+        collect_mgt_interval_hours: collectIntervalHours,
+        collect_mgt_active_from: collectFrom,
+        collect_mgt_active_to: collectTo,
       }),
     });
     const data = await res.json().catch(() => ({}));
@@ -20874,8 +20933,12 @@ async function saveWbFbsAutoSyncSettings() {
       throw new Error(data.detail || data.message || `Ошибка ${res.status}`);
     }
     const settings = data.settings || {};
-    _wbFbsAutoSyncMarkGear(!!settings.enabled);
+    _wbFbsAutoSyncMarkGear(!!settings.enabled, !!settings.collect_mgt_enabled);
     _wbFbsAutoSyncSetLast(settings.last_synced_at);
+    _wbFbsAutoCollectSetLast(
+      settings.collect_mgt_last_run_at,
+      settings.collect_mgt_last_status
+    );
     _wbFbsAutoSyncSetInfo("Сохранено", "ok");
     setTimeout(() => closeWbFbsAutoSyncSettings(), 400);
   } catch (e) {
@@ -20890,7 +20953,7 @@ async function _wbFbsRefreshAutoSyncGear() {
     const res = await fetch("/api/wb-fbs/auto-sync-settings");
     if (!res.ok) return;
     const data = await res.json().catch(() => ({}));
-    _wbFbsAutoSyncMarkGear(!!data.enabled);
+    _wbFbsAutoSyncMarkGear(!!data.enabled, !!data.collect_mgt_enabled);
   } catch (_) {}
 }
 

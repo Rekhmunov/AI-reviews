@@ -803,6 +803,10 @@ class StockSourceUpdateRequest(BaseModel):
 class WbFbsAutoSyncSettingsRequest(BaseModel):
     enabled: bool = False
     interval_hours: int = Field(default=1, ge=1, le=24)
+    collect_mgt_enabled: bool = False
+    collect_mgt_interval_hours: int = Field(default=1, ge=1, le=24)
+    collect_mgt_active_from: str = "12:00"
+    collect_mgt_active_to: str = "06:00"
 
     def validated_interval(self) -> int:
         allowed = (1, 2, 3, 6, 12, 24)
@@ -810,6 +814,16 @@ class WbFbsAutoSyncSettingsRequest(BaseModel):
         if hours not in allowed:
             raise ValueError(
                 "Период должен быть одним из: " + ", ".join(str(v) for v in allowed)
+            )
+        return hours
+
+    def validated_collect_interval(self) -> int:
+        allowed = (1, 2, 3, 6, 12, 24)
+        hours = int(self.collect_mgt_interval_hours)
+        if hours not in allowed:
+            raise ValueError(
+                "Период автосбора МГТ должен быть одним из: "
+                + ", ".join(str(v) for v in allowed)
             )
         return hours
 
@@ -9205,10 +9219,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         owner_id = _supply_owner_id(user)
         try:
             interval_hours = payload.validated_interval()
+            collect_interval = payload.validated_collect_interval()
             updated = repository.save_wb_fbs_auto_sync_settings(
                 user_id=owner_id,
                 enabled=bool(payload.enabled),
                 interval_hours=interval_hours,
+                collect_mgt_enabled=bool(payload.collect_mgt_enabled),
+                collect_mgt_interval_hours=collect_interval,
+                collect_mgt_active_from=str(payload.collect_mgt_active_from or "12:00"),
+                collect_mgt_active_to=str(payload.collect_mgt_active_to or "06:00"),
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -1504,8 +1504,8 @@
               <button id="wbFbsSyncBtn" onclick="syncWbFbs()">Синхронизировать</button>
               <button id="wbFbsStopBtn" class="secondary icon-btn hidden" onclick="stopWbFbsSync()" style="color:#b91c1c;border-color:#fca5a5" title="Остановить синхронизацию">🛑</button>
               <button type="button" id="wbFbsAutoSyncSettingsBtn" class="secondary icon-btn"
-                      onclick="openWbFbsAutoSyncSettings()" title="Настройки автоматической синхронизации"
-                      aria-label="Настройки автоматической синхронизации">⚙</button>
+                      onclick="openWbFbsAutoSyncSettings()" title="Настройки автоматики WB FBS"
+                      aria-label="Настройки автоматики WB FBS">⚙</button>
             </div>
             <div class="wb-fbs-toolbar-right">
               <input id="wbFbsSearchFilter" class="wb-fbs-search" type="search" placeholder="Поиск по заказу, артикулу, ШК…"
@@ -1607,6 +1607,45 @@
               </select>
             </div>
             <div id="wbFbsAutoSyncLast" class="wb-fbs-auto-sync-last">Последняя синхронизация: —</div>
+
+            <div class="wb-fbs-auto-collect-section">
+              <h4 class="wb-fbs-auto-collect-title">Автосбор МГТ-заказов</h4>
+              <p class="wb-fbs-auto-collect-lead">Это не синхронизация. Отдельный автозапуск «Собрать все МГТ заказы» по расписанию (время — МСК). При любой неоднозначности авто ничего не делает — остаётся ручной сбор.</p>
+              <div class="wb-fbs-auto-sync-row">
+                <div class="wb-fbs-auto-sync-label">
+                  <span>Автоматический сбор МГТ</span>
+                  <span id="wbFbsAutoCollectEnabledText" class="wb-fbs-auto-sync-state">Выкл</span>
+                </div>
+                <label class="switch" title="Включить или выключить автосбор МГТ">
+                  <input type="checkbox" id="wbFbsAutoCollectEnabled" onchange="onWbFbsAutoCollectToggle()" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+              <div class="wb-fbs-auto-sync-field">
+                <label for="wbFbsAutoCollectInterval">Интервал автосбора</label>
+                <select id="wbFbsAutoCollectInterval">
+                  <option value="1">Каждый 1 час</option>
+                  <option value="2">Каждые 2 часа</option>
+                  <option value="3">Каждые 3 часа</option>
+                  <option value="6">Каждые 6 часов</option>
+                  <option value="12">Каждые 12 часов</option>
+                  <option value="24">Каждые 24 часа</option>
+                </select>
+              </div>
+              <div class="wb-fbs-auto-collect-window">
+                <div class="wb-fbs-auto-sync-field">
+                  <label for="wbFbsAutoCollectFrom">Активно с (МСК)</label>
+                  <input type="time" id="wbFbsAutoCollectFrom" value="12:00" step="60" />
+                </div>
+                <div class="wb-fbs-auto-sync-field">
+                  <label for="wbFbsAutoCollectTo">Активно до (МСК)</label>
+                  <input type="time" id="wbFbsAutoCollectTo" value="06:00" step="60" />
+                </div>
+              </div>
+              <div id="wbFbsAutoCollectLast" class="wb-fbs-auto-sync-last">Последний автосбор МГТ: —</div>
+              <div id="wbFbsAutoCollectStatus" class="wb-fbs-auto-collect-status" hidden></div>
+            </div>
+
             <div id="wbFbsAutoSyncInfo" class="wb-fbs-auto-sync-info" hidden></div>
             <div class="wb-fbs-auto-sync-footer">
               <button type="button" class="secondary" onclick="closeWbFbsAutoSyncSettings()">Отмена</button>

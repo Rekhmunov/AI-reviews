@@ -11,13 +11,16 @@ import logging
 import re
 import threading
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, time as dt_time
 from typing import Any, Callable
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+from zoneinfo import ZoneInfo
 
 from .repository import ReviewRepository
+
+_MSK = ZoneInfo("Europe/Moscow")
 
 _log = logging.getLogger(__name__)
 
@@ -2131,8 +2134,228 @@ def _fbs_auto_sync_is_due(*, last_synced_at: str | None, interval_hours: int) ->
     return (datetime.now(UTC) - last_dt).total_seconds() / 3600.0 >= float(interval_hours)
 
 
+def _parse_hhmm_to_time(value: object, *, default: str) -> dt_time:
+    raw = ReviewRepository._normalize_hhmm(value, default=default)
+    hour_s, minute_s = raw.split(":", 1)
+    return dt_time(hour=int(hour_s), minute=int(minute_s))
+
+
+def _msk_now() -> datetime:
+    return datetime.now(_MSK)
+
+
+def _msk_time_in_active_window(
+    *,
+    now_msk: datetime | None = None,
+    active_from: object = "12:00",
+    active_to: object = "06:00",
+) -> bool:
+    """True if MSK local time is inside [from, to] inclusive; supports overnight windows."""
+    now = now_msk or _msk_now()
+    start = _parse_hhmm_to_time(active_from, default="12:00")
+    end = _parse_hhmm_to_time(active_to, default="06:00")
+    current = now.astimezone(_MSK).time().replace(second=0, microsecond=0)
+    if start == end:
+        return True
+    if start < end:
+        return start <= current <= end
+    # Overnight, e.g. 12:00 → 06:00 (active at/after noon or at/before 06:00).
+    return current >= start or current <= end
+
+
+def _open_supply_counts_for_auto_mgt(open_supplies: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Supplies that block/participate in auto MGT: empty or cargo MGT.
+
+    Non-empty non-MGT (e.g. SGT) are ignored for the «several supplies» gate.
+    """
+    out: list[dict[str, Any]] = []
+    for s in open_supplies:
+        if _supply_is_empty(s) or int(s.get("cargo_type") or 0) == 1:
+            out.append(s)
+    return out
+
+
+def plan_auto_collect_mgt_decisions(
+    preview: dict[str, Any],
+    *,
+    open_supplies: list[dict[str, Any]] | None = None,
+) -> tuple[list[dict[str, Any]] | None, str]:
+    """Build safe auto decisions for «Собрать все МГТ» or return skip reason.
+
+    Auto never opens a modal: any ambiguity / name conflict → skip.
+    """
+    groups = [g for g in (preview.get("groups") or []) if isinstance(g, dict)]
+    if not groups or not int(preview.get("mgt_count") or 0):
+        return None, "no_mgt"
+
+    supplies = list(open_supplies or [])
+    if not supplies:
+        # Reconstruct minimal open supply list from preview existing names only
+        # is not enough for cargo checks — caller should pass open supplies.
+        supplies = []
+
+    relevant = _open_supply_counts_for_auto_mgt(supplies)
+    if len(relevant) > 1:
+        return None, "several_open_supplies"
+
+    existing_names = {
+        str(x or "").strip()
+        for x in (preview.get("existing_names") or [])
+        if str(x or "").strip()
+    }
+    decisions: list[dict[str, Any]] = []
+    claimed_create_names: set[str] = set()
+
+    for g in groups:
+        mode = str(g.get("mode") or "").strip()
+        gkey = str(g.get("group_key") or "").strip()
+        is_b2b = bool(g.get("is_b2b"))
+        if not gkey:
+            return None, "invalid_group"
+        if mode == "choose":
+            return None, "needs_choice"
+        if mode == "add_one":
+            sid = str(g.get("default_supply_id") or "").strip()
+            if not sid:
+                return None, "missing_supply"
+            decisions.append(
+                {
+                    "group_key": gkey,
+                    "is_b2b": is_b2b,
+                    "action": "add",
+                    "supply_id": sid,
+                }
+            )
+            continue
+        if mode == "create":
+            # Exact template only — never auto-suffix «(2)».
+            template = default_mgt_supply_name(is_b2b=is_b2b)
+            if template in existing_names or template in claimed_create_names:
+                return None, "name_conflict"
+            claimed_create_names.add(template)
+            decisions.append(
+                {
+                    "group_key": gkey,
+                    "is_b2b": is_b2b,
+                    "action": "create",
+                    "name": template,
+                }
+            )
+            continue
+        return None, f"unsupported_mode:{mode or 'empty'}"
+
+    if not decisions:
+        return None, "no_decisions"
+    return decisions, ""
+
+
+def run_auto_collect_mgt_for_owner(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+) -> dict[str, Any]:
+    """Run safe auto-collect MGT for all FBS sources of one owner.
+
+    Records last_run even when skipped for ambiguity (avoids 60s retry spam).
+    Does not record last_run when outside the MSK active window or interval.
+    """
+    try:
+        settings = repo.get_wb_fbs_auto_sync_settings(user_id=user_id)
+    except Exception as exc:
+        return {"ok": False, "ran": False, "message": str(exc)}
+
+    if not settings.get("collect_mgt_enabled"):
+        return {"ok": True, "ran": False, "message": "disabled"}
+
+    if not _msk_time_in_active_window(
+        active_from=settings.get("collect_mgt_active_from"),
+        active_to=settings.get("collect_mgt_active_to"),
+    ):
+        return {"ok": True, "ran": False, "message": "outside_window"}
+
+    interval_hours = int(settings.get("collect_mgt_interval_hours") or 1)
+    if not _fbs_auto_sync_is_due(
+        last_synced_at=settings.get("collect_mgt_last_run_at"),
+        interval_hours=interval_hours,
+    ):
+        return {"ok": True, "ran": False, "message": "not_due"}
+
+    try:
+        jobs = list_fbs_sync_jobs(repo, user_id=user_id)
+    except Exception as exc:
+        status = f"list_jobs_error: {exc}"
+        try:
+            repo.mark_wb_fbs_auto_collect_mgt_run(user_id=user_id, status=status)
+        except Exception:
+            pass
+        return {"ok": False, "ran": True, "message": status}
+
+    if not jobs:
+        status = "no_fbs_sources"
+        repo.mark_wb_fbs_auto_collect_mgt_run(user_id=user_id, status=status)
+        return {"ok": True, "ran": True, "message": status}
+
+    summaries: list[str] = []
+    any_added = False
+    for job in jobs:
+        sid = int(job.get("source_id") or 0)
+        api_key = str(job.get("api_key") or "")
+        name = str(job.get("name") or sid)
+        if not sid or not api_key:
+            continue
+        try:
+            preview = preview_collect_mgt(repo, user_id=user_id, source_id=sid)
+            open_supplies = list_supplies(
+                repo, user_id=user_id, source_id=sid, only_open=True
+            )
+            for s in open_supplies:
+                s["order_ids"] = s.get("order_ids") or _parse_json_list(
+                    s.get("order_ids_json")
+                )
+            decisions, skip_reason = plan_auto_collect_mgt_decisions(
+                preview, open_supplies=open_supplies
+            )
+            if decisions is None:
+                if skip_reason == "no_mgt":
+                    summaries.append(f"{name}: нет МГТ")
+                else:
+                    summaries.append(f"{name}: пропуск ({skip_reason})")
+                continue
+            result = execute_collect_mgt(
+                repo,
+                user_id=user_id,
+                source_id=sid,
+                api_key=api_key,
+                decisions=decisions,
+            )
+            added = int(result.get("added") or 0)
+            if added:
+                any_added = True
+            msg = str(result.get("message") or ("ok" if result.get("ok") else "error"))
+            summaries.append(f"{name}: {msg} (+{added})")
+        except Exception as exc:
+            _log.warning(
+                "auto collect MGT user=%s source=%s error: %s", user_id, sid, exc
+            )
+            summaries.append(f"{name}: ошибка {exc}")
+
+    status = "; ".join(summaries) if summaries else "nothing_to_do"
+    if len(status) > 500:
+        status = status[:497] + "…"
+    try:
+        repo.mark_wb_fbs_auto_collect_mgt_run(user_id=user_id, status=status)
+    except Exception as exc:
+        _log.warning("mark auto collect run user=%s: %s", user_id, exc)
+    return {
+        "ok": True,
+        "ran": True,
+        "added": any_added,
+        "message": status,
+    }
+
+
 class WbFbsScheduler:
-    """Background hourly (configurable) sync for tenants with auto-sync enabled."""
+    """Background hourly (configurable) sync + auto-collect MGT for enabled tenants."""
 
     def __init__(self, repository: ReviewRepository) -> None:
         self.repository = repository
@@ -2184,38 +2407,63 @@ class WbFbsScheduler:
                 settings = self.repository.get_wb_fbs_auto_sync_settings(user_id=user_id)
             except Exception:
                 continue
-            if not settings.get("enabled"):
+
+            # 1) Auto-sync orders (unchanged behaviour).
+            if settings.get("enabled"):
+                interval_hours = int(settings.get("interval_hours") or 1)
+                if _fbs_auto_sync_is_due(
+                    last_synced_at=settings.get("last_synced_at"),
+                    interval_hours=interval_hours,
+                ):
+                    try:
+                        jobs = list_fbs_sync_jobs(self.repository, user_id=user_id)
+                    except Exception as exc:
+                        _log.warning(
+                            "WbFbsScheduler user %s list jobs error: %s", user_id, exc
+                        )
+                        jobs = []
+                    if jobs:
+                        ok, message = start_sync_thread(
+                            repo=self.repository,
+                            user_id=user_id,
+                            sources=jobs,
+                        )
+                        if ok:
+                            _log.info(
+                                "WbFbsScheduler: started auto-sync user=%s sources=%s interval=%sh",
+                                user_id,
+                                len(jobs),
+                                interval_hours,
+                            )
+                        else:
+                            _log.info(
+                                "WbFbsScheduler: skip sync user=%s (%s)",
+                                user_id,
+                                message,
+                            )
+
+            # 2) Auto-collect MGT — independent schedule; wait if sync is running.
+            if self._stop_event.is_set():
+                return
+            if get_sync_state().get("in_progress"):
                 continue
-            interval_hours = int(settings.get("interval_hours") or 1)
-            if not _fbs_auto_sync_is_due(
-                last_synced_at=settings.get("last_synced_at"),
-                interval_hours=interval_hours,
-            ):
+            if not settings.get("collect_mgt_enabled"):
                 continue
             try:
-                jobs = list_fbs_sync_jobs(self.repository, user_id=user_id)
-            except Exception as exc:
-                _log.warning("WbFbsScheduler user %s list jobs error: %s", user_id, exc)
-                continue
-            if not jobs:
-                continue
-            ok, message = start_sync_thread(
-                repo=self.repository,
-                user_id=user_id,
-                sources=jobs,
-            )
-            if ok:
-                _log.info(
-                    "WbFbsScheduler: started auto-sync user=%s sources=%s interval=%sh",
-                    user_id,
-                    len(jobs),
-                    interval_hours,
+                result = run_auto_collect_mgt_for_owner(
+                    self.repository, user_id=user_id
                 )
-            else:
-                _log.info(
-                    "WbFbsScheduler: skip user=%s (%s)",
+                if result.get("ran"):
+                    _log.info(
+                        "WbFbsScheduler: auto-collect MGT user=%s %s",
+                        user_id,
+                        result.get("message"),
+                    )
+            except Exception as exc:
+                _log.warning(
+                    "WbFbsScheduler auto-collect MGT user=%s error: %s",
                     user_id,
-                    message,
+                    exc,
                 )
 
 
