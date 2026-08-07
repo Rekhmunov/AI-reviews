@@ -7579,6 +7579,27 @@ button.wb-fbs-select-all-link:disabled {
 }
 .wb-fbs-badge.time { background: #dcfce7; color: #166534; }
 .wb-fbs-badge.cargo { background: #e0f2fe; color: #075985; }
+.wb-fbs-finished-status {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 8px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+  max-width: 100%;
+}
+.wb-fbs-finished-status.is-sold {
+  border: 1px solid #bbf7d0;
+  background: #f0fdf4;
+  color: #166534;
+}
+.wb-fbs-finished-status.is-refused {
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+}
 .wb-fbs-product {
   display: flex;
   gap: 12px;

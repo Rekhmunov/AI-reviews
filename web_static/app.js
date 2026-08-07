@@ -20434,6 +20434,13 @@ function renderWbFbsOrdersTable() {
     const cancelBadgeHtml = (wbFbsState.tab === "cancelled" && cancelReason)
       ? `<div class="wb-fbs-cancel-reason" title="${_wbFbsEsc(cancelReason)}">${_wbFbsEsc(cancelReason)}</div>`
       : "";
+    const finishedStatus = String(o.finished_status_label || "").trim();
+    const finishedStatusClass = (String(o.wb_status || "").trim().toLowerCase() === "sold")
+      ? "wb-fbs-finished-status is-sold"
+      : "wb-fbs-finished-status is-refused";
+    const finishedStatusHtml = (wbFbsState.tab === "finished" && finishedStatus)
+      ? `<div class="${finishedStatusClass}" title="${_wbFbsEsc(finishedStatus)}">${_wbFbsEsc(finishedStatus)}</div>`
+      : "";
     const actionsTd = showActions ? `<td>${_wbFbsRowActionsHtml(oid)}</td>` : "";
     return `<tr>
       <td><input type="checkbox" class="wb-fbs-row-cb" data-order-id="${oid}" ${checked} onchange="onWbFbsCheckboxChange()" /></td>
@@ -20441,6 +20448,7 @@ function renderWbFbsOrdersTable() {
         <div class="wb-fbs-order-id">${_wbFbsEsc(oid)}</div>
         <div class="wb-fbs-order-meta">от ${_wbFbsEsc(_wbFbsFmtDate(o.created_at_wb))}</div>
         ${badges.length ? `<div class="wb-fbs-badges">${badges.join("")}</div>` : ""}
+        ${finishedStatusHtml}
       </td>
       <td>
         <div class="wb-fbs-product">

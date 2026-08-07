@@ -177,6 +177,15 @@ def _is_cancelled_status(*, supplier_status: object = "", wb_status: object = ""
     return ss in _CANCELLED_SUPPLIER or ws in _CANCELLED_WB
 
 
+def finished_status_label(*, supplier_status: object = "", wb_status: object = "") -> str:
+    """Human label for «Завершённые» (wbStatus=sold)."""
+    del supplier_status  # reserved for future supplier-side outcomes
+    ws = str(wb_status or "").strip().lower()
+    if ws == "sold":
+        return "Заказ выкуплен"
+    return ""
+
+
 def default_mgt_supply_name(*, is_b2b: bool, when: datetime | None = None) -> str:
     """Default editable title: ``Поставка от ДД.ММ.ГГГГ`` (+ `` B2B``)."""
     from zoneinfo import ZoneInfo
@@ -233,7 +242,7 @@ def cancel_reason_label(*, supplier_status: object = "", wb_status: object = "")
     if ws == "declined_by_client":
         return "Покупатель в первый час"
     if ws == "canceled_by_client":
-        return "Покупатель при получении"
+        return "Клиент отказался"
     if ws == "defect":
         return "Брак"
     if ws == "canceled_by_carrier" or ss == "cancel_carrier":
@@ -1129,6 +1138,10 @@ def list_orders(
             )
         d["cargo_label"] = cargo_type_label(d.get("cargo_type"))
         d["cancel_reason_label"] = cancel_reason_label(
+            supplier_status=d.get("supplier_status"),
+            wb_status=d.get("wb_status"),
+        )
+        d["finished_status_label"] = finished_status_label(
             supplier_status=d.get("supplier_status"),
             wb_status=d.get("wb_status"),
         )
