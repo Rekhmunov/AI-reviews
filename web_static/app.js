@@ -21075,6 +21075,10 @@ function _wbFbsNormTimeInput(value, fallback) {
 }
 
 async function saveWbFbsAutoSyncSettings() {
+  if (!_wbFbsCanViewOwnerTabs()) {
+    alert("Настройки автоматики доступны только главному пользователю");
+    return;
+  }
   const enabled = !!document.getElementById("wbFbsAutoSyncEnabled")?.checked;
   const intervalHours = Number(document.getElementById("wbFbsAutoSyncInterval")?.value || 1);
   const collectEnabled = !!document.getElementById("wbFbsAutoCollectEnabled")?.checked;
