@@ -18264,6 +18264,7 @@ const wbFbsDetailState = {
   supplyId: "",
   supply: null,
   selected: new Set(),
+  trbxBusy: false,
 };
 
 function _wbFbsSupplyDetailResetSearch() {
@@ -18278,9 +18279,118 @@ function closeWbFbsSupplyDetailModal() {
   _wbFbsCloseRowMenus();
   _wbFbsClosePickingMenu();
   _wbFbsSupplyDetailResetSearch();
+  closeWbFbsCreateTrbxModal();
   setModalVisibility("wbFbsSupplyDetailModal", false);
 }
 window.closeWbFbsSupplyDetailModal = closeWbFbsSupplyDetailModal;
+
+function _wbFbsTrbxMaxAmount() {
+  const supply = wbFbsDetailState.supply || {};
+  const orders = Number(supply.order_count || 0);
+  // WB: boxes ≤ items in supply + 1
+  const maxByOrders = Math.max(1, orders + 1);
+  return Math.min(1000, maxByOrders);
+}
+
+function _wbFbsCreateTrbxSetInfo(text, kind = "") {
+  const el = document.getElementById("wbFbsCreateTrbxInfo");
+  if (!el) return;
+  const msg = String(text || "").trim();
+  el.hidden = !msg;
+  el.textContent = msg;
+  el.classList.toggle("is-error", kind === "error");
+  el.classList.toggle("is-ok", kind === "ok");
+}
+
+function wbFbsTrbxAmountChanged() {
+  const input = document.getElementById("wbFbsCreateTrbxAmount");
+  const btn = document.getElementById("wbFbsCreateTrbxSubmitBtn");
+  if (!input) return;
+  let n = Math.floor(Number(input.value));
+  if (!Number.isFinite(n) || n < 0) n = 0;
+  const max = _wbFbsTrbxMaxAmount();
+  if (n > max) n = max;
+  input.value = String(n);
+  if (btn) btn.disabled = n < 1 || !!wbFbsDetailState.trbxBusy;
+}
+window.wbFbsTrbxAmountChanged = wbFbsTrbxAmountChanged;
+
+function wbFbsTrbxStep(delta) {
+  const input = document.getElementById("wbFbsCreateTrbxAmount");
+  if (!input || wbFbsDetailState.trbxBusy) return;
+  const cur = Math.floor(Number(input.value) || 0);
+  input.value = String(Math.max(0, cur + Number(delta || 0)));
+  wbFbsTrbxAmountChanged();
+}
+window.wbFbsTrbxStep = wbFbsTrbxStep;
+
+function openWbFbsCreateTrbxModal() {
+  const sid = String(wbFbsDetailState.supplyId || "").trim();
+  if (!sid || !wbFbsState.sourceId) return;
+  const supply = wbFbsDetailState.supply || {};
+  if (supply.done) {
+    alert("Поставка уже закрыта — грузоместа добавить нельзя");
+    return;
+  }
+  const modal = document.getElementById("wbFbsCreateTrbxModal");
+  if (!modal) return;
+  const input = document.getElementById("wbFbsCreateTrbxAmount");
+  if (input) {
+    input.value = "0";
+    input.max = String(_wbFbsTrbxMaxAmount());
+  }
+  _wbFbsCreateTrbxSetInfo("");
+  wbFbsTrbxAmountChanged();
+  modal.classList.remove("hidden");
+}
+window.openWbFbsCreateTrbxModal = openWbFbsCreateTrbxModal;
+
+function closeWbFbsCreateTrbxModal() {
+  if (wbFbsDetailState.trbxBusy) return;
+  const modal = document.getElementById("wbFbsCreateTrbxModal");
+  if (modal) modal.classList.add("hidden");
+  _wbFbsCreateTrbxSetInfo("");
+}
+window.closeWbFbsCreateTrbxModal = closeWbFbsCreateTrbxModal;
+
+async function submitWbFbsCreateTrbx() {
+  const sid = String(wbFbsDetailState.supplyId || "").trim();
+  if (!sid || !wbFbsState.sourceId || wbFbsDetailState.trbxBusy) return;
+  const amount = Math.floor(Number(document.getElementById("wbFbsCreateTrbxAmount")?.value || 0));
+  if (amount < 1) return;
+  const submitBtn = document.getElementById("wbFbsCreateTrbxSubmitBtn");
+  wbFbsDetailState.trbxBusy = true;
+  if (submitBtn) submitBtn.disabled = true;
+  _wbFbsCreateTrbxSetInfo("Создаём грузоместа…");
+  try {
+    const res = await fetch(`/api/wb-fbs/supplies/${encodeURIComponent(sid)}/trbx`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ source_id: wbFbsState.sourceId, amount }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) {
+      throw new Error(data.detail || data.message || `Ошибка ${res.status}`);
+    }
+    const created = Array.isArray(data.trbx_ids) ? data.trbx_ids.length : amount;
+    _wbFbsCreateTrbxSetInfo(`Создано грузомест: ${created}`, "ok");
+    if (Array.isArray(data.stickers) && data.stickers.length) {
+      _wbFbsOpenBase64Images(data.stickers, `box_${sid}`);
+    }
+    wbFbsDetailState.trbxBusy = false;
+    closeWbFbsCreateTrbxModal();
+    // Refresh detail meta (boxes count) without closing the supply modal.
+    await openWbFbsSupplyDetailModal(sid);
+    if (wbFbsState.tab === "assembly") {
+      try { loadWbFbsOrders(false); } catch (_) {}
+    }
+  } catch (e) {
+    _wbFbsCreateTrbxSetInfo(String(e.message || e), "error");
+    wbFbsDetailState.trbxBusy = false;
+    wbFbsTrbxAmountChanged();
+  }
+}
+window.submitWbFbsCreateTrbx = submitWbFbsCreateTrbx;
 
 async function openWbFbsSupplyDetailModal(supplyId) {
   _wbFbsCloseRowMenus();
@@ -18352,6 +18462,10 @@ function renderWbFbsSupplyDetail(data) {
   if (kizBtn) {
     const needsKiz = allOrders.some((o) => o && o.kiz_required);
     kizBtn.hidden = !needsKiz;
+  }
+  const trbxBtn = document.getElementById("wbFbsSupplyDetailTrbxBtn");
+  if (trbxBtn) {
+    trbxBtn.hidden = !!supply.done;
   }
   if (!tbody) return;
   if (!allOrders.length) {

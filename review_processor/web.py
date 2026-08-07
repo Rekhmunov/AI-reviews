@@ -8958,6 +8958,47 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    @app.post("/api/wb-fbs/supplies/{supply_id}/trbx")
+    async def wb_fbs_create_supply_trbx(
+        request: Request,
+        supply_id: str,
+    ) -> dict[str, object]:
+        """Create cargo places (короба) on an open FBS supply and return stickers."""
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        sid = str(supply_id or "").strip()
+        payload = await request.json()
+        try:
+            source_id = int(payload.get("source_id") or 0)
+        except (TypeError, ValueError):
+            source_id = 0
+        try:
+            amount = int(payload.get("amount") or 0)
+        except (TypeError, ValueError):
+            amount = 0
+        if not sid or not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
+        if amount < 1:
+            raise HTTPException(status_code=400, detail="Укажите количество коробов")
+        api_key = _wb_fbs_source_key(owner_id, int(source_id))
+        try:
+            return wb_fbs_mod.create_supply_trbx(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                api_key=api_key,
+                supply_id=sid,
+                amount=amount,
+                fetch_stickers=True,
+                sticker_type="png",
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @app.get("/api/wb-fbs/supplies/{supply_id}/picking-list.pdf")
     def wb_fbs_supply_picking_list_pdf(
         request: Request,

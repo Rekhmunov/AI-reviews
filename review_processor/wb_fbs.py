@@ -578,6 +578,27 @@ class WbFbsClient:
                 _log.debug("get_supply_boxes %s failed: %s", path, exc)
         return []
 
+    def create_supply_boxes(self, supply_id: str, amount: int) -> list[str]:
+        """Add cargo places: ``POST /api/v3/supplies/{id}/trbx`` → ``trbxIds``."""
+        sid = str(supply_id or "").strip()
+        if not sid:
+            raise ValueError("Не указан ID поставки")
+        try:
+            n = int(amount)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Укажите количество коробов") from exc
+        if n < 1 or n > 1000:
+            raise ValueError("Количество коробов: от 1 до 1000")
+        data = self._request(
+            "POST",
+            f"/api/v3/supplies/{sid}/trbx",
+            body={"amount": n},
+        )
+        ids = data.get("trbxIds") if isinstance(data, dict) else None
+        if not isinstance(ids, list):
+            return []
+        return [str(x).strip() for x in ids if str(x or "").strip()]
+
     def get_box_stickers(
         self,
         supply_id: str,
@@ -595,6 +616,86 @@ class WbFbsClient:
         )
         stickers = data.get("stickers") if isinstance(data, dict) else None
         return list(stickers or []) if isinstance(stickers, list) else []
+
+
+def create_supply_trbx(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    api_key: str,
+    supply_id: str,
+    amount: int,
+    fetch_stickers: bool = True,
+    sticker_type: str = "png",
+) -> dict[str, Any]:
+    """Create N cargo places on WB, refresh local boxes cache, optional stickers."""
+    from . import wb_fbs_detail as wb_detail
+
+    ensure_wb_fbs_tables(repo)
+    sid = str(supply_id or "").strip()
+    if not sid:
+        raise ValueError("Не указан ID поставки")
+    try:
+        n = int(amount)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Укажите количество коробов") from exc
+    if n < 1 or n > 1000:
+        raise ValueError("Количество коробов: от 1 до 1000")
+
+    client = WbFbsClient(api_key)
+    try:
+        live = client.get_supply(sid)
+    except Exception as exc:
+        raise RuntimeError(f"Не удалось проверить поставку: {exc}") from exc
+    if bool(live.get("done")):
+        raise ValueError("Поставка уже закрыта — грузоместа добавить нельзя")
+
+    try:
+        created_ids = client.create_supply_boxes(sid, n)
+    except Exception as exc:
+        raise RuntimeError(str(exc)) from exc
+    if not created_ids:
+        raise RuntimeError("WB не вернул ID созданных грузомест")
+
+    time.sleep(0.21)
+    boxes: list[dict[str, Any]] = []
+    try:
+        boxes = client.get_supply_boxes(sid)
+    except Exception as exc:
+        _log.debug("refresh boxes after create %s: %s", sid, exc)
+        boxes = [{"id": bid} for bid in created_ids]
+
+    upsert_supply(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        supply=live if isinstance(live, dict) else {"id": sid},
+        order_ids=[],
+        boxes=boxes,
+    )
+    wb_detail.invalidate_supply_detail_cache(
+        user_id=user_id, source_id=source_id, supply_id=sid
+    )
+
+    stickers: list[dict[str, Any]] = []
+    stype = str(sticker_type or "png").strip().lower()
+    if stype not in {"png", "svg", "zplv", "zplh"}:
+        stype = "png"
+    if fetch_stickers:
+        try:
+            time.sleep(0.21)
+            stickers = client.get_box_stickers(sid, created_ids[:100], sticker_type=stype)
+        except Exception as exc:
+            _log.warning("trbx stickers after create %s: %s", sid, exc)
+
+    return {
+        "ok": True,
+        "supply_id": sid,
+        "trbx_ids": created_ids,
+        "boxes_count": len(boxes) if boxes else len(created_ids),
+        "stickers": stickers,
+    }
 
 
 def ensure_wb_fbs_tables(repo: ReviewRepository) -> None:

@@ -1766,6 +1766,8 @@
                 </div>
                 <button type="button" class="secondary" id="wbFbsSupplyDetailStickersBtn" onclick="wbFbsOpenStickersPrint()">Распечатать стикеры</button>
                 <button type="button" class="secondary" id="wbFbsSupplyDetailKizBtn" onclick="openWbFbsKizModal()" hidden>Указать маркировку</button>
+                <button type="button" class="secondary" id="wbFbsSupplyDetailTrbxBtn"
+                        onclick="openWbFbsCreateTrbxModal()" title="Создать грузоместа (короба) для ПВЗ">Создать грузоместа</button>
                 <button type="button" class="secondary wb-fbs-sd-portal-btn" id="wbFbsSupplyDetailPortalBtn"
                         onclick="openWbFbsSupplyPortal()" title="Открыть поставку на портале Wildberries">
                   <span>Перейти на портал</span>
@@ -1791,6 +1793,34 @@
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+
+        <div id="wbFbsCreateTrbxModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="wbFbsCreateTrbxTitle"
+             onclick="if(event.target===this)closeWbFbsCreateTrbxModal()">
+          <div class="modal-card wb-fbs-create-trbx-modal">
+            <div class="wb-fbs-create-trbx-header">
+              <h3 id="wbFbsCreateTrbxTitle" class="wb-fbs-create-trbx-title">
+                Создайте грузоместа для поставки в ПВЗ, иначе её не примут
+              </h3>
+              <button type="button" class="icon-btn secondary" onclick="closeWbFbsCreateTrbxModal()" aria-label="Закрыть">✕</button>
+            </div>
+            <p class="wb-fbs-create-trbx-lead">
+              1 короб = 1 грузоместо. Затем распечатайте QR-коды грузомест и наклейте их на каждый короб.
+              Сделайте это до передачи в доставку.
+            </p>
+            <div class="wb-fbs-create-trbx-controls">
+              <div class="wb-fbs-trbx-stepper" role="group" aria-label="Количество коробов">
+                <button type="button" class="secondary wb-fbs-trbx-stepper-btn" onclick="wbFbsTrbxStep(-1)" aria-label="Меньше">−</button>
+                <input id="wbFbsCreateTrbxAmount" class="wb-fbs-trbx-stepper-input" type="number"
+                       min="0" max="1000" step="1" value="0" inputmode="numeric"
+                       oninput="wbFbsTrbxAmountChanged()" aria-label="Количество коробов" />
+                <button type="button" class="secondary wb-fbs-trbx-stepper-btn" onclick="wbFbsTrbxStep(1)" aria-label="Больше">+</button>
+              </div>
+              <button type="button" id="wbFbsCreateTrbxSubmitBtn" onclick="submitWbFbsCreateTrbx()" disabled>Создать</button>
+            </div>
+            <div id="wbFbsCreateTrbxInfo" class="wb-fbs-create-trbx-info" hidden></div>
           </div>
         </div>
 
