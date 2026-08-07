@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from review_processor.wb_fbs_detail import _kiz_from_meta_row, _kiz_status_from_decision
+from review_processor.wb_fbs_detail import (
+    _kiz_from_meta_row,
+    _kiz_status_from_decision,
+    summarize_kiz_check_status,
+)
 
 
 def test_status_empty_without_codes() -> None:
@@ -64,3 +68,15 @@ def test_meta_row_pending_required_with_value() -> None:
         }
     )
     assert parsed["kiz_status"] == "pending"
+
+
+def test_summarize_kiz_check_status() -> None:
+    assert summarize_kiz_check_status([]) == "none"
+    # filled / sgtinIntroduced both map to ok → green split control
+    assert summarize_kiz_check_status(["ok", "ok"]) == "ok"
+    assert summarize_kiz_check_status(["ok", "error"]) == "error"
+    assert summarize_kiz_check_status(["error", "pending"]) == "error"
+    # Still checking / empty slots → default (not green, not red)
+    assert summarize_kiz_check_status(["ok", "pending"]) == "pending"
+    assert summarize_kiz_check_status(["empty", "pending"]) == "pending"
+    assert summarize_kiz_check_status(["empty"]) == "pending"

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=164" />
+  <link rel="stylesheet" href="/static/style.css?v=165" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1766,8 +1766,20 @@
                 </div>
                 <button type="button" class="secondary" id="wbFbsSupplyDetailStickersBtn"
                         onclick="wbFbsOpenStickersPrint()" title="Распечатать стикеры">Стикеры</button>
-                <button type="button" class="secondary" id="wbFbsSupplyDetailKizBtn"
-                        onclick="openWbFbsKizModal()" title="Указать маркировку" hidden>Маркировка</button>
+                <div class="wb-fbs-kiz-split" id="wbFbsKizSplit" hidden>
+                  <button type="button" class="secondary" id="wbFbsSupplyDetailKizBtn"
+                          onclick="openWbFbsKizModal()" title="Указать маркировку">Маркировка</button>
+                  <button type="button" class="secondary wb-fbs-kiz-refresh"
+                          id="wbFbsSupplyDetailKizRefreshBtn"
+                          onclick="refreshWbFbsKizStatus(event)"
+                          aria-label="Проверить статусы КИЗ на Wildberries"
+                          title="Проверить статусы КИЗ на ВБ">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                      <path d="M13.5 8A5.5 5.5 0 1 1 11.2 3.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                      <path d="M11 2.5v2.8h2.8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  </button>
+                </div>
                 <button type="button" class="secondary" id="wbFbsSupplyDetailTrbxBtn"
                         onclick="openWbFbsCreateTrbxModal()" title="Создать грузоместа (короба) для ПВЗ">Грузоместа</button>
                 <button type="button" class="secondary wb-fbs-sd-portal-btn" id="wbFbsSupplyDetailPortalBtn"
@@ -3966,6 +3978,6 @@
   <script src="/static/jszip.min.js"></script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=345"></script>
+  <script src="/static/app.js?v=346"></script>
 </body>
 </html>

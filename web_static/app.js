@@ -18285,6 +18285,7 @@ function closeWbFbsSupplyDetailModal() {
   wbFbsDetailState.trbxRemaining = 0;
   wbFbsDetailState.trbxLoaded = false;
   wbFbsDetailState.trbxLoading = false;
+  _wbFbsKizSplitSetTone("");
   _wbFbsCloseRowMenus();
   _wbFbsClosePickingMenu();
   _wbFbsSupplyDetailResetSearch();
@@ -18674,6 +18675,7 @@ async function openWbFbsSupplyDetailModal(supplyId) {
   if (!sid || !wbFbsState.sourceId) return;
   wbFbsDetailState.supplyId = sid;
   wbFbsDetailState.selected.clear();
+  _wbFbsKizSplitSetTone("");
   _wbFbsSupplyDetailResetSearch();
   setModalVisibility("wbFbsSupplyDetailModal", true);
   const title = document.getElementById("wbFbsSupplyDetailTitle");
@@ -18734,10 +18736,11 @@ function renderWbFbsSupplyDetail(data) {
   const orders = String(searchQ || "").trim()
     ? allOrders.filter((o) => _wbFbsKizRowMatchesSearch(o, searchQ))
     : allOrders;
-  const kizBtn = document.getElementById("wbFbsSupplyDetailKizBtn");
-  if (kizBtn) {
+  const kizSplit = document.getElementById("wbFbsKizSplit");
+  if (kizSplit) {
     const needsKiz = allOrders.some((o) => o && o.kiz_required);
-    kizBtn.hidden = !needsKiz;
+    kizSplit.hidden = !needsKiz;
+    if (!needsKiz) _wbFbsKizSplitSetTone("");
   }
   const trbxBtn = document.getElementById("wbFbsSupplyDetailTrbxBtn");
   if (trbxBtn) {
@@ -18925,6 +18928,8 @@ const wbFbsKizState = {
   errors: {},
   pendingOrderId: null,
   saving: false,
+  /** True while supply-detail refresh control is polling WB meta. */
+  statusRefreshing: false,
   /** Input id to refocus after RU-layout warning is dismissed. */
   ruLayoutFocusId: null,
   /** Timestamp when RU-layout warning opened (ignore scanner Enter briefly). */
@@ -18935,6 +18940,89 @@ const wbFbsKizState = {
    */
   baselineByOrder: {},
 };
+
+function _wbFbsKizSplitSetTone(tone) {
+  const split = document.getElementById("wbFbsKizSplit");
+  if (!split) return;
+  split.classList.remove("is-ok", "is-error");
+  const t = String(tone || "").trim().toLowerCase();
+  if (t === "ok") split.classList.add("is-ok");
+  else if (t === "error") split.classList.add("is-error");
+  // pending / none / unknown → leave default secondary styling
+}
+
+function _wbFbsKizMergeStatusIntoDetail(orders) {
+  const supply = wbFbsDetailState.supply;
+  if (!supply || !Array.isArray(supply.orders) || !Array.isArray(orders)) return;
+  const byId = new Map();
+  orders.forEach((row) => {
+    const oid = Number(row?.order_id);
+    if (Number.isFinite(oid) && oid > 0) byId.set(oid, row);
+  });
+  if (!byId.size) return;
+  supply.orders.forEach((o) => {
+    const oid = Number(o?.order_id);
+    const upd = byId.get(oid);
+    if (!upd) return;
+    o.kiz_required = true;
+    o.kiz_bound = !!upd.kiz_bound;
+    o.kiz_codes = Array.isArray(upd.kiz_codes) ? upd.kiz_codes.slice() : [];
+    o.kiz_decision = String(upd.kiz_decision || "");
+    o.kiz_status = String(upd.kiz_status || "empty");
+  });
+}
+
+async function refreshWbFbsKizStatus(event) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  const sid = String(wbFbsDetailState.supplyId || "").trim();
+  if (!sid || !wbFbsState.sourceId || wbFbsKizState.statusRefreshing) return;
+  const refreshBtn = document.getElementById("wbFbsSupplyDetailKizRefreshBtn");
+  const kizBtn = document.getElementById("wbFbsSupplyDetailKizBtn");
+  wbFbsKizState.statusRefreshing = true;
+  if (refreshBtn) {
+    refreshBtn.disabled = true;
+    refreshBtn.classList.add("is-spinning");
+  }
+  if (kizBtn) kizBtn.disabled = true;
+  try {
+    const params = new URLSearchParams({ source_id: String(wbFbsState.sourceId) });
+    const res = await fetch(
+      `/api/wb-fbs/supplies/${encodeURIComponent(sid)}/kiz/status?${params}`
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.ok === false) {
+      throw new Error(data.detail || `Ошибка ${res.status}`);
+    }
+    if (wbFbsDetailState.supplyId !== sid) return;
+    _wbFbsKizMergeStatusIntoDetail(data.orders || []);
+    _wbFbsKizSplitSetTone(data.status);
+    const info = document.getElementById("wbFbsSupplyDetailInfo");
+    if (info) {
+      info.hidden = true;
+      info.textContent = "";
+    }
+    if (wbFbsDetailState.supply) renderWbFbsSupplyDetail(wbFbsDetailState.supply);
+  } catch (e) {
+    if (wbFbsDetailState.supplyId === sid) {
+      const info = document.getElementById("wbFbsSupplyDetailInfo");
+      if (info) {
+        info.hidden = false;
+        info.textContent = String(e.message || e);
+      }
+    }
+  } finally {
+    wbFbsKizState.statusRefreshing = false;
+    if (refreshBtn) {
+      refreshBtn.disabled = false;
+      refreshBtn.classList.remove("is-spinning");
+    }
+    if (kizBtn) kizBtn.disabled = false;
+  }
+}
+window.refreshWbFbsKizStatus = refreshWbFbsKizStatus;
 
 function _wbFbsKizBadgeHtml(order) {
   // Codes without a WB decision → pending (not green).
