@@ -9243,13 +9243,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         user = _require_user(request)
         if not _can_view_wb_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
+        if not _is_wb_fbs_tenant_owner(user):
+            raise HTTPException(
+                status_code=403,
+                detail="Настройки автоматики доступны только главному пользователю",
+            )
         owner_id = _supply_owner_id(user)
         try:
             settings = repository.get_wb_fbs_auto_sync_settings(user_id=owner_id)
         except RuntimeError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
-        role = str(user.get("role") or ROLE_USER)
-        settings["can_edit"] = role in ROLE_CAN_ACCESS_SETTINGS
+        settings["can_edit"] = True
         return settings
 
     @app.put("/api/wb-fbs/auto-sync-settings")
@@ -9259,9 +9263,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         user = _require_user(request)
         if not _can_view_wb_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
-        role = str(user.get("role") or ROLE_USER)
-        if role not in ROLE_CAN_ACCESS_SETTINGS:
-            raise HTTPException(status_code=403, detail="Недостаточно прав для изменения настроек")
+        if not _is_wb_fbs_tenant_owner(user):
+            raise HTTPException(
+                status_code=403,
+                detail="Настройки автоматики доступны только главному пользователю",
+            )
         owner_id = _supply_owner_id(user)
         try:
             interval_hours = payload.validated_interval()

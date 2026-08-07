@@ -17768,12 +17768,22 @@ function _wbFbsSyncOwnerOnlyTabs() {
   }
 }
 
+function _wbFbsSyncOwnerOnlyGear() {
+  const btn = document.getElementById("wbFbsAutoSyncSettingsBtn");
+  if (!btn) return;
+  const can = _wbFbsCanViewOwnerTabs();
+  btn.hidden = !can;
+  btn.style.display = can ? "" : "none";
+  if (!can) btn.classList.remove("is-auto-on");
+}
+
 async function initWbFbsSection() {
   _wbFbsSyncOwnerOnlyTabs();
+  _wbFbsSyncOwnerOnlyGear();
   initWbFbsColumnResizer();
   _wbFbsSyncTableMode();
   await loadWbFbsSources();
-  _wbFbsRefreshAutoSyncGear();
+  if (_wbFbsCanViewOwnerTabs()) _wbFbsRefreshAutoSyncGear();
   await loadWbFbsOrders(true);
 }
 
@@ -20990,6 +21000,10 @@ function onWbFbsAutoCollectToggle() {
 window.onWbFbsAutoCollectToggle = onWbFbsAutoCollectToggle;
 
 async function openWbFbsAutoSyncSettings() {
+  if (!_wbFbsCanViewOwnerTabs()) {
+    alert("Настройки автоматики доступны только главному пользователю");
+    return;
+  }
   const modal = document.getElementById("wbFbsAutoSyncModal");
   if (!modal) return;
   modal.classList.remove("hidden");
@@ -21113,6 +21127,10 @@ async function saveWbFbsAutoSyncSettings() {
 window.saveWbFbsAutoSyncSettings = saveWbFbsAutoSyncSettings;
 
 async function _wbFbsRefreshAutoSyncGear() {
+  if (!_wbFbsCanViewOwnerTabs()) {
+    _wbFbsSyncOwnerOnlyGear();
+    return;
+  }
   try {
     const res = await fetch("/api/wb-fbs/auto-sync-settings");
     if (!res.ok) return;
