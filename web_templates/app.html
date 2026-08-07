@@ -1744,6 +1744,10 @@
               <div class="wb-fbs-kiz-filters">
                 <label class="wb-fbs-kiz-check"><input type="checkbox" id="wbFbsKizFilterEmpty" onchange="renderWbFbsKizTable()" /> Только незаполненные</label>
                 <label class="wb-fbs-kiz-check"><input type="checkbox" id="wbFbsKizFilterErrors" onchange="renderWbFbsKizTable()" /> Только с ошибками</label>
+                <input id="wbFbsKizSearchFilter" class="wb-fbs-kiz-search" type="search"
+                       placeholder="🔍 Поиск..." autocomplete="off"
+                       title="Поиск по заказу, стикеру, названию товара и ШК"
+                       oninput="renderWbFbsKizTable()" />
               </div>
               <div class="wb-fbs-kiz-toolbar-actions">
                 <div id="wbFbsKizScanCount" class="wb-fbs-kiz-scan-count" aria-live="polite">Просканировано 0 из 0 КИЗ</div>

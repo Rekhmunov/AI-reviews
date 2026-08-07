@@ -18669,6 +18669,15 @@ function _wbFbsKizValidateMarkForOrder(mark, row) {
   return { ok: true, gtin14 };
 }
 
+function _wbFbsKizResetFilters() {
+  const empty = document.getElementById("wbFbsKizFilterEmpty");
+  const errors = document.getElementById("wbFbsKizFilterErrors");
+  const search = document.getElementById("wbFbsKizSearchFilter");
+  if (empty) empty.checked = false;
+  if (errors) errors.checked = false;
+  if (search) search.value = "";
+}
+
 function closeWbFbsKizModal() {
   cancelWbFbsKizMarkScan();
   _wbFbsCloseRowMenus();
@@ -18681,6 +18690,7 @@ function closeWbFbsKizModal() {
   wbFbsKizState.pendingOrderId = null;
   wbFbsKizState.ruLayoutFocusId = null;
   wbFbsKizState.ruLayoutOpenedAt = 0;
+  _wbFbsKizResetFilters();
   _wbFbsKizSetInfo("");
 }
 window.closeWbFbsKizModal = closeWbFbsKizModal;
@@ -18692,6 +18702,7 @@ async function openWbFbsKizModal() {
   wbFbsKizState.rows = [];
   wbFbsKizState.errors = {};
   wbFbsKizState.pendingOrderId = null;
+  _wbFbsKizResetFilters();
   _wbFbsKizSetInfo("");
   const tbody = document.getElementById("wbFbsKizTbody");
   if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">Загрузка…</td></tr>`;
@@ -18792,6 +18803,29 @@ function _wbFbsKizRowIsEmpty(row) {
   return !codes.some((c) => String(c || "").trim());
 }
 
+function _wbFbsKizRowMatchesSearch(row, query) {
+  const q = String(query || "").trim().toLocaleLowerCase("en-US");
+  if (!q) return true;
+  const barcodes = Array.isArray(row?.barcodes)
+    ? row.barcodes
+    : (Array.isArray(row?.skus) ? row.skus : []);
+  const hay = [
+    row?.order_id,
+    row?.sticker_number,
+    row?.sticker_part_a,
+    row?.sticker_part_b,
+    row?.sticker_barcode,
+    row?.product_name,
+    row?.article,
+    row?.brand,
+    row?.nm_id,
+    ...barcodes,
+  ]
+    .map((x) => String(x || "").trim().toLocaleLowerCase("en-US"))
+    .filter(Boolean);
+  return hay.some((v) => v.includes(q));
+}
+
 /** Status chip under a filled КИЗ code in the marking modal (never for empty). */
 function _wbFbsKizCodeStatusChip(row, codeValue, saveError) {
   const filled = String(codeValue || "").trim();
@@ -18827,6 +18861,7 @@ function renderWbFbsKizTable(opts) {
   if (!tbody) return;
   const onlyEmpty = !!document.getElementById("wbFbsKizFilterEmpty")?.checked;
   const onlyErrors = !!document.getElementById("wbFbsKizFilterErrors")?.checked;
+  const searchQ = document.getElementById("wbFbsKizSearchFilter")?.value || "";
   const pending = wbFbsKizState.pendingOrderId;
   let rows = wbFbsKizState.rows.slice();
   if (onlyEmpty) rows = rows.filter((r) => _wbFbsKizRowIsEmpty(r));
@@ -18835,6 +18870,9 @@ function renderWbFbsKizTable(opts) {
       const oid = Number(r.order_id);
       return wbFbsKizState.errors[oid] || String(r.kiz_status || "") === "error";
     });
+  }
+  if (String(searchQ || "").trim()) {
+    rows = rows.filter((r) => _wbFbsKizRowMatchesSearch(r, searchQ));
   }
   if (!rows.length) {
     tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">${
