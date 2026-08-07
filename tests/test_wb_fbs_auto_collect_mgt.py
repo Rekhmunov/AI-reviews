@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from review_processor.repository import ReviewRepository
 from review_processor.wb_fbs import (
     _msk_time_in_active_window,
     default_mgt_supply_name,
@@ -167,3 +168,13 @@ def test_auto_plan_skips_choose_mode() -> None:
     decisions, reason = plan_auto_collect_mgt_decisions(preview, open_supplies=[])
     assert decisions is None
     assert reason == "needs_choice"
+
+
+def test_parse_hhmm_accepts_browser_seconds() -> None:
+    assert ReviewRepository._parse_hhmm_strict(
+        "12:00:00", field="t", default="00:00"
+    ) == "12:00"
+    assert ReviewRepository._parse_hhmm_strict(
+        "06:00:00", field="t", default="00:00"
+    ) == "06:00"
+    assert ReviewRepository._normalize_hhmm("9:05:00", default="12:00") == "09:05"

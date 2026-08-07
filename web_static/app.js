@@ -20903,6 +20903,15 @@ function closeWbFbsAutoSyncSettings() {
 }
 window.closeWbFbsAutoSyncSettings = closeWbFbsAutoSyncSettings;
 
+function _wbFbsNormTimeInput(value, fallback) {
+  const raw = String(value || "").trim();
+  const m = raw.match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return String(fallback || "12:00");
+  const hh = String(Math.min(23, Math.max(0, Number(m[1])))).padStart(2, "0");
+  const mm = String(Math.min(59, Math.max(0, Number(m[2])))).padStart(2, "0");
+  return `${hh}:${mm}`;
+}
+
 async function saveWbFbsAutoSyncSettings() {
   const enabled = !!document.getElementById("wbFbsAutoSyncEnabled")?.checked;
   const intervalHours = Number(document.getElementById("wbFbsAutoSyncInterval")?.value || 1);
@@ -20910,8 +20919,14 @@ async function saveWbFbsAutoSyncSettings() {
   const collectIntervalHours = Number(
     document.getElementById("wbFbsAutoCollectInterval")?.value || 1
   );
-  const collectFrom = String(document.getElementById("wbFbsAutoCollectFrom")?.value || "12:00");
-  const collectTo = String(document.getElementById("wbFbsAutoCollectTo")?.value || "06:00");
+  const collectFrom = _wbFbsNormTimeInput(
+    document.getElementById("wbFbsAutoCollectFrom")?.value,
+    "12:00"
+  );
+  const collectTo = _wbFbsNormTimeInput(
+    document.getElementById("wbFbsAutoCollectTo")?.value,
+    "06:00"
+  );
   const saveBtn = document.getElementById("wbFbsAutoSyncSaveBtn");
   if (saveBtn) saveBtn.disabled = true;
   _wbFbsAutoSyncSetInfo("Сохранение…");
