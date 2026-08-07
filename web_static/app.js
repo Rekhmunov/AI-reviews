@@ -18276,6 +18276,7 @@ function closeWbFbsSupplyDetailModal() {
   wbFbsDetailState.supplyId = "";
   wbFbsDetailState.supply = null;
   wbFbsDetailState.selected.clear();
+  wbFbsDetailState.trbxBusy = false;
   _wbFbsCloseRowMenus();
   _wbFbsClosePickingMenu();
   _wbFbsSupplyDetailResetSearch();
@@ -18287,9 +18288,10 @@ window.closeWbFbsSupplyDetailModal = closeWbFbsSupplyDetailModal;
 function _wbFbsTrbxMaxAmount() {
   const supply = wbFbsDetailState.supply || {};
   const orders = Number(supply.order_count || 0);
-  // WB: boxes ≤ items in supply + 1
-  const maxByOrders = Math.max(1, orders + 1);
-  return Math.min(1000, maxByOrders);
+  const existing = Number(supply.boxes_count || 0);
+  // WB: total boxes ≤ items in supply + 1 (remaining = limit − already created).
+  const maxTotal = Math.max(1, orders + 1);
+  return Math.max(0, Math.min(1000, maxTotal - existing));
 }
 
 function _wbFbsCreateTrbxSetInfo(text, kind = "") {
@@ -18332,14 +18334,20 @@ function openWbFbsCreateTrbxModal() {
     alert("Поставка уже закрыта — грузоместа добавить нельзя");
     return;
   }
+  const remaining = _wbFbsTrbxMaxAmount();
+  if (remaining < 1) {
+    const orders = Number(supply.order_count || 0);
+    alert(`Достигнут лимит грузомест (макс. ${orders + 1} = заказы+1 по правилам WB)`);
+    return;
+  }
   const modal = document.getElementById("wbFbsCreateTrbxModal");
   if (!modal) return;
   const input = document.getElementById("wbFbsCreateTrbxAmount");
   if (input) {
     input.value = "0";
-    input.max = String(_wbFbsTrbxMaxAmount());
+    input.max = String(remaining);
   }
-  _wbFbsCreateTrbxSetInfo("");
+  _wbFbsCreateTrbxSetInfo(`Можно добавить ещё: ${remaining}`);
   wbFbsTrbxAmountChanged();
   modal.classList.remove("hidden");
 }
@@ -18373,9 +18381,10 @@ async function submitWbFbsCreateTrbx() {
       throw new Error(data.detail || data.message || `Ошибка ${res.status}`);
     }
     const created = Array.isArray(data.trbx_ids) ? data.trbx_ids.length : amount;
-    _wbFbsCreateTrbxSetInfo(`Создано грузомест: ${created}`, "ok");
     if (Array.isArray(data.stickers) && data.stickers.length) {
       _wbFbsOpenBase64Images(data.stickers, `box_${sid}`);
+    } else if (data.stickers_error) {
+      alert(String(data.stickers_error));
     }
     wbFbsDetailState.trbxBusy = false;
     closeWbFbsCreateTrbxModal();
@@ -18383,6 +18392,13 @@ async function submitWbFbsCreateTrbx() {
     await openWbFbsSupplyDetailModal(sid);
     if (wbFbsState.tab === "assembly") {
       try { loadWbFbsOrders(false); } catch (_) {}
+    }
+    if (created) {
+      const info = document.getElementById("wbFbsSupplyDetailInfo");
+      if (info) {
+        info.hidden = false;
+        info.textContent = `Создано грузомест: ${created}`;
+      }
     }
   } catch (e) {
     _wbFbsCreateTrbxSetInfo(String(e.message || e), "error");

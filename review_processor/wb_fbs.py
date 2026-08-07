@@ -648,10 +648,44 @@ def create_supply_trbx(
         live = client.get_supply(sid)
     except Exception as exc:
         raise RuntimeError(f"Не удалось проверить поставку: {exc}") from exc
+    if not isinstance(live, dict) or not live:
+        live = {"id": sid}
     if bool(live.get("done")):
         raise ValueError("Поставка уже закрыта — грузоместа добавить нельзя")
+    # Ensure upsert_supply can key the row (WB payload uses ``id``).
+    if not str(live.get("id") or "").strip():
+        live["id"] = sid
+
+    # WB limit: total boxes ≤ items in supply + 1 (not per request).
+    existing_boxes: list[dict[str, Any]] = []
+    try:
+        existing_boxes = client.get_supply_boxes(sid)
+    except Exception as exc:
+        _log.debug("list boxes before create %s: %s", sid, exc)
+    order_ids: list[int] = []
+    try:
+        time.sleep(0.21)
+        order_ids = client.get_supply_order_ids(sid)
+    except Exception as exc:
+        _log.debug("order ids before create %s: %s", sid, exc)
+    if not order_ids:
+        order_ids = _local_supply_order_ids(
+            repo, user_id=user_id, source_id=source_id, supply_id=sid
+        )
+    max_total = max(1, len(order_ids) + 1)
+    remaining = max_total - len(existing_boxes)
+    if remaining <= 0:
+        raise ValueError(
+            f"Достигнут лимит грузомест для поставки (макс. {max_total} = заказы+1)"
+        )
+    if n > remaining:
+        raise ValueError(
+            f"Можно добавить ещё не больше {remaining} грузомест "
+            f"(сейчас {len(existing_boxes)}, лимит WB {max_total})"
+        )
 
     try:
+        time.sleep(0.21)
         created_ids = client.create_supply_boxes(sid, n)
     except Exception as exc:
         raise RuntimeError(str(exc)) from exc
@@ -664,14 +698,14 @@ def create_supply_trbx(
         boxes = client.get_supply_boxes(sid)
     except Exception as exc:
         _log.debug("refresh boxes after create %s: %s", sid, exc)
-        boxes = [{"id": bid} for bid in created_ids]
+        boxes = list(existing_boxes) + [{"id": bid} for bid in created_ids]
 
     upsert_supply(
         repo,
         user_id=user_id,
         source_id=source_id,
-        supply=live if isinstance(live, dict) else {"id": sid},
-        order_ids=[],
+        supply=live,
+        order_ids=order_ids or [],
         boxes=boxes,
     )
     wb_detail.invalidate_supply_detail_cache(
@@ -679,6 +713,7 @@ def create_supply_trbx(
     )
 
     stickers: list[dict[str, Any]] = []
+    stickers_error = ""
     stype = str(sticker_type or "png").strip().lower()
     if stype not in {"png", "svg", "zplv", "zplh"}:
         stype = "png"
@@ -686,15 +721,27 @@ def create_supply_trbx(
         try:
             time.sleep(0.21)
             stickers = client.get_box_stickers(sid, created_ids[:100], sticker_type=stype)
+            if not stickers:
+                stickers_error = (
+                    "Грузоместа созданы, но WB не вернул стикеры "
+                    "(иногда стикеры доступны после распределения заказов по коробам)"
+                )
         except Exception as exc:
             _log.warning("trbx stickers after create %s: %s", sid, exc)
+            stickers_error = (
+                "Грузоместа созданы, но стикеры не получены: "
+                f"{friendly_sync_error('stickers', exc)}"
+            )
 
     return {
         "ok": True,
         "supply_id": sid,
         "trbx_ids": created_ids,
-        "boxes_count": len(boxes) if boxes else len(created_ids),
+        "boxes_count": len(boxes) if boxes else (len(existing_boxes) + len(created_ids)),
         "stickers": stickers,
+        "stickers_error": stickers_error,
+        "max_total": max_total,
+        "remaining_after": max(0, max_total - (len(boxes) if boxes else len(existing_boxes) + len(created_ids))),
     }
 
 
