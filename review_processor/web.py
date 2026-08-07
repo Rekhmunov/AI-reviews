@@ -7873,6 +7873,40 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             if isinstance(v, dict)
         )
 
+    def _is_wb_fbs_tenant_owner(user: dict[str, object]) -> bool:
+        """Главный пользователь кабинета (или супер-админ)."""
+        if _is_super_admin(user):
+            return True
+        role = str(user.get("role") or ROLE_USER)
+        if role not in ROLE_CAN_ACCESS_SETTINGS:
+            return False
+        try:
+            return _tenant_owner_id(user) == int(user["id"])
+        except (TypeError, ValueError):
+            return False
+
+    def _require_wb_fbs_owner_tab(user: dict[str, object], tab: str | None) -> None:
+        if wb_fbs_mod.is_owner_only_tab(tab) and not _is_wb_fbs_tenant_owner(user):
+            raise HTTPException(
+                status_code=403,
+                detail="Вкладки «Завершённые», «Отменённые» и «Архив» доступны только главному пользователю",
+            )
+
+    def _sanitize_wb_fbs_owner_counts(
+        user: dict[str, object], payload: dict[str, object]
+    ) -> dict[str, object]:
+        if _is_wb_fbs_tenant_owner(user):
+            return payload
+        counts = payload.get("counts")
+        if not isinstance(counts, dict):
+            return payload
+        sanitized = dict(counts)
+        for tab in wb_fbs_mod.OWNER_ONLY_TABS:
+            sanitized[tab] = 0
+        out = dict(payload)
+        out["counts"] = sanitized
+        return out
+
     @app.get("/api/supply-sources")
     def list_supply_sources(request: Request) -> list[dict[str, object]]:
         user = _require_user(request)
@@ -8799,15 +8833,19 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         user = _require_user(request)
         if not _can_view_wb_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
+        _require_wb_fbs_owner_tab(user, tab)
         owner_id = _supply_owner_id(user)
-        return wb_fbs_mod.list_orders(
-            repository,
-            user_id=owner_id,
-            source_id=source_id,
-            tab=tab or None,
-            search=search or None,
-            page=page,
-            page_size=page_size,
+        return _sanitize_wb_fbs_owner_counts(
+            user,
+            wb_fbs_mod.list_orders(
+                repository,
+                user_id=owner_id,
+                source_id=source_id,
+                tab=tab or None,
+                search=search or None,
+                page=page,
+                page_size=page_size,
+            ),
         )
 
     @app.get("/api/wb-fbs/orders/ids")
@@ -8821,6 +8859,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         user = _require_user(request)
         if not _can_view_wb_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
+        _require_wb_fbs_owner_tab(user, tab)
         owner_id = _supply_owner_id(user)
         return wb_fbs_mod.list_order_ids(
             repository,
@@ -8843,28 +8882,35 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         user = _require_user(request)
         if not _can_view_wb_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
+        _require_wb_fbs_owner_tab(user, tab)
         owner_id = _supply_owner_id(user)
         # «На сборке» / «В доставке» — rows are supplies (поставки), not orders.
         # Serve from DB only (no live WB enrich) so tab switches stay fast;
         # boxes/status are filled during sync.
         tab_key = (tab or "").strip().lower()
         if tab_key == "delivery":
-            return wb_fbs_mod.list_delivery_supplies(
-                repository,
-                user_id=owner_id,
-                source_id=source_id,
-                search=search or None,
-                page=page,
-                page_size=page_size,
+            return _sanitize_wb_fbs_owner_counts(
+                user,
+                wb_fbs_mod.list_delivery_supplies(
+                    repository,
+                    user_id=owner_id,
+                    source_id=source_id,
+                    search=search or None,
+                    page=page,
+                    page_size=page_size,
+                ),
             )
         if tab_key == "assembly":
-            return wb_fbs_mod.list_assembly_supplies(
-                repository,
-                user_id=owner_id,
-                source_id=source_id,
-                search=search or None,
-                page=page,
-                page_size=page_size,
+            return _sanitize_wb_fbs_owner_counts(
+                user,
+                wb_fbs_mod.list_assembly_supplies(
+                    repository,
+                    user_id=owner_id,
+                    source_id=source_id,
+                    search=search or None,
+                    page=page,
+                    page_size=page_size,
+                ),
             )
         items = wb_fbs_mod.list_supplies(
             repository,

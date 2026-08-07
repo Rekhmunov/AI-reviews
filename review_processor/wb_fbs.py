@@ -34,6 +34,13 @@ TAB_FINISHED = "finished"       # sold etc.
 TAB_CANCELLED = "cancelled"
 TAB_ARCHIVE = "archive"
 
+# Visible only to the tenant owner (главный пользователь).
+OWNER_ONLY_TABS = frozenset({TAB_FINISHED, TAB_CANCELLED, TAB_ARCHIVE})
+
+
+def is_owner_only_tab(tab: object) -> bool:
+    return str(tab or "").strip().lower() in OWNER_ONLY_TABS
+
 _FINISHED_WB = {"sold"}
 _CANCELLED_SUPPLIER = {"cancel", "cancel_carrier"}
 _CANCELLED_WB = {

@@ -17746,7 +17746,30 @@ function _wbFbsFmtDate(iso) {
   return d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
+const WB_FBS_OWNER_ONLY_TABS = new Set(["finished", "cancelled", "archive"]);
+
+function _wbFbsCanViewOwnerTabs() {
+  return isTenantOwner();
+}
+
+function _wbFbsSyncOwnerOnlyTabs() {
+  const can = _wbFbsCanViewOwnerTabs();
+  document.querySelectorAll("#wbFbsTabs .wb-fbs-tab").forEach((btn) => {
+    const tab = String(btn.dataset.tab || "");
+    if (!WB_FBS_OWNER_ONLY_TABS.has(tab)) return;
+    btn.hidden = !can;
+    btn.style.display = can ? "" : "none";
+  });
+  if (!can && WB_FBS_OWNER_ONLY_TABS.has(wbFbsState.tab)) {
+    wbFbsState.tab = "new";
+    document.querySelectorAll("#wbFbsTabs .wb-fbs-tab").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.tab === "new");
+    });
+  }
+}
+
 async function initWbFbsSection() {
+  _wbFbsSyncOwnerOnlyTabs();
   initWbFbsColumnResizer();
   _wbFbsSyncTableMode();
   await loadWbFbsSources();
@@ -17886,9 +17909,13 @@ function onWbFbsSourceChange() {
 window.onWbFbsSourceChange = onWbFbsSourceChange;
 
 function setWbFbsTab(tab) {
-  wbFbsState.tab = tab;
+  let next = String(tab || "new");
+  if (WB_FBS_OWNER_ONLY_TABS.has(next) && !_wbFbsCanViewOwnerTabs()) {
+    next = "new";
+  }
+  wbFbsState.tab = next;
   document.querySelectorAll("#wbFbsTabs .wb-fbs-tab").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.tab === tab);
+    btn.classList.toggle("active", btn.dataset.tab === next);
   });
   _wbFbsSyncTableMode();
   _wbFbsSyncCollectMgtBtn(wbFbsState.counts || {});
