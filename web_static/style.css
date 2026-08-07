@@ -6956,6 +6956,11 @@ tr.dnd-over td {
   font-variant-numeric: tabular-nums;
   -moz-appearance: textfield;
 }
+.wb-fbs-trbx-stepper-input::placeholder {
+  color: #94a3b8;
+  font-weight: 500;
+  opacity: 1;
+}
 .wb-fbs-trbx-stepper-input:disabled {
   background: #f8fafc;
   color: #94a3b8;

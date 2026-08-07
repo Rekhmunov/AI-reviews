@@ -18323,15 +18323,29 @@ function _wbFbsTrbxSetCreateEnabled(enabled) {
   if (input) input.disabled = !enabled || !!wbFbsDetailState.trbxBusy;
 }
 
+function _wbFbsTrbxAmountValue() {
+  const input = document.getElementById("wbFbsCreateTrbxAmount");
+  if (!input) return 0;
+  const raw = String(input.value || "").trim();
+  if (!raw) return 0;
+  const n = Math.floor(Number(raw));
+  return Number.isFinite(n) ? n : 0;
+}
+
 function wbFbsTrbxAmountChanged() {
   const input = document.getElementById("wbFbsCreateTrbxAmount");
   const btn = document.getElementById("wbFbsCreateTrbxSubmitBtn");
   if (!input) return;
-  let n = Math.floor(Number(input.value));
-  if (!Number.isFinite(n) || n < 0) n = 0;
+  const raw = String(input.value || "").trim();
   const max = _wbFbsTrbxMaxAmount();
-  if (n > max) n = max;
-  input.value = String(n);
+  let n = 0;
+  if (raw !== "") {
+    n = Math.floor(Number(raw));
+    if (!Number.isFinite(n) || n < 0) n = 0;
+    if (n > max) n = max;
+    // Keep empty for 0 so "0" stays a placeholder, not a typed value.
+    input.value = n > 0 ? String(n) : "";
+  }
   const canCreate = max >= 1 && !wbFbsDetailState.trbxBusy && !wbFbsDetailState.trbxLoading;
   _wbFbsTrbxSetCreateEnabled(canCreate);
   if (btn) btn.disabled = n < 1 || !canCreate;
@@ -18341,8 +18355,9 @@ window.wbFbsTrbxAmountChanged = wbFbsTrbxAmountChanged;
 function wbFbsTrbxStep(delta) {
   const input = document.getElementById("wbFbsCreateTrbxAmount");
   if (!input || wbFbsDetailState.trbxBusy || input.disabled) return;
-  const cur = Math.floor(Number(input.value) || 0);
-  input.value = String(Math.max(0, cur + Number(delta || 0)));
+  const cur = _wbFbsTrbxAmountValue();
+  const next = Math.max(0, cur + Number(delta || 0));
+  input.value = next > 0 ? String(next) : "";
   wbFbsTrbxAmountChanged();
 }
 window.wbFbsTrbxStep = wbFbsTrbxStep;
@@ -18477,7 +18492,7 @@ function openWbFbsCreateTrbxModal() {
   wbFbsDetailState.trbxRemaining = 0;
   const input = document.getElementById("wbFbsCreateTrbxAmount");
   if (input) {
-    input.value = "0";
+    input.value = "";
     input.max = String(_wbFbsTrbxMaxAmount());
   }
   _wbFbsRenderTrbxBoxesList([]);
@@ -18560,7 +18575,7 @@ window.wbFbsDeleteTrbxBox = wbFbsDeleteTrbxBox;
 async function submitWbFbsCreateTrbx() {
   const sid = String(wbFbsDetailState.supplyId || "").trim();
   if (!sid || !wbFbsState.sourceId || wbFbsDetailState.trbxBusy) return;
-  const amount = Math.floor(Number(document.getElementById("wbFbsCreateTrbxAmount")?.value || 0));
+  const amount = _wbFbsTrbxAmountValue();
   if (amount < 1) return;
   const submitBtn = document.getElementById("wbFbsCreateTrbxSubmitBtn");
   wbFbsDetailState.trbxBusy = true;
@@ -18581,7 +18596,7 @@ async function submitWbFbsCreateTrbx() {
     // User may have closed the modal while the request was in flight.
     if (!_wbFbsTrbxModalOpen() || wbFbsDetailState.supplyId !== sid) return;
     const input = document.getElementById("wbFbsCreateTrbxAmount");
-    if (input) input.value = "0";
+    if (input) input.value = "";
     _wbFbsCreateTrbxSetInfo("Грузоместа на портале созданы", "ok");
     try {
       await loadWbFbsTrbxBoxes({ keepInfo: true });
