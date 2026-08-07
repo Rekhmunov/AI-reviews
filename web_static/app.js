@@ -17899,8 +17899,12 @@ function setWbFbsTab(tab) {
 window.setWbFbsTab = setWbFbsTab;
 
 function _wbFbsHasRowActions() {
-  // No row ⋮ menu / actions column on New and Cancelled tabs.
-  return wbFbsState.tab !== "cancelled" && wbFbsState.tab !== "new";
+  // No row ⋮ menu / actions column on New, Finished, and Cancelled tabs.
+  return (
+    wbFbsState.tab !== "cancelled"
+    && wbFbsState.tab !== "new"
+    && wbFbsState.tab !== "finished"
+  );
 }
 
 function _wbFbsColspan() {
