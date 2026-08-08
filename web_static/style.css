@@ -8512,13 +8512,16 @@ button.wb-fbs-select-all-link:disabled {
   align-items: center;
   justify-content: center;
 }
-.wb-fbs-kiz-refresh svg {
+.wb-fbs-kiz-refresh svg,
+.wb-fbs-kiz-refresh-ico {
   display: block;
   flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
 }
 .wb-fbs-kiz-refresh.is-spinning svg {
   animation: wb-fbs-kiz-spin 0.8s linear infinite;
-  transform-origin: center;
+  transform-origin: center center;
 }
 @keyframes wb-fbs-kiz-spin {
   to { transform: rotate(360deg); }
