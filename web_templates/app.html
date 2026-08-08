@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=174" />
+  <link rel="stylesheet" href="/static/style.css?v=175" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1847,18 +1847,16 @@
               <div id="wbFbsCreateTrbxInfo" class="wb-fbs-create-trbx-info" hidden></div>
               <div id="wbFbsTrbxPrintSection" class="wb-fbs-trbx-print-section" hidden>
                 <div class="wb-fbs-trbx-print-actions">
-                  <div class="wb-fbs-trbx-print-row">
-                    <button type="button" id="wbFbsTrbxPrintAllBtn" class="secondary wb-fbs-trbx-print-all-btn"
-                            onclick="wbFbsPrintTrbxStickers()">Распечатать QR-коды грузовых мест</button>
-                    <button type="button" id="wbFbsTrbxDeleteAllBtn" class="secondary danger wb-fbs-trbx-delete-all-btn"
-                            onclick="openWbFbsTrbxDeleteAllConfirm()" disabled>
-                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                        <path d="M3.5 4.5h9M6.5 4.5V3.5a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v1M5.5 4.5v8a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-8M7 7v4M9 7v4"
-                              stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
-                      </svg>
-                      <span>Удалить все грузоместа</span>
-                    </button>
-                  </div>
+                  <button type="button" id="wbFbsTrbxPrintAllBtn" class="secondary wb-fbs-trbx-print-all-btn"
+                          onclick="wbFbsPrintTrbxStickers()">Распечатать QR-коды грузовых мест</button>
+                  <button type="button" id="wbFbsTrbxDeleteAllBtn" class="secondary danger wb-fbs-trbx-delete-all-btn"
+                          onclick="openWbFbsTrbxDeleteAllConfirm()" disabled>
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                      <path d="M3.5 4.5h9M6.5 4.5V3.5a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v1M5.5 4.5v8a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-8M7 7v4M9 7v4"
+                            stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    <span>Удалить все грузоместа</span>
+                  </button>
                   <button type="button" id="wbFbsTrbxPrintSupplyQrBtn" class="secondary wb-fbs-trbx-print-supply-btn"
                           onclick="wbFbsPrintSupplyQrFromTrbx()"
                           title="Распечатать QR-код поставки (WB-GI)">

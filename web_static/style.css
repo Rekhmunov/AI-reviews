@@ -6997,17 +6997,10 @@ tr.dnd-over td {
   gap: 12px;
 }
 .wb-fbs-trbx-print-actions {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 8px;
-}
-.wb-fbs-trbx-print-row {
-  display: flex;
-  flex-wrap: nowrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 12px;
   align-items: center;
-  gap: 12px;
-  min-width: 0;
 }
 .wb-fbs-trbx-print-all-btn,
 .wb-fbs-trbx-print-supply-btn,
@@ -7015,24 +7008,26 @@ tr.dnd-over td {
   min-height: 40px;
   padding: 8px 16px;
 }
-.wb-fbs-trbx-print-all-btn {
-  flex: 1 1 auto;
-  min-width: 0;
+.wb-fbs-trbx-print-all-btn,
+.wb-fbs-trbx-print-supply-btn {
+  grid-column: 1;
+  width: 100%;
+  justify-self: stretch;
 }
 .wb-fbs-trbx-delete-all-btn {
-  flex: 0 1 auto;
+  grid-column: 2;
+  grid-row: 1;
   white-space: nowrap;
 }
-.wb-fbs-trbx-print-supply-btn {
-  align-self: flex-start;
-}
 @media (max-width: 560px) {
-  .wb-fbs-trbx-print-row {
-    flex-wrap: wrap;
+  .wb-fbs-trbx-print-actions {
+    grid-template-columns: 1fr;
   }
   .wb-fbs-trbx-print-all-btn,
+  .wb-fbs-trbx-print-supply-btn,
   .wb-fbs-trbx-delete-all-btn {
-    flex: 1 1 100%;
+    grid-column: 1;
+    grid-row: auto;
     white-space: normal;
   }
 }
