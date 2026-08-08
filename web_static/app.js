@@ -18252,7 +18252,7 @@ function _wbFbsSupplyRowActionsHtml(supplyId) {
             onclick="toggleWbFbsRowMenu(event, '${_wbFbsEsc(safeKey)}')" aria-haspopup="menu">⋮</button>
     <div id="wbFbsRowMenu_${safeKey}" class="wb-fbs-row-menu" data-order-id="${_wbFbsEsc(safeKey)}" data-supply-id="${_wbFbsEsc(sid)}" role="menu">
       <button type="button" class="wb-fbs-row-menu-item" role="menuitem"
-              onclick="wbFbsOpenSupplyQr('${_wbFbsEsc(sid)}')">
+              onclick="wbFbsOpenSupplyQr('${_wbFbsEsc(sid)}').catch((e)=>alert(e.message||e))">
         ${_wbFbsQrMenuIconHtml()}
         Напечатать QR-код поставки
       </button>
@@ -21683,7 +21683,7 @@ function wbFbsPrintSelectedSupplyQr() {
     return;
   }
   for (const sid of supplyIds) {
-    wbFbsOpenSupplyQr(sid);
+    wbFbsOpenSupplyQr(sid).catch((e) => alert(`${sid}: ${e.message || e}`));
   }
 }
 window.wbFbsPrintSelectedSupplyQr = wbFbsPrintSelectedSupplyQr;
