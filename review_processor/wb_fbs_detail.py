@@ -839,6 +839,243 @@ def check_supply_kiz_status(
     }
 
 
+def _resolve_supply_order_ids(
+    repo: ReviewRepository,
+    client: wb.WbFbsClient,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+    cached: dict[str, Any] | None = None,
+) -> list[int]:
+    """Order IDs currently in the supply: live WB → detail cache → local DB."""
+    sid = str(supply_id or "").strip()
+    order_ids: list[int] = []
+    try:
+        for item in client.get_supply_order_ids(sid) or []:
+            try:
+                oid = int(item)
+            except (TypeError, ValueError):
+                continue
+            if oid > 0:
+                order_ids.append(oid)
+    except Exception as exc:
+        _log.debug("supply order-ids %s: %s", sid, exc)
+        order_ids = []
+    if not order_ids and cached and isinstance(cached.get("orders"), list):
+        for o in cached["orders"]:
+            if not isinstance(o, dict):
+                continue
+            oid = _int_or_zero(o.get("order_id"))
+            if oid:
+                order_ids.append(oid)
+    if not order_ids:
+        order_ids = _local_order_ids_for_supply(
+            repo, user_id=user_id, source_id=source_id, supply_id=sid
+        )
+    seen: set[int] = set()
+    unique_ids: list[int] = []
+    for oid in order_ids:
+        if oid in seen:
+            continue
+        seen.add(oid)
+        unique_ids.append(oid)
+    return unique_ids
+
+
+def list_supply_cancelled_orders(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    api_key: str,
+    supply_id: str,
+) -> dict[str, Any]:
+    """Live POST /orders/status check for cancelled orders still in a supply.
+
+    Examples: wbStatus=canceled_by_client with supplierStatus=confirm
+    (orders 5440959209 / 5443002750) — still listed in the supply, not removable
+    via Marketplace API, but must be visible to the operator.
+    """
+    sid = str(supply_id or "").strip()
+    if not sid:
+        raise ValueError("Укажите supply_id")
+    if not api_key:
+        raise ValueError("Нет API-ключа источника")
+
+    cached = _cache_get_detail(
+        user_id=user_id, source_id=source_id, supply_id=sid
+    )
+    client = wb.WbFbsClient(api_key)
+    order_ids = _resolve_supply_order_ids(
+        repo,
+        client,
+        user_id=user_id,
+        source_id=source_id,
+        supply_id=sid,
+        cached=cached,
+    )
+
+    cancel_labels: dict[int, str] = {}
+    persist_cancel: dict[int, tuple[str, str]] = {}
+    status_by_id: dict[int, tuple[str, str]] = {}
+    if order_ids:
+        try:
+            live_statuses = client.get_statuses(order_ids)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Не удалось проверить статусы заказов на Wildberries: {exc}"
+            ) from exc
+        if not isinstance(live_statuses, list):
+            raise RuntimeError("Некорректный ответ Wildberries при проверке статусов")
+        for st in live_statuses:
+            if not isinstance(st, dict):
+                continue
+            try:
+                oid = int(st.get("id") or st.get("orderId") or 0)
+            except (TypeError, ValueError):
+                continue
+            if oid <= 0:
+                continue
+            ss = str(st.get("supplierStatus") or "").strip()
+            ws = str(st.get("wbStatus") or "").strip()
+            status_by_id[oid] = (ss, ws)
+            label = wb.cancel_reason_label(supplier_status=ss, wb_status=ws)
+            if label or wb._is_cancelled_status(supplier_status=ss, wb_status=ws):
+                cancel_labels[oid] = label or "Отменен"
+                if ss or ws:
+                    persist_cancel[oid] = (ss, ws)
+
+    if persist_cancel:
+        try:
+            wb.update_order_wb_statuses(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                statuses=persist_cancel,
+            )
+        except Exception as exc:
+            _log.debug("cancelled list persist: %s", exc)
+
+    cancelled_ids = [oid for oid in order_ids if oid in cancel_labels]
+    local_by_id: dict[int, dict[str, Any]] = {}
+    if cancelled_ids:
+        for o in _load_local_orders(
+            repo, user_id=user_id, source_id=source_id, order_ids=cancelled_ids
+        ):
+            oid = _int_or_zero(o.get("order_id"))
+            if oid:
+                local_by_id[oid] = o
+    cached_by_id: dict[int, dict[str, Any]] = {}
+    if cached and isinstance(cached.get("orders"), list):
+        for o in cached["orders"]:
+            if not isinstance(o, dict):
+                continue
+            oid = _int_or_zero(o.get("order_id"))
+            if oid:
+                cached_by_id[oid] = o
+
+    stickers: dict[int, dict[str, Any]] = {}
+    if cancelled_ids:
+        try:
+            stickers = _fetch_stickers_map(
+                client,
+                cancelled_ids,
+                api_key=api_key,
+                sticker_type="svg",
+                keep_files=False,
+            )
+        except Exception as exc:
+            _log.warning("cancelled stickers %s: %s", sid, exc)
+            stickers = {}
+
+    rows: list[dict[str, Any]] = []
+    for oid in cancelled_ids:
+        local = local_by_id.get(oid) or {}
+        cached_o = cached_by_id.get(oid) or {}
+        st = stickers.get(oid) or {}
+        part_a = str(
+            st.get("partA")
+            or cached_o.get("sticker_part_a")
+            or ""
+        ).strip()
+        part_b = str(
+            st.get("partB")
+            or cached_o.get("sticker_part_b")
+            or ""
+        ).strip()
+        ss, ws = status_by_id.get(oid, ("", ""))
+        if not ss:
+            ss = str(
+                local.get("supplier_status") or cached_o.get("supplier_status") or ""
+            )
+        if not ws:
+            ws = str(local.get("wb_status") or cached_o.get("wb_status") or "")
+        created_at = local.get("created_at_wb") or cached_o.get("created_at_wb")
+        rows.append(
+            {
+                "order_id": oid,
+                "created_date": (
+                    cached_o.get("created_date")
+                    or _fmt_date(created_at)
+                    or "—"
+                ),
+                "product_name": str(
+                    cached_o.get("product_name") or local.get("product_name") or ""
+                ),
+                "product_photo": str(
+                    cached_o.get("product_photo") or local.get("product_photo") or ""
+                ),
+                "article": str(cached_o.get("article") or local.get("article") or ""),
+                "brand": str(cached_o.get("brand") or local.get("brand") or ""),
+                "nm_id": cached_o.get("nm_id")
+                if cached_o.get("nm_id") is not None
+                else local.get("nm_id"),
+                "barcodes": list(
+                    cached_o.get("barcodes")
+                    or local.get("barcodes")
+                    or local.get("skus")
+                    or []
+                ),
+                "sticker_part_a": part_a,
+                "sticker_part_b": part_b,
+                "sticker_number": _sticker_number(part_a, part_b)
+                or str(cached_o.get("sticker_number") or ""),
+                "supplier_status": ss,
+                "wb_status": ws,
+                "cancelled": True,
+                "cancel_reason_label": cancel_labels.get(oid) or "Отменен",
+            }
+        )
+
+    # Patch open-modal detail cache so supply badges match the live check.
+    if cached and isinstance(cached.get("orders"), list):
+        for o in cached["orders"]:
+            if not isinstance(o, dict):
+                continue
+            oid = _int_or_zero(o.get("order_id"))
+            if not oid or oid not in cancel_labels:
+                continue
+            o["cancel_reason_label"] = cancel_labels[oid]
+            ss, ws = status_by_id.get(oid, ("", ""))
+            if ss:
+                o["supplier_status"] = ss
+            if ws:
+                o["wb_status"] = ws
+        _cache_put_detail(
+            user_id=user_id, source_id=source_id, supply_id=sid, detail=cached
+        )
+
+    return {
+        "ok": True,
+        "supply_id": sid,
+        "source_id": int(source_id),
+        "order_count": len(order_ids),
+        "cancelled_count": len(rows),
+        "rows": rows,
+    }
+
+
 def _kiz_required_from_raw(raw: dict[str, Any]) -> bool:
     """Fallback when live meta is unavailable: requiredMeta/optionalMeta on order."""
     for key in ("requiredMeta", "optionalMeta"):

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=166" />
+  <link rel="stylesheet" href="/static/style.css?v=167" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1782,6 +1782,9 @@
                 </div>
                 <button type="button" class="secondary" id="wbFbsSupplyDetailTrbxBtn"
                         onclick="openWbFbsCreateTrbxModal()" title="Создать грузоместа (короба) для ПВЗ">Грузоместа</button>
+                <button type="button" class="secondary" id="wbFbsSupplyDetailCancelledBtn"
+                        onclick="openWbFbsCancelledOrdersModal()"
+                        title="Проверить отмененные заказы в поставке">Отмененные заказы</button>
                 <button type="button" class="secondary wb-fbs-sd-portal-btn" id="wbFbsSupplyDetailPortalBtn"
                         onclick="openWbFbsSupplyPortal()" title="Открыть поставку на портале Wildberries">
                   <span>Портал ВБ</span>
@@ -1880,6 +1883,38 @@
                       class="wb-fbs-trbx-delete-confirm-yes"
                       onclick="confirmWbFbsDeleteAllTrbx()">Да</button>
               <button type="button" class="secondary" onclick="closeWbFbsTrbxDeleteAllConfirm()">Нет</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="wbFbsCancelledOrdersModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="wbFbsCancelledOrdersTitle"
+             onclick="if(event.target===this)closeWbFbsCancelledOrdersModal()">
+          <div class="modal-card wb-fbs-kiz-modal wb-fbs-cancelled-modal">
+            <div class="wb-fbs-kiz-header">
+              <div class="wb-fbs-kiz-header-main">
+                <h3 id="wbFbsCancelledOrdersTitle" class="wb-fbs-kiz-title">Отмененные заказы</h3>
+                <p class="wb-fbs-kiz-sub">Проверка статусов на Wildberries: заказы, отменённые клиентом или перевозчиком, но всё ещё находящиеся в поставке</p>
+              </div>
+              <div class="wb-fbs-kiz-header-actions">
+                <button type="button" class="secondary" id="wbFbsCancelledOrdersRefreshBtn"
+                        onclick="refreshWbFbsCancelledOrders()">Перезапустить проверку</button>
+                <button type="button" class="icon-btn secondary" onclick="closeWbFbsCancelledOrdersModal()" aria-label="Закрыть">✕</button>
+              </div>
+            </div>
+            <div id="wbFbsCancelledOrdersInfo" class="wb-fbs-kiz-info" hidden></div>
+            <div class="wb-fbs-kiz-table-wrap">
+              <table class="wb-fbs-kiz-table">
+                <thead>
+                  <tr>
+                    <th class="wb-fbs-kiz-col-order">Заказ/стикер</th>
+                    <th class="wb-fbs-kiz-col-product">Товар</th>
+                  </tr>
+                </thead>
+                <tbody id="wbFbsCancelledOrdersTbody">
+                  <tr><td colspan="2" class="wb-fbs-empty">Загрузка…</td></tr>
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
@@ -3978,6 +4013,6 @@
   <script src="/static/jszip.min.js"></script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=351"></script>
+  <script src="/static/app.js?v=352"></script>
 </body>
 </html>

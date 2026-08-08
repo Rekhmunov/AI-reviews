@@ -9310,6 +9310,36 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    @app.get("/api/wb-fbs/supplies/{supply_id}/cancelled")
+    def wb_fbs_supply_cancelled_orders(
+        request: Request,
+        supply_id: str,
+        source_id: int,
+    ) -> dict[str, object]:
+        """Live check for cancelled orders still present in the supply."""
+        from . import wb_fbs_detail as wb_detail
+
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        sid = str(supply_id or "").strip()
+        if not sid or not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
+        api_key = _wb_fbs_source_key(owner_id, int(source_id))
+        try:
+            return wb_detail.list_supply_cancelled_orders(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                api_key=api_key,
+                supply_id=sid,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @app.put("/api/wb-fbs/supplies/{supply_id}/kiz")
     async def wb_fbs_supply_kiz_save(
         request: Request,

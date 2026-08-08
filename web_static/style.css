@@ -8655,6 +8655,9 @@ button.wb-fbs-sd-portal-btn:focus-visible {
   overflow: hidden;
   box-sizing: border-box;
 }
+.wb-fbs-cancelled-modal .wb-fbs-kiz-col-product {
+  width: auto;
+}
 .wb-fbs-kiz-header {
   display: flex;
   align-items: flex-start;
