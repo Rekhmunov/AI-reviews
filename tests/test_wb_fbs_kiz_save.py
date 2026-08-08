@@ -235,3 +235,35 @@ def test_save_skips_wb_for_known_cancelled(
     assert result["failed"] == 1
     assert result["results"][0]["cancelled"] is True
     client.set_order_sgtin.assert_not_called()
+
+
+@patch("review_processor.wb_fbs_detail.time.sleep", return_value=None)
+@patch("review_processor.wb_fbs_detail.wb.load_order_status_map", return_value={})
+@patch("review_processor.wb_fbs_detail.wb.update_order_kiz_codes")
+@patch("review_processor.wb_fbs_detail.wb.WbFbsClient")
+def test_save_failed_to_update_meta_not_cancelled_without_status_proof(
+    mock_cls: Any, mock_local: Any, _status_map: Any, _sleep: Any
+) -> None:
+    client = _client_mock()
+    client.set_order_sgtin.side_effect = RuntimeError(
+        'WB FBS HTTP 409: {"code":"FailedToUpdateMeta",'
+        '"message":"Please check that the order is specified correctly '
+        'and is in the Processing status"}'
+    )
+    # Live status is still a normal assembly order — do not invent "отменен".
+    client.get_statuses.return_value = [
+        {"id": 10, "supplierStatus": "confirm", "wbStatus": "waiting"}
+    ]
+    mock_cls.return_value = client
+    mock_local.return_value = True
+    result = save_kiz_marking(
+        api_key="k",
+        items=[{"order_id": 10, "kiz_codes": ["CODE5"]}],
+        allowed_order_ids={10},
+        repo=MagicMock(),
+        user_id=11,
+        source_id=22,
+    )
+    row = result["results"][0]
+    assert row.get("cancelled") is not True
+    assert "FailedToUpdateMeta" in row["error"] or "Processing" in row["error"]

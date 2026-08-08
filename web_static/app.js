@@ -20113,16 +20113,14 @@ async function saveWbFbsKizModal() {
     }
     renderWbFbsKizTable({ skipCollect: true });
     const savedWb = Number(data.saved || 0);
-    const savedLocal = Number(data.saved_local || 0);
     const failed = Number(data.failed || 0);
     const gtinNote = gtinErrors ? ` Пропущено по GTIN/ШК: ${gtinErrors}.` : "";
     const skipNote = skippedUnchanged
       ? ` Без изменений не отправлялось: ${skippedUnchanged}.`
       : "";
     if (failed) {
-      const nFail = cancelledIds.length && !otherFailNotes.length
-        ? cancelledIds.length
-        : failed;
+      const onlyCancelled = cancelledIds.length > 0 && !otherFailNotes.length;
+      const nFail = onlyCancelled ? cancelledIds.length : failed;
       const word = (() => {
         const n10 = nFail % 10;
         const n100 = nFail % 100;
@@ -20139,7 +20137,11 @@ async function saveWbFbsKizModal() {
         const more = otherFailNotes.length > 3 ? "…" : "";
         html += `<br>${_wbFbsEsc(detail + more)}`;
       }
-      html += `<br>Окно не закрыто — нажмите «Сохранить» ещё раз, чтобы повторить отправку в WB.`;
+      if (!onlyCancelled) {
+        html += `<br>Окно не закрыто — нажмите «Сохранить» ещё раз, чтобы повторить отправку в WB.`;
+      } else {
+        html += `<br>Окно не закрыто — отменённые заказы остаются в поставке.`;
+      }
       if (gtinNote) html += ` ${_wbFbsEsc(gtinNote.trim())}`;
       if (skipNote) html += ` ${_wbFbsEsc(skipNote.trim())}`;
       _wbFbsKizSetInfo(html, false, { html: true });

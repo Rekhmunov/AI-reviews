@@ -1406,22 +1406,25 @@ def _enrich_kiz_save_cancelled(
             by_id[oid] = st
     persist: dict[int, tuple[str, str]] = {}
     for row in results:
-        if not isinstance(row, dict):
+        if not isinstance(row, dict) or row.get("wb_ok") or row.get("cancelled"):
+            continue
+        if not _is_failed_to_update_meta_error(row.get("error")):
             continue
         try:
             oid = int(row.get("order_id"))
         except (TypeError, ValueError):
             continue
         st = by_id.get(oid)
-        if not st and not _is_failed_to_update_meta_error(row.get("error")):
+        if not st:
+            # Keep raw WB error — do not guess "отменен" without status proof.
             continue
-        ss = str((st or {}).get("supplierStatus") or "").strip()
-        ws = str((st or {}).get("wbStatus") or "").strip()
+        ss = str(st.get("supplierStatus") or "").strip()
+        ws = str(st.get("wbStatus") or "").strip()
         label = wb.cancel_reason_label(supplier_status=ss, wb_status=ws)
-        cancelled = bool(label) or wb._is_cancelled_status(
+        if not label and not wb._is_cancelled_status(
             supplier_status=ss, wb_status=ws
-        ) or _is_failed_to_update_meta_error(row.get("error"))
-        if not cancelled:
+        ):
+            # FailedToUpdateMeta can happen for other non-Processing cases.
             continue
         if not label:
             label = "Отменен"
@@ -1430,8 +1433,7 @@ def _enrich_kiz_save_cancelled(
         row["supplier_status"] = ss
         row["wb_status"] = ws
         row["error"] = f"Заказ отменен ({label})"
-        if ss or ws:
-            persist[oid] = (ss, ws)
+        persist[oid] = (ss, ws)
     if persist and repo is not None and user_id is not None and source_id is not None:
         try:
             wb.update_order_wb_statuses(
