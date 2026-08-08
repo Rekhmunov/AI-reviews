@@ -18594,22 +18594,16 @@ function wbFbsPrintTrbxStickers(boxId) {
 }
 window.wbFbsPrintTrbxStickers = wbFbsPrintTrbxStickers;
 
-/**
- * Official WB supply QR (GET /api/v3/supplies/{id}/barcode).
- * Available only after the supply is transferred to delivery.
- */
 async function wbFbsPrintSupplyQrFromTrbx() {
   const sid = String(wbFbsDetailState.supplyId || "").trim();
-  if (!sid || !wbFbsState.sourceId) return;
+  if (!sid) return;
   const btn = document.getElementById("wbFbsTrbxPrintSupplyQrBtn");
   if (btn) btn.disabled = true;
-  _wbFbsCreateTrbxSetInfo("Загружаем QR-код поставки…");
   try {
     await wbFbsOpenSupplyQr(sid);
-    if (_wbFbsTrbxModalOpen()) _wbFbsCreateTrbxSetInfo("");
   } catch (e) {
     const msg = String(e.message || e || "").trim()
-      || "Не удалось получить QR-код поставки";
+      || "Не удалось сформировать QR-код поставки";
     if (_wbFbsTrbxModalOpen()) _wbFbsCreateTrbxSetInfo(msg, "error");
     else alert(msg);
   } finally {
@@ -20541,42 +20535,126 @@ function wbFbsPrintOneOrderStickerFromDetail(orderId) {
 }
 window.wbFbsPrintOneOrderStickerFromDetail = wbFbsPrintOneOrderStickerFromDetail;
 
+function _wbFbsSupplyQrPayload(supplyId) {
+  return String(supplyId || "").trim();
+}
+
+function _wbFbsMakeQrDataUrl(text, size) {
+  const value = String(text || "").trim();
+  if (!value) return Promise.reject(new Error("Нет кода поставки для QR"));
+  if (typeof QRCode === "undefined") {
+    return Promise.reject(new Error("Библиотека QR ещё загружается. Попробуйте снова."));
+  }
+  const px = Math.max(128, Math.min(1024, Number(size) || 512));
+  return new Promise((resolve, reject) => {
+    const host = document.createElement("div");
+    host.style.cssText = "position:fixed;left:-9999px;top:0;width:0;height:0;overflow:hidden;";
+    document.body.appendChild(host);
+    let settled = false;
+    const finish = (err, url) => {
+      if (settled) return;
+      settled = true;
+      try { host.remove(); } catch (_) {}
+      if (err) reject(err);
+      else resolve(url);
+    };
+    try {
+      // qrcodejs (global QRCode) renders canvas/img into the host element.
+      // eslint-disable-next-line no-new
+      new QRCode(host, {
+        text: value,
+        width: px,
+        height: px,
+        colorDark: "#000000",
+        colorLight: "#ffffff",
+        correctLevel: QRCode.CorrectLevel.M,
+      });
+      window.setTimeout(() => {
+        const canvas = host.querySelector("canvas");
+        const img = host.querySelector("img");
+        if (canvas && typeof canvas.toDataURL === "function") {
+          finish(null, canvas.toDataURL("image/png"));
+          return;
+        }
+        if (img && img.src) {
+          finish(null, img.src);
+          return;
+        }
+        finish(new Error("Не удалось сформировать QR-код поставки"));
+      }, 40);
+    } catch (e) {
+      finish(e);
+    }
+  });
+}
+
+/**
+ * Local supply QR sticker from WB-GI id (no WB /barcode API).
+ * Layout matches portal sticker: QR + left id + right qty/city.
+ */
 async function wbFbsOpenSupplyQr(supplyId) {
   _wbFbsCloseRowMenus();
-  const sid = String(supplyId || "").trim();
-  if (!sid || !wbFbsState.sourceId) return;
-  // Official WB sticker: GET /api/v3/supplies/{id}/barcode → PNG 580×400
-  // (QR + WB-GI + qty + city). Only after supply is transferred to delivery.
-  const url =
-    `/api/wb-fbs/stickers/supply/${encodeURIComponent(sid)}` +
-    `?source_id=${wbFbsState.sourceId}&type=png&disposition=inline`;
-  const res = await fetch(url);
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    const detail = Array.isArray(data.detail)
-      ? data.detail.map((x) => x?.msg || x).filter(Boolean).join("; ")
-      : String(data.detail || "").trim();
-    const lower = detail.toLowerCase();
-    if (
-      res.status === 409
-      || /deliver|доставк|не передан|not\s*transfer|barcode/i.test(lower)
-      || (!detail && (res.status === 400 || res.status === 404))
-    ) {
-      throw new Error(
-        detail
-          || "QR-код поставки доступен только после передачи поставки в доставку"
-      );
-    }
-    throw new Error(detail || `Не удалось получить QR поставки (${res.status})`);
-  }
-  const blob = await res.blob();
-  const objUrl = URL.createObjectURL(blob);
-  const win = window.open(objUrl, "_blank");
+  const sid = _wbFbsSupplyQrPayload(supplyId || wbFbsDetailState.supplyId);
+  if (!sid) return;
+  const supply = (wbFbsDetailState.supply && String(wbFbsDetailState.supply.supply_id || "") === sid)
+    ? wbFbsDetailState.supply
+    : (wbFbsDetailState.supply || {});
+  const qtyRaw = Number(supply.order_count);
+  const qty = Number.isFinite(qtyRaw) && qtyRaw > 0 ? Math.round(qtyRaw) : 0;
+  const city = String(supply.warehouse_label || "").trim();
+  const qtyLabel = qty > 0 ? `${qty} шт.` : "";
+  const qrDataUrl = await _wbFbsMakeQrDataUrl(sid, 640);
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${_wbFbsEsc(sid)}</title>
+<style>
+@page { size: 58mm 40mm; margin: 0; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  width: 58mm; height: 40mm; overflow: hidden; background: #fff;
+  font-family: Arial, Helvetica, sans-serif; color: #000;
+}
+.sheet {
+  position: relative; width: 58mm; height: 40mm;
+}
+.qr {
+  position: absolute; left: 50%; top: 50%;
+  width: 28mm; height: 28mm;
+  transform: translate(-50%, -50%);
+  object-fit: contain;
+}
+.side {
+  position: absolute; top: 50%;
+  transform: translateY(-50%) rotate(-90deg);
+  transform-origin: center center;
+  white-space: nowrap; font-weight: 700; letter-spacing: 0.02em;
+}
+.side-left {
+  left: 7mm; font-size: 3.2mm; line-height: 1;
+}
+.side-right {
+  right: 7mm; display: flex; flex-direction: column; align-items: center;
+  gap: 1.2mm; font-size: 3.2mm; line-height: 1.05; text-align: center;
+}
+</style></head><body>
+<div class="sheet">
+  <div class="side side-left">${_wbFbsEsc(sid)}</div>
+  <img class="qr" alt="" src="${qrDataUrl}" />
+  <div class="side side-right">
+    ${qtyLabel ? `<div>${_wbFbsEsc(qtyLabel)}</div>` : ""}
+    ${city ? `<div>${_wbFbsEsc(city)}</div>` : ""}
+  </div>
+</div>
+<script>
+window.addEventListener("load", function () {
+  setTimeout(function () { window.print(); }, 80);
+});
+<\/script>
+</body></html>`;
+  const win = window.open("", "_blank", "width=420,height=320");
   if (!win) {
-    URL.revokeObjectURL(objUrl);
     throw new Error("Разрешите всплывающие окна, чтобы открыть QR-код поставки");
   }
-  setTimeout(() => URL.revokeObjectURL(objUrl), 60_000);
+  win.document.write(html);
+  win.document.close();
 }
 window.wbFbsOpenSupplyQr = wbFbsOpenSupplyQr;
 
