@@ -8451,6 +8451,11 @@ button.wb-fbs-select-all-link:disabled {
   display: inline-flex;
   align-items: stretch;
 }
+/* Author display:inline-flex must not override the HTML hidden attribute. */
+.wb-fbs-picking-split[hidden],
+.wb-fbs-kiz-split[hidden] {
+  display: none !important;
+}
 .wb-fbs-picking-split > #wbFbsSupplyDetailPickingBtn,
 .wb-fbs-kiz-split > #wbFbsSupplyDetailKizBtn {
   border-top-right-radius: 0;

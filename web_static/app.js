@@ -18754,6 +18754,8 @@ async function openWbFbsSupplyDetailModal(supplyId) {
   wbFbsDetailState.selected.clear();
   _wbFbsSupplyDetailSetActionsReady(false);
   _wbFbsKizSplitSetTone("");
+  const kizSplitOpen = document.getElementById("wbFbsKizSplit");
+  if (kizSplitOpen) kizSplitOpen.hidden = true;
   _wbFbsSupplyDetailResetSearch();
   setModalVisibility("wbFbsSupplyDetailModal", true);
   const title = document.getElementById("wbFbsSupplyDetailTitle");
@@ -18820,6 +18822,7 @@ function renderWbFbsSupplyDetail(data) {
     : allOrders;
   const kizSplit = document.getElementById("wbFbsKizSplit");
   if (kizSplit) {
+    // Show Маркировка + refresh only when at least one order accepts sgtin/КИЗ.
     const needsKiz = allOrders.some((o) => o && o.kiz_required);
     kizSplit.hidden = !needsKiz;
     if (!needsKiz) _wbFbsKizSplitSetTone("");
