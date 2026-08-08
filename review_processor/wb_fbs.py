@@ -2815,7 +2815,6 @@ def run_auto_collect_mgt_for_owner(
     ):
         return {"ok": True, "ran": False, "message": "not_due"}
 
-
     ran_at = _utc_now()
     ran_at_msk = _msk_now().strftime("%d.%m.%Y %H:%M")
 

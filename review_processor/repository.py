@@ -2512,7 +2512,7 @@ class ReviewRepository:
                     detail = parsed
             except Exception:
                 detail = None
-        # Keep interval_hours for older clients when value is a whole hour.
+        # Legacy field: whole hours only. For 10/30 min return null — do not lie with 1.
         interval_hours = (
             interval_minutes // 60
             if interval_minutes % 60 == 0
@@ -2521,7 +2521,7 @@ class ReviewRepository:
         return {
             "enabled": bool(row["wb_fbs_auto_sync_enabled"]),
             "interval_minutes": interval_minutes,
-            "interval_hours": interval_hours if interval_hours is not None else 1,
+            "interval_hours": interval_hours,
             "allowed_intervals_minutes": list(self._WB_FBS_AUTO_SYNC_INTERVAL_MINUTES),
             "allowed_intervals": list(self._WB_FBS_AUTO_COLLECT_INTERVAL_HOURS),
             "last_synced_at": str(last_synced) if last_synced else None,
