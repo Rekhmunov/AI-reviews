@@ -18280,6 +18280,7 @@ const _WB_FBS_DETAIL_ACTION_IDS = [
   "wbFbsSupplyDetailKizBtn",
   "wbFbsSupplyDetailKizRefreshBtn",
   "wbFbsSupplyDetailTrbxBtn",
+  "wbFbsSupplyDetailCancelledBtn",
 ];
 
 function _wbFbsSupplyDetailActionsReady() {
@@ -19125,7 +19126,7 @@ window.refreshWbFbsCancelledOrders = refreshWbFbsCancelledOrders;
 
 function openWbFbsCancelledOrdersModal() {
   const sid = String(wbFbsDetailState.supplyId || "").trim();
-  if (!sid || !wbFbsState.sourceId) return;
+  if (!sid || !wbFbsState.sourceId || !_wbFbsSupplyDetailActionsReady()) return;
   setModalVisibility("wbFbsCancelledOrdersModal", true);
   wbFbsCancelledState.rows = [];
   wbFbsCancelledState.lastError = "";
