@@ -8514,9 +8514,11 @@ button.wb-fbs-select-all-link:disabled {
 }
 .wb-fbs-kiz-refresh svg {
   display: block;
+  flex: 0 0 auto;
 }
 .wb-fbs-kiz-refresh.is-spinning svg {
   animation: wb-fbs-kiz-spin 0.8s linear infinite;
+  transform-origin: center;
 }
 @keyframes wb-fbs-kiz-spin {
   to { transform: rotate(360deg); }
