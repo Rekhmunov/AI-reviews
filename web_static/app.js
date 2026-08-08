@@ -19194,6 +19194,8 @@ const wbFbsKizState = {
   errors: {},
   pendingOrderId: null,
   saving: false,
+  /** False until KIZ modal rows finished loading. */
+  rowsReady: false,
   /** True while supply-detail refresh control is polling WB meta. */
   statusRefreshing: false,
   /** Monotonic token so a stale refresh cannot re-enable the wrong modal. */
@@ -19208,6 +19210,73 @@ const wbFbsKizState = {
    */
   baselineByOrder: {},
 };
+
+/**
+ * Disable KIZ toolbar filters until rows are loaded.
+ * Search uses readonly (not disabled) so the hover tooltip still works.
+ */
+function _wbFbsKizSetFiltersReady(ready) {
+  wbFbsKizState.rowsReady = !!ready;
+  const tip = "Дождитесь загрузки товаров";
+  const empty = document.getElementById("wbFbsKizFilterEmpty");
+  const errors = document.getElementById("wbFbsKizFilterErrors");
+  const emptyLabel = document.getElementById("wbFbsKizFilterEmptyLabel")
+    || (empty && empty.closest("label"));
+  const errorsLabel = document.getElementById("wbFbsKizFilterErrorsLabel")
+    || (errors && errors.closest("label"));
+  const search = document.getElementById("wbFbsKizSearchFilter");
+
+  const setLabelWait = (label, on) => {
+    if (!label) return;
+    if (on) {
+      if (label.dataset.waitTitleSaved === undefined) {
+        label.dataset.waitTitleSaved = label.getAttribute("title") || "";
+      }
+      label.classList.add("is-wait-rows");
+      label.setAttribute("title", tip);
+    } else {
+      label.classList.remove("is-wait-rows");
+      const saved = label.dataset.waitTitleSaved;
+      if (saved !== undefined) {
+        if (saved) label.setAttribute("title", saved);
+        else label.removeAttribute("title");
+        delete label.dataset.waitTitleSaved;
+      }
+    }
+  };
+
+  if (empty) empty.disabled = !ready;
+  if (errors) errors.disabled = !ready;
+  setLabelWait(emptyLabel, !ready);
+  setLabelWait(errorsLabel, !ready);
+
+  if (search) {
+    if (!ready) {
+      if (search.dataset.waitTitleSaved === undefined) {
+        search.dataset.waitTitleSaved = search.getAttribute("title") || "";
+      }
+      search.readOnly = true;
+      search.setAttribute("aria-disabled", "true");
+      search.classList.add("is-wait-rows");
+      search.setAttribute("title", tip);
+      search.tabIndex = -1;
+      if (document.activeElement === search) {
+        try { search.blur(); } catch (_) {}
+      }
+    } else {
+      search.readOnly = false;
+      search.removeAttribute("aria-disabled");
+      search.classList.remove("is-wait-rows");
+      search.removeAttribute("tabindex");
+      const saved = search.dataset.waitTitleSaved;
+      if (saved !== undefined) {
+        if (saved) search.setAttribute("title", saved);
+        else search.removeAttribute("title");
+        delete search.dataset.waitTitleSaved;
+      }
+    }
+  }
+}
 
 function _wbFbsKizSplitSetTone(tone) {
   const split = document.getElementById("wbFbsKizSplit");
@@ -19621,6 +19690,7 @@ function closeWbFbsKizModal() {
   wbFbsKizState.ruLayoutOpenedAt = 0;
   wbFbsKizState.baselineByOrder = {};
   _wbFbsKizResetFilters();
+  _wbFbsKizSetFiltersReady(false);
   _wbFbsKizSetInfo("");
 }
 window.closeWbFbsKizModal = closeWbFbsKizModal;
@@ -19634,6 +19704,7 @@ async function openWbFbsKizModal() {
   wbFbsKizState.pendingOrderId = null;
   wbFbsKizState.baselineByOrder = {};
   _wbFbsKizResetFilters();
+  _wbFbsKizSetFiltersReady(false);
   _wbFbsKizSetInfo("");
   const tbody = document.getElementById("wbFbsKizTbody");
   if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">Загрузка…</td></tr>`;
@@ -19665,6 +19736,11 @@ async function openWbFbsKizModal() {
     _wbFbsKizSetInfo(String(e.message || e));
   } finally {
     if (saveBtn) saveBtn.disabled = false;
+    // Unlock filters after load attempt (success or error).
+    if (document.getElementById("wbFbsKizModal")
+      && !document.getElementById("wbFbsKizModal").classList.contains("hidden")) {
+      _wbFbsKizSetFiltersReady(true);
+    }
   }
 }
 window.openWbFbsKizModal = openWbFbsKizModal;

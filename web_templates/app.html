@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=172" />
+  <link rel="stylesheet" href="/static/style.css?v=173" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1947,9 +1947,15 @@
               </div>
             </div>
             <div class="wb-fbs-kiz-toolbar">
-              <div class="wb-fbs-kiz-filters">
-                <label class="wb-fbs-kiz-check"><input type="checkbox" id="wbFbsKizFilterEmpty" onchange="renderWbFbsKizTable()" /> Только незаполненные</label>
-                <label class="wb-fbs-kiz-check"><input type="checkbox" id="wbFbsKizFilterErrors" onchange="renderWbFbsKizTable()" /> Только с ошибками</label>
+              <div class="wb-fbs-kiz-filters" id="wbFbsKizFilters">
+                <label class="wb-fbs-kiz-check" id="wbFbsKizFilterEmptyLabel">
+                  <input type="checkbox" id="wbFbsKizFilterEmpty" onchange="renderWbFbsKizTable()" />
+                  Только незаполненные
+                </label>
+                <label class="wb-fbs-kiz-check" id="wbFbsKizFilterErrorsLabel">
+                  <input type="checkbox" id="wbFbsKizFilterErrors" onchange="renderWbFbsKizTable()" />
+                  Только с ошибками
+                </label>
                 <input id="wbFbsKizSearchFilter" class="wb-fbs-kiz-search" type="search"
                        placeholder="🔍 Поиск..." autocomplete="off"
                        title="Поиск по заказу, стикеру, названию товара и ШК"
@@ -4027,6 +4033,6 @@
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
   <script src="/static/qrcode.min.js"></script>
-  <script src="/static/app.js?v=361"></script>
+  <script src="/static/app.js?v=362"></script>
 </body>
 </html>
