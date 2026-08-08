@@ -21647,10 +21647,20 @@ function renderWbFbsOrdersTable() {
       : "";
     const statusUnderSkuHtml = cancelBadgeHtml || finishedStatusHtml;
     const actionsTd = showActions ? `<td>${_wbFbsRowActionsHtml(oid)}</td>` : "";
+    // Same QR sticker under order id as in supply-detail modal (last 4 digits larger).
+    const hasSticker = !!(
+      String(o.sticker_part_a || "").trim()
+      || String(o.sticker_part_b || "").trim()
+      || String(o.sticker_number || "").trim()
+    );
+    const stickerBlock = hasSticker
+      ? `<div class="wb-fbs-order-sticker">${_wbFbsKizStickerHtml(o)}</div>`
+      : "";
     return `<tr>
       <td><input type="checkbox" class="wb-fbs-row-cb" data-order-id="${oid}" ${checked} onchange="onWbFbsCheckboxChange()" /></td>
       <td>
         <div class="wb-fbs-order-id">${_wbFbsEsc(oid)}</div>
+        ${stickerBlock}
         <div class="wb-fbs-order-meta">от ${_wbFbsEsc(_wbFbsFmtDate(o.created_at_wb))}</div>
         ${badges.length ? `<div class="wb-fbs-badges">${badges.join("")}</div>` : ""}
       </td>

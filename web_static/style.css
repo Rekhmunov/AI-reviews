@@ -7892,6 +7892,26 @@ button.wb-fbs-select-all-link:disabled {
   line-height: 1.3;
   font-variant-numeric: tabular-nums;
 }
+/* QR sticker under order id — match supply-detail modal (.wb-fbs-sd-sticker). */
+.wb-fbs-order-sticker {
+  margin: 4px 0 0;
+}
+.wb-fbs-order-sticker .wb-fbs-kiz-sticker {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+}
+.wb-fbs-order-sticker .wb-fbs-kiz-sticker-head {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+}
+.wb-fbs-order-sticker .wb-fbs-kiz-sticker-tail {
+  font-size: 20px;
+  font-weight: 700;
+  color: #0f172a;
+}
 .wb-fbs-order-meta {
   color: #64748b;
   font-size: 12px;

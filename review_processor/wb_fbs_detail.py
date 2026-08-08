@@ -1597,6 +1597,52 @@ def _sticker_number(part_a: object, part_b: object) -> str:
     return a or b
 
 
+def attach_sticker_parts_to_orders(
+    client: wb.WbFbsClient,
+    orders: list[dict[str, Any]],
+    *,
+    api_key: str = "",
+) -> list[dict[str, Any]]:
+    """Attach sticker_part_a / sticker_part_b / sticker_number for order list rows.
+
+    Uses the same WB stickers endpoint + short cache as the supply detail modal
+    (svg, no PNG file) so the «Новые» table can show QR sticker under order id.
+    """
+    if not orders:
+        return orders
+    order_ids = [
+        _int_or_zero(o.get("order_id"))
+        for o in orders
+        if isinstance(o, dict) and _int_or_zero(o.get("order_id"))
+    ]
+    stickers: dict[int, dict[str, Any]] = {}
+    if order_ids:
+        try:
+            stickers = _fetch_stickers_map(
+                client,
+                order_ids,
+                api_key=api_key,
+                sticker_type="svg",
+                keep_files=False,
+            )
+        except Exception as exc:
+            _log.warning("list orders stickers: %s", exc)
+            stickers = {}
+    for o in orders:
+        if not isinstance(o, dict):
+            continue
+        oid = _int_or_zero(o.get("order_id"))
+        st = stickers.get(oid) or {}
+        part_a = str(st.get("partA") or o.get("sticker_part_a") or "").strip()
+        part_b = str(st.get("partB") or o.get("sticker_part_b") or "").strip()
+        o["sticker_part_a"] = part_a
+        o["sticker_part_b"] = part_b
+        o["sticker_number"] = _sticker_number(part_a, part_b) or str(
+            o.get("sticker_number") or ""
+        ).strip()
+    return orders
+
+
 def build_kiz_marking_payload(
     repo: ReviewRepository,
     *,

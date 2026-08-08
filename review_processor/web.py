@@ -8830,12 +8830,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         page: int = 1,
         page_size: int = 50,
     ) -> dict[str, object]:
+        from . import wb_fbs_detail as wb_detail
+
         user = _require_user(request)
         if not _can_view_wb_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
         _require_wb_fbs_owner_tab(user, tab)
         owner_id = _supply_owner_id(user)
-        return _sanitize_wb_fbs_owner_counts(
+        payload = _sanitize_wb_fbs_owner_counts(
             user,
             wb_fbs_mod.list_orders(
                 repository,
@@ -8847,6 +8849,18 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 page_size=page_size,
             ),
         )
+        # Enrich current page with QR sticker parts (same as supply detail modal).
+        items = payload.get("items") if isinstance(payload, dict) else None
+        if source_id and isinstance(items, list) and items:
+            try:
+                api_key = _wb_fbs_source_key(owner_id, int(source_id))
+                client = wb_fbs_mod.WbFbsClient(api_key)
+                wb_detail.attach_sticker_parts_to_orders(
+                    client, items, api_key=api_key
+                )
+            except Exception as exc:
+                _log.warning("wb-fbs orders sticker enrich: %s", exc)
+        return payload
 
     @app.get("/api/wb-fbs/orders/ids")
     def list_wb_fbs_order_ids(
