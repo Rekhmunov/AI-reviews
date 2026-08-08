@@ -8417,6 +8417,44 @@ button.wb-fbs-select-all-link:disabled {
   font-weight: 600;
   color: #334155;
 }
+.wb-fbs-sd-chip-qr {
+  gap: 6px;
+  padding-right: 4px;
+}
+.wb-fbs-sd-qr-text {
+  min-width: 0;
+}
+.wb-fbs-sd-qr-print {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #475569;
+  cursor: pointer;
+  flex: 0 0 auto;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.wb-fbs-sd-qr-print:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+.wb-fbs-sd-qr-print:active {
+  background: #cbd5e1;
+  color: #0f172a;
+}
+.wb-fbs-sd-qr-print:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 1px;
+}
+.wb-fbs-sd-qr-print svg {
+  display: block;
+}
 .wb-fbs-sd-actions {
   display: flex;
   flex-wrap: wrap;
