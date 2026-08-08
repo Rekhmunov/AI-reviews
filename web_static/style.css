@@ -7227,9 +7227,26 @@ tr.dnd-over td {
   color: #0f172a;
   line-height: 1.3;
 }
-.wb-fbs-auto-sync-lead {
-  margin: 12px 24px 0;
-  font-size: 14px;
+.wb-fbs-auto-sync-section,
+.wb-fbs-auto-collect-section {
+  margin: 20px 24px 0;
+  padding: 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+}
+.wb-fbs-auto-sync-section-title,
+.wb-fbs-auto-collect-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.3;
+}
+.wb-fbs-auto-sync-section-lead,
+.wb-fbs-auto-collect-lead {
+  margin: 8px 0 0;
+  font-size: 13px;
   line-height: 1.45;
   color: #64748b;
 }
@@ -7238,7 +7255,7 @@ tr.dnd-over td {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin: 20px 24px 0;
+  margin: 16px 0 0;
   padding: 16px;
   border: 1px solid #e2e8f0;
   border-radius: 12px;
@@ -7261,7 +7278,7 @@ tr.dnd-over td {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin: 16px 24px 0;
+  margin: 12px 0 0;
 }
 .wb-fbs-auto-sync-field label {
   font-size: 14px;
@@ -7288,7 +7305,7 @@ tr.dnd-over td {
   background: #f1f5f9;
 }
 .wb-fbs-auto-sync-last {
-  margin: 16px 24px 0;
+  margin: 12px 0 0;
   font-size: 14px;
   line-height: 1.4;
   color: #475569;
@@ -7306,29 +7323,11 @@ tr.dnd-over td {
   gap: 8px;
   padding: 20px 24px 24px;
 }
-.wb-fbs-auto-collect-section {
-  margin: 24px 24px 0;
-  padding: 16px;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  background: #fff;
-}
-.wb-fbs-auto-collect-title {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 700;
-  color: #0f172a;
-  line-height: 1.3;
-}
-.wb-fbs-auto-collect-lead {
-  margin: 8px 0 0;
-  font-size: 13px;
-  line-height: 1.45;
-  color: #64748b;
-}
+.wb-fbs-auto-sync-section .wb-fbs-auto-sync-row,
 .wb-fbs-auto-collect-section .wb-fbs-auto-sync-row {
   margin: 16px 0 0;
 }
+.wb-fbs-auto-sync-section .wb-fbs-auto-sync-field,
 .wb-fbs-auto-collect-section .wb-fbs-auto-sync-field {
   margin: 12px 0 0;
 }
@@ -7360,6 +7359,7 @@ tr.dnd-over td {
   cursor: not-allowed;
   background: #f1f5f9;
 }
+.wb-fbs-auto-sync-section .wb-fbs-auto-sync-last,
 .wb-fbs-auto-collect-section .wb-fbs-auto-sync-last {
   margin: 12px 0 0;
 }

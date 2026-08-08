@@ -2412,7 +2412,24 @@ class ReviewRepository:
             )
         return result.rowcount > 0
 
-    _WB_FBS_AUTO_SYNC_INTERVALS = (1, 2, 3, 6, 12, 24)
+    # Auto-sync stored in wb_fbs_auto_sync_interval_hours as minutes
+    # (legacy rows may still hold hours 1/2/3/6/12/24).
+    _WB_FBS_AUTO_SYNC_INTERVAL_MINUTES = (10, 30, 60, 120, 180, 360, 720, 1440)
+    _WB_FBS_AUTO_SYNC_LEGACY_HOURS = (1, 2, 3, 6, 12, 24)
+    # Auto-collect MGT still uses whole hours.
+    _WB_FBS_AUTO_COLLECT_INTERVAL_HOURS = (1, 2, 3, 6, 12, 24)
+
+    @classmethod
+    def _normalize_wb_fbs_sync_interval_minutes(cls, value: object) -> int:
+        try:
+            raw = int(value or 60)
+        except (TypeError, ValueError):
+            return 60
+        if raw in cls._WB_FBS_AUTO_SYNC_INTERVAL_MINUTES:
+            return raw
+        if raw in cls._WB_FBS_AUTO_SYNC_LEGACY_HOURS:
+            return raw * 60
+        return 60
 
     @staticmethod
     def _normalize_hhmm(value: object, *, default: str) -> str:
@@ -2465,17 +2482,14 @@ class ReviewRepository:
             ).fetchone()
         if row is None:
             raise RuntimeError("User not found")
-        try:
-            interval = int(row["wb_fbs_auto_sync_interval_hours"] or 1)
-        except (TypeError, ValueError):
-            interval = 1
-        if interval not in self._WB_FBS_AUTO_SYNC_INTERVALS:
-            interval = 1
+        interval_minutes = self._normalize_wb_fbs_sync_interval_minutes(
+            row["wb_fbs_auto_sync_interval_hours"]
+        )
         try:
             collect_interval = int(row["wb_fbs_auto_collect_mgt_interval_hours"] or 1)
         except (TypeError, ValueError):
             collect_interval = 1
-        if collect_interval not in self._WB_FBS_AUTO_SYNC_INTERVALS:
+        if collect_interval not in self._WB_FBS_AUTO_COLLECT_INTERVAL_HOURS:
             collect_interval = 1
         last_synced = row["wb_fbs_last_synced_at"]
         if last_synced is not None and not isinstance(last_synced, str):
@@ -2498,10 +2512,18 @@ class ReviewRepository:
                     detail = parsed
             except Exception:
                 detail = None
+        # Keep interval_hours for older clients when value is a whole hour.
+        interval_hours = (
+            interval_minutes // 60
+            if interval_minutes % 60 == 0
+            else None
+        )
         return {
             "enabled": bool(row["wb_fbs_auto_sync_enabled"]),
-            "interval_hours": interval,
-            "allowed_intervals": list(self._WB_FBS_AUTO_SYNC_INTERVALS),
+            "interval_minutes": interval_minutes,
+            "interval_hours": interval_hours if interval_hours is not None else 1,
+            "allowed_intervals_minutes": list(self._WB_FBS_AUTO_SYNC_INTERVAL_MINUTES),
+            "allowed_intervals": list(self._WB_FBS_AUTO_COLLECT_INTERVAL_HOURS),
             "last_synced_at": str(last_synced) if last_synced else None,
             "collect_mgt_enabled": bool(row["wb_fbs_auto_collect_mgt_enabled"]),
             "collect_mgt_interval_hours": collect_interval,
@@ -2523,26 +2545,37 @@ class ReviewRepository:
         *,
         user_id: int,
         enabled: bool,
-        interval_hours: int,
+        interval_minutes: int | None = None,
+        interval_hours: int | None = None,
         collect_mgt_enabled: bool = False,
         collect_mgt_interval_hours: int = 1,
         collect_mgt_active_from: str = "12:00",
         collect_mgt_active_to: str = "06:00",
     ) -> bool:
+        if interval_minutes is not None:
+            try:
+                interval = int(interval_minutes)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("Недопустимый период") from exc
+        elif interval_hours is not None:
+            # Legacy callers still send hours.
+            interval = self._normalize_wb_fbs_sync_interval_minutes(interval_hours)
+        else:
+            interval = 60
         try:
-            interval = int(interval_hours)
             collect_interval = int(collect_mgt_interval_hours)
         except (TypeError, ValueError) as exc:
             raise ValueError("Недопустимый период") from exc
-        if interval not in self._WB_FBS_AUTO_SYNC_INTERVALS:
+        if interval not in self._WB_FBS_AUTO_SYNC_INTERVAL_MINUTES:
             raise ValueError(
                 "Период синхронизации должен быть одним из: "
-                + ", ".join(str(v) for v in self._WB_FBS_AUTO_SYNC_INTERVALS)
+                + ", ".join(str(v) for v in self._WB_FBS_AUTO_SYNC_INTERVAL_MINUTES)
+                + " минут"
             )
-        if collect_interval not in self._WB_FBS_AUTO_SYNC_INTERVALS:
+        if collect_interval not in self._WB_FBS_AUTO_COLLECT_INTERVAL_HOURS:
             raise ValueError(
                 "Период автосбора МГТ должен быть одним из: "
-                + ", ".join(str(v) for v in self._WB_FBS_AUTO_SYNC_INTERVALS)
+                + ", ".join(str(v) for v in self._WB_FBS_AUTO_COLLECT_INTERVAL_HOURS)
             )
         active_from = self._parse_hhmm_strict(
             collect_mgt_active_from, field="начала окна автосбора МГТ", default="12:00"

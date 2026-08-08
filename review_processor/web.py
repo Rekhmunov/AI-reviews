@@ -802,20 +802,36 @@ class StockSourceUpdateRequest(BaseModel):
 
 class WbFbsAutoSyncSettingsRequest(BaseModel):
     enabled: bool = False
-    interval_hours: int = Field(default=1, ge=1, le=24)
+    # Preferred: minutes (10, 30, 60, …). Legacy clients may still send hours.
+    interval_minutes: int | None = Field(default=None, ge=10, le=1440)
+    interval_hours: int | None = Field(default=None, ge=1, le=24)
     collect_mgt_enabled: bool = False
     collect_mgt_interval_hours: int = Field(default=1, ge=1, le=24)
     collect_mgt_active_from: str = "12:00"
     collect_mgt_active_to: str = "06:00"
 
-    def validated_interval(self) -> int:
-        allowed = (1, 2, 3, 6, 12, 24)
-        hours = int(self.interval_hours)
-        if hours not in allowed:
-            raise ValueError(
-                "Период должен быть одним из: " + ", ".join(str(v) for v in allowed)
-            )
-        return hours
+    def validated_interval_minutes(self) -> int:
+        allowed_minutes = (10, 30, 60, 120, 180, 360, 720, 1440)
+        legacy_hours = (1, 2, 3, 6, 12, 24)
+        if self.interval_minutes is not None:
+            minutes = int(self.interval_minutes)
+            if minutes not in allowed_minutes:
+                raise ValueError(
+                    "Период должен быть одним из: "
+                    + ", ".join(str(v) for v in allowed_minutes)
+                    + " минут"
+                )
+            return minutes
+        if self.interval_hours is not None:
+            hours = int(self.interval_hours)
+            if hours not in legacy_hours:
+                raise ValueError(
+                    "Период должен быть одним из: "
+                    + ", ".join(str(v) for v in legacy_hours)
+                    + " часов"
+                )
+            return hours * 60
+        return 60
 
     def validated_collect_interval(self) -> int:
         allowed = (1, 2, 3, 6, 12, 24)
@@ -9490,12 +9506,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             )
         owner_id = _supply_owner_id(user)
         try:
-            interval_hours = payload.validated_interval()
+            interval_minutes = payload.validated_interval_minutes()
             collect_interval = payload.validated_collect_interval()
             updated = repository.save_wb_fbs_auto_sync_settings(
                 user_id=owner_id,
                 enabled=bool(payload.enabled),
-                interval_hours=interval_hours,
+                interval_minutes=interval_minutes,
                 collect_mgt_enabled=bool(payload.collect_mgt_enabled),
                 collect_mgt_interval_hours=collect_interval,
                 collect_mgt_active_from=str(payload.collect_mgt_active_from or "12:00"),

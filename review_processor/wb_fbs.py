@@ -2606,7 +2606,12 @@ def list_fbs_sync_jobs(repo: ReviewRepository, *, user_id: int) -> list[dict[str
     return jobs
 
 
-def _fbs_auto_sync_is_due(*, last_synced_at: str | None, interval_hours: int) -> bool:
+def _fbs_auto_sync_is_due(
+    *,
+    last_synced_at: str | None,
+    interval_minutes: int | None = None,
+    interval_hours: int | None = None,
+) -> bool:
     """Due when FBS orders sync never ran or interval elapsed since last FBS sync."""
     if not last_synced_at:
         return True
@@ -2616,7 +2621,10 @@ def _fbs_auto_sync_is_due(*, last_synced_at: str | None, interval_hours: int) ->
         return True
     if last_dt.tzinfo is None:
         last_dt = last_dt.replace(tzinfo=UTC)
-    return (datetime.now(UTC) - last_dt).total_seconds() / 3600.0 >= float(interval_hours)
+    if interval_minutes is None:
+        interval_minutes = int(interval_hours or 1) * 60
+    minutes = max(1, int(interval_minutes or 1))
+    return (datetime.now(UTC) - last_dt).total_seconds() >= float(minutes) * 60.0
 
 
 def _parse_hhmm_to_time(value: object, *, default: str) -> dt_time:
@@ -2806,6 +2814,7 @@ def run_auto_collect_mgt_for_owner(
         interval_hours=interval_hours,
     ):
         return {"ok": True, "ran": False, "message": "not_due"}
+
 
     ran_at = _utc_now()
     ran_at_msk = _msk_now().strftime("%d.%m.%Y %H:%M")
@@ -3086,10 +3095,10 @@ class WbFbsScheduler:
 
             # 1) Auto-sync orders (unchanged behaviour).
             if settings.get("enabled"):
-                interval_hours = int(settings.get("interval_hours") or 1)
+                interval_minutes = int(settings.get("interval_minutes") or 60)
                 if _fbs_auto_sync_is_due(
                     last_synced_at=settings.get("last_synced_at"),
-                    interval_hours=interval_hours,
+                    interval_minutes=interval_minutes,
                 ):
                     try:
                         jobs = list_fbs_sync_jobs(self.repository, user_id=user_id)
@@ -3106,10 +3115,10 @@ class WbFbsScheduler:
                         )
                         if ok:
                             _log.info(
-                                "WbFbsScheduler: started auto-sync user=%s sources=%s interval=%sh",
+                                "WbFbsScheduler: started auto-sync user=%s sources=%s interval=%sm",
                                 user_id,
                                 len(jobs),
-                                interval_hours,
+                                interval_minutes,
                             )
                         else:
                             _log.info(
