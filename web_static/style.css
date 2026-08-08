@@ -8406,6 +8406,25 @@ button.wb-fbs-select-all-link:disabled {
   min-height: 40px;
   padding: 8px 14px;
 }
+/* Waiting for orders: keep pointer events so title tooltip still shows. */
+.wb-fbs-sd-actions button.is-wait-orders,
+.wb-fbs-sd-actions button.is-wait-orders:hover,
+.wb-fbs-sd-actions button.is-wait-orders:active,
+.wb-fbs-sd-actions button.is-wait-orders:focus {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+  border-color: rgba(147, 197, 253, 0.55);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.82), rgba(239, 246, 255, 0.86));
+}
+.wb-fbs-kiz-split.is-ok > .secondary.is-wait-orders,
+.wb-fbs-kiz-split.is-ok > .secondary.is-wait-orders:hover,
+.wb-fbs-kiz-split.is-error > .secondary.is-wait-orders,
+.wb-fbs-kiz-split.is-error > .secondary.is-wait-orders:hover {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 .wb-fbs-picking-split,
 .wb-fbs-kiz-split {
   position: relative;

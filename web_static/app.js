@@ -18269,7 +18269,55 @@ const wbFbsDetailState = {
   trbxRemaining: 0,
   trbxLoaded: false,
   trbxLoading: false,
+  /** False until supply detail (orders) finished loading. */
+  ordersReady: false,
 };
+
+const _WB_FBS_DETAIL_ACTION_IDS = [
+  "wbFbsSupplyDetailPickingBtn",
+  "wbFbsSupplyDetailPickingMenuBtn",
+  "wbFbsSupplyDetailStickersBtn",
+  "wbFbsSupplyDetailKizBtn",
+  "wbFbsSupplyDetailKizRefreshBtn",
+  "wbFbsSupplyDetailTrbxBtn",
+];
+
+function _wbFbsSupplyDetailActionsReady() {
+  return !!wbFbsDetailState.ordersReady;
+}
+
+/**
+ * Disable supply-detail action buttons until orders are loaded.
+ * Uses aria-disabled (not native disabled) so the hover tooltip still works.
+ */
+function _wbFbsSupplyDetailSetActionsReady(ready) {
+  wbFbsDetailState.ordersReady = !!ready;
+  const tip = "Дождитесь загрузки заказов";
+  _WB_FBS_DETAIL_ACTION_IDS.forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (!ready) {
+      if (el.dataset.waitTitleSaved === undefined) {
+        el.dataset.waitTitleSaved = el.getAttribute("title") || "";
+      }
+      el.setAttribute("aria-disabled", "true");
+      el.classList.add("is-wait-orders");
+      el.setAttribute("title", tip);
+      el.tabIndex = -1;
+    } else {
+      el.removeAttribute("aria-disabled");
+      el.classList.remove("is-wait-orders");
+      el.removeAttribute("tabindex");
+      const saved = el.dataset.waitTitleSaved;
+      if (saved !== undefined) {
+        if (saved) el.setAttribute("title", saved);
+        else el.removeAttribute("title");
+        delete el.dataset.waitTitleSaved;
+      }
+    }
+  });
+  if (!ready) _wbFbsClosePickingMenu();
+}
 
 function _wbFbsSupplyDetailResetSearch() {
   const search = document.getElementById("wbFbsSupplyDetailSearchFilter");
@@ -18285,6 +18333,7 @@ function closeWbFbsSupplyDetailModal() {
   wbFbsDetailState.trbxRemaining = 0;
   wbFbsDetailState.trbxLoaded = false;
   wbFbsDetailState.trbxLoading = false;
+  _wbFbsSupplyDetailSetActionsReady(false);
   _wbFbsKizSplitSetTone("");
   _wbFbsCloseRowMenus();
   _wbFbsClosePickingMenu();
@@ -18483,7 +18532,7 @@ async function loadWbFbsTrbxBoxes({ keepInfo = false } = {}) {
 
 function openWbFbsCreateTrbxModal() {
   const sid = String(wbFbsDetailState.supplyId || "").trim();
-  if (!sid || !wbFbsState.sourceId) return;
+  if (!sid || !wbFbsState.sourceId || !_wbFbsSupplyDetailActionsReady()) return;
   const supply = wbFbsDetailState.supply || {};
   if (supply.done) {
     alert("Поставка уже закрыта — грузоместа добавить нельзя");
@@ -18675,6 +18724,7 @@ async function openWbFbsSupplyDetailModal(supplyId) {
   if (!sid || !wbFbsState.sourceId) return;
   wbFbsDetailState.supplyId = sid;
   wbFbsDetailState.selected.clear();
+  _wbFbsSupplyDetailSetActionsReady(false);
   _wbFbsKizSplitSetTone("");
   _wbFbsSupplyDetailResetSearch();
   setModalVisibility("wbFbsSupplyDetailModal", true);
@@ -18699,7 +18749,11 @@ async function openWbFbsSupplyDetailModal(supplyId) {
     if (wbFbsDetailState.supplyId !== sid) return;
     wbFbsDetailState.supply = data;
     renderWbFbsSupplyDetail(data);
+    _wbFbsSupplyDetailSetActionsReady(true);
   } catch (e) {
+    if (wbFbsDetailState.supplyId === sid) {
+      _wbFbsSupplyDetailSetActionsReady(false);
+    }
     if (info) {
       info.hidden = false;
       info.textContent = String(e.message || e);
@@ -18867,6 +18921,7 @@ function toggleWbFbsPickingMenu(event) {
     event.preventDefault();
     event.stopPropagation();
   }
+  if (!_wbFbsSupplyDetailActionsReady()) return;
   const menu = document.getElementById("wbFbsPickingMenu");
   const caret = document.getElementById("wbFbsSupplyDetailPickingMenuBtn");
   if (!menu || !caret) return;
@@ -18878,7 +18933,7 @@ window.toggleWbFbsPickingMenu = toggleWbFbsPickingMenu;
 
 function wbFbsOpenPickingList(variant) {
   const sid = String(wbFbsDetailState.supplyId || "").trim();
-  if (!sid || !wbFbsState.sourceId) return;
+  if (!sid || !wbFbsState.sourceId || !_wbFbsSupplyDetailActionsReady()) return;
   const mode = String(variant || "summary").trim().toLowerCase() === "extended"
     ? "extended"
     : "summary";
@@ -18894,6 +18949,7 @@ function wbFbsOpenPickingList(variant) {
   const win = window.open(url, "_blank");
   if (!win) alert("Разрешите всплывающие окна для листа подбора");
   setTimeout(() => {
+    if (!_wbFbsSupplyDetailActionsReady()) return;
     if (btn) btn.disabled = false;
     if (caret) caret.disabled = false;
   }, 1500);
@@ -18902,7 +18958,7 @@ window.wbFbsOpenPickingList = wbFbsOpenPickingList;
 
 function wbFbsOpenStickersPrint() {
   const sid = String(wbFbsDetailState.supplyId || "").trim();
-  if (!sid || !wbFbsState.sourceId) return;
+  if (!sid || !wbFbsState.sourceId || !_wbFbsSupplyDetailActionsReady()) return;
   const btn = document.getElementById("wbFbsSupplyDetailStickersBtn");
   if (btn) btn.disabled = true;
   const url =
@@ -18910,7 +18966,10 @@ function wbFbsOpenStickersPrint() {
     `?source_id=${wbFbsState.sourceId}`;
   const win = window.open(url, "_blank");
   if (!win) alert("Разрешите всплывающие окна для стикеров");
-  setTimeout(() => { if (btn) btn.disabled = false; }, 1500);
+  setTimeout(() => {
+    if (!_wbFbsSupplyDetailActionsReady()) return;
+    if (btn) btn.disabled = false;
+  }, 1500);
 }
 window.wbFbsOpenStickersPrint = wbFbsOpenStickersPrint;
 
@@ -19010,7 +19069,9 @@ async function refreshWbFbsKizStatus(event) {
     event.stopPropagation();
   }
   const sid = String(wbFbsDetailState.supplyId || "").trim();
-  if (!sid || !wbFbsState.sourceId || wbFbsKizState.statusRefreshing) return;
+  if (!sid || !wbFbsState.sourceId || !_wbFbsSupplyDetailActionsReady() || wbFbsKizState.statusRefreshing) {
+    return;
+  }
   const refreshBtn = document.getElementById("wbFbsSupplyDetailKizRefreshBtn");
   const kizBtn = document.getElementById("wbFbsSupplyDetailKizBtn");
   const refreshGen = Number(wbFbsKizState.statusRefreshGen || 0) + 1;
@@ -19361,7 +19422,7 @@ window.closeWbFbsKizModal = closeWbFbsKizModal;
 
 async function openWbFbsKizModal() {
   const sid = String(wbFbsDetailState.supplyId || "").trim();
-  if (!sid || !wbFbsState.sourceId) return;
+  if (!sid || !wbFbsState.sourceId || !_wbFbsSupplyDetailActionsReady()) return;
   setModalVisibility("wbFbsKizModal", true);
   wbFbsKizState.rows = [];
   wbFbsKizState.errors = {};
