@@ -20621,48 +20621,69 @@ function _wbFbsMakeQrDataUrl(text, size) {
 }
 
 function _wbFbsSupplyQrPrintHtml(sid, qrDataUrl, qtyLabel, city) {
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${_wbFbsEsc(sid)}</title>
+  // Official WB supply sticker: 58×40, QR center, id left / qty+city right (vertical).
+  // Side rails reserve space so rotated text never overlaps the quiet zone.
+  const rightLines = [qtyLabel, city].filter(Boolean)
+    .map((t) => `<div>${_wbFbsEsc(t)}</div>`)
+    .join("");
+  return `<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"><title>QR поставки ${_wbFbsEsc(sid)}</title>
 <style>
 @page { size: 58mm 40mm; margin: 0; }
 * { box-sizing: border-box; margin: 0; padding: 0; }
-html, body {
-  width: 58mm; height: 40mm; overflow: hidden; background: #fff;
-  font-family: Arial, Helvetica, sans-serif; color: #000;
+html, body { margin: 0; padding: 0; background: #fff; color: #000;
+  font-family: Arial, Helvetica, sans-serif; }
+.toolbar { padding: 8px 12px; }
+.toolbar button {
+  font: 14px/1.2 Arial, Helvetica, sans-serif; padding: 6px 12px; cursor: pointer;
 }
+.toolbar span { margin-left: 8px; color: #64748b; font-size: 13px; }
 .sheet {
-  position: relative; width: 58mm; height: 40mm;
+  width: 58mm; height: 40mm; overflow: hidden;
+  display: grid;
+  grid-template-columns: 11mm 1fr 11mm;
+  align-items: center;
+  column-gap: 1.5mm;
+  padding: 2mm 1.5mm;
+}
+.rail {
+  height: 36mm; width: 11mm;
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+}
+.rail-inner {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 1.2mm;
+  transform: rotate(-90deg);
+  white-space: nowrap;
+  font-weight: 700; font-size: 3.1mm; line-height: 1.1;
+  letter-spacing: 0.02em; text-align: center;
+}
+.qr-wrap {
+  height: 36mm;
+  display: flex; align-items: center; justify-content: center;
 }
 .qr {
-  position: absolute; left: 50%; top: 50%;
   width: 28mm; height: 28mm;
-  transform: translate(-50%, -50%);
   object-fit: contain;
+  display: block;
 }
-.side {
-  position: absolute; top: 50%;
-  transform: translateY(-50%) rotate(-90deg);
-  transform-origin: center center;
-  white-space: nowrap; font-weight: 700; letter-spacing: 0.02em;
-}
-.side-left {
-  left: 7mm; font-size: 3.2mm; line-height: 1;
-}
-.side-right {
-  right: 7mm; display: flex; flex-direction: column; align-items: center;
-  gap: 1.2mm; font-size: 3.2mm; line-height: 1.05; text-align: center;
+@media print {
+  .toolbar { display: none !important; }
+  html, body { width: 58mm; height: 40mm; overflow: hidden; }
 }
 </style></head><body>
-<div class="sheet">
-  <div class="side side-left">${_wbFbsEsc(sid)}</div>
-  <img class="qr" alt="" src="${qrDataUrl}" />
-  <div class="side side-right">
-    ${qtyLabel ? `<div>${_wbFbsEsc(qtyLabel)}</div>` : ""}
-    ${city ? `<div>${_wbFbsEsc(city)}</div>` : ""}
-  </div>
+<div class="toolbar">
+  <button type="button" onclick="window.print()">Печать</button>
+  <span>QR поставки · ${_wbFbsEsc(sid)} · 58×40 мм</span>
 </div>
+<section class="sheet">
+  <div class="rail"><div class="rail-inner">${_wbFbsEsc(sid)}</div></div>
+  <div class="qr-wrap"><img class="qr" alt="QR ${_wbFbsEsc(sid)}" src="${qrDataUrl}" /></div>
+  <div class="rail"><div class="rail-inner">${rightLines}</div></div>
+</section>
 <script>
 window.addEventListener("load", function () {
-  setTimeout(function () { window.print(); }, 80);
+  setTimeout(function () { window.print(); }, 300);
 });
 <\/script>
 </body></html>`;
@@ -20671,16 +20692,17 @@ window.addEventListener("load", function () {
 /**
  * Local supply QR sticker from WB-GI id (no WB /barcode API).
  * Layout matches portal sticker: QR + left id + right qty/city.
- * Opens the print window synchronously (or uses opts.win) to avoid popup blockers.
+ * Opens in a new tab like other stickers (no sized popup window).
  */
 async function wbFbsOpenSupplyQr(supplyId, opts) {
   _wbFbsCloseRowMenus();
   const sid = _wbFbsSupplyQrPayload(supplyId || wbFbsDetailState.supplyId);
   if (!sid) return;
-  // Prefer a pre-opened window (multi-print); otherwise open now in the click stack.
+  // Prefer a pre-opened tab (multi-print); otherwise open now in the click stack.
+  // No window features → browser opens a tab (same as stickers-print).
   let win = opts && opts.win ? opts.win : null;
   if (!win) {
-    win = window.open("", "_blank", "width=420,height=320");
+    win = window.open("", "_blank");
   }
   if (!win) {
     throw new Error("Разрешите всплывающие окна, чтобы открыть QR-код поставки");
@@ -21827,10 +21849,10 @@ function wbFbsPrintSelectedSupplyQr() {
     alert("Выберите поставку.");
     return;
   }
-  // Open all windows in the same click gesture, then fill each.
+  // Open all tabs in the same click gesture, then fill each (like stickers).
   const jobs = supplyIds.map((sid) => ({
     sid,
-    win: window.open("", "_blank", "width=420,height=320"),
+    win: window.open("", "_blank"),
   }));
   jobs.forEach((job) => {
     if (!job.win) {
@@ -22367,7 +22389,7 @@ async function wbFbsPrintSupplySticker() {
   }
   const jobs = supplyIds.map((sid) => ({
     sid,
-    win: window.open("", "_blank", "width=420,height=320"),
+    win: window.open("", "_blank"),
   }));
   for (const job of jobs) {
     if (!job.win) {
