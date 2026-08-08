@@ -18974,7 +18974,11 @@ function _wbFbsKizMergeStatusIntoDetail(orders) {
   });
   // Empty live result ⇒ no KIZ-required orders left in supply.
   if (!byId.size) {
-    supply.orders.forEach((o) => _wbFbsKizClearOrderFields(o));
+    supply.orders.forEach((o) => {
+      const keepCancel = String(o?.cancel_reason_label || "").trim();
+      _wbFbsKizClearOrderFields(o);
+      if (keepCancel) o.cancel_reason_label = keepCancel;
+    });
     return;
   }
   supply.orders.forEach((o) => {
@@ -18982,7 +18986,9 @@ function _wbFbsKizMergeStatusIntoDetail(orders) {
     const upd = byId.get(oid);
     if (!upd) {
       // Order disappeared from live supply composition.
+      const keepCancel = String(o?.cancel_reason_label || "").trim();
       _wbFbsKizClearOrderFields(o);
+      if (keepCancel) o.cancel_reason_label = keepCancel;
       return;
     }
     o.kiz_required = !!upd.kiz_required;
@@ -18990,6 +18996,11 @@ function _wbFbsKizMergeStatusIntoDetail(orders) {
     o.kiz_codes = Array.isArray(upd.kiz_codes) ? upd.kiz_codes.slice() : [];
     o.kiz_decision = String(upd.kiz_decision || "");
     o.kiz_status = String(upd.kiz_status || "empty");
+    if (upd.cancelled || upd.cancel_reason_label) {
+      o.cancel_reason_label = String(
+        upd.cancel_reason_label || o.cancel_reason_label || "Отменен"
+      ).trim() || "Отменен";
+    }
   });
 }
 
@@ -19022,13 +19033,14 @@ async function refreshWbFbsKizStatus(event) {
     if (wbFbsDetailState.supplyId !== sid) return;
     if (wbFbsKizState.statusRefreshGen !== refreshGen) return;
     _wbFbsKizMergeStatusIntoDetail(data.orders || []);
-    _wbFbsKizSplitSetTone(data.status);
     const info = document.getElementById("wbFbsSupplyDetailInfo");
     if (info) {
       info.hidden = true;
       info.textContent = "";
     }
+    // Render first, then apply tone — render must not wipe the refresh color.
     if (wbFbsDetailState.supply) renderWbFbsSupplyDetail(wbFbsDetailState.supply);
+    _wbFbsKizSplitSetTone(data.status);
   } catch (e) {
     if (
       wbFbsDetailState.supplyId === sid
@@ -19685,6 +19697,15 @@ function onWbFbsKizCodeInput(orderId, event) {
     delete wbFbsKizState.errors[oid];
   }
   _wbFbsKizCollectFromDom();
+  const row = wbFbsKizState.rows.find((r) => Number(r.order_id) === oid);
+  if (row) {
+    const codes = _wbFbsKizNormalizeCodesList(row.kiz_codes);
+    // Empty KIZ field: drop save/API error chip; keep cancel badge separately.
+    if (!codes.length) {
+      delete wbFbsKizState.errors[oid];
+      if (String(row.kiz_status || "") === "error") row.kiz_status = "empty";
+    }
+  }
   _wbFbsKizUpdateScanCounter();
 }
 window.onWbFbsKizCodeInput = onWbFbsKizCodeInput;
@@ -19718,6 +19739,9 @@ function removeWbFbsKizCode(orderId, idx) {
     if (!row.kiz_codes.length) row.kiz_codes = [""];
   }
   delete wbFbsKizState.errors[oid];
+  if (!_wbFbsKizNormalizeCodesList(row.kiz_codes).length) {
+    if (String(row.kiz_status || "") === "error") row.kiz_status = "empty";
+  }
   renderWbFbsKizTable({ skipCollect: true });
 }
 window.removeWbFbsKizCode = removeWbFbsKizCode;
@@ -20005,7 +20029,18 @@ async function saveWbFbsKizModal() {
     const codes = _wbFbsKizNormalizeCodesList(r.kiz_codes);
     const wasBound = !!r.kiz_bound;
     const hadLocal = !!r.kiz_local;
+    const isCancelled = !!String(r.cancel_reason_label || "").trim();
     if (!codes.length && !wasBound && !hadLocal) continue;
+    // Cancelled + empty KIZ: do not push clear/meta to WB and do not keep an error.
+    if (!codes.length && isCancelled) {
+      delete wbFbsKizState.errors[oid];
+      r.kiz_status = "empty";
+      r.kiz_wb_synced = true;
+      if (!wbFbsKizState.baselineByOrder) wbFbsKizState.baselineByOrder = {};
+      wbFbsKizState.baselineByOrder[oid] = [];
+      skippedUnchanged += 1;
+      continue;
+    }
     if (codes.length) {
       let bad = "";
       for (const code of codes) {
@@ -20023,6 +20058,7 @@ async function saveWbFbsKizModal() {
     }
     const unchanged = _wbFbsKizBaselineEquals(oid, codes);
     // Keep retrying failed WB pushes even when the code list looks the same.
+    // Cancelled rows with codes still need the friendly cancelled save result.
     const needsWbRetry = r.kiz_wb_synced === false;
     if (unchanged && !needsWbRetry) {
       skippedUnchanged += 1;
@@ -20091,12 +20127,25 @@ async function saveWbFbsKizModal() {
       }
       if (r.cancelled || r.cancel_reason_label) {
         const label = String(r.cancel_reason_label || "Отменен").trim() || "Отменен";
+        const codesNow = Array.isArray(r.kiz_codes)
+          ? r.kiz_codes.filter((c) => String(c || "").trim())
+          : [];
         if (row) {
           row.cancel_reason_label = label;
           row.wb_status = String(r.wb_status || row.wb_status || "");
           row.supplier_status = String(r.supplier_status || row.supplier_status || "");
-          row.kiz_status = "error";
         }
+        // Empty clear on cancelled order is not a save error.
+        if (r.skipped_empty || (r.wb_ok && !codesNow.length)) {
+          if (row) {
+            row.kiz_status = "empty";
+            row.kiz_wb_synced = true;
+            row.kiz_bound = false;
+          }
+          delete wbFbsKizState.errors[oid];
+          continue;
+        }
+        if (row) row.kiz_status = "error";
         if (Number.isFinite(oid) && oid > 0) cancelledIds.push(oid);
         wbFbsKizState.errors[oid] = `Заказ отменен (${label})`;
         continue;
@@ -20153,6 +20202,8 @@ async function saveWbFbsKizModal() {
     }
     // Soft-refresh detail badges; keep cancelled labels in open supply detail.
     _wbFbsKizRefreshDetailBadges(data.results || []);
+    // Update Маркировка split color from live WB meta (non-blocking).
+    try { await refreshWbFbsKizStatus(); } catch (_) {}
   } catch (e) {
     _wbFbsKizSetInfo(String(e.message || e));
   } finally {

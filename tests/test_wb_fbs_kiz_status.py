@@ -143,3 +143,54 @@ def test_check_supply_kiz_status_raises_on_meta_failure() -> None:
             api_key="key",
             supply_id="S1",
         )
+
+
+def test_check_supply_kiz_status_excludes_cancelled_from_tone() -> None:
+    client = MagicMock()
+    client.get_supply_order_ids.return_value = [11, 22]
+    client.get_orders_meta.return_value = [
+        {
+            "id": 11,
+            "metaDetails": [
+                {"key": "sgtin", "value": ["010467…"], "decision": "filled"}
+            ],
+        },
+        {
+            "id": 22,
+            "metaDetails": [
+                {"key": "sgtin", "value": ["010468…"], "decision": "invalid"}
+            ],
+        },
+    ]
+    with (
+        patch("review_processor.wb_fbs_detail.wb.WbFbsClient", return_value=client),
+        patch("review_processor.wb_fbs_detail._cache_get_detail", return_value=None),
+        patch(
+            "review_processor.wb_fbs_detail._local_order_ids_for_supply",
+            return_value=[],
+        ),
+        patch(
+            "review_processor.wb_fbs_detail.wb.load_order_status_map",
+            return_value={
+                22: {
+                    "supplier_status": "confirm",
+                    "wb_status": "canceled_by_client",
+                    "cancel_reason_label": "Клиент отказался",
+                }
+            },
+        ),
+    ):
+        payload = check_supply_kiz_status(
+            MagicMock(),
+            user_id=1,
+            source_id=2,
+            api_key="key",
+            supply_id="S1",
+        )
+    # Cancelled order 22 has invalid meta but must not paint the control red.
+    assert payload["status"] == "ok"
+    assert payload["counts"]["required"] == 1
+    assert payload["counts"]["cancelled"] == 1
+    by_id = {row["order_id"]: row for row in payload["orders"]}
+    assert by_id[22]["cancelled"] is True
+    assert by_id[22]["kiz_required"] is False

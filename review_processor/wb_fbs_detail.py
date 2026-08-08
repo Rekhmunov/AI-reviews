@@ -645,18 +645,51 @@ def check_supply_kiz_status(
                 f"Wildberries не вернул статусы КИЗ для {len(missing)} заказ(ов)"
             )
 
+    # Cancelled orders stay in the supply UI but must not paint the
+    # Маркировка refresh control red/green — they are out of КИЗ flow.
+    local_status = wb.load_order_status_map(
+        repo, user_id=user_id, source_id=source_id, order_ids=order_ids
+    )
+    cancelled_ids: set[int] = set()
+    cancel_labels: dict[int, str] = {}
+    for oid, st in local_status.items():
+        label = str(st.get("cancel_reason_label") or "").strip()
+        if label or wb._is_cancelled_status(
+            supplier_status=st.get("supplier_status"),
+            wb_status=st.get("wb_status"),
+        ):
+            cancelled_ids.add(int(oid))
+            cancel_labels[int(oid)] = label or "Отменен"
+    if cached and isinstance(cached.get("orders"), list):
+        for o in cached["orders"]:
+            if not isinstance(o, dict):
+                continue
+            oid = _int_or_zero(o.get("order_id"))
+            if not oid:
+                continue
+            label = str(o.get("cancel_reason_label") or "").strip()
+            if label or wb._is_cancelled_status(
+                supplier_status=o.get("supplier_status"),
+                wb_status=o.get("wb_status"),
+            ):
+                cancelled_ids.add(oid)
+                cancel_labels[oid] = label or cancel_labels.get(oid) or "Отменен"
+
     rows: list[dict[str, Any]] = []
     required_statuses: list[str] = []
     for oid in order_ids:
         kiz = kiz_map.get(oid) or {}
         status = str(kiz.get("kiz_status") or "empty")
+        is_cancelled = oid in cancelled_ids
         row = {
             "order_id": oid,
-            "kiz_required": bool(kiz.get("kiz_required")),
+            "kiz_required": bool(kiz.get("kiz_required")) and not is_cancelled,
             "kiz_bound": bool(kiz.get("kiz_bound")),
             "kiz_codes": list(kiz.get("kiz_codes") or []),
             "kiz_decision": str(kiz.get("kiz_decision") or ""),
-            "kiz_status": status,
+            "kiz_status": status if not is_cancelled else "empty",
+            "cancelled": is_cancelled,
+            "cancel_reason_label": cancel_labels.get(oid, ""),
         }
         rows.append(row)
         if row["kiz_required"]:
@@ -669,6 +702,7 @@ def check_supply_kiz_status(
         "error": sum(1 for s in required_statuses if s == "error"),
         "pending": sum(1 for s in required_statuses if s == "pending"),
         "empty": sum(1 for s in required_statuses if s == "empty"),
+        "cancelled": len(cancelled_ids),
     }
 
     # Patch open-modal cache so badges match the live check without
@@ -691,11 +725,18 @@ def check_supply_kiz_status(
                     o["kiz_decision"] = ""
                     o["kiz_status"] = "empty"
                 continue
-            o["kiz_required"] = bool(kiz.get("kiz_required"))
+            is_cancelled = oid in cancelled_ids
+            o["kiz_required"] = bool(kiz.get("kiz_required")) and not is_cancelled
             o["kiz_bound"] = bool(kiz.get("kiz_bound"))
             o["kiz_codes"] = list(kiz.get("kiz_codes") or [])
             o["kiz_decision"] = str(kiz.get("kiz_decision") or "")
-            o["kiz_status"] = str(kiz.get("kiz_status") or "empty")
+            o["kiz_status"] = (
+                "empty" if is_cancelled else str(kiz.get("kiz_status") or "empty")
+            )
+            if is_cancelled:
+                o["cancel_reason_label"] = cancel_labels.get(
+                    oid, str(o.get("cancel_reason_label") or "Отменен")
+                )
         _cache_put_detail(
             user_id=user_id, source_id=source_id, supply_id=sid, detail=cached
         )
@@ -1576,8 +1617,28 @@ def save_kiz_marking(
             supplier_status=known.get("supplier_status"),
             wb_status=known.get("wb_status"),
         ):
-            # Already cancelled on WB — do not burn rate-limit on repeated 409.
             label = known_label or "Отменен"
+            # Empty field on a cancelled order: keep local clear, do not call WB,
+            # and do not surface a save error — there is nothing to push.
+            if not uniq:
+                skipped_n += 1
+                results.append(
+                    {
+                        "order_id": oid,
+                        "ok": True,
+                        "local_ok": local_ok,
+                        "wb_ok": True,
+                        "cancelled": True,
+                        "cancel_reason_label": label,
+                        "supplier_status": str(known.get("supplier_status") or ""),
+                        "wb_status": str(known.get("wb_status") or ""),
+                        "kiz_codes": [],
+                        "error": "",
+                        "skipped_empty": True,
+                    }
+                )
+                continue
+            # Codes present — refuse WB push without a 409 penalty.
             err_n += 1
             results.append(
                 {

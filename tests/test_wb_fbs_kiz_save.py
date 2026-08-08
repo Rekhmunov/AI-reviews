@@ -238,6 +238,43 @@ def test_save_skips_wb_for_known_cancelled(
 
 
 @patch("review_processor.wb_fbs_detail.time.sleep", return_value=None)
+@patch(
+    "review_processor.wb_fbs_detail.wb.load_order_status_map",
+    return_value={
+        12: {
+            "supplier_status": "confirm",
+            "wb_status": "canceled_by_client",
+            "cancel_reason_label": "Клиент отказался",
+        }
+    },
+)
+@patch("review_processor.wb_fbs_detail.wb.update_order_kiz_codes")
+@patch("review_processor.wb_fbs_detail.wb.WbFbsClient")
+def test_save_empty_on_cancelled_is_not_error(
+    mock_cls: Any, mock_local: Any, _status_map: Any, _sleep: Any
+) -> None:
+    client = _client_mock()
+    mock_cls.return_value = client
+    mock_local.return_value = True
+    result = save_kiz_marking(
+        api_key="k",
+        items=[{"order_id": 12, "kiz_codes": [], "clear": True}],
+        allowed_order_ids={12},
+        repo=MagicMock(),
+        user_id=11,
+        source_id=22,
+    )
+    assert result["failed"] == 0
+    assert result["ok"] is True
+    row = result["results"][0]
+    assert row["cancelled"] is True
+    assert row.get("skipped_empty") is True
+    assert row["wb_ok"] is True
+    client.set_order_sgtin.assert_not_called()
+    client.delete_order_meta.assert_not_called()
+
+
+@patch("review_processor.wb_fbs_detail.time.sleep", return_value=None)
 @patch("review_processor.wb_fbs_detail.wb.load_order_status_map", return_value={})
 @patch("review_processor.wb_fbs_detail.wb.update_order_kiz_codes")
 @patch("review_processor.wb_fbs_detail.wb.WbFbsClient")
