@@ -18243,7 +18243,6 @@ function _wbFbsQrMenuIconHtml() {
 function _wbFbsSupplyRowActionsHtml(supplyId) {
   const sid = String(supplyId || "").trim();
   if (!sid) return "";
-  // QR-код поставки — только после передачи в доставку (GET …/barcode).
   // На «На сборке» меню нет: WB API не умеет переименовывать поставки.
   if (wbFbsState.tab === "assembly") return "";
   const safeKey = sid.replace(/[^a-zA-Z0-9_-]/g, "_");
@@ -20539,6 +20538,34 @@ function _wbFbsSupplyQrPayload(supplyId) {
   return String(supplyId || "").trim();
 }
 
+function _wbFbsSupplyQrMeta(supplyId) {
+  const sid = _wbFbsSupplyQrPayload(supplyId);
+  const detail = wbFbsDetailState.supply;
+  if (detail && String(detail.supply_id || "").trim() === sid) {
+    const qty = Number(detail.order_count);
+    return {
+      orderCount: Number.isFinite(qty) && qty > 0 ? Math.round(qty) : 0,
+      city: String(detail.warehouse_label || "").trim(),
+    };
+  }
+  const rows = (wbFbsState.items || []).filter(
+    (x) => String(x?.supply_id || "").trim() === sid
+  );
+  const orderIds = new Set(
+    rows.map((r) => Number(r.order_id)).filter((n) => Number.isFinite(n) && n > 0)
+  );
+  const first = rows[0] || {};
+  return {
+    orderCount: orderIds.size || rows.length || 0,
+    city: String(
+      first.warehouse_label
+      || first.warehouse_name
+      || first.office_name
+      || ""
+    ).trim(),
+  };
+}
+
 function _wbFbsMakeQrDataUrl(text, size) {
   const value = String(text || "").trim();
   if (!value) return Promise.reject(new Error("Нет кода поставки для QR"));
@@ -20560,7 +20587,6 @@ function _wbFbsMakeQrDataUrl(text, size) {
     };
     try {
       // qrcodejs (global QRCode) renders canvas/img into the host element.
-      // eslint-disable-next-line no-new
       new QRCode(host, {
         text: value,
         width: px,
@@ -20596,12 +20622,9 @@ async function wbFbsOpenSupplyQr(supplyId) {
   _wbFbsCloseRowMenus();
   const sid = _wbFbsSupplyQrPayload(supplyId || wbFbsDetailState.supplyId);
   if (!sid) return;
-  const supply = (wbFbsDetailState.supply && String(wbFbsDetailState.supply.supply_id || "") === sid)
-    ? wbFbsDetailState.supply
-    : (wbFbsDetailState.supply || {});
-  const qtyRaw = Number(supply.order_count);
-  const qty = Number.isFinite(qtyRaw) && qtyRaw > 0 ? Math.round(qtyRaw) : 0;
-  const city = String(supply.warehouse_label || "").trim();
+  const meta = _wbFbsSupplyQrMeta(sid);
+  const qty = Number(meta.orderCount) || 0;
+  const city = String(meta.city || "").trim();
   const qtyLabel = qty > 0 ? `${qty} шт.` : "";
   const qrDataUrl = await _wbFbsMakeQrDataUrl(sid, 640);
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${_wbFbsEsc(sid)}</title>
