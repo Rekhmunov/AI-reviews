@@ -1587,7 +1587,7 @@
 
             <div class="wb-fbs-auto-sync-section">
               <h4 class="wb-fbs-auto-sync-section-title">Автоматическая синхронизация</h4>
-              <p class="wb-fbs-auto-sync-section-lead">Ручная синхронизация работает всегда. Автозапуск — по выбранному периоду для всех источников ФБС.</p>
+              <p class="wb-fbs-auto-sync-section-lead">Ручная синхронизация работает всегда. Автозапуск — по выбранному периоду и окну активности (время — МСК) для всех источников ФБС.</p>
               <div class="wb-fbs-auto-sync-row">
                 <div class="wb-fbs-auto-sync-label">
                   <span>Автоматическая синхронизация</span>
@@ -1610,6 +1610,16 @@
                   <option value="720">Каждые 12 часов</option>
                   <option value="1440">Каждые 24 часа</option>
                 </select>
+              </div>
+              <div class="wb-fbs-auto-collect-window">
+                <div class="wb-fbs-auto-sync-field">
+                  <label for="wbFbsAutoSyncFrom">Активно с (МСК)</label>
+                  <input type="time" id="wbFbsAutoSyncFrom" value="12:00" step="60" />
+                </div>
+                <div class="wb-fbs-auto-sync-field">
+                  <label for="wbFbsAutoSyncTo">Активно до (МСК)</label>
+                  <input type="time" id="wbFbsAutoSyncTo" value="06:00" step="60" />
+                </div>
               </div>
               <div id="wbFbsAutoSyncLast" class="wb-fbs-auto-sync-last">Последняя синхронизация: —</div>
             </div>
@@ -4039,6 +4049,6 @@
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
   <script src="/static/qrcode.min.js"></script>
-  <script src="/static/app.js?v=367"></script>
+  <script src="/static/app.js?v=368"></script>
 </body>
 </html>

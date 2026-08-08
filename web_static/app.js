@@ -22018,8 +22018,12 @@ function _wbFbsAutoSyncApplyEnabledUi() {
   const enabled = !!document.getElementById("wbFbsAutoSyncEnabled")?.checked;
   const state = document.getElementById("wbFbsAutoSyncEnabledText");
   const interval = document.getElementById("wbFbsAutoSyncInterval");
+  const fromEl = document.getElementById("wbFbsAutoSyncFrom");
+  const toEl = document.getElementById("wbFbsAutoSyncTo");
   if (state) state.textContent = enabled ? "Вкл" : "Выкл";
   if (interval) interval.disabled = !enabled;
+  if (fromEl) fromEl.disabled = !enabled;
+  if (toEl) toEl.disabled = !enabled;
 }
 
 function _wbFbsAutoCollectApplyEnabledUi() {
@@ -22217,6 +22221,8 @@ async function openWbFbsAutoSyncSettings() {
   const saveBtn = document.getElementById("wbFbsAutoSyncSaveBtn");
   const enabledEl = document.getElementById("wbFbsAutoSyncEnabled");
   const intervalEl = document.getElementById("wbFbsAutoSyncInterval");
+  const syncFromEl = document.getElementById("wbFbsAutoSyncFrom");
+  const syncToEl = document.getElementById("wbFbsAutoSyncTo");
   const collectEnabledEl = document.getElementById("wbFbsAutoCollectEnabled");
   const collectIntervalEl = document.getElementById("wbFbsAutoCollectInterval");
   const collectFromEl = document.getElementById("wbFbsAutoCollectFrom");
@@ -22236,6 +22242,8 @@ async function openWbFbsAutoSyncSettings() {
         : 60;
     }
     _wbFbsSetSelectValue(intervalEl, syncMinutes, 60);
+    if (syncFromEl) syncFromEl.value = String(data.active_from || "12:00");
+    if (syncToEl) syncToEl.value = String(data.active_to || "06:00");
     if (collectEnabledEl) collectEnabledEl.checked = !!data.collect_mgt_enabled;
     let collectMinutes = Number(data.collect_mgt_interval_minutes);
     if (!Number.isFinite(collectMinutes) || collectMinutes <= 0) {
@@ -22267,6 +22275,8 @@ async function openWbFbsAutoSyncSettings() {
     _wbFbsAutoCollectApplyEnabledUi();
     if (!canEdit) {
       if (intervalEl) intervalEl.disabled = true;
+      if (syncFromEl) syncFromEl.disabled = true;
+      if (syncToEl) syncToEl.disabled = true;
       if (collectIntervalEl) collectIntervalEl.disabled = true;
       if (collectFromEl) collectFromEl.disabled = true;
       if (collectToEl) collectToEl.disabled = true;
@@ -22300,6 +22310,14 @@ async function saveWbFbsAutoSyncSettings() {
   }
   const enabled = !!document.getElementById("wbFbsAutoSyncEnabled")?.checked;
   const intervalMinutes = Number(document.getElementById("wbFbsAutoSyncInterval")?.value || 60);
+  const syncFrom = _wbFbsNormTimeInput(
+    document.getElementById("wbFbsAutoSyncFrom")?.value,
+    "12:00"
+  );
+  const syncTo = _wbFbsNormTimeInput(
+    document.getElementById("wbFbsAutoSyncTo")?.value,
+    "06:00"
+  );
   const collectEnabled = !!document.getElementById("wbFbsAutoCollectEnabled")?.checked;
   const collectIntervalMinutes = Number(
     document.getElementById("wbFbsAutoCollectInterval")?.value || 60
@@ -22322,6 +22340,8 @@ async function saveWbFbsAutoSyncSettings() {
       body: JSON.stringify({
         enabled,
         interval_minutes: intervalMinutes,
+        active_from: syncFrom,
+        active_to: syncTo,
         collect_mgt_enabled: collectEnabled,
         collect_mgt_interval_minutes: collectIntervalMinutes,
         collect_mgt_active_from: collectFrom,

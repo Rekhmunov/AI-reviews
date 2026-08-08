@@ -3094,8 +3094,11 @@ class WbFbsScheduler:
             except Exception:
                 continue
 
-            # 1) Auto-sync orders (unchanged behaviour).
-            if settings.get("enabled"):
+            # 1) Auto-sync orders — same MSK active window as auto-collect MGT.
+            if settings.get("enabled") and _msk_time_in_active_window(
+                active_from=settings.get("active_from"),
+                active_to=settings.get("active_to"),
+            ):
                 interval_minutes = int(settings.get("interval_minutes") or 60)
                 if _fbs_auto_sync_is_due(
                     last_synced_at=settings.get("last_synced_at"),

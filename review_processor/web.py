@@ -805,6 +805,8 @@ class WbFbsAutoSyncSettingsRequest(BaseModel):
     # Preferred: minutes (10, 30, 60, …). Legacy clients may still send hours.
     interval_minutes: int | None = Field(default=None, ge=10, le=1440)
     interval_hours: int | None = Field(default=None, ge=1, le=24)
+    active_from: str = "12:00"
+    active_to: str = "06:00"
     collect_mgt_enabled: bool = False
     collect_mgt_interval_minutes: int | None = Field(default=None, ge=10, le=1440)
     collect_mgt_interval_hours: int | None = Field(default=None, ge=1, le=24)
@@ -9523,6 +9525,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 user_id=owner_id,
                 enabled=bool(payload.enabled),
                 interval_minutes=interval_minutes,
+                active_from=str(payload.active_from or "12:00"),
+                active_to=str(payload.active_to or "06:00"),
                 collect_mgt_enabled=bool(payload.collect_mgt_enabled),
                 collect_mgt_interval_minutes=collect_interval_minutes,
                 collect_mgt_active_from=str(payload.collect_mgt_active_from or "12:00"),

@@ -291,6 +291,18 @@ class ReviewRepository:
         conn.execute(
             """
             ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS wb_fbs_auto_sync_active_from TEXT NOT NULL DEFAULT '12:00'
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS wb_fbs_auto_sync_active_to TEXT NOT NULL DEFAULT '06:00'
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE users
             ADD COLUMN IF NOT EXISTS wb_fbs_last_synced_at TIMESTAMPTZ
             """
         )
@@ -2466,6 +2478,8 @@ class ReviewRepository:
             row = conn.execute(
                 """
                 SELECT wb_fbs_auto_sync_enabled, wb_fbs_auto_sync_interval_hours,
+                       wb_fbs_auto_sync_active_from,
+                       wb_fbs_auto_sync_active_to,
                        wb_fbs_last_synced_at,
                        wb_fbs_auto_collect_mgt_enabled,
                        wb_fbs_auto_collect_mgt_interval_hours,
@@ -2528,6 +2542,12 @@ class ReviewRepository:
                 m // 60 for m in self._WB_FBS_AUTO_SYNC_INTERVAL_MINUTES if m % 60 == 0
             ],
             "last_synced_at": str(last_synced) if last_synced else None,
+            "active_from": self._normalize_hhmm(
+                row["wb_fbs_auto_sync_active_from"], default="12:00"
+            ),
+            "active_to": self._normalize_hhmm(
+                row["wb_fbs_auto_sync_active_to"], default="06:00"
+            ),
             "collect_mgt_enabled": bool(row["wb_fbs_auto_collect_mgt_enabled"]),
             "collect_mgt_interval_minutes": collect_interval_minutes,
             "collect_mgt_interval_hours": collect_interval_hours,
@@ -2554,6 +2574,8 @@ class ReviewRepository:
         enabled: bool,
         interval_minutes: int | None = None,
         interval_hours: int | None = None,
+        active_from: str = "12:00",
+        active_to: str = "06:00",
         collect_mgt_enabled: bool = False,
         collect_mgt_interval_minutes: int | None = None,
         collect_mgt_interval_hours: int | None = None,
@@ -2593,10 +2615,16 @@ class ReviewRepository:
                 + ", ".join(str(v) for v in self._WB_FBS_AUTO_COLLECT_INTERVAL_MINUTES)
                 + " минут"
             )
-        active_from = self._parse_hhmm_strict(
+        sync_active_from = self._parse_hhmm_strict(
+            active_from, field="начала окна автосинхронизации", default="12:00"
+        )
+        sync_active_to = self._parse_hhmm_strict(
+            active_to, field="конца окна автосинхронизации", default="06:00"
+        )
+        collect_active_from = self._parse_hhmm_strict(
             collect_mgt_active_from, field="начала окна автосбора МГТ", default="12:00"
         )
-        active_to = self._parse_hhmm_strict(
+        collect_active_to = self._parse_hhmm_strict(
             collect_mgt_active_to, field="конца окна автосбора МГТ", default="06:00"
         )
         with self._connect() as conn:
@@ -2605,6 +2633,8 @@ class ReviewRepository:
                 UPDATE users
                 SET wb_fbs_auto_sync_enabled = ?,
                     wb_fbs_auto_sync_interval_hours = ?,
+                    wb_fbs_auto_sync_active_from = ?,
+                    wb_fbs_auto_sync_active_to = ?,
                     wb_fbs_auto_collect_mgt_enabled = ?,
                     wb_fbs_auto_collect_mgt_interval_hours = ?,
                     wb_fbs_auto_collect_mgt_active_from = ?,
@@ -2614,10 +2644,12 @@ class ReviewRepository:
                 (
                     self._bool_db(bool(enabled)),
                     interval,
+                    sync_active_from,
+                    sync_active_to,
                     self._bool_db(bool(collect_mgt_enabled)),
                     collect_interval,
-                    active_from,
-                    active_to,
+                    collect_active_from,
+                    collect_active_to,
                     user_id,
                 ),
             )
