@@ -21827,9 +21827,20 @@ function wbFbsPrintSelectedSupplyQr() {
     alert("Выберите поставку.");
     return;
   }
-  for (const sid of supplyIds) {
-    wbFbsOpenSupplyQr(sid).catch((e) => alert(`${sid}: ${e.message || e}`));
-  }
+  // Open all windows in the same click gesture, then fill each.
+  const jobs = supplyIds.map((sid) => ({
+    sid,
+    win: window.open("", "_blank", "width=420,height=320"),
+  }));
+  jobs.forEach((job) => {
+    if (!job.win) {
+      alert(`${job.sid}: разрешите всплывающие окна для QR поставки`);
+      return;
+    }
+    wbFbsOpenSupplyQr(job.sid, { win: job.win }).catch((e) => {
+      alert(`${job.sid}: ${e.message || e}`);
+    });
+  });
 }
 window.wbFbsPrintSelectedSupplyQr = wbFbsPrintSelectedSupplyQr;
 
@@ -22354,11 +22365,19 @@ async function wbFbsPrintSupplySticker() {
       : "У выбранных заказов нет ID поставки.");
     return;
   }
-  for (const sid of supplyIds) {
+  const jobs = supplyIds.map((sid) => ({
+    sid,
+    win: window.open("", "_blank", "width=420,height=320"),
+  }));
+  for (const job of jobs) {
+    if (!job.win) {
+      alert(`${job.sid}: разрешите всплывающие окна для QR поставки`);
+      continue;
+    }
     try {
-      await wbFbsOpenSupplyQr(sid);
+      await wbFbsOpenSupplyQr(job.sid, { win: job.win });
     } catch (e) {
-      alert(`${sid}: ${e.message || e}`);
+      alert(`${job.sid}: ${e.message || e}`);
     }
   }
 }
