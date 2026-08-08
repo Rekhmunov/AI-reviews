@@ -18134,7 +18134,11 @@ function _wbFbsSyncCollectMgtBtn(counts) {
   const btn = document.getElementById("wbFbsCollectMgtBtn");
   if (!btn) return;
   const mgtNew = Number((counts && counts.mgt_new) || 0);
-  const show = wbFbsState.tab === "new" && mgtNew > 0 && !!wbFbsState.sourceId;
+  // Collects MGT from «Новые», but the control is also available on assembly/delivery.
+  const tabOk = wbFbsState.tab === "new"
+    || wbFbsState.tab === "assembly"
+    || wbFbsState.tab === "delivery";
+  const show = tabOk && mgtNew > 0 && !!wbFbsState.sourceId;
   btn.classList.toggle("hidden", !show);
 }
 
@@ -21418,7 +21422,13 @@ async function _wbFbsCollectMgtExecute(decisions, sourceId) {
 
 async function openWbFbsCollectMgt() {
   if (wbFbsCollectMgtState.busy) return;
-  if (wbFbsState.tab !== "new") return;
+  if (!(
+    wbFbsState.tab === "new"
+    || wbFbsState.tab === "assembly"
+    || wbFbsState.tab === "delivery"
+  )) {
+    return;
+  }
   const sourceId = wbFbsState.sourceId;
   if (!sourceId) {
     alert("Выберите источник ВБ ФБС");
@@ -21472,8 +21482,12 @@ window.openWbFbsCollectMgt = openWbFbsCollectMgt;
 async function confirmWbFbsCollectMgt() {
   if (wbFbsCollectMgtState.busy) return;
   if (!wbFbsCollectMgtState.preview) return;
-  if (wbFbsState.tab !== "new") {
-    alert("Сборка МГТ доступна только на вкладке «Новые»");
+  if (!(
+    wbFbsState.tab === "new"
+    || wbFbsState.tab === "assembly"
+    || wbFbsState.tab === "delivery"
+  )) {
+    alert("Сборка МГТ доступна на вкладках «Новые», «На сборке» и «В доставке»");
     return;
   }
   const errEl = document.getElementById("wbFbsCollectMgtErr");
