@@ -20548,15 +20548,35 @@ function _wbFbsSupplyQrMeta(supplyId) {
       city: String(detail.warehouse_label || "").trim(),
     };
   }
-  const rows = (wbFbsState.items || []).filter(
-    (x) => String(x?.supply_id || "").trim() === sid
+  // Supply-list rows (assembly/delivery) carry order_count / order_ids.
+  const supplyRow = (wbFbsState.items || []).find(
+    (x) => String(x?.supply_id || "").trim() === sid && (
+      x.order_count != null || Array.isArray(x.order_ids)
+    )
+  );
+  if (supplyRow) {
+    const qty = Number(supplyRow.order_count);
+    const fromIds = Array.isArray(supplyRow.order_ids) ? supplyRow.order_ids.length : 0;
+    return {
+      orderCount: Number.isFinite(qty) && qty > 0 ? Math.round(qty) : fromIds,
+      city: String(
+        supplyRow.warehouse_label
+        || supplyRow.warehouse_name
+        || supplyRow.office_name
+        || ""
+      ).trim(),
+    };
+  }
+  // Order-list rows: count unique orders for this supply id.
+  const orderRows = (wbFbsState.items || []).filter(
+    (x) => String(x?.supply_id || "").trim() === sid && x.order_id != null
   );
   const orderIds = new Set(
-    rows.map((r) => Number(r.order_id)).filter((n) => Number.isFinite(n) && n > 0)
+    orderRows.map((r) => Number(r.order_id)).filter((n) => Number.isFinite(n) && n > 0)
   );
-  const first = rows[0] || {};
+  const first = orderRows[0] || {};
   return {
-    orderCount: orderIds.size || rows.length || 0,
+    orderCount: orderIds.size,
     city: String(
       first.warehouse_label
       || first.warehouse_name
@@ -20573,61 +20593,35 @@ function _wbFbsMakeQrDataUrl(text, size) {
     return Promise.reject(new Error("Библиотека QR ещё загружается. Попробуйте снова."));
   }
   const px = Math.max(128, Math.min(1024, Number(size) || 512));
-  return new Promise((resolve, reject) => {
-    const host = document.createElement("div");
-    host.style.cssText = "position:fixed;left:-9999px;top:0;width:0;height:0;overflow:hidden;";
-    document.body.appendChild(host);
-    let settled = false;
-    const finish = (err, url) => {
-      if (settled) return;
-      settled = true;
-      try { host.remove(); } catch (_) {}
-      if (err) reject(err);
-      else resolve(url);
-    };
-    try {
-      // qrcodejs (global QRCode) renders canvas/img into the host element.
-      new QRCode(host, {
-        text: value,
-        width: px,
-        height: px,
-        colorDark: "#000000",
-        colorLight: "#ffffff",
-        correctLevel: QRCode.CorrectLevel.M,
-      });
-      window.setTimeout(() => {
-        const canvas = host.querySelector("canvas");
-        const img = host.querySelector("img");
-        if (canvas && typeof canvas.toDataURL === "function") {
-          finish(null, canvas.toDataURL("image/png"));
-          return;
-        }
-        if (img && img.src) {
-          finish(null, img.src);
-          return;
-        }
-        finish(new Error("Не удалось сформировать QR-код поставки"));
-      }, 40);
-    } catch (e) {
-      finish(e);
+  const host = document.createElement("div");
+  host.style.cssText = "position:fixed;left:-9999px;top:0;width:0;height:0;overflow:hidden;";
+  document.body.appendChild(host);
+  try {
+    // qrcodejs draws canvas synchronously for modern browsers.
+    new QRCode(host, {
+      text: value,
+      width: px,
+      height: px,
+      colorDark: "#000000",
+      colorLight: "#ffffff",
+      correctLevel: QRCode.CorrectLevel.M,
+    });
+    const canvas = host.querySelector("canvas");
+    if (canvas && typeof canvas.toDataURL === "function") {
+      return Promise.resolve(canvas.toDataURL("image/png"));
     }
-  });
+    const img = host.querySelector("img");
+    if (img && img.src) return Promise.resolve(img.src);
+    return Promise.reject(new Error("Не удалось сформировать QR-код поставки"));
+  } catch (e) {
+    return Promise.reject(e);
+  } finally {
+    try { host.remove(); } catch (_) {}
+  }
 }
 
-/**
- * Local supply QR sticker from WB-GI id (no WB /barcode API).
- * Layout matches portal sticker: QR + left id + right qty/city.
- */
-async function wbFbsOpenSupplyQr(supplyId) {
-  _wbFbsCloseRowMenus();
-  const sid = _wbFbsSupplyQrPayload(supplyId || wbFbsDetailState.supplyId);
-  if (!sid) return;
-  const meta = _wbFbsSupplyQrMeta(sid);
-  const qty = Number(meta.orderCount) || 0;
-  const city = String(meta.city || "").trim();
-  const qtyLabel = qty > 0 ? `${qty} шт.` : "";
-  const qrDataUrl = await _wbFbsMakeQrDataUrl(sid, 640);
-  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${_wbFbsEsc(sid)}</title>
+function _wbFbsSupplyQrPrintHtml(sid, qrDataUrl, qtyLabel, city) {
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${_wbFbsEsc(sid)}</title>
 <style>
 @page { size: 58mm 40mm; margin: 0; }
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -20672,12 +20666,43 @@ window.addEventListener("load", function () {
 });
 <\/script>
 </body></html>`;
-  const win = window.open("", "_blank", "width=420,height=320");
+}
+
+/**
+ * Local supply QR sticker from WB-GI id (no WB /barcode API).
+ * Layout matches portal sticker: QR + left id + right qty/city.
+ * Opens the print window synchronously (or uses opts.win) to avoid popup blockers.
+ */
+async function wbFbsOpenSupplyQr(supplyId, opts) {
+  _wbFbsCloseRowMenus();
+  const sid = _wbFbsSupplyQrPayload(supplyId || wbFbsDetailState.supplyId);
+  if (!sid) return;
+  // Prefer a pre-opened window (multi-print); otherwise open now in the click stack.
+  let win = opts && opts.win ? opts.win : null;
+  if (!win) {
+    win = window.open("", "_blank", "width=420,height=320");
+  }
   if (!win) {
     throw new Error("Разрешите всплывающие окна, чтобы открыть QR-код поставки");
   }
-  win.document.write(html);
-  win.document.close();
+  try {
+    win.document.write("<!DOCTYPE html><title>QR…</title><body style=\"font:14px sans-serif;padding:16px\">Формируем QR…</body>");
+    win.document.close();
+  } catch (_) {}
+  try {
+    const meta = _wbFbsSupplyQrMeta(sid);
+    const qty = Number(meta.orderCount) || 0;
+    const city = String(meta.city || "").trim();
+    const qtyLabel = qty > 0 ? `${qty} шт.` : "";
+    const qrDataUrl = await _wbFbsMakeQrDataUrl(sid, 640);
+    const html = _wbFbsSupplyQrPrintHtml(sid, qrDataUrl, qtyLabel, city);
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+  } catch (e) {
+    try { win.close(); } catch (_) {}
+    throw e;
+  }
 }
 window.wbFbsOpenSupplyQr = wbFbsOpenSupplyQr;
 
@@ -22322,12 +22347,11 @@ async function wbFbsPrintOneOrderSticker(orderId) {
 window.wbFbsPrintOneOrderSticker = wbFbsPrintOneOrderSticker;
 
 async function wbFbsPrintSupplySticker() {
-  if (!wbFbsState.sourceId) return;
   const supplyIds = _wbFbsSelectedSupplyIds();
   if (!supplyIds.length) {
     alert(_wbFbsIsSuppliesTab()
       ? "Выберите поставку."
-      : "У выбранных заказов нет ID поставки. Стикер поставки доступен после сборки на портале ВБ.");
+      : "У выбранных заказов нет ID поставки.");
     return;
   }
   for (const sid of supplyIds) {
