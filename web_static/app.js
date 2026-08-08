@@ -18292,7 +18292,7 @@ function _wbFbsSupplyDetailActionsReady() {
  */
 function _wbFbsSupplyDetailSetActionsReady(ready) {
   wbFbsDetailState.ordersReady = !!ready;
-  const tip = "Дождитесь загрузки товаров";
+  const tip = "Дождитесь загрузки заказов";
   _WB_FBS_DETAIL_ACTION_IDS.forEach((id) => {
     const el = document.getElementById(id);
     if (!el) return;
@@ -19217,7 +19217,7 @@ const wbFbsKizState = {
  */
 function _wbFbsKizSetFiltersReady(ready) {
   wbFbsKizState.rowsReady = !!ready;
-  const tip = "Дождитесь загрузки товаров";
+  const tip = "Дождитесь загрузки заказов";
   const empty = document.getElementById("wbFbsKizFilterEmpty");
   const errors = document.getElementById("wbFbsKizFilterErrors");
   const emptyLabel = document.getElementById("wbFbsKizFilterEmptyLabel")
