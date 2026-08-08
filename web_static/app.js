@@ -22223,7 +22223,14 @@ async function openWbFbsAutoSyncSettings() {
     }
     _wbFbsSetSelectValue(intervalEl, syncMinutes, 60);
     if (collectEnabledEl) collectEnabledEl.checked = !!data.collect_mgt_enabled;
-    _wbFbsSetSelectValue(collectIntervalEl, data.collect_mgt_interval_hours, 1);
+    let collectMinutes = Number(data.collect_mgt_interval_minutes);
+    if (!Number.isFinite(collectMinutes) || collectMinutes <= 0) {
+      const legacyCollectHours = Number(data.collect_mgt_interval_hours);
+      collectMinutes = Number.isFinite(legacyCollectHours) && legacyCollectHours > 0
+        ? Math.round(legacyCollectHours * 60)
+        : 60;
+    }
+    _wbFbsSetSelectValue(collectIntervalEl, collectMinutes, 60);
     if (collectFromEl) collectFromEl.value = String(data.collect_mgt_active_from || "12:00");
     if (collectToEl) collectToEl.value = String(data.collect_mgt_active_to || "06:00");
     _wbFbsAutoSyncSetLast(data.last_synced_at);
@@ -22280,8 +22287,8 @@ async function saveWbFbsAutoSyncSettings() {
   const enabled = !!document.getElementById("wbFbsAutoSyncEnabled")?.checked;
   const intervalMinutes = Number(document.getElementById("wbFbsAutoSyncInterval")?.value || 60);
   const collectEnabled = !!document.getElementById("wbFbsAutoCollectEnabled")?.checked;
-  const collectIntervalHours = Number(
-    document.getElementById("wbFbsAutoCollectInterval")?.value || 1
+  const collectIntervalMinutes = Number(
+    document.getElementById("wbFbsAutoCollectInterval")?.value || 60
   );
   const collectFrom = _wbFbsNormTimeInput(
     document.getElementById("wbFbsAutoCollectFrom")?.value,
@@ -22302,7 +22309,7 @@ async function saveWbFbsAutoSyncSettings() {
         enabled,
         interval_minutes: intervalMinutes,
         collect_mgt_enabled: collectEnabled,
-        collect_mgt_interval_hours: collectIntervalHours,
+        collect_mgt_interval_minutes: collectIntervalMinutes,
         collect_mgt_active_from: collectFrom,
         collect_mgt_active_to: collectTo,
       }),

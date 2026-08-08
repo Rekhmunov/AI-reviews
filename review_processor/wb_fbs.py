@@ -2808,10 +2808,12 @@ def run_auto_collect_mgt_for_owner(
     ):
         return {"ok": True, "ran": False, "message": "outside_window"}
 
-    interval_hours = int(settings.get("collect_mgt_interval_hours") or 1)
+    collect_minutes = settings.get("collect_mgt_interval_minutes")
+    if collect_minutes is None:
+        collect_minutes = int(settings.get("collect_mgt_interval_hours") or 1) * 60
     if not _fbs_auto_sync_is_due(
         last_synced_at=settings.get("collect_mgt_last_run_at"),
-        interval_hours=interval_hours,
+        interval_minutes=int(collect_minutes or 60),
     ):
         return {"ok": True, "ran": False, "message": "not_due"}
 
