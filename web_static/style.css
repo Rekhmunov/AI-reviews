@@ -6998,16 +6998,15 @@ tr.dnd-over td {
 }
 .wb-fbs-trbx-print-actions {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-}
-.wb-fbs-trbx-print-primary {
-  display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: 8px;
-  flex: 1 1 240px;
+}
+.wb-fbs-trbx-print-row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 12px;
   min-width: 0;
 }
 .wb-fbs-trbx-print-all-btn,
@@ -7015,6 +7014,27 @@ tr.dnd-over td {
 .wb-fbs-trbx-delete-all-btn {
   min-height: 40px;
   padding: 8px 16px;
+}
+.wb-fbs-trbx-print-all-btn {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.wb-fbs-trbx-delete-all-btn {
+  flex: 0 1 auto;
+  white-space: nowrap;
+}
+.wb-fbs-trbx-print-supply-btn {
+  align-self: flex-start;
+}
+@media (max-width: 560px) {
+  .wb-fbs-trbx-print-row {
+    flex-wrap: wrap;
+  }
+  .wb-fbs-trbx-print-all-btn,
+  .wb-fbs-trbx-delete-all-btn {
+    flex: 1 1 100%;
+    white-space: normal;
+  }
 }
 .wb-fbs-trbx-print-supply-btn:hover:not(:disabled) {
   background: #f1f5f9;
