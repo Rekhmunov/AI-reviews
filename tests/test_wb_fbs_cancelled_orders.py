@@ -144,3 +144,73 @@ def test_list_supply_cancelled_orders_raises_on_status_failure() -> None:
             api_key="key",
             supply_id="S1",
         )
+
+
+def test_list_supply_cancelled_orders_raises_on_partial_statuses() -> None:
+    client = MagicMock()
+    client.get_supply_order_ids.return_value = [11, 22]
+    client.get_statuses.return_value = [
+        {"id": 11, "supplierStatus": "confirm", "wbStatus": "waiting"},
+    ]
+    with (
+        patch("review_processor.wb_fbs_detail.wb.WbFbsClient", return_value=client),
+        patch("review_processor.wb_fbs_detail._cache_get_detail", return_value=None),
+        patch(
+            "review_processor.wb_fbs_detail._local_order_ids_for_supply",
+            return_value=[],
+        ),
+        pytest.raises(RuntimeError, match="не вернул статусы для 1"),
+    ):
+        list_supply_cancelled_orders(
+            MagicMock(),
+            user_id=1,
+            source_id=2,
+            api_key="key",
+            supply_id="S1",
+        )
+
+
+def test_list_supply_cancelled_orders_chunks_statuses() -> None:
+    client = MagicMock()
+    ids = list(range(1, 1002))
+    client.get_supply_order_ids.return_value = ids
+
+    def _statuses(chunk: list[int]) -> list[dict]:
+        return [
+            {"id": oid, "supplierStatus": "confirm", "wbStatus": "waiting"}
+            for oid in chunk
+        ]
+
+    client.get_statuses.side_effect = _statuses
+    with (
+        patch("review_processor.wb_fbs_detail.wb.WbFbsClient", return_value=client),
+        patch("review_processor.wb_fbs_detail._cache_get_detail", return_value=None),
+        patch(
+            "review_processor.wb_fbs_detail._local_order_ids_for_supply",
+            return_value=[],
+        ),
+        patch(
+            "review_processor.wb_fbs_detail._load_local_orders",
+            return_value=[],
+        ),
+        patch(
+            "review_processor.wb_fbs_detail._fetch_stickers_map",
+            return_value={},
+        ),
+        patch("review_processor.wb_fbs_detail.time.sleep"),
+        patch(
+            "review_processor.wb_fbs_detail.wb.update_order_wb_statuses",
+            return_value=0,
+        ),
+    ):
+        payload = list_supply_cancelled_orders(
+            MagicMock(),
+            user_id=1,
+            source_id=2,
+            api_key="key",
+            supply_id="S1",
+        )
+    assert payload["cancelled_count"] == 0
+    assert client.get_statuses.call_count == 2
+    assert len(client.get_statuses.call_args_list[0].args[0]) == 1000
+    assert len(client.get_statuses.call_args_list[1].args[0]) == 1

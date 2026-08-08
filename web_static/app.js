@@ -18929,6 +18929,7 @@ window.openWbFbsSupplyPortal = openWbFbsSupplyPortal;
 const wbFbsCancelledState = {
   rows: [],
   loading: false,
+  lastError: "",
   refreshGen: 0,
 };
 
@@ -18971,11 +18972,10 @@ function renderWbFbsCancelledOrdersTable() {
   if (!tbody) return;
   const rows = Array.isArray(wbFbsCancelledState.rows) ? wbFbsCancelledState.rows : [];
   if (!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="2" class="wb-fbs-empty">${
-      wbFbsCancelledState.loading
-        ? "Загрузка…"
-        : "Отменённых заказов в поставке нет"
-    }</td></tr>`;
+    let emptyMsg = "Отменённых заказов в поставке нет";
+    if (wbFbsCancelledState.loading) emptyMsg = "Проверяем статусы на Wildberries…";
+    else if (wbFbsCancelledState.lastError) emptyMsg = "Не удалось проверить статусы";
+    tbody.innerHTML = `<tr><td colspan="2" class="wb-fbs-empty">${emptyMsg}</td></tr>`;
     return;
   }
   tbody.innerHTML = rows.map((r) => {
@@ -19022,12 +19022,12 @@ async function refreshWbFbsCancelledOrders() {
   const refreshGen = Number(wbFbsCancelledState.refreshGen || 0) + 1;
   wbFbsCancelledState.refreshGen = refreshGen;
   wbFbsCancelledState.loading = true;
+  wbFbsCancelledState.lastError = "";
   const btn = document.getElementById("wbFbsCancelledOrdersRefreshBtn");
   if (btn) btn.disabled = true;
   _wbFbsCancelledSetInfo("");
-  const tbody = document.getElementById("wbFbsCancelledOrdersTbody");
-  if (tbody && !wbFbsCancelledState.rows.length) {
-    tbody.innerHTML = `<tr><td colspan="2" class="wb-fbs-empty">Проверяем статусы на Wildberries…</td></tr>`;
+  if (!wbFbsCancelledState.rows.length) {
+    renderWbFbsCancelledOrdersTable();
   }
   try {
     const params = new URLSearchParams({ source_id: String(wbFbsState.sourceId) });
@@ -19036,21 +19036,29 @@ async function refreshWbFbsCancelledOrders() {
     );
     const data = await res.json().catch(() => ({}));
     if (!res.ok || data.ok === false) {
-      throw new Error(data.detail || `Ошибка ${res.status}`);
+      const detail = data.detail;
+      const msg = Array.isArray(detail)
+        ? (detail.map((x) => x?.msg || x).filter(Boolean).join("; ") || `Ошибка ${res.status}`)
+        : (detail || `Ошибка ${res.status}`);
+      throw new Error(msg);
     }
     if (wbFbsCancelledState.refreshGen !== refreshGen) return;
+    wbFbsCancelledState.lastError = "";
     wbFbsCancelledState.rows = Array.isArray(data.rows) ? data.rows : [];
     renderWbFbsCancelledOrdersTable();
     _wbFbsCancelledMergeIntoDetail(wbFbsCancelledState.rows);
   } catch (e) {
     if (wbFbsCancelledState.refreshGen !== refreshGen) return;
-    wbFbsCancelledState.rows = [];
-    renderWbFbsCancelledOrdersTable();
-    _wbFbsCancelledSetInfo(String(e.message || e));
+    const msg = String(e.message || e);
+    wbFbsCancelledState.lastError = msg;
+    // Keep previous successful rows; only clear the empty-state message path.
+    if (!wbFbsCancelledState.rows.length) renderWbFbsCancelledOrdersTable();
+    _wbFbsCancelledSetInfo(msg);
   } finally {
     if (wbFbsCancelledState.refreshGen === refreshGen) {
       wbFbsCancelledState.loading = false;
       if (btn) btn.disabled = false;
+      if (!wbFbsCancelledState.rows.length) renderWbFbsCancelledOrdersTable();
     }
   }
 }
@@ -19061,8 +19069,12 @@ function openWbFbsCancelledOrdersModal() {
   if (!sid || !wbFbsState.sourceId) return;
   setModalVisibility("wbFbsCancelledOrdersModal", true);
   wbFbsCancelledState.rows = [];
+  wbFbsCancelledState.lastError = "";
+  wbFbsCancelledState.loading = true;
   _wbFbsCancelledSetInfo("");
   renderWbFbsCancelledOrdersTable();
+  // Allow refresh() to take over the in-flight load.
+  wbFbsCancelledState.loading = false;
   refreshWbFbsCancelledOrders().catch(() => {});
 }
 window.openWbFbsCancelledOrdersModal = openWbFbsCancelledOrdersModal;
@@ -19070,6 +19082,7 @@ window.openWbFbsCancelledOrdersModal = openWbFbsCancelledOrdersModal;
 function closeWbFbsCancelledOrdersModal() {
   wbFbsCancelledState.refreshGen = Number(wbFbsCancelledState.refreshGen || 0) + 1;
   wbFbsCancelledState.loading = false;
+  wbFbsCancelledState.lastError = "";
   wbFbsCancelledState.rows = [];
   const btn = document.getElementById("wbFbsCancelledOrdersRefreshBtn");
   if (btn) btn.disabled = false;

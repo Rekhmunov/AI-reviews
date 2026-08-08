@@ -920,17 +920,26 @@ def list_supply_cancelled_orders(
     persist_cancel: dict[int, tuple[str, str]] = {}
     status_by_id: dict[int, tuple[str, str]] = {}
     if order_ids:
-        try:
-            live_statuses = client.get_statuses(order_ids)
-        except Exception as exc:
-            raise RuntimeError(
-                f"Не удалось проверить статусы заказов на Wildberries: {exc}"
-            ) from exc
-        if not isinstance(live_statuses, list):
-            raise RuntimeError("Некорректный ответ Wildberries при проверке статусов")
+        # WB POST /api/v3/orders/status accepts 1..1000 ids per request.
+        live_statuses: list[dict[str, Any]] = []
+        for i in range(0, len(order_ids), 1000):
+            chunk = order_ids[i : i + 1000]
+            try:
+                chunk_rows = client.get_statuses(chunk)
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Не удалось проверить статусы заказов на Wildberries: {exc}"
+                ) from exc
+            if not isinstance(chunk_rows, list):
+                raise RuntimeError(
+                    "Некорректный ответ Wildberries при проверке статусов"
+                )
+            live_statuses.extend(
+                row for row in chunk_rows if isinstance(row, dict)
+            )
+            if i + 1000 < len(order_ids):
+                time.sleep(0.21)
         for st in live_statuses:
-            if not isinstance(st, dict):
-                continue
             try:
                 oid = int(st.get("id") or st.get("orderId") or 0)
             except (TypeError, ValueError):
@@ -945,6 +954,14 @@ def list_supply_cancelled_orders(
                 cancel_labels[oid] = label or "Отменен"
                 if ss or ws:
                     persist_cancel[oid] = (ss, ws)
+        # Incomplete payload must not look like «нет отменённых».
+        if not status_by_id:
+            raise RuntimeError("Wildberries не вернул статусы заказов")
+        missing = [oid for oid in order_ids if oid not in status_by_id]
+        if missing:
+            raise RuntimeError(
+                f"Wildberries не вернул статусы для {len(missing)} заказ(ов)"
+            )
 
     if persist_cancel:
         try:
