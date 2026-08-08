@@ -1108,6 +1108,111 @@ def update_order_kiz_codes(
     return updated > 0
 
 
+def update_order_wb_statuses(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    statuses: dict[int, tuple[str, str]],
+) -> int:
+    """Update supplier/wb status only — keep tab and supply_id unchanged.
+
+    Used when an order is canceled by the client but must stay visible inside
+    an open supply / marking modal.
+    """
+    if not statuses:
+        return 0
+    ensure_wb_fbs_tables(repo)
+    updated = 0
+    with repo._connect() as conn:
+        for oid, (ss, ws) in statuses.items():
+            try:
+                order_id = int(oid)
+            except (TypeError, ValueError):
+                continue
+            cur = conn.execute(
+                repo._sql(
+                    """
+                    UPDATE wb_fbs_orders
+                    SET supplier_status = CASE
+                            WHEN ? != '' THEN ?
+                            ELSE supplier_status
+                        END,
+                        wb_status = CASE
+                            WHEN ? != '' THEN ?
+                            ELSE wb_status
+                        END,
+                        synced_at = ?
+                    WHERE user_id = ? AND source_id = ? AND order_id = ?
+                    """
+                ),
+                (
+                    str(ss or ""),
+                    str(ss or ""),
+                    str(ws or ""),
+                    str(ws or ""),
+                    _utc_now(),
+                    int(user_id),
+                    int(source_id),
+                    order_id,
+                ),
+            )
+            try:
+                updated += int(cur.rowcount or 0)
+            except Exception:
+                pass
+    return updated
+
+
+def load_order_status_map(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    order_ids: list[int],
+) -> dict[int, dict[str, str]]:
+    """Map order_id → supplier_status / wb_status / cancel_reason_label."""
+    ids = []
+    for raw in order_ids or []:
+        try:
+            oid = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if oid > 0:
+            ids.append(oid)
+    if not ids:
+        return {}
+    ensure_wb_fbs_tables(repo)
+    placeholders = ", ".join("?" for _ in ids)
+    out: dict[int, dict[str, str]] = {}
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                f"""
+                SELECT order_id, supplier_status, wb_status
+                FROM wb_fbs_orders
+                WHERE user_id = ? AND source_id = ? AND order_id IN ({placeholders})
+                """
+            ),
+            tuple([int(user_id), int(source_id), *ids]),
+        ).fetchall()
+    for row in rows:
+        try:
+            oid = int(row["order_id"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        ss = str(row["supplier_status"] or "")
+        ws = str(row["wb_status"] or "")
+        out[oid] = {
+            "supplier_status": ss,
+            "wb_status": ws,
+            "cancel_reason_label": cancel_reason_label(
+                supplier_status=ss, wb_status=ws
+            ),
+        }
+    return out
+
+
 def load_order_kiz_map(
     repo: ReviewRepository,
     *,

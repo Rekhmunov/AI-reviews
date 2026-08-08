@@ -159,3 +159,79 @@ def test_save_keeps_local_when_wb_fails(
     mock_local.assert_called_once()
     assert mock_local.call_args.kwargs["wb_synced"] is False
     assert mock_local.call_args.kwargs["kiz_codes"] == ["CODE2"]
+
+
+@patch("review_processor.wb_fbs_detail.time.sleep", return_value=None)
+@patch("review_processor.wb_fbs_detail.wb.update_order_wb_statuses")
+@patch("review_processor.wb_fbs_detail.wb.load_order_status_map", return_value={})
+@patch("review_processor.wb_fbs_detail.wb.update_order_kiz_codes")
+@patch("review_processor.wb_fbs_detail.wb.WbFbsClient")
+def test_save_marks_failed_to_update_meta_as_cancelled(
+    mock_cls: Any,
+    mock_local: Any,
+    _status_map: Any,
+    mock_persist: Any,
+    _sleep: Any,
+) -> None:
+    client = _client_mock()
+    client.set_order_sgtin.side_effect = RuntimeError(
+        'WB FBS HTTP 409: {"code":"FailedToUpdateMeta",'
+        '"message":"Please check that the order is specified correctly '
+        'and is in the Processing status"}'
+    )
+    client.get_statuses.return_value = [
+        {
+            "id": 5443002750,
+            "supplierStatus": "confirm",
+            "wbStatus": "canceled_by_client",
+        }
+    ]
+    mock_cls.return_value = client
+    mock_local.return_value = True
+    result = save_kiz_marking(
+        api_key="k",
+        items=[{"order_id": 5443002750, "kiz_codes": ["CODE3"]}],
+        allowed_order_ids={5443002750},
+        repo=MagicMock(),
+        user_id=11,
+        source_id=22,
+    )
+    row = result["results"][0]
+    assert row["cancelled"] is True
+    assert row["cancel_reason_label"] == "Клиент отказался"
+    assert "отменен" in row["error"].lower()
+    mock_persist.assert_called_once()
+    statuses = mock_persist.call_args.kwargs["statuses"]
+    assert statuses[5443002750][1] == "canceled_by_client"
+
+
+@patch("review_processor.wb_fbs_detail.time.sleep", return_value=None)
+@patch(
+    "review_processor.wb_fbs_detail.wb.load_order_status_map",
+    return_value={
+        9: {
+            "supplier_status": "confirm",
+            "wb_status": "canceled_by_client",
+            "cancel_reason_label": "Клиент отказался",
+        }
+    },
+)
+@patch("review_processor.wb_fbs_detail.wb.update_order_kiz_codes")
+@patch("review_processor.wb_fbs_detail.wb.WbFbsClient")
+def test_save_skips_wb_for_known_cancelled(
+    mock_cls: Any, mock_local: Any, _status_map: Any, _sleep: Any
+) -> None:
+    client = _client_mock()
+    mock_cls.return_value = client
+    mock_local.return_value = True
+    result = save_kiz_marking(
+        api_key="k",
+        items=[{"order_id": 9, "kiz_codes": ["CODE4"]}],
+        allowed_order_ids={9},
+        repo=MagicMock(),
+        user_id=11,
+        source_id=22,
+    )
+    assert result["failed"] == 1
+    assert result["results"][0]["cancelled"] is True
+    client.set_order_sgtin.assert_not_called()

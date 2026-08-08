@@ -8825,6 +8825,7 @@ button.wb-fbs-sd-portal-btn:focus-visible {
 .wb-fbs-kiz-info {
   padding: 8px 24px;
   font-size: 14px;
+  line-height: 1.45;
   color: #b91c1c;
   background: #fef2f2;
   border-bottom: 1px solid #fecaca;
@@ -8833,6 +8834,26 @@ button.wb-fbs-sd-portal-btn:focus-visible {
   color: #166534;
   background: #dcfce7;
   border-bottom-color: #86efac;
+}
+.wb-fbs-kiz-order-link {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #b91c1c;
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.wb-fbs-kiz-order-link:hover {
+  color: #991b1b;
+}
+.wb-fbs-kiz-order-link:focus-visible {
+  outline: 2px solid #b91c1c;
+  outline-offset: 2px;
+  border-radius: 2px;
 }
 .wb-fbs-kiz-table-wrap {
   flex: 1 1 auto;

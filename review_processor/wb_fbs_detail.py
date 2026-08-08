@@ -1175,6 +1175,12 @@ def get_supply_detail(
                 "kiz_codes": list(kiz.get("kiz_codes") or []),
                 "kiz_decision": str(kiz.get("kiz_decision") or ""),
                 "kiz_status": status,
+                "supplier_status": str(o.get("supplier_status") or ""),
+                "wb_status": str(o.get("wb_status") or ""),
+                "cancel_reason_label": wb.cancel_reason_label(
+                    supplier_status=o.get("supplier_status"),
+                    wb_status=o.get("wb_status"),
+                ),
             }
         )
 
@@ -1336,6 +1342,9 @@ def build_kiz_marking_payload(
                 else bool(o.get("kiz_bound")),
                 "kiz_status": kiz_status,
                 "kiz_decision": kiz_decision,
+                "supplier_status": str(o.get("supplier_status") or ""),
+                "wb_status": str(o.get("wb_status") or ""),
+                "cancel_reason_label": str(o.get("cancel_reason_label") or ""),
             }
         )
     return {
@@ -1345,6 +1354,94 @@ def build_kiz_marking_payload(
         "order_count": len(rows),
         "rows": rows,
     }
+
+
+def _is_failed_to_update_meta_error(error: object) -> bool:
+    """True for WB 409 FailedToUpdateMeta / not-in-Processing meta rejects."""
+    text = str(error or "").lower()
+    return (
+        "failedtoupdatemeta" in text
+        or "failed to update meta" in text
+        or ("processing status" in text and ("409" in text or "meta" in text))
+    )
+
+
+def _enrich_kiz_save_cancelled(
+    client: wb.WbFbsClient,
+    results: list[dict[str, Any]],
+    *,
+    repo: ReviewRepository | None = None,
+    user_id: int | None = None,
+    source_id: int | None = None,
+) -> None:
+    """Mark FailedToUpdateMeta rows as cancelled using live WB statuses."""
+    suspect_ids: list[int] = []
+    for row in results:
+        if not isinstance(row, dict) or row.get("wb_ok") or row.get("cancelled"):
+            continue
+        if not _is_failed_to_update_meta_error(row.get("error")):
+            continue
+        try:
+            oid = int(row.get("order_id"))
+        except (TypeError, ValueError):
+            continue
+        if oid > 0:
+            suspect_ids.append(oid)
+    if not suspect_ids:
+        return
+    try:
+        statuses = client.get_statuses(suspect_ids)
+    except Exception as exc:
+        _log.debug("kiz save status enrich failed: %s", exc)
+        statuses = []
+    by_id: dict[int, dict[str, Any]] = {}
+    for st in statuses:
+        if not isinstance(st, dict):
+            continue
+        try:
+            oid = int(st.get("id") or st.get("orderId") or 0)
+        except (TypeError, ValueError):
+            continue
+        if oid > 0:
+            by_id[oid] = st
+    persist: dict[int, tuple[str, str]] = {}
+    for row in results:
+        if not isinstance(row, dict):
+            continue
+        try:
+            oid = int(row.get("order_id"))
+        except (TypeError, ValueError):
+            continue
+        st = by_id.get(oid)
+        if not st and not _is_failed_to_update_meta_error(row.get("error")):
+            continue
+        ss = str((st or {}).get("supplierStatus") or "").strip()
+        ws = str((st or {}).get("wbStatus") or "").strip()
+        label = wb.cancel_reason_label(supplier_status=ss, wb_status=ws)
+        cancelled = bool(label) or wb._is_cancelled_status(
+            supplier_status=ss, wb_status=ws
+        ) or _is_failed_to_update_meta_error(row.get("error"))
+        if not cancelled:
+            continue
+        if not label:
+            label = "Отменен"
+        row["cancelled"] = True
+        row["cancel_reason_label"] = label
+        row["supplier_status"] = ss
+        row["wb_status"] = ws
+        row["error"] = f"Заказ отменен ({label})"
+        if ss or ws:
+            persist[oid] = (ss, ws)
+    if persist and repo is not None and user_id is not None and source_id is not None:
+        try:
+            wb.update_order_wb_statuses(
+                repo,
+                user_id=int(user_id),
+                source_id=int(source_id),
+                statuses=persist,
+            )
+        except Exception as exc:
+            _log.debug("kiz save local cancel status: %s", exc)
 
 
 def save_kiz_marking(
@@ -1367,6 +1464,30 @@ def save_kiz_marking(
     err_n = 0
     skipped_n = 0
     local_n = 0
+
+    candidate_ids: list[int] = []
+    for raw in items:
+        if not isinstance(raw, dict):
+            continue
+        try:
+            oid = int(raw.get("order_id"))
+        except (TypeError, ValueError):
+            continue
+        if oid > 0:
+            candidate_ids.append(oid)
+    known_status: dict[int, dict[str, str]] = {}
+    if repo is not None and user_id is not None and source_id is not None and candidate_ids:
+        try:
+            known_status = wb.load_order_status_map(
+                repo,
+                user_id=int(user_id),
+                source_id=int(source_id),
+                order_ids=candidate_ids,
+            )
+        except Exception as exc:
+            _log.debug("kiz save load local statuses: %s", exc)
+            known_status = {}
+
     for raw in items:
         if not isinstance(raw, dict):
             continue
@@ -1447,6 +1568,31 @@ def save_kiz_marking(
                 )
                 continue
 
+        known = known_status.get(oid) or {}
+        known_label = str(known.get("cancel_reason_label") or "").strip()
+        if known_label or wb._is_cancelled_status(
+            supplier_status=known.get("supplier_status"),
+            wb_status=known.get("wb_status"),
+        ):
+            # Already cancelled on WB — do not burn rate-limit on repeated 409.
+            label = known_label or "Отменен"
+            err_n += 1
+            results.append(
+                {
+                    "order_id": oid,
+                    "ok": False,
+                    "local_ok": local_ok,
+                    "wb_ok": False,
+                    "cancelled": True,
+                    "cancel_reason_label": label,
+                    "supplier_status": str(known.get("supplier_status") or ""),
+                    "wb_status": str(known.get("wb_status") or ""),
+                    "kiz_codes": uniq,
+                    "error": f"Заказ отменен ({label})",
+                }
+            )
+            continue
+
         wb_ok = False
         wb_error = ""
         try:
@@ -1499,6 +1645,14 @@ def save_kiz_marking(
                     "error": wb_error or "Ошибка записи в WB",
                 }
             )
+
+    _enrich_kiz_save_cancelled(
+        client,
+        results,
+        repo=repo,
+        user_id=user_id,
+        source_id=source_id,
+    )
     return {
         "ok": err_n == 0,
         "saved": ok_n,

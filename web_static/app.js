@@ -18777,6 +18777,7 @@ function renderWbFbsSupplyDetail(data) {
           `<div class="wb-fbs-barcode">${_wbFbsEsc(b)}</div>`
         ).join("")}</div>`
       : "";
+    const cancelBadgeHtml = _wbFbsKizCancelBadgeHtml(o);
     // КИЗ: empty (gray) → pending (на проверке) → ok (green) / error (red).
     const kizHtml = o.kiz_required ? _wbFbsKizBadgeHtml(o) : "";
     const safeKey = `sd_${oid}`;
@@ -18796,6 +18797,7 @@ function renderWbFbsSupplyDetail(data) {
             <div class="wb-fbs-product-name" title="${_wbFbsEsc(o.product_name || o.article || "")}">${_wbFbsEsc(o.product_name || o.article || "—")}</div>
             <div class="wb-fbs-product-sub">Арт. ${_wbFbsEsc(o.article || "—")}${o.nm_id ? " · nmId " + _wbFbsEsc(o.nm_id) : ""}</div>
             ${barcodeHtml}
+            ${cancelBadgeHtml}
             ${kizHtml}
           </div>
         </div>
@@ -19075,9 +19077,10 @@ function _wbFbsKizBadgeHtml(order) {
   return `<div class="wb-fbs-kiz ${cls}" title="${_wbFbsEsc(title)}">${_wbFbsEsc(label)}</div>`;
 }
 
-function _wbFbsKizSetInfo(text, ok) {
+function _wbFbsKizSetInfo(text, ok, opts) {
   const el = document.getElementById("wbFbsKizInfo");
   if (!el) return;
+  const asHtml = !!(opts && opts.html);
   const msg = String(text || "").trim();
   if (!msg) {
     el.hidden = true;
@@ -19086,8 +19089,50 @@ function _wbFbsKizSetInfo(text, ok) {
     return;
   }
   el.hidden = false;
-  el.textContent = msg;
+  if (asHtml) el.innerHTML = msg;
+  else el.textContent = msg;
   el.classList.toggle("is-ok", !!ok);
+}
+
+function _wbFbsKizCancelBadgeHtml(row) {
+  const label = String(row?.cancel_reason_label || "").trim();
+  if (!label) return "";
+  return `<div class="wb-fbs-cancel-reason" title="${_wbFbsEsc(label)}">${_wbFbsEsc(label)}</div>`;
+}
+
+function wbFbsKizFocusOrderInSearch(orderId) {
+  const oid = String(orderId || "").trim();
+  if (!oid) return;
+  const empty = document.getElementById("wbFbsKizFilterEmpty");
+  const errors = document.getElementById("wbFbsKizFilterErrors");
+  if (empty) empty.checked = false;
+  if (errors) errors.checked = false;
+  const search = document.getElementById("wbFbsKizSearchFilter");
+  if (search) {
+    search.value = oid;
+    try { search.focus(); } catch (_) {}
+  }
+  renderWbFbsKizTable({ skipCollect: true });
+}
+window.wbFbsKizFocusOrderInSearch = wbFbsKizFocusOrderInSearch;
+
+function _wbFbsKizOrderLinkHtml(orderId) {
+  const oid = String(orderId || "").trim();
+  if (!oid) return "";
+  return `<button type="button" class="wb-fbs-kiz-order-link" ` +
+    `onclick="wbFbsKizFocusOrderInSearch('${_wbFbsEsc(oid)}')">${_wbFbsEsc(oid)}</button>`;
+}
+
+function _wbFbsKizFormatCancelledSaveHtml(cancelledIds) {
+  const ids = (cancelledIds || [])
+    .map((x) => Number(x))
+    .filter((x) => Number.isFinite(x) && x > 0);
+  if (!ids.length) return "";
+  const links = ids.map((id) => _wbFbsKizOrderLinkHtml(id)).join(", ");
+  if (ids.length === 1) {
+    return `Заказ ${links} отменен.`;
+  }
+  return `Заказы ${links} отменены.`;
 }
 
 /**
@@ -19541,6 +19586,7 @@ function renderWbFbsKizTable(opts) {
           `<div class="wb-fbs-kiz-barcode">${_wbFbsEsc(b)}</div>`
         ).join("")}</div>`
       : "";
+    const cancelBadgeHtml = _wbFbsKizCancelBadgeHtml(r);
     // Do not put КИЗ into value="" via innerHTML — \\u001D is dropped by HTML parser.
     const canRemoveRow = codes.length > 1;
     const codeHtml = codes.map((code, idx) => {
@@ -19577,6 +19623,7 @@ function renderWbFbsKizTable(opts) {
             <div class="wb-fbs-product-name" title="${_wbFbsEsc(r.product_name || r.article || "")}">${_wbFbsEsc(r.product_name || r.article || "—")}</div>
             <div class="wb-fbs-product-sub">${_wbFbsEsc(brandArt || "—")}</div>
             ${barcodeHtml}
+            ${cancelBadgeHtml}
           </div>
         </div>
       </td>
@@ -20017,7 +20064,8 @@ async function saveWbFbsKizModal() {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || `Ошибка ${res.status}`);
     wbFbsKizState.errors = {};
-    const wbFailNotes = [];
+    const cancelledIds = [];
+    const otherFailNotes = [];
     for (const r of data.results || []) {
       const oid = Number(r.order_id);
       const row = wbFbsKizState.rows.find((x) => Number(x.order_id) === oid);
@@ -20041,10 +20089,22 @@ async function saveWbFbsKizModal() {
           row.kiz_status = r.kiz_codes.length ? "pending" : "empty";
         }
       }
+      if (r.cancelled || r.cancel_reason_label) {
+        const label = String(r.cancel_reason_label || "Отменен").trim() || "Отменен";
+        if (row) {
+          row.cancel_reason_label = label;
+          row.wb_status = String(r.wb_status || row.wb_status || "");
+          row.supplier_status = String(r.supplier_status || row.supplier_status || "");
+          row.kiz_status = "error";
+        }
+        if (Number.isFinite(oid) && oid > 0) cancelledIds.push(oid);
+        wbFbsKizState.errors[oid] = `Заказ отменен (${label})`;
+        continue;
+      }
       if (!r.wb_ok) {
         const err = r.error || "Ошибка записи в WB";
         wbFbsKizState.errors[oid] = err;
-        wbFailNotes.push(`заказ ${oid}: ${err}`);
+        otherFailNotes.push(`заказ ${oid}: ${err}`);
         if (row && Array.isArray(r.kiz_codes) && r.kiz_codes.length) {
           // Save/API failure on a filled code → show error under the code.
           row.kiz_status = "error";
@@ -20060,20 +20120,37 @@ async function saveWbFbsKizModal() {
       ? ` Без изменений не отправлялось: ${skippedUnchanged}.`
       : "";
     if (failed) {
-      const detail = wbFailNotes.slice(0, 3).join("; ");
-      const more = wbFailNotes.length > 3 ? "…" : "";
-      _wbFbsKizSetInfo(
-        `Сохранено в FeedPilot: ${savedLocal}. В WB не записалось (${failed}): ${detail}${more}. ` +
-        `Окно не закрыто — нажмите «Сохранить» ещё раз, чтобы повторить отправку в WB.${gtinNote}${skipNote}`
-      );
+      const nFail = cancelledIds.length && !otherFailNotes.length
+        ? cancelledIds.length
+        : failed;
+      const word = (() => {
+        const n10 = nFail % 10;
+        const n100 = nFail % 100;
+        if (n10 === 1 && n100 !== 11) return "заказ";
+        if (n10 >= 2 && n10 <= 4 && (n100 < 10 || n100 >= 20)) return "заказа";
+        return "заказов";
+      })();
+      let html = `Сохранено в FeedPilot. В WB не записалось ${nFail} ${word}:`;
+      if (cancelledIds.length) {
+        html += `<br>${_wbFbsKizFormatCancelledSaveHtml(cancelledIds)}`;
+      }
+      if (otherFailNotes.length) {
+        const detail = otherFailNotes.slice(0, 3).join("; ");
+        const more = otherFailNotes.length > 3 ? "…" : "";
+        html += `<br>${_wbFbsEsc(detail + more)}`;
+      }
+      html += `<br>Окно не закрыто — нажмите «Сохранить» ещё раз, чтобы повторить отправку в WB.`;
+      if (gtinNote) html += ` ${_wbFbsEsc(gtinNote.trim())}`;
+      if (skipNote) html += ` ${_wbFbsEsc(skipNote.trim())}`;
+      _wbFbsKizSetInfo(html, false, { html: true });
     } else {
       _wbFbsKizSetInfo(
         `Всё успешно: КИЗ сохранены в FeedPilot и отправлены в WB (${savedWb}).${gtinNote}${skipNote}`,
         !gtinErrors
       );
     }
-    // Soft-refresh detail badges only for WB-ok rows; keep modal open.
-    _wbFbsKizRefreshDetailBadges((data.results || []).filter((r) => r && r.wb_ok));
+    // Soft-refresh detail badges; keep cancelled labels in open supply detail.
+    _wbFbsKizRefreshDetailBadges(data.results || []);
   } catch (e) {
     _wbFbsKizSetInfo(String(e.message || e));
   } finally {
@@ -20088,10 +20165,18 @@ function _wbFbsKizRefreshDetailBadges(results) {
   if (!Array.isArray(orders)) return;
   let changed = false;
   for (const r of results) {
-    if (!r || !r.wb_ok) continue;
+    if (!r) continue;
     const oid = Number(r.order_id);
     const order = orders.find((o) => Number(o.order_id) === oid);
     if (!order) continue;
+    if (r.cancelled || r.cancel_reason_label) {
+      order.cancel_reason_label = String(r.cancel_reason_label || "Отменен").trim() || "Отменен";
+      if (r.wb_status) order.wb_status = String(r.wb_status);
+      if (r.supplier_status) order.supplier_status = String(r.supplier_status);
+      changed = true;
+      continue;
+    }
+    if (!r.wb_ok) continue;
     const codes = Array.isArray(r.kiz_codes)
       ? r.kiz_codes.filter((c) => String(c || "").trim())
       : [];
