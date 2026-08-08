@@ -20031,14 +20031,20 @@ async function saveWbFbsKizModal() {
     const hadLocal = !!r.kiz_local;
     const isCancelled = !!String(r.cancel_reason_label || "").trim();
     if (!codes.length && !wasBound && !hadLocal) continue;
-    // Cancelled + empty KIZ: do not push clear/meta to WB and do not keep an error.
+    // Cancelled + empty: still save locally via API (backend skips WB), no UI error.
     if (!codes.length && isCancelled) {
       delete wbFbsKizState.errors[oid];
       r.kiz_status = "empty";
-      r.kiz_wb_synced = true;
-      if (!wbFbsKizState.baselineByOrder) wbFbsKizState.baselineByOrder = {};
-      wbFbsKizState.baselineByOrder[oid] = [];
-      skippedUnchanged += 1;
+      const unchangedEmpty = _wbFbsKizBaselineEquals(oid, codes);
+      if (unchangedEmpty && r.kiz_wb_synced !== false) {
+        skippedUnchanged += 1;
+        continue;
+      }
+      items.push({
+        order_id: oid,
+        kiz_codes: [],
+        clear: !!(wasBound || hadLocal),
+      });
       continue;
     }
     if (codes.length) {

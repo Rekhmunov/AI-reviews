@@ -605,48 +605,9 @@ def check_supply_kiz_status(
         unique_ids.append(oid)
     order_ids = unique_ids
 
-    kiz_map: dict[int, dict[str, Any]] = {
-        oid: {
-            "kiz_required": False,
-            "kiz_bound": False,
-            "kiz_codes": [],
-            "kiz_decision": "",
-            "kiz_status": "empty",
-        }
-        for oid in order_ids
-    }
-    if order_ids:
-        try:
-            meta_rows = client.get_orders_meta(order_ids)
-        except Exception as exc:
-            raise RuntimeError(
-                f"Не удалось проверить КИЗ на Wildberries: {exc}"
-            ) from exc
-        if not isinstance(meta_rows, list):
-            raise RuntimeError("Некорректный ответ Wildberries при проверке КИЗ")
-        seen_meta: set[int] = set()
-        for row in meta_rows:
-            if not isinstance(row, dict):
-                continue
-            try:
-                oid = int(row.get("id") or row.get("orderId") or 0)
-            except (TypeError, ValueError):
-                continue
-            if oid <= 0 or oid not in kiz_map:
-                continue
-            # Live meta is authoritative: no sgtin key ⇒ not required.
-            kiz_map[oid] = _kiz_from_meta_row(row)
-            seen_meta.add(oid)
-        if not seen_meta:
-            raise RuntimeError("Wildberries не вернул статусы КИЗ")
-        missing = [oid for oid in order_ids if oid not in seen_meta]
-        if missing:
-            raise RuntimeError(
-                f"Wildberries не вернул статусы КИЗ для {len(missing)} заказ(ов)"
-            )
-
     # Cancelled orders stay in the supply UI but must not paint the
     # Маркировка refresh control red/green — they are out of КИЗ flow.
+    # Resolve cancellations BEFORE meta completeness checks.
     local_status = wb.load_order_status_map(
         repo, user_id=user_id, source_id=source_id, order_ids=order_ids
     )
@@ -674,6 +635,84 @@ def check_supply_kiz_status(
             ):
                 cancelled_ids.add(oid)
                 cancel_labels[oid] = label or cancel_labels.get(oid) or "Отменен"
+
+    # Live statuses catch newly cancelled orders not yet marked locally.
+    persist_cancel: dict[int, tuple[str, str]] = {}
+    if order_ids:
+        try:
+            live_statuses = client.get_statuses(order_ids)
+        except Exception as exc:
+            _log.debug("kiz status live statuses %s: %s", sid, exc)
+            live_statuses = []
+        for st in live_statuses:
+            if not isinstance(st, dict):
+                continue
+            try:
+                oid = int(st.get("id") or st.get("orderId") or 0)
+            except (TypeError, ValueError):
+                continue
+            if oid <= 0:
+                continue
+            ss = str(st.get("supplierStatus") or "").strip()
+            ws = str(st.get("wbStatus") or "").strip()
+            label = wb.cancel_reason_label(supplier_status=ss, wb_status=ws)
+            if label or wb._is_cancelled_status(supplier_status=ss, wb_status=ws):
+                cancelled_ids.add(oid)
+                cancel_labels[oid] = label or cancel_labels.get(oid) or "Отменен"
+                if ss or ws:
+                    persist_cancel[oid] = (ss, ws)
+    if persist_cancel:
+        try:
+            wb.update_order_wb_statuses(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                statuses=persist_cancel,
+            )
+        except Exception as exc:
+            _log.debug("kiz status persist cancel: %s", exc)
+
+    kiz_map: dict[int, dict[str, Any]] = {
+        oid: {
+            "kiz_required": False,
+            "kiz_bound": False,
+            "kiz_codes": [],
+            "kiz_decision": "",
+            "kiz_status": "empty",
+        }
+        for oid in order_ids
+    }
+    # Meta only for active (non-cancelled) orders — cancelled must not block refresh.
+    active_ids = [oid for oid in order_ids if oid not in cancelled_ids]
+    if active_ids:
+        try:
+            meta_rows = client.get_orders_meta(active_ids)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Не удалось проверить КИЗ на Wildberries: {exc}"
+            ) from exc
+        if not isinstance(meta_rows, list):
+            raise RuntimeError("Некорректный ответ Wildberries при проверке КИЗ")
+        seen_meta: set[int] = set()
+        for row in meta_rows:
+            if not isinstance(row, dict):
+                continue
+            try:
+                oid = int(row.get("id") or row.get("orderId") or 0)
+            except (TypeError, ValueError):
+                continue
+            if oid <= 0 or oid not in kiz_map or oid in cancelled_ids:
+                continue
+            # Live meta is authoritative: no sgtin key ⇒ not required.
+            kiz_map[oid] = _kiz_from_meta_row(row)
+            seen_meta.add(oid)
+        if not seen_meta:
+            raise RuntimeError("Wildberries не вернул статусы КИЗ")
+        missing = [oid for oid in active_ids if oid not in seen_meta]
+        if missing:
+            raise RuntimeError(
+                f"Wildberries не вернул статусы КИЗ для {len(missing)} заказ(ов)"
+            )
 
     rows: list[dict[str, Any]] = []
     required_statuses: list[str] = []

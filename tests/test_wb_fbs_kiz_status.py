@@ -90,6 +90,10 @@ def test_summarize_kiz_check_status() -> None:
 def test_check_supply_kiz_status_live_ok_and_not_required() -> None:
     client = MagicMock()
     client.get_supply_order_ids.return_value = [11, 22]
+    client.get_statuses.return_value = [
+        {"id": 11, "supplierStatus": "confirm", "wbStatus": "waiting"},
+        {"id": 22, "supplierStatus": "confirm", "wbStatus": "waiting"},
+    ]
     client.get_orders_meta.return_value = [
         {
             "id": 11,
@@ -105,6 +109,10 @@ def test_check_supply_kiz_status_live_ok_and_not_required() -> None:
         patch(
             "review_processor.wb_fbs_detail._local_order_ids_for_supply",
             return_value=[],
+        ),
+        patch(
+            "review_processor.wb_fbs_detail.wb.load_order_status_map",
+            return_value={},
         ),
     ):
         payload = check_supply_kiz_status(
@@ -126,6 +134,9 @@ def test_check_supply_kiz_status_live_ok_and_not_required() -> None:
 def test_check_supply_kiz_status_raises_on_meta_failure() -> None:
     client = MagicMock()
     client.get_supply_order_ids.return_value = [11]
+    client.get_statuses.return_value = [
+        {"id": 11, "supplierStatus": "confirm", "wbStatus": "waiting"},
+    ]
     client.get_orders_meta.side_effect = RuntimeError("wb down")
     with (
         patch("review_processor.wb_fbs_detail.wb.WbFbsClient", return_value=client),
@@ -133,6 +144,10 @@ def test_check_supply_kiz_status_raises_on_meta_failure() -> None:
         patch(
             "review_processor.wb_fbs_detail._local_order_ids_for_supply",
             return_value=[],
+        ),
+        patch(
+            "review_processor.wb_fbs_detail.wb.load_order_status_map",
+            return_value={},
         ),
         pytest.raises(RuntimeError, match="Не удалось проверить КИЗ"),
     ):
@@ -148,17 +163,16 @@ def test_check_supply_kiz_status_raises_on_meta_failure() -> None:
 def test_check_supply_kiz_status_excludes_cancelled_from_tone() -> None:
     client = MagicMock()
     client.get_supply_order_ids.return_value = [11, 22]
+    client.get_statuses.return_value = [
+        {"id": 11, "supplierStatus": "confirm", "wbStatus": "waiting"},
+        {"id": 22, "supplierStatus": "confirm", "wbStatus": "canceled_by_client"},
+    ]
+    # Meta is requested only for active order 11.
     client.get_orders_meta.return_value = [
         {
             "id": 11,
             "metaDetails": [
                 {"key": "sgtin", "value": ["010467…"], "decision": "filled"}
-            ],
-        },
-        {
-            "id": 22,
-            "metaDetails": [
-                {"key": "sgtin", "value": ["010468…"], "decision": "invalid"}
             ],
         },
     ]
@@ -171,14 +185,12 @@ def test_check_supply_kiz_status_excludes_cancelled_from_tone() -> None:
         ),
         patch(
             "review_processor.wb_fbs_detail.wb.load_order_status_map",
-            return_value={
-                22: {
-                    "supplier_status": "confirm",
-                    "wb_status": "canceled_by_client",
-                    "cancel_reason_label": "Клиент отказался",
-                }
-            },
+            return_value={},
         ),
+        patch(
+            "review_processor.wb_fbs_detail.wb.update_order_wb_statuses",
+            return_value=1,
+        ) as mock_persist,
     ):
         payload = check_supply_kiz_status(
             MagicMock(),
@@ -187,10 +199,12 @@ def test_check_supply_kiz_status_excludes_cancelled_from_tone() -> None:
             api_key="key",
             supply_id="S1",
         )
-    # Cancelled order 22 has invalid meta but must not paint the control red.
+    # Cancelled order 22 must not paint the control red / block meta.
     assert payload["status"] == "ok"
     assert payload["counts"]["required"] == 1
     assert payload["counts"]["cancelled"] == 1
     by_id = {row["order_id"]: row for row in payload["orders"]}
     assert by_id[22]["cancelled"] is True
     assert by_id[22]["kiz_required"] is False
+    client.get_orders_meta.assert_called_once_with([11])
+    mock_persist.assert_called_once()
