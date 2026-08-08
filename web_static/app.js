@@ -18292,7 +18292,7 @@ function _wbFbsSupplyDetailActionsReady() {
  */
 function _wbFbsSupplyDetailSetActionsReady(ready) {
   wbFbsDetailState.ordersReady = !!ready;
-  const tip = "Дождитесь загрузки заказов";
+  const tip = "Дождитесь загрузки товаров";
   _WB_FBS_DETAIL_ACTION_IDS.forEach((id) => {
     const el = document.getElementById(id);
     if (!el) return;
