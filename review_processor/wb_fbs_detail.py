@@ -526,14 +526,17 @@ def _kiz_from_meta_row(row: dict[str, Any]) -> dict[str, Any]:
 def summarize_kiz_check_status(statuses: list[str]) -> str:
     """Aggregate tone for the supply-detail «Маркировка» refresh control.
 
+    Only filled КИЗ participate in the tone (empty slots are ignored).
+
     Returns:
-      ``ok`` — every required order is approved (incl. WB ``filled`` without
-      deep ЧЗ check, which still allows deliver);
-      ``error`` — any order failed validation;
-      ``pending`` — otherwise (empty / still checking / mix without errors);
-      ``none`` — no required КИЗ orders.
+      ``ok`` — every checked (filled) code is approved (incl. WB ``filled``);
+      ``error`` — any checked code failed / cancelled-with-code;
+      ``pending`` — still checking / mix without errors;
+      ``none`` — no filled КИЗ to check.
     """
     cleaned = [str(s or "").strip().lower() for s in (statuses or []) if str(s or "").strip()]
+    # Empty slots are not part of the check set.
+    cleaned = [s for s in cleaned if s != "empty"]
     if not cleaned:
         return "none"
     if any(s == "error" for s in cleaned):
@@ -714,39 +717,87 @@ def check_supply_kiz_status(
                 f"Wildberries не вернул статусы КИЗ для {len(missing)} заказ(ов)"
             )
 
+    # Local drafts matter for cancelled rows: empty field ⇒ ignore; filled ⇒ error.
+    local_kiz = wb.load_order_kiz_map(
+        repo, user_id=user_id, source_id=source_id, order_ids=order_ids
+    )
+    cached_codes: dict[int, list[str]] = {}
+    if cached and isinstance(cached.get("orders"), list):
+        for o in cached["orders"]:
+            if not isinstance(o, dict):
+                continue
+            oid = _int_or_zero(o.get("order_id"))
+            if not oid:
+                continue
+            cached_codes[oid] = [
+                wb._kiz_code_clean(x)
+                for x in (o.get("kiz_codes") or [])
+                if wb._kiz_code_clean(x)
+            ]
+
     rows: list[dict[str, Any]] = []
-    required_statuses: list[str] = []
+    checked_statuses: list[str] = []
     for oid in order_ids:
         kiz = kiz_map.get(oid) or {}
-        status = str(kiz.get("kiz_status") or "empty")
         is_cancelled = oid in cancelled_ids
+        meta_codes = [
+            wb._kiz_code_clean(x)
+            for x in (kiz.get("kiz_codes") or [])
+            if wb._kiz_code_clean(x)
+        ]
+        local = local_kiz.get(oid) or {}
+        local_codes = [
+            wb._kiz_code_clean(x)
+            for x in (local.get("codes") or [])
+            if wb._kiz_code_clean(x)
+        ]
+        detail_codes = cached_codes.get(oid) or []
+        # Prefer any known filled codes: live meta, then local draft, then open detail.
+        codes = meta_codes or local_codes or detail_codes
+        has_filled = bool(codes)
+        status = str(kiz.get("kiz_status") or "empty")
+        if is_cancelled:
+            # Cancelled + filled KIZ still blocks a green control (WB rejects meta).
+            # Cancelled + empty field is not checked at all.
+            status = "error" if has_filled else "empty"
+            kiz_required = has_filled
+        else:
+            kiz_required = bool(kiz.get("kiz_required"))
+            # Tone uses only filled codes; empty required slots are ignored.
+            if not has_filled:
+                status = "empty"
         row = {
             "order_id": oid,
-            "kiz_required": bool(kiz.get("kiz_required")) and not is_cancelled,
-            "kiz_bound": bool(kiz.get("kiz_bound")),
-            "kiz_codes": list(kiz.get("kiz_codes") or []),
+            "kiz_required": kiz_required,
+            "kiz_bound": has_filled,
+            "kiz_codes": codes,
             "kiz_decision": str(kiz.get("kiz_decision") or ""),
-            "kiz_status": status if not is_cancelled else "empty",
+            "kiz_status": status,
             "cancelled": is_cancelled,
             "cancel_reason_label": cancel_labels.get(oid, ""),
         }
         rows.append(row)
-        if row["kiz_required"]:
-            required_statuses.append(status)
+        if has_filled:
+            checked_statuses.append(status)
 
-    tone = summarize_kiz_check_status(required_statuses)
+    tone = summarize_kiz_check_status(checked_statuses)
     counts = {
-        "required": len(required_statuses),
-        "ok": sum(1 for s in required_statuses if s == "ok"),
-        "error": sum(1 for s in required_statuses if s == "error"),
-        "pending": sum(1 for s in required_statuses if s == "pending"),
-        "empty": sum(1 for s in required_statuses if s == "empty"),
+        "checked": len(checked_statuses),
+        "required": sum(1 for r in rows if r.get("kiz_required")),
+        "ok": sum(1 for s in checked_statuses if s == "ok"),
+        "error": sum(1 for s in checked_statuses if s == "error"),
+        "pending": sum(1 for s in checked_statuses if s == "pending"),
+        "empty": sum(1 for r in rows if not r.get("kiz_bound")),
         "cancelled": len(cancelled_ids),
+        "cancelled_with_kiz": sum(
+            1 for r in rows if r.get("cancelled") and r.get("kiz_bound")
+        ),
     }
 
     # Patch open-modal cache so badges match the live check without
     # dropping sticker data (do not invalidate the whole detail entry).
     if cached and isinstance(cached.get("orders"), list):
+        by_row = {int(r["order_id"]): r for r in rows if r.get("order_id") is not None}
         live_set = set(order_ids)
         for o in cached["orders"]:
             if not isinstance(o, dict):
@@ -754,9 +805,8 @@ def check_supply_kiz_status(
             oid = _int_or_zero(o.get("order_id"))
             if not oid:
                 continue
-            kiz = kiz_map.get(oid)
-            if kiz is None:
-                # Order no longer in live supply composition.
+            row = by_row.get(oid)
+            if row is None:
                 if live_set:
                     o["kiz_required"] = False
                     o["kiz_bound"] = False
@@ -764,17 +814,16 @@ def check_supply_kiz_status(
                     o["kiz_decision"] = ""
                     o["kiz_status"] = "empty"
                 continue
-            is_cancelled = oid in cancelled_ids
-            o["kiz_required"] = bool(kiz.get("kiz_required")) and not is_cancelled
-            o["kiz_bound"] = bool(kiz.get("kiz_bound"))
-            o["kiz_codes"] = list(kiz.get("kiz_codes") or [])
-            o["kiz_decision"] = str(kiz.get("kiz_decision") or "")
-            o["kiz_status"] = (
-                "empty" if is_cancelled else str(kiz.get("kiz_status") or "empty")
-            )
-            if is_cancelled:
-                o["cancel_reason_label"] = cancel_labels.get(
-                    oid, str(o.get("cancel_reason_label") or "Отменен")
+            o["kiz_required"] = bool(row.get("kiz_required"))
+            o["kiz_bound"] = bool(row.get("kiz_bound"))
+            o["kiz_codes"] = list(row.get("kiz_codes") or [])
+            o["kiz_decision"] = str(row.get("kiz_decision") or "")
+            o["kiz_status"] = str(row.get("kiz_status") or "empty")
+            if row.get("cancelled") or row.get("cancel_reason_label"):
+                o["cancel_reason_label"] = str(
+                    row.get("cancel_reason_label")
+                    or o.get("cancel_reason_label")
+                    or "Отменен"
                 )
         _cache_put_detail(
             user_id=user_id, source_id=source_id, supply_id=sid, detail=cached

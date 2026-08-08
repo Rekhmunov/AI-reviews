@@ -81,10 +81,12 @@ def test_summarize_kiz_check_status() -> None:
     assert summarize_kiz_check_status(["ok", "ok"]) == "ok"
     assert summarize_kiz_check_status(["ok", "error"]) == "error"
     assert summarize_kiz_check_status(["error", "pending"]) == "error"
-    # Still checking / empty slots → default (not green, not red)
+    # Still checking → default (not green, not red)
     assert summarize_kiz_check_status(["ok", "pending"]) == "pending"
+    # Empty slots are ignored — only filled codes participate
     assert summarize_kiz_check_status(["empty", "pending"]) == "pending"
-    assert summarize_kiz_check_status(["empty"]) == "pending"
+    assert summarize_kiz_check_status(["empty"]) == "none"
+    assert summarize_kiz_check_status(["ok", "empty"]) == "ok"
 
 
 def test_check_supply_kiz_status_live_ok_and_not_required() -> None:
@@ -114,6 +116,10 @@ def test_check_supply_kiz_status_live_ok_and_not_required() -> None:
             "review_processor.wb_fbs_detail.wb.load_order_status_map",
             return_value={},
         ),
+        patch(
+            "review_processor.wb_fbs_detail.wb.load_order_kiz_map",
+            return_value={},
+        ),
     ):
         payload = check_supply_kiz_status(
             MagicMock(),
@@ -123,7 +129,7 @@ def test_check_supply_kiz_status_live_ok_and_not_required() -> None:
             supply_id="S1",
         )
     assert payload["status"] == "ok"
-    assert payload["counts"]["required"] == 1
+    assert payload["counts"]["checked"] == 1
     assert payload["counts"]["ok"] == 1
     by_id = {row["order_id"]: row for row in payload["orders"]}
     assert by_id[11]["kiz_required"] is True
@@ -160,14 +166,13 @@ def test_check_supply_kiz_status_raises_on_meta_failure() -> None:
         )
 
 
-def test_check_supply_kiz_status_excludes_cancelled_from_tone() -> None:
+def test_check_supply_kiz_status_cancelled_empty_ignored() -> None:
     client = MagicMock()
     client.get_supply_order_ids.return_value = [11, 22]
     client.get_statuses.return_value = [
         {"id": 11, "supplierStatus": "confirm", "wbStatus": "waiting"},
         {"id": 22, "supplierStatus": "confirm", "wbStatus": "canceled_by_client"},
     ]
-    # Meta is requested only for active order 11.
     client.get_orders_meta.return_value = [
         {
             "id": 11,
@@ -188,6 +193,10 @@ def test_check_supply_kiz_status_excludes_cancelled_from_tone() -> None:
             return_value={},
         ),
         patch(
+            "review_processor.wb_fbs_detail.wb.load_order_kiz_map",
+            return_value={},
+        ),
+        patch(
             "review_processor.wb_fbs_detail.wb.update_order_wb_statuses",
             return_value=1,
         ) as mock_persist,
@@ -199,12 +208,63 @@ def test_check_supply_kiz_status_excludes_cancelled_from_tone() -> None:
             api_key="key",
             supply_id="S1",
         )
-    # Cancelled order 22 must not paint the control red / block meta.
+    # Cancelled + empty KIZ does not participate in tone.
     assert payload["status"] == "ok"
-    assert payload["counts"]["required"] == 1
-    assert payload["counts"]["cancelled"] == 1
+    assert payload["counts"]["checked"] == 1
+    assert payload["counts"]["cancelled_with_kiz"] == 0
     by_id = {row["order_id"]: row for row in payload["orders"]}
     assert by_id[22]["cancelled"] is True
-    assert by_id[22]["kiz_required"] is False
+    assert by_id[22]["kiz_bound"] is False
     client.get_orders_meta.assert_called_once_with([11])
     mock_persist.assert_called_once()
+
+
+def test_check_supply_kiz_status_cancelled_with_kiz_is_error() -> None:
+    client = MagicMock()
+    client.get_supply_order_ids.return_value = [11, 22]
+    client.get_statuses.return_value = [
+        {"id": 11, "supplierStatus": "confirm", "wbStatus": "waiting"},
+        {"id": 22, "supplierStatus": "confirm", "wbStatus": "canceled_by_client"},
+    ]
+    client.get_orders_meta.return_value = [
+        {
+            "id": 11,
+            "metaDetails": [
+                {"key": "sgtin", "value": ["010467…"], "decision": "filled"}
+            ],
+        },
+    ]
+    with (
+        patch("review_processor.wb_fbs_detail.wb.WbFbsClient", return_value=client),
+        patch("review_processor.wb_fbs_detail._cache_get_detail", return_value=None),
+        patch(
+            "review_processor.wb_fbs_detail._local_order_ids_for_supply",
+            return_value=[],
+        ),
+        patch(
+            "review_processor.wb_fbs_detail.wb.load_order_status_map",
+            return_value={},
+        ),
+        patch(
+            "review_processor.wb_fbs_detail.wb.load_order_kiz_map",
+            return_value={22: {"codes": ["01CANCELLED"], "wb_synced": False}},
+        ),
+        patch(
+            "review_processor.wb_fbs_detail.wb.update_order_wb_statuses",
+            return_value=1,
+        ),
+    ):
+        payload = check_supply_kiz_status(
+            MagicMock(),
+            user_id=1,
+            source_id=2,
+            api_key="key",
+            supply_id="S1",
+        )
+    # Cancelled + filled KIZ must paint the control red.
+    assert payload["status"] == "error"
+    assert payload["counts"]["cancelled_with_kiz"] == 1
+    by_id = {row["order_id"]: row for row in payload["orders"]}
+    assert by_id[22]["cancelled"] is True
+    assert by_id[22]["kiz_bound"] is True
+    assert by_id[22]["kiz_status"] == "error"
