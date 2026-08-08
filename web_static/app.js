@@ -18339,6 +18339,7 @@ function closeWbFbsSupplyDetailModal() {
   _wbFbsClosePickingMenu();
   _wbFbsSupplyDetailResetSearch();
   closeWbFbsCreateTrbxModal();
+  closeWbFbsCancelledOrdersModal();
   setModalVisibility("wbFbsSupplyDetailModal", false);
 }
 window.closeWbFbsSupplyDetailModal = closeWbFbsSupplyDetailModal;
@@ -18983,6 +18984,171 @@ function openWbFbsSupplyPortal() {
   if (!win) alert("Разрешите всплывающие окна для перехода на портал");
 }
 window.openWbFbsSupplyPortal = openWbFbsSupplyPortal;
+
+const wbFbsCancelledState = {
+  rows: [],
+  loading: false,
+  lastError: "",
+  refreshGen: 0,
+};
+
+function _wbFbsCancelledSetInfo(text, kind) {
+  const el = document.getElementById("wbFbsCancelledOrdersInfo");
+  if (!el) return;
+  const msg = String(text || "").trim();
+  el.hidden = !msg;
+  el.textContent = msg;
+  el.classList.toggle("is-ok", !!msg && kind === "ok");
+}
+
+function _wbFbsCancelledMergeIntoDetail(rows) {
+  const supply = wbFbsDetailState.supply;
+  if (!supply || !Array.isArray(supply.orders) || !Array.isArray(rows)) return;
+  const byId = new Map();
+  rows.forEach((row) => {
+    const oid = Number(row?.order_id);
+    if (Number.isFinite(oid) && oid > 0) byId.set(oid, row);
+  });
+  if (!byId.size) return;
+  let changed = false;
+  supply.orders.forEach((o) => {
+    const oid = Number(o?.order_id);
+    const upd = byId.get(oid);
+    if (!upd) return;
+    const label = String(upd.cancel_reason_label || "").trim();
+    if (label) {
+      o.cancel_reason_label = label;
+      changed = true;
+    }
+    if (upd.supplier_status) o.supplier_status = String(upd.supplier_status);
+    if (upd.wb_status) o.wb_status = String(upd.wb_status);
+  });
+  if (changed) renderWbFbsSupplyDetail(supply);
+}
+
+function renderWbFbsCancelledOrdersTable() {
+  const tbody = document.getElementById("wbFbsCancelledOrdersTbody");
+  if (!tbody) return;
+  const rows = Array.isArray(wbFbsCancelledState.rows) ? wbFbsCancelledState.rows : [];
+  if (!rows.length) {
+    let emptyMsg = "Отменённых заказов в поставке нет";
+    if (wbFbsCancelledState.loading) emptyMsg = "Проверяем статусы на Wildberries…";
+    else if (wbFbsCancelledState.lastError) emptyMsg = "Не удалось проверить статусы";
+    tbody.innerHTML = `<tr><td colspan="2" class="wb-fbs-empty">${emptyMsg}</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = rows.map((r) => {
+    const oid = Number(r.order_id);
+    const photo = r.product_photo
+      ? `<img class="wb-fbs-product-photo" src="${_wbFbsEsc(r.product_photo)}" alt="" width="56" height="56" loading="lazy">`
+      : `<span class="wb-fbs-product-ph" aria-hidden="true"></span>`;
+    const brandArt = [r.brand, r.article ? `Арт. ${r.article}` : ""].filter(Boolean).join(" · ");
+    const barcodes = Array.isArray(r.barcodes)
+      ? r.barcodes
+      : (Array.isArray(r.skus) ? r.skus : []);
+    const barcodeHtml = barcodes.length
+      ? `<div class="wb-fbs-kiz-barcodes" title="Штрихкод товара">${barcodes.map((b) =>
+          `<div class="wb-fbs-kiz-barcode">${_wbFbsEsc(b)}</div>`
+        ).join("")}</div>`
+      : "";
+    const cancelBadgeHtml = _wbFbsKizCancelBadgeHtml(r);
+    const stickerHtml = _wbFbsKizStickerHtml(r);
+    return `<tr class="wb-fbs-kiz-row" data-order-id="${oid}">
+      <td>
+        <div class="wb-fbs-kiz-order-id">${_wbFbsEsc(oid)}</div>
+        <div class="wb-fbs-kiz-order-sticker">${stickerHtml}</div>
+        <div class="wb-fbs-kiz-order-date">от ${_wbFbsEsc(r.created_date || "—")}</div>
+      </td>
+      <td>
+        <div class="wb-fbs-product">
+          ${photo}
+          <div class="wb-fbs-product-text">
+            <div class="wb-fbs-product-name" title="${_wbFbsEsc(r.product_name || r.article || "")}">${_wbFbsEsc(r.product_name || r.article || "—")}</div>
+            <div class="wb-fbs-product-sub">${_wbFbsEsc(brandArt || "—")}</div>
+            ${barcodeHtml}
+            ${cancelBadgeHtml}
+          </div>
+        </div>
+      </td>
+    </tr>`;
+  }).join("");
+}
+window.renderWbFbsCancelledOrdersTable = renderWbFbsCancelledOrdersTable;
+
+async function refreshWbFbsCancelledOrders() {
+  const sid = String(wbFbsDetailState.supplyId || "").trim();
+  if (!sid || !wbFbsState.sourceId || wbFbsCancelledState.loading) return;
+  const refreshGen = Number(wbFbsCancelledState.refreshGen || 0) + 1;
+  wbFbsCancelledState.refreshGen = refreshGen;
+  wbFbsCancelledState.loading = true;
+  wbFbsCancelledState.lastError = "";
+  const btn = document.getElementById("wbFbsCancelledOrdersRefreshBtn");
+  if (btn) btn.disabled = true;
+  _wbFbsCancelledSetInfo("");
+  if (!wbFbsCancelledState.rows.length) {
+    renderWbFbsCancelledOrdersTable();
+  }
+  try {
+    const params = new URLSearchParams({ source_id: String(wbFbsState.sourceId) });
+    const res = await fetch(
+      `/api/wb-fbs/supplies/${encodeURIComponent(sid)}/cancelled?${params}`
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.ok === false) {
+      const detail = data.detail;
+      const msg = Array.isArray(detail)
+        ? (detail.map((x) => x?.msg || x).filter(Boolean).join("; ") || `Ошибка ${res.status}`)
+        : (detail || `Ошибка ${res.status}`);
+      throw new Error(msg);
+    }
+    if (wbFbsCancelledState.refreshGen !== refreshGen) return;
+    wbFbsCancelledState.lastError = "";
+    wbFbsCancelledState.rows = Array.isArray(data.rows) ? data.rows : [];
+    renderWbFbsCancelledOrdersTable();
+    _wbFbsCancelledMergeIntoDetail(wbFbsCancelledState.rows);
+  } catch (e) {
+    if (wbFbsCancelledState.refreshGen !== refreshGen) return;
+    const msg = String(e.message || e);
+    wbFbsCancelledState.lastError = msg;
+    // Keep previous successful rows; only clear the empty-state message path.
+    if (!wbFbsCancelledState.rows.length) renderWbFbsCancelledOrdersTable();
+    _wbFbsCancelledSetInfo(msg);
+  } finally {
+    if (wbFbsCancelledState.refreshGen === refreshGen) {
+      wbFbsCancelledState.loading = false;
+      if (btn) btn.disabled = false;
+      if (!wbFbsCancelledState.rows.length) renderWbFbsCancelledOrdersTable();
+    }
+  }
+}
+window.refreshWbFbsCancelledOrders = refreshWbFbsCancelledOrders;
+
+function openWbFbsCancelledOrdersModal() {
+  const sid = String(wbFbsDetailState.supplyId || "").trim();
+  if (!sid || !wbFbsState.sourceId) return;
+  setModalVisibility("wbFbsCancelledOrdersModal", true);
+  wbFbsCancelledState.rows = [];
+  wbFbsCancelledState.lastError = "";
+  wbFbsCancelledState.loading = true;
+  _wbFbsCancelledSetInfo("");
+  renderWbFbsCancelledOrdersTable();
+  // Allow refresh() to take over the in-flight load.
+  wbFbsCancelledState.loading = false;
+  refreshWbFbsCancelledOrders().catch(() => {});
+}
+window.openWbFbsCancelledOrdersModal = openWbFbsCancelledOrdersModal;
+
+function closeWbFbsCancelledOrdersModal() {
+  wbFbsCancelledState.refreshGen = Number(wbFbsCancelledState.refreshGen || 0) + 1;
+  wbFbsCancelledState.loading = false;
+  wbFbsCancelledState.lastError = "";
+  wbFbsCancelledState.rows = [];
+  const btn = document.getElementById("wbFbsCancelledOrdersRefreshBtn");
+  if (btn) btn.disabled = false;
+  _wbFbsCancelledSetInfo("");
+  setModalVisibility("wbFbsCancelledOrdersModal", false);
+}
+window.closeWbFbsCancelledOrdersModal = closeWbFbsCancelledOrdersModal;
 
 const wbFbsKizState = {
   rows: [],
