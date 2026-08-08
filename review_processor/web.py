@@ -9752,7 +9752,24 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         try:
             raw = client.get_supply_barcode(supply_id, sticker_type=sticker_type)
         except Exception as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            text = str(exc)
+            lower = text.lower()
+            # WB: barcode only after PATCH .../deliver («передана в доставку»).
+            if (
+                "409" in lower
+                or "deliver" in lower
+                or "доставк" in lower
+                or "not transfer" in lower
+                or "не передан" in lower
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "QR-код поставки доступен только после передачи "
+                        "поставки в доставку"
+                    ),
+                ) from exc
+            raise HTTPException(status_code=400, detail=text) from exc
         if sticker_type == "png":
             media = "image/png"
         elif sticker_type == "svg":

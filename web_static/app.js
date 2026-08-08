@@ -18469,7 +18469,9 @@ function _wbFbsRenderTrbxBoxesList(boxes) {
     return;
   }
   section.hidden = false;
+  const printSupply = document.getElementById("wbFbsTrbxPrintSupplyQrBtn");
   if (printAll) printAll.disabled = !!wbFbsDetailState.trbxBusy;
+  if (printSupply) printSupply.disabled = !!wbFbsDetailState.trbxBusy;
   if (deleteAll) deleteAll.disabled = !!wbFbsDetailState.trbxBusy;
   list.innerHTML = wbFbsDetailState.trbxBoxes.map((b) => {
     const safeAttr = _wbFbsEsc(b.id);
@@ -18591,6 +18593,30 @@ function wbFbsPrintTrbxStickers(boxId) {
   if (!win) alert("Разрешите всплывающие окна для печати QR грузомест");
 }
 window.wbFbsPrintTrbxStickers = wbFbsPrintTrbxStickers;
+
+/**
+ * Official WB supply QR (GET /api/v3/supplies/{id}/barcode).
+ * Available only after the supply is transferred to delivery.
+ */
+async function wbFbsPrintSupplyQrFromTrbx() {
+  const sid = String(wbFbsDetailState.supplyId || "").trim();
+  if (!sid || !wbFbsState.sourceId) return;
+  const btn = document.getElementById("wbFbsTrbxPrintSupplyQrBtn");
+  if (btn) btn.disabled = true;
+  _wbFbsCreateTrbxSetInfo("Загружаем QR-код поставки…");
+  try {
+    await wbFbsOpenSupplyQr(sid);
+    if (_wbFbsTrbxModalOpen()) _wbFbsCreateTrbxSetInfo("");
+  } catch (e) {
+    const msg = String(e.message || e || "").trim()
+      || "Не удалось получить QR-код поставки";
+    if (_wbFbsTrbxModalOpen()) _wbFbsCreateTrbxSetInfo(msg, "error");
+    else alert(msg);
+  } finally {
+    if (btn && !wbFbsDetailState.trbxBusy) btn.disabled = false;
+  }
+}
+window.wbFbsPrintSupplyQrFromTrbx = wbFbsPrintSupplyQrFromTrbx;
 
 async function _wbFbsDeleteTrbxBoxes(boxIds, { okMessage = "Грузоместа удалены" } = {}) {
   const sid = String(wbFbsDetailState.supplyId || "").trim();
@@ -20500,15 +20526,38 @@ async function wbFbsOpenSupplyQr(supplyId) {
   _wbFbsCloseRowMenus();
   const sid = String(supplyId || "").trim();
   if (!sid || !wbFbsState.sourceId) return;
-  // Sticker comes from WB GET /api/v3/supplies/{id}/barcode (PNG 580×400:
-  // QR + WB-GI + qty + city). Open the proxied API file in a new tab.
+  // Official WB sticker: GET /api/v3/supplies/{id}/barcode → PNG 580×400
+  // (QR + WB-GI + qty + city). Only after supply is transferred to delivery.
   const url =
     `/api/wb-fbs/stickers/supply/${encodeURIComponent(sid)}` +
     `?source_id=${wbFbsState.sourceId}&type=png&disposition=inline`;
-  const win = window.open(url, "_blank");
-  if (!win) {
-    alert("Разрешите всплывающие окна, чтобы открыть QR-код поставки");
+  const res = await fetch(url);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    const detail = Array.isArray(data.detail)
+      ? data.detail.map((x) => x?.msg || x).filter(Boolean).join("; ")
+      : String(data.detail || "").trim();
+    const lower = detail.toLowerCase();
+    if (
+      res.status === 409
+      || /deliver|доставк|не передан|not\s*transfer|barcode/i.test(lower)
+      || (!detail && (res.status === 400 || res.status === 404))
+    ) {
+      throw new Error(
+        detail
+          || "QR-код поставки доступен только после передачи поставки в доставку"
+      );
+    }
+    throw new Error(detail || `Не удалось получить QR поставки (${res.status})`);
   }
+  const blob = await res.blob();
+  const objUrl = URL.createObjectURL(blob);
+  const win = window.open(objUrl, "_blank");
+  if (!win) {
+    URL.revokeObjectURL(objUrl);
+    throw new Error("Разрешите всплывающие окна, чтобы открыть QR-код поставки");
+  }
+  setTimeout(() => URL.revokeObjectURL(objUrl), 60_000);
 }
 window.wbFbsOpenSupplyQr = wbFbsOpenSupplyQr;
 
@@ -22162,7 +22211,11 @@ async function wbFbsPrintSupplySticker() {
     return;
   }
   for (const sid of supplyIds) {
-    await wbFbsOpenSupplyQr(sid);
+    try {
+      await wbFbsOpenSupplyQr(sid);
+    } catch (e) {
+      alert(`${sid}: ${e.message || e}`);
+    }
   }
 }
 window.wbFbsPrintSupplySticker = wbFbsPrintSupplySticker;

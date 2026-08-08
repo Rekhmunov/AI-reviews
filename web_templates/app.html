@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=167" />
+  <link rel="stylesheet" href="/static/style.css?v=168" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1841,8 +1841,15 @@
               <div id="wbFbsCreateTrbxInfo" class="wb-fbs-create-trbx-info" hidden></div>
               <div id="wbFbsTrbxPrintSection" class="wb-fbs-trbx-print-section" hidden>
                 <div class="wb-fbs-trbx-print-actions">
-                  <button type="button" id="wbFbsTrbxPrintAllBtn" class="secondary wb-fbs-trbx-print-all-btn"
-                          onclick="wbFbsPrintTrbxStickers()">Распечатать QR-коды грузовых мест</button>
+                  <div class="wb-fbs-trbx-print-primary">
+                    <button type="button" id="wbFbsTrbxPrintAllBtn" class="secondary wb-fbs-trbx-print-all-btn"
+                            onclick="wbFbsPrintTrbxStickers()">Распечатать QR-коды грузовых мест</button>
+                    <button type="button" id="wbFbsTrbxPrintSupplyQrBtn" class="secondary wb-fbs-trbx-print-supply-btn"
+                            onclick="wbFbsPrintSupplyQrFromTrbx()"
+                            title="QR поставки (WB-GI) — доступен после передачи в доставку">
+                      Распечатать QR-код поставки
+                    </button>
+                  </div>
                   <button type="button" id="wbFbsTrbxDeleteAllBtn" class="secondary danger wb-fbs-trbx-delete-all-btn"
                           onclick="openWbFbsTrbxDeleteAllConfirm()" disabled>
                     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -4013,6 +4020,6 @@
   <script src="/static/jszip.min.js"></script>
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
-  <script src="/static/app.js?v=354"></script>
+  <script src="/static/app.js?v=355"></script>
 </body>
 </html>
