@@ -2302,7 +2302,12 @@ def list_sticker_print_groups(
     api_key: str,
     supply_id: str,
 ) -> dict[str, Any]:
-    """Article groups for «Печать по категориям» modal (no sticker PNG download)."""
+    """Article groups for «Печать по категориям» modal (no sticker PNG download).
+
+    Fast path: local orders + Settings → Products names only.
+    Does not call Content API (that was making the modal wait ~0.2s per nmID).
+    Actual sticker print still uses Content titles for ЛК-like order.
+    """
     detail = get_supply_detail_for_print(
         repo,
         user_id=user_id,
@@ -2313,40 +2318,26 @@ def list_sticker_print_groups(
     )
     orders = list(detail.get("orders") or [])
     _refresh_product_names(repo, user_id=user_id, orders=orders)
-    nm_ids: list[int] = []
-    for o in orders:
-        try:
-            nm_ids.append(int(o.get("nm_id")))
-        except (TypeError, ValueError):
-            continue
-    card_meta = fetch_card_meta_by_nm(api_key, nm_ids, network=True, max_cards=200)
-    orders_full: list[dict[str, Any]] = []
-    for o in orders:
-        try:
-            nm = int(o.get("nm_id"))
-        except (TypeError, ValueError):
-            nm = 0
-        meta = card_meta.get(nm) or {}
-        orders_full.append(
-            {
-                **o,
-                "color": meta.get("color") or "",
-                "brand": meta.get("brand") or "",
-                "wb_title": str(meta.get("title") or "").strip(),
-                "sticker_part_a": "",
-                "sticker_part_b": "",
-                "sticker_file": "",
-            }
-        )
+    orders_full: list[dict[str, Any]] = [
+        {
+            **o,
+            "color": "",
+            "brand": "",
+            "wb_title": "",
+            "sticker_part_a": "",
+            "sticker_part_b": "",
+            "sticker_file": "",
+        }
+        for o in orders
+    ]
     groups = _group_orders_by_article(orders_full)
-    # Same enrichment as build_article_groups_for_print: sort by WB card title,
-    # display Settings → Products name in the modal list.
+    # Modal shows Settings → Products name; sort by that name (no Content title).
     for g in groups:
         first = g["orders"][0] if g.get("orders") else {}
         g["product_name"] = str(
             g.get("product_name") or first.get("product_name") or ""
         ).strip()
-        g["wb_title"] = str(first.get("wb_title") or "").strip()
+        g["wb_title"] = ""
     groups = _sort_groups_like_wb(groups)
     out_groups: list[dict[str, Any]] = []
     for g in groups:
