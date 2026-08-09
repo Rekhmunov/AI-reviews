@@ -9194,6 +9194,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 api_key=api_key,
                 supply_id=sid,
                 mode="picking_list",
+                picking_variant=pick_variant,
             )
             pdf_bytes = wb_detail.render_picking_list_pdf(
                 payload,
@@ -9249,6 +9250,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 api_key=api_key,
                 supply_id=sid,
                 mode="picking_list",
+                picking_variant=pick_variant,
             )
             html_doc = wb_detail.render_picking_list_html(
                 payload, for_pdf=False, variant=pick_variant
