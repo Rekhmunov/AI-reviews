@@ -2338,7 +2338,16 @@ def list_sticker_print_groups(
                 "sticker_file": "",
             }
         )
-    groups = _sort_groups_like_wb(_group_orders_by_article(orders_full))
+    groups = _group_orders_by_article(orders_full)
+    # Same enrichment as build_article_groups_for_print: sort by WB card title,
+    # display Settings → Products name in the modal list.
+    for g in groups:
+        first = g["orders"][0] if g.get("orders") else {}
+        g["product_name"] = str(
+            g.get("product_name") or first.get("product_name") or ""
+        ).strip()
+        g["wb_title"] = str(first.get("wb_title") or "").strip()
+    groups = _sort_groups_like_wb(groups)
     out_groups: list[dict[str, Any]] = []
     for g in groups:
         orders_g = list(g.get("orders") or [])

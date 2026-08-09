@@ -19177,13 +19177,12 @@ async function openWbFbsStickersByCategoryModal() {
   const sid = String(wbFbsDetailState.supplyId || "").trim();
   if (!sid || !wbFbsState.sourceId || !_wbFbsSupplyDetailActionsReady()) return;
   _wbFbsCloseStickersMenu();
-  const modal = document.getElementById("wbFbsStickersCategoryModal");
-  if (!modal) return;
-  modal.classList.remove("hidden");
+  if (!document.getElementById("wbFbsStickersCategoryModal")) return;
+  setModalVisibility("wbFbsStickersCategoryModal", true);
   wbFbsStickersCategoryState.groups = [];
   wbFbsStickersCategoryState.selected.clear();
   wbFbsStickersCategoryState.loading = true;
-  _wbFbsStickersCategorySetInfo("Загрузка списка товаров…");
+  _wbFbsStickersCategorySetInfo("");
   _wbFbsStickersCategoryRender();
   try {
     const res = await fetch(
@@ -19192,11 +19191,11 @@ async function openWbFbsStickersByCategoryModal() {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || `Ошибка ${res.status}`);
     wbFbsStickersCategoryState.groups = Array.isArray(data.groups) ? data.groups : [];
-    _wbFbsStickersCategorySetInfo(
-      wbFbsStickersCategoryState.groups.length
-        ? `Позиций: ${wbFbsStickersCategoryState.groups.length}`
-        : "В поставке нет товаров для печати"
-    );
+    if (!wbFbsStickersCategoryState.groups.length) {
+      _wbFbsStickersCategorySetInfo("В поставке нет товаров для печати", "error");
+    } else {
+      _wbFbsStickersCategorySetInfo("");
+    }
   } catch (e) {
     _wbFbsStickersCategorySetInfo(String(e.message || e), "error");
   } finally {
@@ -19207,8 +19206,7 @@ async function openWbFbsStickersByCategoryModal() {
 window.openWbFbsStickersByCategoryModal = openWbFbsStickersByCategoryModal;
 
 function closeWbFbsStickersByCategoryModal() {
-  const modal = document.getElementById("wbFbsStickersCategoryModal");
-  if (modal) modal.classList.add("hidden");
+  setModalVisibility("wbFbsStickersCategoryModal", false);
   wbFbsStickersCategoryState.groups = [];
   wbFbsStickersCategoryState.selected.clear();
   wbFbsStickersCategoryState.loading = false;
