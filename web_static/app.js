@@ -20740,7 +20740,6 @@ async function saveWbFbsKizModal() {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || `Ошибка ${res.status}`);
     _wbFbsKizStopSaveProgress();
-    _wbFbsKizSetInfo("Обрабатываем ответ WB…");
     wbFbsKizState.errors = {};
     const cancelledIds = [];
     const otherFailNotes = [];
