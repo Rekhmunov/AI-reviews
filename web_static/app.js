@@ -19197,69 +19197,16 @@ function wbFbsStickersCategoryFillDownAt(index) {
 }
 window.wbFbsStickersCategoryFillDownAt = wbFbsStickersCategoryFillDownAt;
 
-/** Build category groups from already-loaded supply detail (no extra API wait). */
-function _wbFbsBuildStickerGroupsFromDetail() {
-  const orders = Array.isArray(wbFbsDetailState.supply?.orders)
-    ? wbFbsDetailState.supply.orders
-    : [];
-  const byKey = new Map();
-  for (const o of orders) {
-    const oid = Number(o?.order_id);
-    if (!Number.isFinite(oid) || oid <= 0) continue;
-    const article = String(o?.article || "").trim();
-    const nm = o?.nm_id;
-    const key = article || (nm != null && String(nm).trim() ? `nm-${nm}` : "");
-    if (!key) continue;
-    let g = byKey.get(key);
-    if (!g) {
-      g = {
-        group_key: key,
-        article,
-        product_name: String(o?.product_name || "").trim() || "—",
-        qty: 0,
-        order_ids: [],
-      };
-      byKey.set(key, g);
-    }
-    g.order_ids.push(oid);
-    g.qty = g.order_ids.length;
-    if (g.product_name === "—" && String(o?.product_name || "").trim()) {
-      g.product_name = String(o.product_name).trim();
-    }
-  }
-  const groups = Array.from(byKey.values());
-  groups.sort((a, b) => {
-    const na = String(a.product_name || "").toLocaleLowerCase("ru");
-    const nb = String(b.product_name || "").toLocaleLowerCase("ru");
-    if (na !== nb) return na < nb ? -1 : 1;
-    const aa = String(a.article || "").toLocaleLowerCase("ru");
-    const ba = String(b.article || "").toLocaleLowerCase("ru");
-    if (aa !== ba) return aa < ba ? -1 : 1;
-    return String(a.group_key).localeCompare(String(b.group_key), "ru");
-  });
-  return groups;
-}
-
 async function openWbFbsStickersByCategoryModal() {
   const sid = String(wbFbsDetailState.supplyId || "").trim();
   if (!sid || !wbFbsState.sourceId || !_wbFbsSupplyDetailActionsReady()) return;
   _wbFbsCloseStickersMenu();
   if (!document.getElementById("wbFbsStickersCategoryModal")) return;
   setModalVisibility("wbFbsStickersCategoryModal", true);
-  wbFbsStickersCategoryState.selected.clear();
-  _wbFbsStickersCategorySetInfo("");
-
-  // Fast path: orders are already in the supply detail modal — open instantly.
-  const localGroups = _wbFbsBuildStickerGroupsFromDetail();
-  if (localGroups.length) {
-    wbFbsStickersCategoryState.groups = localGroups;
-    wbFbsStickersCategoryState.loading = false;
-    _wbFbsStickersCategoryRender();
-    return;
-  }
-
   wbFbsStickersCategoryState.groups = [];
+  wbFbsStickersCategoryState.selected.clear();
   wbFbsStickersCategoryState.loading = true;
+  _wbFbsStickersCategorySetInfo("");
   _wbFbsStickersCategoryRender();
   try {
     const res = await fetch(
