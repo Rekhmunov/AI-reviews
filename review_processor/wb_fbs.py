@@ -2096,7 +2096,9 @@ def sync_wb_fbs_source(
     api_key: str,
     stop_requested: Callable[[], bool] | None = None,
     progress: Callable[[str, int], None] | None = None,
-    lookback_days: int = 14,
+    # Supplies ship daily — a short window is enough for assembly/delivery
+    # reconciliation via GET /api/v3/orders (WB max period is 30 days).
+    lookback_days: int = 3,
     # Archive / finished / cancelled tabs are hidden in UI; do not spend sync
     # quota on archive pages (0 = skip). Status refresh below is limited to
     # operational tabs only (new / assembly / delivery).
