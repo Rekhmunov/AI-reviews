@@ -1610,38 +1610,59 @@ class YandexMarketClient:
 
     # ── Reviews ──────────────────────────────────────────────────────────────
 
+    # Official getGoodsFeedbacks filter: reactionStatus = ALL | NEED_REACTION.
+    # Docs: https://yandex.ru/dev/market/partner-api/doc/ru/reference/goods-feedback/getGoodsFeedbacks
+    YM_REACTION_ALL = "ALL"
+    YM_REACTION_NEED = "NEED_REACTION"
+    # Default API window without dateTimeFrom is ~6 months; keep the same safety cap.
+    YM_FEEDBACK_WINDOW_DAYS = 165
+
     def fetch_reviews(
         self,
         *,
         since_date: str | None = None,
         stop_requested: Callable[[], bool] | None = None,
+        reaction_status: str | None = None,
     ) -> list[ReviewInput]:
         if not self.api_key or not self.business_id:
             raise MarketplaceSyncError("yandex", "Не заданы Api-Key / business_id")
-        return list(self.fetch_reviews_iter(since_date=since_date, stop_requested=stop_requested))
+        return list(
+            self.fetch_reviews_iter(
+                since_date=since_date,
+                stop_requested=stop_requested,
+                reaction_status=reaction_status,
+            )
+        )
 
     def fetch_reviews_iter(
         self,
         *,
         since_date: str | None = None,
         stop_requested: Callable[[], bool] | None = None,
+        reaction_status: str | None = None,
     ):
         """Page-by-page generator so progress bar updates incrementally.
+
         YM API: limit + page_token are QUERY params; filter fields go in the body.
+        ``reaction_status`` maps to body ``reactionStatus`` (ALL | NEED_REACTION).
         """
         if not self.api_key or not self.business_id:
             raise MarketplaceSyncError("yandex", "Не заданы Api-Key / business_id")
         page_token: str | None = None
         page = 0
         path = f"/v2/businesses/{self.business_id}/goods-feedback"
-        # Filter body — only dateTimeFrom when date filtering is needed.
+        # Filter body — dateTimeFrom / reactionStatus per Partner API docs.
         # YM API enforces a maximum interval of 6 months between dateTimeFrom
         # and the current date. Cap the date to at most 165 days (5.5 months)
         # ago to stay safely within the limit.
+        self._last_reviews_fetch_truncated = False
         filter_body: dict[str, object] = {}
+        normalized_reaction = str(reaction_status or "").strip().upper()
+        if normalized_reaction in {self.YM_REACTION_ALL, self.YM_REACTION_NEED}:
+            filter_body["reactionStatus"] = normalized_reaction
         if since_date:
             from datetime import datetime as _dt, timezone as _tz, timedelta as _td
-            _max_days = 165  # 5.5 months — safely under the 6-month API limit
+            _max_days = self.YM_FEEDBACK_WINDOW_DAYS
             _earliest_allowed = (_dt.now(_tz.utc) - _td(days=_max_days)).strftime("%Y-%m-%d")
             _effective_since = max(since_date[:10], _earliest_allowed)
             filter_body["dateTimeFrom"] = f"{_effective_since}T00:00:00+03:00"
@@ -1650,6 +1671,7 @@ class YandexMarketClient:
                     "YandexMarketClient: dateTimeFrom capped from %s to %s (6-month API limit)",
                     since_date[:10], _effective_since,
                 )
+        truncated = False
         while page < self.max_pages:
             _raise_if_stop_requested(stop_requested, source="yandex")
             if page > 0:
@@ -1666,8 +1688,12 @@ class YandexMarketClient:
             result = resp.get("result") or {}
             feedbacks = result.get("feedbacks") or []
             _log.info(
-                "YandexMarketClient.fetch_reviews_iter: page=%d status=%s feedbacks=%d errors=%s",
-                page, status_val, len(feedbacks), resp.get("errors"),
+                "YandexMarketClient.fetch_reviews_iter: page=%d status=%s feedbacks=%d reactionStatus=%s errors=%s",
+                page,
+                status_val,
+                len(feedbacks),
+                filter_body.get("reactionStatus") or "default",
+                resp.get("errors"),
             )
             if status_val != "OK":
                 raise MarketplaceSyncError("yandex", f"ЯМ API вернул ошибку: {resp.get('errors') or resp}")
@@ -1681,21 +1707,30 @@ class YandexMarketClient:
             next_token = (result.get("paging") or {}).get("nextPageToken")
             if not next_token:
                 break
+            if page >= self.max_pages:
+                truncated = True
+                break
             page_token = next_token
+        # Expose truncation to callers via attribute (auto-reconcile must not run if truncated).
+        self._last_reviews_fetch_truncated = truncated
 
     def count_pending(self, *, since_date: str | None = None) -> dict[str, int]:
-        """Estimate pending YM reviews/questions by fetching one page."""
+        """Estimate pending YM reviews/questions by fetching one page of pending items."""
         counts: dict[str, int] = {"reviews": 0, "questions": 0, "chats": 0}
         try:
             path = f"/v2/businesses/{self.business_id}/goods-feedback"
-            body = self._post(path, body={}, params={"limit": 1})
+            body = self._post(
+                path,
+                body={"reactionStatus": self.YM_REACTION_NEED},
+                params={"limit": 1},
+            )
             result = body.get("result") or {}
             counts["reviews"] = 1 if result.get("feedbacks") else 0
         except Exception:
             pass
         try:
             path = f"/v1/businesses/{self.business_id}/goods-questions"
-            body = self._post(path, body={}, params={"limit": 1})
+            body = self._post(path, body={"needAnswer": True}, params={"limit": 1})
             result = body.get("result") or {}
             counts["questions"] = 1 if result.get("questions") else 0
         except Exception:
@@ -1801,23 +1836,86 @@ class YandexMarketClient:
         self,
         *,
         stop_requested: Callable[[], bool] | None = None,
+        since_date: str | None = None,
+        pending_only: bool = False,
     ) -> list[dict[str, object]]:
+        """Fetch YM goods-questions.
+
+        Docs: https://yandex.ru/dev/market/partner-api/doc/ru/reference/goods-questions/getGoodsQuestions
+        - ``needAnswer=true`` — only questions waiting for an answer
+        - ``needAnswer=false`` (default) — all questions
+
+        Auto-sync uses ``pending_only=True`` (single needAnswer pass).
+        Manual sync keeps the full catalog + needAnswer id set for portal-answered detection.
+        """
         if not self.api_key or not self.business_id:
             raise MarketplaceSyncError("yandex", "Не заданы Api-Key / business_id")
+
+        self._last_questions_fetch_truncated = False
+        filter_body: dict[str, object] = {}
+        if since_date:
+            # API accepts dateFrom as YYYY-MM-DD.
+            filter_body["dateFrom"] = str(since_date)[:10]
+
+        if pending_only:
+            # Lightweight auto-sync path: one filtered pass, no full-catalog second walk.
+            filter_body["needAnswer"] = True
+            items: list[dict[str, object]] = []
+            page_token: str | None = None
+            page = 0
+            truncated = False
+            path = f"/v1/businesses/{self.business_id}/goods-questions"
+            while page < self.max_pages:
+                _raise_if_stop_requested(stop_requested, source="yandex")
+                if page > 0:
+                    time.sleep(0.2)
+                qparams: dict[str, object] = {"limit": self.page_size}
+                if page_token:
+                    qparams["page_token"] = page_token
+                try:
+                    body = self._post(path, body=filter_body, params=qparams)
+                except Exception as exc:
+                    raise MarketplaceSyncError("yandex", f"Ошибка API вопросов ЯМ: {exc}") from exc
+                if str(body.get("status") or "").upper() != "OK":
+                    raise MarketplaceSyncError(
+                        "yandex", f"ЯМ API вопросов вернул ошибку: {body.get('errors') or body}"
+                    )
+                result = body.get("result") or {}
+                questions = result.get("questions") or []
+                if not questions:
+                    break
+                for q in questions:
+                    # All rows from needAnswer=true are open / waiting for answer.
+                    conv = self._to_question(q, need_answer_ids=None, force_open=True)
+                    if conv:
+                        items.append(conv)
+                page += 1
+                next_token = (result.get("paging") or {}).get("nextPageToken")
+                if not next_token:
+                    break
+                if page >= self.max_pages:
+                    truncated = True
+                    break
+                page_token = str(next_token)
+            self._last_questions_fetch_truncated = truncated
+            return items
+
         need_answer_ids = self._fetch_need_answer_question_ids(stop_requested=stop_requested)
-        items: list[dict[str, object]] = []
-        page_token: str | None = None
+        items = []
+        page_token = None
         page = 0
+        truncated = False
         while page < self.max_pages:
             _raise_if_stop_requested(stop_requested, source="yandex")
             if page > 0:
                 time.sleep(0.2)
             path = f"/v1/businesses/{self.business_id}/goods-questions"
-            qparams: dict[str, object] = {"limit": self.page_size}
+            qparams = {"limit": self.page_size}
             if page_token:
                 qparams["page_token"] = page_token
             try:
-                body = self._post(path, body={}, params=qparams)
+                # Full catalog for manual sync (needAnswer defaults to false).
+                body = self._post(path, body=filter_body, params=qparams)
             except Exception as exc:
                 raise MarketplaceSyncError("yandex", f"Ошибка API вопросов ЯМ: {exc}") from exc
             if str(body.get("status") or "").upper() != "OK":
@@ -1834,7 +1932,11 @@ class YandexMarketClient:
             next_token = (result.get("paging") or {}).get("nextPageToken")
             if not next_token:
                 break
+            if page >= self.max_pages:
+                truncated = True
+                break
             page_token = next_token
+        self._last_questions_fetch_truncated = truncated
         return items
 
     def _to_question(
@@ -1842,6 +1944,7 @@ class YandexMarketClient:
         item: dict[str, object],
         *,
         need_answer_ids: set[str] | None = None,
+        force_open: bool = False,
     ) -> dict[str, object] | None:
         ids = item.get("questionIdentifiers") or {}
         # YM API returns "id" inside questionIdentifiers (not "questionId")
@@ -1859,7 +1962,9 @@ class YandexMarketClient:
         ) or None
         answers_count = int(item.get("answersCount") or 0)
         # Prefer needAnswer filter: list items usually omit answersCount.
-        if need_answer_ids is not None:
+        if force_open:
+            status = "open"
+        elif need_answer_ids is not None:
             status = "open" if external_id in need_answer_ids else "answered_manual"
         else:
             status = "answered_manual" if answers_count > 0 else "open"
@@ -2138,6 +2243,111 @@ class ReviewAutomationService:
         self.repository = repository
         self.processor = processor or ReviewProcessor()
 
+
+    def _ym_created_within_feedback_window(self, created_raw: object | None) -> bool:
+        """Return True when marketplace/local created time is inside YM ~6-month window."""
+        raw = str(created_raw or "").strip()
+        if not raw:
+            # Unknown age — allow reconcile; false positives are rarer than missing portal answers.
+            return True
+        try:
+            from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+            normalized = raw.replace("Z", "+00:00") if raw.endswith("Z") else raw
+            # Accept date-only and full ISO.
+            if "T" in normalized:
+                created = _dt.fromisoformat(normalized)
+            else:
+                created = _dt.fromisoformat(normalized[:10]).replace(tzinfo=_tz.utc)
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=_tz.utc)
+            age = _dt.now(_tz.utc) - created.astimezone(_tz.utc)
+            return age <= _td(days=int(getattr(YandexMarketClient, "YM_FEEDBACK_WINDOW_DAYS", 165)))
+        except Exception:
+            return True
+
+    def _reconcile_yandex_portal_answered_reviews(
+        self,
+        *,
+        user_id: int,
+        account_id: int,
+        client: MarketplaceClient,
+        seen_pending_ids: set[str],
+        existing_states: dict[str, dict[str, object]],
+        stop_requested: Callable[[], bool] | None = None,
+    ) -> int:
+        """Mark local open YM reviews as answered when they disappeared from NEED_REACTION."""
+        open_statuses = {"queued_for_operator", "pending", "open", "new", "awaiting", ""}
+        reconciled = 0
+        seen_uids: set[str] = set()
+        for ext_id, state in list(existing_states.items()):
+            _raise_if_stop_requested(stop_requested, source="yandex")
+            external_id = str(state.get("external_review_id") or ext_id or "").strip()
+            review_uid = str(state.get("review_uid") or "").strip()
+            if not external_id or not review_uid or review_uid in seen_uids:
+                continue
+            seen_uids.add(review_uid)
+            status = str(state.get("status") or "").strip()
+            if status in {"answered_manual", "answered_auto", "ignored"}:
+                continue
+            if status and status not in open_statuses and status.startswith("answered"):
+                continue
+            if external_id in seen_pending_ids:
+                continue
+            created_raw = state.get("marketplace_created") or state.get("created_at")
+            if not self._ym_created_within_feedback_window(created_raw):
+                continue
+            reply_text = str(state.get("auto_reply") or "").strip()
+            if not reply_text:
+                try:
+                    reply_text = getattr(client, "fetch_review_reply_text", lambda _: "")(external_id) or ""
+                except Exception:
+                    reply_text = ""
+            if self.repository.update_review_processing_result(
+                user_id=user_id,
+                review_uid=review_uid,
+                status="answered_manual",
+                auto_reply=reply_text or None,
+            ):
+                reconciled += 1
+        return reconciled
+
+    def _reconcile_yandex_portal_answered_questions(
+        self,
+        *,
+        user_id: int,
+        account_id: int,
+        client: MarketplaceClient,
+        seen_pending_ids: set[str],
+        existing_states: dict[str, dict[str, object]],
+        stop_requested: Callable[[], bool] | None = None,
+    ) -> int:
+        """Mark local open YM questions as answered when they left needAnswer=true set.
+
+        Auto-sync only flips status (no answers N+1). Answer bodies are filled on
+        manual sync or when the processed question is opened later.
+        """
+        reconciled = 0
+        for external_id, state in existing_states.items():
+            _raise_if_stop_requested(stop_requested, source="yandex")
+            ext = str(state.get("external_conversation_id") or external_id or "").strip()
+            conversation_uid = str(state.get("conversation_uid") or "").strip()
+            if not ext or not conversation_uid:
+                continue
+            status = str(state.get("status") or "").strip()
+            if status in {"answered_manual", "answered_auto", "ignored", "closed"}:
+                continue
+            if ext in seen_pending_ids:
+                continue
+            created_raw = state.get("last_message_at") or state.get("created_at")
+            if not self._ym_created_within_feedback_window(created_raw):
+                continue
+            if self.repository.mark_conversation_answered(
+                user_id=user_id,
+                conversation_uid=conversation_uid,
+            ):
+                reconciled += 1
+        return reconciled
+
     def sync_reviews(
         self,
         *,
@@ -2147,21 +2357,41 @@ class ReviewAutomationService:
         client: MarketplaceClient,
         since_date: str | None = None,
         stop_requested: Callable[[], bool] | None = None,
+        apply_date_filter: bool = False,
     ) -> int:
         # Use streaming (page-by-page) fetcher if available to avoid holding
         # 200k+ reviews in memory at once.  Falls back to bulk fetch_reviews.
+        # Auto-sync (apply_date_filter=False) for Yandex uses reactionStatus=NEED_REACTION
+        # per Partner API docs — avoids re-paging the full 6-month corpus every minute.
         _fetch_iter = getattr(client, "fetch_reviews_iter", None)
+        ym_incremental = (source == "yandex" and not apply_date_filter)
+        fetch_kwargs: dict[str, object] = {
+            "since_date": since_date,
+            "stop_requested": stop_requested,
+        }
+        if ym_incremental:
+            fetch_kwargs["reaction_status"] = getattr(client, "YM_REACTION_NEED", "NEED_REACTION")
         try:
             if callable(_fetch_iter):
                 try:
-                    reviews_iterable = _fetch_iter(since_date=since_date, stop_requested=stop_requested)
+                    reviews_iterable = _fetch_iter(**fetch_kwargs)
                 except TypeError:
-                    reviews_iterable = _fetch_iter()
+                    try:
+                        reviews_iterable = _fetch_iter(
+                            since_date=since_date, stop_requested=stop_requested
+                        )
+                    except TypeError:
+                        reviews_iterable = _fetch_iter()
             else:
                 try:
-                    reviews_iterable = client.fetch_reviews(since_date=since_date, stop_requested=stop_requested)
+                    reviews_iterable = client.fetch_reviews(**fetch_kwargs)
                 except TypeError:
-                    reviews_iterable = client.fetch_reviews()
+                    try:
+                        reviews_iterable = client.fetch_reviews(
+                            since_date=since_date, stop_requested=stop_requested
+                        )
+                    except TypeError:
+                        reviews_iterable = client.fetch_reviews()
         except MarketplaceSyncError as exc:
             if not self._is_access_error(exc):
                 self.repository.log_review_action(
@@ -2296,9 +2526,24 @@ class ReviewAutomationService:
             except Exception as _exc:
                 _log.warning("sync_reviews: could not load existing classifications: %s", _exc)
 
+        # Per-account status/reply map — skip N+1 comments API + no-op upserts for YM.
+        existing_review_states: dict[str, dict[str, object]] = {}
+        if user_id and source == "yandex" and account_id is not None:
+            try:
+                existing_review_states = self.repository.get_review_sync_states_for_account(
+                    user_id=user_id,
+                    source=source,
+                    account_id=int(account_id),
+                )
+            except Exception as _exc:
+                _log.warning("sync_reviews: could not load YM review sync states: %s", _exc)
+                existing_review_states = {}
+
         loaded_count = 0
         skipped_old = 0
         skipped_already_classified = 0
+        skipped_noop_answered = 0
+        seen_pending_review_ids: set[str] = set()
         for review in reviews:
             _raise_if_stop_requested(stop_requested, source=source)
             if not review.review_id:
@@ -2313,6 +2558,8 @@ class ReviewAutomationService:
                     continue
 
             loaded_count += 1
+            if ym_incremental:
+                seen_pending_review_ids.add(str(review.review_id))
 
             # Check if this review was already answered on the marketplace portal.
             # WB: replyText or reply.text. Ozon: comment.text or answer.
@@ -2328,16 +2575,29 @@ class ReviewAutomationService:
             )
             # YM: needReaction is stored in raw; False = already handled/answered
             _ym_no_reaction = (source == "yandex" and _raw.get("needReaction") is False)
-            # For YM already-answered reviews: fetch the seller's reply text
+            review_uid = self.repository.make_review_uid(
+                user_id or 0, source, account_id, str(review.review_id)
+            )
+            _existing_state = existing_review_states.get(str(review.review_id)) or existing_review_states.get(review_uid) or {}
+            _existing_status = str(_existing_state.get("status") or "").strip()
+            _existing_reply = str(_existing_state.get("auto_reply") or "").strip()
+
+            # Already answered in DB: do not re-fetch comments or rewrite the row every poll.
+            if source == "yandex" and _existing_status in {"answered_manual", "answered_auto", "ignored"}:
+                if _ym_no_reaction or _reply_text or _existing_reply:
+                    skipped_noop_answered += 1
+                    continue
+
+            # For YM already-answered reviews: fetch seller reply only when we do not have it yet.
             if _ym_no_reaction and not _reply_text:
-                try:
-                    _reply_text = getattr(client, "fetch_review_reply_text", lambda _: "")(review.review_id) or ""
-                except Exception:
-                    pass
+                if _existing_reply:
+                    _reply_text = _existing_reply
+                else:
+                    try:
+                        _reply_text = getattr(client, "fetch_review_reply_text", lambda _: "")(review.review_id) or ""
+                    except Exception:
+                        pass
             if _reply_text or _ym_no_reaction:
-                review_uid = self.repository.make_review_uid(
-                    user_id or 0, source, account_id, str(review.review_id)
-                )
                 review_metadata = dict(review.metadata) if isinstance(review.metadata, dict) else {}
                 # Use cached classification if available and valid; otherwise classify now
                 _cached_for_answered = existing_classifications.get(review_uid)
@@ -2584,6 +2844,37 @@ class ReviewAutomationService:
                 "sync_reviews: skipped Yandex for %d already-classified reviews (no tokens wasted)",
                 skipped_already_classified,
             )
+        if skipped_noop_answered:
+            _log.info(
+                "sync_reviews: skipped %d already-answered YM reviews (no comments API / upsert)",
+                skipped_noop_answered,
+            )
+
+        # Auto-sync only fetched NEED_REACTION. Local open reviews missing from that
+        # set were answered/skipped on the portal — mark them without a full catalog walk.
+        if (
+            ym_incremental
+            and user_id
+            and account_id is not None
+            and not bool(getattr(client, "_last_reviews_fetch_truncated", False))
+        ):
+            try:
+                reconciled = self._reconcile_yandex_portal_answered_reviews(
+                    user_id=user_id,
+                    account_id=int(account_id),
+                    client=client,
+                    seen_pending_ids=seen_pending_review_ids,
+                    existing_states=existing_review_states,
+                    stop_requested=stop_requested,
+                )
+                if reconciled:
+                    _log.info(
+                        "sync_reviews: reconciled %d YM reviews answered on portal",
+                        reconciled,
+                    )
+                    loaded_count += reconciled
+            except Exception as _exc:
+                _log.warning("sync_reviews: YM portal reconcile failed: %s", _exc)
         return loaded_count
 
     def sync_conversations(
@@ -2595,6 +2886,7 @@ class ReviewAutomationService:
         client: MarketplaceClient,
         since_date: str | None = None,
         stop_requested: Callable[[], bool] | None = None,
+        apply_date_filter: bool = False,
     ) -> int:
         return self.sync_questions(
             user_id=user_id,
@@ -2603,6 +2895,7 @@ class ReviewAutomationService:
             client=client,
             since_date=since_date,
             stop_requested=stop_requested,
+            apply_date_filter=apply_date_filter,
         ) + self.sync_chats(
             user_id=user_id,
             source=source,
@@ -2610,6 +2903,8 @@ class ReviewAutomationService:
             client=client,
             since_date=since_date,
             stop_requested=stop_requested,
+            apply_date_filter=apply_date_filter,
+            full_sync=apply_date_filter,
         )
 
     def sync_questions(
@@ -2621,16 +2916,29 @@ class ReviewAutomationService:
         client: MarketplaceClient,
         since_date: str | None = None,
         stop_requested: Callable[[], bool] | None = None,
+        apply_date_filter: bool = False,
     ) -> int:
         fetch_questions = getattr(client, "fetch_questions", None)
         if not callable(fetch_questions):
             return 0
 
+        ym_incremental = (source == "yandex" and not apply_date_filter)
+        fetch_kwargs: dict[str, object] = {
+            "since_date": since_date,
+            "stop_requested": stop_requested,
+        }
+        if ym_incremental:
+            # Official filter: needAnswer=true — only questions waiting for an answer.
+            fetch_kwargs["pending_only"] = True
+
         try:
             try:
-                rows = fetch_questions(since_date=since_date, stop_requested=stop_requested)
+                rows = fetch_questions(**fetch_kwargs)
             except TypeError:
-                rows = fetch_questions()
+                try:
+                    rows = fetch_questions(since_date=since_date, stop_requested=stop_requested)
+                except TypeError:
+                    rows = fetch_questions()
         except MarketplaceSyncError as exc:
             if not self._is_access_error(exc):
                 self.repository.log_review_action(
@@ -2647,7 +2955,21 @@ class ReviewAutomationService:
                 )
             raise
 
+        existing_question_states: dict[str, dict[str, object]] = {}
+        if user_id and source == "yandex" and account_id is not None:
+            try:
+                existing_question_states = self.repository.get_question_sync_states_for_account(
+                    user_id=user_id,
+                    source=source,
+                    account_id=int(account_id),
+                )
+            except Exception as _exc:
+                _log.warning("sync_questions: could not load YM question sync states: %s", _exc)
+                existing_question_states = {}
+
         loaded = 0
+        skipped_noop = 0
+        seen_pending_question_ids: set[str] = set()
         for row in rows:
             _raise_if_stop_requested(stop_requested, source=source)
             external_id = str(row.get("external_id") or "").strip()
@@ -2655,20 +2977,58 @@ class ReviewAutomationService:
                 continue
             # "text" is the canonical key from YM _to_question; "message_text" for others
             _msg_text = str(row.get("text") or row.get("message_text") or "")
+            row_status = str(row.get("status") or "open")
+            if ym_incremental and row_status == "open":
+                seen_pending_question_ids.add(external_id)
 
-            # For YM answered questions: fetch existing seller answer and store in metadata
+            _existing = existing_question_states.get(external_id) or {}
+            _existing_status = str(_existing.get("status") or "").strip()
+            _existing_meta = _existing.get("metadata") if isinstance(_existing.get("metadata"), dict) else {}
+
+            # Already answered in DB and still answered on marketplace: skip N+1 answers API + upsert.
+            if (
+                source == "yandex"
+                and row_status == "answered_manual"
+                and _existing_status in {"answered_manual", "answered_auto", "ignored"}
+                and (
+                    isinstance(_existing_meta, dict)
+                    and (_existing_meta.get("_ym_answers") or (_existing_meta.get("raw") or {}).get("_ym_answers"))
+                )
+            ):
+                skipped_noop += 1
+                continue
+
+            # For YM answered questions: fetch existing seller answer only when missing locally.
             _row_meta = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
-            if source == "yandex" and str(row.get("status") or "") == "answered_manual":
-                try:
-                    _answers = getattr(client, "fetch_question_answers", lambda _: [])(external_id)
-                    if _answers:
-                        _row_meta = dict(_row_meta)
+            if source == "yandex" and row_status == "answered_manual":
+                has_answers = bool(
+                    isinstance(_row_meta, dict)
+                    and (_row_meta.get("_ym_answers") or ((_row_meta.get("raw") or {}) if isinstance(_row_meta.get("raw"), dict) else {}).get("_ym_answers"))
+                )
+                if not has_answers and isinstance(_existing_meta, dict):
+                    prior = _existing_meta.get("_ym_answers") or (
+                        (_existing_meta.get("raw") or {}).get("_ym_answers")
+                        if isinstance(_existing_meta.get("raw"), dict)
+                        else None
+                    )
+                    if prior:
+                        _row_meta = dict(_row_meta or {})
                         raw = dict(_row_meta.get("raw") or {})
-                        raw["_ym_answers"] = _answers
+                        raw["_ym_answers"] = prior
                         _row_meta["raw"] = raw
-                        _row_meta["_ym_answers"] = _answers
-                except Exception:
-                    pass
+                        _row_meta["_ym_answers"] = prior
+                        has_answers = True
+                if not has_answers:
+                    try:
+                        _answers = getattr(client, "fetch_question_answers", lambda _: [])(external_id)
+                        if _answers:
+                            _row_meta = dict(_row_meta or {})
+                            raw = dict(_row_meta.get("raw") or {})
+                            raw["_ym_answers"] = _answers
+                            _row_meta["raw"] = raw
+                            _row_meta["_ym_answers"] = _answers
+                    except Exception:
+                        pass
 
             conversation_uid = self.repository.upsert_conversation(
                 user_id=user_id,
@@ -2678,13 +3038,43 @@ class ReviewAutomationService:
                 kind="question",
                 customer_name=str(row.get("customer_name") or "") or None,
                 message_text=_msg_text,
-                status=str(row.get("status") or "open"),
+                status=row_status,
                 unread_count=_to_positive_int(row.get("unread_count"), default=0),
                 metadata=_row_meta,
                 last_message_at=str(row.get("last_message_at") or "") or None,
                 seller_replied_at=str(row.get("seller_replied_at") or "") or None,
             )
             loaded += 1
+
+        if skipped_noop:
+            _log.info(
+                "sync_questions: skipped %d already-answered YM questions (no answers API / upsert)",
+                skipped_noop,
+            )
+
+        if (
+            ym_incremental
+            and user_id
+            and account_id is not None
+            and not bool(getattr(client, "_last_questions_fetch_truncated", False))
+        ):
+            try:
+                reconciled = self._reconcile_yandex_portal_answered_questions(
+                    user_id=user_id,
+                    account_id=int(account_id),
+                    client=client,
+                    seen_pending_ids=seen_pending_question_ids,
+                    existing_states=existing_question_states,
+                    stop_requested=stop_requested,
+                )
+                if reconciled:
+                    _log.info(
+                        "sync_questions: reconciled %d YM questions answered on portal",
+                        reconciled,
+                    )
+                    loaded += reconciled
+            except Exception as _exc:
+                _log.warning("sync_questions: YM portal reconcile failed: %s", _exc)
         return loaded
 
     def sync_chats(
@@ -3285,6 +3675,7 @@ class ReviewAutomationService:
                 client=client,
                 since_date=since_date,
                 stop_requested=stop_requested,
+                apply_date_filter=apply_date_filter,
             )
         elif channel == "questions":
             loaded = self.sync_questions(
@@ -3294,6 +3685,7 @@ class ReviewAutomationService:
                 client=client,
                 since_date=since_date,
                 stop_requested=stop_requested,
+                apply_date_filter=apply_date_filter,
             )
         elif channel == "chats":
             loaded = self.sync_chats(
