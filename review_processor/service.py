@@ -1616,6 +1616,9 @@ class YandexMarketClient:
     YM_REACTION_NEED = "NEED_REACTION"
     # Default API window without dateTimeFrom is ~6 months; keep the same safety cap.
     YM_FEEDBACK_WINDOW_DAYS = 165
+    # getGoodsQuestions: max interval is 1 month when dateFrom/dateTo are used;
+    # without dateFrom the API also returns ~1 month. Keep a safe 28-day cap.
+    YM_QUESTIONS_WINDOW_DAYS = 28
 
     def fetch_reviews(
         self,
@@ -1660,17 +1663,21 @@ class YandexMarketClient:
         normalized_reaction = str(reaction_status or "").strip().upper()
         if normalized_reaction in {self.YM_REACTION_ALL, self.YM_REACTION_NEED}:
             filter_body["reactionStatus"] = normalized_reaction
+        from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+        _max_days = int(self.YM_FEEDBACK_WINDOW_DAYS)
+        _earliest_allowed = (_dt.now(_tz.utc) - _td(days=_max_days)).strftime("%Y-%m-%d")
         if since_date:
-            from datetime import datetime as _dt, timezone as _tz, timedelta as _td
-            _max_days = self.YM_FEEDBACK_WINDOW_DAYS
-            _earliest_allowed = (_dt.now(_tz.utc) - _td(days=_max_days)).strftime("%Y-%m-%d")
             _effective_since = max(since_date[:10], _earliest_allowed)
             filter_body["dateTimeFrom"] = f"{_effective_since}T00:00:00+03:00"
+            self._last_reviews_fetch_from = _effective_since
             if _effective_since != since_date[:10]:
                 _log.info(
                     "YandexMarketClient: dateTimeFrom capped from %s to %s (6-month API limit)",
                     since_date[:10], _effective_since,
                 )
+        else:
+            # API default without dateTimeFrom is ~6 months before dateTimeTo.
+            self._last_reviews_fetch_from = _earliest_allowed
         truncated = False
         while page < self.max_pages:
             _raise_if_stop_requested(stop_requested, source="yandex")
@@ -1853,9 +1860,28 @@ class YandexMarketClient:
 
         self._last_questions_fetch_truncated = False
         filter_body: dict[str, object] = {}
+        # Track the effective lower bound used for this fetch (ISO date) so reconcile
+        # cannot mark older local open questions as portal-answered.
+        self._last_questions_fetch_from = None
         if since_date:
-            # API accepts dateFrom as YYYY-MM-DD.
-            filter_body["dateFrom"] = str(since_date)[:10]
+            from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+            _max_days = int(self.YM_QUESTIONS_WINDOW_DAYS)
+            _earliest_allowed = (_dt.now(_tz.utc) - _td(days=_max_days)).strftime("%Y-%m-%d")
+            _effective_since = max(str(since_date)[:10], _earliest_allowed)
+            filter_body["dateFrom"] = _effective_since
+            self._last_questions_fetch_from = _effective_since
+            if _effective_since != str(since_date)[:10]:
+                _log.info(
+                    "YandexMarketClient: questions dateFrom capped from %s to %s (1-month API limit)",
+                    str(since_date)[:10],
+                    _effective_since,
+                )
+        else:
+            # API default window is ~1 month before dateTo.
+            from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+            self._last_questions_fetch_from = (
+                _dt.now(_tz.utc) - _td(days=int(self.YM_QUESTIONS_WINDOW_DAYS))
+            ).strftime("%Y-%m-%d")
 
         if pending_only:
             # Lightweight auto-sync path: one filtered pass, no full-catalog second walk.
@@ -2244,26 +2270,30 @@ class ReviewAutomationService:
         self.processor = processor or ReviewProcessor()
 
 
-    def _ym_created_within_feedback_window(self, created_raw: object | None) -> bool:
-        """Return True when marketplace/local created time is inside YM ~6-month window."""
+    def _ym_created_on_or_after(self, created_raw: object | None, *, from_date: str | None) -> bool:
+        """True when created timestamp is on/after from_date (YYYY-MM-DD).
+
+        Unknown/unparseable created times are excluded — safer than false-positive
+        portal-answered reconcile.
+        """
+        lower = str(from_date or "").strip()[:10]
+        if not lower:
+            return False
         raw = str(created_raw or "").strip()
         if not raw:
-            # Unknown age — allow reconcile; false positives are rarer than missing portal answers.
-            return True
+            return False
         try:
-            from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+            from datetime import datetime as _dt, timezone as _tz
             normalized = raw.replace("Z", "+00:00") if raw.endswith("Z") else raw
-            # Accept date-only and full ISO.
             if "T" in normalized:
                 created = _dt.fromisoformat(normalized)
             else:
                 created = _dt.fromisoformat(normalized[:10]).replace(tzinfo=_tz.utc)
             if created.tzinfo is None:
                 created = created.replace(tzinfo=_tz.utc)
-            age = _dt.now(_tz.utc) - created.astimezone(_tz.utc)
-            return age <= _td(days=int(getattr(YandexMarketClient, "YM_FEEDBACK_WINDOW_DAYS", 165)))
+            return created.astimezone(_tz.utc).date().isoformat() >= lower
         except Exception:
-            return True
+            return False
 
     def _reconcile_yandex_portal_answered_reviews(
         self,
@@ -2273,9 +2303,21 @@ class ReviewAutomationService:
         client: MarketplaceClient,
         seen_pending_ids: set[str],
         existing_states: dict[str, dict[str, object]],
+        fetch_from: str | None = None,
         stop_requested: Callable[[], bool] | None = None,
     ) -> int:
-        """Mark local open YM reviews as answered when they disappeared from NEED_REACTION."""
+        """Mark local open YM reviews as answered when they disappeared from NEED_REACTION.
+
+        Only considers reviews inside the same date window as the pending fetch.
+        """
+        del account_id
+        effective_from = str(
+            fetch_from
+            or getattr(client, "_last_reviews_fetch_from", None)
+            or ""
+        ).strip()[:10]
+        if not effective_from:
+            return 0
         open_statuses = {"queued_for_operator", "pending", "open", "new", "awaiting", ""}
         reconciled = 0
         seen_uids: set[str] = set()
@@ -2294,7 +2336,7 @@ class ReviewAutomationService:
             if external_id in seen_pending_ids:
                 continue
             created_raw = state.get("marketplace_created") or state.get("created_at")
-            if not self._ym_created_within_feedback_window(created_raw):
+            if not self._ym_created_on_or_after(created_raw, from_date=effective_from):
                 continue
             reply_text = str(state.get("auto_reply") or "").strip()
             if not reply_text:
@@ -2319,13 +2361,22 @@ class ReviewAutomationService:
         client: MarketplaceClient,
         seen_pending_ids: set[str],
         existing_states: dict[str, dict[str, object]],
+        fetch_from: str | None = None,
         stop_requested: Callable[[], bool] | None = None,
     ) -> int:
         """Mark local open YM questions as answered when they left needAnswer=true set.
 
-        Auto-sync only flips status (no answers N+1). Answer bodies are filled on
-        manual sync or when the processed question is opened later.
+        Uses the questions API window (~1 month), not the reviews 6-month window.
+        Auto-sync only flips status (no answers N+1).
         """
+        del account_id
+        effective_from = str(
+            fetch_from
+            or getattr(client, "_last_questions_fetch_from", None)
+            or ""
+        ).strip()[:10]
+        if not effective_from:
+            return 0
         reconciled = 0
         for external_id, state in existing_states.items():
             _raise_if_stop_requested(stop_requested, source="yandex")
@@ -2339,7 +2390,7 @@ class ReviewAutomationService:
             if ext in seen_pending_ids:
                 continue
             created_raw = state.get("last_message_at") or state.get("created_at")
-            if not self._ym_created_within_feedback_window(created_raw):
+            if not self._ym_created_on_or_after(created_raw, from_date=effective_from):
                 continue
             if self.repository.mark_conversation_answered(
                 user_id=user_id,
@@ -2583,10 +2634,15 @@ class ReviewAutomationService:
             _existing_reply = str(_existing_state.get("auto_reply") or "").strip()
 
             # Already answered in DB: do not re-fetch comments or rewrite the row every poll.
-            if source == "yandex" and _existing_status in {"answered_manual", "answered_auto", "ignored"}:
+            # Exception: answered_auto + still needReaction=true must fall through so upsert
+            # can reset the bot artefact (repository CASE on needReaction=true).
+            if source == "yandex" and _existing_status in {"answered_manual", "ignored"}:
                 if _ym_no_reaction or _reply_text or _existing_reply:
                     skipped_noop_answered += 1
                     continue
+            if source == "yandex" and _existing_status == "answered_auto" and (_ym_no_reaction or _reply_text):
+                skipped_noop_answered += 1
+                continue
 
             # For YM already-answered reviews: fetch seller reply only when we do not have it yet.
             if _ym_no_reaction and not _reply_text:
@@ -2865,6 +2921,7 @@ class ReviewAutomationService:
                     client=client,
                     seen_pending_ids=seen_pending_review_ids,
                     existing_states=existing_review_states,
+                    fetch_from=str(getattr(client, "_last_reviews_fetch_from", None) or "") or None,
                     stop_requested=stop_requested,
                 )
                 if reconciled:
@@ -3065,6 +3122,7 @@ class ReviewAutomationService:
                     client=client,
                     seen_pending_ids=seen_pending_question_ids,
                     existing_states=existing_question_states,
+                    fetch_from=str(getattr(client, "_last_questions_fetch_from", None) or "") or None,
                     stop_requested=stop_requested,
                 )
                 if reconciled:
