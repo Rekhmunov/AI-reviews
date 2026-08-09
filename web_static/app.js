@@ -11006,7 +11006,6 @@ function renderManagerPermissionsRows(accounts, permissions = []) {
       <td>${esc(account.account_name || `Кабинет #${accountId}`)}</td>
       <td><input type="checkbox" data-account-id="${accountId}" data-scope="reviews" ${rowPerm.can_reviews ? "checked" : ""} /></td>
       <td><input type="checkbox" data-account-id="${accountId}" data-scope="questions" ${rowPerm.can_questions ? "checked" : ""} /></td>
-      <td><input type="checkbox" data-account-id="${accountId}" data-scope="chats" ${rowPerm.can_chats ? "checked" : ""} /></td>
     `;
     tbody.appendChild(tr);
   }
@@ -11023,6 +11022,7 @@ function collectManagerPermissionsFromModal() {
         account_id: accountId,
         can_reviews: false,
         can_questions: false,
+        // Chats sync is disabled globally — never grant chat permissions from UI.
         can_chats: false,
       });
     }
@@ -11030,9 +11030,8 @@ function collectManagerPermissionsFromModal() {
     if (!row) return;
     if (scope === "reviews") row.can_reviews = Boolean(node.checked);
     if (scope === "questions") row.can_questions = Boolean(node.checked);
-    if (scope === "chats") row.can_chats = Boolean(node.checked);
   });
-  return Array.from(map.values()).filter((item) => item.can_reviews || item.can_questions || item.can_chats);
+  return Array.from(map.values()).filter((item) => item.can_reviews || item.can_questions);
 }
 
 function formatManagerPermissionsText(permissions, canSupplies, supplyPermissions, canSalary, canSalarySettings, salaryProductions) {
@@ -11073,7 +11072,6 @@ function formatManagerPermissionsText(permissions, canSupplies, supplyPermission
       const scopes = [];
       if (perm.can_reviews) scopes.push("отзывы");
       if (perm.can_questions) scopes.push("вопросы");
-      if (perm.can_chats) scopes.push("чаты");
       return `${accountName}: ${scopes.join(", ") || "нет"}`;
     })
     .join("; ") + (suppliesText ? "; " + suppliesText : "") + (salaryText ? "; " + salaryText : "");
@@ -11285,7 +11283,9 @@ async function saveEditTeamMember() {
       }
     }
     // Update feedback permissions
-    const permsPayload = (teamState.pendingPermissions || []).filter(p => p.can_reviews || p.can_questions || p.can_chats);
+    const permsPayload = (teamState.pendingPermissions || [])
+      .map((p) => ({ ...p, can_chats: false }))
+      .filter((p) => p.can_reviews || p.can_questions);
     const pr2 = await fetch(`/api/tenant/team/${uid}/permissions`, {
       method: "PUT", headers: jsonHeaders(), body: JSON.stringify({ permissions: permsPayload })
     });
