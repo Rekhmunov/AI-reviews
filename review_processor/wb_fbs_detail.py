@@ -2306,18 +2306,23 @@ def list_sticker_print_groups(
 
     Fast path: local orders + Settings → Products names only.
     Does not call Content API (that was making the modal wait ~0.2s per nmID).
+    Does not refresh live WB order-ids (modal only needs article groups).
     Actual sticker print still uses Content titles for ЛК-like order.
     """
+    t0 = time.perf_counter()
     detail = get_supply_detail_for_print(
         repo,
         user_id=user_id,
         source_id=source_id,
         api_key=api_key,
         supply_id=supply_id,
-        refresh_order_ids=True,
+        # Modal grouping does not need live WB sequence — local/cache is enough.
+        refresh_order_ids=False,
     )
+    t_detail = time.perf_counter()
     orders = list(detail.get("orders") or [])
     _refresh_product_names(repo, user_id=user_id, orders=orders)
+    t_names = time.perf_counter()
     orders_full: list[dict[str, Any]] = [
         {
             **o,
@@ -2360,6 +2365,18 @@ def list_sticker_print_groups(
                 "order_ids": order_ids,
             }
         )
+    t_end = time.perf_counter()
+    _log.info(
+        "list_sticker_print_groups %s: %.0fms (detail=%.0f names=%.0f group=%.0f) "
+        "orders=%d groups=%d",
+        supply_id,
+        (t_end - t0) * 1000,
+        (t_detail - t0) * 1000,
+        (t_names - t_detail) * 1000,
+        (t_end - t_names) * 1000,
+        len(orders),
+        len(out_groups),
+    )
     return {
         "supply_id": str(detail.get("supply_id") or supply_id),
         "order_count": int(detail.get("order_count") or len(orders)),
