@@ -7624,11 +7624,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     continue
         except Exception as _outer_exc:
             _log.error("restore_auto_sync_on_startup: fatal error: %s", _outer_exc)
-        # Start stock scheduler
-        try:
-            stock_scheduler.start()
-        except Exception as _exc:
-            _log.warning("restore_auto_sync_on_startup: stock_scheduler start failed: %s", _exc)
+        # StockScheduler intentionally not started: «Остатки» nav has been hidden
+        # since 2026-05-10 (c0e13f2). Keep stock API/manual sync endpoints intact.
+        _log.info(
+            "restore_auto_sync_on_startup: stock_scheduler left stopped "
+            "(Остатки UI hidden; use POST /api/stock/sync for manual runs)"
+        )
         try:
             wb_fbs_scheduler.start()
         except Exception as _exc:
