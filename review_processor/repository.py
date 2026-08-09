@@ -4589,6 +4589,105 @@ class ReviewRepository:
             ).fetchall()
         return [self._row_to_dict(row) for row in rows]
 
+    def get_review_sync_states_for_account(
+        self,
+        *,
+        user_id: int,
+        source: str,
+        account_id: int,
+    ) -> dict[str, dict[str, Any]]:
+        """Map external_review_id / review_uid -> sync state for one marketplace account.
+
+        Used by Yandex auto-sync to skip comments API / no-op upserts and to reconcile
+        portal-answered reviews without re-paging the full feedback catalog.
+        """
+        sql = self._sql(
+            """
+            SELECT review_uid,
+                   external_review_id,
+                   status,
+                   auto_reply,
+                   created_at,
+                   metadata_json::jsonb->'raw'->>'createdDate' AS marketplace_created
+            FROM review_items
+            WHERE user_id = ?
+              AND source = ?
+              AND account_id = ?
+            """
+        )
+        with self._connect() as conn:
+            rows = conn.execute(sql, (user_id, source, account_id)).fetchall()
+        result: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            d = self._row_to_dict(row)
+            payload = {
+                "review_uid": str(d.get("review_uid") or "").strip(),
+                "external_review_id": str(d.get("external_review_id") or "").strip(),
+                "status": str(d.get("status") or "").strip(),
+                "auto_reply": str(d.get("auto_reply") or "").strip(),
+                "created_at": d.get("created_at"),
+                "marketplace_created": str(d.get("marketplace_created") or "").strip() or None,
+            }
+            ext = payload["external_review_id"]
+            uid = payload["review_uid"]
+            if ext:
+                result[ext] = payload
+            if uid:
+                result[uid] = payload
+        return result
+
+    def get_question_sync_states_for_account(
+        self,
+        *,
+        user_id: int,
+        source: str,
+        account_id: int,
+    ) -> dict[str, dict[str, Any]]:
+        """Map external_conversation_id -> question sync state for one account."""
+        sql = self._sql(
+            """
+            SELECT conversation_uid,
+                   external_conversation_id,
+                   status,
+                   metadata_json,
+                   last_message_at,
+                   created_at
+            FROM conversation_items
+            WHERE user_id = ?
+              AND source = ?
+              AND account_id = ?
+              AND kind = 'question'
+            """
+        )
+        with self._connect() as conn:
+            rows = conn.execute(sql, (user_id, source, account_id)).fetchall()
+        result: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            d = self._row_to_dict(row)
+            meta_raw = d.get("metadata_json")
+            metadata: dict[str, Any] = {}
+            if isinstance(meta_raw, dict):
+                metadata = meta_raw
+            elif isinstance(meta_raw, str) and meta_raw.strip():
+                try:
+                    parsed = json.loads(meta_raw)
+                    if isinstance(parsed, dict):
+                        metadata = parsed
+                except Exception:
+                    metadata = {}
+            ext = str(d.get("external_conversation_id") or "").strip()
+            if not ext:
+                continue
+            result[ext] = {
+                "conversation_uid": str(d.get("conversation_uid") or "").strip(),
+                "external_conversation_id": ext,
+                "status": str(d.get("status") or "").strip(),
+                "metadata": metadata,
+                "last_message_at": d.get("last_message_at"),
+                "created_at": d.get("created_at"),
+            }
+        return result
+
     def update_review_processing_result(
         self,
         *,

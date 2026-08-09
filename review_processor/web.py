@@ -3968,6 +3968,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 account_id=account_id_val,
                 client=client,
                 since_date=since_date or None,
+                apply_date_filter=True,  # single-account manual sync: full YM catalog
             )
         except MarketplaceSyncError as exc:
             if not service._is_access_error(exc):
@@ -3980,6 +3981,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 account_id=account_id_val,
                 client=client,
                 since_date=since_date or None,
+                apply_date_filter=True,
             )
         except MarketplaceSyncError as exc:
             if not service._is_access_error(exc):
