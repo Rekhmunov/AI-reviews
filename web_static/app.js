@@ -22275,23 +22275,50 @@ function _wbFbsAutoSyncMarkGear(syncEnabled, collectEnabled) {
 }
 
 function _wbFbsAutoSyncFormatLast(iso) {
+  // Always Moscow time, unified as DD.MM.YYYY HH:MM (no comma).
   const raw = String(iso || "").trim();
   if (!raw) return "—";
-  const d = new Date(raw);
+  const normalized = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw) ? raw : `${raw}Z`;
+  const d = new Date(normalized);
   if (Number.isNaN(d.getTime())) return "—";
+  try {
+    const parts = new Intl.DateTimeFormat("ru-RU", {
+      timeZone: "Europe/Moscow",
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(d);
+    const get = (type) => parts.find((p) => p.type === type)?.value || "";
+    const day = get("day");
+    const month = get("month");
+    const year = get("year");
+    const hour = get("hour");
+    const minute = get("minute");
+    if (day && month && year && hour && minute) {
+      return `${day}.${month}.${year} ${hour}:${minute}`;
+    }
+  } catch (_) { /* fall through */ }
   return d.toLocaleString("ru-RU", {
+    timeZone: "Europe/Moscow",
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
-  });
+    hour12: false,
+  }).replace(/\u202f/g, " ").replace(", ", " ").replace(",", " ");
 }
 
-function _wbFbsAutoSyncSetLast(iso) {
+function _wbFbsAutoSyncSetLast(iso, autoIso) {
   const el = document.getElementById("wbFbsAutoSyncLast");
-  if (!el) return;
-  el.textContent = `Последняя синхронизация: ${_wbFbsAutoSyncFormatLast(iso)}`;
+  if (el) el.textContent = `Последняя синхронизация: ${_wbFbsAutoSyncFormatLast(iso)}`;
+  const autoEl = document.getElementById("wbFbsAutoSyncLastAuto");
+  if (autoEl) {
+    autoEl.textContent = `Последняя автосинхронизация: ${_wbFbsAutoSyncFormatLast(autoIso)}`;
+  }
 }
 
 function _wbFbsAutoCollectOutcomeLabel(outcome) {
@@ -22392,12 +22419,16 @@ function _wbFbsAutoCollectRenderDetail(detail) {
   wrap.hidden = false;
 }
 
-function _wbFbsAutoCollectSetLast(iso, status, detail) {
+function _wbFbsAutoCollectSetLast(lastAnyIso, autoIso, status, detail) {
+  const anyEl = document.getElementById("wbFbsAutoCollectLastAny");
+  if (anyEl) {
+    anyEl.textContent = `Последний сбор МГТ: ${_wbFbsAutoSyncFormatLast(lastAnyIso)}`;
+  }
   const el = document.getElementById("wbFbsAutoCollectLast");
   if (el) {
     const when = detail && detail.ran_at_msk
-      ? String(detail.ran_at_msk)
-      : _wbFbsAutoSyncFormatLast(iso);
+      ? String(detail.ran_at_msk).replace(", ", " ").replace(",", " ")
+      : _wbFbsAutoSyncFormatLast(autoIso);
     el.textContent = `Последний автосбор МГТ: ${when || "—"}`;
   }
   // Prefer structured detail; fall back to plain status string.
@@ -22447,8 +22478,8 @@ async function openWbFbsAutoSyncSettings() {
   if (!modal) return;
   modal.classList.remove("hidden");
   _wbFbsAutoSyncSetInfo("");
-  _wbFbsAutoSyncSetLast(null);
-  _wbFbsAutoCollectSetLast(null, "");
+  _wbFbsAutoSyncSetLast(null, null);
+  _wbFbsAutoCollectSetLast(null, null, "");
   const saveBtn = document.getElementById("wbFbsAutoSyncSaveBtn");
   const enabledEl = document.getElementById("wbFbsAutoSyncEnabled");
   const intervalEl = document.getElementById("wbFbsAutoSyncInterval");
@@ -22486,8 +22517,9 @@ async function openWbFbsAutoSyncSettings() {
     _wbFbsSetSelectValue(collectIntervalEl, collectMinutes, 60);
     if (collectFromEl) collectFromEl.value = String(data.collect_mgt_active_from || "12:00");
     if (collectToEl) collectToEl.value = String(data.collect_mgt_active_to || "06:00");
-    _wbFbsAutoSyncSetLast(data.last_synced_at);
+    _wbFbsAutoSyncSetLast(data.last_synced_at, data.last_auto_synced_at);
     _wbFbsAutoCollectSetLast(
+      data.last_collect_mgt_at || data.collect_mgt_last_run_at,
       data.collect_mgt_last_run_at,
       data.collect_mgt_last_status,
       data.collect_mgt_last_detail
@@ -22585,8 +22617,9 @@ async function saveWbFbsAutoSyncSettings() {
     }
     const settings = data.settings || {};
     _wbFbsAutoSyncMarkGear(!!settings.enabled, !!settings.collect_mgt_enabled);
-    _wbFbsAutoSyncSetLast(settings.last_synced_at);
+    _wbFbsAutoSyncSetLast(settings.last_synced_at, settings.last_auto_synced_at);
     _wbFbsAutoCollectSetLast(
+      settings.last_collect_mgt_at || settings.collect_mgt_last_run_at,
       settings.collect_mgt_last_run_at,
       settings.collect_mgt_last_status,
       settings.collect_mgt_last_detail

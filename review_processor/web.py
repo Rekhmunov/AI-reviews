@@ -9684,13 +9684,19 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         decisions: list[dict[str, object]] = [
             d for d in decisions_raw if isinstance(d, dict)
         ]
-        return wb_fbs_mod.execute_collect_mgt(
+        result = wb_fbs_mod.execute_collect_mgt(
             repository,
             user_id=owner_id,
             source_id=sid,
             api_key=api_key,
             decisions=decisions,
         )
+        # Manual collect is also a "last MGT collect" event (auto path updates separately).
+        try:
+            repository.mark_wb_fbs_collect_mgt_at(user_id=owner_id)
+        except Exception:
+            pass
+        return result
 
     def _wb_fbs_parse_order_ids(payload: dict[str, object]) -> list[int]:
         raw = payload.get("order_ids") or []

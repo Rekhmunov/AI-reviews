@@ -7304,8 +7304,14 @@ tr.dnd-over td {
   cursor: not-allowed;
   background: #f1f5f9;
 }
-.wb-fbs-auto-sync-last {
+.wb-fbs-auto-sync-last-block {
   margin: 12px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.wb-fbs-auto-sync-last {
+  margin: 0;
   font-size: 14px;
   line-height: 1.4;
   color: #475569;
@@ -7359,8 +7365,8 @@ tr.dnd-over td {
   cursor: not-allowed;
   background: #f1f5f9;
 }
-.wb-fbs-auto-sync-section .wb-fbs-auto-sync-last,
-.wb-fbs-auto-collect-section .wb-fbs-auto-sync-last {
+.wb-fbs-auto-sync-section .wb-fbs-auto-sync-last-block,
+.wb-fbs-auto-collect-section .wb-fbs-auto-sync-last-block {
   margin: 12px 0 0;
 }
 .wb-fbs-auto-collect-status {

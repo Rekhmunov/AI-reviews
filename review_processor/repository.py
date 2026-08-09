@@ -309,6 +309,12 @@ class ReviewRepository:
         conn.execute(
             """
             ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS wb_fbs_last_auto_synced_at TIMESTAMPTZ
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE users
             ADD COLUMN IF NOT EXISTS wb_fbs_auto_collect_mgt_enabled BOOLEAN NOT NULL DEFAULT FALSE
             """
         )
@@ -346,6 +352,21 @@ class ReviewRepository:
             """
             ALTER TABLE users
             ADD COLUMN IF NOT EXISTS wb_fbs_auto_collect_mgt_last_detail TEXT NOT NULL DEFAULT ''
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS wb_fbs_last_collect_mgt_at TIMESTAMPTZ
+            """
+        )
+        # Seed "any collect" from known auto-collect runs (manual history unavailable).
+        conn.execute(
+            """
+            UPDATE users
+            SET wb_fbs_last_collect_mgt_at = wb_fbs_auto_collect_mgt_last_run_at
+            WHERE wb_fbs_last_collect_mgt_at IS NULL
+              AND wb_fbs_auto_collect_mgt_last_run_at IS NOT NULL
             """
         )
         conn.execute(
@@ -2473,6 +2494,19 @@ class ReviewRepository:
             raise ValueError(f"Некорректное время {field} (ЧЧ:ММ)")
         return normalized
 
+    @staticmethod
+    def _iso_or_none(value: Any) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            raw = value.strip()
+            return raw or None
+        try:
+            return str(value.isoformat())
+        except Exception:
+            raw = str(value).strip()
+            return raw or None
+
     def get_wb_fbs_auto_sync_settings(self, *, user_id: int) -> dict[str, Any]:
         with self._connect() as conn:
             row = conn.execute(
@@ -2481,10 +2515,12 @@ class ReviewRepository:
                        wb_fbs_auto_sync_active_from,
                        wb_fbs_auto_sync_active_to,
                        wb_fbs_last_synced_at,
+                       wb_fbs_last_auto_synced_at,
                        wb_fbs_auto_collect_mgt_enabled,
                        wb_fbs_auto_collect_mgt_interval_hours,
                        wb_fbs_auto_collect_mgt_active_from,
                        wb_fbs_auto_collect_mgt_active_to,
+                       wb_fbs_last_collect_mgt_at,
                        wb_fbs_auto_collect_mgt_last_run_at,
                        wb_fbs_auto_collect_mgt_last_status,
                        wb_fbs_auto_collect_mgt_last_detail
@@ -2501,18 +2537,10 @@ class ReviewRepository:
         collect_interval_minutes = self._normalize_wb_fbs_sync_interval_minutes(
             row["wb_fbs_auto_collect_mgt_interval_hours"]
         )
-        last_synced = row["wb_fbs_last_synced_at"]
-        if last_synced is not None and not isinstance(last_synced, str):
-            try:
-                last_synced = last_synced.isoformat()
-            except Exception:
-                last_synced = str(last_synced)
-        last_collect = row["wb_fbs_auto_collect_mgt_last_run_at"]
-        if last_collect is not None and not isinstance(last_collect, str):
-            try:
-                last_collect = last_collect.isoformat()
-            except Exception:
-                last_collect = str(last_collect)
+        last_synced = self._iso_or_none(row["wb_fbs_last_synced_at"])
+        last_auto_synced = self._iso_or_none(row["wb_fbs_last_auto_synced_at"])
+        last_collect_any = self._iso_or_none(row["wb_fbs_last_collect_mgt_at"])
+        last_collect_auto = self._iso_or_none(row["wb_fbs_auto_collect_mgt_last_run_at"])
         detail_raw = str(row["wb_fbs_auto_collect_mgt_last_detail"] or "").strip()
         detail: dict[str, Any] | None = None
         if detail_raw:
@@ -2541,7 +2569,8 @@ class ReviewRepository:
             "allowed_intervals": [
                 m // 60 for m in self._WB_FBS_AUTO_SYNC_INTERVAL_MINUTES if m % 60 == 0
             ],
-            "last_synced_at": str(last_synced) if last_synced else None,
+            "last_synced_at": last_synced,
+            "last_auto_synced_at": last_auto_synced,
             "active_from": self._normalize_hhmm(
                 row["wb_fbs_auto_sync_active_from"], default="12:00"
             ),
@@ -2560,7 +2589,8 @@ class ReviewRepository:
             "collect_mgt_active_to": self._normalize_hhmm(
                 row["wb_fbs_auto_collect_mgt_active_to"], default="06:00"
             ),
-            "collect_mgt_last_run_at": str(last_collect) if last_collect else None,
+            "last_collect_mgt_at": last_collect_any or last_collect_auto,
+            "collect_mgt_last_run_at": last_collect_auto,
             "collect_mgt_last_status": str(
                 row["wb_fbs_auto_collect_mgt_last_status"] or ""
             ).strip(),
@@ -2655,13 +2685,40 @@ class ReviewRepository:
             )
         return result.rowcount > 0
 
-    def mark_wb_fbs_synced(self, *, user_id: int) -> None:
-        """Record last successful WB FBS orders sync (tenant-level, not FBW supplies)."""
+    def mark_wb_fbs_synced(self, *, user_id: int, is_auto: bool = False) -> None:
+        """Record last successful WB FBS orders sync (tenant-level, not FBW supplies).
+
+        Always updates last sync. When ``is_auto`` also updates last auto-sync.
+        """
+        now = _utc_now()
+        with self._connect() as conn:
+            if is_auto:
+                conn.execute(
+                    """
+                    UPDATE users
+                    SET wb_fbs_last_synced_at = ?,
+                        wb_fbs_last_auto_synced_at = ?
+                    WHERE id = ? AND is_deleted = FALSE
+                    """,
+                    (now, now, user_id),
+                )
+            else:
+                conn.execute(
+                    """
+                    UPDATE users
+                    SET wb_fbs_last_synced_at = ?
+                    WHERE id = ? AND is_deleted = FALSE
+                    """,
+                    (now, user_id),
+                )
+
+    def mark_wb_fbs_collect_mgt_at(self, *, user_id: int) -> None:
+        """Record last MGT collect event (manual or automatic)."""
         with self._connect() as conn:
             conn.execute(
                 """
                 UPDATE users
-                SET wb_fbs_last_synced_at = ?
+                SET wb_fbs_last_collect_mgt_at = ?
                 WHERE id = ? AND is_deleted = FALSE
                 """,
                 (_utc_now(), user_id),
@@ -2683,16 +2740,18 @@ class ReviewRepository:
                 detail_json = ""
             if len(detail_json) > 20000:
                 detail_json = detail_json[:19997] + "…"
+        now = _utc_now()
         with self._connect() as conn:
             conn.execute(
                 """
                 UPDATE users
                 SET wb_fbs_auto_collect_mgt_last_run_at = ?,
                     wb_fbs_auto_collect_mgt_last_status = ?,
-                    wb_fbs_auto_collect_mgt_last_detail = ?
+                    wb_fbs_auto_collect_mgt_last_detail = ?,
+                    wb_fbs_last_collect_mgt_at = ?
                 WHERE id = ? AND is_deleted = FALSE
                 """,
-                (_utc_now(), str(status or "")[:500], detail_json, user_id),
+                (now, str(status or "")[:500], detail_json, now, user_id),
             )
 
     def save_payment_record(

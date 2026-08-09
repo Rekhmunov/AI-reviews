@@ -2419,6 +2419,7 @@ def start_sync_thread(
     repo: ReviewRepository,
     user_id: int,
     sources: list[dict[str, Any]],
+    is_auto: bool = False,
 ) -> tuple[bool, str]:
     """Sync all provided FBS sources sequentially (same set as the UI picker)."""
     jobs: list[dict[str, Any]] = []
@@ -2533,7 +2534,7 @@ def start_sync_thread(
                 # Tenant-level FBS timestamp — do NOT reuse supply_sources.last_synced_at
                 # (that column is shared with FBW/Ozon supplies sync).
                 try:
-                    repo.mark_wb_fbs_synced(user_id=user_id)
+                    repo.mark_wb_fbs_synced(user_id=user_id, is_auto=bool(is_auto))
                 except Exception:
                     _log.warning("wb_fbs: failed to update wb_fbs_last_synced_at for user %s", user_id)
 
@@ -3116,6 +3117,7 @@ class WbFbsScheduler:
                             repo=self.repository,
                             user_id=user_id,
                             sources=jobs,
+                            is_auto=True,
                         )
                         if ok:
                             _log.info(

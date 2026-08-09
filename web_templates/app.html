@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=179" />
+  <link rel="stylesheet" href="/static/style.css?v=180" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1621,7 +1621,10 @@
                   <input type="time" id="wbFbsAutoSyncTo" value="06:00" step="60" />
                 </div>
               </div>
-              <div id="wbFbsAutoSyncLast" class="wb-fbs-auto-sync-last">Последняя синхронизация: —</div>
+              <div class="wb-fbs-auto-sync-last-block">
+                <div id="wbFbsAutoSyncLast" class="wb-fbs-auto-sync-last">Последняя синхронизация: —</div>
+                <div id="wbFbsAutoSyncLastAuto" class="wb-fbs-auto-sync-last">Последняя автосинхронизация: —</div>
+              </div>
             </div>
 
             <div class="wb-fbs-auto-collect-section">
@@ -1660,7 +1663,10 @@
                   <input type="time" id="wbFbsAutoCollectTo" value="06:00" step="60" />
                 </div>
               </div>
-              <div id="wbFbsAutoCollectLast" class="wb-fbs-auto-sync-last">Последний автосбор МГТ: —</div>
+              <div class="wb-fbs-auto-sync-last-block">
+                <div id="wbFbsAutoCollectLastAny" class="wb-fbs-auto-sync-last">Последний сбор МГТ: —</div>
+                <div id="wbFbsAutoCollectLast" class="wb-fbs-auto-sync-last">Последний автосбор МГТ: —</div>
+              </div>
               <div id="wbFbsAutoCollectSummary" class="wb-fbs-auto-collect-status" hidden></div>
               <details id="wbFbsAutoCollectDetailWrap" class="wb-fbs-auto-collect-detail-wrap" hidden>
                 <summary>Детали последнего запуска</summary>
@@ -4096,6 +4102,6 @@
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
   <script src="/static/qrcode.min.js"></script>
-  <script src="/static/app.js?v=372"></script>
+  <script src="/static/app.js?v=373"></script>
 </body>
 </html>
