@@ -2438,6 +2438,7 @@ def start_sync_thread(
     user_id: int,
     sources: list[dict[str, Any]],
     is_auto: bool = False,
+    lookback_days: int | None = None,
 ) -> tuple[bool, str]:
     """Sync all provided FBS sources sequentially (same set as the UI picker)."""
     jobs: list[dict[str, Any]] = []
@@ -2458,6 +2459,20 @@ def start_sync_thread(
         )
     if not jobs:
         return False, "Нет источников с «ФБС» в названии для синхронизации"
+
+    # Prefer caller override; else tenant setting; else code default (3).
+    effective_lookback = 3
+    if lookback_days is not None:
+        try:
+            effective_lookback = max(1, min(30, int(lookback_days)))
+        except (TypeError, ValueError):
+            effective_lookback = 3
+    else:
+        try:
+            settings = repo.get_wb_fbs_auto_sync_settings(user_id=user_id)
+            effective_lookback = max(1, min(30, int(settings.get("lookback_days") or 3)))
+        except Exception:
+            effective_lookback = 3
 
     with _wb_fbs_sync_lock:
         if _wb_fbs_sync_state.get("in_progress"):
@@ -2515,6 +2530,7 @@ def start_sync_thread(
                         api_key=str(job["api_key"]),
                         stop_requested=stop_requested,
                         progress=progress,
+                        lookback_days=effective_lookback,
                     )
                 except Exception as exc:
                     _log.exception("wb_fbs sync failed for source %s", sid)

@@ -805,6 +805,8 @@ class WbFbsAutoSyncSettingsRequest(BaseModel):
     # Preferred: minutes (10, 30, 60, …). Legacy clients may still send hours.
     interval_minutes: int | None = Field(default=None, ge=10, le=1440)
     interval_hours: int | None = Field(default=None, ge=1, le=24)
+    # WB /api/v3/orders period window (days). Hard max 30.
+    lookback_days: int = Field(default=3, ge=1, le=30)
     active_from: str = "12:00"
     active_to: str = "06:00"
     collect_mgt_enabled: bool = False
@@ -9574,6 +9576,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 user_id=owner_id,
                 enabled=bool(payload.enabled),
                 interval_minutes=interval_minutes,
+                lookback_days=int(payload.lookback_days),
                 active_from=str(payload.active_from or "12:00"),
                 active_to=str(payload.active_to or "06:00"),
                 collect_mgt_enabled=bool(payload.collect_mgt_enabled),

@@ -7304,6 +7304,32 @@ tr.dnd-over td {
   cursor: not-allowed;
   background: #f1f5f9;
 }
+.wb-fbs-auto-sync-field input[type="number"] {
+  min-height: 40px;
+  width: 120px;
+  max-width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 16px;
+  color: #0f172a;
+}
+.wb-fbs-auto-sync-field input[type="number"]:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+.wb-fbs-auto-sync-field input[type="number"]:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background: #f1f5f9;
+}
+.wb-fbs-auto-sync-field-hint {
+  font-size: 13px;
+  line-height: 1.4;
+  color: #64748b;
+}
 .wb-fbs-auto-sync-last-block {
   margin: 12px 0 0;
   display: flex;
