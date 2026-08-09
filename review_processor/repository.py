@@ -303,6 +303,12 @@ class ReviewRepository:
         conn.execute(
             """
             ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS wb_fbs_sync_lookback_days INTEGER NOT NULL DEFAULT 3
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE users
             ADD COLUMN IF NOT EXISTS wb_fbs_last_synced_at TIMESTAMPTZ
             """
         )
@@ -2507,6 +2513,17 @@ class ReviewRepository:
             raw = str(value).strip()
             return raw or None
 
+    _WB_FBS_SYNC_LOOKBACK_MIN = 1
+    _WB_FBS_SYNC_LOOKBACK_MAX = 30
+    _WB_FBS_SYNC_LOOKBACK_DEFAULT = 3
+
+    def _normalize_wb_fbs_sync_lookback_days(self, value: object | None) -> int:
+        try:
+            days = int(value) if value is not None else self._WB_FBS_SYNC_LOOKBACK_DEFAULT
+        except (TypeError, ValueError):
+            days = self._WB_FBS_SYNC_LOOKBACK_DEFAULT
+        return max(self._WB_FBS_SYNC_LOOKBACK_MIN, min(self._WB_FBS_SYNC_LOOKBACK_MAX, days))
+
     def get_wb_fbs_auto_sync_settings(self, *, user_id: int) -> dict[str, Any]:
         with self._connect() as conn:
             row = conn.execute(
@@ -2514,6 +2531,7 @@ class ReviewRepository:
                 SELECT wb_fbs_auto_sync_enabled, wb_fbs_auto_sync_interval_hours,
                        wb_fbs_auto_sync_active_from,
                        wb_fbs_auto_sync_active_to,
+                       wb_fbs_sync_lookback_days,
                        wb_fbs_last_synced_at,
                        wb_fbs_last_auto_synced_at,
                        wb_fbs_auto_collect_mgt_enabled,
@@ -2536,6 +2554,9 @@ class ReviewRepository:
         )
         collect_interval_minutes = self._normalize_wb_fbs_sync_interval_minutes(
             row["wb_fbs_auto_collect_mgt_interval_hours"]
+        )
+        lookback_days = self._normalize_wb_fbs_sync_lookback_days(
+            row["wb_fbs_sync_lookback_days"]
         )
         last_synced = self._iso_or_none(row["wb_fbs_last_synced_at"])
         last_auto_synced = self._iso_or_none(row["wb_fbs_last_auto_synced_at"])
@@ -2571,6 +2592,9 @@ class ReviewRepository:
             ],
             "last_synced_at": last_synced,
             "last_auto_synced_at": last_auto_synced,
+            "lookback_days": lookback_days,
+            "lookback_days_min": self._WB_FBS_SYNC_LOOKBACK_MIN,
+            "lookback_days_max": self._WB_FBS_SYNC_LOOKBACK_MAX,
             "active_from": self._normalize_hhmm(
                 row["wb_fbs_auto_sync_active_from"], default="12:00"
             ),
@@ -2604,6 +2628,7 @@ class ReviewRepository:
         enabled: bool,
         interval_minutes: int | None = None,
         interval_hours: int | None = None,
+        lookback_days: int | None = None,
         active_from: str = "12:00",
         active_to: str = "06:00",
         collect_mgt_enabled: bool = False,
@@ -2645,6 +2670,23 @@ class ReviewRepository:
                 + ", ".join(str(v) for v in self._WB_FBS_AUTO_COLLECT_INTERVAL_MINUTES)
                 + " минут"
             )
+        try:
+            lookback_raw = (
+                int(lookback_days)
+                if lookback_days is not None
+                else self._WB_FBS_SYNC_LOOKBACK_DEFAULT
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Недопустимое число дней загрузки заказов") from exc
+        if (
+            lookback_raw < self._WB_FBS_SYNC_LOOKBACK_MIN
+            or lookback_raw > self._WB_FBS_SYNC_LOOKBACK_MAX
+        ):
+            raise ValueError(
+                "Глубина загрузки заказов должна быть от "
+                f"{self._WB_FBS_SYNC_LOOKBACK_MIN} до {self._WB_FBS_SYNC_LOOKBACK_MAX} дней"
+            )
+        lookback = lookback_raw
         sync_active_from = self._parse_hhmm_strict(
             active_from, field="начала окна автосинхронизации", default="12:00"
         )
@@ -2665,6 +2707,7 @@ class ReviewRepository:
                     wb_fbs_auto_sync_interval_hours = ?,
                     wb_fbs_auto_sync_active_from = ?,
                     wb_fbs_auto_sync_active_to = ?,
+                    wb_fbs_sync_lookback_days = ?,
                     wb_fbs_auto_collect_mgt_enabled = ?,
                     wb_fbs_auto_collect_mgt_interval_hours = ?,
                     wb_fbs_auto_collect_mgt_active_from = ?,
@@ -2676,6 +2719,7 @@ class ReviewRepository:
                     interval,
                     sync_active_from,
                     sync_active_to,
+                    lookback,
                     self._bool_db(bool(collect_mgt_enabled)),
                     collect_interval,
                     collect_active_from,

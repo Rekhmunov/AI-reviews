@@ -22507,6 +22507,7 @@ async function openWbFbsAutoSyncSettings() {
   const saveBtn = document.getElementById("wbFbsAutoSyncSaveBtn");
   const enabledEl = document.getElementById("wbFbsAutoSyncEnabled");
   const intervalEl = document.getElementById("wbFbsAutoSyncInterval");
+  const lookbackEl = document.getElementById("wbFbsAutoSyncLookback");
   const syncFromEl = document.getElementById("wbFbsAutoSyncFrom");
   const syncToEl = document.getElementById("wbFbsAutoSyncTo");
   const collectEnabledEl = document.getElementById("wbFbsAutoCollectEnabled");
@@ -22528,6 +22529,15 @@ async function openWbFbsAutoSyncSettings() {
         : 60;
     }
     _wbFbsSetSelectValue(intervalEl, syncMinutes, 60);
+    if (lookbackEl) {
+      const minD = Number(data.lookback_days_min) || 1;
+      const maxD = Number(data.lookback_days_max) || 30;
+      lookbackEl.min = String(minD);
+      lookbackEl.max = String(maxD);
+      let days = Number(data.lookback_days);
+      if (!Number.isFinite(days)) days = 3;
+      lookbackEl.value = String(Math.min(maxD, Math.max(minD, Math.round(days))));
+    }
     if (syncFromEl) syncFromEl.value = String(data.active_from || "12:00");
     if (syncToEl) syncToEl.value = String(data.active_to || "06:00");
     if (collectEnabledEl) collectEnabledEl.checked = !!data.collect_mgt_enabled;
@@ -22562,6 +22572,7 @@ async function openWbFbsAutoSyncSettings() {
     _wbFbsAutoCollectApplyEnabledUi();
     if (!canEdit) {
       if (intervalEl) intervalEl.disabled = true;
+      if (lookbackEl) lookbackEl.disabled = true;
       if (syncFromEl) syncFromEl.disabled = true;
       if (syncToEl) syncToEl.disabled = true;
       if (collectIntervalEl) collectIntervalEl.disabled = true;
@@ -22597,6 +22608,12 @@ async function saveWbFbsAutoSyncSettings() {
   }
   const enabled = !!document.getElementById("wbFbsAutoSyncEnabled")?.checked;
   const intervalMinutes = Number(document.getElementById("wbFbsAutoSyncInterval")?.value || 60);
+  const lookbackRaw = Number(document.getElementById("wbFbsAutoSyncLookback")?.value);
+  const lookbackDays = Number.isFinite(lookbackRaw) ? Math.round(lookbackRaw) : 3;
+  if (lookbackDays < 1 || lookbackDays > 30) {
+    _wbFbsAutoSyncSetInfo("Глубина загрузки заказов: от 1 до 30 дней", "error");
+    return;
+  }
   const syncFrom = _wbFbsNormTimeInput(
     document.getElementById("wbFbsAutoSyncFrom")?.value,
     "12:00"
@@ -22627,6 +22644,7 @@ async function saveWbFbsAutoSyncSettings() {
       body: JSON.stringify({
         enabled,
         interval_minutes: intervalMinutes,
+        lookback_days: lookbackDays,
         active_from: syncFrom,
         active_to: syncTo,
         collect_mgt_enabled: collectEnabled,
