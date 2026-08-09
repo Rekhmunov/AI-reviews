@@ -32,16 +32,18 @@ _log = logging.getLogger(__name__)
 
 WB_CONTENT_API = "https://content-api.wildberries.ru"
 
-# In-process caches (per worker). Detail/stickers are short-lived so print after
-# opening the modal skips Marketplace re-reads; colors last longer.
+# In-process caches (per worker). Stickers are keyed per order_id so when a
+# supply grows we only fetch the new orders. Card meta lasts longer (Content).
 _DETAIL_TTL_SEC = 120.0
-_STICKERS_TTL_SEC = 120.0
+_STICKERS_TTL_SEC = 900.0  # 15 min — operator often works the same supply
 _CARD_META_TTL_SEC = 1800.0
 _cache_lock = threading.Lock()
 _detail_cache: dict[tuple[int, int, str], tuple[float, dict[str, Any]]] = {}
-_stickers_cache: dict[tuple[str, str, tuple[int, ...]], tuple[float, dict[int, dict[str, Any]]]] = {}
+# (api_key_fp, sticker_type, order_id) -> (ts, sticker payload)
+_stickers_by_order: dict[tuple[str, str, int], tuple[float, dict[str, Any]]] = {}
 _card_meta_cache: dict[tuple[str, int], tuple[float, dict[str, str]]] = {}
 _prefetch_inflight: set[tuple[int, int, str]] = set()
+_prefetch_again: set[tuple[int, int, str]] = set()
 
 
 def _api_key_fp(api_key: str) -> str:
@@ -97,22 +99,71 @@ def _cache_get_detail(
         return copy.deepcopy(payload)
 
 
+def _sticker_entry_usable(
+    payload: dict[str, Any] | None,
+    *,
+    keep_files: bool,
+) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    if keep_files and not str(payload.get("file") or "").strip():
+        return False
+    return True
+
+
+def _cache_get_stickers_partial(
+    api_key: str,
+    order_ids: list[int],
+    *,
+    sticker_type: str = "png",
+    keep_files: bool = True,
+) -> tuple[dict[int, dict[str, Any]], list[int]]:
+    """Return (cached_by_order_id, missing_order_ids) — incremental supply growth."""
+    fp = _api_key_fp(api_key)
+    stype = str(sticker_type or "png").strip().lower() or "png"
+    now = time.monotonic()
+    found: dict[int, dict[str, Any]] = {}
+    missing: list[int] = []
+    with _cache_lock:
+        for raw in order_ids:
+            try:
+                oid = int(raw)
+            except (TypeError, ValueError):
+                continue
+            if oid <= 0:
+                continue
+            key = (fp, stype, oid)
+            item = _stickers_by_order.get(key)
+            if not item:
+                missing.append(oid)
+                continue
+            ts, payload = item
+            if (now - ts) > _STICKERS_TTL_SEC:
+                _stickers_by_order.pop(key, None)
+                missing.append(oid)
+                continue
+            if not _sticker_entry_usable(payload, keep_files=keep_files):
+                missing.append(oid)
+                continue
+            # Shallow copy — base64 strings are immutable; avoid deepcopy cost.
+            found[oid] = dict(payload)
+    return found, missing
+
+
 def _cache_get_stickers(
     api_key: str,
     order_ids: list[int],
     *,
     sticker_type: str = "png",
+    keep_files: bool = True,
 ) -> dict[int, dict[str, Any]] | None:
-    key = (_api_key_fp(api_key), str(sticker_type or "png"), tuple(int(x) for x in order_ids))
-    with _cache_lock:
-        item = _stickers_cache.get(key)
-        if not item:
-            return None
-        ts, payload = item
-        if (time.monotonic() - ts) > _STICKERS_TTL_SEC:
-            _stickers_cache.pop(key, None)
-            return None
-        return copy.deepcopy(payload)
+    """Full hit only when every order_id is cached (used by prefetch probes)."""
+    found, missing = _cache_get_stickers_partial(
+        api_key, order_ids, sticker_type=sticker_type, keep_files=keep_files
+    )
+    if missing:
+        return None
+    return found
 
 
 def _cache_put_stickers(
@@ -121,10 +172,29 @@ def _cache_put_stickers(
     stickers: dict[int, dict[str, Any]],
     *,
     sticker_type: str = "png",
+    keep_files: bool = True,
 ) -> None:
-    key = (_api_key_fp(api_key), str(sticker_type or "png"), tuple(int(x) for x in order_ids))
+    """Merge stickers into per-order cache (does not drop siblings in the supply)."""
+    del order_ids  # kept for call-site compatibility
+    fp = _api_key_fp(api_key)
+    stype = str(sticker_type or "png").strip().lower() or "png"
+    now = time.monotonic()
     with _cache_lock:
-        _stickers_cache[key] = (time.monotonic(), copy.deepcopy(stickers))
+        for raw_oid, payload in (stickers or {}).items():
+            try:
+                oid = int(raw_oid)
+            except (TypeError, ValueError):
+                continue
+            if oid <= 0 or not isinstance(payload, dict):
+                continue
+            key = (fp, stype, oid)
+            row = dict(payload)
+            if not keep_files:
+                # Don't wipe a richer PNG entry that already has the file blob.
+                prev = _stickers_by_order.get(key)
+                if prev and str((prev[1] or {}).get("file") or "").strip():
+                    row["file"] = prev[1].get("file")
+            _stickers_by_order[key] = (now, row)
 
 
 def _esc(value: object) -> str:
@@ -1280,22 +1350,27 @@ def _fetch_stickers_map(
     sticker_type: str = "png",
     keep_files: bool = True,
 ) -> dict[int, dict[str, Any]]:
-    """Official stickers (partA/partB[/file]). Cached briefly per order-id set + type.
+    """Official stickers (partA/partB[/file]), cached per order_id.
 
-    Picking list only needs partA/partB — use ``sticker_type='svg'`` and
-    ``keep_files=False`` to avoid downloading/storing heavy PNG payloads.
+    When a supply grows, only missing order_ids are requested from WB.
+    Picking list: ``sticker_type='svg'`` + ``keep_files=False``.
     """
     ids = [int(x) for x in order_ids if x is not None]
     if not ids:
         return {}
     stype = str(sticker_type or "png").strip().lower() or "png"
-    if api_key:
-        cached = _cache_get_stickers(api_key, ids, sticker_type=stype)
-        if cached is not None:
-            return cached
     result: dict[int, dict[str, Any]] = {}
-    for i in range(0, len(ids), 100):
-        chunk = ids[i : i + 100]
+    missing = ids
+    if api_key:
+        cached, missing = _cache_get_stickers_partial(
+            api_key, ids, sticker_type=stype, keep_files=keep_files
+        )
+        result.update(cached)
+        if not missing:
+            return result
+    fetched: dict[int, dict[str, Any]] = {}
+    for i in range(0, len(missing), 100):
+        chunk = missing[i : i + 100]
         if not chunk:
             continue
         stickers = client.get_order_stickers(
@@ -1309,17 +1384,20 @@ def _fetch_stickers_map(
             except (TypeError, ValueError):
                 continue
             if keep_files:
-                result[oid] = s
+                fetched[oid] = s
             else:
-                result[oid] = {
+                fetched[oid] = {
                     "orderId": oid,
                     "partA": s.get("partA"),
                     "partB": s.get("partB"),
                     "barcode": s.get("barcode"),
                 }
         time.sleep(0.21)
-    if api_key and result:
-        _cache_put_stickers(api_key, ids, result, sticker_type=stype)
+    if api_key and fetched:
+        _cache_put_stickers(
+            api_key, missing, fetched, sticker_type=stype, keep_files=keep_files
+        )
+    result.update(fetched)
     return result
 
 
@@ -2392,14 +2470,11 @@ def schedule_stickers_print_prefetch(
     api_key: str,
     supply_id: str,
 ) -> None:
-    """Warm print caches in background after supply detail opens.
+    """Warm print caches in background after supply detail opens / grows.
 
-    Covers:
-    - stickers print — PNG files
-    - picking list (summary + extended) — SVG partA/partB + Content color/brand
-
-    Summary and extended share the same ``picking_list`` payload; only HTML
-    rendering differs, so one prefetch warms both variants.
+    Order: PNG (stickers) → SVG (extended picking) → Content (colors).
+    Per-order sticker cache: if supply gains orders, only the new ids are fetched.
+    Re-entrant: a second schedule while busy queues one more pass afterward.
     """
     sid = str(supply_id or "").strip()
     if not sid or not api_key:
@@ -2407,6 +2482,7 @@ def schedule_stickers_print_prefetch(
     key = (int(user_id), int(source_id), sid)
     with _cache_lock:
         if key in _prefetch_inflight:
+            _prefetch_again.add(key)
             return
         _prefetch_inflight.add(key)
 
@@ -2434,29 +2510,41 @@ def schedule_stickers_print_prefetch(
                     continue
             client = wb.WbFbsClient(api_key)
 
-            # 1) SVG codes for both picking-list variants (summary + extended).
-            if _cache_get_stickers(api_key, order_ids, sticker_type="svg") is None:
-                _fetch_stickers_map(
-                    client,
-                    order_ids,
-                    api_key=api_key,
-                    sticker_type="svg",
-                    keep_files=False,
-                )
-                warmed.append("svg")
+            # 1) PNG first — stickers button is the hot path.
+            _, miss_png = _cache_get_stickers_partial(
+                api_key, order_ids, sticker_type="png", keep_files=True
+            )
+            t_png = time.perf_counter()
+            _fetch_stickers_map(
+                client,
+                order_ids,
+                api_key=api_key,
+                sticker_type="png",
+                keep_files=True,
+            )
+            warmed.append(
+                f"png:+{len(miss_png)}/{len(order_ids)}:"
+                f"{int((time.perf_counter() - t_png) * 1000)}ms"
+            )
 
-            # 2) PNG files for stickers print.
-            if _cache_get_stickers(api_key, order_ids, sticker_type="png") is None:
-                _fetch_stickers_map(
-                    client,
-                    order_ids,
-                    api_key=api_key,
-                    sticker_type="png",
-                    keep_files=True,
-                )
-                warmed.append("png")
+            # 2) SVG for extended picking list.
+            _, miss_svg = _cache_get_stickers_partial(
+                api_key, order_ids, sticker_type="svg", keep_files=False
+            )
+            t_svg = time.perf_counter()
+            _fetch_stickers_map(
+                client,
+                order_ids,
+                api_key=api_key,
+                sticker_type="svg",
+                keep_files=False,
+            )
+            warmed.append(
+                f"svg:+{len(miss_svg)}/{len(order_ids)}:"
+                f"{int((time.perf_counter() - t_svg) * 1000)}ms"
+            )
 
-            # 3) Content color/brand/title — needed for extended picking list.
+            # 3) Content color/brand/title for extended picking list.
             missing_meta = 0
             now = time.monotonic()
             fp = _api_key_fp(api_key)
@@ -2470,10 +2558,16 @@ def schedule_stickers_print_prefetch(
                     ):
                         missing_meta += 1
             if missing_meta:
+                t_meta = time.perf_counter()
                 fetch_card_meta_by_nm(
                     api_key, nm_ids, network=True, max_cards=200
                 )
-                warmed.append(f"content:{missing_meta}")
+                warmed.append(
+                    f"content:+{missing_meta}:"
+                    f"{int((time.perf_counter() - t_meta) * 1000)}ms"
+                )
+            else:
+                warmed.append("content:hit")
 
             _log.info(
                 "print prefetch %s: %.0fms orders=%d warmed=%s",
@@ -2485,8 +2579,19 @@ def schedule_stickers_print_prefetch(
         except Exception as exc:
             _log.warning("print prefetch %s: %s", sid, exc)
         finally:
+            rerun = False
             with _cache_lock:
                 _prefetch_inflight.discard(key)
+                if key in _prefetch_again:
+                    _prefetch_again.discard(key)
+                    rerun = True
+            if rerun:
+                schedule_stickers_print_prefetch(
+                    user_id=user_id,
+                    source_id=source_id,
+                    api_key=api_key,
+                    supply_id=sid,
+                )
 
     threading.Thread(
         target=_run, name=f"wb-fbs-print-prefetch-{sid}", daemon=True
@@ -2502,18 +2607,24 @@ def build_article_groups_for_print(
     supply_id: str,
     mode: Literal["picking_list", "stickers"] = "stickers",
     order_ids_filter: list[int] | None = None,
+    picking_variant: str = "extended",
 ) -> dict[str, Any]:
     """Build grouped print payload.
 
-    ``picking_list`` needs partA/partB (+ color); ``stickers`` also needs PNG file.
-    Both share detail/sticker/color caches so the second print is cheap.
-    ``order_ids_filter`` limits stickers/picking to selected orders only.
-
-    Stickers print does **not** call Content API (color/brand/title are optional
-    on separators; local product_name is enough). Picking list still may.
+    ``stickers`` — PNG files; Content network off (local names on separators).
+    ``picking_list`` + ``summary`` — local names/qty only (no SVG/Content wait).
+    ``picking_list`` + ``extended`` — SVG codes + Content color/brand.
+    Stickers are cached per order_id; new orders in a supply fetch incrementally.
     """
     t0 = time.perf_counter()
     picking = mode == "picking_list"
+    pick_variant = str(picking_variant or "extended").strip().lower()
+    if pick_variant not in {"summary", "extended"}:
+        pick_variant = "extended"
+    summary_only = picking and pick_variant == "summary"
+    need_stickers = not summary_only
+    need_card_meta = picking and pick_variant == "extended"
+
     detail = get_supply_detail_for_print(
         repo,
         user_id=user_id,
@@ -2537,40 +2648,38 @@ def build_article_groups_for_print(
         ]
         detail["order_count"] = len(detail["orders"])
     client = wb.WbFbsClient(api_key)
-    # Picking list needs only partA/partB (SVG is much lighter than PNG base64).
-    # Stickers print still uses official PNG files.
-    stickers = _fetch_stickers_map(
-        client,
-        order_ids,
-        api_key=api_key,
-        sticker_type="svg" if picking else "png",
-        keep_files=not picking,
-    )
-    t_stickers = time.perf_counter()
-    if picking:
-        # If SVG response lacked codes, fall back once to PNG metadata (still no keep_files).
-        missing_codes = sum(
-            1
-            for oid in order_ids
-            if not str((stickers.get(oid) or {}).get("partB") or "").strip()
+    stickers: dict[int, dict[str, Any]] = {}
+    if need_stickers:
+        stickers = _fetch_stickers_map(
+            client,
+            order_ids,
+            api_key=api_key,
+            sticker_type="svg" if picking else "png",
+            keep_files=not picking,
         )
-        if order_ids and missing_codes > max(1, len(order_ids) // 2):
-            stickers = _fetch_stickers_map(
-                client,
-                order_ids,
-                api_key=api_key,
-                sticker_type="png",
-                keep_files=False,
+        if picking:
+            missing_codes = sum(
+                1
+                for oid in order_ids
+                if not str((stickers.get(oid) or {}).get("partB") or "").strip()
             )
+            if order_ids and missing_codes > max(1, len(order_ids) // 2):
+                stickers = _fetch_stickers_map(
+                    client,
+                    order_ids,
+                    api_key=api_key,
+                    sticker_type="png",
+                    keep_files=False,
+                )
+    t_stickers = time.perf_counter()
     nm_ids: list[int] = []
     for o in detail["orders"]:
         try:
             nm_ids.append(int(o.get("nm_id")))
         except (TypeError, ValueError):
             continue
-    # Picking list needs Content color/brand. Stickers: cache-only (no 0.21s×nmID wait).
     card_meta = fetch_card_meta_by_nm(
-        api_key, nm_ids, network=picking, max_cards=200
+        api_key, nm_ids, network=need_card_meta, max_cards=200
     )
     t_meta = time.perf_counter()
     include_files = mode == "stickers"
@@ -2618,10 +2727,11 @@ def build_article_groups_for_print(
         ).strip()
     t_end = time.perf_counter()
     _log.info(
-        "build_article_groups_for_print %s mode=%s: %.0fms "
+        "build_article_groups_for_print %s mode=%s variant=%s: %.0fms "
         "(detail=%.0f stickers=%.0f meta=%.0f group=%.0f) orders=%d groups=%d",
         supply_id,
         mode,
+        pick_variant if picking else "-",
         (t_end - t0) * 1000,
         (t_detail - t0) * 1000,
         (t_stickers - t_detail) * 1000,
