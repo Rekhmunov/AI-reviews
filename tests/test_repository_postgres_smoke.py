@@ -18,6 +18,7 @@ class PostgresRuntimeSmokeTests(unittest.TestCase):
             app_env="production",
             db_url=dsn,
             self_registration_enabled=False,
+            sync_chats_enabled=False,
         )
         # The app factory should accept PostgreSQL URL configuration shape
         # and connect when explicit integration DSN is provided.

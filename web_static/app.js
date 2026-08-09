@@ -230,7 +230,7 @@ function _permissionsMatch(newPerms) {
   const cur = window.APP_PERMISSIONS || {};
   const keys = [
     "can_view_feedback", "can_view_reviews", "can_view_questions",
-    "can_view_chats", "can_view_supplies", "can_view_any_supply", "can_view_salary",
+    "can_view_chats", "sync_chats_enabled", "can_view_supplies", "can_view_any_supply", "can_view_salary",
   ];
   return keys.every(k => Boolean(cur[k]) === Boolean(newPerms[k]));
 }
@@ -364,7 +364,8 @@ async function pollGlobalSyncStatus() {
         if (pct2) pct2.textContent = "100%";
         window.setTimeout(hideSyncProgress, 4000);
         // Reload data
-        const tasks = [loadReviews(), loadQuestions(), loadChats()];
+        const tasks = [loadReviews(), loadQuestions()];
+        if (isChatSyncEnabled()) tasks.push(loadChats());
         if (canViewSection && canViewSection("analytics")) tasks.push(loadAnalytics());
         await Promise.all(tasks).catch(() => {});
       }
@@ -392,7 +393,7 @@ function stopGlobalSyncPoll() {
 function startUiRefresh() {
   stopUiRefresh();
   uiRefreshTimer = window.setInterval(() => {
-    if (!syncInProgress) {
+    if (!syncInProgress && isChatSyncEnabled()) {
       loadChats();
     }
   }, UI_REFRESH_MS);
@@ -520,7 +521,8 @@ function getPermissions() {
     can_view_feedback:  _b("can_view_feedback", true),
     can_view_reviews:   _b("can_view_reviews", true),
     can_view_questions: _b("can_view_questions", true),
-    can_view_chats:     _b("can_view_chats", true),
+    can_view_chats:     _b("can_view_chats", false),
+    sync_chats_enabled: _b("sync_chats_enabled", false),
     can_view_salary:          _b("can_view_salary", false),
     can_view_salary_settings: _b("can_view_salary_settings", false),
     can_view_salary_report: _b("can_view_salary_report", false),
@@ -535,6 +537,11 @@ function isTenantOwner() {
   return Boolean(fromWindow.is_tenant_owner || fromWindow.is_super_admin);
 }
 
+function isChatSyncEnabled() {
+  // Marketplace chat sync kill-switch (reviews/questions unaffected).
+  return Boolean(getPermissions().sync_chats_enabled) && Boolean(getPermissions().can_view_chats);
+}
+
 function canViewSection(section) {
   const permissions = getPermissions();
   if (section === "analytics")    return permissions.can_view_analytics;
@@ -542,7 +549,7 @@ function canViewSection(section) {
   if (section === "team")         return isTenantOwner();
   if (section === "reviews")      return permissions.can_view_reviews;
   if (section === "conversations") return permissions.can_view_questions;
-  if (section === "chats")        return permissions.can_view_chats;
+  if (section === "chats")        return isChatSyncEnabled();
   if (section === "salary")         return permissions.can_view_salary || isTenantOwner();
   if (section === "salary-settings") return isTenantOwner() || permissions.can_view_salary_settings;
   if (section === "supplies-wb")  return permissions.can_view_wb_supplies || (permissions.can_view_supplies && isTenantOwner());
@@ -1828,7 +1835,8 @@ async function confirmSyncPreview() {
     if (accEl) accEl.textContent = "";
     if (pctEl2) pctEl2.textContent = "100%";
     window.setTimeout(hideSyncProgress, 2000);
-    const tasks = [loadReviews(), loadQuestions(), loadChats()];
+    const tasks = [loadReviews(), loadQuestions()];
+    if (isChatSyncEnabled()) tasks.push(loadChats());
     if (canViewSection("analytics")) tasks.push(loadAnalytics());
     await Promise.all(tasks);
     // Show detailed sync report modal
@@ -1892,7 +1900,8 @@ async function pollSyncStatusUntilStopped() {
         syncButton.disabled = false;
         syncButton.textContent = "Синхронизировать все активные кабинеты";
       }
-      const tasks = [loadReviews(), loadQuestions(), loadChats()];
+      const tasks = [loadReviews(), loadQuestions()];
+      if (isChatSyncEnabled()) tasks.push(loadChats());
       if (canViewSection("analytics")) tasks.push(loadAnalytics());
       await Promise.all(tasks);
       stopSyncStatusPolling();
@@ -9105,6 +9114,7 @@ function _lbKeyClose(e) {
 
 function startChatAutoRefresh(uid) {
   stopChatAutoRefresh();
+  if (!isChatSyncEnabled()) return;
   if (!uid || String(uid).includes(":question:")) return;
   chatAutoRefreshTimer = window.setInterval(async () => {
     if (!chatsState.activeConversationUid) return;
@@ -9138,6 +9148,7 @@ function selectChatConversation(conversationUid) {
 async function loadChats() {
   // Don't update the chat list while a sync is in progress — wait for sync to finish
   // so the list is only shown once with correct Answered/New bucket assignment.
+  if (!isChatSyncEnabled()) return;
   if (syncInProgress) return;
 
   // Guard: if browser autofilled the search input with an email/unrelated value,
@@ -12466,7 +12477,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   loadReviews();
   loadQuestions();
-  loadChats();
+  if (isChatSyncEnabled()) loadChats();
   if (permissions.can_view_analytics) {
     loadAnalytics();
   }

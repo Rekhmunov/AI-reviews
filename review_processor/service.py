@@ -15,6 +15,7 @@ from urllib.request import Request, urlopen
 
 _log = logging.getLogger(__name__)
 
+from .config import sync_chats_enabled
 from .models import ReviewInput
 from .processor import ReviewProcessor
 from .repository import ReviewRepository
@@ -2710,6 +2711,14 @@ class ReviewAutomationService:
                         Determines last_sender per chat → correct New/Answered.
                         Fast: only new events since last sync are downloaded.
         """
+        # Global kill-switch: does not affect reviews/questions.
+        if not sync_chats_enabled():
+            _log.info(
+                "sync_chats: skipped (FEEDPILOT_SYNC_CHATS_ENABLED=0) source=%s account_id=%s",
+                source,
+                account_id,
+            )
+            return 0
         fetch_chats = getattr(client, "fetch_chats", None)
         if not callable(fetch_chats):
             return 0
@@ -3392,6 +3401,15 @@ class ReviewAutomationService:
                 channel_names = {"reviews": "Отзывы", "questions": "Вопросы", "chats": "Чаты"}
                 channel_outcomes: dict[str, dict[str, object]] = {}
                 for channel in ("reviews", "questions", "chats"):
+                    if channel == "chats" and not sync_chats_enabled():
+                        channel_outcomes[channel] = {
+                            "ok": True,
+                            "loaded": 0,
+                            "channel": channel,
+                            "skipped": True,
+                            "disabled": True,
+                        }
+                        continue
                     if stop_requested and stop_requested():
                         was_cancelled = True
                         break

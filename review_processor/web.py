@@ -26,7 +26,7 @@ from pydantic import BaseModel, Field
 from .auth import create_session_token, hash_password, verify_password
 
 _log = logging.getLogger(__name__)
-from .config import AppConfig, load_app_config
+from .config import AppConfig, load_app_config, sync_chats_enabled
 from .repository import ReviewRepository
 from .service import MarketplaceSyncError, ReviewAutomationService, _normalize_timestamp, _parse_ozon_message_text, _wb_image_url
 from .models import ReviewInput
@@ -4132,21 +4132,23 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         role = str(user.get("role") or ROLE_USER)
         user_id = int(user.get("id") or 0)
 
+        chats_on = sync_chats_enabled()
         if role in ROLE_CAN_ACCESS_SETTINGS:
             return {
                 "can_view_feedback": True,
                 "can_view_reviews": True,
                 "can_view_questions": True,
-                "can_view_chats": True,
+                "can_view_chats": chats_on,
                 "can_view_supplies": True,
                 "can_view_any_supply": True,
                 "can_view_salary": True,
+                "sync_chats_enabled": chats_on,
             }
 
         _perms = repository.list_manager_permissions(manager_user_id=user_id)
         can_view_reviews = any(bool(p.get("can_reviews")) for p in _perms)
         can_view_questions = any(bool(p.get("can_questions")) for p in _perms)
-        can_view_chats = any(bool(p.get("can_chats")) for p in _perms)
+        can_view_chats = any(bool(p.get("can_chats")) for p in _perms) and chats_on
         can_view_feedback = can_view_reviews or can_view_questions or can_view_chats
 
         can_view_supplies = bool(user.get("can_supplies"))
@@ -4173,6 +4175,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "can_view_salary": bool(user.get("can_salary")),
             "can_salary_report": bool(user.get("can_salary_report")),
             "can_salary_zp_export": bool(user.get("can_salary_zp_export")),
+            "sync_chats_enabled": chats_on,
             "salary_productions": (lambda: (
                 __import__("json").loads(str(user.get("salary_productions") or "[]"))
             ) if not (role in ROLE_CAN_ACCESS_SETTINGS) else None)(),
@@ -13380,6 +13383,7 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
         or can_view_supply_settings
         or can_view_supply_certs
     )
+    chats_sync_on = sync_chats_enabled()
     if role in ROLE_CAN_ACCESS_SETTINGS:
         can_view_feedback = True
         can_view_reviews = True
@@ -13396,6 +13400,10 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
         can_view_reviews = True
         can_view_questions = True
         can_view_chats = True
+    # Hide chats UI while chat marketplace sync is globally disabled.
+    if not chats_sync_on:
+        can_view_chats = False
+        can_view_feedback = can_view_reviews or can_view_questions or can_view_chats
     can_view_salary = is_tenant_owner or bool(user.get("can_salary"))
     can_view_salary_settings = is_tenant_owner or bool(user.get("can_salary_settings"))
     can_view_salary_report = is_tenant_owner or bool(user.get("can_salary_report"))
@@ -13471,6 +13479,7 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
             "CAN_VIEW_REVIEWS": "true" if can_view_reviews else "false",
             "CAN_VIEW_QUESTIONS": "true" if can_view_questions else "false",
             "CAN_VIEW_CHATS": "true" if can_view_chats else "false",
+            "SYNC_CHATS_ENABLED": "true" if chats_sync_on else "false",
             "CAN_SUPPLY_PLANNING": "true" if can_supply_planning else "false",
             "CAN_VIEW_SALARY": "true" if can_view_salary else "false",
             "CAN_VIEW_SALARY_SETTINGS": "true" if can_view_salary_settings else "false",
