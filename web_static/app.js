@@ -19512,10 +19512,13 @@ function _wbFbsKizSetFiltersReady(ready) {
   const tip = "Дождитесь загрузки заказов";
   const empty = document.getElementById("wbFbsKizFilterEmpty");
   const errors = document.getElementById("wbFbsKizFilterErrors");
+  const cancelled = document.getElementById("wbFbsKizFilterCancelled");
   const emptyLabel = document.getElementById("wbFbsKizFilterEmptyLabel")
     || (empty && empty.closest("label"));
   const errorsLabel = document.getElementById("wbFbsKizFilterErrorsLabel")
     || (errors && errors.closest("label"));
+  const cancelledLabel = document.getElementById("wbFbsKizFilterCancelledLabel")
+    || (cancelled && cancelled.closest("label"));
   const search = document.getElementById("wbFbsKizSearchFilter");
 
   const setLabelWait = (label, on) => {
@@ -19539,8 +19542,10 @@ function _wbFbsKizSetFiltersReady(ready) {
 
   if (empty) empty.disabled = !ready;
   if (errors) errors.disabled = !ready;
+  if (cancelled) cancelled.disabled = !ready;
   setLabelWait(emptyLabel, !ready);
   setLabelWait(errorsLabel, !ready);
+  setLabelWait(cancelledLabel, !ready);
 
   if (search) {
     if (!ready) {
@@ -19744,8 +19749,10 @@ function wbFbsKizFocusOrderInSearch(orderId) {
   if (!oid) return;
   const empty = document.getElementById("wbFbsKizFilterEmpty");
   const errors = document.getElementById("wbFbsKizFilterErrors");
+  const cancelled = document.getElementById("wbFbsKizFilterCancelled");
   if (empty) empty.checked = false;
   if (errors) errors.checked = false;
+  if (cancelled) cancelled.checked = false;
   const search = document.getElementById("wbFbsKizSearchFilter");
   if (search) {
     search.value = oid;
@@ -19962,9 +19969,11 @@ function _wbFbsKizValidateMarkForOrder(mark, row) {
 function _wbFbsKizResetFilters() {
   const empty = document.getElementById("wbFbsKizFilterEmpty");
   const errors = document.getElementById("wbFbsKizFilterErrors");
+  const cancelled = document.getElementById("wbFbsKizFilterCancelled");
   const search = document.getElementById("wbFbsKizSearchFilter");
   if (empty) empty.checked = false;
   if (errors) errors.checked = false;
+  if (cancelled) cancelled.checked = false;
   if (search) search.value = "";
 }
 
@@ -20196,6 +20205,7 @@ function renderWbFbsKizTable(opts) {
   if (!tbody) return;
   const onlyEmpty = !!document.getElementById("wbFbsKizFilterEmpty")?.checked;
   const onlyErrors = !!document.getElementById("wbFbsKizFilterErrors")?.checked;
+  const onlyCancelled = !!document.getElementById("wbFbsKizFilterCancelled")?.checked;
   const searchQ = document.getElementById("wbFbsKizSearchFilter")?.value || "";
   const pending = wbFbsKizState.pendingOrderId;
   let rows = wbFbsKizState.rows.slice();
@@ -20205,6 +20215,9 @@ function renderWbFbsKizTable(opts) {
       const oid = Number(r.order_id);
       return wbFbsKizState.errors[oid] || String(r.kiz_status || "") === "error";
     });
+  }
+  if (onlyCancelled) {
+    rows = rows.filter((r) => !!String(r?.cancel_reason_label || "").trim());
   }
   if (String(searchQ || "").trim()) {
     rows = rows.filter((r) => _wbFbsKizRowMatchesSearch(r, searchQ));

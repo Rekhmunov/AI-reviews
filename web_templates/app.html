@@ -2030,6 +2030,10 @@
                   <input type="checkbox" id="wbFbsKizFilterErrors" onchange="renderWbFbsKizTable()" />
                   Только с ошибками
                 </label>
+                <label class="wb-fbs-kiz-check" id="wbFbsKizFilterCancelledLabel">
+                  <input type="checkbox" id="wbFbsKizFilterCancelled" onchange="renderWbFbsKizTable()" />
+                  Только отмененные
+                </label>
                 <input id="wbFbsKizSearchFilter" class="wb-fbs-kiz-search" type="search"
                        placeholder="🔍 Поиск..." autocomplete="off"
                        title="Поиск по заказу, стикеру, названию товара и ШК"
@@ -4107,6 +4111,6 @@
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
   <script src="/static/qrcode.min.js"></script>
-  <script src="/static/app.js?v=379"></script>
+  <script src="/static/app.js?v=380"></script>
 </body>
 </html>
