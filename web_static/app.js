@@ -20547,7 +20547,7 @@ function onWbFbsKizMarkScanKey(event) {
   delete wbFbsKizState.errors[oid];
   setModalVisibility("wbFbsKizScanPrompt", false);
   wbFbsKizState.pendingOrderId = null;
-  // Show the filled row even if «только незаполненные» was on.
+  // Show the filled row even if «Незаполненные» filter was on.
   const emptyFilter = document.getElementById("wbFbsKizFilterEmpty");
   if (emptyFilter) emptyFilter.checked = false;
   renderWbFbsKizTable({ skipCollect: true });
