@@ -19088,15 +19088,36 @@ function _wbFbsStickersCategorySetInfo(text, kind) {
   el.classList.toggle("is-ok", kind === "ok");
 }
 
+function _wbFbsStickersCategoryWord(n) {
+  const abs = Math.abs(Number(n) || 0) % 100;
+  const last = abs % 10;
+  if (abs > 10 && abs < 20) return "категорий";
+  if (last === 1) return "категория";
+  if (last >= 2 && last <= 4) return "категории";
+  return "категорий";
+}
+
 function _wbFbsStickersCategorySyncUi() {
-  const selectedCount = wbFbsStickersCategoryState.selected.size;
+  const selected = wbFbsStickersCategoryState.selected;
+  const selectedCount = selected.size;
+  let ordersTotal = 0;
+  for (const g of wbFbsStickersCategoryState.groups || []) {
+    if (!selected.has(String(g.group_key || ""))) continue;
+    const fromIds = Array.isArray(g.order_ids) ? g.order_ids.length : 0;
+    const qty = Number(g.qty);
+    ordersTotal += Number.isFinite(qty) && qty > 0 ? qty : fromIds;
+  }
   const selEl = document.getElementById("wbFbsStickersCategorySelected");
-  if (selEl) selEl.textContent = `Выбрано: ${selectedCount}`;
+  if (selEl) {
+    selEl.textContent =
+      `Выбрано: ${selectedCount} ${_wbFbsStickersCategoryWord(selectedCount)}, ` +
+      `Заказов: ${ordersTotal} шт.`;
+  }
   const printBtn = document.getElementById("wbFbsStickersCategoryPrintBtn");
   if (printBtn) printBtn.disabled = selectedCount <= 0 || wbFbsStickersCategoryState.loading;
   document.querySelectorAll(".wb-fbs-stickers-cat-row").forEach((row) => {
     const key = String(row.dataset.groupKey || "");
-    const checked = wbFbsStickersCategoryState.selected.has(key);
+    const checked = selected.has(key);
     row.classList.toggle("is-checked", checked);
     const cb = row.querySelector('input[type="checkbox"]');
     if (cb) cb.checked = checked;
