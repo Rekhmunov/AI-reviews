@@ -1584,6 +1584,11 @@ class YandexMarketClient:
     page_size: int = 50
     max_pages: int = 2000
     timeout: int = 20
+    # Auto-sync reconcile metadata (slots=True forbids dynamic attrs).
+    _last_reviews_fetch_truncated: bool = False
+    _last_reviews_fetch_from: str | None = None
+    _last_questions_fetch_truncated: bool = False
+    _last_questions_fetch_from: str | None = None
 
     def _post(
         self,
