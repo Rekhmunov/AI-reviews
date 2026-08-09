@@ -8996,7 +8996,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
         api_key = _wb_fbs_source_key(owner_id, int(source_id))
         try:
-            return wb_detail.get_supply_detail(
+            detail = wb_detail.get_supply_detail(
                 repository,
                 user_id=owner_id,
                 source_id=int(source_id),
@@ -9007,6 +9007,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        # Warm PNG sticker cache while the user looks at the supply card.
+        wb_detail.schedule_stickers_print_prefetch(
+            user_id=owner_id,
+            source_id=int(source_id),
+            api_key=api_key,
+            supply_id=sid,
+        )
+        return detail
 
     @app.get("/api/wb-fbs/supplies/{supply_id}/trbx")
     def wb_fbs_list_supply_trbx(

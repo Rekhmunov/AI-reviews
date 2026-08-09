@@ -41,6 +41,7 @@ _cache_lock = threading.Lock()
 _detail_cache: dict[tuple[int, int, str], tuple[float, dict[str, Any]]] = {}
 _stickers_cache: dict[tuple[str, str, tuple[int, ...]], tuple[float, dict[int, dict[str, Any]]]] = {}
 _card_meta_cache: dict[tuple[str, int], tuple[float, dict[str, str]]] = {}
+_prefetch_inflight: set[tuple[int, int, str]] = set()
 
 
 def _api_key_fp(api_key: str) -> str:
@@ -2306,18 +2307,23 @@ def list_sticker_print_groups(
 
     Fast path: local orders + Settings → Products names only.
     Does not call Content API (that was making the modal wait ~0.2s per nmID).
+    Does not refresh live WB order-ids (modal only needs article groups).
     Actual sticker print still uses Content titles for ЛК-like order.
     """
+    t0 = time.perf_counter()
     detail = get_supply_detail_for_print(
         repo,
         user_id=user_id,
         source_id=source_id,
         api_key=api_key,
         supply_id=supply_id,
-        refresh_order_ids=True,
+        # Modal grouping does not need live WB sequence — local/cache is enough.
+        refresh_order_ids=False,
     )
+    t_detail = time.perf_counter()
     orders = list(detail.get("orders") or [])
     _refresh_product_names(repo, user_id=user_id, orders=orders)
+    t_names = time.perf_counter()
     orders_full: list[dict[str, Any]] = [
         {
             **o,
@@ -2360,11 +2366,131 @@ def list_sticker_print_groups(
                 "order_ids": order_ids,
             }
         )
+    t_end = time.perf_counter()
+    _log.info(
+        "list_sticker_print_groups %s: %.0fms (detail=%.0f names=%.0f group=%.0f) "
+        "orders=%d groups=%d",
+        supply_id,
+        (t_end - t0) * 1000,
+        (t_detail - t0) * 1000,
+        (t_names - t_detail) * 1000,
+        (t_end - t_names) * 1000,
+        len(orders),
+        len(out_groups),
+    )
     return {
         "supply_id": str(detail.get("supply_id") or supply_id),
         "order_count": int(detail.get("order_count") or len(orders)),
         "groups": out_groups,
     }
+
+
+def schedule_stickers_print_prefetch(
+    *,
+    user_id: int,
+    source_id: int,
+    api_key: str,
+    supply_id: str,
+) -> None:
+    """Warm print caches in background after supply detail opens.
+
+    Covers:
+    - stickers print — PNG files
+    - picking list (summary + extended) — SVG partA/partB + Content color/brand
+
+    Summary and extended share the same ``picking_list`` payload; only HTML
+    rendering differs, so one prefetch warms both variants.
+    """
+    sid = str(supply_id or "").strip()
+    if not sid or not api_key:
+        return
+    key = (int(user_id), int(source_id), sid)
+    with _cache_lock:
+        if key in _prefetch_inflight:
+            return
+        _prefetch_inflight.add(key)
+
+    def _run() -> None:
+        t0 = time.perf_counter()
+        warmed: list[str] = []
+        try:
+            detail = _cache_get_detail(
+                user_id=user_id, source_id=source_id, supply_id=sid
+            )
+            if not detail:
+                return
+            order_ids = [
+                int(o["order_id"])
+                for o in (detail.get("orders") or [])
+                if o.get("order_id") is not None
+            ]
+            if not order_ids:
+                return
+            nm_ids: list[int] = []
+            for o in detail.get("orders") or []:
+                try:
+                    nm_ids.append(int(o.get("nm_id")))
+                except (TypeError, ValueError):
+                    continue
+            client = wb.WbFbsClient(api_key)
+
+            # 1) SVG codes for both picking-list variants (summary + extended).
+            if _cache_get_stickers(api_key, order_ids, sticker_type="svg") is None:
+                _fetch_stickers_map(
+                    client,
+                    order_ids,
+                    api_key=api_key,
+                    sticker_type="svg",
+                    keep_files=False,
+                )
+                warmed.append("svg")
+
+            # 2) PNG files for stickers print.
+            if _cache_get_stickers(api_key, order_ids, sticker_type="png") is None:
+                _fetch_stickers_map(
+                    client,
+                    order_ids,
+                    api_key=api_key,
+                    sticker_type="png",
+                    keep_files=True,
+                )
+                warmed.append("png")
+
+            # 3) Content color/brand/title — needed for extended picking list.
+            missing_meta = 0
+            now = time.monotonic()
+            fp = _api_key_fp(api_key)
+            with _cache_lock:
+                for nm in dict.fromkeys(n for n in nm_ids if n > 0):
+                    item = _card_meta_cache.get((fp, nm))
+                    if not (
+                        item
+                        and (now - item[0]) <= _CARD_META_TTL_SEC
+                        and "title" in item[1]
+                    ):
+                        missing_meta += 1
+            if missing_meta:
+                fetch_card_meta_by_nm(
+                    api_key, nm_ids, network=True, max_cards=200
+                )
+                warmed.append(f"content:{missing_meta}")
+
+            _log.info(
+                "print prefetch %s: %.0fms orders=%d warmed=%s",
+                sid,
+                (time.perf_counter() - t0) * 1000,
+                len(order_ids),
+                ",".join(warmed) or "cache-hit",
+            )
+        except Exception as exc:
+            _log.warning("print prefetch %s: %s", sid, exc)
+        finally:
+            with _cache_lock:
+                _prefetch_inflight.discard(key)
+
+    threading.Thread(
+        target=_run, name=f"wb-fbs-print-prefetch-{sid}", daemon=True
+    ).start()
 
 
 def build_article_groups_for_print(
@@ -2382,7 +2508,11 @@ def build_article_groups_for_print(
     ``picking_list`` needs partA/partB (+ color); ``stickers`` also needs PNG file.
     Both share detail/sticker/color caches so the second print is cheap.
     ``order_ids_filter`` limits stickers/picking to selected orders only.
+
+    Stickers print does **not** call Content API (color/brand/title are optional
+    on separators; local product_name is enough). Picking list still may.
     """
+    t0 = time.perf_counter()
     picking = mode == "picking_list"
     detail = get_supply_detail_for_print(
         repo,
@@ -2393,6 +2523,7 @@ def build_article_groups_for_print(
         # Need WB supply orderIds sequence so article groups match portal order.
         refresh_order_ids=True,
     )
+    t_detail = time.perf_counter()
     # Detail cache may be from modal open — refresh product names for print.
     _refresh_product_names(repo, user_id=user_id, orders=detail.get("orders") or [])
     order_ids = [int(o["order_id"]) for o in detail["orders"] if o.get("order_id") is not None]
@@ -2415,6 +2546,7 @@ def build_article_groups_for_print(
         sticker_type="svg" if picking else "png",
         keep_files=not picking,
     )
+    t_stickers = time.perf_counter()
     if picking:
         # If SVG response lacked codes, fall back once to PNG metadata (still no keep_files).
         missing_codes = sum(
@@ -2436,8 +2568,11 @@ def build_article_groups_for_print(
             nm_ids.append(int(o.get("nm_id")))
         except (TypeError, ValueError):
             continue
-    # Color/brand come from Content API (not FBS sync). Cache makes repeat prints cheap.
-    card_meta = fetch_card_meta_by_nm(api_key, nm_ids, network=True, max_cards=200)
+    # Picking list needs Content color/brand. Stickers: cache-only (no 0.21s×nmID wait).
+    card_meta = fetch_card_meta_by_nm(
+        api_key, nm_ids, network=picking, max_cards=200
+    )
+    t_meta = time.perf_counter()
     include_files = mode == "stickers"
     orders_full = []
     for o in detail["orders"]:
@@ -2452,7 +2587,7 @@ def build_article_groups_for_print(
             **o,
             "color": meta.get("color") or "",
             "brand": meta.get("brand") or "",
-            # ЛК group order key — official card title (size text included).
+            # ЛК group order key — official card title when Content cache has it.
             "wb_title": str(meta.get("title") or "").strip(),
             "sticker_part_a": str(st.get("partA") or "").strip(),
             "sticker_part_b": str(st.get("partB") or "").strip(),
@@ -2465,7 +2600,7 @@ def build_article_groups_for_print(
     groups = _group_orders_by_article(orders_full)
     for g in groups:
         first = g["orders"][0] if g["orders"] else {}
-        # Display name: Settings → Products. Sort key: wb_title from Content.
+        # Display name: Settings → Products. Sort key: wb_title when present.
         g["product_name"] = str(
             g.get("product_name") or first.get("product_name") or ""
         ).strip()
@@ -2481,6 +2616,20 @@ def build_article_groups_for_print(
         g["product_name"] = str(
             g.get("product_name") or first.get("product_name") or ""
         ).strip()
+    t_end = time.perf_counter()
+    _log.info(
+        "build_article_groups_for_print %s mode=%s: %.0fms "
+        "(detail=%.0f stickers=%.0f meta=%.0f group=%.0f) orders=%d groups=%d",
+        supply_id,
+        mode,
+        (t_end - t0) * 1000,
+        (t_detail - t0) * 1000,
+        (t_stickers - t_detail) * 1000,
+        (t_meta - t_stickers) * 1000,
+        (t_end - t_meta) * 1000,
+        len(order_ids),
+        len(groups),
+    )
     return {
         "detail": detail,
         "groups": groups,
