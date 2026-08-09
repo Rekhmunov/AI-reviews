@@ -7919,22 +7919,21 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             return False
 
     def _require_wb_fbs_owner_tab(user: dict[str, object], tab: str | None) -> None:
-        if wb_fbs_mod.is_owner_only_tab(tab) and not _is_wb_fbs_tenant_owner(user):
+        # Tabs finished/cancelled/archive are disabled for everyone (incl. owner).
+        if wb_fbs_mod.is_hidden_tab(tab):
             raise HTTPException(
                 status_code=403,
-                detail="Вкладки «Завершённые», «Отменённые» и «Архив» доступны только главному пользователю",
+                detail="Вкладки «Завершённые», «Отменённые» и «Архив» временно отключены",
             )
 
     def _sanitize_wb_fbs_owner_counts(
         user: dict[str, object], payload: dict[str, object]
     ) -> dict[str, object]:
-        if _is_wb_fbs_tenant_owner(user):
-            return payload
         counts = payload.get("counts")
         if not isinstance(counts, dict):
             return payload
         sanitized = dict(counts)
-        for tab in wb_fbs_mod.OWNER_ONLY_TABS:
+        for tab in wb_fbs_mod.HIDDEN_TABS:
             sanitized[tab] = 0
         out = dict(payload)
         out["counts"] = sanitized

@@ -1519,9 +1519,9 @@
             <button type="button" class="wb-fbs-tab active" data-tab="new" onclick="setWbFbsTab('new')">Новые <span class="wb-fbs-tab-count" id="wbFbsCountNew">0</span></button>
             <button type="button" class="wb-fbs-tab" data-tab="assembly" onclick="setWbFbsTab('assembly')">На сборке <span class="wb-fbs-tab-count" id="wbFbsCountAssembly">0</span></button>
             <button type="button" class="wb-fbs-tab" data-tab="delivery" onclick="setWbFbsTab('delivery')">В доставке <span class="wb-fbs-tab-count" id="wbFbsCountDelivery">0</span></button>
-            <button type="button" class="wb-fbs-tab" data-tab="finished" onclick="setWbFbsTab('finished')">Завершённые <span class="wb-fbs-tab-count" id="wbFbsCountFinished">0</span></button>
-            <button type="button" class="wb-fbs-tab" data-tab="cancelled" onclick="setWbFbsTab('cancelled')">Отменённые <span class="wb-fbs-tab-count" id="wbFbsCountCancelled">0</span></button>
-            <button type="button" class="wb-fbs-tab" data-tab="archive" onclick="setWbFbsTab('archive')">Архив <span class="wb-fbs-tab-count" id="wbFbsCountArchive">0</span></button>
+            <button type="button" class="wb-fbs-tab" data-tab="finished" onclick="setWbFbsTab('finished')" hidden style="display:none">Завершённые <span class="wb-fbs-tab-count" id="wbFbsCountFinished">0</span></button>
+            <button type="button" class="wb-fbs-tab" data-tab="cancelled" onclick="setWbFbsTab('cancelled')" hidden style="display:none">Отменённые <span class="wb-fbs-tab-count" id="wbFbsCountCancelled">0</span></button>
+            <button type="button" class="wb-fbs-tab" data-tab="archive" onclick="setWbFbsTab('archive')" hidden style="display:none">Архив <span class="wb-fbs-tab-count" id="wbFbsCountArchive">0</span></button>
           </div>
           <button type="button" id="wbFbsCollectMgtBtn" class="wb-fbs-collect-mgt-btn hidden"
                   onclick="openWbFbsCollectMgt()" title="Собрать все МГТ-заказы текущего кабинета">
@@ -4102,6 +4102,6 @@
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
   <script src="/static/qrcode.min.js"></script>
-  <script src="/static/app.js?v=374"></script>
+  <script src="/static/app.js?v=375"></script>
 </body>
 </html>

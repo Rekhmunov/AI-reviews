@@ -34,12 +34,19 @@ TAB_FINISHED = "finished"       # sold etc.
 TAB_CANCELLED = "cancelled"
 TAB_ARCHIVE = "archive"
 
-# Visible only to the tenant owner (главный пользователь).
-OWNER_ONLY_TABS = frozenset({TAB_FINISHED, TAB_CANCELLED, TAB_ARCHIVE})
+# Hidden for everyone — not used in operator workflow; sync skips archive and
+# does not re-poll finished/cancelled statuses. Alias kept for older imports.
+HIDDEN_TABS = frozenset({TAB_FINISHED, TAB_CANCELLED, TAB_ARCHIVE})
+OWNER_ONLY_TABS = HIDDEN_TABS
+
+
+def is_hidden_tab(tab: object) -> bool:
+    return str(tab or "").strip().lower() in HIDDEN_TABS
 
 
 def is_owner_only_tab(tab: object) -> bool:
-    return str(tab or "").strip().lower() in OWNER_ONLY_TABS
+    """Back-compat: same as is_hidden_tab (tabs are hidden for all roles)."""
+    return is_hidden_tab(tab)
 
 _FINISHED_WB = {"sold"}
 _CANCELLED_SUPPLIER = {"cancel", "cancel_carrier"}
@@ -2090,7 +2097,10 @@ def sync_wb_fbs_source(
     stop_requested: Callable[[], bool] | None = None,
     progress: Callable[[str, int], None] | None = None,
     lookback_days: int = 14,
-    archive_pages: int = 2,
+    # Archive / finished / cancelled tabs are hidden in UI; do not spend sync
+    # quota on archive pages (0 = skip). Status refresh below is limited to
+    # operational tabs only (new / assembly / delivery).
+    archive_pages: int = 0,
 ) -> dict[str, Any]:
     """Incremental sync for one WB supply source. Respects stop_requested between pages."""
     ensure_wb_fbs_tables(repo)
@@ -2210,14 +2220,17 @@ def sync_wb_fbs_source(
             "stopped": True,
         }
 
-    # 3) Refresh statuses for known non-archive orders
+    # 3) Refresh statuses for operational tabs only (new / assembly / delivery).
+    # Finished / cancelled / archive are hidden and not re-polled every sync.
     _prog("Статусы…")
     with repo._connect() as conn:
         id_rows = conn.execute(
             repo._sql(
                 """
                 SELECT order_id FROM wb_fbs_orders
-                WHERE user_id = ? AND source_id = ? AND is_archive = FALSE
+                WHERE user_id = ? AND source_id = ?
+                  AND is_archive = FALSE
+                  AND tab IN ('new', 'assembly', 'delivery')
                 ORDER BY synced_at DESC
                 LIMIT 5000
                 """
@@ -2351,33 +2364,36 @@ def sync_wb_fbs_source(
             "stopped": True,
         }
 
-    # 5) Archive — limited pages
-    _prog("Архив…")
-    arch_next = 0
-    try:
-        for _ in range(max(0, archive_pages)):
-            if _stopped():
-                stopped = True
-                break
-            arch_orders, arch_next = client.get_archive_orders(limit=1000, next_token=arch_next)
-            if not arch_orders:
-                break
-            for order in arch_orders:
-                upsert_order(
-                    repo,
-                    user_id=user_id,
-                    source_id=source_id,
-                    order=order,
-                    is_archive=True,
-                    supplier_status=str(order.get("supplierStatus") or ""),
-                    wb_status=str(order.get("wbStatus") or "sold"),
+    # 5) Archive — disabled by default (hidden tabs; save API quota).
+    if archive_pages > 0:
+        _prog("Архив…")
+        arch_next = 0
+        try:
+            for _ in range(max(0, archive_pages)):
+                if _stopped():
+                    stopped = True
+                    break
+                arch_orders, arch_next = client.get_archive_orders(
+                    limit=1000, next_token=arch_next
                 )
-                _note_order(order)
-            if not arch_next:
-                break
-            time.sleep(0.25)
-    except Exception as exc:
-        errors.append(friendly_sync_error("archive", exc))
+                if not arch_orders:
+                    break
+                for order in arch_orders:
+                    upsert_order(
+                        repo,
+                        user_id=user_id,
+                        source_id=source_id,
+                        order=order,
+                        is_archive=True,
+                        supplier_status=str(order.get("supplierStatus") or ""),
+                        wb_status=str(order.get("wbStatus") or "sold"),
+                    )
+                    _note_order(order)
+                if not arch_next:
+                    break
+                time.sleep(0.25)
+        except Exception as exc:
+            errors.append(friendly_sync_error("archive", exc))
 
     return {
         "orders": _order_count(),
