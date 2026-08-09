@@ -19462,7 +19462,46 @@ const wbFbsKizState = {
    * save. Used to skip unchanged rows on the next Save.
    */
   baselineByOrder: {},
+  /** Interval id for live «Сохранение…» status text (UI only). */
+  saveProgressTimer: 0,
 };
+
+function _wbFbsKizOrdersWord(n) {
+  const abs = Math.abs(Number(n) || 0) % 100;
+  const last = abs % 10;
+  if (abs > 10 && abs < 20) return "заказов";
+  if (last === 1) return "заказ";
+  if (last >= 2 && last <= 4) return "заказа";
+  return "заказов";
+}
+
+/** Live status while Save is in flight — does not change API / save logic. */
+function _wbFbsKizStartSaveProgress(itemCount) {
+  _wbFbsKizStopSaveProgress();
+  const n = Math.max(0, Number(itemCount) || 0);
+  const word = _wbFbsKizOrdersWord(n);
+  const started = Date.now();
+  const tick = () => {
+    if (!wbFbsKizState.saving) return;
+    const elapsed = Date.now() - started;
+    let msg = `Сохраняем ${n} ${word} в FeedPilot…`;
+    if (elapsed >= 400 && elapsed < 2500) {
+      msg = `Отправляем КИЗ в Wildberries (${n} ${word})…`;
+    } else if (elapsed >= 2500) {
+      msg = `Ещё отправляем в WB — подождите (${n} ${word})…`;
+    }
+    _wbFbsKizSetInfo(msg);
+  };
+  tick();
+  wbFbsKizState.saveProgressTimer = window.setInterval(tick, 450);
+}
+
+function _wbFbsKizStopSaveProgress() {
+  if (wbFbsKizState.saveProgressTimer) {
+    window.clearInterval(wbFbsKizState.saveProgressTimer);
+    wbFbsKizState.saveProgressTimer = 0;
+  }
+}
 
 /**
  * Disable KIZ toolbar filters until rows are loaded.
@@ -20687,7 +20726,7 @@ async function saveWbFbsKizModal() {
   const btn = document.getElementById("wbFbsKizSaveBtn");
   wbFbsKizState.saving = true;
   if (btn) btn.disabled = true;
-  _wbFbsKizSetInfo("Сохранение…");
+  _wbFbsKizStartSaveProgress(items.length);
   try {
     const params = new URLSearchParams({ source_id: String(wbFbsState.sourceId) });
     const res = await fetch(
@@ -20700,6 +20739,7 @@ async function saveWbFbsKizModal() {
     );
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || `Ошибка ${res.status}`);
+    _wbFbsKizStopSaveProgress();
     wbFbsKizState.errors = {};
     const cancelledIds = [];
     const otherFailNotes = [];
@@ -20768,16 +20808,13 @@ async function saveWbFbsKizModal() {
     const skipNote = skippedUnchanged
       ? ` Без изменений не отправлялось: ${skippedUnchanged}.`
       : "";
+    let resultMsg = "";
+    let resultOk = false;
+    let resultHtml = false;
     if (failed) {
       const onlyCancelled = cancelledIds.length > 0 && !otherFailNotes.length;
       const nFail = onlyCancelled ? cancelledIds.length : failed;
-      const word = (() => {
-        const n10 = nFail % 10;
-        const n100 = nFail % 100;
-        if (n10 === 1 && n100 !== 11) return "заказ";
-        if (n10 >= 2 && n10 <= 4 && (n100 < 10 || n100 >= 20)) return "заказа";
-        return "заказов";
-      })();
+      const word = _wbFbsKizOrdersWord(nFail);
       let html = `Сохранено в FeedPilot. В WB не записалось ${nFail} ${word}:`;
       if (cancelledIds.length) {
         html += `<br>${_wbFbsKizFormatCancelledSaveHtml(cancelledIds)}`;
@@ -20794,20 +20831,26 @@ async function saveWbFbsKizModal() {
       }
       if (gtinNote) html += ` ${_wbFbsEsc(gtinNote.trim())}`;
       if (skipNote) html += ` ${_wbFbsEsc(skipNote.trim())}`;
-      _wbFbsKizSetInfo(html, false, { html: true });
+      resultMsg = html;
+      resultOk = false;
+      resultHtml = true;
     } else {
-      _wbFbsKizSetInfo(
-        `Всё успешно: КИЗ сохранены в FeedPilot и отправлены в WB (${savedWb}).${gtinNote}${skipNote}`,
-        !gtinErrors
-      );
+      resultMsg =
+        `Всё успешно: КИЗ сохранены в FeedPilot и отправлены в WB (${savedWb}).` +
+        `${gtinNote}${skipNote}`;
+      resultOk = !gtinErrors;
+      resultHtml = false;
     }
     // Soft-refresh detail badges; keep cancelled labels in open supply detail.
     _wbFbsKizRefreshDetailBadges(data.results || []);
-    // Update Маркировка split color from live WB meta (non-blocking).
+    _wbFbsKizSetInfo("Обновляем статусы проверки маркировки…");
     try { await refreshWbFbsKizStatus(); } catch (_) {}
+    _wbFbsKizSetInfo(resultMsg, resultOk, resultHtml ? { html: true } : undefined);
   } catch (e) {
+    _wbFbsKizStopSaveProgress();
     _wbFbsKizSetInfo(String(e.message || e));
   } finally {
+    _wbFbsKizStopSaveProgress();
     wbFbsKizState.saving = false;
     if (btn) btn.disabled = false;
   }
