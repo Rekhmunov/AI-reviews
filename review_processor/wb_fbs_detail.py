@@ -2392,11 +2392,14 @@ def schedule_stickers_print_prefetch(
     api_key: str,
     supply_id: str,
 ) -> None:
-    """Warm PNG sticker cache in background after supply detail opens.
+    """Warm print caches in background after supply detail opens.
 
-    Print used to feel instant when Content was prefetched by the category
-    modal; after that path went local-only, cold ``stickers-print`` waited on
-    Content + PNG. Prefetching PNG here restores a fast print click.
+    Covers:
+    - stickers print — PNG files
+    - picking list (summary + extended) — SVG partA/partB + Content color/brand
+
+    Summary and extended share the same ``picking_list`` payload; only HTML
+    rendering differs, so one prefetch warms both variants.
     """
     sid = str(supply_id or "").strip()
     if not sid or not api_key:
@@ -2409,6 +2412,7 @@ def schedule_stickers_print_prefetch(
 
     def _run() -> None:
         t0 = time.perf_counter()
+        warmed: list[str] = []
         try:
             detail = _cache_get_detail(
                 user_id=user_id, source_id=source_id, supply_id=sid
@@ -2422,30 +2426,70 @@ def schedule_stickers_print_prefetch(
             ]
             if not order_ids:
                 return
-            if _cache_get_stickers(api_key, order_ids, sticker_type="png") is not None:
-                return
+            nm_ids: list[int] = []
+            for o in detail.get("orders") or []:
+                try:
+                    nm_ids.append(int(o.get("nm_id")))
+                except (TypeError, ValueError):
+                    continue
             client = wb.WbFbsClient(api_key)
-            _fetch_stickers_map(
-                client,
-                order_ids,
-                api_key=api_key,
-                sticker_type="png",
-                keep_files=True,
-            )
+
+            # 1) SVG codes for both picking-list variants (summary + extended).
+            if _cache_get_stickers(api_key, order_ids, sticker_type="svg") is None:
+                _fetch_stickers_map(
+                    client,
+                    order_ids,
+                    api_key=api_key,
+                    sticker_type="svg",
+                    keep_files=False,
+                )
+                warmed.append("svg")
+
+            # 2) PNG files for stickers print.
+            if _cache_get_stickers(api_key, order_ids, sticker_type="png") is None:
+                _fetch_stickers_map(
+                    client,
+                    order_ids,
+                    api_key=api_key,
+                    sticker_type="png",
+                    keep_files=True,
+                )
+                warmed.append("png")
+
+            # 3) Content color/brand/title — needed for extended picking list.
+            missing_meta = 0
+            now = time.monotonic()
+            fp = _api_key_fp(api_key)
+            with _cache_lock:
+                for nm in dict.fromkeys(n for n in nm_ids if n > 0):
+                    item = _card_meta_cache.get((fp, nm))
+                    if not (
+                        item
+                        and (now - item[0]) <= _CARD_META_TTL_SEC
+                        and "title" in item[1]
+                    ):
+                        missing_meta += 1
+            if missing_meta:
+                fetch_card_meta_by_nm(
+                    api_key, nm_ids, network=True, max_cards=200
+                )
+                warmed.append(f"content:{missing_meta}")
+
             _log.info(
-                "stickers prefetch %s: %.0fms orders=%d",
+                "print prefetch %s: %.0fms orders=%d warmed=%s",
                 sid,
                 (time.perf_counter() - t0) * 1000,
                 len(order_ids),
+                ",".join(warmed) or "cache-hit",
             )
         except Exception as exc:
-            _log.warning("stickers prefetch %s: %s", sid, exc)
+            _log.warning("print prefetch %s: %s", sid, exc)
         finally:
             with _cache_lock:
                 _prefetch_inflight.discard(key)
 
     threading.Thread(
-        target=_run, name=f"wb-fbs-sticker-prefetch-{sid}", daemon=True
+        target=_run, name=f"wb-fbs-print-prefetch-{sid}", daemon=True
     ).start()
 
 
