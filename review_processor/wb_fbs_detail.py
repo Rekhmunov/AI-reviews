@@ -3108,9 +3108,14 @@ def render_picking_list_pdf(
 
 
 def render_stickers_print_html(payload: dict[str, Any]) -> str:
-    """Thermal 58×40 mm: article separator, then WB stickers for that article."""
+    """Thermal 58×40 mm: article separator, then WB stickers for that article.
+
+    Page numbers are continuous across separators + stickers, but rendered
+    only on article separators (for finding the sheet after printing).
+    """
     groups = payload["groups"]
     pages: list[str] = []
+    page_no = 0
     for g in groups:
         qty = int(g.get("qty") or 0)
         color = str(g.get("color") or "").strip()
@@ -3122,6 +3127,7 @@ def render_stickers_print_html(payload: dict[str, Any]) -> str:
         nm = g.get("nm_id") or "—"
         color_line = f'<div class="line">Цвет: {_esc(color)}</div>' if color else ""
         brand_line = f'<div class="line">Бренд: {_esc(brand)}</div>' if brand else ""
+        page_no += 1
         pages.append(
             f"""
             <section class="label separator">
@@ -3132,11 +3138,15 @@ def render_stickers_print_html(payload: dict[str, Any]) -> str:
               <div class="line">Артикул WB: {_esc(nm)}</div>
               <div class="line">Баркод: {_esc(barcode or "—")}</div>
               <div class="line">Артикул: {_esc(article)}</div>
-              <div class="hint">Артикул для подбора · Не нужно клеить</div>
+              <div class="hint">
+                <span>Артикул для подбора · Не нужно клеить</span>
+                <span class="page">{page_no}</span>
+              </div>
             </section>
             """
         )
         for o in g.get("orders") or []:
+            page_no += 1
             b64 = _safe_b64(o.get("sticker_file"))
             if not b64:
                 pages.append(
@@ -3160,8 +3170,8 @@ def render_stickers_print_html(payload: dict[str, Any]) -> str:
 <head>
   <meta charset="utf-8" />
   <title>Стикеры поставки {_esc(payload.get("detail", {}).get("supply_id"))}</title>
-  <!-- feedpilot-stickers:20260804i -->
-  <meta name="feedpilot-build" content="picking-20260804i" />
+  <!-- feedpilot-stickers:20260809a -->
+  <meta name="feedpilot-build" content="picking-20260809a" />
   <style>
     @page {{ size: 58mm 40mm; margin: 0; }}
     * {{ box-sizing: border-box; }}
@@ -3185,6 +3195,11 @@ def render_stickers_print_html(payload: dict[str, Any]) -> str:
     .label.separator .line {{ font-size: 8px; line-height: 1.25; }}
     .label.separator .hint {{
       margin-top: auto; font-size: 7px; color: #64748b; font-weight: 600;
+      display: flex; align-items: baseline; justify-content: space-between;
+      gap: 2mm;
+    }}
+    .label.separator .hint .page {{
+      flex: 0 0 auto; font-size: 9px; font-weight: 800; color: #0f172a;
     }}
     .label.sticker {{ display: flex; align-items: center; justify-content: center; }}
     .label.sticker img {{ width: 58mm; height: 40mm; object-fit: contain; }}
