@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=177" />
+  <link rel="stylesheet" href="/static/style.css?v=179" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1782,8 +1782,26 @@
                             onclick="wbFbsOpenPickingList('extended')">Расширенный лист подбора</button>
                   </div>
                 </div>
-                <button type="button" class="secondary" id="wbFbsSupplyDetailStickersBtn"
-                        onclick="wbFbsOpenStickersPrint()" title="Распечатать стикеры">Стикеры</button>
+                <div class="wb-fbs-picking-split" id="wbFbsStickersSplit">
+                  <button type="button" class="secondary" id="wbFbsSupplyDetailStickersBtn"
+                          onclick="wbFbsOpenStickersPrint()" title="Распечатать стикеры">Стикеры</button>
+                  <button type="button" class="secondary wb-fbs-picking-caret"
+                          id="wbFbsSupplyDetailStickersMenuBtn"
+                          onclick="toggleWbFbsStickersMenu(event)"
+                          aria-label="Другие варианты печати стикеров"
+                          aria-haspopup="menu"
+                          aria-expanded="false"
+                          aria-controls="wbFbsStickersMenu"
+                          title="Другие варианты">
+                    <svg width="12" height="8" viewBox="0 0 12 8" fill="none" aria-hidden="true">
+                      <path d="M1 1.5L6 6.5L11 1.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  </button>
+                  <div id="wbFbsStickersMenu" class="wb-fbs-picking-menu" role="menu" hidden>
+                    <button type="button" class="wb-fbs-picking-menu-item" role="menuitem"
+                            onclick="openWbFbsStickersByCategoryModal()">Печать по категориям</button>
+                  </div>
+                </div>
                 <div class="wb-fbs-kiz-split" id="wbFbsKizSplit" hidden>
                   <button type="button" class="secondary" id="wbFbsSupplyDetailKizBtn"
                           onclick="openWbFbsKizModal()" title="Указать маркировку">Маркировка</button>
@@ -1944,6 +1962,34 @@
                   <tr><td colspan="2" class="wb-fbs-empty">Загрузка…</td></tr>
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+
+
+        <div id="wbFbsStickersCategoryModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="wbFbsStickersCategoryTitle"
+             onclick="if(event.target===this)closeWbFbsStickersByCategoryModal()">
+          <div class="modal-card wb-fbs-kiz-modal wb-fbs-stickers-cat-modal">
+            <div class="wb-fbs-kiz-header">
+              <div class="wb-fbs-kiz-header-main">
+                <h3 id="wbFbsStickersCategoryTitle" class="wb-fbs-kiz-title">Печать стикеров по категориям</h3>
+                <p class="wb-fbs-kiz-sub">Выберите товары — будут напечатаны стикеры всех заказов выбранных позиций, в том же формате и порядке, что и кнопка «Стикеры»</p>
+              </div>
+              <button type="button" class="icon-btn secondary" onclick="closeWbFbsStickersByCategoryModal()" aria-label="Закрыть">✕</button>
+            </div>
+            <div class="wb-fbs-stickers-cat-toolbar">
+              <button type="button" class="secondary" onclick="wbFbsStickersCategorySelectAll()">Выделить все</button>
+              <button type="button" class="secondary" onclick="wbFbsStickersCategoryClearAll()">Очистить все</button>
+              <span id="wbFbsStickersCategorySelected" class="wb-fbs-stickers-cat-selected">Выбрано: 0</span>
+            </div>
+            <div id="wbFbsStickersCategoryInfo" class="wb-fbs-kiz-info" hidden></div>
+            <div class="wb-fbs-kiz-table-wrap wb-fbs-stickers-cat-list-wrap">
+              <div id="wbFbsStickersCategoryList" class="wb-fbs-stickers-cat-list"></div>
+            </div>
+            <div class="wb-fbs-stickers-cat-footer">
+              <button type="button" class="secondary" onclick="closeWbFbsStickersByCategoryModal()">Отмена</button>
+              <button type="button" id="wbFbsStickersCategoryPrintBtn" onclick="wbFbsPrintStickersByCategory()" disabled>Печать</button>
             </div>
           </div>
         </div>
@@ -4050,6 +4096,6 @@
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
   <script src="/static/qrcode.min.js"></script>
-  <script src="/static/app.js?v=369"></script>
+  <script src="/static/app.js?v=371"></script>
 </body>
 </html>

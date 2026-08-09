@@ -9256,13 +9256,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             },
         )
 
-    @app.get("/api/wb-fbs/supplies/{supply_id}/stickers-print")
-    def wb_fbs_supply_stickers_print(
+    @app.get("/api/wb-fbs/supplies/{supply_id}/sticker-groups")
+    def wb_fbs_supply_sticker_groups(
         request: Request,
         supply_id: str,
         source_id: int,
-    ) -> Response:
-        """58×40 thermal stickers HTML: article separators + WB stickers."""
+    ) -> dict[str, object]:
+        """Grouped products for «Печать стикеров по категориям» modal."""
         from . import wb_fbs_detail as wb_detail
 
         user = _require_user(request)
@@ -9274,6 +9274,49 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
         api_key = _wb_fbs_source_key(owner_id, int(source_id))
         try:
+            return wb_detail.list_sticker_print_groups(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                api_key=api_key,
+                supply_id=sid,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/wb-fbs/supplies/{supply_id}/stickers-print")
+    def wb_fbs_supply_stickers_print(
+        request: Request,
+        supply_id: str,
+        source_id: int,
+        order_ids: str = "",
+    ) -> Response:
+        """58×40 thermal stickers HTML: article separators + WB stickers.
+
+        Optional ``order_ids`` (comma-separated) prints only selected orders.
+        """
+        from . import wb_fbs_detail as wb_detail
+
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        sid = str(supply_id or "").strip()
+        if not sid or not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
+        api_key = _wb_fbs_source_key(owner_id, int(source_id))
+        selected_ids: list[int] = []
+        for part in str(order_ids or "").replace(";", ",").split(","):
+            part = part.strip()
+            if not part:
+                continue
+            try:
+                selected_ids.append(int(part))
+            except (TypeError, ValueError):
+                continue
+        try:
             payload = wb_detail.build_article_groups_for_print(
                 repository,
                 user_id=owner_id,
@@ -9281,7 +9324,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 api_key=api_key,
                 supply_id=sid,
                 mode="stickers",
+                order_ids_filter=selected_ids or None,
             )
+            if selected_ids and not (payload.get("groups") or []):
+                raise ValueError("Нет стикеров для выбранных товаров")
             html_doc = wb_detail.render_stickers_print_html(payload)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

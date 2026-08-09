@@ -18291,6 +18291,7 @@ const _WB_FBS_DETAIL_ACTION_IDS = [
   "wbFbsSupplyDetailPickingBtn",
   "wbFbsSupplyDetailPickingMenuBtn",
   "wbFbsSupplyDetailStickersBtn",
+  "wbFbsSupplyDetailStickersMenuBtn",
   "wbFbsSupplyDetailKizBtn",
   "wbFbsSupplyDetailKizRefreshBtn",
   "wbFbsSupplyDetailTrbxBtn",
@@ -18331,7 +18332,10 @@ function _wbFbsSupplyDetailSetActionsReady(ready) {
       }
     }
   });
-  if (!ready) _wbFbsClosePickingMenu();
+  if (!ready) {
+    _wbFbsClosePickingMenu();
+    _wbFbsCloseStickersMenu();
+  }
 }
 
 function _wbFbsSupplyDetailResetSearch() {
@@ -18352,9 +18356,11 @@ function closeWbFbsSupplyDetailModal() {
   _wbFbsKizSplitSetTone("");
   _wbFbsCloseRowMenus();
   _wbFbsClosePickingMenu();
+  _wbFbsCloseStickersMenu();
   _wbFbsSupplyDetailResetSearch();
   closeWbFbsCreateTrbxModal();
   closeWbFbsCancelledOrdersModal();
+  closeWbFbsStickersByCategoryModal();
   setModalVisibility("wbFbsSupplyDetailModal", false);
 }
 window.closeWbFbsSupplyDetailModal = closeWbFbsSupplyDetailModal;
@@ -18977,6 +18983,7 @@ function toggleWbFbsPickingMenu(event) {
     event.stopPropagation();
   }
   if (!_wbFbsSupplyDetailActionsReady()) return;
+  _wbFbsCloseStickersMenu();
   const menu = document.getElementById("wbFbsPickingMenu");
   const caret = document.getElementById("wbFbsSupplyDetailPickingMenuBtn");
   if (!menu || !caret) return;
@@ -19011,22 +19018,231 @@ function wbFbsOpenPickingList(variant) {
 }
 window.wbFbsOpenPickingList = wbFbsOpenPickingList;
 
-function wbFbsOpenStickersPrint() {
+function _wbFbsCloseStickersMenu() {
+  const menu = document.getElementById("wbFbsStickersMenu");
+  const caret = document.getElementById("wbFbsSupplyDetailStickersMenuBtn");
+  if (menu) menu.hidden = true;
+  if (caret) caret.setAttribute("aria-expanded", "false");
+}
+
+function toggleWbFbsStickersMenu(event) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  if (!_wbFbsSupplyDetailActionsReady()) return;
+  _wbFbsClosePickingMenu();
+  const menu = document.getElementById("wbFbsStickersMenu");
+  const caret = document.getElementById("wbFbsSupplyDetailStickersMenuBtn");
+  if (!menu || !caret) return;
+  const willOpen = menu.hidden;
+  menu.hidden = !willOpen;
+  caret.setAttribute("aria-expanded", willOpen ? "true" : "false");
+}
+window.toggleWbFbsStickersMenu = toggleWbFbsStickersMenu;
+
+function wbFbsOpenStickersPrint(orderIds) {
   const sid = String(wbFbsDetailState.supplyId || "").trim();
   if (!sid || !wbFbsState.sourceId || !_wbFbsSupplyDetailActionsReady()) return;
+  _wbFbsCloseStickersMenu();
   const btn = document.getElementById("wbFbsSupplyDetailStickersBtn");
+  const caret = document.getElementById("wbFbsSupplyDetailStickersMenuBtn");
   if (btn) btn.disabled = true;
-  const url =
+  if (caret) caret.disabled = true;
+  const ids = Array.isArray(orderIds)
+    ? orderIds.map((x) => Number(x)).filter((n) => Number.isFinite(n) && n > 0)
+    : [];
+  let url =
     `/api/wb-fbs/supplies/${encodeURIComponent(sid)}/stickers-print` +
     `?source_id=${wbFbsState.sourceId}`;
+  if (ids.length) url += `&order_ids=${encodeURIComponent(ids.join(","))}`;
   const win = window.open(url, "_blank");
   if (!win) alert("Разрешите всплывающие окна для стикеров");
   setTimeout(() => {
     if (!_wbFbsSupplyDetailActionsReady()) return;
     if (btn) btn.disabled = false;
+    if (caret) caret.disabled = false;
   }, 1500);
 }
 window.wbFbsOpenStickersPrint = wbFbsOpenStickersPrint;
+
+const wbFbsStickersCategoryState = {
+  groups: [],
+  selected: new Set(),
+  loading: false,
+};
+
+function _wbFbsStickersCategorySetInfo(text, kind) {
+  const el = document.getElementById("wbFbsStickersCategoryInfo");
+  if (!el) return;
+  const msg = String(text || "").trim();
+  if (!msg) {
+    el.hidden = true;
+    el.textContent = "";
+    el.classList.remove("is-error", "is-ok");
+    return;
+  }
+  el.hidden = false;
+  el.textContent = msg;
+  el.classList.toggle("is-error", kind === "error");
+  el.classList.toggle("is-ok", kind === "ok");
+}
+
+function _wbFbsStickersCategorySyncUi() {
+  const selectedCount = wbFbsStickersCategoryState.selected.size;
+  const selEl = document.getElementById("wbFbsStickersCategorySelected");
+  if (selEl) selEl.textContent = `Выбрано: ${selectedCount}`;
+  const printBtn = document.getElementById("wbFbsStickersCategoryPrintBtn");
+  if (printBtn) printBtn.disabled = selectedCount <= 0 || wbFbsStickersCategoryState.loading;
+  document.querySelectorAll(".wb-fbs-stickers-cat-row").forEach((row) => {
+    const key = String(row.dataset.groupKey || "");
+    const checked = wbFbsStickersCategoryState.selected.has(key);
+    row.classList.toggle("is-checked", checked);
+    const cb = row.querySelector('input[type="checkbox"]');
+    if (cb) cb.checked = checked;
+    const fillBtn = row.querySelector(".wb-fbs-stickers-cat-fill");
+    if (fillBtn) fillBtn.hidden = !checked;
+  });
+}
+
+function _wbFbsStickersCategoryRender() {
+  const box = document.getElementById("wbFbsStickersCategoryList");
+  if (!box) return;
+  const groups = wbFbsStickersCategoryState.groups || [];
+  if (!groups.length) {
+    box.innerHTML = `<div class="wb-fbs-empty">${wbFbsStickersCategoryState.loading ? "Загрузка…" : "Нет товаров для печати"}</div>`;
+    _wbFbsStickersCategorySyncUi();
+    return;
+  }
+  box.innerHTML = groups.map((g, idx) => {
+    const key = _wbFbsEsc(String(g.group_key || ""));
+    const name = _wbFbsEsc(String(g.product_name || "—"));
+    const qty = Number(g.qty || 0);
+    return `<div class="wb-fbs-stickers-cat-row" data-group-key="${key}" data-index="${idx}">
+      <input type="checkbox" id="wbFbsStickersCatCb_${idx}"
+             onchange="onWbFbsStickersCategoryToggleAt(${idx}, this.checked)" />
+      <label for="wbFbsStickersCatCb_${idx}">
+        <span class="wb-fbs-stickers-cat-name">${name} — ${qty} шт.</span>
+      </label>
+      <button type="button" class="wb-fbs-stickers-cat-fill" hidden
+              title="Выделить все ниже"
+              aria-label="Выделить все ниже"
+              onclick="wbFbsStickersCategoryFillDownAt(${idx})">
+        <svg width="14" height="14" viewBox="0 0 12 8" fill="none" aria-hidden="true">
+          <path d="M1 1.5L6 6.5L11 1.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+    </div>`;
+  }).join("");
+  _wbFbsStickersCategorySyncUi();
+}
+
+function onWbFbsStickersCategoryToggleAt(index, checked) {
+  const g = (wbFbsStickersCategoryState.groups || [])[Number(index)];
+  const key = String((g && g.group_key) || "");
+  if (!key) return;
+  if (checked) wbFbsStickersCategoryState.selected.add(key);
+  else wbFbsStickersCategoryState.selected.delete(key);
+  _wbFbsStickersCategorySyncUi();
+}
+window.onWbFbsStickersCategoryToggleAt = onWbFbsStickersCategoryToggleAt;
+
+function wbFbsStickersCategorySelectAll() {
+  wbFbsStickersCategoryState.selected = new Set(
+    (wbFbsStickersCategoryState.groups || []).map((g) => String(g.group_key || "")).filter(Boolean)
+  );
+  _wbFbsStickersCategorySyncUi();
+}
+window.wbFbsStickersCategorySelectAll = wbFbsStickersCategorySelectAll;
+
+function wbFbsStickersCategoryClearAll() {
+  wbFbsStickersCategoryState.selected.clear();
+  _wbFbsStickersCategorySyncUi();
+}
+window.wbFbsStickersCategoryClearAll = wbFbsStickersCategoryClearAll;
+
+function wbFbsStickersCategoryFillDownAt(index) {
+  const groups = wbFbsStickersCategoryState.groups || [];
+  const start = Number(index);
+  if (!Number.isFinite(start) || start < 0 || start >= groups.length) return;
+  for (let i = start; i < groups.length; i += 1) {
+    const gk = String(groups[i].group_key || "");
+    if (gk) wbFbsStickersCategoryState.selected.add(gk);
+  }
+  _wbFbsStickersCategorySyncUi();
+}
+window.wbFbsStickersCategoryFillDownAt = wbFbsStickersCategoryFillDownAt;
+
+async function openWbFbsStickersByCategoryModal() {
+  const sid = String(wbFbsDetailState.supplyId || "").trim();
+  if (!sid || !wbFbsState.sourceId || !_wbFbsSupplyDetailActionsReady()) return;
+  _wbFbsCloseStickersMenu();
+  const modal = document.getElementById("wbFbsStickersCategoryModal");
+  if (!modal) return;
+  modal.classList.remove("hidden");
+  wbFbsStickersCategoryState.groups = [];
+  wbFbsStickersCategoryState.selected.clear();
+  wbFbsStickersCategoryState.loading = true;
+  _wbFbsStickersCategorySetInfo("Загрузка списка товаров…");
+  _wbFbsStickersCategoryRender();
+  try {
+    const res = await fetch(
+      `/api/wb-fbs/supplies/${encodeURIComponent(sid)}/sticker-groups?source_id=${wbFbsState.sourceId}`
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || `Ошибка ${res.status}`);
+    wbFbsStickersCategoryState.groups = Array.isArray(data.groups) ? data.groups : [];
+    _wbFbsStickersCategorySetInfo(
+      wbFbsStickersCategoryState.groups.length
+        ? `Позиций: ${wbFbsStickersCategoryState.groups.length}`
+        : "В поставке нет товаров для печати"
+    );
+  } catch (e) {
+    _wbFbsStickersCategorySetInfo(String(e.message || e), "error");
+  } finally {
+    wbFbsStickersCategoryState.loading = false;
+    _wbFbsStickersCategoryRender();
+  }
+}
+window.openWbFbsStickersByCategoryModal = openWbFbsStickersByCategoryModal;
+
+function closeWbFbsStickersByCategoryModal() {
+  const modal = document.getElementById("wbFbsStickersCategoryModal");
+  if (modal) modal.classList.add("hidden");
+  wbFbsStickersCategoryState.groups = [];
+  wbFbsStickersCategoryState.selected.clear();
+  wbFbsStickersCategoryState.loading = false;
+  _wbFbsStickersCategorySetInfo("");
+  const box = document.getElementById("wbFbsStickersCategoryList");
+  if (box) box.innerHTML = "";
+  const printBtn = document.getElementById("wbFbsStickersCategoryPrintBtn");
+  if (printBtn) printBtn.disabled = true;
+}
+window.closeWbFbsStickersByCategoryModal = closeWbFbsStickersByCategoryModal;
+
+function wbFbsPrintStickersByCategory() {
+  if (wbFbsStickersCategoryState.loading) return;
+  const selected = wbFbsStickersCategoryState.selected;
+  if (!selected.size) {
+    alert("Выберите хотя бы один товар");
+    return;
+  }
+  const orderIds = [];
+  for (const g of wbFbsStickersCategoryState.groups || []) {
+    if (!selected.has(String(g.group_key || ""))) continue;
+    for (const oid of g.order_ids || []) {
+      const n = Number(oid);
+      if (Number.isFinite(n) && n > 0) orderIds.push(n);
+    }
+  }
+  if (!orderIds.length) {
+    alert("У выбранных товаров нет заказов для печати");
+    return;
+  }
+  closeWbFbsStickersByCategoryModal();
+  wbFbsOpenStickersPrint(orderIds);
+}
+window.wbFbsPrintStickersByCategory = wbFbsPrintStickersByCategory;
 
 function openWbFbsSupplyPortal() {
   const sid = String(wbFbsDetailState.supplyId || wbFbsDetailState.supply?.supply_id || "").trim();
@@ -21979,13 +22195,19 @@ window.wbFbsPrintSelectedSupplyQr = wbFbsPrintSelectedSupplyQr;
 
 document.addEventListener("click", (event) => {
   if (!event.target.closest("#wbFbsPickingSplit")) _wbFbsClosePickingMenu();
+  if (!event.target.closest("#wbFbsStickersSplit")) _wbFbsCloseStickersMenu();
   if (event.target.closest(".wb-fbs-row-menu-wrap") || event.target.closest(".wb-fbs-row-menu")) return;
   _wbFbsCloseRowMenus();
 });
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     _wbFbsClosePickingMenu();
+    _wbFbsCloseStickersMenu();
     _wbFbsCloseRowMenus();
+    const stickersCat = document.getElementById("wbFbsStickersCategoryModal");
+    if (stickersCat && !stickersCat.classList.contains("hidden")) {
+      closeWbFbsStickersByCategoryModal();
+    }
   }
 });
 document.addEventListener("scroll", (event) => {

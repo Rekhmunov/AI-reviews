@@ -2293,6 +2293,80 @@ def _refresh_product_names(
         o["product_name"] = name
 
 
+
+def list_sticker_print_groups(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    api_key: str,
+    supply_id: str,
+) -> dict[str, Any]:
+    """Article groups for «Печать по категориям» modal (no sticker PNG download)."""
+    detail = get_supply_detail_for_print(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        api_key=api_key,
+        supply_id=supply_id,
+        refresh_order_ids=True,
+    )
+    orders = list(detail.get("orders") or [])
+    _refresh_product_names(repo, user_id=user_id, orders=orders)
+    nm_ids: list[int] = []
+    for o in orders:
+        try:
+            nm_ids.append(int(o.get("nm_id")))
+        except (TypeError, ValueError):
+            continue
+    card_meta = fetch_card_meta_by_nm(api_key, nm_ids, network=True, max_cards=200)
+    orders_full: list[dict[str, Any]] = []
+    for o in orders:
+        try:
+            nm = int(o.get("nm_id"))
+        except (TypeError, ValueError):
+            nm = 0
+        meta = card_meta.get(nm) or {}
+        orders_full.append(
+            {
+                **o,
+                "color": meta.get("color") or "",
+                "brand": meta.get("brand") or "",
+                "wb_title": str(meta.get("title") or "").strip(),
+                "sticker_part_a": "",
+                "sticker_part_b": "",
+                "sticker_file": "",
+            }
+        )
+    groups = _sort_groups_like_wb(_group_orders_by_article(orders_full))
+    out_groups: list[dict[str, Any]] = []
+    for g in groups:
+        orders_g = list(g.get("orders") or [])
+        if not orders_g:
+            continue
+        article = str(g.get("article") or "").strip()
+        product_name = str(g.get("product_name") or "").strip() or "—"
+        order_ids = [
+            int(o["order_id"])
+            for o in orders_g
+            if o.get("order_id") is not None
+        ]
+        out_groups.append(
+            {
+                "group_key": article or f"nm-{g.get('nm_id') or 'unknown'}",
+                "article": article,
+                "product_name": product_name,
+                "qty": len(order_ids),
+                "order_ids": order_ids,
+            }
+        )
+    return {
+        "supply_id": str(detail.get("supply_id") or supply_id),
+        "order_count": int(detail.get("order_count") or len(orders)),
+        "groups": out_groups,
+    }
+
+
 def build_article_groups_for_print(
     repo: ReviewRepository,
     *,
@@ -2301,11 +2375,13 @@ def build_article_groups_for_print(
     api_key: str,
     supply_id: str,
     mode: Literal["picking_list", "stickers"] = "stickers",
+    order_ids_filter: list[int] | None = None,
 ) -> dict[str, Any]:
     """Build grouped print payload.
 
     ``picking_list`` needs partA/partB (+ color); ``stickers`` also needs PNG file.
     Both share detail/sticker/color caches so the second print is cheap.
+    ``order_ids_filter`` limits stickers/picking to selected orders only.
     """
     picking = mode == "picking_list"
     detail = get_supply_detail_for_print(
@@ -2320,6 +2396,15 @@ def build_article_groups_for_print(
     # Detail cache may be from modal open — refresh product names for print.
     _refresh_product_names(repo, user_id=user_id, orders=detail.get("orders") or [])
     order_ids = [int(o["order_id"]) for o in detail["orders"] if o.get("order_id") is not None]
+    if order_ids_filter is not None:
+        allowed = {int(x) for x in order_ids_filter if x is not None}
+        order_ids = [oid for oid in order_ids if oid in allowed]
+        detail = dict(detail)
+        detail["orders"] = [
+            o for o in (detail.get("orders") or [])
+            if o.get("order_id") is not None and int(o["order_id"]) in allowed
+        ]
+        detail["order_count"] = len(detail["orders"])
     client = wb.WbFbsClient(api_key)
     # Picking list needs only partA/partB (SVG is much lighter than PNG base64).
     # Stickers print still uses official PNG files.
