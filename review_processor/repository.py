@@ -8066,11 +8066,12 @@ class ReviewRepository:
             parts.append(val)
         return ", ".join(parts)
 
-    def production_address_line(self, prod: dict[str, Any] | None) -> str:
+    @classmethod
+    def production_address_line(cls, prod: dict[str, Any] | None) -> str:
         """Full one-line address for TTN / PoA / заявки: structured fields or legacy address."""
         if not prod:
             return ""
-        composed = self.compose_production_address_line(prod)
+        composed = cls.compose_production_address_line(prod)
         if composed:
             return composed
         return str(prod.get("address") or "").strip()
