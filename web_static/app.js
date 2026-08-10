@@ -2627,12 +2627,94 @@ function _collectVehicles(listId) {
     .map(inp => inp.value.trim()).filter(Boolean);
 }
 
+const _CARRIER_FIELDS = [
+  ["carrier_name", "Наименование"],
+  ["carrier_inn", "ИНН"],
+  ["carrier_kpp", "КПП"],
+  ["carrier_addr_index", "Индекс"],
+  ["carrier_addr_region_code", "Код региона"],
+  ["carrier_addr_district", "Район"],
+  ["carrier_addr_city", "Город"],
+  ["carrier_addr_settlement", "Нас. пункт"],
+  ["carrier_addr_street", "Улица"],
+  ["carrier_addr_house", "Дом"],
+  ["carrier_addr_corpus", "Корпус"],
+  ["carrier_addr_flat", "Кв./офис"],
+];
+
+/** Full one-line carrier for заявки / Исполнитель. */
+function driverCarrierLine(d) {
+  if (!d) return "";
+  const name = String(d.carrier_name || "").trim();
+  const inn = String(d.carrier_inn || "").trim();
+  const kpp = String(d.carrier_kpp || "").trim();
+  const addrParts = [];
+  const idx = String(d.carrier_addr_index || "").trim();
+  if (idx) addrParts.push(idx);
+  const pushPrefixed = (raw, prefix, alreadyRe) => {
+    const val = String(raw || "").trim();
+    if (!val) return;
+    addrParts.push(alreadyRe.test(val) ? val : `${prefix}${val}`);
+  };
+  const district = String(d.carrier_addr_district || "").trim();
+  if (district) addrParts.push(district);
+  pushPrefixed(d.carrier_addr_city, "г. ", /^(г\.|город)\b/i);
+  const settlement = String(d.carrier_addr_settlement || "").trim();
+  if (settlement) addrParts.push(settlement);
+  const street = String(d.carrier_addr_street || "").trim();
+  if (street) addrParts.push(street);
+  pushPrefixed(d.carrier_addr_house, "д. ", /^(д\.|дом)\b/i);
+  pushPrefixed(d.carrier_addr_corpus, "к. ", /^(к\.|корп\.|корпус)\b/i);
+  pushPrefixed(d.carrier_addr_flat, "кв. ", /^(кв\.|квартира)\b/i);
+  const addr = addrParts.join(", ");
+  const head = [name, inn ? `ИНН ${inn}` : "", kpp ? `КПП ${kpp}` : ""].filter(Boolean).join(" ");
+  if (head && addr) return `${head}, ${addr}`;
+  return head || addr || String(d.carrier || "").trim();
+}
+
+function _readNewDriverCarrierFields() {
+  return {
+    carrier_name: document.getElementById("newDriverCarrierName")?.value.trim() || "",
+    carrier_inn: document.getElementById("newDriverCarrierInn")?.value.trim() || "",
+    carrier_kpp: document.getElementById("newDriverCarrierKpp")?.value.trim() || "",
+    carrier_addr_index: document.getElementById("newDriverCarrierAddrIndex")?.value.trim() || "",
+    carrier_addr_region_code: document.getElementById("newDriverCarrierAddrRegion")?.value.trim() || "",
+    carrier_addr_district: document.getElementById("newDriverCarrierAddrDistrict")?.value.trim() || "",
+    carrier_addr_city: document.getElementById("newDriverCarrierAddrCity")?.value.trim() || "",
+    carrier_addr_settlement: document.getElementById("newDriverCarrierAddrSettlement")?.value.trim() || "",
+    carrier_addr_street: document.getElementById("newDriverCarrierAddrStreet")?.value.trim() || "",
+    carrier_addr_house: document.getElementById("newDriverCarrierAddrHouse")?.value.trim() || "",
+    carrier_addr_corpus: document.getElementById("newDriverCarrierAddrCorpus")?.value.trim() || "",
+    carrier_addr_flat: document.getElementById("newDriverCarrierAddrFlat")?.value.trim() || "",
+  };
+}
+
+function _clearNewDriverCarrierFields() {
+  [
+    "newDriverName", "newDriverInPerson", "newDriverDocuments",
+    "newDriverCarrierName", "newDriverCarrierInn", "newDriverCarrierKpp",
+    "newDriverCarrierAddrIndex", "newDriverCarrierAddrRegion", "newDriverCarrierAddrDistrict",
+    "newDriverCarrierAddrCity", "newDriverCarrierAddrSettlement", "newDriverCarrierAddrStreet",
+    "newDriverCarrierAddrHouse", "newDriverCarrierAddrCorpus", "newDriverCarrierAddrFlat",
+  ].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ""; });
+}
+
+function _carrierEditInputsHtml(item) {
+  return `<div class="worker-form-grid" style="margin:0">
+    ${_CARRIER_FIELDS.map(([key, label]) => `
+      <div class="wfg-field"${key === "carrier_name" ? ' style="grid-column:span 2"' : ""}>
+        <label class="wfg-label">${label}</label>
+        <input class="edit-inline-input" data-carrier="${key}" value="${esc(item[key] || "")}" autocomplete="off" />
+      </div>`).join("")}
+  </div>`;
+}
+
 function renderSupplyDriversTable() {
   const tbody = document.getElementById("supplyDriversTbody");
   if (!tbody) return;
   tbody.innerHTML = "";
   if (!_supplyDriversCache.length) {
-    tbody.innerHTML = '<tr><td colspan="6" class="empty-cell">Водители не добавлены</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-cell">Водители не добавлены</td></tr>';
     return;
   }
   _supplyDriversCache.forEach((d, idx) => {
@@ -2645,7 +2727,7 @@ function renderSupplyDriversTable() {
       <td class="editable-cell">${esc(d.full_name || "")}</td>
       <td class="editable-cell">${esc(d.in_person || "")}</td>
       <td class="editable-cell">${esc(d.documents || "")}</td>
-      <td class="editable-cell">${esc(d.carrier || "")}</td>
+      <td class="editable-cell">${esc(driverCarrierLine(d))}</td>
       <td class="editable-cell-vehicles">${_driverVehiclesHtml(vehicles)}</td>
       <td>
         <div class="row" style="gap:4px;flex-wrap:nowrap">
@@ -2688,9 +2770,7 @@ function toggleAddDriverForm(show) {
   form.classList.toggle("hidden", !show);
   form.style.display = show ? "" : "none";
   if (!show) {
-    ["newDriverName","newDriverInPerson","newDriverDocuments","newDriverCarrier"].forEach(id => {
-      const el = document.getElementById(id); if (el) el.value = "";
-    });
+    _clearNewDriverCarrierFields();
     const vList = document.getElementById("newDriverVehiclesList");
     if (vList) vList.innerHTML = "";
     const info = document.getElementById("addDriverInfo");
@@ -2698,11 +2778,19 @@ function toggleAddDriverForm(show) {
   }
 }
 
-async function _createDriverRequest(name, infoEl, documents, in_person, vehicles, carrier) {
+async function _createDriverRequest(name, infoEl, documents, in_person, vehicles, carrierPayload) {
   if (infoEl) { infoEl.textContent = "Сохранение…"; infoEl.style.color = ""; }
+  const body = {
+    full_name: name,
+    documents: documents || "",
+    in_person: in_person || "",
+    vehicles: vehicles || [],
+    carrier: "",
+    ...(carrierPayload || {}),
+  };
   const res = await fetch("/api/supply-drivers", {
     method: "POST", headers: jsonHeaders(),
-    body: JSON.stringify({ full_name: name, documents: documents || "", in_person: in_person || "", vehicles: vehicles || [], carrier: carrier || "" }),
+    body: JSON.stringify(body),
   }).catch(() => null);
   if (!res || !res.ok) {
     const err = await res?.json().catch(() => ({})) || {};
@@ -2721,10 +2809,9 @@ async function saveSupplyDriver() {
   const name = (inp?.value || "").trim();
   const inpVal = document.getElementById("newDriverInPerson")?.value.trim() || "";
   const docs = document.getElementById("newDriverDocuments")?.value.trim() || "";
-  const carrier = document.getElementById("newDriverCarrier")?.value.trim() || "";
   const vehicles = _collectVehicles("newDriverVehiclesList");
   if (!name) { if (info) { info.textContent = "Введите имя"; info.style.color = "#b91c1c"; } return; }
-  const ok = await _createDriverRequest(name, info, docs, inpVal, vehicles, carrier);
+  const ok = await _createDriverRequest(name, info, docs, inpVal, vehicles, _readNewDriverCarrierFields());
   if (!ok) return;
   if (info) { info.textContent = "Добавлен"; info.style.color = "#16a34a"; }
   toggleAddDriverForm(false);
@@ -2736,11 +2823,12 @@ async function startEditDriver(id) {
   if (!item) return;
   const tr = document.querySelector(`#supplyDriversTbody tr[data-id="${id}"]`);
   if (!tr) return;
+  document.querySelectorAll("#supplyDriversTbody tr.driver-carrier-edit-row").forEach((r) => r.remove());
   const cells = tr.querySelectorAll(".editable-cell");
   cells[0].innerHTML = `<input class="edit-inline-input" data-field="name" value="${esc(item.full_name||"")}" />`;
   cells[1].innerHTML = `<input class="edit-inline-input" data-field="inp" value="${esc(item.in_person||"")}" />`;
   cells[2].innerHTML = `<input class="edit-inline-input" data-field="docs" value="${esc(item.documents||"")}" />`;
-  cells[3].innerHTML = `<input class="edit-inline-input" data-field="carrier" value="${esc(item.carrier||"")}" />`;
+  cells[3].innerHTML = `<span class="small" style="color:#64748b">поля ниже</span>`;
   // Vehicles cell
   let vehicles = [];
   try { vehicles = JSON.parse(item.vehicles_json || "[]"); } catch(_) {}
@@ -2752,6 +2840,15 @@ async function startEditDriver(id) {
     vehicles.forEach(v => addDriverVehicleRow(listId, v));
     if (!vehicles.length) addDriverVehicleRow(listId, "");
   }
+  const carrierRow = document.createElement("tr");
+  carrierRow.className = "driver-carrier-edit-row";
+  carrierRow.dataset.forId = String(id);
+  carrierRow.style.background = "#f8fafc";
+  carrierRow.innerHTML = `<td colspan="7" style="padding:12px 8px;border-top:none">
+    <div class="small" style="margin-bottom:8px;color:#64748b">Перевозчик (поля эТрН)</div>
+    ${_carrierEditInputsHtml(item)}
+  </td>`;
+  tr.after(carrierRow);
   const actionCell = tr.cells[tr.cells.length - 1];
   actionCell.innerHTML = `<div class="row" style="gap:4px;flex-wrap:nowrap">
     <button class="secondary small-btn" style="color:#16a34a;border-color:#86efac" onclick="saveEditDriver(${id})">Сохр.</button>
@@ -2763,13 +2860,18 @@ async function startEditDriver(id) {
 async function saveEditDriver(id) {
   const tr = document.querySelector(`#supplyDriversTbody tr[data-id="${id}"]`);
   if (!tr) return;
+  const item = _supplyDriversCache.find((x) => x.id === id);
+  const carrierRow = document.querySelector(`#supplyDriversTbody tr.driver-carrier-edit-row[data-for-id="${id}"]`);
   const name = tr.querySelector("[data-field='name']")?.value.trim() || "";
   const inp = tr.querySelector("[data-field='inp']")?.value.trim() || "";
   const docs = tr.querySelector("[data-field='docs']")?.value.trim() || "";
-  const carrier = tr.querySelector("[data-field='carrier']")?.value.trim() || "";
   const vehicles = _collectVehicles(`editDriverVehicles_${id}`);
   if (!name) return;
-  await fetch(`/api/supply-drivers/${id}`, { method: "PATCH", headers: jsonHeaders(), body: JSON.stringify({ full_name: name, in_person: inp, documents: docs, carrier, vehicles }) }).catch(() => null);
+  const payload = { full_name: name, in_person: inp, documents: docs, vehicles, carrier: item?.carrier || "" };
+  _CARRIER_FIELDS.forEach(([key]) => {
+    payload[key] = carrierRow?.querySelector(`[data-carrier="${key}"]`)?.value.trim() || "";
+  });
+  await fetch(`/api/supply-drivers/${id}`, { method: "PATCH", headers: jsonHeaders(), body: JSON.stringify(payload) }).catch(() => null);
   await loadSupplyDrivers();
 }
 
@@ -15845,7 +15947,7 @@ function _zUpdateDriverInfoBlock(driverName) {
     if (carrierInput) { carrierInput.classList.remove("hidden"); }
   } else {
     if (carrierInput) { carrierInput.classList.add("hidden"); }
-    if (carrierDisplay) { carrierDisplay.textContent = driver?.carrier || "—"; carrierDisplay.classList.remove("hidden"); }
+    if (carrierDisplay) { carrierDisplay.textContent = driverCarrierLine(driver) || "—"; carrierDisplay.classList.remove("hidden"); }
   }
 }
 
@@ -16133,7 +16235,7 @@ async function generateZayavka() {
 </div>
 <table class="footer-table">
   <tr>
-    <td><strong>Исполнитель:</strong> ${esc(driver?.carrier||"")}<br>
+    <td><strong>Исполнитель:</strong> ${esc(driverCarrierLine(driver))}<br>
       <div class="sign-area">Подпись: _________________</div></td>
     <td><strong>Заказчик:</strong> ${esc(legal.full_name||"")}<br>
       ${esc(legal.requisites||"")}<br>
@@ -16249,7 +16351,7 @@ async function downloadZayavkaDocx() {
 </div>
 <table class="footer-table">
   <tr>
-    <td><b>Исполнитель:</b> ${esc(driver?.carrier||"")}<br>
+    <td><b>Исполнитель:</b> ${esc(driverCarrierLine(driver))}<br>
       <div class="sign-area">Подпись: _______________</div></td>
     <td><b>Заказчик:</b> ${esc(legal.full_name||"")}<br>
       ${esc(legal.requisites||"")}<br>

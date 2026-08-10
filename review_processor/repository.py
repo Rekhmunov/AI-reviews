@@ -7534,6 +7534,23 @@ class ReviewRepository:
         conn.execute(
             "ALTER TABLE supply_drivers ADD COLUMN IF NOT EXISTS in_person TEXT"
         )
+        for _drv_carrier_col in (
+            "carrier_name",
+            "carrier_inn",
+            "carrier_kpp",
+            "carrier_addr_index",
+            "carrier_addr_region_code",
+            "carrier_addr_district",
+            "carrier_addr_city",
+            "carrier_addr_settlement",
+            "carrier_addr_street",
+            "carrier_addr_house",
+            "carrier_addr_corpus",
+            "carrier_addr_flat",
+        ):
+            conn.execute(
+                f"ALTER TABLE supply_drivers ADD COLUMN IF NOT EXISTS {_drv_carrier_col} TEXT NOT NULL DEFAULT ''"
+            )
         # ── OZON Supplies module (fully isolated from WB) ──────────────────────
         conn.execute(
             """
@@ -7787,6 +7804,85 @@ class ReviewRepository:
 
     # ── Supply Drivers CRUD ──
 
+    @staticmethod
+    def _normalize_carrier_fields(
+        *,
+        carrier_name: str = "",
+        carrier_inn: str = "",
+        carrier_kpp: str = "",
+        carrier_addr_index: str = "",
+        carrier_addr_region_code: str = "",
+        carrier_addr_district: str = "",
+        carrier_addr_city: str = "",
+        carrier_addr_settlement: str = "",
+        carrier_addr_street: str = "",
+        carrier_addr_house: str = "",
+        carrier_addr_corpus: str = "",
+        carrier_addr_flat: str = "",
+    ) -> dict[str, str]:
+        inn = re.sub(r"\D", "", str(carrier_inn or ""))[:12]
+        kpp = re.sub(r"\D", "", str(carrier_kpp or ""))[:9]
+        region = re.sub(r"\D", "", str(carrier_addr_region_code or ""))[:2]
+        index = re.sub(r"\D", "", str(carrier_addr_index or ""))[:6]
+        return {
+            "carrier_name": str(carrier_name or "").strip(),
+            "carrier_inn": inn,
+            "carrier_kpp": kpp,
+            "carrier_addr_index": index,
+            "carrier_addr_region_code": region,
+            "carrier_addr_district": str(carrier_addr_district or "").strip(),
+            "carrier_addr_city": str(carrier_addr_city or "").strip(),
+            "carrier_addr_settlement": str(carrier_addr_settlement or "").strip(),
+            "carrier_addr_street": str(carrier_addr_street or "").strip(),
+            "carrier_addr_house": str(carrier_addr_house or "").strip(),
+            "carrier_addr_corpus": str(carrier_addr_corpus or "").strip(),
+            "carrier_addr_flat": str(carrier_addr_flat or "").strip(),
+        }
+
+    @classmethod
+    def compose_carrier_line(cls, fields: dict[str, Any] | None = None, **extra: str) -> str:
+        """One-line carrier for заявки / Исполнитель: name + ИНН/КПП + address."""
+        data = {**(fields or {}), **extra}
+        name = str(data.get("carrier_name") or "").strip()
+        inn = str(data.get("carrier_inn") or "").strip()
+        kpp = str(data.get("carrier_kpp") or "").strip()
+        addr = cls.compose_production_address_line(
+            {
+                "addr_index": data.get("carrier_addr_index") or "",
+                "addr_district": data.get("carrier_addr_district") or "",
+                "addr_city": data.get("carrier_addr_city") or "",
+                "addr_settlement": data.get("carrier_addr_settlement") or "",
+                "addr_street": data.get("carrier_addr_street") or "",
+                "addr_house": data.get("carrier_addr_house") or "",
+                "addr_corpus": data.get("carrier_addr_corpus") or "",
+                "addr_flat": data.get("carrier_addr_flat") or "",
+            }
+        )
+        head_parts: list[str] = []
+        if name:
+            head_parts.append(name)
+        if inn:
+            head_parts.append(f"ИНН {inn}")
+        if kpp:
+            head_parts.append(f"КПП {kpp}")
+        head = " ".join(head_parts)
+        if head and addr:
+            return f"{head}, {addr}"
+        if head:
+            return head
+        if addr:
+            return addr
+        return str(data.get("carrier") or "").strip()
+
+    @classmethod
+    def carrier_line(cls, driver: dict[str, Any] | None) -> str:
+        if not driver:
+            return ""
+        composed = cls.compose_carrier_line(driver)
+        if composed:
+            return composed
+        return str(driver.get("carrier") or "").strip()
+
     def list_supply_drivers(self, *, user_id: int) -> list[dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(
@@ -7795,7 +7891,12 @@ class ReviewRepository:
                 ),
                 (user_id,),
             ).fetchall()
-        return [self._row_to_dict(row) for row in rows]
+        result: list[dict[str, Any]] = []
+        for row in rows:
+            d = self._row_to_dict(row)
+            d["carrier"] = self.carrier_line(d)
+            result.append(d)
+        return result
 
     def driver_exists(self, *, user_id: int, full_name: str) -> bool:
         with self._connect() as conn:
@@ -7807,30 +7908,167 @@ class ReviewRepository:
             ).fetchone()
         return row is not None
 
-    def create_supply_driver(self, *, user_id: int, full_name: str, documents: str = "", in_person: str = "", vehicles: list | None = None, carrier: str = "") -> dict[str, Any]:
+    def create_supply_driver(
+        self,
+        *,
+        user_id: int,
+        full_name: str,
+        documents: str = "",
+        in_person: str = "",
+        vehicles: list | None = None,
+        carrier: str = "",
+        carrier_name: str = "",
+        carrier_inn: str = "",
+        carrier_kpp: str = "",
+        carrier_addr_index: str = "",
+        carrier_addr_region_code: str = "",
+        carrier_addr_district: str = "",
+        carrier_addr_city: str = "",
+        carrier_addr_settlement: str = "",
+        carrier_addr_street: str = "",
+        carrier_addr_house: str = "",
+        carrier_addr_corpus: str = "",
+        carrier_addr_flat: str = "",
+    ) -> dict[str, Any]:
         import json as _j
         now = _utc_now()
         vj = _j.dumps([v for v in (vehicles or []) if v and str(v).strip()], ensure_ascii=False)
-        carrier_val = (carrier or "").strip()
+        cf = self._normalize_carrier_fields(
+            carrier_name=carrier_name,
+            carrier_inn=carrier_inn,
+            carrier_kpp=carrier_kpp,
+            carrier_addr_index=carrier_addr_index,
+            carrier_addr_region_code=carrier_addr_region_code,
+            carrier_addr_district=carrier_addr_district,
+            carrier_addr_city=carrier_addr_city,
+            carrier_addr_settlement=carrier_addr_settlement,
+            carrier_addr_street=carrier_addr_street,
+            carrier_addr_house=carrier_addr_house,
+            carrier_addr_corpus=carrier_addr_corpus,
+            carrier_addr_flat=carrier_addr_flat,
+        )
+        carrier_val = self.compose_carrier_line(cf) or str(carrier or "").strip()
         with self._connect() as conn:
             driver_id = self._insert_and_get_id(
                 conn,
-                "INSERT INTO supply_drivers (user_id, full_name, documents, in_person, vehicles_json, carrier, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (user_id, full_name.strip(), (documents or "").strip() or None, (in_person or "").strip() or None, vj, carrier_val, now),
+                "INSERT INTO supply_drivers ("
+                "user_id, full_name, documents, in_person, vehicles_json, carrier, "
+                "carrier_name, carrier_inn, carrier_kpp, "
+                "carrier_addr_index, carrier_addr_region_code, carrier_addr_district, "
+                "carrier_addr_city, carrier_addr_settlement, carrier_addr_street, "
+                "carrier_addr_house, carrier_addr_corpus, carrier_addr_flat, created_at"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    user_id,
+                    full_name.strip(),
+                    (documents or "").strip() or None,
+                    (in_person or "").strip() or None,
+                    vj,
+                    carrier_val,
+                    cf["carrier_name"],
+                    cf["carrier_inn"],
+                    cf["carrier_kpp"],
+                    cf["carrier_addr_index"],
+                    cf["carrier_addr_region_code"],
+                    cf["carrier_addr_district"],
+                    cf["carrier_addr_city"],
+                    cf["carrier_addr_settlement"],
+                    cf["carrier_addr_street"],
+                    cf["carrier_addr_house"],
+                    cf["carrier_addr_corpus"],
+                    cf["carrier_addr_flat"],
+                    now,
+                ),
             )
             row = conn.execute(
                 self._sql("SELECT * FROM supply_drivers WHERE id = ?"),
                 (driver_id,),
             ).fetchone()
-        return self._row_to_dict(row) if row else {"id": driver_id, "full_name": full_name}
+        if not row:
+            return {"id": driver_id, "full_name": full_name, "carrier": carrier_val, **cf}
+        d = self._row_to_dict(row)
+        d["carrier"] = self.carrier_line(d)
+        return d
 
-    def update_supply_driver(self, *, user_id: int, driver_id: int, full_name: str, documents: str = "", in_person: str = "", vehicles: list | None = None, carrier: str = "") -> bool:
+    def update_supply_driver(
+        self,
+        *,
+        user_id: int,
+        driver_id: int,
+        full_name: str,
+        documents: str = "",
+        in_person: str = "",
+        vehicles: list | None = None,
+        carrier: str = "",
+        carrier_name: str = "",
+        carrier_inn: str = "",
+        carrier_kpp: str = "",
+        carrier_addr_index: str = "",
+        carrier_addr_region_code: str = "",
+        carrier_addr_district: str = "",
+        carrier_addr_city: str = "",
+        carrier_addr_settlement: str = "",
+        carrier_addr_street: str = "",
+        carrier_addr_house: str = "",
+        carrier_addr_corpus: str = "",
+        carrier_addr_flat: str = "",
+    ) -> bool:
         import json as _j
         vj = _j.dumps([v for v in (vehicles or []) if v and str(v).strip()], ensure_ascii=False)
+        cf = self._normalize_carrier_fields(
+            carrier_name=carrier_name,
+            carrier_inn=carrier_inn,
+            carrier_kpp=carrier_kpp,
+            carrier_addr_index=carrier_addr_index,
+            carrier_addr_region_code=carrier_addr_region_code,
+            carrier_addr_district=carrier_addr_district,
+            carrier_addr_city=carrier_addr_city,
+            carrier_addr_settlement=carrier_addr_settlement,
+            carrier_addr_street=carrier_addr_street,
+            carrier_addr_house=carrier_addr_house,
+            carrier_addr_corpus=carrier_addr_corpus,
+            carrier_addr_flat=carrier_addr_flat,
+        )
+        composed = self.compose_carrier_line(cf)
+        carrier_val = composed or str(carrier or "").strip()
         with self._connect() as conn:
+            if not carrier_val:
+                existing = conn.execute(
+                    self._sql("SELECT carrier FROM supply_drivers WHERE user_id = ? AND id = ?"),
+                    (user_id, driver_id),
+                ).fetchone()
+                if existing:
+                    carrier_val = str(self._row_to_dict(existing).get("carrier") or "").strip()
             result = conn.execute(
-                self._sql("UPDATE supply_drivers SET full_name = ?, documents = ?, in_person = ?, vehicles_json = ?, carrier = ? WHERE user_id = ? AND id = ?"),
-                (full_name.strip(), (documents or "").strip() or None, (in_person or "").strip() or None, vj, (carrier or "").strip(), user_id, driver_id),
+                self._sql(
+                    "UPDATE supply_drivers SET full_name = ?, documents = ?, in_person = ?, vehicles_json = ?, "
+                    "carrier = ?, carrier_name = ?, carrier_inn = ?, carrier_kpp = ?, "
+                    "carrier_addr_index = ?, carrier_addr_region_code = ?, carrier_addr_district = ?, "
+                    "carrier_addr_city = ?, carrier_addr_settlement = ?, carrier_addr_street = ?, "
+                    "carrier_addr_house = ?, carrier_addr_corpus = ?, carrier_addr_flat = ? "
+                    "WHERE user_id = ? AND id = ?"
+                ),
+                (
+                    full_name.strip(),
+                    (documents or "").strip() or None,
+                    (in_person or "").strip() or None,
+                    vj,
+                    carrier_val,
+                    cf["carrier_name"],
+                    cf["carrier_inn"],
+                    cf["carrier_kpp"],
+                    cf["carrier_addr_index"],
+                    cf["carrier_addr_region_code"],
+                    cf["carrier_addr_district"],
+                    cf["carrier_addr_city"],
+                    cf["carrier_addr_settlement"],
+                    cf["carrier_addr_street"],
+                    cf["carrier_addr_house"],
+                    cf["carrier_addr_corpus"],
+                    cf["carrier_addr_flat"],
+                    user_id,
+                    driver_id,
+                ),
             )
         return bool(result.rowcount)
 
