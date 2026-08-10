@@ -245,7 +245,7 @@ def test_production_address_line_assembles_for_documents():
     assert line == "141580, Солнечногорский р-н, деревня Хоругвино, ул. Заводская, д. 10"
     # Legacy one-line still returned when structured fields are empty.
     assert (
-        ReviewRepository().production_address_line(
+        ReviewRepository.production_address_line(
             {"address": "старый адрес одной строкой", "addr_city": ""}
         )
         == "старый адрес одной строкой"
