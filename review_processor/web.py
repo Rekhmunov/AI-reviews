@@ -549,6 +549,15 @@ class CreateSupplyLegalEntityRequest(BaseModel):
     basis: str = ""
     address: str = ""
     phone: str = ""
+    addr_index: str = ""
+    addr_region_code: str = ""
+    addr_district: str = ""
+    addr_city: str = ""
+    addr_settlement: str = ""
+    addr_street: str = ""
+    addr_house: str = ""
+    addr_corpus: str = ""
+    addr_flat: str = ""
     signature_image: str | None = None
 
 
@@ -561,6 +570,15 @@ class UpdateSupplyLegalEntityRequest(BaseModel):
     basis: str = ""
     address: str = ""
     phone: str = ""
+    addr_index: str = ""
+    addr_region_code: str = ""
+    addr_district: str = ""
+    addr_city: str = ""
+    addr_settlement: str = ""
+    addr_street: str = ""
+    addr_house: str = ""
+    addr_corpus: str = ""
+    addr_flat: str = ""
     signature_image: str | None = None  # new base64 or None
     clear_signature: bool = False        # True = delete existing
 
@@ -12746,6 +12764,15 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             basis=payload.basis,
             address=payload.address,
             phone=payload.phone,
+            addr_index=payload.addr_index,
+            addr_region_code=payload.addr_region_code,
+            addr_district=payload.addr_district,
+            addr_city=payload.addr_city,
+            addr_settlement=payload.addr_settlement,
+            addr_street=payload.addr_street,
+            addr_house=payload.addr_house,
+            addr_corpus=payload.addr_corpus,
+            addr_flat=payload.addr_flat,
             signature_image=payload.signature_image,
         )
 
@@ -12769,6 +12796,15 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             basis=payload.basis,
             address=payload.address,
             phone=payload.phone,
+            addr_index=payload.addr_index,
+            addr_region_code=payload.addr_region_code,
+            addr_district=payload.addr_district,
+            addr_city=payload.addr_city,
+            addr_settlement=payload.addr_settlement,
+            addr_street=payload.addr_street,
+            addr_house=payload.addr_house,
+            addr_corpus=payload.addr_corpus,
+            addr_flat=payload.addr_flat,
             signature_image=payload.signature_image,
             clear_signature=payload.clear_signature,
         )

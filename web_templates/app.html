@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=181" />
+  <link rel="stylesheet" href="/static/style.css?v=183" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -2576,31 +2576,76 @@
               <button onclick="toggleAddLegalEntityForm(true)">+ Добавить</button>
             </div>
             <div id="addLegalEntityForm" class="source-form hidden" style="margin-top:12px">
-              <div class="row">
-                <input id="newLegalShortName" type="text" placeholder="Короткое наименование (напр. ООО Варфабрик)" autocomplete="off" />
+              <div class="worker-form-grid">
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newLegalShortName">Короткое наименование</label>
+                  <input id="newLegalShortName" type="text" placeholder="ООО Варфабрик" autocomplete="off" />
+                </div>
+                <div class="wfg-field" style="grid-column:span 2">
+                  <label class="wfg-label" for="newLegalFullName">Полное наименование</label>
+                  <input id="newLegalFullName" type="text" placeholder="Полное наименование для документов" autocomplete="off" />
+                </div>
+                <div class="wfg-field" style="grid-column:span 2">
+                  <label class="wfg-label" for="newLegalRequisites">Реквизиты</label>
+                  <input id="newLegalRequisites" type="text" placeholder="ИНН, КПП и т.д." autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newLegalSignatories">Подписанты</label>
+                  <input id="newLegalSignatories" type="text" placeholder="ФИО руководителя" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newLegalInPerson">В лице</label>
+                  <input id="newLegalInPerson" type="text" placeholder="Генерального директора Иванова И.И." autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newLegalBasis">Основание</label>
+                  <input id="newLegalBasis" type="text" placeholder="Устава, Доверенности № ..." autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newLegalPhone">Номер телефона</label>
+                  <input id="newLegalPhone" type="text" placeholder="+7..." autocomplete="off" />
+                </div>
               </div>
-              <div class="row">
-                <input id="newLegalFullName" type="text" placeholder="Полное наименование для документов" autocomplete="off" />
+              <p class="small" style="margin:16px 0 8px;color:#64748b">Юридический адрес (поля эТрН)</p>
+              <div class="worker-form-grid">
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newLegalAddrIndex">Индекс</label>
+                  <input id="newLegalAddrIndex" type="text" inputmode="numeric" maxlength="6" placeholder="101000" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newLegalAddrRegion">Код региона</label>
+                  <input id="newLegalAddrRegion" type="text" inputmode="numeric" maxlength="2" placeholder="77" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newLegalAddrDistrict">Район</label>
+                  <input id="newLegalAddrDistrict" type="text" placeholder="" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newLegalAddrCity">Город</label>
+                  <input id="newLegalAddrCity" type="text" placeholder="Москва" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newLegalAddrSettlement">Нас. пункт</label>
+                  <input id="newLegalAddrSettlement" type="text" placeholder="" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newLegalAddrStreet">Улица</label>
+                  <input id="newLegalAddrStreet" type="text" placeholder="ул. Ленина" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newLegalAddrHouse">Дом</label>
+                  <input id="newLegalAddrHouse" type="text" placeholder="1" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newLegalAddrCorpus">Корпус</label>
+                  <input id="newLegalAddrCorpus" type="text" placeholder="" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newLegalAddrFlat">Квартира / офис</label>
+                  <input id="newLegalAddrFlat" type="text" placeholder="" autocomplete="off" />
+                </div>
               </div>
-              <div class="row">
-                <input id="newLegalRequisites" type="text" placeholder="Реквизиты (ИНН, КПП и т.д.)" autocomplete="off" />
-              </div>
-              <div class="row">
-                <input id="newLegalSignatories" type="text" placeholder="Подписанты (ФИО руководителя, бухгалтера и т.д.)" autocomplete="off" />
-              </div>
-              <div class="row">
-                <input id="newLegalInPerson" type="text" placeholder="В лице (напр. Генерального директора Иванова И.И.)" autocomplete="off" />
-              </div>
-              <div class="row">
-                <input id="newLegalBasis" type="text" placeholder="Основание (напр. Устава, Доверенности № ...)" autocomplete="off" />
-              </div>
-              <div class="row">
-                <input id="newLegalAddress" type="text" placeholder="Юридический адрес" autocomplete="off" />
-              </div>
-              <div class="row">
-                <input id="newLegalPhone" type="text" placeholder="Номер телефона" autocomplete="off" />
-              </div>
-              <div class="row" style="align-items:center;gap:8px">
+              <div class="row" style="margin-top:16px;align-items:center;gap:8px">
                 <span class="small" style="color:#64748b">Подпись:</span>
                 <div id="newLegalSigArea">
                   <label style="cursor:pointer">
@@ -2614,7 +2659,7 @@
                   <button type="button" class="secondary small-btn icon-btn" style="color:#b91c1c;border-color:#fca5a5" onclick="clearNewLegalSig()" title="Удалить">×</button>
                 </div>
               </div>
-              <div class="row">
+              <div class="row" style="margin-top:16px;gap:8px">
                 <button onclick="saveSupplyLegalEntity()">Сохранить</button>
                 <button class="secondary" onclick="toggleAddLegalEntityForm(false)">Отмена</button>
                 <span id="addLegalEntityInfo" class="small"></span>
@@ -4197,6 +4242,6 @@
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
   <script src="/static/qrcode.min.js"></script>
-  <script src="/static/app.js?v=385"></script>
+  <script src="/static/app.js?v=387"></script>
 </body>
 </html>
