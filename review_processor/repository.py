@@ -7563,6 +7563,11 @@ class ReviewRepository:
             conn.execute(
                 f"ALTER TABLE supply_drivers ADD COLUMN IF NOT EXISTS {_drv_doc_col} TEXT NOT NULL DEFAULT ''"
             )
+        # Structured FIO for eTrN СвВодит/ФИО; full_name stays the one-line for docs/selects.
+        for _drv_fio_col in ("last_name", "first_name", "middle_name"):
+            conn.execute(
+                f"ALTER TABLE supply_drivers ADD COLUMN IF NOT EXISTS {_drv_fio_col} TEXT NOT NULL DEFAULT ''"
+            )
         # ── OZON Supplies module (fully isolated from WB) ──────────────────────
         conn.execute(
             """
@@ -8004,6 +8009,56 @@ class ReviewRepository:
         return str(driver.get("documents") or "").strip()
 
     @staticmethod
+    def compose_driver_full_name(fields: dict[str, Any] | None = None, **extra: str) -> str:
+        """One-line ФИО for selects / TTN / заявка / PoA."""
+        data = {**(fields or {}), **extra}
+        parts = [
+            str(data.get("last_name") or "").strip(),
+            str(data.get("first_name") or "").strip(),
+            str(data.get("middle_name") or "").strip(),
+        ]
+        composed = " ".join(p for p in parts if p)
+        return composed or str(data.get("full_name") or "").strip()
+
+    @classmethod
+    def _normalize_driver_fio_fields(
+        cls,
+        *,
+        last_name: str = "",
+        first_name: str = "",
+        middle_name: str = "",
+        full_name: str = "",
+    ) -> dict[str, str]:
+        last = re.sub(r"\s+", " ", str(last_name or "").strip())[:100]
+        first = re.sub(r"\s+", " ", str(first_name or "").strip())[:100]
+        middle = re.sub(r"\s+", " ", str(middle_name or "").strip())[:100]
+        legacy = re.sub(r"\s+", " ", str(full_name or "").strip())
+        if not last and not first and not middle and legacy:
+            parts = [p for p in legacy.split(" ") if p]
+            if len(parts) == 1:
+                last = parts[0]
+            elif len(parts) == 2:
+                last, first = parts[0], parts[1]
+            elif parts:
+                last, first = parts[0], parts[1]
+                middle = " ".join(parts[2:])
+        composed = cls.compose_driver_full_name(
+            last_name=last, first_name=first, middle_name=middle, full_name=legacy
+        )
+        return {
+            "last_name": last,
+            "first_name": first,
+            "middle_name": middle,
+            "full_name": composed,
+        }
+
+    @classmethod
+    def driver_full_name_line(cls, driver: dict[str, Any] | None) -> str:
+        if not driver:
+            return ""
+        return cls.compose_driver_full_name(driver) or str(driver.get("full_name") or "").strip()
+
+    @staticmethod
     def compose_vehicle_line(fields: dict[str, Any] | None = None, **extra: str) -> str:
         """One-line «марка номер» for selects / заявка / table tags."""
         data = {**(fields or {}), **extra}
@@ -8090,6 +8145,13 @@ class ReviewRepository:
         result: list[dict[str, Any]] = []
         for row in rows:
             d = self._row_to_dict(row)
+            fio = self._normalize_driver_fio_fields(
+                last_name=str(d.get("last_name") or ""),
+                first_name=str(d.get("first_name") or ""),
+                middle_name=str(d.get("middle_name") or ""),
+                full_name=str(d.get("full_name") or ""),
+            )
+            d.update(fio)
             d["carrier"] = self.carrier_line(d)
             d["documents"] = self.driver_documents_line(d)
             result.append(d)
@@ -8109,7 +8171,10 @@ class ReviewRepository:
         self,
         *,
         user_id: int,
-        full_name: str,
+        full_name: str = "",
+        last_name: str = "",
+        first_name: str = "",
+        middle_name: str = "",
         documents: str = "",
         in_person: str = "",
         vehicles: list | None = None,
@@ -8134,6 +8199,12 @@ class ReviewRepository:
     ) -> dict[str, Any]:
         import json as _j
         now = _utc_now()
+        fio = self._normalize_driver_fio_fields(
+            last_name=last_name,
+            first_name=first_name,
+            middle_name=middle_name,
+            full_name=full_name,
+        )
         vj = _j.dumps(self._normalize_vehicles_list(vehicles), ensure_ascii=False)
         cf = self._normalize_carrier_fields(
             carrier_name=carrier_name,
@@ -8162,16 +8233,19 @@ class ReviewRepository:
             driver_id = self._insert_and_get_id(
                 conn,
                 "INSERT INTO supply_drivers ("
-                "user_id, full_name, documents, in_person, vehicles_json, carrier, "
+                "user_id, full_name, last_name, first_name, middle_name, documents, in_person, vehicles_json, carrier, "
                 "carrier_name, carrier_inn, carrier_kpp, "
                 "carrier_addr_index, carrier_addr_region_code, carrier_addr_district, "
                 "carrier_addr_city, carrier_addr_settlement, carrier_addr_street, "
                 "carrier_addr_house, carrier_addr_corpus, carrier_addr_flat, "
                 "doc_vu_series, doc_vu_number, doc_vu_issuer, doc_vu_date, doc_inn_fl, created_at"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     user_id,
-                    full_name.strip(),
+                    fio["full_name"],
+                    fio["last_name"],
+                    fio["first_name"],
+                    fio["middle_name"],
                     docs_val,
                     (in_person or "").strip() or None,
                     vj,
@@ -8203,13 +8277,14 @@ class ReviewRepository:
         if not row:
             return {
                 "id": driver_id,
-                "full_name": full_name,
                 "carrier": carrier_val,
                 "documents": docs_val or "",
+                **fio,
                 **cf,
                 **df,
             }
         d = self._row_to_dict(row)
+        d.update(fio)
         d["carrier"] = self.carrier_line(d)
         d["documents"] = self.driver_documents_line(d)
         return d
@@ -8219,7 +8294,10 @@ class ReviewRepository:
         *,
         user_id: int,
         driver_id: int,
-        full_name: str,
+        full_name: str = "",
+        last_name: str = "",
+        first_name: str = "",
+        middle_name: str = "",
         documents: str = "",
         in_person: str = "",
         vehicles: list | None = None,
@@ -8243,6 +8321,12 @@ class ReviewRepository:
         doc_inn_fl: str = "",
     ) -> bool:
         import json as _j
+        fio = self._normalize_driver_fio_fields(
+            last_name=last_name,
+            first_name=first_name,
+            middle_name=middle_name,
+            full_name=full_name,
+        )
         vj = _j.dumps(self._normalize_vehicles_list(vehicles), ensure_ascii=False)
         cf = self._normalize_carrier_fields(
             carrier_name=carrier_name,
@@ -8285,7 +8369,8 @@ class ReviewRepository:
                     docs_val = str(self._row_to_dict(existing_docs).get("documents") or "").strip() or None
             result = conn.execute(
                 self._sql(
-                    "UPDATE supply_drivers SET full_name = ?, documents = ?, in_person = ?, vehicles_json = ?, "
+                    "UPDATE supply_drivers SET full_name = ?, last_name = ?, first_name = ?, middle_name = ?, "
+                    "documents = ?, in_person = ?, vehicles_json = ?, "
                     "carrier = ?, carrier_name = ?, carrier_inn = ?, carrier_kpp = ?, "
                     "carrier_addr_index = ?, carrier_addr_region_code = ?, carrier_addr_district = ?, "
                     "carrier_addr_city = ?, carrier_addr_settlement = ?, carrier_addr_street = ?, "
@@ -8294,7 +8379,10 @@ class ReviewRepository:
                     "WHERE user_id = ? AND id = ?"
                 ),
                 (
-                    full_name.strip(),
+                    fio["full_name"],
+                    fio["last_name"],
+                    fio["first_name"],
+                    fio["middle_name"],
                     docs_val,
                     (in_person or "").strip() or None,
                     vj,

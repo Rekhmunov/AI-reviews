@@ -153,6 +153,20 @@ def _split_fio(full_name: str) -> tuple[str, str, str]:
     return parts[0], parts[1], " ".join(parts[2:])
 
 
+def _driver_fio_from_fields(
+    fields: dict[str, Any] | None,
+    fallback_name: str = "",
+) -> tuple[str, str, str]:
+    """Prefer structured last/first/middle name for СвВодит/ФИО; fallback to split line."""
+    f = fields or {}
+    last = str(f.get("last_name") or "").strip()
+    first = str(f.get("first_name") or "").strip()
+    middle = str(f.get("middle_name") or "").strip()
+    if last or first or middle:
+        return last, first, middle
+    return _split_fio(fallback_name or str(f.get("full_name") or ""))
+
+
 def _region_from_postal_index(index: str) -> str:
     """Map postal index to subject code. Never use index[:2] — 390xxx is Ryazan (62), not Kaliningrad (39)."""
     idx = re.sub(r"\D", "", str(index or ""))
@@ -853,7 +867,7 @@ def build_ozon_etrn_xml(
         )
 
     cargo = _cargo_stats(cargoes_json if cargoes_json is not None else item.get("cargoes_json"))
-    fam, imya, otch = _split_fio(driver_name)
+    fam, imya, otch = _driver_fio_from_fields(driver_fields, driver_name)
     if not fam:
         fam, imya = "Не", "указан"
     v_params = _vehicle_params(

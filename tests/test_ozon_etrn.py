@@ -374,6 +374,42 @@ def test_etrn_driver_uses_structured_vu_fields():
     assert vod.attrib.get("ДатаВыдВУ") == "01.02.2018"
 
 
+def test_etrn_driver_uses_structured_fio_fields():
+    """СвВодит/ФИО takes last/first/middle name; one-line full_name stays for other docs."""
+    from review_processor.repository import ReviewRepository
+
+    root = ET.fromstring(
+        _build(
+            driver_name="Игнорируем Строку Полностью",
+            driver_fields={
+                "last_name": "Петров",
+                "first_name": "Пётр",
+                "middle_name": "Петрович",
+                "full_name": "Петров Пётр Петрович",
+            },
+        )
+    )
+    fio = root.find("Документ/СодИнфГО/СвВодит/ФИО")
+    assert fio is not None
+    assert fio.attrib.get("Фамилия") == "Петров"
+    assert fio.attrib.get("Имя") == "Пётр"
+    assert fio.attrib.get("Отчество") == "Петрович"
+
+    # Compose one-line for TTN / заявка / selects.
+    assert (
+        ReviewRepository.compose_driver_full_name(
+            last_name="Петров", first_name="Пётр", middle_name="Петрович"
+        )
+        == "Петров Пётр Петрович"
+    )
+    # Legacy one-line still splits when structured fields are empty.
+    legacy = ReviewRepository._normalize_driver_fio_fields(full_name="Сидоров Сидор Сидорович")
+    assert legacy["last_name"] == "Сидоров"
+    assert legacy["first_name"] == "Сидор"
+    assert legacy["middle_name"] == "Сидорович"
+    assert legacy["full_name"] == "Сидоров Сидор Сидорович"
+
+
 def test_etrn_vehicle_uses_structured_catalog_fields():
     """СвТС takes structured driver vehicle fields (ПарТС / ТипВлад)."""
     root = ET.fromstring(

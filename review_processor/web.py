@@ -511,7 +511,10 @@ class SupplyManualFieldsRequest(BaseModel):
 
 
 class CreateSupplyDriverRequest(BaseModel):
-    full_name: str
+    full_name: str = ""
+    last_name: str = ""
+    first_name: str = ""
+    middle_name: str = ""
     documents: str = ""
     in_person: str = ""
     vehicles: list = Field(default_factory=list)
@@ -607,7 +610,10 @@ class UpdateSupplyLegalEntityRequest(BaseModel):
 
 
 class UpdateSupplyDriverRequest(BaseModel):
-    full_name: str
+    full_name: str = ""
+    last_name: str = ""
+    first_name: str = ""
+    middle_name: str = ""
     documents: str = ""
     in_person: str = ""
     vehicles: list = Field(default_factory=list)
@@ -12650,9 +12656,15 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         # Drivers: accessible to owners AND managers with can_supplies
         if not _can_view_supplies(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
-        name = payload.full_name.strip()
+        fio = repository._normalize_driver_fio_fields(
+            last_name=payload.last_name,
+            first_name=payload.first_name,
+            middle_name=payload.middle_name,
+            full_name=payload.full_name,
+        )
+        name = fio["full_name"]
         if not name:
-            raise HTTPException(status_code=400, detail="Имя не может быть пустым")
+            raise HTTPException(status_code=400, detail="Укажите фамилию или ФИО")
         # Always save under owner's user_id so drivers are shared across team
         owner_id = _supply_owner_id(user)
         repository._ensure_supply_tables()
@@ -12661,6 +12673,9 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         return repository.create_supply_driver(
             user_id=owner_id,
             full_name=name,
+            last_name=fio["last_name"],
+            first_name=fio["first_name"],
+            middle_name=fio["middle_name"],
             documents=payload.documents,
             in_person=payload.in_person,
             vehicles=payload.vehicles,
@@ -12689,13 +12704,22 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         user = _require_user(request)
         if not _can_view_supplies(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
-        name = payload.full_name.strip()
+        fio = repository._normalize_driver_fio_fields(
+            last_name=payload.last_name,
+            first_name=payload.first_name,
+            middle_name=payload.middle_name,
+            full_name=payload.full_name,
+        )
+        name = fio["full_name"]
         if not name:
-            raise HTTPException(status_code=400, detail="Имя не может быть пустым")
+            raise HTTPException(status_code=400, detail="Укажите фамилию или ФИО")
         ok = repository.update_supply_driver(
             user_id=_supply_owner_id(user),
             driver_id=driver_id,
             full_name=name,
+            last_name=fio["last_name"],
+            first_name=fio["first_name"],
+            middle_name=fio["middle_name"],
             documents=payload.documents,
             in_person=payload.in_person,
             vehicles=payload.vehicles,

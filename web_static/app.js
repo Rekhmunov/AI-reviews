@@ -2856,9 +2856,40 @@ function _readNewDriverCarrierFields() {
   };
 }
 
+/** One-line ФИО for table / selects / TTN / заявка. */
+function driverFullNameLine(d) {
+  if (!d) return "";
+  const parts = [d.last_name, d.first_name, d.middle_name].map((x) => String(x || "").trim()).filter(Boolean);
+  return parts.join(" ") || String(d.full_name || "").trim();
+}
+
+function _normalizeDriverFioObj(d) {
+  if (typeof d === "string") d = { full_name: d };
+  const last = String(d?.last_name || "").trim();
+  const first = String(d?.first_name || "").trim();
+  const middle = String(d?.middle_name || "").trim();
+  if (last || first || middle) return { last_name: last, first_name: first, middle_name: middle };
+  const legacy = String(d?.full_name || "").trim();
+  const parts = legacy.split(/\s+/).filter(Boolean);
+  if (parts.length === 1) return { last_name: parts[0], first_name: "", middle_name: "" };
+  if (parts.length === 2) return { last_name: parts[0], first_name: parts[1], middle_name: "" };
+  if (parts.length >= 3) {
+    return { last_name: parts[0], first_name: parts[1], middle_name: parts.slice(2).join(" ") };
+  }
+  return { last_name: "", first_name: "", middle_name: "" };
+}
+
+function _readNewDriverFioFields() {
+  return {
+    last_name: document.getElementById("newDriverLastName")?.value.trim() || "",
+    first_name: document.getElementById("newDriverFirstName")?.value.trim() || "",
+    middle_name: document.getElementById("newDriverMiddleName")?.value.trim() || "",
+  };
+}
+
 function _clearNewDriverCarrierFields() {
   [
-    "newDriverName", "newDriverInPerson",
+    "newDriverLastName", "newDriverFirstName", "newDriverMiddleName", "newDriverInPerson",
     "newDriverVuSeries", "newDriverVuNumber", "newDriverVuIssuer", "newDriverVuDate", "newDriverInnFl",
     "newDriverCarrierName", "newDriverCarrierInn", "newDriverCarrierKpp",
     "newDriverCarrierAddrIndex", "newDriverCarrierAddrRegion", "newDriverCarrierAddrDistrict",
@@ -2893,7 +2924,7 @@ function renderSupplyDriversTable() {
     tr.dataset.id = d.id;
     tr.innerHTML = `
       <td>${idx + 1}</td>
-      <td class="editable-cell">${esc(d.full_name || "")}</td>
+      <td class="editable-cell">${esc(driverFullNameLine(d))}</td>
       <td class="editable-cell">${esc(d.in_person || "")}</td>
       <td class="editable-cell">${esc(driverDocumentsLine(d))}</td>
       <td class="editable-cell">${esc(driverCarrierLine(d))}</td>
@@ -2920,8 +2951,9 @@ function _populateDriverSelect(currentValue) {
   // Insert drivers before __new__ option
   for (const d of _supplyDriversCache) {
     const opt = document.createElement("option");
-    opt.value = d.full_name;
-    opt.textContent = d.full_name;
+    const line = driverFullNameLine(d);
+    opt.value = line;
+    opt.textContent = line;
     sel.insertBefore(opt, sel.options[sel.options.length - 1]);
   }
   // Add __new__ at end if not present
@@ -2950,10 +2982,15 @@ function toggleAddDriverForm(show) {
   }
 }
 
-async function _createDriverRequest(name, infoEl, documents, in_person, vehicles, carrierPayload, docsPayload) {
+async function _createDriverRequest(fioPayload, infoEl, documents, in_person, vehicles, carrierPayload, docsPayload) {
   if (infoEl) { infoEl.textContent = "Сохранение…"; infoEl.style.color = ""; }
+  const fio = _normalizeDriverFioObj(fioPayload || {});
+  const name = driverFullNameLine(fio);
   const body = {
     full_name: name,
+    last_name: fio.last_name,
+    first_name: fio.first_name,
+    middle_name: fio.middle_name,
     documents: documents || "",
     in_person: in_person || "",
     vehicles: vehicles || [],
@@ -2977,14 +3014,14 @@ async function _createDriverRequest(name, infoEl, documents, in_person, vehicles
 }
 
 async function saveSupplyDriver() {
-  const inp = document.getElementById("newDriverName");
   const info = document.getElementById("addDriverInfo");
-  const name = (inp?.value || "").trim();
+  const fio = _readNewDriverFioFields();
+  const name = driverFullNameLine(fio);
   const inpVal = document.getElementById("newDriverInPerson")?.value.trim() || "";
   const vehicles = _collectVehicles("newDriverVehiclesList");
-  if (!name) { if (info) { info.textContent = "Введите имя"; info.style.color = "#b91c1c"; } return; }
+  if (!name) { if (info) { info.textContent = "Введите фамилию"; info.style.color = "#b91c1c"; } return; }
   const ok = await _createDriverRequest(
-    name, info, "", inpVal, vehicles,
+    fio, info, "", inpVal, vehicles,
     _readNewDriverCarrierFields(),
     _readNewDriverDocFields(),
   );
@@ -2999,9 +3036,10 @@ async function startEditDriver(id) {
   if (!item) return;
   const tr = document.querySelector(`#supplyDriversTbody tr[data-id="${id}"]`);
   if (!tr) return;
-  document.querySelectorAll("#supplyDriversTbody tr.driver-carrier-edit-row, #supplyDriversTbody tr.driver-docs-edit-row, #supplyDriversTbody tr.driver-vehicles-edit-row").forEach((r) => r.remove());
+  document.querySelectorAll("#supplyDriversTbody tr.driver-carrier-edit-row, #supplyDriversTbody tr.driver-docs-edit-row, #supplyDriversTbody tr.driver-vehicles-edit-row, #supplyDriversTbody tr.driver-fio-edit-row").forEach((r) => r.remove());
   const cells = tr.querySelectorAll(".editable-cell");
-  cells[0].innerHTML = `<input class="edit-inline-input" data-field="name" value="${esc(item.full_name||"")}" />`;
+  const fio = _normalizeDriverFioObj(item);
+  cells[0].innerHTML = `<span class="small" style="color:#64748b">поля ниже</span>`;
   cells[1].innerHTML = `<input class="edit-inline-input" data-field="inp" value="${esc(item.in_person||"")}" />`;
   cells[2].innerHTML = `<span class="small" style="color:#64748b">поля ниже</span>`;
   cells[3].innerHTML = `<span class="small" style="color:#64748b">поля ниже</span>`;
@@ -3009,6 +3047,22 @@ async function startEditDriver(id) {
   try { vehicles = JSON.parse(item.vehicles_json || "[]"); } catch(_) {}
   const vCell = tr.querySelector(".editable-cell-vehicles");
   if (vCell) vCell.innerHTML = `<span class="small" style="color:#64748b">поля ниже</span>`;
+  const fioRow = document.createElement("tr");
+  fioRow.className = "driver-fio-edit-row";
+  fioRow.dataset.forId = String(id);
+  fioRow.style.background = "#f8fafc";
+  fioRow.innerHTML = `<td colspan="7" style="padding:12px 8px;border-top:none;white-space:normal">
+    <div class="small" style="margin-bottom:8px;color:#64748b">ФИО водителя (поля эТрН СвВодит)</div>
+    <div class="worker-form-grid" style="margin:0">
+      <div class="wfg-field"><label class="wfg-label">Фамилия</label>
+        <input class="edit-inline-input" data-drv-fio="last_name" value="${esc(fio.last_name)}" autocomplete="off" /></div>
+      <div class="wfg-field"><label class="wfg-label">Имя</label>
+        <input class="edit-inline-input" data-drv-fio="first_name" value="${esc(fio.first_name)}" autocomplete="off" /></div>
+      <div class="wfg-field"><label class="wfg-label">Отчество</label>
+        <input class="edit-inline-input" data-drv-fio="middle_name" value="${esc(fio.middle_name)}" autocomplete="off" /></div>
+    </div>
+  </td>`;
+  tr.after(fioRow);
   const docsRow = document.createElement("tr");
   docsRow.className = "driver-docs-edit-row";
   docsRow.dataset.forId = String(id);
@@ -3017,7 +3071,7 @@ async function startEditDriver(id) {
     <div class="small" style="margin-bottom:8px;color:#64748b">Документы водителя (поля эТрН СвВодит)</div>
     ${_driverDocsEditInputsHtml(item)}
   </td>`;
-  tr.after(docsRow);
+  fioRow.after(docsRow);
   const vehiclesRow = document.createElement("tr");
   vehiclesRow.className = "driver-vehicles-edit-row";
   vehiclesRow.dataset.forId = String(id);
@@ -3045,7 +3099,7 @@ async function startEditDriver(id) {
     <button class="secondary small-btn" style="color:#16a34a;border-color:#86efac" onclick="saveEditDriver(${id})">Сохранить</button>
     <button class="secondary small-btn" onclick="loadSupplyDrivers()">Отмена</button>
   </div>`;
-  cells[0].querySelector("input")?.focus();
+  fioRow.querySelector('[data-drv-fio="last_name"]')?.focus();
 }
 
 async function saveEditDriver(id) {
@@ -3054,11 +3108,26 @@ async function saveEditDriver(id) {
   const item = _supplyDriversCache.find((x) => x.id === id);
   const carrierRow = document.querySelector(`#supplyDriversTbody tr.driver-carrier-edit-row[data-for-id="${id}"]`);
   const docsRow = document.querySelector(`#supplyDriversTbody tr.driver-docs-edit-row[data-for-id="${id}"]`);
-  const name = tr.querySelector("[data-field='name']")?.value.trim() || "";
+  const fioRow = document.querySelector(`#supplyDriversTbody tr.driver-fio-edit-row[data-for-id="${id}"]`);
+  const fio = {
+    last_name: fioRow?.querySelector('[data-drv-fio="last_name"]')?.value.trim() || "",
+    first_name: fioRow?.querySelector('[data-drv-fio="first_name"]')?.value.trim() || "",
+    middle_name: fioRow?.querySelector('[data-drv-fio="middle_name"]')?.value.trim() || "",
+  };
+  const name = driverFullNameLine(fio);
   const inp = tr.querySelector("[data-field='inp']")?.value.trim() || "";
   const vehicles = _collectVehicles(`editDriverVehicles_${id}`);
   if (!name) return;
-  const payload = { full_name: name, in_person: inp, documents: item?.documents || "", vehicles, carrier: item?.carrier || "" };
+  const payload = {
+    full_name: name,
+    last_name: fio.last_name,
+    first_name: fio.first_name,
+    middle_name: fio.middle_name,
+    in_person: inp,
+    documents: item?.documents || "",
+    vehicles,
+    carrier: item?.carrier || "",
+  };
   _DRIVER_DOC_FIELDS.forEach(([key]) => {
     payload[key] = docsRow?.querySelector(`[data-drv-doc="${key}"]`)?.value.trim() || "";
   });
@@ -3144,7 +3213,7 @@ function _sdRenderSlots() {
   const container = document.getElementById("sdDriverSlots");
   if (!container) return;
   const driverOptions = _supplyDriversCache.map(d =>
-    `<option value="${esc(d.full_name||"")}">${esc(d.full_name||"")}</option>`
+    `<option value="${esc(driverFullNameLine(d))}">${esc(driverFullNameLine(d))}</option>`
   ).join("");
   let html = "";
   _sdSlots.forEach((slot, idx) => {
@@ -5375,7 +5444,10 @@ async function openOzonDetailsModal(supplyId) {
   if (dSel) {
     if (!_supplyDriversCache.length) await loadSupplyDrivers();
     dSel.innerHTML = '<option value="">— Не выбран —</option>' +
-      _supplyDriversCache.map(d => `<option value="${esc(d.full_name||"")}">${esc(d.full_name||"")}</option>`).join("");
+      _supplyDriversCache.map(d => {
+        const line = driverFullNameLine(d);
+        return `<option value="${esc(line)}">${esc(line)}</option>`;
+      }).join("");
     dSel.value = item.driver_name || "";
   }
 
@@ -13483,7 +13555,7 @@ async function _openPoAModal(mode, record) {
   if (cSel) cSel.innerHTML = '<option value="">— Выберите контрагента —</option>' +
     _supplyContractorsCache.map(c => `<option value="${c.id}">${esc(c.name||"")}</option>`).join("");
   if (dSel) dSel.innerHTML = '<option value="">— Выберите водителя —</option>' +
-    _supplyDriversCache.map(d => `<option value="${d.id}">${esc(d.full_name||"")}</option>`).join("");
+    _supplyDriversCache.map(d => `<option value="${d.id}">${esc(driverFullNameLine(d))}</option>`).join("");
   const info = document.getElementById("poaCreateInfo");
   if (info) { info.textContent = ""; info.style.color = ""; }
   // Reset manual driver mode
@@ -15872,7 +15944,7 @@ async function openZayavkaModalOzon() {
 
   if (driverSel) {
     const catalogOpts = (_supplyDriversCache||[]).map(d =>
-      `<option value="${esc(d.full_name)}">${esc(d.full_name)}</option>`
+      `<option value="${esc(driverFullNameLine(d))}">${esc(driverFullNameLine(d))}</option>`
     ).join("");
     const manualOpts = unmatchedNames.map(n =>
       `<option value="${esc(n)}">${esc(n)}</option>`
@@ -16272,7 +16344,7 @@ function openZayavkaModal() {
 
   if (driverSel) {
     const catalogOpts = (_supplyDriversCache||[]).map(d =>
-      `<option value="${esc(d.full_name)}">${esc(d.full_name)}</option>`
+      `<option value="${esc(driverFullNameLine(d))}">${esc(driverFullNameLine(d))}</option>`
     ).join("");
     const manualOpts = manualDriverNames.map(n =>
       `<option value="${esc(n)}">${esc(n)}</option>`
