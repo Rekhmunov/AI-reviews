@@ -606,10 +606,17 @@ def build_ozon_etrn_xml(
         load_addr = _parse_ru_address(load_address)
     dest_addr = _parse_ru_address(delivery_address)
     # Shipper legal address from Поставки → Настройки → Юр.лица.
-    # Prefer dedicated `address` column; fall back to parsing requisites for old data.
+    # Prefer structured address fields; else one-line address; else requisites parse.
     # Never substitute production/warehouse (load/delivery) addresses here.
-    legal_addr_raw = str(le.get("address") or "").strip() or _extract_address_from_requisites(org_req)
-    shipper_addr = _parse_ru_address(legal_addr_raw)
+    shipper_addr = _addr_from_production_fields(le)
+    if not _has_structured_address(shipper_addr):
+        legal_addr_raw = str(le.get("address") or "").strip() or _extract_address_from_requisites(org_req)
+        shipper_addr = _parse_ru_address(legal_addr_raw)
+    elif not shipper_addr.get("КодРегион"):
+        shipper_addr["КодРегион"] = _region_code_from_text(
+            str(shipper_addr.get("raw") or le.get("address") or ""),
+            str(shipper_addr.get("Индекс") or ""),
+        )
 
     cargo = _cargo_stats(cargoes_json if cargoes_json is not None else item.get("cargoes_json"))
     fam, imya, otch = _split_fio(driver_name)

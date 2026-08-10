@@ -5660,24 +5660,21 @@ button.secondary.danger:hover {
 }
 .supplies-date-panel-row input[type="date"] { width: 130px; }
 
-/* Settings tables (drivers/warehouses/legal) — match Sources tab behaviour */
+/* Settings tables (drivers/warehouses) — match Sources tab behaviour */
 #supplies-settings-pane-drivers .table-wrap,
-#supplies-settings-pane-warehouses .table-wrap,
-#supplies-settings-pane-legal .table-wrap {
+#supplies-settings-pane-warehouses .table-wrap {
   overflow: hidden;
   width: 100%;
 }
 #supplies-settings-pane-drivers .supply-sources-table,
-#supplies-settings-pane-warehouses .supply-sources-table,
-#supplies-settings-pane-legal .supply-sources-table {
+#supplies-settings-pane-warehouses .supply-sources-table {
   min-width: 0 !important;
   width: 100% !important;
   table-layout: fixed !important;
 }
 /* Text cells wrap so long content stays inside the column */
 #supplies-settings-pane-drivers .supply-sources-table td,
-#supplies-settings-pane-warehouses .supply-sources-table td,
-#supplies-settings-pane-legal .supply-sources-table td {
+#supplies-settings-pane-warehouses .supply-sources-table td {
   white-space: normal !important;
   word-break: break-word;
   overflow: hidden;
@@ -5685,11 +5682,44 @@ button.secondary.danger:hover {
 }
 /* Action column — no wrap, centered */
 #supplies-settings-pane-drivers .supply-sources-table td:last-child,
-#supplies-settings-pane-warehouses .supply-sources-table td:last-child,
-#supplies-settings-pane-legal .supply-sources-table td:last-child {
+#supplies-settings-pane-warehouses .supply-sources-table td:last-child {
   text-align: center;
   white-space: nowrap !important;
   word-break: normal;
+}
+
+/* Legal entities — horizontal scroll for wide table */
+#supplies-settings-pane-legal .table-wrap {
+  overflow-x: auto;
+  overflow-y: hidden;
+  width: 100%;
+  -webkit-overflow-scrolling: touch;
+}
+#supplies-settings-pane-legal .supply-sources-table {
+  min-width: 1400px !important;
+  width: max-content !important;
+  table-layout: auto !important;
+}
+#supplies-settings-pane-legal .supply-sources-table th,
+#supplies-settings-pane-legal .supply-sources-table td {
+  white-space: nowrap !important;
+  word-break: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 280px;
+}
+#supplies-settings-pane-legal .supply-sources-table td:last-child {
+  text-align: center;
+  max-width: none;
+  overflow: visible;
+  text-overflow: clip;
+}
+#supplies-settings-pane-legal .supply-sources-table tr.le-addr-edit-row td,
+#supplies-settings-pane-legal .supply-sources-table tr[id^="le-sig-row-"] td {
+  white-space: normal !important;
+  max-width: none;
+  overflow: visible;
+  text-overflow: clip;
 }
 
 /* ── Date range calendar ──────────────────────────────────────── */

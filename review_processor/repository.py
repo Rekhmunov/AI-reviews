@@ -7694,6 +7694,20 @@ class ReviewRepository:
         conn.execute(
             "ALTER TABLE supply_legal_entities ADD COLUMN IF NOT EXISTS phone TEXT"
         )
+        for _le_addr_col in (
+            "addr_index",
+            "addr_region_code",
+            "addr_district",
+            "addr_city",
+            "addr_settlement",
+            "addr_street",
+            "addr_house",
+            "addr_corpus",
+            "addr_flat",
+        ):
+            conn.execute(
+                f"ALTER TABLE supply_legal_entities ADD COLUMN IF NOT EXISTS {_le_addr_col} TEXT NOT NULL DEFAULT ''"
+            )
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS supply_poa_records (
@@ -8124,18 +8138,30 @@ class ReviewRepository:
 
     # ── Supply Legal Entities CRUD ──
 
+    @classmethod
+    def legal_entity_address_line(cls, le: dict[str, Any] | None) -> str:
+        """One-line legal address for documents: structured fields or legacy address."""
+        return cls.production_address_line(le)
+
     def list_supply_legal_entities(self, *, user_id: int) -> list[dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(
                 self._sql(
                     "SELECT id, user_id, short_name, full_name, requisites, signatories, "
-                    "in_person, basis, address, phone, created_at, "
+                    "in_person, basis, address, phone, "
+                    "addr_index, addr_region_code, addr_district, addr_city, addr_settlement, "
+                    "addr_street, addr_house, addr_corpus, addr_flat, created_at, "
                     "(signature_image IS NOT NULL AND signature_image != '') AS has_signature "
                     "FROM supply_legal_entities WHERE user_id = ? ORDER BY short_name ASC"
                 ),
                 (user_id,),
             ).fetchall()
-        return [self._row_to_dict(row) for row in rows]
+        result: list[dict[str, Any]] = []
+        for row in rows:
+            d = self._row_to_dict(row)
+            d["address"] = self.legal_entity_address_line(d)
+            result.append(d)
+        return result
 
     def get_legal_entity_signature(self, *, user_id: int, entity_id: int) -> str | None:
         with self._connect() as conn:
@@ -8170,9 +8196,31 @@ class ReviewRepository:
         basis: str = "",
         address: str = "",
         phone: str = "",
+        addr_index: str = "",
+        addr_region_code: str = "",
+        addr_district: str = "",
+        addr_city: str = "",
+        addr_settlement: str = "",
+        addr_street: str = "",
+        addr_house: str = "",
+        addr_corpus: str = "",
+        addr_flat: str = "",
         signature_image: str | None = None,
         clear_signature: bool = False,
     ) -> bool:
+        addr = self._normalize_production_addr_fields(
+            addr_index=addr_index,
+            addr_region_code=addr_region_code,
+            addr_district=addr_district,
+            addr_city=addr_city,
+            addr_settlement=addr_settlement,
+            addr_street=addr_street,
+            addr_house=addr_house,
+            addr_corpus=addr_corpus,
+            addr_flat=addr_flat,
+        )
+        composed = self.compose_production_address_line(addr)
+        address_val = composed or str(address or "").strip() or None
         with self._connect() as conn:
             if clear_signature:
                 sig_val = None
@@ -8182,10 +8230,20 @@ class ReviewRepository:
                 # Keep existing signature unchanged
                 existing = conn.execute(self._sql("SELECT signature_image FROM supply_legal_entities WHERE id = ?"), (entity_id,)).fetchone()
                 sig_val = self._row_to_dict(existing).get("signature_image") if existing else None
+            if not address_val:
+                existing_addr = conn.execute(
+                    self._sql("SELECT address FROM supply_legal_entities WHERE user_id = ? AND id = ?"),
+                    (user_id, entity_id),
+                ).fetchone()
+                if existing_addr:
+                    address_val = str(self._row_to_dict(existing_addr).get("address") or "").strip() or None
             result = conn.execute(
                 self._sql(
                     "UPDATE supply_legal_entities SET short_name = ?, full_name = ?, requisites = ?, "
-                    "signatories = ?, in_person = ?, basis = ?, address = ?, phone = ?, signature_image = ? "
+                    "signatories = ?, in_person = ?, basis = ?, address = ?, phone = ?, "
+                    "addr_index = ?, addr_region_code = ?, addr_district = ?, addr_city = ?, "
+                    "addr_settlement = ?, addr_street = ?, addr_house = ?, addr_corpus = ?, addr_flat = ?, "
+                    "signature_image = ? "
                     "WHERE user_id = ? AND id = ?"
                 ),
                 (
@@ -8195,8 +8253,17 @@ class ReviewRepository:
                     (signatories or "").strip() or None,
                     (in_person or "").strip() or None,
                     (basis or "").strip() or None,
-                    (address or "").strip() or None,
+                    address_val,
                     (phone or "").strip() or None,
+                    addr["addr_index"],
+                    addr["addr_region_code"],
+                    addr["addr_district"],
+                    addr["addr_city"],
+                    addr["addr_settlement"],
+                    addr["addr_street"],
+                    addr["addr_house"],
+                    addr["addr_corpus"],
+                    addr["addr_flat"],
                     sig_val,
                     user_id,
                     entity_id,
@@ -8216,15 +8283,39 @@ class ReviewRepository:
         basis: str = "",
         address: str = "",
         phone: str = "",
+        addr_index: str = "",
+        addr_region_code: str = "",
+        addr_district: str = "",
+        addr_city: str = "",
+        addr_settlement: str = "",
+        addr_street: str = "",
+        addr_house: str = "",
+        addr_corpus: str = "",
+        addr_flat: str = "",
         signature_image: str | None = None,
     ) -> dict[str, Any]:
         now = _utc_now()
+        addr = self._normalize_production_addr_fields(
+            addr_index=addr_index,
+            addr_region_code=addr_region_code,
+            addr_district=addr_district,
+            addr_city=addr_city,
+            addr_settlement=addr_settlement,
+            addr_street=addr_street,
+            addr_house=addr_house,
+            addr_corpus=addr_corpus,
+            addr_flat=addr_flat,
+        )
+        composed = self.compose_production_address_line(addr)
+        address_val = composed or str(address or "").strip() or None
         with self._connect() as conn:
             eid = self._insert_and_get_id(
                 conn,
                 "INSERT INTO supply_legal_entities "
-                "(user_id, short_name, full_name, requisites, signatories, in_person, basis, address, phone, signature_image, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "(user_id, short_name, full_name, requisites, signatories, in_person, basis, address, phone, "
+                "addr_index, addr_region_code, addr_district, addr_city, addr_settlement, "
+                "addr_street, addr_house, addr_corpus, addr_flat, signature_image, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     user_id,
                     short_name.strip(),
@@ -8233,14 +8324,27 @@ class ReviewRepository:
                     (signatories or "").strip() or None,
                     (in_person or "").strip() or None,
                     (basis or "").strip() or None,
-                    (address or "").strip() or None,
+                    address_val,
                     (phone or "").strip() or None,
+                    addr["addr_index"],
+                    addr["addr_region_code"],
+                    addr["addr_district"],
+                    addr["addr_city"],
+                    addr["addr_settlement"],
+                    addr["addr_street"],
+                    addr["addr_house"],
+                    addr["addr_corpus"],
+                    addr["addr_flat"],
                     signature_image or None,
                     now,
                 ),
             )
             row = conn.execute(self._sql("SELECT * FROM supply_legal_entities WHERE id = ?"), (eid,)).fetchone()
-        return self._row_to_dict(row) if row else {"id": eid}
+        if not row:
+            return {"id": eid, "address": address_val or "", **addr}
+        d = self._row_to_dict(row)
+        d["address"] = self.legal_entity_address_line(d)
+        return d
 
 
     def delete_supply_legal_entity(self, *, user_id: int, entity_id: int) -> bool:

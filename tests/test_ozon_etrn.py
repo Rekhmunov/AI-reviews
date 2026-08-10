@@ -182,6 +182,57 @@ def test_etrn_shipper_address_prefers_address_over_requisites():
     assert "Старая" not in shipper_xml
 
 
+def test_etrn_shipper_uses_structured_legal_entity_fields():
+    """СвГО takes structured юр.лица address fields without free-text parse."""
+    root = ET.fromstring(
+        _build(
+            le={
+                "full_name": 'ООО "Тест"',
+                "requisites": "ИНН 7701234567",
+                "address": "ignored free text that would parse differently",
+                "signatories": "Иванов Иван Иванович",
+                "addr_index": "141200",
+                "addr_region_code": "50",
+                "addr_city": "Пушкино",
+                "addr_street": "ул. Лесная",
+                "addr_house": "5",
+                "addr_corpus": "2",
+                "addr_flat": "10",
+            }
+        )
+    )
+    adr = root.find("Документ/СодИнфГО/СвГО/РекИдентГО/Адрес/АдрРФ")
+    assert adr is not None
+    assert adr.attrib.get("Индекс") == "141200"
+    assert adr.attrib.get("КодРегион") == "50"
+    assert adr.attrib.get("Город") == "Пушкино"
+    assert adr.attrib.get("Улица") == "ул. Лесная"
+    assert adr.attrib.get("Дом") == "5"
+    assert adr.attrib.get("Корпус") == "2"
+    assert adr.attrib.get("Кварт") == "10"
+
+
+def test_legal_entity_address_line_assembles_for_documents():
+    from review_processor.repository import ReviewRepository
+
+    line = ReviewRepository.legal_entity_address_line(
+        {
+            "addr_index": "141200",
+            "addr_city": "Пушкино",
+            "addr_street": "ул. Лесная",
+            "addr_house": "5",
+            "address": "legacy",
+        }
+    )
+    assert line == "141200, г. Пушкино, ул. Лесная, д. 5"
+    assert (
+        ReviewRepository.legal_entity_address_line(
+            {"address": "старый адрес одной строкой", "addr_city": ""}
+        )
+        == "старый адрес одной строкой"
+    )
+
+
 def test_etrn_consignee_addresses_are_russian_rf():
     root = ET.fromstring(_build())
     legal = root.find("Документ/СодИнфГО/СвГП/РекИдентГП/Адрес/АдрРФ")

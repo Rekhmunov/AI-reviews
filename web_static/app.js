@@ -3275,6 +3275,58 @@ async function deleteSupplyWarehouse(id) {
 // ── Supply legal entities ──
 let _supplyLegalEntitiesCache = [];
 
+const _LE_ADDR_FIELDS = [
+  ["addr_index", "Индекс"],
+  ["addr_region_code", "Код региона"],
+  ["addr_district", "Район"],
+  ["addr_city", "Город"],
+  ["addr_settlement", "Нас. пункт"],
+  ["addr_street", "Улица"],
+  ["addr_house", "Дом"],
+  ["addr_corpus", "Корпус"],
+  ["addr_flat", "Кв./офис"],
+];
+
+/** Full one-line legal address for documents / table. */
+function legalEntityAddressLine(le) {
+  if (!le) return "";
+  // Reuse production address assembler (same field names).
+  return productionAddressLine(le);
+}
+
+function _readNewLegalAddrFields() {
+  return {
+    addr_index: document.getElementById("newLegalAddrIndex")?.value.trim() || "",
+    addr_region_code: document.getElementById("newLegalAddrRegion")?.value.trim() || "",
+    addr_district: document.getElementById("newLegalAddrDistrict")?.value.trim() || "",
+    addr_city: document.getElementById("newLegalAddrCity")?.value.trim() || "",
+    addr_settlement: document.getElementById("newLegalAddrSettlement")?.value.trim() || "",
+    addr_street: document.getElementById("newLegalAddrStreet")?.value.trim() || "",
+    addr_house: document.getElementById("newLegalAddrHouse")?.value.trim() || "",
+    addr_corpus: document.getElementById("newLegalAddrCorpus")?.value.trim() || "",
+    addr_flat: document.getElementById("newLegalAddrFlat")?.value.trim() || "",
+  };
+}
+
+function _clearNewLegalFormFields() {
+  [
+    "newLegalShortName", "newLegalFullName", "newLegalRequisites", "newLegalSignatories",
+    "newLegalInPerson", "newLegalBasis", "newLegalPhone",
+    "newLegalAddrIndex", "newLegalAddrRegion", "newLegalAddrDistrict", "newLegalAddrCity",
+    "newLegalAddrSettlement", "newLegalAddrStreet", "newLegalAddrHouse", "newLegalAddrCorpus", "newLegalAddrFlat",
+  ].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ""; });
+}
+
+function _legalAddrEditInputsHtml(item) {
+  return `<div class="worker-form-grid" style="margin:0">
+    ${_LE_ADDR_FIELDS.map(([key, label]) => `
+      <div class="wfg-field">
+        <label class="wfg-label">${label}</label>
+        <input class="edit-inline-input" data-le-addr="${key}" value="${esc(item[key] || "")}" autocomplete="off" />
+      </div>`).join("")}
+  </div>`;
+}
+
 async function loadSupplyLegalEntities() {
   const res = await fetch("/api/supply-legal-entities").catch(() => null);
   if (!res || !res.ok) return;
@@ -3293,7 +3345,7 @@ function renderSupplyLegalEntitiesTbody() {
   _supplyLegalEntitiesCache.forEach((e, i) => {
     const tr = document.createElement("tr");
     tr.dataset.id = e.id;
-    tr.innerHTML = `<td>${i+1}</td><td class="editable-cell">${esc(e.short_name||"")}</td><td class="editable-cell">${esc(e.full_name||"")}</td><td class="editable-cell">${esc(e.requisites||"")}</td><td class="editable-cell">${esc(e.signatories||"")}</td><td class="editable-cell">${esc(e.in_person||"")}</td><td class="editable-cell">${esc(e.basis||"")}</td><td class="editable-cell">${esc(e.address||"")}</td><td class="editable-cell">${esc(e.phone||"")}</td>
+    tr.innerHTML = `<td>${i+1}</td><td class="editable-cell">${esc(e.short_name||"")}</td><td class="editable-cell">${esc(e.full_name||"")}</td><td class="editable-cell">${esc(e.requisites||"")}</td><td class="editable-cell">${esc(e.signatories||"")}</td><td class="editable-cell">${esc(e.in_person||"")}</td><td class="editable-cell">${esc(e.basis||"")}</td><td class="editable-cell">${esc(legalEntityAddressLine(e))}</td><td class="editable-cell">${esc(e.phone||"")}</td>
       <td>
         <div class="row" style="gap:4px;flex-wrap:nowrap">
           <button class="secondary small-btn" onclick="startEditLegalEntity(${e.id})">✏</button>
@@ -3309,26 +3361,37 @@ async function startEditLegalEntity(id) {
   if (!item) return;
   const tr = document.querySelector(`#supplyLegalEntitiesTbody tr[data-id="${id}"]`);
   if (!tr) return;
+  document.querySelectorAll("#supplyLegalEntitiesTbody tr.le-addr-edit-row, #supplyLegalEntitiesTbody tr[id^='le-sig-row-']").forEach((r) => r.remove());
   const cells = tr.querySelectorAll(".editable-cell");
-  cells[0].innerHTML = `<input class="edit-inline-input" value="${esc(item.short_name||"")}" />`;
-  cells[1].innerHTML = `<input class="edit-inline-input" value="${esc(item.full_name||"")}" />`;
-  cells[2].innerHTML = `<input class="edit-inline-input" value="${esc(item.requisites||"")}" />`;
-  cells[3].innerHTML = `<input class="edit-inline-input" value="${esc(item.signatories||"")}" />`;
-  cells[4].innerHTML = `<input class="edit-inline-input" value="${esc(item.in_person||"")}" />`;
-  cells[5].innerHTML = `<input class="edit-inline-input" value="${esc(item.basis||"")}" />`;
-  cells[6].innerHTML = `<input class="edit-inline-input" value="${esc(item.address||"")}" />`;
-  cells[7].innerHTML = `<input class="edit-inline-input" value="${esc(item.phone||"")}" />`;
-  // Insert a sub-row for signature upload below the edit row
+  cells[0].innerHTML = `<input class="edit-inline-input" data-field="short" value="${esc(item.short_name||"")}" />`;
+  cells[1].innerHTML = `<input class="edit-inline-input" data-field="full" value="${esc(item.full_name||"")}" />`;
+  cells[2].innerHTML = `<input class="edit-inline-input" data-field="req" value="${esc(item.requisites||"")}" />`;
+  cells[3].innerHTML = `<input class="edit-inline-input" data-field="sign" value="${esc(item.signatories||"")}" />`;
+  cells[4].innerHTML = `<input class="edit-inline-input" data-field="inp" value="${esc(item.in_person||"")}" />`;
+  cells[5].innerHTML = `<input class="edit-inline-input" data-field="basis" value="${esc(item.basis||"")}" />`;
+  cells[6].innerHTML = `<span class="small" style="color:#64748b">поля ниже</span>`;
+  cells[7].innerHTML = `<input class="edit-inline-input" data-field="phone" value="${esc(item.phone||"")}" />`;
+
+  const addrRow = document.createElement("tr");
+  addrRow.className = "le-addr-edit-row";
+  addrRow.dataset.forId = String(id);
+  addrRow.style.background = "#f8fafc";
+  addrRow.innerHTML = `<td colspan="10" style="padding:12px 8px;border-top:none;white-space:normal">
+    <div class="small" style="margin-bottom:8px;color:#64748b">Юридический адрес (поля эТрН)</div>
+    ${_legalAddrEditInputsHtml(item)}
+  </td>`;
+  tr.after(addrRow);
+
   const sigRow = document.createElement("tr");
   sigRow.id = `le-sig-row-${id}`;
   sigRow.style.background = "#f8fafc";
-  sigRow.innerHTML = `<td colspan="10" style="padding:4px 8px;border-top:none">
+  sigRow.innerHTML = `<td colspan="10" style="padding:4px 8px;border-top:none;white-space:normal">
     <div style="display:flex;align-items:center;gap:8px">
       <span class="small" style="color:#64748b">Подпись:</span>
       <span id="le-sig-container-${id}"><span class="small" style="color:#94a3b8">Загрузка…</span></span>
     </div>
   </td>`;
-  tr.after(sigRow);
+  addrRow.after(sigRow);
   loadEditLegalSig(id);
 
   const actionCell = tr.cells[tr.cells.length - 1];
@@ -3341,17 +3404,23 @@ async function startEditLegalEntity(id) {
 async function saveEditLegalEntity(id) {
   const tr = document.querySelector(`#supplyLegalEntitiesTbody tr[data-id="${id}"]`);
   if (!tr) return;
-  const inputs = tr.querySelectorAll(".edit-inline-input");
-  const short = inputs[0]?.value.trim() || "";
-  const full = inputs[1]?.value.trim() || "";
-  const req = inputs[2]?.value.trim() || "";
-  const sig = inputs[3]?.value.trim() || "";
-  const inp = inputs[4]?.value.trim() || "";
-  const bas = inputs[5]?.value.trim() || "";
-  const addr = inputs[6]?.value.trim() || "";
-  const phone = inputs[7]?.value.trim() || "";
+  const item = _supplyLegalEntitiesCache.find((x) => x.id === id);
+  const addrRow = document.querySelector(`#supplyLegalEntitiesTbody tr.le-addr-edit-row[data-for-id="${id}"]`);
+  const short = tr.querySelector("[data-field='short']")?.value.trim() || "";
+  const full = tr.querySelector("[data-field='full']")?.value.trim() || "";
+  const req = tr.querySelector("[data-field='req']")?.value.trim() || "";
+  const sig = tr.querySelector("[data-field='sign']")?.value.trim() || "";
+  const inp = tr.querySelector("[data-field='inp']")?.value.trim() || "";
+  const bas = tr.querySelector("[data-field='basis']")?.value.trim() || "";
+  const phone = tr.querySelector("[data-field='phone']")?.value.trim() || "";
   if (!short) return;
-  const sigPayload = { short_name: short, full_name: full, requisites: req, signatories: sig, in_person: inp, basis: bas, address: addr, phone };
+  const sigPayload = {
+    short_name: short, full_name: full, requisites: req, signatories: sig,
+    in_person: inp, basis: bas, phone, address: item?.address || "",
+  };
+  _LE_ADDR_FIELDS.forEach(([key]) => {
+    sigPayload[key] = addrRow?.querySelector(`[data-le-addr="${key}"]`)?.value.trim() || "";
+  });
   if (_editLegalSigClear) { sigPayload.clear_signature = true; }
   else if (_editLegalSigBase64) { sigPayload.signature_image = _editLegalSigBase64; }
   const saveRes = await fetch(`/api/supply-legal-entities/${id}`, { method: "PATCH", headers: jsonHeaders(), body: JSON.stringify(sigPayload) }).catch(() => null);
@@ -3369,9 +3438,7 @@ function toggleAddLegalEntityForm(show) {
   const form = document.getElementById("addLegalEntityForm");
   if (!form) return;
   form.classList.toggle("hidden", !show); form.style.display = show ? "" : "none";
-  if (!show) {
-    ["newLegalShortName","newLegalFullName","newLegalRequisites","newLegalSignatories","newLegalInPerson","newLegalBasis","newLegalAddress","newLegalPhone"].forEach((id) => { const el = document.getElementById(id); if(el) el.value=""; });
-  }
+  if (!show) _clearNewLegalFormFields();
 }
 
 async function saveSupplyLegalEntity() {
@@ -3381,11 +3448,14 @@ async function saveSupplyLegalEntity() {
   const sig = document.getElementById("newLegalSignatories")?.value.trim() || "";
   const inp = document.getElementById("newLegalInPerson")?.value.trim() || "";
   const bas = document.getElementById("newLegalBasis")?.value.trim() || "";
-  const addr = document.getElementById("newLegalAddress")?.value.trim() || "";
   const phone = document.getElementById("newLegalPhone")?.value.trim() || "";
   const info = document.getElementById("addLegalEntityInfo");
   if (!short) { if (info) { info.textContent = "Введите короткое название"; info.style.color = "#b91c1c"; } return; }
-  const newSigPayload = { short_name: short, full_name: full, requisites: req, signatories: sig, in_person: inp, basis: bas, address: addr, phone };
+  const newSigPayload = {
+    short_name: short, full_name: full, requisites: req, signatories: sig,
+    in_person: inp, basis: bas, phone, address: "",
+    ..._readNewLegalAddrFields(),
+  };
   if (_newLegalSigBase64) newSigPayload.signature_image = _newLegalSigBase64;
   const res = await fetch("/api/supply-legal-entities", { method: "POST", headers: jsonHeaders(), body: JSON.stringify(newSigPayload) }).catch(() => null);
   if (!res || !res.ok) { const e = await res?.json().catch(()=>({})) || {}; if (info) { info.textContent = e.detail||"Ошибка"; info.style.color = "#b91c1c"; } return; }
@@ -15913,10 +15983,12 @@ function onZLegalChange() {
   const block = document.getElementById("zLegalInfo");
   if (!block) return;
   if (!legal) { block.classList.add("hidden"); block.innerHTML = ""; return; }
+  const addrLine = legalEntityAddressLine(legal);
   const rows = [
     legal.full_name ? `<span class="z-info-label">Полное:</span> ${esc(legal.full_name)}` : null,
     legal.requisites ? `<span class="z-info-label">Реквизиты:</span> ${esc(legal.requisites)}` : null,
     legal.signatories ? `<span class="z-info-label">Подписант:</span> ${esc(legal.signatories)}` : null,
+    addrLine ? `<span class="z-info-label">Адрес:</span> ${esc(addrLine)}` : null,
   ].filter(Boolean).map(r => `<span class="z-info-row">${r}</span>`).join("");
   if (rows) { block.innerHTML = rows; block.classList.remove("hidden"); }
   else block.classList.add("hidden");
