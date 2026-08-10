@@ -7568,6 +7568,9 @@ class ReviewRepository:
             conn.execute(
                 f"ALTER TABLE supply_drivers ADD COLUMN IF NOT EXISTS {_drv_fio_col} TEXT NOT NULL DEFAULT ''"
             )
+        conn.execute(
+            "ALTER TABLE supply_drivers ADD COLUMN IF NOT EXISTS phone TEXT NOT NULL DEFAULT ''"
+        )
         # ── OZON Supplies module (fully isolated from WB) ──────────────────────
         conn.execute(
             """
@@ -8061,6 +8064,10 @@ class ReviewRepository:
         return cls.compose_driver_full_name(driver) or str(driver.get("full_name") or "").strip()
 
     @staticmethod
+    def _normalize_driver_phone(phone: str = "") -> str:
+        return re.sub(r"\s+", " ", str(phone or "").strip())[:32]
+
+    @staticmethod
     def compose_vehicle_line(fields: dict[str, Any] | None = None, **extra: str) -> str:
         """One-line «марка номер» for selects / заявка / table tags."""
         data = {**(fields or {}), **extra}
@@ -8177,6 +8184,7 @@ class ReviewRepository:
         last_name: str = "",
         first_name: str = "",
         middle_name: str = "",
+        phone: str = "",
         documents: str = "",
         in_person: str = "",
         vehicles: list | None = None,
@@ -8207,6 +8215,7 @@ class ReviewRepository:
             middle_name=middle_name,
             full_name=full_name,
         )
+        phone_val = self._normalize_driver_phone(phone)
         vj = _j.dumps(self._normalize_vehicles_list(vehicles), ensure_ascii=False)
         cf = self._normalize_carrier_fields(
             carrier_name=carrier_name,
@@ -8235,19 +8244,20 @@ class ReviewRepository:
             driver_id = self._insert_and_get_id(
                 conn,
                 "INSERT INTO supply_drivers ("
-                "user_id, full_name, last_name, first_name, middle_name, documents, in_person, vehicles_json, carrier, "
+                "user_id, full_name, last_name, first_name, middle_name, phone, documents, in_person, vehicles_json, carrier, "
                 "carrier_name, carrier_inn, carrier_kpp, "
                 "carrier_addr_index, carrier_addr_region_code, carrier_addr_district, "
                 "carrier_addr_city, carrier_addr_settlement, carrier_addr_street, "
                 "carrier_addr_house, carrier_addr_corpus, carrier_addr_flat, "
                 "doc_vu_series, doc_vu_number, doc_vu_issuer, doc_vu_date, doc_inn_fl, created_at"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     user_id,
                     fio["full_name"],
                     fio["last_name"],
                     fio["first_name"],
                     fio["middle_name"],
+                    phone_val,
                     docs_val,
                     (in_person or "").strip() or None,
                     vj,
@@ -8279,6 +8289,7 @@ class ReviewRepository:
         if not row:
             return {
                 "id": driver_id,
+                "phone": phone_val,
                 "carrier": carrier_val,
                 "documents": docs_val or "",
                 **fio,
@@ -8287,6 +8298,7 @@ class ReviewRepository:
             }
         d = self._row_to_dict(row)
         d.update(fio)
+        d["phone"] = phone_val
         d["carrier"] = self.carrier_line(d)
         d["documents"] = self.driver_documents_line(d)
         return d
@@ -8300,6 +8312,7 @@ class ReviewRepository:
         last_name: str = "",
         first_name: str = "",
         middle_name: str = "",
+        phone: str = "",
         documents: str = "",
         in_person: str = "",
         vehicles: list | None = None,
@@ -8329,6 +8342,7 @@ class ReviewRepository:
             middle_name=middle_name,
             full_name=full_name,
         )
+        phone_val = self._normalize_driver_phone(phone)
         vj = _j.dumps(self._normalize_vehicles_list(vehicles), ensure_ascii=False)
         cf = self._normalize_carrier_fields(
             carrier_name=carrier_name,
@@ -8372,7 +8386,7 @@ class ReviewRepository:
             result = conn.execute(
                 self._sql(
                     "UPDATE supply_drivers SET full_name = ?, last_name = ?, first_name = ?, middle_name = ?, "
-                    "documents = ?, in_person = ?, vehicles_json = ?, "
+                    "phone = ?, documents = ?, in_person = ?, vehicles_json = ?, "
                     "carrier = ?, carrier_name = ?, carrier_inn = ?, carrier_kpp = ?, "
                     "carrier_addr_index = ?, carrier_addr_region_code = ?, carrier_addr_district = ?, "
                     "carrier_addr_city = ?, carrier_addr_settlement = ?, carrier_addr_street = ?, "
@@ -8385,6 +8399,7 @@ class ReviewRepository:
                     fio["last_name"],
                     fio["first_name"],
                     fio["middle_name"],
+                    phone_val,
                     docs_val,
                     (in_person or "").strip() or None,
                     vj,

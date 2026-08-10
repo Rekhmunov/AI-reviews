@@ -621,6 +621,24 @@ def test_etrn_contacts_use_legal_entity_phone_everywhere():
         assert phone.text != "+79001234567"
 
 
+def test_etrn_driver_phone_prefers_catalog_over_legal_entity():
+    """СвВодит/Тлф ← телефон водителя; остальные контакты остаются с юр.лица."""
+    root = ET.fromstring(
+        _build(
+            driver_fields={"phone": "+79005554433"},
+        )
+    )
+    sod = root.find("Документ/СодИнфГО")
+    assert sod is not None
+    driver = sod.find("СвВодит/Тлф")
+    assert driver is not None and driver.text == "+79005554433"
+    go = sod.find("СвГО/РекИдентГО/Контакт/Тлф")
+    assert go is not None and go.text == "+79991112233"
+    # Empty driver phone → fallback to юр.лица.
+    root2 = ET.fromstring(_build(driver_fields={"phone": ""}))
+    assert root2.find("Документ/СодИнфГО/СвВодит/Тлф").text == "+79991112233"
+
+
 def test_etrn_contacts_fallback_to_driver_phone_when_le_phone_empty():
     root = ET.fromstring(
         _build(

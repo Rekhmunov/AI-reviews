@@ -2452,6 +2452,10 @@
                   <input id="newDriverMiddleName" type="text" placeholder="Иванович" autocomplete="off" />
                 </div>
                 <div class="wfg-field">
+                  <label class="wfg-label" for="newDriverPhone">Телефон</label>
+                  <input id="newDriverPhone" type="tel" maxlength="32" placeholder="+7 900 123-45-67" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
                   <label class="wfg-label" for="newDriverInPerson">В лице</label>
                   <input id="newDriverInPerson" type="text" placeholder="Дательный падеж" autocomplete="off" />
                 </div>
@@ -2547,12 +2551,13 @@
               <table class="supply-sources-table">
                 <thead id="supplyDriversThead"><tr>
                   <th data-col="num" style="width:40px">№</th>
-                  <th data-col="name" style="width:180px">ФИО</th>
-                  <th data-col="inp" style="width:150px">В лице</th>
-                  <th data-col="docs" style="width:150px">Документы</th>
-                  <th data-col="carrier" style="width:180px">Перевозчик</th>
-                  <th data-col="veh" style="width:220px">Автомобили</th>
-                  <th class="sst-actions-col" data-col="acts" style="width:180px"></th>
+                  <th data-col="name" style="width:160px">ФИО</th>
+                  <th data-col="phone" style="width:120px">Телефон</th>
+                  <th data-col="inp" style="width:130px">В лице</th>
+                  <th data-col="docs" style="width:140px">Документы</th>
+                  <th data-col="carrier" style="width:160px">Перевозчик</th>
+                  <th data-col="veh" style="width:200px">Автомобили</th>
+                  <th class="sst-actions-col" data-col="acts" style="width:160px"></th>
                 </tr></thead>
                 <tbody id="supplyDriversTbody"></tbody>
               </table>
