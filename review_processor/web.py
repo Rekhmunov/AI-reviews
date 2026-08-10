@@ -515,6 +515,7 @@ class CreateSupplyDriverRequest(BaseModel):
     last_name: str = ""
     first_name: str = ""
     middle_name: str = ""
+    phone: str = ""
     documents: str = ""
     in_person: str = ""
     vehicles: list = Field(default_factory=list)
@@ -614,6 +615,7 @@ class UpdateSupplyDriverRequest(BaseModel):
     last_name: str = ""
     first_name: str = ""
     middle_name: str = ""
+    phone: str = ""
     documents: str = ""
     in_person: str = ""
     vehicles: list = Field(default_factory=list)
@@ -12676,6 +12678,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             last_name=fio["last_name"],
             first_name=fio["first_name"],
             middle_name=fio["middle_name"],
+            phone=payload.phone,
             documents=payload.documents,
             in_person=payload.in_person,
             vehicles=payload.vehicles,
@@ -12720,6 +12723,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             last_name=fio["last_name"],
             first_name=fio["first_name"],
             middle_name=fio["middle_name"],
+            phone=payload.phone,
             documents=payload.documents,
             in_person=payload.in_person,
             vehicles=payload.vehicles,

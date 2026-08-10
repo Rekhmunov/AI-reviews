@@ -1070,7 +1070,11 @@ def build_ozon_etrn_xml(
         vod_attrs.setdefault("НомВУ", "000000")
         vod_attrs.setdefault("ДатаВыдВУ", "01.01.2000")
     sv_vod = _el(sod, "СвВодит", **vod_attrs)
-    _el(sv_vod, "Тлф", contact_phone or "не указан")
+    # Driver phone from catalog first; fallback to юр.лица (contact_phone).
+    vod_phone = str((driver_fields or {}).get("phone") or "").strip()
+    if not vod_phone:
+        vod_phone = contact_phone
+    _el(sv_vod, "Тлф", vod_phone or "не указан")
     fio_attrs = {"Фамилия": fam, "Имя": imya or "не указано"}
     if otch:
         fio_attrs["Отчество"] = otch
