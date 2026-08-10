@@ -22,11 +22,11 @@ from xml.dom import minidom
 
 _log = logging.getLogger(__name__)
 
-OZON_CONSIGNEE_NAME = 'Общество с ограниченной ответственностью "Интернет Решения"'
+OZON_CONSIGNEE_NAME = 'ООО "ИНТЕРНЕТ РЕШЕНИЯ"'
 OZON_CONSIGNEE_INN = "7704217370"
 OZON_CONSIGNEE_KPP = "997750001"
 OZON_CONSIGNEE_EDO_GUID = "2BM-7704217370-774301001-201407110916237240124"
-# Legal address of Ozon (ООО «Интернет Решения») — always emit as АдрРФ (Russian).
+# Legal address of Ozon (ООО «ИНТЕРНЕТ РЕШЕНИЯ») — always emit as АдрРФ (Russian).
 OZON_CONSIGNEE_ADDRESS = "123112, г. Москва, Пресненская наб., д. 10"
 # Structured fields — do not rely on free-text parse for the constant consignee.
 OZON_CONSIGNEE_ADDR_FIELDS: dict[str, str] = {

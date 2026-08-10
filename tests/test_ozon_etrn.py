@@ -7,6 +7,8 @@ from datetime import datetime
 from review_processor.ozon_etrn import (
     OZON_CONSIGNEE_EDO_GUID,
     OZON_CONSIGNEE_INN,
+    OZON_CONSIGNEE_KPP,
+    OZON_CONSIGNEE_NAME,
     build_ozon_etrn_xml,
 )
 
@@ -99,7 +101,12 @@ def test_etrn_xml_core_schema_shape():
     assert part.attrib.get("Вместим")
 
     # Ozon consignee + cargo required fields.
-    assert sod.find("СвГП/РекИдентГП/ИдСв/СвЮЛУч").attrib["ИННЮЛ"] == OZON_CONSIGNEE_INN
+    gp_ul = sod.find("СвГП/РекИдентГП/ИдСв/СвЮЛУч")
+    assert gp_ul is not None
+    assert gp_ul.attrib["НаимОрг"] == OZON_CONSIGNEE_NAME
+    assert gp_ul.attrib["НаимОрг"] == 'ООО "ИНТЕРНЕТ РЕШЕНИЯ"'
+    assert gp_ul.attrib["ИННЮЛ"] == OZON_CONSIGNEE_INN == "7704217370"
+    assert gp_ul.attrib["КПП"] == OZON_CONSIGNEE_KPP == "997750001"
     gp_adr = sod.find("СвГП/РекИдентГП/Адрес/АдрРФ")
     assert gp_adr is not None
     assert gp_adr.attrib.get("Индекс") == "123112"
