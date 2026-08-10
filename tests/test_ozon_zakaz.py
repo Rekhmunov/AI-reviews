@@ -167,8 +167,36 @@ def test_zakaz_phone_never_empty():
         "phone": "",
         "address": "101000, г. Москва, ул. Ленина, д. 1",
     }, driver_phone=""))
-    assert root.find("Документ/СодИнфГО/СвГО/Конт/Тлф").text
+    go_phone = root.find("Документ/СодИнфГО/СвГО/Конт/Тлф").text
+    assert go_phone
+    # Contour.Logistics hides +7 (000)… as empty — never emit that stub.
+    assert "000" not in (go_phone or "")
     assert root.find("Документ/СодИнфГО/СвПрв/Конт/Тлф").text
+
+
+def test_zakaz_go_phone_falls_back_to_driver_like_etrn():
+    """Пустой le.phone → как в эТрН: телефон водителя, не Contour-скрытый 000."""
+    root = ET.fromstring(
+        _build(
+            le={
+                "full_name": 'ООО "Тест Поставщик"',
+                "short_name": "Тест",
+                "requisites": "ИНН 8701234567 КПП 770101001",
+                "signatories": "Иванов Иван Иванович",
+                "phone": "",
+                "address": "101000, г. Москва, ул. Ленина, д. 1",
+            },
+            driver_phone="+79001234567",
+            driver_fields={"phone": "+79005554433"},
+            carrier_fields={
+                "carrier_name": 'ООО "Перевозчик"',
+                "carrier_inn": "5001002003",
+                "carrier_phone": "+79007776655",
+            },
+        )
+    )
+    assert root.find("Документ/СодИнфГО/СвГО/Конт/Тлф").text == "+7 (900) 555-44-33"
+    assert root.find("Документ/СодИнфГО/СвПрв/Конт/Тлф").text == "+7 (900) 777-66-55"
 
 
 def test_zakaz_carrier_phone_prefers_catalog_over_legal_entity():

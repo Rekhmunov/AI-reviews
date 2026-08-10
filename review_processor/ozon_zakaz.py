@@ -194,8 +194,9 @@ def _add_kont(parent: ET.Element, phone: str) -> None:
     kont = _el(parent, "Конт")
     display = _format_phone_display(phone)
     if not display:
-        # Last-resort XSD fill; Contour often hides 000-numbers as «нет телефона».
-        display = "+7 (000) 000-00-00"
+        # Contour.Logistics UI treats +7 (000) … as empty («нет телефона»).
+        # Prefer a visible non-zero placeholder only when every source failed.
+        display = str(phone or "").strip() or "не указан"
     _el(kont, "Тлф", display)
 
 
@@ -353,18 +354,32 @@ def build_ozon_zakaz_xml(
     else:
         carrier_name, carrier_inn, carrier_kpp = _parse_carrier(carrier_text)
 
-    # Грузоотправитель: зеркально перевозчику.
-    # Перевозчик ← carrier_fields.carrier_phone (каталог водителей).
-    # ГО        ← shipper_phone / le.phone (каталог юр.лиц), не водительский номер.
+    # Грузоотправитель / СвГО/Конт/Тлф — та же цепочка, что contact_phone в эТрН.
+    # Перевозчик берёт carrier_phone с карточки водителя (отдельное поле) → в Contour ОК.
+    # Раньше для ГО при пустом le.phone писали +7 (000)…, а Contour это скрывает как
+    # «нет телефона»; эТрН в том же случае подставлял driver_phone — отсюда расхождение.
     contact_phone = _normalize_phone(str(shipper_phone or ""))
     if not contact_phone:
         contact_phone = _shipper_phone_from_le(le, entities=legal_entities)
+    if not contact_phone and isinstance(driver_fields, dict):
+        contact_phone = _normalize_phone(str(driver_fields.get("phone") or ""))
+    if not contact_phone:
+        # web.py кладёт сюда Ozon vehicle.driver_phone (переменная названа driver_docs).
+        contact_phone = _normalize_phone(str(driver_phone or ""))
     if not contact_phone:
         _log.warning(
-            "ozon_zakaz: нет телефона юр.лица (id=%s short=%r phone=%r) — СвГО/Конт/Тлф будет заглушкой",
+            "ozon_zakaz: нет телефона ГО (le.id=%s short=%r le.phone=%r driver=%r) — СвГО/Конт/Тлф пуст",
             (le or {}).get("id"),
             (le or {}).get("short_name"),
             (le or {}).get("phone"),
+            driver_phone or (driver_fields or {}).get("phone") if isinstance(driver_fields, dict) else "",
+        )
+    else:
+        _log.info(
+            "ozon_zakaz: СвГО/Конт/Тлф=%s (le.phone=%r shipper_phone=%r)",
+            contact_phone,
+            (le or {}).get("phone"),
+            shipper_phone,
         )
 
     carrier_addr = _addr_from_carrier_fields(carrier_fields)
