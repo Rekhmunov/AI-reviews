@@ -5199,18 +5199,28 @@ function renderOzonTable() {
           <button class="supply-detail-link" onclick="openOzonDetailsModal(${item.supply_order_id})">☰ Детали поставки</button>
           <div style="display:flex;flex-wrap:nowrap;align-items:center;gap:2px;width:100%;min-width:0"><button class="supply-detail-link supply-poa-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="downloadOzonPoA(${item.supply_order_id})">⬇ Доверенность</button><button class="supply-detail-link supply-print-btn" style="flex:0 0 60px;min-width:60px;width:60px;height:28px;padding:0;font-size:13px;font-family:'Segoe UI Symbol','Arial Unicode MS',sans-serif;display:flex;align-items:center;justify-content:center" onclick="window.open('/api/ozon-supplies/${item.supply_order_id}/poa.pdf','_blank')" title="Печать">⎙</button></div>
           <div style="display:flex;flex-wrap:nowrap;align-items:center;gap:2px;width:100%;min-width:0"><button class="supply-detail-link supply-ttn-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="window.open('/api/ozon-supplies/${item.supply_order_id}/ttn.docx','_blank')">⬇ ТТН</button><button class="supply-detail-link supply-print-btn" style="flex:0 0 60px;min-width:60px;width:60px;height:28px;padding:0;font-size:13px;font-family:'Segoe UI Symbol','Arial Unicode MS',sans-serif;display:flex;align-items:center;justify-content:center" onclick="window.open('/api/ozon-supplies/${item.supply_order_id}/ttn.pdf','_blank')" title="Печать">⎙</button></div>
-          <button class="supply-detail-link supply-zakaz-link" style="width:100%;text-align:left"
-                  onclick="window.open('/api/ozon-supplies/${item.supply_order_id}/zakaz.xml','_blank')"
-                  title="Скачать XML заявки (ЭЗЗ) для загрузки в Контур.Логистику">⬇ Заявка</button>
-          <button class="supply-detail-link supply-etrn-link" style="width:100%;text-align:left"
-                  onclick="window.open('/api/ozon-supplies/${item.supply_order_id}/etrn.xml','_blank')"
-                  title="Скачать XML эТрН для загрузки в Контур.Логистику">⬇ эТрН</button>
-          <button class="supply-detail-link" style="width:100%;text-align:left"
-                  onclick="openOzonEdoSendModal(${item.supply_order_id})"
-                  title="Подписать КриптоПро и отправить в Contour ЭДО">↗ Отправка в ЭДО</button>
-          <button class="supply-detail-link" style="width:100%;text-align:left"
-                  onclick="openOzonEdoStatusModal(${item.supply_order_id})"
-                  title="Проверить стадию документа в ЭДО">↻ Проверка статуса</button>
+          <div style="display:flex;flex-wrap:nowrap;align-items:center;gap:2px;width:100%;min-width:0">
+            <button class="supply-detail-link supply-zakaz-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left"
+                    onclick="window.open('/api/ozon-supplies/${item.supply_order_id}/zakaz.xml','_blank')"
+                    title="Скачать XML заявки (ЭЗЗ) для загрузки в Контур.Логистику">⬇ Заявка</button>
+            <button class="supply-detail-link supply-print-btn" style="flex:0 0 32px;min-width:32px;width:32px;height:28px;padding:0;font-size:14px;display:flex;align-items:center;justify-content:center"
+                    onclick="openOzonEdoSendModal(${item.supply_order_id},'zakaz')"
+                    title="Отправить Заявку в ЭДО">↗</button>
+            <button class="supply-detail-link supply-print-btn" style="flex:0 0 32px;min-width:32px;width:32px;height:28px;padding:0;font-size:14px;display:flex;align-items:center;justify-content:center"
+                    onclick="openOzonEdoStatusModal(${item.supply_order_id},'zakaz')"
+                    title="Статус Заявки в ЭДО">↻</button>
+          </div>
+          <div style="display:flex;flex-wrap:nowrap;align-items:center;gap:2px;width:100%;min-width:0">
+            <button class="supply-detail-link supply-etrn-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left"
+                    onclick="window.open('/api/ozon-supplies/${item.supply_order_id}/etrn.xml','_blank')"
+                    title="Скачать XML эТрН для загрузки в Контур.Логистику">⬇ эТрН</button>
+            <button class="supply-detail-link supply-print-btn" style="flex:0 0 32px;min-width:32px;width:32px;height:28px;padding:0;font-size:14px;display:flex;align-items:center;justify-content:center"
+                    onclick="openOzonEdoSendModal(${item.supply_order_id},'etrn')"
+                    title="Отправить эТрН в ЭДО">↗</button>
+            <button class="supply-detail-link supply-print-btn" style="flex:0 0 32px;min-width:32px;width:32px;height:28px;padding:0;font-size:14px;display:flex;align-items:center;justify-content:center"
+                    onclick="openOzonEdoStatusModal(${item.supply_order_id},'etrn')"
+                    title="Статус эТрН в ЭДО">↻</button>
+          </div>
         </div>
       </td>`;
     tbody.appendChild(tr);
@@ -14545,7 +14555,13 @@ window.showSuppliesSettingsTab = function(tab) {
 // ── Contour EDO (CryptoPro + Logistics / Diadoc) ─────────────────────────
 
 let _ozonEdoSupplyId = null;
+let _ozonEdoDocType = "etrn";
 let _ozonEdoStatusSupplyId = null;
+let _ozonEdoStatusDocType = "";
+
+function _ozonEdoDocTitle(docType) {
+  return docType === "zakaz" ? "Заявка (ЭЗЗ)" : "эТрН";
+}
 let _cadesPluginReady = null;
 
 function _edoSetInfo(elId, text, ok) {
@@ -14712,10 +14728,21 @@ function _bytesToB64(bytes) {
   return btoa(bin);
 }
 
-async function openOzonEdoSendModal(supplyOrderId) {
+async function openOzonEdoSendModal(supplyOrderId, docType) {
   _ozonEdoSupplyId = supplyOrderId;
+  _ozonEdoDocType = docType === "zakaz" ? "zakaz" : "etrn";
   const modal = document.getElementById("ozonEdoModal");
   if (!modal) return;
+  const titleEl = document.getElementById("ozonEdoModalTitle");
+  if (titleEl) titleEl.textContent = `Отправка в ЭДО — ${_ozonEdoDocTitle(_ozonEdoDocType)}`;
+  const docLabel = document.getElementById("ozonEdoDocTypeLabel");
+  if (docLabel) {
+    docLabel.textContent = _ozonEdoDocType === "zakaz"
+      ? "Заявка ЭЗЗ → Diadoc"
+      : "эТрН → Contour.Логистика";
+  }
+  const hiddenType = document.getElementById("ozonEdoDocType");
+  if (hiddenType) hiddenType.value = _ozonEdoDocType;
   modal.classList.remove("hidden");
   _edoSetInfo("ozonEdoModalInfo", "Загрузка сертификатов КриптоПро…");
   const sel = document.getElementById("ozonEdoCertSelect");
@@ -14731,8 +14758,12 @@ async function openOzonEdoSendModal(supplyOrderId) {
       && settings.diadoc_from_box_id
       && settings.diadoc_to_box_id
     );
-    if (!settings.is_enabled || !(settings.has_api_key || diadocReady)) {
-      _edoSetInfo("ozonEdoModalInfo", "Сначала настройте ЭДО в Поставки → Настройки → ЭДО (ключ Логистики и/или Diadoc)", false);
+    if (_ozonEdoDocType === "zakaz") {
+      if (!settings.is_enabled || !diadocReady) {
+        _edoSetInfo("ozonEdoModalInfo", "Для Заявки настройте Diadoc в Поставки → Настройки → ЭДО", false);
+      }
+    } else if (!settings.is_enabled || !settings.has_api_key) {
+      _edoSetInfo("ozonEdoModalInfo", "Для эТрН настройте API-ключ Логистики в Поставки → Настройки → ЭДО", false);
     }
   } catch (_) {}
   try {
@@ -14748,7 +14779,7 @@ async function openOzonEdoSendModal(supplyOrderId) {
       const selAttr = preferred && tp === preferred ? " selected" : "";
       return `<option value="${esc(tp)}"${selAttr}>${esc(_subjectCn(c.subject))} · ${esc(tp.slice(-8))}</option>`;
     }).join("");
-    _edoSetInfo("ozonEdoModalInfo", `Найдено сертификатов: ${certs.length}. Выберите документ и нажмите «Подписать и отправить».`);
+    _edoSetInfo("ozonEdoModalInfo", `Найдено сертификатов: ${certs.length}. Выберите сертификат и нажмите «Подписать и отправить».`);
   } catch (err) {
     if (sel) sel.innerHTML = '<option value="">Ошибка плагина</option>';
     _edoSetInfo("ozonEdoModalInfo", err?.message || String(err), false);
@@ -14763,13 +14794,13 @@ function closeOzonEdoModal() {
 async function confirmOzonEdoSend() {
   const supplyId = _ozonEdoSupplyId;
   if (!supplyId) return;
-  const docType = document.getElementById("ozonEdoDocType")?.value || "etrn";
+  const docType = _ozonEdoDocType === "zakaz" ? "zakaz" : "etrn";
   const thumb = document.getElementById("ozonEdoCertSelect")?.value || "";
   const btn = document.getElementById("ozonEdoSendBtn");
   if (!thumb) { _edoSetInfo("ozonEdoModalInfo", "Выберите сертификат", false); return; }
   if (btn) btn.disabled = true;
   try {
-    _edoSetInfo("ozonEdoModalInfo", "Формирование XML…");
+    _edoSetInfo("ozonEdoModalInfo", `Формирование XML (${_ozonEdoDocTitle(docType)})…`);
     const prep = await fetch(`/api/ozon-supplies/${supplyId}/edo/prepare?doc_type=${encodeURIComponent(docType)}`, {
       headers: jsonHeaders(),
     }).then(async (r) => {
@@ -14793,7 +14824,7 @@ async function confirmOzonEdoSend() {
     const sendData = await sendRes.json().catch(() => ({}));
     if (!sendRes.ok) throw new Error(sendData.detail || "Ошибка отправки");
     _edoSetInfo("ozonEdoModalInfo", "Отправлено. Можно проверить статус.", true);
-    setTimeout(() => { closeOzonEdoModal(); openOzonEdoStatusModal(supplyId); }, 600);
+    setTimeout(() => { closeOzonEdoModal(); openOzonEdoStatusModal(supplyId, docType); }, 600);
   } catch (err) {
     _edoSetInfo("ozonEdoModalInfo", err?.message || String(err), false);
   } finally {
@@ -14801,10 +14832,17 @@ async function confirmOzonEdoSend() {
   }
 }
 
-async function openOzonEdoStatusModal(supplyOrderId) {
+async function openOzonEdoStatusModal(supplyOrderId, docType) {
   _ozonEdoStatusSupplyId = supplyOrderId;
+  _ozonEdoStatusDocType = docType === "zakaz" || docType === "etrn" ? docType : "";
   const modal = document.getElementById("ozonEdoStatusModal");
   if (!modal) return;
+  const titleEl = document.getElementById("ozonEdoStatusModalTitle");
+  if (titleEl) {
+    titleEl.textContent = _ozonEdoStatusDocType
+      ? `Статус ЭДО — ${_ozonEdoDocTitle(_ozonEdoStatusDocType)}`
+      : "Статус ЭДО";
+  }
   modal.classList.remove("hidden");
   await refreshOzonEdoStatusModal();
 }
@@ -14812,6 +14850,7 @@ async function openOzonEdoStatusModal(supplyOrderId) {
 function closeOzonEdoStatusModal() {
   document.getElementById("ozonEdoStatusModal")?.classList.add("hidden");
   _ozonEdoStatusSupplyId = null;
+  _ozonEdoStatusDocType = "";
 }
 
 async function refreshOzonEdoStatusModal() {
@@ -14825,9 +14864,15 @@ async function refreshOzonEdoStatusModal() {
     body.innerHTML = `<span style="color:#b91c1c">${esc(data.detail || "Не удалось получить статус")}</span>`;
     return;
   }
-  const docs = data.documents || [];
+  let docs = data.documents || [];
+  if (_ozonEdoStatusDocType) {
+    docs = docs.filter((d) => d.doc_type === _ozonEdoStatusDocType);
+  }
   if (!docs.length) {
-    body.innerHTML = '<span style="color:#64748b">Документы ещё не отправлялись в ЭДО для этой поставки.</span>';
+    const which = _ozonEdoStatusDocType
+      ? _ozonEdoDocTitle(_ozonEdoStatusDocType)
+      : "Документы";
+    body.innerHTML = `<span style="color:#64748b">${esc(which)} ещё не отправлял${_ozonEdoStatusDocType === "zakaz" ? "ась" : _ozonEdoStatusDocType === "etrn" ? "ся" : "ись"} в ЭДО для этой поставки.</span>`;
     return;
   }
   body.innerHTML = docs.map((d) => {
