@@ -9,7 +9,9 @@ from review_processor.ozon_etrn import (
     OZON_CONSIGNEE_INN,
     OZON_CONSIGNEE_KPP,
     OZON_CONSIGNEE_NAME,
+    _cargo_stats,
     _ozon_supply_number,
+    build_ozon_cargoes_cache,
     build_ozon_etrn_xml,
 )
 
@@ -126,7 +128,7 @@ def test_etrn_xml_core_schema_shape():
     assert op.find("ПлМасГруз").attrib.get("МасБрутЗнач")
     assert sod.find("СвПогруз").attrib.get("МетОпрМасс") == "03"
     assert op.attrib.get("СостГруз") == "Без повреждений"
-    assert op.attrib.get("СпУпак") == "Коробки"
+    assert op.attrib.get("СпУпак") == "Паллеты"
 
 
 def test_etrn_delivery_datetime_from_supply_date_date_only():
@@ -181,6 +183,35 @@ def test_etrn_infpol_orders_uses_supply_number_from_main_table():
     assert by_id.get("ORDERS") == "020-987654321"
     # Must not put internal supply_order_id when table number is present.
     assert "555666" not in by_id.values()
+
+
+def test_cargo_stats_transport_pallets_drive_kol_mest():
+    """Транспортные паллеты → КолМестГр = число паллет, не коробок."""
+    cache = build_ozon_cargoes_cache(
+        flat_cargoes=[{"type": "BOX", "content_type": "MONO"}] * 41,
+        supplies_cargoes=[
+            {
+                "supply_id": 1,
+                "transport_cargoes": [
+                    {"type": "PALLET", "transport_cargo_id": "a", "cargoes": [{}] * 11},
+                    {"type": "PALLET", "transport_cargo_id": "b", "cargoes": [{}] * 30},
+                ],
+            }
+        ],
+    )
+    stats = _cargo_stats(cache)
+    assert stats["pallets"] == 2
+    assert stats["boxes"] == 41
+    assert stats["total_places"] == 2
+    assert "2 палет" in stats["cargo_name"]
+    assert "41" in stats["cargo_name"]
+
+    root = ET.fromstring(_build(cargoes_json=cache))
+    op = root.find("Документ/СодИнфГО/СвГруз/ОпГруз")
+    assert op is not None
+    assert op.attrib.get("КолМестГр") == "2"
+    assert op.attrib.get("СпУпак") == "Паллеты"
+    assert root.find("Документ/СодИнфГО/СвПогруз").attrib.get("КолМестПрием") == "2"
 
 
 def test_parse_ru_address_suffix_embankment_street():

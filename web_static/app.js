@@ -5427,7 +5427,17 @@ async function openOzonDetailsModal(supplyId) {
   if (cargoEl) {
     cargoEl.textContent = "Загрузка…";
     fetch(`/api/ozon-supplies/${item.supply_order_id}/cargoes-info`).then(r => r.json()).then(d => {
+      const transport = Array.isArray(d.transport_cargoes) ? d.transport_cargoes : [];
       const groups = d.groups || [];
+      if (transport.length) {
+        // Как в Ozon LK: Паллета 1 — 11 коробов
+        cargoEl.textContent = transport.map((tc, idx) => {
+          const boxes = parseInt(tc.box_count, 10) || 0;
+          const boxWord = boxes === 1 ? "короб" : (boxes >= 2 && boxes <= 4 ? "короба" : "коробов");
+          return `Паллета ${idx + 1} — ${boxes} ${boxWord}`;
+        }).join("\n");
+        return;
+      }
       if (!groups.length) { cargoEl.textContent = "Ещё не заполнены"; return; }
       const typeLabel = t => t === "BOX" ? "короба" : t === "PALLET" ? "паллета" : (t || "").toLowerCase();
       const contLabel = c => {
@@ -16070,11 +16080,30 @@ function _zUpdateOzonCargoForSupplies(supplies) {
   if (!cargoInp) return;
   const isOzon = supplies.some(x => x._is_ozon);
   if (!isOzon) return;
+  // Prefer per-supply calc (supports v2 transport_cargoes cache).
+  let pallets = 0, boxes = 0, totalTons = 0, usedCalc = false;
+  supplies.forEach((x) => {
+    if (!x._ozon_calc) return;
+    usedCalc = true;
+    pallets += x._ozon_calc.pallets || 0;
+    boxes += x._ozon_calc.boxes || 0;
+    totalTons += x._ozon_calc.totalTons || 0;
+  });
+  if (usedCalc && (pallets || boxes)) {
+    const parts = [];
+    if (pallets) parts.push(`${pallets} паллет`);
+    if (boxes) parts.push(`${boxes} коробов`);
+    cargoInp.value = `Текстиль. ${parts.join(", ")}, ${totalTons.toFixed(3).replace(/\.?0+$/, "")} т.`;
+    return;
+  }
   let allCargoes = [];
-  supplies.forEach(x => { if (x._ozon_cargoes) allCargoes = allCargoes.concat(x._ozon_cargoes); });
-  // Merge groups
+  supplies.forEach((x) => {
+    const c = x._ozon_cargoes;
+    if (Array.isArray(c)) allCargoes = allCargoes.concat(c);
+    else if (c && typeof c === "object" && Array.isArray(c.groups)) allCargoes = allCargoes.concat(c.groups);
+  });
   const merged = {};
-  allCargoes.forEach(g => {
+  allCargoes.forEach((g) => {
     const k = g.type; merged[k] = (merged[k] || 0) + (parseInt(g.count) || 0);
   });
   const mergedGroups = Object.entries(merged).map(([type, count]) => ({ type, count }));
@@ -16101,13 +16130,22 @@ function _updateOzonZayavkaBtn() {
 }
 
 // ── OZON cargo weight calculator ──────────────────────────────────────────
-// groups: [{type: "PALLET"|"BOX"|..., content_type: "MONO"|"MIXED"|..., count: N}]
+// Accepts legacy groups[] or v2 {groups, transport_cargoes}.
 // Returns { pallets, boxes, weightTons, cargoLabel }
 
 const _OZON_CARGO_WEIGHT = { PALLET: 0.2, BOX: 0.0125 };
 
-function _zCalcOzonCargoWeight(groups) {
-  if (!Array.isArray(groups) || !groups.length) return null;
+function _zCalcOzonCargoWeight(cargoes) {
+  let groups = [];
+  let transport = [];
+  if (Array.isArray(cargoes)) {
+    groups = cargoes;
+  } else if (cargoes && typeof cargoes === "object") {
+    groups = Array.isArray(cargoes.groups) ? cargoes.groups : [];
+    transport = Array.isArray(cargoes.transport_cargoes) ? cargoes.transport_cargoes : [];
+  } else {
+    return null;
+  }
   let pallets = 0, boxes = 0, totalTons = 0;
   for (const g of groups) {
     const type = (g.type || "").toUpperCase();
@@ -16117,6 +16155,17 @@ function _zCalcOzonCargoWeight(groups) {
     if (type === "PALLET") pallets += count;
     else if (type === "BOX") boxes += count;
   }
+  if (transport.length) {
+    pallets = transport.length;
+    const boxesFromTr = transport.reduce((s, tc) => s + (parseInt(tc.box_count, 10) || 0), 0);
+    if (boxesFromTr > 0) {
+      boxes = boxesFromTr;
+      totalTons = (_OZON_CARGO_WEIGHT.BOX || 0) * boxes;
+    } else {
+      totalTons = (_OZON_CARGO_WEIGHT.PALLET || 0) * pallets;
+    }
+  }
+  if (!pallets && !boxes) return null;
   const parts = [];
   if (pallets) parts.push(`${pallets} паллет`);
   if (boxes) parts.push(`${boxes} коробов`);
