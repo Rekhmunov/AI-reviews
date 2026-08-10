@@ -2738,6 +2738,7 @@ const _CARRIER_FIELDS = [
   ["carrier_inn", "ИНН"],
   ["carrier_kpp", "КПП"],
   ["carrier_phone", "Телефон"],
+  ["carrier_fns_id", "FNSId"],
   ["carrier_addr_index", "Индекс"],
   ["carrier_addr_region_code", "Код региона"],
   ["carrier_addr_district", "Район"],
@@ -2847,6 +2848,7 @@ function _readNewDriverCarrierFields() {
     carrier_inn: document.getElementById("newDriverCarrierInn")?.value.trim() || "",
     carrier_kpp: document.getElementById("newDriverCarrierKpp")?.value.trim() || "",
     carrier_phone: document.getElementById("newDriverCarrierPhone")?.value.trim() || "",
+    carrier_fns_id: document.getElementById("newDriverCarrierFnsId")?.value.trim() || "",
     carrier_addr_index: document.getElementById("newDriverCarrierAddrIndex")?.value.trim() || "",
     carrier_addr_region_code: document.getElementById("newDriverCarrierAddrRegion")?.value.trim() || "",
     carrier_addr_district: document.getElementById("newDriverCarrierAddrDistrict")?.value.trim() || "",
@@ -2895,6 +2897,7 @@ function _clearNewDriverCarrierFields() {
     "newDriverLastName", "newDriverFirstName", "newDriverMiddleName", "newDriverPhone", "newDriverInPerson",
     "newDriverVuSeries", "newDriverVuNumber", "newDriverVuIssuer", "newDriverVuDate", "newDriverInnFl",
     "newDriverCarrierName", "newDriverCarrierInn", "newDriverCarrierKpp", "newDriverCarrierPhone",
+    "newDriverCarrierFnsId",
     "newDriverCarrierAddrIndex", "newDriverCarrierAddrRegion", "newDriverCarrierAddrDistrict",
     "newDriverCarrierAddrCity", "newDriverCarrierAddrSettlement", "newDriverCarrierAddrStreet",
     "newDriverCarrierAddrHouse", "newDriverCarrierAddrCorpus", "newDriverCarrierAddrFlat",
@@ -2904,7 +2907,7 @@ function _clearNewDriverCarrierFields() {
 function _carrierEditInputsHtml(item) {
   return `<div class="worker-form-grid" style="margin:0">
     ${_CARRIER_FIELDS.map(([key, label]) => `
-      <div class="wfg-field"${key === "carrier_name" ? ' style="grid-column:span 2"' : ""}>
+      <div class="wfg-field"${(key === "carrier_name" || key === "carrier_fns_id") ? ' style="grid-column:span 2"' : ""}>
         <label class="wfg-label">${label}</label>
         <input class="edit-inline-input" data-carrier="${key}" value="${esc(item[key] || "")}" autocomplete="off" />
       </div>`).join("")}

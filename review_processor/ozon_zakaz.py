@@ -17,6 +17,9 @@ from xml.dom import minidom
 from xml.etree import ElementTree as ET
 
 from .ozon_etrn import (
+    OZON_CONSIGNEE_EDO_GUID,
+    OZON_CONSIGNEE_INN,
+    OZON_CONSIGNEE_NAME,
     _addr_from_carrier_fields,
     _addr_from_production_fields,
     _cargo_stats,
@@ -36,6 +39,9 @@ from .ozon_etrn import (
 )
 
 _log = logging.getLogger(__name__)
+
+# Fixed Ozon FBO consignee FNSId (same value as eTrN ИдФайл/E).
+OZON_FNS_ID = OZON_CONSIGNEE_EDO_GUID
 
 # Representative postal indexes when only КодРегион is known (АдрРФ/Индекс is required).
 _DEFAULT_INDEX_BY_REGION: dict[str, str] = {
@@ -307,8 +313,14 @@ def build_ozon_zakaz_xml(
     time_ru = now.strftime("%H:%M:%S")
     file_date = now.strftime("%Y%m%d")
     shipper_edo = _fns_participant_id(inn, kpp, now=now) or "2BM-DRAFT-SHIPPER"
-    carrier_edo = _fns_participant_id(carrier_inn, carrier_kpp, now=now)
-    # R_T_A_O_W_GGGGMMDD_N — A=carrier (may be empty), O=shipper
+    # Prefer catalog FNSId (Водители → Перевозчик); else draft from ИНН/КПП.
+    carrier_edo = ""
+    if isinstance(carrier_fields, dict):
+        carrier_edo = str(carrier_fields.get("carrier_fns_id") or "").strip()
+    if not carrier_edo:
+        carrier_edo = _fns_participant_id(carrier_inn, carrier_kpp, now=now)
+    # R_T_A_O_W_GGGGMMDD_N — A=carrier (may be empty), O=shipper.
+    # Ozon FNSId (грузополучатель FBO) is fixed in eTrN ИдФайл/E = OZON_CONSIGNEE_EDO_GUID.
     file_id = f"ON_ZAKZVGO_{carrier_edo}_{shipper_edo}_0_{file_date}_{uuid.uuid4()}"
 
     naim_subj = org_full or "Грузоотправитель"
@@ -446,6 +458,13 @@ def build_ozon_zakaz_xml(
         НалКоорТочВрОпер="1",
     )
     _punkt_address(adr_unload, "АдресПункт", dest_for_punkt, label="Пункт выгрузки")
+    # Ozon FBO consignee (fixed org + FNSId used in eTrN ИдФайл).
+    _el(
+        adr_unload,
+        "ОргВладИнфр",
+        НаимВладИнфр=OZON_CONSIGNEE_NAME,
+        ИННВладИнфр=OZON_CONSIGNEE_INN,
+    )
 
     # --- ОпГруз ---
     op = _el(

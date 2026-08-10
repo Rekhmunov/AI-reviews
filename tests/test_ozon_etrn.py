@@ -715,6 +715,30 @@ def test_etrn_carrier_phone_prefers_catalog_over_legal_entity():
     assert go is not None and go.text == "+79991112233"
 
 
+def test_etrn_ozon_fns_id_fixed_in_id_file():
+    """ИдФайл/E — зафиксированный FNSId Озона."""
+    assert OZON_CONSIGNEE_EDO_GUID == "2BM-7704217370-774301001-201407110916237240124"
+    root = ET.fromstring(_build())
+    id_file = root.attrib["ИдФайл"]
+    assert id_file.startswith(f"ON_TRNACLGROT__{OZON_CONSIGNEE_EDO_GUID}_")
+
+
+def test_etrn_carrier_fns_id_in_id_file():
+    """ИдФайл/A ← carrier_fns_id из каталога Водители → Перевозчик."""
+    fns = "2BM-5001002003-500101001-201501010000000000001"
+    root = ET.fromstring(
+        _build(
+            carrier_fields={
+                "carrier_name": 'ООО "Перевозчик"',
+                "carrier_inn": "5001002003",
+                "carrier_kpp": "500101001",
+                "carrier_fns_id": fns,
+            },
+        )
+    )
+    assert root.attrib["ИдФайл"].startswith(f"ON_TRNACLGROT_{fns}_{OZON_CONSIGNEE_EDO_GUID}_")
+
+
 def test_etrn_driver_phone_prefers_catalog_over_legal_entity():
     """СвВодит/Тлф ← телефон водителя; остальные контакты остаются с юр.лица."""
     root = ET.fromstring(

@@ -4,7 +4,7 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from datetime import datetime
 
-from review_processor.ozon_zakaz import build_ozon_zakaz_xml
+from review_processor.ozon_zakaz import OZON_FNS_ID, build_ozon_zakaz_xml
 
 
 def _build(**overrides):
@@ -185,6 +185,31 @@ def test_zakaz_carrier_phone_prefers_catalog_over_legal_entity():
     )
     assert root.find("Документ/СодИнфГО/СвПрв/Конт/Тлф").text == "+79007776655"
     assert root.find("Документ/СодИнфГО/СвГО/Конт/Тлф").text == "+79991112233"
+
+
+def test_zakaz_ozon_fns_id_fixed():
+    """Ozon FNSId зафиксирован (тот же, что в эТрН ИдФайл/E)."""
+    assert OZON_FNS_ID == "2BM-7704217370-774301001-201407110916237240124"
+    root = ET.fromstring(_build())
+    owner = root.find("Документ/СодИнфГО/АдрПункт[@Опер='Выгрузка']/ОргВладИнфр")
+    assert owner is not None
+    assert owner.attrib.get("ИННВладИнфр") == "7704217370"
+
+
+def test_zakaz_carrier_fns_id_in_id_file():
+    """ИдФайл/A ← carrier_fns_id из каталога Водители → Перевозчик."""
+    fns = "2BM-5001002003-500101001-201501010000000000001"
+    root = ET.fromstring(
+        _build(
+            carrier_fields={
+                "carrier_name": 'ООО "Перевозчик"',
+                "carrier_inn": "5001002003",
+                "carrier_kpp": "500101001",
+                "carrier_fns_id": fns,
+            },
+        )
+    )
+    assert root.attrib["ИдФайл"].startswith(f"ON_ZAKZVGO_{fns}_")
 
 
 def test_zakaz_go_phone_from_legal_entity_field():

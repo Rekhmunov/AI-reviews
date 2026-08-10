@@ -1022,12 +1022,13 @@ def build_ozon_etrn_xml(
     date_file = now.strftime("%Y%m%d")
     file_guid = str(uuid.uuid4())
 
-    # A=carrier FNS id (unknown for draft), E=Ozon GUID, O=shipper draft id.
-    # Kontur rewrites ИдФайл on import when needed.
+    # A=carrier FNSId (from Водители → Перевозчик), E=fixed Ozon GUID, O=shipper draft id.
+    # Kontur rewrites ИдФайл on import when needed. Empty A → ON_TRNACLGROT__{E}_...
     shipper_edo = f"2BM-{inn}-{kpp or '000000000'}-DRAFT" if inn else "2BM-DRAFT-SHIPPER"
+    carrier_edo = str((carrier_fields or {}).get("carrier_fns_id") or "").strip()
     id_file = (
         f"ON_TRNACLGROT_"
-        f"_"  # carrier FNSId unknown in FeedPilot
+        f"{carrier_edo}_"
         f"{OZON_CONSIGNEE_EDO_GUID}_"
         f"{shipper_edo}_"
         f"0_"
