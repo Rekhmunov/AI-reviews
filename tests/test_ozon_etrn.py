@@ -240,6 +240,58 @@ def test_etrn_contacts_fallback_to_driver_phone_when_le_phone_empty():
     assert go.text == "+79001234567"
 
 
+def test_etrn_load_address_uses_structured_fields():
+    """СвПогруз takes structured production fields without free-text parse."""
+    root = ET.fromstring(
+        _build(
+            load_address="ignored free text that would parse differently",
+            load_addr_fields={
+                "Индекс": "141580",
+                "КодРегион": "50",
+                "Район": "Солнечногорский р-н",
+                "Город": "",
+                "НаселПункт": "Хоругвино",
+                "Улица": "ул. Заводская",
+                "Дом": "32/2",
+                "Корпус": "",
+                "Кварт": "",
+                "raw": "141580, Солнечногорский р-н, Хоругвино",
+            },
+        )
+    )
+    adr = root.find("Документ/СодИнфГО/СвПогруз/ФАдресПогр/АдресРФ")
+    assert adr is not None
+    assert adr.attrib.get("Индекс") == "141580"
+    assert adr.attrib.get("КодРегион") == "50"
+    assert adr.attrib.get("Район") == "Солнечногорский р-н"
+    assert adr.attrib.get("НаселПункт") == "Хоругвино"
+    assert adr.attrib.get("Улица") == "ул. Заводская"
+    assert adr.attrib.get("Дом") == "32/2"
+
+
+def test_production_address_line_assembles_for_documents():
+    """TTN / PoA / заявки still get one assembled address string."""
+    from review_processor.repository import ReviewRepository
+
+    line = ReviewRepository.compose_production_address_line(
+        {
+            "addr_index": "141580",
+            "addr_district": "Солнечногорский р-н",
+            "addr_settlement": "деревня Хоругвино",
+            "addr_street": "ул. Заводская",
+            "addr_house": "10",
+        }
+    )
+    assert line == "141580, Солнечногорский р-н, деревня Хоругвино, ул. Заводская, д. 10"
+    # Legacy one-line still returned when structured fields are empty.
+    assert (
+        ReviewRepository.production_address_line(
+            {"address": "старый адрес одной строкой", "addr_city": ""}
+        )
+        == "старый адрес одной строкой"
+    )
+
+
 def test_etrn_ryazan_index_is_not_kaliningrad():
     """390xxx is Ryazan (62); index[:2]==39 must not become Kaliningrad."""
     root = ET.fromstring(

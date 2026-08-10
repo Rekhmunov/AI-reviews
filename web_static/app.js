@@ -12614,6 +12614,75 @@ function _populateProductionSelects() {
   }
 }
 
+const _PROD_ADDR_FIELDS = [
+  ["addr_index", "Индекс"],
+  ["addr_region_code", "Код региона"],
+  ["addr_district", "Район"],
+  ["addr_city", "Город"],
+  ["addr_settlement", "Нас. пункт"],
+  ["addr_street", "Улица"],
+  ["addr_house", "Дом"],
+  ["addr_corpus", "Корпус"],
+  ["addr_flat", "Кв./офис"],
+];
+
+/** Full one-line production address for TTN / PoA / заявки / route. */
+function productionAddressLine(p) {
+  if (!p) return "";
+  const parts = [];
+  const idx = String(p.addr_index || "").trim();
+  if (idx) parts.push(idx);
+  const pushPrefixed = (raw, prefix, alreadyRe) => {
+    const val = String(raw || "").trim();
+    if (!val) return;
+    parts.push(alreadyRe.test(val) ? val : `${prefix}${val}`);
+  };
+  const district = String(p.addr_district || "").trim();
+  if (district) parts.push(district);
+  pushPrefixed(p.addr_city, "г. ", /^(г\.|город)\b/i);
+  const settlement = String(p.addr_settlement || "").trim();
+  if (settlement) parts.push(settlement);
+  const street = String(p.addr_street || "").trim();
+  if (street) parts.push(street);
+  pushPrefixed(p.addr_house, "д. ", /^(д\.|дом)\b/i);
+  pushPrefixed(p.addr_corpus, "к. ", /^(к\.|корп\.|корпус)\b/i);
+  pushPrefixed(p.addr_flat, "кв. ", /^(кв\.|квартира)\b/i);
+  const composed = parts.join(", ");
+  return composed || String(p.address || "").trim();
+}
+
+function _readNewProductionAddrFields() {
+  return {
+    addr_index: document.getElementById("newProdAddrIndex")?.value.trim() || "",
+    addr_region_code: document.getElementById("newProdAddrRegion")?.value.trim() || "",
+    addr_district: document.getElementById("newProdAddrDistrict")?.value.trim() || "",
+    addr_city: document.getElementById("newProdAddrCity")?.value.trim() || "",
+    addr_settlement: document.getElementById("newProdAddrSettlement")?.value.trim() || "",
+    addr_street: document.getElementById("newProdAddrStreet")?.value.trim() || "",
+    addr_house: document.getElementById("newProdAddrHouse")?.value.trim() || "",
+    addr_corpus: document.getElementById("newProdAddrCorpus")?.value.trim() || "",
+    addr_flat: document.getElementById("newProdAddrFlat")?.value.trim() || "",
+  };
+}
+
+function _clearNewProductionAddrFields() {
+  [
+    "newProductionName", "newProductionHead", "newProductionLoadContact",
+    "newProdAddrIndex", "newProdAddrRegion", "newProdAddrDistrict", "newProdAddrCity",
+    "newProdAddrSettlement", "newProdAddrStreet", "newProdAddrHouse", "newProdAddrCorpus", "newProdAddrFlat",
+  ].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ""; });
+}
+
+function _productionAddrEditInputsHtml(item) {
+  return `<div class="worker-form-grid" style="margin:0">
+    ${_PROD_ADDR_FIELDS.map(([key, label]) => `
+      <div class="wfg-field">
+        <label class="wfg-label">${label}</label>
+        <input class="edit-inline-input" data-addr="${key}" value="${esc(item[key] || "")}" autocomplete="off" />
+      </div>`).join("")}
+  </div>`;
+}
+
 function renderSupplyProductionsTbody() {
   const tbody = document.getElementById("supplyProductionsTbody");
   if (!tbody) return;
@@ -12628,7 +12697,7 @@ function renderSupplyProductionsTbody() {
     tr.innerHTML = `<td>${i+1}</td>
       <td class="editable-cell">${esc(p.name||"")}</td>
       <td class="editable-cell">${esc(p.head_name||"")}</td>
-      <td class="editable-cell">${esc(p.address||"")}</td>
+      <td class="editable-cell">${esc(productionAddressLine(p))}</td>
       <td class="editable-cell">${esc(p.load_contact||"")}</td>
       <td>
         <div class="row" style="gap:4px;flex-wrap:nowrap">
@@ -12645,11 +12714,21 @@ async function startEditProduction(id) {
   if (!item) return;
   const tr = document.querySelector(`#supplyProductionsTbody tr[data-id="${id}"]`);
   if (!tr) return;
+  document.querySelectorAll("#supplyProductionsTbody tr.prod-addr-edit-row").forEach((r) => r.remove());
   const cells = tr.querySelectorAll(".editable-cell");
   cells[0].innerHTML = `<input class="edit-inline-input" data-field="name" value="${esc(item.name||"")}" />`;
   cells[1].innerHTML = `<input class="edit-inline-input" data-field="head" value="${esc(item.head_name||"")}" />`;
-  cells[2].innerHTML = `<input class="edit-inline-input" data-field="addr" value="${esc(item.address||"")}" />`;
+  cells[2].innerHTML = `<span class="small" style="color:#64748b">поля ниже</span>`;
   cells[3].innerHTML = `<input class="edit-inline-input" data-field="lc" value="${esc(item.load_contact||"")}" />`;
+  const addrRow = document.createElement("tr");
+  addrRow.className = "prod-addr-edit-row";
+  addrRow.dataset.forId = String(id);
+  addrRow.style.background = "#f8fafc";
+  addrRow.innerHTML = `<td colspan="6" style="padding:12px 8px;border-top:none">
+    <div class="small" style="margin-bottom:8px;color:#64748b">Адрес погрузки (поля эТрН)</div>
+    ${_productionAddrEditInputsHtml(item)}
+  </td>`;
+  tr.after(addrRow);
   tr.cells[tr.cells.length-1].innerHTML = `<div class="row" style="gap:4px;flex-wrap:nowrap">
     <button class="secondary small-btn" style="color:#16a34a;border-color:#86efac" onclick="saveEditProduction(${id})">Сохр.</button>
     <button class="secondary small-btn" onclick="loadSupplyProductions()">✕</button>
@@ -12659,12 +12738,18 @@ async function startEditProduction(id) {
 async function saveEditProduction(id) {
   const tr = document.querySelector(`#supplyProductionsTbody tr[data-id="${id}"]`);
   if (!tr) return;
+  const item = _supplyProductionsCache.find((x) => x.id === id);
+  const addrRow = document.querySelector(`#supplyProductionsTbody tr.prod-addr-edit-row[data-for-id="${id}"]`);
   const name = tr.querySelector("[data-field='name']")?.value.trim() || "";
   const head_name = tr.querySelector("[data-field='head']")?.value.trim() || "";
-  const address = tr.querySelector("[data-field='addr']")?.value.trim() || "";
   const load_contact = tr.querySelector("[data-field='lc']")?.value.trim() || "";
   if (!name) return;
-  await fetch(`/api/supply-productions/${id}`, { method: "PATCH", headers: jsonHeaders(), body: JSON.stringify({ name, head_name, address, load_contact }) }).catch(() => null);
+  // Keep legacy one-line address if structured fields are still empty.
+  const payload = { name, head_name, load_contact, address: item?.address || "" };
+  _PROD_ADDR_FIELDS.forEach(([key]) => {
+    payload[key] = addrRow?.querySelector(`[data-addr="${key}"]`)?.value.trim() || "";
+  });
+  await fetch(`/api/supply-productions/${id}`, { method: "PATCH", headers: jsonHeaders(), body: JSON.stringify(payload) }).catch(() => null);
   await loadSupplyProductions();
 }
 
@@ -12672,20 +12757,18 @@ function toggleAddProductionForm(show) {
   const form = document.getElementById("addProductionForm");
   if (!form) return;
   form.classList.toggle("hidden", !show); form.style.display = show ? "" : "none";
-  if (!show) {
-    ["newProductionName","newProductionHead","newProductionAddress","newProductionLoadContact"].forEach(id => { const el = document.getElementById(id); if(el) el.value=""; });
-  }
+  if (!show) _clearNewProductionAddrFields();
 }
 
 async function saveSupplyProduction() {
   const name = document.getElementById("newProductionName")?.value.trim();
   const head_name = document.getElementById("newProductionHead")?.value.trim() || "";
-  const address = document.getElementById("newProductionAddress")?.value.trim() || "";
   const load_contact = document.getElementById("newProductionLoadContact")?.value.trim() || "";
   const info = document.getElementById("addProductionInfo");
   if (!name) { if (info) { info.textContent = "Введите название"; info.style.color = "#b91c1c"; } return; }
   if (info) { info.textContent = "Сохранение..."; info.style.color = ""; }
-  const res = await fetch("/api/supply-productions", { method: "POST", headers: jsonHeaders(), body: JSON.stringify({ name, head_name, address, load_contact }) }).catch(() => null);
+  const payload = { name, head_name, load_contact, address: "", ..._readNewProductionAddrFields() };
+  const res = await fetch("/api/supply-productions", { method: "POST", headers: jsonHeaders(), body: JSON.stringify(payload) }).catch(() => null);
   if (!res || !res.ok) { const e = await res?.json().catch(()=>({})) || {}; if (info) { info.textContent = e.detail||"Ошибка"; info.style.color = "#b91c1c"; } return; }
   if (info) { info.textContent = "Сохранено"; info.style.color = "#16a34a"; }
   toggleAddProductionForm(false);
@@ -15496,7 +15579,7 @@ function _zUpdateRouteForDriver(suppliesForDriver) {
   if (!routeEl) return;
   const allProdNames = [...new Set(suppliesForDriver.map(x => (x.production||"").trim()).filter(Boolean))];
   const allProds = allProdNames.map(n => (_supplyProductionsCache||[]).find(p => p.name === n)).filter(Boolean);
-  const cities = [...new Set(allProds.map(p => (p.address||"").trim()).filter(Boolean))];
+  const cities = [...new Set(allProds.map(p => productionAddressLine(p)).filter(Boolean))];
   const warehouses = [...new Set(suppliesForDriver.map(x => (x.warehouse_name||"").trim()).filter(Boolean))];
   routeEl.textContent = [...cities, ...warehouses].filter(Boolean).join(" — ") || "—";
 }
@@ -15707,8 +15790,9 @@ function onZProducChange() {
     info.innerHTML = `<span class="z-info-row"><span class="z-info-label">Несколько производств:</span> ${esc(allProdNames.join(", "))}</span>`;
     info.classList.remove("hidden");
   } else if (prod) {
+    const prodAddr = productionAddressLine(prod);
     const rows = [
-      prod.address ? `<span class="z-info-label">Адрес:</span> ${esc(prod.address)}` : null,
+      prodAddr ? `<span class="z-info-label">Адрес:</span> ${esc(prodAddr)}` : null,
       prod.load_contact ? `<span class="z-info-label">Контакт:</span> ${esc(prod.load_contact)}` : null,
     ].filter(Boolean).map(r => `<span class="z-info-row">${r}</span>`).join("");
     if (rows) { info.innerHTML = rows; info.classList.remove("hidden"); }
@@ -15832,7 +15916,7 @@ function _updateZRoute() {
   const cities = [];
   allProdNames.forEach(pn => {
     const prod = (_supplyProductionsCache||[]).find(p => p.name === pn);
-    const addr = (prod?.address || pn).trim();
+    const addr = (productionAddressLine(prod) || pn).trim();
     if (addr && !cities.includes(addr)) cities.push(addr);
   });
 
@@ -15949,12 +16033,12 @@ async function generateZayavka() {
   const supplyProdNames = [...new Set(docSupplies.map(x => (x.production||"").trim()).filter(Boolean))];
   const allProdNames = modalProdName ? [modalProdName] : supplyProdNames;
   const allProds = allProdNames.map(n => (_supplyProductionsCache||[]).find(p => p.name === n)).filter(Boolean);
-  const cities = [...new Set(allProds.map(p => (p.address||"").trim()).filter(Boolean))];
+  const cities = [...new Set(allProds.map(p => productionAddressLine(p)).filter(Boolean))];
   const warehouses = [...new Set(docSupplies.map(x => (x.warehouse_name||"").trim()).filter(Boolean))];
   const route = [...cities, ...warehouses].join(" — ");
 
-  // Load addresses
-  const loadAddresses = [...new Set(allProds.map(p => p.address).filter(Boolean))].join(", ");
+  // Load addresses (full assembled line from structured fields)
+  const loadAddresses = [...new Set(allProds.map(p => productionAddressLine(p)).filter(Boolean))].join(", ");
   const loadContact = [...new Set(allProds.map(p => p.load_contact).filter(Boolean))].join(", ");
 
   // Unload lines (PDF — bold warehouse + address + pallets, newline per warehouse)
@@ -16094,10 +16178,10 @@ async function downloadZayavkaDocx() {
   const supplyProdNamesD = [...new Set(docSuppliesD.map(x => (x.production||"").trim()).filter(Boolean))];
   const allProdNames = modalProdNameD ? [modalProdNameD] : supplyProdNamesD;
   const allProds = allProdNames.map(n => (_supplyProductionsCache||[]).find(p => p.name === n)).filter(Boolean);
-  const cities = [...new Set(allProds.map(p => (p.address||"").trim()).filter(Boolean))];
+  const cities = [...new Set(allProds.map(p => productionAddressLine(p)).filter(Boolean))];
   const warehouses = [...new Set(docSuppliesD.map(x => (x.warehouse_name||"").trim()).filter(Boolean))];
   const route = [...cities, ...warehouses].join(" — ");
-  const loadAddresses = [...new Set(allProds.map(p => p.address).filter(Boolean))].join(", ");
+  const loadAddresses = [...new Set(allProds.map(p => productionAddressLine(p)).filter(Boolean))].join(", ");
   const loadContact = [...new Set(allProds.map(p => p.load_contact).filter(Boolean))].join(", ");
   const grouped = {};
   docSuppliesD.forEach(x => {

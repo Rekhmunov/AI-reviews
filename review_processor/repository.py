@@ -7729,6 +7729,20 @@ class ReviewRepository:
         )
         conn.execute("ALTER TABLE supply_productions ADD COLUMN IF NOT EXISTS address TEXT NOT NULL DEFAULT ''")
         conn.execute("ALTER TABLE supply_productions ADD COLUMN IF NOT EXISTS load_contact TEXT NOT NULL DEFAULT ''")
+        for _prod_addr_col in (
+            "addr_index",
+            "addr_region_code",
+            "addr_district",
+            "addr_city",
+            "addr_settlement",
+            "addr_street",
+            "addr_house",
+            "addr_corpus",
+            "addr_flat",
+        ):
+            conn.execute(
+                f"ALTER TABLE supply_productions ADD COLUMN IF NOT EXISTS {_prod_addr_col} TEXT NOT NULL DEFAULT ''"
+            )
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS supply_contractors (
@@ -8001,30 +8015,210 @@ class ReviewRepository:
 
     # ── Supply Productions CRUD ──
 
+    @staticmethod
+    def _normalize_production_addr_fields(
+        *,
+        addr_index: str = "",
+        addr_region_code: str = "",
+        addr_district: str = "",
+        addr_city: str = "",
+        addr_settlement: str = "",
+        addr_street: str = "",
+        addr_house: str = "",
+        addr_corpus: str = "",
+        addr_flat: str = "",
+    ) -> dict[str, str]:
+        region = re.sub(r"\D", "", str(addr_region_code or ""))[:2]
+        index = re.sub(r"\D", "", str(addr_index or ""))[:6]
+        return {
+            "addr_index": index,
+            "addr_region_code": region,
+            "addr_district": str(addr_district or "").strip(),
+            "addr_city": str(addr_city or "").strip(),
+            "addr_settlement": str(addr_settlement or "").strip(),
+            "addr_street": str(addr_street or "").strip(),
+            "addr_house": str(addr_house or "").strip(),
+            "addr_corpus": str(addr_corpus or "").strip(),
+            "addr_flat": str(addr_flat or "").strip(),
+        }
+
+    @staticmethod
+    def compose_production_address_line(fields: dict[str, str] | None = None, **extra: str) -> str:
+        """Build a single display line from structured production address fields."""
+        data = {**(fields or {}), **extra}
+        parts: list[str] = []
+        idx = str(data.get("addr_index") or "").strip()
+        if idx:
+            parts.append(idx)
+        for key, prefix in (
+            ("addr_district", ""),
+            ("addr_city", "г. "),
+            ("addr_settlement", ""),
+            ("addr_street", ""),
+            ("addr_house", "д. "),
+            ("addr_corpus", "к. "),
+            ("addr_flat", "кв. "),
+        ):
+            val = str(data.get(key) or "").strip()
+            if not val:
+                continue
+            if key == "addr_city" and not re.match(r"^(г\.|город)\b", val, flags=re.I):
+                val = f"{prefix}{val}"
+            elif key == "addr_house" and not re.match(r"^(д\.|дом)\b", val, flags=re.I):
+                val = f"{prefix}{val}"
+            elif key == "addr_corpus" and not re.match(r"^(к\.|корп\.|корпус)\b", val, flags=re.I):
+                val = f"{prefix}{val}"
+            elif key == "addr_flat" and not re.match(r"^(кв\.|квартира)\b", val, flags=re.I):
+                val = f"{prefix}{val}"
+            parts.append(val)
+        return ", ".join(parts)
+
+    @classmethod
+    def production_address_line(cls, prod: dict[str, Any] | None) -> str:
+        """Full one-line address for TTN / PoA / заявки: structured fields or legacy address."""
+        if not prod:
+            return ""
+        composed = cls.compose_production_address_line(prod)
+        if composed:
+            return composed
+        return str(prod.get("address") or "").strip()
+
     def list_supply_productions(self, *, user_id: int) -> list[dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(
                 self._sql("SELECT * FROM supply_productions WHERE user_id = ? ORDER BY name ASC"),
                 (user_id,),
             ).fetchall()
-        return [self._row_to_dict(r) for r in rows]
+        result: list[dict[str, Any]] = []
+        for r in rows:
+            d = self._row_to_dict(r)
+            # Always expose a ready one-line address for documents that expect a single string.
+            d["address"] = self.production_address_line(d)
+            result.append(d)
+        return result
 
-    def create_supply_production(self, *, user_id: int, name: str, head_name: str = "", address: str = "", load_contact: str = "") -> dict[str, Any]:
+    def create_supply_production(
+        self,
+        *,
+        user_id: int,
+        name: str,
+        head_name: str = "",
+        address: str = "",
+        load_contact: str = "",
+        addr_index: str = "",
+        addr_region_code: str = "",
+        addr_district: str = "",
+        addr_city: str = "",
+        addr_settlement: str = "",
+        addr_street: str = "",
+        addr_house: str = "",
+        addr_corpus: str = "",
+        addr_flat: str = "",
+    ) -> dict[str, Any]:
         now = _utc_now()
+        addr = self._normalize_production_addr_fields(
+            addr_index=addr_index,
+            addr_region_code=addr_region_code,
+            addr_district=addr_district,
+            addr_city=addr_city,
+            addr_settlement=addr_settlement,
+            addr_street=addr_street,
+            addr_house=addr_house,
+            addr_corpus=addr_corpus,
+            addr_flat=addr_flat,
+        )
+        composed = self.compose_production_address_line(addr)
+        address_val = composed or str(address or "").strip()
         with self._connect() as conn:
             pid = self._insert_and_get_id(
                 conn,
-                "INSERT INTO supply_productions (user_id, name, head_name, address, load_contact, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (user_id, name.strip(), head_name.strip(), address.strip(), load_contact.strip(), now),
+                "INSERT INTO supply_productions ("
+                "user_id, name, head_name, address, load_contact, "
+                "addr_index, addr_region_code, addr_district, addr_city, addr_settlement, "
+                "addr_street, addr_house, addr_corpus, addr_flat, created_at"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    user_id,
+                    name.strip(),
+                    head_name.strip(),
+                    address_val,
+                    load_contact.strip(),
+                    addr["addr_index"],
+                    addr["addr_region_code"],
+                    addr["addr_district"],
+                    addr["addr_city"],
+                    addr["addr_settlement"],
+                    addr["addr_street"],
+                    addr["addr_house"],
+                    addr["addr_corpus"],
+                    addr["addr_flat"],
+                    now,
+                ),
             )
             row = conn.execute(self._sql("SELECT * FROM supply_productions WHERE id = ?"), (pid,)).fetchone()
-        return self._row_to_dict(row) if row else {"id": pid}
+        if not row:
+            return {"id": pid, "address": address_val, **addr}
+        d = self._row_to_dict(row)
+        d["address"] = self.production_address_line(d)
+        return d
 
-    def update_supply_production(self, *, user_id: int, production_id: int, name: str, head_name: str = "", address: str = "", load_contact: str = "") -> bool:
+    def update_supply_production(
+        self,
+        *,
+        user_id: int,
+        production_id: int,
+        name: str,
+        head_name: str = "",
+        address: str = "",
+        load_contact: str = "",
+        addr_index: str = "",
+        addr_region_code: str = "",
+        addr_district: str = "",
+        addr_city: str = "",
+        addr_settlement: str = "",
+        addr_street: str = "",
+        addr_house: str = "",
+        addr_corpus: str = "",
+        addr_flat: str = "",
+    ) -> bool:
+        addr = self._normalize_production_addr_fields(
+            addr_index=addr_index,
+            addr_region_code=addr_region_code,
+            addr_district=addr_district,
+            addr_city=addr_city,
+            addr_settlement=addr_settlement,
+            addr_street=addr_street,
+            addr_house=addr_house,
+            addr_corpus=addr_corpus,
+            addr_flat=addr_flat,
+        )
+        composed = self.compose_production_address_line(addr)
+        address_val = composed or str(address or "").strip()
         with self._connect() as conn:
             result = conn.execute(
-                self._sql("UPDATE supply_productions SET name = ?, head_name = ?, address = ?, load_contact = ? WHERE user_id = ? AND id = ?"),
-                (name.strip(), head_name.strip(), address.strip(), load_contact.strip(), user_id, production_id),
+                self._sql(
+                    "UPDATE supply_productions SET name = ?, head_name = ?, address = ?, load_contact = ?, "
+                    "addr_index = ?, addr_region_code = ?, addr_district = ?, addr_city = ?, "
+                    "addr_settlement = ?, addr_street = ?, addr_house = ?, addr_corpus = ?, addr_flat = ? "
+                    "WHERE user_id = ? AND id = ?"
+                ),
+                (
+                    name.strip(),
+                    head_name.strip(),
+                    address_val,
+                    load_contact.strip(),
+                    addr["addr_index"],
+                    addr["addr_region_code"],
+                    addr["addr_district"],
+                    addr["addr_city"],
+                    addr["addr_settlement"],
+                    addr["addr_street"],
+                    addr["addr_house"],
+                    addr["addr_corpus"],
+                    addr["addr_flat"],
+                    user_id,
+                    production_id,
+                ),
             )
         return bool(result.rowcount)
 
