@@ -169,3 +169,19 @@ def test_zakaz_phone_never_empty():
     }, driver_phone=""))
     assert root.find("Документ/СодИнфГО/СвГО/Конт/Тлф").text
     assert root.find("Документ/СодИнфГО/СвПрв/Конт/Тлф").text
+
+
+def test_zakaz_carrier_phone_prefers_catalog_over_legal_entity():
+    """СвПрв/Конт/Тлф ← телефон перевозчика; СвГО остаётся с юр.лица."""
+    root = ET.fromstring(
+        _build(
+            carrier_fields={
+                "carrier_name": 'ООО "Перевозчик"',
+                "carrier_inn": "5001002003",
+                "carrier_kpp": "500101001",
+                "carrier_phone": "+79007776655",
+            },
+        )
+    )
+    assert root.find("Документ/СодИнфГО/СвПрв/Конт/Тлф").text == "+79007776655"
+    assert root.find("Документ/СодИнфГО/СвГО/Конт/Тлф").text == "+79991112233"

@@ -1161,7 +1161,11 @@ def build_ozon_etrn_xml(
             else (inn[:2] if inn and len(inn) >= 2 else "77")
         )
         _el(adr_per, "АдрРФ", КодРегион=inn_region)
-    _add_contact(sv_per, contact_phone)
+    # Carrier phone from catalog; fallback to юр.лица / driver (contact_phone).
+    carrier_phone = str((carrier_fields or {}).get("carrier_phone") or "").strip()
+    if not carrier_phone:
+        carrier_phone = contact_phone
+    _add_contact(sv_per, carrier_phone)
 
     # --- СвВодит ---
     # Schema: VU trio (СерВУ+НомВУ+ДатаВыдВУ) OR ИННФЛ required; both allowed.

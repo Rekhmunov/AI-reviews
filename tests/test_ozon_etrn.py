@@ -675,7 +675,7 @@ def test_compose_driver_documents_line():
 
 
 def test_etrn_contacts_use_legal_entity_phone_everywhere():
-    """Phone from юр.лица is used for ГО, ГП, перевозчик, водитель, переадресовка."""
+    """Without carrier_phone, юр.лица phone fills ГО, ГП, перевозчик, водитель, переадресовка."""
     root = ET.fromstring(_build())
     sod = root.find("Документ/СодИнфГО")
     assert sod is not None
@@ -693,6 +693,26 @@ def test_etrn_contacts_use_legal_entity_phone_everywhere():
     # Must not fall back to driver_phone when le.phone is set.
     for phone in sod.findall(".//Тлф"):
         assert phone.text != "+79001234567"
+
+
+def test_etrn_carrier_phone_prefers_catalog_over_legal_entity():
+    """СвПер/Контакт/Тлф ← телефон перевозчика; ГО/ГП остаются с юр.лица."""
+    root = ET.fromstring(
+        _build(
+            carrier_fields={
+                "carrier_name": 'ООО "Перевозчик"',
+                "carrier_inn": "5001002003",
+                "carrier_kpp": "500101001",
+                "carrier_phone": "+79007776655",
+            },
+        )
+    )
+    sod = root.find("Документ/СодИнфГО")
+    assert sod is not None
+    carrier = sod.find("СвПер/Контакт/Тлф")
+    assert carrier is not None and carrier.text == "+79007776655"
+    go = sod.find("СвГО/РекИдентГО/Контакт/Тлф")
+    assert go is not None and go.text == "+79991112233"
 
 
 def test_etrn_driver_phone_prefers_catalog_over_legal_entity():

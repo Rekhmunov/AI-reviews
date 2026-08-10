@@ -7538,6 +7538,7 @@ class ReviewRepository:
             "carrier_name",
             "carrier_inn",
             "carrier_kpp",
+            "carrier_phone",
             "carrier_addr_index",
             "carrier_addr_region_code",
             "carrier_addr_district",
@@ -7858,6 +7859,7 @@ class ReviewRepository:
         carrier_name: str = "",
         carrier_inn: str = "",
         carrier_kpp: str = "",
+        carrier_phone: str = "",
         carrier_addr_index: str = "",
         carrier_addr_region_code: str = "",
         carrier_addr_district: str = "",
@@ -7872,10 +7874,12 @@ class ReviewRepository:
         kpp = re.sub(r"\D", "", str(carrier_kpp or ""))[:9]
         region = re.sub(r"\D", "", str(carrier_addr_region_code or ""))[:2]
         index = re.sub(r"\D", "", str(carrier_addr_index or ""))[:6]
+        phone = re.sub(r"\s+", " ", str(carrier_phone or "").strip())[:32]
         return {
             "carrier_name": str(carrier_name or "").strip(),
             "carrier_inn": inn,
             "carrier_kpp": kpp,
+            "carrier_phone": phone,
             "carrier_addr_index": index,
             "carrier_addr_region_code": region,
             "carrier_addr_district": str(carrier_addr_district or "").strip(),
@@ -8192,6 +8196,7 @@ class ReviewRepository:
         carrier_name: str = "",
         carrier_inn: str = "",
         carrier_kpp: str = "",
+        carrier_phone: str = "",
         carrier_addr_index: str = "",
         carrier_addr_region_code: str = "",
         carrier_addr_district: str = "",
@@ -8221,6 +8226,7 @@ class ReviewRepository:
             carrier_name=carrier_name,
             carrier_inn=carrier_inn,
             carrier_kpp=carrier_kpp,
+            carrier_phone=carrier_phone,
             carrier_addr_index=carrier_addr_index,
             carrier_addr_region_code=carrier_addr_region_code,
             carrier_addr_district=carrier_addr_district,
@@ -8245,12 +8251,12 @@ class ReviewRepository:
                 conn,
                 "INSERT INTO supply_drivers ("
                 "user_id, full_name, last_name, first_name, middle_name, phone, documents, in_person, vehicles_json, carrier, "
-                "carrier_name, carrier_inn, carrier_kpp, "
+                "carrier_name, carrier_inn, carrier_kpp, carrier_phone, "
                 "carrier_addr_index, carrier_addr_region_code, carrier_addr_district, "
                 "carrier_addr_city, carrier_addr_settlement, carrier_addr_street, "
                 "carrier_addr_house, carrier_addr_corpus, carrier_addr_flat, "
                 "doc_vu_series, doc_vu_number, doc_vu_issuer, doc_vu_date, doc_inn_fl, created_at"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     user_id,
                     fio["full_name"],
@@ -8265,6 +8271,7 @@ class ReviewRepository:
                     cf["carrier_name"],
                     cf["carrier_inn"],
                     cf["carrier_kpp"],
+                    cf["carrier_phone"],
                     cf["carrier_addr_index"],
                     cf["carrier_addr_region_code"],
                     cf["carrier_addr_district"],
@@ -8320,6 +8327,7 @@ class ReviewRepository:
         carrier_name: str = "",
         carrier_inn: str = "",
         carrier_kpp: str = "",
+        carrier_phone: str = "",
         carrier_addr_index: str = "",
         carrier_addr_region_code: str = "",
         carrier_addr_district: str = "",
@@ -8348,6 +8356,7 @@ class ReviewRepository:
             carrier_name=carrier_name,
             carrier_inn=carrier_inn,
             carrier_kpp=carrier_kpp,
+            carrier_phone=carrier_phone,
             carrier_addr_index=carrier_addr_index,
             carrier_addr_region_code=carrier_addr_region_code,
             carrier_addr_district=carrier_addr_district,
@@ -8387,7 +8396,7 @@ class ReviewRepository:
                 self._sql(
                     "UPDATE supply_drivers SET full_name = ?, last_name = ?, first_name = ?, middle_name = ?, "
                     "phone = ?, documents = ?, in_person = ?, vehicles_json = ?, "
-                    "carrier = ?, carrier_name = ?, carrier_inn = ?, carrier_kpp = ?, "
+                    "carrier = ?, carrier_name = ?, carrier_inn = ?, carrier_kpp = ?, carrier_phone = ?, "
                     "carrier_addr_index = ?, carrier_addr_region_code = ?, carrier_addr_district = ?, "
                     "carrier_addr_city = ?, carrier_addr_settlement = ?, carrier_addr_street = ?, "
                     "carrier_addr_house = ?, carrier_addr_corpus = ?, carrier_addr_flat = ?, "
@@ -8407,6 +8416,7 @@ class ReviewRepository:
                     cf["carrier_name"],
                     cf["carrier_inn"],
                     cf["carrier_kpp"],
+                    cf["carrier_phone"],
                     cf["carrier_addr_index"],
                     cf["carrier_addr_region_code"],
                     cf["carrier_addr_district"],

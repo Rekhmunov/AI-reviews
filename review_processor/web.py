@@ -523,6 +523,7 @@ class CreateSupplyDriverRequest(BaseModel):
     carrier_name: str = ""
     carrier_inn: str = ""
     carrier_kpp: str = ""
+    carrier_phone: str = ""
     carrier_addr_index: str = ""
     carrier_addr_region_code: str = ""
     carrier_addr_district: str = ""
@@ -623,6 +624,7 @@ class UpdateSupplyDriverRequest(BaseModel):
     carrier_name: str = ""
     carrier_inn: str = ""
     carrier_kpp: str = ""
+    carrier_phone: str = ""
     carrier_addr_index: str = ""
     carrier_addr_region_code: str = ""
     carrier_addr_district: str = ""
@@ -12772,6 +12774,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             carrier_name=payload.carrier_name,
             carrier_inn=payload.carrier_inn,
             carrier_kpp=payload.carrier_kpp,
+            carrier_phone=payload.carrier_phone,
             carrier_addr_index=payload.carrier_addr_index,
             carrier_addr_region_code=payload.carrier_addr_region_code,
             carrier_addr_district=payload.carrier_addr_district,
@@ -12817,6 +12820,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             carrier_name=payload.carrier_name,
             carrier_inn=payload.carrier_inn,
             carrier_kpp=payload.carrier_kpp,
+            carrier_phone=payload.carrier_phone,
             carrier_addr_index=payload.carrier_addr_index,
             carrier_addr_region_code=payload.carrier_addr_region_code,
             carrier_addr_district=payload.carrier_addr_district,

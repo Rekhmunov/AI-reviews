@@ -382,7 +382,13 @@ def build_ozon_zakaz_xml(
     else:
         _el(id_prv, "СвЮЛУч", НаимОрг="Перевозчик (уточнить)")
     _addr_block(sv_prv, carrier_addr)
-    _add_kont(sv_prv, contact_phone)
+    # Carrier phone from catalog; fallback to юр.лица / driver (contact_phone).
+    carrier_phone = ""
+    if isinstance(carrier_fields, dict):
+        carrier_phone = _normalize_phone(str(carrier_fields.get("carrier_phone") or ""))
+    if not carrier_phone:
+        carrier_phone = contact_phone
+    _add_kont(sv_prv, carrier_phone)
 
     # --- ПунктПод ---
     punkt_pod = _el(
