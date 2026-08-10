@@ -516,6 +516,18 @@ class CreateSupplyDriverRequest(BaseModel):
     in_person: str = ""
     vehicles: list[str] = []
     carrier: str = ""
+    carrier_name: str = ""
+    carrier_inn: str = ""
+    carrier_kpp: str = ""
+    carrier_addr_index: str = ""
+    carrier_addr_region_code: str = ""
+    carrier_addr_district: str = ""
+    carrier_addr_city: str = ""
+    carrier_addr_settlement: str = ""
+    carrier_addr_street: str = ""
+    carrier_addr_house: str = ""
+    carrier_addr_corpus: str = ""
+    carrier_addr_flat: str = ""
 
 
 class CreateSupplyWarehouseRequest(BaseModel):
@@ -559,6 +571,18 @@ class UpdateSupplyDriverRequest(BaseModel):
     in_person: str = ""
     vehicles: list[str] = []
     carrier: str = ""
+    carrier_name: str = ""
+    carrier_inn: str = ""
+    carrier_kpp: str = ""
+    carrier_addr_index: str = ""
+    carrier_addr_region_code: str = ""
+    carrier_addr_district: str = ""
+    carrier_addr_city: str = ""
+    carrier_addr_settlement: str = ""
+    carrier_addr_street: str = ""
+    carrier_addr_house: str = ""
+    carrier_addr_corpus: str = ""
+    carrier_addr_flat: str = ""
 
 
 class ManagerSuppliesAccessRequest(BaseModel):
@@ -11149,6 +11173,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 load_addr_fields=ctx.get("load_addr_fields") or None,
                 delivery_address=str(ctx.get("delivery_address") or ""),
                 carrier_text=str(ctx.get("carrier_text") or ""),
+                carrier_fields=ctx.get("carrier_fields") or None,
             )
         except Exception as exc:
             _log.exception("ozon etrn xml failed for %s", supply_order_id)
@@ -12574,7 +12599,26 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         repository._ensure_supply_tables()
         if repository.driver_exists(user_id=owner_id, full_name=name):
             raise HTTPException(status_code=409, detail=f"Водитель «{name}» уже существует")
-        return repository.create_supply_driver(user_id=owner_id, full_name=name, documents=payload.documents, in_person=payload.in_person, vehicles=payload.vehicles, carrier=payload.carrier)
+        return repository.create_supply_driver(
+            user_id=owner_id,
+            full_name=name,
+            documents=payload.documents,
+            in_person=payload.in_person,
+            vehicles=payload.vehicles,
+            carrier=payload.carrier,
+            carrier_name=payload.carrier_name,
+            carrier_inn=payload.carrier_inn,
+            carrier_kpp=payload.carrier_kpp,
+            carrier_addr_index=payload.carrier_addr_index,
+            carrier_addr_region_code=payload.carrier_addr_region_code,
+            carrier_addr_district=payload.carrier_addr_district,
+            carrier_addr_city=payload.carrier_addr_city,
+            carrier_addr_settlement=payload.carrier_addr_settlement,
+            carrier_addr_street=payload.carrier_addr_street,
+            carrier_addr_house=payload.carrier_addr_house,
+            carrier_addr_corpus=payload.carrier_addr_corpus,
+            carrier_addr_flat=payload.carrier_addr_flat,
+        )
 
     @app.patch("/api/supply-drivers/{driver_id}")
     def update_supply_driver_endpoint(request: Request, driver_id: int, payload: UpdateSupplyDriverRequest) -> dict[str, object]:
@@ -12584,7 +12628,27 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         name = payload.full_name.strip()
         if not name:
             raise HTTPException(status_code=400, detail="Имя не может быть пустым")
-        ok = repository.update_supply_driver(user_id=_supply_owner_id(user), driver_id=driver_id, full_name=name, documents=payload.documents, in_person=payload.in_person, vehicles=payload.vehicles, carrier=payload.carrier)
+        ok = repository.update_supply_driver(
+            user_id=_supply_owner_id(user),
+            driver_id=driver_id,
+            full_name=name,
+            documents=payload.documents,
+            in_person=payload.in_person,
+            vehicles=payload.vehicles,
+            carrier=payload.carrier,
+            carrier_name=payload.carrier_name,
+            carrier_inn=payload.carrier_inn,
+            carrier_kpp=payload.carrier_kpp,
+            carrier_addr_index=payload.carrier_addr_index,
+            carrier_addr_region_code=payload.carrier_addr_region_code,
+            carrier_addr_district=payload.carrier_addr_district,
+            carrier_addr_city=payload.carrier_addr_city,
+            carrier_addr_settlement=payload.carrier_addr_settlement,
+            carrier_addr_street=payload.carrier_addr_street,
+            carrier_addr_house=payload.carrier_addr_house,
+            carrier_addr_corpus=payload.carrier_addr_corpus,
+            carrier_addr_flat=payload.carrier_addr_flat,
+        )
         if not ok:
             raise HTTPException(status_code=404, detail="Водитель не найден")
         return {"ok": True}

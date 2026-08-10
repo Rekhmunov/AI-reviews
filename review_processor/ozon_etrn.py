@@ -223,23 +223,17 @@ def _empty_ru_address(raw: str = "") -> dict[str, str]:
     }
 
 
-def _addr_from_production_fields(prod: dict[str, Any] | None) -> dict[str, str]:
-    """Map structured production address columns to eTrN АдрРФ fields."""
-    p = prod or {}
-    out = _empty_ru_address(str(p.get("address") or ""))
-    mapping = (
-        ("addr_index", "Индекс"),
-        ("addr_region_code", "КодРегион"),
-        ("addr_district", "Район"),
-        ("addr_city", "Город"),
-        ("addr_settlement", "НаселПункт"),
-        ("addr_street", "Улица"),
-        ("addr_house", "Дом"),
-        ("addr_corpus", "Корпус"),
-        ("addr_flat", "Кварт"),
-    )
-    for src, dst in mapping:
-        val = str(p.get(src) or "").strip()
+def _addr_from_structured_fields(
+    src: dict[str, Any] | None,
+    *,
+    mapping: tuple[tuple[str, str], ...],
+    raw_fallback: str = "",
+) -> dict[str, str]:
+    """Map structured address columns to eTrN АдрРФ fields."""
+    p = src or {}
+    out = _empty_ru_address(raw_fallback)
+    for src_key, dst in mapping:
+        val = str(p.get(src_key) or "").strip()
         if val:
             out[dst] = val
     if out["Индекс"]:
@@ -249,6 +243,60 @@ def _addr_from_production_fields(prod: dict[str, Any] | None) -> dict[str, str]:
         if out["КодРегион"] == "00":
             out["КодРегион"] = ""
     return out
+
+
+_PRODUCTION_ADDR_MAP = (
+    ("addr_index", "Индекс"),
+    ("addr_region_code", "КодРегион"),
+    ("addr_district", "Район"),
+    ("addr_city", "Город"),
+    ("addr_settlement", "НаселПункт"),
+    ("addr_street", "Улица"),
+    ("addr_house", "Дом"),
+    ("addr_corpus", "Корпус"),
+    ("addr_flat", "Кварт"),
+)
+
+_CARRIER_ADDR_MAP = (
+    ("carrier_addr_index", "Индекс"),
+    ("carrier_addr_region_code", "КодРегион"),
+    ("carrier_addr_district", "Район"),
+    ("carrier_addr_city", "Город"),
+    ("carrier_addr_settlement", "НаселПункт"),
+    ("carrier_addr_street", "Улица"),
+    ("carrier_addr_house", "Дом"),
+    ("carrier_addr_corpus", "Корпус"),
+    ("carrier_addr_flat", "Кварт"),
+)
+
+
+def _addr_from_production_fields(prod: dict[str, Any] | None) -> dict[str, str]:
+    """Map structured production address columns to eTrN АдрРФ fields."""
+    p = prod or {}
+    return _addr_from_structured_fields(
+        p,
+        mapping=_PRODUCTION_ADDR_MAP,
+        raw_fallback=str(p.get("address") or ""),
+    )
+
+
+def _addr_from_carrier_fields(driver: dict[str, Any] | None) -> dict[str, str]:
+    """Map structured carrier address columns to eTrN АдрРФ fields."""
+    d = driver or {}
+    return _addr_from_structured_fields(
+        d,
+        mapping=_CARRIER_ADDR_MAP,
+        raw_fallback=str(d.get("carrier") or ""),
+    )
+
+
+def _carrier_org_from_fields(fields: dict[str, Any] | None) -> tuple[str, str, str]:
+    """Return (name, inn, kpp) from structured carrier fields."""
+    f = fields or {}
+    name = str(f.get("carrier_name") or "").strip()
+    inn = re.sub(r"\D", "", str(f.get("carrier_inn") or ""))[:12]
+    kpp = re.sub(r"\D", "", str(f.get("carrier_kpp") or ""))[:9]
+    return name, inn, kpp
 
 
 def _has_structured_address(addr: dict[str, str] | None) -> bool:
@@ -530,6 +578,7 @@ def build_ozon_etrn_xml(
     load_addr_fields: dict[str, str] | None = None,
     delivery_address: str = "",
     carrier_text: str = "",
+    carrier_fields: dict[str, Any] | None = None,
     now: datetime | None = None,
 ) -> bytes:
     """Build formal eTrN title-1 XML draft bytes (UTF-8)."""
@@ -570,7 +619,11 @@ def build_ozon_etrn_xml(
         vehicle_json if vehicle_json is not None else item.get("vehicle_json"),
         fallback_line=vehicle_line,
     )
-    carrier_name, carrier_inn, carrier_kpp = _parse_carrier(carrier_text)
+    c_name, c_inn, c_kpp = _carrier_org_from_fields(carrier_fields)
+    if c_name or c_inn or c_kpp:
+        carrier_name, carrier_inn, carrier_kpp = c_name, c_inn, c_kpp
+    else:
+        carrier_name, carrier_inn, carrier_kpp = _parse_carrier(carrier_text)
     if not carrier_name:
         carrier_name = "Перевозчик (уточнить)"
     vu = _parse_driver_license(driver_documents)
@@ -711,10 +764,17 @@ def build_ozon_etrn_xml(
     if carrier_kpp:
         per_attrs["КПП"] = carrier_kpp
     _el(id_per, "СвЮЛУч", **per_attrs)
-    # Always Russian АдрРФ (without it Kontur shows foreign address type).
-    carrier_addr = _parse_ru_address(_extract_address_from_requisites(carrier_text))
+    # Prefer structured carrier address; else parse free-text; else shipper fallback.
+    carrier_addr = _addr_from_carrier_fields(carrier_fields)
+    if not _has_structured_address(carrier_addr):
+        carrier_addr = _parse_ru_address(_extract_address_from_requisites(carrier_text))
     if not (carrier_addr.get("Индекс") or carrier_addr.get("КодРегион") or carrier_addr.get("Улица")):
         carrier_addr = shipper_addr if (shipper_addr.get("raw") or shipper_addr.get("Индекс")) else {}
+    if carrier_addr and not carrier_addr.get("КодРегион"):
+        carrier_addr["КодРегион"] = _region_code_from_text(
+            str(carrier_addr.get("raw") or ""),
+            str(carrier_addr.get("Индекс") or ""),
+        )
     adr_per = _el(sv_per, "Адрес")
     if carrier_addr.get("raw") or carrier_addr.get("Индекс") or carrier_addr.get("КодРегион"):
         _add_adr_rf(adr_per, "АдрРФ", carrier_addr)
@@ -830,7 +890,11 @@ def collect_ozon_etrn_context(
     le = _find_legal_entity(entities, str(item.get("supplier_name") or ""))
     drivers = repository.list_supply_drivers(user_id=owner_id)
     driver_row = _find_driver(drivers, driver_name)
-    carrier_text = str((driver_row or {}).get("carrier") or "")
+    if hasattr(repository, "carrier_line"):
+        carrier_text = str(repository.carrier_line(driver_row) or "").strip()
+    else:
+        carrier_text = str((driver_row or {}).get("carrier") or "")
+    carrier_fields = dict(driver_row or {}) if driver_row else {}
     driver_documents = str((driver_row or {}).get("documents") or "")
 
     production_name = str(item.get("production") or "").strip()
@@ -868,6 +932,7 @@ def collect_ozon_etrn_context(
     return {
         "le": le,
         "carrier_text": carrier_text,
+        "carrier_fields": carrier_fields,
         "load_address": load_address,
         "load_addr_fields": load_addr_fields,
         "delivery_address": delivery_address,

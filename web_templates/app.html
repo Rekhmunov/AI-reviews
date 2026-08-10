@@ -2440,28 +2440,75 @@
             <div id="addDriverForm" class="source-form hidden" style="margin-top:12px">
               <div class="worker-form-grid">
                 <div class="wfg-field">
-                  <label class="wfg-label">ФИО водителя</label>
+                  <label class="wfg-label" for="newDriverName">ФИО водителя</label>
                   <input id="newDriverName" type="text" placeholder="Фамилия Имя Отчество" autocomplete="off" />
                 </div>
                 <div class="wfg-field">
-                  <label class="wfg-label">В лице</label>
+                  <label class="wfg-label" for="newDriverInPerson">В лице</label>
                   <input id="newDriverInPerson" type="text" placeholder="Дательный падеж" autocomplete="off" />
                 </div>
                 <div class="wfg-field">
-                  <label class="wfg-label">Документы</label>
+                  <label class="wfg-label" for="newDriverDocuments">Документы</label>
                   <input id="newDriverDocuments" type="text" placeholder="Серия, номер паспорта" autocomplete="off" />
                 </div>
+              </div>
+              <p class="small" style="margin:16px 0 8px;color:#64748b">Перевозчик (поля эТрН)</p>
+              <div class="worker-form-grid">
                 <div class="wfg-field" style="grid-column:span 2">
-                  <label class="wfg-label">Перевозчик (реквизиты)</label>
-                  <input id="newDriverCarrier" type="text" placeholder="ИП Иванов / ИНН 123456789012" autocomplete="off" />
+                  <label class="wfg-label" for="newDriverCarrierName">Наименование</label>
+                  <input id="newDriverCarrierName" type="text" placeholder='ООО "Перевозчик"' autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newDriverCarrierInn">ИНН</label>
+                  <input id="newDriverCarrierInn" type="text" inputmode="numeric" maxlength="12" placeholder="7701234567" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newDriverCarrierKpp">КПП</label>
+                  <input id="newDriverCarrierKpp" type="text" inputmode="numeric" maxlength="9" placeholder="770101001" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newDriverCarrierAddrIndex">Индекс</label>
+                  <input id="newDriverCarrierAddrIndex" type="text" inputmode="numeric" maxlength="6" placeholder="101000" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newDriverCarrierAddrRegion">Код региона</label>
+                  <input id="newDriverCarrierAddrRegion" type="text" inputmode="numeric" maxlength="2" placeholder="77" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newDriverCarrierAddrDistrict">Район</label>
+                  <input id="newDriverCarrierAddrDistrict" type="text" placeholder="" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newDriverCarrierAddrCity">Город</label>
+                  <input id="newDriverCarrierAddrCity" type="text" placeholder="Москва" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newDriverCarrierAddrSettlement">Нас. пункт</label>
+                  <input id="newDriverCarrierAddrSettlement" type="text" placeholder="" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newDriverCarrierAddrStreet">Улица</label>
+                  <input id="newDriverCarrierAddrStreet" type="text" placeholder="ул. Ленина" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newDriverCarrierAddrHouse">Дом</label>
+                  <input id="newDriverCarrierAddrHouse" type="text" placeholder="1" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newDriverCarrierAddrCorpus">Корпус</label>
+                  <input id="newDriverCarrierAddrCorpus" type="text" placeholder="" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newDriverCarrierAddrFlat">Квартира / офис</label>
+                  <input id="newDriverCarrierAddrFlat" type="text" placeholder="" autocomplete="off" />
                 </div>
               </div>
-              <div style="margin-top:10px">
+              <div style="margin-top:16px">
                 <label class="wfg-label" style="display:block;margin-bottom:6px">Автомобили</label>
                 <div id="newDriverVehiclesList" style="display:flex;flex-direction:column;gap:4px;margin-bottom:4px"></div>
                 <button type="button" class="secondary" style="font-size:12px;padding:4px 10px" onclick="addDriverVehicleRow('newDriverVehiclesList')">+ Добавить автомобиль</button>
               </div>
-              <div class="row" style="margin-top:10px;gap:8px">
+              <div class="row" style="margin-top:16px;gap:8px">
                 <button onclick="saveSupplyDriver()">Сохранить</button>
                 <button class="secondary" onclick="toggleAddDriverForm(false)">Отмена</button>
                 <span id="addDriverInfo" class="small"></span>
@@ -4150,6 +4197,6 @@
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
   <script src="/static/qrcode.min.js"></script>
-  <script src="/static/app.js?v=384"></script>
+  <script src="/static/app.js?v=385"></script>
 </body>
 </html>

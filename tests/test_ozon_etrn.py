@@ -201,6 +201,63 @@ def test_etrn_carrier_address_is_russian_rf():
     assert adr.attrib.get("КодРегион")  # RF type needs region
 
 
+def test_etrn_carrier_uses_structured_fields():
+    """СвПер takes structured carrier org + address without free-text parse."""
+    root = ET.fromstring(
+        _build(
+            carrier_text="ignored free text ООО Старый ИНН 1111111111",
+            carrier_fields={
+                "carrier_name": 'ООО "Новый Перевозчик"',
+                "carrier_inn": "5001002003",
+                "carrier_kpp": "500101001",
+                "carrier_addr_index": "141580",
+                "carrier_addr_region_code": "50",
+                "carrier_addr_city": "Химки",
+                "carrier_addr_street": "ул. Складская",
+                "carrier_addr_house": "7",
+            },
+        )
+    )
+    org = root.find("Документ/СодИнфГО/СвПер/ИдСв/СвЮЛУч")
+    assert org is not None
+    assert org.attrib.get("НаимОрг") == 'ООО "Новый Перевозчик"'
+    assert org.attrib.get("ИННЮЛ") == "5001002003"
+    assert org.attrib.get("КПП") == "500101001"
+    adr = root.find("Документ/СодИнфГО/СвПер/Адрес/АдрРФ")
+    assert adr is not None
+    assert adr.attrib.get("Индекс") == "141580"
+    assert adr.attrib.get("КодРегион") == "50"
+    assert adr.attrib.get("Город") == "Химки"
+    assert adr.attrib.get("Улица") == "ул. Складская"
+    assert adr.attrib.get("Дом") == "7"
+
+
+def test_compose_carrier_line_for_documents():
+    from review_processor.repository import ReviewRepository
+
+    line = ReviewRepository.compose_carrier_line(
+        {
+            "carrier_name": 'ООО "Перевозчик"',
+            "carrier_inn": "5001002003",
+            "carrier_kpp": "500101001",
+            "carrier_addr_index": "141580",
+            "carrier_addr_city": "Химки",
+            "carrier_addr_street": "ул. Складская",
+            "carrier_addr_house": "7",
+        }
+    )
+    assert 'ООО "Перевозчик"' in line
+    assert "ИНН 5001002003" in line
+    assert "КПП 500101001" in line
+    assert "141580" in line
+    assert "Химки" in line
+    assert "ул. Складская" in line
+    assert (
+        ReviewRepository.carrier_line({"carrier": "старая строка", "carrier_name": ""})
+        == "старая строка"
+    )
+
+
 def test_etrn_contacts_use_legal_entity_phone_everywhere():
     """Phone from юр.лица is used for ГО, ГП, перевозчик, водитель, переадресовка."""
     root = ET.fromstring(_build())
