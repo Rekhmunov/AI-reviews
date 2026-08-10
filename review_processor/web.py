@@ -536,6 +536,7 @@ class CreateSupplyLegalEntityRequest(BaseModel):
     in_person: str = ""
     basis: str = ""
     address: str = ""
+    phone: str = ""
     signature_image: str | None = None
 
 
@@ -547,6 +548,7 @@ class UpdateSupplyLegalEntityRequest(BaseModel):
     in_person: str = ""
     basis: str = ""
     address: str = ""
+    phone: str = ""
     signature_image: str | None = None  # new base64 or None
     clear_signature: bool = False        # True = delete existing
 
@@ -12679,6 +12681,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             in_person=payload.in_person,
             basis=payload.basis,
             address=payload.address,
+            phone=payload.phone,
             signature_image=payload.signature_image,
         )
 
@@ -12701,6 +12704,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             in_person=payload.in_person,
             basis=payload.basis,
             address=payload.address,
+            phone=payload.phone,
             signature_image=payload.signature_image,
             clear_signature=payload.clear_signature,
         )

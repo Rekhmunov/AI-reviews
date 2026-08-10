@@ -27,6 +27,7 @@ def _build(**overrides):
                 "юр. адрес: 101000, г. Москва, ул. Ленина, д. 1"
             ),
             "signatories": "Иванов Иван Иванович",
+            "phone": "+79991112233",
         },
         driver_name="Петров Пётр Петрович",
         driver_phone="+79001234567",
@@ -198,6 +199,45 @@ def test_etrn_carrier_address_is_russian_rf():
     assert adr is not None
     assert root.find("Документ/СодИнфГО/СвПер/Адрес/АдрИнф") is None
     assert adr.attrib.get("КодРегион")  # RF type needs region
+
+
+def test_etrn_contacts_use_legal_entity_phone_everywhere():
+    """Phone from юр.лица is used for ГО, ГП, перевозчик, водитель, переадресовка."""
+    root = ET.fromstring(_build())
+    sod = root.find("Документ/СодИнфГО")
+    assert sod is not None
+    expected = "+79991112233"
+    go = sod.find("СвГО/РекИдентГО/Контакт/Тлф")
+    gp = sod.find("СвГП/РекИдентГП/Контакт/Тлф")
+    carrier = sod.find("СвПер/Контакт/Тлф")
+    driver = sod.find("СвВодит/Тлф")
+    redirect = sod.find("УказГО/СвПА/КонтПА/Тлф")
+    assert go is not None and go.text == expected
+    assert gp is not None and gp.text == expected
+    assert carrier is not None and carrier.text == expected
+    assert driver is not None and driver.text == expected
+    assert redirect is not None and redirect.text == expected
+    # Must not fall back to driver_phone when le.phone is set.
+    for phone in sod.findall(".//Тлф"):
+        assert phone.text != "+79001234567"
+
+
+def test_etrn_contacts_fallback_to_driver_phone_when_le_phone_empty():
+    root = ET.fromstring(
+        _build(
+            le={
+                "full_name": 'ООО "Тест Поставщик"',
+                "short_name": "Тест",
+                "requisites": "ИНН 7701234567 КПП 770101001",
+                "signatories": "Иванов Иван Иванович",
+                "phone": "",
+            },
+            driver_phone="+79001234567",
+        )
+    )
+    go = root.find("Документ/СодИнфГО/СвГО/РекИдентГО/Контакт/Тлф")
+    assert go is not None
+    assert go.text == "+79001234567"
 
 
 def test_etrn_load_address_uses_structured_fields():

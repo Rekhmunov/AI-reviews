@@ -580,7 +580,11 @@ def build_ozon_etrn_xml(
     if not s_fam:
         s_fam, s_imya = "Не", "указан"
 
-    contact_phone = str(driver_phone or "").strip()
+    # Phone from Поставки → Настройки → Юр.лица; used for all eTrN contacts.
+    # Fallbacks keep older drafts working when the field is still empty.
+    contact_phone = str(le.get("phone") or "").strip()
+    if not contact_phone:
+        contact_phone = str(driver_phone or "").strip()
     if not contact_phone:
         phone_m = re.search(r"(?:\+7|8)\s*[\d\-()\s]{9,}", org_req)
         if phone_m:
@@ -662,6 +666,7 @@ def build_ozon_etrn_xml(
     # Legal address of consignee — always Russian АдрРФ (same rule as shipper).
     adr_gp = _el(rek_gp, "Адрес")
     _add_adr_rf(adr_gp, "АдрРФ", _parse_ru_address(OZON_CONSIGNEE_ADDRESS))
+    _add_contact(rek_gp, contact_phone)
     # Delivery point — always АдресРФ, never АдресИнф.
     adr_dost = _el(sv_gp, "АдресДостГр")
     if not dest_addr.get("raw"):
