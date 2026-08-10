@@ -462,24 +462,94 @@ def _driver_vu_from_fields(
     return _parse_driver_license(documents or str(f.get("documents") or ""))
 
 
-def _cargo_stats(cargoes_json: object) -> dict[str, Any]:
+def parse_cargoes_cache(cargoes_json: object) -> dict[str, Any]:
+    """Normalize cached cargoes_json (legacy list or v2 object) into groups + transport."""
     groups: list[dict[str, Any]] = []
-    if isinstance(cargoes_json, list):
-        groups = [g for g in cargoes_json if isinstance(g, dict)]
-    elif isinstance(cargoes_json, str) and cargoes_json.strip():
+    transport: list[dict[str, Any]] = []
+    parsed: object = cargoes_json
+    if isinstance(cargoes_json, str) and cargoes_json.strip():
         try:
             parsed = json.loads(cargoes_json)
-            if isinstance(parsed, list):
-                groups = [g for g in parsed if isinstance(g, dict)]
         except Exception:
-            groups = []
+            parsed = None
+    if isinstance(parsed, list):
+        groups = [g for g in parsed if isinstance(g, dict)]
+    elif isinstance(parsed, dict):
+        raw_groups = parsed.get("groups")
+        if isinstance(raw_groups, list):
+            groups = [g for g in raw_groups if isinstance(g, dict)]
+        raw_tr = parsed.get("transport_cargoes")
+        if isinstance(raw_tr, list):
+            for tc in raw_tr:
+                if not isinstance(tc, dict):
+                    continue
+                try:
+                    box_count = int(tc.get("box_count") or 0)
+                except (TypeError, ValueError):
+                    box_count = 0
+                transport.append(
+                    {
+                        "type": str(tc.get("type") or "PALLET").upper() or "PALLET",
+                        "transport_cargo_id": str(tc.get("transport_cargo_id") or ""),
+                        "box_count": max(0, box_count),
+                    }
+                )
+    return {"groups": groups, "transport_cargoes": transport}
+
+
+def build_ozon_cargoes_cache(
+    *,
+    flat_cargoes: list[dict[str, Any]] | None = None,
+    supplies_cargoes: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Build v2 cargoes cache from Ozon /v1/cargoes/get + /v1/cargoes/supplies/get."""
+    groups_map: dict[tuple[str, str], int] = {}
+    for c in flat_cargoes or []:
+        if not isinstance(c, dict):
+            continue
+        key = (str(c.get("type") or ""), str(c.get("content_type") or ""))
+        groups_map[key] = groups_map.get(key, 0) + 1
+    groups = [
+        {"type": k[0], "content_type": k[1], "count": v}
+        for k, v in groups_map.items()
+    ]
+    transport: list[dict[str, Any]] = []
+    for sc in supplies_cargoes or []:
+        if not isinstance(sc, dict):
+            continue
+        for tc in sc.get("transport_cargoes") or []:
+            if not isinstance(tc, dict):
+                continue
+            inner = [x for x in (tc.get("cargoes") or []) if isinstance(x, dict)]
+            transport.append(
+                {
+                    "type": str(tc.get("type") or "PALLET").upper() or "PALLET",
+                    "transport_cargo_id": str(tc.get("transport_cargo_id") or ""),
+                    "box_count": len(inner),
+                }
+            )
+    return {
+        "version": 2,
+        "groups": groups,
+        "transport_cargoes": transport,
+    }
+
+
+def _cargo_stats(cargoes_json: object) -> dict[str, Any]:
+    parsed = parse_cargoes_cache(cargoes_json)
+    groups = parsed["groups"]
+    transport = parsed["transport_cargoes"]
+
     pallets = 0
     boxes = 0
     other = 0
     tons = 0.0
     for g in groups:
         typ = str(g.get("type") or "").upper()
-        count = int(g.get("count") or 0)
+        try:
+            count = int(g.get("count") or 0)
+        except (TypeError, ValueError):
+            count = 0
         tons += float(_CARGO_WEIGHT_TONS.get(typ, 0.0)) * count
         if typ == "PALLET":
             pallets += count
@@ -487,17 +557,32 @@ def _cargo_stats(cargoes_json: object) -> dict[str, Any]:
             boxes += count
         else:
             other += count
-    total_places = pallets + boxes + other
+
+    # Transport cargoes from Ozon LK (паллеты с коробами внутри) override flat PALLET count.
+    if transport:
+        pallets = len(transport)
+        boxes_from_tr = sum(int(tc.get("box_count") or 0) for tc in transport)
+        if boxes_from_tr > 0:
+            boxes = boxes_from_tr
+            # Prefer box-based mass when transport hierarchy is known.
+            tons = float(_CARGO_WEIGHT_TONS.get("BOX", 0.0)) * boxes
+        else:
+            tons = float(_CARGO_WEIGHT_TONS.get("PALLET", 0.0)) * pallets
+
+    # eTrN КолМестГр = транспортные грузоместа (паллеты), иначе плоские места.
+    total_places = pallets if pallets > 0 else (boxes + other)
     parts: list[str] = []
     if pallets:
         parts.append(f"{pallets} палет")
     if boxes:
         parts.append(f"{boxes} коробок")
-    if other:
+    if other and not pallets:
         parts.append(f"{other} мест")
     places_label = ", ".join(parts) if parts else ""
     cargo_name = "Текстиль"
-    if places_label:
+    if pallets and boxes:
+        cargo_name = f"Текстиль. {pallets} палет ({boxes} коробок)"
+    elif places_label:
         cargo_name = f"Текстиль. {places_label}"
     kg = int(round(tons * 1000)) if tons > 0 else 0
     # Required by schema: never emit empty place/mass fields.
@@ -516,6 +601,7 @@ def _cargo_stats(cargoes_json: object) -> dict[str, Any]:
         "kg": kg,
         "places_label": places_label or "Отсутствует",
         "cargo_name": cargo_name,
+        "transport_cargoes": transport,
     }
 
 
@@ -1011,13 +1097,14 @@ def build_ozon_etrn_xml(
     _add_adr_rf(adr_dost, "АдресРФ", dest_addr)
 
     # --- СвГруз ---
+    # КолМестГр = число транспортных грузомест (паллет), если они есть в Ozon.
     sv_gruz = _el(sod, "СвГруз")
     op = _el(
         sv_gruz,
         "ОпГруз",
         НаимГруз=cargo["cargo_name"],
         СостГруз="Без повреждений",
-        СпУпак="Коробки",
+        СпУпак="Паллеты" if int(cargo.get("pallets") or 0) > 0 else "Коробки",
         ВидТар="00",
         КолМестГр=str(cargo["total_places"]),
         УчГосСист="0",

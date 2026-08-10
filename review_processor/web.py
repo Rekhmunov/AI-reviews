@@ -10154,37 +10154,48 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         ]
         return _apply_product_names(result)
 
+    def _ozon_cargoes_api_payload(cached_raw: object) -> dict[str, object]:
+        """Shape cargoes-info response from cached JSON (legacy list or v2)."""
+        from .ozon_etrn import parse_cargoes_cache
+
+        parsed = parse_cargoes_cache(cached_raw)
+        return {
+            "groups": parsed["groups"],
+            "transport_cargoes": parsed["transport_cargoes"],
+        }
+
     @app.get("/api/ozon-supplies/{supply_order_id}/cargoes-info")
     def get_ozon_supply_cargoes(request: Request, supply_order_id: int) -> dict[str, object]:
-        """Fetch cargo places from OZON /v1/cargoes/get and cache."""
+        """Fetch cargo places from Ozon (boxes + transport pallets) and cache."""
         import urllib.request as _ul, json as _jj, ssl as _sl
+        from .ozon_etrn import build_ozon_cargoes_cache
+
         user = _require_user(request)
         if not _can_view_supplies(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
         owner_id = _supply_owner_id(user)
         item_row = repository.get_ozon_supply_item_row(user_id=owner_id, supply_order_id=supply_order_id)
         if not item_row:
-            return {"ok": False, "groups": []}
-        # Always try fresh OZON API; fall back to cache only on failure
-        cached_groups = None
+            return {"ok": False, "groups": [], "transport_cargoes": []}
+        cached_raw = None
         cached = str(item_row.get("cargoes_json") or "")
-        if cached and cached != "[]":
+        if cached and cached not in ("[]", "null"):
             try:
-                cached_groups = _jj.loads(cached)
+                cached_raw = _jj.loads(cached)
             except Exception:
-                pass
+                cached_raw = None
         src = repository.get_supply_source_with_key(user_id=owner_id, source_id=int(item_row["source_id"]))
         if not src or not src.get("api_key"):
-            if cached_groups is not None:
-                return {"ok": True, "groups": cached_groups, "cached": True}
-            return {"ok": False, "groups": [], "error": "no_key"}
+            if cached_raw is not None:
+                return {"ok": True, "cached": True, **_ozon_cargoes_api_payload(cached_raw)}
+            return {"ok": False, "groups": [], "transport_cargoes": [], "error": "no_key"}
         client_id = str(src.get("client_id") or "")
         api_key = str(src["api_key"])
         ctx = _sl.create_default_context()
         ozon_headers = {"Client-Id": client_id, "Api-Key": api_key,
                         "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
         try:
-            # /v1/cargoes/get uses supply_id (from supplies[].supply_id in order),
+            # /v1/cargoes/* uses supply_id (from supplies[].supply_id in order),
             # NOT order_id. Extract from raw_json stored during sync.
             actual_supply_id = supply_order_id  # fallback
             raw_json_str = str(item_row.get("raw_json") or "")
@@ -10206,26 +10217,41 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             cargoes = []
             for s in (data.get("supply") or []):
                 cargoes.extend(s.get("cargoes") or [])
-            # Group by type + content_type
-            groups_map: dict = {}
-            for c in cargoes:
-                key = (str(c.get("type") or ""), str(c.get("content_type") or ""))
-                groups_map[key] = groups_map.get(key, 0) + 1
-            groups = [{"type": k[0], "content_type": k[1], "count": v}
-                      for k, v in groups_map.items()]
-            cargoes_json_str = _jj.dumps(groups, ensure_ascii=False)
+            supplies_cargoes: list = []
+            try:
+                t_req = _ul.Request(
+                    "https://api-seller.ozon.ru/v1/cargoes/supplies/get",
+                    data=body, method="POST", headers=ozon_headers,
+                )
+                with _ul.urlopen(t_req, context=ctx, timeout=10) as tr:
+                    t_data = _jj.loads(tr.read())
+                supplies_cargoes = list(t_data.get("supplies_cargoes") or [])
+            except Exception as tex:
+                _log.debug("ozon transport cargoes sid=%d: %s", supply_order_id, tex)
+            cache_obj = build_ozon_cargoes_cache(
+                flat_cargoes=cargoes,
+                supplies_cargoes=supplies_cargoes,
+            )
+            cargoes_json_str = _jj.dumps(cache_obj, ensure_ascii=False)
             repository.update_ozon_supply_cargoes(
                 supply_order_id=supply_order_id, cargoes_json=cargoes_json_str)
-            return {"ok": True, "groups": groups}
+            return {"ok": True, **_ozon_cargoes_api_payload(cache_obj)}
         except Exception as ex:
             code = getattr(ex, "code", None)
             if code == 403:
-                return {"ok": False, "groups": cached_groups or [], "error": "no_role",
-                        "cached": bool(cached_groups)}
+                payload = _ozon_cargoes_api_payload(cached_raw) if cached_raw is not None else {
+                    "groups": [], "transport_cargoes": [],
+                }
+                return {"ok": False, "error": "no_role", "cached": bool(cached_raw), **payload}
             _log.warning("ozon cargoes fetch sid=%d: %s", supply_order_id, ex)
-            if cached_groups is not None:
-                return {"ok": True, "groups": cached_groups, "cached": True, "error": str(ex)[:100]}
-            return {"ok": False, "groups": [], "error": str(ex)[:100]}
+            if cached_raw is not None:
+                return {
+                    "ok": True,
+                    "cached": True,
+                    "error": str(ex)[:100],
+                    **_ozon_cargoes_api_payload(cached_raw),
+                }
+            return {"ok": False, "groups": [], "transport_cargoes": [], "error": str(ex)[:100]}
 
     @app.get("/api/ozon-supplies/{supply_order_id}/vehicle")
     def get_ozon_supply_vehicle(request: Request, supply_order_id: int) -> dict[str, object]:
@@ -11200,17 +11226,19 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Поставка не найдена")
         item = data["item"]
         cargoes_json = item.get("cargoes_json")
-        # Refresh cargo places from Ozon when cache is empty so КолМестГр/масса не пустые.
-        cached_empty = not cargoes_json or str(cargoes_json).strip() in ("", "[]", "null")
-        if cached_empty:
-            try:
-                cargo_resp = get_ozon_supply_cargoes(request, supply_order_id)
-                groups = (cargo_resp or {}).get("groups") or []
-                if groups:
-                    import json as _jj
-                    cargoes_json = _jj.dumps(groups, ensure_ascii=False)
-            except Exception as ex:
-                _log.debug("ozon etrn cargoes refresh sid=%s: %s", supply_order_id, ex)
+        # Always refresh cargoes (incl. transport pallets) so КолМестГр matches Ozon LK.
+        try:
+            import json as _jj
+            cargo_resp = get_ozon_supply_cargoes(request, supply_order_id) or {}
+            cache_obj = {
+                "version": 2,
+                "groups": list(cargo_resp.get("groups") or []),
+                "transport_cargoes": list(cargo_resp.get("transport_cargoes") or []),
+            }
+            if cache_obj["groups"] or cache_obj["transport_cargoes"]:
+                cargoes_json = _jj.dumps(cache_obj, ensure_ascii=False)
+        except Exception as ex:
+            _log.debug("ozon etrn cargoes refresh sid=%s: %s", supply_order_id, ex)
         ctx = _ozon_etrn.collect_ozon_etrn_context(
             repository=repository,
             owner_id=owner_id,
@@ -11666,6 +11694,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                                             actual_supply_id = sid
                                             break
                                 if actual_supply_id:
+                                    from .ozon_etrn import build_ozon_cargoes_cache as _build_cargo_cache
                                     cbody = _jj.dumps({"supply_ids": [actual_supply_id]}).encode()
                                     c_req = _ul.Request(
                                         "https://api-seller.ozon.ru/v1/cargoes/get",
@@ -11676,15 +11705,24 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                                     cargoes = []
                                     for s in (cdet.get("supply") or []):
                                         cargoes.extend(s.get("cargoes") or [])
-                                    groups_map: dict = {}
-                                    for cg in cargoes:
-                                        key = (str(cg.get("type") or ""), str(cg.get("content_type") or ""))
-                                        groups_map[key] = groups_map.get(key, 0) + 1
-                                    groups = [{"type": k[0], "content_type": k[1], "count": v}
-                                              for k, v in groups_map.items()]
+                                    supplies_cargoes: list = []
+                                    try:
+                                        t_req = _ul.Request(
+                                            "https://api-seller.ozon.ru/v1/cargoes/supplies/get",
+                                            data=cbody, method="POST", headers=headers,
+                                        )
+                                        with _ul.urlopen(t_req, context=ctx, timeout=10) as tr:
+                                            tdet = _jj.loads(tr.read())
+                                        supplies_cargoes = list(tdet.get("supplies_cargoes") or [])
+                                    except Exception:
+                                        supplies_cargoes = []
+                                    cache_obj = _build_cargo_cache(
+                                        flat_cargoes=cargoes,
+                                        supplies_cargoes=supplies_cargoes,
+                                    )
                                     repository.update_ozon_supply_cargoes(
                                         supply_order_id=order_id,
-                                        cargoes_json=_jj.dumps(groups, ensure_ascii=False))
+                                        cargoes_json=_jj.dumps(cache_obj, ensure_ascii=False))
                             except Exception as vex:
                                 code = getattr(vex, "code", None)
                                 if code == 403:
