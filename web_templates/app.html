@@ -1183,6 +1183,9 @@
               <select id="ozonWarehouseFilter" onchange="loadOzonSupplies(true)" title="Фильтр по складу" style="max-width:220px">
                 <option value="">Все склады</option>
               </select>
+              <select id="ozonDriverFilter" onchange="loadOzonSupplies(true)" title="Фильтр по водителю" style="max-width:220px">
+                <option value="">Все водители</option>
+              </select>
               <input id="ozonSearchFilter" type="search" placeholder="🔍 Поиск..."
                      autocomplete="off" style="width:140px" oninput="ozonState.page=1;ozonState._filteredTotal=undefined;_applyOzonPage()" />
               <div class="supplies-date-wrap" style="position:relative">
@@ -4313,6 +4316,6 @@
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
   <script src="/static/qrcode.min.js"></script>
-  <script src="/static/app.js?v=392"></script>
+  <script src="/static/app.js?v=393"></script>
 </body>
 </html>

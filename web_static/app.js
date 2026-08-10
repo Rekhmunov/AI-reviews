@@ -4997,14 +4997,24 @@ let _ozonSyncPollTimer = null;
 let _ozonDetailsCurrentId = null;
 let _selectedOzonIds = new Set();
 
+function _ozonItemDriverName(item) {
+  let fromVehicle = "";
+  try {
+    const v = JSON.parse(item?.vehicle_json || "{}");
+    fromVehicle = String(v.driver_name || "").trim();
+  } catch (_) {}
+  return fromVehicle || String(item?.driver_name || "").trim();
+}
+
 function _ozonHasActiveFilters() {
   const statusF = document.getElementById("ozonStatusFilter")?.value || "";
   const prodF = document.getElementById("ozonProductionFilter")?.value || "";
   const whF = document.getElementById("ozonWarehouseFilter")?.value || "";
+  const driverF = document.getElementById("ozonDriverFilter")?.value || "";
   const sq = (document.getElementById("ozonSearchFilter")?.value || "").trim();
   const dateFrom = document.getElementById("ozonDateFrom")?.value || "";
   const dateTo = document.getElementById("ozonDateTo")?.value || "";
-  return Boolean(statusF || prodF || whF || sq || dateFrom || dateTo);
+  return Boolean(statusF || prodF || whF || driverF || sq || dateFrom || dateTo);
 }
 
 function _updateOzonFilterCount() {
@@ -5026,6 +5036,7 @@ async function loadOzonSupplies(resetPage = false) {
   const statusF = document.getElementById("ozonStatusFilter")?.value || "";
   const prodF = document.getElementById("ozonProductionFilter")?.value || "";
   const whF = document.getElementById("ozonWarehouseFilter")?.value || "";
+  const driverF = document.getElementById("ozonDriverFilter")?.value || "";
   const dateFrom = document.getElementById("ozonDateFrom")?.value || "";
   const dateTo = document.getElementById("ozonDateTo")?.value || "";
   const params = new URLSearchParams({ page: ozonState.page, page_size: ozonState.page_size });
@@ -5036,10 +5047,12 @@ async function loadOzonSupplies(resetPage = false) {
   ozonState.rawItems = items;
   _populateOzonProductionFilter();
   _populateOzonWarehouseFilter();
+  _populateOzonDriverFilter();
   // Client-side filtering
   if (statusF) items = items.filter(x => (x.state || "") === statusF);
   if (prodF) items = items.filter(x => (x.production || "") === prodF);
   if (whF) items = items.filter(x => (x.warehouse_name || "").trim() === whF);
+  if (driverF) items = items.filter(x => _ozonItemDriverName(x) === driverF);
   if (dateFrom) items = items.filter(x => { const d = (x.supply_date || "").slice(0,10); return !d || d >= dateFrom; });
   if (dateTo) items = items.filter(x => { const d = (x.supply_date || "").slice(0,10); return !d || d <= dateTo; });
   ozonState.allItems = items;   // full filtered set (except search)
@@ -5099,6 +5112,20 @@ function _populateOzonWarehouseFilter() {
       .filter(Boolean)
   )].sort((a, b) => a.localeCompare(b, "ru"));
   sel.innerHTML = '<option value="">Все склады</option>' +
+    names.map((n) => `<option value="${esc(n)}"${n === cur ? " selected" : ""}>${esc(n)}</option>`).join("");
+  if (cur && !names.includes(cur)) sel.value = "";
+}
+
+function _populateOzonDriverFilter() {
+  const sel = document.getElementById("ozonDriverFilter");
+  if (!sel) return;
+  const cur = sel.value;
+  const names = [...new Set(
+    (ozonState.rawItems || [])
+      .map((x) => _ozonItemDriverName(x))
+      .filter(Boolean)
+  )].sort((a, b) => a.localeCompare(b, "ru"));
+  sel.innerHTML = '<option value="">Все водители</option>' +
     names.map((n) => `<option value="${esc(n)}"${n === cur ? " selected" : ""}>${esc(n)}</option>`).join("");
   if (cur && !names.includes(cur)) sel.value = "";
 }
