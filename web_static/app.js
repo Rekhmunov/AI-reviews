@@ -13925,34 +13925,87 @@ window.saveSupplyManualFields = saveSupplyManualFields;
 // ── Settings tables: resizable columns ───────────────────────────────────
 
 const _SST_ACTIONS_COL_W = 180;
+const _SST_MIN_COL_W = 56;
 const _SST_TABLES = [
-  { thead: "supplyDriversThead",         key: "sst_drivers" },
-  { thead: "supplyWarehousesThead",       key: "sst_warehouses" },
-  { thead: "supplyLegalEntitiesThead",    key: "sst_legal" },
-  { thead: "supplyProductionsThead",      key: "sst_productions" },
-  { thead: "supplyContractorsThead",      key: "sst_contractors" },
+  { thead: "supplyDriversThead",         key: "sst_drivers_v2" },
+  { thead: "supplyWarehousesThead",       key: "sst_warehouses_v2" },
+  { thead: "supplyLegalEntitiesThead",    key: "sst_legal_v2" },
+  { thead: "supplyProductionsThead",      key: "sst_productions_v2" },
+  { thead: "supplyContractorsThead",      key: "sst_contractors_v2" },
 ];
 const _sstInited = new Set();
 
-function _sstParseWidthPx(th) {
-  const raw = String(th.style.width || "").trim();
+function _sstParseWidthPx(el) {
+  if (!el) return 0;
+  const raw = String(el.style.width || "").trim();
   const n = parseInt(raw, 10);
   if (Number.isFinite(n) && n > 0) return n;
-  const attr = parseInt(String(th.getAttribute("width") || ""), 10);
+  const attr = parseInt(String(el.getAttribute("width") || ""), 10);
   if (Number.isFinite(attr) && attr > 0) return attr;
-  return th.offsetWidth || 120;
+  return el.offsetWidth || 120;
 }
 
-/** Keep table wider than the wrap when columns sum past the viewport → real overflow-x. */
-function _sstSyncTableWidth(table) {
-  if (!table) return;
-  const ths = table.querySelectorAll("thead th");
+function _sstDefaultWidth(th) {
+  const fromStyle = parseInt(String(th.style.width || ""), 10);
+  if (Number.isFinite(fromStyle) && fromStyle > 0) return fromStyle;
+  if (th.dataset.col === "num") return 44;
+  if (th.classList.contains("sst-actions-col") || th.dataset.col === "acts") return _SST_ACTIONS_COL_W;
+  return Math.max(_SST_MIN_COL_W, th.offsetWidth || 140);
+}
+
+function _sstEnsureColgroup(table, ths) {
+  let colgroup = table.querySelector("colgroup.sst-colgroup");
+  if (!colgroup) {
+    colgroup = document.createElement("colgroup");
+    colgroup.className = "sst-colgroup";
+    table.insertBefore(colgroup, table.firstChild);
+  }
+  while (colgroup.children.length < ths.length) {
+    colgroup.appendChild(document.createElement("col"));
+  }
+  while (colgroup.children.length > ths.length) {
+    colgroup.lastElementChild.remove();
+  }
+  return colgroup;
+}
+
+/** Apply widths via <col> + th; table width = sum → horizontal scroll when needed. */
+function _sstApplyWidths(table, ths, widthsByCol) {
+  if (!table || !ths?.length) return;
+  const colgroup = _sstEnsureColgroup(table, ths);
   let total = 0;
-  ths.forEach((th) => { total += _sstParseWidthPx(th); });
-  if (total < 320) return;
+  ths.forEach((th, i) => {
+    const isActs = th.classList.contains("sst-actions-col") || th.dataset.col === "acts";
+    if (isActs) th.classList.add("sst-actions-col");
+    const colKey = th.dataset.col || `c${i}`;
+    let w = isActs
+      ? _SST_ACTIONS_COL_W
+      : (Number(widthsByCol[colKey]) || _sstDefaultWidth(th));
+    w = Math.max(isActs ? _SST_ACTIONS_COL_W : _SST_MIN_COL_W, Math.round(w));
+    const col = colgroup.children[i];
+    if (col) {
+      col.style.width = `${w}px`;
+      col.dataset.col = colKey;
+    }
+    th.style.width = `${w}px`;
+    th.style.minWidth = `${w}px`;
+    if (isActs) th.style.maxWidth = `${w}px`;
+    else th.style.maxWidth = "";
+    total += w;
+  });
   table.style.tableLayout = "fixed";
   table.style.width = `${total}px`;
   table.style.minWidth = `${total}px`;
+}
+
+function _sstCollectWidths(ths) {
+  const out = {};
+  ths.forEach((th, i) => {
+    const colKey = th.dataset.col || `c${i}`;
+    if (colKey === "acts" || th.classList.contains("sst-actions-col")) return;
+    out[colKey] = _sstParseWidthPx(th);
+  });
+  return out;
 }
 
 function initAllSettingResizers() {
@@ -13960,59 +14013,104 @@ function initAllSettingResizers() {
     const theadEl = document.getElementById(thead);
     if (!theadEl) return;
     const table = theadEl.closest("table");
-    const saved = _sstLoad(key);
-    const ths = theadEl.querySelectorAll("th[data-col]");
+    if (!table) return;
+    const ths = [...theadEl.querySelectorAll("th")];
+    if (!ths.length) return;
 
-    ths.forEach((th) => {
-      if (th.classList.contains("sst-actions-col") || th.dataset.col === "acts") {
-        th.classList.add("sst-actions-col");
-        th.style.width = `${_SST_ACTIONS_COL_W}px`;
-        th.style.minWidth = `${_SST_ACTIONS_COL_W}px`;
-        th.style.maxWidth = `${_SST_ACTIONS_COL_W}px`;
-        return;
+    // Migrate old storage keys once (sst_* → sst_*_v2).
+    let saved = _sstLoad(key);
+    if (!Object.keys(saved).length) {
+      const legacyKey = key.replace(/_v2$/, "");
+      if (legacyKey !== key) {
+        const legacy = _sstLoad(legacyKey);
+        if (Object.keys(legacy).length) {
+          saved = legacy;
+          _sstSave(key, saved);
+        }
       }
-      if (saved[th.dataset.col]) th.style.width = `${saved[th.dataset.col]}px`;
-    });
-    _sstSyncTableWidth(table);
+    }
+    _sstApplyWidths(table, ths, saved);
 
     if (_sstInited.has(thead)) return;
     _sstInited.add(thead);
 
-    ths.forEach((th) => {
+    ths.forEach((th, idx) => {
       if (th.classList.contains("sst-actions-col") || th.dataset.col === "acts") return;
       if (th.querySelector(".sst-resize-handle")) return;
       const handle = document.createElement("span");
       handle.className = "sst-resize-handle";
+      handle.title = "Потяните, чтобы изменить ширину";
       th.style.position = "relative";
       th.appendChild(handle);
+
+      const startResize = (clientX) => {
+        const startW = _sstParseWidthPx(th) || th.offsetWidth;
+        const startX = clientX;
+        handle.classList.add("sst-dragging");
+        document.body.classList.add("sst-col-resizing");
+
+        const onMove = (ev) => {
+          const x = ev.touches ? ev.touches[0].clientX : ev.clientX;
+          const newW = Math.max(_SST_MIN_COL_W, Math.round(startW + (x - startX)));
+          const widths = _sstCollectWidths(ths);
+          const colKey = th.dataset.col || `c${idx}`;
+          widths[colKey] = newW;
+          _sstApplyWidths(table, ths, widths);
+        };
+        const onUp = (ev) => {
+          const x = ev.changedTouches ? ev.changedTouches[0].clientX : ev.clientX;
+          const newW = Math.max(_SST_MIN_COL_W, Math.round(startW + (x - startX)));
+          handle.classList.remove("sst-dragging");
+          document.body.classList.remove("sst-col-resizing");
+          const widths = _sstCollectWidths(ths);
+          const colKey = th.dataset.col || `c${idx}`;
+          widths[colKey] = newW;
+          _sstApplyWidths(table, ths, widths);
+          _sstSave(key, widths);
+          document.removeEventListener("mousemove", onMove);
+          document.removeEventListener("mouseup", onUp);
+          document.removeEventListener("touchmove", onMove);
+          document.removeEventListener("touchend", onUp);
+        };
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+        document.addEventListener("touchmove", onMove, { passive: false });
+        document.addEventListener("touchend", onUp);
+      };
 
       handle.addEventListener("mousedown", (e) => {
         e.preventDefault();
         e.stopPropagation();
-        const startX = e.clientX;
-        const startW = th.offsetWidth;
-        handle.classList.add("sst-dragging");
+        startResize(e.clientX);
+      });
+      handle.addEventListener("touchstart", (e) => {
+        if (!e.touches?.[0]) return;
+        e.preventDefault();
+        e.stopPropagation();
+        startResize(e.touches[0].clientX);
+      }, { passive: false });
 
-        const onMove = (ev) => {
-          const newW = Math.max(48, startW + (ev.clientX - startX));
-          th.style.width = `${newW}px`;
-          _sstSyncTableWidth(table);
-        };
-        const onUp = () => {
-          handle.classList.remove("sst-dragging");
-          const widths = _sstLoad(key);
-          widths[th.dataset.col] = th.offsetWidth;
-          _sstSave(key, widths);
-          _sstSyncTableWidth(table);
-          document.removeEventListener("mousemove", onMove);
-          document.removeEventListener("mouseup", onUp);
-          document.body.style.cursor = "";
-          document.body.style.userSelect = "";
-        };
-        document.addEventListener("mousemove", onMove);
-        document.addEventListener("mouseup", onUp);
-        document.body.style.cursor = "col-resize";
-        document.body.style.userSelect = "none";
+      // Double-click: fit column to content (approx via scrollWidth of cells).
+      handle.addEventListener("dblclick", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const colIdx = idx;
+        let fit = _SST_MIN_COL_W;
+        const rows = table.querySelectorAll("tr");
+        rows.forEach((tr) => {
+          const cell = tr.children[colIdx];
+          if (!cell || cell.colSpan > 1) return;
+          const prevWhite = cell.style.whiteSpace;
+          cell.style.whiteSpace = "nowrap";
+          fit = Math.max(fit, Math.ceil(cell.scrollWidth + 16));
+          cell.style.whiteSpace = prevWhite;
+        });
+        fit = Math.min(fit, 560);
+        const widths = _sstCollectWidths(ths);
+        const colKey = th.dataset.col || `c${idx}`;
+        widths[colKey] = fit;
+        _sstApplyWidths(table, ths, widths);
+        _sstSave(key, widths);
       });
     });
   });
