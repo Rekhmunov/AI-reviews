@@ -2899,13 +2899,12 @@
 
         <div id="supplies-settings-pane-edo" class="hidden">
           <div class="panel">
-            <div class="row row-between" style="margin-bottom:12px">
+            <div class="row row-between" style="margin-bottom:16px">
               <div>
-                <h4 class="no-margin">ЭДО — Contour.Логистика</h4>
+                <h4 class="no-margin">ЭДО - Контур.Логистика</h4>
                 <p class="small" style="margin:8px 0 0;color:#64748b;max-width:640px">
-                  API-ключ Логистики для отправки эТрН и проверки статуса перевозки.
-                  Для Заявки (ЭЗЗ) дополнительно нужны учётные данные Diadoc (ящик отправителя и перевозчика).
-                  Подпись документов — КриптоПро ЭЦП в браузере.
+                  эТрН уходит в API Контур.Логистика, Заявка (ЭЗЗ) — через Диадок.
+                  Подпись — КриптоПро ЭЦП в браузере при отправке.
                 </p>
               </div>
               <label class="small" style="display:flex;align-items:center;gap:8px;white-space:nowrap">
@@ -2913,31 +2912,28 @@
                 Включено
               </label>
             </div>
-            <p class="small" style="margin:0 0 12px;color:#64748b">Contour.Логистика</p>
+
+            <p class="small" style="margin:0 0 8px;color:#475569;font-weight:600">эТрН — API Контур.Логистика</p>
+            <p class="small" style="margin:0 0 12px;color:#64748b;max-width:640px">
+              Нужен только API-ключ (<code>x-kontur-apikey</code>): отправка титула и статус перевозки.
+            </p>
             <div class="worker-form-grid">
               <div class="wfg-field" style="grid-column:span 2">
-                <label class="wfg-label" for="edoApiUrl">API URL</label>
-                <input id="edoApiUrl" type="url" placeholder="https://logist-api.kontur.ru/" autocomplete="off" />
-              </div>
-              <div class="wfg-field" style="grid-column:span 2">
-                <label class="wfg-label" for="edoApiKey">API-ключ (x-kontur-apikey)</label>
+                <label class="wfg-label" for="edoApiKey">API-ключ</label>
                 <input id="edoApiKey" type="password" placeholder="Оставьте пустым, чтобы не менять" autocomplete="new-password" />
                 <span id="edoApiKeyPreview" class="small" style="color:#64748b"></span>
               </div>
-              <div class="wfg-field" style="grid-column:span 2">
-                <label class="wfg-label" for="edoCertThumbprint">Отпечаток сертификата КриптоПро (необязательно)</label>
-                <input id="edoCertThumbprint" type="text" placeholder="AABBCC… — если пусто, выбор при отправке" autocomplete="off" />
-              </div>
             </div>
-            <p class="small" style="margin:20px 0 12px;color:#64748b">Diadoc (для Заявки ЭЗЗ)</p>
+
+            <p class="small" style="margin:24px 0 8px;color:#475569;font-weight:600">Заявка (ЭЗЗ) — Диадок</p>
+            <p class="small" style="margin:0 0 12px;color:#64748b;max-width:640px">
+              По документации Диадок: Client ID + логин/пароль для авторизации,
+              From/To BoxId — ящики отправителя и перевозчика для PostMessage и статуса.
+            </p>
             <div class="worker-form-grid">
-              <div class="wfg-field" style="grid-column:span 2">
-                <label class="wfg-label" for="edoDiadocUrl">Diadoc API URL</label>
-                <input id="edoDiadocUrl" type="url" placeholder="https://diadoc-api.kontur.ru/" autocomplete="off" />
-              </div>
               <div class="wfg-field">
-                <label class="wfg-label" for="edoDiadocClientId">Client ID (ключ разработчика)</label>
-                <input id="edoDiadocClientId" type="text" placeholder="ddauth_api_client_id" autocomplete="off" />
+                <label class="wfg-label" for="edoDiadocClientId">Client ID</label>
+                <input id="edoDiadocClientId" type="text" placeholder="Ключ разработчика Диадок" autocomplete="off" />
               </div>
               <div class="wfg-field">
                 <label class="wfg-label" for="edoDiadocLogin">Логин</label>
@@ -2949,14 +2945,26 @@
                 <span id="edoDiadocPasswordPreview" class="small" style="color:#64748b"></span>
               </div>
               <div class="wfg-field">
-                <label class="wfg-label" for="edoDiadocFromBox">From BoxId (ваш ящик)</label>
+                <label class="wfg-label" for="edoDiadocFromBox">Ящик отправителя (From BoxId)</label>
                 <input id="edoDiadocFromBox" type="text" placeholder="GUID ящика грузоотправителя" autocomplete="off" />
               </div>
               <div class="wfg-field">
-                <label class="wfg-label" for="edoDiadocToBox">To BoxId (перевозчик)</label>
+                <label class="wfg-label" for="edoDiadocToBox">Ящик перевозчика (To BoxId)</label>
                 <input id="edoDiadocToBox" type="text" placeholder="GUID ящика перевозчика" autocomplete="off" />
               </div>
             </div>
+
+            <p class="small" style="margin:24px 0 8px;color:#475569;font-weight:600">Подпись (необязательно)</p>
+            <p class="small" style="margin:0 0 12px;color:#64748b;max-width:640px">
+              Отпечаток только подставляет сертификат в модалке отправки. Без него сертификат выбирается вручную.
+            </p>
+            <div class="worker-form-grid">
+              <div class="wfg-field" style="grid-column:span 2">
+                <label class="wfg-label" for="edoCertThumbprint">Отпечаток сертификата КриптоПро</label>
+                <input id="edoCertThumbprint" type="text" placeholder="AABBCC… — если пусто, выбор при отправке" autocomplete="off" />
+              </div>
+            </div>
+
             <div class="row" style="margin-top:16px;gap:8px;align-items:center">
               <button type="button" onclick="saveSupplyEdoSettings()">Сохранить</button>
               <button type="button" class="secondary" onclick="testSupplyEdoSettings()">Проверить подключение</button>
@@ -4397,11 +4405,11 @@
       is_tenant_owner: {{IS_TENANT_OWNER}}
     };
   </script>
-  <!-- Contour EDO: CryptoPro CAdES plugin + send modal -->
+  <!-- Контур ЭДО: CryptoPro CAdES plugin + send modal -->
   <div id="ozonEdoModal" class="modal-overlay hidden" role="dialog" aria-modal="true" onclick="if(event.target===this)closeOzonEdoModal()">
     <div class="modal-card" style="max-width:520px">
       <h3 id="ozonEdoModalTitle" class="modal-title" style="margin-bottom:8px">Отправка в ЭДО</h3>
-      <p class="small" style="margin:0 0 8px;color:#64748b">Документ будет подписан КриптоПро ЭЦП и отправлен в Contour.</p>
+      <p class="small" style="margin:0 0 8px;color:#64748b">Документ будет подписан КриптоПро ЭЦП и отправлен в Контур.</p>
       <p id="ozonEdoDocTypeLabel" class="small" style="margin:0 0 16px;color:#0f172a;font-weight:600"></p>
       <input type="hidden" id="ozonEdoDocType" value="etrn" />
       <div class="worker-form-grid" style="margin:0">
@@ -4432,6 +4440,6 @@
   <script src="/static/jspdf.umd.min.js"></script>
   <script src="/static/qrcode.min.js"></script>
   <script src="/static/cadesplugin_api.js"></script>
-  <script src="/static/app.js?v=402"></script>
+  <script src="/static/app.js?v=403"></script>
 </body>
 </html>

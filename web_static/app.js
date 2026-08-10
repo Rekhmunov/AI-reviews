@@ -14582,10 +14582,8 @@ async function loadSupplyEdoSettings() {
   if (!res || !res.ok) return;
   const s = await res.json().catch(() => ({}));
   const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ""; };
-  set("edoApiUrl", s.api_url || "https://logist-api.kontur.ru/");
   set("edoApiKey", "");
   set("edoCertThumbprint", s.cert_thumbprint || "");
-  set("edoDiadocUrl", s.diadoc_url || "https://diadoc-api.kontur.ru/");
   set("edoDiadocClientId", s.diadoc_client_id || "");
   set("edoDiadocLogin", s.diadoc_login || "");
   set("edoDiadocPassword", "");
@@ -14604,9 +14602,19 @@ async function saveSupplyEdoSettings() {
   _edoSetInfo(info, "Сохранение…");
   const apiKey = document.getElementById("edoApiKey")?.value || "";
   const diadocPassword = document.getElementById("edoDiadocPassword")?.value || "";
+  // URL-поля убраны из UI — боевые адреса Контура; сохранённый кастомный URL не затираем.
+  let apiUrl = "https://logist-api.kontur.ru/";
+  let diadocUrl = "https://diadoc-api.kontur.ru/";
+  try {
+    const cur = await fetch("/api/supply-edo-settings", { headers: jsonHeaders() })
+      .then((r) => (r && r.ok ? r.json() : null))
+      .catch(() => null);
+    if (cur?.api_url) apiUrl = String(cur.api_url);
+    if (cur?.diadoc_url) diadocUrl = String(cur.diadoc_url);
+  } catch (_) {}
   const body = {
-    api_url: document.getElementById("edoApiUrl")?.value.trim() || "https://logist-api.kontur.ru/",
-    diadoc_url: document.getElementById("edoDiadocUrl")?.value.trim() || "https://diadoc-api.kontur.ru/",
+    api_url: apiUrl,
+    diadoc_url: diadocUrl,
     diadoc_client_id: document.getElementById("edoDiadocClientId")?.value.trim() || "",
     diadoc_login: document.getElementById("edoDiadocLogin")?.value.trim() || "",
     diadoc_from_box_id: document.getElementById("edoDiadocFromBox")?.value.trim() || "",
@@ -14639,11 +14647,17 @@ async function testSupplyEdoSettings() {
   }
   const lg = data.logistics || {};
   const dd = data.diadoc || {};
+  const lgSkip = !lg.ok && /не задан/i.test(String(lg.error || ""));
+  const ddSkip = !dd.ok && /не настроен/i.test(String(dd.error || ""));
   const parts = [
     lg.ok ? "Логистика: OK" : `Логистика: ${lg.error || "ошибка"}`,
-    dd.ok ? "Diadoc: OK" : `Diadoc: ${dd.error || "не настроен"}`,
+    dd.ok ? "Диадок: OK" : `Диадок: ${dd.error || "не настроен"}`,
   ];
-  _edoSetInfo(info, parts.join(" · "), !!(lg.ok));
+  let okFlag = false;
+  if (!lgSkip && !ddSkip) okFlag = !!(lg.ok && dd.ok);
+  else if (!lgSkip) okFlag = !!lg.ok;
+  else if (!ddSkip) okFlag = !!dd.ok;
+  _edoSetInfo(info, parts.join(" · "), okFlag);
 }
 
 function _ensureCadesPlugin() {
@@ -14789,8 +14803,8 @@ async function openOzonEdoSendModal(supplyOrderId, docType) {
   const docLabel = document.getElementById("ozonEdoDocTypeLabel");
   if (docLabel) {
     docLabel.textContent = _ozonEdoDocType === "zakaz"
-      ? "Заявка ЭЗЗ → Diadoc"
-      : "эТрН → Contour.Логистика";
+      ? "Заявка ЭЗЗ → Диадок"
+      : "эТрН → Контур.Логистика";
   }
   const hiddenType = document.getElementById("ozonEdoDocType");
   if (hiddenType) hiddenType.value = _ozonEdoDocType;
@@ -14811,10 +14825,10 @@ async function openOzonEdoSendModal(supplyOrderId, docType) {
     );
     if (_ozonEdoDocType === "zakaz") {
       if (!settings.is_enabled || !diadocReady) {
-        _edoSetInfo("ozonEdoModalInfo", "Для Заявки настройте Diadoc в Поставки → Настройки → ЭДО", false);
+        _edoSetInfo("ozonEdoModalInfo", "Для Заявки настройте Диадок в Поставки → Настройки → ЭДО", false);
       }
     } else if (!settings.is_enabled || !settings.has_api_key) {
-      _edoSetInfo("ozonEdoModalInfo", "Для эТрН настройте API-ключ Логистики в Поставки → Настройки → ЭДО", false);
+      _edoSetInfo("ozonEdoModalInfo", "Для эТрН настройте API-ключ Контур.Логистика в Поставки → Настройки → ЭДО", false);
     }
   } catch (_) {}
   try {
@@ -14887,7 +14901,7 @@ async function confirmOzonEdoSend() {
     _edoSetInfo("ozonEdoModalInfo", "Подписание КриптоПро…");
     const xmlBytes = _b64ToBytes(prep.xml_base64);
     const sigB64 = await _signDetachedCadesBes(xmlBytes, thumb);
-    _edoSetInfo("ozonEdoModalInfo", "Отправка в Contour…");
+    _edoSetInfo("ozonEdoModalInfo", "Отправка в Контур…");
     const sendRes = await fetch(`/api/ozon-supplies/${supplyId}/edo/send`, {
       method: "POST",
       headers: jsonHeaders(),
