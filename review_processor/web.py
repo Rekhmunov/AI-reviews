@@ -533,11 +533,29 @@ class CreateSupplyDriverRequest(BaseModel):
 class CreateSupplyWarehouseRequest(BaseModel):
     warehouse_name: str
     address: str = ""
+    addr_index: str = ""
+    addr_region_code: str = ""
+    addr_district: str = ""
+    addr_city: str = ""
+    addr_settlement: str = ""
+    addr_street: str = ""
+    addr_house: str = ""
+    addr_corpus: str = ""
+    addr_flat: str = ""
 
 
 class UpdateSupplyWarehouseRequest(BaseModel):
     warehouse_name: str
     address: str = ""
+    addr_index: str = ""
+    addr_region_code: str = ""
+    addr_district: str = ""
+    addr_city: str = ""
+    addr_settlement: str = ""
+    addr_street: str = ""
+    addr_house: str = ""
+    addr_corpus: str = ""
+    addr_flat: str = ""
 
 
 class CreateSupplyLegalEntityRequest(BaseModel):
@@ -11190,6 +11208,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 load_address=str(ctx.get("load_address") or ""),
                 load_addr_fields=ctx.get("load_addr_fields") or None,
                 delivery_address=str(ctx.get("delivery_address") or ""),
+                delivery_addr_fields=ctx.get("delivery_addr_fields") or None,
                 carrier_text=str(ctx.get("carrier_text") or ""),
                 carrier_fields=ctx.get("carrier_fields") or None,
             )
@@ -12705,7 +12724,20 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         if any(str(w.get("warehouse_name") or "").strip().lower() == name.lower() for w in existing):
             raise HTTPException(status_code=400, detail=f"Склад «{name}» уже существует")
         try:
-            return repository.create_supply_warehouse(user_id=owner_id, warehouse_name=name, address=payload.address.strip())
+            return repository.create_supply_warehouse(
+                user_id=owner_id,
+                warehouse_name=name,
+                address=payload.address.strip(),
+                addr_index=payload.addr_index,
+                addr_region_code=payload.addr_region_code,
+                addr_district=payload.addr_district,
+                addr_city=payload.addr_city,
+                addr_settlement=payload.addr_settlement,
+                addr_street=payload.addr_street,
+                addr_house=payload.addr_house,
+                addr_corpus=payload.addr_corpus,
+                addr_flat=payload.addr_flat,
+            )
         except Exception as ex:
             msg = str(ex).lower()
             if "unique" in msg or "duplicate" in msg:
@@ -12720,7 +12752,21 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         name = payload.warehouse_name.strip()
         if not name:
             raise HTTPException(status_code=400, detail="Название не может быть пустым")
-        ok = repository.update_supply_warehouse(user_id=_supply_owner_id(user), warehouse_id=warehouse_id, warehouse_name=name, address=payload.address.strip())
+        ok = repository.update_supply_warehouse(
+            user_id=_supply_owner_id(user),
+            warehouse_id=warehouse_id,
+            warehouse_name=name,
+            address=payload.address.strip(),
+            addr_index=payload.addr_index,
+            addr_region_code=payload.addr_region_code,
+            addr_district=payload.addr_district,
+            addr_city=payload.addr_city,
+            addr_settlement=payload.addr_settlement,
+            addr_street=payload.addr_street,
+            addr_house=payload.addr_house,
+            addr_corpus=payload.addr_corpus,
+            addr_flat=payload.addr_flat,
+        )
         if not ok:
             raise HTTPException(status_code=404, detail="Склад не найден")
         return {"ok": True}

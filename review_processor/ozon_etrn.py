@@ -289,6 +289,16 @@ def _addr_from_production_fields(prod: dict[str, Any] | None) -> dict[str, str]:
     )
 
 
+def _addr_from_warehouse_fields(wh: dict[str, Any] | None) -> dict[str, str]:
+    """Map structured warehouse address columns to eTrN АдресРФ fields."""
+    w = wh or {}
+    return _addr_from_structured_fields(
+        w,
+        mapping=_PRODUCTION_ADDR_MAP,
+        raw_fallback=str(w.get("address") or ""),
+    )
+
+
 def _addr_from_carrier_fields(driver: dict[str, Any] | None) -> dict[str, str]:
     """Map structured carrier address columns to eTrN АдрРФ fields."""
     d = driver or {}
@@ -596,6 +606,7 @@ def build_ozon_etrn_xml(
     load_address: str = "",
     load_addr_fields: dict[str, str] | None = None,
     delivery_address: str = "",
+    delivery_addr_fields: dict[str, str] | None = None,
     carrier_text: str = "",
     carrier_fields: dict[str, Any] | None = None,
     now: datetime | None = None,
@@ -623,7 +634,18 @@ def build_ozon_etrn_xml(
             )
     else:
         load_addr = _parse_ru_address(load_address)
-    dest_addr = _parse_ru_address(delivery_address)
+    # Delivery (consignee unload) — structured warehouse fields preferred.
+    if _has_structured_address(delivery_addr_fields):
+        dest_addr = dict(delivery_addr_fields or {})
+        if not dest_addr.get("raw"):
+            dest_addr["raw"] = str(delivery_address or "").strip()
+        if not dest_addr.get("КодРегион"):
+            dest_addr["КодРегион"] = _region_code_from_text(
+                str(dest_addr.get("raw") or ""),
+                str(dest_addr.get("Индекс") or ""),
+            )
+    else:
+        dest_addr = _parse_ru_address(delivery_address)
     # Shipper legal address from Поставки → Настройки → Юр.лица.
     # Prefer structured address fields; else one-line address; else requisites parse.
     # Never substitute production/warehouse (load/delivery) addresses here.
@@ -947,10 +969,19 @@ def collect_ozon_etrn_context(
     transit_wh = str(item.get("transit_warehouse_name") or "").strip()
     pickup_wh = transit_wh or dest_wh
     delivery_address = ""
+    delivery_addr_fields: dict[str, str] = _empty_ru_address()
     if pickup_wh:
         for w in repository.list_supply_warehouses(user_id=owner_id):
             if str(w.get("warehouse_name") or "").strip() == pickup_wh:
-                delivery_address = str(w.get("address") or "").strip()
+                if hasattr(repository, "warehouse_address_line"):
+                    delivery_address = str(repository.warehouse_address_line(w) or "").strip()
+                else:
+                    delivery_address = str(w.get("address") or "").strip()
+                structured = _addr_from_warehouse_fields(w)
+                if _has_structured_address(structured):
+                    if not structured.get("raw"):
+                        structured["raw"] = delivery_address
+                    delivery_addr_fields = structured
                 break
     if not delivery_address:
         delivery_address = pickup_wh
@@ -962,6 +993,7 @@ def collect_ozon_etrn_context(
         "load_address": load_address,
         "load_addr_fields": load_addr_fields,
         "delivery_address": delivery_address,
+        "delivery_addr_fields": delivery_addr_fields,
         "driver_name": driver_name,
         "driver_phone": driver_phone,
         "driver_documents": driver_documents,

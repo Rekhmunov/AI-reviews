@@ -7648,6 +7648,20 @@ class ReviewRepository:
                 "ON supply_warehouses(user_id)"
             )
         )
+        for _wh_addr_col in (
+            "addr_index",
+            "addr_region_code",
+            "addr_district",
+            "addr_city",
+            "addr_settlement",
+            "addr_street",
+            "addr_house",
+            "addr_corpus",
+            "addr_flat",
+        ):
+            conn.execute(
+                f"ALTER TABLE supply_warehouses ADD COLUMN IF NOT EXISTS {_wh_addr_col} TEXT NOT NULL DEFAULT ''"
+            )
         # Legal entities catalog (short name → full name lookup)
         conn.execute(
             """
@@ -8096,30 +8110,145 @@ class ReviewRepository:
 
     # ── Supply Warehouses CRUD ──
 
+    @classmethod
+    def warehouse_address_line(cls, wh: dict[str, Any] | None) -> str:
+        """One-line warehouse address for TTN / заявка / packing list."""
+        return cls.production_address_line(wh)
+
     def list_supply_warehouses(self, *, user_id: int) -> list[dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(
                 self._sql("SELECT * FROM supply_warehouses WHERE user_id = ? ORDER BY warehouse_name ASC"),
                 (user_id,),
             ).fetchall()
-        return [self._row_to_dict(row) for row in rows]
+        result: list[dict[str, Any]] = []
+        for row in rows:
+            d = self._row_to_dict(row)
+            d["address"] = self.warehouse_address_line(d)
+            result.append(d)
+        return result
 
-    def create_supply_warehouse(self, *, user_id: int, warehouse_name: str, address: str) -> dict[str, Any]:
+    def create_supply_warehouse(
+        self,
+        *,
+        user_id: int,
+        warehouse_name: str,
+        address: str = "",
+        addr_index: str = "",
+        addr_region_code: str = "",
+        addr_district: str = "",
+        addr_city: str = "",
+        addr_settlement: str = "",
+        addr_street: str = "",
+        addr_house: str = "",
+        addr_corpus: str = "",
+        addr_flat: str = "",
+    ) -> dict[str, Any]:
         now = _utc_now()
+        addr = self._normalize_production_addr_fields(
+            addr_index=addr_index,
+            addr_region_code=addr_region_code,
+            addr_district=addr_district,
+            addr_city=addr_city,
+            addr_settlement=addr_settlement,
+            addr_street=addr_street,
+            addr_house=addr_house,
+            addr_corpus=addr_corpus,
+            addr_flat=addr_flat,
+        )
+        composed = self.compose_production_address_line(addr)
+        address_val = composed or str(address or "").strip()
         with self._connect() as conn:
             wid = self._insert_and_get_id(
                 conn,
-                "INSERT INTO supply_warehouses (user_id, warehouse_name, address, created_at) VALUES (?, ?, ?, ?)",
-                (user_id, warehouse_name.strip(), address.strip(), now),
+                "INSERT INTO supply_warehouses ("
+                "user_id, warehouse_name, address, "
+                "addr_index, addr_region_code, addr_district, addr_city, addr_settlement, "
+                "addr_street, addr_house, addr_corpus, addr_flat, created_at"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    user_id,
+                    warehouse_name.strip(),
+                    address_val,
+                    addr["addr_index"],
+                    addr["addr_region_code"],
+                    addr["addr_district"],
+                    addr["addr_city"],
+                    addr["addr_settlement"],
+                    addr["addr_street"],
+                    addr["addr_house"],
+                    addr["addr_corpus"],
+                    addr["addr_flat"],
+                    now,
+                ),
             )
             row = conn.execute(self._sql("SELECT * FROM supply_warehouses WHERE id = ?"), (wid,)).fetchone()
-        return self._row_to_dict(row) if row else {"id": wid}
+        if not row:
+            return {"id": wid, "address": address_val, **addr}
+        d = self._row_to_dict(row)
+        d["address"] = self.warehouse_address_line(d)
+        return d
 
-    def update_supply_warehouse(self, *, user_id: int, warehouse_id: int, warehouse_name: str, address: str) -> bool:
+    def update_supply_warehouse(
+        self,
+        *,
+        user_id: int,
+        warehouse_id: int,
+        warehouse_name: str,
+        address: str = "",
+        addr_index: str = "",
+        addr_region_code: str = "",
+        addr_district: str = "",
+        addr_city: str = "",
+        addr_settlement: str = "",
+        addr_street: str = "",
+        addr_house: str = "",
+        addr_corpus: str = "",
+        addr_flat: str = "",
+    ) -> bool:
+        addr = self._normalize_production_addr_fields(
+            addr_index=addr_index,
+            addr_region_code=addr_region_code,
+            addr_district=addr_district,
+            addr_city=addr_city,
+            addr_settlement=addr_settlement,
+            addr_street=addr_street,
+            addr_house=addr_house,
+            addr_corpus=addr_corpus,
+            addr_flat=addr_flat,
+        )
+        composed = self.compose_production_address_line(addr)
+        address_val = composed or str(address or "").strip()
         with self._connect() as conn:
+            if not address_val:
+                existing_addr = conn.execute(
+                    self._sql("SELECT address FROM supply_warehouses WHERE user_id = ? AND id = ?"),
+                    (user_id, warehouse_id),
+                ).fetchone()
+                if existing_addr:
+                    address_val = str(self._row_to_dict(existing_addr).get("address") or "").strip()
             result = conn.execute(
-                self._sql("UPDATE supply_warehouses SET warehouse_name = ?, address = ? WHERE user_id = ? AND id = ?"),
-                (warehouse_name.strip(), address.strip(), user_id, warehouse_id),
+                self._sql(
+                    "UPDATE supply_warehouses SET warehouse_name = ?, address = ?, "
+                    "addr_index = ?, addr_region_code = ?, addr_district = ?, addr_city = ?, "
+                    "addr_settlement = ?, addr_street = ?, addr_house = ?, addr_corpus = ?, addr_flat = ? "
+                    "WHERE user_id = ? AND id = ?"
+                ),
+                (
+                    warehouse_name.strip(),
+                    address_val,
+                    addr["addr_index"],
+                    addr["addr_region_code"],
+                    addr["addr_district"],
+                    addr["addr_city"],
+                    addr["addr_settlement"],
+                    addr["addr_street"],
+                    addr["addr_house"],
+                    addr["addr_corpus"],
+                    addr["addr_flat"],
+                    user_id,
+                    warehouse_id,
+                ),
             )
         return bool(result.rowcount)
 

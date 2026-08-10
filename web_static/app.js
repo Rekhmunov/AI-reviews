@@ -3194,6 +3194,56 @@ async function saveSupplyManualFields() {
 // ── Supply warehouses ──
 let _supplyWarehousesCache = [];
 
+const _WH_ADDR_FIELDS = [
+  ["addr_index", "Индекс"],
+  ["addr_region_code", "Код региона"],
+  ["addr_district", "Район"],
+  ["addr_city", "Город"],
+  ["addr_settlement", "Нас. пункт"],
+  ["addr_street", "Улица"],
+  ["addr_house", "Дом"],
+  ["addr_corpus", "Корпус"],
+  ["addr_flat", "Кв./офис"],
+];
+
+/** Full one-line warehouse address for TTN / заявка / packing list. */
+function warehouseAddressLine(w) {
+  if (!w) return "";
+  return productionAddressLine(w);
+}
+
+function _readNewWarehouseAddrFields() {
+  return {
+    addr_index: document.getElementById("newWhAddrIndex")?.value.trim() || "",
+    addr_region_code: document.getElementById("newWhAddrRegion")?.value.trim() || "",
+    addr_district: document.getElementById("newWhAddrDistrict")?.value.trim() || "",
+    addr_city: document.getElementById("newWhAddrCity")?.value.trim() || "",
+    addr_settlement: document.getElementById("newWhAddrSettlement")?.value.trim() || "",
+    addr_street: document.getElementById("newWhAddrStreet")?.value.trim() || "",
+    addr_house: document.getElementById("newWhAddrHouse")?.value.trim() || "",
+    addr_corpus: document.getElementById("newWhAddrCorpus")?.value.trim() || "",
+    addr_flat: document.getElementById("newWhAddrFlat")?.value.trim() || "",
+  };
+}
+
+function _clearNewWarehouseFormFields() {
+  [
+    "newWarehouseName",
+    "newWhAddrIndex", "newWhAddrRegion", "newWhAddrDistrict", "newWhAddrCity",
+    "newWhAddrSettlement", "newWhAddrStreet", "newWhAddrHouse", "newWhAddrCorpus", "newWhAddrFlat",
+  ].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ""; });
+}
+
+function _warehouseAddrEditInputsHtml(item) {
+  return `<div class="worker-form-grid" style="margin:0">
+    ${_WH_ADDR_FIELDS.map(([key, label]) => `
+      <div class="wfg-field">
+        <label class="wfg-label">${label}</label>
+        <input class="edit-inline-input" data-wh-addr="${key}" value="${esc(item[key] || "")}" autocomplete="off" />
+      </div>`).join("")}
+  </div>`;
+}
+
 async function loadSupplyWarehouses() {
   const res = await fetch("/api/supply-warehouses").catch(() => null);
   if (!res || !res.ok) return;
@@ -3213,7 +3263,7 @@ function renderSupplyWarehousesTbody() {
   _supplyWarehousesCache.forEach((w, i) => {
     const tr = document.createElement("tr");
     tr.dataset.id = w.id;
-    tr.innerHTML = `<td>${i+1}</td><td class="editable-cell">${esc(w.warehouse_name||"")}</td><td class="editable-cell">${esc(w.address||"")}</td>
+    tr.innerHTML = `<td>${i+1}</td><td class="editable-cell">${esc(w.warehouse_name||"")}</td><td class="editable-cell">${esc(warehouseAddressLine(w))}</td>
       <td>
         <div class="sst-edit-actions">
           <button class="secondary small-btn icon-btn" onclick="startEditWarehouse(${w.id})" title="Редактировать">✏</button>
@@ -3230,9 +3280,19 @@ async function startEditWarehouse(id) {
   if (!item) return;
   const tr = document.querySelector(`#supplyWarehousesTbody tr[data-id="${id}"]`);
   if (!tr) return;
+  document.querySelectorAll("#supplyWarehousesTbody tr.wh-addr-edit-row").forEach((r) => r.remove());
   const cells = tr.querySelectorAll(".editable-cell");
-  cells[0].innerHTML = `<input class="edit-inline-input" value="${esc(item.warehouse_name||"")}" />`;
-  cells[1].innerHTML = `<input class="edit-inline-input" value="${esc(item.address||"")}" />`;
+  cells[0].innerHTML = `<input class="edit-inline-input" data-field="name" value="${esc(item.warehouse_name||"")}" />`;
+  cells[1].innerHTML = `<span class="small" style="color:#64748b">поля ниже</span>`;
+  const addrRow = document.createElement("tr");
+  addrRow.className = "wh-addr-edit-row";
+  addrRow.dataset.forId = String(id);
+  addrRow.style.background = "#f8fafc";
+  addrRow.innerHTML = `<td colspan="4" style="padding:12px 8px;border-top:none;white-space:normal">
+    <div class="small" style="margin-bottom:8px;color:#64748b">Адрес доставки (поля эТрН)</div>
+    ${_warehouseAddrEditInputsHtml(item)}
+  </td>`;
+  tr.after(addrRow);
   const actionCell = tr.cells[tr.cells.length - 1];
   actionCell.innerHTML = `<div class="sst-edit-actions">
     <button class="secondary small-btn" style="color:#16a34a;border-color:#86efac" onclick="saveEditWarehouse(${id})">Сохранить</button>
@@ -3243,11 +3303,15 @@ async function startEditWarehouse(id) {
 async function saveEditWarehouse(id) {
   const tr = document.querySelector(`#supplyWarehousesTbody tr[data-id="${id}"]`);
   if (!tr) return;
-  const inputs = tr.querySelectorAll(".edit-inline-input");
-  const name = inputs[0]?.value.trim() || "";
-  const addr = inputs[1]?.value.trim() || "";
+  const item = _supplyWarehousesCache.find((x) => x.id === id);
+  const addrRow = document.querySelector(`#supplyWarehousesTbody tr.wh-addr-edit-row[data-for-id="${id}"]`);
+  const name = tr.querySelector("[data-field='name']")?.value.trim() || "";
   if (!name) return;
-  await fetch(`/api/supply-warehouses/${id}`, { method: "PATCH", headers: jsonHeaders(), body: JSON.stringify({ warehouse_name: name, address: addr }) }).catch(() => null);
+  const payload = { warehouse_name: name, address: item?.address || "" };
+  _WH_ADDR_FIELDS.forEach(([key]) => {
+    payload[key] = addrRow?.querySelector(`[data-wh-addr="${key}"]`)?.value.trim() || "";
+  });
+  await fetch(`/api/supply-warehouses/${id}`, { method: "PATCH", headers: jsonHeaders(), body: JSON.stringify(payload) }).catch(() => null);
   await loadSupplyWarehouses();
 }
 
@@ -3255,15 +3319,15 @@ function toggleAddWarehouseForm(show) {
   const form = document.getElementById("addWarehouseForm");
   if (!form) return;
   form.classList.toggle("hidden", !show); form.style.display = show ? "" : "none";
-  if (!show) { document.getElementById("newWarehouseName").value = ""; document.getElementById("newWarehouseAddress").value = ""; }
+  if (!show) _clearNewWarehouseFormFields();
 }
 
 async function saveSupplyWarehouse() {
   const name = document.getElementById("newWarehouseName")?.value.trim();
-  const addr = document.getElementById("newWarehouseAddress")?.value.trim() || "";
   const info = document.getElementById("addWarehouseInfo");
   if (!name) { if (info) { info.textContent = "Введите название"; info.style.color = "#b91c1c"; } return; }
-  const res = await fetch("/api/supply-warehouses", { method: "POST", headers: jsonHeaders(), body: JSON.stringify({ warehouse_name: name, address: addr }) }).catch(() => null);
+  const payload = { warehouse_name: name, address: "", ..._readNewWarehouseAddrFields() };
+  const res = await fetch("/api/supply-warehouses", { method: "POST", headers: jsonHeaders(), body: JSON.stringify(payload) }).catch(() => null);
   if (!res || !res.ok) { const e = await res?.json().catch(()=>({})) || {}; if (info) { info.textContent = e.detail||"Ошибка"; info.style.color = "#b91c1c"; } return; }
   if (info) { info.textContent = "Сохранено"; info.style.color = "#16a34a"; }
   toggleAddWarehouseForm(false);
@@ -16242,7 +16306,7 @@ function _updateZRoute() {
 
 function _getWhAddress(whName) {
   const wh = (_supplyWarehousesCache||[]).find(w => (w.warehouse_name||w.name||"") === whName);
-  return (wh?.address || "").trim();
+  return warehouseAddressLine(wh);
 }
 
 function _buildUnloadLines(groupedObj, bold = true) {

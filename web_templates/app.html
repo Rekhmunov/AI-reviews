@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=185" />
+  <link rel="stylesheet" href="/static/style.css?v=186" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -2540,13 +2540,52 @@
               <button onclick="toggleAddWarehouseForm(true)">+ Добавить склад</button>
             </div>
             <div id="addWarehouseForm" class="source-form hidden" style="margin-top:12px">
-              <div class="row">
-                <input id="newWarehouseName" type="text" placeholder="Название склада (напр. Электросталь)" autocomplete="off" />
+              <div class="worker-form-grid">
+                <div class="wfg-field" style="grid-column:span 2">
+                  <label class="wfg-label" for="newWarehouseName">Название склада</label>
+                  <input id="newWarehouseName" type="text" placeholder="Напр. Электросталь / ХОРУГВИНО_РФЦ" autocomplete="off" />
+                </div>
               </div>
-              <div class="row">
-                <input id="newWarehouseAddress" type="text" placeholder="Адрес склада" autocomplete="off" />
+              <p class="small" style="margin:16px 0 8px;color:#64748b">Адрес доставки (поля эТрН)</p>
+              <div class="worker-form-grid">
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newWhAddrIndex">Индекс</label>
+                  <input id="newWhAddrIndex" type="text" inputmode="numeric" maxlength="6" placeholder="141580" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newWhAddrRegion">Код региона</label>
+                  <input id="newWhAddrRegion" type="text" inputmode="numeric" maxlength="2" placeholder="50" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newWhAddrDistrict">Район</label>
+                  <input id="newWhAddrDistrict" type="text" placeholder="" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newWhAddrCity">Город</label>
+                  <input id="newWhAddrCity" type="text" placeholder="Химки" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newWhAddrSettlement">Нас. пункт</label>
+                  <input id="newWhAddrSettlement" type="text" placeholder="" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newWhAddrStreet">Улица</label>
+                  <input id="newWhAddrStreet" type="text" placeholder="ул. Складская" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newWhAddrHouse">Дом</label>
+                  <input id="newWhAddrHouse" type="text" placeholder="1" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newWhAddrCorpus">Корпус</label>
+                  <input id="newWhAddrCorpus" type="text" placeholder="" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newWhAddrFlat">Квартира / офис</label>
+                  <input id="newWhAddrFlat" type="text" placeholder="" autocomplete="off" />
+                </div>
               </div>
-              <div class="row">
+              <div class="row" style="margin-top:16px;gap:8px">
                 <button onclick="saveSupplyWarehouse()">Сохранить</button>
                 <button class="secondary" onclick="toggleAddWarehouseForm(false)">Отмена</button>
                 <span id="addWarehouseInfo" class="small"></span>
@@ -4242,6 +4281,6 @@
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
   <script src="/static/qrcode.min.js"></script>
-  <script src="/static/app.js?v=389"></script>
+  <script src="/static/app.js?v=390"></script>
 </body>
 </html>
