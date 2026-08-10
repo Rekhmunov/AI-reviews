@@ -82,7 +82,7 @@ def test_zakaz_xml_core_shape():
     assert len(go_adr.attrib.get("Индекс", "")) == 6
     assert go_adr.attrib.get("КодРегион")
     assert sod.find("СвГО/Конт/Тлф") is not None
-    assert sod.find("СвГО/Конт/Тлф").text == "+79991112233"
+    assert sod.find("СвГО/Конт/Тлф").text == "+7 (999) 111-22-33"
 
     prv = sod.find("СвПрв/ИдСв/СвЮЛУч")
     assert prv is not None
@@ -183,8 +183,8 @@ def test_zakaz_carrier_phone_prefers_catalog_over_legal_entity():
             },
         )
     )
-    assert root.find("Документ/СодИнфГО/СвПрв/Конт/Тлф").text == "+79007776655"
-    assert root.find("Документ/СодИнфГО/СвГО/Конт/Тлф").text == "+79991112233"
+    assert root.find("Документ/СодИнфГО/СвПрв/Конт/Тлф").text == "+7 (900) 777-66-55"
+    assert root.find("Документ/СодИнфГО/СвГО/Конт/Тлф").text == "+7 (999) 111-22-33"
 
 
 def test_zakaz_ozon_fns_id_constant_and_no_unload_owner():
@@ -231,7 +231,9 @@ def test_zakaz_go_phone_from_legal_entity_field():
             driver_fields={"phone": "+79005554433"},
         )
     )
-    assert root.find("Документ/СодИнфГО/СвГО/Конт/Тлф").text == "+74951112233"
+    assert root.find("Документ/СодИнфГО/СвГО/Конт/Тлф").text == "+7 (495) 111-22-33"
+    # Driver phone must not replace shipper phone.
+    assert root.find("Документ/СодИнфГО/СвГО/Конт/Тлф").text != "+7 (900) 123-45-67"
 
 
 def test_zakaz_go_phone_from_legal_entity_requisites():
@@ -249,4 +251,21 @@ def test_zakaz_go_phone_from_legal_entity_requisites():
             driver_phone="+79001234567",
         )
     )
-    assert root.find("Документ/СодИнфГО/СвГО/Конт/Тлф").text == "+74952223344"
+    assert root.find("Документ/СодИнфГО/СвГО/Конт/Тлф").text == "+7 (495) 222-33-44"
+
+
+def test_zakaz_go_phone_ten_digit_local():
+    """10-значный номер из поля phone юр.лица → +7 (…) в СвГО."""
+    root = ET.fromstring(
+        _build(
+            le={
+                "full_name": 'ООО "Тест Поставщик"',
+                "short_name": "Тест",
+                "requisites": "ИНН 7701234567 КПП 770101001",
+                "signatories": "Иванов Иван Иванович",
+                "phone": "9991234567",
+                "address": "101000, г. Москва, ул. Ленина, д. 1",
+            },
+        )
+    )
+    assert root.find("Документ/СодИнфГО/СвГО/Конт/Тлф").text == "+7 (999) 123-45-67"

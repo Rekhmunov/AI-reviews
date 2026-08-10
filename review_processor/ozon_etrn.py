@@ -605,25 +605,53 @@ def _cargo_stats(cargoes_json: object) -> dict[str, Any]:
     }
 
 
+def _le_has_phone(entity: dict[str, Any] | None) -> bool:
+    if not entity:
+        return False
+    if str(entity.get("phone") or "").strip():
+        return True
+    # requisites may carry «тел. +7…»
+    return bool(re.search(r"(?:\+7|8)\s*[\d\-()\s]{9,}", str(entity.get("requisites") or "")))
+
+
 def _find_legal_entity(entities: list[dict[str, Any]], supplier_name: str) -> dict[str, Any]:
+    if not entities:
+        return {}
+    # Single catalog entry — always use it (phone lives there).
+    if len(entities) == 1:
+        return entities[0]
+
     supplier = str(supplier_name or "").strip().lower()
+    exact: list[dict[str, Any]] = []
+    partial: list[dict[str, Any]] = []
     if supplier:
         for e in entities:
             short = str(e.get("short_name") or "").strip().lower()
             full = str(e.get("full_name") or "").strip().lower()
             if not short and not full:
                 continue
-            if (
-                supplier == short
-                or supplier == full
-                or (short and (supplier in short or short in supplier))
-                or (full and (supplier in full or full in supplier))
+            if supplier == short or supplier == full:
+                exact.append(e)
+            elif (short and (supplier in short or short in supplier)) or (
+                full and (supplier in full or full in supplier)
             ):
+                partial.append(e)
+    matches = exact or partial
+    if matches:
+        for e in matches:
+            if _le_has_phone(e):
                 return e
-    for e in entities:
-        if "ООО" in str(e.get("short_name") or ""):
-            return e
-    return entities[0] if entities else {}
+        return matches[0]
+
+    # Fallback: prefer ООО / any entry that actually has a phone.
+    ooo = [e for e in entities if "ООО" in str(e.get("short_name") or "")]
+    for pool in (ooo, entities):
+        for e in pool:
+            if _le_has_phone(e):
+                return e
+        if pool:
+            return pool[0]
+    return {}
 
 
 def _find_driver(drivers: list[dict[str, Any]], driver_name: str) -> dict[str, Any]:
@@ -1293,7 +1321,21 @@ def collect_ozon_etrn_context(
 ) -> dict[str, Any]:
     """Resolve addresses / LE / carrier extras for XML build."""
     entities = repository.list_supply_legal_entities(user_id=owner_id)
-    le = _find_legal_entity(entities, str(item.get("supplier_name") or ""))
+    le = dict(_find_legal_entity(entities, str(item.get("supplier_name") or "")) or {})
+    # If matched LE has no phone — borrow from the only catalog entry that has one.
+    if le and not _le_has_phone(le):
+        with_phone = [e for e in entities if _le_has_phone(e)]
+        if len(with_phone) == 1:
+            le = dict(le)
+            le["phone"] = with_phone[0].get("phone") or le.get("phone")
+            if not str(le.get("requisites") or "").strip():
+                le["requisites"] = with_phone[0].get("requisites")
+        elif not le.get("phone"):
+            # Same short/full name variants sometimes differ only by phone fill.
+            for e in with_phone:
+                if str(e.get("id") or "") == str(le.get("id") or ""):
+                    le["phone"] = e.get("phone")
+                    break
     drivers = repository.list_supply_drivers(user_id=owner_id)
     driver_row = _find_driver(drivers, driver_name)
     if hasattr(repository, "carrier_line"):

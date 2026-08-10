@@ -96,17 +96,38 @@ def _fmt_mass(value: object, *, default: str = "1.000") -> str:
 
 
 def _normalize_phone(phone: str) -> str:
-    phone = re.sub(r"[^\d+]", "", str(phone or "").strip())
-    # Keep only the first number if several were glued by stripping separators.
-    if phone.count("+") > 1:
-        phone = "+" + phone.split("+", 2)[1]
-    if phone.startswith("8") and len(re.sub(r"\D", "", phone)) == 11:
-        phone = "+7" + re.sub(r"\D", "", phone)[1:]
-    elif phone.startswith("7") and len(phone) == 11:
-        phone = "+" + phone
-    elif phone.startswith("+7") and len(re.sub(r"\D", "", phone)) == 11:
-        phone = "+7" + re.sub(r"\D", "", phone)[1:]
-    return phone
+    """Normalize RU phone to +7XXXXXXXXXX (Contour/Diadoc samples also accept formatted)."""
+    raw = str(phone or "").strip()
+    if not raw:
+        return ""
+    # Extract first phone-like token; keep leading + if present.
+    m = re.search(r"(\+?\d[\d\-()\s]{8,}\d)", raw)
+    token = m.group(1) if m else raw
+    digits = re.sub(r"\D", "", token)
+    if not digits:
+        return ""
+    if len(digits) == 11 and digits.startswith("8"):
+        digits = "7" + digits[1:]
+    elif len(digits) == 10:
+        # Local / mobile without country code.
+        digits = "7" + digits
+    elif len(digits) > 11 and digits.startswith("7"):
+        digits = digits[:11]
+    if len(digits) == 11 and digits.startswith("7"):
+        return "+" + digits
+    # Fallback: keep a compact +digits form if we still have something usable.
+    if digits:
+        return ("+" + digits) if not token.strip().startswith("+") else "+" + digits
+    return ""
+
+
+def _format_phone_display(phone: str) -> str:
+    """Contour samples use '+7 (XXX) XXX-XX-XX'; keep that shape when possible."""
+    norm = _normalize_phone(phone)
+    digits = re.sub(r"\D", "", norm)
+    if len(digits) == 11 and digits.startswith("7"):
+        return f"+7 ({digits[1:4]}) {digits[4:7]}-{digits[7:9]}-{digits[9:11]}"
+    return norm
 
 
 def _phone_from_requisites(requisites: str) -> str:
@@ -129,10 +150,10 @@ def _shipper_phone_from_le(le: dict[str, Any] | None) -> str:
 def _add_kont(parent: ET.Element, phone: str) -> None:
     """ЭЗЗ: Конт is required; Тлф is ОМ T(1-255) — must be non-empty."""
     kont = _el(parent, "Конт")
-    phone = _normalize_phone(phone)
-    if not phone:
-        phone = "+70000000000"
-    _el(kont, "Тлф", phone)
+    display = _format_phone_display(phone)
+    if not display:
+        display = "+7 (000) 000-00-00"
+    _el(kont, "Тлф", display)
 
 
 def _ensure_adr(addr: dict[str, str] | None, *, fallback_label: str = "Адрес уточнить") -> dict[str, str]:
@@ -287,14 +308,15 @@ def build_ozon_zakaz_xml(
     else:
         carrier_name, carrier_inn, carrier_kpp = _parse_carrier(carrier_text)
 
-    # Грузоотправитель: только телефон юр.лица (поле / реквизиты).
+    # Грузоотправитель: телефон из Настройки → Юр.лица (поле phone / реквизиты).
     # Водительский номер сюда не подставляем — иначе в Contour у ГО «чужой» телефон.
     contact_phone = _shipper_phone_from_le(le)
     if not contact_phone:
-        # Last-resort XSD fill only; Contour still needs non-empty Тлф.
-        contact_phone = _normalize_phone(str(driver_phone or ""))
-        if not contact_phone and isinstance(driver_fields, dict):
-            contact_phone = _normalize_phone(str(driver_fields.get("phone") or ""))
+        _log.warning(
+            "ozon_zakaz: нет телефона юр.лица (id=%s short=%s) — СвГО/Конт/Тлф будет заглушкой",
+            (le or {}).get("id"),
+            (le or {}).get("short_name"),
+        )
 
     carrier_addr = _addr_from_carrier_fields(carrier_fields)
     if not _has_structured_address(carrier_addr):

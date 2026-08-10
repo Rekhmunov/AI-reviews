@@ -10432,9 +10432,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 except Exception:
                     pass
 
-        # Legal entity
+        # Legal entity — same matching as eTrN/Заявка XML (prefer entry with phone).
+        from .ozon_etrn import _find_legal_entity as _find_le
         entities = repository.list_supply_legal_entities(user_id=owner_id)
-        le = next((e for e in entities if "ООО" in str(e.get("short_name") or "")), None) or (entities[0] if entities else {})
+        le = _find_le(entities, str(item_row.get("supplier_name") or ""))
 
         # Product name map — OZON uses SKU for lookup
         name_map = repository.get_product_name_by_ozon_sku(user_id=owner_id)
