@@ -28,6 +28,15 @@ OZON_CONSIGNEE_KPP = "997750001"
 OZON_CONSIGNEE_EDO_GUID = "2BM-7704217370-774301001-201407110916237240124"
 # Legal address of Ozon (ООО «Интернет Решения») — always emit as АдрРФ (Russian).
 OZON_CONSIGNEE_ADDRESS = "123112, г. Москва, Пресненская наб., д. 10"
+# Structured fields — do not rely on free-text parse for the constant consignee.
+OZON_CONSIGNEE_ADDR_FIELDS: dict[str, str] = {
+    "Индекс": "123112",
+    "КодРегион": "77",
+    "Город": "Москва",
+    "Улица": "Пресненская наб.",
+    "Дом": "10",
+    "raw": OZON_CONSIGNEE_ADDRESS,
+}
 
 _CARGO_WEIGHT_TONS = {"PALLET": 0.2, "BOX": 0.0125}
 
@@ -319,14 +328,24 @@ def _parse_ru_address(address: str) -> dict[str, str]:
         out["Индекс"] = idx_m.group(1)
     out["КодРегион"] = _region_code_from_text(raw, out["Индекс"])
 
-    # Word-bounded street markers only (bare «ш»/«д» must not match inside words).
+    # Street markers: prefix («ул. Ленина») or suffix («Пресненская наб.»).
+    # Bare «ш»/«д» must not match inside words.
+    _street_type = (
+        r"(?:ул\.|улица|пр-кт|проспект|пер\.|переулок|ш\.|шоссе|б-р|бульвар|"
+        r"наб\.|набережная|пл\.|площадь|проезд|ал\.|аллея)"
+    )
     street_m = re.search(
-        r"(?<![А-Яа-яA-Za-z])"
-        r"(?:ул\.|улица|пр-кт|проспект|пер\.|переулок|ш\.|шоссе|б-р|бульвар)"
-        r"\s*([^,]+?)(?=,|\s+(?:д\.|дом)\s*\d|$)",
+        rf"(?<![А-Яа-яA-Za-z]){_street_type}\s*([^,]+?)(?=,|\s+(?:д\.|дом)\s*\d|$)",
         raw,
         flags=re.I,
     )
+    if not street_m:
+        # Suffix form common for embankments / named streets: «Пресненская наб.»
+        street_m = re.search(
+            rf"([^,]+?)\s+{_street_type}\.?(?=,|\s+(?:д\.|дом)\s*\d|$)",
+            raw,
+            flags=re.I,
+        )
     if street_m:
         out["Улица"] = street_m.group(0).strip().rstrip(",")
 
@@ -723,9 +742,9 @@ def build_ozon_etrn_xml(
         ИННЮЛ=OZON_CONSIGNEE_INN,
         КПП=OZON_CONSIGNEE_KPP,
     )
-    # Legal address of consignee — always Russian АдрРФ (same rule as shipper).
+    # Legal address of consignee — always Russian АдрРФ (structured constant).
     adr_gp = _el(rek_gp, "Адрес")
-    _add_adr_rf(adr_gp, "АдрРФ", _parse_ru_address(OZON_CONSIGNEE_ADDRESS))
+    _add_adr_rf(adr_gp, "АдрРФ", dict(OZON_CONSIGNEE_ADDR_FIELDS))
     _add_contact(rek_gp, contact_phone)
     # Delivery point — always АдресРФ, never АдресИнф.
     adr_dost = _el(sv_gp, "АдресДостГр")
