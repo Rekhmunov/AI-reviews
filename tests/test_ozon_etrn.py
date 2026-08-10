@@ -7,6 +7,7 @@ from datetime import datetime
 from review_processor.ozon_etrn import (
     OZON_CONSIGNEE_EDO_GUID,
     OZON_CONSIGNEE_INN,
+    _ozon_supply_number,
     build_ozon_etrn_xml,
 )
 
@@ -138,6 +139,41 @@ def test_etrn_delivery_datetime_from_supply_date_date_only():
     assert ukaz is not None
     assert ukaz.attrib.get("ДатВрДостГр") == "01.09.2026T00:00:00+03:00"
     assert ukaz.attrib.get("НалКоорТочВрДост") == "1"
+
+
+def test_ozon_supply_number_prefers_table_column():
+    assert _ozon_supply_number(
+        {"supply_order_id": 999, "supply_order_number": "020-111222333"}
+    ) == "020-111222333"
+    assert _ozon_supply_number(
+        {
+            "supply_order_id": 999,
+            "supply_order_number": "",
+            "raw_json": '{"order_number": "020-from-raw"}',
+        }
+    ) == "020-from-raw"
+    assert _ozon_supply_number({"supply_order_id": 999, "supply_order_number": ""}) == "999"
+
+
+def test_etrn_infpol_orders_uses_supply_number_from_main_table():
+    """ИнфПол/ТекстИнф Идентиф=Orders → Значение = номер из основной таблицы ОЗОН."""
+    root = ET.fromstring(
+        _build(
+            item={
+                "supply_order_id": 555666,
+                "supply_order_number": "020-987654321",
+                "supplier_name": 'ООО "Тест"',
+                "warehouse_name": "ХОРУГВИНО_РФЦ",
+                "supply_date": "2026-08-15T14:30:00",
+            }
+        )
+    )
+    texts = root.findall("Документ/СодИнфГО/ИнфПол/ТекстИнф")
+    by_id = {t.attrib.get("Идентиф"): t.attrib.get("Значение") for t in texts}
+    assert by_id.get("Orders") == "020-987654321"
+    assert by_id.get("ORDERS") == "020-987654321"
+    # Must not put internal supply_order_id when table number is present.
+    assert "555666" not in by_id.values()
 
 
 def test_parse_ru_address_suffix_embankment_street():
