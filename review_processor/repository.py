@@ -8149,7 +8149,11 @@ class ReviewRepository:
                 ),
             )
             row = conn.execute(self._sql("SELECT * FROM supply_productions WHERE id = ?"), (pid,)).fetchone()
-        return self._row_to_dict(row) if row else {"id": pid}
+        if not row:
+            return {"id": pid, "address": address_val, **addr}
+        d = self._row_to_dict(row)
+        d["address"] = self.production_address_line(d)
+        return d
 
     def update_supply_production(
         self,
