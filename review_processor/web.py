@@ -11210,11 +11210,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{_qp(fname)}"})
 
-    @app.get("/api/ozon-supplies/{supply_order_id}/etrn.xml")
-    def get_ozon_etrn_xml(request: Request, supply_order_id: int) -> "Response":
-        """Download eTrN title-1 XML draft for Kontur.Logistics upload."""
-        from fastapi.responses import Response
-        from urllib.parse import quote as _qp
+    def _ozon_prepare_doc_xml_context(request: Request, supply_order_id: int) -> tuple[dict, dict, object]:
+        """Shared context for Ozon eTrN / ЭЗЗ XML downloads."""
         from . import ozon_etrn as _ozon_etrn
 
         user = _require_user(request)
@@ -11226,7 +11223,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Поставка не найдена")
         item = data["item"]
         cargoes_json = item.get("cargoes_json")
-        # Always refresh cargoes (incl. transport pallets) so КолМестГр matches Ozon LK.
         try:
             import json as _jj
             cargo_resp = get_ozon_supply_cargoes(request, supply_order_id) or {}
@@ -11238,7 +11234,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             if cache_obj["groups"] or cache_obj["transport_cargoes"]:
                 cargoes_json = _jj.dumps(cache_obj, ensure_ascii=False)
         except Exception as ex:
-            _log.debug("ozon etrn cargoes refresh sid=%s: %s", supply_order_id, ex)
+            _log.debug("ozon xml cargoes refresh sid=%s: %s", supply_order_id, ex)
         ctx = _ozon_etrn.collect_ozon_etrn_context(
             repository=repository,
             owner_id=owner_id,
@@ -11247,6 +11243,58 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             driver_phone=str(data.get("driver_docs") or ""),
             vehicle_line=str(data.get("vehicle_num") or ""),
         )
+        return data, ctx, cargoes_json
+
+    @app.get("/api/ozon-supplies/{supply_order_id}/zakaz.xml")
+    def get_ozon_zakaz_xml(request: Request, supply_order_id: int) -> "Response":
+        """Download ЭЗЗ (заказ-заявка) title-1 XML draft for Kontur.Logistics."""
+        from fastapi.responses import Response
+        from urllib.parse import quote as _qp
+        from . import ozon_zakaz as _ozon_zakaz
+
+        data, ctx, cargoes_json = _ozon_prepare_doc_xml_context(request, supply_order_id)
+        item = data["item"]
+        try:
+            xml_bytes = _ozon_zakaz.build_ozon_zakaz_xml(
+                item=item,
+                le=ctx.get("le") or data.get("le") or {},
+                driver_name=str(ctx.get("driver_name") or ""),
+                driver_phone=str(ctx.get("driver_phone") or ""),
+                driver_documents=str(ctx.get("driver_documents") or ""),
+                driver_fields=ctx.get("driver_fields") or None,
+                vehicle_line=str(ctx.get("vehicle_line") or ""),
+                vehicle_json=item.get("vehicle_json"),
+                vehicle_fields=ctx.get("vehicle_fields") or None,
+                cargoes_json=cargoes_json,
+                load_address=str(ctx.get("load_address") or ""),
+                load_addr_fields=ctx.get("load_addr_fields") or None,
+                delivery_address=str(ctx.get("delivery_address") or ""),
+                delivery_addr_fields=ctx.get("delivery_addr_fields") or None,
+                carrier_text=str(ctx.get("carrier_text") or ""),
+                carrier_fields=ctx.get("carrier_fields") or None,
+                loader_name=str(ctx.get("loader_name") or ""),
+            )
+        except Exception as exc:
+            _log.exception("ozon zakaz xml failed for %s", supply_order_id)
+            raise HTTPException(status_code=500, detail=f"Не удалось сформировать Заявку: {exc}") from exc
+        supply_num = str(item.get("supply_order_number") or supply_order_id)
+        supplier_short = str((ctx.get("le") or data.get("le") or {}).get("short_name") or "")
+        fname = f"Заявка №{supply_num}{', ' + supplier_short if supplier_short else ''}.xml"
+        return Response(
+            content=xml_bytes,
+            media_type="application/xml; charset=utf-8",
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{_qp(fname)}"},
+        )
+
+    @app.get("/api/ozon-supplies/{supply_order_id}/etrn.xml")
+    def get_ozon_etrn_xml(request: Request, supply_order_id: int) -> "Response":
+        """Download eTrN title-1 XML draft for Kontur.Logistics upload."""
+        from fastapi.responses import Response
+        from urllib.parse import quote as _qp
+        from . import ozon_etrn as _ozon_etrn
+
+        data, ctx, cargoes_json = _ozon_prepare_doc_xml_context(request, supply_order_id)
+        item = data["item"]
         try:
             xml_bytes = _ozon_etrn.build_ozon_etrn_xml(
                 item=item,
