@@ -8239,9 +8239,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         le = next((e for e in entities if e.get("short_name") == supplier_short), None) or {}
         full_legal_name = le.get("full_name") or supplier_short
 
-        # Warehouse address
+        # Warehouse address (composed from structured fields when present)
         warehouses = repository.list_supply_warehouses(user_id=owner_id)
-        wh_map = {w["warehouse_name"]: w.get("address","") for w in warehouses if w.get("warehouse_name")}
+        wh_map = {
+            w["warehouse_name"]: repository.warehouse_address_line(w)
+            for w in warehouses if w.get("warehouse_name")
+        }
         dest_wh = str(item.get("warehouse_name") or "").strip()
         transit_wh = str(item.get("transit_warehouse_name") or "").strip()
         if transit_wh:
@@ -8407,8 +8410,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         item = dict(item)
         item["pallets_count"] = pallets_slot
         driver_obj  = next((d for d in drivers if d.get("full_name") == driver_name), {})
-        # Use manual docs if provided, otherwise look up from registry
-        driver_docs = _manual_docs if _manual_docs else (driver_obj.get("documents") or "")
+        # Use manual docs if provided, otherwise composed line from registry (VU fields).
+        driver_docs = _manual_docs if _manual_docs else repository.driver_documents_line(driver_obj)
 
         now = _dtt.now()
         date_display = now.strftime("%d.%m.%Y")
@@ -8672,8 +8675,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
         # ── Recipient (consignee) line from warehouse settings ─────────────
         warehouses = repository.list_supply_warehouses(user_id=owner_id)
-        wh_addr = next((str(w.get("address") or "").strip() for w in warehouses
-                        if str(w.get("warehouse_name") or "").strip() == pickup_wh), "")
+        wh_addr = next(
+            (repository.warehouse_address_line(w) for w in warehouses
+             if str(w.get("warehouse_name") or "").strip() == pickup_wh),
+            "",
+        )
         recipient_line = "ООО «РВБ»" + (f", {wh_addr}" if wh_addr else "")
 
         # ── Goods list ─────────────────────────────────────────────────────
@@ -10791,7 +10797,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         pickup_wh = (transit_wh_name or wh_name).strip()
         warehouses = repository.list_supply_warehouses(user_id=owner_id)
         wh_addr = next(
-            (str(w.get("address") or "").strip() for w in warehouses
+            (repository.warehouse_address_line(w) for w in warehouses
              if str(w.get("warehouse_name") or "").strip() == pickup_wh),
             "",
         )
@@ -10878,7 +10884,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         pickup_wh = transit_wh or dest_wh
         warehouses = repository.list_supply_warehouses(user_id=owner_id)
         wh_addr = next(
-            (str(w.get("address") or "").strip() for w in warehouses
+            (repository.warehouse_address_line(w) for w in warehouses
              if str(w.get("warehouse_name") or "").strip() == pickup_wh),
             "",
         )
@@ -11094,7 +11100,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         pickup_wh = transit_wh or dest_wh
         warehouses = repository.list_supply_warehouses(user_id=owner_id)
         wh_addr = next(
-            (str(w.get("address") or "").strip() for w in warehouses
+            (repository.warehouse_address_line(w) for w in warehouses
              if str(w.get("warehouse_name") or "").strip() == pickup_wh),
             "",
         )
@@ -12342,7 +12348,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         signatories = le.get("signatories") or supplier_short
         driver_name = str(ref_item.get("driver_name") or "")
         driver_obj = next((d for d in drivers if d.get("full_name") == driver_name), {})
-        driver_docs = driver_obj.get("documents") or ""
+        driver_docs = repository.driver_documents_line(driver_obj)
 
         now = _dtt.now()
         date_display = now.strftime("%d.%m.%Y")
@@ -12580,8 +12586,11 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         transit_wh = str((ref_item or {}).get("transit_warehouse_name") or "").strip()
         pickup_wh = transit_wh or dest_wh
         warehouses = repository.list_supply_warehouses(user_id=owner_id)
-        wh_addr = next((str(w.get("address") or "").strip() for w in warehouses
-                        if str(w.get("warehouse_name") or "").strip() == pickup_wh), "")
+        wh_addr = next(
+            (repository.warehouse_address_line(w) for w in warehouses
+             if str(w.get("warehouse_name") or "").strip() == pickup_wh),
+            "",
+        )
         recipient_line = "ООО «РВБ»" + (f", {wh_addr}" if wh_addr else "")
         for ph,val in [("{{TTN_NUMBER}}",doc_num),("{{ORG_FULL}}",org_line),("{{SUPPLIER}}",org_line),("{{PAYER}}",org_line),("{{RECIPIENT}}",recipient_line),("{{ORDER_DATE}}",supply_ids_str),("{{DOC_NUM_VAL}}",doc_num),("{{DOC_DATE_VAL}}",date_disp),("{{GOODS_NAME}}",rows_data[0]["name"] if rows_data else "Товар"),("{{ROW_NUM}}","1"),("{{PRICE}}",rows_data[0]["price_excl"] if rows_data else "—"),("{{ROW_AMOUNT_EXCL}}",rows_data[0]["amt_excl"] if rows_data else "—"),("{{ROW_VAT_SUM}}",rows_data[0]["vat_amt"] if rows_data else "—"),("{{ROW_AMOUNT_INCL}}",rows_data[0]["amt_incl"] if rows_data else "—"),("{{QTY}}",str(qty_total)),("{{QTY_SHT}}",f"{qty_total} шт"),("{{TOTAL_EXCL}}",t_excl),("{{TOTAL_VAT}}",t_vat),("{{TOTAL_INCL}}",t_incl),("{{AMOUNT}}",t_excl),("{{VAT_SUM}}",t_vat),("{{AMOUNT_WITH_VAT}}",t_incl),("{{TOTAL_RUB}}",str(int(total_incl)) if total_incl else "0"),("{{TOTAL_KOP}}","00"),("{{PAGES_COUNT}}","1"),("{{ITEMS_COUNT}}",str(len(rows_data))),("{{SUPPLY_ID}}",doc_num),("{{DOC_DATE_FULL}}",f"«{now.strftime('%d')}» {['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'][now.month-1]} {now.year}"),("{{ISSUED_BY}}",supplier_short or "—"),("{{SIGNATORIES}}",le.get("signatories") or supplier_short or "—"),("{{PROD_HEAD}}",le.get("signatories") or supplier_short or "—"),("{{SIGN_SUPPLIER}}",supplier_short),("{{SIGN_DRIVER}}",driver_name),("{{AMOUNT_WORDS}}",amt_words)]:
             doc_xml=doc_xml.replace(ph,val)

@@ -450,6 +450,52 @@ def test_compose_vehicle_line_and_normalize():
     assert ReviewRepository._normalize_vehicles_list(["", None, "X"])[0]["model"] == "X"
 
 
+def test_document_compose_helpers_fill_empty_legacy_strings():
+    """TTN / заявка / PoA must get one-line strings even if legacy columns are empty."""
+    from review_processor.repository import ReviewRepository
+
+    docs = ReviewRepository.driver_documents_line(
+        {
+            "documents": "",
+            "doc_vu_series": "9900",
+            "doc_vu_number": "123456",
+            "doc_vu_issuer": "ГИБДД",
+            "doc_vu_date": "01.02.2018",
+            "doc_inn_fl": "",
+        }
+    )
+    assert "ВУ 99 00 123456" in docs
+    assert "кем выд. ГИБДД" in docs
+    assert "выд. 01.02.2018" in docs
+
+    carrier = ReviewRepository.carrier_line(
+        {
+            "carrier": "",
+            "carrier_name": 'ООО "Перевозчик"',
+            "carrier_inn": "5001002003",
+            "carrier_kpp": "500101001",
+        }
+    )
+    assert 'ООО "Перевозчик"' in carrier
+    assert "ИНН 5001002003" in carrier
+
+    veh = ReviewRepository.compose_vehicle_line(
+        {"model": "MAN", "number": "В849ВО37", "line": ""}
+    )
+    assert veh == "MAN В849ВО37"
+
+    addr = ReviewRepository.warehouse_address_line(
+        {
+            "address": "",
+            "addr_index": "143420",
+            "addr_city": "Истра",
+            "addr_street": "ул. Складская",
+            "addr_house": "5",
+        }
+    )
+    assert addr == "143420, г. Истра, ул. Складская, д. 5"
+
+
 def test_etrn_driver_uses_structured_inn_fl():
     root = ET.fromstring(
         _build(

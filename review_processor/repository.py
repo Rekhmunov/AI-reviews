@@ -9204,6 +9204,9 @@ class ReviewRepository:
                            le.signature_image AS le_signature_image,
                            p.contractor_id, c.name AS c_name, c.requisites AS c_req,
                            p.driver_id, d.full_name AS d_full, d.documents AS d_docs, d.in_person AS d_in_person,
+                           d.doc_vu_series AS d_vu_series, d.doc_vu_number AS d_vu_number,
+                           d.doc_vu_issuer AS d_vu_issuer, d.doc_vu_date AS d_vu_date,
+                           d.doc_inn_fl AS d_inn_fl,
                            p.driver_manual_name, p.driver_manual_docs
                     FROM supply_poa_records p
                     LEFT JOIN supply_legal_entities le ON le.id = p.legal_entity_id
@@ -9214,7 +9217,22 @@ class ReviewRepository:
                 """),
                 (user_id,),
             ).fetchall()
-        return [self._row_to_dict(r) for r in rows]
+        result: list[dict[str, Any]] = []
+        for row in rows:
+            d = self._row_to_dict(row)
+            # Prefer structured VU fields when legacy documents column is empty.
+            d["d_docs"] = self.driver_documents_line(
+                {
+                    "documents": d.get("d_docs"),
+                    "doc_vu_series": d.get("d_vu_series"),
+                    "doc_vu_number": d.get("d_vu_number"),
+                    "doc_vu_issuer": d.get("d_vu_issuer"),
+                    "doc_vu_date": d.get("d_vu_date"),
+                    "doc_inn_fl": d.get("d_inn_fl"),
+                }
+            )
+            result.append(d)
+        return result
 
     def create_supply_poa_record(self, *, user_id: int, legal_entity_id: int, contractor_id: int, driver_id: int = 0, poa_date: str, driver_manual_name: str = "", driver_manual_docs: str = "") -> dict[str, Any]:
         now = _utc_now()

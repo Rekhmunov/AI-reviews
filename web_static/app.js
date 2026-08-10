@@ -3873,8 +3873,8 @@ function downloadPackingList(supplyId) {
     try { dateDisplay = new Date(supplyDateRaw).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" }); } catch (_) {}
   }
 
-  // Warehouse address lookup
-  const whMap = Object.fromEntries(_supplyWarehousesCache.map((w) => [w.warehouse_name, w.address]));
+  // Warehouse address lookup (composed from structured fields when present)
+  const whMap = Object.fromEntries(_supplyWarehousesCache.map((w) => [w.warehouse_name, warehouseAddressLine(w)]));
   // Transit: "Склад" = address of transit warehouse (before arrow), "Склад назначения" = address of destination
   let whForPickup, whForDest;
   if (transitWarehouse) {
@@ -4228,7 +4228,7 @@ async function downloadTTN(supplyId) {
   const destWh     = (item.warehouse_name || "").trim();
   const transitWh  = (item.transit_warehouse_name || "").trim();
   const pickupWh   = transitWh || destWh;
-  const whMap      = Object.fromEntries(_supplyWarehousesCache.map((w) => [w.warehouse_name, w.address]));
+  const whMap      = Object.fromEntries(_supplyWarehousesCache.map((w) => [w.warehouse_name, warehouseAddressLine(w)]));
   const whAddr     = whMap[pickupWh] || "";
   const recipientLine = "ООО «РВБ»" + (whAddr ? `, ${whAddr}` : "");
 
@@ -13932,7 +13932,7 @@ async function _printTTN_html_fallback(supplyId) {
   const wh = (item.warehouse_name || "").trim();
   const transitWhFb = (item.transit_warehouse_name || "").trim();
   const pickupWhFb = transitWhFb || wh;
-  const whAddrFb = (_supplyWarehousesCache.find(w => w.warehouse_name === pickupWhFb) || {}).address || "";
+  const whAddrFb = warehouseAddressLine(_supplyWarehousesCache.find(w => w.warehouse_name === pickupWhFb) || {}) || "";
   const recipientLineFb = "ООО «РВБ»" + (whAddrFb ? `, ${whAddrFb}` : "");
   const supplyId_ = String(item.supply_id || "");
   const driverName = item.driver_name || "";
