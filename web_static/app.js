@@ -14872,7 +14872,7 @@ async function refreshOzonEdoStatusModal() {
     const which = _ozonEdoStatusDocType
       ? _ozonEdoDocTitle(_ozonEdoStatusDocType)
       : "Документы";
-    body.innerHTML = `<span style="color:#64748b">${esc(which)} ещё не отправлял${_ozonEdoStatusDocType === "zakaz" ? "ась" : _ozonEdoStatusDocType === "etrn" ? "ся" : "ись"} в ЭДО для этой поставки.</span>`;
+    body.innerHTML = `<span style="color:#64748b">${esc(which)}: отправок в ЭДО для этой поставки ещё нет.</span>`;
     return;
   }
   body.innerHTML = docs.map((d) => {
