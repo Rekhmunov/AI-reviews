@@ -567,6 +567,20 @@ def test_compose_driver_documents_line():
         )
         == "старые документы"
     )
+    # Issuer/date alone must not wipe legacy documents text.
+    assert (
+        ReviewRepository.driver_documents_line(
+            {
+                "documents": "паспорт 1234 567890",
+                "doc_vu_issuer": "ГИБДД",
+                "doc_vu_date": "01.02.2018",
+            }
+        )
+        == "паспорт 1234 567890"
+    )
+    assert ReviewRepository.compose_driver_documents_line(
+        {"doc_vu_issuer": "ГИБДД", "doc_vu_date": "01.02.2018"}
+    ) == ""
     # Issuer is catalog-only — not part of eTrN СвВодит attrs.
     root = ET.fromstring(
         _build(

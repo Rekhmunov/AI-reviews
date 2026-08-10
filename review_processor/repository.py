@@ -7971,6 +7971,8 @@ class ReviewRepository:
         issuer = str(data.get("doc_vu_issuer") or "").strip()
         date_val = str(data.get("doc_vu_date") or "").strip()
         inn = str(data.get("doc_inn_fl") or "").strip()
+        # Issuer/date are suffixes only — never compose a standalone «ВУ кем выд.»
+        # line that would overwrite a richer legacy documents string on save.
         if series or number:
             vu = "ВУ"
             if series and number:
@@ -7988,13 +7990,6 @@ class ReviewRepository:
             if date_val:
                 vu = f"{vu} выд. {date_val}"
             parts.append(vu)
-        elif issuer or date_val:
-            vu = "ВУ"
-            if issuer:
-                vu = f"{vu} кем выд. {issuer}"
-            if date_val:
-                vu = f"{vu} выд. {date_val}"
-            parts.append(vu)
         if inn:
             parts.append(f"ИНН {inn}")
         return ", ".join(parts)
@@ -8003,10 +7998,17 @@ class ReviewRepository:
     def driver_documents_line(cls, driver: dict[str, Any] | None) -> str:
         if not driver:
             return ""
+        series = str(driver.get("doc_vu_series") or "").strip()
+        number = str(driver.get("doc_vu_number") or "").strip()
+        legacy = str(driver.get("documents") or "").strip()
         composed = cls.compose_driver_documents_line(driver)
-        if composed:
+        # Prefer structured VU line when series/number present; otherwise keep legacy
+        # free-text (issuer/date/ИНН alone must not wipe passport/VU prose).
+        if series or number:
+            return composed or legacy
+        if composed and not legacy:
             return composed
-        return str(driver.get("documents") or "").strip()
+        return legacy or composed
 
     @staticmethod
     def compose_driver_full_name(fields: dict[str, Any] | None = None, **extra: str) -> str:

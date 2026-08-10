@@ -2765,6 +2765,8 @@ function driverDocumentsLine(d) {
   const dateVal = String(d.doc_vu_date || "").trim();
   const inn = String(d.doc_inn_fl || "").trim();
   const parts = [];
+  // Issuer/date are suffixes only — do not emit a standalone «ВУ кем выд.» line
+  // that would hide richer legacy documents text.
   if (series || number) {
     let vu = "ВУ";
     if (series && number) {
@@ -2779,14 +2781,13 @@ function driverDocumentsLine(d) {
     if (issuer) vu += ` кем выд. ${issuer}`;
     if (dateVal) vu += ` выд. ${dateVal}`;
     parts.push(vu);
-  } else if (issuer || dateVal) {
-    let vu = "ВУ";
-    if (issuer) vu += ` кем выд. ${issuer}`;
-    if (dateVal) vu += ` выд. ${dateVal}`;
-    parts.push(vu);
   }
   if (inn) parts.push(`ИНН ${inn}`);
-  return parts.join(", ") || String(d.documents || "").trim();
+  const composed = parts.join(", ");
+  const legacy = String(d.documents || "").trim();
+  if (series || number) return composed || legacy;
+  if (composed && !legacy) return composed;
+  return legacy || composed;
 }
 
 function _readNewDriverDocFields() {
