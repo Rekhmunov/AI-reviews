@@ -8066,13 +8066,28 @@ class ReviewRepository:
             parts.append(val)
         return ", ".join(parts)
 
+    def production_address_line(self, prod: dict[str, Any] | None) -> str:
+        """Full one-line address for TTN / PoA / заявки: structured fields or legacy address."""
+        if not prod:
+            return ""
+        composed = self.compose_production_address_line(prod)
+        if composed:
+            return composed
+        return str(prod.get("address") or "").strip()
+
     def list_supply_productions(self, *, user_id: int) -> list[dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(
                 self._sql("SELECT * FROM supply_productions WHERE user_id = ? ORDER BY name ASC"),
                 (user_id,),
             ).fetchall()
-        return [self._row_to_dict(r) for r in rows]
+        result: list[dict[str, Any]] = []
+        for r in rows:
+            d = self._row_to_dict(r)
+            # Always expose a ready one-line address for documents that expect a single string.
+            d["address"] = self.production_address_line(d)
+            result.append(d)
+        return result
 
     def create_supply_production(
         self,

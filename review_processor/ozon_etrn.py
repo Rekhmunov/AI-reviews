@@ -834,12 +834,18 @@ def collect_ozon_etrn_context(
     if production_name:
         for p in repository.list_supply_productions(user_id=owner_id):
             if str(p.get("name") or "").strip() == production_name:
-                load_address = str(p.get("address") or "").strip()
+                # One-line address for any consumer that still expects a string;
+                # structured fields go to XML АдресРФ directly.
+                if hasattr(repository, "production_address_line"):
+                    load_address = str(repository.production_address_line(p) or "").strip()
+                else:
+                    load_address = str(p.get("address") or "").strip()
                 structured = _addr_from_production_fields(p)
                 if _has_structured_address(structured):
                     load_addr_fields = structured
-                    if not load_address:
-                        load_address = str(structured.get("raw") or "").strip()
+                    if not structured.get("raw"):
+                        structured["raw"] = load_address
+                    load_addr_fields = structured
                 break
 
     dest_wh = str(item.get("warehouse_name") or "").strip()

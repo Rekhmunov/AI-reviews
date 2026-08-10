@@ -12623,6 +12623,31 @@ const _PROD_ADDR_FIELDS = [
   ["addr_flat", "Кв./офис"],
 ];
 
+/** Full one-line production address for TTN / PoA / заявки / route. */
+function productionAddressLine(p) {
+  if (!p) return "";
+  const parts = [];
+  const idx = String(p.addr_index || "").trim();
+  if (idx) parts.push(idx);
+  const pushPrefixed = (raw, prefix, alreadyRe) => {
+    const val = String(raw || "").trim();
+    if (!val) return;
+    parts.push(alreadyRe.test(val) ? val : `${prefix}${val}`);
+  };
+  const district = String(p.addr_district || "").trim();
+  if (district) parts.push(district);
+  pushPrefixed(p.addr_city, "г. ", /^(г\.|город)\b/i);
+  const settlement = String(p.addr_settlement || "").trim();
+  if (settlement) parts.push(settlement);
+  const street = String(p.addr_street || "").trim();
+  if (street) parts.push(street);
+  pushPrefixed(p.addr_house, "д. ", /^(д\.|дом)\b/i);
+  pushPrefixed(p.addr_corpus, "к. ", /^(к\.|корп\.|корпус)\b/i);
+  pushPrefixed(p.addr_flat, "кв. ", /^(кв\.|квартира)\b/i);
+  const composed = parts.join(", ");
+  return composed || String(p.address || "").trim();
+}
+
 function _readNewProductionAddrFields() {
   return {
     addr_index: document.getElementById("newProdAddrIndex")?.value.trim() || "",
@@ -12669,7 +12694,7 @@ function renderSupplyProductionsTbody() {
     tr.innerHTML = `<td>${i+1}</td>
       <td class="editable-cell">${esc(p.name||"")}</td>
       <td class="editable-cell">${esc(p.head_name||"")}</td>
-      <td class="editable-cell">${esc(p.address||"")}</td>
+      <td class="editable-cell">${esc(productionAddressLine(p))}</td>
       <td class="editable-cell">${esc(p.load_contact||"")}</td>
       <td>
         <div class="row" style="gap:4px;flex-wrap:nowrap">
@@ -15551,7 +15576,7 @@ function _zUpdateRouteForDriver(suppliesForDriver) {
   if (!routeEl) return;
   const allProdNames = [...new Set(suppliesForDriver.map(x => (x.production||"").trim()).filter(Boolean))];
   const allProds = allProdNames.map(n => (_supplyProductionsCache||[]).find(p => p.name === n)).filter(Boolean);
-  const cities = [...new Set(allProds.map(p => (p.address||"").trim()).filter(Boolean))];
+  const cities = [...new Set(allProds.map(p => productionAddressLine(p)).filter(Boolean))];
   const warehouses = [...new Set(suppliesForDriver.map(x => (x.warehouse_name||"").trim()).filter(Boolean))];
   routeEl.textContent = [...cities, ...warehouses].filter(Boolean).join(" — ") || "—";
 }
@@ -15762,8 +15787,9 @@ function onZProducChange() {
     info.innerHTML = `<span class="z-info-row"><span class="z-info-label">Несколько производств:</span> ${esc(allProdNames.join(", "))}</span>`;
     info.classList.remove("hidden");
   } else if (prod) {
+    const prodAddr = productionAddressLine(prod);
     const rows = [
-      prod.address ? `<span class="z-info-label">Адрес:</span> ${esc(prod.address)}` : null,
+      prodAddr ? `<span class="z-info-label">Адрес:</span> ${esc(prodAddr)}` : null,
       prod.load_contact ? `<span class="z-info-label">Контакт:</span> ${esc(prod.load_contact)}` : null,
     ].filter(Boolean).map(r => `<span class="z-info-row">${r}</span>`).join("");
     if (rows) { info.innerHTML = rows; info.classList.remove("hidden"); }
@@ -15887,7 +15913,7 @@ function _updateZRoute() {
   const cities = [];
   allProdNames.forEach(pn => {
     const prod = (_supplyProductionsCache||[]).find(p => p.name === pn);
-    const addr = (prod?.address || pn).trim();
+    const addr = (productionAddressLine(prod) || pn).trim();
     if (addr && !cities.includes(addr)) cities.push(addr);
   });
 
@@ -16004,12 +16030,12 @@ async function generateZayavka() {
   const supplyProdNames = [...new Set(docSupplies.map(x => (x.production||"").trim()).filter(Boolean))];
   const allProdNames = modalProdName ? [modalProdName] : supplyProdNames;
   const allProds = allProdNames.map(n => (_supplyProductionsCache||[]).find(p => p.name === n)).filter(Boolean);
-  const cities = [...new Set(allProds.map(p => (p.address||"").trim()).filter(Boolean))];
+  const cities = [...new Set(allProds.map(p => productionAddressLine(p)).filter(Boolean))];
   const warehouses = [...new Set(docSupplies.map(x => (x.warehouse_name||"").trim()).filter(Boolean))];
   const route = [...cities, ...warehouses].join(" — ");
 
-  // Load addresses
-  const loadAddresses = [...new Set(allProds.map(p => p.address).filter(Boolean))].join(", ");
+  // Load addresses (full assembled line from structured fields)
+  const loadAddresses = [...new Set(allProds.map(p => productionAddressLine(p)).filter(Boolean))].join(", ");
   const loadContact = [...new Set(allProds.map(p => p.load_contact).filter(Boolean))].join(", ");
 
   // Unload lines (PDF — bold warehouse + address + pallets, newline per warehouse)
@@ -16149,10 +16175,10 @@ async function downloadZayavkaDocx() {
   const supplyProdNamesD = [...new Set(docSuppliesD.map(x => (x.production||"").trim()).filter(Boolean))];
   const allProdNames = modalProdNameD ? [modalProdNameD] : supplyProdNamesD;
   const allProds = allProdNames.map(n => (_supplyProductionsCache||[]).find(p => p.name === n)).filter(Boolean);
-  const cities = [...new Set(allProds.map(p => (p.address||"").trim()).filter(Boolean))];
+  const cities = [...new Set(allProds.map(p => productionAddressLine(p)).filter(Boolean))];
   const warehouses = [...new Set(docSuppliesD.map(x => (x.warehouse_name||"").trim()).filter(Boolean))];
   const route = [...cities, ...warehouses].join(" — ");
-  const loadAddresses = [...new Set(allProds.map(p => p.address).filter(Boolean))].join(", ");
+  const loadAddresses = [...new Set(allProds.map(p => productionAddressLine(p)).filter(Boolean))].join(", ");
   const loadContact = [...new Set(allProds.map(p => p.load_contact).filter(Boolean))].join(", ");
   const grouped = {};
   docSuppliesD.forEach(x => {
