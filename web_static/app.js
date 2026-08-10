@@ -2859,7 +2859,7 @@ function _readNewDriverCarrierFields() {
 function _clearNewDriverCarrierFields() {
   [
     "newDriverName", "newDriverInPerson",
-    "newDriverVuSeries", "newDriverVuNumber", "newDriverVuDate", "newDriverInnFl",
+    "newDriverVuSeries", "newDriverVuNumber", "newDriverVuIssuer", "newDriverVuDate", "newDriverInnFl",
     "newDriverCarrierName", "newDriverCarrierInn", "newDriverCarrierKpp",
     "newDriverCarrierAddrIndex", "newDriverCarrierAddrRegion", "newDriverCarrierAddrDistrict",
     "newDriverCarrierAddrCity", "newDriverCarrierAddrSettlement", "newDriverCarrierAddrStreet",
