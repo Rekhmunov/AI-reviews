@@ -14644,10 +14644,25 @@ function _ensureCadesPlugin() {
   if (_cadesPluginReady) return _cadesPluginReady;
   _cadesPluginReady = new Promise((resolve, reject) => {
     if (typeof cadesplugin === "undefined") {
-      reject(new Error("Плагин КриптоПро не загружен. Установите КриптоПро ЭЦП Browser plug-in."));
+      reject(new Error(
+        "Скрипт КриптоПро не загружен (cadesplugin_api.js). Обновите страницу; "
+        + "если ошибка повторится — проверьте блокировку скриптов/CSP.",
+      ));
       return;
     }
-    cadesplugin.then(() => resolve(cadesplugin), reject);
+    cadesplugin.then(
+      () => resolve(cadesplugin),
+      (err) => reject(new Error(
+        typeof err === "string" && err.trim()
+          ? err
+          : "Плагин КриптоПро недоступен. Установите КриптоПро ЭЦП Browser plug-in "
+            + "и расширение для браузера, затем перезапустите браузер.",
+      )),
+    );
+  }).catch((err) => {
+    // Do not cache a rejected promise forever — user may install the plugin and retry.
+    _cadesPluginReady = null;
+    throw err;
   });
   return _cadesPluginReady;
 }

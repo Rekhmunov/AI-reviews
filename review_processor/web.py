@@ -1262,10 +1262,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("Referrer-Policy", "same-origin")
         response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        # CryptoPro ЭЦП Browser plug-in loads nmcades_plugin_api.js from the browser
+        # extension and may use an NPAPI <object type="application/x-cades"> fallback.
         response.headers.setdefault(
             "Content-Security-Policy",
-            "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
-            "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'self'",
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' chrome-extension: moz-extension: safari-extension:; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data:; "
+            "connect-src 'self' chrome-extension: moz-extension: safari-extension:; "
+            "object-src *; "
+            "frame-ancestors 'none'; form-action 'self'; base-uri 'self'",
         )
         if app_config.is_production:
             response.headers.setdefault("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")
