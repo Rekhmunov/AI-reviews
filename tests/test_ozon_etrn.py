@@ -397,6 +397,53 @@ def test_etrn_load_address_uses_structured_fields():
     assert adr.attrib.get("Дом") == "32/2"
 
 
+def test_etrn_delivery_address_uses_structured_warehouse_fields():
+    """АдресДостГр takes structured warehouse fields without free-text parse."""
+    root = ET.fromstring(
+        _build(
+            delivery_address="ignored free text that would parse differently",
+            delivery_addr_fields={
+                "Индекс": "143420",
+                "КодРегион": "50",
+                "Город": "Истра",
+                "Улица": "ул. Складская",
+                "Дом": "5",
+                "Корпус": "1",
+                "raw": "143420, г. Истра, ул. Складская, д. 5",
+            },
+        )
+    )
+    adr = root.find("Документ/СодИнфГО/СвГП/АдресДостГр/АдресРФ")
+    assert adr is not None
+    assert adr.attrib.get("Индекс") == "143420"
+    assert adr.attrib.get("КодРегион") == "50"
+    assert adr.attrib.get("Город") == "Истра"
+    assert adr.attrib.get("Улица") == "ул. Складская"
+    assert adr.attrib.get("Дом") == "5"
+    assert adr.attrib.get("Корпус") == "1"
+
+
+def test_warehouse_address_line_assembles_for_documents():
+    from review_processor.repository import ReviewRepository
+
+    line = ReviewRepository.warehouse_address_line(
+        {
+            "addr_index": "143420",
+            "addr_city": "Истра",
+            "addr_street": "ул. Складская",
+            "addr_house": "5",
+            "address": "legacy",
+        }
+    )
+    assert line == "143420, г. Истра, ул. Складская, д. 5"
+    assert (
+        ReviewRepository.warehouse_address_line(
+            {"address": "старый адрес одной строкой", "addr_city": ""}
+        )
+        == "старый адрес одной строкой"
+    )
+
+
 def test_production_address_line_assembles_for_documents():
     """TTN / PoA / заявки still get one assembled address string."""
     from review_processor.repository import ReviewRepository
