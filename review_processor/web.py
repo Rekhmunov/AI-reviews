@@ -11483,7 +11483,19 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         _xml, _fname, meta = _ozon_build_edo_xml(request, supply_order_id, doc_type)
         settings = repository.get_supply_edo_settings(user_id=_supply_owner_id(user))
         meta["cert_thumbprint"] = str(settings.get("cert_thumbprint") or "")
-        meta["edo_enabled"] = bool(settings.get("is_enabled") and settings.get("has_api_key"))
+        diadoc_ready = bool(
+            settings.get("diadoc_client_id")
+            and settings.get("diadoc_login")
+            and settings.get("has_diadoc_password")
+            and settings.get("diadoc_from_box_id")
+            and settings.get("diadoc_to_box_id")
+        )
+        # эТрН → Logistics API key; Заявка → Diadoc creds (either channel is enough to enable UI).
+        meta["edo_enabled"] = bool(
+            settings.get("is_enabled") and (settings.get("has_api_key") or diadoc_ready)
+        )
+        meta["logistics_ready"] = bool(settings.get("has_api_key"))
+        meta["diadoc_ready"] = diadoc_ready
         return meta
 
     @app.post("/api/ozon-supplies/{supply_order_id}/edo/send")
@@ -11675,7 +11687,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                         last_error=res.error or f"HTTP {res.status_code}",
                     )
             elif channel == "diadoc" and doc.get("message_id") and settings.get("diadoc_client_id"):
-                # Pull document meta for stage hints (OuterDocflow / DocflowStatus)
+                # Pull document meta for stage hints (LastOuterDocflows / DocflowStatus)
                 dclient = KonturDiadocClient(
                     api_url=str(settings.get("diadoc_url") or ""),
                     client_id=str(settings.get("diadoc_client_id") or ""),
@@ -11691,56 +11703,35 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                         entity_id=entity_id,
                     )
                     if res.ok and isinstance(res.data, dict):
-                        status_text = str(
-                            res.data.get("DocflowStatus")
-                            or res.data.get("docflowStatus")
-                            or res.data.get("Status")
-                            or "sent"
-                        )
-                        # Prefer OuterDocflow KIMt statuses when present
-                        outer = res.data.get("OuterDocflows") or res.data.get("outerDocflows") or []
-                        label = status_text
-                        mt_id = ""
-                        mt_st = ""
-                        if isinstance(outer, list):
-                            for od in outer:
-                                if not isinstance(od, dict):
-                                    continue
-                                named = str(od.get("DocflowNamedId") or od.get("docflowNamedId") or "")
-                                if named and named != "KIMt":
-                                    continue
-                                st = od.get("Status") or od.get("status") or {}
-                                if isinstance(st, dict):
-                                    label = str(st.get("NamedId") or st.get("namedId") or st.get("Description") or label)
-                                details = od.get("StatusDetails") or od.get("statusDetails") or {}
-                                if isinstance(details, dict):
-                                    mt_id = str(details.get("mt-id") or details.get("mt_id") or "")
-                                    mt_st = str(details.get("mt-rid") or "")
-                                kl = ""
-                                if isinstance(details, dict):
-                                    kl = str(details.get("kl-id") or details.get("kl_id") or "")
-                                if kl and not doc.get("transportation_id"):
-                                    doc["transportation_id"] = kl
+                        parsed = KonturDiadocClient.parse_document_status(res.data)
+                        tid = str(doc.get("transportation_id") or parsed.get("kl_id") or "")
                         doc = repository.upsert_ozon_edo_document(
                             user_id=owner_id,
                             supply_order_id=supply_order_id,
                             doc_type=dtype,
                             channel="diadoc",
-                            transportation_id=str(doc.get("transportation_id") or ""),
+                            transportation_id=tid,
                             message_id=str(doc.get("message_id") or ""),
                             entity_id=entity_id,
-                            status=str(status_text)[:120],
-                            status_label=str(label)[:255],
-                            mintrans_id=mt_id,
-                            mintrans_status=mt_st,
+                            status=str(parsed.get("status") or "sent"),
+                            status_label=str(parsed.get("status_label") or ""),
+                            mintrans_id=str(parsed.get("mintrans_id") or ""),
+                            mintrans_status=str(parsed.get("mintrans_status") or ""),
                             last_error="",
                             raw_json=_jj.dumps(res.data, ensure_ascii=False)[:8000],
                         )
             refreshed.append(doc)
+        diadoc_ready = bool(
+            settings.get("diadoc_client_id")
+            and settings.get("diadoc_login")
+            and settings.get("has_diadoc_password")
+            and settings.get("diadoc_from_box_id")
+            and settings.get("diadoc_to_box_id")
+        )
         return {
             "supply_order_id": supply_order_id,
             "documents": refreshed or docs,
-            "edo_configured": bool(settings.get("has_api_key")),
+            "edo_configured": bool(settings.get("has_api_key") or diadoc_ready),
         }
 
     @app.get("/api/ozon-supplies/{supply_order_id}/ttn.pdf")

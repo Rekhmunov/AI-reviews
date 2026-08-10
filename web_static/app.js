@@ -14724,8 +14724,15 @@ async function openOzonEdoSendModal(supplyOrderId) {
   try {
     const settings = await fetch("/api/supply-edo-settings", { headers: jsonHeaders() }).then((r) => r.json()).catch(() => ({}));
     preferred = String(settings.cert_thumbprint || "").replace(/\s+/g, "").toUpperCase();
-    if (!settings.is_enabled || !settings.has_api_key) {
-      _edoSetInfo("ozonEdoModalInfo", "Сначала настройте Contour.Логистика в Поставки → Настройки → ЭДО", false);
+    const diadocReady = !!(
+      settings.diadoc_client_id
+      && settings.diadoc_login
+      && settings.has_diadoc_password
+      && settings.diadoc_from_box_id
+      && settings.diadoc_to_box_id
+    );
+    if (!settings.is_enabled || !(settings.has_api_key || diadocReady)) {
+      _edoSetInfo("ozonEdoModalInfo", "Сначала настройте ЭДО в Поставки → Настройки → ЭДО (ключ Логистики и/или Diadoc)", false);
     }
   } catch (_) {}
   try {

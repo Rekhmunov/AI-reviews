@@ -3,6 +3,9 @@
 Контур.Логистика для эТрН принимает XML через logist-api; для Заявки
 публично задокументирована отправка через Diadoc ``PostMessage``
 (TypeNamedId=LogisticsOrderRequest).
+
+Auth: classic ``V3/Authenticate?type=password`` → ``DiadocAuth`` header
+(см. https://developer.kontur.ru/docs/diadoc-api/authentication.html).
 """
 from __future__ import annotations
 
@@ -11,7 +14,7 @@ import json
 import logging
 import urllib.error
 import urllib.request
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlencode, urljoin
 
@@ -52,23 +55,23 @@ class KonturDiadocClient:
         self.timeout = timeout
 
     def authenticate(self) -> DiadocResult:
-        """V3 Authenticate (password) → access token."""
+        """V3 Authenticate (password) → access token (classic DiadocAuth)."""
         if self.token:
             return DiadocResult(ok=True, status_code=200, token=self.token)
         if not self.client_id or not self.login or not self.password:
             return DiadocResult(ok=False, error="Не заданы Diadoc Client ID / логин / пароль")
-        body = f"{self.login}\n{self.password}".encode("utf-8")
+        body = json.dumps({"login": self.login, "password": self.password}).encode("utf-8")
         headers = {
             "Authorization": f"DiadocAuth ddauth_api_client_id={self.client_id}",
-            "Content-Type": "text/plain; charset=utf-8",
-            "Accept": "text/plain",
+            "Content-Type": "application/json; charset=utf-8",
+            "Accept": "text/plain, application/json",
             "User-Agent": "FeedPilot/1.0",
         }
         url = urljoin(self.api_url, "V3/Authenticate?type=password")
         req = urllib.request.Request(url, data=body, method="POST", headers=headers)
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                token = resp.read().decode("utf-8", errors="replace").strip()
+                token = resp.read().decode("utf-8", errors="replace").strip().strip('"')
                 if not token:
                     return DiadocResult(ok=False, status_code=int(resp.status), error="Пустой токен Diadoc")
                 self.token = token
@@ -84,8 +87,12 @@ class KonturDiadocClient:
             auth = self.authenticate()
             if not auth.ok:
                 raise RuntimeError(auth.error or "Diadoc auth failed")
+        # Classic tokens require DiadocAuth — Bearer is only for OIDC OpenID tokens.
         return {
-            "Authorization": f"Bearer {self.token}",
+            "Authorization": (
+                f"DiadocAuth ddauth_api_client_id={self.client_id},"
+                f"ddauth_token={self.token}"
+            ),
             "Accept": "application/json; charset=utf-8",
             "Content-Type": "application/json; charset=utf-8",
             "User-Agent": "FeedPilot/1.0",
@@ -199,3 +206,107 @@ class KonturDiadocClient:
                 if isinstance(first, dict):
                     entity_id = str(first.get("EntityId") or first.get("entityId") or "").strip()
         return {"message_id": message_id, "entity_id": entity_id}
+
+    @staticmethod
+    def _detail_map(status: dict[str, Any]) -> dict[str, str]:
+        """Flatten Status.Details[{Code,Text}] (and legacy StatusDetails dict) to {code: text}."""
+        out: dict[str, str] = {}
+        details = status.get("Details") or status.get("details") or []
+        if isinstance(details, list):
+            for item in details:
+                if not isinstance(item, dict):
+                    continue
+                code = str(item.get("Code") or item.get("code") or "").strip()
+                text = str(item.get("Text") or item.get("text") or "").strip()
+                if code:
+                    out[code] = text
+        legacy = status.get("StatusDetails") or status.get("statusDetails") or {}
+        if isinstance(legacy, dict):
+            for k, v in legacy.items():
+                key = str(k or "").strip()
+                if key and key not in out:
+                    out[key] = str(v or "").strip()
+        return out
+
+    @classmethod
+    def parse_document_status(cls, payload: Any) -> dict[str, str]:
+        """Extract DocflowStatus + GIS ЭПД (KlMt/KIMt) ids from GetDocument JSON."""
+        if not isinstance(payload, dict):
+            return {
+                "status": "",
+                "status_label": "",
+                "mintrans_id": "",
+                "mintrans_status": "",
+                "kl_id": "",
+            }
+
+        dfs = payload.get("DocflowStatus") or payload.get("docflowStatus") or {}
+        primary: dict[str, Any] = {}
+        if isinstance(dfs, dict):
+            primary = dfs.get("PrimaryStatus") or dfs.get("primaryStatus") or {}
+            if not isinstance(primary, dict):
+                primary = {}
+        status_label = str(
+            primary.get("StatusText")
+            or primary.get("statusText")
+            or primary.get("StatusNamedId")
+            or ""
+        ).strip()
+        status_code = str(
+            primary.get("StatusNamedId")
+            or primary.get("statusNamedId")
+            or primary.get("Severity")
+            or ""
+        ).strip()
+        if not status_label and isinstance(dfs, str):
+            status_label = dfs.strip()
+
+        mt_id = ""
+        mt_rid = ""
+        kl_id = ""
+        gis_label = ""
+
+        # GetDocument V3: LastOuterDocflows[].OuterDocflow
+        last_outer = payload.get("LastOuterDocflows") or payload.get("lastOuterDocflows") or []
+        outer_candidates: list[dict[str, Any]] = []
+        if isinstance(last_outer, list):
+            for item in last_outer:
+                if not isinstance(item, dict):
+                    continue
+                info = item.get("OuterDocflow") or item.get("outerDocflow") or item
+                if isinstance(info, dict):
+                    outer_candidates.append(info)
+        # Fallback: some payloads expose OuterDocflows directly
+        outer = payload.get("OuterDocflows") or payload.get("outerDocflows") or []
+        if isinstance(outer, list):
+            for item in outer:
+                if isinstance(item, dict):
+                    outer_candidates.append(item)
+
+        for od in outer_candidates:
+            named = str(od.get("DocflowNamedId") or od.get("docflowNamedId") or "").strip()
+            # Docs use both KIMt and KlMt for ГИС ЭПД.
+            if named and named.casefold() not in ("kimt", "klmt"):
+                continue
+            st = od.get("Status") or od.get("status") or {}
+            if not isinstance(st, dict):
+                continue
+            gis_label = str(
+                st.get("FriendlyName")
+                or st.get("friendlyName")
+                or st.get("Description")
+                or st.get("NamedId")
+                or gis_label
+            ).strip()
+            details = cls._detail_map(st)
+            mt_id = details.get("mt-id") or details.get("mt_id") or mt_id
+            mt_rid = details.get("mt-rid") or details.get("mt_rid") or mt_rid
+            kl_id = details.get("kl-id") or details.get("kl_id") or kl_id
+
+        return {
+            "status": (status_code or "sent")[:120],
+            "status_label": (gis_label or status_label or "Отправлено в Diadoc")[:255],
+            "mintrans_id": mt_id[:120],
+            "mintrans_status": (mt_rid or gis_label)[:120],
+            "kl_id": kl_id[:120],
+        }

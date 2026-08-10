@@ -18,8 +18,6 @@ from xml.etree import ElementTree as ET
 
 from .ozon_etrn import (
     OZON_CONSIGNEE_EDO_GUID,
-    OZON_CONSIGNEE_INN,
-    OZON_CONSIGNEE_NAME,
     _addr_from_carrier_fields,
     _addr_from_production_fields,
     _cargo_stats,
@@ -458,13 +456,7 @@ def build_ozon_zakaz_xml(
         НалКоорТочВрОпер="1",
     )
     _punkt_address(adr_unload, "АдресПункт", dest_for_punkt, label="Пункт выгрузки")
-    # Ozon FBO consignee (fixed org + FNSId used in eTrN ИдФайл).
-    _el(
-        adr_unload,
-        "ОргВладИнфр",
-        НаимВладИнфр=OZON_CONSIGNEE_NAME,
-        ИННВладИнфр=OZON_CONSIGNEE_INN,
-    )
+    # FNS: ОргВладИнфр only for Опер=Погрузка — not emitted on Выгрузка.
 
     # --- ОпГруз ---
     op = _el(

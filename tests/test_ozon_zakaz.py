@@ -187,13 +187,16 @@ def test_zakaz_carrier_phone_prefers_catalog_over_legal_entity():
     assert root.find("Документ/СодИнфГО/СвГО/Конт/Тлф").text == "+79991112233"
 
 
-def test_zakaz_ozon_fns_id_fixed():
-    """Ozon FNSId зафиксирован (тот же, что в эТрН ИдФайл/E)."""
+def test_zakaz_ozon_fns_id_constant_and_no_unload_owner():
+    """Ozon FNSId — общая константа с эТрН; в Заявке нет слота E и нет ОргВладИнфр на выгрузке."""
     assert OZON_FNS_ID == "2BM-7704217370-774301001-201407110916237240124"
     root = ET.fromstring(_build())
-    owner = root.find("Документ/СодИнфГО/АдрПункт[@Опер='Выгрузка']/ОргВладИнфр")
-    assert owner is not None
-    assert owner.attrib.get("ИННВладИнфр") == "7704217370"
+    unload = root.find("Документ/СодИнфГО/АдрПункт[@Опер='Выгрузка']")
+    assert unload is not None
+    assert unload.find("ОргВладИнфр") is None
+    load = root.find("Документ/СодИнфГО/АдрПункт[@Опер='Погрузка']/ОргВладИнфр")
+    assert load is not None
+    assert load.attrib.get("ИННВладИнфр") == "7701234567"
 
 
 def test_zakaz_carrier_fns_id_in_id_file():
