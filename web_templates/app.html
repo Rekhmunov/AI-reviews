@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=186" />
+  <link rel="stylesheet" href="/static/style.css?v=187" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -2439,7 +2439,7 @@
             </div>
             <div id="addDriverForm" class="source-form hidden" style="margin-top:12px">
               <div class="worker-form-grid">
-                <div class="wfg-field">
+                <div class="wfg-field" style="grid-column:span 2">
                   <label class="wfg-label" for="newDriverName">ФИО водителя</label>
                   <input id="newDriverName" type="text" placeholder="Фамилия Имя Отчество" autocomplete="off" />
                 </div>
@@ -2447,9 +2447,24 @@
                   <label class="wfg-label" for="newDriverInPerson">В лице</label>
                   <input id="newDriverInPerson" type="text" placeholder="Дательный падеж" autocomplete="off" />
                 </div>
+              </div>
+              <p class="small" style="margin:16px 0 8px;color:#64748b">Документы водителя (поля эТрН СвВодит)</p>
+              <div class="worker-form-grid">
                 <div class="wfg-field">
-                  <label class="wfg-label" for="newDriverDocuments">Документы</label>
-                  <input id="newDriverDocuments" type="text" placeholder="Серия, номер паспорта" autocomplete="off" />
+                  <label class="wfg-label" for="newDriverVuSeries">Серия ВУ</label>
+                  <input id="newDriverVuSeries" type="text" inputmode="numeric" maxlength="20" placeholder="9900" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newDriverVuNumber">Номер ВУ</label>
+                  <input id="newDriverVuNumber" type="text" inputmode="numeric" maxlength="20" placeholder="123456" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newDriverVuDate">Дата выдачи ВУ</label>
+                  <input id="newDriverVuDate" type="text" placeholder="01.02.2018" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newDriverInnFl">ИНН физлица</label>
+                  <input id="newDriverInnFl" type="text" inputmode="numeric" maxlength="12" placeholder="123456789012" autocomplete="off" />
                 </div>
               </div>
               <p class="small" style="margin:16px 0 8px;color:#64748b">Перевозчик (поля эТрН)</p>
@@ -4281,6 +4296,6 @@
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
   <script src="/static/qrcode.min.js"></script>
-  <script src="/static/app.js?v=390"></script>
+  <script src="/static/app.js?v=391"></script>
 </body>
 </html>

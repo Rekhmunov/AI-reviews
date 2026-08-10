@@ -7551,6 +7551,16 @@ class ReviewRepository:
             conn.execute(
                 f"ALTER TABLE supply_drivers ADD COLUMN IF NOT EXISTS {_drv_carrier_col} TEXT NOT NULL DEFAULT ''"
             )
+        # Driver documents for eTrN СвВодит: VU series/number/date or ИННФЛ.
+        for _drv_doc_col in (
+            "doc_vu_series",
+            "doc_vu_number",
+            "doc_vu_date",
+            "doc_inn_fl",
+        ):
+            conn.execute(
+                f"ALTER TABLE supply_drivers ADD COLUMN IF NOT EXISTS {_drv_doc_col} TEXT NOT NULL DEFAULT ''"
+            )
         # ── OZON Supplies module (fully isolated from WB) ──────────────────────
         conn.execute(
             """
@@ -7911,6 +7921,75 @@ class ReviewRepository:
             return composed
         return str(driver.get("carrier") or "").strip()
 
+    @staticmethod
+    def _normalize_driver_doc_fields(
+        *,
+        doc_vu_series: str = "",
+        doc_vu_number: str = "",
+        doc_vu_date: str = "",
+        doc_inn_fl: str = "",
+    ) -> dict[str, str]:
+        series = re.sub(r"\s+", "", str(doc_vu_series or "").strip())
+        series = re.sub(r"[^\dA-Za-zА-Яа-я]", "", series)[:20]
+        number = re.sub(r"\s+", "", str(doc_vu_number or "").strip())
+        number = re.sub(r"[^\dA-Za-zА-Яа-я]", "", number)[:20]
+        date_raw = str(doc_vu_date or "").strip()
+        date_val = ""
+        if date_raw:
+            m = re.search(r"(\d{2})\.(\d{2})\.(\d{4})", date_raw)
+            if m:
+                date_val = f"{m.group(1)}.{m.group(2)}.{m.group(3)}"
+            else:
+                iso = re.search(r"(\d{4})-(\d{2})-(\d{2})", date_raw)
+                if iso:
+                    date_val = f"{iso.group(3)}.{iso.group(2)}.{iso.group(1)}"
+        inn = re.sub(r"\D", "", str(doc_inn_fl or ""))[:12]
+        return {
+            "doc_vu_series": series,
+            "doc_vu_number": number,
+            "doc_vu_date": date_val,
+            "doc_inn_fl": inn,
+        }
+
+    @staticmethod
+    def compose_driver_documents_line(fields: dict[str, Any] | None = None, **extra: str) -> str:
+        """One-line driver docs for PoA / заявка / table display."""
+        data = {**(fields or {}), **extra}
+        parts: list[str] = []
+        series = str(data.get("doc_vu_series") or "").strip()
+        number = str(data.get("doc_vu_number") or "").strip()
+        date_val = str(data.get("doc_vu_date") or "").strip()
+        inn = str(data.get("doc_inn_fl") or "").strip()
+        if series or number:
+            vu = "ВУ"
+            if series and number:
+                # Common display: «ВУ 9900 123456»
+                if len(series) == 4 and series.isdigit():
+                    vu = f"ВУ {series[:2]} {series[2:]} {number}"
+                else:
+                    vu = f"ВУ {series} {number}"
+            elif series:
+                vu = f"ВУ серия {series}"
+            else:
+                vu = f"ВУ № {number}"
+            if date_val:
+                vu = f"{vu} выд. {date_val}"
+            parts.append(vu)
+        elif date_val:
+            parts.append(f"ВУ выд. {date_val}")
+        if inn:
+            parts.append(f"ИНН {inn}")
+        return ", ".join(parts)
+
+    @classmethod
+    def driver_documents_line(cls, driver: dict[str, Any] | None) -> str:
+        if not driver:
+            return ""
+        composed = cls.compose_driver_documents_line(driver)
+        if composed:
+            return composed
+        return str(driver.get("documents") or "").strip()
+
     def list_supply_drivers(self, *, user_id: int) -> list[dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(
@@ -7923,6 +8002,7 @@ class ReviewRepository:
         for row in rows:
             d = self._row_to_dict(row)
             d["carrier"] = self.carrier_line(d)
+            d["documents"] = self.driver_documents_line(d)
             result.append(d)
         return result
 
@@ -7957,6 +8037,10 @@ class ReviewRepository:
         carrier_addr_house: str = "",
         carrier_addr_corpus: str = "",
         carrier_addr_flat: str = "",
+        doc_vu_series: str = "",
+        doc_vu_number: str = "",
+        doc_vu_date: str = "",
+        doc_inn_fl: str = "",
     ) -> dict[str, Any]:
         import json as _j
         now = _utc_now()
@@ -7975,7 +8059,14 @@ class ReviewRepository:
             carrier_addr_corpus=carrier_addr_corpus,
             carrier_addr_flat=carrier_addr_flat,
         )
+        df = self._normalize_driver_doc_fields(
+            doc_vu_series=doc_vu_series,
+            doc_vu_number=doc_vu_number,
+            doc_vu_date=doc_vu_date,
+            doc_inn_fl=doc_inn_fl,
+        )
         carrier_val = self.compose_carrier_line(cf) or str(carrier or "").strip()
+        docs_val = self.compose_driver_documents_line(df) or str(documents or "").strip() or None
         with self._connect() as conn:
             driver_id = self._insert_and_get_id(
                 conn,
@@ -7984,12 +8075,13 @@ class ReviewRepository:
                 "carrier_name, carrier_inn, carrier_kpp, "
                 "carrier_addr_index, carrier_addr_region_code, carrier_addr_district, "
                 "carrier_addr_city, carrier_addr_settlement, carrier_addr_street, "
-                "carrier_addr_house, carrier_addr_corpus, carrier_addr_flat, created_at"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "carrier_addr_house, carrier_addr_corpus, carrier_addr_flat, "
+                "doc_vu_series, doc_vu_number, doc_vu_date, doc_inn_fl, created_at"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     user_id,
                     full_name.strip(),
-                    (documents or "").strip() or None,
+                    docs_val,
                     (in_person or "").strip() or None,
                     vj,
                     carrier_val,
@@ -8005,6 +8097,10 @@ class ReviewRepository:
                     cf["carrier_addr_house"],
                     cf["carrier_addr_corpus"],
                     cf["carrier_addr_flat"],
+                    df["doc_vu_series"],
+                    df["doc_vu_number"],
+                    df["doc_vu_date"],
+                    df["doc_inn_fl"],
                     now,
                 ),
             )
@@ -8013,9 +8109,17 @@ class ReviewRepository:
                 (driver_id,),
             ).fetchone()
         if not row:
-            return {"id": driver_id, "full_name": full_name, "carrier": carrier_val, **cf}
+            return {
+                "id": driver_id,
+                "full_name": full_name,
+                "carrier": carrier_val,
+                "documents": docs_val or "",
+                **cf,
+                **df,
+            }
         d = self._row_to_dict(row)
         d["carrier"] = self.carrier_line(d)
+        d["documents"] = self.driver_documents_line(d)
         return d
 
     def update_supply_driver(
@@ -8040,6 +8144,10 @@ class ReviewRepository:
         carrier_addr_house: str = "",
         carrier_addr_corpus: str = "",
         carrier_addr_flat: str = "",
+        doc_vu_series: str = "",
+        doc_vu_number: str = "",
+        doc_vu_date: str = "",
+        doc_inn_fl: str = "",
     ) -> bool:
         import json as _j
         vj = _j.dumps([v for v in (vehicles or []) if v and str(v).strip()], ensure_ascii=False)
@@ -8057,8 +8165,15 @@ class ReviewRepository:
             carrier_addr_corpus=carrier_addr_corpus,
             carrier_addr_flat=carrier_addr_flat,
         )
+        df = self._normalize_driver_doc_fields(
+            doc_vu_series=doc_vu_series,
+            doc_vu_number=doc_vu_number,
+            doc_vu_date=doc_vu_date,
+            doc_inn_fl=doc_inn_fl,
+        )
         composed = self.compose_carrier_line(cf)
         carrier_val = composed or str(carrier or "").strip()
+        docs_val = self.compose_driver_documents_line(df) or str(documents or "").strip() or None
         with self._connect() as conn:
             if not carrier_val:
                 existing = conn.execute(
@@ -8067,18 +8182,26 @@ class ReviewRepository:
                 ).fetchone()
                 if existing:
                     carrier_val = str(self._row_to_dict(existing).get("carrier") or "").strip()
+            if not docs_val:
+                existing_docs = conn.execute(
+                    self._sql("SELECT documents FROM supply_drivers WHERE user_id = ? AND id = ?"),
+                    (user_id, driver_id),
+                ).fetchone()
+                if existing_docs:
+                    docs_val = str(self._row_to_dict(existing_docs).get("documents") or "").strip() or None
             result = conn.execute(
                 self._sql(
                     "UPDATE supply_drivers SET full_name = ?, documents = ?, in_person = ?, vehicles_json = ?, "
                     "carrier = ?, carrier_name = ?, carrier_inn = ?, carrier_kpp = ?, "
                     "carrier_addr_index = ?, carrier_addr_region_code = ?, carrier_addr_district = ?, "
                     "carrier_addr_city = ?, carrier_addr_settlement = ?, carrier_addr_street = ?, "
-                    "carrier_addr_house = ?, carrier_addr_corpus = ?, carrier_addr_flat = ? "
+                    "carrier_addr_house = ?, carrier_addr_corpus = ?, carrier_addr_flat = ?, "
+                    "doc_vu_series = ?, doc_vu_number = ?, doc_vu_date = ?, doc_inn_fl = ? "
                     "WHERE user_id = ? AND id = ?"
                 ),
                 (
                     full_name.strip(),
-                    (documents or "").strip() or None,
+                    docs_val,
                     (in_person or "").strip() or None,
                     vj,
                     carrier_val,
@@ -8094,6 +8217,10 @@ class ReviewRepository:
                     cf["carrier_addr_house"],
                     cf["carrier_addr_corpus"],
                     cf["carrier_addr_flat"],
+                    df["doc_vu_series"],
+                    df["doc_vu_number"],
+                    df["doc_vu_date"],
+                    df["doc_inn_fl"],
                     user_id,
                     driver_id,
                 ),

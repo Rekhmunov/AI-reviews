@@ -424,6 +424,30 @@ def _parse_driver_license(documents: str) -> dict[str, str]:
     return out
 
 
+def _driver_vu_from_fields(
+    fields: dict[str, Any] | None,
+    documents: str = "",
+) -> dict[str, str]:
+    """Prefer structured driver doc columns for СвВодит; fallback to free-text parse."""
+    f = fields or {}
+    series = re.sub(r"\s+", "", str(f.get("doc_vu_series") or "").strip())[:20]
+    number = re.sub(r"\s+", "", str(f.get("doc_vu_number") or "").strip())[:20]
+    date_val = str(f.get("doc_vu_date") or "").strip()
+    if date_val and not re.match(r"^\d{2}\.\d{2}\.\d{4}$", date_val):
+        m = re.search(r"(\d{2})\.(\d{2})\.(\d{4})", date_val)
+        date_val = f"{m.group(1)}.{m.group(2)}.{m.group(3)}" if m else ""
+    inn = re.sub(r"\D", "", str(f.get("doc_inn_fl") or ""))[:12]
+    out = {"СерВУ": series, "НомВУ": number, "ДатаВыдВУ": date_val, "ИННФЛ": inn}
+    if out["СерВУ"] or out["НомВУ"] or out["ДатаВыдВУ"] or out["ИННФЛ"]:
+        # Fill any gaps from legacy free-text documents.
+        parsed = _parse_driver_license(documents or str(f.get("documents") or ""))
+        for key in out:
+            if not out[key] and parsed.get(key):
+                out[key] = parsed[key]
+        return out
+    return _parse_driver_license(documents or str(f.get("documents") or ""))
+
+
 def _cargo_stats(cargoes_json: object) -> dict[str, Any]:
     groups: list[dict[str, Any]] = []
     if isinstance(cargoes_json, list):
@@ -631,6 +655,7 @@ def build_ozon_etrn_xml(
     driver_name: str = "",
     driver_phone: str = "",
     driver_documents: str = "",
+    driver_fields: dict[str, Any] | None = None,
     vehicle_line: str = "",
     vehicle_json: object = None,
     cargoes_json: object = None,
@@ -705,7 +730,7 @@ def build_ozon_etrn_xml(
         carrier_name, carrier_inn, carrier_kpp = _parse_carrier(carrier_text)
     if not carrier_name:
         carrier_name = "Перевозчик (уточнить)"
-    vu = _parse_driver_license(driver_documents)
+    vu = _driver_vu_from_fields(driver_fields, driver_documents)
 
     signer_src = str(le.get("signatories") or le.get("in_person") or "").strip()
     s_fam, s_imya, s_otch = _split_fio(signer_src)
@@ -875,21 +900,22 @@ def build_ozon_etrn_xml(
     _add_contact(sv_per, contact_phone)
 
     # --- СвВодит ---
+    # Schema: VU trio (СерВУ+НомВУ+ДатаВыдВУ) OR ИННФЛ required; both allowed.
     vod_attrs: dict[str, str] = {}
+    if vu.get("СерВУ"):
+        vod_attrs["СерВУ"] = vu["СерВУ"]
+    if vu.get("НомВУ"):
+        vod_attrs["НомВУ"] = vu["НомВУ"]
+    if vu.get("ДатаВыдВУ"):
+        vod_attrs["ДатаВыдВУ"] = vu["ДатаВыдВУ"]
     if vu.get("ИННФЛ"):
         vod_attrs["ИННФЛ"] = vu["ИННФЛ"]
-    else:
-        if vu.get("НомВУ"):
-            vod_attrs["НомВУ"] = vu["НомВУ"]
-        if vu.get("СерВУ"):
-            vod_attrs["СерВУ"] = vu["СерВУ"]
-        if vu.get("ДатаВыдВУ"):
-            vod_attrs["ДатаВыдВУ"] = vu["ДатаВыдВУ"]
-        # Schema: VU trio OR ИННФЛ required — draft placeholders when unknown.
-        if not (vod_attrs.get("НомВУ") and vod_attrs.get("СерВУ") and vod_attrs.get("ДатаВыдВУ")):
-            vod_attrs.setdefault("СерВУ", "0000")
-            vod_attrs.setdefault("НомВУ", "000000")
-            vod_attrs.setdefault("ДатаВыдВУ", "01.01.2000")
+    has_vu = bool(vod_attrs.get("НомВУ") and vod_attrs.get("СерВУ") and vod_attrs.get("ДатаВыдВУ"))
+    has_inn = bool(vod_attrs.get("ИННФЛ"))
+    if not has_vu and not has_inn:
+        vod_attrs.setdefault("СерВУ", "0000")
+        vod_attrs.setdefault("НомВУ", "000000")
+        vod_attrs.setdefault("ДатаВыдВУ", "01.01.2000")
     sv_vod = _el(sod, "СвВодит", **vod_attrs)
     _el(sv_vod, "Тлф", contact_phone or "не указан")
     fio_attrs = {"Фамилия": fam, "Имя": imya or "не указано"}
@@ -983,7 +1009,11 @@ def collect_ozon_etrn_context(
     else:
         carrier_text = str((driver_row or {}).get("carrier") or "")
     carrier_fields = dict(driver_row or {}) if driver_row else {}
-    driver_documents = str((driver_row or {}).get("documents") or "")
+    if hasattr(repository, "driver_documents_line"):
+        driver_documents = str(repository.driver_documents_line(driver_row) or "").strip()
+    else:
+        driver_documents = str((driver_row or {}).get("documents") or "")
+    driver_fields = dict(driver_row or {}) if driver_row else {}
 
     production_name = str(item.get("production") or "").strip()
     load_address = ""
@@ -1037,5 +1067,6 @@ def collect_ozon_etrn_context(
         "driver_name": driver_name,
         "driver_phone": driver_phone,
         "driver_documents": driver_documents,
+        "driver_fields": driver_fields,
         "vehicle_line": vehicle_line,
     }
