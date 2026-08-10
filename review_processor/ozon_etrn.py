@@ -611,7 +611,14 @@ def _find_legal_entity(entities: list[dict[str, Any]], supplier_name: str) -> di
         for e in entities:
             short = str(e.get("short_name") or "").strip().lower()
             full = str(e.get("full_name") or "").strip().lower()
-            if supplier and (supplier == short or supplier == full or supplier in short or supplier in full):
+            if not short and not full:
+                continue
+            if (
+                supplier == short
+                or supplier == full
+                or (short and (supplier in short or short in supplier))
+                or (full and (supplier in full or full in supplier))
+            ):
                 return e
     for e in entities:
         if "ООО" in str(e.get("short_name") or ""):

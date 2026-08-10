@@ -185,3 +185,40 @@ def test_zakaz_carrier_phone_prefers_catalog_over_legal_entity():
     )
     assert root.find("Документ/СодИнфГО/СвПрв/Конт/Тлф").text == "+79007776655"
     assert root.find("Документ/СодИнфГО/СвГО/Конт/Тлф").text == "+79991112233"
+
+
+def test_zakaz_go_phone_from_legal_entity_field():
+    """СвГО/Конт/Тлф ← phone юр.лица, даже если есть телефон водителя."""
+    root = ET.fromstring(
+        _build(
+            le={
+                "full_name": 'ООО "Тест Поставщик"',
+                "short_name": "Тест",
+                "requisites": "ИНН 7701234567 КПП 770101001",
+                "signatories": "Иванов Иван Иванович",
+                "phone": "+7 (495) 111-22-33",
+                "address": "101000, г. Москва, ул. Ленина, д. 1",
+            },
+            driver_phone="+79001234567",
+            driver_fields={"phone": "+79005554433"},
+        )
+    )
+    assert root.find("Документ/СодИнфГО/СвГО/Конт/Тлф").text == "+74951112233"
+
+
+def test_zakaz_go_phone_from_legal_entity_requisites():
+    """Если поле phone пустое — берём номер из реквизитов юр.лица (как в эТрН)."""
+    root = ET.fromstring(
+        _build(
+            le={
+                "full_name": 'ООО "Тест Поставщик"',
+                "short_name": "Тест",
+                "requisites": "ИНН 7701234567 КПП 770101001 тел. +7 495 222-33-44",
+                "signatories": "Иванов Иван Иванович",
+                "phone": "",
+                "address": "101000, г. Москва, ул. Ленина, д. 1",
+            },
+            driver_phone="+79001234567",
+        )
+    )
+    assert root.find("Документ/СодИнфГО/СвГО/Конт/Тлф").text == "+74952223344"

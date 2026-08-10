@@ -93,11 +93,33 @@ def _fmt_mass(value: object, *, default: str = "1.000") -> str:
 
 def _normalize_phone(phone: str) -> str:
     phone = re.sub(r"[^\d+]", "", str(phone or "").strip())
-    if phone.startswith("8") and len(phone) == 11:
-        phone = "+7" + phone[1:]
+    # Keep only the first number if several were glued by stripping separators.
+    if phone.count("+") > 1:
+        phone = "+" + phone.split("+", 2)[1]
+    if phone.startswith("8") and len(re.sub(r"\D", "", phone)) == 11:
+        phone = "+7" + re.sub(r"\D", "", phone)[1:]
     elif phone.startswith("7") and len(phone) == 11:
         phone = "+" + phone
+    elif phone.startswith("+7") and len(re.sub(r"\D", "", phone)) == 11:
+        phone = "+7" + re.sub(r"\D", "", phone)[1:]
     return phone
+
+
+def _phone_from_requisites(requisites: str) -> str:
+    """Same fallback as эТрН: pull +7/8 phone from юр.лица requisites text."""
+    phone_m = re.search(r"(?:\+7|8)\s*[\d\-()\s]{9,}", str(requisites or ""))
+    if not phone_m:
+        return ""
+    return _normalize_phone(phone_m.group(0))
+
+
+def _shipper_phone_from_le(le: dict[str, Any] | None) -> str:
+    """СвГО/Конт/Тлф ← телефон юр.лица (поле phone, иначе из реквизитов)."""
+    le = le or {}
+    phone = _normalize_phone(str(le.get("phone") or ""))
+    if phone:
+        return phone
+    return _phone_from_requisites(str(le.get("requisites") or ""))
 
 
 def _add_kont(parent: ET.Element, phone: str) -> None:
@@ -261,8 +283,11 @@ def build_ozon_zakaz_xml(
     else:
         carrier_name, carrier_inn, carrier_kpp = _parse_carrier(carrier_text)
 
-    contact_phone = _normalize_phone(str(le.get("phone") or ""))
+    # Грузоотправитель: только телефон юр.лица (поле / реквизиты).
+    # Водительский номер сюда не подставляем — иначе в Contour у ГО «чужой» телефон.
+    contact_phone = _shipper_phone_from_le(le)
     if not contact_phone:
+        # Last-resort XSD fill only; Contour still needs non-empty Тлф.
         contact_phone = _normalize_phone(str(driver_phone or ""))
         if not contact_phone and isinstance(driver_fields, dict):
             contact_phone = _normalize_phone(str(driver_fields.get("phone") or ""))
