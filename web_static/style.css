@@ -3613,17 +3613,39 @@ button.secondary.danger:hover {
 
 .sst-resize-handle {
   position: absolute;
-  right: 0;
+  right: -5px;
   top: 0;
-  width: 6px;
+  width: 12px;
   height: 100%;
   cursor: col-resize;
-  z-index: 1;
+  z-index: 5;
   background: transparent;
+  touch-action: none;
 }
-.sst-resize-handle:hover,
-.sst-resize-handle.sst-dragging {
-  background: rgba(37, 99, 235, 0.35);
+.sst-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 20%;
+  bottom: 20%;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  border-radius: 1px;
+  background: transparent;
+  transition: background 0.12s ease, top 0.12s ease, bottom 0.12s ease;
+}
+.sst-resize-handle:hover::after,
+.sst-resize-handle.sst-dragging::after {
+  top: 8%;
+  bottom: 8%;
+  background: #2563eb;
+}
+body.sst-col-resizing {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+body.sst-col-resizing * {
+  cursor: col-resize !important;
 }
 
 /* ── Driver vehicle tag ───────────────────────────────────────────────────── */
@@ -5694,17 +5716,22 @@ button.secondary.danger:hover {
   border-collapse: separate;
   border-spacing: 0;
 }
-#section-supplies-settings .supply-sources-table th[data-col]:not(.sst-actions-col),
-#section-supplies-settings .supply-sources-table td:not(:last-child) {
-  max-width: 360px;
+#section-supplies-settings [id^="supplies-settings-pane-"]:not(#supplies-settings-pane-sources)
+  .supply-sources-table th,
+#section-supplies-settings [id^="supplies-settings-pane-"]:not(#supplies-settings-pane-sources)
+  .supply-sources-table td {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  overflow: visible;
+  text-overflow: clip;
+  vertical-align: top;
+  hyphens: auto;
 }
-#section-supplies-settings .supply-sources-table th,
-#section-supplies-settings .supply-sources-table td {
-  white-space: nowrap;
-  word-break: normal;
-  overflow: hidden;
-  text-overflow: ellipsis;
+#section-supplies-settings [id^="supplies-settings-pane-"]:not(#supplies-settings-pane-sources)
+  .supply-sources-table thead th {
   vertical-align: middle;
+  padding-right: 14px; /* room for resize handle */
 }
 /* Sub-rows for structured address / carrier / signature editors */
 #section-supplies-settings .supply-sources-table tr.le-addr-edit-row td,
@@ -5715,6 +5742,7 @@ button.secondary.danger:hover {
   overflow: visible;
   text-overflow: clip;
   max-width: none;
+  vertical-align: top;
 }
 /* Sticky actions — all tabs except Sources (wide Включить/Удалить). */
 #section-supplies-settings [id^="supplies-settings-pane-"]:not(#supplies-settings-pane-sources)
@@ -5732,8 +5760,12 @@ button.secondary.danger:hover {
   white-space: nowrap !important;
   overflow: visible;
   text-overflow: clip;
+  overflow-wrap: normal;
+  word-break: normal;
+  vertical-align: middle;
   background: #ffffff;
   box-shadow: -6px 0 10px -6px rgba(15, 23, 42, 0.14);
+  padding-right: 10px;
 }
 #section-supplies-settings [id^="supplies-settings-pane-"]:not(#supplies-settings-pane-sources)
   .supply-sources-table thead th.sst-actions-col {
