@@ -611,6 +611,8 @@ body.landing-page {
 .main {
   padding: 22px;
   min-height: 100vh;
+  /* Allow nested overflow-x scrollports inside CSS grid (1fr min-size is auto). */
+  min-width: 0;
 }
 
 .main > section {
@@ -5660,66 +5662,102 @@ button.secondary.danger:hover {
 }
 .supplies-date-panel-row input[type="date"] { width: 130px; }
 
-/* Settings tables (drivers/warehouses) — match Sources tab behaviour */
-#supplies-settings-pane-drivers .table-wrap,
-#supplies-settings-pane-warehouses .table-wrap {
-  overflow: hidden;
+/* ── Supplies → Settings: unified table layout (all tabs) ───────────────
+   Wide tables scroll horizontally inside .table-wrap; action column stays
+   sticky on the right so Сохранить / Отмена never leave the viewport. */
+#section-supplies-settings,
+#section-supplies-settings [id^="supplies-settings-pane-"] {
+  min-width: 0;
+  max-width: 100%;
+}
+#section-supplies-settings .panel {
+  min-width: 0;
+  max-width: 100%;
+  /* Keep decorative clipping, but do not swallow the table scrollport. */
+  overflow: visible;
+}
+#section-supplies-settings .table-wrap {
   width: 100%;
-}
-#supplies-settings-pane-drivers .supply-sources-table,
-#supplies-settings-pane-warehouses .supply-sources-table {
-  min-width: 0 !important;
-  width: 100% !important;
-  table-layout: fixed !important;
-}
-/* Text cells wrap so long content stays inside the column */
-#supplies-settings-pane-drivers .supply-sources-table td,
-#supplies-settings-pane-warehouses .supply-sources-table td {
-  white-space: normal !important;
-  word-break: break-word;
-  overflow: hidden;
-  text-overflow: clip;
-}
-/* Action column — no wrap, centered */
-#supplies-settings-pane-drivers .supply-sources-table td:last-child,
-#supplies-settings-pane-warehouses .supply-sources-table td:last-child {
-  text-align: center;
-  white-space: nowrap !important;
-  word-break: normal;
-}
-
-/* Legal entities — horizontal scroll for wide table */
-#supplies-settings-pane-legal .table-wrap {
+  max-width: 100%;
+  min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
-  width: 100%;
   -webkit-overflow-scrolling: touch;
+  border-radius: 8px;
 }
-#supplies-settings-pane-legal .supply-sources-table {
-  min-width: 1400px !important;
-  width: max-content !important;
-  table-layout: auto !important;
+#section-supplies-settings .supply-sources-table {
+  /* JS sets an explicit px width from column sum so .table-wrap can scroll. */
+  width: max-content;
+  min-width: 100%;
+  max-width: none;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
 }
-#supplies-settings-pane-legal .supply-sources-table th,
-#supplies-settings-pane-legal .supply-sources-table td {
-  white-space: nowrap !important;
+#section-supplies-settings .supply-sources-table th[data-col]:not(.sst-actions-col),
+#section-supplies-settings .supply-sources-table td:not(:last-child) {
+  max-width: 360px;
+}
+#section-supplies-settings .supply-sources-table th,
+#section-supplies-settings .supply-sources-table td {
+  white-space: nowrap;
   word-break: normal;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 280px;
+  vertical-align: middle;
 }
-#supplies-settings-pane-legal .supply-sources-table td:last-child {
-  text-align: center;
-  max-width: none;
-  overflow: visible;
-  text-overflow: clip;
-}
-#supplies-settings-pane-legal .supply-sources-table tr.le-addr-edit-row td,
-#supplies-settings-pane-legal .supply-sources-table tr[id^="le-sig-row-"] td {
+/* Sub-rows for structured address / carrier / signature editors */
+#section-supplies-settings .supply-sources-table tr.le-addr-edit-row td,
+#section-supplies-settings .supply-sources-table tr[id^="le-sig-row-"] td,
+#section-supplies-settings .supply-sources-table tr.prod-addr-edit-row td,
+#section-supplies-settings .supply-sources-table tr.driver-carrier-edit-row td {
   white-space: normal !important;
-  max-width: none;
   overflow: visible;
   text-overflow: clip;
+  max-width: none;
+}
+/* Sticky actions — all tabs except Sources (wide Включить/Удалить). */
+#section-supplies-settings [id^="supplies-settings-pane-"]:not(#supplies-settings-pane-sources)
+  .supply-sources-table th.sst-actions-col,
+#section-supplies-settings [id^="supplies-settings-pane-"]:not(#supplies-settings-pane-sources)
+  .supply-sources-table td:last-child {
+  position: sticky;
+  right: 0;
+  z-index: 3;
+  width: 180px;
+  min-width: 180px;
+  max-width: 180px;
+  box-sizing: border-box;
+  text-align: center;
+  white-space: nowrap !important;
+  overflow: visible;
+  text-overflow: clip;
+  background: #ffffff;
+  box-shadow: -6px 0 10px -6px rgba(15, 23, 42, 0.14);
+}
+#section-supplies-settings [id^="supplies-settings-pane-"]:not(#supplies-settings-pane-sources)
+  .supply-sources-table thead th.sst-actions-col {
+  z-index: 4;
+  background: #f8fafc;
+}
+#section-supplies-settings .supply-sources-table .sst-edit-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+#section-supplies-settings .supply-sources-table .sst-edit-actions .small-btn {
+  flex: 0 0 auto;
+}
+#supplies-settings-pane-sources .supply-sources-table {
+  width: 100%;
+  min-width: 720px;
+  table-layout: fixed;
+}
+#supplies-settings-pane-sources .supply-sources-table td:last-child {
+  overflow: visible;
+  white-space: nowrap;
 }
 
 /* ── Date range calendar ──────────────────────────────────────── */
