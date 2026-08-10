@@ -242,8 +242,17 @@ def _empty_ru_address(raw: str = "") -> dict[str, str]:
         "Дом": "",
         "Корпус": "",
         "Кварт": "",
+        "ФИАС": "",
         "raw": str(raw or "").strip(),
     }
+
+
+def _normalize_fias_id(value: object) -> str:
+    """Return lowercase FIAS GUID or empty string."""
+    raw = re.sub(r"[{}\s]", "", str(value or "").strip()).lower()
+    if re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", raw):
+        return raw
+    return ""
 
 
 def _addr_from_structured_fields(
@@ -265,6 +274,8 @@ def _addr_from_structured_fields(
         out["КодРегион"] = re.sub(r"\D", "", out["КодРегион"])[:2].zfill(2)
         if out["КодРегион"] == "00":
             out["КодРегион"] = ""
+    if out.get("ФИАС"):
+        out["ФИАС"] = _normalize_fias_id(out["ФИАС"])
     return out
 
 
@@ -278,6 +289,7 @@ _PRODUCTION_ADDR_MAP = (
     ("addr_house", "Дом"),
     ("addr_corpus", "Корпус"),
     ("addr_flat", "Кварт"),
+    ("addr_fias", "ФИАС"),
 )
 
 _CARRIER_ADDR_MAP = (
@@ -290,6 +302,7 @@ _CARRIER_ADDR_MAP = (
     ("carrier_addr_house", "Дом"),
     ("carrier_addr_corpus", "Корпус"),
     ("carrier_addr_flat", "Кварт"),
+    ("carrier_addr_fias", "ФИАС"),
 )
 
 

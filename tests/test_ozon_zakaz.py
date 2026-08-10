@@ -354,3 +354,65 @@ def test_zakaz_go_phone_from_legal_entities_catalog():
         )
     )
     assert root.find("Документ/СодИнфГО/СвГО/Конт/Тлф").text == "+7 (495) 111-00-00"
+
+
+def test_zakaz_go_addr_fias_when_set():
+    """При заполненном addr_fias юр.лица — СвГО/Адрес/АдрФИАС, не АдрРФ."""
+    fias = "ff159a6c-6a6f-442b-9c34-10969dda9bb1"
+    root = ET.fromstring(
+        _build(
+            le={
+                "full_name": 'ООО "Тест Поставщик"',
+                "short_name": "Тест",
+                "requisites": "ИНН 7701234567 КПП 770101001",
+                "signatories": "Иванов Иван Иванович",
+                "phone": "+79991112233",
+                "addr_index": "390528",
+                "addr_region_code": "62",
+                "addr_district": "муниципальный округ Рязанский",
+                "addr_settlement": "Алеканово",
+                "addr_street": "Полевая",
+                "addr_house": "62г",
+                "addr_fias": fias,
+            },
+        )
+    )
+    go_fias = root.find("Документ/СодИнфГО/СвГО/Адрес/АдрФИАС")
+    assert go_fias is not None
+    assert go_fias.attrib.get("ИдНом") == fias
+    assert go_fias.findtext("Регион") == "62"
+    assert root.find("Документ/СодИнфГО/СвГО/Адрес/АдрРФ") is None
+
+
+def test_zakaz_carrier_addr_fias_when_set():
+    """При carrier_addr_fias — СвПрв/Адрес/АдрФИАС."""
+    fias = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    root = ET.fromstring(
+        _build(
+            carrier_fields={
+                "carrier_name": 'ООО "Перевозчик"',
+                "carrier_inn": "5001002003",
+                "carrier_kpp": "500101001",
+                "carrier_phone": "+79007776655",
+                "carrier_addr_index": "155312",
+                "carrier_addr_region_code": "37",
+                "carrier_addr_district": "Вичугский",
+                "carrier_addr_settlement": "Чертовищи",
+                "carrier_addr_street": "9 мая",
+                "carrier_addr_house": "21",
+                "carrier_addr_fias": fias,
+            },
+        )
+    )
+    prv_fias = root.find("Документ/СодИнфГО/СвПрв/Адрес/АдрФИАС")
+    assert prv_fias is not None
+    assert prv_fias.attrib.get("ИдНом") == fias
+    assert prv_fias.findtext("Регион") == "37"
+    assert root.find("Документ/СодИнфГО/СвПрв/Адрес/АдрРФ") is None
+
+
+def test_zakaz_addr_without_fias_stays_adr_rf():
+    """Без ФИАС — как раньше АдрРФ."""
+    root = ET.fromstring(_build())
+    assert root.find("Документ/СодИнфГО/СвГО/Адрес/АдрРФ") is not None
+    assert root.find("Документ/СодИнфГО/СвГО/Адрес/АдрФИАС") is None

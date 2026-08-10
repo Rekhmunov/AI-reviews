@@ -26,6 +26,7 @@ from .ozon_etrn import (
     _extract_address_from_requisites,
     _format_dt_vz,
     _has_structured_address,
+    _normalize_fias_id,
     _ozon_supply_number,
     _parse_carrier,
     _parse_inn_kpp,
@@ -235,14 +236,70 @@ def _ensure_adr(addr: dict[str, str] | None, *, fallback_label: str = "Адре�
     return out
 
 
+def _emit_adr_fias(adr_parent: ET.Element, addr: dict[str, str]) -> bool:
+    """Emit АдрФИАС when FIAS GUID is set; Contour matches directory by ИдНом."""
+    fias = _normalize_fias_id(addr.get("ФИАС") or "")
+    if not fias:
+        return False
+    ensured = _ensure_adr(addr)
+    region = str(ensured.get("КодРегион") or "").strip()
+    if not region:
+        return False
+    attrs: dict[str, str] = {"ИдНом": fias}
+    if ensured.get("Индекс"):
+        attrs["Индекс"] = ensured["Индекс"]
+    fias_el = _el(adr_parent, "АдрФИАС", **attrs)
+    _el(fias_el, "Регион", region)
+    # МуниципРайон обязателен при Регион != 99.
+    if region != "99":
+        district = str(ensured.get("Район") or "").strip()
+        if district:
+            vid = "4" if re.search(r"округ", district, flags=re.I) else "1"
+            name = re.sub(
+                r"^(муниципальный\s+округ|городской\s+округ|м\.?\s*о\.?|район|р-н)\s+",
+                "",
+                district,
+                flags=re.I,
+            ).strip() or district
+        else:
+            vid = "2"
+            name = str(ensured.get("Город") or ensured.get("НаселПункт") or "не указан").strip()
+        _el(fias_el, "МуниципРайон", ВидКод=vid, Наим=name[:255])
+    settlement = str(ensured.get("НаселПункт") or "").strip()
+    city = str(ensured.get("Город") or "").strip()
+    if settlement:
+        _el(fias_el, "НаселенПункт", Вид="населенный пункт", Наим=settlement[:255])
+    elif city:
+        _el(fias_el, "НаселенПункт", Вид="город", Наим=city[:255])
+    street = str(ensured.get("Улица") or "").strip()
+    if street:
+        st_name = re.sub(r"^(ул\.?|улица)\s+", "", street, flags=re.I).strip() or street
+        _el(fias_el, "ЭлУлДорСети", Тип="ул", Наим=st_name[:255])
+    house = str(ensured.get("Дом") or "").strip()
+    if house:
+        _el(fias_el, "Здание", Тип="д", Номер=house[:255])
+    return True
+
+
 def _addr_block(parent: ET.Element, addr: dict[str, str] | None) -> None:
-    """Emit participant Адрес/АдрРФ only when we have something real-ish."""
+    """Emit participant Адрес: АдрФИАС when GUID set, else АдрРФ."""
     if not addr:
         return
-    if not (addr.get("raw") or addr.get("Индекс") or addr.get("Улица") or addr.get("Город")):
+    if not (
+        addr.get("raw")
+        or addr.get("Индекс")
+        or addr.get("Улица")
+        or addr.get("Город")
+        or _normalize_fias_id(addr.get("ФИАС") or "")
+    ):
         return
     ensured = _ensure_adr(addr)
+    # Preserve FIAS through _ensure_adr (it copies via dict(addr)).
+    if addr.get("ФИАС") and not ensured.get("ФИАС"):
+        ensured["ФИАС"] = addr["ФИАС"]
     adr = _el(parent, "Адрес")
+    if _emit_adr_fias(adr, ensured):
+        return
     attrs = {
         k: ensured[k]
         for k in ("Индекс", "КодРегион", "Район", "Город", "НаселПункт", "Улица", "Дом", "Корпус", "Кварт")

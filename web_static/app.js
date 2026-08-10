@@ -2748,6 +2748,7 @@ const _CARRIER_FIELDS = [
   ["carrier_addr_house", "Дом"],
   ["carrier_addr_corpus", "Корпус"],
   ["carrier_addr_flat", "Кв./офис"],
+  ["carrier_addr_fias", "ФИАС"],
 ];
 
 const _DRIVER_DOC_FIELDS = [
@@ -2858,6 +2859,7 @@ function _readNewDriverCarrierFields() {
     carrier_addr_house: document.getElementById("newDriverCarrierAddrHouse")?.value.trim() || "",
     carrier_addr_corpus: document.getElementById("newDriverCarrierAddrCorpus")?.value.trim() || "",
     carrier_addr_flat: document.getElementById("newDriverCarrierAddrFlat")?.value.trim() || "",
+    carrier_addr_fias: document.getElementById("newDriverCarrierAddrFias")?.value.trim() || "",
   };
 }
 
@@ -2901,6 +2903,7 @@ function _clearNewDriverCarrierFields() {
     "newDriverCarrierAddrIndex", "newDriverCarrierAddrRegion", "newDriverCarrierAddrDistrict",
     "newDriverCarrierAddrCity", "newDriverCarrierAddrSettlement", "newDriverCarrierAddrStreet",
     "newDriverCarrierAddrHouse", "newDriverCarrierAddrCorpus", "newDriverCarrierAddrFlat",
+    "newDriverCarrierAddrFias",
   ].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ""; });
 }
 
@@ -3627,6 +3630,7 @@ const _LE_ADDR_FIELDS = [
   ["addr_house", "Дом"],
   ["addr_corpus", "Корпус"],
   ["addr_flat", "Кв./офис"],
+  ["addr_fias", "ФИАС"],
 ];
 
 /** Full one-line legal address for documents / table. */
@@ -3647,6 +3651,7 @@ function _readNewLegalAddrFields() {
     addr_house: document.getElementById("newLegalAddrHouse")?.value.trim() || "",
     addr_corpus: document.getElementById("newLegalAddrCorpus")?.value.trim() || "",
     addr_flat: document.getElementById("newLegalAddrFlat")?.value.trim() || "",
+    addr_fias: document.getElementById("newLegalAddrFias")?.value.trim() || "",
   };
 }
 
@@ -3656,6 +3661,7 @@ function _clearNewLegalFormFields() {
     "newLegalInPerson", "newLegalBasis", "newLegalPhone",
     "newLegalAddrIndex", "newLegalAddrRegion", "newLegalAddrDistrict", "newLegalAddrCity",
     "newLegalAddrSettlement", "newLegalAddrStreet", "newLegalAddrHouse", "newLegalAddrCorpus", "newLegalAddrFlat",
+    "newLegalAddrFias",
   ].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ""; });
 }
 

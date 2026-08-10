@@ -7549,6 +7549,7 @@ class ReviewRepository:
             "carrier_addr_house",
             "carrier_addr_corpus",
             "carrier_addr_flat",
+            "carrier_addr_fias",
         ):
             conn.execute(
                 f"ALTER TABLE supply_drivers ADD COLUMN IF NOT EXISTS {_drv_carrier_col} TEXT NOT NULL DEFAULT ''"
@@ -7740,6 +7741,7 @@ class ReviewRepository:
             "addr_house",
             "addr_corpus",
             "addr_flat",
+            "addr_fias",
         ):
             conn.execute(
                 f"ALTER TABLE supply_legal_entities ADD COLUMN IF NOT EXISTS {_le_addr_col} TEXT NOT NULL DEFAULT ''"
@@ -7919,6 +7921,7 @@ class ReviewRepository:
         carrier_addr_house: str = "",
         carrier_addr_corpus: str = "",
         carrier_addr_flat: str = "",
+        carrier_addr_fias: str = "",
     ) -> dict[str, str]:
         inn = re.sub(r"\D", "", str(carrier_inn or ""))[:12]
         kpp = re.sub(r"\D", "", str(carrier_kpp or ""))[:9]
@@ -7927,6 +7930,9 @@ class ReviewRepository:
         phone = re.sub(r"\s+", " ", str(carrier_phone or "").strip())[:32]
         # Diadoc/FNS participant id, e.g. 2BM-7704217370-774301001-201407110916237240124
         fns_id = re.sub(r"\s+", "", str(carrier_fns_id or "").strip())[:80]
+        fias = re.sub(r"[{}\s]", "", str(carrier_addr_fias or "").strip()).lower()
+        if not re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", fias):
+            fias = ""
         return {
             "carrier_name": str(carrier_name or "").strip(),
             "carrier_inn": inn,
@@ -7942,6 +7948,7 @@ class ReviewRepository:
             "carrier_addr_house": str(carrier_addr_house or "").strip(),
             "carrier_addr_corpus": str(carrier_addr_corpus or "").strip(),
             "carrier_addr_flat": str(carrier_addr_flat or "").strip(),
+            "carrier_addr_fias": fias,
         }
 
     @classmethod
@@ -8260,6 +8267,7 @@ class ReviewRepository:
         carrier_addr_house: str = "",
         carrier_addr_corpus: str = "",
         carrier_addr_flat: str = "",
+        carrier_addr_fias: str = "",
         doc_vu_series: str = "",
         doc_vu_number: str = "",
         doc_vu_issuer: str = "",
@@ -8291,6 +8299,7 @@ class ReviewRepository:
             carrier_addr_house=carrier_addr_house,
             carrier_addr_corpus=carrier_addr_corpus,
             carrier_addr_flat=carrier_addr_flat,
+            carrier_addr_fias=carrier_addr_fias,
         )
         df = self._normalize_driver_doc_fields(
             doc_vu_series=doc_vu_series,
@@ -8309,9 +8318,9 @@ class ReviewRepository:
                 "carrier_name, carrier_inn, carrier_kpp, carrier_phone, carrier_fns_id, "
                 "carrier_addr_index, carrier_addr_region_code, carrier_addr_district, "
                 "carrier_addr_city, carrier_addr_settlement, carrier_addr_street, "
-                "carrier_addr_house, carrier_addr_corpus, carrier_addr_flat, "
+                "carrier_addr_house, carrier_addr_corpus, carrier_addr_flat, carrier_addr_fias, "
                 "doc_vu_series, doc_vu_number, doc_vu_issuer, doc_vu_date, doc_inn_fl, created_at"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     user_id,
                     fio["full_name"],
@@ -8337,6 +8346,7 @@ class ReviewRepository:
                     cf["carrier_addr_house"],
                     cf["carrier_addr_corpus"],
                     cf["carrier_addr_flat"],
+                    cf["carrier_addr_fias"],
                     df["doc_vu_series"],
                     df["doc_vu_number"],
                     df["doc_vu_issuer"],
@@ -8394,6 +8404,7 @@ class ReviewRepository:
         carrier_addr_house: str = "",
         carrier_addr_corpus: str = "",
         carrier_addr_flat: str = "",
+        carrier_addr_fias: str = "",
         doc_vu_series: str = "",
         doc_vu_number: str = "",
         doc_vu_issuer: str = "",
@@ -8424,6 +8435,7 @@ class ReviewRepository:
             carrier_addr_house=carrier_addr_house,
             carrier_addr_corpus=carrier_addr_corpus,
             carrier_addr_flat=carrier_addr_flat,
+            carrier_addr_fias=carrier_addr_fias,
         )
         df = self._normalize_driver_doc_fields(
             doc_vu_series=doc_vu_series,
@@ -8459,6 +8471,7 @@ class ReviewRepository:
                     "carrier_addr_index = ?, carrier_addr_region_code = ?, carrier_addr_district = ?, "
                     "carrier_addr_city = ?, carrier_addr_settlement = ?, carrier_addr_street = ?, "
                     "carrier_addr_house = ?, carrier_addr_corpus = ?, carrier_addr_flat = ?, "
+                    "carrier_addr_fias = ?, "
                     "doc_vu_series = ?, doc_vu_number = ?, doc_vu_issuer = ?, doc_vu_date = ?, doc_inn_fl = ? "
                     "WHERE user_id = ? AND id = ?"
                 ),
@@ -8486,6 +8499,7 @@ class ReviewRepository:
                     cf["carrier_addr_house"],
                     cf["carrier_addr_corpus"],
                     cf["carrier_addr_flat"],
+                    cf["carrier_addr_fias"],
                     df["doc_vu_series"],
                     df["doc_vu_number"],
                     df["doc_vu_issuer"],
@@ -8676,7 +8690,7 @@ class ReviewRepository:
                     "SELECT id, user_id, short_name, full_name, requisites, signatories, "
                     "in_person, basis, address, phone, "
                     "addr_index, addr_region_code, addr_district, addr_city, addr_settlement, "
-                    "addr_street, addr_house, addr_corpus, addr_flat, created_at, "
+                    "addr_street, addr_house, addr_corpus, addr_flat, addr_fias, created_at, "
                     "(signature_image IS NOT NULL AND signature_image != '') AS has_signature "
                     "FROM supply_legal_entities WHERE user_id = ? ORDER BY short_name ASC"
                 ),
@@ -8731,6 +8745,7 @@ class ReviewRepository:
         addr_house: str = "",
         addr_corpus: str = "",
         addr_flat: str = "",
+        addr_fias: str = "",
         signature_image: str | None = None,
         clear_signature: bool = False,
     ) -> bool:
@@ -8744,6 +8759,7 @@ class ReviewRepository:
             addr_house=addr_house,
             addr_corpus=addr_corpus,
             addr_flat=addr_flat,
+            addr_fias=addr_fias,
         )
         composed = self.compose_production_address_line(addr)
         address_val = composed or str(address or "").strip() or None
@@ -8769,7 +8785,7 @@ class ReviewRepository:
                     "signatories = ?, in_person = ?, basis = ?, address = ?, phone = ?, "
                     "addr_index = ?, addr_region_code = ?, addr_district = ?, addr_city = ?, "
                     "addr_settlement = ?, addr_street = ?, addr_house = ?, addr_corpus = ?, addr_flat = ?, "
-                    "signature_image = ? "
+                    "addr_fias = ?, signature_image = ? "
                     "WHERE user_id = ? AND id = ?"
                 ),
                 (
@@ -8790,6 +8806,7 @@ class ReviewRepository:
                     addr["addr_house"],
                     addr["addr_corpus"],
                     addr["addr_flat"],
+                    addr["addr_fias"],
                     sig_val,
                     user_id,
                     entity_id,
@@ -8818,6 +8835,7 @@ class ReviewRepository:
         addr_house: str = "",
         addr_corpus: str = "",
         addr_flat: str = "",
+        addr_fias: str = "",
         signature_image: str | None = None,
     ) -> dict[str, Any]:
         now = _utc_now()
@@ -8831,6 +8849,7 @@ class ReviewRepository:
             addr_house=addr_house,
             addr_corpus=addr_corpus,
             addr_flat=addr_flat,
+            addr_fias=addr_fias,
         )
         composed = self.compose_production_address_line(addr)
         address_val = composed or str(address or "").strip() or None
@@ -8840,8 +8859,8 @@ class ReviewRepository:
                 "INSERT INTO supply_legal_entities "
                 "(user_id, short_name, full_name, requisites, signatories, in_person, basis, address, phone, "
                 "addr_index, addr_region_code, addr_district, addr_city, addr_settlement, "
-                "addr_street, addr_house, addr_corpus, addr_flat, signature_image, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "addr_street, addr_house, addr_corpus, addr_flat, addr_fias, signature_image, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     user_id,
                     short_name.strip(),
@@ -8861,6 +8880,7 @@ class ReviewRepository:
                     addr["addr_house"],
                     addr["addr_corpus"],
                     addr["addr_flat"],
+                    addr["addr_fias"],
                     signature_image or None,
                     now,
                 ),
@@ -8895,9 +8915,13 @@ class ReviewRepository:
         addr_house: str = "",
         addr_corpus: str = "",
         addr_flat: str = "",
+        addr_fias: str = "",
     ) -> dict[str, str]:
         region = re.sub(r"\D", "", str(addr_region_code or ""))[:2]
         index = re.sub(r"\D", "", str(addr_index or ""))[:6]
+        fias = re.sub(r"[{}\s]", "", str(addr_fias or "").strip()).lower()
+        if not re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", fias):
+            fias = ""
         return {
             "addr_index": index,
             "addr_region_code": region,
@@ -8908,6 +8932,7 @@ class ReviewRepository:
             "addr_house": str(addr_house or "").strip(),
             "addr_corpus": str(addr_corpus or "").strip(),
             "addr_flat": str(addr_flat or "").strip(),
+            "addr_fias": fias,
         }
 
     @staticmethod
