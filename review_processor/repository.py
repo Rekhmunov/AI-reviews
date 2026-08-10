@@ -7990,6 +7990,82 @@ class ReviewRepository:
             return composed
         return str(driver.get("documents") or "").strip()
 
+    @staticmethod
+    def compose_vehicle_line(fields: dict[str, Any] | None = None, **extra: str) -> str:
+        """One-line «марка номер» for selects / заявка / table tags."""
+        data = {**(fields or {}), **extra}
+        line = str(data.get("line") or "").strip()
+        if line:
+            return line
+        model = str(data.get("model") or data.get("vehicle_model") or "").strip()
+        number = str(data.get("number") or data.get("vehicle_number") or "").strip()
+        return f"{model} {number}".strip()
+
+    @classmethod
+    def _normalize_vehicle(cls, raw: Any) -> dict[str, str] | None:
+        """Normalize catalog vehicle to eTrN СвТС fields + display line."""
+        if raw is None:
+            return None
+        if isinstance(raw, str):
+            line = raw.strip()
+            if not line:
+                return None
+            parts = [t for t in line.split() if t]
+            model, number = line, ""
+            if parts:
+                maybe = parts[-1]
+                if re.search(r"\d", maybe):
+                    number = maybe[:9]
+                    model = " ".join(parts[:-1]).strip()
+                else:
+                    model = line
+            return {
+                "model": model,
+                "number": number,
+                "type": "грузовой автомобиль",
+                "ownership": "1",
+                "capacity_t": "20",
+                "volume_m3": "20",
+                "line": cls.compose_vehicle_line(model=model, number=number) or line,
+            }
+        if not isinstance(raw, dict):
+            return None
+        model = str(raw.get("model") or raw.get("vehicle_model") or "").strip()
+        number = re.sub(r"\s+", "", str(raw.get("number") or raw.get("vehicle_number") or "").strip())[:9]
+        v_type = str(raw.get("type") or "").strip() or "грузовой автомобиль"
+        ownership = str(raw.get("ownership") or "").strip()
+        if ownership not in {"1", "2", "3", "4", "5"}:
+            ownership = "1"
+        capacity = str(raw.get("capacity_t") or "").strip().replace(",", ".")
+        if not re.match(r"^\d{1,5}(?:\.\d{1,2})?$", capacity or ""):
+            capacity = "20"
+        volume = str(raw.get("volume_m3") or "").strip().replace(",", ".")
+        if not re.match(r"^\d{1,4}(?:\.\d{1,2})?$", volume or ""):
+            volume = "20"
+        line = str(raw.get("line") or "").strip() or cls.compose_vehicle_line(model=model, number=number)
+        if not model and not number and not line:
+            return None
+        if not line:
+            line = model or number
+        return {
+            "model": model,
+            "number": number,
+            "type": v_type,
+            "ownership": ownership,
+            "capacity_t": capacity,
+            "volume_m3": volume,
+            "line": line,
+        }
+
+    @classmethod
+    def _normalize_vehicles_list(cls, vehicles: list | None) -> list[dict[str, str]]:
+        out: list[dict[str, str]] = []
+        for raw in vehicles or []:
+            item = cls._normalize_vehicle(raw)
+            if item:
+                out.append(item)
+        return out
+
     def list_supply_drivers(self, *, user_id: int) -> list[dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(
@@ -8044,7 +8120,7 @@ class ReviewRepository:
     ) -> dict[str, Any]:
         import json as _j
         now = _utc_now()
-        vj = _j.dumps([v for v in (vehicles or []) if v and str(v).strip()], ensure_ascii=False)
+        vj = _j.dumps(self._normalize_vehicles_list(vehicles), ensure_ascii=False)
         cf = self._normalize_carrier_fields(
             carrier_name=carrier_name,
             carrier_inn=carrier_inn,
@@ -8150,7 +8226,7 @@ class ReviewRepository:
         doc_inn_fl: str = "",
     ) -> bool:
         import json as _j
-        vj = _j.dumps([v for v in (vehicles or []) if v and str(v).strip()], ensure_ascii=False)
+        vj = _j.dumps(self._normalize_vehicles_list(vehicles), ensure_ascii=False)
         cf = self._normalize_carrier_fields(
             carrier_name=carrier_name,
             carrier_inn=carrier_inn,

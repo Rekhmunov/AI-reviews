@@ -514,7 +514,7 @@ class CreateSupplyDriverRequest(BaseModel):
     full_name: str
     documents: str = ""
     in_person: str = ""
-    vehicles: list[str] = []
+    vehicles: list = Field(default_factory=list)
     carrier: str = ""
     carrier_name: str = ""
     carrier_inn: str = ""
@@ -609,7 +609,7 @@ class UpdateSupplyDriverRequest(BaseModel):
     full_name: str
     documents: str = ""
     in_person: str = ""
-    vehicles: list[str] = []
+    vehicles: list = Field(default_factory=list)
     carrier: str = ""
     carrier_name: str = ""
     carrier_inn: str = ""
@@ -11213,6 +11213,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 driver_fields=ctx.get("driver_fields") or None,
                 vehicle_line=str(ctx.get("vehicle_line") or ""),
                 vehicle_json=item.get("vehicle_json"),
+                vehicle_fields=ctx.get("vehicle_fields") or None,
                 cargoes_json=cargoes_json,
                 load_address=str(ctx.get("load_address") or ""),
                 load_addr_fields=ctx.get("load_addr_fields") or None,

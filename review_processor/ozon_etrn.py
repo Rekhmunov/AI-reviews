@@ -536,7 +536,117 @@ def _find_driver(drivers: list[dict[str, Any]], driver_name: str) -> dict[str, A
 
 
 def _vehicle_parts(vehicle_json: object, fallback_line: str = "") -> tuple[str, str]:
+    params = _vehicle_params(vehicle_json=vehicle_json, fallback_line=fallback_line)
+    return params["model"], params["number"]
+
+
+def _parse_vehicles_json(raw: object) -> list[dict[str, Any]]:
+    if isinstance(raw, list):
+        items = raw
+    elif isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+            items = parsed if isinstance(parsed, list) else []
+        except Exception:
+            items = []
+    else:
+        items = []
+    out: list[dict[str, Any]] = []
+    for item in items:
+        if isinstance(item, str):
+            line = item.strip()
+            if not line:
+                continue
+            parts = [t for t in line.split() if t]
+            model, number = line, ""
+            if parts:
+                maybe = parts[-1]
+                if re.search(r"\d", maybe):
+                    number = maybe[:9]
+                    model = " ".join(parts[:-1]).strip()
+            out.append(
+                {
+                    "model": model,
+                    "number": number,
+                    "type": "грузовой автомобиль",
+                    "ownership": "1",
+                    "capacity_t": "20",
+                    "volume_m3": "20",
+                    "line": f"{model} {number}".strip() or line,
+                }
+            )
+        elif isinstance(item, dict):
+            out.append(item)
+    return out
+
+
+def _match_driver_vehicle(
+    driver_row: dict[str, Any] | None,
+    vehicle_line: str = "",
+) -> dict[str, Any]:
+    """Pick structured catalog vehicle for the selected «марка номер» line."""
+    if not driver_row:
+        return {}
+    vehicles = _parse_vehicles_json(driver_row.get("vehicles_json"))
+    if not vehicles:
+        return {}
+    target = re.sub(r"\s+", " ", str(vehicle_line or "").strip().lower())
+    if target:
+        for v in vehicles:
+            line = re.sub(
+                r"\s+",
+                " ",
+                str(v.get("line") or f"{v.get('model') or ''} {v.get('number') or ''}").strip().lower(),
+            )
+            number = re.sub(r"\s+", "", str(v.get("number") or "").strip().lower())
+            if line and line == target:
+                return dict(v)
+            if number and (target.endswith(number) or target == number):
+                return dict(v)
+    if len(vehicles) == 1:
+        return dict(vehicles[0])
+    return {}
+
+
+def _vehicle_params(
+    *,
+    vehicle_json: object = None,
+    fallback_line: str = "",
+    vehicle_fields: dict[str, Any] | None = None,
+) -> dict[str, str]:
+    """Resolve СвТС/ТС + ПарТС fields (catalog → Ozon JSON → free-text line)."""
     model, number = "", ""
+    v_type = "грузовой автомобиль"
+    ownership = "1"
+    capacity = "20"
+    volume = "20"
+
+    fields = vehicle_fields or {}
+    if fields:
+        model = str(fields.get("model") or fields.get("vehicle_model") or "").strip()
+        number = str(fields.get("number") or fields.get("vehicle_number") or "").strip()
+        v_type = str(fields.get("type") or "").strip() or v_type
+        own = str(fields.get("ownership") or "").strip()
+        if own in {"1", "2", "3", "4", "5"}:
+            ownership = own
+        cap = str(fields.get("capacity_t") or "").strip().replace(",", ".")
+        if re.match(r"^\d{1,5}(?:\.\d{1,2})?$", cap or ""):
+            capacity = cap
+        vol = str(fields.get("volume_m3") or "").strip().replace(",", ".")
+        if re.match(r"^\d{1,4}(?:\.\d{1,2})?$", vol or ""):
+            volume = vol
+        if not model and not number:
+            line = str(fields.get("line") or "").strip()
+            if line:
+                parts = line.split()
+                if parts:
+                    maybe_plate = parts[-1]
+                    if re.search(r"\d", maybe_plate):
+                        number = maybe_plate
+                        model = " ".join(parts[:-1]).strip()
+                    else:
+                        model = line
+
     data: dict[str, Any] = {}
     if isinstance(vehicle_json, dict):
         data = vehicle_json
@@ -547,8 +657,26 @@ def _vehicle_parts(vehicle_json: object, fallback_line: str = "") -> tuple[str, 
                 data = parsed
         except Exception:
             data = {}
-    model = str(data.get("vehicle_model") or "").strip()
-    number = str(data.get("vehicle_number") or "").strip()
+    if not model:
+        model = str(data.get("vehicle_model") or data.get("model") or "").strip()
+    if not number:
+        number = str(data.get("vehicle_number") or data.get("number") or "").strip()
+    if data.get("type") and v_type == "грузовой автомобиль":
+        alt_type = str(data.get("type") or "").strip()
+        if alt_type:
+            v_type = alt_type
+    own2 = str(data.get("ownership") or "").strip()
+    if own2 in {"1", "2", "3", "4", "5"} and ownership == "1" and not fields.get("ownership"):
+        ownership = own2
+    if capacity == "20":
+        cap2 = str(data.get("capacity_t") or "").strip().replace(",", ".")
+        if re.match(r"^\d{1,5}(?:\.\d{1,2})?$", cap2 or ""):
+            capacity = cap2
+    if volume == "20":
+        vol2 = str(data.get("volume_m3") or "").strip().replace(",", ".")
+        if re.match(r"^\d{1,4}(?:\.\d{1,2})?$", vol2 or ""):
+            volume = vol2
+
     if not model and not number and fallback_line:
         parts = str(fallback_line).strip().split()
         if parts:
@@ -561,7 +689,14 @@ def _vehicle_parts(vehicle_json: object, fallback_line: str = "") -> tuple[str, 
     # РегНомер is T(1-9) in schema — keep first 9 chars if longer.
     if len(number) > 9:
         number = number[:9]
-    return model, number
+    return {
+        "model": model,
+        "number": number,
+        "type": v_type,
+        "ownership": ownership,
+        "capacity_t": capacity,
+        "volume_m3": volume,
+    }
 
 
 def _parse_supply_datetime(value: object, *, fallback: datetime | None = None) -> datetime:
@@ -658,6 +793,7 @@ def build_ozon_etrn_xml(
     driver_fields: dict[str, Any] | None = None,
     vehicle_line: str = "",
     vehicle_json: object = None,
+    vehicle_fields: dict[str, Any] | None = None,
     cargoes_json: object = None,
     load_address: str = "",
     load_addr_fields: dict[str, str] | None = None,
@@ -719,10 +855,12 @@ def build_ozon_etrn_xml(
     fam, imya, otch = _split_fio(driver_name)
     if not fam:
         fam, imya = "Не", "указан"
-    v_model, v_number = _vehicle_parts(
-        vehicle_json if vehicle_json is not None else item.get("vehicle_json"),
+    v_params = _vehicle_params(
+        vehicle_json=vehicle_json if vehicle_json is not None else item.get("vehicle_json"),
         fallback_line=vehicle_line,
+        vehicle_fields=vehicle_fields,
     )
+    v_model, v_number = v_params["model"], v_params["number"]
     c_name, c_inn, c_kpp = _carrier_org_from_fields(carrier_fields)
     if c_name or c_inn or c_kpp:
         carrier_name, carrier_inn, carrier_kpp = c_name, c_inn, c_kpp
@@ -929,15 +1067,15 @@ def build_ozon_etrn_xml(
         sv_ts,
         "ТС",
         РегНомер=v_number or "А000АА00",
-        ТипВлад="1",  # 1 = собственность (draft default)
+        ТипВлад=v_params.get("ownership") or "1",
     )
     _el(
         ts,
         "ПарТС",
-        Тип="грузовой автомобиль",
+        Тип=v_params.get("type") or "грузовой автомобиль",
         Марка=v_model or "не указана",
-        Грузопод="20",
-        Вместим="20",
+        Грузопод=v_params.get("capacity_t") or "20",
+        Вместим=v_params.get("volume_m3") or "20",
     )
 
     # --- СвПогруз ---
@@ -1014,6 +1152,7 @@ def collect_ozon_etrn_context(
     else:
         driver_documents = str((driver_row or {}).get("documents") or "")
     driver_fields = dict(driver_row or {}) if driver_row else {}
+    vehicle_fields = _match_driver_vehicle(driver_row, vehicle_line)
 
     production_name = str(item.get("production") or "").strip()
     load_address = ""
@@ -1069,4 +1208,5 @@ def collect_ozon_etrn_context(
         "driver_documents": driver_documents,
         "driver_fields": driver_fields,
         "vehicle_line": vehicle_line,
+        "vehicle_fields": vehicle_fields,
     }

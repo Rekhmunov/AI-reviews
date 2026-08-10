@@ -2606,25 +2606,131 @@ async function loadSupplyDrivers() {
   _populateDriverSelect();
 }
 
+const _VEHICLE_OWNERSHIP = [
+  ["1", "1 — собственность"],
+  ["2", "2 — совместная собственность"],
+  ["3", "3 — аренда"],
+  ["4", "4 — лизинг"],
+  ["5", "5 — безвозмездное пользование"],
+];
+
+/** One-line «марка номер» for tags / заявка select. */
+function driverVehicleLine(v) {
+  if (v == null) return "";
+  if (typeof v === "string") return v.trim();
+  const line = String(v.line || "").trim();
+  if (line) return line;
+  return [v.model || v.vehicle_model, v.number || v.vehicle_number].filter(Boolean).join(" ").trim();
+}
+
+function _normalizeVehicleObj(v) {
+  if (v == null || v === "") {
+    return {
+      model: "",
+      number: "",
+      type: "грузовой автомобиль",
+      ownership: "1",
+      capacity_t: "20",
+      volume_m3: "20",
+      line: "",
+    };
+  }
+  if (typeof v === "string") {
+    const line = v.trim();
+    const parts = line.split(/\s+/).filter(Boolean);
+    let model = line;
+    let number = "";
+    if (parts.length) {
+      const maybe = parts[parts.length - 1];
+      if (/\d/.test(maybe)) {
+        number = maybe.slice(0, 9);
+        model = parts.slice(0, -1).join(" ");
+      }
+    }
+    return {
+      model,
+      number,
+      type: "грузовой автомобиль",
+      ownership: "1",
+      capacity_t: "20",
+      volume_m3: "20",
+      line: [model, number].filter(Boolean).join(" ") || line,
+    };
+  }
+  const ownership = String(v.ownership || "1").trim();
+  return {
+    model: String(v.model || v.vehicle_model || "").trim(),
+    number: String(v.number || v.vehicle_number || "").trim().slice(0, 9),
+    type: String(v.type || "грузовой автомобиль").trim() || "грузовой автомобиль",
+    ownership: ["1", "2", "3", "4", "5"].includes(ownership) ? ownership : "1",
+    capacity_t: String(v.capacity_t || "20").trim() || "20",
+    volume_m3: String(v.volume_m3 || "20").trim() || "20",
+    line: driverVehicleLine(v),
+  };
+}
+
 function _driverVehiclesHtml(vehicles) {
   if (!vehicles || !vehicles.length) return '<span style="color:#94a3b8;font-size:12px">—</span>';
-  return vehicles.map(v => `<span class="driver-vehicle-tag">${esc(v)}</span>`).join(" ");
+  return vehicles.map(v => `<span class="driver-vehicle-tag">${esc(driverVehicleLine(v))}</span>`).join(" ");
 }
 
 function addDriverVehicleRow(listId, value = "") {
   const list = document.getElementById(listId);
   if (!list) return;
+  const v = _normalizeVehicleObj(value);
   const row = document.createElement("div");
-  row.style.cssText = "display:flex;gap:4px;align-items:center";
-  row.innerHTML = `<input class="driver-vehicle-input" type="text" value="${esc(value)}" placeholder="Марка и номер, напр. MAN В849ВО37" autocomplete="off" style="flex:1" />
-    <button type="button" class="secondary icon-btn" style="min-width:28px;height:28px;padding:0;color:#b91c1c;border-color:#fca5a5;font-size:16px" onclick="this.closest('div').remove()">✕</button>`;
+  row.className = "driver-vehicle-block";
+  row.innerHTML = `
+    <div class="driver-vehicle-block-head">
+      <span class="small" style="color:#64748b;font-weight:600">Сведения о ТС</span>
+      <button type="button" class="secondary icon-btn" style="min-width:28px;height:28px;padding:0;color:#b91c1c;border-color:#fca5a5;font-size:16px" onclick="this.closest('.driver-vehicle-block').remove()" title="Удалить">✕</button>
+    </div>
+    <div class="worker-form-grid">
+      <div class="wfg-field">
+        <label class="wfg-label">Марка</label>
+        <input class="drv-veh-model" type="text" value="${esc(v.model)}" placeholder="MAN / GAZelle" autocomplete="off" />
+      </div>
+      <div class="wfg-field">
+        <label class="wfg-label">Рег. номер</label>
+        <input class="drv-veh-number" type="text" maxlength="9" value="${esc(v.number)}" placeholder="В849ВО37" autocomplete="off" />
+      </div>
+      <div class="wfg-field">
+        <label class="wfg-label">Тип ТС</label>
+        <input class="drv-veh-type" type="text" value="${esc(v.type)}" placeholder="грузовой автомобиль" autocomplete="off" />
+      </div>
+      <div class="wfg-field">
+        <label class="wfg-label">Тип владения</label>
+        <select class="drv-veh-ownership">
+          ${_VEHICLE_OWNERSHIP.map(([code, label]) =>
+            `<option value="${code}"${code === v.ownership ? " selected" : ""}>${label}</option>`
+          ).join("")}
+        </select>
+      </div>
+      <div class="wfg-field">
+        <label class="wfg-label">Грузоподъёмность, т</label>
+        <input class="drv-veh-capacity" type="text" inputmode="decimal" value="${esc(v.capacity_t)}" placeholder="20" autocomplete="off" />
+      </div>
+      <div class="wfg-field">
+        <label class="wfg-label">Вместимость, м³</label>
+        <input class="drv-veh-volume" type="text" inputmode="decimal" value="${esc(v.volume_m3)}" placeholder="20" autocomplete="off" />
+      </div>
+    </div>`;
   list.appendChild(row);
 }
 window.addDriverVehicleRow = addDriverVehicleRow;
 
 function _collectVehicles(listId) {
-  return Array.from(document.querySelectorAll(`#${listId} .driver-vehicle-input`))
-    .map(inp => inp.value.trim()).filter(Boolean);
+  return Array.from(document.querySelectorAll(`#${listId} .driver-vehicle-block`)).map((block) => {
+    const model = block.querySelector(".drv-veh-model")?.value.trim() || "";
+    const number = (block.querySelector(".drv-veh-number")?.value.trim() || "").slice(0, 9);
+    const type = block.querySelector(".drv-veh-type")?.value.trim() || "грузовой автомобиль";
+    const ownership = block.querySelector(".drv-veh-ownership")?.value || "1";
+    const capacity_t = block.querySelector(".drv-veh-capacity")?.value.trim() || "20";
+    const volume_m3 = block.querySelector(".drv-veh-volume")?.value.trim() || "20";
+    if (!model && !number) return null;
+    const line = [model, number].filter(Boolean).join(" ");
+    return { model, number, type, ownership, capacity_t, volume_m3, line };
+  }).filter(Boolean);
 }
 
 const _CARRIER_FIELDS = [
@@ -2826,12 +2932,14 @@ function toggleAddDriverForm(show) {
   if (!form) return;
   form.classList.toggle("hidden", !show);
   form.style.display = show ? "" : "none";
+  const vList = document.getElementById("newDriverVehiclesList");
   if (!show) {
     _clearNewDriverCarrierFields();
-    const vList = document.getElementById("newDriverVehiclesList");
     if (vList) vList.innerHTML = "";
     const info = document.getElementById("addDriverInfo");
     if (info) { info.textContent = ""; info.style.color = ""; }
+  } else if (vList && !vList.querySelector(".driver-vehicle-block")) {
+    addDriverVehicleRow("newDriverVehiclesList");
   }
 }
 
@@ -2884,23 +2992,16 @@ async function startEditDriver(id) {
   if (!item) return;
   const tr = document.querySelector(`#supplyDriversTbody tr[data-id="${id}"]`);
   if (!tr) return;
-  document.querySelectorAll("#supplyDriversTbody tr.driver-carrier-edit-row, #supplyDriversTbody tr.driver-docs-edit-row").forEach((r) => r.remove());
+  document.querySelectorAll("#supplyDriversTbody tr.driver-carrier-edit-row, #supplyDriversTbody tr.driver-docs-edit-row, #supplyDriversTbody tr.driver-vehicles-edit-row").forEach((r) => r.remove());
   const cells = tr.querySelectorAll(".editable-cell");
   cells[0].innerHTML = `<input class="edit-inline-input" data-field="name" value="${esc(item.full_name||"")}" />`;
   cells[1].innerHTML = `<input class="edit-inline-input" data-field="inp" value="${esc(item.in_person||"")}" />`;
   cells[2].innerHTML = `<span class="small" style="color:#64748b">поля ниже</span>`;
   cells[3].innerHTML = `<span class="small" style="color:#64748b">поля ниже</span>`;
-  // Vehicles cell
   let vehicles = [];
   try { vehicles = JSON.parse(item.vehicles_json || "[]"); } catch(_) {}
   const vCell = tr.querySelector(".editable-cell-vehicles");
-  if (vCell) {
-    const listId = `editDriverVehicles_${id}`;
-    vCell.innerHTML = `<div id="${listId}" style="display:flex;flex-direction:column;gap:3px;margin-bottom:3px"></div>
-      <button type="button" class="secondary" style="font-size:11px;padding:2px 8px;margin-top:2px" onclick="addDriverVehicleRow('${listId}')">+ Авт.</button>`;
-    vehicles.forEach(v => addDriverVehicleRow(listId, v));
-    if (!vehicles.length) addDriverVehicleRow(listId, "");
-  }
+  if (vCell) vCell.innerHTML = `<span class="small" style="color:#64748b">поля ниже</span>`;
   const docsRow = document.createElement("tr");
   docsRow.className = "driver-docs-edit-row";
   docsRow.dataset.forId = String(id);
@@ -2910,6 +3011,19 @@ async function startEditDriver(id) {
     ${_driverDocsEditInputsHtml(item)}
   </td>`;
   tr.after(docsRow);
+  const vehiclesRow = document.createElement("tr");
+  vehiclesRow.className = "driver-vehicles-edit-row";
+  vehiclesRow.dataset.forId = String(id);
+  vehiclesRow.style.background = "#f8fafc";
+  const listId = `editDriverVehicles_${id}`;
+  vehiclesRow.innerHTML = `<td colspan="7" style="padding:12px 8px;border-top:none;white-space:normal">
+    <div class="small" style="margin-bottom:8px;color:#64748b">Сведения о транспортном средстве (поля эТрН СвТС)</div>
+    <div id="${listId}" class="driver-vehicles-list"></div>
+    <button type="button" class="secondary" style="font-size:12px;padding:4px 10px;margin-top:8px" onclick="addDriverVehicleRow('${listId}')">+ Добавить автомобиль</button>
+  </td>`;
+  docsRow.after(vehiclesRow);
+  vehicles.forEach(v => addDriverVehicleRow(listId, v));
+  if (!vehicles.length) addDriverVehicleRow(listId, "");
   const carrierRow = document.createElement("tr");
   carrierRow.className = "driver-carrier-edit-row";
   carrierRow.dataset.forId = String(id);
@@ -2918,7 +3032,7 @@ async function startEditDriver(id) {
     <div class="small" style="margin-bottom:8px;color:#64748b">Перевозчик (поля эТрН)</div>
     ${_carrierEditInputsHtml(item)}
   </td>`;
-  docsRow.after(carrierRow);
+  vehiclesRow.after(carrierRow);
   const actionCell = tr.cells[tr.cells.length - 1];
   actionCell.innerHTML = `<div class="sst-edit-actions">
     <button class="secondary small-btn" style="color:#16a34a;border-color:#86efac" onclick="saveEditDriver(${id})">Сохранить</button>
@@ -16329,8 +16443,11 @@ function onZDriverChange() {
       let vehicles = [];
       if (driver) { try { vehicles = JSON.parse(driver.vehicles_json || "[]"); } catch(_) {} }
       vehSel.innerHTML = '<option value="">— Выберите автомобиль —</option>' +
-        vehicles.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
-      if (vehicles.length === 1) vehSel.value = vehicles[0];
+        vehicles.map(v => {
+          const line = driverVehicleLine(v);
+          return `<option value="${esc(line)}">${esc(line)}</option>`;
+        }).join("");
+      if (vehicles.length === 1) vehSel.value = driverVehicleLine(vehicles[0]);
     }
   }
 }

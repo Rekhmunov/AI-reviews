@@ -3663,6 +3663,29 @@ body.sst-col-resizing * {
   white-space: nowrap;
 }
 
+.driver-vehicles-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.driver-vehicle-block {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.driver-vehicle-block-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
 /* ── Заявка: info blocks ─────────────────────────────────────────────────── */
 
 .z-info-block {
@@ -5739,7 +5762,8 @@ body.sst-col-resizing * {
 #section-supplies-settings .supply-sources-table tr.prod-addr-edit-row td,
 #section-supplies-settings .supply-sources-table tr.wh-addr-edit-row td,
 #section-supplies-settings .supply-sources-table tr.driver-docs-edit-row td,
-#section-supplies-settings .supply-sources-table tr.driver-carrier-edit-row td {
+#section-supplies-settings .supply-sources-table tr.driver-carrier-edit-row td,
+#section-supplies-settings .supply-sources-table tr.driver-vehicles-edit-row td {
   white-space: normal !important;
   overflow: visible;
   text-overflow: clip;

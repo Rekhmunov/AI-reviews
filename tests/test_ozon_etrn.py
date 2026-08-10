@@ -374,6 +374,62 @@ def test_etrn_driver_uses_structured_vu_fields():
     assert vod.attrib.get("ДатаВыдВУ") == "01.02.2018"
 
 
+def test_etrn_vehicle_uses_structured_catalog_fields():
+    """СвТС takes structured driver vehicle fields (ПарТС / ТипВлад)."""
+    root = ET.fromstring(
+        _build(
+            vehicle_line="ignored free text",
+            vehicle_json={"vehicle_model": "OLD", "vehicle_number": "A000AA00"},
+            vehicle_fields={
+                "model": "MAN",
+                "number": "В849ВО37",
+                "type": "седельный тягач",
+                "ownership": "3",
+                "capacity_t": "18.5",
+                "volume_m3": "86",
+                "line": "MAN В849ВО37",
+            },
+        )
+    )
+    ts = root.find("Документ/СодИнфГО/СвТС/ТС")
+    assert ts is not None
+    assert ts.attrib.get("РегНомер") == "В849ВО37"
+    assert ts.attrib.get("ТипВлад") == "3"
+    part = ts.find("ПарТС")
+    assert part is not None
+    assert part.attrib.get("Марка") == "MAN"
+    assert part.attrib.get("Тип") == "седельный тягач"
+    assert part.attrib.get("Грузопод") == "18.5"
+    assert part.attrib.get("Вместим") == "86"
+
+
+def test_compose_vehicle_line_and_normalize():
+    from review_processor.repository import ReviewRepository
+
+    assert ReviewRepository.compose_vehicle_line(model="MAN", number="В849ВО37") == "MAN В849ВО37"
+    legacy = ReviewRepository._normalize_vehicle("MAN В849ВО37")
+    assert legacy is not None
+    assert legacy["model"] == "MAN"
+    assert legacy["number"] == "В849ВО37"
+    assert legacy["ownership"] == "1"
+    assert legacy["capacity_t"] == "20"
+    structured = ReviewRepository._normalize_vehicle(
+        {
+            "model": "GAZelle",
+            "number": "A123BC77",
+            "type": "грузовой автомобиль",
+            "ownership": "4",
+            "capacity_t": "1.5",
+            "volume_m3": "12.5",
+        }
+    )
+    assert structured is not None
+    assert structured["line"] == "GAZelle A123BC77"
+    assert structured["ownership"] == "4"
+    assert structured["capacity_t"] == "1.5"
+    assert ReviewRepository._normalize_vehicles_list(["", None, "X"])[0]["model"] == "X"
+
+
 def test_etrn_driver_uses_structured_inn_fl():
     root = ET.fromstring(
         _build(
