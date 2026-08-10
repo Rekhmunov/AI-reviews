@@ -5030,33 +5030,36 @@ function _updateOzonFilterCount() {
   el.hidden = false;
 }
 
-// ── Load & render ──────────────────────────────────────────────────────────
-async function loadOzonSupplies(resetPage = false) {
-  if (resetPage) ozonState.page = 1;
+/** Filter Ozon supplies by toolbar filters. Driver/search can be skipped for dependent dropdowns. */
+function _ozonFilterItems(items, { includeDriver = true, includeSearch = false } = {}) {
   const statusF = document.getElementById("ozonStatusFilter")?.value || "";
   const prodF = document.getElementById("ozonProductionFilter")?.value || "";
   const whF = document.getElementById("ozonWarehouseFilter")?.value || "";
   const driverF = document.getElementById("ozonDriverFilter")?.value || "";
   const dateFrom = document.getElementById("ozonDateFrom")?.value || "";
   const dateTo = document.getElementById("ozonDateTo")?.value || "";
+  const sq = (document.getElementById("ozonSearchFilter")?.value || "").toLowerCase().trim();
+  let out = items || [];
+  if (statusF) out = out.filter(x => (x.state || "") === statusF);
+  if (prodF) out = out.filter(x => (x.production || "") === prodF);
+  if (whF) out = out.filter(x => (x.warehouse_name || "").trim() === whF);
+  if (dateFrom) out = out.filter(x => { const d = (x.supply_date || "").slice(0, 10); return !d || d >= dateFrom; });
+  if (dateTo) out = out.filter(x => { const d = (x.supply_date || "").slice(0, 10); return !d || d <= dateTo; });
+  if (includeSearch && sq) out = out.filter(x => _ozonSearchMatch(x, sq));
+  if (includeDriver && driverF) out = out.filter(x => _ozonItemDriverName(x) === driverF);
+  return out;
+}
+
+// ── Load & render ──────────────────────────────────────────────────────────
+async function loadOzonSupplies(resetPage = false) {
+  if (resetPage) ozonState.page = 1;
   const params = new URLSearchParams({ page: ozonState.page, page_size: ozonState.page_size });
   const res = await fetch(`/api/ozon-supplies?${params}`).catch(() => null);
   if (!res || !res.ok) return;
   const data = await res.json().catch(() => ({}));
-  let items = data.items || [];
-  ozonState.rawItems = items;
+  ozonState.rawItems = data.items || [];
   _populateOzonProductionFilter();
   _populateOzonWarehouseFilter();
-  _populateOzonDriverFilter();
-  // Client-side filtering
-  if (statusF) items = items.filter(x => (x.state || "") === statusF);
-  if (prodF) items = items.filter(x => (x.production || "") === prodF);
-  if (whF) items = items.filter(x => (x.warehouse_name || "").trim() === whF);
-  if (driverF) items = items.filter(x => _ozonItemDriverName(x) === driverF);
-  if (dateFrom) items = items.filter(x => { const d = (x.supply_date || "").slice(0,10); return !d || d >= dateFrom; });
-  if (dateTo) items = items.filter(x => { const d = (x.supply_date || "").slice(0,10); return !d || d <= dateTo; });
-  ozonState.allItems = items;   // full filtered set (except search)
-  ozonState.total = items.length;
   ozonState._filteredTotal = undefined;
   _applyOzonPage();
   _updateOzonBatchUI();
@@ -5073,10 +5076,16 @@ function _ozonSearchMatch(x, sq) {
 }
 
 function _applyOzonPage() {
+  // Driver options = drivers in supplies after date/warehouse/search/… (not full catalog).
+  // Rebuild without selected driver first, so the dropdown stays complete for the scope.
+  _populateOzonDriverFilter();
+  const items = _ozonFilterItems(ozonState.rawItems || [], { includeDriver: true, includeSearch: false });
+  ozonState.allItems = items;
+  ozonState.total = items.length;
   const sq = (document.getElementById("ozonSearchFilter")?.value || "").toLowerCase().trim();
   const filtered = sq
-    ? (ozonState.allItems || []).filter(x => _ozonSearchMatch(x, sq))
-    : (ozonState.allItems || []);
+    ? items.filter(x => _ozonSearchMatch(x, sq))
+    : items;
   const start = (ozonState.page - 1) * ozonState.page_size;
   ozonState.items = filtered.slice(start, start + ozonState.page_size);
   ozonState._filteredTotal = filtered.length;
@@ -5120,10 +5129,13 @@ function _populateOzonDriverFilter() {
   const sel = document.getElementById("ozonDriverFilter");
   if (!sel) return;
   const cur = sel.value;
+  // Only drivers present in supplies after other filters (date/warehouse/search/…).
+  const scopeItems = _ozonFilterItems(ozonState.rawItems || [], {
+    includeDriver: false,
+    includeSearch: true,
+  });
   const names = [...new Set(
-    (ozonState.rawItems || [])
-      .map((x) => _ozonItemDriverName(x))
-      .filter(Boolean)
+    scopeItems.map((x) => _ozonItemDriverName(x)).filter(Boolean)
   )].sort((a, b) => a.localeCompare(b, "ru"));
   sel.innerHTML = '<option value="">Все водители</option>' +
     names.map((n) => `<option value="${esc(n)}"${n === cur ? " selected" : ""}>${esc(n)}</option>`).join("");
