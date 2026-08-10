@@ -433,6 +433,15 @@ class CreateSupplyProductionRequest(BaseModel):
     head_name: str = ""
     address: str = ""
     load_contact: str = ""
+    addr_index: str = ""
+    addr_region_code: str = ""
+    addr_district: str = ""
+    addr_city: str = ""
+    addr_settlement: str = ""
+    addr_street: str = ""
+    addr_house: str = ""
+    addr_corpus: str = ""
+    addr_flat: str = ""
 
 
 class UpdateSupplyProductionRequest(BaseModel):
@@ -440,6 +449,15 @@ class UpdateSupplyProductionRequest(BaseModel):
     head_name: str = ""
     address: str = ""
     load_contact: str = ""
+    addr_index: str = ""
+    addr_region_code: str = ""
+    addr_district: str = ""
+    addr_city: str = ""
+    addr_settlement: str = ""
+    addr_street: str = ""
+    addr_house: str = ""
+    addr_corpus: str = ""
+    addr_flat: str = ""
 
 
 class CreatePoARecordRequest(BaseModel):
@@ -11126,6 +11144,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 vehicle_json=item.get("vehicle_json"),
                 cargoes_json=cargoes_json,
                 load_address=str(ctx.get("load_address") or ""),
+                load_addr_fields=ctx.get("load_addr_fields") or None,
                 delivery_address=str(ctx.get("delivery_address") or ""),
                 carrier_text=str(ctx.get("carrier_text") or ""),
             )
@@ -12722,9 +12741,22 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             raise HTTPException(status_code=403, detail="Нет доступа")
         if not payload.name.strip():
             raise HTTPException(status_code=400, detail="Название не может быть пустым")
+        repository._ensure_supply_tables()
         return repository.create_supply_production(
-            user_id=_supply_owner_id(user), name=payload.name, head_name=payload.head_name,
-            address=payload.address, load_contact=payload.load_contact
+            user_id=_supply_owner_id(user),
+            name=payload.name,
+            head_name=payload.head_name,
+            address=payload.address,
+            load_contact=payload.load_contact,
+            addr_index=payload.addr_index,
+            addr_region_code=payload.addr_region_code,
+            addr_district=payload.addr_district,
+            addr_city=payload.addr_city,
+            addr_settlement=payload.addr_settlement,
+            addr_street=payload.addr_street,
+            addr_house=payload.addr_house,
+            addr_corpus=payload.addr_corpus,
+            addr_flat=payload.addr_flat,
         )
 
     @app.patch("/api/supply-productions/{production_id}")
@@ -12734,10 +12766,23 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             raise HTTPException(status_code=403, detail="Нет доступа")
         if not payload.name.strip():
             raise HTTPException(status_code=400, detail="Название не может быть пустым")
+        repository._ensure_supply_tables()
         ok = repository.update_supply_production(
-            user_id=_supply_owner_id(user), production_id=production_id,
-            name=payload.name, head_name=payload.head_name,
-            address=payload.address, load_contact=payload.load_contact
+            user_id=_supply_owner_id(user),
+            production_id=production_id,
+            name=payload.name,
+            head_name=payload.head_name,
+            address=payload.address,
+            load_contact=payload.load_contact,
+            addr_index=payload.addr_index,
+            addr_region_code=payload.addr_region_code,
+            addr_district=payload.addr_district,
+            addr_city=payload.addr_city,
+            addr_settlement=payload.addr_settlement,
+            addr_street=payload.addr_street,
+            addr_house=payload.addr_house,
+            addr_corpus=payload.addr_corpus,
+            addr_flat=payload.addr_flat,
         )
         if not ok:
             raise HTTPException(status_code=404, detail="Производство не найдено")

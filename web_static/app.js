@@ -12611,6 +12611,50 @@ function _populateProductionSelects() {
   }
 }
 
+const _PROD_ADDR_FIELDS = [
+  ["addr_index", "Индекс"],
+  ["addr_region_code", "Код региона"],
+  ["addr_district", "Район"],
+  ["addr_city", "Город"],
+  ["addr_settlement", "Нас. пункт"],
+  ["addr_street", "Улица"],
+  ["addr_house", "Дом"],
+  ["addr_corpus", "Корпус"],
+  ["addr_flat", "Кв./офис"],
+];
+
+function _readNewProductionAddrFields() {
+  return {
+    addr_index: document.getElementById("newProdAddrIndex")?.value.trim() || "",
+    addr_region_code: document.getElementById("newProdAddrRegion")?.value.trim() || "",
+    addr_district: document.getElementById("newProdAddrDistrict")?.value.trim() || "",
+    addr_city: document.getElementById("newProdAddrCity")?.value.trim() || "",
+    addr_settlement: document.getElementById("newProdAddrSettlement")?.value.trim() || "",
+    addr_street: document.getElementById("newProdAddrStreet")?.value.trim() || "",
+    addr_house: document.getElementById("newProdAddrHouse")?.value.trim() || "",
+    addr_corpus: document.getElementById("newProdAddrCorpus")?.value.trim() || "",
+    addr_flat: document.getElementById("newProdAddrFlat")?.value.trim() || "",
+  };
+}
+
+function _clearNewProductionAddrFields() {
+  [
+    "newProductionName", "newProductionHead", "newProductionLoadContact",
+    "newProdAddrIndex", "newProdAddrRegion", "newProdAddrDistrict", "newProdAddrCity",
+    "newProdAddrSettlement", "newProdAddrStreet", "newProdAddrHouse", "newProdAddrCorpus", "newProdAddrFlat",
+  ].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ""; });
+}
+
+function _productionAddrEditInputsHtml(item) {
+  return `<div class="worker-form-grid" style="margin:0">
+    ${_PROD_ADDR_FIELDS.map(([key, label]) => `
+      <div class="wfg-field">
+        <label class="wfg-label">${label}</label>
+        <input class="edit-inline-input" data-addr="${key}" value="${esc(item[key] || "")}" autocomplete="off" />
+      </div>`).join("")}
+  </div>`;
+}
+
 function renderSupplyProductionsTbody() {
   const tbody = document.getElementById("supplyProductionsTbody");
   if (!tbody) return;
@@ -12642,11 +12686,21 @@ async function startEditProduction(id) {
   if (!item) return;
   const tr = document.querySelector(`#supplyProductionsTbody tr[data-id="${id}"]`);
   if (!tr) return;
+  document.querySelectorAll("#supplyProductionsTbody tr.prod-addr-edit-row").forEach((r) => r.remove());
   const cells = tr.querySelectorAll(".editable-cell");
   cells[0].innerHTML = `<input class="edit-inline-input" data-field="name" value="${esc(item.name||"")}" />`;
   cells[1].innerHTML = `<input class="edit-inline-input" data-field="head" value="${esc(item.head_name||"")}" />`;
-  cells[2].innerHTML = `<input class="edit-inline-input" data-field="addr" value="${esc(item.address||"")}" />`;
+  cells[2].innerHTML = `<span class="small" style="color:#64748b">поля ниже</span>`;
   cells[3].innerHTML = `<input class="edit-inline-input" data-field="lc" value="${esc(item.load_contact||"")}" />`;
+  const addrRow = document.createElement("tr");
+  addrRow.className = "prod-addr-edit-row";
+  addrRow.dataset.forId = String(id);
+  addrRow.style.background = "#f8fafc";
+  addrRow.innerHTML = `<td colspan="6" style="padding:12px 8px;border-top:none">
+    <div class="small" style="margin-bottom:8px;color:#64748b">Адрес погрузки (поля эТрН)</div>
+    ${_productionAddrEditInputsHtml(item)}
+  </td>`;
+  tr.after(addrRow);
   tr.cells[tr.cells.length-1].innerHTML = `<div class="row" style="gap:4px;flex-wrap:nowrap">
     <button class="secondary small-btn" style="color:#16a34a;border-color:#86efac" onclick="saveEditProduction(${id})">Сохр.</button>
     <button class="secondary small-btn" onclick="loadSupplyProductions()">✕</button>
@@ -12656,12 +12710,18 @@ async function startEditProduction(id) {
 async function saveEditProduction(id) {
   const tr = document.querySelector(`#supplyProductionsTbody tr[data-id="${id}"]`);
   if (!tr) return;
+  const item = _supplyProductionsCache.find((x) => x.id === id);
+  const addrRow = document.querySelector(`#supplyProductionsTbody tr.prod-addr-edit-row[data-for-id="${id}"]`);
   const name = tr.querySelector("[data-field='name']")?.value.trim() || "";
   const head_name = tr.querySelector("[data-field='head']")?.value.trim() || "";
-  const address = tr.querySelector("[data-field='addr']")?.value.trim() || "";
   const load_contact = tr.querySelector("[data-field='lc']")?.value.trim() || "";
   if (!name) return;
-  await fetch(`/api/supply-productions/${id}`, { method: "PATCH", headers: jsonHeaders(), body: JSON.stringify({ name, head_name, address, load_contact }) }).catch(() => null);
+  // Keep legacy one-line address if structured fields are still empty.
+  const payload = { name, head_name, load_contact, address: item?.address || "" };
+  _PROD_ADDR_FIELDS.forEach(([key]) => {
+    payload[key] = addrRow?.querySelector(`[data-addr="${key}"]`)?.value.trim() || "";
+  });
+  await fetch(`/api/supply-productions/${id}`, { method: "PATCH", headers: jsonHeaders(), body: JSON.stringify(payload) }).catch(() => null);
   await loadSupplyProductions();
 }
 
@@ -12669,20 +12729,18 @@ function toggleAddProductionForm(show) {
   const form = document.getElementById("addProductionForm");
   if (!form) return;
   form.classList.toggle("hidden", !show); form.style.display = show ? "" : "none";
-  if (!show) {
-    ["newProductionName","newProductionHead","newProductionAddress","newProductionLoadContact"].forEach(id => { const el = document.getElementById(id); if(el) el.value=""; });
-  }
+  if (!show) _clearNewProductionAddrFields();
 }
 
 async function saveSupplyProduction() {
   const name = document.getElementById("newProductionName")?.value.trim();
   const head_name = document.getElementById("newProductionHead")?.value.trim() || "";
-  const address = document.getElementById("newProductionAddress")?.value.trim() || "";
   const load_contact = document.getElementById("newProductionLoadContact")?.value.trim() || "";
   const info = document.getElementById("addProductionInfo");
   if (!name) { if (info) { info.textContent = "Введите название"; info.style.color = "#b91c1c"; } return; }
   if (info) { info.textContent = "Сохранение..."; info.style.color = ""; }
-  const res = await fetch("/api/supply-productions", { method: "POST", headers: jsonHeaders(), body: JSON.stringify({ name, head_name, address, load_contact }) }).catch(() => null);
+  const payload = { name, head_name, load_contact, address: "", ..._readNewProductionAddrFields() };
+  const res = await fetch("/api/supply-productions", { method: "POST", headers: jsonHeaders(), body: JSON.stringify(payload) }).catch(() => null);
   if (!res || !res.ok) { const e = await res?.json().catch(()=>({})) || {}; if (info) { info.textContent = e.detail||"Ошибка"; info.style.color = "#b91c1c"; } return; }
   if (info) { info.textContent = "Сохранено"; info.style.color = "#16a34a"; }
   toggleAddProductionForm(false);

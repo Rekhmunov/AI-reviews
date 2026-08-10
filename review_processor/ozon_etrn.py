@@ -208,10 +208,8 @@ def _extract_address_from_requisites(requisites: str) -> str:
     return ""
 
 
-def _parse_ru_address(address: str) -> dict[str, str]:
-    """Best-effort split of a free-form Russian address into template fields."""
-    raw = str(address or "").strip()
-    out = {
+def _empty_ru_address(raw: str = "") -> dict[str, str]:
+    return {
         "Индекс": "",
         "КодРегион": "",
         "Район": "",
@@ -221,8 +219,51 @@ def _parse_ru_address(address: str) -> dict[str, str]:
         "Дом": "",
         "Корпус": "",
         "Кварт": "",
-        "raw": raw,
+        "raw": str(raw or "").strip(),
     }
+
+
+def _addr_from_production_fields(prod: dict[str, Any] | None) -> dict[str, str]:
+    """Map structured production address columns to eTrN АдрРФ fields."""
+    p = prod or {}
+    out = _empty_ru_address(str(p.get("address") or ""))
+    mapping = (
+        ("addr_index", "Индекс"),
+        ("addr_region_code", "КодРегион"),
+        ("addr_district", "Район"),
+        ("addr_city", "Город"),
+        ("addr_settlement", "НаселПункт"),
+        ("addr_street", "Улица"),
+        ("addr_house", "Дом"),
+        ("addr_corpus", "Корпус"),
+        ("addr_flat", "Кварт"),
+    )
+    for src, dst in mapping:
+        val = str(p.get(src) or "").strip()
+        if val:
+            out[dst] = val
+    if out["Индекс"]:
+        out["Индекс"] = re.sub(r"\D", "", out["Индекс"])[:6]
+    if out["КодРегион"]:
+        out["КодРегион"] = re.sub(r"\D", "", out["КодРегион"])[:2].zfill(2)
+        if out["КодРегион"] == "00":
+            out["КодРегион"] = ""
+    return out
+
+
+def _has_structured_address(addr: dict[str, str] | None) -> bool:
+    if not addr:
+        return False
+    return any(
+        str(addr.get(k) or "").strip()
+        for k in ("Индекс", "КодРегион", "Район", "Город", "НаселПункт", "Улица", "Дом", "Корпус", "Кварт")
+    )
+
+
+def _parse_ru_address(address: str) -> dict[str, str]:
+    """Best-effort split of a free-form Russian address into template fields."""
+    raw = str(address or "").strip()
+    out = _empty_ru_address(raw)
     if not raw:
         return out
     idx_m = re.search(r"\b(\d{6})\b", raw)
@@ -486,6 +527,7 @@ def build_ozon_etrn_xml(
     vehicle_json: object = None,
     cargoes_json: object = None,
     load_address: str = "",
+    load_addr_fields: dict[str, str] | None = None,
     delivery_address: str = "",
     carrier_text: str = "",
     now: datetime | None = None,
@@ -501,7 +543,18 @@ def build_ozon_etrn_xml(
         inn, kpp2 = _parse_inn_kpp(org_full)
         kpp = kpp or kpp2
 
-    load_addr = _parse_ru_address(load_address)
+    # Prefer structured production address fields; fall back to free-text parse.
+    if _has_structured_address(load_addr_fields):
+        load_addr = dict(load_addr_fields or {})
+        if not load_addr.get("raw"):
+            load_addr["raw"] = str(load_address or "").strip()
+        if not load_addr.get("КодРегион"):
+            load_addr["КодРегион"] = _region_code_from_text(
+                str(load_addr.get("raw") or ""),
+                str(load_addr.get("Индекс") or ""),
+            )
+    else:
+        load_addr = _parse_ru_address(load_address)
     dest_addr = _parse_ru_address(delivery_address)
     # Shipper legal address from Поставки → Настройки → Юр.лица.
     # Prefer dedicated `address` column; fall back to parsing requisites for old data.
@@ -777,10 +830,16 @@ def collect_ozon_etrn_context(
 
     production_name = str(item.get("production") or "").strip()
     load_address = ""
+    load_addr_fields: dict[str, str] = _empty_ru_address()
     if production_name:
         for p in repository.list_supply_productions(user_id=owner_id):
             if str(p.get("name") or "").strip() == production_name:
                 load_address = str(p.get("address") or "").strip()
+                structured = _addr_from_production_fields(p)
+                if _has_structured_address(structured):
+                    load_addr_fields = structured
+                    if not load_address:
+                        load_address = str(structured.get("raw") or "").strip()
                 break
 
     dest_wh = str(item.get("warehouse_name") or "").strip()
@@ -799,6 +858,7 @@ def collect_ozon_etrn_context(
         "le": le,
         "carrier_text": carrier_text,
         "load_address": load_address,
+        "load_addr_fields": load_addr_fields,
         "delivery_address": delivery_address,
         "driver_name": driver_name,
         "driver_phone": driver_phone,

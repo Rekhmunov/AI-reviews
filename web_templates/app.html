@@ -2600,23 +2600,58 @@
             <div id="addProductionForm" class="source-form hidden" style="margin-top:12px">
               <div class="worker-form-grid">
                 <div class="wfg-field">
-                  <label class="wfg-label">Наименование</label>
+                  <label class="wfg-label" for="newProductionName">Наименование</label>
                   <input id="newProductionName" type="text" placeholder="Наименование производства" autocomplete="off" />
                 </div>
                 <div class="wfg-field">
-                  <label class="wfg-label">Начальник производства</label>
+                  <label class="wfg-label" for="newProductionHead">Начальник производства</label>
                   <input id="newProductionHead" type="text" placeholder="ФИО начальника" autocomplete="off" />
                 </div>
-                <div class="wfg-field" style="grid-column:span 2">
-                  <label class="wfg-label">Адрес производства (загрузки)</label>
-                  <input id="newProductionAddress" type="text" placeholder="Город, улица, дом" autocomplete="off" />
-                </div>
                 <div class="wfg-field">
-                  <label class="wfg-label">Контактное лицо (загрузка)</label>
+                  <label class="wfg-label" for="newProductionLoadContact">Контактное лицо (загрузка)</label>
                   <input id="newProductionLoadContact" type="text" placeholder="ФИО, телефон" autocomplete="off" />
                 </div>
               </div>
-              <div class="row" style="margin-top:10px;gap:8px">
+              <p class="small" style="margin:16px 0 8px;color:#64748b">Адрес погрузки (поля эТрН)</p>
+              <div class="worker-form-grid">
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newProdAddrIndex">Индекс</label>
+                  <input id="newProdAddrIndex" type="text" inputmode="numeric" maxlength="6" placeholder="141580" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newProdAddrRegion">Код региона</label>
+                  <input id="newProdAddrRegion" type="text" inputmode="numeric" maxlength="2" placeholder="50" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newProdAddrDistrict">Район</label>
+                  <input id="newProdAddrDistrict" type="text" placeholder="Солнечногорский р-н" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newProdAddrCity">Город</label>
+                  <input id="newProdAddrCity" type="text" placeholder="Химки" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newProdAddrSettlement">Нас. пункт</label>
+                  <input id="newProdAddrSettlement" type="text" placeholder="деревня Хоругвино" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newProdAddrStreet">Улица</label>
+                  <input id="newProdAddrStreet" type="text" placeholder="ул. Заводская" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newProdAddrHouse">Дом</label>
+                  <input id="newProdAddrHouse" type="text" placeholder="10" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newProdAddrCorpus">Корпус</label>
+                  <input id="newProdAddrCorpus" type="text" placeholder="1" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newProdAddrFlat">Квартира / офис</label>
+                  <input id="newProdAddrFlat" type="text" placeholder="" autocomplete="off" />
+                </div>
+              </div>
+              <div class="row" style="margin-top:16px;gap:8px">
                 <button onclick="saveSupplyProduction()">Сохранить</button>
                 <button class="secondary" onclick="toggleAddProductionForm(false)">Отмена</button>
                 <span id="addProductionInfo" class="small"></span>
@@ -4111,6 +4146,6 @@
   <script src="/static/jsbarcode.min.js"></script>
   <script src="/static/jspdf.umd.min.js"></script>
   <script src="/static/qrcode.min.js"></script>
-  <script src="/static/app.js?v=381"></script>
+  <script src="/static/app.js?v=382"></script>
 </body>
 </html>

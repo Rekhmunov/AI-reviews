@@ -200,6 +200,35 @@ def test_etrn_carrier_address_is_russian_rf():
     assert adr.attrib.get("КодРегион")  # RF type needs region
 
 
+def test_etrn_load_address_uses_structured_fields():
+    """СвПогруз takes structured production fields without free-text parse."""
+    root = ET.fromstring(
+        _build(
+            load_address="ignored free text that would parse differently",
+            load_addr_fields={
+                "Индекс": "141580",
+                "КодРегион": "50",
+                "Район": "Солнечногорский р-н",
+                "Город": "",
+                "НаселПункт": "Хоругвино",
+                "Улица": "ул. Заводская",
+                "Дом": "32/2",
+                "Корпус": "",
+                "Кварт": "",
+                "raw": "141580, Солнечногорский р-н, Хоругвино",
+            },
+        )
+    )
+    adr = root.find("Документ/СодИнфГО/СвПогруз/ФАдресПогр/АдресРФ")
+    assert adr is not None
+    assert adr.attrib.get("Индекс") == "141580"
+    assert adr.attrib.get("КодРегион") == "50"
+    assert adr.attrib.get("Район") == "Солнечногорский р-н"
+    assert adr.attrib.get("НаселПункт") == "Хоругвино"
+    assert adr.attrib.get("Улица") == "ул. Заводская"
+    assert adr.attrib.get("Дом") == "32/2"
+
+
 def test_etrn_ryazan_index_is_not_kaliningrad():
     """390xxx is Ryazan (62); index[:2]==39 must not become Kaliningrad."""
     root = ET.fromstring(
