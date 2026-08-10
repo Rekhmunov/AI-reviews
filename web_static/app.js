@@ -5202,6 +5202,12 @@ function renderOzonTable() {
           <button class="supply-detail-link supply-etrn-link" style="width:100%;text-align:left"
                   onclick="window.open('/api/ozon-supplies/${item.supply_order_id}/etrn.xml','_blank')"
                   title="Скачать XML эТрН для загрузки в Контур.Логистику">⬇ эТрН</button>
+          <button class="supply-detail-link" style="width:100%;text-align:left"
+                  onclick="openOzonEdoSendModal(${item.supply_order_id})"
+                  title="Подписать КриптоПро и отправить в Contour ЭДО">↗ Отправка в ЭДО</button>
+          <button class="supply-detail-link" style="width:100%;text-align:left"
+                  onclick="openOzonEdoStatusModal(${item.supply_order_id})"
+                  title="Проверить стадию документа в ЭДО">↻ Проверка статуса</button>
         </div>
       </td>`;
     tbody.appendChild(tr);
@@ -13078,9 +13084,11 @@ document.addEventListener("DOMContentLoaded", () => {
       if (clearBtn) clearBtn.style.display = "none";
       const ozonClearBtn = document.getElementById("ozonClearBtn");
       if (ozonClearBtn) ozonClearBtn.style.display = "none";
-      // Скрыть вкладку "Источники" в настройках поставок — только водители
+      // Скрыть вкладку "Источники"/"ЭДО" в настройках поставок — только водители и справочники
       const sourcesTab = document.getElementById("supplies-settings-tab-sources");
       if (sourcesTab) sourcesTab.style.display = "none";
+      const edoTab = document.getElementById("supplies-settings-tab-edo");
+      if (edoTab) edoTab.style.display = "none";
     }
     Promise.all([
       loadSupplySources(),
@@ -14519,16 +14527,324 @@ function _sstSave(key, widths) {
 
 window.showSuppliesSettingsTab = function(tab) {
   const permissions = getPermissions();
-  // Redirect manager (no settings access) away from sources tab to drivers
-  if (tab === "sources" && !permissions.can_view_settings) tab = "drivers";
+  // Redirect manager (no settings access) away from sources/edo tabs to drivers
+  if ((tab === "sources" || tab === "edo") && !permissions.can_view_settings) tab = "drivers";
   document.querySelectorAll("#section-supplies-settings .settings-tab-btn").forEach((b) => b.classList.remove("active"));
   document.getElementById(`supplies-settings-tab-${tab}`)?.classList.add("active");
   document.querySelectorAll("[id^='supplies-settings-pane-']").forEach((p) => { p.classList.add("hidden"); p.style.display = "none"; });
   const pane = document.getElementById(`supplies-settings-pane-${tab}`);
   if (pane) { pane.classList.remove("hidden"); pane.style.display = ""; }
+  if (tab === "edo") loadSupplyEdoSettings();
   // Init resizers after pane becomes visible
   requestAnimationFrame(initAllSettingResizers);
 };
+
+// ── Contour EDO (CryptoPro + Logistics / Diadoc) ─────────────────────────
+
+let _ozonEdoSupplyId = null;
+let _ozonEdoStatusSupplyId = null;
+let _cadesPluginReady = null;
+
+function _edoSetInfo(elId, text, ok) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  el.textContent = text || "";
+  el.style.color = ok === true ? "#16a34a" : ok === false ? "#b91c1c" : "#64748b";
+}
+
+async function loadSupplyEdoSettings() {
+  const res = await fetch("/api/supply-edo-settings", { headers: jsonHeaders() }).catch(() => null);
+  if (!res || !res.ok) return;
+  const s = await res.json().catch(() => ({}));
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ""; };
+  set("edoApiUrl", s.api_url || "https://logist-api.kontur.ru/");
+  set("edoApiKey", "");
+  set("edoCertThumbprint", s.cert_thumbprint || "");
+  set("edoDiadocUrl", s.diadoc_url || "https://diadoc-api.kontur.ru/");
+  set("edoDiadocClientId", s.diadoc_client_id || "");
+  set("edoDiadocLogin", s.diadoc_login || "");
+  set("edoDiadocPassword", "");
+  set("edoDiadocFromBox", s.diadoc_from_box_id || "");
+  set("edoDiadocToBox", s.diadoc_to_box_id || "");
+  const en = document.getElementById("edoSettingsEnabled");
+  if (en) en.checked = !!s.is_enabled;
+  const prev = document.getElementById("edoApiKeyPreview");
+  if (prev) prev.textContent = s.has_api_key ? `Сохранён: ${s.api_key_preview || "••••"}` : "Ключ не задан";
+  const pwdPrev = document.getElementById("edoDiadocPasswordPreview");
+  if (pwdPrev) pwdPrev.textContent = s.has_diadoc_password ? `Сохранён: ${s.diadoc_password_preview || "••••"}` : "";
+}
+
+async function saveSupplyEdoSettings() {
+  const info = "edoSettingsInfo";
+  _edoSetInfo(info, "Сохранение…");
+  const apiKey = document.getElementById("edoApiKey")?.value || "";
+  const diadocPassword = document.getElementById("edoDiadocPassword")?.value || "";
+  const body = {
+    api_url: document.getElementById("edoApiUrl")?.value.trim() || "https://logist-api.kontur.ru/",
+    diadoc_url: document.getElementById("edoDiadocUrl")?.value.trim() || "https://diadoc-api.kontur.ru/",
+    diadoc_client_id: document.getElementById("edoDiadocClientId")?.value.trim() || "",
+    diadoc_login: document.getElementById("edoDiadocLogin")?.value.trim() || "",
+    diadoc_from_box_id: document.getElementById("edoDiadocFromBox")?.value.trim() || "",
+    diadoc_to_box_id: document.getElementById("edoDiadocToBox")?.value.trim() || "",
+    cert_thumbprint: document.getElementById("edoCertThumbprint")?.value.trim() || "",
+    is_enabled: !!document.getElementById("edoSettingsEnabled")?.checked,
+  };
+  if (apiKey.trim()) body.api_key = apiKey.trim();
+  if (diadocPassword) body.diadoc_password = diadocPassword;
+  const res = await fetch("/api/supply-edo-settings", {
+    method: "PUT", headers: jsonHeaders(), body: JSON.stringify(body),
+  }).catch(() => null);
+  if (!res || !res.ok) {
+    const err = await res?.json().catch(() => ({})) || {};
+    _edoSetInfo(info, err.detail || "Ошибка сохранения", false);
+    return;
+  }
+  _edoSetInfo(info, "Сохранено", true);
+  await loadSupplyEdoSettings();
+}
+
+async function testSupplyEdoSettings() {
+  const info = "edoSettingsInfo";
+  _edoSetInfo(info, "Проверка…");
+  const res = await fetch("/api/supply-edo-settings/test", { method: "POST", headers: jsonHeaders() }).catch(() => null);
+  const data = await res?.json().catch(() => ({})) || {};
+  if (!res || !res.ok) {
+    _edoSetInfo(info, data.detail || "Ошибка проверки", false);
+    return;
+  }
+  const lg = data.logistics || {};
+  const dd = data.diadoc || {};
+  const parts = [
+    lg.ok ? "Логистика: OK" : `Логистика: ${lg.error || "ошибка"}`,
+    dd.ok ? "Diadoc: OK" : `Diadoc: ${dd.error || "не настроен"}`,
+  ];
+  _edoSetInfo(info, parts.join(" · "), !!(lg.ok));
+}
+
+function _ensureCadesPlugin() {
+  if (_cadesPluginReady) return _cadesPluginReady;
+  _cadesPluginReady = new Promise((resolve, reject) => {
+    if (typeof cadesplugin === "undefined") {
+      reject(new Error("Плагин КриптоПро не загружен. Установите КриптоПро ЭЦП Browser plug-in."));
+      return;
+    }
+    cadesplugin.then(() => resolve(cadesplugin), reject);
+  });
+  return _cadesPluginReady;
+}
+
+async function _listCryptoProCerts() {
+  await _ensureCadesPlugin();
+  return cadesplugin.async_spawn(function* () {
+    const store = yield cadesplugin.CreateObjectAsync("CAdESCOM.Store");
+    yield store.Open(
+      cadesplugin.CAPICOM_CURRENT_USER_STORE,
+      cadesplugin.CAPICOM_MY_STORE,
+      cadesplugin.CAPICOM_STORE_OPEN_MAXIMUM_ALLOWED,
+    );
+    const certs = yield store.Certificates;
+    const count = yield certs.Count;
+    const out = [];
+    for (let i = 1; i <= count; i++) {
+      const cert = yield certs.Item(i);
+      const subject = yield cert.SubjectName;
+      const thumb = yield cert.Thumbprint;
+      const validTo = yield cert.ValidToDate;
+      out.push({ subject, thumbprint: String(thumb || "").replace(/\s+/g, "").toUpperCase(), validTo });
+    }
+    try { yield store.Close(); } catch (_) {}
+    return out;
+  });
+}
+
+function _subjectCn(subject) {
+  const m = String(subject || "").match(/(?:^|,\s*)CN=([^,]+)/i);
+  return (m ? m[1] : subject || "Сертификат").trim();
+}
+
+async function _signDetachedCadesBes(dataBytes, thumbprint) {
+  await _ensureCadesPlugin();
+  const thumb = String(thumbprint || "").replace(/\s+/g, "").toUpperCase();
+  // CADESCOM expects base64 of raw bytes for Sign(Content, true) detached in many setups;
+  // use SignedData.ContentEncoding = base64 then Content = base64(xml).
+  const b64 = _bytesToB64(dataBytes);
+  return cadesplugin.async_spawn(function* () {
+    const store = yield cadesplugin.CreateObjectAsync("CAdESCOM.Store");
+    yield store.Open(
+      cadesplugin.CAPICOM_CURRENT_USER_STORE,
+      cadesplugin.CAPICOM_MY_STORE,
+      cadesplugin.CAPICOM_STORE_OPEN_MAXIMUM_ALLOWED,
+    );
+    const certs = yield store.Certificates;
+    const found = yield certs.Find(cadesplugin.CAPICOM_CERTIFICATE_FIND_SHA1_HASH, thumb);
+    const cnt = yield found.Count;
+    if (!cnt) throw new Error("Сертификат не найден в хранилище");
+    const cert = yield found.Item(1);
+    const signer = yield cadesplugin.CreateObjectAsync("CAdESCOM.CPSigner");
+    yield signer.propset_Certificate(cert);
+    yield signer.propset_CheckCertificate(true);
+    const sd = yield cadesplugin.CreateObjectAsync("CAdESCOM.CadesSignedData");
+    yield sd.propset_ContentEncoding(cadesplugin.CADESCOM_BASE64_TO_BINARY);
+    yield sd.propset_Content(b64);
+    const sigB64 = yield sd.SignCades(signer, cadesplugin.CADESCOM_CADES_BES, true);
+    try { yield store.Close(); } catch (_) {}
+    return String(sigB64 || "").replace(/\s+/g, "");
+  });
+}
+
+function _b64ToBytes(b64) {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function _bytesToB64(bytes) {
+  const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  let bin = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < arr.length; i += chunk) {
+    bin += String.fromCharCode.apply(null, arr.subarray(i, i + chunk));
+  }
+  return btoa(bin);
+}
+
+async function openOzonEdoSendModal(supplyOrderId) {
+  _ozonEdoSupplyId = supplyOrderId;
+  const modal = document.getElementById("ozonEdoModal");
+  if (!modal) return;
+  modal.classList.remove("hidden");
+  _edoSetInfo("ozonEdoModalInfo", "Загрузка сертификатов КриптоПро…");
+  const sel = document.getElementById("ozonEdoCertSelect");
+  if (sel) sel.innerHTML = '<option value="">Загрузка…</option>';
+  let preferred = "";
+  try {
+    const settings = await fetch("/api/supply-edo-settings", { headers: jsonHeaders() }).then((r) => r.json()).catch(() => ({}));
+    preferred = String(settings.cert_thumbprint || "").replace(/\s+/g, "").toUpperCase();
+    if (!settings.is_enabled || !settings.has_api_key) {
+      _edoSetInfo("ozonEdoModalInfo", "Сначала настройте Contour.Логистика в Поставки → Настройки → ЭДО", false);
+    }
+  } catch (_) {}
+  try {
+    const certs = await _listCryptoProCerts();
+    if (!sel) return;
+    if (!certs.length) {
+      sel.innerHTML = '<option value="">Сертификаты не найдены</option>';
+      _edoSetInfo("ozonEdoModalInfo", "Установите сертификат в хранилище Личные (КриптоПро)", false);
+      return;
+    }
+    sel.innerHTML = certs.map((c) => {
+      const tp = c.thumbprint;
+      const selAttr = preferred && tp === preferred ? " selected" : "";
+      return `<option value="${esc(tp)}"${selAttr}>${esc(_subjectCn(c.subject))} · ${esc(tp.slice(-8))}</option>`;
+    }).join("");
+    _edoSetInfo("ozonEdoModalInfo", `Найдено сертификатов: ${certs.length}. Выберите документ и нажмите «Подписать и отправить».`);
+  } catch (err) {
+    if (sel) sel.innerHTML = '<option value="">Ошибка плагина</option>';
+    _edoSetInfo("ozonEdoModalInfo", err?.message || String(err), false);
+  }
+}
+
+function closeOzonEdoModal() {
+  document.getElementById("ozonEdoModal")?.classList.add("hidden");
+  _ozonEdoSupplyId = null;
+}
+
+async function confirmOzonEdoSend() {
+  const supplyId = _ozonEdoSupplyId;
+  if (!supplyId) return;
+  const docType = document.getElementById("ozonEdoDocType")?.value || "etrn";
+  const thumb = document.getElementById("ozonEdoCertSelect")?.value || "";
+  const btn = document.getElementById("ozonEdoSendBtn");
+  if (!thumb) { _edoSetInfo("ozonEdoModalInfo", "Выберите сертификат", false); return; }
+  if (btn) btn.disabled = true;
+  try {
+    _edoSetInfo("ozonEdoModalInfo", "Формирование XML…");
+    const prep = await fetch(`/api/ozon-supplies/${supplyId}/edo/prepare?doc_type=${encodeURIComponent(docType)}`, {
+      headers: jsonHeaders(),
+    }).then(async (r) => {
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.detail || "Ошибка подготовки XML");
+      return j;
+    });
+    _edoSetInfo("ozonEdoModalInfo", "Подписание КриптоПро…");
+    const xmlBytes = _b64ToBytes(prep.xml_base64);
+    const sigB64 = await _signDetachedCadesBes(xmlBytes, thumb);
+    _edoSetInfo("ozonEdoModalInfo", "Отправка в Contour…");
+    const sendRes = await fetch(`/api/ozon-supplies/${supplyId}/edo/send`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        doc_type: docType,
+        signature_base64: sigB64,
+        xml_base64: prep.xml_base64,
+      }),
+    });
+    const sendData = await sendRes.json().catch(() => ({}));
+    if (!sendRes.ok) throw new Error(sendData.detail || "Ошибка отправки");
+    _edoSetInfo("ozonEdoModalInfo", "Отправлено. Можно проверить статус.", true);
+    setTimeout(() => { closeOzonEdoModal(); openOzonEdoStatusModal(supplyId); }, 600);
+  } catch (err) {
+    _edoSetInfo("ozonEdoModalInfo", err?.message || String(err), false);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function openOzonEdoStatusModal(supplyOrderId) {
+  _ozonEdoStatusSupplyId = supplyOrderId;
+  const modal = document.getElementById("ozonEdoStatusModal");
+  if (!modal) return;
+  modal.classList.remove("hidden");
+  await refreshOzonEdoStatusModal();
+}
+
+function closeOzonEdoStatusModal() {
+  document.getElementById("ozonEdoStatusModal")?.classList.add("hidden");
+  _ozonEdoStatusSupplyId = null;
+}
+
+async function refreshOzonEdoStatusModal() {
+  const supplyId = _ozonEdoStatusSupplyId;
+  const body = document.getElementById("ozonEdoStatusBody");
+  if (!supplyId || !body) return;
+  body.innerHTML = '<span style="color:#94a3b8">Загрузка статуса…</span>';
+  const res = await fetch(`/api/ozon-supplies/${supplyId}/edo/status`, { headers: jsonHeaders() }).catch(() => null);
+  const data = await res?.json().catch(() => ({})) || {};
+  if (!res || !res.ok) {
+    body.innerHTML = `<span style="color:#b91c1c">${esc(data.detail || "Не удалось получить статус")}</span>`;
+    return;
+  }
+  const docs = data.documents || [];
+  if (!docs.length) {
+    body.innerHTML = '<span style="color:#64748b">Документы ещё не отправлялись в ЭДО для этой поставки.</span>';
+    return;
+  }
+  body.innerHTML = docs.map((d) => {
+    const title = d.doc_type === "zakaz" ? "Заявка (ЭЗЗ)" : d.doc_type === "etrn" ? "эТрН" : esc(d.doc_type || "Документ");
+    const stage = esc(d.status_label || d.status || "—");
+    const tid = d.transportation_id ? `<div>ID перевозки: <code>${esc(d.transportation_id)}</code></div>` : "";
+    const mt = d.mintrans_id ? `<div>ГИС ЭПД: <code>${esc(d.mintrans_id)}</code></div>` : "";
+    const err = d.last_error ? `<div style="color:#b91c1c">${esc(d.last_error)}</div>` : "";
+    const when = d.updated_at || d.sent_at || "";
+    return `<div style="padding:12px 0;border-bottom:1px solid #e2e8f0">
+      <div style="font-weight:600;margin-bottom:4px">${title}</div>
+      <div>Стадия: <strong>${stage}</strong></div>
+      ${tid}${mt}${err}
+      <div style="color:#94a3b8;margin-top:4px">${esc(when)}</div>
+    </div>`;
+  }).join("");
+}
+
+window.loadSupplyEdoSettings = loadSupplyEdoSettings;
+window.saveSupplyEdoSettings = saveSupplyEdoSettings;
+window.testSupplyEdoSettings = testSupplyEdoSettings;
+window.openOzonEdoSendModal = openOzonEdoSendModal;
+window.closeOzonEdoModal = closeOzonEdoModal;
+window.confirmOzonEdoSend = confirmOzonEdoSend;
+window.openOzonEdoStatusModal = openOzonEdoStatusModal;
+window.closeOzonEdoStatusModal = closeOzonEdoStatusModal;
+window.refreshOzonEdoStatusModal = refreshOzonEdoStatusModal;
 
 // -----------------------------------------------------------------------
 // My Salary (operator view)

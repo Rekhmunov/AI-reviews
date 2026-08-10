@@ -493,6 +493,25 @@ class CreateSupplySourceRequest(BaseModel):
     client_id: str = ""
 
 
+class UpsertSupplyEdoSettingsRequest(BaseModel):
+    api_url: str = "https://logist-api.kontur.ru/"
+    api_key: str | None = None  # None = keep previous
+    diadoc_url: str = "https://diadoc-api.kontur.ru/"
+    diadoc_client_id: str = ""
+    diadoc_login: str = ""
+    diadoc_password: str | None = None  # None = keep previous
+    diadoc_from_box_id: str = ""
+    diadoc_to_box_id: str = ""
+    cert_thumbprint: str = ""
+    is_enabled: bool = True
+
+
+class OzonEdoSendRequest(BaseModel):
+    doc_type: str  # zakaz | etrn
+    signature_base64: str
+    xml_base64: str | None = None  # optional; server rebuilds if omitted
+
+
 class ToggleSupplySourceRequest(BaseModel):
     is_enabled: bool = True
 
@@ -11328,6 +11347,399 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             media_type="application/xml; charset=utf-8",
             headers={"Content-Disposition": f"attachment; filename*=UTF-8''{_qp(fname)}"},
         )
+
+    def _ozon_build_edo_xml(request: Request, supply_order_id: int, doc_type: str) -> tuple[bytes, str, dict]:
+        """Build Заявка/эТрН XML for CryptoPro signing + Contour send."""
+        import base64 as _b64
+        from . import ozon_etrn as _ozon_etrn
+        from . import ozon_zakaz as _ozon_zakaz
+
+        doc_type = str(doc_type or "").strip().lower()
+        if doc_type not in ("zakaz", "etrn"):
+            raise HTTPException(status_code=400, detail="doc_type: zakaz или etrn")
+        data, ctx, cargoes_json = _ozon_prepare_doc_xml_context(request, supply_order_id)
+        item = data["item"]
+        common = dict(
+            item=item,
+            le=ctx.get("le") or data.get("le") or {},
+            driver_name=str(ctx.get("driver_name") or ""),
+            driver_phone=str(ctx.get("driver_phone") or ""),
+            driver_documents=str(ctx.get("driver_documents") or ""),
+            driver_fields=ctx.get("driver_fields") or None,
+            vehicle_line=str(ctx.get("vehicle_line") or ""),
+            vehicle_json=item.get("vehicle_json"),
+            vehicle_fields=ctx.get("vehicle_fields") or None,
+            cargoes_json=cargoes_json,
+            load_address=str(ctx.get("load_address") or ""),
+            load_addr_fields=ctx.get("load_addr_fields") or None,
+            delivery_address=str(ctx.get("delivery_address") or ""),
+            delivery_addr_fields=ctx.get("delivery_addr_fields") or None,
+            carrier_text=str(ctx.get("carrier_text") or ""),
+            carrier_fields=ctx.get("carrier_fields") or None,
+            loader_name=str(ctx.get("loader_name") or ""),
+        )
+        supply_num = str(item.get("supply_order_number") or supply_order_id)
+        if doc_type == "zakaz":
+            xml_bytes = _ozon_zakaz.build_ozon_zakaz_xml(**common)
+            # ИдФайл for Contour filename — extract from XML root attr when possible.
+            fname = f"ON_ZAKZVGO_{supply_num}.xml"
+            try:
+                import xml.etree.ElementTree as ET
+                root = ET.fromstring(xml_bytes)
+                if root.attrib.get("ИдФайл"):
+                    fname = f"{root.attrib['ИдФайл']}.xml"
+            except Exception:
+                pass
+        else:
+            xml_bytes = _ozon_etrn.build_ozon_etrn_xml(**common)
+            fname = f"ON_TRNACLGROT_{supply_num}.xml"
+            try:
+                import xml.etree.ElementTree as ET
+                root = ET.fromstring(xml_bytes)
+                if root.attrib.get("ИдФайл"):
+                    fname = f"{root.attrib['ИдФайл']}.xml"
+            except Exception:
+                pass
+        meta = {
+            "doc_type": doc_type,
+            "supply_order_id": supply_order_id,
+            "filename": fname,
+            "xml_base64": _b64.b64encode(xml_bytes).decode("ascii"),
+            "xml_size": len(xml_bytes),
+        }
+        return xml_bytes, fname, meta
+
+    @app.get("/api/supply-edo-settings")
+    def get_supply_edo_settings(request: Request) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        return repository.get_supply_edo_settings(user_id=_supply_owner_id(user))
+
+    @app.put("/api/supply-edo-settings")
+    def put_supply_edo_settings(request: Request, payload: UpsertSupplyEdoSettingsRequest) -> dict[str, object]:
+        user = _require_user(request)
+        if str(user.get("role") or "") not in ROLE_CAN_ACCESS_SETTINGS and not bool(
+            user.get("can_supply_settings") or user.get("can_view_settings")
+        ):
+            raise HTTPException(status_code=403, detail="Нет доступа к настройкам ЭДО")
+        return repository.upsert_supply_edo_settings(
+            user_id=_supply_owner_id(user),
+            api_url=payload.api_url,
+            api_key=payload.api_key,
+            diadoc_url=payload.diadoc_url,
+            diadoc_client_id=payload.diadoc_client_id,
+            diadoc_login=payload.diadoc_login,
+            diadoc_password=payload.diadoc_password,
+            diadoc_from_box_id=payload.diadoc_from_box_id,
+            diadoc_to_box_id=payload.diadoc_to_box_id,
+            cert_thumbprint=payload.cert_thumbprint,
+            is_enabled=payload.is_enabled,
+        )
+
+    @app.post("/api/supply-edo-settings/test")
+    def test_supply_edo_settings(request: Request) -> dict[str, object]:
+        """Проверка ключа Contour.Логистика (+ опционально Diadoc auth)."""
+        from .kontur_logistics import KonturLogisticsClient
+        from .kontur_diadoc import KonturDiadocClient
+
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        settings = repository.get_supply_edo_settings(user_id=_supply_owner_id(user), include_secrets=True)
+        out: dict[str, object] = {"logistics": None, "diadoc": None}
+        if settings.get("api_key"):
+            client = KonturLogisticsClient(api_url=str(settings.get("api_url") or ""), api_key=str(settings["api_key"]))
+            res = client.ping()
+            out["logistics"] = {
+                "ok": res.ok,
+                "status_code": res.status_code,
+                "error": res.error,
+                "org": res.data if res.ok else None,
+            }
+        else:
+            out["logistics"] = {"ok": False, "error": "API-ключ Логистики не задан"}
+        if settings.get("diadoc_client_id") and settings.get("diadoc_login") and settings.get("diadoc_password"):
+            dclient = KonturDiadocClient(
+                api_url=str(settings.get("diadoc_url") or ""),
+                client_id=str(settings.get("diadoc_client_id") or ""),
+                login=str(settings.get("diadoc_login") or ""),
+                password=str(settings.get("diadoc_password") or ""),
+            )
+            ares = dclient.authenticate()
+            out["diadoc"] = {"ok": ares.ok, "status_code": ares.status_code, "error": ares.error}
+        else:
+            out["diadoc"] = {"ok": False, "error": "Diadoc не настроен (нужен для Заявки)"}
+        return out
+
+    @app.get("/api/ozon-supplies/{supply_order_id}/edo/prepare")
+    def prepare_ozon_edo_xml(request: Request, supply_order_id: int, doc_type: str = "etrn") -> dict[str, object]:
+        """XML для подписи КриптоПро перед отправкой в ЭДО."""
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        _xml, _fname, meta = _ozon_build_edo_xml(request, supply_order_id, doc_type)
+        settings = repository.get_supply_edo_settings(user_id=_supply_owner_id(user))
+        meta["cert_thumbprint"] = str(settings.get("cert_thumbprint") or "")
+        meta["edo_enabled"] = bool(settings.get("is_enabled") and settings.get("has_api_key"))
+        return meta
+
+    @app.post("/api/ozon-supplies/{supply_order_id}/edo/send")
+    def send_ozon_edo_document(
+        request: Request, supply_order_id: int, payload: OzonEdoSendRequest
+    ) -> dict[str, object]:
+        """Подписанный XML → Contour.Логистика (эТрН) или Diadoc (Заявка)."""
+        import base64 as _b64
+        import json as _jj
+        from .kontur_logistics import KonturLogisticsClient, status_label
+        from .kontur_diadoc import KonturDiadocClient
+
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        doc_type = str(payload.doc_type or "").strip().lower()
+        if doc_type not in ("zakaz", "etrn"):
+            raise HTTPException(status_code=400, detail="doc_type: zakaz или etrn")
+        sig_b64 = str(payload.signature_base64 or "").strip()
+        if not sig_b64:
+            raise HTTPException(status_code=400, detail="Нужна подпись CryptoPro (signature_base64)")
+        try:
+            signature_bytes = _b64.b64decode(sig_b64)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Некорректный signature_base64") from exc
+        if payload.xml_base64:
+            try:
+                xml_bytes = _b64.b64decode(payload.xml_base64)
+                fname = f"{'ON_ZAKZVGO' if doc_type == 'zakaz' else 'ON_TRNACLGROT'}_{supply_order_id}.xml"
+                try:
+                    import xml.etree.ElementTree as ET
+                    root = ET.fromstring(xml_bytes)
+                    if root.attrib.get("ИдФайл"):
+                        fname = f"{root.attrib['ИдФайл']}.xml"
+                except Exception:
+                    pass
+            except Exception as exc:
+                raise HTTPException(status_code=400, detail="Некорректный xml_base64") from exc
+        else:
+            xml_bytes, fname, _meta = _ozon_build_edo_xml(request, supply_order_id, doc_type)
+
+        settings = repository.get_supply_edo_settings(user_id=owner_id, include_secrets=True)
+        if not settings.get("is_enabled"):
+            raise HTTPException(status_code=400, detail="ЭДО выключен в настройках")
+
+        sig_name = fname + ".sig"
+        if doc_type == "etrn":
+            if not settings.get("api_key"):
+                raise HTTPException(status_code=400, detail="Задайте API-ключ Contour.Логистика в Настройки → ЭДО")
+            client = KonturLogisticsClient(
+                api_url=str(settings.get("api_url") or ""),
+                api_key=str(settings["api_key"]),
+            )
+            res = client.send_waybill(
+                xml_bytes=xml_bytes,
+                xml_filename=fname,
+                signature_bytes=signature_bytes,
+                signature_filename=sig_name,
+            )
+            if not res.ok:
+                repository.upsert_ozon_edo_document(
+                    user_id=owner_id,
+                    supply_order_id=supply_order_id,
+                    doc_type=doc_type,
+                    channel="logistics",
+                    status="error",
+                    status_label="Ошибка отправки",
+                    last_error=res.error or f"HTTP {res.status_code}",
+                    raw_json=res.raw[:8000],
+                )
+                raise HTTPException(status_code=502, detail=res.error or "Ошибка Contour.Логистика")
+            tid = str(res.data.get("transportationId") or res.data.get("transportation_id") or "").strip()
+            st = repository.upsert_ozon_edo_document(
+                user_id=owner_id,
+                supply_order_id=supply_order_id,
+                doc_type=doc_type,
+                channel="logistics",
+                transportation_id=tid,
+                status="sent",
+                status_label=status_label("NewTransportation"),
+                last_error="",
+                raw_json=_jj.dumps(res.data, ensure_ascii=False)[:8000],
+                mark_sent=True,
+            )
+            return {"ok": True, "doc_type": doc_type, "channel": "logistics", "document": st}
+
+        # zakaz → Diadoc LogisticsOrderRequest
+        if not (
+            settings.get("diadoc_client_id")
+            and settings.get("diadoc_login")
+            and settings.get("diadoc_password")
+            and settings.get("diadoc_from_box_id")
+            and settings.get("diadoc_to_box_id")
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="Для Заявки заполните Diadoc в Настройки → ЭДО (Client ID, логин, пароль, From/To BoxId)",
+            )
+        dclient = KonturDiadocClient(
+            api_url=str(settings.get("diadoc_url") or ""),
+            client_id=str(settings.get("diadoc_client_id") or ""),
+            login=str(settings.get("diadoc_login") or ""),
+            password=str(settings.get("diadoc_password") or ""),
+        )
+        res = dclient.send_order_request(
+            from_box_id=str(settings.get("diadoc_from_box_id") or ""),
+            to_box_id=str(settings.get("diadoc_to_box_id") or ""),
+            xml_bytes=xml_bytes,
+            signature_bytes=signature_bytes,
+        )
+        if not res.ok:
+            repository.upsert_ozon_edo_document(
+                user_id=owner_id,
+                supply_order_id=supply_order_id,
+                doc_type=doc_type,
+                channel="diadoc",
+                status="error",
+                status_label="Ошибка отправки",
+                last_error=res.error or f"HTTP {res.status_code}",
+                raw_json=res.raw[:8000],
+            )
+            raise HTTPException(status_code=502, detail=res.error or "Ошибка Diadoc")
+        ids = KonturDiadocClient.parse_post_message_ids(res.data)
+        # kl-id may appear later in OuterDocflow; store message/entity for status poll
+        st = repository.upsert_ozon_edo_document(
+            user_id=owner_id,
+            supply_order_id=supply_order_id,
+            doc_type=doc_type,
+            channel="diadoc",
+            message_id=ids.get("message_id") or "",
+            entity_id=ids.get("entity_id") or "",
+            status="sent",
+            status_label="Отправлено в Diadoc (ожидание статусов ГИС ЭПД)",
+            last_error="",
+            raw_json=_jj.dumps(res.data, ensure_ascii=False)[:8000] if isinstance(res.data, (dict, list)) else (res.raw[:8000]),
+            mark_sent=True,
+        )
+        return {"ok": True, "doc_type": doc_type, "channel": "diadoc", "document": st}
+
+    @app.get("/api/ozon-supplies/{supply_order_id}/edo/status")
+    def get_ozon_edo_status(request: Request, supply_order_id: int) -> dict[str, object]:
+        """Проверка стадии документов ЭДО по поставке."""
+        import json as _jj
+        from .kontur_logistics import KonturLogisticsClient, status_label
+        from .kontur_diadoc import KonturDiadocClient
+
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        docs = repository.list_ozon_edo_documents(user_id=owner_id, supply_order_id=supply_order_id)
+        settings = repository.get_supply_edo_settings(user_id=owner_id, include_secrets=True)
+        refreshed: list[dict] = []
+        for doc in docs:
+            dtype = str(doc.get("doc_type") or "")
+            channel = str(doc.get("channel") or "")
+            tid = str(doc.get("transportation_id") or "").strip()
+            if channel == "logistics" and tid and settings.get("api_key"):
+                client = KonturLogisticsClient(
+                    api_url=str(settings.get("api_url") or ""),
+                    api_key=str(settings["api_key"]),
+                )
+                res = client.get_transportation(tid)
+                if res.ok:
+                    parsed = KonturLogisticsClient.parse_transportation_status(res.data if isinstance(res.data, dict) else {})
+                    doc = repository.upsert_ozon_edo_document(
+                        user_id=owner_id,
+                        supply_order_id=supply_order_id,
+                        doc_type=dtype,
+                        channel="logistics",
+                        transportation_id=parsed.get("transportation_id") or tid,
+                        status=str(parsed.get("status") or ""),
+                        status_label=str(parsed.get("status_label") or status_label(parsed.get("status"))),
+                        mintrans_id=str(parsed.get("mintrans_id") or ""),
+                        mintrans_status=str(parsed.get("mintrans_status") or ""),
+                        last_error=str(parsed.get("mintrans_errors") or ""),
+                        raw_json=_jj.dumps(res.data, ensure_ascii=False)[:8000],
+                    )
+                else:
+                    doc = repository.upsert_ozon_edo_document(
+                        user_id=owner_id,
+                        supply_order_id=supply_order_id,
+                        doc_type=dtype,
+                        channel="logistics",
+                        transportation_id=tid,
+                        status=str(doc.get("status") or "unknown"),
+                        status_label=str(doc.get("status_label") or ""),
+                        last_error=res.error or f"HTTP {res.status_code}",
+                    )
+            elif channel == "diadoc" and doc.get("message_id") and settings.get("diadoc_client_id"):
+                # Pull document meta for stage hints (OuterDocflow / DocflowStatus)
+                dclient = KonturDiadocClient(
+                    api_url=str(settings.get("diadoc_url") or ""),
+                    client_id=str(settings.get("diadoc_client_id") or ""),
+                    login=str(settings.get("diadoc_login") or ""),
+                    password=str(settings.get("diadoc_password") or ""),
+                )
+                box_id = str(settings.get("diadoc_from_box_id") or "")
+                entity_id = str(doc.get("entity_id") or "")
+                if box_id and entity_id:
+                    res = dclient.get_document(
+                        box_id=box_id,
+                        message_id=str(doc.get("message_id") or ""),
+                        entity_id=entity_id,
+                    )
+                    if res.ok and isinstance(res.data, dict):
+                        status_text = str(
+                            res.data.get("DocflowStatus")
+                            or res.data.get("docflowStatus")
+                            or res.data.get("Status")
+                            or "sent"
+                        )
+                        # Prefer OuterDocflow KIMt statuses when present
+                        outer = res.data.get("OuterDocflows") or res.data.get("outerDocflows") or []
+                        label = status_text
+                        mt_id = ""
+                        mt_st = ""
+                        if isinstance(outer, list):
+                            for od in outer:
+                                if not isinstance(od, dict):
+                                    continue
+                                named = str(od.get("DocflowNamedId") or od.get("docflowNamedId") or "")
+                                if named and named != "KIMt":
+                                    continue
+                                st = od.get("Status") or od.get("status") or {}
+                                if isinstance(st, dict):
+                                    label = str(st.get("NamedId") or st.get("namedId") or st.get("Description") or label)
+                                details = od.get("StatusDetails") or od.get("statusDetails") or {}
+                                if isinstance(details, dict):
+                                    mt_id = str(details.get("mt-id") or details.get("mt_id") or "")
+                                    mt_st = str(details.get("mt-rid") or "")
+                                kl = ""
+                                if isinstance(details, dict):
+                                    kl = str(details.get("kl-id") or details.get("kl_id") or "")
+                                if kl and not doc.get("transportation_id"):
+                                    doc["transportation_id"] = kl
+                        doc = repository.upsert_ozon_edo_document(
+                            user_id=owner_id,
+                            supply_order_id=supply_order_id,
+                            doc_type=dtype,
+                            channel="diadoc",
+                            transportation_id=str(doc.get("transportation_id") or ""),
+                            message_id=str(doc.get("message_id") or ""),
+                            entity_id=entity_id,
+                            status=str(status_text)[:120],
+                            status_label=str(label)[:255],
+                            mintrans_id=mt_id,
+                            mintrans_status=mt_st,
+                            last_error="",
+                            raw_json=_jj.dumps(res.data, ensure_ascii=False)[:8000],
+                        )
+            refreshed.append(doc)
+        return {
+            "supply_order_id": supply_order_id,
+            "documents": refreshed or docs,
+            "edo_configured": bool(settings.get("has_api_key")),
+        }
 
     @app.get("/api/ozon-supplies/{supply_order_id}/ttn.pdf")
     def get_ozon_ttn_pdf_ep(request: Request, supply_order_id: int) -> "Response":
