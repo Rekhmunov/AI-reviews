@@ -3872,7 +3872,9 @@ async function downloadPoA(supplyId) {
   // Driver lookup — support manual (temporary) driver via _manual_driver_docs
   const driverName = item.driver_name || "";
   const driverObj = _supplyDriversCache.find((d) => d.full_name === driverName) || {};
-  const driverDocs = item._manual_driver_docs !== undefined ? item._manual_driver_docs : (driverObj.documents || "");
+  const driverDocs = item._manual_driver_docs !== undefined
+    ? item._manual_driver_docs
+    : (driverDocumentsLine(driverObj) || "");
 
   // Pallets (kept for fallback)
   const palletsRaw = parseInt(item.pallets_count) || 0;
@@ -7047,7 +7049,9 @@ async function downloadCombinedPoA() {
   const orgLine = [orgFull, le.requisites].filter(Boolean).join(", ");
   const driverName = refItem.driver_name || "";
   const driverObj = _supplyDriversCache.find(d => d.full_name === driverName) || {};
-  const driverDocs = refItem._manual_driver_docs !== undefined ? refItem._manual_driver_docs : (driverObj.documents || "");
+  const driverDocs = refItem._manual_driver_docs !== undefined
+    ? refItem._manual_driver_docs
+    : (driverDocumentsLine(driverObj) || "");
   const docNum = _getCombinedDocNumber();
   const now = new Date();
   const dateDisplay = now.toLocaleDateString("ru-RU", {day:"2-digit",month:"2-digit",year:"numeric"});
