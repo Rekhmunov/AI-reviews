@@ -2715,6 +2715,7 @@ function renderSupplyDriversTable() {
   tbody.innerHTML = "";
   if (!_supplyDriversCache.length) {
     tbody.innerHTML = '<tr><td colspan="7" class="empty-cell">Водители не добавлены</td></tr>';
+    requestAnimationFrame(initAllSettingResizers);
     return;
   }
   _supplyDriversCache.forEach((d, idx) => {
@@ -2730,7 +2731,7 @@ function renderSupplyDriversTable() {
       <td class="editable-cell">${esc(driverCarrierLine(d))}</td>
       <td class="editable-cell-vehicles">${_driverVehiclesHtml(vehicles)}</td>
       <td>
-        <div class="row" style="gap:4px;flex-wrap:nowrap">
+        <div class="sst-edit-actions">
           <button class="secondary small-btn" onclick="startEditDriver(${d.id})">✏</button>
           <button class="secondary small-btn" style="color:#b91c1c;border-color:#fca5a5"
             onclick="deleteSupplyDriver(${d.id})" title="Удалить">🗑</button>
@@ -2739,6 +2740,7 @@ function renderSupplyDriversTable() {
     `;
     tbody.appendChild(tr);
   });
+  requestAnimationFrame(initAllSettingResizers);
 }
 
 function _populateDriverSelect(currentValue) {
@@ -2850,9 +2852,9 @@ async function startEditDriver(id) {
   </td>`;
   tr.after(carrierRow);
   const actionCell = tr.cells[tr.cells.length - 1];
-  actionCell.innerHTML = `<div class="row" style="gap:4px;flex-wrap:nowrap">
-    <button class="secondary small-btn" style="color:#16a34a;border-color:#86efac" onclick="saveEditDriver(${id})">Сохр.</button>
-    <button class="secondary small-btn" onclick="loadSupplyDrivers()">✕</button>
+  actionCell.innerHTML = `<div class="sst-edit-actions">
+    <button class="secondary small-btn" style="color:#16a34a;border-color:#86efac" onclick="saveEditDriver(${id})">Сохранить</button>
+    <button class="secondary small-btn" onclick="loadSupplyDrivers()">Отмена</button>
   </div>`;
   cells[0].querySelector("input")?.focus();
 }
@@ -3205,6 +3207,7 @@ function renderSupplyWarehousesTbody() {
   tbody.innerHTML = "";
   if (!_supplyWarehousesCache.length) {
     tbody.innerHTML = '<tr><td colspan="4" class="empty-cell">Склады не добавлены</td></tr>';
+    requestAnimationFrame(initAllSettingResizers);
     return;
   }
   _supplyWarehousesCache.forEach((w, i) => {
@@ -3212,13 +3215,14 @@ function renderSupplyWarehousesTbody() {
     tr.dataset.id = w.id;
     tr.innerHTML = `<td>${i+1}</td><td class="editable-cell">${esc(w.warehouse_name||"")}</td><td class="editable-cell">${esc(w.address||"")}</td>
       <td>
-        <div class="row" style="gap:4px;flex-wrap:nowrap">
+        <div class="sst-edit-actions">
           <button class="secondary small-btn icon-btn" onclick="startEditWarehouse(${w.id})" title="Редактировать">✏</button>
           <button class="secondary small-btn icon-btn" style="color:#b91c1c;border-color:#fca5a5" onclick="deleteSupplyWarehouse(${w.id})" title="Удалить">🗑</button>
         </div>
       </td>`;
     tbody.appendChild(tr);
   });
+  requestAnimationFrame(initAllSettingResizers);
 }
 
 async function startEditWarehouse(id) {
@@ -3230,7 +3234,7 @@ async function startEditWarehouse(id) {
   cells[0].innerHTML = `<input class="edit-inline-input" value="${esc(item.warehouse_name||"")}" />`;
   cells[1].innerHTML = `<input class="edit-inline-input" value="${esc(item.address||"")}" />`;
   const actionCell = tr.cells[tr.cells.length - 1];
-  actionCell.innerHTML = `<div class="row" style="gap:4px;flex-wrap:nowrap">
+  actionCell.innerHTML = `<div class="sst-edit-actions">
     <button class="secondary small-btn" style="color:#16a34a;border-color:#86efac" onclick="saveEditWarehouse(${id})">Сохранить</button>
     <button class="secondary small-btn" onclick="loadSupplyWarehouses()">Отмена</button>
   </div>`;
@@ -3340,6 +3344,7 @@ function renderSupplyLegalEntitiesTbody() {
   tbody.innerHTML = "";
   if (!_supplyLegalEntitiesCache.length) {
     tbody.innerHTML = '<tr><td colspan="10" class="empty-cell">Юридические лица не добавлены</td></tr>';
+    requestAnimationFrame(initAllSettingResizers);
     return;
   }
   _supplyLegalEntitiesCache.forEach((e, i) => {
@@ -3347,13 +3352,14 @@ function renderSupplyLegalEntitiesTbody() {
     tr.dataset.id = e.id;
     tr.innerHTML = `<td>${i+1}</td><td class="editable-cell">${esc(e.short_name||"")}</td><td class="editable-cell">${esc(e.full_name||"")}</td><td class="editable-cell">${esc(e.requisites||"")}</td><td class="editable-cell">${esc(e.signatories||"")}</td><td class="editable-cell">${esc(e.in_person||"")}</td><td class="editable-cell">${esc(e.basis||"")}</td><td class="editable-cell">${esc(legalEntityAddressLine(e))}</td><td class="editable-cell">${esc(e.phone||"")}</td>
       <td>
-        <div class="row" style="gap:4px;flex-wrap:nowrap">
+        <div class="sst-edit-actions">
           <button class="secondary small-btn" onclick="startEditLegalEntity(${e.id})">✏</button>
           <button class="secondary small-btn icon-btn" style="color:#b91c1c;border-color:#fca5a5" onclick="deleteSupplyLegalEntity(${e.id})" title="Удалить">🗑</button>
         </div>
       </td>`;
     tbody.appendChild(tr);
   });
+  requestAnimationFrame(initAllSettingResizers);
 }
 
 async function startEditLegalEntity(id) {
@@ -3395,7 +3401,7 @@ async function startEditLegalEntity(id) {
   loadEditLegalSig(id);
 
   const actionCell = tr.cells[tr.cells.length - 1];
-  actionCell.innerHTML = `<div class="row" style="gap:4px;flex-wrap:nowrap">
+  actionCell.innerHTML = `<div class="sst-edit-actions">
     <button class="secondary small-btn" style="color:#16a34a;border-color:#86efac" onclick="saveEditLegalEntity(${id})">Сохранить</button>
     <button class="secondary small-btn" onclick="loadSupplyLegalEntities()">Отмена</button>
   </div>`;
@@ -12861,6 +12867,7 @@ function renderSupplyProductionsTbody() {
   tbody.innerHTML = "";
   if (!_supplyProductionsCache.length) {
     tbody.innerHTML = '<tr><td colspan="6" class="empty-cell">Производства не добавлены</td></tr>';
+    requestAnimationFrame(initAllSettingResizers);
     return;
   }
   _supplyProductionsCache.forEach((p, i) => {
@@ -12872,13 +12879,14 @@ function renderSupplyProductionsTbody() {
       <td class="editable-cell">${esc(productionAddressLine(p))}</td>
       <td class="editable-cell">${esc(p.load_contact||"")}</td>
       <td>
-        <div class="row" style="gap:4px;flex-wrap:nowrap">
+        <div class="sst-edit-actions">
           <button class="secondary small-btn" onclick="startEditProduction(${p.id})">✏</button>
           <button class="secondary small-btn icon-btn" style="color:#b91c1c;border-color:#fca5a5" onclick="deleteSupplyProduction(${p.id})" title="Удалить">🗑</button>
         </div>
       </td>`;
     tbody.appendChild(tr);
   });
+  requestAnimationFrame(initAllSettingResizers);
 }
 
 async function startEditProduction(id) {
@@ -12901,9 +12909,9 @@ async function startEditProduction(id) {
     ${_productionAddrEditInputsHtml(item)}
   </td>`;
   tr.after(addrRow);
-  tr.cells[tr.cells.length-1].innerHTML = `<div class="row" style="gap:4px;flex-wrap:nowrap">
-    <button class="secondary small-btn" style="color:#16a34a;border-color:#86efac" onclick="saveEditProduction(${id})">Сохр.</button>
-    <button class="secondary small-btn" onclick="loadSupplyProductions()">✕</button>
+  tr.cells[tr.cells.length-1].innerHTML = `<div class="sst-edit-actions">
+    <button class="secondary small-btn" style="color:#16a34a;border-color:#86efac" onclick="saveEditProduction(${id})">Сохранить</button>
+    <button class="secondary small-btn" onclick="loadSupplyProductions()">Отмена</button>
   </div>`;
 }
 
@@ -12976,6 +12984,7 @@ function renderSupplyContractorsTbody() {
   tbody.innerHTML = "";
   if (!_supplyContractorsCache.length) {
     tbody.innerHTML = '<tr><td colspan="4" class="empty-cell">Контрагенты не добавлены</td></tr>';
+    requestAnimationFrame(initAllSettingResizers);
     return;
   }
   _supplyContractorsCache.forEach((c, i) => {
@@ -12985,13 +12994,14 @@ function renderSupplyContractorsTbody() {
       <td class="editable-cell">${esc(c.name||"")}</td>
       <td class="editable-cell">${esc(c.requisites||"")}</td>
       <td>
-        <div class="row" style="gap:4px;flex-wrap:nowrap">
+        <div class="sst-edit-actions">
           <button class="secondary small-btn" onclick="startEditContractor(${c.id})">✏</button>
           <button class="secondary small-btn icon-btn" style="color:#b91c1c;border-color:#fca5a5" onclick="deleteSupplyContractor(${c.id})" title="Удалить">🗑</button>
         </div>
       </td>`;
     tbody.appendChild(tr);
   });
+  requestAnimationFrame(initAllSettingResizers);
 }
 
 async function startEditContractor(id) {
@@ -13002,7 +13012,7 @@ async function startEditContractor(id) {
   const cells = tr.querySelectorAll(".editable-cell");
   cells[0].innerHTML = `<input class="edit-inline-input" value="${esc(item.name||"")}" />`;
   cells[1].innerHTML = `<input class="edit-inline-input" value="${esc(item.requisites||"")}" />`;
-  tr.cells[tr.cells.length-1].innerHTML = `<div class="row" style="gap:4px;flex-wrap:nowrap">
+  tr.cells[tr.cells.length-1].innerHTML = `<div class="sst-edit-actions">
     <button class="secondary small-btn" style="color:#16a34a;border-color:#86efac" onclick="saveEditContractor(${id})">Сохранить</button>
     <button class="secondary small-btn" onclick="loadSupplyContractors()">Отмена</button>
   </div>`;
@@ -13914,6 +13924,7 @@ window.closeSupplyDetailsModal = closeSupplyDetailsModal;
 window.saveSupplyManualFields = saveSupplyManualFields;
 // ── Settings tables: resizable columns ───────────────────────────────────
 
+const _SST_ACTIONS_COL_W = 180;
 const _SST_TABLES = [
   { thead: "supplyDriversThead",         key: "sst_drivers" },
   { thead: "supplyWarehousesThead",       key: "sst_warehouses" },
@@ -13923,46 +13934,76 @@ const _SST_TABLES = [
 ];
 const _sstInited = new Set();
 
+function _sstParseWidthPx(th) {
+  const raw = String(th.style.width || "").trim();
+  const n = parseInt(raw, 10);
+  if (Number.isFinite(n) && n > 0) return n;
+  const attr = parseInt(String(th.getAttribute("width") || ""), 10);
+  if (Number.isFinite(attr) && attr > 0) return attr;
+  return th.offsetWidth || 120;
+}
+
+/** Keep table wider than the wrap when columns sum past the viewport → real overflow-x. */
+function _sstSyncTableWidth(table) {
+  if (!table) return;
+  const ths = table.querySelectorAll("thead th");
+  let total = 0;
+  ths.forEach((th) => { total += _sstParseWidthPx(th); });
+  if (total < 320) return;
+  table.style.tableLayout = "fixed";
+  table.style.width = `${total}px`;
+  table.style.minWidth = `${total}px`;
+}
+
 function initAllSettingResizers() {
   _SST_TABLES.forEach(({ thead, key }) => {
-    if (_sstInited.has(thead)) return;
     const theadEl = document.getElementById(thead);
     if (!theadEl) return;
-    _sstInited.add(thead);
-
-    // Apply saved widths
+    const table = theadEl.closest("table");
     const saved = _sstLoad(key);
     const ths = theadEl.querySelectorAll("th[data-col]");
-    ths.forEach(th => {
-      if (saved[th.dataset.col]) th.style.width = saved[th.dataset.col] + "px";
-      // Ensure table can have fixed column layout
-      const table = th.closest("table");
-      if (table) table.style.tableLayout = "fixed";
-    });
 
-    // Add resize handles
-    ths.forEach(th => {
+    ths.forEach((th) => {
+      if (th.classList.contains("sst-actions-col") || th.dataset.col === "acts") {
+        th.classList.add("sst-actions-col");
+        th.style.width = `${_SST_ACTIONS_COL_W}px`;
+        th.style.minWidth = `${_SST_ACTIONS_COL_W}px`;
+        th.style.maxWidth = `${_SST_ACTIONS_COL_W}px`;
+        return;
+      }
+      if (saved[th.dataset.col]) th.style.width = `${saved[th.dataset.col]}px`;
+    });
+    _sstSyncTableWidth(table);
+
+    if (_sstInited.has(thead)) return;
+    _sstInited.add(thead);
+
+    ths.forEach((th) => {
+      if (th.classList.contains("sst-actions-col") || th.dataset.col === "acts") return;
+      if (th.querySelector(".sst-resize-handle")) return;
       const handle = document.createElement("span");
       handle.className = "sst-resize-handle";
       th.style.position = "relative";
       th.appendChild(handle);
 
-      handle.addEventListener("mousedown", e => {
+      handle.addEventListener("mousedown", (e) => {
         e.preventDefault();
         e.stopPropagation();
         const startX = e.clientX;
         const startW = th.offsetWidth;
         handle.classList.add("sst-dragging");
 
-        const onMove = ev => {
-          const newW = Math.max(40, startW + (ev.clientX - startX));
-          th.style.width = newW + "px";
+        const onMove = (ev) => {
+          const newW = Math.max(48, startW + (ev.clientX - startX));
+          th.style.width = `${newW}px`;
+          _sstSyncTableWidth(table);
         };
         const onUp = () => {
           handle.classList.remove("sst-dragging");
           const widths = _sstLoad(key);
           widths[th.dataset.col] = th.offsetWidth;
           _sstSave(key, widths);
+          _sstSyncTableWidth(table);
           document.removeEventListener("mousemove", onMove);
           document.removeEventListener("mouseup", onUp);
           document.body.style.cursor = "";
