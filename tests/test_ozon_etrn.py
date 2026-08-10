@@ -99,12 +99,32 @@ def test_etrn_xml_core_schema_shape():
 
     # Ozon consignee + cargo required fields.
     assert sod.find("СвГП/РекИдентГП/ИдСв/СвЮЛУч").attrib["ИННЮЛ"] == OZON_CONSIGNEE_INN
+    gp_adr = sod.find("СвГП/РекИдентГП/Адрес/АдрРФ")
+    assert gp_adr is not None
+    assert gp_adr.attrib.get("Индекс") == "123112"
+    assert gp_adr.attrib.get("КодРегион") == "77"
+    assert gp_adr.attrib.get("Город") == "Москва"
+    assert "Пресненская" in (gp_adr.attrib.get("Улица") or "")
+    assert "наб" in (gp_adr.attrib.get("Улица") or "").lower()
+    assert gp_adr.attrib.get("Дом") == "10"
     op = sod.find("СвГруз/ОпГруз")
     assert op.attrib.get("КолМестГр") == "2"
     assert op.find("ПлМасГруз").attrib.get("МасБрутЗнач")
     assert sod.find("СвПогруз").attrib.get("МетОпрМасс") == "03"
     assert op.attrib.get("СостГруз") == "Без повреждений"
     assert op.attrib.get("СпУпак") == "Коробки"
+
+
+def test_parse_ru_address_suffix_embankment_street():
+    """«Пресненская наб.» must populate Улица (type after name)."""
+    from review_processor.ozon_etrn import OZON_CONSIGNEE_ADDRESS, _parse_ru_address
+
+    parsed = _parse_ru_address(OZON_CONSIGNEE_ADDRESS)
+    assert parsed["Индекс"] == "123112"
+    assert parsed["Город"] == "Москва"
+    assert parsed["Дом"] == "10"
+    assert "Пресненская" in parsed["Улица"]
+    assert "наб" in parsed["Улица"].lower()
 
 
 def test_etrn_xml_empty_cargoes_still_has_required_mass_places():
