@@ -797,6 +797,30 @@ def _add_adr_rf(parent: ET.Element, tag: str, addr: dict[str, str]) -> None:
     _el(parent, tag, **attrs)
 
 
+def _ozon_supply_number(item: dict[str, Any] | None) -> str:
+    """Номер поставки из основной таблицы Поставки → ОЗОН (`supply_order_number`).
+
+    Это значение уходит в ``ИнфПол/ТекстИнф`` (``Идентиф=Orders`` / ``ORDERS``).
+    Если колонка пуста — пробуем ``order_number`` из ``raw_json``, затем
+    внутренний ``supply_order_id`` как крайний fallback.
+    """
+    row = item or {}
+    num = str(row.get("supply_order_number") or "").strip()
+    if num:
+        return num
+    raw = row.get("raw_json")
+    if raw:
+        try:
+            parsed = json.loads(raw) if isinstance(raw, str) else raw
+            if isinstance(parsed, dict):
+                num = str(parsed.get("order_number") or "").strip()
+                if num:
+                    return num
+        except Exception:
+            pass
+    return str(row.get("supply_order_id") or "").strip()
+
+
 def build_ozon_etrn_xml(
     *,
     item: dict[str, Any],
@@ -821,7 +845,7 @@ def build_ozon_etrn_xml(
     """Build formal eTrN title-1 XML draft bytes (UTF-8)."""
     now = now or datetime.now()
     le = le or {}
-    supply_num = str(item.get("supply_order_number") or item.get("supply_order_id") or "").strip()
+    supply_num = _ozon_supply_number(item)
     org_full = str(le.get("full_name") or le.get("short_name") or item.get("supplier_name") or "").strip()
     org_req = str(le.get("requisites") or "")
     inn, kpp = _parse_inn_kpp(org_req)
@@ -1138,7 +1162,7 @@ def build_ozon_etrn_xml(
         _el(ident2, "ИННЮЛ", inn)
 
     # ИнфПол must be last in СодИнфГО sequence (table 5.3).
-    # Ozon matches supply by Orders; Kontur EDI convention uses ORDERS.
+    # Идентиф=Orders / ORDERS → Значение = номер поставки из основной таблицы ОЗОН.
     if supply_num:
         inf = _el(sod, "ИнфПол")
         _el(inf, "ТекстИнф", Идентиф="Orders", Значение=supply_num)
