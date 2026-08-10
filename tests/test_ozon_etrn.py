@@ -469,12 +469,15 @@ def test_compose_driver_documents_line():
         {
             "doc_vu_series": "9900",
             "doc_vu_number": "123456",
+            "doc_vu_issuer": "ГИБДД г. Москвы",
             "doc_vu_date": "01.02.2018",
             "doc_inn_fl": "500100200300",
         }
     )
     assert "ВУ 99 00 123456" in line
+    assert "кем выд. ГИБДД г. Москвы" in line
     assert "выд. 01.02.2018" in line
+    assert line.index("кем выд.") < line.index("выд. 01.02.2018")
     assert "ИНН 500100200300" in line
     assert (
         ReviewRepository.driver_documents_line(
@@ -482,6 +485,23 @@ def test_compose_driver_documents_line():
         )
         == "старые документы"
     )
+    # Issuer is catalog-only — not part of eTrN СвВодит attrs.
+    root = ET.fromstring(
+        _build(
+            driver_fields={
+                "doc_vu_series": "9900",
+                "doc_vu_number": "123456",
+                "doc_vu_issuer": "ГИБДД г. Москвы",
+                "doc_vu_date": "01.02.2018",
+            }
+        )
+    )
+    vod = root.find("Документ/СодИнфГО/СвВодит")
+    assert vod is not None
+    assert vod.attrib.get("СерВУ") == "9900"
+    assert vod.attrib.get("ДатаВыдВУ") == "01.02.2018"
+    assert "кем" not in ET.tostring(vod, encoding="unicode").lower()
+    assert "гибдд" not in ET.tostring(vod, encoding="unicode").lower()
 
 
 def test_etrn_contacts_use_legal_entity_phone_everywhere():

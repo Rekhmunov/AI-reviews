@@ -530,6 +530,7 @@ class CreateSupplyDriverRequest(BaseModel):
     carrier_addr_flat: str = ""
     doc_vu_series: str = ""
     doc_vu_number: str = ""
+    doc_vu_issuer: str = ""
     doc_vu_date: str = ""
     doc_inn_fl: str = ""
 
@@ -625,6 +626,7 @@ class UpdateSupplyDriverRequest(BaseModel):
     carrier_addr_flat: str = ""
     doc_vu_series: str = ""
     doc_vu_number: str = ""
+    doc_vu_issuer: str = ""
     doc_vu_date: str = ""
     doc_inn_fl: str = ""
 
@@ -12668,6 +12670,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             carrier_addr_flat=payload.carrier_addr_flat,
             doc_vu_series=payload.doc_vu_series,
             doc_vu_number=payload.doc_vu_number,
+            doc_vu_issuer=payload.doc_vu_issuer,
             doc_vu_date=payload.doc_vu_date,
             doc_inn_fl=payload.doc_inn_fl,
         )
@@ -12702,6 +12705,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             carrier_addr_flat=payload.carrier_addr_flat,
             doc_vu_series=payload.doc_vu_series,
             doc_vu_number=payload.doc_vu_number,
+            doc_vu_issuer=payload.doc_vu_issuer,
             doc_vu_date=payload.doc_vu_date,
             doc_inn_fl=payload.doc_inn_fl,
         )

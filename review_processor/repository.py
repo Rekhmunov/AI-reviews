@@ -7552,9 +7552,11 @@ class ReviewRepository:
                 f"ALTER TABLE supply_drivers ADD COLUMN IF NOT EXISTS {_drv_carrier_col} TEXT NOT NULL DEFAULT ''"
             )
         # Driver documents for eTrN СвВодит: VU series/number/date or ИННФЛ.
+        # doc_vu_issuer is catalog-only (not in СвВодит schema).
         for _drv_doc_col in (
             "doc_vu_series",
             "doc_vu_number",
+            "doc_vu_issuer",
             "doc_vu_date",
             "doc_inn_fl",
         ):
@@ -7926,6 +7928,7 @@ class ReviewRepository:
         *,
         doc_vu_series: str = "",
         doc_vu_number: str = "",
+        doc_vu_issuer: str = "",
         doc_vu_date: str = "",
         doc_inn_fl: str = "",
     ) -> dict[str, str]:
@@ -7933,6 +7936,7 @@ class ReviewRepository:
         series = re.sub(r"[^\dA-Za-zА-Яа-я]", "", series)[:20]
         number = re.sub(r"\s+", "", str(doc_vu_number or "").strip())
         number = re.sub(r"[^\dA-Za-zА-Яа-я]", "", number)[:20]
+        issuer = re.sub(r"\s+", " ", str(doc_vu_issuer or "").strip())[:255]
         date_raw = str(doc_vu_date or "").strip()
         date_val = ""
         if date_raw:
@@ -7947,6 +7951,7 @@ class ReviewRepository:
         return {
             "doc_vu_series": series,
             "doc_vu_number": number,
+            "doc_vu_issuer": issuer,
             "doc_vu_date": date_val,
             "doc_inn_fl": inn,
         }
@@ -7958,6 +7963,7 @@ class ReviewRepository:
         parts: list[str] = []
         series = str(data.get("doc_vu_series") or "").strip()
         number = str(data.get("doc_vu_number") or "").strip()
+        issuer = str(data.get("doc_vu_issuer") or "").strip()
         date_val = str(data.get("doc_vu_date") or "").strip()
         inn = str(data.get("doc_inn_fl") or "").strip()
         if series or number:
@@ -7972,11 +7978,18 @@ class ReviewRepository:
                 vu = f"ВУ серия {series}"
             else:
                 vu = f"ВУ № {number}"
+            if issuer:
+                vu = f"{vu} кем выд. {issuer}"
             if date_val:
                 vu = f"{vu} выд. {date_val}"
             parts.append(vu)
-        elif date_val:
-            parts.append(f"ВУ выд. {date_val}")
+        elif issuer or date_val:
+            vu = "ВУ"
+            if issuer:
+                vu = f"{vu} кем выд. {issuer}"
+            if date_val:
+                vu = f"{vu} выд. {date_val}"
+            parts.append(vu)
         if inn:
             parts.append(f"ИНН {inn}")
         return ", ".join(parts)
@@ -8115,6 +8128,7 @@ class ReviewRepository:
         carrier_addr_flat: str = "",
         doc_vu_series: str = "",
         doc_vu_number: str = "",
+        doc_vu_issuer: str = "",
         doc_vu_date: str = "",
         doc_inn_fl: str = "",
     ) -> dict[str, Any]:
@@ -8138,6 +8152,7 @@ class ReviewRepository:
         df = self._normalize_driver_doc_fields(
             doc_vu_series=doc_vu_series,
             doc_vu_number=doc_vu_number,
+            doc_vu_issuer=doc_vu_issuer,
             doc_vu_date=doc_vu_date,
             doc_inn_fl=doc_inn_fl,
         )
@@ -8152,8 +8167,8 @@ class ReviewRepository:
                 "carrier_addr_index, carrier_addr_region_code, carrier_addr_district, "
                 "carrier_addr_city, carrier_addr_settlement, carrier_addr_street, "
                 "carrier_addr_house, carrier_addr_corpus, carrier_addr_flat, "
-                "doc_vu_series, doc_vu_number, doc_vu_date, doc_inn_fl, created_at"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "doc_vu_series, doc_vu_number, doc_vu_issuer, doc_vu_date, doc_inn_fl, created_at"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     user_id,
                     full_name.strip(),
@@ -8175,6 +8190,7 @@ class ReviewRepository:
                     cf["carrier_addr_flat"],
                     df["doc_vu_series"],
                     df["doc_vu_number"],
+                    df["doc_vu_issuer"],
                     df["doc_vu_date"],
                     df["doc_inn_fl"],
                     now,
@@ -8222,6 +8238,7 @@ class ReviewRepository:
         carrier_addr_flat: str = "",
         doc_vu_series: str = "",
         doc_vu_number: str = "",
+        doc_vu_issuer: str = "",
         doc_vu_date: str = "",
         doc_inn_fl: str = "",
     ) -> bool:
@@ -8244,6 +8261,7 @@ class ReviewRepository:
         df = self._normalize_driver_doc_fields(
             doc_vu_series=doc_vu_series,
             doc_vu_number=doc_vu_number,
+            doc_vu_issuer=doc_vu_issuer,
             doc_vu_date=doc_vu_date,
             doc_inn_fl=doc_inn_fl,
         )
@@ -8272,7 +8290,7 @@ class ReviewRepository:
                     "carrier_addr_index = ?, carrier_addr_region_code = ?, carrier_addr_district = ?, "
                     "carrier_addr_city = ?, carrier_addr_settlement = ?, carrier_addr_street = ?, "
                     "carrier_addr_house = ?, carrier_addr_corpus = ?, carrier_addr_flat = ?, "
-                    "doc_vu_series = ?, doc_vu_number = ?, doc_vu_date = ?, doc_inn_fl = ? "
+                    "doc_vu_series = ?, doc_vu_number = ?, doc_vu_issuer = ?, doc_vu_date = ?, doc_inn_fl = ? "
                     "WHERE user_id = ? AND id = ?"
                 ),
                 (
@@ -8295,6 +8313,7 @@ class ReviewRepository:
                     cf["carrier_addr_flat"],
                     df["doc_vu_series"],
                     df["doc_vu_number"],
+                    df["doc_vu_issuer"],
                     df["doc_vu_date"],
                     df["doc_inn_fl"],
                     user_id,

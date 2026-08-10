@@ -2751,6 +2751,7 @@ const _CARRIER_FIELDS = [
 const _DRIVER_DOC_FIELDS = [
   ["doc_vu_series", "Серия ВУ"],
   ["doc_vu_number", "Номер ВУ"],
+  ["doc_vu_issuer", "Кем выдан"],
   ["doc_vu_date", "Дата выдачи ВУ"],
   ["doc_inn_fl", "ИНН физлица"],
 ];
@@ -2760,6 +2761,7 @@ function driverDocumentsLine(d) {
   if (!d) return "";
   const series = String(d.doc_vu_series || "").trim();
   const number = String(d.doc_vu_number || "").trim();
+  const issuer = String(d.doc_vu_issuer || "").trim();
   const dateVal = String(d.doc_vu_date || "").trim();
   const inn = String(d.doc_inn_fl || "").trim();
   const parts = [];
@@ -2774,10 +2776,14 @@ function driverDocumentsLine(d) {
     } else {
       vu = `ВУ № ${number}`;
     }
+    if (issuer) vu += ` кем выд. ${issuer}`;
     if (dateVal) vu += ` выд. ${dateVal}`;
     parts.push(vu);
-  } else if (dateVal) {
-    parts.push(`ВУ выд. ${dateVal}`);
+  } else if (issuer || dateVal) {
+    let vu = "ВУ";
+    if (issuer) vu += ` кем выд. ${issuer}`;
+    if (dateVal) vu += ` выд. ${dateVal}`;
+    parts.push(vu);
   }
   if (inn) parts.push(`ИНН ${inn}`);
   return parts.join(", ") || String(d.documents || "").trim();
@@ -2787,6 +2793,7 @@ function _readNewDriverDocFields() {
   return {
     doc_vu_series: document.getElementById("newDriverVuSeries")?.value.trim() || "",
     doc_vu_number: document.getElementById("newDriverVuNumber")?.value.trim() || "",
+    doc_vu_issuer: document.getElementById("newDriverVuIssuer")?.value.trim() || "",
     doc_vu_date: document.getElementById("newDriverVuDate")?.value.trim() || "",
     doc_inn_fl: document.getElementById("newDriverInnFl")?.value.trim() || "",
   };
