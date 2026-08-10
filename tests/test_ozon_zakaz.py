@@ -416,3 +416,24 @@ def test_zakaz_addr_without_fias_stays_adr_rf():
     root = ET.fromstring(_build())
     assert root.find("Документ/СодИнфГО/СвГО/Адрес/АдрРФ") is not None
     assert root.find("Документ/СодИнфГО/СвГО/Адрес/АдрФИАС") is None
+
+
+def test_zakaz_fias_survives_address_line_fallback():
+    """ФИАС не теряется, если структурированных полей нет и адрес разобран из строки."""
+    fias = "ff159a6c-6a6f-442b-9c34-10969dda9bb1"
+    root = ET.fromstring(
+        _build(
+            le={
+                "full_name": 'ООО "Тест"',
+                "requisites": "ИНН 7701234567 КПП 770101001",
+                "signatories": "Иванов Иван Иванович",
+                "phone": "+79991112233",
+                "address": "390528, Рязанская область, с. Алеканово, ул. Полевая, д. 62г",
+                "addr_fias": fias,
+            },
+        )
+    )
+    go_fias = root.find("Документ/СодИнфГО/СвГО/Адрес/АдрФИАС")
+    assert go_fias is not None
+    assert go_fias.attrib.get("ИдНом") == fias
+    assert go_fias.findtext("Регион")  # region recovered from address/index

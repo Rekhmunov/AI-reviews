@@ -390,6 +390,8 @@ def build_ozon_zakaz_xml(
         dest_addr = _parse_ru_address(delivery_address)
 
     shipper_addr = _addr_from_production_fields(le)
+    # Keep FIAS across АдрРФ fallback parse (parse rebuilds the dict and would drop it).
+    shipper_fias = _normalize_fias_id(shipper_addr.get("ФИАС") or le.get("addr_fias") or "")
     if not _has_structured_address(shipper_addr):
         legal_addr_raw = str(le.get("address") or "").strip() or _extract_address_from_requisites(org_req)
         shipper_addr = _parse_ru_address(legal_addr_raw)
@@ -398,6 +400,8 @@ def build_ozon_zakaz_xml(
             str(shipper_addr.get("raw") or le.get("address") or ""),
             str(shipper_addr.get("Индекс") or ""),
         )
+    if shipper_fias:
+        shipper_addr["ФИАС"] = shipper_fias
 
     cargo = _cargo_stats(cargoes_json if cargoes_json is not None else item.get("cargoes_json"))
     v_params = _vehicle_params(
@@ -440,10 +444,17 @@ def build_ozon_zakaz_xml(
         )
 
     carrier_addr = _addr_from_carrier_fields(carrier_fields)
+    carrier_fias = _normalize_fias_id(
+        carrier_addr.get("ФИАС")
+        or (carrier_fields or {}).get("carrier_addr_fias")
+        or ""
+    )
     if not _has_structured_address(carrier_addr):
         carrier_addr = _parse_ru_address(_extract_address_from_requisites(carrier_text))
     if not _has_structured_address(carrier_addr):
         carrier_addr = dict(shipper_addr)
+    if carrier_fias:
+        carrier_addr["ФИАС"] = carrier_fias
 
     signer_src = str(le.get("signatories") or le.get("in_person") or "").strip()
     s_fam, s_imya, s_otch = _split_fio(signer_src)
