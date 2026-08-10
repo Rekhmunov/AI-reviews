@@ -606,12 +606,19 @@ def _cargo_stats(cargoes_json: object) -> dict[str, Any]:
 
 
 def _le_has_phone(entity: dict[str, Any] | None) -> bool:
+    """True only when catalog phone field looks like a real number (not ИНН in requisites)."""
     if not entity:
         return False
-    if str(entity.get("phone") or "").strip():
+    raw = str(entity.get("phone") or "").strip()
+    if re.search(r"\d{10,}", raw):
         return True
-    # requisites may carry «тел. +7…»
-    return bool(re.search(r"(?:\+7|8)\s*[\d\-()\s]{9,}", str(entity.get("requisites") or "")))
+    # Marked phone in requisites only (+7 or «тел.») — never bare ИНН/КПП.
+    req = str(entity.get("requisites") or "")
+    if re.search(r"\+7[\d\-()\s]{9,}\d", req):
+        return True
+    if re.search(r"(?:тел\.?|телефон|моб\.?)\s*[:№]?\s*(?:\+?7|8)[\d\-()\s]{8,}\d", req, flags=re.I):
+        return True
+    return False
 
 
 def _find_legal_entity(entities: list[dict[str, Any]], supplier_name: str) -> dict[str, Any]:
@@ -1322,20 +1329,23 @@ def collect_ozon_etrn_context(
     """Resolve addresses / LE / carrier extras for XML build."""
     entities = repository.list_supply_legal_entities(user_id=owner_id)
     le = dict(_find_legal_entity(entities, str(item.get("supplier_name") or "")) or {})
-    # If matched LE has no phone — borrow from the only catalog entry that has one.
-    if le and not _le_has_phone(le):
-        with_phone = [e for e in entities if _le_has_phone(e)]
-        if len(with_phone) == 1:
-            le = dict(le)
-            le["phone"] = with_phone[0].get("phone") or le.get("phone")
-            if not str(le.get("requisites") or "").strip():
-                le["requisites"] = with_phone[0].get("requisites")
-        elif not le.get("phone"):
-            # Same short/full name variants sometimes differ only by phone fill.
-            for e in with_phone:
-                if str(e.get("id") or "") == str(le.get("id") or ""):
+    # Mirror carrier_phone: ensure le.phone is the catalog «Телефон» field when present.
+    # Re-read from entities by id (source of truth), then borrow from another entry if needed.
+    if le.get("id") is not None:
+        for e in entities:
+            if str(e.get("id")) == str(le.get("id")):
+                if str(e.get("phone") or "").strip():
                     le["phone"] = e.get("phone")
-                    break
+                break
+    if not _le_has_phone(le):
+        with_phone = [e for e in entities if _le_has_phone(e)]
+        if with_phone:
+            donor = with_phone[0]
+            le = dict(le) if le else {}
+            le["phone"] = donor.get("phone") or le.get("phone")
+            if not str(le.get("requisites") or "").strip():
+                le["requisites"] = donor.get("requisites")
+    shipper_phone = str(le.get("phone") or "").strip()
     drivers = repository.list_supply_drivers(user_id=owner_id)
     driver_row = _find_driver(drivers, driver_name)
     if hasattr(repository, "carrier_line"):
@@ -1395,6 +1405,8 @@ def collect_ozon_etrn_context(
 
     return {
         "le": le,
+        "shipper_phone": shipper_phone,
+        "legal_entities": entities,
         "carrier_text": carrier_text,
         "carrier_fields": carrier_fields,
         "load_address": load_address,

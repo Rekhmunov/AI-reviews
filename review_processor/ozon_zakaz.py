@@ -131,20 +131,62 @@ def _format_phone_display(phone: str) -> str:
 
 
 def _phone_from_requisites(requisites: str) -> str:
-    """Same fallback as эТрН: pull +7/8 phone from юр.лица requisites text."""
-    phone_m = re.search(r"(?:\+7|8)\s*[\d\-()\s]{9,}", str(requisites or ""))
-    if not phone_m:
+    """Pull phone from requisites — only marked/+7 numbers, never bare ИНН/КПП."""
+    text = str(requisites or "")
+    if not text.strip():
         return ""
-    return _normalize_phone(phone_m.group(0))
+    patterns = (
+        # «тел: +7…» / «телефон 8…»
+        r"(?:тел\.?|телефон|моб\.?|phone)\s*[:№]?\s*(\+?7|8)[\d\-()\s]{8,}\d",
+        # Explicit +7… (INN/KPP never use +)
+        r"(\+7[\d\-()\s]{9,}\d)",
+    )
+    for pat in patterns:
+        m = re.search(pat, text, flags=re.IGNORECASE)
+        if not m:
+            continue
+        token = m.group(0)
+        # Prefer the full matched phone token; strip the label prefix if present.
+        label = re.match(
+            r"(?:тел\.?|телефон|моб\.?|phone)\s*[:№]?\s*",
+            token,
+            flags=re.IGNORECASE,
+        )
+        if label:
+            token = token[label.end() :]
+        phone = _normalize_phone(token)
+        if phone:
+            return phone
+    return ""
 
 
-def _shipper_phone_from_le(le: dict[str, Any] | None) -> str:
-    """СвГО/Конт/Тлф ← телефон юр.лица (поле phone, иначе из реквизитов)."""
+def _shipper_phone_from_le(
+    le: dict[str, Any] | None,
+    *,
+    entities: list[dict[str, Any]] | None = None,
+) -> str:
+    """СвГО/Конт/Тлф ← как carrier_phone у перевозчика: сначала поле phone каталога.
+
+    1) le.phone (Настройки → Юр.лица → Телефон)
+    2) помеченный телефон в реквизитах (тел./+7…), не ИНН
+    3) поле phone любой записи каталога юр.лиц
+    """
     le = le or {}
     phone = _normalize_phone(str(le.get("phone") or ""))
     if phone:
         return phone
-    return _phone_from_requisites(str(le.get("requisites") or ""))
+    # Raw field may still contain a usable number if normalize was too strict.
+    raw = str(le.get("phone") or "").strip()
+    if re.search(r"\d{10,}", raw):
+        return _normalize_phone(raw) or raw
+    phone = _phone_from_requisites(str(le.get("requisites") or ""))
+    if phone:
+        return phone
+    for ent in entities or []:
+        p = _normalize_phone(str(ent.get("phone") or ""))
+        if p:
+            return p
+    return ""
 
 
 def _add_kont(parent: ET.Element, phone: str) -> None:
@@ -152,6 +194,7 @@ def _add_kont(parent: ET.Element, phone: str) -> None:
     kont = _el(parent, "Конт")
     display = _format_phone_display(phone)
     if not display:
+        # Last-resort XSD fill; Contour often hides 000-numbers as «нет телефона».
         display = "+7 (000) 000-00-00"
     _el(kont, "Тлф", display)
 
@@ -248,6 +291,8 @@ def build_ozon_zakaz_xml(
     carrier_text: str = "",
     carrier_fields: dict[str, Any] | None = None,
     loader_name: str = "",
+    shipper_phone: str = "",
+    legal_entities: list[dict[str, Any]] | None = None,
     now: datetime | None = None,
 ) -> bytes:
     """Build ЭЗЗ title-1 (ON_ZAKZVGO) XML draft bytes (UTF-8)."""
@@ -308,14 +353,18 @@ def build_ozon_zakaz_xml(
     else:
         carrier_name, carrier_inn, carrier_kpp = _parse_carrier(carrier_text)
 
-    # Грузоотправитель: телефон из Настройки → Юр.лица (поле phone / реквизиты).
-    # Водительский номер сюда не подставляем — иначе в Contour у ГО «чужой» телефон.
-    contact_phone = _shipper_phone_from_le(le)
+    # Грузоотправитель: зеркально перевозчику.
+    # Перевозчик ← carrier_fields.carrier_phone (каталог водителей).
+    # ГО        ← shipper_phone / le.phone (каталог юр.лиц), не водительский номер.
+    contact_phone = _normalize_phone(str(shipper_phone or ""))
+    if not contact_phone:
+        contact_phone = _shipper_phone_from_le(le, entities=legal_entities)
     if not contact_phone:
         _log.warning(
-            "ozon_zakaz: нет телефона юр.лица (id=%s short=%s) — СвГО/Конт/Тлф будет заглушкой",
+            "ozon_zakaz: нет телефона юр.лица (id=%s short=%r phone=%r) — СвГО/Конт/Тлф будет заглушкой",
             (le or {}).get("id"),
             (le or {}).get("short_name"),
+            (le or {}).get("phone"),
         )
 
     carrier_addr = _addr_from_carrier_fields(carrier_fields)

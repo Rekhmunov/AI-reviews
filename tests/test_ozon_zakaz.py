@@ -269,3 +269,60 @@ def test_zakaz_go_phone_ten_digit_local():
         )
     )
     assert root.find("Документ/СодИнфГО/СвГО/Конт/Тлф").text == "+7 (999) 123-45-67"
+
+
+def test_zakaz_go_phone_not_parsed_from_inn():
+    """ИНН в реквизитах на «8…» не должен становиться телефоном ГО."""
+    from review_processor.ozon_zakaz import _phone_from_requisites, _shipper_phone_from_le
+
+    assert _phone_from_requisites("ИНН 8701234567 КПП 770101001") == ""
+    assert _shipper_phone_from_le({
+        "phone": "",
+        "requisites": "ИНН 8701234567 КПП 770101001",
+    }) == ""
+
+
+def test_zakaz_go_phone_from_shipper_phone_param():
+    """Явный shipper_phone (как carrier_phone у перевозчика) важнее пустого le.phone."""
+    root = ET.fromstring(
+        _build(
+            le={
+                "full_name": 'ООО "Тест Поставщик"',
+                "short_name": "Тест",
+                "requisites": "ИНН 8701234567 КПП 770101001",
+                "signatories": "Иванов Иван Иванович",
+                "phone": "",
+                "address": "101000, г. Москва, ул. Ленина, д. 1",
+            },
+            shipper_phone="+7 916 555-44-33",
+            carrier_fields={
+                "carrier_name": 'ООО "Перевозчик"',
+                "carrier_inn": "5001002003",
+                "carrier_phone": "+79007776655",
+            },
+        )
+    )
+    assert root.find("Документ/СодИнфГО/СвГО/Конт/Тлф").text == "+7 (916) 555-44-33"
+    assert root.find("Документ/СодИнфГО/СвПрв/Конт/Тлф").text == "+7 (900) 777-66-55"
+
+
+def test_zakaz_go_phone_from_legal_entities_catalog():
+    """Если le.phone пуст — берём phone из каталога legal_entities."""
+    root = ET.fromstring(
+        _build(
+            le={
+                "id": 1,
+                "full_name": 'ООО "Тест Поставщик"',
+                "short_name": "Тест",
+                "requisites": "ИНН 7701234567 КПП 770101001",
+                "signatories": "Иванов Иван Иванович",
+                "phone": "",
+                "address": "101000, г. Москва, ул. Ленина, д. 1",
+            },
+            legal_entities=[
+                {"id": 1, "short_name": "Тест", "phone": ""},
+                {"id": 2, "short_name": "Другое", "phone": "+7 (495) 111-00-00"},
+            ],
+        )
+    )
+    assert root.find("Документ/СодИнфГО/СвГО/Конт/Тлф").text == "+7 (495) 111-00-00"

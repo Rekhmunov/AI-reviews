@@ -11279,9 +11279,18 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         data, ctx, cargoes_json = _ozon_prepare_doc_xml_context(request, supply_order_id)
         item = data["item"]
         try:
+            le_ctx = dict(ctx.get("le") or data.get("le") or {})
+            # Explicit shipper phone (same idea as carrier_fields.carrier_phone).
+            shipper_phone = str(ctx.get("shipper_phone") or le_ctx.get("phone") or "").strip()
+            if not shipper_phone:
+                for ent in ctx.get("legal_entities") or []:
+                    if str(ent.get("phone") or "").strip():
+                        shipper_phone = str(ent.get("phone") or "").strip()
+                        le_ctx["phone"] = shipper_phone
+                        break
             xml_bytes = _ozon_zakaz.build_ozon_zakaz_xml(
                 item=item,
-                le=ctx.get("le") or data.get("le") or {},
+                le=le_ctx,
                 driver_name=str(ctx.get("driver_name") or ""),
                 driver_phone=str(ctx.get("driver_phone") or ""),
                 driver_documents=str(ctx.get("driver_documents") or ""),
@@ -11297,6 +11306,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 carrier_text=str(ctx.get("carrier_text") or ""),
                 carrier_fields=ctx.get("carrier_fields") or None,
                 loader_name=str(ctx.get("loader_name") or ""),
+                shipper_phone=shipper_phone,
+                legal_entities=list(ctx.get("legal_entities") or []),
             )
         except Exception as exc:
             _log.exception("ozon zakaz xml failed for %s", supply_order_id)
@@ -11362,9 +11373,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="doc_type: zakaz или etrn")
         data, ctx, cargoes_json = _ozon_prepare_doc_xml_context(request, supply_order_id)
         item = data["item"]
+        le_ctx = dict(ctx.get("le") or data.get("le") or {})
         common = dict(
             item=item,
-            le=ctx.get("le") or data.get("le") or {},
+            le=le_ctx,
             driver_name=str(ctx.get("driver_name") or ""),
             driver_phone=str(ctx.get("driver_phone") or ""),
             driver_documents=str(ctx.get("driver_documents") or ""),
@@ -11383,7 +11395,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
         supply_num = str(item.get("supply_order_number") or supply_order_id)
         if doc_type == "zakaz":
-            xml_bytes = _ozon_zakaz.build_ozon_zakaz_xml(**common)
+            shipper_phone = str(ctx.get("shipper_phone") or le_ctx.get("phone") or "").strip()
+            xml_bytes = _ozon_zakaz.build_ozon_zakaz_xml(
+                **common,
+                shipper_phone=shipper_phone,
+                legal_entities=list(ctx.get("legal_entities") or []),
+            )
             # ИдФайл for Contour filename — extract from XML root attr when possible.
             fname = f"ON_ZAKZVGO_{supply_num}.xml"
             try:
