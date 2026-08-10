@@ -403,6 +403,26 @@ def test_etrn_vehicle_uses_structured_catalog_fields():
     assert part.attrib.get("Вместим") == "86"
 
 
+def test_etrn_loader_from_production_head():
+    """СвЛицПогрГр/РабЛицПогрГр ← производство.Начальник, должность фиксирована."""
+    root = ET.fromstring(_build(loader_name="Сидоров Сидор Сидорович"))
+    rab = root.find("Документ/СодИнфГО/СвПогруз/СвЛицПогрГр/РабЛицПогрГр")
+    assert rab is not None
+    assert rab.attrib.get("Должность") == "начальник производства"
+    od = rab.find("ОДолжОб")
+    assert od is not None
+    assert (od.text or "").strip() == "Должностные обязанности"
+    fio = rab.find("ФИО")
+    assert fio is not None
+    assert fio.attrib.get("Фамилия") == "Сидоров"
+    assert fio.attrib.get("Имя") == "Сидор"
+    assert fio.attrib.get("Отчество") == "Сидорович"
+    # Without head_name — no worker block (ИдентРекГО still present).
+    root2 = ET.fromstring(_build(loader_name=""))
+    assert root2.find("Документ/СодИнфГО/СвПогруз/СвЛицПогрГр/РабЛицПогрГр") is None
+    assert root2.find("Документ/СодИнфГО/СвПогруз/СвЛицПогрГр/ИдентРекГО") is not None
+
+
 def test_compose_vehicle_line_and_normalize():
     from review_processor.repository import ReviewRepository
 

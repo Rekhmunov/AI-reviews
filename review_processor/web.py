@@ -11221,6 +11221,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 delivery_addr_fields=ctx.get("delivery_addr_fields") or None,
                 carrier_text=str(ctx.get("carrier_text") or ""),
                 carrier_fields=ctx.get("carrier_fields") or None,
+                loader_name=str(ctx.get("loader_name") or ""),
             )
         except Exception as exc:
             _log.exception("ozon etrn xml failed for %s", supply_order_id)

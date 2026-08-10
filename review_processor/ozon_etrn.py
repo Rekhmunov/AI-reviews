@@ -801,6 +801,7 @@ def build_ozon_etrn_xml(
     delivery_addr_fields: dict[str, str] | None = None,
     carrier_text: str = "",
     carrier_fields: dict[str, Any] | None = None,
+    loader_name: str = "",
     now: datetime | None = None,
 ) -> bytes:
     """Build formal eTrN title-1 XML draft bytes (UTF-8)."""
@@ -1097,7 +1098,19 @@ def build_ozon_etrn_xml(
         load_addr = {**load_addr, "raw": "Адрес погрузки уточнить"}
     _add_adr_rf(f_adr, "АдресРФ", load_addr)
 
+    # Работник погрузки ← Поставки → Настройки → Производства → Начальник.
     lich = _el(sv_pogr, "СвЛицПогрГр", СовпГОП="1")
+    loader_fio = str(loader_name or "").strip()
+    if loader_fio:
+        l_fam, l_imya, l_otch = _split_fio(loader_fio)
+        if not l_fam:
+            l_fam, l_imya = "Не", "указан"
+        rab = _el(lich, "РабЛицПогрГр", Должность="начальник производства")
+        _el(rab, "ОДолжОб", "Должностные обязанности")
+        fio_loader = {"Фамилия": l_fam, "Имя": l_imya or "не указано"}
+        if l_otch:
+            fio_loader["Отчество"] = l_otch
+        _el(rab, "ФИО", **fio_loader)
     ident = _el(lich, "ИдентРекГО")
     if inn:
         _el(ident, "ИННЮЛ", inn)
@@ -1156,6 +1169,7 @@ def collect_ozon_etrn_context(
 
     production_name = str(item.get("production") or "").strip()
     load_address = ""
+    loader_name = ""
     load_addr_fields: dict[str, str] = _empty_ru_address()
     if production_name:
         for p in repository.list_supply_productions(user_id=owner_id):
@@ -1166,6 +1180,7 @@ def collect_ozon_etrn_context(
                     load_address = str(repository.production_address_line(p) or "").strip()
                 else:
                     load_address = str(p.get("address") or "").strip()
+                loader_name = str(p.get("head_name") or "").strip()
                 structured = _addr_from_production_fields(p)
                 if _has_structured_address(structured):
                     load_addr_fields = structured
@@ -1209,4 +1224,5 @@ def collect_ozon_etrn_context(
         "driver_fields": driver_fields,
         "vehicle_line": vehicle_line,
         "vehicle_fields": vehicle_fields,
+        "loader_name": loader_name,
     }
