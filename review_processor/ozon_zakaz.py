@@ -2,10 +2,14 @@
 
 Builds title-1 XML (КНД 1110361, ON_ZAKZVGO, ВерсФорм 5.01)
 per FNS order ЕД-7-26/108@ — same data sources as eTrN draft.
+
+Kontur.Logistics rejects the file on import when XSD-required fields are
+missing/empty (esp. АдрРФ/Индекс, Конт/Тлф, N(5.2)/N(5.3) numerics).
 """
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from datetime import datetime
 from typing import Any
@@ -13,12 +17,12 @@ from xml.dom import minidom
 from xml.etree import ElementTree as ET
 
 from .ozon_etrn import (
-    _add_adr_rf,
     _addr_from_carrier_fields,
     _addr_from_production_fields,
     _cargo_stats,
     _carrier_org_from_fields,
     _el,
+    _extract_address_from_requisites,
     _format_dt_vz,
     _has_structured_address,
     _ozon_supply_number,
@@ -26,38 +30,156 @@ from .ozon_etrn import (
     _parse_inn_kpp,
     _parse_ru_address,
     _region_code_from_text,
+    _region_from_postal_index,
     _split_fio,
     _vehicle_params,
-    _extract_address_from_requisites,
 )
 
 _log = logging.getLogger(__name__)
 
+# Representative postal indexes when only КодРегион is known (АдрРФ/Индекс is required).
+_DEFAULT_INDEX_BY_REGION: dict[str, str] = {
+    "02": "450000",
+    "16": "420000",
+    "23": "350000",
+    "24": "660000",
+    "34": "400000",
+    "36": "394000",
+    "39": "236000",
+    "47": "187000",
+    "50": "140000",
+    "52": "603000",
+    "54": "630000",
+    "59": "614000",
+    "61": "344000",
+    "62": "390000",
+    "63": "443000",
+    "64": "410000",
+    "66": "620000",
+    "71": "300000",
+    "72": "625000",
+    "74": "454000",
+    "77": "101000",
+    "78": "190000",
+}
+
+
+def _fmt_n52(value: object, *, default: str = "1.00") -> str:
+    """FNS N(5.2) — e.g. Объем / Грузопод / Вместим."""
+    raw = str(value or "").strip().replace(",", ".")
+    try:
+        return f"{float(raw):.2f}"
+    except ValueError:
+        return default
+
+
+def _fmt_n53(value: object, *, default: str = "1.000") -> str:
+    """FNS N(5.3) — габариты РазмерГрМест."""
+    raw = str(value or "").strip().replace(",", ".")
+    try:
+        return f"{float(raw):.3f}"
+    except ValueError:
+        return default
+
+
+def _fmt_mass(value: object, *, default: str = "1.000") -> str:
+    """FNS N(17.3) — МасБрутЗнач."""
+    raw = str(value or "").strip().replace(",", ".")
+    try:
+        return f"{float(raw):.3f}"
+    except ValueError:
+        return default
+
+
+def _normalize_phone(phone: str) -> str:
+    phone = re.sub(r"[^\d+]", "", str(phone or "").strip())
+    if phone.startswith("8") and len(phone) == 11:
+        phone = "+7" + phone[1:]
+    elif phone.startswith("7") and len(phone) == 11:
+        phone = "+" + phone
+    return phone
+
 
 def _add_kont(parent: ET.Element, phone: str) -> None:
-    """ЭЗЗ uses Конт/Тлф (not Контакт as in эТрН)."""
+    """ЭЗЗ: Конт is required; Тлф is ОМ T(1-255) — must be non-empty."""
     kont = _el(parent, "Конт")
-    phone = str(phone or "").strip()
-    if phone:
-        _el(kont, "Тлф", phone)
+    phone = _normalize_phone(phone)
+    if not phone:
+        phone = "+70000000000"
+    _el(kont, "Тлф", phone)
+
+
+def _ensure_adr(addr: dict[str, str] | None, *, fallback_label: str = "Адрес уточнить") -> dict[str, str]:
+    """Guarantee АдрРФ required attrs: Индекс (6) + КодРегион (2)."""
+    out = dict(addr or {})
+    raw = str(out.get("raw") or "").strip()
+    idx = re.sub(r"\D", "", str(out.get("Индекс") or ""))
+    if len(idx) >= 6:
+        out["Индекс"] = idx[:6]
+    elif raw:
+        m = re.search(r"\b(\d{6})\b", raw)
+        if m:
+            out["Индекс"] = m.group(1)
+            idx = m.group(1)
+        else:
+            idx = ""
     else:
-        ET.SubElement(kont, "Тлф")
+        idx = ""
+
+    region = str(out.get("КодРегион") or "").strip()
+    if not region:
+        region = _region_code_from_text(raw, out.get("Индекс", "")) or _region_from_postal_index(
+            out.get("Индекс", "")
+        )
+    if not region:
+        region = "77"
+    out["КодРегион"] = region.zfill(2)[-2:]
+
+    if not out.get("Индекс") or len(re.sub(r"\D", "", out.get("Индекс", ""))) != 6:
+        out["Индекс"] = _DEFAULT_INDEX_BY_REGION.get(out["КодРегион"], "101000")
+
+    if not any(out.get(k) for k in ("Улица", "Город", "НаселПункт", "Дом")):
+        label = raw or fallback_label
+        out["Улица"] = str(label)[:255]
+    return out
 
 
-def _addr_block(parent: ET.Element, addr: dict[str, str]) -> None:
-    if not (addr.get("raw") or addr.get("Индекс") or addr.get("КодРегион") or addr.get("Улица")):
+def _addr_block(parent: ET.Element, addr: dict[str, str] | None) -> None:
+    """Emit participant Адрес/АдрРФ only when we have something real-ish."""
+    if not addr:
         return
+    if not (addr.get("raw") or addr.get("Индекс") or addr.get("Улица") or addr.get("Город")):
+        return
+    ensured = _ensure_adr(addr)
     adr = _el(parent, "Адрес")
-    _add_adr_rf(adr, "АдрРФ", addr)
+    attrs = {
+        k: ensured[k]
+        for k in ("Индекс", "КодРегион", "Район", "Город", "НаселПункт", "Улица", "Дом", "Корпус", "Кварт")
+        if ensured.get(k)
+    }
+    _el(adr, "АдрРФ", **attrs)
 
 
-def _punkt_address(parent: ET.Element, wrapper_tag: str, addr: dict[str, str]) -> None:
+def _punkt_address(parent: ET.Element, wrapper_tag: str, addr: dict[str, str] | None, *, label: str) -> None:
+    ensured = _ensure_adr(addr, fallback_label=label)
     wrap = _el(parent, wrapper_tag)
     adr = _el(wrap, "Адрес")
-    _add_adr_rf(adr, "АдрРФ", addr if (addr.get("raw") or addr.get("Индекс") or addr.get("Улица")) else {
-        "Улица": "Адрес уточнить",
-        "КодРегион": "77",
-    })
+    attrs = {
+        k: ensured[k]
+        for k in ("Индекс", "КодРегион", "Район", "Город", "НаселПункт", "Улица", "Дом", "Корпус", "Кварт")
+        if ensured.get(k)
+    }
+    _el(adr, "АдрРФ", **attrs)
+
+
+def _fns_participant_id(inn: str, kpp: str = "", *, now: datetime | None = None) -> str:
+    inn = str(inn or "").strip()
+    kpp = str(kpp or "").strip() or "000000000"
+    if not inn:
+        return ""
+    # Shape close to Diadoc FNSId: 2BM-{INN}-{KPP}-{21 digits}
+    stamp = (now or datetime.now()).strftime("%Y%m%d%H%M%S") + "0000000"
+    return f"2BM-{inn}-{kpp}-{stamp[:21]}"
 
 
 def build_ozon_zakaz_xml(
@@ -139,15 +261,17 @@ def build_ozon_zakaz_xml(
     else:
         carrier_name, carrier_inn, carrier_kpp = _parse_carrier(carrier_text)
 
-    contact_phone = str(le.get("phone") or "").strip()
+    contact_phone = _normalize_phone(str(le.get("phone") or ""))
     if not contact_phone:
-        contact_phone = str(driver_phone or "").strip()
+        contact_phone = _normalize_phone(str(driver_phone or ""))
         if not contact_phone and isinstance(driver_fields, dict):
-            contact_phone = str(driver_fields.get("phone") or "").strip()
+            contact_phone = _normalize_phone(str(driver_fields.get("phone") or ""))
 
     carrier_addr = _addr_from_carrier_fields(carrier_fields)
     if not _has_structured_address(carrier_addr):
         carrier_addr = _parse_ru_address(_extract_address_from_requisites(carrier_text))
+    if not _has_structured_address(carrier_addr):
+        carrier_addr = dict(shipper_addr)
 
     signer_src = str(le.get("signatories") or le.get("in_person") or "").strip()
     s_fam, s_imya, s_otch = _split_fio(signer_src)
@@ -157,38 +281,53 @@ def build_ozon_zakaz_xml(
     date_ru = now.strftime("%d.%m.%Y")
     time_ru = now.strftime("%H:%M:%S")
     file_date = now.strftime("%Y%m%d")
-    shipper_guid = f"2BM-{inn}-{kpp or '000000000'}-DRAFT" if inn else "2BM-DRAFT"
-    file_id = (
-        f"ON_ZAKZVGO__{shipper_guid}_0_{file_date}_{uuid.uuid4()}"
-    )
+    shipper_edo = _fns_participant_id(inn, kpp, now=now) or "2BM-DRAFT-SHIPPER"
+    carrier_edo = _fns_participant_id(carrier_inn, carrier_kpp, now=now)
+    # R_T_A_O_W_GGGGMMDD_N — A=carrier (may be empty), O=shipper
+    file_id = f"ON_ZAKZVGO_{carrier_edo}_{shipper_edo}_0_{file_date}_{uuid.uuid4()}"
 
     naim_subj = org_full or "Грузоотправитель"
     if inn:
         naim_subj = f"{naim_subj}, ИНН {inn}" + (f", КПП {kpp}" if kpp else "")
 
-    # Volume: vehicle m³, else rough estimate from places.
-    volume = str(v_params.get("volume_m3") or "").strip()
-    if not volume or volume == "20" and not (vehicle_fields or {}).get("volume_m3"):
-        if cargo["pallets"] > 0:
-            volume = f"{max(1.0, cargo['pallets'] * 1.5):.2f}"
-        elif cargo["boxes"] > 0:
-            volume = f"{max(0.1, cargo['boxes'] * 0.08):.2f}"
-        else:
-            volume = "1.00"
+    vol_from_fields = str((vehicle_fields or {}).get("volume_m3") or "").strip()
+    if vol_from_fields:
+        volume = _fmt_n52(vol_from_fields)
+    elif cargo["pallets"] > 0:
+        volume = _fmt_n52(max(1.0, cargo["pallets"] * 1.5))
+    elif cargo["boxes"] > 0:
+        volume = _fmt_n52(max(0.1, cargo["boxes"] * 0.08))
     else:
-        try:
-            volume = f"{float(volume.replace(',', '.')):.2f}"
-        except ValueError:
-            volume = "1.00"
+        volume = _fmt_n52(v_params.get("volume_m3") or "20")
+    capacity = _fmt_n52(v_params.get("capacity_t") or "20")
+    capacity_vol = _fmt_n52(vol_from_fields or v_params.get("volume_m3") or volume)
 
-    places = str(int(cargo["total_places"] or 1))
-    # Pallet-ish dimensions when unknown (required by format).
+    places = str(max(1, int(cargo["total_places"] or 1)))
     if cargo["pallets"] > 0:
-        dim_h, dim_l, dim_w = "1.80", "1.20", "0.80"
+        dim_h, dim_l, dim_w = "1.800", "1.200", "0.800"
     else:
-        dim_h, dim_l, dim_w = "0.40", "0.60", "0.40"
+        dim_h, dim_l, dim_w = "0.400", "0.600", "0.400"
 
     supply_dt_vz = _format_dt_vz(item.get("supply_date"), fallback=now)
+    # ДатаВремяВЗТип is T(=25)
+    if len(supply_dt_vz) != 25:
+        supply_dt_vz = f"{now.strftime('%d.%m.%Y')}T{now.strftime('%H:%M:%S')}+03:00"
+
+    shipper_addr = _ensure_adr(shipper_addr, fallback_label=org_full or "Адрес грузоотправителя")
+    load_for_punkt = _ensure_adr(
+        load_addr if (load_addr.get("raw") or load_addr.get("Улица") or load_addr.get("Индекс")) else shipper_addr,
+        fallback_label="Пункт погрузки",
+    )
+    dest_for_punkt = _ensure_adr(
+        dest_addr
+        if (dest_addr.get("raw") or dest_addr.get("Улица") or dest_addr.get("Индекс"))
+        else {
+            "Улица": str(item.get("warehouse_name") or "Склад Ozon")[:255],
+            "КодРегион": dest_addr.get("КодРегион") or "50",
+            "raw": str(delivery_address or item.get("warehouse_name") or ""),
+        },
+        fallback_label=str(item.get("warehouse_name") or "Склад Ozon"),
+    )
 
     root = ET.Element(
         "Файл",
@@ -211,6 +350,7 @@ def build_ozon_zakaz_xml(
         СодОпер="Предоставление заказа и заявки на перевозку груза автомобильным транспортом",
         НомЗак=supply_num,
         ДатаЗак=date_ru,
+        # FNS text uses «Отсутствуют»; Contour/Diadoc samples also accept «Отсутствует».
         УкНормПрвз="Отсутствует",
         ПрвзПищПрод="Отсутствует",
     )
@@ -244,22 +384,16 @@ def build_ozon_zakaz_xml(
     _addr_block(sv_prv, carrier_addr)
     _add_kont(sv_prv, contact_phone)
 
-    # --- ПунктПод (подача ТС = адрес погрузки / производство) ---
+    # --- ПунктПод ---
     punkt_pod = _el(
         sod,
         "ПунктПод",
         ДатВрПод=supply_dt_vz,
         НалКоорТочВрПод="1",
     )
-    _punkt_address(punkt_pod, "АдрПунктПод", load_addr if (load_addr.get("raw") or load_addr.get("Улица")) else shipper_addr)
+    _punkt_address(punkt_pod, "АдрПунктПод", load_for_punkt, label="Пункт подачи ТС")
 
     # --- АдрПункт Погрузка / Выгрузка ---
-    load_for_punkt = load_addr if (load_addr.get("raw") or load_addr.get("Улица")) else shipper_addr
-    dest_for_punkt = dest_addr if (dest_addr.get("raw") or dest_addr.get("Улица")) else {
-        "Улица": str(item.get("warehouse_name") or "Склад Ozon")[:255],
-        "КодРегион": dest_addr.get("КодРегион") or "50",
-    }
-
     adr_load = _el(
         sod,
         "АдрПункт",
@@ -268,7 +402,7 @@ def build_ozon_zakaz_xml(
         ДатВрОпер=supply_dt_vz,
         НалКоорТочВрОпер="1",
     )
-    _punkt_address(adr_load, "АдресПункт", load_for_punkt)
+    _punkt_address(adr_load, "АдресПункт", load_for_punkt, label="Пункт погрузки")
     if org_full and inn:
         _el(adr_load, "ОргВладИнфр", НаимВладИнфр=org_full, ИННВладИнфр=inn)
 
@@ -280,13 +414,13 @@ def build_ozon_zakaz_xml(
         ДатВрОпер=supply_dt_vz,
         НалКоорТочВрОпер="1",
     )
-    _punkt_address(adr_unload, "АдресПункт", dest_for_punkt)
+    _punkt_address(adr_unload, "АдресПункт", dest_for_punkt, label="Пункт выгрузки")
 
     # --- ОпГруз ---
     op = _el(
         sod,
         "ОпГруз",
-        НаимГруз=cargo["cargo_name"],
+        НаимГруз=cargo["cargo_name"] or "Товар",
         СостГруз="Без повреждений",
         Объем=volume,
         ВидТар="00",
@@ -295,7 +429,7 @@ def build_ozon_zakaz_xml(
         РаспрГр="0",
         ДелГр="1",
     )
-    _el(op, "МасГруз", МасБрутЗнач=str(cargo["kg"]))
+    _el(op, "МасГруз", МасБрутЗнач=_fmt_mass(cargo["kg"] or 1))
     _el(op, "РазмерГрМест", ВысЗнач=dim_h, ДлЗнач=dim_l, ШирЗнач=dim_w)
     _el(op, "Пункт", Погр="1", Выгр="2", КолГрМест=places)
 
@@ -304,8 +438,8 @@ def build_ozon_zakaz_xml(
         sod,
         "ПарТСПрвз",
         Тип=v_params.get("type") or "грузовой автомобиль",
-        Грузопод=v_params.get("capacity_t") or "20",
-        Вместим=v_params.get("volume_m3") or volume,
+        Грузопод=capacity,
+        Вместим=capacity_vol,
     )
 
     # --- ПодпИнфГО ---
