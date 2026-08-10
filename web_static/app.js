@@ -14697,6 +14697,36 @@ async function _listCryptoProCerts() {
   });
 }
 
+function _parseCertDate(value) {
+  if (value == null || value === "") return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+  const asDate = new Date(value);
+  if (!Number.isNaN(asDate.getTime())) return asDate;
+  // CryptoPro often returns «DD.MM.YYYY HH:MM:SS»
+  const m = String(value).match(/(\d{2})\.(\d{2})\.(\d{4})(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?/);
+  if (!m) return null;
+  return new Date(
+    Number(m[3]),
+    Number(m[2]) - 1,
+    Number(m[1]),
+    Number(m[4] || 23),
+    Number(m[5] || 59),
+    Number(m[6] || 59),
+  );
+}
+
+function _certIsExpired(validTo) {
+  const d = _parseCertDate(validTo);
+  if (!d) return false;
+  return d.getTime() < Date.now();
+}
+
+function _formatCertValidTo(validTo) {
+  const d = _parseCertDate(validTo);
+  if (!d) return "";
+  return d.toLocaleDateString("ru-RU");
+}
+
 function _subjectCn(subject) {
   const m = String(subject || "").match(/(?:^|,\s*)CN=([^,]+)/i);
   return (m ? m[1] : subject || "Сертификат").trim();
@@ -14795,12 +14825,37 @@ async function openOzonEdoSendModal(supplyOrderId, docType) {
       _edoSetInfo("ozonEdoModalInfo", "Установите сертификат в хранилище Личные (КриптоПро)", false);
       return;
     }
+    // Valid first, expired last; among equals — sooner expiry first.
+    certs.sort((a, b) => {
+      const ae = _certIsExpired(a.validTo) ? 1 : 0;
+      const be = _certIsExpired(b.validTo) ? 1 : 0;
+      if (ae !== be) return ae - be;
+      const da = _parseCertDate(a.validTo)?.getTime() ?? Number.POSITIVE_INFINITY;
+      const db = _parseCertDate(b.validTo)?.getTime() ?? Number.POSITIVE_INFINITY;
+      return da - db;
+    });
+    const expiredCount = certs.filter((c) => _certIsExpired(c.validTo)).length;
     sel.innerHTML = certs.map((c) => {
       const tp = c.thumbprint;
-      const selAttr = preferred && tp === preferred ? " selected" : "";
-      return `<option value="${esc(tp)}"${selAttr}>${esc(_subjectCn(c.subject))} · ${esc(tp.slice(-8))}</option>`;
+      const expired = _certIsExpired(c.validTo);
+      const until = _formatCertValidTo(c.validTo);
+      const cn = _subjectCn(c.subject);
+      const label = expired
+        ? `${cn} · …${tp.slice(-8)} · истёк${until ? ` ${until}` : ""}`
+        : `${cn} · …${tp.slice(-8)}${until ? ` · до ${until}` : ""}`;
+      const selAttr = !expired && preferred && tp === preferred ? " selected" : "";
+      const disAttr = expired ? " disabled" : "";
+      return `<option value="${esc(tp)}"${selAttr}${disAttr}>${esc(label)}</option>`;
     }).join("");
-    _edoSetInfo("ozonEdoModalInfo", `Найдено сертификатов: ${certs.length}. Выберите сертификат и нажмите «Подписать и отправить».`);
+    // If preferred was expired/missing, select first valid option.
+    if (sel.value === "" || sel.selectedOptions[0]?.disabled) {
+      const firstValid = [...sel.options].find((o) => o.value && !o.disabled);
+      if (firstValid) sel.value = firstValid.value;
+    }
+    const info = expiredCount
+      ? `Найдено сертификатов: ${certs.length} (истекших: ${expiredCount}, внизу списка и недоступны). Выберите действующий и нажмите «Подписать и отправить».`
+      : `Найдено сертификатов: ${certs.length}. Выберите сертификат и нажмите «Подписать и отправить».`;
+    _edoSetInfo("ozonEdoModalInfo", info);
   } catch (err) {
     if (sel) sel.innerHTML = '<option value="">Ошибка плагина</option>';
     _edoSetInfo("ozonEdoModalInfo", err?.message || String(err), false);
