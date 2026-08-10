@@ -528,6 +528,10 @@ class CreateSupplyDriverRequest(BaseModel):
     carrier_addr_house: str = ""
     carrier_addr_corpus: str = ""
     carrier_addr_flat: str = ""
+    doc_vu_series: str = ""
+    doc_vu_number: str = ""
+    doc_vu_date: str = ""
+    doc_inn_fl: str = ""
 
 
 class CreateSupplyWarehouseRequest(BaseModel):
@@ -619,6 +623,10 @@ class UpdateSupplyDriverRequest(BaseModel):
     carrier_addr_house: str = ""
     carrier_addr_corpus: str = ""
     carrier_addr_flat: str = ""
+    doc_vu_series: str = ""
+    doc_vu_number: str = ""
+    doc_vu_date: str = ""
+    doc_inn_fl: str = ""
 
 
 class ManagerSuppliesAccessRequest(BaseModel):
@@ -11202,6 +11210,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 driver_name=str(ctx.get("driver_name") or ""),
                 driver_phone=str(ctx.get("driver_phone") or ""),
                 driver_documents=str(ctx.get("driver_documents") or ""),
+                driver_fields=ctx.get("driver_fields") or None,
                 vehicle_line=str(ctx.get("vehicle_line") or ""),
                 vehicle_json=item.get("vehicle_json"),
                 cargoes_json=cargoes_json,
@@ -12655,6 +12664,10 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             carrier_addr_house=payload.carrier_addr_house,
             carrier_addr_corpus=payload.carrier_addr_corpus,
             carrier_addr_flat=payload.carrier_addr_flat,
+            doc_vu_series=payload.doc_vu_series,
+            doc_vu_number=payload.doc_vu_number,
+            doc_vu_date=payload.doc_vu_date,
+            doc_inn_fl=payload.doc_inn_fl,
         )
 
     @app.patch("/api/supply-drivers/{driver_id}")
@@ -12685,6 +12698,10 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             carrier_addr_house=payload.carrier_addr_house,
             carrier_addr_corpus=payload.carrier_addr_corpus,
             carrier_addr_flat=payload.carrier_addr_flat,
+            doc_vu_series=payload.doc_vu_series,
+            doc_vu_number=payload.doc_vu_number,
+            doc_vu_date=payload.doc_vu_date,
+            doc_inn_fl=payload.doc_inn_fl,
         )
         if not ok:
             raise HTTPException(status_code=404, detail="Водитель не найден")

@@ -354,6 +354,60 @@ def test_compose_carrier_line_for_documents():
     )
 
 
+def test_etrn_driver_uses_structured_vu_fields():
+    """СвВодит takes structured VU fields without free-text parse."""
+    root = ET.fromstring(
+        _build(
+            driver_documents="ignored free text ВУ 11 11 111111 выд. 01.01.2001",
+            driver_fields={
+                "doc_vu_series": "9900",
+                "doc_vu_number": "123456",
+                "doc_vu_date": "01.02.2018",
+                "doc_inn_fl": "",
+            },
+        )
+    )
+    vod = root.find("Документ/СодИнфГО/СвВодит")
+    assert vod is not None
+    assert vod.attrib.get("СерВУ") == "9900"
+    assert vod.attrib.get("НомВУ") == "123456"
+    assert vod.attrib.get("ДатаВыдВУ") == "01.02.2018"
+
+
+def test_etrn_driver_uses_structured_inn_fl():
+    root = ET.fromstring(
+        _build(
+            driver_documents="",
+            driver_fields={"doc_inn_fl": "500100200300"},
+        )
+    )
+    vod = root.find("Документ/СодИнфГО/СвВодит")
+    assert vod is not None
+    assert vod.attrib.get("ИННФЛ") == "500100200300"
+
+
+def test_compose_driver_documents_line():
+    from review_processor.repository import ReviewRepository
+
+    line = ReviewRepository.compose_driver_documents_line(
+        {
+            "doc_vu_series": "9900",
+            "doc_vu_number": "123456",
+            "doc_vu_date": "01.02.2018",
+            "doc_inn_fl": "500100200300",
+        }
+    )
+    assert "ВУ 99 00 123456" in line
+    assert "выд. 01.02.2018" in line
+    assert "ИНН 500100200300" in line
+    assert (
+        ReviewRepository.driver_documents_line(
+            {"documents": "старые документы", "doc_vu_series": ""}
+        )
+        == "старые документы"
+    )
+
+
 def test_etrn_contacts_use_legal_entity_phone_everywhere():
     """Phone from юр.лица is used for ГО, ГП, перевозчик, водитель, переадресовка."""
     root = ET.fromstring(_build())

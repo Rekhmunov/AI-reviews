@@ -2642,6 +2642,60 @@ const _CARRIER_FIELDS = [
   ["carrier_addr_flat", "Кв./офис"],
 ];
 
+const _DRIVER_DOC_FIELDS = [
+  ["doc_vu_series", "Серия ВУ"],
+  ["doc_vu_number", "Номер ВУ"],
+  ["doc_vu_date", "Дата выдачи ВУ"],
+  ["doc_inn_fl", "ИНН физлица"],
+];
+
+/** Full one-line driver documents for PoA / заявка / table. */
+function driverDocumentsLine(d) {
+  if (!d) return "";
+  const series = String(d.doc_vu_series || "").trim();
+  const number = String(d.doc_vu_number || "").trim();
+  const dateVal = String(d.doc_vu_date || "").trim();
+  const inn = String(d.doc_inn_fl || "").trim();
+  const parts = [];
+  if (series || number) {
+    let vu = "ВУ";
+    if (series && number) {
+      vu = (series.length === 4 && /^\d+$/.test(series))
+        ? `ВУ ${series.slice(0, 2)} ${series.slice(2)} ${number}`
+        : `ВУ ${series} ${number}`;
+    } else if (series) {
+      vu = `ВУ серия ${series}`;
+    } else {
+      vu = `ВУ № ${number}`;
+    }
+    if (dateVal) vu += ` выд. ${dateVal}`;
+    parts.push(vu);
+  } else if (dateVal) {
+    parts.push(`ВУ выд. ${dateVal}`);
+  }
+  if (inn) parts.push(`ИНН ${inn}`);
+  return parts.join(", ") || String(d.documents || "").trim();
+}
+
+function _readNewDriverDocFields() {
+  return {
+    doc_vu_series: document.getElementById("newDriverVuSeries")?.value.trim() || "",
+    doc_vu_number: document.getElementById("newDriverVuNumber")?.value.trim() || "",
+    doc_vu_date: document.getElementById("newDriverVuDate")?.value.trim() || "",
+    doc_inn_fl: document.getElementById("newDriverInnFl")?.value.trim() || "",
+  };
+}
+
+function _driverDocsEditInputsHtml(item) {
+  return `<div class="worker-form-grid" style="margin:0">
+    ${_DRIVER_DOC_FIELDS.map(([key, label]) => `
+      <div class="wfg-field">
+        <label class="wfg-label">${label}</label>
+        <input class="edit-inline-input" data-drv-doc="${key}" value="${esc(item[key] || "")}" autocomplete="off" />
+      </div>`).join("")}
+  </div>`;
+}
+
 /** Full one-line carrier for заявки / Исполнитель. */
 function driverCarrierLine(d) {
   if (!d) return "";
@@ -2691,7 +2745,8 @@ function _readNewDriverCarrierFields() {
 
 function _clearNewDriverCarrierFields() {
   [
-    "newDriverName", "newDriverInPerson", "newDriverDocuments",
+    "newDriverName", "newDriverInPerson",
+    "newDriverVuSeries", "newDriverVuNumber", "newDriverVuDate", "newDriverInnFl",
     "newDriverCarrierName", "newDriverCarrierInn", "newDriverCarrierKpp",
     "newDriverCarrierAddrIndex", "newDriverCarrierAddrRegion", "newDriverCarrierAddrDistrict",
     "newDriverCarrierAddrCity", "newDriverCarrierAddrSettlement", "newDriverCarrierAddrStreet",
@@ -2727,7 +2782,7 @@ function renderSupplyDriversTable() {
       <td>${idx + 1}</td>
       <td class="editable-cell">${esc(d.full_name || "")}</td>
       <td class="editable-cell">${esc(d.in_person || "")}</td>
-      <td class="editable-cell">${esc(d.documents || "")}</td>
+      <td class="editable-cell">${esc(driverDocumentsLine(d))}</td>
       <td class="editable-cell">${esc(driverCarrierLine(d))}</td>
       <td class="editable-cell-vehicles">${_driverVehiclesHtml(vehicles)}</td>
       <td>
@@ -2780,7 +2835,7 @@ function toggleAddDriverForm(show) {
   }
 }
 
-async function _createDriverRequest(name, infoEl, documents, in_person, vehicles, carrierPayload) {
+async function _createDriverRequest(name, infoEl, documents, in_person, vehicles, carrierPayload, docsPayload) {
   if (infoEl) { infoEl.textContent = "Сохранение…"; infoEl.style.color = ""; }
   const body = {
     full_name: name,
@@ -2788,6 +2843,7 @@ async function _createDriverRequest(name, infoEl, documents, in_person, vehicles
     in_person: in_person || "",
     vehicles: vehicles || [],
     carrier: "",
+    ...(docsPayload || {}),
     ...(carrierPayload || {}),
   };
   const res = await fetch("/api/supply-drivers", {
@@ -2810,10 +2866,13 @@ async function saveSupplyDriver() {
   const info = document.getElementById("addDriverInfo");
   const name = (inp?.value || "").trim();
   const inpVal = document.getElementById("newDriverInPerson")?.value.trim() || "";
-  const docs = document.getElementById("newDriverDocuments")?.value.trim() || "";
   const vehicles = _collectVehicles("newDriverVehiclesList");
   if (!name) { if (info) { info.textContent = "Введите имя"; info.style.color = "#b91c1c"; } return; }
-  const ok = await _createDriverRequest(name, info, docs, inpVal, vehicles, _readNewDriverCarrierFields());
+  const ok = await _createDriverRequest(
+    name, info, "", inpVal, vehicles,
+    _readNewDriverCarrierFields(),
+    _readNewDriverDocFields(),
+  );
   if (!ok) return;
   if (info) { info.textContent = "Добавлен"; info.style.color = "#16a34a"; }
   toggleAddDriverForm(false);
@@ -2825,11 +2884,11 @@ async function startEditDriver(id) {
   if (!item) return;
   const tr = document.querySelector(`#supplyDriversTbody tr[data-id="${id}"]`);
   if (!tr) return;
-  document.querySelectorAll("#supplyDriversTbody tr.driver-carrier-edit-row").forEach((r) => r.remove());
+  document.querySelectorAll("#supplyDriversTbody tr.driver-carrier-edit-row, #supplyDriversTbody tr.driver-docs-edit-row").forEach((r) => r.remove());
   const cells = tr.querySelectorAll(".editable-cell");
   cells[0].innerHTML = `<input class="edit-inline-input" data-field="name" value="${esc(item.full_name||"")}" />`;
   cells[1].innerHTML = `<input class="edit-inline-input" data-field="inp" value="${esc(item.in_person||"")}" />`;
-  cells[2].innerHTML = `<input class="edit-inline-input" data-field="docs" value="${esc(item.documents||"")}" />`;
+  cells[2].innerHTML = `<span class="small" style="color:#64748b">поля ниже</span>`;
   cells[3].innerHTML = `<span class="small" style="color:#64748b">поля ниже</span>`;
   // Vehicles cell
   let vehicles = [];
@@ -2842,15 +2901,24 @@ async function startEditDriver(id) {
     vehicles.forEach(v => addDriverVehicleRow(listId, v));
     if (!vehicles.length) addDriverVehicleRow(listId, "");
   }
+  const docsRow = document.createElement("tr");
+  docsRow.className = "driver-docs-edit-row";
+  docsRow.dataset.forId = String(id);
+  docsRow.style.background = "#f8fafc";
+  docsRow.innerHTML = `<td colspan="7" style="padding:12px 8px;border-top:none;white-space:normal">
+    <div class="small" style="margin-bottom:8px;color:#64748b">Документы водителя (поля эТрН СвВодит)</div>
+    ${_driverDocsEditInputsHtml(item)}
+  </td>`;
+  tr.after(docsRow);
   const carrierRow = document.createElement("tr");
   carrierRow.className = "driver-carrier-edit-row";
   carrierRow.dataset.forId = String(id);
   carrierRow.style.background = "#f8fafc";
-  carrierRow.innerHTML = `<td colspan="7" style="padding:12px 8px;border-top:none">
+  carrierRow.innerHTML = `<td colspan="7" style="padding:12px 8px;border-top:none;white-space:normal">
     <div class="small" style="margin-bottom:8px;color:#64748b">Перевозчик (поля эТрН)</div>
     ${_carrierEditInputsHtml(item)}
   </td>`;
-  tr.after(carrierRow);
+  docsRow.after(carrierRow);
   const actionCell = tr.cells[tr.cells.length - 1];
   actionCell.innerHTML = `<div class="sst-edit-actions">
     <button class="secondary small-btn" style="color:#16a34a;border-color:#86efac" onclick="saveEditDriver(${id})">Сохранить</button>
@@ -2864,12 +2932,15 @@ async function saveEditDriver(id) {
   if (!tr) return;
   const item = _supplyDriversCache.find((x) => x.id === id);
   const carrierRow = document.querySelector(`#supplyDriversTbody tr.driver-carrier-edit-row[data-for-id="${id}"]`);
+  const docsRow = document.querySelector(`#supplyDriversTbody tr.driver-docs-edit-row[data-for-id="${id}"]`);
   const name = tr.querySelector("[data-field='name']")?.value.trim() || "";
   const inp = tr.querySelector("[data-field='inp']")?.value.trim() || "";
-  const docs = tr.querySelector("[data-field='docs']")?.value.trim() || "";
   const vehicles = _collectVehicles(`editDriverVehicles_${id}`);
   if (!name) return;
-  const payload = { full_name: name, in_person: inp, documents: docs, vehicles, carrier: item?.carrier || "" };
+  const payload = { full_name: name, in_person: inp, documents: item?.documents || "", vehicles, carrier: item?.carrier || "" };
+  _DRIVER_DOC_FIELDS.forEach(([key]) => {
+    payload[key] = docsRow?.querySelector(`[data-drv-doc="${key}"]`)?.value.trim() || "";
+  });
   _CARRIER_FIELDS.forEach(([key]) => {
     payload[key] = carrierRow?.querySelector(`[data-carrier="${key}"]`)?.value.trim() || "";
   });
@@ -16211,7 +16282,7 @@ function _zUpdateDriverInfoBlock(driverName) {
     if (docsInput) { docsInput.classList.remove("hidden"); }
   } else {
     if (docsInput) { docsInput.classList.add("hidden"); }
-    if (docsDisplay) { docsDisplay.textContent = driver?.documents || "—"; docsDisplay.classList.remove("hidden"); }
+    if (docsDisplay) { docsDisplay.textContent = driverDocumentsLine(driver) || "—"; docsDisplay.classList.remove("hidden"); }
   }
 
   // Carrier field
@@ -16492,7 +16563,7 @@ async function generateZayavka() {
   <tr><td class="label">Марка, номер автомобиля</td><td>${esc(vehicle)}</td></tr>
   <tr><td class="label">Наименование груза, вес и объём</td><td>${esc(cargo)}</td></tr>
   <tr><td class="label">ФИО водителя, паспорт, телефон</td>
-    <td><strong>${esc(driver?.full_name||driverName)}</strong><br>${esc(driver?.documents||"")}</td></tr>
+    <td><strong>${esc(driver?.full_name||driverName)}</strong><br>${esc(driverDocumentsLine(driver)||"")}</td></tr>
   <tr><td class="label">Адрес загрузки</td><td>${esc(loadAddresses)}</td></tr>
   <tr><td class="label">Контактное лицо</td><td>${esc(loadContact)}</td></tr>
   <tr><td class="label">Дата и время подачи а/м</td><td>${esc(submitDate)}</td></tr>
@@ -16608,7 +16679,7 @@ async function downloadZayavkaDocx() {
   <tr><td class="label">Марка, номер автомобиля</td><td>${esc(vehicle)}</td></tr>
   <tr><td class="label">Наименование груза, вес и объём</td><td>${esc(cargo)}</td></tr>
   <tr><td class="label">ФИО водителя, паспорт, телефон</td>
-    <td><b>${esc(driver?.full_name||driverName)}</b><br>${esc(driver?.documents||"")}</td></tr>
+    <td><b>${esc(driver?.full_name||driverName)}</b><br>${esc(driverDocumentsLine(driver)||"")}</td></tr>
   <tr><td class="label">Адрес загрузки</td><td>${esc(loadAddresses)}</td></tr>
   <tr><td class="label">Контактное лицо</td><td>${esc(loadContact)}</td></tr>
   <tr><td class="label">Дата и время подачи а/м</td><td>${esc(submitDate)}</td></tr>

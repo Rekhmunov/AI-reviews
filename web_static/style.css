@@ -5738,6 +5738,7 @@ body.sst-col-resizing * {
 #section-supplies-settings .supply-sources-table tr[id^="le-sig-row-"] td,
 #section-supplies-settings .supply-sources-table tr.prod-addr-edit-row td,
 #section-supplies-settings .supply-sources-table tr.wh-addr-edit-row td,
+#section-supplies-settings .supply-sources-table tr.driver-docs-edit-row td,
 #section-supplies-settings .supply-sources-table tr.driver-carrier-edit-row td {
   white-space: normal !important;
   overflow: visible;
