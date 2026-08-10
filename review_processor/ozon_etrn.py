@@ -540,6 +540,37 @@ def _vehicle_parts(vehicle_json: object, fallback_line: str = "") -> tuple[str, 
     return model, number
 
 
+def _parse_supply_datetime(value: object, *, fallback: datetime | None = None) -> datetime:
+    """Parse supply_date (ISO / date-only / DD.MM.YYYY) for eTrN timestamps."""
+    raw = str(value or "").strip()
+    if raw:
+        try:
+            # ISO with optional Z / timezone / time.
+            iso = raw.replace("Z", "+00:00")
+            if "T" in iso or " " in iso:
+                return datetime.fromisoformat(iso.replace(" ", "T", 1))
+            return datetime.fromisoformat(iso[:10])
+        except Exception:
+            pass
+        for fmt in ("%d.%m.%Y %H:%M:%S", "%d.%m.%Y %H:%M", "%d.%m.%Y"):
+            try:
+                return datetime.strptime(raw[:19], fmt)
+            except Exception:
+                continue
+    return fallback or datetime.now()
+
+
+def _format_dt_vz(value: object, *, fallback: datetime | None = None) -> str:
+    """Format ДатаВремяВЗТип: ДД.ММ.ГГГГТЧЧ:ММ:СС+03:00 (fixed MSK offset for drafts)."""
+    dt = _parse_supply_datetime(value, fallback=fallback)
+    # Date-only supply_date → midnight; keep time when timeslot provides it.
+    if not str(value or "").strip() or (
+        len(str(value).strip()) <= 10 and "T" not in str(value) and " " not in str(value).strip()
+    ):
+        return f"{dt.strftime('%d.%m.%Y')}T00:00:00+03:00"
+    return f"{dt.strftime('%d.%m.%Y')}T{dt.strftime('%H:%M:%S')}+03:00"
+
+
 def _el(parent: ET.Element, tag: str, text: str | None = None, **attrs: str) -> ET.Element:
     clean_attrs = {k: str(v) for k, v in attrs.items() if v is not None and str(v) != ""}
     node = ET.SubElement(parent, tag, clean_attrs)
@@ -793,7 +824,16 @@ def build_ozon_etrn_xml(
     _el(op, "ПлМасГруз", МасБрутЗнач=str(cargo["kg"]))
 
     # --- УказГО ---
-    ukaz = _el(sod, "УказГО", УкНормПрвз="Отсутствуют", ЗапрПерегруз="0")
+    # Дата и время доставки груза ← основная таблица поставок: supply_date.
+    delivery_dt_vz = _format_dt_vz(item.get("supply_date"), fallback=now)
+    ukaz = _el(
+        sod,
+        "УказГО",
+        УкНормПрвз="Отсутствуют",
+        ЗапрПерегруз="0",
+        ДатВрДостГр=delivery_dt_vz,
+        НалКоорТочВрДост="1",
+    )
     sv_pa = _el(
         ukaz,
         "СвПА",

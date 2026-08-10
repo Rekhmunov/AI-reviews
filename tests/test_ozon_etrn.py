@@ -18,6 +18,7 @@ def _build(**overrides):
             "supply_order_number": "0123456789",
             "supplier_name": 'ООО "Тест"',
             "warehouse_name": "ХОРУГВИНО_РФЦ",
+            "supply_date": "2026-08-15T14:30:00",
         },
         le={
             "full_name": 'ООО "Тест Поставщик"',
@@ -107,12 +108,36 @@ def test_etrn_xml_core_schema_shape():
     assert "Пресненская" in (gp_adr.attrib.get("Улица") or "")
     assert "наб" in (gp_adr.attrib.get("Улица") or "").lower()
     assert gp_adr.attrib.get("Дом") == "10"
+    # УказГО / дата доставки ← supply_date из таблицы поставок.
+    ukaz = sod.find("УказГО")
+    assert ukaz is not None
+    assert ukaz.attrib.get("ДатВрДостГр") == "15.08.2026T14:30:00+03:00"
+    assert ukaz.attrib.get("НалКоорТочВрДост") == "1"
     op = sod.find("СвГруз/ОпГруз")
     assert op.attrib.get("КолМестГр") == "2"
     assert op.find("ПлМасГруз").attrib.get("МасБрутЗнач")
     assert sod.find("СвПогруз").attrib.get("МетОпрМасс") == "03"
     assert op.attrib.get("СостГруз") == "Без повреждений"
     assert op.attrib.get("СпУпак") == "Коробки"
+
+
+def test_etrn_delivery_datetime_from_supply_date_date_only():
+    """Date-only supply_date → midnight MSK in ДатВрДостГр."""
+    root = ET.fromstring(
+        _build(
+            item={
+                "supply_order_id": 1,
+                "supply_order_number": "1",
+                "supplier_name": "X",
+                "warehouse_name": "W",
+                "supply_date": "2026-09-01",
+            }
+        )
+    )
+    ukaz = root.find("Документ/СодИнфГО/УказГО")
+    assert ukaz is not None
+    assert ukaz.attrib.get("ДатВрДостГр") == "01.09.2026T00:00:00+03:00"
+    assert ukaz.attrib.get("НалКоорТочВрДост") == "1"
 
 
 def test_parse_ru_address_suffix_embankment_street():
