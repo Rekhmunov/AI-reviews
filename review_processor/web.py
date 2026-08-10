@@ -553,6 +553,7 @@ class CreateSupplyDriverRequest(BaseModel):
     carrier_addr_house: str = ""
     carrier_addr_corpus: str = ""
     carrier_addr_flat: str = ""
+    carrier_addr_fias: str = ""
     doc_vu_series: str = ""
     doc_vu_number: str = ""
     doc_vu_issuer: str = ""
@@ -606,6 +607,7 @@ class CreateSupplyLegalEntityRequest(BaseModel):
     addr_house: str = ""
     addr_corpus: str = ""
     addr_flat: str = ""
+    addr_fias: str = ""
     signature_image: str | None = None
 
 
@@ -627,6 +629,7 @@ class UpdateSupplyLegalEntityRequest(BaseModel):
     addr_house: str = ""
     addr_corpus: str = ""
     addr_flat: str = ""
+    addr_fias: str = ""
     signature_image: str | None = None  # new base64 or None
     clear_signature: bool = False        # True = delete existing
 
@@ -655,6 +658,7 @@ class UpdateSupplyDriverRequest(BaseModel):
     carrier_addr_house: str = ""
     carrier_addr_corpus: str = ""
     carrier_addr_flat: str = ""
+    carrier_addr_fias: str = ""
     doc_vu_series: str = ""
     doc_vu_number: str = ""
     doc_vu_issuer: str = ""
@@ -13215,6 +13219,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             carrier_addr_house=payload.carrier_addr_house,
             carrier_addr_corpus=payload.carrier_addr_corpus,
             carrier_addr_flat=payload.carrier_addr_flat,
+            carrier_addr_fias=payload.carrier_addr_fias,
             doc_vu_series=payload.doc_vu_series,
             doc_vu_number=payload.doc_vu_number,
             doc_vu_issuer=payload.doc_vu_issuer,
@@ -13262,6 +13267,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             carrier_addr_house=payload.carrier_addr_house,
             carrier_addr_corpus=payload.carrier_addr_corpus,
             carrier_addr_flat=payload.carrier_addr_flat,
+            carrier_addr_fias=payload.carrier_addr_fias,
             doc_vu_series=payload.doc_vu_series,
             doc_vu_number=payload.doc_vu_number,
             doc_vu_issuer=payload.doc_vu_issuer,
@@ -13401,6 +13407,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             addr_house=payload.addr_house,
             addr_corpus=payload.addr_corpus,
             addr_flat=payload.addr_flat,
+            addr_fias=payload.addr_fias,
             signature_image=payload.signature_image,
         )
 
@@ -13433,6 +13440,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             addr_house=payload.addr_house,
             addr_corpus=payload.addr_corpus,
             addr_flat=payload.addr_flat,
+            addr_fias=payload.addr_fias,
             signature_image=payload.signature_image,
             clear_signature=payload.clear_signature,
         )
