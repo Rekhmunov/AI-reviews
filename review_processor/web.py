@@ -1271,7 +1271,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "style-src 'self' 'unsafe-inline'; "
             "img-src 'self' data:; "
             "connect-src 'self' chrome-extension: moz-extension: safari-extension:; "
-            "object-src 'self' *; "
+            "object-src *; "
             "frame-ancestors 'none'; form-action 'self'; base-uri 'self'",
         )
         if app_config.is_production:
