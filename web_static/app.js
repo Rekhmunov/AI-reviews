@@ -21435,14 +21435,17 @@ function _wbFbsKizPatchScannedCode(orderId, codeIdx, mark) {
   if (!input) return false;
   // Assign via property so GS (\\u001D) survives — same as renderWbFbsKizTable.
   input.value = String(mark || "");
-  tr.querySelectorAll(".wb-fbs-kiz-code-input").forEach((el) => el.classList.remove("is-error"));
   const row = wbFbsKizState.rows.find((r) => Number(r.order_id) === oid);
-  const block = input.closest(".wb-fbs-kiz-code-block");
-  if (block) {
+  // Mirror full render: refresh every code block in this row (errors[oid] already cleared).
+  tr.querySelectorAll(".wb-fbs-kiz-code-block").forEach((block) => {
+    const inp = block.querySelector(".wb-fbs-kiz-code-input");
+    if (!inp) return;
+    inp.classList.remove("is-error");
     block.querySelectorAll(".wb-fbs-kiz-code-status").forEach((node) => node.remove());
-    const chipHtml = _wbFbsKizCodeStatusChip(row, mark, "");
+    const codeVal = Number(inp.dataset.idx) === idx ? mark : inp.value;
+    const chipHtml = _wbFbsKizCodeStatusChip(row, codeVal, "");
     if (chipHtml) block.insertAdjacentHTML("beforeend", chipHtml);
-  }
+  });
   _wbFbsKizClearPendingHighlight();
   _wbFbsKizUpdateScanCounter();
   return true;
