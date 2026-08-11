@@ -20807,9 +20807,12 @@ function _wbFbsKizStopSaveProgress() {
 function _wbFbsKizSetFiltersReady(ready) {
   wbFbsKizState.rowsReady = !!ready;
   const tip = "Дождитесь загрузки заказов";
+  const filled = document.getElementById("wbFbsKizFilterFilled");
   const empty = document.getElementById("wbFbsKizFilterEmpty");
   const errors = document.getElementById("wbFbsKizFilterErrors");
   const cancelled = document.getElementById("wbFbsKizFilterCancelled");
+  const filledLabel = document.getElementById("wbFbsKizFilterFilledLabel")
+    || (filled && filled.closest("label"));
   const emptyLabel = document.getElementById("wbFbsKizFilterEmptyLabel")
     || (empty && empty.closest("label"));
   const errorsLabel = document.getElementById("wbFbsKizFilterErrorsLabel")
@@ -20837,9 +20840,11 @@ function _wbFbsKizSetFiltersReady(ready) {
     }
   };
 
+  if (filled) filled.disabled = !ready;
   if (empty) empty.disabled = !ready;
   if (errors) errors.disabled = !ready;
   if (cancelled) cancelled.disabled = !ready;
+  setLabelWait(filledLabel, !ready);
   setLabelWait(emptyLabel, !ready);
   setLabelWait(errorsLabel, !ready);
   setLabelWait(cancelledLabel, !ready);
@@ -21044,9 +21049,11 @@ function _wbFbsKizCancelBadgeHtml(row) {
 function wbFbsKizFocusOrderInSearch(orderId) {
   const oid = String(orderId || "").trim();
   if (!oid) return;
+  const filled = document.getElementById("wbFbsKizFilterFilled");
   const empty = document.getElementById("wbFbsKizFilterEmpty");
   const errors = document.getElementById("wbFbsKizFilterErrors");
   const cancelled = document.getElementById("wbFbsKizFilterCancelled");
+  if (filled) filled.checked = false;
   if (empty) empty.checked = false;
   if (errors) errors.checked = false;
   if (cancelled) cancelled.checked = false;
@@ -21264,15 +21271,34 @@ function _wbFbsKizValidateMarkForOrder(mark, row) {
 }
 
 function _wbFbsKizResetFilters() {
+  const filled = document.getElementById("wbFbsKizFilterFilled");
   const empty = document.getElementById("wbFbsKizFilterEmpty");
   const errors = document.getElementById("wbFbsKizFilterErrors");
   const cancelled = document.getElementById("wbFbsKizFilterCancelled");
   const search = document.getElementById("wbFbsKizSearchFilter");
+  if (filled) filled.checked = false;
   if (empty) empty.checked = false;
   if (errors) errors.checked = false;
   if (cancelled) cancelled.checked = false;
   if (search) search.value = "";
 }
+
+/** «Заполненные» и «Незаполненные» взаимоисключающие. */
+function onWbFbsKizFilterFilledChange() {
+  const filled = document.getElementById("wbFbsKizFilterFilled");
+  const empty = document.getElementById("wbFbsKizFilterEmpty");
+  if (filled?.checked && empty) empty.checked = false;
+  renderWbFbsKizTable();
+}
+window.onWbFbsKizFilterFilledChange = onWbFbsKizFilterFilledChange;
+
+function onWbFbsKizFilterEmptyChange() {
+  const filled = document.getElementById("wbFbsKizFilterFilled");
+  const empty = document.getElementById("wbFbsKizFilterEmpty");
+  if (empty?.checked && filled) filled.checked = false;
+  renderWbFbsKizTable();
+}
+window.onWbFbsKizFilterEmptyChange = onWbFbsKizFilterEmptyChange;
 
 function closeWbFbsKizModal() {
   cancelWbFbsKizMarkScan();
@@ -21547,12 +21573,14 @@ function renderWbFbsKizTable(opts) {
   if (!(opts && opts.skipCollect)) _wbFbsKizCollectFromDom();
   const tbody = document.getElementById("wbFbsKizTbody");
   if (!tbody) return;
+  const onlyFilled = !!document.getElementById("wbFbsKizFilterFilled")?.checked;
   const onlyEmpty = !!document.getElementById("wbFbsKizFilterEmpty")?.checked;
   const onlyErrors = !!document.getElementById("wbFbsKizFilterErrors")?.checked;
   const onlyCancelled = !!document.getElementById("wbFbsKizFilterCancelled")?.checked;
   const searchQ = document.getElementById("wbFbsKizSearchFilter")?.value || "";
   const pending = wbFbsKizState.pendingOrderId;
   let rows = wbFbsKizState.rows.slice();
+  if (onlyFilled) rows = rows.filter((r) => !_wbFbsKizRowIsEmpty(r));
   if (onlyEmpty) rows = rows.filter((r) => _wbFbsKizRowIsEmpty(r));
   if (onlyErrors) {
     rows = rows.filter((r) => {
