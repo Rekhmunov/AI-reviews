@@ -2025,8 +2025,12 @@
             </div>
             <div class="wb-fbs-kiz-toolbar">
               <div class="wb-fbs-kiz-filters" id="wbFbsKizFilters">
+                <label class="wb-fbs-kiz-check" id="wbFbsKizFilterFilledLabel">
+                  <input type="checkbox" id="wbFbsKizFilterFilled" onchange="onWbFbsKizFilterFilledChange()" />
+                  Заполненные
+                </label>
                 <label class="wb-fbs-kiz-check" id="wbFbsKizFilterEmptyLabel">
-                  <input type="checkbox" id="wbFbsKizFilterEmpty" onchange="renderWbFbsKizTable()" />
+                  <input type="checkbox" id="wbFbsKizFilterEmpty" onchange="onWbFbsKizFilterEmptyChange()" />
                   Незаполненные
                 </label>
                 <label class="wb-fbs-kiz-check" id="wbFbsKizFilterErrorsLabel">
@@ -4440,6 +4444,6 @@
   <script src="/static/jspdf.umd.min.js"></script>
   <script src="/static/qrcode.min.js"></script>
   <script src="/static/cadesplugin_api.js"></script>
-  <script src="/static/app.js?v=405"></script>
+  <script src="/static/app.js?v=406"></script>
 </body>
 </html>
