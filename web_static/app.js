@@ -21404,6 +21404,50 @@ function _wbFbsKizUpdateScanCounter() {
   el.textContent = `Просканировано ${filled} из ${total} КИЗ`;
 }
 
+/** Highlight pending scan row without rebuilding the whole table. */
+function _wbFbsKizClearPendingHighlight() {
+  document.querySelectorAll("#wbFbsKizTbody tr.wb-fbs-kiz-row.is-active").forEach((tr) => {
+    tr.classList.remove("is-active");
+  });
+}
+
+function _wbFbsKizSetPendingHighlight(orderId) {
+  _wbFbsKizClearPendingHighlight();
+  const oid = Number(orderId);
+  if (!Number.isFinite(oid)) return false;
+  const tr = document.querySelector(`#wbFbsKizTbody tr.wb-fbs-kiz-row[data-order-id="${oid}"]`);
+  if (!tr) return false;
+  tr.classList.add("is-active");
+  return true;
+}
+
+/**
+ * Patch one code cell after a successful wedge scan.
+ * Returns false when DOM cannot represent the new state → caller should full-render.
+ */
+function _wbFbsKizPatchScannedCode(orderId, codeIdx, mark) {
+  const oid = Number(orderId);
+  const idx = Number(codeIdx);
+  if (!Number.isFinite(oid) || !Number.isFinite(idx) || idx < 0) return false;
+  const tr = document.querySelector(`#wbFbsKizTbody tr.wb-fbs-kiz-row[data-order-id="${oid}"]`);
+  if (!tr) return false;
+  const input = tr.querySelector(`.wb-fbs-kiz-code-input[data-order-id="${oid}"][data-idx="${idx}"]`);
+  if (!input) return false;
+  // Assign via property so GS (\\u001D) survives — same as renderWbFbsKizTable.
+  input.value = String(mark || "");
+  tr.querySelectorAll(".wb-fbs-kiz-code-input").forEach((el) => el.classList.remove("is-error"));
+  const row = wbFbsKizState.rows.find((r) => Number(r.order_id) === oid);
+  const block = input.closest(".wb-fbs-kiz-code-block");
+  if (block) {
+    block.querySelectorAll(".wb-fbs-kiz-code-status").forEach((node) => node.remove());
+    const chipHtml = _wbFbsKizCodeStatusChip(row, mark, "");
+    if (chipHtml) block.insertAdjacentHTML("beforeend", chipHtml);
+  }
+  _wbFbsKizClearPendingHighlight();
+  _wbFbsKizUpdateScanCounter();
+  return true;
+}
+
 function _wbFbsKizRowIsEmpty(row) {
   const codes = Array.isArray(row?.kiz_codes) ? row.kiz_codes : [];
   return !codes.some((c) => String(c || "").trim());
@@ -21782,7 +21826,10 @@ function beginWbFbsKizMarkScan(orderId) {
   const row = wbFbsKizState.rows.find((r) => Number(r.order_id) === oid);
   if (!row) return;
   wbFbsKizState.pendingOrderId = oid;
-  renderWbFbsKizTable();
+  // Fast path: toggle is-active only. Full render if the row is filtered out of DOM.
+  if (!_wbFbsKizSetPendingHighlight(oid)) {
+    renderWbFbsKizTable({ skipCollect: true });
+  }
   const meta = document.getElementById("wbFbsKizScanPromptMeta");
   if (meta) {
     meta.textContent = `Заказ ${oid} · стикер ${row.sticker_number || "—"}`;
@@ -21798,7 +21845,7 @@ function beginWbFbsKizMarkScan(orderId) {
 function cancelWbFbsKizMarkScan() {
   setModalVisibility("wbFbsKizScanPrompt", false);
   wbFbsKizState.pendingOrderId = null;
-  renderWbFbsKizTable();
+  _wbFbsKizClearPendingHighlight();
   const sticker = document.getElementById("wbFbsKizStickerScan");
   if (sticker) setTimeout(() => sticker.focus(), 40);
 }
@@ -21832,22 +21879,31 @@ function onWbFbsKizMarkScanKey(event) {
     return;
   }
   if (!Array.isArray(row.kiz_codes) || !row.kiz_codes.length) row.kiz_codes = [""];
-  let placed = false;
+  let placedIdx = -1;
   for (let i = 0; i < row.kiz_codes.length; i += 1) {
     if (!String(row.kiz_codes[i] || "").trim()) {
       row.kiz_codes[i] = mark;
-      placed = true;
+      placedIdx = i;
       break;
     }
   }
-  if (!placed) row.kiz_codes.push(mark);
+  let addedSlot = false;
+  if (placedIdx < 0) {
+    row.kiz_codes.push(mark);
+    placedIdx = row.kiz_codes.length - 1;
+    addedSlot = true;
+  }
   delete wbFbsKizState.errors[oid];
   setModalVisibility("wbFbsKizScanPrompt", false);
   wbFbsKizState.pendingOrderId = null;
   // Show the filled row even if «Незаполненные» filter was on.
   const emptyFilter = document.getElementById("wbFbsKizFilterEmpty");
+  const emptyFilterWasOn = !!emptyFilter?.checked;
   if (emptyFilter) emptyFilter.checked = false;
-  renderWbFbsKizTable({ skipCollect: true });
+  // Full render when filter set changes or a new input slot appears; otherwise patch one cell.
+  if (emptyFilterWasOn || addedSlot || !_wbFbsKizPatchScannedCode(oid, placedIdx, mark)) {
+    renderWbFbsKizTable({ skipCollect: true });
+  }
   _wbFbsKizSetInfo(
     `КИЗ добавлен в строку заказа ${oid}. Нажмите «Сохранить», чтобы записать в WB.`,
     true
