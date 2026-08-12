@@ -12908,8 +12908,6 @@ const supplyBalancesState = {
   catalogItems: [],
   visibilityItems: [],
   search: "",
-  receiptLines: [],
-  adjLines: [],
 };
 
 const SB_COL_WIDTHS_KEY = "supply_balances_col_widths_v1";
@@ -13293,65 +13291,6 @@ async function _sbLoadCatalogItems() {
   if (!res.ok) throw new Error(data.detail || "Ошибка загрузки справочника");
   supplyBalancesState.catalogItems = Array.isArray(data.items) ? data.items : [];
   return supplyBalancesState.catalogItems;
-}
-
-function _sbFillItemSelect(selectId) {
-  const sel = document.getElementById(selectId);
-  if (!sel) return;
-  const items = supplyBalancesState.catalogItems || [];
-  const mats = items.filter((x) => x.item_type === "material");
-  const prods = items.filter((x) => x.item_type === "product");
-  const opts = ['<option value="">Выберите позицию…</option>'];
-  if (mats.length) {
-    opts.push('<optgroup label="Материалы">');
-    mats.forEach((x) => {
-      opts.push(
-        `<option value="${esc(x.item_type)}:${Number(x.item_id)}">${esc(x.name || "")} (${esc(x.unit || "шт")})</option>`
-      );
-    });
-    opts.push("</optgroup>");
-  }
-  if (prods.length) {
-    opts.push('<optgroup label="Товары">');
-    prods.forEach((x) => {
-      opts.push(
-        `<option value="${esc(x.item_type)}:${Number(x.item_id)}">${esc(x.name || "")}</option>`
-      );
-    });
-    opts.push("</optgroup>");
-  }
-  sel.innerHTML = opts.join("");
-}
-
-function _sbParseItemKey(raw) {
-  const s = String(raw || "");
-  const idx = s.indexOf(":");
-  if (idx <= 0) return null;
-  const itemType = s.slice(0, idx);
-  const itemId = Number(s.slice(idx + 1));
-  if (!itemType || !Number.isFinite(itemId) || itemId <= 0) return null;
-  return { item_type: itemType, item_id: itemId };
-}
-
-function _sbRenderDocLines(containerId, lines, removeFnName) {
-  const el = document.getElementById(containerId);
-  if (!el) return;
-  if (!lines.length) {
-    el.innerHTML = `<div class="sb-doc-empty">Позиции не добавлены</div>`;
-    return;
-  }
-  el.innerHTML = lines.map((line, idx) => {
-    const typeLabel = line.item_type === "material" ? "Материал" : "Товар";
-    return `<div class="sb-doc-line">
-      <div class="sb-doc-line-main">
-        <div class="sb-doc-line-name">${esc(line.name || "")}</div>
-        <div class="sb-doc-line-meta">${typeLabel} · ${esc(line.unit || "шт")}</div>
-      </div>
-      <div class="sb-doc-line-qty">${esc(String(line.qty))}</div>
-      <button type="button" class="secondary icon-btn" title="Удалить"
-        onclick="${removeFnName}(${idx})">✕</button>
-    </div>`;
-  }).join("");
 }
 
 function _sbSetDocErr(id, text) {
