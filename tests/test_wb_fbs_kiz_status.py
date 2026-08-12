@@ -33,8 +33,32 @@ def test_status_ok_and_error() -> None:
     assert _kiz_status_from_decision("sgtinInvalid", ["01…"]) == "error"
     # Live WB values from POST /orders/meta:
     assert _kiz_status_from_decision("sgtinNotFound", ["01…"]) == "error"
+    assert _kiz_status_from_decision("sgtinRetired", ["01…"]) == "error"
+    assert _kiz_status_from_decision("sgtinWithdrawn", ["01…"]) == "error"
+    assert _kiz_status_from_decision("sgtinWrittenOff", ["01…"]) == "error"
+    assert _kiz_status_from_decision("sgtinEmitted", ["01…"]) == "error"
+    assert _kiz_status_from_decision("sgtinApplied", ["01…"]) == "error"
+    assert _kiz_status_from_decision("sgtinDisaggregated", ["01…"]) == "error"
     assert _kiz_status_from_decision("sgtinIntroduced", ["01…"]) == "ok"
+    assert _kiz_status_from_decision("deadlineExceeded", ["01…"]) == "pending"
     assert _kiz_status_from_decision("optional", []) == "empty"
+
+
+def test_meta_row_decision_sgtin_retired() -> None:
+    parsed = _kiz_from_meta_row(
+        {
+            "id": 5466069870,
+            "metaDetails": [
+                {
+                    "key": "sgtin",
+                    "value": "010467…",
+                    "decision": "sgtinRetired",
+                }
+            ],
+        }
+    )
+    assert parsed["kiz_status"] == "error"
+    assert parsed["kiz_decision"] == "sgtinRetired"
 
 
 def test_meta_row_decision_filled() -> None:

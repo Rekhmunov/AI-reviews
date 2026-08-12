@@ -442,31 +442,54 @@ def _kiz_decision_raw(item: dict[str, Any]) -> str:
 def _kiz_status_from_decision(decision: str, codes: list[str]) -> str:
     """UI status: empty | pending | ok | error.
 
-    Live WB metaDetails.decision values observed for sgtin include:
-    ``optional``, ``required``, ``filled``, ``invalid``, ``sgtinNotFound``,
-    ``sgtinIntroduced`` (enum is non-exhaustive).
+    Live WB ``metaDetails.decision`` for ``sgtin`` (non-exhaustive):
+    ok — ``filled``, ``sgtinIntroduced``;
+    pending — ``pending``, ``deadlineExceeded``, ``required``/``optional`` with codes;
+    error — ``sgtinNotFound``, ``sgtinRetired``, ``sgtinWithdrawn``, ``sgtinWrittenOff``,
+    ``sgtinEmitted``, ``sgtinApplied``, ``sgtinInvalidFormat``, ``sgtinDisaggregated``, …
     """
-    dec = str(decision or "").strip().lower()
+    dec = str(decision or "").strip().lower().replace("-", "_")
     if not dec and not codes:
         return "empty"
     # Failed Честный знак / WB validation (ЛК «с ошибкой»).
-    # Real API uses sgtinNotFound / invalid — not only plain "invalid".
+    error_exact = {
+        "invalid",
+        "sgtininvalid",
+        "sgtin_invalid",
+        "sgtininvalidformat",
+        "sgtin_invalid_format",
+        "sgtinnotfound",
+        "sgtin_not_found",
+        "notfound",
+        "sgtinretired",
+        "sgtin_retired",
+        "sgtinwithdrawn",
+        "sgtin_withdrawn",
+        "sgtinwrittenoff",
+        "sgtin_written_off",
+        "sgtinemitted",
+        "sgtin_emitted",
+        "sgtinapplied",
+        "sgtin_applied",
+        "sgtindisaggregated",
+        "sgtin_disaggregated",
+        "error",
+        "failed",
+        "fail",
+        "rejected",
+        "reject",
+        "ошибка",
+    }
     if (
-        dec in {
-            "invalid",
-            "sgtinnotfound",
-            "sgtin_not_found",
-            "notfound",
-            "error",
-            "failed",
-            "fail",
-            "rejected",
-            "reject",
-            "ошибка",
-        }
+        dec in error_exact
         or "invalid" in dec
         or "notfound" in dec
         or "not_found" in dec
+        or "retired" in dec
+        or "withdrawn" in dec
+        or "writtenoff" in dec
+        or "written_off" in dec
+        or "disaggregat" in dec
         or ("error" in dec and "sgtin" in dec)
         or "fail" in dec
     ):
@@ -487,8 +510,14 @@ def _kiz_status_from_decision(decision: str, codes: list[str]) -> str:
     # Slot exists but empty / still optional-required without a verdict.
     if dec in {"optional", "required"} and not codes:
         return "empty"
+    # In-progress checks (codes may already be attached).
+    if dec in {"pending", "deadlineexceeded", "deadline_exceeded"}:
+        return "pending" if codes else "empty"
     if codes:
-        # Codes attached; check not finished yet.
+        # Unknown decision with a code: treat remaining sgtin* as error
+        # (WB adds new failure enums; "на проверке" is only pending/deadline*).
+        if dec.startswith("sgtin"):
+            return "error"
         return "pending"
     return "empty"
 
