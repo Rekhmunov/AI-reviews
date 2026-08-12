@@ -13366,23 +13366,78 @@ function _sbSetDocErr(id, text) {
   }
 }
 
+function renderSupplyStockReceiptList() {
+  const list = document.getElementById("supplyStockReceiptList");
+  if (!list) return;
+  const items = supplyBalancesState.catalogItems || [];
+  if (!items.length) {
+    list.innerHTML = `<div class="sb-doc-empty">Нет материалов и товаров в справочниках</div>`;
+    return;
+  }
+  const materials = items.filter((x) => x.item_type === "material");
+  const products = items.filter((x) => x.item_type === "product");
+  const parts = [];
+  const renderRows = (title, rows) => {
+    if (!rows.length) return;
+    parts.push(`<div class="sb-adj-group">${esc(title)}</div>`);
+    rows.forEach((row) => {
+      const type = String(row.item_type || "");
+      const id = Number(row.item_id || 0);
+      const unit = esc(row.unit || "шт");
+      parts.push(`<div class="sb-adj-row" data-sb-type="${esc(type)}" data-sb-id="${id}">
+        <div class="sb-adj-name">
+          <span class="sb-adj-name-text">${esc(row.name || "")}</span>
+          <span class="sb-adj-name-meta">${type === "material" ? "Материал" : "Товар"} · ${unit}</span>
+        </div>
+        <input type="number" class="sb-adj-qty" min="0" step="any" inputmode="decimal"
+          placeholder="0" aria-label="Количество: ${esc(row.name || "")}" />
+        <input type="text" class="sb-adj-comment" maxlength="500" placeholder="Необязательно"
+          aria-label="Комментарий: ${esc(row.name || "")}" />
+      </div>`);
+    });
+  };
+  renderRows("Материалы", materials);
+  renderRows("Товары", products);
+  list.innerHTML = parts.join("");
+}
+
+function _sbCollectReceiptItemsFromList() {
+  const list = document.getElementById("supplyStockReceiptList");
+  if (!list) return [];
+  const items = [];
+  list.querySelectorAll(".sb-adj-row").forEach((row) => {
+    const itemType = String(row.getAttribute("data-sb-type") || "");
+    const itemId = Number(row.getAttribute("data-sb-id") || 0);
+    const qtyEl = row.querySelector(".sb-adj-qty");
+    const commentEl = row.querySelector(".sb-adj-comment");
+    const raw = String(qtyEl?.value || "").trim();
+    if (!itemType || !itemId || raw === "") return;
+    const qty = Number(raw);
+    if (!Number.isFinite(qty) || qty <= 0) return;
+    items.push({
+      item_type: itemType,
+      item_id: itemId,
+      qty,
+      comment: String(commentEl?.value || "").trim(),
+    });
+  });
+  return items;
+}
+
 async function openSupplyStockReceiptModal() {
-  supplyBalancesState.receiptLines = [];
   _sbSetDocErr("supplyStockReceiptErr", "");
   setModalVisibility("supplyStockReceiptModal", true);
   const dateEl = document.getElementById("supplyStockReceiptDate");
-  const commentEl = document.getElementById("supplyStockReceiptComment");
-  const qtyEl = document.getElementById("supplyStockReceiptQty");
+  const list = document.getElementById("supplyStockReceiptList");
   if (dateEl) dateEl.value = supplyBalancesState.today || "";
-  if (commentEl) commentEl.value = "";
-  if (qtyEl) qtyEl.value = "";
+  if (list) list.innerHTML = `<div class="sb-doc-empty">Загрузка…</div>`;
   try {
     await _sbLoadCatalogItems();
-    _sbFillItemSelect("supplyStockReceiptItemSelect");
+    renderSupplyStockReceiptList();
   } catch (e) {
     _sbSetDocErr("supplyStockReceiptErr", String(e.message || e));
+    if (list) list.innerHTML = `<div class="sb-doc-empty">Не удалось загрузить список</div>`;
   }
-  _sbRenderDocLines("supplyStockReceiptLines", supplyBalancesState.receiptLines, "supplyStockReceiptRemoveLine");
 }
 window.openSupplyStockReceiptModal = openSupplyStockReceiptModal;
 
@@ -13391,54 +13446,13 @@ function closeSupplyStockReceiptModal() {
 }
 window.closeSupplyStockReceiptModal = closeSupplyStockReceiptModal;
 
-function supplyStockReceiptAddLine() {
-  const sel = document.getElementById("supplyStockReceiptItemSelect");
-  const qtyEl = document.getElementById("supplyStockReceiptQty");
-  const parsed = _sbParseItemKey(sel?.value);
-  const qty = Number(qtyEl?.value);
-  _sbSetDocErr("supplyStockReceiptErr", "");
-  if (!parsed) {
-    _sbSetDocErr("supplyStockReceiptErr", "Выберите товар или материал");
-    return;
-  }
-  if (!Number.isFinite(qty) || qty <= 0) {
-    _sbSetDocErr("supplyStockReceiptErr", "Укажите количество больше 0");
-    return;
-  }
-  const cat = (supplyBalancesState.catalogItems || []).find(
-    (x) => x.item_type === parsed.item_type && Number(x.item_id) === parsed.item_id
-  );
-  const existing = supplyBalancesState.receiptLines.find(
-    (x) => x.item_type === parsed.item_type && x.item_id === parsed.item_id
-  );
-  if (existing) existing.qty = Number(existing.qty) + qty;
-  else {
-    supplyBalancesState.receiptLines.push({
-      item_type: parsed.item_type,
-      item_id: parsed.item_id,
-      name: cat?.name || "",
-      unit: cat?.unit || "шт",
-      qty,
-    });
-  }
-  if (qtyEl) qtyEl.value = "";
-  _sbRenderDocLines("supplyStockReceiptLines", supplyBalancesState.receiptLines, "supplyStockReceiptRemoveLine");
-}
-window.supplyStockReceiptAddLine = supplyStockReceiptAddLine;
-
-function supplyStockReceiptRemoveLine(idx) {
-  supplyBalancesState.receiptLines.splice(idx, 1);
-  _sbRenderDocLines("supplyStockReceiptLines", supplyBalancesState.receiptLines, "supplyStockReceiptRemoveLine");
-}
-window.supplyStockReceiptRemoveLine = supplyStockReceiptRemoveLine;
-
 async function saveSupplyStockReceipt() {
   const btn = document.getElementById("supplyStockReceiptSaveBtn");
   const dateEl = document.getElementById("supplyStockReceiptDate");
-  const commentEl = document.getElementById("supplyStockReceiptComment");
   _sbSetDocErr("supplyStockReceiptErr", "");
-  if (!supplyBalancesState.receiptLines.length) {
-    _sbSetDocErr("supplyStockReceiptErr", "Добавьте хотя бы одну позицию");
+  const items = _sbCollectReceiptItemsFromList();
+  if (!items.length) {
+    _sbSetDocErr("supplyStockReceiptErr", "Укажите количество хотя бы по одной позиции");
     return;
   }
   if (btn) btn.disabled = true;
@@ -13448,12 +13462,8 @@ async function saveSupplyStockReceipt() {
       headers: jsonHeaders(),
       body: JSON.stringify({
         date: String(dateEl?.value || ""),
-        comment: String(commentEl?.value || ""),
-        items: supplyBalancesState.receiptLines.map((x) => ({
-          item_type: x.item_type,
-          item_id: x.item_id,
-          qty: Number(x.qty),
-        })),
+        comment: "",
+        items,
       }),
     });
     const data = await res.json().catch(() => ({}));

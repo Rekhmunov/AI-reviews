@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=189" />
+  <link rel="stylesheet" href="/static/style.css?v=190" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -4554,28 +4554,27 @@
   <!-- Supply stock: add to warehouse -->
   <div id="supplyStockReceiptModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
        onclick="if(event.target===this)closeSupplyStockReceiptModal()">
-    <div class="modal-card sb-doc-modal">
+    <div class="modal-card sb-doc-modal sb-adj-modal">
       <div class="modal-card-header">
         <h4 class="no-margin">Добавить на склад</h4>
         <button type="button" class="modal-close-btn" onclick="closeSupplyStockReceiptModal()" aria-label="Закрыть">✕</button>
       </div>
       <div class="sb-doc-body">
+        <p class="sb-vis-hint">Укажите количество прихода. Пустые строки не сохраняются.</p>
         <div class="sb-doc-fields">
           <label class="sb-doc-field" for="supplyStockReceiptDate">
             <span>Дата</span>
             <input type="date" id="supplyStockReceiptDate" />
           </label>
-          <label class="sb-doc-field sb-doc-field-grow" for="supplyStockReceiptComment">
+        </div>
+        <div class="sb-adj-list-wrap">
+          <div class="sb-adj-list-head" aria-hidden="true">
+            <span>Название</span>
+            <span>Количество</span>
             <span>Комментарий</span>
-            <input type="text" id="supplyStockReceiptComment" maxlength="500" placeholder="Необязательно" />
-          </label>
+          </div>
+          <div id="supplyStockReceiptList" class="sb-adj-list"></div>
         </div>
-        <div class="sb-doc-add-row">
-          <select id="supplyStockReceiptItemSelect" class="sb-doc-item-select"></select>
-          <input type="number" id="supplyStockReceiptQty" class="sb-doc-qty" min="0" step="any" placeholder="Кол-во" inputmode="decimal" />
-          <button type="button" class="secondary" onclick="supplyStockReceiptAddLine()">Добавить</button>
-        </div>
-        <div id="supplyStockReceiptLines" class="sb-doc-lines"></div>
         <div id="supplyStockReceiptErr" class="sb-doc-err" hidden></div>
       </div>
       <div class="sb-vis-footer">
@@ -4647,6 +4646,6 @@
       </div>
     </div>
   </div>
-  <script src="/static/app.js?v=414"></script>
+  <script src="/static/app.js?v=415"></script>
 </body>
 </html>
