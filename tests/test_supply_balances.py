@@ -65,6 +65,18 @@ def test_upsert_and_list_balances_roundtrip_sql_shape() -> None:
     assert any("ON CONFLICT" in sql for sql, _ in executed)
     assert any("supply_balances" in sql and "INSERT" in sql for sql, _ in executed)
 
+    executed.clear()
+    cleared = ReviewRepository.upsert_supply_balances(
+        repo,
+        user_id=10,
+        production_id=3,
+        balance_date="2026-08-12",
+        items=[{"item_type": "material", "item_id": 7, "quantity": None}],
+        updated_by=42,
+    )
+    assert cleared == 1
+    assert any("DELETE FROM supply_balances" in sql for sql, _ in executed)
+
 
 def test_set_user_can_supply_stock_writes_json_list() -> None:
     repo = ReviewRepository.__new__(ReviewRepository)

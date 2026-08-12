@@ -13045,12 +13045,26 @@ async function saveSupplyBalances() {
     return;
   }
   const items = [];
+  const today = String(supplyBalancesState.today || "");
+  const prevByKey = new Map(
+    (supplyBalancesState.rows || []).map((r) => [
+      `${r.item_type}:${r.item_id}`,
+      r?.values ? r.values[today] : undefined,
+    ])
+  );
   document.querySelectorAll("#supplyBalancesTbody .sb-qty-input").forEach((inp) => {
     const itemType = String(inp.getAttribute("data-sb-type") || "");
     const itemId = Number(inp.getAttribute("data-sb-id") || 0);
     const raw = String(inp.value || "").trim();
     if (!itemType || !itemId) return;
-    if (raw === "") return;
+    // Empty input clears today's saved value only if something was stored before.
+    if (raw === "") {
+      const prev = prevByKey.get(`${itemType}:${itemId}`);
+      if (prev !== null && prev !== undefined && prev !== "") {
+        items.push({ item_type: itemType, item_id: itemId, quantity: null });
+      }
+      return;
+    }
     const qty = Number(raw);
     if (!Number.isFinite(qty)) return;
     items.push({ item_type: itemType, item_id: itemId, quantity: qty });

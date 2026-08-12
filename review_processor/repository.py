@@ -7237,6 +7237,25 @@ class ReviewRepository:
                     self._sql("DELETE FROM product_photos WHERE user_id=? AND id=?"),
                     (user_id, product_id),
                 )
+                # Drop manual balance rows/visibility for this product if tables exist.
+                try:
+                    self._ensure_supply_balances_tables(conn)
+                    conn.execute(
+                        self._sql(
+                            "DELETE FROM supply_balances "
+                            "WHERE user_id = ? AND item_type = ? AND item_id = ?"
+                        ),
+                        (user_id, "product", int(product_id)),
+                    )
+                    conn.execute(
+                        self._sql(
+                            "DELETE FROM supply_balance_visibility "
+                            "WHERE user_id = ? AND item_type = ? AND item_id = ?"
+                        ),
+                        (user_id, "product", int(product_id)),
+                    )
+                except Exception:
+                    pass
         return self._row_to_dict(row) if row else None
 
     def get_product_name_by_article(self, *, user_id: int) -> dict[str, str]:
@@ -11673,7 +11692,10 @@ class ReviewRepository:
         items: list[dict[str, Any]],
         updated_by: int | None = None,
     ) -> int:
-        """Upsert quantity rows for one production/date. Returns saved count."""
+        """Upsert quantity rows for one production/date. Returns saved count.
+
+        ``quantity: null`` deletes the cell for that item/date (clear input).
+        """
         now = _utc_now()
         date_s = str(balance_date or "").strip()
         if not date_s:
@@ -11690,6 +11712,16 @@ class ReviewRepository:
                 except (TypeError, ValueError):
                     continue
                 if item_id <= 0:
+                    continue
+                if item.get("quantity") is None:
+                    conn.execute(
+                        self._sql(
+                            "DELETE FROM supply_balances WHERE user_id = ? AND production_id = ? "
+                            "AND item_type = ? AND item_id = ? AND balance_date = ?"
+                        ),
+                        (user_id, int(production_id), item_type, item_id, date_s),
+                    )
+                    saved += 1
                     continue
                 try:
                     qty = float(item.get("quantity"))

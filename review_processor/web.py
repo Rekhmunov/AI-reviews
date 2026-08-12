@@ -5540,9 +5540,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.get("/api/tenant/team/{target_user_id}/supply-permissions")
     def tenant_get_supply_permissions(target_user_id: int, request: Request) -> dict[str, object]:
         owner = _require_tenant_owner(request)
-        _target_user_for_admin_scope(actor=owner, target_user_id=target_user_id)
+        target = _target_user_for_admin_scope(actor=owner, target_user_id=target_user_id)
         repository._ensure_supply_tables()
         perms = repository.get_manager_supply_permissions(manager_user_id=target_user_id)
+        perms["can_supply_planning"] = bool(target.get("can_supply_planning"))
+        perms["can_supply_stock"] = bool(target.get("can_supply_stock"))
+        try:
+            import json as _j_stock_get
+            stock_prods = _j_stock_get.loads(str(target.get("stock_productions") or "[]"))
+        except Exception:
+            stock_prods = []
+        perms["stock_productions"] = stock_prods if isinstance(stock_prods, list) else []
         return {"ok": True, **perms}
 
     @app.put("/api/tenant/team/{target_user_id}/supplies-access")
