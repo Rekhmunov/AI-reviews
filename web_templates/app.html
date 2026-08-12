@@ -2411,28 +2411,30 @@
 
       <!-- ── Планирование поставок ── -->
       <section id="section-supplies-balances" class="hidden">
-        <div class="panel" style="margin-bottom:12px">
-          <div class="row row-between" style="align-items:center;flex-wrap:wrap;gap:12px">
-            <div class="row" style="align-items:center;gap:12px;flex-wrap:wrap">
-              <h3 class="section-title" style="margin:0">Остатки</h3>
-              <label class="small" for="supplyBalancesProduction" style="display:flex;align-items:center;gap:8px;color:#64748b">
-                Производство
-                <select id="supplyBalancesProduction" onchange="onSupplyBalancesProductionChange()" style="min-width:180px"></select>
+        <h3 class="section-title">Остатки</h3>
+        <div class="panel supplies-toolbar-panel sb-toolbar">
+          <div class="supplies-top-controls">
+            <div class="sb-toolbar-left">
+              <label class="sb-production-field" for="supplyBalancesProduction">
+                <span class="sb-production-label">Производство</span>
+                <select id="supplyBalancesProduction" class="sb-production-select" onchange="onSupplyBalancesProductionChange()"></select>
               </label>
+              <span id="supplyBalancesTodayBadge" class="sb-today-badge hidden"></span>
             </div>
-            <div class="row" style="align-items:center;gap:8px;flex-wrap:wrap">
+            <div class="supplies-actions">
               <button type="button" class="secondary" onclick="openSupplyBalancesVisibilityModal()">Вывод в таблице</button>
               <button type="button" id="supplyBalancesSaveBtn" onclick="saveSupplyBalances()">Сохранить</button>
             </div>
           </div>
-          <div id="supplyBalancesInfo" class="small" style="margin-top:8px;color:#64748b"></div>
+          <div id="supplyBalancesInfo" class="sb-status" role="status"></div>
         </div>
-        <div class="panel" style="padding:0;overflow:hidden">
+        <div class="panel sb-table-panel">
           <div class="table-wrap supply-balances-table-wrap" id="supplyBalancesTableWrap">
             <table id="supplyBalancesTable" class="supply-balances-table">
+              <colgroup id="supplyBalancesColgroup"></colgroup>
               <thead id="supplyBalancesThead"></thead>
               <tbody id="supplyBalancesTbody">
-                <tr><td style="text-align:center;padding:32px;color:#94a3b8;font-size:14px">Нет данных</td></tr>
+                <tr><td class="sb-empty-cell">Нет данных</td></tr>
               </tbody>
             </table>
           </div>
@@ -4530,21 +4532,21 @@
   <script src="/static/cadesplugin_api.js"></script>
   <!-- Supply balances visibility modal -->
   <div id="supplyBalancesVisibilityModal" class="modal-overlay hidden" role="dialog" aria-modal="true" onclick="if(event.target===this)closeSupplyBalancesVisibilityModal()">
-    <div class="modal-card" style="max-width:520px;max-height:80vh;display:flex;flex-direction:column">
+    <div class="modal-card sb-vis-modal">
       <div class="modal-card-header">
         <h4 class="no-margin">Вывод в таблице</h4>
         <button type="button" class="modal-close-btn" onclick="closeSupplyBalancesVisibilityModal()" aria-label="Закрыть">✕</button>
       </div>
-      <div style="padding:16px 20px;overflow:auto;flex:1">
-        <p class="small" style="margin:0 0 12px;color:#64748b">Отметьте позиции, которые показывать в таблице остатков. По умолчанию все включены.</p>
+      <div class="sb-vis-body">
+        <p class="sb-vis-hint">Выберите, какие позиции показывать в таблице. По умолчанию включены все.</p>
         <div id="supplyBalancesVisibilityList"></div>
       </div>
-      <div class="modal-card-footer" style="display:flex;justify-content:flex-end;gap:8px;padding:12px 20px;border-top:1px solid #e2e8f0">
+      <div class="sb-vis-footer">
         <button type="button" class="secondary" onclick="closeSupplyBalancesVisibilityModal()">Отмена</button>
         <button type="button" onclick="saveSupplyBalancesVisibility()">Сохранить</button>
       </div>
     </div>
   </div>
-  <script src="/static/app.js?v=408"></script>
+  <script src="/static/app.js?v=409"></script>
 </body>
 </html>

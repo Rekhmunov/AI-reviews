@@ -12907,6 +12907,12 @@ const supplyBalancesState = {
   visibilityItems: [],
 };
 
+const SB_COL_WIDTHS_KEY = "supply_balances_col_widths_v1";
+const SB_NAME_COL_DEFAULT = 280;
+const SB_DATE_COL_DEFAULT = 120;
+const SB_NAME_COL_MIN = 180;
+const SB_DATE_COL_MIN = 88;
+
 function _sbFormatDateLabel(iso) {
   const s = String(iso || "").trim();
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
@@ -12921,8 +12927,61 @@ function _sbQtyText(val) {
   return String(n);
 }
 
-async function loadSupplyBalancesSection() {
+function _sbSetStatus(text, kind) {
   const info = document.getElementById("supplyBalancesInfo");
+  if (!info) return;
+  info.textContent = String(text || "");
+  info.classList.toggle("is-ok", kind === "ok");
+  info.classList.toggle("is-error", kind === "error");
+}
+
+function _sbLoadColWidths() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(SB_COL_WIDTHS_KEY) || "null");
+    if (!raw || typeof raw !== "object") {
+      return { name: SB_NAME_COL_DEFAULT, dates: {}, dateDefault: SB_DATE_COL_DEFAULT };
+    }
+    const name = Number(raw.name);
+    const dateDefault = Number(raw.dateDefault);
+    const dates = (raw.dates && typeof raw.dates === "object") ? raw.dates : {};
+    return {
+      name: Number.isFinite(name) && name >= SB_NAME_COL_MIN ? name : SB_NAME_COL_DEFAULT,
+      dateDefault: Number.isFinite(dateDefault) && dateDefault >= SB_DATE_COL_MIN
+        ? dateDefault : SB_DATE_COL_DEFAULT,
+      dates: dates,
+    };
+  } catch (_) {
+    return { name: SB_NAME_COL_DEFAULT, dates: {}, dateDefault: SB_DATE_COL_DEFAULT };
+  }
+}
+
+function _sbSaveColWidths(store) {
+  try {
+    localStorage.setItem(SB_COL_WIDTHS_KEY, JSON.stringify(store || _sbLoadColWidths()));
+  } catch (_) {}
+}
+
+function _sbDateColWidth(store, dateIso) {
+  const n = Number(store?.dates?.[dateIso]);
+  if (Number.isFinite(n) && n >= SB_DATE_COL_MIN) return n;
+  const d = Number(store?.dateDefault);
+  return Number.isFinite(d) && d >= SB_DATE_COL_MIN ? d : SB_DATE_COL_DEFAULT;
+}
+
+function _sbUpdateTodayBadge() {
+  const badge = document.getElementById("supplyBalancesTodayBadge");
+  if (!badge) return;
+  const today = String(supplyBalancesState.today || "").trim();
+  if (!today) {
+    badge.classList.add("hidden");
+    badge.textContent = "";
+    return;
+  }
+  badge.classList.remove("hidden");
+  badge.textContent = `Сегодня · ${_sbFormatDateLabel(today)}`;
+}
+
+async function loadSupplyBalancesSection() {
   const select = document.getElementById("supplyBalancesProduction");
   try {
     const metaRes = await fetch("/api/supply-balances/meta");
@@ -12930,10 +12989,13 @@ async function loadSupplyBalancesSection() {
     if (!metaRes.ok) throw new Error(meta.detail || "Нет доступа");
     supplyBalancesState.productions = Array.isArray(meta.productions) ? meta.productions : [];
     supplyBalancesState.today = String(meta.today || "");
+    _sbUpdateTodayBadge();
     if (select) {
+      const field = select.closest(".sb-production-field");
       if (!supplyBalancesState.productions.length) {
         select.innerHTML = `<option value="">Нет производств</option>`;
         select.disabled = true;
+        if (field) field.classList.remove("hidden");
       } else {
         select.disabled = false;
         const keep = Number(supplyBalancesState.productionId || 0);
@@ -12943,23 +13005,24 @@ async function loadSupplyBalancesSection() {
         ).join("");
         select.value = String(hasKeep ? keep : supplyBalancesState.productions[0].id);
         supplyBalancesState.productionId = Number(select.value);
-        // Hide selector when only one production is available.
-        select.closest("label")?.classList.toggle("hidden", supplyBalancesState.productions.length <= 1);
+        if (field) field.classList.toggle("hidden", supplyBalancesState.productions.length <= 1);
       }
     }
     if (!supplyBalancesState.productions.length) {
-      if (info) info.textContent = "Добавьте производство в Поставки → Настройки → Производства";
+      _sbSetStatus("Добавьте производство в Поставки → Настройки → Производства", "error");
       const tbody = document.getElementById("supplyBalancesTbody");
       const thead = document.getElementById("supplyBalancesThead");
+      const colgroup = document.getElementById("supplyBalancesColgroup");
+      if (colgroup) colgroup.innerHTML = "";
       if (thead) thead.innerHTML = "";
       if (tbody) {
-        tbody.innerHTML = `<tr><td style="text-align:center;padding:32px;color:#94a3b8;font-size:14px">Нет производств</td></tr>`;
+        tbody.innerHTML = `<tr><td class="sb-empty-cell">Нет производств для ввода остатков</td></tr>`;
       }
       return;
     }
     await loadSupplyBalancesData();
   } catch (e) {
-    if (info) info.textContent = String(e.message || e);
+    _sbSetStatus(String(e.message || e), "error");
   }
 }
 window.loadSupplyBalancesSection = loadSupplyBalancesSection;
@@ -12972,7 +13035,6 @@ async function onSupplyBalancesProductionChange() {
 window.onSupplyBalancesProductionChange = onSupplyBalancesProductionChange;
 
 async function loadSupplyBalancesData() {
-  const info = document.getElementById("supplyBalancesInfo");
   const pid = Number(supplyBalancesState.productionId || 0);
   if (!pid) return;
   try {
@@ -12983,65 +13045,191 @@ async function loadSupplyBalancesData() {
     supplyBalancesState.dates = Array.isArray(data.dates) ? data.dates : [supplyBalancesState.today];
     supplyBalancesState.rows = Array.isArray(data.rows) ? data.rows : [];
     supplyBalancesState.productionId = Number(data.production_id || pid);
+    _sbUpdateTodayBadge();
     renderSupplyBalancesTable();
-    if (info) {
-      info.textContent = supplyBalancesState.rows.length
-        ? `Позиций: ${supplyBalancesState.rows.length}. Редактируется дата: ${_sbFormatDateLabel(supplyBalancesState.today)}`
-        : "Нет видимых материалов и товаров. Добавьте их в Настройки или включите в «Вывод в таблице».";
+    if (supplyBalancesState.rows.length) {
+      _sbSetStatus(
+        `Позиций: ${supplyBalancesState.rows.length}. Редактируется ${_sbFormatDateLabel(supplyBalancesState.today)}`
+      );
+    } else {
+      _sbSetStatus("Нет видимых материалов и товаров. Добавьте их в Настройки или включите в «Вывод в таблице».");
     }
   } catch (e) {
-    if (info) info.textContent = String(e.message || e);
+    _sbSetStatus(String(e.message || e), "error");
   }
+}
+
+function _sbRenderItemRow(row, dates, today) {
+  const type = String(row.item_type || "");
+  const id = Number(row.item_id || 0);
+  const unit = esc(row.unit || "шт");
+  const values = row.values || {};
+  const typeLabel = type === "material" ? "Материал" : "Товар";
+  const cells = dates.map((d) => {
+    const raw = values[d];
+    if (d === today) {
+      const val = (raw === null || raw === undefined) ? "" : String(raw);
+      return `<td class="sb-col-today">
+        <div class="sb-qty-wrap">
+          <input class="sb-qty-input" type="number" step="any" min="0"
+            data-sb-type="${esc(type)}" data-sb-id="${id}"
+            value="${esc(val)}" placeholder="0" inputmode="decimal" />
+          <span class="sb-unit">${unit}</span>
+        </div>
+      </td>`;
+    }
+    return `<td class="sb-col-date">
+      <div class="sb-qty-wrap">
+        <span class="sb-qty-ro">${esc(_sbQtyText(raw))}</span>
+        <span class="sb-unit">${unit}</span>
+      </div>
+    </td>`;
+  }).join("");
+  return `<tr>
+    <td class="sb-col-name">
+      <span class="sb-name-text">${esc(row.name || "")}</span>
+      <span class="sb-name-meta">${typeLabel}</span>
+    </td>
+    ${cells}
+  </tr>`;
 }
 
 function renderSupplyBalancesTable() {
+  const table = document.getElementById("supplyBalancesTable");
+  const colgroup = document.getElementById("supplyBalancesColgroup");
   const thead = document.getElementById("supplyBalancesThead");
   const tbody = document.getElementById("supplyBalancesTbody");
-  if (!thead || !tbody) return;
+  if (!table || !colgroup || !thead || !tbody) return;
+
   const dates = supplyBalancesState.dates.slice();
   const today = supplyBalancesState.today;
+  const widths = _sbLoadColWidths();
+  const nameW = widths.name;
+  const dateWidths = dates.map((d) => _sbDateColWidth(widths, d));
+  const totalW = nameW + dateWidths.reduce((a, b) => a + b, 0);
+
+  colgroup.innerHTML = [
+    `<col data-sb-col="name" style="width:${nameW}px">`,
+    ...dates.map((d, i) =>
+      `<col data-sb-col="date" data-sb-date="${esc(d)}" style="width:${dateWidths[i]}px">`
+    ),
+  ].join("");
+  table.style.width = `${totalW}px`;
+  table.style.minWidth = `${totalW}px`;
+
   thead.innerHTML = `<tr>
-    <th class="sb-col-name">Материал / Товар</th>
-    ${dates.map((d) => {
+    <th class="sb-col-name sb-resizable" data-sb-col="name">
+      <span class="sb-th-label">Материал / Товар</span>
+      <div class="sb-resize-handle" data-sb-resize="name" title="Изменить ширину"></div>
+    </th>
+    ${dates.map((d, i) => {
       const isToday = d === today;
-      return `<th class="${isToday ? "sb-col-today" : ""}">${_sbFormatDateLabel(d)}${isToday ? " (сегодня)" : ""}</th>`;
+      return `<th class="sb-resizable ${isToday ? "sb-col-today" : "sb-col-date"}" data-sb-col="date" data-sb-date="${esc(d)}" data-sb-date-idx="${i}">
+        <span class="sb-th-label">${_sbFormatDateLabel(d)}</span>
+        ${isToday ? `<span class="sb-th-sub">сегодня</span>` : ""}
+        <div class="sb-resize-handle" data-sb-resize="date" data-sb-date="${esc(d)}" title="Изменить ширину"></div>
+      </th>`;
     }).join("")}
   </tr>`;
+
   if (!supplyBalancesState.rows.length) {
-    tbody.innerHTML = `<tr><td colspan="${dates.length + 1}" style="text-align:center;padding:32px;color:#94a3b8;font-size:14px">Нет данных</td></tr>`;
+    tbody.innerHTML = `<tr><td class="sb-empty-cell" colspan="${dates.length + 1}">Нет данных для отображения</td></tr>`;
+    initSupplyBalancesColumnResizer();
     return;
   }
-  tbody.innerHTML = supplyBalancesState.rows.map((row) => {
-    const type = String(row.item_type || "");
-    const id = Number(row.item_id || 0);
-    const unit = esc(row.unit || "шт");
-    const values = row.values || {};
-    const cells = dates.map((d) => {
-      const raw = values[d];
-      if (d === today) {
-        const val = (raw === null || raw === undefined) ? "" : String(raw);
-        return `<td class="sb-col-today">
-          <input class="sb-qty-input" type="number" step="any" min="0"
-            data-sb-type="${esc(type)}" data-sb-id="${id}"
-            value="${esc(val)}" placeholder="0" />
-          <span class="sb-unit">${unit}</span>
-        </td>`;
+
+  const materials = supplyBalancesState.rows.filter((r) => r.item_type === "material");
+  const products = supplyBalancesState.rows.filter((r) => r.item_type === "product");
+  const parts = [];
+  if (materials.length) {
+    parts.push(`<tr class="sb-group-row"><td class="sb-col-name" colspan="${dates.length + 1}">Материалы</td></tr>`);
+    materials.forEach((row) => parts.push(_sbRenderItemRow(row, dates, today)));
+  }
+  if (products.length) {
+    parts.push(`<tr class="sb-group-row"><td class="sb-col-name" colspan="${dates.length + 1}">Товары</td></tr>`);
+    products.forEach((row) => parts.push(_sbRenderItemRow(row, dates, today)));
+  }
+  tbody.innerHTML = parts.join("");
+  initSupplyBalancesColumnResizer();
+}
+
+function initSupplyBalancesColumnResizer() {
+  const table = document.getElementById("supplyBalancesTable");
+  if (!table) return;
+  table.querySelectorAll(".sb-resize-handle").forEach((handle) => {
+    if (handle.dataset.bound === "1") return;
+    handle.dataset.bound = "1";
+    let startX = 0;
+    let startW = 0;
+    let colEl = null;
+    let kind = "";
+    let dateKey = "";
+
+    handle.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const th = handle.closest("th");
+      const colgroup = document.getElementById("supplyBalancesColgroup");
+      if (!th || !colgroup) return;
+      kind = String(handle.getAttribute("data-sb-resize") || "");
+      dateKey = String(handle.getAttribute("data-sb-date") || "");
+      if (kind === "name") {
+        colEl = colgroup.querySelector('col[data-sb-col="name"]');
+      } else {
+        colEl = colgroup.querySelector(`col[data-sb-date="${CSS.escape(dateKey)}"]`);
       }
-      return `<td><span class="sb-qty-ro">${esc(_sbQtyText(raw))}</span><span class="sb-unit">${unit}</span></td>`;
-    }).join("");
-    return `<tr>
-      <td class="sb-col-name">${esc(row.name || "")}</td>
-      ${cells}
-    </tr>`;
-  }).join("");
+      if (!colEl) return;
+      startX = e.clientX;
+      startW = parseFloat(colEl.style.width) || th.offsetWidth || SB_DATE_COL_DEFAULT;
+      handle.classList.add("is-dragging");
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
+
+    function onMove(ev) {
+      if (!colEl) return;
+      const minW = kind === "name" ? SB_NAME_COL_MIN : SB_DATE_COL_MIN;
+      const newW = Math.max(minW, Math.round(startW + (ev.clientX - startX)));
+      colEl.style.width = `${newW}px`;
+      const cols = Array.from(document.querySelectorAll("#supplyBalancesColgroup col"));
+      const total = cols.reduce((sum, col) => sum + (parseFloat(col.style.width) || 0), 0);
+      table.style.width = `${total}px`;
+      table.style.minWidth = `${total}px`;
+    }
+
+    function onUp() {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      handle.classList.remove("is-dragging");
+      if (!colEl) return;
+      const store = _sbLoadColWidths();
+      const width = Math.max(
+        kind === "name" ? SB_NAME_COL_MIN : SB_DATE_COL_MIN,
+        Math.round(parseFloat(colEl.style.width) || 0)
+      );
+      if (kind === "name") {
+        store.name = width;
+      } else if (dateKey) {
+        store.dates = store.dates || {};
+        store.dates[dateKey] = width;
+        // Remember last resized date width as default for new date columns.
+        store.dateDefault = width;
+      }
+      _sbSaveColWidths(store);
+      colEl = null;
+    }
+  });
 }
 
 async function saveSupplyBalances() {
-  const info = document.getElementById("supplyBalancesInfo");
   const btn = document.getElementById("supplyBalancesSaveBtn");
   const pid = Number(supplyBalancesState.productionId || 0);
   if (!pid) {
-    if (info) info.textContent = "Выберите производство";
+    _sbSetStatus("Выберите производство", "error");
     return;
   }
   const items = [];
@@ -13078,10 +13266,13 @@ async function saveSupplyBalances() {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || "Ошибка сохранения");
-    if (info) info.textContent = `Сохранено: ${data.saved || 0} · ${_sbFormatDateLabel(data.date || supplyBalancesState.today)}`;
     await loadSupplyBalancesData();
+    _sbSetStatus(
+      `Сохранено: ${data.saved || 0} · ${_sbFormatDateLabel(data.date || supplyBalancesState.today)}`,
+      "ok"
+    );
   } catch (e) {
-    if (info) info.textContent = String(e.message || e);
+    _sbSetStatus(String(e.message || e), "error");
   } finally {
     if (btn) btn.disabled = false;
   }

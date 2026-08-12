@@ -9566,23 +9566,97 @@ button.wb-fbs-kiz-add:disabled {
 }
 
 /* ── Supply balances (Остатки) ───────────────────────────────────────────── */
+#section-supplies-balances .section-title {
+  margin: 0 0 12px;
+}
+.sb-toolbar {
+  margin-bottom: 12px;
+}
+.sb-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.sb-production-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.sb-production-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #64748b;
+  white-space: nowrap;
+}
+.sb-production-select {
+  min-width: 180px;
+  max-width: 280px;
+  min-height: 36px;
+  padding: 6px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #0f172a;
+  font-size: 14px;
+}
+.sb-production-select:focus {
+  outline: 2px solid #93c5fd;
+  outline-offset: 1px;
+  border-color: #60a5fa;
+}
+.sb-production-select:disabled {
+  background: #f8fafc;
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+.sb-today-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1d4ed8;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.sb-status {
+  margin-top: 8px;
+  min-height: 18px;
+  font-size: 13px;
+  color: #64748b;
+}
+.sb-status.is-ok { color: #047857; }
+.sb-status.is-error { color: #b91c1c; }
+
+.sb-table-panel {
+  padding: 0;
+  overflow: hidden;
+}
 .supply-balances-table-wrap {
   overflow: auto;
-  max-height: calc(100vh - 220px);
+  max-height: calc(100vh - 240px);
 }
 .supply-balances-table {
-  width: 100%;
-  min-width: 640px;
+  width: max-content;
+  min-width: 100%;
   border-collapse: separate;
   border-spacing: 0;
+  table-layout: fixed;
 }
 .supply-balances-table th,
 .supply-balances-table td {
-  padding: 10px 12px;
+  padding: 12px 16px;
   border-bottom: 1px solid #e2e8f0;
   font-size: 14px;
   text-align: left;
-  white-space: nowrap;
+  vertical-align: middle;
+  box-sizing: border-box;
 }
 .supply-balances-table th {
   position: sticky;
@@ -9591,6 +9665,27 @@ button.wb-fbs-kiz-add:disabled {
   background: #f8fafc;
   font-weight: 600;
   color: #334155;
+  white-space: nowrap;
+  user-select: none;
+}
+.supply-balances-table th.sb-resizable {
+  position: sticky;
+  overflow: hidden;
+}
+.supply-balances-table .sb-th-label {
+  display: inline-block;
+  max-width: calc(100% - 8px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+.supply-balances-table .sb-th-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  letter-spacing: 0.02em;
 }
 .supply-balances-table th.sb-col-name,
 .supply-balances-table td.sb-col-name {
@@ -9598,70 +9693,200 @@ button.wb-fbs-kiz-add:disabled {
   left: 0;
   z-index: 3;
   background: #fff;
-  min-width: 220px;
   box-shadow: 1px 0 0 #e2e8f0;
 }
 .supply-balances-table th.sb-col-name {
   z-index: 4;
   background: #f8fafc;
 }
+.supply-balances-table tbody tr:hover td {
+  background: #f8fafc;
+}
+.supply-balances-table tbody tr:hover td.sb-col-name {
+  background: #f8fafc;
+}
+.supply-balances-table tbody tr:hover td.sb-col-today {
+  background: #eff6ff;
+}
 .supply-balances-table th.sb-col-today,
 .supply-balances-table td.sb-col-today {
-  background: #f0f9ff;
+  background: #f8fbff;
 }
 .supply-balances-table th.sb-col-today {
-  background: #e0f2fe;
+  background: #eff6ff;
+  color: #1e3a8a;
+}
+.supply-balances-table td.sb-col-date,
+.supply-balances-table td.sb-col-today {
+  text-align: right;
+}
+.supply-balances-table th.sb-col-date,
+.supply-balances-table th.sb-col-today {
+  text-align: right;
+}
+.supply-balances-table .sb-name-text {
+  display: block;
+  font-weight: 500;
+  color: #0f172a;
+  white-space: normal;
+  line-height: 1.35;
+  word-break: break-word;
+}
+.supply-balances-table .sb-name-meta {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: #94a3b8;
+}
+.supply-balances-table .sb-qty-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  width: 100%;
 }
 .supply-balances-table .sb-qty-input {
-  width: 96px;
+  width: 100%;
+  max-width: 112px;
   min-height: 36px;
-  padding: 6px 8px;
+  padding: 6px 10px;
   border: 1px solid #cbd5e1;
-  border-radius: 6px;
+  border-radius: 8px;
+  background: #fff;
   font-size: 14px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: #0f172a;
+}
+.supply-balances-table .sb-qty-input:hover {
+  border-color: #94a3b8;
 }
 .supply-balances-table .sb-qty-input:focus {
   outline: 2px solid #93c5fd;
   outline-offset: 1px;
   border-color: #60a5fa;
 }
+.supply-balances-table .sb-qty-input:disabled {
+  background: #f8fafc;
+  color: #94a3b8;
+}
 .supply-balances-table .sb-qty-ro {
-  color: #475569;
+  color: #334155;
   font-variant-numeric: tabular-nums;
+  font-weight: 500;
 }
 .supply-balances-table .sb-unit {
   color: #94a3b8;
   font-size: 12px;
-  margin-left: 4px;
+  min-width: 20px;
+  text-align: left;
+}
+.supply-balances-table .sb-group-row td {
+  padding: 10px 16px;
+  background: #f1f5f9;
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+.supply-balances-table .sb-group-row td.sb-col-name {
+  background: #f1f5f9;
+  box-shadow: 1px 0 0 #e2e8f0;
+}
+.supply-balances-table .sb-empty-cell {
+  text-align: center;
+  padding: 48px 24px;
+  color: #94a3b8;
+  font-size: 14px;
+  white-space: normal;
+}
+.supply-balances-table .sb-resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  background: transparent;
+  z-index: 5;
+}
+.supply-balances-table .sb-resize-handle:hover,
+.supply-balances-table .sb-resize-handle.is-dragging {
+  background: rgba(37, 99, 235, 0.35);
+}
+
+.sb-vis-modal {
+  max-width: 520px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+.sb-vis-body {
+  padding: 16px 20px;
+  overflow: auto;
+  flex: 1;
+}
+.sb-vis-hint {
+  margin: 0 0 16px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #64748b;
+}
+.sb-vis-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid #e2e8f0;
+  background: #fff;
 }
 .sb-vis-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 10px 0;
+  padding: 12px 0;
   border-bottom: 1px solid #f1f5f9;
 }
 .sb-vis-row:last-child { border-bottom: none; }
 .sb-vis-meta { min-width: 0; }
-.sb-vis-name { font-size: 14px; color: #0f172a; }
-.sb-vis-sub { font-size: 12px; color: #94a3b8; margin-top: 2px; }
+.sb-vis-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: #0f172a;
+  line-height: 1.35;
+}
+.sb-vis-sub {
+  font-size: 12px;
+  color: #94a3b8;
+  margin-top: 2px;
+}
 .sb-vis-eye {
-  width: 40px;
-  height: 36px;
+  min-width: 56px;
+  min-height: 36px;
+  padding: 0 12px;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   background: #fff;
-  color: #334155;
+  color: #1e293b;
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
 }
 .sb-vis-eye:hover { background: #f8fafc; }
+.sb-vis-eye:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 1px;
+}
 .sb-vis-eye.is-off {
   color: #94a3b8;
   background: #f8fafc;
+  font-weight: 500;
 }
 .sb-vis-group-title {
-  margin: 16px 0 8px;
+  margin: 16px 0 4px;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -9669,4 +9894,13 @@ button.wb-fbs-kiz-add:disabled {
   color: #94a3b8;
 }
 .sb-vis-group-title:first-child { margin-top: 0; }
+
+@media (max-width: 720px) {
+  .sb-toolbar-left { width: 100%; }
+  .sb-production-field { width: 100%; }
+  .sb-production-select { flex: 1; max-width: none; }
+  .supply-balances-table-wrap { max-height: calc(100vh - 280px); }
+  .supply-balances-table th,
+  .supply-balances-table td { padding: 10px 12px; }
+}
 
