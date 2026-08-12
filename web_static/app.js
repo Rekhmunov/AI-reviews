@@ -12983,7 +12983,6 @@ function _sbUpdateTodayBadge() {
 }
 
 async function loadSupplyBalancesSection() {
-  const select = document.getElementById("supplyBalancesProduction");
   try {
     const metaRes = await fetch("/api/supply-balances/meta");
     const meta = await metaRes.json().catch(() => ({}));
@@ -12991,25 +12990,10 @@ async function loadSupplyBalancesSection() {
     supplyBalancesState.productions = Array.isArray(meta.productions) ? meta.productions : [];
     supplyBalancesState.today = String(meta.today || "");
     _sbUpdateTodayBadge();
-    if (select) {
-      const field = select.closest(".sb-production-field");
-      if (!supplyBalancesState.productions.length) {
-        select.innerHTML = `<option value="">Нет производств</option>`;
-        select.disabled = true;
-        if (field) field.classList.remove("hidden");
-      } else {
-        select.disabled = false;
-        const keep = Number(supplyBalancesState.productionId || 0);
-        const hasKeep = supplyBalancesState.productions.some((p) => Number(p.id) === keep);
-        select.innerHTML = supplyBalancesState.productions.map((p) =>
-          `<option value="${Number(p.id)}">${esc(p.name || ("#" + p.id))}</option>`
-        ).join("");
-        select.value = String(hasKeep ? keep : supplyBalancesState.productions[0].id);
-        supplyBalancesState.productionId = Number(select.value);
-        if (field) field.classList.toggle("hidden", supplyBalancesState.productions.length <= 1);
-      }
-    }
+    // Single-warehouse mode: no production picker in UI. Use first available
+    // production id under the hood until multi-production stock is designed.
     if (!supplyBalancesState.productions.length) {
+      supplyBalancesState.productionId = null;
       _sbSetStatus("Добавьте производство в Поставки → Настройки → Производства", "error");
       const tbody = document.getElementById("supplyBalancesTbody");
       const thead = document.getElementById("supplyBalancesThead");
@@ -13017,23 +13001,17 @@ async function loadSupplyBalancesSection() {
       if (colgroup) colgroup.innerHTML = "";
       if (thead) thead.innerHTML = "";
       if (tbody) {
-        tbody.innerHTML = `<tr><td class="sb-empty-cell">Нет производств для ввода остатков</td></tr>`;
+        tbody.innerHTML = `<tr><td class="sb-empty-cell">Нет данных для ввода остатков</td></tr>`;
       }
       return;
     }
+    supplyBalancesState.productionId = Number(supplyBalancesState.productions[0].id);
     await loadSupplyBalancesData();
   } catch (e) {
     _sbSetStatus(String(e.message || e), "error");
   }
 }
 window.loadSupplyBalancesSection = loadSupplyBalancesSection;
-
-async function onSupplyBalancesProductionChange() {
-  const select = document.getElementById("supplyBalancesProduction");
-  supplyBalancesState.productionId = Number(select?.value || 0) || null;
-  await loadSupplyBalancesData();
-}
-window.onSupplyBalancesProductionChange = onSupplyBalancesProductionChange;
 
 async function loadSupplyBalancesData() {
   const pid = Number(supplyBalancesState.productionId || 0);
