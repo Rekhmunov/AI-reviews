@@ -672,7 +672,23 @@ class ManagerSuppliesAccessRequest(BaseModel):
     can_supply_poa: bool = False
     can_supply_certs: bool = False
     can_supply_planning: bool = False
+    can_supply_stock: bool = False
+    stock_productions: list[str] = Field(default_factory=list)
     supply_sources: dict = {}  # {source_id: {"wb": bool, "wb_fbs": bool, "ozon": bool}}
+
+
+class FeedbackMaterialRequest(BaseModel):
+    name: str = Field(default="", max_length=300)
+    unit: str = Field(default="шт", max_length=32)
+
+
+class SupplyBalanceSaveRequest(BaseModel):
+    production_id: int
+    items: list[dict[str, object]] = Field(default_factory=list)
+
+
+class SupplyBalanceVisibilityRequest(BaseModel):
+    items: list[dict[str, object]] = Field(default_factory=list)
 
 
 class ManagerSalaryAccessRequest(BaseModel):
@@ -3463,6 +3479,57 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         }.get(ext, "image/webp")
         return _FileResp(fpath, media_type=media)
 
+    # ── Feedback materials (Настройки → Материалы) ───────────────────────────
+
+    @app.get("/api/materials")
+    def list_materials(request: Request) -> dict[str, object]:
+        user = _require_settings_access(request)
+        repository.ensure_supply_balances_tables()
+        items = repository.list_feedback_materials(user_id=_tenant_owner_id(user))
+        return {"items": items}
+
+    @app.post("/api/materials")
+    def create_material(request: Request, payload: FeedbackMaterialRequest) -> dict[str, object]:
+        user = _require_settings_access(request)
+        name = str(payload.name or "").strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Введите наименование")
+        repository.ensure_supply_balances_tables()
+        item = repository.add_feedback_material(
+            user_id=_tenant_owner_id(user),
+            name=name,
+            unit=str(payload.unit or "шт").strip() or "шт",
+        )
+        return {"ok": True, "item": item}
+
+    @app.put("/api/materials/{material_id}")
+    def update_material(
+        material_id: int, request: Request, payload: FeedbackMaterialRequest
+    ) -> dict[str, object]:
+        user = _require_settings_access(request)
+        name = str(payload.name or "").strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Введите наименование")
+        ok = repository.update_feedback_material(
+            user_id=_tenant_owner_id(user),
+            material_id=material_id,
+            name=name,
+            unit=str(payload.unit or "шт").strip() or "шт",
+        )
+        if not ok:
+            raise HTTPException(status_code=404, detail="Материал не найден")
+        return {"ok": True}
+
+    @app.delete("/api/materials/{material_id}")
+    def delete_material(material_id: int, request: Request) -> dict[str, object]:
+        user = _require_settings_access(request)
+        ok = repository.delete_feedback_material(
+            user_id=_tenant_owner_id(user), material_id=material_id
+        )
+        if not ok:
+            raise HTTPException(status_code=404, detail="Материал не найден")
+        return {"ok": True}
+
     # Enrich /api/reviews and /api/conversations with product_photo_url
     # (done inline in list_reviews and list_conversations endpoints)
 
@@ -4299,6 +4366,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 or bool(_supply_perms.get("can_supply_poa"))
                 or bool(_supply_perms.get("can_supply_settings"))
                 or bool(_supply_perms.get("can_supply_certs"))
+                or bool(user.get("can_supply_planning"))
+                or bool(user.get("can_supply_stock"))
             )
 
         return {
@@ -4308,6 +4377,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "can_view_chats": can_view_chats,
             "can_view_supplies": can_view_supplies,
             "can_view_any_supply": can_view_any_supply,
+            "can_supply_planning": bool(user.get("can_supply_planning")) or role in ROLE_CAN_ACCESS_SETTINGS,
+            "can_supply_stock": bool(user.get("can_supply_stock")) or role in ROLE_CAN_ACCESS_SETTINGS,
+            "stock_productions": (lambda: (
+                __import__("json").loads(str(user.get("stock_productions") or "[]"))
+            ) if not (role in ROLE_CAN_ACCESS_SETTINGS) else None)(),
             "can_view_salary": bool(user.get("can_salary")),
             "can_salary_report": bool(user.get("can_salary_report")),
             "can_salary_zp_export": bool(user.get("can_salary_zp_export")),
@@ -5340,7 +5414,25 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     manager_user_id=int(item["id"])
                 )
                 _sp["can_supply_planning"] = bool(item.get("can_supply_planning"))
+                _sp["can_supply_stock"] = bool(item.get("can_supply_stock"))
+                try:
+                    import json as _j_stock
+                    _sp["stock_productions"] = _j_stock.loads(
+                        str(item.get("stock_productions") or "[]")
+                    )
+                except Exception:
+                    _sp["stock_productions"] = []
+                if not isinstance(_sp.get("stock_productions"), list):
+                    _sp["stock_productions"] = []
                 item["supply_permissions"] = _sp
+                item["can_supply_stock"] = bool(item.get("can_supply_stock"))
+                try:
+                    import json as _j_stock2
+                    item["stock_productions"] = _j_stock2.loads(
+                        str(item.get("stock_productions") or "[]")
+                    )
+                except Exception:
+                    item["stock_productions"] = []
         return {"items": items, "count": len(items)}
 
     @app.post("/api/tenant/team")
@@ -5472,6 +5564,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 or payload.can_supply_settings
                 or payload.can_supply_poa
                 or payload.can_supply_certs
+                or payload.can_supply_planning
+                or payload.can_supply_stock
                 or any(
                     (v.get("wb") or v.get("wb_fbs") or v.get("ozon"))
                     for v in sources.values()
@@ -5486,12 +5580,18 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 can_supply_certs=payload.can_supply_certs,
                 sources=sources,
             )
-            # Save can_supply_planning directly on the user row
+            # Save planning / Остатки flags on the user row
             with repository._connect() as _conn:
                 _conn.execute(
                     repository._sql("UPDATE users SET can_supply_planning = ? WHERE id = ?"),
                     (repository._bool_db(payload.can_supply_planning), target_user_id),
                 )
+            repository._ensure_supply_tables()
+            repository.set_user_can_supply_stock(
+                user_id=target_user_id,
+                can_supply_stock=bool(payload.can_supply_stock),
+                stock_productions=list(payload.stock_productions or []),
+            )
         except Exception as exc:
             _log.error("supplies-access save failed for user %s: %s", target_user_id, exc, exc_info=True)
             raise HTTPException(status_code=500, detail=f"Ошибка сохранения прав на поставки: {exc}") from exc
@@ -8026,6 +8126,41 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if role in ROLE_CAN_ACCESS_SETTINGS:
             return True
         return bool(user.get("can_supplies"))
+
+    def _can_view_supply_stock(user: dict[str, object]) -> bool:
+        role = str(user.get("role") or ROLE_USER)
+        if role in ROLE_CAN_ACCESS_SETTINGS:
+            return True
+        return bool(user.get("can_supply_stock"))
+
+    def _allowed_stock_production_ids(user: dict[str, object]) -> list[int] | None:
+        """None = all productions (owner). Otherwise list of allowed production ids."""
+        role = str(user.get("role") or ROLE_USER)
+        if role in ROLE_CAN_ACCESS_SETTINGS:
+            return None
+        try:
+            import json as _j
+
+            raw = _j.loads(str(user.get("stock_productions") or "[]"))
+        except Exception:
+            raw = []
+        out: list[int] = []
+        for x in raw if isinstance(raw, list) else []:
+            try:
+                pid = int(x)
+            except (TypeError, ValueError):
+                continue
+            if pid > 0:
+                out.append(pid)
+        return out
+
+    def _moscow_today() -> str:
+        try:
+            from zoneinfo import ZoneInfo
+
+            return datetime.now(ZoneInfo("Europe/Moscow")).date().isoformat()
+        except Exception:
+            return datetime.now(UTC).date().isoformat()
 
     def _can_view_wb_fbs(user: dict[str, object]) -> bool:
         """True if user may open Поставки → ВБ ФБС (owner or explicit wb_fbs grant)."""
@@ -13540,6 +13675,234 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             raise HTTPException(status_code=404, detail="Производство не найдено")
         return {"ok": True}
 
+    # ── Manual balances (Поставки → Остатки) ─────────────────────────────────
+
+    @app.get("/api/supply-balances/meta")
+    def supply_balances_meta(request: Request) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_supply_stock(user):
+            raise HTTPException(status_code=403, detail="Нет доступа к остаткам")
+        owner_id = _supply_owner_id(user)
+        repository._ensure_supply_tables()
+        repository.ensure_supply_balances_tables()
+        productions = repository.list_supply_productions(user_id=owner_id)
+        allowed = _allowed_stock_production_ids(user)
+        if allowed is not None:
+            allowed_set = {int(x) for x in allowed}
+            productions = [
+                p for p in productions if int(p.get("id") or 0) in allowed_set
+            ]
+        return {
+            "today": _moscow_today(),
+            "productions": [
+                {"id": int(p.get("id") or 0), "name": str(p.get("name") or "")}
+                for p in productions
+                if int(p.get("id") or 0) > 0
+            ],
+            "can_edit": True,
+        }
+
+    @app.get("/api/supply-balances")
+    def get_supply_balances(
+        request: Request, production_id: int = 0
+    ) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_supply_stock(user):
+            raise HTTPException(status_code=403, detail="Нет доступа к остаткам")
+        owner_id = _supply_owner_id(user)
+        repository._ensure_supply_tables()
+        repository.ensure_supply_balances_tables()
+        allowed = _allowed_stock_production_ids(user)
+        productions = repository.list_supply_productions(user_id=owner_id)
+        if allowed is not None:
+            allowed_set = {int(x) for x in allowed}
+            productions = [
+                p for p in productions if int(p.get("id") or 0) in allowed_set
+            ]
+        if not productions:
+            return {
+                "today": _moscow_today(),
+                "production_id": None,
+                "dates": [_moscow_today()],
+                "rows": [],
+                "productions": [],
+            }
+        prod_ids = [int(p.get("id") or 0) for p in productions]
+        pid = int(production_id or 0)
+        if pid <= 0 or pid not in prod_ids:
+            pid = prod_ids[0]
+        today = _moscow_today()
+        hist_dates = [
+            d
+            for d in repository.list_supply_balance_dates(
+                user_id=owner_id, production_id=pid
+            )
+            if d != today
+        ]
+        dates = hist_dates + [today]
+        balances = repository.list_supply_balances(
+            user_id=owner_id, production_id=pid, dates=dates
+        )
+        qty_map: dict[tuple[str, int, str], float] = {}
+        for b in balances:
+            key = (
+                str(b.get("item_type") or ""),
+                int(b.get("item_id") or 0),
+                str(b.get("balance_date") or ""),
+            )
+            try:
+                qty_map[key] = float(b.get("quantity") or 0)
+            except (TypeError, ValueError):
+                qty_map[key] = 0.0
+        vis_rows = repository.list_supply_balance_visibility(user_id=owner_id)
+        vis_map = {
+            (str(v.get("item_type") or ""), int(v.get("item_id") or 0)): bool(
+                v.get("visible", True)
+            )
+            for v in vis_rows
+        }
+        materials = repository.list_feedback_materials(user_id=owner_id)
+        products = repository.list_product_photos(user_id=owner_id)
+        rows: list[dict[str, object]] = []
+        for m in materials:
+            mid = int(m.get("id") or 0)
+            if mid <= 0:
+                continue
+            visible = vis_map.get(("material", mid), True)
+            if not visible:
+                continue
+            values = {
+                d: qty_map.get(("material", mid, d))
+                for d in dates
+            }
+            rows.append(
+                {
+                    "item_type": "material",
+                    "item_id": mid,
+                    "name": str(m.get("name") or ""),
+                    "unit": str(m.get("unit") or "шт"),
+                    "values": values,
+                }
+            )
+        for p in products:
+            pid_item = int(p.get("id") or 0)
+            if pid_item <= 0:
+                continue
+            visible = vis_map.get(("product", pid_item), True)
+            if not visible:
+                continue
+            values = {
+                d: qty_map.get(("product", pid_item, d))
+                for d in dates
+            }
+            rows.append(
+                {
+                    "item_type": "product",
+                    "item_id": pid_item,
+                    "name": str(p.get("name") or ""),
+                    "unit": "шт",
+                    "values": values,
+                }
+            )
+        return {
+            "today": today,
+            "production_id": pid,
+            "dates": dates,
+            "rows": rows,
+            "productions": [
+                {"id": int(p.get("id") or 0), "name": str(p.get("name") or "")}
+                for p in productions
+            ],
+            "can_edit": True,
+        }
+
+    @app.put("/api/supply-balances")
+    def save_supply_balances(
+        request: Request, payload: SupplyBalanceSaveRequest
+    ) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_supply_stock(user):
+            raise HTTPException(status_code=403, detail="Нет доступа к остаткам")
+        owner_id = _supply_owner_id(user)
+        pid = int(payload.production_id or 0)
+        if pid <= 0:
+            raise HTTPException(status_code=400, detail="Выберите производство")
+        allowed = _allowed_stock_production_ids(user)
+        if allowed is not None and pid not in set(allowed):
+            raise HTTPException(status_code=403, detail="Нет доступа к этому производству")
+        repository._ensure_supply_tables()
+        productions = repository.list_supply_productions(user_id=owner_id)
+        if not any(int(p.get("id") or 0) == pid for p in productions):
+            raise HTTPException(status_code=404, detail="Производство не найдено")
+        today = _moscow_today()
+        saved = repository.upsert_supply_balances(
+            user_id=owner_id,
+            production_id=pid,
+            balance_date=today,
+            items=list(payload.items or []),
+            updated_by=int(user.get("id") or 0) or None,
+        )
+        return {"ok": True, "saved": saved, "date": today}
+
+    @app.get("/api/supply-balances/visibility")
+    def get_supply_balance_visibility(request: Request) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_supply_stock(user):
+            raise HTTPException(status_code=403, detail="Нет доступа к остаткам")
+        owner_id = _supply_owner_id(user)
+        repository.ensure_supply_balances_tables()
+        vis_rows = repository.list_supply_balance_visibility(user_id=owner_id)
+        vis_map = {
+            (str(v.get("item_type") or ""), int(v.get("item_id") or 0)): bool(
+                v.get("visible", True)
+            )
+            for v in vis_rows
+        }
+        materials = repository.list_feedback_materials(user_id=owner_id)
+        products = repository.list_product_photos(user_id=owner_id)
+        items: list[dict[str, object]] = []
+        for m in materials:
+            mid = int(m.get("id") or 0)
+            if mid <= 0:
+                continue
+            items.append(
+                {
+                    "item_type": "material",
+                    "item_id": mid,
+                    "name": str(m.get("name") or ""),
+                    "unit": str(m.get("unit") or "шт"),
+                    "visible": vis_map.get(("material", mid), True),
+                }
+            )
+        for p in products:
+            pid_item = int(p.get("id") or 0)
+            if pid_item <= 0:
+                continue
+            items.append(
+                {
+                    "item_type": "product",
+                    "item_id": pid_item,
+                    "name": str(p.get("name") or ""),
+                    "unit": "шт",
+                    "visible": vis_map.get(("product", pid_item), True),
+                }
+            )
+        return {"items": items}
+
+    @app.put("/api/supply-balances/visibility")
+    def save_supply_balance_visibility(
+        request: Request, payload: SupplyBalanceVisibilityRequest
+    ) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_supply_stock(user):
+            raise HTTPException(status_code=403, detail="Нет доступа к остаткам")
+        # Catalog visibility is account-level; managers with stock access may toggle.
+        owner_id = _supply_owner_id(user)
+        saved = repository.set_supply_balance_visibility(
+            user_id=owner_id, items=list(payload.items or [])
+        )
+        return {"ok": True, "saved": saved}
+
     @app.get("/api/supply-contractors")
     def list_supply_contractors(request: Request) -> list[dict[str, object]]:
         user = _require_user(request)
@@ -14217,6 +14580,19 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
         role in ROLE_CAN_ACCESS_SETTINGS
         or bool(_supply_perms.get("can_supply_certs"))
     )
+    can_supply_planning = is_tenant_owner or bool(user.get("can_supply_planning"))
+    can_supply_stock = is_tenant_owner or bool(user.get("can_supply_stock"))
+    import json as _json_stock
+    if is_tenant_owner:
+        _stock_prods_js = "null"
+    else:
+        try:
+            _stock_list = _json_stock.loads(str(user.get("stock_productions") or "[]"))
+            _stock_prods_js = _json_stock.dumps(
+                _stock_list if isinstance(_stock_list, list) else []
+            )
+        except Exception:
+            _stock_prods_js = "[]"
     can_view_any_supply = (
         can_view_wb_supplies
         or can_view_wb_fbs_supplies
@@ -14224,6 +14600,8 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
         or can_view_supply_poa
         or can_view_supply_settings
         or can_view_supply_certs
+        or can_supply_planning
+        or can_supply_stock
     )
     chats_sync_on = sync_chats_enabled()
     if role in ROLE_CAN_ACCESS_SETTINGS:
@@ -14276,9 +14654,10 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
         if can_view_settings
         else ""
     )
-    can_supply_planning = is_tenant_owner or bool(user.get("can_supply_planning"))
     _planning_link = ('<a id="nav-supply-planning" class="nav-item" href="#" onclick="showSection(\'supply-planning\')"><span class="nav-item-icon">▤</span> Планирование</a>'
                       if can_supply_planning and can_view_supplies else "")
+    _stock_link = ('<a id="nav-supplies-balances" class="nav-item" href="#" onclick="showSection(\'supplies-balances\')"><span class="nav-item-icon">▤</span> Остатки</a>'
+                   if can_supply_stock else "")
     _wb_link = ('<a id="nav-supplies-wb" class="nav-item" href="#" onclick="showSection(\'supplies-wb\')"><span class="nav-item-icon">▦</span> ВБ</a>'
                 if can_view_wb_supplies else "")
     _wb_fbs_link = ('<a id="nav-supplies-wb-fbs" class="nav-item" href="#" onclick="showSection(\'supplies-wb-fbs\')"><span class="nav-item-icon">▣</span> ВБ ФБС</a>'
@@ -14289,7 +14668,11 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
                  if can_view_supply_poa else "")
     _certs_link = ('<a id="nav-supplies-certificates" class="nav-item" href="#" onclick="showSection(\'supplies-certificates\')"><span class="nav-item-icon">✦</span> Сертификаты</a>'
                    if can_view_supply_certs else "")
-    nav_supplies_wb = _wb_link + _wb_fbs_link + _ozon_link + _poa_link + _certs_link if can_view_supplies else ""
+    nav_supplies_wb = (
+        (_wb_link + _wb_fbs_link + _ozon_link + _stock_link + _poa_link + _certs_link)
+        if can_view_supplies or can_supply_stock
+        else ""
+    )
     nav_supplies_settings = (
         '<a id="nav-supplies-settings" class="nav-item" href="#" onclick="showSection(\'supplies-settings\')"><span class="nav-item-icon">≡</span> Настройки</a>'
         if (can_view_settings or can_view_supply_settings) else ""
@@ -14323,6 +14706,8 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
             "CAN_VIEW_CHATS": "true" if can_view_chats else "false",
             "SYNC_CHATS_ENABLED": "true" if chats_sync_on else "false",
             "CAN_SUPPLY_PLANNING": "true" if can_supply_planning else "false",
+            "CAN_SUPPLY_STOCK": "true" if can_supply_stock else "false",
+            "CAN_STOCK_PRODUCTIONS": _stock_prods_js,
             "CAN_VIEW_SALARY": "true" if can_view_salary else "false",
             "CAN_VIEW_SALARY_SETTINGS": "true" if can_view_salary_settings else "false",
             "CAN_VIEW_SALARY_REPORT": "true" if can_view_salary_report else "false",

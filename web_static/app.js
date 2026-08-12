@@ -106,6 +106,7 @@ const teamState = {
   pendingCanSalarySettings: false,
   pendingCanSalaryProductions: [],
   pendingSupplyPermissions: null,
+  pendingStockProductions: [],
 };
 let syncInProgress = false;
 let syncStopStatusTimer = null;
@@ -119,8 +120,8 @@ const UI_REFRESH_MS = 60000;        // refresh chat list from DB every 60s (afte
 const CHANNEL_ICONS = { "Отзывы": "⭐", "Вопросы": "❓", "Чаты": "💬" };
 const ACTIVE_SECTION_STORAGE_KEY = "feedpilot_active_section";
 const ACTIVE_SETTINGS_TAB_STORAGE_KEY = "feedpilot_active_settings_tab";
-const SECTION_IDS = ["reviews", "conversations", "chats", "analytics", "settings", "stock-settings", "stock-work", "supplies-wb", "supplies-wb-fbs", "supplies-ozon", "supplies-poa", "supplies-certificates", "supplies-settings", "supply-planning", "salary", "salary-settings", "team", "profile"];
-const SETTINGS_TAB_IDS = ["sources", "rules", "templates", "recommendations", "products", "template-variables"];
+const SECTION_IDS = ["reviews", "conversations", "chats", "analytics", "settings", "stock-settings", "stock-work", "supplies-wb", "supplies-wb-fbs", "supplies-ozon", "supplies-balances", "supplies-poa", "supplies-certificates", "supplies-settings", "supply-planning", "salary", "salary-settings", "team", "profile"];
+const SETTINGS_TAB_IDS = ["sources", "rules", "templates", "recommendations", "products", "materials", "template-variables"];
 const APP_BOOT_HIDE_CLASS = "app-boot-hidden";
 const MOBILE_NAV_BREAKPOINT_PX = 900;
 
@@ -230,7 +231,8 @@ function _permissionsMatch(newPerms) {
   const cur = window.APP_PERMISSIONS || {};
   const keys = [
     "can_view_feedback", "can_view_reviews", "can_view_questions",
-    "can_view_chats", "sync_chats_enabled", "can_view_supplies", "can_view_any_supply", "can_view_salary",
+    "can_view_chats", "sync_chats_enabled", "can_view_supplies", "can_view_any_supply",
+    "can_supply_planning", "can_supply_stock", "can_view_salary",
   ];
   return keys.every(k => Boolean(cur[k]) === Boolean(newPerms[k]));
 }
@@ -523,6 +525,9 @@ function getPermissions() {
     can_view_questions: _b("can_view_questions", true),
     can_view_chats:     _b("can_view_chats", false),
     sync_chats_enabled: _b("sync_chats_enabled", false),
+    can_supply_planning: _b("can_supply_planning", false),
+    can_supply_stock: _b("can_supply_stock", false),
+    can_stock_productions: (window.APP_PERMISSIONS || {}).can_stock_productions ?? null,
     can_view_salary:          _b("can_view_salary", false),
     can_view_salary_settings: _b("can_view_salary_settings", false),
     can_view_salary_report: _b("can_view_salary_report", false),
@@ -559,6 +564,7 @@ function canViewSection(section) {
   if (section === "supplies-certificates") return permissions.can_view_supplies;
   if (section === "supplies-settings") return permissions.can_view_settings || permissions.can_view_supplies;
   if (section === "supply-planning") return isTenantOwner() || permissions.can_supply_planning;
+  if (section === "supplies-balances") return isTenantOwner() || permissions.can_supply_stock;
   return true;
 }
 
@@ -739,6 +745,9 @@ function showSection(section, options = {}) {
   if (section === "supply-planning") {
     loadSupplyPlanningSection();
   }
+  if (section === "supplies-balances") {
+    loadSupplyBalancesSection();
+  }
   if (section === "supplies-wb-fbs") {
     initWbFbsSection();
   }
@@ -787,6 +796,9 @@ function showSettingsTab(tab, options = {}) {
   if (tab === "products") {
     loadProducts();
   }
+  if (tab === "materials") {
+    loadMaterials();
+  }
   if (tab === "template-variables") {
     loadUserTemplateVariables();
   }
@@ -808,6 +820,9 @@ function sectionLabel(section) {
     team: "Команда",
     "supplies-wb": "Поставки — ВБ",
     "supplies-wb-fbs": "Поставки — ВБ ФБС",
+    "supplies-ozon": "Поставки — ОЗОН",
+    "supplies-balances": "Поставки — Остатки",
+    "supply-planning": "Планирование поставок",
     "supplies-settings": "Поставки — Настройки",
     profile: "Мой профиль",
   };
@@ -11587,8 +11602,66 @@ function collectManagerSupplyPermissionsFromModal() {
     can_supply_settings: Boolean(document.getElementById("managerSupplySettings")?.checked),
     can_supply_poa: Boolean(document.getElementById("managerSupplyPoa")?.checked),
     can_supply_certs: Boolean(document.getElementById("managerSupplyCerts")?.checked),
+    can_supply_planning: Boolean(document.getElementById("managerSupplyPlanningAccess")?.checked),
+    can_supply_stock: Boolean(document.getElementById("managerSupplyStockAccess")?.checked),
+    stock_productions: _collectStockProductions(),
   };
 }
+
+function _collectStockProductions() {
+  const prods = [];
+  document.querySelectorAll("[data-stock-production]").forEach((cb) => {
+    if (cb.checked) prods.push(String(cb.getAttribute("data-stock-production") || ""));
+  });
+  return prods.filter(Boolean);
+}
+
+function _setStockProductionCheckboxes(prods) {
+  const arr = (Array.isArray(prods) ? prods : []).map(String);
+  document.querySelectorAll("[data-stock-production]").forEach((cb) => {
+    cb.checked = arr.includes(String(cb.getAttribute("data-stock-production") || ""));
+  });
+}
+
+async function _renderManagerStockProductions(selectedIds) {
+  const list = document.getElementById("managerStockProductionsList");
+  const wrap = document.getElementById("managerStockProductionsWrap");
+  if (!list) return;
+  list.innerHTML = `<span class="small" style="color:#94a3b8">Загрузка…</span>`;
+  let items = [];
+  try {
+    const res = await fetch("/api/supply-productions").catch(() => null);
+    items = res?.ok ? await res.json().catch(() => []) : [];
+    if (!Array.isArray(items)) items = [];
+  } catch (_) {
+    items = [];
+  }
+  if (!items.length) {
+    list.innerHTML = `<span class="small" style="color:#94a3b8">Сначала добавьте производства в Поставки → Настройки</span>`;
+  } else {
+    list.innerHTML = items.map((p) => {
+      const id = String(p.id || "");
+      const name = esc(p.name || `Производство #${id}`);
+      const checked = (Array.isArray(selectedIds) ? selectedIds : []).map(String).includes(id) ? "checked" : "";
+      return `<div class="perm-section-checkbox-row">
+        <input type="checkbox" id="managerStockProd_${esc(id)}" data-stock-production="${esc(id)}" ${checked} />
+        <label for="managerStockProd_${esc(id)}">${name}</label>
+      </div>`;
+    }).join("");
+  }
+  onManagerSupplyStockToggle();
+  if (wrap && document.getElementById("managerSupplyStockAccess")?.checked) {
+    wrap.classList.remove("hidden");
+  }
+}
+
+function onManagerSupplyStockToggle() {
+  const on = Boolean(document.getElementById("managerSupplyStockAccess")?.checked);
+  const wrap = document.getElementById("managerStockProductionsWrap");
+  if (!wrap) return;
+  wrap.classList.toggle("hidden", !on);
+}
+window.onManagerSupplyStockToggle = onManagerSupplyStockToggle;
 
 function renderManagerPermissionsRows(accounts, permissions = []) {
   const tbody = document.getElementById("managerPermissionsTbody");
@@ -11648,6 +11721,12 @@ function formatManagerPermissionsText(permissions, canSupplies, supplyPermission
   if (sp.can_supply_settings) supplyParts.push("Настройки");
   if (sp.can_supply_poa) supplyParts.push("Доверенности");
   if (sp.can_supply_certs) supplyParts.push("Сертификаты");
+  if (sp.can_supply_planning) supplyParts.push("Планирование");
+  if (sp.can_supply_stock) {
+    const stockProds = Array.isArray(sp.stock_productions) && sp.stock_productions.length
+      ? ` (${sp.stock_productions.join(", ")})` : "";
+    supplyParts.push("Остатки" + stockProds);
+  }
   // Deduplicate
   const uniqueParts = [...new Set(supplyParts)];
   const suppliesText = uniqueParts.length
@@ -11783,10 +11862,20 @@ async function openEditTeamMember(userId) {
   teamState.pendingCanSalaryReport = Boolean(member.can_salary_report);
   teamState.pendingCanSalaryZpExport = Boolean(member.can_salary_zp_export);
   teamState.pendingCanSalaryProductions = Array.isArray(member.salary_productions) ? [...member.salary_productions] : [];
+  teamState.pendingStockProductions = Array.isArray(member.stock_productions)
+    ? [...member.stock_productions]
+    : (Array.isArray(member.supply_permissions?.stock_productions)
+      ? [...member.supply_permissions.stock_productions] : []);
   // Pre-populate from the data already loaded by loadTeam() so saveEditTeamMember
   // always has a complete supply payload even if the permissions modal is never opened.
   teamState.pendingSupplyPermissions = member.supply_permissions
-    ? { ...member.supply_permissions, sources: { ...(member.supply_permissions.sources || {}) } }
+    ? {
+        ...member.supply_permissions,
+        sources: { ...(member.supply_permissions.sources || {}) },
+        stock_productions: Array.isArray(member.supply_permissions.stock_productions)
+          ? [...member.supply_permissions.stock_productions]
+          : [...teamState.pendingStockProductions],
+      }
     : null;
   const permText = formatManagerPermissionsText(member.manager_permissions || [], member.can_supplies, member.supply_permissions, member.can_salary, member.can_salary_settings, member.salary_productions);
   document.getElementById("editMemberPermissionsPreview").textContent = permText || "Нет доступов";
@@ -11803,6 +11892,7 @@ function closeEditTeamMember() {
   teamState.pendingCanSalary = false;
   teamState.pendingCanSalarySettings = false;
   teamState.pendingCanSalaryProductions = [];
+  teamState.pendingStockProductions = [];
   teamState.pendingSupplyPermissions = null;
 }
 
@@ -11823,6 +11913,19 @@ async function openManagerPermissionsModalForEdit() {
   const ssRes = await fetch("/api/supply-sources").catch(() => null);
   const ssSources = ssRes?.ok ? await ssRes.json().catch(() => []) : [];
   renderManagerSupplyPermissionsRows(ssSources, teamState.pendingSupplyPermissions);
+  const planningChk = document.getElementById("managerSupplyPlanningAccess");
+  if (planningChk) {
+    planningChk.checked = Boolean(teamState.pendingSupplyPermissions?.can_supply_planning);
+  }
+  const stockChk = document.getElementById("managerSupplyStockAccess");
+  if (stockChk) {
+    stockChk.checked = Boolean(teamState.pendingSupplyPermissions?.can_supply_stock);
+  }
+  await _renderManagerStockProductions(
+    teamState.pendingSupplyPermissions?.stock_productions
+      || teamState.pendingStockProductions
+      || []
+  );
   // Set salary sub-checkboxes
   const salaryChk = document.getElementById("managerSalaryAccess");
   if (salaryChk) salaryChk.checked = teamState.pendingCanSalary;
@@ -11902,6 +12005,9 @@ async function saveEditTeamMember() {
         can_supply_settings: Boolean(sp.can_supply_settings),
         can_supply_poa: Boolean(sp.can_supply_poa),
         can_supply_certs: Boolean(sp.can_supply_certs),
+        can_supply_planning: Boolean(sp.can_supply_planning),
+        can_supply_stock: Boolean(sp.can_supply_stock),
+        stock_productions: Array.isArray(sp.stock_productions) ? sp.stock_productions : (teamState.pendingStockProductions || []),
         supply_sources: sp.sources || {},
       })
     });
@@ -11990,7 +12096,15 @@ async function openManagerPermissionsModalForCreate() {
   const ssRes = await fetch("/api/supply-sources").catch(() => null);
   const ssSources = ssRes?.ok ? await ssRes.json().catch(() => []) : [];
   // Use existing pending supply state on re-open so unsaved selections are preserved
-  renderManagerSupplyPermissionsRows(ssSources, teamState.pendingSupplyPermissions || {});
+  const pendingSp = teamState.pendingSupplyPermissions || {};
+  renderManagerSupplyPermissionsRows(ssSources, pendingSp);
+  const planningChkCreate = document.getElementById("managerSupplyPlanningAccess");
+  if (planningChkCreate) planningChkCreate.checked = Boolean(pendingSp.can_supply_planning);
+  const stockChkCreate = document.getElementById("managerSupplyStockAccess");
+  if (stockChkCreate) stockChkCreate.checked = Boolean(pendingSp.can_supply_stock);
+  await _renderManagerStockProductions(
+    pendingSp.stock_productions || teamState.pendingStockProductions || []
+  );
   // Restore salary sub-checkboxes from pending state
   const salaryChkCreate = document.getElementById("managerSalaryAccess");
   if (salaryChkCreate) salaryChkCreate.checked = Boolean(teamState.pendingCanSalary);
@@ -12014,19 +12128,29 @@ function applyManagerPermissionsSelection() {
 
   const permissions = feedbackEnabled ? collectManagerPermissionsFromModal() : [];
   const supplyPerms = suppliesEnabled ? collectManagerSupplyPermissionsFromModal()
-                                      : { sources: {}, can_supply_settings: false, can_supply_poa: false, can_supply_certs: false };
+                                      : {
+                                          sources: {},
+                                          can_supply_settings: false,
+                                          can_supply_poa: false,
+                                          can_supply_certs: false,
+                                          can_supply_planning: false,
+                                          can_supply_stock: false,
+                                          stock_productions: [],
+                                        };
   const canSalary         = salaryEnabled && Boolean(document.getElementById("managerSalaryAccess")?.checked);
   const canSalarySettings = salaryEnabled && Boolean(document.getElementById("managerSalarySettingsAccess")?.checked);
   const canSalaryReport   = salaryEnabled && Boolean(document.getElementById("managerSalaryReportAccess")?.checked);
   const canSalaryZpExport = salaryEnabled && Boolean(document.getElementById("managerSalaryZpExportAccess")?.checked);
   const salaryProductions = salaryEnabled ? _collectPayrollProductions() : [];
   teamState.pendingSupplyPermissions = supplyPerms;
+  teamState.pendingStockProductions = Array.isArray(supplyPerms.stock_productions) ? supplyPerms.stock_productions : [];
   teamState.pendingCanSalary = canSalary;
   teamState.pendingCanSalarySettings = canSalarySettings;
   teamState.pendingCanSalaryReport = canSalaryReport;
   teamState.pendingCanSalaryZpExport = canSalaryZpExport;
   teamState.pendingCanSalaryProductions = salaryProductions;
   const hasAnySupply = supplyPerms.can_supply_settings || supplyPerms.can_supply_poa || supplyPerms.can_supply_certs ||
+    supplyPerms.can_supply_planning || supplyPerms.can_supply_stock ||
     Object.values(supplyPerms.sources || {}).some(s => s.wb || s.wb_fbs || s.ozon);
   teamState.pendingCanSupplies = hasAnySupply;
   if (!permissions.length && !hasAnySupply && !canSalary && !canSalarySettings) {
@@ -12097,6 +12221,9 @@ async function saveNewManager() {
         can_supply_settings: Boolean(spNew.can_supply_settings),
         can_supply_poa: Boolean(spNew.can_supply_poa),
         can_supply_certs: Boolean(spNew.can_supply_certs),
+        can_supply_planning: Boolean(spNew.can_supply_planning),
+        can_supply_stock: Boolean(spNew.can_supply_stock),
+        stock_productions: Array.isArray(spNew.stock_productions) ? spNew.stock_productions : [],
         supply_sources: spNew.sources || {},
       }),
     }).catch(() => {});
@@ -12672,6 +12799,358 @@ async function deleteProduct(id) {
   } catch (e) { alert("Ошибка удаления"); }
 }
 
+// ── Feedback materials catalog ───────────────────────────────────────────────
+
+let _materialsCache = [];
+
+function openAddMaterialForm(editItem = null) {
+  document.getElementById("materialAddForm")?.classList.remove("hidden");
+  const title = document.getElementById("materialFormTitle");
+  if (title) title.textContent = editItem ? "Редактирование материала" : "Новый материал";
+  document.getElementById("materialFormInfo").textContent = "";
+  document.getElementById("materialFormEditId").value = editItem ? String(editItem.id) : "";
+  document.getElementById("materialFormName").value = editItem?.name || "";
+  document.getElementById("materialFormUnit").value = editItem?.unit || "м";
+  document.getElementById("materialFormName")?.focus();
+}
+window.openAddMaterialForm = openAddMaterialForm;
+
+function closeAddMaterialForm() {
+  document.getElementById("materialAddForm")?.classList.add("hidden");
+}
+window.closeAddMaterialForm = closeAddMaterialForm;
+
+async function loadMaterials() {
+  const tbody = document.getElementById("materialsTbody");
+  const info = document.getElementById("materialsInfo");
+  if (!tbody) return;
+  try {
+    const res = await fetch("/api/materials");
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || "Ошибка загрузки");
+    _materialsCache = Array.isArray(data.items) ? data.items : [];
+    if (info) info.textContent = `Материалов: ${_materialsCache.length}`;
+    if (!_materialsCache.length) {
+      tbody.innerHTML = '<tr><td colspan="3" class="small" style="color:#94a3b8;padding:16px">Нет материалов. Нажмите «+ Добавить материал»</td></tr>';
+      return;
+    }
+    tbody.innerHTML = _materialsCache.map((item) => `
+      <tr>
+        <td>${esc(item.name || "")}</td>
+        <td>${esc(item.unit || "шт")}</td>
+        <td>
+          <button type="button" class="secondary" style="font-size:12px;padding:4px 8px" onclick="editMaterial(${Number(item.id)})">✏</button>
+          <button type="button" class="secondary danger" style="font-size:12px;padding:4px 8px" onclick="deleteMaterial(${Number(item.id)})">✕</button>
+        </td>
+      </tr>`).join("");
+  } catch (e) {
+    if (info) info.textContent = String(e.message || e || "Ошибка загрузки");
+  }
+}
+window.loadMaterials = loadMaterials;
+
+function editMaterial(id) {
+  const item = _materialsCache.find((p) => Number(p.id) === Number(id));
+  if (item) openAddMaterialForm(item);
+}
+window.editMaterial = editMaterial;
+
+async function saveMaterial() {
+  const editId = String(document.getElementById("materialFormEditId")?.value || "").trim();
+  const name = String(document.getElementById("materialFormName")?.value || "").trim();
+  const unit = String(document.getElementById("materialFormUnit")?.value || "шт").trim() || "шт";
+  const info = document.getElementById("materialFormInfo");
+  if (!name) {
+    if (info) info.textContent = "Введите наименование";
+    return;
+  }
+  try {
+    const url = editId ? `/api/materials/${editId}` : "/api/materials";
+    const method = editId ? "PUT" : "POST";
+    const res = await fetch(url, {
+      method,
+      headers: jsonHeaders(),
+      body: JSON.stringify({ name, unit }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (info) info.textContent = typeof data.detail === "string" ? data.detail : "Ошибка сохранения";
+      return;
+    }
+    closeAddMaterialForm();
+    await loadMaterials();
+  } catch (_) {
+    if (info) info.textContent = "Ошибка сохранения";
+  }
+}
+window.saveMaterial = saveMaterial;
+
+async function deleteMaterial(id) {
+  if (!confirm("Удалить материал?")) return;
+  try {
+    await fetch(`/api/materials/${id}`, { method: "DELETE", headers: withCsrfHeaders() });
+    await loadMaterials();
+  } catch (_) {
+    alert("Ошибка удаления");
+  }
+}
+window.deleteMaterial = deleteMaterial;
+
+// ── Supply balances (Поставки → Остатки) ─────────────────────────────────────
+
+const supplyBalancesState = {
+  productionId: null,
+  today: "",
+  dates: [],
+  rows: [],
+  productions: [],
+  visibilityItems: [],
+};
+
+function _sbFormatDateLabel(iso) {
+  const s = String(iso || "").trim();
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) return s || "—";
+  return `${m[3]}.${m[2]}`;
+}
+
+function _sbQtyText(val) {
+  if (val === null || val === undefined || val === "") return "—";
+  const n = Number(val);
+  if (!Number.isFinite(n)) return "—";
+  return String(n);
+}
+
+async function loadSupplyBalancesSection() {
+  const info = document.getElementById("supplyBalancesInfo");
+  const select = document.getElementById("supplyBalancesProduction");
+  try {
+    const metaRes = await fetch("/api/supply-balances/meta");
+    const meta = await metaRes.json().catch(() => ({}));
+    if (!metaRes.ok) throw new Error(meta.detail || "Нет доступа");
+    supplyBalancesState.productions = Array.isArray(meta.productions) ? meta.productions : [];
+    supplyBalancesState.today = String(meta.today || "");
+    if (select) {
+      if (!supplyBalancesState.productions.length) {
+        select.innerHTML = `<option value="">Нет производств</option>`;
+        select.disabled = true;
+      } else {
+        select.disabled = false;
+        const keep = Number(supplyBalancesState.productionId || 0);
+        const hasKeep = supplyBalancesState.productions.some((p) => Number(p.id) === keep);
+        select.innerHTML = supplyBalancesState.productions.map((p) =>
+          `<option value="${Number(p.id)}">${esc(p.name || ("#" + p.id))}</option>`
+        ).join("");
+        select.value = String(hasKeep ? keep : supplyBalancesState.productions[0].id);
+        supplyBalancesState.productionId = Number(select.value);
+        // Hide selector when only one production is available.
+        select.closest("label")?.classList.toggle("hidden", supplyBalancesState.productions.length <= 1);
+      }
+    }
+    if (!supplyBalancesState.productions.length) {
+      if (info) info.textContent = "Добавьте производство в Поставки → Настройки → Производства";
+      const tbody = document.getElementById("supplyBalancesTbody");
+      const thead = document.getElementById("supplyBalancesThead");
+      if (thead) thead.innerHTML = "";
+      if (tbody) {
+        tbody.innerHTML = `<tr><td style="text-align:center;padding:32px;color:#94a3b8;font-size:14px">Нет производств</td></tr>`;
+      }
+      return;
+    }
+    await loadSupplyBalancesData();
+  } catch (e) {
+    if (info) info.textContent = String(e.message || e);
+  }
+}
+window.loadSupplyBalancesSection = loadSupplyBalancesSection;
+
+async function onSupplyBalancesProductionChange() {
+  const select = document.getElementById("supplyBalancesProduction");
+  supplyBalancesState.productionId = Number(select?.value || 0) || null;
+  await loadSupplyBalancesData();
+}
+window.onSupplyBalancesProductionChange = onSupplyBalancesProductionChange;
+
+async function loadSupplyBalancesData() {
+  const info = document.getElementById("supplyBalancesInfo");
+  const pid = Number(supplyBalancesState.productionId || 0);
+  if (!pid) return;
+  try {
+    const res = await fetch(`/api/supply-balances?production_id=${encodeURIComponent(String(pid))}`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || "Ошибка загрузки");
+    supplyBalancesState.today = String(data.today || supplyBalancesState.today || "");
+    supplyBalancesState.dates = Array.isArray(data.dates) ? data.dates : [supplyBalancesState.today];
+    supplyBalancesState.rows = Array.isArray(data.rows) ? data.rows : [];
+    supplyBalancesState.productionId = Number(data.production_id || pid);
+    renderSupplyBalancesTable();
+    if (info) {
+      info.textContent = supplyBalancesState.rows.length
+        ? `Позиций: ${supplyBalancesState.rows.length}. Редактируется дата: ${_sbFormatDateLabel(supplyBalancesState.today)}`
+        : "Нет видимых материалов и товаров. Добавьте их в Настройки или включите в «Вывод в таблице».";
+    }
+  } catch (e) {
+    if (info) info.textContent = String(e.message || e);
+  }
+}
+
+function renderSupplyBalancesTable() {
+  const thead = document.getElementById("supplyBalancesThead");
+  const tbody = document.getElementById("supplyBalancesTbody");
+  if (!thead || !tbody) return;
+  const dates = supplyBalancesState.dates.slice();
+  const today = supplyBalancesState.today;
+  thead.innerHTML = `<tr>
+    <th class="sb-col-name">Материал / Товар</th>
+    ${dates.map((d) => {
+      const isToday = d === today;
+      return `<th class="${isToday ? "sb-col-today" : ""}">${_sbFormatDateLabel(d)}${isToday ? " (сегодня)" : ""}</th>`;
+    }).join("")}
+  </tr>`;
+  if (!supplyBalancesState.rows.length) {
+    tbody.innerHTML = `<tr><td colspan="${dates.length + 1}" style="text-align:center;padding:32px;color:#94a3b8;font-size:14px">Нет данных</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = supplyBalancesState.rows.map((row) => {
+    const type = String(row.item_type || "");
+    const id = Number(row.item_id || 0);
+    const unit = esc(row.unit || "шт");
+    const values = row.values || {};
+    const cells = dates.map((d) => {
+      const raw = values[d];
+      if (d === today) {
+        const val = (raw === null || raw === undefined) ? "" : String(raw);
+        return `<td class="sb-col-today">
+          <input class="sb-qty-input" type="number" step="any" min="0"
+            data-sb-type="${esc(type)}" data-sb-id="${id}"
+            value="${esc(val)}" placeholder="0" />
+          <span class="sb-unit">${unit}</span>
+        </td>`;
+      }
+      return `<td><span class="sb-qty-ro">${esc(_sbQtyText(raw))}</span><span class="sb-unit">${unit}</span></td>`;
+    }).join("");
+    return `<tr>
+      <td class="sb-col-name">${esc(row.name || "")}</td>
+      ${cells}
+    </tr>`;
+  }).join("");
+}
+
+async function saveSupplyBalances() {
+  const info = document.getElementById("supplyBalancesInfo");
+  const btn = document.getElementById("supplyBalancesSaveBtn");
+  const pid = Number(supplyBalancesState.productionId || 0);
+  if (!pid) {
+    if (info) info.textContent = "Выберите производство";
+    return;
+  }
+  const items = [];
+  document.querySelectorAll("#supplyBalancesTbody .sb-qty-input").forEach((inp) => {
+    const itemType = String(inp.getAttribute("data-sb-type") || "");
+    const itemId = Number(inp.getAttribute("data-sb-id") || 0);
+    const raw = String(inp.value || "").trim();
+    if (!itemType || !itemId) return;
+    if (raw === "") return;
+    const qty = Number(raw);
+    if (!Number.isFinite(qty)) return;
+    items.push({ item_type: itemType, item_id: itemId, quantity: qty });
+  });
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch("/api/supply-balances", {
+      method: "PUT",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ production_id: pid, items }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || "Ошибка сохранения");
+    if (info) info.textContent = `Сохранено: ${data.saved || 0} · ${_sbFormatDateLabel(data.date || supplyBalancesState.today)}`;
+    await loadSupplyBalancesData();
+  } catch (e) {
+    if (info) info.textContent = String(e.message || e);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+window.saveSupplyBalances = saveSupplyBalances;
+
+async function openSupplyBalancesVisibilityModal() {
+  const list = document.getElementById("supplyBalancesVisibilityList");
+  setModalVisibility("supplyBalancesVisibilityModal", true);
+  if (list) list.innerHTML = `<div class="small" style="color:#94a3b8">Загрузка…</div>`;
+  try {
+    const res = await fetch("/api/supply-balances/visibility");
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || "Ошибка загрузки");
+    supplyBalancesState.visibilityItems = Array.isArray(data.items) ? data.items : [];
+    renderSupplyBalancesVisibilityList();
+  } catch (e) {
+    if (list) list.innerHTML = `<div class="small" style="color:#b91c1c">${esc(String(e.message || e))}</div>`;
+  }
+}
+window.openSupplyBalancesVisibilityModal = openSupplyBalancesVisibilityModal;
+
+function closeSupplyBalancesVisibilityModal() {
+  setModalVisibility("supplyBalancesVisibilityModal", false);
+}
+window.closeSupplyBalancesVisibilityModal = closeSupplyBalancesVisibilityModal;
+
+function renderSupplyBalancesVisibilityList() {
+  const list = document.getElementById("supplyBalancesVisibilityList");
+  if (!list) return;
+  const materials = supplyBalancesState.visibilityItems.filter((x) => x.item_type === "material");
+  const products = supplyBalancesState.visibilityItems.filter((x) => x.item_type === "product");
+  const renderGroup = (title, rows) => {
+    if (!rows.length) return "";
+    return `<div class="sb-vis-group-title">${esc(title)}</div>` + rows.map((row, idx) => {
+      const key = `${row.item_type}:${row.item_id}`;
+      const on = row.visible !== false;
+      return `<div class="sb-vis-row" data-vis-key="${esc(key)}">
+        <div class="sb-vis-meta">
+          <div class="sb-vis-name">${esc(row.name || "")}</div>
+          <div class="sb-vis-sub">${esc(row.unit || "шт")}</div>
+        </div>
+        <button type="button" class="sb-vis-eye ${on ? "" : "is-off"}" title="${on ? "Скрыть" : "Показать"}"
+          onclick="toggleSupplyBalanceVisibility('${esc(row.item_type)}', ${Number(row.item_id)})">${on ? "Вкл" : "Выкл"}</button>
+      </div>`;
+    }).join("");
+  };
+  const html = renderGroup("Материалы", materials) + renderGroup("Товары", products);
+  list.innerHTML = html || `<div class="small" style="color:#94a3b8">Нет материалов и товаров в справочниках</div>`;
+}
+
+function toggleSupplyBalanceVisibility(itemType, itemId) {
+  const row = supplyBalancesState.visibilityItems.find(
+    (x) => x.item_type === itemType && Number(x.item_id) === Number(itemId)
+  );
+  if (!row) return;
+  row.visible = !(row.visible !== false);
+  renderSupplyBalancesVisibilityList();
+}
+window.toggleSupplyBalanceVisibility = toggleSupplyBalanceVisibility;
+
+async function saveSupplyBalancesVisibility() {
+  const items = supplyBalancesState.visibilityItems.map((x) => ({
+    item_type: x.item_type,
+    item_id: Number(x.item_id),
+    visible: x.visible !== false,
+  }));
+  try {
+    const res = await fetch("/api/supply-balances/visibility", {
+      method: "PUT",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ items }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || "Ошибка сохранения");
+    closeSupplyBalancesVisibilityModal();
+    await loadSupplyBalancesData();
+  } catch (e) {
+    alert(String(e.message || e));
+  }
+}
+window.saveSupplyBalancesVisibility = saveSupplyBalancesVisibility;
+
 async function loadRecommendations() {
   const res = await fetch("/api/recommendations");
   const data = await res.json();
@@ -13092,11 +13571,11 @@ document.addEventListener("DOMContentLoaded", () => {
     loadProducts();
   }
   // Supplies module
+  if (permissions.can_view_any_supply || permissions.can_supply_stock || permissions.can_supply_planning) {
+    const suppliesNavLabel = document.getElementById("nav-section-supplies");
+    if (suppliesNavLabel) suppliesNavLabel.style.display = "flex";
+  }
   if (permissions.can_view_supplies) {
-    if (permissions.can_view_any_supply) {
-      const suppliesNavLabel = document.getElementById("nav-section-supplies");
-      if (suppliesNavLabel) suppliesNavLabel.style.display = "flex";
-    }
     // "Удалить поставки" — только для владельцев/админов, не для менеджеров
     if (!permissions.can_view_settings) {
       const clearBtn = document.getElementById("suppliesClearBtn");

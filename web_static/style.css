@@ -9565,3 +9565,108 @@ button.wb-fbs-kiz-add:disabled {
   }
 }
 
+/* ── Supply balances (Остатки) ───────────────────────────────────────────── */
+.supply-balances-table-wrap {
+  overflow: auto;
+  max-height: calc(100vh - 220px);
+}
+.supply-balances-table {
+  width: 100%;
+  min-width: 640px;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.supply-balances-table th,
+.supply-balances-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 14px;
+  text-align: left;
+  white-space: nowrap;
+}
+.supply-balances-table th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #f8fafc;
+  font-weight: 600;
+  color: #334155;
+}
+.supply-balances-table th.sb-col-name,
+.supply-balances-table td.sb-col-name {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  background: #fff;
+  min-width: 220px;
+  box-shadow: 1px 0 0 #e2e8f0;
+}
+.supply-balances-table th.sb-col-name {
+  z-index: 4;
+  background: #f8fafc;
+}
+.supply-balances-table th.sb-col-today,
+.supply-balances-table td.sb-col-today {
+  background: #f0f9ff;
+}
+.supply-balances-table th.sb-col-today {
+  background: #e0f2fe;
+}
+.supply-balances-table .sb-qty-input {
+  width: 96px;
+  min-height: 36px;
+  padding: 6px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 14px;
+}
+.supply-balances-table .sb-qty-input:focus {
+  outline: 2px solid #93c5fd;
+  outline-offset: 1px;
+  border-color: #60a5fa;
+}
+.supply-balances-table .sb-qty-ro {
+  color: #475569;
+  font-variant-numeric: tabular-nums;
+}
+.supply-balances-table .sb-unit {
+  color: #94a3b8;
+  font-size: 12px;
+  margin-left: 4px;
+}
+.sb-vis-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+.sb-vis-row:last-child { border-bottom: none; }
+.sb-vis-meta { min-width: 0; }
+.sb-vis-name { font-size: 14px; color: #0f172a; }
+.sb-vis-sub { font-size: 12px; color: #94a3b8; margin-top: 2px; }
+.sb-vis-eye {
+  width: 40px;
+  height: 36px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  color: #334155;
+  cursor: pointer;
+}
+.sb-vis-eye:hover { background: #f8fafc; }
+.sb-vis-eye.is-off {
+  color: #94a3b8;
+  background: #f8fafc;
+}
+.sb-vis-group-title {
+  margin: 16px 0 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+.sb-vis-group-title:first-child { margin-top: 0; }
+
