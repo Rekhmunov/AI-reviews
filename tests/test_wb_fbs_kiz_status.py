@@ -243,7 +243,7 @@ def test_check_supply_kiz_status_cancelled_empty_ignored() -> None:
     mock_persist.assert_called_once()
 
 
-def test_check_supply_kiz_status_cancelled_with_kiz_is_error() -> None:
+def test_check_supply_kiz_status_cancelled_with_kiz_ignored_in_tone() -> None:
     client = MagicMock()
     client.get_supply_order_ids.return_value = [11, 22]
     client.get_statuses.return_value = [
@@ -285,10 +285,12 @@ def test_check_supply_kiz_status_cancelled_with_kiz_is_error() -> None:
             api_key="key",
             supply_id="S1",
         )
-    # Cancelled + filled KIZ must paint the control red.
-    assert payload["status"] == "error"
+    # Cancelled + leftover KIZ must not keep «Маркировка» red when live orders are ok.
+    assert payload["status"] == "ok"
+    assert payload["counts"]["checked"] == 1
     assert payload["counts"]["cancelled_with_kiz"] == 1
     by_id = {row["order_id"]: row for row in payload["orders"]}
     assert by_id[22]["cancelled"] is True
     assert by_id[22]["kiz_bound"] is True
-    assert by_id[22]["kiz_status"] == "error"
+    assert by_id[22]["kiz_status"] == "empty"
+    assert by_id[22]["kiz_required"] is False
