@@ -2422,6 +2422,10 @@
               <span id="supplyBalancesTodayBadge" class="sb-today-badge hidden"></span>
             </div>
             <div class="supplies-actions">
+              <input id="supplyBalancesSearchFilter" type="search" placeholder="🔍 Поиск..."
+                     autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+                     style="width:140px" oninput="onSupplyBalancesSearchInput()" />
+              <span id="supplyBalancesFilterCount" class="small supplies-filter-count" hidden></span>
               <button type="button" class="secondary" onclick="openSupplyBalancesVisibilityModal()">Вывод в таблице</button>
               <button type="button" id="supplyBalancesSaveBtn" onclick="saveSupplyBalances()">Сохранить</button>
             </div>
@@ -4547,6 +4551,6 @@
       </div>
     </div>
   </div>
-  <script src="/static/app.js?v=409"></script>
+  <script src="/static/app.js?v=410"></script>
 </body>
 </html>

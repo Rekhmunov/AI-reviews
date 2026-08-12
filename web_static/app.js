@@ -12905,6 +12905,7 @@ const supplyBalancesState = {
   rows: [],
   productions: [],
   visibilityItems: [],
+  search: "",
 };
 
 const SB_COL_WIDTHS_KEY = "supply_balances_col_widths_v1";
@@ -13065,6 +13066,7 @@ function _sbRenderItemRow(row, dates, today) {
   const unit = esc(row.unit || "шт");
   const values = row.values || {};
   const typeLabel = type === "material" ? "Материал" : "Товар";
+  const searchBlob = [row.name, row.unit, typeLabel].map((x) => String(x || "")).join(" ");
   const cells = dates.map((d) => {
     const raw = values[d];
     if (d === today) {
@@ -13085,13 +13087,77 @@ function _sbRenderItemRow(row, dates, today) {
       </div>
     </td>`;
   }).join("");
-  return `<tr>
+  return `<tr class="sb-item-row" data-sb-type="${esc(type)}" data-sb-search="${esc(searchBlob)}">
     <td class="sb-col-name">
       <span class="sb-name-text">${esc(row.name || "")}</span>
       <span class="sb-name-meta">${typeLabel}</span>
     </td>
     ${cells}
   </tr>`;
+}
+
+function _sbNormalizeSearch(q) {
+  return String(q || "").trim().toLocaleLowerCase("ru-RU");
+}
+
+function onSupplyBalancesSearchInput() {
+  const input = document.getElementById("supplyBalancesSearchFilter");
+  supplyBalancesState.search = String(input?.value || "");
+  applySupplyBalancesSearchFilter();
+}
+window.onSupplyBalancesSearchInput = onSupplyBalancesSearchInput;
+
+function applySupplyBalancesSearchFilter() {
+  const tbody = document.getElementById("supplyBalancesTbody");
+  const countEl = document.getElementById("supplyBalancesFilterCount");
+  if (!tbody) return;
+  const q = _sbNormalizeSearch(supplyBalancesState.search);
+  const itemRows = Array.from(tbody.querySelectorAll("tr.sb-item-row"));
+  let visible = 0;
+  itemRows.forEach((tr) => {
+    const hay = _sbNormalizeSearch(tr.getAttribute("data-sb-search") || "");
+    const show = !q || hay.includes(q);
+    tr.classList.toggle("hidden", !show);
+    tr.hidden = !show;
+    if (show) visible += 1;
+  });
+  // Hide group headers when their section has no visible rows.
+  tbody.querySelectorAll("tr.sb-group-row").forEach((groupTr) => {
+    let hasVisible = false;
+    let el = groupTr.nextElementSibling;
+    while (el && !el.classList.contains("sb-group-row")) {
+      if (el.classList.contains("sb-item-row") && !el.hidden) {
+        hasVisible = true;
+        break;
+      }
+      el = el.nextElementSibling;
+    }
+    groupTr.classList.toggle("hidden", !hasVisible);
+    groupTr.hidden = !hasVisible;
+  });
+  // Empty-filter placeholder
+  let emptyTr = tbody.querySelector("tr.sb-search-empty");
+  if (q && itemRows.length && visible === 0) {
+    if (!emptyTr) {
+      const colCount = 1 + (supplyBalancesState.dates?.length || 0);
+      emptyTr = document.createElement("tr");
+      emptyTr.className = "sb-search-empty";
+      emptyTr.innerHTML = `<td class="sb-empty-cell" colspan="${colCount}">Ничего не найдено</td>`;
+      tbody.appendChild(emptyTr);
+    }
+    emptyTr.hidden = false;
+  } else if (emptyTr) {
+    emptyTr.hidden = true;
+  }
+  if (countEl) {
+    if (q && itemRows.length) {
+      countEl.hidden = false;
+      countEl.textContent = `${visible} из ${itemRows.length}`;
+    } else {
+      countEl.hidden = true;
+      countEl.textContent = "";
+    }
+  }
 }
 
 function renderSupplyBalancesTable() {
@@ -13151,6 +13217,7 @@ function renderSupplyBalancesTable() {
   }
   tbody.innerHTML = parts.join("");
   initSupplyBalancesColumnResizer();
+  applySupplyBalancesSearchFilter();
 }
 
 function initSupplyBalancesColumnResizer() {
