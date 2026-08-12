@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=194" />
+  <link rel="stylesheet" href="/static/style.css?v=195" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -4534,23 +4534,27 @@
   <script src="/static/qrcode.min.js"></script>
   <script src="/static/cadesplugin_api.js"></script>
   <!-- Supply balances visibility modal -->
-  <div id="supplyBalancesVisibilityModal" class="modal-overlay hidden" role="dialog" aria-modal="true" onclick="if(event.target===this)closeSupplyBalancesVisibilityModal()">
-    <div class="modal-card sb-vis-modal">
-      <div class="modal-card-header">
-        <h4 class="no-margin">Вывод в таблице</h4>
-        <button type="button" class="modal-close-btn" onclick="closeSupplyBalancesVisibilityModal()" aria-label="Закрыть">✕</button>
-      </div>
-      <div class="sb-vis-body">
-        <p class="sb-vis-hint">Выберите, какие позиции показывать в таблице. По умолчанию включены все.</p>
-        <div class="sb-vis-search-row">
-          <input type="search" id="supplyBalancesVisibilitySearch" placeholder="🔍 Поиск..."
+  <div id="supplyBalancesVisibilityModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+       aria-labelledby="supplyBalancesVisibilityTitle"
+       onclick="if(event.target===this)closeSupplyBalancesVisibilityModal()">
+    <div class="modal-card sb-sheet-modal sb-vis-modal">
+      <div class="sb-sheet-header">
+        <div class="sb-sheet-title-row">
+          <h3 id="supplyBalancesVisibilityTitle" class="sb-sheet-title">Вывод в таблице</h3>
+          <button type="button" class="icon-btn secondary" onclick="closeSupplyBalancesVisibilityModal()" aria-label="Закрыть">✕</button>
+        </div>
+        <p class="sb-sheet-lead">Выберите, какие позиции показывать в таблице. По умолчанию включены все.</p>
+        <div class="sb-sheet-toolbar">
+          <input type="search" id="supplyBalancesVisibilitySearch" class="sb-sheet-search" placeholder="Поиск..."
                  autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
                  oninput="onSupplyBalancesVisibilitySearch()" />
-          <span id="supplyBalancesVisibilityFilterCount" class="small sb-modal-filter-count" hidden></span>
+          <span id="supplyBalancesVisibilityFilterCount" class="sb-modal-filter-count" hidden></span>
         </div>
+      </div>
+      <div class="sb-vis-body">
         <div id="supplyBalancesVisibilityList" class="sb-vis-list"></div>
       </div>
-      <div class="sb-vis-footer">
+      <div class="sb-sheet-footer">
         <button type="button" class="secondary" onclick="closeSupplyBalancesVisibilityModal()">Отмена</button>
         <button type="button" onclick="saveSupplyBalancesVisibility()">Сохранить</button>
       </div>
@@ -4559,14 +4563,15 @@
 
   <!-- Supply stock: add to warehouse -->
   <div id="supplyStockReceiptModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+       aria-labelledby="supplyStockReceiptTitle"
        onclick="if(event.target===this)closeSupplyStockReceiptModal()">
-    <div class="modal-card sb-doc-modal sb-adj-modal">
-      <div class="modal-card-header">
-        <h4 class="no-margin">Добавить на склад</h4>
-        <button type="button" class="modal-close-btn" onclick="closeSupplyStockReceiptModal()" aria-label="Закрыть">✕</button>
-      </div>
-      <div class="sb-doc-body">
-        <p class="sb-vis-hint">Укажите количество прихода. Пустые строки не сохраняются.</p>
+    <div class="modal-card sb-sheet-modal sb-doc-modal sb-adj-modal">
+      <div class="sb-sheet-header">
+        <div class="sb-sheet-title-row">
+          <h3 id="supplyStockReceiptTitle" class="sb-sheet-title">Добавить на склад</h3>
+          <button type="button" class="icon-btn secondary" onclick="closeSupplyStockReceiptModal()" aria-label="Закрыть">✕</button>
+        </div>
+        <p class="sb-sheet-lead">Укажите количество прихода. Пустые строки не сохраняются.</p>
         <div class="sb-doc-fields">
           <label class="sb-doc-field" for="supplyStockReceiptDate">
             <span>Дата</span>
@@ -4574,7 +4579,7 @@
           </label>
           <label class="sb-doc-field sb-doc-field-grow" for="supplyStockReceiptSearch">
             <span>Поиск</span>
-            <input type="search" id="supplyStockReceiptSearch" placeholder="🔍 Поиск..."
+            <input type="search" id="supplyStockReceiptSearch" placeholder="Поиск..."
                    autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
                    oninput="onSupplyStockModalSearch('receipt')" />
           </label>
@@ -4588,22 +4593,22 @@
           <button type="button" class="secondary" onclick="supplyStockBulkFill('receipt','selected')">К выбранным</button>
           <button type="button" class="secondary" onclick="supplyStockBulkClear('receipt','all')">Обнулить все</button>
           <button type="button" class="secondary" onclick="supplyStockBulkClear('receipt','selected')">Обнулить выбранные</button>
-          <span id="supplyStockReceiptFilterCount" class="small sb-modal-filter-count" hidden></span>
+          <span id="supplyStockReceiptFilterCount" class="sb-modal-filter-count" hidden></span>
         </div>
-        <div class="sb-adj-list-wrap">
-          <div class="sb-adj-list-head">
-            <label class="sb-adj-check-cell" title="Выбрать все">
-              <input type="checkbox" id="supplyStockReceiptSelectAll" onchange="supplyStockBulkToggleAll('receipt', this.checked)" />
-            </label>
-            <span>Название</span>
-            <span>Количество</span>
-            <span>Комментарий</span>
-          </div>
-          <div id="supplyStockReceiptList" class="sb-adj-list"></div>
-        </div>
-        <div id="supplyStockReceiptErr" class="sb-doc-err" hidden></div>
       </div>
-      <div class="sb-vis-footer">
+      <div class="sb-adj-list-wrap">
+        <div class="sb-adj-list-head">
+          <label class="sb-adj-check-cell" title="Выбрать все">
+            <input type="checkbox" id="supplyStockReceiptSelectAll" onchange="supplyStockBulkToggleAll('receipt', this.checked)" />
+          </label>
+          <span>Название</span>
+          <span>Количество</span>
+          <span>Комментарий</span>
+        </div>
+        <div id="supplyStockReceiptList" class="sb-adj-list"></div>
+      </div>
+      <div id="supplyStockReceiptErr" class="sb-doc-err sb-sheet-err" hidden></div>
+      <div class="sb-sheet-footer">
         <button type="button" class="secondary" onclick="closeSupplyStockReceiptModal()">Отмена</button>
         <button type="button" id="supplyStockReceiptSaveBtn" onclick="saveSupplyStockReceipt()">Сохранить приход</button>
       </div>
@@ -4612,14 +4617,15 @@
 
   <!-- Supply stock: opening / adjustment -->
   <div id="supplyStockAdjustmentModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+       aria-labelledby="supplyStockAdjTitle"
        onclick="if(event.target===this)closeSupplyStockAdjustmentModal()">
-    <div class="modal-card sb-doc-modal sb-adj-modal">
-      <div class="modal-card-header">
-        <h4 class="no-margin">Корректировка остатков</h4>
-        <button type="button" class="modal-close-btn" onclick="closeSupplyStockAdjustmentModal()" aria-label="Закрыть">✕</button>
-      </div>
-      <div class="sb-doc-body">
-        <p class="sb-vis-hint">Укажите фактический остаток на дату. Система запишет разницу с расчётным остатком. Пустые строки не сохраняются. После сохранения текущие поставки «В доставку» не будут списываться повторно.</p>
+    <div class="modal-card sb-sheet-modal sb-doc-modal sb-adj-modal">
+      <div class="sb-sheet-header">
+        <div class="sb-sheet-title-row">
+          <h3 id="supplyStockAdjTitle" class="sb-sheet-title">Корректировка остатков</h3>
+          <button type="button" class="icon-btn secondary" onclick="closeSupplyStockAdjustmentModal()" aria-label="Закрыть">✕</button>
+        </div>
+        <p class="sb-sheet-lead">Укажите фактический остаток на дату. Система запишет разницу с расчётным остатком. Пустые строки не сохраняются. После сохранения текущие поставки «В доставку» не будут списываться повторно.</p>
         <div class="sb-doc-fields">
           <label class="sb-doc-field" for="supplyStockAdjMode">
             <span>Тип</span>
@@ -4634,7 +4640,7 @@
           </label>
           <label class="sb-doc-field sb-doc-field-grow" for="supplyStockAdjSearch">
             <span>Поиск</span>
-            <input type="search" id="supplyStockAdjSearch" placeholder="🔍 Поиск..."
+            <input type="search" id="supplyStockAdjSearch" placeholder="Поиск..."
                    autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
                    oninput="onSupplyStockModalSearch('adj')" />
           </label>
@@ -4648,22 +4654,22 @@
           <button type="button" class="secondary" onclick="supplyStockBulkFill('adj','selected')">К выбранным</button>
           <button type="button" class="secondary" onclick="supplyStockBulkClear('adj','all')">Обнулить все</button>
           <button type="button" class="secondary" onclick="supplyStockBulkClear('adj','selected')">Обнулить выбранные</button>
-          <span id="supplyStockAdjFilterCount" class="small sb-modal-filter-count" hidden></span>
+          <span id="supplyStockAdjFilterCount" class="sb-modal-filter-count" hidden></span>
         </div>
-        <div class="sb-adj-list-wrap">
-          <div class="sb-adj-list-head">
-            <label class="sb-adj-check-cell" title="Выбрать все">
-              <input type="checkbox" id="supplyStockAdjSelectAll" onchange="supplyStockBulkToggleAll('adj', this.checked)" />
-            </label>
-            <span>Название</span>
-            <span>Остаток</span>
-            <span>Комментарий</span>
-          </div>
-          <div id="supplyStockAdjList" class="sb-adj-list"></div>
-        </div>
-        <div id="supplyStockAdjErr" class="sb-doc-err" hidden></div>
       </div>
-      <div class="sb-vis-footer">
+      <div class="sb-adj-list-wrap">
+        <div class="sb-adj-list-head">
+          <label class="sb-adj-check-cell" title="Выбрать все">
+            <input type="checkbox" id="supplyStockAdjSelectAll" onchange="supplyStockBulkToggleAll('adj', this.checked)" />
+          </label>
+          <span>Название</span>
+          <span>Остаток</span>
+          <span>Комментарий</span>
+        </div>
+        <div id="supplyStockAdjList" class="sb-adj-list"></div>
+      </div>
+      <div id="supplyStockAdjErr" class="sb-doc-err sb-sheet-err" hidden></div>
+      <div class="sb-sheet-footer">
         <button type="button" class="secondary" onclick="closeSupplyStockAdjustmentModal()">Отмена</button>
         <button type="button" id="supplyStockAdjSaveBtn" onclick="saveSupplyStockAdjustment()">Сохранить</button>
       </div>
@@ -4672,26 +4678,29 @@
 
   <!-- Supply stock: form balances on date -->
   <div id="supplyStockAsOfModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+       aria-labelledby="supplyStockAsOfTitle"
        onclick="if(event.target===this)closeSupplyStockAsOfModal()">
-    <div class="modal-card sb-asof-modal">
-      <div class="modal-card-header">
-        <h4 class="no-margin">Сформировать остатки на дату</h4>
-        <button type="button" class="modal-close-btn" onclick="closeSupplyStockAsOfModal()" aria-label="Закрыть">✕</button>
+    <div class="modal-card sb-sheet-modal sb-asof-modal">
+      <div class="sb-sheet-header">
+        <div class="sb-sheet-title-row">
+          <h3 id="supplyStockAsOfTitle" class="sb-sheet-title">Сформировать остатки на дату</h3>
+          <button type="button" class="icon-btn secondary" onclick="closeSupplyStockAsOfModal()" aria-label="Закрыть">✕</button>
+        </div>
       </div>
       <div class="sb-doc-body">
         <label class="sb-doc-field" for="supplyStockAsOfDate">
           <span>Дата среза</span>
           <input type="date" id="supplyStockAsOfDate" />
         </label>
-        <p class="sb-vis-hint">Таблица покажет остатки с учётом всех приходов, списаний FBS и корректировок на выбранную дату включительно.</p>
+        <p class="sb-sheet-lead sb-sheet-lead-inline">Таблица покажет остатки с учётом всех приходов, списаний FBS и корректировок на выбранную дату включительно.</p>
         <div id="supplyStockAsOfErr" class="sb-doc-err" hidden></div>
       </div>
-      <div class="sb-vis-footer">
+      <div class="sb-sheet-footer">
         <button type="button" class="secondary" onclick="resetSupplyStockAsOf()">Сбросить на сегодня</button>
         <button type="button" onclick="applySupplyStockAsOf()">Показать</button>
       </div>
     </div>
   </div>
-  <script src="/static/app.js?v=418"></script>
+  <script src="/static/app.js?v=419"></script>
 </body>
 </html>
