@@ -11577,15 +11577,13 @@ class ReviewRepository:
         unit_s = str(unit or "шт").strip() or "шт"
         with self._connect() as conn:
             self._ensure_supply_balances_tables(conn)
-            cur = conn.execute(
-                self._sql(
-                    "INSERT INTO feedback_materials "
-                    "(user_id, name, unit, sort_order, created_at, updated_at) "
-                    "VALUES (?, ?, ?, 0, ?, ?)"
-                ),
+            mid = self._insert_and_get_id(
+                conn,
+                "INSERT INTO feedback_materials "
+                "(user_id, name, unit, sort_order, created_at, updated_at) "
+                "VALUES (?, ?, ?, 0, ?, ?)",
                 (user_id, name_s, unit_s, now, now),
             )
-            mid = int(cur.lastrowid or 0)
             row = conn.execute(
                 self._sql("SELECT * FROM feedback_materials WHERE id = ?"),
                 (mid,),

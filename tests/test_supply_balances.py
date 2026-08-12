@@ -78,6 +78,37 @@ def test_upsert_and_list_balances_roundtrip_sql_shape() -> None:
     assert any("DELETE FROM supply_balances" in sql for sql, _ in executed)
 
 
+def test_add_feedback_material_uses_returning_id() -> None:
+    repo = ReviewRepository.__new__(ReviewRepository)
+    repo._sql = lambda q: q  # type: ignore[method-assign]
+    repo._ensure_supply_balances_tables = lambda conn: None  # type: ignore[method-assign]
+    repo._row_to_dict = lambda r: dict(r)  # type: ignore[method-assign]
+    calls: list[str] = []
+
+    class _Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def execute(self, sql, params=()):
+            calls.append(str(sql))
+            class _Cur:
+                def fetchone(self_inner):
+                    if "RETURNING id" in str(sql):
+                        return {"id": 77}
+                    return {"id": 77, "name": "Ткань", "unit": "м"}
+            return _Cur()
+
+    repo._connect = lambda: _Conn()  # type: ignore[method-assign]
+    repo._insert_and_get_id = ReviewRepository._insert_and_get_id.__get__(repo)  # type: ignore[method-assign]
+    item = ReviewRepository.add_feedback_material(repo, user_id=1, name="Ткань", unit="м")
+    assert item["id"] == 77
+    assert any("RETURNING id" in sql for sql in calls)
+    assert not any("lastrowid" in sql for sql in calls)
+
+
 def test_set_user_can_supply_stock_writes_json_list() -> None:
     repo = ReviewRepository.__new__(ReviewRepository)
     repo._sql = lambda q: q  # type: ignore[method-assign]
