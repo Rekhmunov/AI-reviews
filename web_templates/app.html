@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=193" />
+  <link rel="stylesheet" href="/static/style.css?v=194" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -4542,7 +4542,13 @@
       </div>
       <div class="sb-vis-body">
         <p class="sb-vis-hint">Выберите, какие позиции показывать в таблице. По умолчанию включены все.</p>
-        <div id="supplyBalancesVisibilityList"></div>
+        <div class="sb-vis-search-row">
+          <input type="search" id="supplyBalancesVisibilitySearch" placeholder="🔍 Поиск..."
+                 autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+                 oninput="onSupplyBalancesVisibilitySearch()" />
+          <span id="supplyBalancesVisibilityFilterCount" class="small sb-modal-filter-count" hidden></span>
+        </div>
+        <div id="supplyBalancesVisibilityList" class="sb-vis-list"></div>
       </div>
       <div class="sb-vis-footer">
         <button type="button" class="secondary" onclick="closeSupplyBalancesVisibilityModal()">Отмена</button>
@@ -4686,6 +4692,6 @@
       </div>
     </div>
   </div>
-  <script src="/static/app.js?v=417"></script>
+  <script src="/static/app.js?v=418"></script>
 </body>
 </html>

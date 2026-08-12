@@ -13813,8 +13813,15 @@ window.resetSupplyStockAsOf = resetSupplyStockAsOf;
 
 async function openSupplyBalancesVisibilityModal() {
   const list = document.getElementById("supplyBalancesVisibilityList");
+  const searchEl = document.getElementById("supplyBalancesVisibilitySearch");
+  const countEl = document.getElementById("supplyBalancesVisibilityFilterCount");
   setModalVisibility("supplyBalancesVisibilityModal", true);
-  if (list) list.innerHTML = `<div class="small" style="color:#94a3b8">Загрузка…</div>`;
+  if (searchEl) searchEl.value = "";
+  if (countEl) {
+    countEl.hidden = true;
+    countEl.textContent = "";
+  }
+  if (list) list.innerHTML = `<div class="sb-doc-empty">Загрузка…</div>`;
   try {
     const res = await fetch("/api/supply-balances/visibility");
     const data = await res.json().catch(() => ({}));
@@ -13822,7 +13829,7 @@ async function openSupplyBalancesVisibilityModal() {
     supplyBalancesState.visibilityItems = Array.isArray(data.items) ? data.items : [];
     renderSupplyBalancesVisibilityList();
   } catch (e) {
-    if (list) list.innerHTML = `<div class="small" style="color:#b91c1c">${esc(String(e.message || e))}</div>`;
+    if (list) list.innerHTML = `<div class="sb-doc-empty" style="color:#b91c1c">${esc(String(e.message || e))}</div>`;
   }
 }
 window.openSupplyBalancesVisibilityModal = openSupplyBalancesVisibilityModal;
@@ -13839,13 +13846,15 @@ function renderSupplyBalancesVisibilityList() {
   const products = supplyBalancesState.visibilityItems.filter((x) => x.item_type === "product");
   const renderGroup = (title, rows) => {
     if (!rows.length) return "";
-    return `<div class="sb-vis-group-title">${esc(title)}</div>` + rows.map((row, idx) => {
+    return `<div class="sb-vis-group-title">${esc(title)}</div>` + rows.map((row) => {
       const key = `${row.item_type}:${row.item_id}`;
       const on = row.visible !== false;
-      return `<div class="sb-vis-row" data-vis-key="${esc(key)}">
+      const typeLabel = row.item_type === "material" ? "Материал" : "Товар";
+      const searchBlob = [row.name, row.unit, typeLabel].map((x) => String(x || "")).join(" ");
+      return `<div class="sb-vis-row" data-vis-key="${esc(key)}" data-sb-search="${esc(searchBlob)}">
         <div class="sb-vis-meta">
           <div class="sb-vis-name">${esc(row.name || "")}</div>
-          <div class="sb-vis-sub">${esc(row.unit || "шт")}</div>
+          <div class="sb-vis-sub">${esc(row.unit || "шт")} · ${typeLabel}</div>
         </div>
         <button type="button" class="sb-vis-eye ${on ? "" : "is-off"}" title="${on ? "Скрыть" : "Показать"}"
           onclick="toggleSupplyBalanceVisibility('${esc(row.item_type)}', ${Number(row.item_id)})">${on ? "Вкл" : "Выкл"}</button>
@@ -13853,7 +13862,64 @@ function renderSupplyBalancesVisibilityList() {
     }).join("");
   };
   const html = renderGroup("Материалы", materials) + renderGroup("Товары", products);
-  list.innerHTML = html || `<div class="small" style="color:#94a3b8">Нет материалов и товаров в справочниках</div>`;
+  list.innerHTML = html || `<div class="sb-doc-empty">Нет материалов и товаров в справочниках</div>`;
+  applySupplyBalancesVisibilitySearch();
+}
+
+function onSupplyBalancesVisibilitySearch() {
+  applySupplyBalancesVisibilitySearch();
+}
+window.onSupplyBalancesVisibilitySearch = onSupplyBalancesVisibilitySearch;
+
+function applySupplyBalancesVisibilitySearch() {
+  const list = document.getElementById("supplyBalancesVisibilityList");
+  const input = document.getElementById("supplyBalancesVisibilitySearch");
+  const countEl = document.getElementById("supplyBalancesVisibilityFilterCount");
+  if (!list) return;
+  const q = _sbNormalizeSearch(input?.value || "");
+  const itemRows = Array.from(list.querySelectorAll(".sb-vis-row"));
+  let visible = 0;
+  itemRows.forEach((tr) => {
+    const hay = _sbNormalizeSearch(tr.getAttribute("data-sb-search") || "");
+    const show = !q || hay.includes(q);
+    tr.classList.toggle("hidden", !show);
+    tr.hidden = !show;
+    if (show) visible += 1;
+  });
+  list.querySelectorAll(".sb-vis-group-title").forEach((groupEl) => {
+    let hasVisible = false;
+    let el = groupEl.nextElementSibling;
+    while (el && !el.classList.contains("sb-vis-group-title")) {
+      if (el.classList.contains("sb-vis-row") && !el.hidden) {
+        hasVisible = true;
+        break;
+      }
+      el = el.nextElementSibling;
+    }
+    groupEl.classList.toggle("hidden", !hasVisible);
+    groupEl.hidden = !hasVisible;
+  });
+  let emptyEl = list.querySelector(".sb-search-empty");
+  if (q && itemRows.length && visible === 0) {
+    if (!emptyEl) {
+      emptyEl = document.createElement("div");
+      emptyEl.className = "sb-doc-empty sb-search-empty";
+      emptyEl.textContent = "Ничего не найдено";
+      list.appendChild(emptyEl);
+    }
+    emptyEl.hidden = false;
+  } else if (emptyEl) {
+    emptyEl.hidden = true;
+  }
+  if (countEl) {
+    if (q && itemRows.length) {
+      countEl.hidden = false;
+      countEl.textContent = `${visible} из ${itemRows.length}`;
+    } else {
+      countEl.hidden = true;
+      countEl.textContent = "";
+    }
+  }
 }
 
 function toggleSupplyBalanceVisibility(itemType, itemId) {
