@@ -9155,6 +9155,25 @@ class ReviewRepository:
                 self._sql("DELETE FROM supply_productions WHERE user_id = ? AND id = ?"),
                 (user_id, production_id),
             )
+            # Drop stock ledger / legacy snapshot rows for this production.
+            try:
+                self._ensure_supply_balances_tables(conn)
+                conn.execute(
+                    self._sql(
+                        "DELETE FROM supply_stock_movements "
+                        "WHERE user_id = ? AND production_id = ?"
+                    ),
+                    (user_id, int(production_id)),
+                )
+                conn.execute(
+                    self._sql(
+                        "DELETE FROM supply_balances "
+                        "WHERE user_id = ? AND production_id = ?"
+                    ),
+                    (user_id, int(production_id)),
+                )
+            except Exception:
+                pass
         return bool(result.rowcount)
 
     # ── Supply Contractors CRUD ──
@@ -11885,16 +11904,11 @@ class ReviewRepository:
     def migrate_legacy_supply_balances_to_movements(
         self, *, user_id: int, production_id: int, created_by: int | None = None
     ) -> int:
-        """One-shot: copy latest legacy snapshot cells into opening movements.
+        """Import latest legacy snapshot cells into opening movements.
 
-        No-op when ledger already has rows for this production.
+        Idempotent: deterministic ``source_id`` + ON CONFLICT DO NOTHING.
+        Safe to call on every GET; concurrent callers will not double-count.
         """
-        import uuid as _uuid
-
-        if self.count_supply_stock_movements(
-            user_id=user_id, production_id=production_id
-        ):
-            return 0
         dates = self.list_supply_balance_dates(
             user_id=user_id, production_id=production_id
         )
@@ -11914,14 +11928,15 @@ class ReviewRepository:
                 qty = float(cell.get("quantity") or 0)
             except (TypeError, ValueError):
                 continue
-            if item_id <= 0:
+            if item_id <= 0 or qty == 0:
                 continue
             items.append(
                 {
                     "item_type": item_type,
                     "item_id": item_id,
                     "qty": qty,
-                    "source_id": f"legacy:{latest}:{item_type}:{item_id}:{_uuid.uuid4().hex[:8]}",
+                    # Deterministic — concurrent migrates cannot duplicate a cell.
+                    "source_id": f"legacy:{latest}:{item_type}:{item_id}",
                 }
             )
         if not items:
@@ -12046,7 +12061,7 @@ class ReviewRepository:
                 source_id = str(item.get("source_id") or "").strip()
                 if not source_id:
                     source_id = f"{src_type}:{kind_s}:{_uuid.uuid4().hex}"
-                conn.execute(
+                cur = conn.execute(
                     self._sql(
                         "INSERT INTO supply_stock_movements "
                         "(user_id, production_id, item_type, item_id, qty, "
@@ -12070,26 +12085,64 @@ class ReviewRepository:
                         created_by,
                     ),
                 )
-                saved += 1
+                if int(getattr(cur, "rowcount", 0) or 0) > 0:
+                    saved += 1
         return saved
 
-    def apply_wb_fbs_stock_tab_transitions(
+    def _fbs_stock_ship_counts(
+        self, conn, *, user_id: int, order_id: int
+    ) -> tuple[int, int]:
+        """Return (ships, reverses) for a WB FBS order, including legacy source_ids."""
+        oid = str(int(order_id))
+        rows = conn.execute(
+            self._sql(
+                """
+                SELECT kind, source_type, source_id FROM supply_stock_movements
+                WHERE user_id = ?
+                  AND (
+                    (source_type = 'wb_fbs_order'
+                     AND (source_id = ? OR source_id LIKE ?))
+                    OR
+                    (source_type = 'wb_fbs_order_reverse'
+                     AND (source_id = ? OR source_id LIKE ?))
+                  )
+                """
+            ),
+            (user_id, oid, f"{oid}:s:%", oid, f"{oid}:r:%"),
+        ).fetchall()
+        ships = 0
+        reverses = 0
+        for r in rows:
+            d = self._row_to_dict(r)
+            kind = str(d.get("kind") or "").strip().lower()
+            src_type = str(d.get("source_type") or "").strip().lower()
+            if src_type == "wb_fbs_order_reverse" or kind == "fbs_reverse":
+                reverses += 1
+            elif src_type == "wb_fbs_order" or kind == "fbs_ship":
+                ships += 1
+        return ships, reverses
+
+    def reconcile_wb_fbs_stock_orders(
         self,
         *,
         user_id: int,
         production_id: int,
-        transitions: list[dict[str, Any]],
+        orders: list[dict[str, Any]],
         movement_date: str,
     ) -> dict[str, int]:
-        """Idempotent stock ships/reverses from FBS tab changes.
+        """Align ledger with current FBS tabs (idempotent, cycle-safe).
 
-        Ship (−1) when tab becomes ``delivery`` from anything else.
-        Reverse (+1) only when leaving ``delivery`` back to ``new``/``assembly``.
-        Finished/cancelled after delivery keep the ship (goods left the warehouse).
-        Unmatched articles are skipped. Never raises to callers for business skips.
+        Desired state:
+        - ``delivery`` / ``finished`` → net shipped == 1 (goods left warehouse)
+        - ``new`` / ``assembly`` → net shipped == 0 (still on warehouse / cancelled before ship)
+        - ``cancelled`` and others → leave net as-is (do not auto-reverse after ship)
+
+        Uses sequenced source_ids (``{oid}:s:{n}`` / ``{oid}:r:{n}``) so
+        assembly→delivery→assembly→delivery can ship again. Legacy
+        ``source_id=oid`` rows still count toward net.
         """
-        stats = {"shipped": 0, "reversed": 0, "skipped": 0}
-        if not transitions or int(production_id or 0) <= 0:
+        stats = {"shipped": 0, "reversed": 0, "skipped": 0, "ok": 0}
+        if not orders or int(production_id or 0) <= 0:
             return stats
         date_s = str(movement_date or "").strip()
         if not date_s:
@@ -12098,19 +12151,18 @@ class ReviewRepository:
         now = _utc_now()
         with self._connect() as conn:
             self._ensure_supply_balances_tables(conn)
-            for tr in transitions:
+            for order in orders:
                 try:
-                    oid = int(tr.get("order_id") or 0)
+                    oid = int(order.get("order_id") or 0)
                 except (TypeError, ValueError):
                     stats["skipped"] += 1
                     continue
                 if oid <= 0:
                     stats["skipped"] += 1
                     continue
-                old_tab = str(tr.get("old_tab") or "").strip().lower()
-                new_tab = str(tr.get("new_tab") or "").strip().lower()
-                article = str(tr.get("article") or "").strip()
-                nm_id = str(tr.get("nm_id") or "").strip()
+                tab = str(order.get("tab") or "").strip().lower()
+                article = str(order.get("article") or "").strip()
+                nm_id = str(order.get("nm_id") or "").strip()
                 product_id = 0
                 for key in (article, article.casefold(), nm_id, nm_id.casefold()):
                     if key and key in id_map:
@@ -12119,6 +12171,11 @@ class ReviewRepository:
                 if product_id <= 0:
                     stats["skipped"] += 1
                     continue
+
+                ships, reverses = self._fbs_stock_ship_counts(
+                    conn, user_id=user_id, order_id=oid
+                )
+                net = ships - reverses
 
                 def _insert(kind: str, qty: float, source_type: str, source_id: str) -> bool:
                     cur = conn.execute(
@@ -12145,18 +12202,57 @@ class ReviewRepository:
                     )
                     return int(getattr(cur, "rowcount", 0) or 0) > 0
 
-                if new_tab == "delivery" and old_tab != "delivery":
-                    if _insert("fbs_ship", -1.0, "wb_fbs_order", str(oid)):
+                if tab in {"delivery", "finished"}:
+                    if net >= 1:
+                        stats["ok"] += 1
+                        continue
+                    # Need one ship (supports re-ship after a prior reverse).
+                    seq = ships + 1
+                    source_id = f"{oid}:s:{seq}"
+                    if _insert("fbs_ship", -1.0, "wb_fbs_order", source_id):
                         stats["shipped"] += 1
                     else:
                         stats["skipped"] += 1
-                elif old_tab == "delivery" and new_tab in {"new", "assembly"}:
+                elif tab in {"new", "assembly"}:
+                    if net <= 0:
+                        stats["ok"] += 1
+                        continue
+                    # Only reverse when a ship exists (net > 0).
+                    seq = reverses + 1
+                    source_id = f"{oid}:r:{seq}"
                     if _insert(
-                        "fbs_reverse", 1.0, "wb_fbs_order_reverse", str(oid)
+                        "fbs_reverse", 1.0, "wb_fbs_order_reverse", source_id
                     ):
                         stats["reversed"] += 1
                     else:
                         stats["skipped"] += 1
                 else:
-                    stats["skipped"] += 1
+                    # cancelled / archive / unknown — do not auto-mutate
+                    stats["ok"] += 1
         return stats
+
+    def apply_wb_fbs_stock_tab_transitions(
+        self,
+        *,
+        user_id: int,
+        production_id: int,
+        transitions: list[dict[str, Any]],
+        movement_date: str,
+    ) -> dict[str, int]:
+        """Back-compat wrapper: map transitions to reconcile desired tabs."""
+        orders: list[dict[str, Any]] = []
+        for tr in transitions or []:
+            orders.append(
+                {
+                    "order_id": tr.get("order_id"),
+                    "tab": tr.get("new_tab"),
+                    "article": tr.get("article"),
+                    "nm_id": tr.get("nm_id"),
+                }
+            )
+        return self.reconcile_wb_fbs_stock_orders(
+            user_id=user_id,
+            production_id=production_id,
+            orders=orders,
+            movement_date=movement_date,
+        )

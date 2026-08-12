@@ -2240,9 +2240,9 @@ def sync_wb_fbs_source(
             (user_id, source_id),
         ).fetchall()
     all_ids = [int(r["order_id"]) for r in id_rows]
-    # Stock ledger hooks (Поставки → Остатки): collect tab transitions only.
-    # Must never break FBS sync — applied in a separate try/except below.
-    stock_transitions: list[dict[str, Any]] = []
+    # Stock ledger (Поставки → Остатки): remember final tab/article per order
+    # after status refresh, then reconcile. Must never break FBS sync.
+    stock_order_states: dict[int, dict[str, Any]] = {}
     for i in range(0, len(all_ids), 1000):
         if _stopped():
             stopped = True
@@ -2279,20 +2279,12 @@ def sync_wb_fbs_source(
                     ws = str(st.get("wbStatus") or "")
                     tab = compute_tab(supplier_status=ss, wb_status=ws, is_archive=False)
                     prev = prior_map.get(oid) or {}
-                    old_tab = str(prev.get("tab") or "")
-                    if tab != old_tab and (
-                        tab == TAB_DELIVERY
-                        or old_tab == TAB_DELIVERY
-                    ):
-                        stock_transitions.append(
-                            {
-                                "order_id": oid,
-                                "old_tab": old_tab,
-                                "new_tab": tab,
-                                "article": str(prev.get("article") or ""),
-                                "nm_id": str(prev.get("nm_id") or ""),
-                            }
-                        )
+                    stock_order_states[oid] = {
+                        "order_id": oid,
+                        "tab": tab,
+                        "article": str(prev.get("article") or ""),
+                        "nm_id": str(prev.get("nm_id") or ""),
+                    }
                     conn.execute(
                         repo._sql(
                             """
@@ -2308,9 +2300,10 @@ def sync_wb_fbs_source(
             errors.append(friendly_sync_error("status", exc))
             break
 
-    if stock_transitions:
+    # Reconcile every sync (not only on tab change): repairs missed ships after
+    # a previous stock failure and covers assembly→finished (skips delivery tab).
+    if stock_order_states:
         try:
-            # Single-warehouse mode: first supply production for the account.
             prod_id = 0
             try:
                 productions = repo.list_supply_productions(user_id=user_id)
@@ -2323,10 +2316,10 @@ def sync_wb_fbs_source(
                     move_date = datetime.now(_MSK).date().isoformat()
                 except Exception:
                     move_date = datetime.now(UTC).date().isoformat()
-                repo.apply_wb_fbs_stock_tab_transitions(
+                repo.reconcile_wb_fbs_stock_orders(
                     user_id=user_id,
                     production_id=prod_id,
-                    transitions=stock_transitions,
+                    orders=list(stock_order_states.values()),
                     movement_date=move_date,
                 )
         except Exception as exc:

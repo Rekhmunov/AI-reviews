@@ -13732,9 +13732,12 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         s = str(raw or "").strip()
         if not s:
             return today
-        if len(s) == 10 and s[4] == "-" and s[7] == "-":
-            return s
-        raise HTTPException(status_code=400, detail="Некорректная дата")
+        try:
+            from datetime import date as _date
+
+            return _date.fromisoformat(s).isoformat()
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Некорректная дата") from exc
 
     def _normalize_stock_line_items(
         raw_items: list[dict[str, object]],
@@ -13764,7 +13767,8 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             "today": _moscow_today(),
             "productions": productions,
             "production_id": int(productions[0]["id"]) if productions else None,
-            "can_edit": True,
+            # Matrix cells are read-only; mutations go through receipt/adjustment.
+            "can_edit": False,
             "ledger": True,
         }
 
@@ -13796,11 +13800,12 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         pid = int(production_id or 0)
         if pid <= 0 or pid not in prod_ids:
             pid = prod_ids[0]
-        try:
-            as_of_date = _parse_stock_date(as_of, today=today)
-        except HTTPException:
+        as_of_raw = str(as_of or "").strip()
+        if as_of_raw:
+            as_of_date = _parse_stock_date(as_of_raw, today=today)
+        else:
             as_of_date = today
-        # One-shot import of legacy editable snapshots into the ledger.
+        # Idempotent import of legacy editable snapshots into the ledger.
         try:
             repository.migrate_legacy_supply_balances_to_movements(
                 user_id=owner_id,
@@ -13999,6 +14004,9 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         request: Request, payload: SupplyBalanceSaveRequest
     ) -> dict[str, object]:
         """Deprecated: matrix cell edit. Prefer receipt/adjustment ledger APIs."""
+        user = _require_user(request)
+        if not _can_view_supply_stock(user):
+            raise HTTPException(status_code=403, detail="Нет доступа к остаткам")
         raise HTTPException(
             status_code=410,
             detail="Редактирование ячеек отключено. Используйте «Добавить на склад» или «Корректировка».",
