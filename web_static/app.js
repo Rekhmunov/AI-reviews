@@ -13070,7 +13070,7 @@ function _sbProductCardHtml(row) {
     ? barcodes
     : [article, String(row.ozon_sku || "").trim()].filter(Boolean);
   const photo = photoUrl
-    ? `<img class="wb-fbs-product-photo" src="${esc(photoUrl)}" alt="" width="144" height="144" loading="lazy" onerror="this.outerHTML='<span class=&quot;wb-fbs-product-ph&quot; aria-hidden=&quot;true&quot;></span>'">`
+    ? `<img class="wb-fbs-product-photo" src="${esc(photoUrl)}" alt="" width="144" height="144" loading="lazy" onerror="this.style.display='none'">`
     : `<span class="wb-fbs-product-ph" aria-hidden="true"></span>`;
   const subParts = [];
   if (article) subParts.push(`Арт. ${article}`);
