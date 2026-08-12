@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=188" />
+  <link rel="stylesheet" href="/static/style.css?v=189" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -4588,13 +4588,13 @@
   <!-- Supply stock: opening / adjustment -->
   <div id="supplyStockAdjustmentModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
        onclick="if(event.target===this)closeSupplyStockAdjustmentModal()">
-    <div class="modal-card sb-doc-modal">
+    <div class="modal-card sb-doc-modal sb-adj-modal">
       <div class="modal-card-header">
         <h4 class="no-margin">Корректировка остатков</h4>
         <button type="button" class="modal-close-btn" onclick="closeSupplyStockAdjustmentModal()" aria-label="Закрыть">✕</button>
       </div>
       <div class="sb-doc-body">
-        <p class="sb-vis-hint">Укажите фактический остаток на дату. Система запишет разницу с расчётным остатком.</p>
+        <p class="sb-vis-hint">Укажите фактический остаток на дату. Система запишет разницу с расчётным остатком. Пустые строки не сохраняются.</p>
         <div class="sb-doc-fields">
           <label class="sb-doc-field" for="supplyStockAdjMode">
             <span>Тип</span>
@@ -4607,17 +4607,15 @@
             <span>Дата</span>
             <input type="date" id="supplyStockAdjDate" />
           </label>
-          <label class="sb-doc-field sb-doc-field-grow" for="supplyStockAdjComment">
+        </div>
+        <div class="sb-adj-list-wrap">
+          <div class="sb-adj-list-head" aria-hidden="true">
+            <span>Название</span>
+            <span>Остаток</span>
             <span>Комментарий</span>
-            <input type="text" id="supplyStockAdjComment" maxlength="500" placeholder="Необязательно" />
-          </label>
+          </div>
+          <div id="supplyStockAdjList" class="sb-adj-list"></div>
         </div>
-        <div class="sb-doc-add-row">
-          <select id="supplyStockAdjItemSelect" class="sb-doc-item-select"></select>
-          <input type="number" id="supplyStockAdjQty" class="sb-doc-qty" min="0" step="any" placeholder="Остаток" inputmode="decimal" />
-          <button type="button" class="secondary" onclick="supplyStockAdjAddLine()">Добавить</button>
-        </div>
-        <div id="supplyStockAdjLines" class="sb-doc-lines"></div>
         <div id="supplyStockAdjErr" class="sb-doc-err" hidden></div>
       </div>
       <div class="sb-vis-footer">
@@ -4649,6 +4647,6 @@
       </div>
     </div>
   </div>
-  <script src="/static/app.js?v=413"></script>
+  <script src="/static/app.js?v=414"></script>
 </body>
 </html>

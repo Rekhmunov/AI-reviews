@@ -13469,25 +13469,73 @@ async function saveSupplyStockReceipt() {
 }
 window.saveSupplyStockReceipt = saveSupplyStockReceipt;
 
+function _sbCurrentBalanceHint(itemType, itemId) {
+  const row = (supplyBalancesState.rows || []).find(
+    (r) => r.item_type === itemType && Number(r.item_id) === Number(itemId)
+  );
+  if (!row) return "";
+  const asOf = String(supplyBalancesState.asOf || supplyBalancesState.today || "");
+  const raw = row.balance != null
+    ? row.balance
+    : (row.values && asOf ? row.values[asOf] : null);
+  if (raw === null || raw === undefined || raw === "") return "";
+  const n = Number(raw);
+  return Number.isFinite(n) ? String(n) : "";
+}
+
+function renderSupplyStockAdjList() {
+  const list = document.getElementById("supplyStockAdjList");
+  if (!list) return;
+  const items = supplyBalancesState.catalogItems || [];
+  if (!items.length) {
+    list.innerHTML = `<div class="sb-doc-empty">Нет материалов и товаров в справочниках</div>`;
+    return;
+  }
+  const materials = items.filter((x) => x.item_type === "material");
+  const products = items.filter((x) => x.item_type === "product");
+  const parts = [];
+  const renderRows = (title, rows) => {
+    if (!rows.length) return;
+    parts.push(`<div class="sb-adj-group">${esc(title)}</div>`);
+    rows.forEach((row) => {
+      const type = String(row.item_type || "");
+      const id = Number(row.item_id || 0);
+      const unit = esc(row.unit || "шт");
+      const hint = _sbCurrentBalanceHint(type, id);
+      const ph = hint !== "" ? `сейчас ${hint}` : "0";
+      parts.push(`<div class="sb-adj-row" data-sb-type="${esc(type)}" data-sb-id="${id}">
+        <div class="sb-adj-name">
+          <span class="sb-adj-name-text">${esc(row.name || "")}</span>
+          <span class="sb-adj-name-meta">${type === "material" ? "Материал" : "Товар"} · ${unit}</span>
+        </div>
+        <input type="number" class="sb-adj-qty" min="0" step="any" inputmode="decimal"
+          placeholder="${esc(ph)}" aria-label="Остаток: ${esc(row.name || "")}" />
+        <input type="text" class="sb-adj-comment" maxlength="500" placeholder="Необязательно"
+          aria-label="Комментарий: ${esc(row.name || "")}" />
+      </div>`);
+    });
+  };
+  renderRows("Материалы", materials);
+  renderRows("Товары", products);
+  list.innerHTML = parts.join("");
+}
+
 async function openSupplyStockAdjustmentModal() {
-  supplyBalancesState.adjLines = [];
   _sbSetDocErr("supplyStockAdjErr", "");
   setModalVisibility("supplyStockAdjustmentModal", true);
   const dateEl = document.getElementById("supplyStockAdjDate");
-  const commentEl = document.getElementById("supplyStockAdjComment");
   const modeEl = document.getElementById("supplyStockAdjMode");
-  const qtyEl = document.getElementById("supplyStockAdjQty");
+  const list = document.getElementById("supplyStockAdjList");
   if (dateEl) dateEl.value = supplyBalancesState.today || "";
-  if (commentEl) commentEl.value = "";
   if (modeEl) modeEl.value = "opening";
-  if (qtyEl) qtyEl.value = "";
+  if (list) list.innerHTML = `<div class="sb-doc-empty">Загрузка…</div>`;
   try {
     await _sbLoadCatalogItems();
-    _sbFillItemSelect("supplyStockAdjItemSelect");
+    renderSupplyStockAdjList();
   } catch (e) {
     _sbSetDocErr("supplyStockAdjErr", String(e.message || e));
+    if (list) list.innerHTML = `<div class="sb-doc-empty">Не удалось загрузить список</div>`;
   }
-  _sbRenderDocLines("supplyStockAdjLines", supplyBalancesState.adjLines, "supplyStockAdjRemoveLine");
 }
 window.openSupplyStockAdjustmentModal = openSupplyStockAdjustmentModal;
 
@@ -13496,55 +13544,37 @@ function closeSupplyStockAdjustmentModal() {
 }
 window.closeSupplyStockAdjustmentModal = closeSupplyStockAdjustmentModal;
 
-function supplyStockAdjAddLine() {
-  const sel = document.getElementById("supplyStockAdjItemSelect");
-  const qtyEl = document.getElementById("supplyStockAdjQty");
-  const parsed = _sbParseItemKey(sel?.value);
-  const qty = Number(qtyEl?.value);
-  _sbSetDocErr("supplyStockAdjErr", "");
-  if (!parsed) {
-    _sbSetDocErr("supplyStockAdjErr", "Выберите товар или материал");
-    return;
-  }
-  if (!Number.isFinite(qty) || qty < 0) {
-    _sbSetDocErr("supplyStockAdjErr", "Укажите остаток (0 или больше)");
-    return;
-  }
-  const cat = (supplyBalancesState.catalogItems || []).find(
-    (x) => x.item_type === parsed.item_type && Number(x.item_id) === parsed.item_id
-  );
-  const existing = supplyBalancesState.adjLines.find(
-    (x) => x.item_type === parsed.item_type && x.item_id === parsed.item_id
-  );
-  if (existing) existing.qty = qty;
-  else {
-    supplyBalancesState.adjLines.push({
-      item_type: parsed.item_type,
-      item_id: parsed.item_id,
-      name: cat?.name || "",
-      unit: cat?.unit || "шт",
+function _sbCollectAdjItemsFromList() {
+  const list = document.getElementById("supplyStockAdjList");
+  if (!list) return [];
+  const items = [];
+  list.querySelectorAll(".sb-adj-row").forEach((row) => {
+    const itemType = String(row.getAttribute("data-sb-type") || "");
+    const itemId = Number(row.getAttribute("data-sb-id") || 0);
+    const qtyEl = row.querySelector(".sb-adj-qty");
+    const commentEl = row.querySelector(".sb-adj-comment");
+    const raw = String(qtyEl?.value || "").trim();
+    if (!itemType || !itemId || raw === "") return;
+    const qty = Number(raw);
+    if (!Number.isFinite(qty) || qty < 0) return;
+    items.push({
+      item_type: itemType,
+      item_id: itemId,
       qty,
+      comment: String(commentEl?.value || "").trim(),
     });
-  }
-  if (qtyEl) qtyEl.value = "";
-  _sbRenderDocLines("supplyStockAdjLines", supplyBalancesState.adjLines, "supplyStockAdjRemoveLine");
+  });
+  return items;
 }
-window.supplyStockAdjAddLine = supplyStockAdjAddLine;
-
-function supplyStockAdjRemoveLine(idx) {
-  supplyBalancesState.adjLines.splice(idx, 1);
-  _sbRenderDocLines("supplyStockAdjLines", supplyBalancesState.adjLines, "supplyStockAdjRemoveLine");
-}
-window.supplyStockAdjRemoveLine = supplyStockAdjRemoveLine;
 
 async function saveSupplyStockAdjustment() {
   const btn = document.getElementById("supplyStockAdjSaveBtn");
   const dateEl = document.getElementById("supplyStockAdjDate");
-  const commentEl = document.getElementById("supplyStockAdjComment");
   const modeEl = document.getElementById("supplyStockAdjMode");
   _sbSetDocErr("supplyStockAdjErr", "");
-  if (!supplyBalancesState.adjLines.length) {
-    _sbSetDocErr("supplyStockAdjErr", "Добавьте хотя бы одну позицию");
+  const items = _sbCollectAdjItemsFromList();
+  if (!items.length) {
+    _sbSetDocErr("supplyStockAdjErr", "Укажите остаток хотя бы по одной позиции");
     return;
   }
   if (btn) btn.disabled = true;
@@ -13556,12 +13586,8 @@ async function saveSupplyStockAdjustment() {
         mode: String(modeEl?.value || "adjustment"),
         quantity_mode: "absolute",
         date: String(dateEl?.value || ""),
-        comment: String(commentEl?.value || ""),
-        items: supplyBalancesState.adjLines.map((x) => ({
-          item_type: x.item_type,
-          item_id: x.item_id,
-          qty: Number(x.qty),
-        })),
+        comment: "",
+        items,
       }),
     });
     const data = await res.json().catch(() => ({}));

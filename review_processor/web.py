@@ -13754,7 +13754,15 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                 continue
             if item_id <= 0:
                 continue
-            out.append({"item_type": item_type, "item_id": item_id, "qty": qty})
+            row: dict[str, object] = {
+                "item_type": item_type,
+                "item_id": item_id,
+                "qty": qty,
+            }
+            cmt = str(item.get("comment") or "").strip()
+            if cmt:
+                row["comment"] = cmt[:500]
+            out.append(row)
         return out
 
     @app.get("/api/supply-balances/meta")
@@ -13969,16 +13977,17 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                 delta = raw_qty
             if delta == 0:
                 continue
-            items.append(
-                {
-                    "item_type": key[0],
-                    "item_id": key[1],
-                    "qty": delta,
-                    "source_id": (
-                        f"{mode}:{date_s}:{key[0]}:{key[1]}:{_uuid.uuid4().hex[:10]}"
-                    ),
-                }
-            )
+            row_out: dict[str, object] = {
+                "item_type": key[0],
+                "item_id": key[1],
+                "qty": delta,
+                "source_id": (
+                    f"{mode}:{date_s}:{key[0]}:{key[1]}:{_uuid.uuid4().hex[:10]}"
+                ),
+            }
+            if line.get("comment"):
+                row_out["comment"] = str(line.get("comment") or "")
+            items.append(row_out)
         if not items:
             return {
                 "ok": True,

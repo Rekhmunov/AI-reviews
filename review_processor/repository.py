@@ -12061,6 +12061,7 @@ class ReviewRepository:
                 source_id = str(item.get("source_id") or "").strip()
                 if not source_id:
                     source_id = f"{src_type}:{kind_s}:{_uuid.uuid4().hex}"
+                row_comment = str(item.get("comment") or comment_s or "").strip()
                 cur = conn.execute(
                     self._sql(
                         "INSERT INTO supply_stock_movements "
@@ -12080,7 +12081,7 @@ class ReviewRepository:
                         kind_s,
                         src_type,
                         source_id,
-                        comment_s,
+                        row_comment,
                         now,
                         created_by,
                     ),
