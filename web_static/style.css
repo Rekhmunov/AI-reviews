@@ -9676,6 +9676,43 @@ button.wb-fbs-kiz-add:disabled {
   flex: 1;
   min-height: 0;
 }
+.sb-bulk-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+}
+.sb-bulk-value-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 110px;
+}
+.sb-bulk-value-field > span {
+  font-size: 13px;
+  font-weight: 600;
+  color: #64748b;
+}
+.sb-bulk-value-field input {
+  min-height: 36px;
+  width: 110px;
+  padding: 6px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #0f172a;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+.sb-bulk-value-field input:focus {
+  outline: 2px solid #93c5fd;
+  outline-offset: 1px;
+  border-color: #60a5fa;
+}
+.sb-bulk-bar button.secondary {
+  min-height: 36px;
+  font-size: 14px;
+}
 .sb-adj-list-wrap {
   display: flex;
   flex-direction: column;
@@ -9687,7 +9724,7 @@ button.wb-fbs-kiz-add:disabled {
 }
 .sb-adj-list-head {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) 110px minmax(0, 1fr);
+  grid-template-columns: 36px minmax(0, 1.4fr) 110px minmax(0, 1fr);
   gap: 12px;
   padding: 10px 12px;
   background: #f8fafc;
@@ -9696,6 +9733,7 @@ button.wb-fbs-kiz-add:disabled {
   font-weight: 600;
   color: #64748b;
   text-transform: none;
+  align-items: center;
 }
 .sb-adj-list {
   max-height: min(52vh, 420px);
@@ -9716,11 +9754,26 @@ button.wb-fbs-kiz-add:disabled {
 }
 .sb-adj-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) 110px minmax(0, 1fr);
+  grid-template-columns: 36px minmax(0, 1.4fr) 110px minmax(0, 1fr);
   gap: 12px;
   align-items: center;
   padding: 10px 12px;
   border-bottom: 1px solid #e2e8f0;
+}
+.sb-adj-check-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  min-height: 36px;
+  cursor: pointer;
+}
+.sb-adj-check-cell input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: #2563eb;
+  cursor: pointer;
 }
 .sb-adj-row:last-child {
   border-bottom: none;
@@ -9762,11 +9815,18 @@ button.wb-fbs-kiz-add:disabled {
 }
 @media (max-width: 640px) {
   .sb-adj-list-head {
+    grid-template-columns: 36px 1fr;
+  }
+  .sb-adj-list-head > span:nth-child(n+3) {
     display: none;
   }
   .sb-adj-row {
-    grid-template-columns: 1fr;
+    grid-template-columns: 36px 1fr;
     gap: 8px;
+  }
+  .sb-adj-row .sb-adj-qty,
+  .sb-adj-row .sb-adj-comment {
+    grid-column: 2;
   }
 }
 .sb-asof-modal {

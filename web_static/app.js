@@ -13305,12 +13305,146 @@ function _sbSetDocErr(id, text) {
   }
 }
 
+function _sbBulkListId(kind) {
+  return kind === "receipt" ? "supplyStockReceiptList" : "supplyStockAdjList";
+}
+function _sbBulkErrId(kind) {
+  return kind === "receipt" ? "supplyStockReceiptErr" : "supplyStockAdjErr";
+}
+function _sbBulkValueId(kind) {
+  return kind === "receipt" ? "supplyStockReceiptBulkValue" : "supplyStockAdjBulkValue";
+}
+function _sbBulkSelectAllId(kind) {
+  return kind === "receipt" ? "supplyStockReceiptSelectAll" : "supplyStockAdjSelectAll";
+}
+
+function _sbBulkTargetRows(kind, scope) {
+  const list = document.getElementById(_sbBulkListId(kind));
+  if (!list) return [];
+  const rows = Array.from(list.querySelectorAll(".sb-adj-row"));
+  if (scope === "selected") {
+    return rows.filter((row) => row.querySelector(".sb-adj-check")?.checked);
+  }
+  return rows;
+}
+
+function _sbSyncBulkSelectAll(kind) {
+  const list = document.getElementById(_sbBulkListId(kind));
+  const allEl = document.getElementById(_sbBulkSelectAllId(kind));
+  if (!list || !allEl) return;
+  const checks = Array.from(list.querySelectorAll(".sb-adj-check"));
+  if (!checks.length) {
+    allEl.checked = false;
+    allEl.indeterminate = false;
+    return;
+  }
+  const checked = checks.filter((c) => c.checked).length;
+  allEl.checked = checked === checks.length;
+  allEl.indeterminate = checked > 0 && checked < checks.length;
+}
+
+function supplyStockBulkToggleAll(kind, checked) {
+  const list = document.getElementById(_sbBulkListId(kind));
+  if (!list) return;
+  list.querySelectorAll(".sb-adj-check").forEach((el) => {
+    el.checked = !!checked;
+  });
+  const allEl = document.getElementById(_sbBulkSelectAllId(kind));
+  if (allEl) {
+    allEl.checked = !!checked;
+    allEl.indeterminate = false;
+  }
+}
+window.supplyStockBulkToggleAll = supplyStockBulkToggleAll;
+
+function supplyStockBulkFill(kind, scope) {
+  const errId = _sbBulkErrId(kind);
+  const valueEl = document.getElementById(_sbBulkValueId(kind));
+  _sbSetDocErr(errId, "");
+  const raw = String(valueEl?.value ?? "").trim();
+  if (raw === "") {
+    _sbSetDocErr(errId, "Укажите значение для заполнения");
+    return;
+  }
+  const qty = Number(raw);
+  if (!Number.isFinite(qty) || qty < 0) {
+    _sbSetDocErr(errId, "Значение должно быть числом 0 или больше");
+    return;
+  }
+  if (kind === "receipt" && qty <= 0) {
+    _sbSetDocErr(errId, "Для прихода укажите количество больше 0");
+    return;
+  }
+  const rows = _sbBulkTargetRows(kind, scope);
+  if (scope === "selected" && !rows.length) {
+    _sbSetDocErr(errId, "Отметьте позиции чекбоксами");
+    return;
+  }
+  rows.forEach((row) => {
+    const qtyEl = row.querySelector(".sb-adj-qty");
+    if (qtyEl) qtyEl.value = String(qty);
+  });
+}
+window.supplyStockBulkFill = supplyStockBulkFill;
+
+function supplyStockBulkClear(kind, scope) {
+  const errId = _sbBulkErrId(kind);
+  _sbSetDocErr(errId, "");
+  const rows = _sbBulkTargetRows(kind, scope);
+  if (scope === "selected" && !rows.length) {
+    _sbSetDocErr(errId, "Отметьте позиции чекбоксами");
+    return;
+  }
+  rows.forEach((row) => {
+    const qtyEl = row.querySelector(".sb-adj-qty");
+    if (!qtyEl) return;
+    // Корректировка: 0 = фактический ноль. Приход: очистить (0 не сохраняется).
+    qtyEl.value = kind === "adj" ? "0" : "";
+  });
+}
+window.supplyStockBulkClear = supplyStockBulkClear;
+
+function _sbRenderStockRowHtml(row, opts) {
+  const qtyLabel = String(opts?.qtyLabel || "Количество");
+  const qtyPlaceholder = String(opts?.qtyPlaceholder || "0");
+  const type = String(row.item_type || "");
+  const id = Number(row.item_id || 0);
+  const unit = esc(row.unit || "шт");
+  return `<div class="sb-adj-row" data-sb-type="${esc(type)}" data-sb-id="${id}">
+    <label class="sb-adj-check-cell">
+      <input type="checkbox" class="sb-adj-check" aria-label="Выбрать: ${esc(row.name || "")}" />
+    </label>
+    <div class="sb-adj-name">
+      <span class="sb-adj-name-text">${esc(row.name || "")}</span>
+      <span class="sb-adj-name-meta">${type === "material" ? "Материал" : "Товар"} · ${unit}</span>
+    </div>
+    <input type="number" class="sb-adj-qty" min="0" step="any" inputmode="decimal"
+      placeholder="${esc(qtyPlaceholder)}" aria-label="${esc(qtyLabel)}: ${esc(row.name || "")}" />
+    <input type="text" class="sb-adj-comment" maxlength="500" placeholder="Необязательно"
+      aria-label="Комментарий: ${esc(row.name || "")}" />
+  </div>`;
+}
+
+function _sbBindBulkChecks(kind) {
+  const list = document.getElementById(_sbBulkListId(kind));
+  const allEl = document.getElementById(_sbBulkSelectAllId(kind));
+  if (allEl) {
+    allEl.checked = false;
+    allEl.indeterminate = false;
+  }
+  if (!list) return;
+  list.querySelectorAll(".sb-adj-check").forEach((el) => {
+    el.addEventListener("change", () => _sbSyncBulkSelectAll(kind));
+  });
+}
+
 function renderSupplyStockReceiptList() {
   const list = document.getElementById("supplyStockReceiptList");
   if (!list) return;
   const items = supplyBalancesState.catalogItems || [];
   if (!items.length) {
     list.innerHTML = `<div class="sb-doc-empty">Нет материалов и товаров в справочниках</div>`;
+    _sbBindBulkChecks("receipt");
     return;
   }
   const materials = items.filter((x) => x.item_type === "material");
@@ -13320,24 +13454,16 @@ function renderSupplyStockReceiptList() {
     if (!rows.length) return;
     parts.push(`<div class="sb-adj-group">${esc(title)}</div>`);
     rows.forEach((row) => {
-      const type = String(row.item_type || "");
-      const id = Number(row.item_id || 0);
-      const unit = esc(row.unit || "шт");
-      parts.push(`<div class="sb-adj-row" data-sb-type="${esc(type)}" data-sb-id="${id}">
-        <div class="sb-adj-name">
-          <span class="sb-adj-name-text">${esc(row.name || "")}</span>
-          <span class="sb-adj-name-meta">${type === "material" ? "Материал" : "Товар"} · ${unit}</span>
-        </div>
-        <input type="number" class="sb-adj-qty" min="0" step="any" inputmode="decimal"
-          placeholder="0" aria-label="Количество: ${esc(row.name || "")}" />
-        <input type="text" class="sb-adj-comment" maxlength="500" placeholder="Необязательно"
-          aria-label="Комментарий: ${esc(row.name || "")}" />
-      </div>`);
+      parts.push(_sbRenderStockRowHtml(row, {
+        qtyLabel: "Количество",
+        qtyPlaceholder: "0",
+      }));
     });
   };
   renderRows("Материалы", materials);
   renderRows("Товары", products);
   list.innerHTML = parts.join("");
+  _sbBindBulkChecks("receipt");
 }
 
 function _sbCollectReceiptItemsFromList() {
@@ -13368,7 +13494,9 @@ async function openSupplyStockReceiptModal() {
   setModalVisibility("supplyStockReceiptModal", true);
   const dateEl = document.getElementById("supplyStockReceiptDate");
   const list = document.getElementById("supplyStockReceiptList");
+  const bulkEl = document.getElementById("supplyStockReceiptBulkValue");
   if (dateEl) dateEl.value = supplyBalancesState.today || "";
+  if (bulkEl) bulkEl.value = "";
   if (list) list.innerHTML = `<div class="sb-doc-empty">Загрузка…</div>`;
   try {
     await _sbLoadCatalogItems();
@@ -13438,6 +13566,7 @@ function renderSupplyStockAdjList() {
   const items = supplyBalancesState.catalogItems || [];
   if (!items.length) {
     list.innerHTML = `<div class="sb-doc-empty">Нет материалов и товаров в справочниках</div>`;
+    _sbBindBulkChecks("adj");
     return;
   }
   const materials = items.filter((x) => x.item_type === "material");
@@ -13449,24 +13578,18 @@ function renderSupplyStockAdjList() {
     rows.forEach((row) => {
       const type = String(row.item_type || "");
       const id = Number(row.item_id || 0);
-      const unit = esc(row.unit || "шт");
       const hint = _sbCurrentBalanceHint(type, id);
       const ph = hint !== "" ? `сейчас ${hint}` : "0";
-      parts.push(`<div class="sb-adj-row" data-sb-type="${esc(type)}" data-sb-id="${id}">
-        <div class="sb-adj-name">
-          <span class="sb-adj-name-text">${esc(row.name || "")}</span>
-          <span class="sb-adj-name-meta">${type === "material" ? "Материал" : "Товар"} · ${unit}</span>
-        </div>
-        <input type="number" class="sb-adj-qty" min="0" step="any" inputmode="decimal"
-          placeholder="${esc(ph)}" aria-label="Остаток: ${esc(row.name || "")}" />
-        <input type="text" class="sb-adj-comment" maxlength="500" placeholder="Необязательно"
-          aria-label="Комментарий: ${esc(row.name || "")}" />
-      </div>`);
+      parts.push(_sbRenderStockRowHtml(row, {
+        qtyLabel: "Остаток",
+        qtyPlaceholder: ph,
+      }));
     });
   };
   renderRows("Материалы", materials);
   renderRows("Товары", products);
   list.innerHTML = parts.join("");
+  _sbBindBulkChecks("adj");
 }
 
 async function openSupplyStockAdjustmentModal() {
@@ -13475,8 +13598,10 @@ async function openSupplyStockAdjustmentModal() {
   const dateEl = document.getElementById("supplyStockAdjDate");
   const modeEl = document.getElementById("supplyStockAdjMode");
   const list = document.getElementById("supplyStockAdjList");
+  const bulkEl = document.getElementById("supplyStockAdjBulkValue");
   if (dateEl) dateEl.value = supplyBalancesState.today || "";
   if (modeEl) modeEl.value = "opening";
+  if (bulkEl) bulkEl.value = "";
   if (list) list.innerHTML = `<div class="sb-doc-empty">Загрузка…</div>`;
   try {
     await _sbLoadCatalogItems();
