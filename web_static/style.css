@@ -9645,6 +9645,11 @@ button.wb-fbs-kiz-add:disabled {
   font-weight: 600;
   white-space: nowrap;
 }
+/* Must beat display:inline-flex above — otherwise empty green/blue boxes stay visible */
+.sb-today-badge.hidden,
+.sb-asof-badge.hidden {
+  display: none !important;
+}
 .sb-asof-badge {
   background: #f0fdf4;
   border-color: #bbf7d0;
