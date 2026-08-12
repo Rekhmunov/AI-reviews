@@ -9601,6 +9601,10 @@ button.wb-fbs-kiz-add:disabled {
 #section-supplies-balances .supplies-filter-count {
   color: #64748b;
   white-space: nowrap;
+  font-size: 15px;
+}
+#section-supplies-balances .section-title {
+  font-size: 22px;
 }
 .sb-production-field {
   display: flex;
