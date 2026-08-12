@@ -786,10 +786,11 @@ def check_supply_kiz_status(
         has_filled = bool(codes)
         status = str(kiz.get("kiz_status") or "empty")
         if is_cancelled:
-            # Cancelled + filled KIZ still blocks a green control (WB rejects meta).
-            # Cancelled + empty field is not checked at all.
-            status = "error" if has_filled else "empty"
-            kiz_required = has_filled
+            # Cancelled orders stay in the supply UI (cancel badge) but must not
+            # paint «Маркировка» red/green — they are out of the КИЗ delivery flow.
+            # Leftover codes on a cancelled row are not a live WB marking error.
+            status = "empty"
+            kiz_required = False
         else:
             kiz_required = bool(kiz.get("kiz_required"))
             # Tone uses only filled codes; empty required slots are ignored.
@@ -806,7 +807,7 @@ def check_supply_kiz_status(
             "cancel_reason_label": cancel_labels.get(oid, ""),
         }
         rows.append(row)
-        if has_filled:
+        if has_filled and not is_cancelled:
             checked_statuses.append(status)
 
     tone = summarize_kiz_check_status(checked_statuses)
