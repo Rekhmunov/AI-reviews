@@ -98,6 +98,9 @@ def test_reconcile_ships_reverses_and_recycles() -> None:
         def fetchall(self):
             return self._rows
 
+        def fetchone(self):
+            return self._rows[0] if self._rows else None
+
     class _Conn:
         def __enter__(self):
             return self
@@ -107,6 +110,8 @@ def test_reconcile_ships_reverses_and_recycles() -> None:
 
         def execute(self, sql, params=()):
             sql_s = str(sql)
+            if "supply_stock_fbs_settled" in sql_s and "SELECT" in sql_s:
+                return _Cur()  # not settled
             if "SELECT kind, source_type, source_id" in sql_s:
                 oid = str(params[1])
                 rows = [
@@ -275,3 +280,87 @@ def test_apply_transitions_wrapper_delegates_to_reconcile() -> None:
     assert out["shipped"] == 1
     assert seen["orders"][0]["tab"] == "delivery"
     assert seen["orders"][0]["order_id"] == 9
+
+
+def test_reconcile_skips_settled_fbs_orders() -> None:
+    """After adjustment, open delivery orders are settled and must not ship."""
+    repo = ReviewRepository.__new__(ReviewRepository)
+    repo._sql = lambda q: q  # type: ignore[method-assign]
+    repo._ensure_supply_balances_tables = lambda conn: None  # type: ignore[method-assign]
+    repo._row_to_dict = lambda r: dict(r)  # type: ignore[method-assign]
+    repo.get_product_id_by_article_map = lambda *, user_id: {"ART": 7}  # type: ignore[method-assign]
+    inserts: list[tuple] = []
+
+    class _Cur:
+        rowcount = 1
+
+        def fetchall(self):
+            return []
+
+        def fetchone(self):
+            return None
+
+    class _Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def execute(self, sql, params=()):
+            if "INSERT INTO supply_stock_movements" in str(sql):
+                inserts.append(params)
+            return _Cur()
+
+    repo._connect = lambda: _Conn()  # type: ignore[method-assign]
+    repo.is_wb_fbs_order_stock_settled = (  # type: ignore[method-assign]
+        lambda conn, *, user_id, order_id: int(order_id) == 111
+    )
+    repo._fbs_stock_ship_counts = lambda conn, *, user_id, order_id: (0, 0)  # type: ignore[method-assign]
+
+    stats = ReviewRepository.reconcile_wb_fbs_stock_orders(
+        repo,
+        user_id=1,
+        production_id=2,
+        movement_date="2026-08-12",
+        orders=[
+            {"order_id": 111, "tab": "delivery", "article": "ART", "nm_id": ""},
+            {"order_id": 222, "tab": "delivery", "article": "ART", "nm_id": ""},
+        ],
+    )
+    assert stats["settled"] == 1
+    assert stats["shipped"] == 1
+    assert len(inserts) == 1
+    assert str(inserts[0][7]).startswith("222:")
+
+
+def test_settle_open_wb_fbs_orders_inserts_unique() -> None:
+    repo = ReviewRepository.__new__(ReviewRepository)
+    repo._sql = lambda q: q  # type: ignore[method-assign]
+    repo._ensure_supply_balances_tables = lambda conn: None  # type: ignore[method-assign]
+    repo._row_to_dict = lambda r: dict(r)  # type: ignore[method-assign]
+    executed: list[str] = []
+
+    class _Cur:
+        rowcount = 1
+
+        def fetchall(self):
+            return [{"order_id": 5}, {"order_id": 6}]
+
+    class _Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def execute(self, sql, params=()):
+            executed.append(str(sql))
+            return _Cur()
+
+    repo._connect = lambda: _Conn()  # type: ignore[method-assign]
+    n = ReviewRepository.settle_open_wb_fbs_orders_for_stock(
+        repo, user_id=1, production_id=3, reason="opening"
+    )
+    assert n == 2
+    assert any("supply_stock_fbs_settled" in s and "INSERT" in s for s in executed)

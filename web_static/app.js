@@ -13332,7 +13332,10 @@ function _sbSyncBulkSelectAll(kind) {
   const list = document.getElementById(_sbBulkListId(kind));
   const allEl = document.getElementById(_sbBulkSelectAllId(kind));
   if (!list || !allEl) return;
-  const checks = Array.from(list.querySelectorAll(".sb-adj-check"));
+  const checks = Array.from(list.querySelectorAll(".sb-adj-row"))
+    .filter((row) => !row.hidden && !row.classList.contains("hidden"))
+    .map((row) => row.querySelector(".sb-adj-check"))
+    .filter(Boolean);
   if (!checks.length) {
     allEl.checked = false;
     allEl.indeterminate = false;
@@ -13346,16 +13349,99 @@ function _sbSyncBulkSelectAll(kind) {
 function supplyStockBulkToggleAll(kind, checked) {
   const list = document.getElementById(_sbBulkListId(kind));
   if (!list) return;
-  list.querySelectorAll(".sb-adj-check").forEach((el) => {
-    el.checked = !!checked;
+  // Only toggle currently visible rows (respect search filter).
+  list.querySelectorAll(".sb-adj-row").forEach((row) => {
+    if (row.hidden || row.classList.contains("hidden")) return;
+    const el = row.querySelector(".sb-adj-check");
+    if (el) el.checked = !!checked;
   });
-  const allEl = document.getElementById(_sbBulkSelectAllId(kind));
-  if (allEl) {
-    allEl.checked = !!checked;
-    allEl.indeterminate = false;
-  }
+  _sbSyncBulkSelectAll(kind);
 }
 window.supplyStockBulkToggleAll = supplyStockBulkToggleAll;
+
+function _sbModalSearchInputId(kind) {
+  return kind === "receipt" ? "supplyStockReceiptSearch" : "supplyStockAdjSearch";
+}
+function _sbModalFilterCountId(kind) {
+  return kind === "receipt" ? "supplyStockReceiptFilterCount" : "supplyStockAdjFilterCount";
+}
+
+function onSupplyStockModalSearch(kind) {
+  const list = document.getElementById(_sbBulkListId(kind));
+  const input = document.getElementById(_sbModalSearchInputId(kind));
+  const countEl = document.getElementById(_sbModalFilterCountId(kind));
+  if (!list) return;
+  const q = _sbNormalizeSearch(input?.value || "");
+  const itemRows = Array.from(list.querySelectorAll(".sb-adj-row"));
+  let visible = 0;
+  itemRows.forEach((tr) => {
+    const hay = _sbNormalizeSearch(tr.getAttribute("data-sb-search") || "");
+    const show = !q || hay.includes(q);
+    tr.classList.toggle("hidden", !show);
+    tr.hidden = !show;
+    if (show) visible += 1;
+  });
+  list.querySelectorAll(".sb-adj-group").forEach((groupEl) => {
+    let hasVisible = false;
+    let el = groupEl.nextElementSibling;
+    while (el && !el.classList.contains("sb-adj-group")) {
+      if (el.classList.contains("sb-adj-row") && !el.hidden) {
+        hasVisible = true;
+        break;
+      }
+      el = el.nextElementSibling;
+    }
+    groupEl.classList.toggle("hidden", !hasVisible);
+    groupEl.hidden = !hasVisible;
+  });
+  let emptyEl = list.querySelector(".sb-search-empty");
+  if (q && itemRows.length && visible === 0) {
+    if (!emptyEl) {
+      emptyEl = document.createElement("div");
+      emptyEl.className = "sb-doc-empty sb-search-empty";
+      emptyEl.textContent = "Ничего не найдено";
+      list.appendChild(emptyEl);
+    }
+    emptyEl.hidden = false;
+  } else if (emptyEl) {
+    emptyEl.hidden = true;
+  }
+  if (countEl) {
+    if (q && itemRows.length) {
+      countEl.hidden = false;
+      countEl.textContent = `${visible} из ${itemRows.length}`;
+    } else {
+      countEl.hidden = true;
+      countEl.textContent = "";
+    }
+  }
+  _sbSyncBulkSelectAll(kind);
+}
+window.onSupplyStockModalSearch = onSupplyStockModalSearch;
+
+function _sbBindQtyTabNavigation(list) {
+  if (!list || list.dataset.qtyTabBound === "1") return;
+  list.dataset.qtyTabBound = "1";
+  list.addEventListener("keydown", (e) => {
+    if (e.key !== "Tab") return;
+    const target = e.target;
+    if (!(target instanceof HTMLInputElement) || !target.classList.contains("sb-adj-qty")) {
+      return;
+    }
+    const qtys = Array.from(list.querySelectorAll(".sb-adj-row:not(.hidden) .sb-adj-qty"))
+      .filter((el) => {
+        const row = el.closest(".sb-adj-row");
+        return row && !row.hidden;
+      });
+    const idx = qtys.indexOf(target);
+    if (idx < 0) return;
+    const nextIdx = e.shiftKey ? idx - 1 : idx + 1;
+    if (nextIdx < 0 || nextIdx >= qtys.length) return;
+    e.preventDefault();
+    qtys[nextIdx].focus();
+    qtys[nextIdx].select?.();
+  });
+}
 
 function supplyStockBulkFill(kind, scope) {
   const errId = _sbBulkErrId(kind);
@@ -13410,18 +13496,20 @@ function _sbRenderStockRowHtml(row, opts) {
   const type = String(row.item_type || "");
   const id = Number(row.item_id || 0);
   const unit = esc(row.unit || "шт");
-  return `<div class="sb-adj-row" data-sb-type="${esc(type)}" data-sb-id="${id}">
+  const typeLabel = type === "material" ? "Материал" : "Товар";
+  const searchBlob = [row.name, row.unit, typeLabel].map((x) => String(x || "")).join(" ");
+  return `<div class="sb-adj-row" data-sb-type="${esc(type)}" data-sb-id="${id}" data-sb-search="${esc(searchBlob)}">
     <label class="sb-adj-check-cell">
       <input type="checkbox" class="sb-adj-check" aria-label="Выбрать: ${esc(row.name || "")}" />
     </label>
     <div class="sb-adj-name">
       <span class="sb-adj-name-text">${esc(row.name || "")}</span>
-      <span class="sb-adj-name-meta">${type === "material" ? "Материал" : "Товар"} · ${unit}</span>
+      <span class="sb-adj-name-meta">${typeLabel} · ${unit}</span>
     </div>
     <input type="number" class="sb-adj-qty" min="0" step="any" inputmode="decimal"
       placeholder="${esc(qtyPlaceholder)}" aria-label="${esc(qtyLabel)}: ${esc(row.name || "")}" />
     <input type="text" class="sb-adj-comment" maxlength="500" placeholder="Необязательно"
-      aria-label="Комментарий: ${esc(row.name || "")}" />
+      aria-label="Комментарий: ${esc(row.name || "")}" tabindex="-1" />
   </div>`;
 }
 
@@ -13436,6 +13524,7 @@ function _sbBindBulkChecks(kind) {
   list.querySelectorAll(".sb-adj-check").forEach((el) => {
     el.addEventListener("change", () => _sbSyncBulkSelectAll(kind));
   });
+  _sbBindQtyTabNavigation(list);
 }
 
 function renderSupplyStockReceiptList() {
@@ -13495,12 +13584,15 @@ async function openSupplyStockReceiptModal() {
   const dateEl = document.getElementById("supplyStockReceiptDate");
   const list = document.getElementById("supplyStockReceiptList");
   const bulkEl = document.getElementById("supplyStockReceiptBulkValue");
+  const searchEl = document.getElementById("supplyStockReceiptSearch");
   if (dateEl) dateEl.value = supplyBalancesState.today || "";
   if (bulkEl) bulkEl.value = "";
+  if (searchEl) searchEl.value = "";
   if (list) list.innerHTML = `<div class="sb-doc-empty">Загрузка…</div>`;
   try {
     await _sbLoadCatalogItems();
     renderSupplyStockReceiptList();
+    onSupplyStockModalSearch("receipt");
   } catch (e) {
     _sbSetDocErr("supplyStockReceiptErr", String(e.message || e));
     if (list) list.innerHTML = `<div class="sb-doc-empty">Не удалось загрузить список</div>`;
@@ -13599,13 +13691,16 @@ async function openSupplyStockAdjustmentModal() {
   const modeEl = document.getElementById("supplyStockAdjMode");
   const list = document.getElementById("supplyStockAdjList");
   const bulkEl = document.getElementById("supplyStockAdjBulkValue");
+  const searchEl = document.getElementById("supplyStockAdjSearch");
   if (dateEl) dateEl.value = supplyBalancesState.today || "";
   if (modeEl) modeEl.value = "opening";
   if (bulkEl) bulkEl.value = "";
+  if (searchEl) searchEl.value = "";
   if (list) list.innerHTML = `<div class="sb-doc-empty">Загрузка…</div>`;
   try {
     await _sbLoadCatalogItems();
     renderSupplyStockAdjList();
+    onSupplyStockModalSearch("adj");
   } catch (e) {
     _sbSetDocErr("supplyStockAdjErr", String(e.message || e));
     if (list) list.innerHTML = `<div class="sb-doc-empty">Не удалось загрузить список</div>`;

@@ -13989,12 +13989,23 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                 row_out["comment"] = str(line.get("comment") or "")
             items.append(row_out)
         if not items:
+            # Still freeze current FBS deliveries: user confirmed the on-hand figure.
+            settled = 0
+            try:
+                settled = repository.settle_open_wb_fbs_orders_for_stock(
+                    user_id=owner_id,
+                    production_id=pid,
+                    reason=mode,
+                )
+            except Exception:
+                settled = 0
             return {
                 "ok": True,
                 "saved": 0,
                 "date": date_s,
                 "production_id": pid,
                 "message": "Изменений нет",
+                "fbs_settled": settled,
             }
         saved = repository.add_supply_stock_movements(
             user_id=owner_id,
@@ -14006,7 +14017,24 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             comment=str(payload.comment or "").strip(),
             created_by=int(user.get("id") or 0) or None,
         )
-        return {"ok": True, "saved": saved, "date": date_s, "production_id": pid}
+        # Physical count after correction already includes open deliveries —
+        # freeze those FBS order ids so sync will not deduct them again.
+        settled = 0
+        try:
+            settled = repository.settle_open_wb_fbs_orders_for_stock(
+                user_id=owner_id,
+                production_id=pid,
+                reason=mode,
+            )
+        except Exception:
+            settled = 0
+        return {
+            "ok": True,
+            "saved": saved,
+            "date": date_s,
+            "production_id": pid,
+            "fbs_settled": settled,
+        }
 
     @app.put("/api/supply-balances")
     def save_supply_balances(

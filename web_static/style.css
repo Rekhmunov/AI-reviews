@@ -9676,6 +9676,16 @@ button.wb-fbs-kiz-add:disabled {
   flex: 1;
   min-height: 0;
 }
+.sb-modal-filter-count {
+  color: #64748b;
+  white-space: nowrap;
+  align-self: center;
+  font-size: 14px;
+}
+.sb-adj-modal .sb-doc-field input[type="search"] {
+  min-height: 36px;
+  width: 100%;
+}
 .sb-bulk-bar {
   display: flex;
   flex-wrap: wrap;
