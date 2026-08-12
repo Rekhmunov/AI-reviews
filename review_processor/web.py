@@ -683,11 +683,31 @@ class FeedbackMaterialRequest(BaseModel):
 
 
 class SupplyBalanceSaveRequest(BaseModel):
+    """Legacy editable-matrix save (kept for compat; UI uses ledger endpoints)."""
     production_id: int
     items: list[dict[str, object]] = Field(default_factory=list)
 
 
 class SupplyBalanceVisibilityRequest(BaseModel):
+    items: list[dict[str, object]] = Field(default_factory=list)
+
+
+class SupplyStockReceiptRequest(BaseModel):
+    date: str = Field(default="", max_length=20)
+    comment: str = Field(default="", max_length=500)
+    items: list[dict[str, object]] = Field(default_factory=list)
+
+
+class SupplyStockAdjustmentRequest(BaseModel):
+    """Opening balance or inventory adjustment.
+
+    ``mode``: ``opening`` | ``adjustment``.
+    ``quantity_mode``: ``absolute`` (target on-hand) or ``delta`` (signed change).
+    """
+    mode: str = Field(default="adjustment", max_length=32)
+    quantity_mode: str = Field(default="absolute", max_length=32)
+    date: str = Field(default="", max_length=20)
+    comment: str = Field(default="", max_length=500)
     items: list[dict[str, object]] = Field(default_factory=list)
 
 
@@ -13683,85 +13703,125 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             raise HTTPException(status_code=404, detail="Производство не найдено")
         return {"ok": True}
 
-    # ── Manual balances (Поставки → Остатки) ─────────────────────────────────
+    # ── Stock ledger (Поставки → Остатки) ────────────────────────────────────
+
+    def _stock_productions_for_user(user: dict[str, object]) -> list[dict[str, object]]:
+        owner_id = _supply_owner_id(user)
+        repository._ensure_supply_tables()
+        repository.ensure_supply_balances_tables()
+        productions = repository.list_supply_productions(user_id=owner_id)
+        allowed = _allowed_stock_production_ids(user)
+        if allowed is not None:
+            allowed_set = {int(x) for x in allowed}
+            productions = [
+                p for p in productions if int(p.get("id") or 0) in allowed_set
+            ]
+        return [
+            {"id": int(p.get("id") or 0), "name": str(p.get("name") or "")}
+            for p in productions
+            if int(p.get("id") or 0) > 0
+        ]
+
+    def _default_stock_production_id(user: dict[str, object]) -> int | None:
+        prods = _stock_productions_for_user(user)
+        if not prods:
+            return None
+        return int(prods[0]["id"])
+
+    def _parse_stock_date(raw: str, *, today: str) -> str:
+        s = str(raw or "").strip()
+        if not s:
+            return today
+        if len(s) == 10 and s[4] == "-" and s[7] == "-":
+            return s
+        raise HTTPException(status_code=400, detail="Некорректная дата")
+
+    def _normalize_stock_line_items(
+        raw_items: list[dict[str, object]],
+    ) -> list[dict[str, object]]:
+        out: list[dict[str, object]] = []
+        for item in raw_items or []:
+            item_type = str(item.get("item_type") or "").strip().lower()
+            if item_type not in {"material", "product"}:
+                continue
+            try:
+                item_id = int(item.get("item_id") or 0)
+                qty = float(item.get("qty") if "qty" in item else item.get("quantity"))
+            except (TypeError, ValueError):
+                continue
+            if item_id <= 0:
+                continue
+            out.append({"item_type": item_type, "item_id": item_id, "qty": qty})
+        return out
 
     @app.get("/api/supply-balances/meta")
     def supply_balances_meta(request: Request) -> dict[str, object]:
         user = _require_user(request)
         if not _can_view_supply_stock(user):
             raise HTTPException(status_code=403, detail="Нет доступа к остаткам")
-        owner_id = _supply_owner_id(user)
-        repository._ensure_supply_tables()
-        repository.ensure_supply_balances_tables()
-        productions = repository.list_supply_productions(user_id=owner_id)
-        allowed = _allowed_stock_production_ids(user)
-        if allowed is not None:
-            allowed_set = {int(x) for x in allowed}
-            productions = [
-                p for p in productions if int(p.get("id") or 0) in allowed_set
-            ]
+        productions = _stock_productions_for_user(user)
         return {
             "today": _moscow_today(),
-            "productions": [
-                {"id": int(p.get("id") or 0), "name": str(p.get("name") or "")}
-                for p in productions
-                if int(p.get("id") or 0) > 0
-            ],
+            "productions": productions,
+            "production_id": int(productions[0]["id"]) if productions else None,
             "can_edit": True,
+            "ledger": True,
         }
 
     @app.get("/api/supply-balances")
     def get_supply_balances(
-        request: Request, production_id: int = 0
+        request: Request,
+        production_id: int = 0,
+        as_of: str = "",
     ) -> dict[str, object]:
+        """Read-only ledger snapshot. ``as_of`` = Moscow date (default today)."""
         user = _require_user(request)
         if not _can_view_supply_stock(user):
             raise HTTPException(status_code=403, detail="Нет доступа к остаткам")
         owner_id = _supply_owner_id(user)
-        repository._ensure_supply_tables()
-        repository.ensure_supply_balances_tables()
-        allowed = _allowed_stock_production_ids(user)
-        productions = repository.list_supply_productions(user_id=owner_id)
-        if allowed is not None:
-            allowed_set = {int(x) for x in allowed}
-            productions = [
-                p for p in productions if int(p.get("id") or 0) in allowed_set
-            ]
+        productions = _stock_productions_for_user(user)
+        today = _moscow_today()
         if not productions:
             return {
-                "today": _moscow_today(),
+                "today": today,
+                "as_of": today,
                 "production_id": None,
-                "dates": [_moscow_today()],
+                "dates": [today],
                 "rows": [],
                 "productions": [],
+                "can_edit": False,
+                "ledger": True,
             }
-        prod_ids = [int(p.get("id") or 0) for p in productions]
+        prod_ids = [int(p["id"]) for p in productions]
         pid = int(production_id or 0)
         if pid <= 0 or pid not in prod_ids:
             pid = prod_ids[0]
-        today = _moscow_today()
-        hist_dates = [
-            d
-            for d in repository.list_supply_balance_dates(
-                user_id=owner_id, production_id=pid
+        try:
+            as_of_date = _parse_stock_date(as_of, today=today)
+        except HTTPException:
+            as_of_date = today
+        # One-shot import of legacy editable snapshots into the ledger.
+        try:
+            repository.migrate_legacy_supply_balances_to_movements(
+                user_id=owner_id,
+                production_id=pid,
+                created_by=int(user.get("id") or 0) or None,
             )
-            if d != today
-        ]
-        dates = hist_dates + [today]
-        balances = repository.list_supply_balances(
-            user_id=owner_id, production_id=pid, dates=dates
+        except Exception:
+            pass
+        move_dates = repository.list_supply_stock_movement_dates(
+            user_id=owner_id, production_id=pid, as_of=as_of_date
         )
-        qty_map: dict[tuple[str, int, str], float] = {}
-        for b in balances:
-            key = (
-                str(b.get("item_type") or ""),
-                int(b.get("item_id") or 0),
-                str(b.get("balance_date") or ""),
+        dates = [d for d in move_dates if d <= as_of_date]
+        if as_of_date not in dates:
+            dates = dates + [as_of_date]
+        # Precompute cumulative balances for each column date.
+        bal_by_date: dict[str, dict[tuple[str, int], float]] = {
+            d: repository.sum_supply_stock_balances(
+                user_id=owner_id, production_id=pid, as_of=d
             )
-            try:
-                qty_map[key] = float(b.get("quantity") or 0)
-            except (TypeError, ValueError):
-                qty_map[key] = 0.0
+            for d in dates
+        }
         vis_rows = repository.list_supply_balance_visibility(user_id=owner_id)
         vis_map = {
             (str(v.get("item_type") or ""), int(v.get("item_id") or 0)): bool(
@@ -13776,11 +13836,10 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             mid = int(m.get("id") or 0)
             if mid <= 0:
                 continue
-            visible = vis_map.get(("material", mid), True)
-            if not visible:
+            if not vis_map.get(("material", mid), True):
                 continue
             values = {
-                d: qty_map.get(("material", mid, d))
+                d: bal_by_date[d].get(("material", mid))
                 for d in dates
             }
             rows.append(
@@ -13790,17 +13849,17 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                     "name": str(m.get("name") or ""),
                     "unit": str(m.get("unit") or "шт"),
                     "values": values,
+                    "balance": bal_by_date[as_of_date].get(("material", mid)),
                 }
             )
         for p in products:
             pid_item = int(p.get("id") or 0)
             if pid_item <= 0:
                 continue
-            visible = vis_map.get(("product", pid_item), True)
-            if not visible:
+            if not vis_map.get(("product", pid_item), True):
                 continue
             values = {
-                d: qty_map.get(("product", pid_item, d))
+                d: bal_by_date[d].get(("product", pid_item))
                 for d in dates
             }
             rows.append(
@@ -13810,47 +13869,140 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                     "name": str(p.get("name") or ""),
                     "unit": "шт",
                     "values": values,
+                    "balance": bal_by_date[as_of_date].get(("product", pid_item)),
                 }
             )
         return {
             "today": today,
+            "as_of": as_of_date,
             "production_id": pid,
             "dates": dates,
             "rows": rows,
-            "productions": [
-                {"id": int(p.get("id") or 0), "name": str(p.get("name") or "")}
-                for p in productions
-            ],
-            "can_edit": True,
+            "productions": productions,
+            "can_edit": False,
+            "ledger": True,
         }
 
-    @app.put("/api/supply-balances")
-    def save_supply_balances(
-        request: Request, payload: SupplyBalanceSaveRequest
+    @app.post("/api/supply-balances/receipt")
+    def post_supply_stock_receipt(
+        request: Request, payload: SupplyStockReceiptRequest
     ) -> dict[str, object]:
         user = _require_user(request)
         if not _can_view_supply_stock(user):
             raise HTTPException(status_code=403, detail="Нет доступа к остаткам")
         owner_id = _supply_owner_id(user)
-        pid = int(payload.production_id or 0)
-        if pid <= 0:
-            raise HTTPException(status_code=400, detail="Выберите производство")
-        allowed = _allowed_stock_production_ids(user)
-        if allowed is not None and pid not in set(allowed):
-            raise HTTPException(status_code=403, detail="Нет доступа к этому производству")
-        repository._ensure_supply_tables()
-        productions = repository.list_supply_productions(user_id=owner_id)
-        if not any(int(p.get("id") or 0) == pid for p in productions):
-            raise HTTPException(status_code=404, detail="Производство не найдено")
+        pid = _default_stock_production_id(user)
+        if not pid:
+            raise HTTPException(
+                status_code=400,
+                detail="Добавьте производство в Поставки → Настройки → Производства",
+            )
         today = _moscow_today()
-        saved = repository.upsert_supply_balances(
+        date_s = _parse_stock_date(payload.date, today=today)
+        lines = _normalize_stock_line_items(list(payload.items or []))
+        lines = [x for x in lines if float(x["qty"]) > 0]
+        if not lines:
+            raise HTTPException(status_code=400, detail="Добавьте позиции с количеством")
+        import uuid as _uuid
+
+        items = [
+            {
+                **line,
+                "source_id": f"receipt:{date_s}:{line['item_type']}:{line['item_id']}:{_uuid.uuid4().hex[:10]}",
+            }
+            for line in lines
+        ]
+        saved = repository.add_supply_stock_movements(
             user_id=owner_id,
             production_id=pid,
-            balance_date=today,
-            items=list(payload.items or []),
-            updated_by=int(user.get("id") or 0) or None,
+            movement_date=date_s,
+            kind="receipt",
+            source_type="manual_receipt",
+            items=items,
+            comment=str(payload.comment or "").strip(),
+            created_by=int(user.get("id") or 0) or None,
         )
-        return {"ok": True, "saved": saved, "date": today}
+        return {"ok": True, "saved": saved, "date": date_s, "production_id": pid}
+
+    @app.post("/api/supply-balances/adjustment")
+    def post_supply_stock_adjustment(
+        request: Request, payload: SupplyStockAdjustmentRequest
+    ) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_supply_stock(user):
+            raise HTTPException(status_code=403, detail="Нет доступа к остаткам")
+        owner_id = _supply_owner_id(user)
+        pid = _default_stock_production_id(user)
+        if not pid:
+            raise HTTPException(
+                status_code=400,
+                detail="Добавьте производство в Поставки → Настройки → Производства",
+            )
+        mode = str(payload.mode or "adjustment").strip().lower()
+        if mode not in {"opening", "adjustment"}:
+            raise HTTPException(status_code=400, detail="Некорректный тип корректировки")
+        qty_mode = str(payload.quantity_mode or "absolute").strip().lower()
+        if qty_mode not in {"absolute", "delta"}:
+            qty_mode = "absolute"
+        today = _moscow_today()
+        date_s = _parse_stock_date(payload.date, today=today)
+        lines = _normalize_stock_line_items(list(payload.items or []))
+        if not lines:
+            raise HTTPException(status_code=400, detail="Добавьте позиции")
+        current = repository.sum_supply_stock_balances(
+            user_id=owner_id, production_id=pid, as_of=date_s
+        )
+        import uuid as _uuid
+
+        items: list[dict[str, object]] = []
+        for line in lines:
+            key = (str(line["item_type"]), int(line["item_id"]))
+            raw_qty = float(line["qty"])
+            if qty_mode == "absolute":
+                delta = raw_qty - float(current.get(key) or 0)
+            else:
+                delta = raw_qty
+            if delta == 0:
+                continue
+            items.append(
+                {
+                    "item_type": key[0],
+                    "item_id": key[1],
+                    "qty": delta,
+                    "source_id": (
+                        f"{mode}:{date_s}:{key[0]}:{key[1]}:{_uuid.uuid4().hex[:10]}"
+                    ),
+                }
+            )
+        if not items:
+            return {
+                "ok": True,
+                "saved": 0,
+                "date": date_s,
+                "production_id": pid,
+                "message": "Изменений нет",
+            }
+        saved = repository.add_supply_stock_movements(
+            user_id=owner_id,
+            production_id=pid,
+            movement_date=date_s,
+            kind=mode,
+            source_type=f"manual_{mode}",
+            items=items,
+            comment=str(payload.comment or "").strip(),
+            created_by=int(user.get("id") or 0) or None,
+        )
+        return {"ok": True, "saved": saved, "date": date_s, "production_id": pid}
+
+    @app.put("/api/supply-balances")
+    def save_supply_balances(
+        request: Request, payload: SupplyBalanceSaveRequest
+    ) -> dict[str, object]:
+        """Deprecated: matrix cell edit. Prefer receipt/adjustment ledger APIs."""
+        raise HTTPException(
+            status_code=410,
+            detail="Редактирование ячеек отключено. Используйте «Добавить на склад» или «Корректировка».",
+        )
 
     @app.get("/api/supply-balances/visibility")
     def get_supply_balance_visibility(request: Request) -> dict[str, object]:

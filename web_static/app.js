@@ -12901,11 +12901,15 @@ window.deleteMaterial = deleteMaterial;
 const supplyBalancesState = {
   productionId: null,
   today: "",
+  asOf: "",
   dates: [],
   rows: [],
   productions: [],
+  catalogItems: [],
   visibilityItems: [],
   search: "",
+  receiptLines: [],
+  adjLines: [],
 };
 
 const SB_COL_WIDTHS_KEY = "supply_balances_col_widths_v1";
@@ -12971,15 +12975,26 @@ function _sbDateColWidth(store, dateIso) {
 
 function _sbUpdateTodayBadge() {
   const badge = document.getElementById("supplyBalancesTodayBadge");
+  const asOfBadge = document.getElementById("supplyBalancesAsOfBadge");
   if (!badge) return;
   const today = String(supplyBalancesState.today || "").trim();
+  const asOf = String(supplyBalancesState.asOf || today).trim();
   if (!today) {
     badge.classList.add("hidden");
     badge.textContent = "";
-    return;
+  } else {
+    badge.classList.remove("hidden");
+    badge.textContent = `Сегодня · ${_sbFormatDateLabel(today)}`;
   }
-  badge.classList.remove("hidden");
-  badge.textContent = `Сегодня · ${_sbFormatDateLabel(today)}`;
+  if (asOfBadge) {
+    if (asOf && asOf !== today) {
+      asOfBadge.classList.remove("hidden");
+      asOfBadge.textContent = `Срез · ${_sbFormatDateLabel(asOf)}`;
+    } else {
+      asOfBadge.classList.add("hidden");
+      asOfBadge.textContent = "";
+    }
+  }
 }
 
 async function loadSupplyBalancesSection() {
@@ -12989,9 +13004,11 @@ async function loadSupplyBalancesSection() {
     if (!metaRes.ok) throw new Error(meta.detail || "Нет доступа");
     supplyBalancesState.productions = Array.isArray(meta.productions) ? meta.productions : [];
     supplyBalancesState.today = String(meta.today || "");
+    if (!supplyBalancesState.asOf) {
+      supplyBalancesState.asOf = supplyBalancesState.today;
+    }
     _sbUpdateTodayBadge();
-    // Single-warehouse mode: no production picker in UI. Use first available
-    // production id under the hood until multi-production stock is designed.
+    // Single-warehouse mode: first production under the hood (no picker).
     if (!supplyBalancesState.productions.length) {
       supplyBalancesState.productionId = null;
       _sbSetStatus("Добавьте производство в Поставки → Настройки → Производства", "error");
@@ -13001,11 +13018,13 @@ async function loadSupplyBalancesSection() {
       if (colgroup) colgroup.innerHTML = "";
       if (thead) thead.innerHTML = "";
       if (tbody) {
-        tbody.innerHTML = `<tr><td class="sb-empty-cell">Нет данных для ввода остатков</td></tr>`;
+        tbody.innerHTML = `<tr><td class="sb-empty-cell">Нет данных для остатков</td></tr>`;
       }
       return;
     }
-    supplyBalancesState.productionId = Number(supplyBalancesState.productions[0].id);
+    supplyBalancesState.productionId = Number(
+      meta.production_id || supplyBalancesState.productions[0].id
+    );
     await loadSupplyBalancesData();
   } catch (e) {
     _sbSetStatus(String(e.message || e), "error");
@@ -13017,19 +13036,22 @@ async function loadSupplyBalancesData() {
   const pid = Number(supplyBalancesState.productionId || 0);
   if (!pid) return;
   try {
-    const res = await fetch(`/api/supply-balances?production_id=${encodeURIComponent(String(pid))}`);
+    const asOf = String(supplyBalancesState.asOf || supplyBalancesState.today || "").trim();
+    const params = new URLSearchParams({ production_id: String(pid) });
+    if (asOf) params.set("as_of", asOf);
+    const res = await fetch(`/api/supply-balances?${params.toString()}`);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || "Ошибка загрузки");
     supplyBalancesState.today = String(data.today || supplyBalancesState.today || "");
-    supplyBalancesState.dates = Array.isArray(data.dates) ? data.dates : [supplyBalancesState.today];
+    supplyBalancesState.asOf = String(data.as_of || asOf || supplyBalancesState.today || "");
+    supplyBalancesState.dates = Array.isArray(data.dates) ? data.dates : [supplyBalancesState.asOf];
     supplyBalancesState.rows = Array.isArray(data.rows) ? data.rows : [];
     supplyBalancesState.productionId = Number(data.production_id || pid);
     _sbUpdateTodayBadge();
     renderSupplyBalancesTable();
     if (supplyBalancesState.rows.length) {
-      _sbSetStatus(
-        `Позиций: ${supplyBalancesState.rows.length}. Редактируется ${_sbFormatDateLabel(supplyBalancesState.today)}`
-      );
+      const asOfLabel = _sbFormatDateLabel(supplyBalancesState.asOf);
+      _sbSetStatus(`Позиций: ${supplyBalancesState.rows.length}. Остаток на ${asOfLabel} (только просмотр)`);
     } else {
       _sbSetStatus("Нет видимых материалов и товаров. Добавьте их в Настройки или включите в «Вывод в таблице».");
     }
@@ -13038,27 +13060,16 @@ async function loadSupplyBalancesData() {
   }
 }
 
-function _sbRenderItemRow(row, dates, today) {
+function _sbRenderItemRow(row, dates, asOf) {
   const type = String(row.item_type || "");
-  const id = Number(row.item_id || 0);
   const unit = esc(row.unit || "шт");
   const values = row.values || {};
   const typeLabel = type === "material" ? "Материал" : "Товар";
   const searchBlob = [row.name, row.unit, typeLabel].map((x) => String(x || "")).join(" ");
   const cells = dates.map((d) => {
     const raw = values[d];
-    if (d === today) {
-      const val = (raw === null || raw === undefined) ? "" : String(raw);
-      return `<td class="sb-col-today">
-        <div class="sb-qty-wrap">
-          <input class="sb-qty-input" type="number" step="any" min="0"
-            data-sb-type="${esc(type)}" data-sb-id="${id}"
-            value="${esc(val)}" placeholder="0" inputmode="decimal" />
-          <span class="sb-unit">${unit}</span>
-        </div>
-      </td>`;
-    }
-    return `<td class="sb-col-date">
+    const isAsOf = d === asOf;
+    return `<td class="${isAsOf ? "sb-col-today" : "sb-col-date"}">
       <div class="sb-qty-wrap">
         <span class="sb-qty-ro">${esc(_sbQtyText(raw))}</span>
         <span class="sb-unit">${unit}</span>
@@ -13146,7 +13157,8 @@ function renderSupplyBalancesTable() {
   if (!table || !colgroup || !thead || !tbody) return;
 
   const dates = supplyBalancesState.dates.slice();
-  const today = supplyBalancesState.today;
+  const asOf = String(supplyBalancesState.asOf || supplyBalancesState.today || "");
+  const today = String(supplyBalancesState.today || "");
   const widths = _sbLoadColWidths();
   const nameW = widths.name;
   const dateWidths = dates.map((d) => _sbDateColWidth(widths, d));
@@ -13167,10 +13179,15 @@ function renderSupplyBalancesTable() {
       <div class="sb-resize-handle" data-sb-resize="name" title="Изменить ширину"></div>
     </th>
     ${dates.map((d, i) => {
+      const isAsOf = d === asOf;
       const isToday = d === today;
-      return `<th class="sb-resizable ${isToday ? "sb-col-today" : "sb-col-date"}" data-sb-col="date" data-sb-date="${esc(d)}" data-sb-date-idx="${i}">
+      let sub = "";
+      if (isAsOf && isToday) sub = "остаток";
+      else if (isAsOf) sub = "срез";
+      else if (isToday) sub = "сегодня";
+      return `<th class="sb-resizable ${isAsOf ? "sb-col-today" : "sb-col-date"}" data-sb-col="date" data-sb-date="${esc(d)}" data-sb-date-idx="${i}">
         <span class="sb-th-label">${_sbFormatDateLabel(d)}</span>
-        ${isToday ? `<span class="sb-th-sub">сегодня</span>` : ""}
+        ${sub ? `<span class="sb-th-sub">${sub}</span>` : ""}
         <div class="sb-resize-handle" data-sb-resize="date" data-sb-date="${esc(d)}" title="Изменить ширину"></div>
       </th>`;
     }).join("")}
@@ -13187,11 +13204,11 @@ function renderSupplyBalancesTable() {
   const parts = [];
   if (materials.length) {
     parts.push(`<tr class="sb-group-row"><td class="sb-col-name" colspan="${dates.length + 1}">Материалы</td></tr>`);
-    materials.forEach((row) => parts.push(_sbRenderItemRow(row, dates, today)));
+    materials.forEach((row) => parts.push(_sbRenderItemRow(row, dates, asOf)));
   }
   if (products.length) {
     parts.push(`<tr class="sb-group-row"><td class="sb-col-name" colspan="${dates.length + 1}">Товары</td></tr>`);
-    products.forEach((row) => parts.push(_sbRenderItemRow(row, dates, today)));
+    products.forEach((row) => parts.push(_sbRenderItemRow(row, dates, asOf)));
   }
   tbody.innerHTML = parts.join("");
   initSupplyBalancesColumnResizer();
@@ -13270,59 +13287,334 @@ function initSupplyBalancesColumnResizer() {
   });
 }
 
-async function saveSupplyBalances() {
-  const btn = document.getElementById("supplyBalancesSaveBtn");
-  const pid = Number(supplyBalancesState.productionId || 0);
-  if (!pid) {
-    _sbSetStatus("Выберите производство", "error");
+async function _sbLoadCatalogItems() {
+  const res = await fetch("/api/supply-balances/visibility");
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || "Ошибка загрузки справочника");
+  supplyBalancesState.catalogItems = Array.isArray(data.items) ? data.items : [];
+  return supplyBalancesState.catalogItems;
+}
+
+function _sbFillItemSelect(selectId) {
+  const sel = document.getElementById(selectId);
+  if (!sel) return;
+  const items = supplyBalancesState.catalogItems || [];
+  const mats = items.filter((x) => x.item_type === "material");
+  const prods = items.filter((x) => x.item_type === "product");
+  const opts = ['<option value="">Выберите позицию…</option>'];
+  if (mats.length) {
+    opts.push('<optgroup label="Материалы">');
+    mats.forEach((x) => {
+      opts.push(
+        `<option value="${esc(x.item_type)}:${Number(x.item_id)}">${esc(x.name || "")} (${esc(x.unit || "шт")})</option>`
+      );
+    });
+    opts.push("</optgroup>");
+  }
+  if (prods.length) {
+    opts.push('<optgroup label="Товары">');
+    prods.forEach((x) => {
+      opts.push(
+        `<option value="${esc(x.item_type)}:${Number(x.item_id)}">${esc(x.name || "")}</option>`
+      );
+    });
+    opts.push("</optgroup>");
+  }
+  sel.innerHTML = opts.join("");
+}
+
+function _sbParseItemKey(raw) {
+  const s = String(raw || "");
+  const idx = s.indexOf(":");
+  if (idx <= 0) return null;
+  const itemType = s.slice(0, idx);
+  const itemId = Number(s.slice(idx + 1));
+  if (!itemType || !Number.isFinite(itemId) || itemId <= 0) return null;
+  return { item_type: itemType, item_id: itemId };
+}
+
+function _sbRenderDocLines(containerId, lines, removeFnName) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  if (!lines.length) {
+    el.innerHTML = `<div class="sb-doc-empty">Позиции не добавлены</div>`;
     return;
   }
-  const items = [];
-  const today = String(supplyBalancesState.today || "");
-  const prevByKey = new Map(
-    (supplyBalancesState.rows || []).map((r) => [
-      `${r.item_type}:${r.item_id}`,
-      r?.values ? r.values[today] : undefined,
-    ])
+  el.innerHTML = lines.map((line, idx) => {
+    const typeLabel = line.item_type === "material" ? "Материал" : "Товар";
+    return `<div class="sb-doc-line">
+      <div class="sb-doc-line-main">
+        <div class="sb-doc-line-name">${esc(line.name || "")}</div>
+        <div class="sb-doc-line-meta">${typeLabel} · ${esc(line.unit || "шт")}</div>
+      </div>
+      <div class="sb-doc-line-qty">${esc(String(line.qty))}</div>
+      <button type="button" class="secondary icon-btn" title="Удалить"
+        onclick="${removeFnName}(${idx})">✕</button>
+    </div>`;
+  }).join("");
+}
+
+function _sbSetDocErr(id, text) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (text) {
+    el.hidden = false;
+    el.textContent = text;
+  } else {
+    el.hidden = true;
+    el.textContent = "";
+  }
+}
+
+async function openSupplyStockReceiptModal() {
+  supplyBalancesState.receiptLines = [];
+  _sbSetDocErr("supplyStockReceiptErr", "");
+  setModalVisibility("supplyStockReceiptModal", true);
+  const dateEl = document.getElementById("supplyStockReceiptDate");
+  const commentEl = document.getElementById("supplyStockReceiptComment");
+  const qtyEl = document.getElementById("supplyStockReceiptQty");
+  if (dateEl) dateEl.value = supplyBalancesState.today || "";
+  if (commentEl) commentEl.value = "";
+  if (qtyEl) qtyEl.value = "";
+  try {
+    await _sbLoadCatalogItems();
+    _sbFillItemSelect("supplyStockReceiptItemSelect");
+  } catch (e) {
+    _sbSetDocErr("supplyStockReceiptErr", String(e.message || e));
+  }
+  _sbRenderDocLines("supplyStockReceiptLines", supplyBalancesState.receiptLines, "supplyStockReceiptRemoveLine");
+}
+window.openSupplyStockReceiptModal = openSupplyStockReceiptModal;
+
+function closeSupplyStockReceiptModal() {
+  setModalVisibility("supplyStockReceiptModal", false);
+}
+window.closeSupplyStockReceiptModal = closeSupplyStockReceiptModal;
+
+function supplyStockReceiptAddLine() {
+  const sel = document.getElementById("supplyStockReceiptItemSelect");
+  const qtyEl = document.getElementById("supplyStockReceiptQty");
+  const parsed = _sbParseItemKey(sel?.value);
+  const qty = Number(qtyEl?.value);
+  _sbSetDocErr("supplyStockReceiptErr", "");
+  if (!parsed) {
+    _sbSetDocErr("supplyStockReceiptErr", "Выберите товар или материал");
+    return;
+  }
+  if (!Number.isFinite(qty) || qty <= 0) {
+    _sbSetDocErr("supplyStockReceiptErr", "Укажите количество больше 0");
+    return;
+  }
+  const cat = (supplyBalancesState.catalogItems || []).find(
+    (x) => x.item_type === parsed.item_type && Number(x.item_id) === parsed.item_id
   );
-  document.querySelectorAll("#supplyBalancesTbody .sb-qty-input").forEach((inp) => {
-    const itemType = String(inp.getAttribute("data-sb-type") || "");
-    const itemId = Number(inp.getAttribute("data-sb-id") || 0);
-    const raw = String(inp.value || "").trim();
-    if (!itemType || !itemId) return;
-    // Empty input clears today's saved value only if something was stored before.
-    if (raw === "") {
-      const prev = prevByKey.get(`${itemType}:${itemId}`);
-      if (prev !== null && prev !== undefined && prev !== "") {
-        items.push({ item_type: itemType, item_id: itemId, quantity: null });
-      }
-      return;
-    }
-    const qty = Number(raw);
-    if (!Number.isFinite(qty)) return;
-    items.push({ item_type: itemType, item_id: itemId, quantity: qty });
-  });
+  const existing = supplyBalancesState.receiptLines.find(
+    (x) => x.item_type === parsed.item_type && x.item_id === parsed.item_id
+  );
+  if (existing) existing.qty = Number(existing.qty) + qty;
+  else {
+    supplyBalancesState.receiptLines.push({
+      item_type: parsed.item_type,
+      item_id: parsed.item_id,
+      name: cat?.name || "",
+      unit: cat?.unit || "шт",
+      qty,
+    });
+  }
+  if (qtyEl) qtyEl.value = "";
+  _sbRenderDocLines("supplyStockReceiptLines", supplyBalancesState.receiptLines, "supplyStockReceiptRemoveLine");
+}
+window.supplyStockReceiptAddLine = supplyStockReceiptAddLine;
+
+function supplyStockReceiptRemoveLine(idx) {
+  supplyBalancesState.receiptLines.splice(idx, 1);
+  _sbRenderDocLines("supplyStockReceiptLines", supplyBalancesState.receiptLines, "supplyStockReceiptRemoveLine");
+}
+window.supplyStockReceiptRemoveLine = supplyStockReceiptRemoveLine;
+
+async function saveSupplyStockReceipt() {
+  const btn = document.getElementById("supplyStockReceiptSaveBtn");
+  const dateEl = document.getElementById("supplyStockReceiptDate");
+  const commentEl = document.getElementById("supplyStockReceiptComment");
+  _sbSetDocErr("supplyStockReceiptErr", "");
+  if (!supplyBalancesState.receiptLines.length) {
+    _sbSetDocErr("supplyStockReceiptErr", "Добавьте хотя бы одну позицию");
+    return;
+  }
   if (btn) btn.disabled = true;
   try {
-    const res = await fetch("/api/supply-balances", {
-      method: "PUT",
+    const res = await fetch("/api/supply-balances/receipt", {
+      method: "POST",
       headers: jsonHeaders(),
-      body: JSON.stringify({ production_id: pid, items }),
+      body: JSON.stringify({
+        date: String(dateEl?.value || ""),
+        comment: String(commentEl?.value || ""),
+        items: supplyBalancesState.receiptLines.map((x) => ({
+          item_type: x.item_type,
+          item_id: x.item_id,
+          qty: Number(x.qty),
+        })),
+      }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || "Ошибка сохранения");
+    closeSupplyStockReceiptModal();
     await loadSupplyBalancesData();
-    _sbSetStatus(
-      `Сохранено: ${data.saved || 0} · ${_sbFormatDateLabel(data.date || supplyBalancesState.today)}`,
-      "ok"
-    );
+    _sbSetStatus(`Приход сохранён: ${data.saved || 0} · ${_sbFormatDateLabel(data.date)}`, "ok");
   } catch (e) {
-    _sbSetStatus(String(e.message || e), "error");
+    _sbSetDocErr("supplyStockReceiptErr", String(e.message || e));
   } finally {
     if (btn) btn.disabled = false;
   }
 }
-window.saveSupplyBalances = saveSupplyBalances;
+window.saveSupplyStockReceipt = saveSupplyStockReceipt;
+
+async function openSupplyStockAdjustmentModal() {
+  supplyBalancesState.adjLines = [];
+  _sbSetDocErr("supplyStockAdjErr", "");
+  setModalVisibility("supplyStockAdjustmentModal", true);
+  const dateEl = document.getElementById("supplyStockAdjDate");
+  const commentEl = document.getElementById("supplyStockAdjComment");
+  const modeEl = document.getElementById("supplyStockAdjMode");
+  const qtyEl = document.getElementById("supplyStockAdjQty");
+  if (dateEl) dateEl.value = supplyBalancesState.today || "";
+  if (commentEl) commentEl.value = "";
+  if (modeEl) modeEl.value = "opening";
+  if (qtyEl) qtyEl.value = "";
+  try {
+    await _sbLoadCatalogItems();
+    _sbFillItemSelect("supplyStockAdjItemSelect");
+  } catch (e) {
+    _sbSetDocErr("supplyStockAdjErr", String(e.message || e));
+  }
+  _sbRenderDocLines("supplyStockAdjLines", supplyBalancesState.adjLines, "supplyStockAdjRemoveLine");
+}
+window.openSupplyStockAdjustmentModal = openSupplyStockAdjustmentModal;
+
+function closeSupplyStockAdjustmentModal() {
+  setModalVisibility("supplyStockAdjustmentModal", false);
+}
+window.closeSupplyStockAdjustmentModal = closeSupplyStockAdjustmentModal;
+
+function supplyStockAdjAddLine() {
+  const sel = document.getElementById("supplyStockAdjItemSelect");
+  const qtyEl = document.getElementById("supplyStockAdjQty");
+  const parsed = _sbParseItemKey(sel?.value);
+  const qty = Number(qtyEl?.value);
+  _sbSetDocErr("supplyStockAdjErr", "");
+  if (!parsed) {
+    _sbSetDocErr("supplyStockAdjErr", "Выберите товар или материал");
+    return;
+  }
+  if (!Number.isFinite(qty) || qty < 0) {
+    _sbSetDocErr("supplyStockAdjErr", "Укажите остаток (0 или больше)");
+    return;
+  }
+  const cat = (supplyBalancesState.catalogItems || []).find(
+    (x) => x.item_type === parsed.item_type && Number(x.item_id) === parsed.item_id
+  );
+  const existing = supplyBalancesState.adjLines.find(
+    (x) => x.item_type === parsed.item_type && x.item_id === parsed.item_id
+  );
+  if (existing) existing.qty = qty;
+  else {
+    supplyBalancesState.adjLines.push({
+      item_type: parsed.item_type,
+      item_id: parsed.item_id,
+      name: cat?.name || "",
+      unit: cat?.unit || "шт",
+      qty,
+    });
+  }
+  if (qtyEl) qtyEl.value = "";
+  _sbRenderDocLines("supplyStockAdjLines", supplyBalancesState.adjLines, "supplyStockAdjRemoveLine");
+}
+window.supplyStockAdjAddLine = supplyStockAdjAddLine;
+
+function supplyStockAdjRemoveLine(idx) {
+  supplyBalancesState.adjLines.splice(idx, 1);
+  _sbRenderDocLines("supplyStockAdjLines", supplyBalancesState.adjLines, "supplyStockAdjRemoveLine");
+}
+window.supplyStockAdjRemoveLine = supplyStockAdjRemoveLine;
+
+async function saveSupplyStockAdjustment() {
+  const btn = document.getElementById("supplyStockAdjSaveBtn");
+  const dateEl = document.getElementById("supplyStockAdjDate");
+  const commentEl = document.getElementById("supplyStockAdjComment");
+  const modeEl = document.getElementById("supplyStockAdjMode");
+  _sbSetDocErr("supplyStockAdjErr", "");
+  if (!supplyBalancesState.adjLines.length) {
+    _sbSetDocErr("supplyStockAdjErr", "Добавьте хотя бы одну позицию");
+    return;
+  }
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch("/api/supply-balances/adjustment", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        mode: String(modeEl?.value || "adjustment"),
+        quantity_mode: "absolute",
+        date: String(dateEl?.value || ""),
+        comment: String(commentEl?.value || ""),
+        items: supplyBalancesState.adjLines.map((x) => ({
+          item_type: x.item_type,
+          item_id: x.item_id,
+          qty: Number(x.qty),
+        })),
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || "Ошибка сохранения");
+    closeSupplyStockAdjustmentModal();
+    await loadSupplyBalancesData();
+    const msg = data.message
+      ? String(data.message)
+      : `Корректировка сохранена: ${data.saved || 0} · ${_sbFormatDateLabel(data.date)}`;
+    _sbSetStatus(msg, "ok");
+  } catch (e) {
+    _sbSetDocErr("supplyStockAdjErr", String(e.message || e));
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+window.saveSupplyStockAdjustment = saveSupplyStockAdjustment;
+
+function openSupplyStockAsOfModal() {
+  _sbSetDocErr("supplyStockAsOfErr", "");
+  setModalVisibility("supplyStockAsOfModal", true);
+  const dateEl = document.getElementById("supplyStockAsOfDate");
+  if (dateEl) {
+    dateEl.value = supplyBalancesState.asOf || supplyBalancesState.today || "";
+  }
+}
+window.openSupplyStockAsOfModal = openSupplyStockAsOfModal;
+
+function closeSupplyStockAsOfModal() {
+  setModalVisibility("supplyStockAsOfModal", false);
+}
+window.closeSupplyStockAsOfModal = closeSupplyStockAsOfModal;
+
+async function applySupplyStockAsOf() {
+  const dateEl = document.getElementById("supplyStockAsOfDate");
+  const val = String(dateEl?.value || "").trim();
+  _sbSetDocErr("supplyStockAsOfErr", "");
+  if (!val) {
+    _sbSetDocErr("supplyStockAsOfErr", "Укажите дату");
+    return;
+  }
+  supplyBalancesState.asOf = val;
+  closeSupplyStockAsOfModal();
+  await loadSupplyBalancesData();
+}
+window.applySupplyStockAsOf = applySupplyStockAsOf;
+
+async function resetSupplyStockAsOf() {
+  supplyBalancesState.asOf = supplyBalancesState.today || "";
+  closeSupplyStockAsOfModal();
+  await loadSupplyBalancesData();
+}
+window.resetSupplyStockAsOf = resetSupplyStockAsOf;
 
 async function openSupplyBalancesVisibilityModal() {
   const list = document.getElementById("supplyBalancesVisibilityList");

@@ -2416,6 +2416,7 @@
           <div class="supplies-top-controls">
             <div class="sb-toolbar-left">
               <span id="supplyBalancesTodayBadge" class="sb-today-badge hidden"></span>
+              <span id="supplyBalancesAsOfBadge" class="sb-asof-badge hidden"></span>
             </div>
             <div class="supplies-actions">
               <input id="supplyBalancesSearchFilter" type="search" placeholder="🔍 Поиск..."
@@ -2423,7 +2424,9 @@
                      style="width:140px" oninput="onSupplyBalancesSearchInput()" />
               <span id="supplyBalancesFilterCount" class="small supplies-filter-count" hidden></span>
               <button type="button" class="secondary icon-btn" onclick="openSupplyBalancesVisibilityModal()" title="Вывод в таблице" aria-label="Вывод в таблице">👁</button>
-              <button type="button" id="supplyBalancesSaveBtn" onclick="saveSupplyBalances()">Сохранить</button>
+              <button type="button" class="secondary" onclick="openSupplyStockAsOfModal()">Сформировать на дату</button>
+              <button type="button" class="secondary" onclick="openSupplyStockAdjustmentModal()">Корректировка</button>
+              <button type="button" id="supplyBalancesReceiptBtn" onclick="openSupplyStockReceiptModal()">Добавить на склад</button>
             </div>
           </div>
           <div id="supplyBalancesInfo" class="sb-status" role="status"></div>
@@ -4547,6 +4550,105 @@
       </div>
     </div>
   </div>
-  <script src="/static/app.js?v=412"></script>
+
+  <!-- Supply stock: add to warehouse -->
+  <div id="supplyStockReceiptModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+       onclick="if(event.target===this)closeSupplyStockReceiptModal()">
+    <div class="modal-card sb-doc-modal">
+      <div class="modal-card-header">
+        <h4 class="no-margin">Добавить на склад</h4>
+        <button type="button" class="modal-close-btn" onclick="closeSupplyStockReceiptModal()" aria-label="Закрыть">✕</button>
+      </div>
+      <div class="sb-doc-body">
+        <div class="sb-doc-fields">
+          <label class="sb-doc-field" for="supplyStockReceiptDate">
+            <span>Дата</span>
+            <input type="date" id="supplyStockReceiptDate" />
+          </label>
+          <label class="sb-doc-field sb-doc-field-grow" for="supplyStockReceiptComment">
+            <span>Комментарий</span>
+            <input type="text" id="supplyStockReceiptComment" maxlength="500" placeholder="Необязательно" />
+          </label>
+        </div>
+        <div class="sb-doc-add-row">
+          <select id="supplyStockReceiptItemSelect" class="sb-doc-item-select"></select>
+          <input type="number" id="supplyStockReceiptQty" class="sb-doc-qty" min="0" step="any" placeholder="Кол-во" inputmode="decimal" />
+          <button type="button" class="secondary" onclick="supplyStockReceiptAddLine()">Добавить</button>
+        </div>
+        <div id="supplyStockReceiptLines" class="sb-doc-lines"></div>
+        <div id="supplyStockReceiptErr" class="sb-doc-err" hidden></div>
+      </div>
+      <div class="sb-vis-footer">
+        <button type="button" class="secondary" onclick="closeSupplyStockReceiptModal()">Отмена</button>
+        <button type="button" id="supplyStockReceiptSaveBtn" onclick="saveSupplyStockReceipt()">Сохранить приход</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Supply stock: opening / adjustment -->
+  <div id="supplyStockAdjustmentModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+       onclick="if(event.target===this)closeSupplyStockAdjustmentModal()">
+    <div class="modal-card sb-doc-modal">
+      <div class="modal-card-header">
+        <h4 class="no-margin">Корректировка остатков</h4>
+        <button type="button" class="modal-close-btn" onclick="closeSupplyStockAdjustmentModal()" aria-label="Закрыть">✕</button>
+      </div>
+      <div class="sb-doc-body">
+        <p class="sb-vis-hint">Укажите фактический остаток на дату. Система запишет разницу с расчётным остатком.</p>
+        <div class="sb-doc-fields">
+          <label class="sb-doc-field" for="supplyStockAdjMode">
+            <span>Тип</span>
+            <select id="supplyStockAdjMode">
+              <option value="opening">Начальный остаток</option>
+              <option value="adjustment">Корректировка</option>
+            </select>
+          </label>
+          <label class="sb-doc-field" for="supplyStockAdjDate">
+            <span>Дата</span>
+            <input type="date" id="supplyStockAdjDate" />
+          </label>
+          <label class="sb-doc-field sb-doc-field-grow" for="supplyStockAdjComment">
+            <span>Комментарий</span>
+            <input type="text" id="supplyStockAdjComment" maxlength="500" placeholder="Необязательно" />
+          </label>
+        </div>
+        <div class="sb-doc-add-row">
+          <select id="supplyStockAdjItemSelect" class="sb-doc-item-select"></select>
+          <input type="number" id="supplyStockAdjQty" class="sb-doc-qty" min="0" step="any" placeholder="Остаток" inputmode="decimal" />
+          <button type="button" class="secondary" onclick="supplyStockAdjAddLine()">Добавить</button>
+        </div>
+        <div id="supplyStockAdjLines" class="sb-doc-lines"></div>
+        <div id="supplyStockAdjErr" class="sb-doc-err" hidden></div>
+      </div>
+      <div class="sb-vis-footer">
+        <button type="button" class="secondary" onclick="closeSupplyStockAdjustmentModal()">Отмена</button>
+        <button type="button" id="supplyStockAdjSaveBtn" onclick="saveSupplyStockAdjustment()">Сохранить</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Supply stock: form balances on date -->
+  <div id="supplyStockAsOfModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+       onclick="if(event.target===this)closeSupplyStockAsOfModal()">
+    <div class="modal-card sb-asof-modal">
+      <div class="modal-card-header">
+        <h4 class="no-margin">Сформировать остатки на дату</h4>
+        <button type="button" class="modal-close-btn" onclick="closeSupplyStockAsOfModal()" aria-label="Закрыть">✕</button>
+      </div>
+      <div class="sb-doc-body">
+        <label class="sb-doc-field" for="supplyStockAsOfDate">
+          <span>Дата среза</span>
+          <input type="date" id="supplyStockAsOfDate" />
+        </label>
+        <p class="sb-vis-hint">Таблица покажет остатки с учётом всех приходов, списаний FBS и корректировок на выбранную дату включительно.</p>
+        <div id="supplyStockAsOfErr" class="sb-doc-err" hidden></div>
+      </div>
+      <div class="sb-vis-footer">
+        <button type="button" class="secondary" onclick="resetSupplyStockAsOf()">Сбросить на сегодня</button>
+        <button type="button" onclick="applySupplyStockAsOf()">Показать</button>
+      </div>
+    </div>
+  </div>
+  <script src="/static/app.js?v=413"></script>
 </body>
 </html>

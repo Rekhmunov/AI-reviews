@@ -9631,7 +9631,8 @@ button.wb-fbs-kiz-add:disabled {
   color: #94a3b8;
   cursor: not-allowed;
 }
-.sb-today-badge {
+.sb-today-badge,
+.sb-asof-badge {
   display: inline-flex;
   align-items: center;
   min-height: 28px;
@@ -9643,6 +9644,128 @@ button.wb-fbs-kiz-add:disabled {
   font-size: 13px;
   font-weight: 600;
   white-space: nowrap;
+}
+.sb-asof-badge {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+  color: #047857;
+}
+.sb-doc-modal {
+  width: min(640px, 100%);
+  max-height: min(90vh, 820px);
+  display: flex;
+  flex-direction: column;
+}
+.sb-asof-modal {
+  width: min(420px, 100%);
+}
+.sb-doc-body {
+  padding: 16px 20px 8px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.sb-doc-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.sb-doc-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 140px;
+}
+.sb-doc-field > span {
+  font-size: 13px;
+  font-weight: 600;
+  color: #64748b;
+}
+.sb-doc-field input,
+.sb-doc-field select,
+.sb-doc-item-select,
+.sb-doc-qty {
+  min-height: 36px;
+  padding: 6px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #0f172a;
+  font-size: 14px;
+}
+.sb-doc-field input:focus,
+.sb-doc-field select:focus,
+.sb-doc-item-select:focus,
+.sb-doc-qty:focus {
+  outline: 2px solid #93c5fd;
+  outline-offset: 1px;
+  border-color: #60a5fa;
+}
+.sb-doc-field-grow {
+  flex: 1 1 200px;
+}
+.sb-doc-add-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.sb-doc-item-select {
+  flex: 1 1 220px;
+  min-width: 180px;
+}
+.sb-doc-qty {
+  width: 110px;
+}
+.sb-doc-lines {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  min-height: 72px;
+  max-height: 280px;
+  overflow: auto;
+}
+.sb-doc-empty {
+  padding: 16px;
+  font-size: 13px;
+  color: #94a3b8;
+}
+.sb-doc-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #fff;
+}
+.sb-doc-line:last-child {
+  border-bottom: none;
+}
+.sb-doc-line-main {
+  flex: 1;
+  min-width: 0;
+}
+.sb-doc-line-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: #0f172a;
+}
+.sb-doc-line-meta {
+  margin-top: 2px;
+  font-size: 12px;
+  color: #94a3b8;
+}
+.sb-doc-line-qty {
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+  min-width: 48px;
+  text-align: right;
+}
+.sb-doc-err {
+  font-size: 13px;
+  color: #b91c1c;
 }
 .sb-status {
   margin-top: 8px;

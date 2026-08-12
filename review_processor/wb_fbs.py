@@ -2240,6 +2240,9 @@ def sync_wb_fbs_source(
             (user_id, source_id),
         ).fetchall()
     all_ids = [int(r["order_id"]) for r in id_rows]
+    # Stock ledger hooks (Поставки → Остатки): collect tab transitions only.
+    # Must never break FBS sync — applied in a separate try/except below.
+    stock_transitions: list[dict[str, Any]] = []
     for i in range(0, len(all_ids), 1000):
         if _stopped():
             stopped = True
@@ -2253,10 +2256,43 @@ def sync_wb_fbs_source(
                 if isinstance(s, dict) and s.get("id") is not None
             }
             with repo._connect() as conn:
+                prior_rows = conn.execute(
+                    repo._sql(
+                        f"""
+                        SELECT order_id, tab, article, nm_id FROM wb_fbs_orders
+                        WHERE user_id = ? AND source_id = ?
+                          AND order_id IN ({", ".join("?" for _ in chunk)})
+                        """
+                    ),
+                    (user_id, source_id, *chunk),
+                ).fetchall()
+                prior_map = {
+                    int(r["order_id"]): {
+                        "tab": str(r["tab"] or ""),
+                        "article": str(r["article"] or ""),
+                        "nm_id": str(r["nm_id"] or ""),
+                    }
+                    for r in prior_rows
+                }
                 for oid, st in status_map.items():
                     ss = str(st.get("supplierStatus") or "")
                     ws = str(st.get("wbStatus") or "")
                     tab = compute_tab(supplier_status=ss, wb_status=ws, is_archive=False)
+                    prev = prior_map.get(oid) or {}
+                    old_tab = str(prev.get("tab") or "")
+                    if tab != old_tab and (
+                        tab == TAB_DELIVERY
+                        or old_tab == TAB_DELIVERY
+                    ):
+                        stock_transitions.append(
+                            {
+                                "order_id": oid,
+                                "old_tab": old_tab,
+                                "new_tab": tab,
+                                "article": str(prev.get("article") or ""),
+                                "nm_id": str(prev.get("nm_id") or ""),
+                            }
+                        )
                     conn.execute(
                         repo._sql(
                             """
@@ -2271,6 +2307,35 @@ def sync_wb_fbs_source(
         except Exception as exc:
             errors.append(friendly_sync_error("status", exc))
             break
+
+    if stock_transitions:
+        try:
+            # Single-warehouse mode: first supply production for the account.
+            prod_id = 0
+            try:
+                productions = repo.list_supply_productions(user_id=user_id)
+                if productions:
+                    prod_id = int(productions[0].get("id") or 0)
+            except Exception:
+                prod_id = 0
+            if prod_id > 0:
+                try:
+                    move_date = datetime.now(_MSK).date().isoformat()
+                except Exception:
+                    move_date = datetime.now(UTC).date().isoformat()
+                repo.apply_wb_fbs_stock_tab_transitions(
+                    user_id=user_id,
+                    production_id=prod_id,
+                    transitions=stock_transitions,
+                    movement_date=move_date,
+                )
+        except Exception as exc:
+            _log.warning(
+                "supply stock ledger hook failed user=%s source=%s: %s",
+                user_id,
+                source_id,
+                exc,
+            )
 
     if _stopped():
         return {
