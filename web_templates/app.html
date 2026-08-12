@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=195" />
+  <link rel="stylesheet" href="/static/style.css?v=196" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -4572,17 +4572,17 @@
           <button type="button" class="icon-btn secondary" onclick="closeSupplyStockReceiptModal()" aria-label="Закрыть">✕</button>
         </div>
         <p class="sb-sheet-lead">Укажите количество прихода. Пустые строки не сохраняются.</p>
-        <div class="sb-doc-fields">
+        <div class="sb-doc-fields sb-doc-fields-search-end">
           <label class="sb-doc-field" for="supplyStockReceiptDate">
             <span>Дата</span>
             <input type="date" id="supplyStockReceiptDate" />
           </label>
-          <label class="sb-doc-field sb-doc-field-grow" for="supplyStockReceiptSearch">
-            <span>Поиск</span>
-            <input type="search" id="supplyStockReceiptSearch" placeholder="Поиск..."
+          <div class="sb-sheet-search-end">
+            <input type="search" id="supplyStockReceiptSearch" class="sb-sheet-search" placeholder="Поиск..."
                    autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
-                   oninput="onSupplyStockModalSearch('receipt')" />
-          </label>
+                   aria-label="Поиск" oninput="onSupplyStockModalSearch('receipt')" />
+            <span id="supplyStockReceiptFilterCount" class="sb-modal-filter-count" hidden></span>
+          </div>
         </div>
         <div class="sb-bulk-bar">
           <label class="sb-bulk-value-field" for="supplyStockReceiptBulkValue">
@@ -4593,7 +4593,6 @@
           <button type="button" class="secondary" onclick="supplyStockBulkFill('receipt','selected')">К выбранным</button>
           <button type="button" class="secondary" onclick="supplyStockBulkClear('receipt','all')">Обнулить все</button>
           <button type="button" class="secondary" onclick="supplyStockBulkClear('receipt','selected')">Обнулить выбранные</button>
-          <span id="supplyStockReceiptFilterCount" class="sb-modal-filter-count" hidden></span>
         </div>
       </div>
       <div class="sb-adj-list-wrap">
@@ -4626,7 +4625,7 @@
           <button type="button" class="icon-btn secondary" onclick="closeSupplyStockAdjustmentModal()" aria-label="Закрыть">✕</button>
         </div>
         <p class="sb-sheet-lead">Укажите фактический остаток на дату. Система запишет разницу с расчётным остатком. Пустые строки не сохраняются. После сохранения текущие поставки «В доставку» не будут списываться повторно.</p>
-        <div class="sb-doc-fields">
+        <div class="sb-doc-fields sb-doc-fields-search-end">
           <label class="sb-doc-field" for="supplyStockAdjMode">
             <span>Тип</span>
             <select id="supplyStockAdjMode">
@@ -4638,12 +4637,12 @@
             <span>Дата</span>
             <input type="date" id="supplyStockAdjDate" />
           </label>
-          <label class="sb-doc-field sb-doc-field-grow" for="supplyStockAdjSearch">
-            <span>Поиск</span>
-            <input type="search" id="supplyStockAdjSearch" placeholder="Поиск..."
+          <div class="sb-sheet-search-end">
+            <input type="search" id="supplyStockAdjSearch" class="sb-sheet-search" placeholder="Поиск..."
                    autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
-                   oninput="onSupplyStockModalSearch('adj')" />
-          </label>
+                   aria-label="Поиск" oninput="onSupplyStockModalSearch('adj')" />
+            <span id="supplyStockAdjFilterCount" class="sb-modal-filter-count" hidden></span>
+          </div>
         </div>
         <div class="sb-bulk-bar">
           <label class="sb-bulk-value-field" for="supplyStockAdjBulkValue">
@@ -4654,7 +4653,6 @@
           <button type="button" class="secondary" onclick="supplyStockBulkFill('adj','selected')">К выбранным</button>
           <button type="button" class="secondary" onclick="supplyStockBulkClear('adj','all')">Обнулить все</button>
           <button type="button" class="secondary" onclick="supplyStockBulkClear('adj','selected')">Обнулить выбранные</button>
-          <span id="supplyStockAdjFilterCount" class="sb-modal-filter-count" hidden></span>
         </div>
       </div>
       <div class="sb-adj-list-wrap">
@@ -4701,6 +4699,6 @@
       </div>
     </div>
   </div>
-  <script src="/static/app.js?v=419"></script>
+  <script src="/static/app.js?v=420"></script>
 </body>
 </html>

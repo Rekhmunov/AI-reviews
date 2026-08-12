@@ -13875,12 +13875,26 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                 d: bal_by_date[d].get(("product", pid_item))
                 for d in dates
             }
+            article = str(p.get("supplier_article") or "").strip()
+            wb_nmid = str(p.get("wb_nmid") or "").strip()
+            ozon_sku = str(p.get("ozon_sku") or "").strip()
+            # Catalog has no separate barcode field — show seller article as ШК.
+            barcodes = [x for x in (article, ozon_sku) if x]
             rows.append(
                 {
                     "item_type": "product",
                     "item_id": pid_item,
                     "name": str(p.get("name") or ""),
                     "unit": "шт",
+                    "supplier_article": article,
+                    "wb_nmid": wb_nmid,
+                    "ozon_sku": ozon_sku,
+                    "photo_url": (
+                        f"/api/products/photo/{pid_item}"
+                        if p.get("photo_path")
+                        else None
+                    ),
+                    "barcodes": barcodes,
                     "values": values,
                     "balance": bal_by_date[as_of_date].get(("product", pid_item)),
                 }
@@ -14083,12 +14097,24 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             pid_item = int(p.get("id") or 0)
             if pid_item <= 0:
                 continue
+            article = str(p.get("supplier_article") or "").strip()
+            wb_nmid = str(p.get("wb_nmid") or "").strip()
+            ozon_sku = str(p.get("ozon_sku") or "").strip()
             items.append(
                 {
                     "item_type": "product",
                     "item_id": pid_item,
                     "name": str(p.get("name") or ""),
                     "unit": "шт",
+                    "supplier_article": article,
+                    "wb_nmid": wb_nmid,
+                    "ozon_sku": ozon_sku,
+                    "photo_url": (
+                        f"/api/products/photo/{pid_item}"
+                        if p.get("photo_path")
+                        else None
+                    ),
+                    "barcodes": [x for x in (article, ozon_sku) if x],
                     "visible": vis_map.get(("product", pid_item), True),
                 }
             )

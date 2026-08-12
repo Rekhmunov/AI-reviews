@@ -12910,10 +12910,10 @@ const supplyBalancesState = {
   search: "",
 };
 
-const SB_COL_WIDTHS_KEY = "supply_balances_col_widths_v1";
-const SB_NAME_COL_DEFAULT = 280;
+const SB_COL_WIDTHS_KEY = "supply_balances_col_widths_v2";
+const SB_NAME_COL_DEFAULT = 360;
 const SB_DATE_COL_DEFAULT = 120;
-const SB_NAME_COL_MIN = 180;
+const SB_NAME_COL_MIN = 260;
 const SB_DATE_COL_MIN = 88;
 
 function _sbFormatDateLabel(iso) {
@@ -13058,12 +13058,56 @@ async function loadSupplyBalancesData() {
   }
 }
 
+function _sbProductCardHtml(row) {
+  const name = String(row.name || "");
+  const article = String(row.supplier_article || "").trim();
+  const nmId = String(row.wb_nmid || "").trim();
+  const photoUrl = String(row.photo_url || "").trim();
+  const barcodes = Array.isArray(row.barcodes)
+    ? row.barcodes.map((b) => String(b || "").trim()).filter(Boolean)
+    : [];
+  const codes = barcodes.length
+    ? barcodes
+    : [article, String(row.ozon_sku || "").trim()].filter(Boolean);
+  const photo = photoUrl
+    ? `<img class="wb-fbs-product-photo" src="${esc(photoUrl)}" alt="" width="144" height="144" loading="lazy" onerror="this.outerHTML='<span class=&quot;wb-fbs-product-ph&quot; aria-hidden=&quot;true&quot;></span>'">`
+    : `<span class="wb-fbs-product-ph" aria-hidden="true"></span>`;
+  const subParts = [];
+  if (article) subParts.push(`Арт. ${article}`);
+  if (nmId) subParts.push(`nmId ${nmId}`);
+  const sub = subParts.length
+    ? `<div class="wb-fbs-product-sub">${esc(subParts.join(" · "))}</div>`
+    : "";
+  const barcodeHtml = codes.length
+    ? `<div class="wb-fbs-barcodes" title="Штрихкод / артикул">${codes.map((b) =>
+        `<div class="wb-fbs-barcode">${esc(b)}</div>`
+      ).join("")}</div>`
+    : "";
+  return `<div class="wb-fbs-product">
+    ${photo}
+    <div class="wb-fbs-product-text">
+      <div class="wb-fbs-product-name" title="${esc(name)}">${esc(name)}</div>
+      ${sub}
+      ${barcodeHtml}
+    </div>
+  </div>`;
+}
+
 function _sbRenderItemRow(row, dates, asOf) {
   const type = String(row.item_type || "");
   const unit = esc(row.unit || "шт");
   const values = row.values || {};
   const typeLabel = type === "material" ? "Материал" : "Товар";
-  const searchBlob = [row.name, row.unit, typeLabel].map((x) => String(x || "")).join(" ");
+  const searchParts = [
+    row.name,
+    row.unit,
+    typeLabel,
+    row.supplier_article,
+    row.wb_nmid,
+    row.ozon_sku,
+    ...(Array.isArray(row.barcodes) ? row.barcodes : []),
+  ];
+  const searchBlob = searchParts.map((x) => String(x || "")).filter(Boolean).join(" ");
   const cells = dates.map((d) => {
     const raw = values[d];
     const isAsOf = d === asOf;
@@ -13074,10 +13118,13 @@ function _sbRenderItemRow(row, dates, asOf) {
       </div>
     </td>`;
   }).join("");
-  return `<tr class="sb-item-row" data-sb-type="${esc(type)}" data-sb-search="${esc(searchBlob)}">
+  const nameCell = type === "product"
+    ? _sbProductCardHtml(row)
+    : `<span class="sb-name-text">${esc(row.name || "")}</span>
+      <span class="sb-name-meta">${typeLabel}</span>`;
+  return `<tr class="sb-item-row${type === "product" ? " sb-item-row--product" : ""}" data-sb-type="${esc(type)}" data-sb-search="${esc(searchBlob)}">
     <td class="sb-col-name">
-      <span class="sb-name-text">${esc(row.name || "")}</span>
-      <span class="sb-name-meta">${typeLabel}</span>
+      ${nameCell}
     </td>
     ${cells}
   </tr>`;
@@ -13497,7 +13544,15 @@ function _sbRenderStockRowHtml(row, opts) {
   const id = Number(row.item_id || 0);
   const unit = esc(row.unit || "шт");
   const typeLabel = type === "material" ? "Материал" : "Товар";
-  const searchBlob = [row.name, row.unit, typeLabel].map((x) => String(x || "")).join(" ");
+  const searchBlob = [
+    row.name,
+    row.unit,
+    typeLabel,
+    row.supplier_article,
+    row.wb_nmid,
+    row.ozon_sku,
+    ...(Array.isArray(row.barcodes) ? row.barcodes : []),
+  ].map((x) => String(x || "")).filter(Boolean).join(" ");
   return `<div class="sb-adj-row" data-sb-type="${esc(type)}" data-sb-id="${id}" data-sb-search="${esc(searchBlob)}">
     <label class="sb-adj-check-cell">
       <input type="checkbox" class="sb-adj-check" aria-label="Выбрать: ${esc(row.name || "")}" />
@@ -13850,7 +13905,15 @@ function renderSupplyBalancesVisibilityList() {
       const key = `${row.item_type}:${row.item_id}`;
       const on = row.visible !== false;
       const typeLabel = row.item_type === "material" ? "Материал" : "Товар";
-      const searchBlob = [row.name, row.unit, typeLabel].map((x) => String(x || "")).join(" ");
+      const searchBlob = [
+        row.name,
+        row.unit,
+        typeLabel,
+        row.supplier_article,
+        row.wb_nmid,
+        row.ozon_sku,
+        ...(Array.isArray(row.barcodes) ? row.barcodes : []),
+      ].map((x) => String(x || "")).filter(Boolean).join(" ");
       return `<div class="sb-vis-row" data-vis-key="${esc(key)}" data-sb-search="${esc(searchBlob)}">
         <div class="sb-vis-meta">
           <div class="sb-vis-name">${esc(row.name || "")}</div>

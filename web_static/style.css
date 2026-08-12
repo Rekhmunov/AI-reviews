@@ -9730,6 +9730,29 @@ button.wb-fbs-kiz-add:disabled {
   outline-offset: 1px;
   border-color: #60a5fa;
 }
+.sb-doc-fields-search-end {
+  align-items: flex-end;
+}
+.sb-sheet-search-end {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+.sb-adj-modal .sb-sheet-search-end .sb-sheet-search {
+  width: 200px;
+  min-width: 160px;
+  max-width: 200px;
+  flex: 0 0 200px;
+}
+/* Beat .sb-adj-row { display:grid } / .sb-vis-row { display:flex } so filter can hide rows */
+.sb-adj-row.hidden,
+.sb-adj-group.hidden,
+.sb-vis-row.hidden,
+.sb-vis-group-title.hidden {
+  display: none !important;
+}
 .sb-sheet-footer {
   display: flex;
   justify-content: flex-end;
@@ -9855,6 +9878,12 @@ button.wb-fbs-kiz-add:disabled {
   align-items: center;
   padding: 10px 24px;
   border-bottom: 1px solid #e2e8f0;
+}
+.sb-adj-row[hidden] {
+  display: none !important;
+}
+.sb-adj-group[hidden] {
+  display: none !important;
 }
 .sb-adj-check-cell {
   display: inline-flex;
@@ -10154,6 +10183,17 @@ button.wb-fbs-kiz-add:disabled {
   font-size: 14px;
   color: #94a3b8;
 }
+.supply-balances-table tr.sb-item-row--product td {
+  vertical-align: top;
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+.supply-balances-table tr.sb-item-row--product td.sb-col-name {
+  vertical-align: top;
+}
+.supply-balances-table .sb-col-name .wb-fbs-product {
+  max-width: 100%;
+}
 .supply-balances-table .sb-qty-wrap {
   display: inline-flex;
   align-items: center;
@@ -10275,6 +10315,12 @@ button.wb-fbs-kiz-add:disabled {
   gap: 12px;
   padding: 12px 24px;
   border-bottom: 1px solid #f1f5f9;
+}
+.sb-vis-row[hidden] {
+  display: none !important;
+}
+.sb-vis-group-title[hidden] {
+  display: none !important;
 }
 .sb-vis-row:last-child { border-bottom: none; }
 .sb-vis-meta { min-width: 0; }
