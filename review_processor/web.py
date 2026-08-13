@@ -534,6 +534,8 @@ class WbKizChzSubmitItem(BaseModel):
     product_group: str = ""
     event_keys: list[str] = Field(default_factory=list)
     product_document: dict[str, object] = Field(default_factory=dict)
+    # Exact base64 of JSON bytes that were signed (preferred over re-serializing product_document).
+    product_document_b64: str = ""
     signature_base64: str
 
 
@@ -9958,18 +9960,21 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 status_code=403,
                 detail="Настройки ЧЗ доступны только главному пользователю",
             )
-        return kiz_circ.upsert_chz_settings(
-            repository,
-            user_id=_supply_owner_id(user),
-            is_enabled=bool(payload.is_enabled),
-            api_base=str(payload.api_base or "prod"),
-            participant_inn=str(payload.participant_inn or ""),
-            product_group=str(payload.product_group or ""),
-            kpp=str(payload.kpp or ""),
-            fias_id=str(payload.fias_id or ""),
-            return_type=str(payload.return_type or "REMOTE_SALE_RETURN"),
-            cert_thumbprint=str(payload.cert_thumbprint or ""),
-        )
+        try:
+            return kiz_circ.upsert_chz_settings(
+                repository,
+                user_id=_supply_owner_id(user),
+                is_enabled=bool(payload.is_enabled),
+                api_base=str(payload.api_base or "prod"),
+                participant_inn=str(payload.participant_inn or ""),
+                product_group=str(payload.product_group or ""),
+                kpp=str(payload.kpp or ""),
+                fias_id=str(payload.fias_id or ""),
+                return_type=str(payload.return_type or "REMOTE_SALE_RETURN"),
+                cert_thumbprint=str(payload.cert_thumbprint or ""),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.post("/api/supply-chz-settings/auth-challenge")
     def supply_chz_auth_challenge(request: Request) -> dict[str, object]:
@@ -10145,10 +10150,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             keys = [str(k) for k in (doc.event_keys or []) if str(k).strip()]
             title = f"{doc.doc_type} · {len(keys)} КИЗ"
             try:
+                payload_b64 = str(getattr(doc, "product_document_b64", "") or "").strip()
                 doc_id = client.create_document(
                     doc_type=str(doc.doc_type or ""),
                     product_group=str(doc.product_group or settings.get("product_group") or ""),
                     product_document=dict(doc.product_document or {}),
+                    product_document_b64=payload_b64,
                     signature_b64=str(doc.signature_base64 or ""),
                 )
                 kiz_circ.mark_events_submitted(
@@ -10161,6 +10168,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     run_id=payload.run_id,
                 )
                 chz_status = "submitted"
+                local_status = "submitted"
                 try:
                     info = client.document_info(doc_id)
                     chz_status = str(
@@ -10169,7 +10177,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                         or info.get("state")
                         or "submitted"
                     )
-                    kiz_circ.mark_events_accepted(
+                    local_status = kiz_circ.apply_chz_doc_status(
                         repository,
                         user_id=owner_id,
                         source_id=sid,
@@ -10178,17 +10186,22 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                         chz_status=chz_status,
                     )
                 except Exception:
+                    # Keep submitted — async processing; do not pretend accepted.
                     pass
+                ok_doc = local_status != "error"
                 results.append(
                     {
-                        "ok": True,
+                        "ok": ok_doc,
                         "doc_type": doc.doc_type,
                         "chz_doc_id": doc_id,
                         "chz_status": chz_status,
+                        "local_status": local_status,
                         "event_count": len(keys),
                     }
                 )
-                log_lines.append(f"{title} → {doc_id} ({chz_status})")
+                log_lines.append(
+                    f"{title} → {doc_id} (ЧЗ: {chz_status}, локально: {local_status})"
+                )
             except Exception as exc:
                 kiz_circ.mark_events_error(
                     repository,

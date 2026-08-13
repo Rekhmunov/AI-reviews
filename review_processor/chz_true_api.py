@@ -133,13 +133,28 @@ class ChzTrueApiClient:
         *,
         doc_type: str,
         product_group: str,
-        product_document: dict[str, Any],
+        product_document: dict[str, Any] | None = None,
         signature_b64: str,
+        product_document_b64: str = "",
         document_format: str = "MANUAL",
     ) -> str:
-        """Create LK_RECEIPT / LP_RETURN. Returns document id."""
-        raw = json.dumps(product_document, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-        product_b64 = base64.b64encode(raw).decode("ascii")
+        """Create LK_RECEIPT / LP_RETURN. Returns document id.
+
+        Prefer ``product_document_b64`` — exact bytes that were signed (detached CAdES).
+        Re-serializing ``product_document`` can break the signature (e.g. 10.0 → 10).
+        """
+        b64_raw = str(product_document_b64 or "").strip().replace("\n", "").replace("\r", "")
+        if b64_raw:
+            try:
+                base64.b64decode(b64_raw)
+            except Exception as exc:
+                raise ChzTrueApiError("Некорректный product_document_b64") from exc
+            product_b64 = b64_raw
+        else:
+            raw = json.dumps(
+                product_document or {}, ensure_ascii=False, separators=(",", ":")
+            ).encode("utf-8")
+            product_b64 = base64.b64encode(raw).decode("ascii")
         body = {
             "document_format": document_format,
             "product_document": product_b64,

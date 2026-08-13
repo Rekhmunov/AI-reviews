@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=198" />
+  <link rel="stylesheet" href="/static/style.css?v=199" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1752,18 +1752,20 @@
               <p class="wb-fbs-kiz-circ-lead">
                 Ежедневный забор операций по маркировке из WB, затем передача в Честный знак:
                 проданные — вывод из оборота, возвраты — возврат в оборот.
+                «Ежедневный вывод» берёт окно от watermark (с overlap); даты — только для ручного периода.
               </p>
               <div class="wb-fbs-kiz-circ-meta" id="wbFbsKizCircMeta">—</div>
               <div class="wb-fbs-kiz-circ-toolbar">
                 <label class="wb-fbs-kiz-circ-field" for="wbFbsKizCircDateFrom">
-                  <span>С</span>
+                  <span>С (ручной период)</span>
                   <input type="date" id="wbFbsKizCircDateFrom" />
                 </label>
                 <label class="wb-fbs-kiz-circ-field" for="wbFbsKizCircDateTo">
                   <span>По</span>
                   <input type="date" id="wbFbsKizCircDateTo" />
                 </label>
-                <button type="button" id="wbFbsKizCircSyncBtn" onclick="runWbFbsKizCirculationSync()">Ежедневный вывод</button>
+                <button type="button" id="wbFbsKizCircSyncBtn" onclick="runWbFbsKizCirculationSync(false)">Ежедневный вывод</button>
+                <button type="button" class="secondary" id="wbFbsKizCircSyncRangeBtn" onclick="runWbFbsKizCirculationSync(true)">Синхр. период</button>
                 <button type="button" class="secondary" id="wbFbsKizCircChzBtn" onclick="runWbFbsKizCirculationChz()">Передать в ЧЗ</button>
                 <button type="button" class="secondary" onclick="refreshWbFbsKizCirculation()">Обновить</button>
                 <span id="wbFbsKizCircCounts" class="wb-fbs-kiz-circ-counts"></span>
@@ -3147,7 +3149,7 @@
               </div>
               <div class="wfg-field">
                 <label class="wfg-label" for="chzSettingsProductGroup">Товарная группа (pg)</label>
-                <input id="chzSettingsProductGroup" type="text" placeholder="например 8" autocomplete="off" />
+                <input id="chzSettingsProductGroup" type="text" placeholder="например lp, shoes, clothes" autocomplete="off" />
               </div>
               <div class="wfg-field">
                 <label class="wfg-label" for="chzSettingsReturnType">Причина возврата в оборот</label>
@@ -4817,6 +4819,6 @@
       </div>
     </div>
   </div>
-  <script src="/static/app.js?v=422"></script>
+  <script src="/static/app.js?v=423"></script>
 </body>
 </html>

@@ -16535,19 +16535,8 @@ function _wbFbsKizCircOpLabel(op) {
 }
 
 function _wbFbsKizCircDefaultDates() {
-  const to = new Date();
-  const from = new Date();
-  from.setDate(from.getDate() - 7);
-  const fmt = (d) => {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${day}`;
-  };
-  const fromEl = document.getElementById("wbFbsKizCircDateFrom");
-  const toEl = document.getElementById("wbFbsKizCircDateTo");
-  if (fromEl && !fromEl.value) fromEl.value = fmt(from);
-  if (toEl && !toEl.value) toEl.value = fmt(to);
+  // Leave dates empty so «Ежедневный вывод» uses server watermark + overlap.
+  // User may fill them for «Синхр. период».
 }
 
 async function openWbFbsKizCirculationModal() {
@@ -16631,18 +16620,32 @@ async function refreshWbFbsKizCirculation() {
   }
 }
 
-async function runWbFbsKizCirculationSync() {
+async function runWbFbsKizCirculationSync(useDateRange) {
   const sid = _wbFbsKizCircSourceId();
   if (!sid || wbFbsKizCircState.busy) return;
-  const btn = document.getElementById("wbFbsKizCircSyncBtn");
+  const btn = document.getElementById(
+    useDateRange ? "wbFbsKizCircSyncRangeBtn" : "wbFbsKizCircSyncBtn",
+  );
+  const btnDaily = document.getElementById("wbFbsKizCircSyncBtn");
+  const btnRange = document.getElementById("wbFbsKizCircSyncRangeBtn");
   wbFbsKizCircState.busy = true;
-  if (btn) btn.disabled = true;
+  if (btnDaily) btnDaily.disabled = true;
+  if (btnRange) btnRange.disabled = true;
   try {
-    _wbFbsKizCircAppendLog("WB: ежедневный вывод…");
+    const dateFrom = document.getElementById("wbFbsKizCircDateFrom")?.value || "";
+    const dateTo = document.getElementById("wbFbsKizCircDateTo")?.value || "";
+    if (useDateRange && (!dateFrom || !dateTo)) {
+      throw new Error("Укажите даты «С» и «По» для синхронизации периода");
+    }
+    _wbFbsKizCircAppendLog(
+      useDateRange
+        ? `WB: синхронизация периода ${dateFrom}…${dateTo}…`
+        : "WB: ежедневный вывод (watermark + overlap)…",
+    );
     const body = {
       source_id: sid,
-      date_from: document.getElementById("wbFbsKizCircDateFrom")?.value || "",
-      date_to: document.getElementById("wbFbsKizCircDateTo")?.value || "",
+      date_from: useDateRange ? dateFrom : "",
+      date_to: useDateRange ? dateTo : "",
     };
     const res = await fetch("/api/wb-fbs/kiz-circulation/sync", {
       method: "POST", headers: jsonHeaders(), body: JSON.stringify(body),
@@ -16652,8 +16655,9 @@ async function runWbFbsKizCirculationSync() {
     if (data.log) _wbFbsKizCircAppendLog(data.log);
     else {
       _wbFbsKizCircAppendLog(
-        `OK: новых ${data.inserted || 0}, пропуск ${data.skipped || 0}, `
-        + `вывод ${data.withdraw_count || 0}, возврат ${data.return_count || 0}`,
+        `OK: новых ${data.inserted || 0}, обновлено ${data.updated || 0}, `
+        + `пропуск ${data.skipped || 0}, вывод ${data.withdraw_count || 0}, `
+        + `возврат ${data.return_count || 0}`,
       );
     }
     await refreshWbFbsKizCirculation();
@@ -16661,7 +16665,9 @@ async function runWbFbsKizCirculationSync() {
     _wbFbsKizCircAppendLog(`Ошибка: ${err?.message || err}`);
   } finally {
     wbFbsKizCircState.busy = false;
-    if (btn) btn.disabled = false;
+    if (btnDaily) btnDaily.disabled = false;
+    if (btnRange) btnRange.disabled = false;
+    void btn;
   }
 }
 
@@ -16687,7 +16693,8 @@ async function runWbFbsKizCirculationChz() {
     }
     _wbFbsKizCircAppendLog(
       `К передаче: ${docs.length} док. `
-      + `(вывод ${prep.counts?.withdraw_events || 0}, возврат ${prep.counts?.return_events || 0})`,
+      + `(вывод ${prep.counts?.withdraw_events || 0}, возврат ${prep.counts?.return_events || 0})`
+      + (prep.has_more ? " · есть ещё в очереди — повторите после успеха" : ""),
     );
     _wbFbsKizCircAppendLog("ЧЗ: авторизация УКЭП…");
     const preferred = prep.settings?.cert_thumbprint || "";
@@ -16705,6 +16712,8 @@ async function runWbFbsKizCirculationChz() {
         product_group: doc.product_group || "",
         event_keys: doc.event_keys || [],
         product_document: doc.product_document || {},
+        // Exact bytes that were signed — server must not re-serialize JSON.
+        product_document_b64: payloadB64,
         signature_base64: sigB64,
       });
     }

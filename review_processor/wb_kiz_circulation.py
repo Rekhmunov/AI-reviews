@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
+import time
 import urllib.error
 import urllib.request
 from datetime import date, datetime, timedelta, timezone
@@ -27,6 +29,8 @@ from .chz_true_api import (
 from .repository import ReviewRepository
 from .security import decrypt_secret, encrypt_secret, mask_secret
 
+logger = logging.getLogger(__name__)
+
 MSK = ZoneInfo("Europe/Moscow")
 WB_ANALYTICS_API = "https://seller-analytics-api.wildberries.ru"
 
@@ -39,6 +43,26 @@ STATUS_SKIPPED = "skipped"
 STATUS_ACCEPTED = "accepted"
 STATUS_ERROR = "error"
 STATUS_SUBMITTED = "submitted"
+
+# Oldest-first prepare batch; chunk products so CHZ docs stay within size limits.
+PREPARE_EVENT_LIMIT = 2000
+CHZ_PRODUCTS_PER_DOC = 100
+
+CHZ_STATUS_SUCCESS = frozenset(
+    {"ACCEPTED", "CHECKED_OK", "SUCCESS", "OK", "PROCESSED"}
+)
+CHZ_STATUS_FAILED = frozenset(
+    {
+        "CHECKED_NOT_OK",
+        "REJECTED",
+        "ERROR",
+        "FAILED",
+        "CANCELLED",
+        "CANCELED",
+        "NOT_ACCEPTED",
+        "PARSE_ERROR",
+    }
+)
 
 
 def _moscow_today() -> str:
@@ -70,6 +94,20 @@ def _event_key(
         ]
     )
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:40]
+
+
+def _fiscal_doc_str(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return ""
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        if value.is_integer():
+            return str(int(value))
+        return str(value).strip()
+    return str(value).strip()
 
 
 def ensure_kiz_circulation_tables(repo: ReviewRepository) -> None:
@@ -150,6 +188,7 @@ def ensure_kiz_circulation_tables(repo: ReviewRepository) -> None:
                 fiscal_dt TEXT NOT NULL DEFAULT '',
                 fiscal_drive_number TEXT NOT NULL DEFAULT '',
                 price DOUBLE PRECISION,
+                currency_name TEXT NOT NULL DEFAULT '',
                 country_name TEXT NOT NULL DEFAULT '',
                 status TEXT NOT NULL DEFAULT 'pending',
                 skip_reason TEXT NOT NULL DEFAULT '',
@@ -164,10 +203,17 @@ def ensure_kiz_circulation_tables(repo: ReviewRepository) -> None:
             )
             """
         )
+        try:
+            conn.execute(
+                "ALTER TABLE wb_kiz_circulation_events "
+                "ADD COLUMN IF NOT EXISTS currency_name TEXT NOT NULL DEFAULT ''"
+            )
+        except Exception:
+            pass
         conn.execute(
             repo._sql(
                 "CREATE INDEX IF NOT EXISTS idx_wb_kiz_circ_events_user_src "
-                "ON wb_kiz_circulation_events(user_id, source_id, fiscal_dt DESC, id DESC)"
+                "ON wb_kiz_circulation_events(user_id, source_id, fiscal_dt ASC, id ASC)"
             )
         )
         conn.execute(
@@ -194,6 +240,32 @@ def ensure_kiz_circulation_tables(repo: ReviewRepository) -> None:
             )
             """
         )
+
+
+def repair_stuck_return_events(
+    repo: ReviewRepository, *, user_id: int, source_id: int
+) -> int:
+    """Re-queue returns that were wrongly marked error for missing fiscal."""
+    ensure_kiz_circulation_tables(repo)
+    now = datetime.now(timezone.utc).isoformat()
+    with repo._connect() as conn:
+        cur = conn.execute(
+            repo._sql(
+                """
+                UPDATE wb_kiz_circulation_events
+                SET status = ?, skip_reason = '', error_text = '', updated_at = ?
+                WHERE user_id = ? AND source_id = ?
+                  AND operation_type = ?
+                  AND status = ?
+                  AND (
+                    skip_reason ILIKE '%нет номера%'
+                    OR skip_reason ILIKE '%нет чека%'
+                  )
+                """
+            ),
+            (STATUS_PENDING, now, user_id, source_id, OP_RETURN, STATUS_ERROR),
+        )
+        return int(getattr(cur, "rowcount", 0) or 0)
 
 
 def get_chz_settings(repo: ReviewRepository, *, user_id: int) -> dict[str, Any]:
@@ -249,6 +321,12 @@ def upsert_chz_settings(
     ensure_kiz_circulation_tables(repo)
     now = datetime.now(timezone.utc).isoformat()
     base = "demo" if str(api_base or "").strip().lower() == "demo" else "prod"
+    pg = str(product_group or "").strip()
+    # Reject pure-numeric placeholders that are not True API pg codes.
+    if pg.isdigit():
+        raise ValueError(
+            "Товарная группа (pg) — код True API (например lp, shoes, clothes), не число"
+        )
     with repo._connect() as conn:
         conn.execute(
             repo._sql(
@@ -274,7 +352,7 @@ def upsert_chz_settings(
                 bool(is_enabled),
                 base,
                 str(participant_inn or "").strip(),
-                str(product_group or "").strip(),
+                pg,
                 str(kpp or "").strip(),
                 str(fias_id or "").strip(),
                 str(return_type or "REMOTE_SALE_RETURN").strip() or "REMOTE_SALE_RETURN",
@@ -321,6 +399,7 @@ def fetch_wb_excise_report(
     date_to: str,
     countries: list[str] | None = None,
     timeout: int = 60,
+    max_retries: int = 3,
 ) -> list[dict[str, Any]]:
     params = urlencode({"dateFrom": date_from, "dateTo": date_to})
     url = f"{WB_ANALYTICS_API}/api/v1/analytics/excise-report?{params}"
@@ -328,32 +407,50 @@ def fetch_wb_excise_report(
     if countries:
         body_obj["countries"] = countries
     data = json.dumps(body_obj).encode("utf-8")
-    req = urllib.request.Request(
-        url,
-        method="POST",
-        data=data,
-        headers={
-            "Authorization": str(api_key or "").strip(),
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "User-Agent": "FeedPilot-KizCirculation/1.0",
-        },
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            payload = resp.read()
-            if not payload:
-                return []
-            parsed = json.loads(payload.decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        err = ""
+    last_exc: Exception | None = None
+    for attempt in range(max(1, int(max_retries))):
+        req = urllib.request.Request(
+            url,
+            method="POST",
+            data=data,
+            headers={
+                "Authorization": str(api_key or "").strip(),
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "User-Agent": "FeedPilot-KizCirculation/1.0",
+            },
+        )
         try:
-            err = exc.read().decode("utf-8", errors="replace")[:500]
-        except Exception:
-            pass
-        raise RuntimeError(f"WB excise-report HTTP {exc.code}: {err or exc.reason}") from exc
-    except urllib.error.URLError as exc:
-        raise RuntimeError(f"WB excise-report сеть: {exc.reason}") from exc
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                payload = resp.read()
+                if not payload:
+                    return []
+                parsed = json.loads(payload.decode("utf-8"))
+            break
+        except urllib.error.HTTPError as exc:
+            err = ""
+            try:
+                err = exc.read().decode("utf-8", errors="replace")[:500]
+            except Exception:
+                pass
+            last_exc = RuntimeError(
+                f"WB excise-report HTTP {exc.code}: {err or exc.reason}"
+            )
+            if int(exc.code) == 429 and attempt + 1 < max_retries:
+                # WB: 10 req / 5h, interval 30 min — short backoff helps bursts.
+                time.sleep(5 * (attempt + 1))
+                continue
+            raise last_exc from exc
+        except urllib.error.URLError as exc:
+            last_exc = RuntimeError(f"WB excise-report сеть: {exc.reason}")
+            if attempt + 1 < max_retries:
+                time.sleep(2 * (attempt + 1))
+                continue
+            raise last_exc from exc
+    else:
+        if last_exc:
+            raise last_exc
+        return []
 
     rows: list[Any] = []
     if isinstance(parsed, dict):
@@ -383,11 +480,11 @@ def _normalize_row(row: dict[str, Any]) -> dict[str, Any] | None:
     if not excise:
         return None
     srid = str(row.get("srid") or "").strip()
-    fiscal_no = str(
+    fiscal_no = _fiscal_doc_str(
         row.get("fiscal_doc_number")
-        or row.get("fiscalDocNumber")
-        or ""
-    ).strip()
+        if row.get("fiscal_doc_number") is not None
+        else row.get("fiscalDocNumber")
+    )
     fiscal_dt = str(row.get("fiscal_dt") or row.get("fiscalDt") or "").strip()
     if fiscal_dt and "T" in fiscal_dt:
         fiscal_dt = fiscal_dt.split("T", 1)[0]
@@ -402,6 +499,12 @@ def _normalize_row(row: dict[str, Any]) -> dict[str, Any] | None:
         price = float(price_raw) if price_raw is not None else None
     except (TypeError, ValueError):
         price = None
+    currency = str(
+        row.get("currency_name_short")
+        or row.get("currencyNameShort")
+        or row.get("currency")
+        or ""
+    ).strip().upper()
     key = _event_key(
         srid=srid,
         excise_short=excise,
@@ -423,9 +526,19 @@ def _normalize_row(row: dict[str, Any]) -> dict[str, Any] | None:
             row.get("fiscal_drive_number") or row.get("fiscalDriveNumber") or ""
         ).strip(),
         "price": price,
+        "currency_name": currency,
         "country_name": str(row.get("name") or row.get("countryName") or "").strip(),
         "raw_json": json.dumps(row, ensure_ascii=False),
     }
+
+
+def _initial_status(norm: dict[str, Any]) -> tuple[str, str]:
+    """Withdraw needs fiscal for LK_RECEIPT; returns may omit fiscal (WB: «если есть»)."""
+    op = int(norm.get("operation_type") or 0)
+    has_fiscal = bool(norm.get("fiscal_doc_number") and norm.get("fiscal_dt"))
+    if op == OP_WITHDRAW and not has_fiscal:
+        return STATUS_ERROR, "нет номера/даты чека"
+    return STATUS_PENDING, ""
 
 
 def sync_excise_report(
@@ -438,6 +551,7 @@ def sync_excise_report(
     date_to: str = "",
 ) -> dict[str, Any]:
     ensure_kiz_circulation_tables(repo)
+    repaired = repair_stuck_return_events(repo, user_id=user_id, source_id=source_id)
     today = _moscow_today()
     cursor = get_cursor(repo, user_id=user_id, source_id=source_id)
     date_to_s = _parse_date(date_to, default=today)
@@ -458,6 +572,8 @@ def sync_excise_report(
     now = datetime.now(timezone.utc).isoformat()
     log: list[str] = []
     _append_log(log, f"WB: период {date_from_s}…{date_to_s}")
+    if repaired:
+        _append_log(log, f"восстановлено возвратов без чека: {repaired}")
 
     with repo._connect() as conn:
         row = conn.execute(
@@ -491,9 +607,11 @@ def sync_excise_report(
 
     _append_log(log, f"получено {len(rows)} строк")
     inserted = 0
+    updated = 0
     skipped = 0
     withdraw_n = 0
     return_n = 0
+    insert_errors = 0
     last_key = ""
     last_fiscal = ""
 
@@ -503,12 +621,7 @@ def sync_excise_report(
             if not norm:
                 skipped += 1
                 continue
-            if not norm["fiscal_doc_number"] or not norm["fiscal_dt"]:
-                status = STATUS_ERROR
-                skip_reason = "нет номера/даты чека"
-            else:
-                status = STATUS_PENDING
-                skip_reason = ""
+            status, skip_reason = _initial_status(norm)
             if int(norm["operation_type"]) == OP_WITHDRAW:
                 withdraw_n += 1
             else:
@@ -520,12 +633,45 @@ def sync_excise_report(
                         INSERT INTO wb_kiz_circulation_events (
                             user_id, source_id, event_key, operation_type, srid, rid,
                             nm_id, barcode, excise_short, fiscal_doc_number, fiscal_dt,
-                            fiscal_drive_number, price, country_name, status, skip_reason,
-                            raw_json, run_id, created_at, updated_at
+                            fiscal_drive_number, price, currency_name, country_name,
+                            status, skip_reason, raw_json, run_id, created_at, updated_at
                         ) VALUES (
-                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                         )
-                        ON CONFLICT (user_id, source_id, event_key) DO NOTHING
+                        ON CONFLICT (user_id, source_id, event_key) DO UPDATE SET
+                            price = COALESCE(EXCLUDED.price, wb_kiz_circulation_events.price),
+                            currency_name = CASE
+                                WHEN EXCLUDED.currency_name <> '' THEN EXCLUDED.currency_name
+                                ELSE wb_kiz_circulation_events.currency_name
+                            END,
+                            country_name = CASE
+                                WHEN EXCLUDED.country_name <> '' THEN EXCLUDED.country_name
+                                ELSE wb_kiz_circulation_events.country_name
+                            END,
+                            fiscal_drive_number = CASE
+                                WHEN EXCLUDED.fiscal_drive_number <> '' THEN EXCLUDED.fiscal_drive_number
+                                ELSE wb_kiz_circulation_events.fiscal_drive_number
+                            END,
+                            raw_json = EXCLUDED.raw_json,
+                            updated_at = EXCLUDED.updated_at,
+                            status = CASE
+                                WHEN wb_kiz_circulation_events.status IN ('submitted', 'accepted')
+                                    THEN wb_kiz_circulation_events.status
+                                WHEN EXCLUDED.status = 'pending' THEN 'pending'
+                                ELSE wb_kiz_circulation_events.status
+                            END,
+                            skip_reason = CASE
+                                WHEN wb_kiz_circulation_events.status IN ('submitted', 'accepted')
+                                    THEN wb_kiz_circulation_events.skip_reason
+                                WHEN EXCLUDED.status = 'pending' THEN ''
+                                ELSE wb_kiz_circulation_events.skip_reason
+                            END,
+                            error_text = CASE
+                                WHEN wb_kiz_circulation_events.status IN ('submitted', 'accepted')
+                                    THEN wb_kiz_circulation_events.error_text
+                                WHEN EXCLUDED.status = 'pending' THEN ''
+                                ELSE wb_kiz_circulation_events.error_text
+                            END
                         """
                     ),
                     (
@@ -542,6 +688,7 @@ def sync_excise_report(
                         norm["fiscal_dt"],
                         norm["fiscal_drive_number"],
                         norm["price"],
+                        norm["currency_name"],
                         norm["country_name"],
                         status,
                         skip_reason,
@@ -551,14 +698,37 @@ def sync_excise_report(
                         now,
                     ),
                 )
-                if int(getattr(cur, "rowcount", 0) or 0) > 0:
-                    inserted += 1
+                rc = int(getattr(cur, "rowcount", 0) or 0)
+                if rc > 0:
+                    # Distinguish insert vs update by comparing created_at/updated_at.
+                    chk = conn.execute(
+                        repo._sql(
+                            "SELECT created_at, updated_at FROM wb_kiz_circulation_events "
+                            "WHERE user_id = ? AND source_id = ? AND event_key = ?"
+                        ),
+                        (user_id, source_id, norm["event_key"]),
+                    ).fetchone()
+                    if chk:
+                        cd = repo._row_to_dict(chk)
+                        if str(cd.get("created_at") or "") == str(cd.get("updated_at") or ""):
+                            inserted += 1
+                        else:
+                            updated += 1
+                    else:
+                        inserted += 1
                     last_key = norm["event_key"]
                     last_fiscal = norm["fiscal_dt"] or last_fiscal
                 else:
                     skipped += 1
-            except Exception:
+            except Exception as exc:
+                insert_errors += 1
                 skipped += 1
+                logger.exception(
+                    "wb_kiz_circulation insert failed key=%s: %s",
+                    norm.get("event_key"),
+                    exc,
+                )
+                _append_log(log, f"ошибка INSERT {norm.get('event_key', '')[:12]}…: {exc}")
 
         conn.execute(
             repo._sql(
@@ -590,8 +760,9 @@ def sync_excise_report(
 
     _append_log(
         log,
-        f"новых: {inserted}, уже есть/пропуск: {skipped}, "
-        f"вывод: {withdraw_n}, возврат: {return_n}",
+        f"новых: {inserted}, обновлено: {updated}, пропуск: {skipped}"
+        + (f", ошибок INSERT: {insert_errors}" if insert_errors else "")
+        + f", вывод: {withdraw_n}, возврат: {return_n}",
     )
     _append_log(log, f"watermark → {date_to_s}" + (f" / {last_key[:12]}…" if last_key else ""))
     _finish_run(
@@ -612,7 +783,9 @@ def sync_excise_report(
         "date_to": date_to_s,
         "fetched": len(rows),
         "inserted": inserted,
+        "updated": updated,
         "skipped": skipped,
+        "insert_errors": insert_errors,
         "withdraw_count": withdraw_n,
         "return_count": return_n,
         "log": "\n".join(log),
@@ -670,9 +843,10 @@ def list_events(
     status: str = "",
     operation_type: int | None = None,
     limit: int = 200,
+    order: str = "desc",
 ) -> list[dict[str, Any]]:
     ensure_kiz_circulation_tables(repo)
-    lim = max(1, min(int(limit or 200), 1000))
+    lim = max(1, min(int(limit or 200), 5000))
     clauses = ["user_id = ?", "source_id = ?"]
     params: list[Any] = [user_id, source_id]
     if status:
@@ -682,11 +856,57 @@ def list_events(
         clauses.append("operation_type = ?")
         params.append(int(operation_type))
     params.append(lim)
+    order_sql = (
+        "ORDER BY fiscal_dt ASC NULLS FIRST, id ASC"
+        if str(order or "").lower() == "asc"
+        else "ORDER BY fiscal_dt DESC NULLS LAST, id DESC"
+    )
     with repo._connect() as conn:
         rows = conn.execute(
             repo._sql(
                 f"SELECT * FROM wb_kiz_circulation_events WHERE {' AND '.join(clauses)} "
-                f"ORDER BY fiscal_dt DESC, id DESC LIMIT ?"
+                f"{order_sql} LIMIT ?"
+            ),
+            tuple(params),
+        ).fetchall()
+    out = []
+    for r in rows:
+        d = repo._row_to_dict(r)
+        d.pop("raw_json", None)
+        out.append(d)
+    return out
+
+
+def list_events_for_chz(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    limit: int = PREPARE_EVENT_LIMIT,
+) -> list[dict[str, Any]]:
+    """Events eligible for CHZ submit: pending/error + failed submitted. Oldest first."""
+    ensure_kiz_circulation_tables(repo)
+    lim = max(1, min(int(limit or PREPARE_EVENT_LIMIT), 5000))
+    fail_list = sorted(CHZ_STATUS_FAILED)
+    # Build placeholders for failed chz_status match
+    fail_placeholders = ", ".join(["?"] * len(fail_list)) if fail_list else "NULL"
+    params: list[Any] = [user_id, source_id, *fail_list, lim]
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                f"""
+                SELECT * FROM wb_kiz_circulation_events
+                WHERE user_id = ? AND source_id = ?
+                  AND (
+                    status IN ('pending', 'ready', 'error')
+                    OR (
+                      status = 'submitted'
+                      AND UPPER(COALESCE(chz_status, '')) IN ({fail_placeholders})
+                    )
+                  )
+                ORDER BY fiscal_dt ASC NULLS FIRST, id ASC
+                LIMIT ?
+                """
             ),
             tuple(params),
         ).fetchall()
@@ -758,12 +978,30 @@ def get_run(repo: ReviewRepository, *, user_id: int, run_id: int) -> dict[str, A
     return repo._row_to_dict(row) if row else None
 
 
+def _price_for_chz(ev: dict[str, Any]) -> float | None:
+    """Only RUB (or unknown/empty currency) goes into product_cost."""
+    if ev.get("price") is None:
+        return None
+    cur = str(ev.get("currency_name") or "").strip().upper()
+    if cur and cur not in {"RUB", "RUR", "₽", "РУБ"}:
+        return None
+    try:
+        return float(ev["price"])
+    except (TypeError, ValueError):
+        return None
+
+
+def _chunked(items: list[Any], size: int) -> list[list[Any]]:
+    n = max(1, int(size))
+    return [items[i : i + n] for i in range(0, len(items), n)]
+
+
 def prepare_chz_batches(
     repo: ReviewRepository,
     *,
     user_id: int,
     source_id: int,
-    limit: int = 200,
+    limit: int = PREPARE_EVENT_LIMIT,
 ) -> dict[str, Any]:
     """Build unsigned CHZ document payloads grouped by operation + receipt."""
     settings = get_chz_settings(repo, user_id=user_id)
@@ -775,18 +1013,16 @@ def prepare_chz_batches(
     pg = str(settings.get("product_group") or "").strip()
     if not pg:
         raise ValueError("Укажите товарную группу (pg) в Настройки → ЧЗ")
-
-    events = list_events(
-        repo, user_id=user_id, source_id=source_id, status=STATUS_PENDING, limit=limit
-    )
-    # Also retry previous errors that look recoverable
-    events += [
-        e
-        for e in list_events(
-            repo, user_id=user_id, source_id=source_id, status=STATUS_ERROR, limit=limit
+    if pg.isdigit():
+        raise ValueError(
+            "Товарная группа (pg) — код True API (например lp, shoes), не число"
         )
-        if "нет номера" not in str(e.get("skip_reason") or "")
-    ]
+
+    repair_stuck_return_events(repo, user_id=user_id, source_id=source_id)
+    lim = max(1, min(int(limit or PREPARE_EVENT_LIMIT), 5000))
+    events = list_events_for_chz(
+        repo, user_id=user_id, source_id=source_id, limit=lim
+    )
 
     withdraw_groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
     return_items: list[dict[str, Any]] = []
@@ -810,46 +1046,61 @@ def prepare_chz_batches(
         else:
             skipped.append({**ev, "skip_reason": "неизвестный тип"})
 
-    documents: list[dict[str, Any]] = []
-    for (fiscal_no, fiscal_dt), group in withdraw_groups.items():
-        products = []
-        for ev in group:
-            product: dict[str, Any] = {"cis": ev["excise_short"]}
-            if ev.get("price") is not None:
-                product["product_cost"] = float(ev["price"])
-            products.append(product)
-        doc_body = build_lk_receipt_document(
-            inn=inn,
-            document_number=fiscal_no,
-            document_date=fiscal_dt,
-            products=products,
-            kpp=str(settings.get("kpp") or ""),
-            fias_id=str(settings.get("fias_id") or ""),
-        )
-        documents.append(
-            {
-                "doc_type": "LK_RECEIPT",
-                "product_group": pg,
-                "title": f"Вывод · чек {fiscal_no} · {fiscal_dt}",
-                "event_keys": [e["event_key"] for e in group],
-                "product_document": doc_body,
-                "sign_payload_b64": _b64_json(doc_body),
-            }
+    kpp = str(settings.get("kpp") or "").strip()
+    fias_id = str(settings.get("fias_id") or "").strip()
+    if withdraw_groups and (not kpp or not fias_id):
+        raise ValueError(
+            "Для вывода DISTANCE укажите КПП и ФИАС ID в Настройки → ЧЗ"
         )
 
-    if return_items:
-        products = [{"cis": e["excise_short"]} for e in return_items]
+    documents: list[dict[str, Any]] = []
+    for (fiscal_no, fiscal_dt), group in withdraw_groups.items():
+        for part_idx, part in enumerate(_chunked(group, CHZ_PRODUCTS_PER_DOC), start=1):
+            products = []
+            for ev in part:
+                product: dict[str, Any] = {"cis": ev["excise_short"]}
+                cost = _price_for_chz(ev)
+                if cost is not None:
+                    product["product_cost"] = cost
+                products.append(product)
+            doc_body = build_lk_receipt_document(
+                inn=inn,
+                document_number=fiscal_no,
+                document_date=fiscal_dt,
+                products=products,
+                kpp=kpp,
+                fias_id=fias_id,
+            )
+            suffix = f" · часть {part_idx}" if len(group) > CHZ_PRODUCTS_PER_DOC else ""
+            documents.append(
+                {
+                    "doc_type": "LK_RECEIPT",
+                    "product_group": pg,
+                    "title": f"Вывод · чек {fiscal_no} · {fiscal_dt}{suffix}",
+                    "event_keys": [e["event_key"] for e in part],
+                    "product_document": doc_body,
+                    "sign_payload_b64": _b64_json(doc_body),
+                }
+            )
+
+    for part_idx, part in enumerate(
+        _chunked(return_items, CHZ_PRODUCTS_PER_DOC), start=1
+    ):
+        if not part:
+            continue
+        products = [{"cis": e["excise_short"]} for e in part]
         doc_body = build_lp_return_document(
             inn=inn,
             return_type=str(settings.get("return_type") or "REMOTE_SALE_RETURN"),
             products=products,
         )
+        suffix = f" · часть {part_idx}" if len(return_items) > CHZ_PRODUCTS_PER_DOC else ""
         documents.append(
             {
                 "doc_type": "LP_RETURN",
                 "product_group": pg,
-                "title": f"Возврат в оборот · {len(return_items)} КИЗ",
-                "event_keys": [e["event_key"] for e in return_items],
+                "title": f"Возврат в оборот · {len(part)} КИЗ{suffix}",
+                "event_keys": [e["event_key"] for e in part],
                 "product_document": doc_body,
                 "sign_payload_b64": _b64_json(doc_body),
             }
@@ -875,12 +1126,12 @@ def prepare_chz_batches(
         ],
         "counts": {
             "documents": len(documents),
-            "withdraw_events": sum(
-                len(g) for g in withdraw_groups.values()
-            ),
+            "withdraw_events": sum(len(g) for g in withdraw_groups.values()),
             "return_events": len(return_items),
             "skipped": len(skipped),
+            "eligible_loaded": len(events),
         },
+        "has_more": len(events) >= lim,
     }
 
 
@@ -889,6 +1140,18 @@ def _b64_json(obj: dict[str, Any]) -> str:
 
     raw = json.dumps(obj, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     return base64.b64encode(raw).decode("ascii")
+
+
+def classify_chz_doc_status(chz_status: str) -> str:
+    """Return accepted | error | submitted for a True API document status."""
+    st = str(chz_status or "").strip().upper()
+    if not st:
+        return STATUS_SUBMITTED
+    if st in CHZ_STATUS_SUCCESS:
+        return STATUS_ACCEPTED
+    if st in CHZ_STATUS_FAILED:
+        return STATUS_ERROR
+    return STATUS_SUBMITTED
 
 
 def mark_events_submitted(
@@ -948,6 +1211,66 @@ def mark_events_submitted(
         )
 
 
+def apply_chz_doc_status(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    event_keys: list[str],
+    chz_doc_id: str,
+    chz_status: str,
+) -> str:
+    """Update events from CHZ document_info. Returns final local status class."""
+    ensure_kiz_circulation_tables(repo)
+    now = datetime.now(timezone.utc).isoformat()
+    st = str(chz_status or "").strip()
+    final = classify_chz_doc_status(st)
+    keys = [str(k) for k in event_keys if str(k).strip()]
+    with repo._connect() as conn:
+        for key in keys:
+            if final == STATUS_ERROR:
+                conn.execute(
+                    repo._sql(
+                        """
+                        UPDATE wb_kiz_circulation_events
+                        SET status = ?, chz_doc_id = ?, chz_status = ?,
+                            error_text = ?, updated_at = ?
+                        WHERE user_id = ? AND source_id = ? AND event_key = ?
+                        """
+                    ),
+                    (
+                        STATUS_ERROR,
+                        str(chz_doc_id or ""),
+                        st,
+                        f"ЧЗ: {st}"[:2000],
+                        now,
+                        user_id,
+                        source_id,
+                        key,
+                    ),
+                )
+            else:
+                conn.execute(
+                    repo._sql(
+                        """
+                        UPDATE wb_kiz_circulation_events
+                        SET status = ?, chz_doc_id = ?, chz_status = ?, updated_at = ?
+                        WHERE user_id = ? AND source_id = ? AND event_key = ?
+                        """
+                    ),
+                    (
+                        final,
+                        str(chz_doc_id or ""),
+                        st or final,
+                        now,
+                        user_id,
+                        source_id,
+                        key,
+                    ),
+                )
+    return final
+
+
 def mark_events_accepted(
     repo: ReviewRepository,
     *,
@@ -957,24 +1280,15 @@ def mark_events_accepted(
     chz_doc_id: str,
     chz_status: str,
 ) -> None:
-    ensure_kiz_circulation_tables(repo)
-    now = datetime.now(timezone.utc).isoformat()
-    st = str(chz_status or "accepted")
-    final = STATUS_ACCEPTED if st.upper() in {
-        "ACCEPTED", "CHECKED_OK", "SUCCESS", "OK", "PROCESSED"
-    } else STATUS_SUBMITTED
-    with repo._connect() as conn:
-        for key in event_keys:
-            conn.execute(
-                repo._sql(
-                    """
-                    UPDATE wb_kiz_circulation_events
-                    SET status = ?, chz_doc_id = ?, chz_status = ?, updated_at = ?
-                    WHERE user_id = ? AND source_id = ? AND event_key = ?
-                    """
-                ),
-                (final, str(chz_doc_id or ""), st, now, user_id, source_id, key),
-            )
+    """Backward-compatible wrapper — uses classify_chz_doc_status."""
+    apply_chz_doc_status(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        event_keys=event_keys,
+        chz_doc_id=chz_doc_id,
+        chz_status=chz_status,
+    )
 
 
 def mark_events_error(
@@ -1023,11 +1337,15 @@ __all__ = [
     "get_overview",
     "get_run",
     "list_events",
+    "list_events_for_chz",
     "sync_excise_report",
     "prepare_chz_batches",
     "mark_events_submitted",
     "mark_events_accepted",
+    "apply_chz_doc_status",
+    "classify_chz_doc_status",
     "mark_events_error",
+    "repair_stuck_return_events",
     "chz_client_from_settings",
     "mask_secret",
     "encrypt_secret",
