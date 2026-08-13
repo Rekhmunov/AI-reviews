@@ -356,13 +356,13 @@ def test_upsert_rejects_numeric_pg() -> None:
 
 
 def test_resolve_excise_period_one_request_window() -> None:
-    # First sync: full default lookback in one shot (not 7 days).
+    # First sync: full default lookback in one shot.
     first = circ.resolve_excise_period(
         today="2026-08-13", cursor_last_date_to="", date_from="", date_to=""
     )
-    assert first["date_from"] == "2026-07-14"
+    assert first["date_from"] == "2026-05-16"
     assert first["date_to"] == "2026-08-13"
-    assert first["days"] == 31
+    assert first["days"] == 90
     assert first["mode"] == "lookback"
     assert not first["clamped"]
 
@@ -380,14 +380,14 @@ def test_resolve_excise_period_one_request_window() -> None:
 
     # Huge manual range is clamped to max days ending at date_to.
     big = circ.resolve_excise_period(
-        date_from="2026-01-01",
+        date_from="2025-01-01",
         date_to="2026-08-13",
         cursor_last_date_to="",
     )
     assert big["clamped"]
     assert big["days"] == circ.EXCISE_MAX_PERIOD_DAYS
     assert big["date_to"] == "2026-08-13"
-    assert big["date_from"] == "2026-07-14"
+    assert big["date_from"] == "2026-05-16"
 
 
 def test_format_wb_excise_http_error_429() -> None:

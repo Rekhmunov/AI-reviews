@@ -16534,10 +16534,10 @@ function _wbFbsKizCircOpLabel(op) {
 }
 
 function _wbFbsKizCircDefaultDates() {
-  // Prefill last 31 days for «Синхр. период» (one WB request = full window).
+  // Prefill last 90 days for «Синхр. период» (one WB request = full window).
   // «Ежедневный вывод» ignores these and uses server watermark/lookback.
   const to = new Date();
-  const from = new Date(to.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const from = new Date(to.getTime() - 89 * 24 * 60 * 60 * 1000);
   const fmt = (d) => {
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, "0");

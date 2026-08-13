@@ -34,10 +34,10 @@ logger = logging.getLogger(__name__)
 MSK = ZoneInfo("Europe/Moscow")
 WB_ANALYTICS_API = "https://seller-analytics-api.wildberries.ru"
 
-# One WB request must cover the whole needed window. Analytics reports commonly
-# allow up to ~31 days; longer ranges are clamped so we never split into N calls.
-EXCISE_MAX_PERIOD_DAYS = 31
-EXCISE_DEFAULT_LOOKBACK_DAYS = 31
+# One WB request must cover the whole needed window. Soft cap ~90 days (typical
+# WB operational retention); longer ranges are clamped so we never split calls.
+EXCISE_MAX_PERIOD_DAYS = 90
+EXCISE_DEFAULT_LOOKBACK_DAYS = 90
 EXCISE_OVERLAP_DAYS = 2
 
 OP_WITHDRAW = 1
