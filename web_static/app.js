@@ -16534,8 +16534,20 @@ function _wbFbsKizCircOpLabel(op) {
 }
 
 function _wbFbsKizCircDefaultDates() {
-  // Leave dates empty so «Ежедневный вывод» uses server watermark + overlap.
-  // User may fill them for «Синхр. период».
+  // Prefill last 31 days for «Синхр. период» (one WB request = full window).
+  // «Ежедневный вывод» ignores these and uses server watermark/lookback.
+  const to = new Date();
+  const from = new Date(to.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const fmt = (d) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  };
+  const fromEl = document.getElementById("wbFbsKizCircDateFrom");
+  const toEl = document.getElementById("wbFbsKizCircDateTo");
+  if (fromEl && !fromEl.value) fromEl.value = fmt(from);
+  if (toEl && !toEl.value) toEl.value = fmt(to);
 }
 
 async function openWbFbsKizCirculationModal() {
