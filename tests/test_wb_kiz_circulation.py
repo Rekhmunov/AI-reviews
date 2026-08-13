@@ -355,6 +355,17 @@ def test_upsert_rejects_numeric_pg() -> None:
                 )
 
 
+def test_format_wb_excise_http_error_429() -> None:
+    err = circ.format_wb_excise_http_error(
+        code=429, body='{"status":429}', retry_after="1800"
+    )
+    assert "10 запросов" in str(err)
+    assert "30 мин" in str(err)
+    err2 = circ.format_wb_excise_http_error(code=403, body="forbidden")
+    assert "HTTP 403" in str(err2)
+    assert "forbidden" in str(err2)
+
+
 def test_wb_analytics_key_encrypt_roundtrip_and_mask() -> None:
     from review_processor.security import encrypt_secret, mask_secret
 

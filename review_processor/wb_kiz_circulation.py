@@ -598,6 +598,52 @@ def _append_log(parts: list[str], line: str) -> None:
     parts.append(f"[{ts}] {line}")
 
 
+def _header_get(headers: Any, *names: str) -> str:
+    if headers is None:
+        return ""
+    for name in names:
+        try:
+            val = headers.get(name)
+        except Exception:
+            val = None
+        if val is None and hasattr(headers, "get"):
+            try:
+                # email.message.Message is case-insensitive; dict may need lower.
+                val = headers.get(name.lower())
+            except Exception:
+                val = None
+        if val is not None and str(val).strip():
+            return str(val).strip()
+    return ""
+
+
+def format_wb_excise_http_error(
+    *, code: int, body: str = "", retry_after: str = "", reason: str = ""
+) -> RuntimeError:
+    """Human-readable WB Analytics excise-report errors (esp. 429 rate limit)."""
+    if int(code) == 429:
+        msg = (
+            "Лимит WB на отчёт по маркировке: не больше 10 запросов за 5 часов "
+            "(пауза между запросами около 30 минут). "
+            "Не нажимайте «Ежедневный вывод» повторно — каждый клик тратит лимит. "
+            "Один токен Аналитики общий для всех FBS-источников."
+        )
+        retry = str(retry_after or "").strip()
+        if retry.isdigit():
+            secs = int(retry)
+            if secs >= 60:
+                msg += f" Повторите примерно через {(secs + 59) // 60} мин."
+            elif secs > 0:
+                msg += f" Повторите примерно через {secs} сек."
+        elif retry:
+            msg += f" Повторите после: {retry}."
+        return RuntimeError(msg)
+    detail = (body or reason or "").strip()
+    if detail:
+        return RuntimeError(f"WB excise-report HTTP {code}: {detail[:500]}")
+    return RuntimeError(f"WB excise-report HTTP {code}")
+
+
 def fetch_wb_excise_report(
     *,
     api_key: str,
@@ -614,6 +660,7 @@ def fetch_wb_excise_report(
         body_obj["countries"] = countries
     data = json.dumps(body_obj).encode("utf-8")
     last_exc: Exception | None = None
+    parsed: Any = None
     for attempt in range(max(1, int(max_retries))):
         req = urllib.request.Request(
             url,
@@ -639,12 +686,24 @@ def fetch_wb_excise_report(
                 err = exc.read().decode("utf-8", errors="replace")[:500]
             except Exception:
                 pass
-            last_exc = RuntimeError(
-                f"WB excise-report HTTP {exc.code}: {err or exc.reason}"
+            retry_after = _header_get(
+                getattr(exc, "headers", None),
+                "X-RateLimit-Retry",
+                "x-ratelimit-retry",
+                "Retry-After",
+                "retry-after",
             )
-            if int(exc.code) == 429 and attempt + 1 < max_retries:
-                # WB: 10 req / 5h, interval 30 min — short backoff helps bursts.
-                time.sleep(5 * (attempt + 1))
+            last_exc = format_wb_excise_http_error(
+                code=int(exc.code),
+                body=err,
+                retry_after=retry_after,
+                reason=str(exc.reason or ""),
+            )
+            # 429 must NOT be retried: each attempt burns the 10/5h quota.
+            if int(exc.code) == 429:
+                raise last_exc from exc
+            if attempt + 1 < max_retries and int(exc.code) in {500, 502, 503, 504}:
+                time.sleep(2 * (attempt + 1))
                 continue
             raise last_exc from exc
         except urllib.error.URLError as exc:
