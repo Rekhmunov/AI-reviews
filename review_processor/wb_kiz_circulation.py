@@ -44,6 +44,19 @@ STATUS_ACCEPTED = "accepted"
 STATUS_ERROR = "error"
 STATUS_SUBMITTED = "submitted"
 
+# ASCII codes only in SQL — Cyrillic in ILIKE caused UnicodeDecodeError on PG.
+SKIP_NO_FISCAL = "no_fiscal"
+
+
+def _is_no_fiscal_reason(reason: str) -> bool:
+    raw = str(reason or "").strip().lower()
+    if not raw:
+        return False
+    if raw == SKIP_NO_FISCAL or raw.startswith(f"{SKIP_NO_FISCAL}:"):
+        return True
+    # Legacy Russian reasons written before the ASCII-code fix.
+    return ("нет номера" in raw) or ("нет чека" in raw) or ("нет чек" in raw)
+
 # Oldest-first prepare batch; chunk products so CHZ docs stay within size limits.
 PREPARE_EVENT_LIMIT = 2000
 CHZ_PRODUCTS_PER_DOC = 100
@@ -248,24 +261,34 @@ def repair_stuck_return_events(
     """Re-queue returns that were wrongly marked error for missing fiscal."""
     ensure_kiz_circulation_tables(repo)
     now = datetime.now(timezone.utc).isoformat()
+    fixed = 0
     with repo._connect() as conn:
-        cur = conn.execute(
+        rows = conn.execute(
             repo._sql(
                 """
-                UPDATE wb_kiz_circulation_events
-                SET status = ?, skip_reason = '', error_text = '', updated_at = ?
+                SELECT id, skip_reason FROM wb_kiz_circulation_events
                 WHERE user_id = ? AND source_id = ?
-                  AND operation_type = ?
-                  AND status = ?
-                  AND (
-                    skip_reason ILIKE '%нет номера%'
-                    OR skip_reason ILIKE '%нет чека%'
-                  )
+                  AND operation_type = ? AND status = ?
                 """
             ),
-            (STATUS_PENDING, now, user_id, source_id, OP_RETURN, STATUS_ERROR),
-        )
-        return int(getattr(cur, "rowcount", 0) or 0)
+            (user_id, source_id, OP_RETURN, STATUS_ERROR),
+        ).fetchall()
+        for row in rows:
+            d = repo._row_to_dict(row)
+            if not _is_no_fiscal_reason(str(d.get("skip_reason") or "")):
+                continue
+            conn.execute(
+                repo._sql(
+                    """
+                    UPDATE wb_kiz_circulation_events
+                    SET status = ?, skip_reason = '', error_text = '', updated_at = ?
+                    WHERE id = ? AND user_id = ?
+                    """
+                ),
+                (STATUS_PENDING, now, int(d["id"]), user_id),
+            )
+            fixed += 1
+    return fixed
 
 
 def repair_unhealable_withdraw_errors(
@@ -274,35 +297,53 @@ def repair_unhealable_withdraw_errors(
     """Move withdraw-without-fiscal from error → skipped (do not block CHZ queue)."""
     ensure_kiz_circulation_tables(repo)
     now = datetime.now(timezone.utc).isoformat()
+    fixed = 0
     with repo._connect() as conn:
-        cur = conn.execute(
+        rows = conn.execute(
             repo._sql(
                 """
-                UPDATE wb_kiz_circulation_events
-                SET status = ?, updated_at = ?
+                SELECT id, skip_reason FROM wb_kiz_circulation_events
                 WHERE user_id = ? AND source_id = ?
-                  AND operation_type = ?
-                  AND status = ?
-                  AND (
-                    skip_reason ILIKE '%нет номера%'
-                    OR skip_reason ILIKE '%нет чека%'
-                  )
+                  AND operation_type = ? AND status = ?
                 """
             ),
-            (STATUS_SKIPPED, now, user_id, source_id, OP_WITHDRAW, STATUS_ERROR),
-        )
-        return int(getattr(cur, "rowcount", 0) or 0)
+            (user_id, source_id, OP_WITHDRAW, STATUS_ERROR),
+        ).fetchall()
+        for row in rows:
+            d = repo._row_to_dict(row)
+            if not _is_no_fiscal_reason(str(d.get("skip_reason") or "")):
+                continue
+            conn.execute(
+                repo._sql(
+                    """
+                    UPDATE wb_kiz_circulation_events
+                    SET status = ?, skip_reason = ?, updated_at = ?
+                    WHERE id = ? AND user_id = ?
+                    """
+                ),
+                (STATUS_SKIPPED, SKIP_NO_FISCAL, now, int(d["id"]), user_id),
+            )
+            fixed += 1
+    return fixed
 
 
 def repair_circulation_queue(
     repo: ReviewRepository, *, user_id: int, source_id: int
 ) -> dict[str, int]:
-    returns_fixed = repair_stuck_return_events(
-        repo, user_id=user_id, source_id=source_id
-    )
-    withdraw_skipped = repair_unhealable_withdraw_errors(
-        repo, user_id=user_id, source_id=source_id
-    )
+    try:
+        returns_fixed = repair_stuck_return_events(
+            repo, user_id=user_id, source_id=source_id
+        )
+    except Exception as exc:
+        logger.exception("repair_stuck_return_events failed: %s", exc)
+        returns_fixed = 0
+    try:
+        withdraw_skipped = repair_unhealable_withdraw_errors(
+            repo, user_id=user_id, source_id=source_id
+        )
+    except Exception as exc:
+        logger.exception("repair_unhealable_withdraw_errors failed: %s", exc)
+        withdraw_skipped = 0
     return {"returns_fixed": returns_fixed, "withdraw_skipped": withdraw_skipped}
 
 
@@ -642,7 +683,7 @@ def _initial_status(norm: dict[str, Any]) -> tuple[str, str]:
     op = int(norm.get("operation_type") or 0)
     has_fiscal = bool(norm.get("fiscal_doc_number") and norm.get("fiscal_dt"))
     if op == OP_WITHDRAW and not has_fiscal:
-        return STATUS_SKIPPED, "нет номера/даты чека"
+        return STATUS_SKIPPED, SKIP_NO_FISCAL
     return STATUS_PENDING, ""
 
 
@@ -1003,7 +1044,7 @@ def list_events_for_chz(
     lim = max(1, min(int(limit or PREPARE_EVENT_LIMIT), 5000))
     fail_list = sorted(CHZ_STATUS_FAILED)
     fail_placeholders = ", ".join(["?"] * len(fail_list)) if fail_list else "NULL"
-    params: list[Any] = [user_id, source_id, *fail_list, lim]
+    params: list[Any] = [user_id, source_id, SKIP_NO_FISCAL, *fail_list, lim]
     with repo._connect() as conn:
         rows = conn.execute(
             repo._sql(
@@ -1014,13 +1055,7 @@ def list_events_for_chz(
                     status IN ('pending', 'ready')
                     OR (
                       status = 'error'
-                      AND NOT (
-                        operation_type = 1
-                        AND (
-                          skip_reason ILIKE '%нет номера%'
-                          OR skip_reason ILIKE '%нет чека%'
-                        )
-                      )
+                      AND NOT (operation_type = 1 AND skip_reason = ?)
                     )
                     OR (
                       status = 'submitted'
@@ -1040,6 +1075,13 @@ def list_events_for_chz(
     for r in rows:
         d = repo._row_to_dict(r)
         d.pop("raw_json", None)
+        # Drop legacy Russian no-fiscal withdraw errors (not matched by ASCII code).
+        if (
+            int(d.get("operation_type") or 0) == OP_WITHDRAW
+            and str(d.get("status") or "") == STATUS_ERROR
+            and _is_no_fiscal_reason(str(d.get("skip_reason") or ""))
+        ):
+            continue
         out.append(d)
     return out
 

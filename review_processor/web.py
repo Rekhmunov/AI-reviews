@@ -10094,6 +10094,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             )
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(
+                status_code=400, detail=f"Ошибка sync: {exc}"
+            ) from exc
 
     @app.get("/api/wb-fbs/kiz-circulation/runs/{run_id}")
     def wb_fbs_kiz_circulation_run(

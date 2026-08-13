@@ -101,7 +101,14 @@ def test_initial_status_withdraw_without_fiscal_is_skipped() -> None:
     assert w is not None
     st, reason = circ._initial_status(w)
     assert st == circ.STATUS_SKIPPED
-    assert "чек" in reason
+    assert reason == circ.SKIP_NO_FISCAL
+
+
+def test_is_no_fiscal_reason_accepts_legacy_russian() -> None:
+    assert circ._is_no_fiscal_reason("no_fiscal")
+    assert circ._is_no_fiscal_reason("нет номера/даты чека")
+    assert circ._is_no_fiscal_reason("нет чека")
+    assert not circ._is_no_fiscal_reason("other")
 
 
 def test_build_lk_receipt_and_return() -> None:

@@ -16641,7 +16641,19 @@ async function runWbFbsKizCirculationSync(useDateRange) {
       method: "POST", headers: jsonHeaders(), body: JSON.stringify(body),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.detail || "Ошибка sync");
+    if (!res.ok) {
+      const detail = data.detail;
+      let msg = "Ошибка sync";
+      if (typeof detail === "string" && detail.trim()) msg = detail;
+      else if (Array.isArray(detail)) {
+        msg = detail.map((x) => x?.msg || x?.detail || JSON.stringify(x)).join("; ");
+      } else if (detail && typeof detail === "object") {
+        msg = detail.msg || detail.message || JSON.stringify(detail);
+      } else if (res.status) {
+        msg = `Ошибка sync (HTTP ${res.status})`;
+      }
+      throw new Error(msg);
+    }
     if (data.log) _wbFbsKizCircAppendLog(data.log);
     else {
       _wbFbsKizCircAppendLog(
