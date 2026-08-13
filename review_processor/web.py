@@ -9278,6 +9278,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
         Used by the toolbar search when the order is not in Новые / На сборке /
         В доставке (e.g. finished or cancelled — sync intentionally skips those).
+        Local DB lookup must work even when the marketplace API key is missing.
         """
         from . import wb_fbs_detail as wb_detail
 
@@ -9295,18 +9296,26 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 status_code=400,
                 detail="Укажите номер заказа (не менее 6 цифр)",
             )
-        api_key = _wb_fbs_source_key(owner_id, int(source_id))
+        src_full = repository.get_supply_source_with_key(
+            user_id=owner_id, source_id=int(source_id)
+        )
+        if not src_full:
+            raise HTTPException(status_code=400, detail="Источник не найден")
+        if not wb_fbs_mod.is_fbs_source_name(src_full.get("name")):
+            raise HTTPException(status_code=400, detail="Источник не является ФБС")
+        api_key = str(src_full.get("api_key") or "").strip()
         payload = wb_fbs_mod.lookup_order_by_id(
             repository,
             user_id=owner_id,
             source_id=int(source_id),
             order_id=int(oid),
-            api_key=api_key,
-            allow_remote=True,
+            api_key=api_key or None,
+            allow_remote=bool(api_key),
         )
         payload = _sanitize_wb_fbs_owner_counts(user, payload)
         item = payload.get("item") if isinstance(payload, dict) else None
-        if source_id and isinstance(item, dict):
+        # Stickers need marketplace API — skip quietly when key is absent.
+        if api_key and isinstance(item, dict):
             try:
                 client = wb_fbs_mod.WbFbsClient(api_key)
                 wb_detail.attach_sticker_parts_to_orders(

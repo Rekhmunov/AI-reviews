@@ -20790,6 +20790,43 @@ function _wbFbsParseOrderIdQuery(search) {
   return Number.isFinite(n) ? n : null;
 }
 
+function _wbFbsOrderRowMatchesNonId(row, query) {
+  const q = String(query || "").trim().toLowerCase();
+  if (!q) return false;
+  if (String(row?.article || "").toLowerCase().includes(q)) return true;
+  if (String(row?.supply_id || "").toLowerCase().includes(q)) return true;
+  if (String(row?.nm_id || "").toLowerCase().includes(q)) return true;
+  if (String(row?.product_name || "").toLowerCase().includes(q)) return true;
+  const barcodes = Array.isArray(row?.barcodes)
+    ? row.barcodes
+    : (Array.isArray(row?.skus) ? row.skus : []);
+  return barcodes.some((b) => String(b || "").toLowerCase().includes(q));
+}
+
+function _wbFbsSupplyRowMatchesNonOrderId(row, query, orderId) {
+  const q = String(query || "").trim().toLowerCase();
+  if (!q) return false;
+  const sid = String(row?.supply_id || "").trim();
+  if (sid && sid.toLowerCase().includes(q) && Number(sid) !== Number(orderId)) return true;
+  if (sid && sid === String(orderId)) return true;
+  if (String(row?.name || "").toLowerCase().includes(q)) return true;
+  if (String(row?.warehouse_label || "").toLowerCase().includes(q)) return true;
+  const offices = Array.isArray(row?.offices) ? row.offices : [];
+  if (offices.some((o) => String(o || "").toLowerCase().includes(q))) return true;
+  return false;
+}
+
+let _wbFbsSearchTimer = null;
+function onWbFbsSearchInput() {
+  if (_wbFbsSearchTimer) clearTimeout(_wbFbsSearchTimer);
+  // Debounce: avoid WB API lookup on every digit while typing an order number.
+  _wbFbsSearchTimer = setTimeout(() => {
+    _wbFbsSearchTimer = null;
+    loadWbFbsOrders(true);
+  }, 400);
+}
+window.onWbFbsSearchInput = onWbFbsSearchInput;
+
 function _wbFbsIsSuppliesTab() {
   // Exact order lookup always renders a single order row, even on assembly/delivery.
   if (wbFbsState.lookupMode) return false;
@@ -21286,32 +21323,58 @@ async function loadWbFbsOrders(resetPage = false) {
     wbFbsState.counts = data.counts || {};
     _wbFbsUpdateCounts(wbFbsState.counts);
 
-    // Exact order number not in current tab → local-all-tabs / WB API lookup.
+    // Exact order number: prefer exact hit; ignore order_id substring false-positives
+    // (ILIKE), keep barcode/article hits, otherwise cross-tab / WB lookup.
     const orderIdQuery = _wbFbsParseOrderIdQuery(search);
-    if (orderIdQuery && wbFbsState.total === 0) {
-      if (tbody) {
-        tbody.innerHTML = `<tr><td colspan="${_wbFbsColspan()}" class="wb-fbs-empty">Ищем заказ ${orderIdQuery} в WB…</td></tr>`;
+    if (orderIdQuery) {
+      let exactItems = [];
+      let nonIdItems = [];
+      if (suppliesMode) {
+        exactItems = wbFbsState.items.filter((s) => {
+          const ids = Array.isArray(s.order_ids) ? s.order_ids : [];
+          if (ids.some((id) => Number(id) === orderIdQuery)) return true;
+          return String(s.supply_id || "").trim() === String(orderIdQuery);
+        });
+        nonIdItems = wbFbsState.items.filter((s) =>
+          _wbFbsSupplyRowMatchesNonOrderId(s, search, orderIdQuery)
+        );
+      } else {
+        exactItems = wbFbsState.items.filter((o) => Number(o.order_id) === orderIdQuery);
+        nonIdItems = wbFbsState.items.filter((o) => _wbFbsOrderRowMatchesNonId(o, search));
       }
-      if (info) info.textContent = `Поиск заказа ${orderIdQuery}…`;
-      const lookup = await _wbFbsLookupOrderById(orderIdQuery, { signal, seq });
-      if (seq !== wbFbsState.loadSeq) return;
-      if (lookup && _wbFbsApplyLookupResult(lookup, orderIdQuery)) return;
-      wbFbsState.items = [];
-      wbFbsState.total = 0;
-      _wbFbsSyncTableMode();
-      if (suppliesMode) renderWbFbsSuppliesTable();
-      else renderWbFbsOrdersTable();
-      if (info) {
-        info.textContent = lookup?.message
-          || `Заказ ${orderIdQuery} не найден в Новые / На сборке / В доставке и в WB API`;
+
+      if (exactItems.length) {
+        wbFbsState.items = exactItems;
+        wbFbsState.total = exactItems.length;
+      } else if (nonIdItems.length) {
+        // Numeric query matched SKU/article/supply name — keep tab results.
+        wbFbsState.items = nonIdItems;
+        wbFbsState.total = nonIdItems.length;
+      } else {
+        if (tbody) {
+          tbody.innerHTML = `<tr><td colspan="${_wbFbsColspan()}" class="wb-fbs-empty">Ищем заказ ${orderIdQuery} в WB…</td></tr>`;
+        }
+        if (info) info.textContent = `Поиск заказа ${orderIdQuery}…`;
+        const lookup = await _wbFbsLookupOrderById(orderIdQuery, { signal, seq });
+        if (seq !== wbFbsState.loadSeq) return;
+        if (lookup && _wbFbsApplyLookupResult(lookup, orderIdQuery)) return;
+        wbFbsState.items = [];
+        wbFbsState.total = 0;
+        _wbFbsSyncTableMode();
+        if (suppliesMode) renderWbFbsSuppliesTable();
+        else renderWbFbsOrdersTable();
+        if (info) {
+          info.textContent = lookup?.message
+            || `Заказ ${orderIdQuery} не найден в Новые / На сборке / В доставке и в WB API`;
+        }
+        const pageInfoMiss = document.getElementById("wbFbsPageInfo");
+        if (pageInfoMiss) pageInfoMiss.textContent = "1 / 1";
+        const prevMiss = document.getElementById("wbFbsPrevBtn");
+        const nextMiss = document.getElementById("wbFbsNextBtn");
+        if (prevMiss) prevMiss.disabled = true;
+        if (nextMiss) nextMiss.disabled = true;
+        return;
       }
-      const pageInfo = document.getElementById("wbFbsPageInfo");
-      if (pageInfo) pageInfo.textContent = "1 / 1";
-      const prevBtn = document.getElementById("wbFbsPrevBtn");
-      const nextBtn = document.getElementById("wbFbsNextBtn");
-      if (prevBtn) prevBtn.disabled = true;
-      if (nextBtn) nextBtn.disabled = true;
-      return;
     }
 
     if (suppliesMode) renderWbFbsSuppliesTable();
