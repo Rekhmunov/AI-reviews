@@ -8338,6 +8338,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except (TypeError, ValueError):
             return False
 
+    def _require_wb_fbs_kiz_owner(user: dict[str, object]) -> None:
+        """Вывод КИЗ — только главному пользователю (как шестерёнка auto-sync)."""
+        if not _is_wb_fbs_tenant_owner(user):
+            raise HTTPException(
+                status_code=403,
+                detail="Вывод КИЗ доступен только главному пользователю",
+            )
+
     def _require_wb_fbs_owner_tab(user: dict[str, object], tab: str | None) -> None:
         # Tabs finished/cancelled/archive are disabled for everyone (incl. owner).
         if wb_fbs_mod.is_hidden_tab(tab):
@@ -10170,6 +10178,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         user = _require_user(request)
         if not _can_view_wb_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
+        _require_wb_fbs_kiz_owner(user)
         owner_id = _supply_owner_id(user)
         if not source_id:
             raise HTTPException(status_code=400, detail="Укажите source_id")
@@ -10191,6 +10200,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         user = _require_user(request)
         if not _can_view_wb_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
+        _require_wb_fbs_kiz_owner(user)
         owner_id = _supply_owner_id(user)
         if not source_id:
             raise HTTPException(status_code=400, detail="Укажите source_id")
@@ -10213,6 +10223,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         user = _require_user(request)
         if not _can_view_wb_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
+        _require_wb_fbs_kiz_owner(user)
         owner_id = _supply_owner_id(user)
         sid = int(payload.source_id or 0)
         if sid <= 0:
@@ -10256,6 +10267,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         user = _require_user(request)
         if not _can_view_wb_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
+        _require_wb_fbs_kiz_owner(user)
         run = kiz_circ.get_run(
             repository, user_id=_supply_owner_id(user), run_id=int(run_id)
         )
@@ -10272,6 +10284,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         user = _require_user(request)
         if not _can_view_wb_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
+        _require_wb_fbs_kiz_owner(user)
         owner_id = _supply_owner_id(user)
         if not source_id:
             raise HTTPException(status_code=400, detail="Укажите source_id")
@@ -10291,6 +10304,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         user = _require_user(request)
         if not _can_view_wb_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
+        _require_wb_fbs_kiz_owner(user)
         owner_id = _supply_owner_id(user)
         sid = int(payload.source_id or 0)
         if sid <= 0:

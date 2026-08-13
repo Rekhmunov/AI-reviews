@@ -16743,6 +16743,10 @@ function _wbFbsKizCircDefaultDates() {
 }
 
 async function openWbFbsKizCirculationModal() {
+  if (!_wbFbsCanViewOwnerTabs()) {
+    alert("Вывод КИЗ доступен только главному пользователю");
+    return;
+  }
   const sid = _wbFbsKizCircSourceId();
   if (!sid) {
     alert("Выберите источник WB FBS");
@@ -21128,9 +21132,18 @@ function _wbFbsSyncOwnerOnlyGear() {
   if (!can) btn.classList.remove("is-auto-on");
 }
 
+function _wbFbsSyncOwnerOnlyKizBtn() {
+  const btn = document.getElementById("wbFbsKizCirculationBtn");
+  if (!btn) return;
+  const can = _wbFbsCanViewOwnerTabs();
+  btn.hidden = !can;
+  btn.style.display = can ? "" : "none";
+}
+
 async function initWbFbsSection() {
   _wbFbsSyncOwnerOnlyTabs();
   _wbFbsSyncOwnerOnlyGear();
+  _wbFbsSyncOwnerOnlyKizBtn();
   initWbFbsColumnResizer();
   _wbFbsSyncTableMode();
   await loadWbFbsSources();
