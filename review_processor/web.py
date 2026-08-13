@@ -10146,18 +10146,59 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         client.set_token(token)
         results: list[dict[str, object]] = []
         log_lines: list[str] = []
+        # Reconcile in-flight submitted docs before accepting new ones.
+        try:
+            recon = kiz_circ.reconcile_submitted_with_chz(
+                repository, client, user_id=owner_id, source_id=sid
+            )
+            if recon.get("docs_checked"):
+                log_lines.append(
+                    "сверка submitted: "
+                    f"док={recon.get('docs_checked')}, "
+                    f"принято={recon.get('accepted')}, "
+                    f"отклонено={recon.get('failed')}"
+                )
+        except Exception as exc:
+            log_lines.append(f"сверка submitted пропущена: {exc}")
+
         for doc in list(payload.documents or []):
             keys = [str(k) for k in (doc.event_keys or []) if str(k).strip()]
             title = f"{doc.doc_type} · {len(keys)} КИЗ"
+            payload_b64 = str(getattr(doc, "product_document_b64", "") or "").strip()
             try:
-                payload_b64 = str(getattr(doc, "product_document_b64", "") or "").strip()
                 doc_id = client.create_document(
                     doc_type=str(doc.doc_type or ""),
-                    product_group=str(doc.product_group or settings.get("product_group") or ""),
+                    product_group=str(
+                        doc.product_group or settings.get("product_group") or ""
+                    ),
                     product_document=dict(doc.product_document or {}),
                     product_document_b64=payload_b64,
                     signature_b64=str(doc.signature_base64 or ""),
                 )
+            except Exception as exc:
+                # Only mark error when CHZ create itself failed (safe to retry).
+                kiz_circ.mark_events_error(
+                    repository,
+                    user_id=owner_id,
+                    source_id=sid,
+                    event_keys=keys,
+                    error_text=str(exc),
+                )
+                results.append(
+                    {
+                        "ok": False,
+                        "doc_type": doc.doc_type,
+                        "error": str(exc),
+                        "event_count": len(keys),
+                    }
+                )
+                log_lines.append(f"{title} → ошибка: {exc}")
+                continue
+
+            # Document already exists in CHZ — never flip back to error on local faults.
+            chz_status = "submitted"
+            local_status = "submitted"
+            try:
                 kiz_circ.mark_events_submitted(
                     repository,
                     user_id=owner_id,
@@ -10167,8 +10208,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     doc_type=str(doc.doc_type or ""),
                     run_id=payload.run_id,
                 )
-                chz_status = "submitted"
-                local_status = "submitted"
                 try:
                     info = client.document_info(doc_id)
                     chz_status = str(
@@ -10186,39 +10225,25 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                         chz_status=chz_status,
                     )
                 except Exception:
-                    # Keep submitted — async processing; do not pretend accepted.
                     pass
-                ok_doc = local_status != "error"
-                results.append(
-                    {
-                        "ok": ok_doc,
-                        "doc_type": doc.doc_type,
-                        "chz_doc_id": doc_id,
-                        "chz_status": chz_status,
-                        "local_status": local_status,
-                        "event_count": len(keys),
-                    }
-                )
-                log_lines.append(
-                    f"{title} → {doc_id} (ЧЗ: {chz_status}, локально: {local_status})"
-                )
             except Exception as exc:
-                kiz_circ.mark_events_error(
-                    repository,
-                    user_id=owner_id,
-                    source_id=sid,
-                    event_keys=keys,
-                    error_text=str(exc),
+                log_lines.append(
+                    f"{title} → создан в ЧЗ {doc_id}, локальный статус: {exc}"
                 )
-                results.append(
-                    {
-                        "ok": False,
-                        "doc_type": doc.doc_type,
-                        "error": str(exc),
-                        "event_count": len(keys),
-                    }
-                )
-                log_lines.append(f"{title} → ошибка: {exc}")
+            ok_doc = local_status != "error"
+            results.append(
+                {
+                    "ok": ok_doc,
+                    "doc_type": doc.doc_type,
+                    "chz_doc_id": doc_id,
+                    "chz_status": chz_status,
+                    "local_status": local_status,
+                    "event_count": len(keys),
+                }
+            )
+            log_lines.append(
+                f"{title} → {doc_id} (ЧЗ: {chz_status}, локально: {local_status})"
+            )
         ok_n = sum(1 for r in results if r.get("ok"))
         return {
             "ok": ok_n == len(results) and bool(results),

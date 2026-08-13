@@ -268,6 +268,44 @@ def repair_stuck_return_events(
         return int(getattr(cur, "rowcount", 0) or 0)
 
 
+def repair_unhealable_withdraw_errors(
+    repo: ReviewRepository, *, user_id: int, source_id: int
+) -> int:
+    """Move withdraw-without-fiscal from error → skipped (do not block CHZ queue)."""
+    ensure_kiz_circulation_tables(repo)
+    now = datetime.now(timezone.utc).isoformat()
+    with repo._connect() as conn:
+        cur = conn.execute(
+            repo._sql(
+                """
+                UPDATE wb_kiz_circulation_events
+                SET status = ?, updated_at = ?
+                WHERE user_id = ? AND source_id = ?
+                  AND operation_type = ?
+                  AND status = ?
+                  AND (
+                    skip_reason ILIKE '%нет номера%'
+                    OR skip_reason ILIKE '%нет чека%'
+                  )
+                """
+            ),
+            (STATUS_SKIPPED, now, user_id, source_id, OP_WITHDRAW, STATUS_ERROR),
+        )
+        return int(getattr(cur, "rowcount", 0) or 0)
+
+
+def repair_circulation_queue(
+    repo: ReviewRepository, *, user_id: int, source_id: int
+) -> dict[str, int]:
+    returns_fixed = repair_stuck_return_events(
+        repo, user_id=user_id, source_id=source_id
+    )
+    withdraw_skipped = repair_unhealable_withdraw_errors(
+        repo, user_id=user_id, source_id=source_id
+    )
+    return {"returns_fixed": returns_fixed, "withdraw_skipped": withdraw_skipped}
+
+
 def get_chz_settings(repo: ReviewRepository, *, user_id: int) -> dict[str, Any]:
     ensure_kiz_circulation_tables(repo)
     with repo._connect() as conn:
@@ -533,11 +571,15 @@ def _normalize_row(row: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _initial_status(norm: dict[str, Any]) -> tuple[str, str]:
-    """Withdraw needs fiscal for LK_RECEIPT; returns may omit fiscal (WB: «если есть»)."""
+    """Withdraw needs fiscal for LK_RECEIPT; returns may omit fiscal (WB: «если есть»).
+
+    Missing-fiscal withdraw is ``skipped`` (not ``error``) so it cannot poison
+    the CHZ prepare queue ahead of processable events.
+    """
     op = int(norm.get("operation_type") or 0)
     has_fiscal = bool(norm.get("fiscal_doc_number") and norm.get("fiscal_dt"))
     if op == OP_WITHDRAW and not has_fiscal:
-        return STATUS_ERROR, "нет номера/даты чека"
+        return STATUS_SKIPPED, "нет номера/даты чека"
     return STATUS_PENDING, ""
 
 
@@ -551,7 +593,7 @@ def sync_excise_report(
     date_to: str = "",
 ) -> dict[str, Any]:
     ensure_kiz_circulation_tables(repo)
-    repaired = repair_stuck_return_events(repo, user_id=user_id, source_id=source_id)
+    repaired = repair_circulation_queue(repo, user_id=user_id, source_id=source_id)
     today = _moscow_today()
     cursor = get_cursor(repo, user_id=user_id, source_id=source_id)
     date_to_s = _parse_date(date_to, default=today)
@@ -572,8 +614,13 @@ def sync_excise_report(
     now = datetime.now(timezone.utc).isoformat()
     log: list[str] = []
     _append_log(log, f"WB: период {date_from_s}…{date_to_s}")
-    if repaired:
-        _append_log(log, f"восстановлено возвратов без чека: {repaired}")
+    if repaired.get("returns_fixed"):
+        _append_log(log, f"восстановлено возвратов без чека: {repaired['returns_fixed']}")
+    if repaired.get("withdraw_skipped"):
+        _append_log(
+            log,
+            f"выводы без чека → skipped (не блокируют очередь): {repaired['withdraw_skipped']}",
+        )
 
     with repo._connect() as conn:
         row = conn.execute(
@@ -884,11 +931,14 @@ def list_events_for_chz(
     source_id: int,
     limit: int = PREPARE_EVENT_LIMIT,
 ) -> list[dict[str, Any]]:
-    """Events eligible for CHZ submit: pending/error + failed submitted. Oldest first."""
+    """Events eligible for CHZ submit: pending + recoverable error + failed submitted.
+
+    Excludes ``skipped`` and unhealable withdraw-without-fiscal errors so they
+    cannot starve the oldest-first queue.
+    """
     ensure_kiz_circulation_tables(repo)
     lim = max(1, min(int(limit or PREPARE_EVENT_LIMIT), 5000))
     fail_list = sorted(CHZ_STATUS_FAILED)
-    # Build placeholders for failed chz_status match
     fail_placeholders = ", ".join(["?"] * len(fail_list)) if fail_list else "NULL"
     params: list[Any] = [user_id, source_id, *fail_list, lim]
     with repo._connect() as conn:
@@ -898,13 +948,26 @@ def list_events_for_chz(
                 SELECT * FROM wb_kiz_circulation_events
                 WHERE user_id = ? AND source_id = ?
                   AND (
-                    status IN ('pending', 'ready', 'error')
+                    status IN ('pending', 'ready')
+                    OR (
+                      status = 'error'
+                      AND NOT (
+                        operation_type = 1
+                        AND (
+                          skip_reason ILIKE '%нет номера%'
+                          OR skip_reason ILIKE '%нет чека%'
+                        )
+                      )
+                    )
                     OR (
                       status = 'submitted'
                       AND UPPER(COALESCE(chz_status, '')) IN ({fail_placeholders})
                     )
                   )
-                ORDER BY fiscal_dt ASC NULLS FIRST, id ASC
+                ORDER BY
+                  CASE WHEN fiscal_dt IS NULL OR fiscal_dt = '' THEN 1 ELSE 0 END,
+                  fiscal_dt ASC,
+                  id ASC
                 LIMIT ?
                 """
             ),
@@ -916,6 +979,80 @@ def list_events_for_chz(
         d.pop("raw_json", None)
         out.append(d)
     return out
+
+
+def reconcile_submitted_with_chz(
+    repo: ReviewRepository,
+    client: ChzTrueApiClient,
+    *,
+    user_id: int,
+    source_id: int,
+    limit: int = 100,
+) -> dict[str, int]:
+    """Poll CHZ for in-flight submitted docs and update local statuses."""
+    ensure_kiz_circulation_tables(repo)
+    lim = max(1, min(int(limit or 100), 500))
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                """
+                SELECT event_key, chz_doc_id, chz_status
+                FROM wb_kiz_circulation_events
+                WHERE user_id = ? AND source_id = ?
+                  AND status = ?
+                  AND COALESCE(chz_doc_id, '') <> ''
+                ORDER BY updated_at ASC NULLS FIRST, id ASC
+                LIMIT ?
+                """
+            ),
+            (user_id, source_id, STATUS_SUBMITTED, lim),
+        ).fetchall()
+    by_doc: dict[str, list[str]] = {}
+    for r in rows:
+        d = repo._row_to_dict(r)
+        doc_id = str(d.get("chz_doc_id") or "").strip()
+        key = str(d.get("event_key") or "").strip()
+        if not doc_id or not key:
+            continue
+        # Skip already-classified terminal failures (handled by prepare retry).
+        st = str(d.get("chz_status") or "").strip().upper()
+        if st in CHZ_STATUS_FAILED or st in CHZ_STATUS_SUCCESS:
+            continue
+        by_doc.setdefault(doc_id, []).append(key)
+
+    checked = 0
+    accepted = 0
+    failed = 0
+    for doc_id, keys in by_doc.items():
+        checked += 1
+        try:
+            info = client.document_info(doc_id)
+            chz_status = str(
+                info.get("status")
+                or info.get("docStatus")
+                or info.get("state")
+                or ""
+            )
+            final = apply_chz_doc_status(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                event_keys=keys,
+                chz_doc_id=doc_id,
+                chz_status=chz_status or "submitted",
+            )
+            if final == STATUS_ACCEPTED:
+                accepted += 1
+            elif final == STATUS_ERROR:
+                failed += 1
+        except Exception as exc:
+            logger.warning("CHZ reconcile doc %s failed: %s", doc_id, exc)
+    return {
+        "docs_checked": checked,
+        "accepted": accepted,
+        "failed": failed,
+        "events": sum(len(v) for v in by_doc.values()),
+    }
 
 
 def get_overview(
@@ -1018,7 +1155,9 @@ def prepare_chz_batches(
             "Товарная группа (pg) — код True API (например lp, shoes), не число"
         )
 
-    repair_stuck_return_events(repo, user_id=user_id, source_id=source_id)
+    queue_repair = repair_circulation_queue(
+        repo, user_id=user_id, source_id=source_id
+    )
     lim = max(1, min(int(limit or PREPARE_EVENT_LIMIT), 5000))
     events = list_events_for_chz(
         repo, user_id=user_id, source_id=source_id, limit=lim
@@ -1027,6 +1166,7 @@ def prepare_chz_batches(
     withdraw_groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
     return_items: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
+    warnings: list[str] = []
 
     for ev in events:
         op = int(ev.get("operation_type") or 0)
@@ -1048,10 +1188,15 @@ def prepare_chz_batches(
 
     kpp = str(settings.get("kpp") or "").strip()
     fias_id = str(settings.get("fias_id") or "").strip()
+    # Soft-skip withdraw if DISTANCE settings incomplete — still process returns.
     if withdraw_groups and (not kpp or not fias_id):
-        raise ValueError(
-            "Для вывода DISTANCE укажите КПП и ФИАС ID в Настройки → ЧЗ"
+        warnings.append(
+            "Вывод DISTANCE пропущен: укажите КПП и ФИАС ID в Настройки → ЧЗ"
         )
+        for group in withdraw_groups.values():
+            for ev in group:
+                skipped.append({**ev, "skip_reason": "нет КПП/ФИАС в настройках ЧЗ"})
+        withdraw_groups = {}
 
     documents: list[dict[str, Any]] = []
     for (fiscal_no, fiscal_dt), group in withdraw_groups.items():
@@ -1106,6 +1251,7 @@ def prepare_chz_batches(
             }
         )
 
+    withdraw_n = sum(len(g) for g in withdraw_groups.values())
     return {
         "ok": True,
         "settings": {
@@ -1116,6 +1262,8 @@ def prepare_chz_batches(
             "cert_thumbprint": settings.get("cert_thumbprint") or "",
         },
         "documents": documents,
+        "warnings": warnings,
+        "queue_repair": queue_repair,
         "skipped": [
             {
                 "event_key": s.get("event_key"),
@@ -1126,7 +1274,7 @@ def prepare_chz_batches(
         ],
         "counts": {
             "documents": len(documents),
-            "withdraw_events": sum(len(g) for g in withdraw_groups.values()),
+            "withdraw_events": withdraw_n,
             "return_events": len(return_items),
             "skipped": len(skipped),
             "eligible_loaded": len(events),
@@ -1346,6 +1494,9 @@ __all__ = [
     "classify_chz_doc_status",
     "mark_events_error",
     "repair_stuck_return_events",
+    "repair_unhealable_withdraw_errors",
+    "repair_circulation_queue",
+    "reconcile_submitted_with_chz",
     "chz_client_from_settings",
     "mask_secret",
     "encrypt_secret",

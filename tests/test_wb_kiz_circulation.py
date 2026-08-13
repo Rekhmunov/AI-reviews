@@ -94,13 +94,13 @@ def test_initial_status_return_without_fiscal_is_pending() -> None:
     assert reason == ""
 
 
-def test_initial_status_withdraw_without_fiscal_is_error() -> None:
+def test_initial_status_withdraw_without_fiscal_is_skipped() -> None:
     w = circ._normalize_row(
         {"operation_type_id": 1, "excise_short": "Y", "srid": "s2"}
     )
     assert w is not None
     st, reason = circ._initial_status(w)
-    assert st == circ.STATUS_ERROR
+    assert st == circ.STATUS_SKIPPED
     assert "чек" in reason
 
 
@@ -180,7 +180,10 @@ def test_price_for_chz_skips_foreign_currency() -> None:
 
 
 @patch("review_processor.wb_kiz_circulation.list_events_for_chz")
-@patch("review_processor.wb_kiz_circulation.repair_stuck_return_events", return_value=0)
+@patch(
+    "review_processor.wb_kiz_circulation.repair_circulation_queue",
+    return_value={"returns_fixed": 0, "withdraw_skipped": 0},
+)
 @patch("review_processor.wb_kiz_circulation.get_chz_settings")
 def test_prepare_groups_by_receipt(mock_settings, _repair, mock_list) -> None:
     mock_settings.return_value = {
@@ -240,9 +243,14 @@ def test_prepare_groups_by_receipt(mock_settings, _repair, mock_list) -> None:
 
 
 @patch("review_processor.wb_kiz_circulation.list_events_for_chz")
-@patch("review_processor.wb_kiz_circulation.repair_stuck_return_events", return_value=0)
+@patch(
+    "review_processor.wb_kiz_circulation.repair_circulation_queue",
+    return_value={"returns_fixed": 0, "withdraw_skipped": 0},
+)
 @patch("review_processor.wb_kiz_circulation.get_chz_settings")
-def test_prepare_requires_kpp_fias_for_withdraw(mock_settings, _repair, mock_list) -> None:
+def test_prepare_soft_skips_withdraw_without_kpp_keeps_returns(
+    mock_settings, _repair, mock_list
+) -> None:
     mock_settings.return_value = {
         "is_enabled": True,
         "participant_inn": "7707083893",
@@ -262,14 +270,29 @@ def test_prepare_requires_kpp_fias_for_withdraw(mock_settings, _repair, mock_lis
             "fiscal_doc_number": "11",
             "fiscal_dt": "2026-08-10",
             "status": "pending",
-        }
+        },
+        {
+            "event_key": "r1",
+            "operation_type": 2,
+            "excise_short": "cis-r",
+            "fiscal_doc_number": "",
+            "fiscal_dt": "",
+            "status": "pending",
+        },
     ]
-    with pytest.raises(ValueError, match="КПП"):
-        circ.prepare_chz_batches(repo=object(), user_id=1, source_id=2)
+    out = circ.prepare_chz_batches(repo=object(), user_id=1, source_id=2)
+    assert out["counts"]["withdraw_events"] == 0
+    assert out["counts"]["return_events"] == 1
+    assert any(d["doc_type"] == "LP_RETURN" for d in out["documents"])
+    assert out["warnings"]
+    assert not any(d["doc_type"] == "LK_RECEIPT" for d in out["documents"])
 
 
 @patch("review_processor.wb_kiz_circulation.list_events_for_chz")
-@patch("review_processor.wb_kiz_circulation.repair_stuck_return_events", return_value=0)
+@patch(
+    "review_processor.wb_kiz_circulation.repair_circulation_queue",
+    return_value={"returns_fixed": 0, "withdraw_skipped": 0},
+)
 @patch("review_processor.wb_kiz_circulation.get_chz_settings")
 def test_prepare_chunks_returns(mock_settings, _repair, mock_list) -> None:
     mock_settings.return_value = {

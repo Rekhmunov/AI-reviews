@@ -16677,57 +16677,78 @@ async function runWbFbsKizCirculationChz() {
   const btn = document.getElementById("wbFbsKizCircChzBtn");
   wbFbsKizCircState.busy = true;
   if (btn) btn.disabled = true;
+  const maxRounds = 20;
+  let token = "";
+  let thumb = "";
+  let totalSubmitted = 0;
+  let totalFailed = 0;
   try {
-    _wbFbsKizCircAppendLog("ЧЗ: подготовка документов…");
-    const prepRes = await fetch(
-      `/api/wb-fbs/kiz-circulation/chz/prepare?source_id=${sid}`,
-      { method: "POST", headers: jsonHeaders() },
-    );
-    const prep = await prepRes.json().catch(() => ({}));
-    if (!prepRes.ok) throw new Error(prep.detail || "Ошибка prepare");
-    const docs = Array.isArray(prep.documents) ? prep.documents : [];
-    if (!docs.length) {
-      _wbFbsKizCircAppendLog("Нет событий для передачи в ЧЗ");
-      await refreshWbFbsKizCirculation();
-      return;
-    }
-    _wbFbsKizCircAppendLog(
-      `К передаче: ${docs.length} док. `
-      + `(вывод ${prep.counts?.withdraw_events || 0}, возврат ${prep.counts?.return_events || 0})`
-      + (prep.has_more ? " · есть ещё в очереди — повторите после успеха" : ""),
-    );
-    _wbFbsKizCircAppendLog("ЧЗ: авторизация УКЭП…");
-    const preferred = prep.settings?.cert_thumbprint || "";
-    const { token, thumbprint: thumb } = await _chzObtainToken(preferred);
-    _wbFbsKizCircAppendLog("Токен получен, подпись документов…");
-    const signed = [];
-    for (const doc of docs) {
-      const payloadB64 = String(doc.sign_payload_b64 || "");
-      if (!payloadB64) throw new Error(`Нет payload для ${doc.title || doc.doc_type}`);
-      const bytes = _b64ToBytes(payloadB64);
-      _wbFbsKizCircAppendLog(`Подпись: ${doc.title || doc.doc_type}`);
-      const sigB64 = await _signDetachedCadesBes(bytes, thumb);
-      signed.push({
-        doc_type: doc.doc_type,
-        product_group: doc.product_group || "",
-        event_keys: doc.event_keys || [],
-        product_document: doc.product_document || {},
-        // Exact bytes that were signed — server must not re-serialize JSON.
-        product_document_b64: payloadB64,
-        signature_base64: sigB64,
+    for (let round = 1; round <= maxRounds; round++) {
+      _wbFbsKizCircAppendLog(
+        round === 1 ? "ЧЗ: подготовка документов…" : `ЧЗ: следующий пакет (${round}/${maxRounds})…`,
+      );
+      const prepRes = await fetch(
+        `/api/wb-fbs/kiz-circulation/chz/prepare?source_id=${sid}`,
+        { method: "POST", headers: jsonHeaders() },
+      );
+      const prep = await prepRes.json().catch(() => ({}));
+      if (!prepRes.ok) throw new Error(prep.detail || "Ошибка prepare");
+      for (const w of (prep.warnings || [])) {
+        _wbFbsKizCircAppendLog(`⚠ ${w}`);
+      }
+      const docs = Array.isArray(prep.documents) ? prep.documents : [];
+      if (!docs.length) {
+        if (round === 1) _wbFbsKizCircAppendLog("Нет событий для передачи в ЧЗ");
+        break;
+      }
+      _wbFbsKizCircAppendLog(
+        `К передаче: ${docs.length} док. `
+        + `(вывод ${prep.counts?.withdraw_events || 0}, возврат ${prep.counts?.return_events || 0})`
+        + (prep.has_more ? " · очередь продолжается" : ""),
+      );
+      if (!token) {
+        _wbFbsKizCircAppendLog("ЧЗ: авторизация УКЭП…");
+        const preferred = prep.settings?.cert_thumbprint || "";
+        const auth = await _chzObtainToken(preferred);
+        token = auth.token;
+        thumb = auth.thumbprint;
+        _wbFbsKizCircAppendLog("Токен получен, подпись документов…");
+      }
+      const signed = [];
+      for (const doc of docs) {
+        const payloadB64 = String(doc.sign_payload_b64 || "");
+        if (!payloadB64) throw new Error(`Нет payload для ${doc.title || doc.doc_type}`);
+        const bytes = _b64ToBytes(payloadB64);
+        _wbFbsKizCircAppendLog(`Подпись: ${doc.title || doc.doc_type}`);
+        const sigB64 = await _signDetachedCadesBes(bytes, thumb);
+        signed.push({
+          doc_type: doc.doc_type,
+          product_group: doc.product_group || "",
+          event_keys: doc.event_keys || [],
+          product_document: doc.product_document || {},
+          product_document_b64: payloadB64,
+          signature_base64: sigB64,
+        });
+      }
+      _wbFbsKizCircAppendLog("Отправка в True API…");
+      const subRes = await fetch("/api/wb-fbs/kiz-circulation/chz/submit", {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ source_id: sid, token, documents: signed }),
       });
+      const sub = await subRes.json().catch(() => ({}));
+      if (!subRes.ok) throw new Error(sub.detail || "Ошибка submit");
+      if (sub.log) _wbFbsKizCircAppendLog(sub.log);
+      totalSubmitted += Number(sub.submitted || 0);
+      totalFailed += Number(sub.failed || 0);
+      if (!prep.has_more) break;
+      if (Number(sub.failed || 0) > 0 && Number(sub.submitted || 0) === 0) {
+        _wbFbsKizCircAppendLog("Остановка: пакет полностью с ошибками");
+        break;
+      }
     }
-    _wbFbsKizCircAppendLog("Отправка в True API…");
-    const subRes = await fetch("/api/wb-fbs/kiz-circulation/chz/submit", {
-      method: "POST",
-      headers: jsonHeaders(),
-      body: JSON.stringify({ source_id: sid, token, documents: signed }),
-    });
-    const sub = await subRes.json().catch(() => ({}));
-    if (!subRes.ok) throw new Error(sub.detail || "Ошибка submit");
-    if (sub.log) _wbFbsKizCircAppendLog(sub.log);
     _wbFbsKizCircAppendLog(
-      `Готово: отправлено ${sub.submitted || 0}, ошибок ${sub.failed || 0}`,
+      `Итого: отправлено ${totalSubmitted}, ошибок ${totalFailed}`,
     );
     await refreshWbFbsKizCirculation();
   } catch (err) {
