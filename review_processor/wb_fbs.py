@@ -3124,22 +3124,19 @@ def start_sync_thread(
                     _wb_fbs_sync_state["pallet_summary"] = []
                 else:
                     _wb_fbs_sync_state["errors"] = all_errors[:8]
-                    src_part = f"источников: {synced_sources}/{len(jobs)}"
+                    stats_part = (
+                        f"Источников: {synced_sources}/{len(jobs)} | "
+                        f"Заказов: {total_orders} | "
+                        f"Поставок: {total_supplies}"
+                    )
                     if stopped:
-                        _wb_fbs_sync_state["message"] = (
-                            f"Остановлено. {src_part}, заказов: {total_orders}, "
-                            f"поставок: {total_supplies}"
-                        )
+                        _wb_fbs_sync_state["message"] = f"Остановлено. {stats_part}"
                     elif all_errors:
                         _wb_fbs_sync_state["message"] = (
-                            f"Готово с ошибками. {src_part}, заказов: {total_orders}, "
-                            f"поставок: {total_supplies}"
+                            f"Готово с ошибками. {stats_part}"
                         )
                     else:
-                        _wb_fbs_sync_state["message"] = (
-                            f"Готово. {src_part}, заказов: {total_orders}, "
-                            f"поставок: {total_supplies}"
-                        )
+                        _wb_fbs_sync_state["message"] = f"Готово. {stats_part}"
         except Exception as exc:
             _log.exception("wb_fbs multi-source sync failed")
             with _wb_fbs_sync_lock:
