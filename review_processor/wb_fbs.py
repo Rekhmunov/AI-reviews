@@ -1662,6 +1662,330 @@ def list_orders(
     }
 
 
+def parse_order_id_query(search: object) -> int | None:
+    """Return order id when search is an exact numeric assembly-order number."""
+    q = str(search or "").strip()
+    # WB assembly order ids are long integers; require ≥6 digits to avoid
+    # accidental remote lookups while typing short article/SKU fragments.
+    if not re.fullmatch(r"\d{6,}", q):
+        return None
+    try:
+        return int(q)
+    except (TypeError, ValueError):
+        return None
+
+
+def _enrich_order_row(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    row: dict[str, Any],
+    name_map: dict[str, str] | None = None,
+    photo_map: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Attach product/price/status labels used by the WB FBS orders table."""
+    d = dict(row)
+    names = name_map if name_map is not None else repo.get_product_name_by_article(user_id=user_id)
+    photos = photo_map if photo_map is not None else repo.get_product_photo_map(user_id=user_id)
+    article = str(d.get("article") or "").strip()
+    nm_id = str(d.get("nm_id") or "").strip()
+    d["product_name"] = names.get(article) or names.get(nm_id) or article or "—"
+    d["product_photo"] = photos.get(article) or photos.get(nm_id) or ""
+    raw_order: dict[str, Any] = {}
+    try:
+        parsed_raw = json.loads(d.get("raw_json") or "{}")
+        if isinstance(parsed_raw, dict):
+            raw_order = parsed_raw
+    except Exception:
+        raw_order = {}
+    if raw_order:
+        amount, ccy = resolve_order_price(raw_order)
+        d["final_price"] = amount
+        d["currency_code"] = ccy
+        d["price_display"] = format_price_rub(amount, ccy)
+    else:
+        d["price_display"] = format_price_rub(
+            d.get("final_price") or d.get("price"), d.get("currency_code")
+        )
+    d["cargo_label"] = cargo_type_label(d.get("cargo_type"))
+    d["cancel_reason_label"] = cancel_reason_label(
+        supplier_status=d.get("supplier_status"),
+        wb_status=d.get("wb_status"),
+    )
+    d["finished_status_label"] = finished_status_label(
+        supplier_status=d.get("supplier_status"),
+        wb_status=d.get("wb_status"),
+    )
+    try:
+        offices = json.loads(d.get("offices_json") or "[]")
+    except Exception:
+        offices = []
+    d["offices"] = offices if isinstance(offices, list) else []
+    office_names = [str(x).strip() for x in d["offices"] if str(x or "").strip()]
+    d["warehouse_label"] = ", ".join(office_names) or (
+        f"Склад {d.get('warehouse_id')}" if d.get("warehouse_id") else "—"
+    )
+    warehouse_address = ""
+    if isinstance(raw_order, dict):
+        addr = raw_order.get("address")
+        if isinstance(addr, dict):
+            warehouse_address = str(addr.get("fullAddress") or "").strip()
+        elif isinstance(addr, str):
+            warehouse_address = addr.strip()
+    d["warehouse_address"] = warehouse_address
+    try:
+        skus_raw = json.loads(d.get("skus_json") or "[]")
+    except Exception:
+        skus_raw = []
+    barcodes: list[str] = []
+    if isinstance(skus_raw, list):
+        for sku in skus_raw:
+            text = str(sku or "").strip()
+            if text and text not in barcodes:
+                barcodes.append(text)
+    d["barcodes"] = barcodes
+    d["skus"] = barcodes
+    return d
+
+
+def get_order_by_id(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    order_id: int,
+) -> dict[str, Any] | None:
+    """Exact local lookup across all tabs (incl. finished/cancelled/archive)."""
+    ensure_wb_fbs_tables(repo)
+    with repo._connect() as conn:
+        row = conn.execute(
+            repo._sql(
+                """
+                SELECT * FROM wb_fbs_orders
+                WHERE user_id = ? AND source_id = ? AND order_id = ?
+                LIMIT 1
+                """
+            ),
+            (user_id, int(source_id), int(order_id)),
+        ).fetchone()
+    if not row:
+        return None
+    return repo._row_to_dict(row)
+
+
+def _fetch_order_payload_from_wb(
+    client: WbFbsClient,
+    order_id: int,
+    *,
+    max_order_pages: int = 20,
+    max_archive_pages: int = 5,
+) -> tuple[dict[str, Any] | None, bool, dict[str, str] | None]:
+    """Find full WB order payload + status.
+
+    Returns ``(order_payload_or_none, is_archive, status_or_none)``.
+    Status comes from ``POST /api/v3/orders/status`` (works for finished/cancelled).
+    Full payload is scanned from ``GET /api/v3/orders`` (≤30 days) then archive.
+    """
+    oid = int(order_id)
+    status_row: dict[str, str] | None = None
+    try:
+        statuses = client.get_statuses([oid])
+        for st in statuses:
+            if not isinstance(st, dict) or st.get("id") is None:
+                continue
+            try:
+                if int(st["id"]) != oid:
+                    continue
+            except (TypeError, ValueError):
+                continue
+            status_row = {
+                "supplierStatus": str(st.get("supplierStatus") or ""),
+                "wbStatus": str(st.get("wbStatus") or ""),
+            }
+            break
+        time.sleep(0.21)
+    except Exception as exc:
+        _log.warning("wb_fbs lookup status failed order=%s: %s", oid, exc)
+        raise
+
+    # No status → order is unknown for this marketplace token.
+    if status_row is None:
+        return None, False, None
+
+    date_to = datetime.now(UTC)
+    date_from = date_to - timedelta(days=30)
+    next_token: int | None = 0
+    pages = 0
+    try:
+        while pages < max(1, min(int(max_order_pages), 30)):
+            orders, next_token = client.get_orders_page(
+                limit=1000,
+                next_token=next_token if next_token is not None else 0,
+                date_from=date_from,
+                date_to=date_to,
+            )
+            for order in orders:
+                if not isinstance(order, dict) or order.get("id") is None:
+                    continue
+                try:
+                    if int(order["id"]) == oid:
+                        return order, False, status_row
+                except (TypeError, ValueError):
+                    continue
+            pages += 1
+            if next_token is None:
+                break
+            time.sleep(0.25)
+    except Exception as exc:
+        _log.warning("wb_fbs lookup orders scan failed order=%s: %s", oid, exc)
+
+    arch_next = 0
+    try:
+        for _ in range(max(0, int(max_archive_pages))):
+            arch_orders, arch_next = client.get_archive_orders(
+                limit=1000, next_token=arch_next
+            )
+            for order in arch_orders:
+                if not isinstance(order, dict) or order.get("id") is None:
+                    continue
+                try:
+                    if int(order["id"]) == oid:
+                        return order, True, status_row
+                except (TypeError, ValueError):
+                    continue
+            if not arch_next:
+                break
+            time.sleep(0.25)
+    except Exception as exc:
+        _log.warning("wb_fbs lookup archive scan failed order=%s: %s", oid, exc)
+
+    # Status known but payload outside scanned windows — still show the order.
+    return {"id": oid}, False, status_row
+
+
+def lookup_order_by_id(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    order_id: int,
+    api_key: str | None = None,
+    allow_remote: bool = True,
+) -> dict[str, Any]:
+    """Find one assembly order locally (any tab), else optionally via WB API.
+
+    Sync intentionally skips finished/cancelled/archive; this path is the
+    explicit escape hatch for search-by-order-number.
+    """
+    ensure_wb_fbs_tables(repo)
+    oid = int(order_id)
+    sid = int(source_id)
+    counts = _tab_counts(repo, user_id=user_id, source_id=sid)
+
+    local = get_order_by_id(repo, user_id=user_id, source_id=sid, order_id=oid)
+    if local:
+        item = _enrich_order_row(repo, user_id=user_id, row=local)
+        return {
+            "found": True,
+            "source": "local",
+            "order_id": oid,
+            "tab": str(item.get("tab") or ""),
+            "item": item,
+            "counts": counts,
+        }
+
+    if not allow_remote:
+        return {
+            "found": False,
+            "source": "none",
+            "order_id": oid,
+            "tab": "",
+            "item": None,
+            "counts": counts,
+            "message": "Заказ не найден в локальной базе",
+        }
+
+    key = str(api_key or "").strip()
+    if not key:
+        return {
+            "found": False,
+            "source": "none",
+            "order_id": oid,
+            "tab": "",
+            "item": None,
+            "counts": counts,
+            "message": "Нет API-ключа источника для поиска в WB",
+        }
+
+    client = WbFbsClient(key)
+    try:
+        order_payload, is_archive, status_row = _fetch_order_payload_from_wb(client, oid)
+    except Exception as exc:
+        if is_marketplace_scope_error(exc):
+            return {
+                "found": False,
+                "source": "none",
+                "order_id": oid,
+                "tab": "",
+                "item": None,
+                "counts": counts,
+                "scope_error": True,
+                "message": SCOPE_ERROR_MESSAGE,
+            }
+        return {
+            "found": False,
+            "source": "none",
+            "order_id": oid,
+            "tab": "",
+            "item": None,
+            "counts": counts,
+            "message": friendly_sync_error("поиск заказа", exc),
+        }
+
+    if order_payload is None or status_row is None:
+        return {
+            "found": False,
+            "source": "none",
+            "order_id": oid,
+            "tab": "",
+            "item": None,
+            "counts": counts,
+            "message": "Заказ не найден в WB API",
+        }
+
+    upsert_order(
+        repo,
+        user_id=user_id,
+        source_id=sid,
+        order=order_payload,
+        supplier_status=status_row.get("supplierStatus") or "",
+        wb_status=status_row.get("wbStatus") or "",
+        is_archive=bool(is_archive),
+    )
+    stored = get_order_by_id(repo, user_id=user_id, source_id=sid, order_id=oid)
+    if not stored:
+        return {
+            "found": False,
+            "source": "none",
+            "order_id": oid,
+            "tab": "",
+            "item": None,
+            "counts": counts,
+            "message": "Заказ найден в WB, но не удалось сохранить локально",
+        }
+    item = _enrich_order_row(repo, user_id=user_id, row=stored)
+    counts = _tab_counts(repo, user_id=user_id, source_id=sid)
+    return {
+        "found": True,
+        "source": "remote",
+        "order_id": oid,
+        "tab": str(item.get("tab") or ""),
+        "item": item,
+        "counts": counts,
+        "is_archive": bool(is_archive),
+    }
+
+
 def list_supplies(
     repo: ReviewRepository,
     *,

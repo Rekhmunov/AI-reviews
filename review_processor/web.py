@@ -9267,6 +9267,55 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             search=search or None,
         )
 
+    @app.get("/api/wb-fbs/orders/lookup")
+    def lookup_wb_fbs_order(
+        request: Request,
+        source_id: int,
+        order_id: int | None = None,
+        search: str | None = None,
+    ) -> dict[str, object]:
+        """Find one order by number across all tabs; if missing locally, query WB API.
+
+        Used by the toolbar search when the order is not in Новые / На сборке /
+        В доставке (e.g. finished or cancelled — sync intentionally skips those).
+        """
+        from . import wb_fbs_detail as wb_detail
+
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        oid = order_id
+        if oid is None:
+            oid = wb_fbs_mod.parse_order_id_query(search)
+        if oid is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Укажите номер заказа (не менее 6 цифр)",
+            )
+        api_key = _wb_fbs_source_key(owner_id, int(source_id))
+        payload = wb_fbs_mod.lookup_order_by_id(
+            repository,
+            user_id=owner_id,
+            source_id=int(source_id),
+            order_id=int(oid),
+            api_key=api_key,
+            allow_remote=True,
+        )
+        payload = _sanitize_wb_fbs_owner_counts(user, payload)
+        item = payload.get("item") if isinstance(payload, dict) else None
+        if source_id and isinstance(item, dict):
+            try:
+                client = wb_fbs_mod.WbFbsClient(api_key)
+                wb_detail.attach_sticker_parts_to_orders(
+                    client, [item], api_key=api_key
+                )
+            except Exception as exc:
+                _log.warning("wb-fbs order lookup sticker enrich: %s", exc)
+        return payload
+
     @app.get("/api/wb-fbs/supplies")
     def list_wb_fbs_supplies(
         request: Request,

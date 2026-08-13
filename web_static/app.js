@@ -20769,9 +20769,30 @@ const wbFbsState = {
   viewMode: "orders", // "orders" | "supplies-assembly" | "supplies-delivery"
   loadSeq: 0,
   loadAbort: null,
+  // Exact order-id lookup across tabs / WB API (finished & cancelled escape hatch).
+  lookupMode: false,
+  lookupMeta: null, // { order_id, tab, source, message }
 };
 
+const WB_FBS_TAB_LABELS = {
+  new: "Новые",
+  assembly: "На сборке",
+  delivery: "В доставке",
+  finished: "Завершённые",
+  cancelled: "Отменённые",
+  archive: "Архив",
+};
+
+function _wbFbsParseOrderIdQuery(search) {
+  const q = String(search || "").trim();
+  if (!/^\d{6,}$/.test(q)) return null;
+  const n = Number(q);
+  return Number.isFinite(n) ? n : null;
+}
+
 function _wbFbsIsSuppliesTab() {
+  // Exact order lookup always renders a single order row, even on assembly/delivery.
+  if (wbFbsState.lookupMode) return false;
   return wbFbsState.tab === "delivery" || wbFbsState.tab === "assembly";
 }
 
@@ -21147,10 +21168,81 @@ function _wbFbsSyncTableMode() {
   }
 }
 
+function _wbFbsClearLookupMode() {
+  wbFbsState.lookupMode = false;
+  wbFbsState.lookupMeta = null;
+}
+
+async function _wbFbsLookupOrderById(orderId, { signal, seq } = {}) {
+  const params = new URLSearchParams({
+    source_id: String(wbFbsState.sourceId),
+    order_id: String(orderId),
+  });
+  const res = await fetch(
+    `/api/wb-fbs/orders/lookup?${params}`,
+    signal ? { signal } : undefined
+  );
+  const data = await res.json().catch(() => ({}));
+  if (seq != null && seq !== wbFbsState.loadSeq) return null;
+  if (!res.ok) {
+    const detail = data && data.detail;
+    throw new Error(
+      typeof detail === "string" ? detail : "Не удалось найти заказ в WB"
+    );
+  }
+  return data;
+}
+
+function _wbFbsApplyLookupResult(data, orderId) {
+  const item = data && data.item;
+  if (!data?.found || !item) {
+    _wbFbsClearLookupMode();
+    return false;
+  }
+  const tab = String(data.tab || item.tab || "").trim();
+  wbFbsState.lookupMode = true;
+  wbFbsState.lookupMeta = {
+    order_id: Number(data.order_id || orderId),
+    tab,
+    source: String(data.source || ""),
+    message: String(data.message || ""),
+  };
+  wbFbsState.items = [item];
+  wbFbsState.total = 1;
+  wbFbsState.page = 1;
+  if (data.counts) {
+    wbFbsState.counts = data.counts;
+    _wbFbsUpdateCounts(wbFbsState.counts);
+  }
+  // Keep operator on an operational tab button; do not open hidden tabs.
+  if (tab && !WB_FBS_HIDDEN_TABS.has(tab) && wbFbsState.tab !== tab) {
+    wbFbsState.tab = tab;
+    document.querySelectorAll("#wbFbsTabs .wb-fbs-tab").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.tab === tab);
+    });
+  }
+  _wbFbsSyncTableMode();
+  renderWbFbsOrdersTable();
+  const info = document.getElementById("wbFbsInfo");
+  if (info) {
+    const tabLabel = WB_FBS_TAB_LABELS[tab] || tab || "—";
+    const via = data.source === "remote" ? "загружен из WB API" : "найден в базе";
+    info.textContent = `Заказ ${orderId}: ${tabLabel} · ${via}`;
+  }
+  const pageInfo = document.getElementById("wbFbsPageInfo");
+  if (pageInfo) pageInfo.textContent = "1 / 1";
+  const prevBtn = document.getElementById("wbFbsPrevBtn");
+  const nextBtn = document.getElementById("wbFbsNextBtn");
+  if (prevBtn) prevBtn.disabled = true;
+  if (nextBtn) nextBtn.disabled = true;
+  return true;
+}
+
 async function loadWbFbsOrders(resetPage = false) {
   if (resetPage) wbFbsState.page = 1;
   const info = document.getElementById("wbFbsInfo");
   const tbody = document.getElementById("wbFbsOrdersTbody");
+  _wbFbsClearLookupMode();
   _wbFbsSyncTableMode();
   if (!wbFbsState.sourceId) {
     if (tbody) tbody.innerHTML = `<tr><td colspan="${_wbFbsColspan()}" class="small" style="padding:16px;color:#94a3b8">Выберите источник ВБ в Поставки → Настройки → Источники</td></tr>`;
@@ -21179,11 +21271,12 @@ async function loadWbFbsOrders(resetPage = false) {
     try { wbFbsState.loadAbort.abort(); } catch (_) {}
   }
   wbFbsState.loadAbort = (typeof AbortController !== "undefined") ? new AbortController() : null;
+  const signal = wbFbsState.loadAbort ? wbFbsState.loadAbort.signal : undefined;
   if (tbody) {
     tbody.innerHTML = `<tr><td colspan="${_wbFbsColspan()}" class="wb-fbs-empty">Загрузка…</td></tr>`;
   }
   try {
-    const res = await fetch(url, wbFbsState.loadAbort ? { signal: wbFbsState.loadAbort.signal } : undefined);
+    const res = await fetch(url, signal ? { signal } : undefined);
     const data = await res.json();
     if (seq !== wbFbsState.loadSeq) return; // newer tab/load won
     if (!res.ok) throw new Error(data.detail || "Ошибка загрузки");
@@ -21192,6 +21285,35 @@ async function loadWbFbsOrders(resetPage = false) {
     wbFbsState.page = data.page || 1;
     wbFbsState.counts = data.counts || {};
     _wbFbsUpdateCounts(wbFbsState.counts);
+
+    // Exact order number not in current tab → local-all-tabs / WB API lookup.
+    const orderIdQuery = _wbFbsParseOrderIdQuery(search);
+    if (orderIdQuery && wbFbsState.total === 0) {
+      if (tbody) {
+        tbody.innerHTML = `<tr><td colspan="${_wbFbsColspan()}" class="wb-fbs-empty">Ищем заказ ${orderIdQuery} в WB…</td></tr>`;
+      }
+      if (info) info.textContent = `Поиск заказа ${orderIdQuery}…`;
+      const lookup = await _wbFbsLookupOrderById(orderIdQuery, { signal, seq });
+      if (seq !== wbFbsState.loadSeq) return;
+      if (lookup && _wbFbsApplyLookupResult(lookup, orderIdQuery)) return;
+      wbFbsState.items = [];
+      wbFbsState.total = 0;
+      _wbFbsSyncTableMode();
+      if (suppliesMode) renderWbFbsSuppliesTable();
+      else renderWbFbsOrdersTable();
+      if (info) {
+        info.textContent = lookup?.message
+          || `Заказ ${orderIdQuery} не найден в Новые / На сборке / В доставке и в WB API`;
+      }
+      const pageInfo = document.getElementById("wbFbsPageInfo");
+      if (pageInfo) pageInfo.textContent = "1 / 1";
+      const prevBtn = document.getElementById("wbFbsPrevBtn");
+      const nextBtn = document.getElementById("wbFbsNextBtn");
+      if (prevBtn) prevBtn.disabled = true;
+      if (nextBtn) nextBtn.disabled = true;
+      return;
+    }
+
     if (suppliesMode) renderWbFbsSuppliesTable();
     else renderWbFbsOrdersTable();
     const totalPages = Math.max(1, Math.ceil(wbFbsState.total / wbFbsState.page_size));
@@ -25129,12 +25251,14 @@ function renderWbFbsOrdersTable() {
         ).join("")}</div>`
       : "";
     const cancelReason = String(o.cancel_reason_label || "").trim();
-    const cancelBadgeHtml = (wbFbsState.tab === "cancelled" && cancelReason)
+    const rowTab = String(o.tab || wbFbsState.tab || "");
+    // Lookup may show finished/cancelled rows while staying on an operational tab.
+    const cancelBadgeHtml = ((rowTab === "cancelled" || wbFbsState.tab === "cancelled") && cancelReason)
       ? `<div class="wb-fbs-cancel-reason" title="${_wbFbsEsc(cancelReason)}">${_wbFbsEsc(cancelReason)}</div>`
       : "";
     const finishedStatus = String(o.finished_status_label || "").trim();
     // Same placement/style as cancel reason: under barcodes in the product column.
-    const finishedStatusHtml = (wbFbsState.tab === "finished" && finishedStatus)
+    const finishedStatusHtml = ((rowTab === "finished" || wbFbsState.tab === "finished") && finishedStatus)
       ? `<div class="wb-fbs-cancel-reason wb-fbs-cancel-reason--sold" title="${_wbFbsEsc(finishedStatus)}">${_wbFbsEsc(finishedStatus)}</div>`
       : "";
     const statusUnderSkuHtml = cancelBadgeHtml || finishedStatusHtml;
