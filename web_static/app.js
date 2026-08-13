@@ -16606,7 +16606,7 @@ async function refreshWbFbsKizCirculation() {
     const items = Array.isArray(eventsPayload.items) ? eventsPayload.items : [];
     if (!tbody) return;
     if (!items.length) {
-      tbody.innerHTML = '<tr><td colspan="7" class="wb-fbs-kiz-circ-empty">Нет данных — запустите ежедневный вывод</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" class="wb-fbs-kiz-circ-empty">Нет данных — выберите даты и нажмите «Ежедневный вывод»</td></tr>';
       return;
     }
     tbody.innerHTML = items.map((ev) => {
