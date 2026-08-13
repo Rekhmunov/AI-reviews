@@ -12631,6 +12631,14 @@ function removeRecommendationRow(index) {
 
 let _productsCache = [];
 
+const PRODUCT_CATEGORY_OPTIONS = [
+  "Наматрасник непромокаемый (ИП Авдеева, без маркировки)",
+  "Наматрасник стеганый (ИП Авдеева, без маркировки)",
+  "Наматрасник стеганый непромокаемый (ВарФабрик, без маркировки)",
+  "Наматрасник непромокаемый (ВарФабрик, с маркировкой)",
+  "Постельное белье (ВарФабрик, с маркировкой)",
+];
+
 function openAddProductForm(editItem = null) {
   document.getElementById("productAddForm")?.classList.remove("hidden");
   document.getElementById("productFormInfo").textContent = "";
@@ -12640,6 +12648,24 @@ function openAddProductForm(editItem = null) {
   document.getElementById("productFormWbNmid").value = editItem?.wb_nmid || "";
   document.getElementById("productFormOzonSku").value = editItem?.ozon_sku || "";
   document.getElementById("productFormYandexOfferId").value = editItem?.yandex_offer_id || "";
+  const boxQty = editItem?.box_qty;
+  document.getElementById("productFormBoxQty").value =
+    boxQty === null || boxQty === undefined || boxQty === "" ? "" : String(boxQty);
+  const category = String(editItem?.product_category || "").trim();
+  const categorySel = document.getElementById("productFormCategory");
+  if (categorySel) {
+    if (category && !PRODUCT_CATEGORY_OPTIONS.includes(category)) {
+      // Keep legacy/custom value visible if it somehow exists.
+      let opt = Array.from(categorySel.options).find((o) => o.value === category);
+      if (!opt) {
+        opt = document.createElement("option");
+        opt.value = category;
+        opt.textContent = category;
+        categorySel.appendChild(opt);
+      }
+    }
+    categorySel.value = category;
+  }
   document.getElementById("productFormPhoto").value = "";
   document.getElementById("productFormName").focus();
 }
@@ -12649,8 +12675,9 @@ function closeAddProductForm() {
 }
 
 // ── Products table column resizer ────────────────────────────────────────
-const PRODUCTS_COL_WIDTHS_KEY = "products_col_widths_v2";
-const PRODUCTS_DEFAULT_WIDTHS = [8, 20, 20, 14, 14, 14, 10]; // 7 cols: photo, name, seller, wb, ozon, ym, actions
+const PRODUCTS_COL_WIDTHS_KEY = "products_col_widths_v3";
+// photo, name, seller, wb, ozon, ym, box qty, category, actions
+const PRODUCTS_DEFAULT_WIDTHS = [7, 16, 12, 10, 10, 10, 10, 17, 8];
 
 function initProductsColumnResizer() {
   const table = document.getElementById("productsTable");
@@ -12720,12 +12747,16 @@ async function loadProducts() {
     if (info) info.textContent = `Товаров: ${_productsCache.length}`;
     tbody.innerHTML = "";
     if (!_productsCache.length) {
-      tbody.innerHTML = '<tr><td colspan="7" class="small" style="color:#94a3b8;padding:16px">Нет товаров. Нажмите «+ Добавить товар»</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" class="small" style="color:#94a3b8;padding:16px">Нет товаров. Нажмите «+ Добавить товар»</td></tr>';
       initProductsColumnResizer();
       return;
     }
     for (const item of _productsCache) {
       const tr = document.createElement("tr");
+      const boxQty = item.box_qty;
+      const boxQtyText = (boxQty === null || boxQty === undefined || boxQty === "")
+        ? "—"
+        : String(boxQty);
       tr.innerHTML = `
         <td>${item.photo_url ? `<img src="${esc(item.photo_url)}" class="product-thumb" alt="" onerror="this.style.display='none'">` : '<div class="product-thumb-empty"></div>'}</td>
         <td>${esc(item.name || "")}</td>
@@ -12733,6 +12764,8 @@ async function loadProducts() {
         <td>${esc(item.wb_nmid || "—")}</td>
         <td>${esc(item.ozon_sku || "—")}</td>
         <td>${esc(item.yandex_offer_id || "—")}</td>
+        <td>${esc(boxQtyText)}</td>
+        <td title="${esc(item.product_category || "")}">${esc(item.product_category || "—")}</td>
         <td>
           <button type="button" class="secondary" style="font-size:12px;padding:4px 8px" onclick="editProduct(${item.id})">✏</button>
           <button type="button" class="secondary danger" style="font-size:12px;padding:4px 8px" onclick="deleteProduct(${item.id})">✕</button>
@@ -12757,15 +12790,27 @@ async function saveProduct() {
   const wbNmid = String(document.getElementById("productFormWbNmid")?.value || "").trim();
   const ozonSku = String(document.getElementById("productFormOzonSku")?.value || "").trim();
   const yandexOfferId = String(document.getElementById("productFormYandexOfferId")?.value || "").trim();
+  const boxQty = String(document.getElementById("productFormBoxQty")?.value || "").trim();
+  const productCategory = String(document.getElementById("productFormCategory")?.value || "").trim();
   const photoFile = document.getElementById("productFormPhoto")?.files?.[0];
   const info = document.getElementById("productFormInfo");
   if (!name) { if (info) info.textContent = "Введите наименование"; return; }
+  if (boxQty !== "" && !/^\d+$/.test(boxQty)) {
+    if (info) info.textContent = "Кратность в коробе должна быть целым числом";
+    return;
+  }
+  if (productCategory && !PRODUCT_CATEGORY_OPTIONS.includes(productCategory)) {
+    if (info) info.textContent = "Выберите категорию из списка";
+    return;
+  }
   const fd = new FormData();
   fd.append("name", name);
   fd.append("supplier_article", supplierArticle);
   fd.append("wb_nmid", wbNmid);
   fd.append("ozon_sku", ozonSku);
   fd.append("yandex_offer_id", yandexOfferId);
+  fd.append("box_qty", boxQty);
+  fd.append("product_category", productCategory);
   if (photoFile) fd.append("photo", photoFile);
   try {
     const url = editId ? `/api/products/${editId}` : "/api/products";

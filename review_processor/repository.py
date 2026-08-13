@@ -7167,6 +7167,8 @@ class ReviewRepository:
                 wb_nmid TEXT NOT NULL DEFAULT '',
                 ozon_sku TEXT NOT NULL DEFAULT '',
                 yandex_offer_id TEXT NOT NULL DEFAULT '',
+                box_qty INTEGER,
+                product_category TEXT NOT NULL DEFAULT '',
                 photo_path TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -7178,6 +7180,12 @@ class ReviewRepository:
         ))
         conn.execute(
             "ALTER TABLE product_photos ADD COLUMN IF NOT EXISTS yandex_offer_id TEXT NOT NULL DEFAULT ''"
+        )
+        conn.execute(
+            "ALTER TABLE product_photos ADD COLUMN IF NOT EXISTS box_qty INTEGER"
+        )
+        conn.execute(
+            "ALTER TABLE product_photos ADD COLUMN IF NOT EXISTS product_category TEXT NOT NULL DEFAULT ''"
         )
 
     def list_product_photos(self, *, user_id: int) -> list[dict[str, Any]]:
@@ -7192,16 +7200,33 @@ class ReviewRepository:
         self, *, user_id: int, name: str, supplier_article: str,
         wb_nmid: str, ozon_sku: str, photo_path: str | None,
         yandex_offer_id: str = "",
+        box_qty: int | None = None,
+        product_category: str = "",
     ) -> dict[str, Any]:
         now = _utc_now()
         with self._connect() as conn:
             product_id = self._insert_and_get_id(
                 conn,
                 self._sql("""
-                INSERT INTO product_photos (user_id, name, supplier_article, wb_nmid, ozon_sku, yandex_offer_id, photo_path, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO product_photos (
+                    user_id, name, supplier_article, wb_nmid, ozon_sku, yandex_offer_id,
+                    box_qty, product_category, photo_path, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """),
-                (user_id, name.strip(), supplier_article.strip(), wb_nmid.strip(), ozon_sku.strip(), yandex_offer_id.strip(), photo_path, now, now),
+                (
+                    user_id,
+                    name.strip(),
+                    supplier_article.strip(),
+                    wb_nmid.strip(),
+                    ozon_sku.strip(),
+                    yandex_offer_id.strip(),
+                    box_qty,
+                    str(product_category or "").strip(),
+                    photo_path,
+                    now,
+                    now,
+                ),
             )
             row = conn.execute(self._sql("SELECT * FROM product_photos WHERE id = ?"), (product_id,)).fetchone()
         return self._row_to_dict(row) if row else {}
@@ -7210,10 +7235,30 @@ class ReviewRepository:
         self, *, user_id: int, product_id: int, name: str, supplier_article: str,
         wb_nmid: str, ozon_sku: str, photo_path: str | None = None,
         yandex_offer_id: str = "",
+        box_qty: int | None = None,
+        product_category: str = "",
     ) -> bool:
         now = _utc_now()
-        sets = ["name=?", "supplier_article=?", "wb_nmid=?", "ozon_sku=?", "yandex_offer_id=?", "updated_at=?"]
-        params: list[Any] = [name.strip(), supplier_article.strip(), wb_nmid.strip(), ozon_sku.strip(), yandex_offer_id.strip(), now]
+        sets = [
+            "name=?",
+            "supplier_article=?",
+            "wb_nmid=?",
+            "ozon_sku=?",
+            "yandex_offer_id=?",
+            "box_qty=?",
+            "product_category=?",
+            "updated_at=?",
+        ]
+        params: list[Any] = [
+            name.strip(),
+            supplier_article.strip(),
+            wb_nmid.strip(),
+            ozon_sku.strip(),
+            yandex_offer_id.strip(),
+            box_qty,
+            str(product_category or "").strip(),
+            now,
+        ]
         if photo_path is not None:
             sets.append("photo_path=?")
             params.append(photo_path)

@@ -3384,6 +3384,38 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except Exception:
             pass
 
+    PRODUCT_CATEGORY_OPTIONS: tuple[str, ...] = (
+        "Наматрасник непромокаемый (ИП Авдеева, без маркировки)",
+        "Наматрасник стеганый (ИП Авдеева, без маркировки)",
+        "Наматрасник стеганый непромокаемый (ВарФабрик, без маркировки)",
+        "Наматрасник непромокаемый (ВарФабрик, с маркировкой)",
+        "Постельное белье (ВарФабрик, с маркировкой)",
+    )
+
+    def _parse_product_box_qty(raw: object) -> int | None:
+        text = str(raw or "").strip()
+        if not text:
+            return None
+        try:
+            value = int(text)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(
+                status_code=400, detail="Кратность в коробе должна быть целым числом"
+            ) from exc
+        if value < 0:
+            raise HTTPException(
+                status_code=400, detail="Кратность в коробе не может быть отрицательной"
+            )
+        return value
+
+    def _parse_product_category(raw: object) -> str:
+        value = str(raw or "").strip()
+        if not value:
+            return ""
+        if value not in PRODUCT_CATEGORY_OPTIONS:
+            raise HTTPException(status_code=400, detail="Неизвестная категория товара")
+        return value
+
     async def _save_product_photo_upload(photo: UploadFile) -> str:
         """Resize upload to WebP and store under product photos dir. Raises HTTPException on failure."""
         import io as _io
@@ -3456,6 +3488,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         wb_nmid: str = Form(""),
         ozon_sku: str = Form(""),
         yandex_offer_id: str = Form(""),
+        box_qty: str = Form(""),
+        product_category: str = Form(""),
         photo: UploadFile | None = File(None),
     ) -> dict[str, object]:
         user = _require_settings_access(request)
@@ -3464,10 +3498,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         photo_path: str | None = None
         if photo is not None and str(photo.filename or "").strip():
             photo_path = await _save_product_photo_upload(photo)
+        parsed_box_qty = _parse_product_box_qty(box_qty)
+        parsed_category = _parse_product_category(product_category)
         item = repository.add_product_photo(
             user_id=owner_uid, name=name.strip(), supplier_article=supplier_article.strip(),
             wb_nmid=wb_nmid.strip(), ozon_sku=ozon_sku.strip(),
             yandex_offer_id=yandex_offer_id.strip(), photo_path=photo_path,
+            box_qty=parsed_box_qty, product_category=parsed_category,
         )
         if item:
             item["photo_url"] = f"/api/products/photo/{item['id']}" if item.get("photo_path") else None
@@ -3482,6 +3519,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         wb_nmid: str = Form(""),
         ozon_sku: str = Form(""),
         yandex_offer_id: str = Form(""),
+        box_qty: str = Form(""),
+        product_category: str = Form(""),
         photo: UploadFile | None = File(None),
     ) -> dict[str, object]:
         user = _require_settings_access(request)
@@ -3489,11 +3528,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         new_photo_path: str | None = None
         if photo is not None and str(photo.filename or "").strip():
             new_photo_path = await _save_product_photo_upload(photo)
+        parsed_box_qty = _parse_product_box_qty(box_qty)
+        parsed_category = _parse_product_category(product_category)
         ok = repository.update_product_photo(
             user_id=owner_uid, product_id=product_id, name=name.strip(),
             supplier_article=supplier_article.strip(), wb_nmid=wb_nmid.strip(),
             ozon_sku=ozon_sku.strip(), yandex_offer_id=yandex_offer_id.strip(),
             photo_path=new_photo_path,
+            box_qty=parsed_box_qty, product_category=parsed_category,
         )
         if not ok:
             raise HTTPException(status_code=404, detail="Товар не найден")

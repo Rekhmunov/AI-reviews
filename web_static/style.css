@@ -4815,6 +4815,26 @@ body.sst-col-resizing * {
   border: 1px solid #e2e8f0;
 }
 
+.product-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.product-form-field > span {
+  font-size: 13px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.product-form-field input,
+.product-form-field select {
+  width: 100%;
+  min-height: 40px;
+  box-sizing: border-box;
+}
+
 .products-table {
   width: 100%;
   table-layout: fixed;

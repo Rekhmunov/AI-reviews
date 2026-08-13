@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=201" />
+  <link rel="stylesheet" href="/static/style.css?v=202" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -833,6 +833,21 @@
                 <input type="text" id="productFormWbNmid" placeholder="Артикул WB (nmId)" autocomplete="off" />
                 <input type="text" id="productFormOzonSku" placeholder="SKU Ozon" autocomplete="off" />
                 <input type="text" id="productFormYandexOfferId" placeholder="Артикул Яндекс Маркет (offerId)" autocomplete="off" />
+                <label class="product-form-field">
+                  <span>Кратность в коробе</span>
+                  <input type="number" id="productFormBoxQty" min="0" step="1" placeholder="Например, 10" autocomplete="off" />
+                </label>
+                <label class="product-form-field" style="grid-column:1 / -1">
+                  <span>Категория товара</span>
+                  <select id="productFormCategory">
+                    <option value="">— Не выбрано —</option>
+                    <option value="Наматрасник непромокаемый (ИП Авдеева, без маркировки)">Наматрасник непромокаемый (ИП Авдеева, без маркировки)</option>
+                    <option value="Наматрасник стеганый (ИП Авдеева, без маркировки)">Наматрасник стеганый (ИП Авдеева, без маркировки)</option>
+                    <option value="Наматрасник стеганый непромокаемый (ВарФабрик, без маркировки)">Наматрасник стеганый непромокаемый (ВарФабрик, без маркировки)</option>
+                    <option value="Наматрасник непромокаемый (ВарФабрик, с маркировкой)">Наматрасник непромокаемый (ВарФабрик, с маркировкой)</option>
+                    <option value="Постельное белье (ВарФабрик, с маркировкой)">Постельное белье (ВарФабрик, с маркировкой)</option>
+                  </select>
+                </label>
               </div>
               <div class="row" style="gap:8px;align-items:center;margin-bottom:12px">
                 <label style="font-size:13px;color:#64748b">Фото (jpg/png/webp):</label>
@@ -857,6 +872,8 @@
                   <col data-col="4">
                   <col data-col="5">
                   <col data-col="6">
+                  <col data-col="7">
+                  <col data-col="8">
                 </colgroup>
                 <thead>
                   <tr>
@@ -866,7 +883,9 @@
                     <th data-col="3">Артикул WB<div class="col-resize-handle"></div></th>
                     <th data-col="4">SKU Ozon<div class="col-resize-handle"></div></th>
                     <th data-col="5">Артикул ЯМ<div class="col-resize-handle"></div></th>
-                    <th data-col="6">Действия</th>
+                    <th data-col="6">Кратность в коробе<div class="col-resize-handle"></div></th>
+                    <th data-col="7">Категория товара<div class="col-resize-handle"></div></th>
+                    <th data-col="8">Действия</th>
                   </tr>
                 </thead>
                 <tbody id="productsTbody"></tbody>
@@ -4803,6 +4822,6 @@
       </div>
     </div>
   </div>
-  <script src="/static/app.js?v=434"></script>
+  <script src="/static/app.js?v=435"></script>
 </body>
 </html>
