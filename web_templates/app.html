@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=196" />
+  <link rel="stylesheet" href="/static/style.css?v=198" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1554,6 +1554,10 @@
               <button type="button" id="wbFbsAutoSyncSettingsBtn" class="secondary icon-btn"
                       onclick="openWbFbsAutoSyncSettings()" title="Настройки автоматики WB FBS"
                       aria-label="Настройки автоматики WB FBS">⚙</button>
+              <button type="button" id="wbFbsKizCirculationBtn" class="secondary"
+                      onclick="openWbFbsKizCirculationModal()" title="Вывод и возврат КИЗ в Честный знак">
+                Вывод КИЗ
+              </button>
             </div>
             <div class="wb-fbs-toolbar-right">
               <input id="wbFbsSearchFilter" class="wb-fbs-search" type="search" placeholder="Поиск по заказу, артикулу, ШК…"
@@ -1735,6 +1739,63 @@
             </div>
           </div>
         </div>
+
+        <div id="wbFbsKizCirculationModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="wbFbsKizCirculationTitle"
+             onclick="if(event.target===this)closeWbFbsKizCirculationModal()">
+          <div class="modal-card wb-fbs-kiz-circ-modal">
+            <div class="wb-fbs-kiz-circ-header">
+              <div class="wb-fbs-kiz-circ-title-row">
+                <h3 id="wbFbsKizCirculationTitle" class="wb-fbs-kiz-circ-title">Вывод КИЗ</h3>
+                <button type="button" class="icon-btn secondary" onclick="closeWbFbsKizCirculationModal()" aria-label="Закрыть">✕</button>
+              </div>
+              <p class="wb-fbs-kiz-circ-lead">
+                Ежедневный забор операций по маркировке из WB, затем передача в Честный знак:
+                проданные — вывод из оборота, возвраты — возврат в оборот.
+              </p>
+              <div class="wb-fbs-kiz-circ-meta" id="wbFbsKizCircMeta">—</div>
+              <div class="wb-fbs-kiz-circ-toolbar">
+                <label class="wb-fbs-kiz-circ-field" for="wbFbsKizCircDateFrom">
+                  <span>С</span>
+                  <input type="date" id="wbFbsKizCircDateFrom" />
+                </label>
+                <label class="wb-fbs-kiz-circ-field" for="wbFbsKizCircDateTo">
+                  <span>По</span>
+                  <input type="date" id="wbFbsKizCircDateTo" />
+                </label>
+                <button type="button" id="wbFbsKizCircSyncBtn" onclick="runWbFbsKizCirculationSync()">Ежедневный вывод</button>
+                <button type="button" class="secondary" id="wbFbsKizCircChzBtn" onclick="runWbFbsKizCirculationChz()">Передать в ЧЗ</button>
+                <button type="button" class="secondary" onclick="refreshWbFbsKizCirculation()">Обновить</button>
+                <span id="wbFbsKizCircCounts" class="wb-fbs-kiz-circ-counts"></span>
+              </div>
+            </div>
+            <div class="wb-fbs-kiz-circ-body">
+              <div class="wb-fbs-kiz-circ-table-wrap">
+                <table class="wb-fbs-kiz-circ-table" aria-label="События КИЗ">
+                  <thead>
+                    <tr>
+                      <th>Дата чека</th>
+                      <th>Тип</th>
+                      <th>srid / заказ</th>
+                      <th>КИЗ</th>
+                      <th>Чек</th>
+                      <th>Статус</th>
+                      <th>ЧЗ</th>
+                    </tr>
+                  </thead>
+                  <tbody id="wbFbsKizCircTbody">
+                    <tr><td colspan="7" class="wb-fbs-kiz-circ-empty">Нет данных — запустите ежедневный вывод</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="wb-fbs-kiz-circ-log-wrap">
+                <div class="wb-fbs-kiz-circ-log-title">Лог</div>
+                <pre id="wbFbsKizCircLog" class="wb-fbs-kiz-circ-log"></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="panel supplies-table-panel wb-fbs-table-panel">
           <div class="supplies-table-wrap wb-fbs-table-wrap">
             <table id="wbFbsOrdersTable" class="supplies-main-table wb-fbs-table">
@@ -2512,6 +2573,7 @@
         <div class="settings-tabs">
           <button id="supplies-settings-tab-sources" class="settings-tab-btn active" onclick="showSuppliesSettingsTab('sources')">Источники</button>
           <button id="supplies-settings-tab-edo" class="settings-tab-btn" onclick="showSuppliesSettingsTab('edo')">ЭДО</button>
+          <button id="supplies-settings-tab-chz" class="settings-tab-btn" onclick="showSuppliesSettingsTab('chz')">ЧЗ</button>
           <button id="supplies-settings-tab-drivers" class="settings-tab-btn" onclick="showSuppliesSettingsTab('drivers')">Водители</button>
           <button id="supplies-settings-tab-warehouses" class="settings-tab-btn" onclick="showSuppliesSettingsTab('warehouses')">Склады</button>
           <button id="supplies-settings-tab-legal" class="settings-tab-btn" onclick="showSuppliesSettingsTab('legal')">Юр. лица</button>
@@ -3052,6 +3114,62 @@
               <button type="button" onclick="saveSupplyEdoSettings()">Сохранить</button>
               <button type="button" class="secondary" onclick="testSupplyEdoSettings()">Проверить подключение</button>
               <span id="edoSettingsInfo" class="small"></span>
+            </div>
+          </div>
+        </div>
+
+        <div id="supplies-settings-pane-chz" class="hidden">
+          <div class="panel">
+            <div class="row row-between" style="margin-bottom:16px">
+              <div>
+                <h4 class="no-margin">Честный знак — True API</h4>
+                <p class="small" style="margin:8px 0 0;color:#64748b;max-width:640px">
+                  Для вывода/возврата КИЗ после продаж WB FBS. Токен получается по УКЭП
+                  (КриптоПро в браузере) в момент передачи в ЧЗ — постоянного API-ключа нет.
+                </p>
+              </div>
+              <label class="small" style="display:flex;align-items:center;gap:8px;white-space:nowrap">
+                <input type="checkbox" id="chzSettingsEnabled" />
+                Включено
+              </label>
+            </div>
+            <div class="worker-form-grid">
+              <div class="wfg-field">
+                <label class="wfg-label" for="chzSettingsApiBase">Контур</label>
+                <select id="chzSettingsApiBase">
+                  <option value="prod">Боевой (markirovka.crpt.ru)</option>
+                  <option value="demo">Песочница</option>
+                </select>
+              </div>
+              <div class="wfg-field">
+                <label class="wfg-label" for="chzSettingsInn">ИНН участника</label>
+                <input id="chzSettingsInn" type="text" inputmode="numeric" placeholder="10 или 12 цифр" autocomplete="off" />
+              </div>
+              <div class="wfg-field">
+                <label class="wfg-label" for="chzSettingsProductGroup">Товарная группа (pg)</label>
+                <input id="chzSettingsProductGroup" type="text" placeholder="например 8" autocomplete="off" />
+              </div>
+              <div class="wfg-field">
+                <label class="wfg-label" for="chzSettingsReturnType">Причина возврата в оборот</label>
+                <input id="chzSettingsReturnType" type="text" placeholder="REMOTE_SALE_RETURN" autocomplete="off" />
+              </div>
+              <div class="wfg-field">
+                <label class="wfg-label" for="chzSettingsKpp">КПП (для DISTANCE)</label>
+                <input id="chzSettingsKpp" type="text" placeholder="КПП места деятельности" autocomplete="off" />
+              </div>
+              <div class="wfg-field">
+                <label class="wfg-label" for="chzSettingsFias">ФИАС ID</label>
+                <input id="chzSettingsFias" type="text" placeholder="Идентификатор ФИАС" autocomplete="off" />
+              </div>
+              <div class="wfg-field" style="grid-column:span 2">
+                <label class="wfg-label" for="chzSettingsCertThumb">Отпечаток сертификата УКЭП</label>
+                <input id="chzSettingsCertThumb" type="text" placeholder="AABBCC… — если пусто, выбор при подписи" autocomplete="off" />
+              </div>
+            </div>
+            <div class="row" style="margin-top:16px;gap:8px;align-items:center">
+              <button type="button" onclick="saveSupplyChzSettings()">Сохранить</button>
+              <button type="button" class="secondary" onclick="testSupplyChzSettings()">Проверить auth (УКЭП)</button>
+              <span id="chzSettingsInfo" class="small"></span>
             </div>
           </div>
         </div>
@@ -4699,6 +4817,6 @@
       </div>
     </div>
   </div>
-  <script src="/static/app.js?v=420"></script>
+  <script src="/static/app.js?v=422"></script>
 </body>
 </html>

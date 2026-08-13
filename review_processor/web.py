@@ -506,6 +506,44 @@ class UpsertSupplyEdoSettingsRequest(BaseModel):
     is_enabled: bool = True
 
 
+class UpsertSupplyChzSettingsRequest(BaseModel):
+    is_enabled: bool = False
+    api_base: str = "prod"  # prod | demo
+    participant_inn: str = ""
+    product_group: str = ""
+    kpp: str = ""
+    fias_id: str = ""
+    return_type: str = "REMOTE_SALE_RETURN"
+    cert_thumbprint: str = ""
+
+
+class WbKizCirculationSyncRequest(BaseModel):
+    source_id: int
+    date_from: str = ""
+    date_to: str = ""
+
+
+class WbKizChzAuthRequest(BaseModel):
+    uuid: str
+    signature_base64: str
+    inn: str = ""
+
+
+class WbKizChzSubmitItem(BaseModel):
+    doc_type: str
+    product_group: str = ""
+    event_keys: list[str] = Field(default_factory=list)
+    product_document: dict[str, object] = Field(default_factory=dict)
+    signature_base64: str
+
+
+class WbKizChzSubmitRequest(BaseModel):
+    source_id: int
+    token: str
+    documents: list[WbKizChzSubmitItem] = Field(default_factory=list)
+    run_id: int | None = None
+
+
 class OzonEdoSendRequest(BaseModel):
     doc_type: str  # zakaz | etrn
     signature_base64: str
@@ -9894,6 +9932,288 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         settings = repository.get_wb_fbs_auto_sync_settings(user_id=owner_id)
         settings["can_edit"] = True
         return {"ok": True, "settings": settings}
+
+    # ── WB FBS → Честный знак: вывод / возврат КИЗ (new block) ─────────────
+
+    @app.get("/api/supply-chz-settings")
+    def get_supply_chz_settings(request: Request) -> dict[str, object]:
+        from . import wb_kiz_circulation as kiz_circ
+
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        return kiz_circ.get_chz_settings(repository, user_id=_supply_owner_id(user))
+
+    @app.put("/api/supply-chz-settings")
+    def put_supply_chz_settings(
+        request: Request, payload: UpsertSupplyChzSettingsRequest
+    ) -> dict[str, object]:
+        from . import wb_kiz_circulation as kiz_circ
+
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        if not _is_wb_fbs_tenant_owner(user):
+            raise HTTPException(
+                status_code=403,
+                detail="Настройки ЧЗ доступны только главному пользователю",
+            )
+        return kiz_circ.upsert_chz_settings(
+            repository,
+            user_id=_supply_owner_id(user),
+            is_enabled=bool(payload.is_enabled),
+            api_base=str(payload.api_base or "prod"),
+            participant_inn=str(payload.participant_inn or ""),
+            product_group=str(payload.product_group or ""),
+            kpp=str(payload.kpp or ""),
+            fias_id=str(payload.fias_id or ""),
+            return_type=str(payload.return_type or "REMOTE_SALE_RETURN"),
+            cert_thumbprint=str(payload.cert_thumbprint or ""),
+        )
+
+    @app.post("/api/supply-chz-settings/auth-challenge")
+    def supply_chz_auth_challenge(request: Request) -> dict[str, object]:
+        """Return True API auth challenge (uuid + data) for browser УКЭП signing."""
+        from . import wb_kiz_circulation as kiz_circ
+
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        settings = kiz_circ.get_chz_settings(repository, user_id=_supply_owner_id(user))
+        client = kiz_circ.chz_client_from_settings(settings)
+        try:
+            challenge = client.auth_key()
+        except kiz_circ.ChzTrueApiError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {
+            "ok": True,
+            "uuid": challenge["uuid"],
+            "data": challenge["data"],
+            "inn": settings.get("participant_inn") or "",
+            "cert_thumbprint": settings.get("cert_thumbprint") or "",
+            "api_base": settings.get("api_base") or "prod",
+        }
+
+    @app.post("/api/supply-chz-settings/auth-complete")
+    def supply_chz_auth_complete(
+        request: Request, payload: WbKizChzAuthRequest
+    ) -> dict[str, object]:
+        from . import wb_kiz_circulation as kiz_circ
+
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        settings = kiz_circ.get_chz_settings(repository, user_id=_supply_owner_id(user))
+        client = kiz_circ.chz_client_from_settings(settings)
+        inn = str(payload.inn or settings.get("participant_inn") or "").strip()
+        try:
+            token = client.simple_sign_in(
+                uuid=str(payload.uuid or ""),
+                signature_b64=str(payload.signature_base64 or ""),
+                inn=inn,
+            )
+        except kiz_circ.ChzTrueApiError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"ok": True, "token": token}
+
+    @app.get("/api/wb-fbs/kiz-circulation")
+    def wb_fbs_kiz_circulation_overview(
+        request: Request, source_id: int
+    ) -> dict[str, object]:
+        from . import wb_kiz_circulation as kiz_circ
+
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        _ = _wb_fbs_source_key(owner_id, int(source_id))
+        return kiz_circ.get_overview(
+            repository, user_id=owner_id, source_id=int(source_id)
+        )
+
+    @app.get("/api/wb-fbs/kiz-circulation/events")
+    def wb_fbs_kiz_circulation_events(
+        request: Request,
+        source_id: int,
+        status: str = "",
+        operation_type: int = 0,
+        limit: int = 200,
+    ) -> dict[str, object]:
+        from . import wb_kiz_circulation as kiz_circ
+
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        items = kiz_circ.list_events(
+            repository,
+            user_id=owner_id,
+            source_id=int(source_id),
+            status=str(status or ""),
+            operation_type=int(operation_type) if operation_type else None,
+            limit=int(limit or 200),
+        )
+        return {"items": items, "total": len(items)}
+
+    @app.post("/api/wb-fbs/kiz-circulation/sync")
+    def wb_fbs_kiz_circulation_sync(
+        request: Request, payload: WbKizCirculationSyncRequest
+    ) -> dict[str, object]:
+        from . import wb_kiz_circulation as kiz_circ
+
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        sid = int(payload.source_id or 0)
+        if sid <= 0:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        api_key = _wb_fbs_source_key(owner_id, sid)
+        try:
+            return kiz_circ.sync_excise_report(
+                repository,
+                user_id=owner_id,
+                source_id=sid,
+                api_key=api_key,
+                date_from=str(payload.date_from or ""),
+                date_to=str(payload.date_to or ""),
+            )
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/wb-fbs/kiz-circulation/runs/{run_id}")
+    def wb_fbs_kiz_circulation_run(
+        request: Request, run_id: int
+    ) -> dict[str, object]:
+        from . import wb_kiz_circulation as kiz_circ
+
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        run = kiz_circ.get_run(
+            repository, user_id=_supply_owner_id(user), run_id=int(run_id)
+        )
+        if not run:
+            raise HTTPException(status_code=404, detail="Прогон не найден")
+        return run
+
+    @app.post("/api/wb-fbs/kiz-circulation/chz/prepare")
+    def wb_fbs_kiz_circulation_chz_prepare(
+        request: Request, source_id: int
+    ) -> dict[str, object]:
+        from . import wb_kiz_circulation as kiz_circ
+
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        try:
+            return kiz_circ.prepare_chz_batches(
+                repository, user_id=owner_id, source_id=int(source_id)
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/wb-fbs/kiz-circulation/chz/submit")
+    def wb_fbs_kiz_circulation_chz_submit(
+        request: Request, payload: WbKizChzSubmitRequest
+    ) -> dict[str, object]:
+        from . import wb_kiz_circulation as kiz_circ
+
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        sid = int(payload.source_id or 0)
+        if sid <= 0:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        token = str(payload.token or "").strip()
+        if not token:
+            raise HTTPException(status_code=400, detail="Нет токена ЧЗ")
+        settings = kiz_circ.get_chz_settings(repository, user_id=owner_id)
+        client = kiz_circ.chz_client_from_settings(settings)
+        client.set_token(token)
+        results: list[dict[str, object]] = []
+        log_lines: list[str] = []
+        for doc in list(payload.documents or []):
+            keys = [str(k) for k in (doc.event_keys or []) if str(k).strip()]
+            title = f"{doc.doc_type} · {len(keys)} КИЗ"
+            try:
+                doc_id = client.create_document(
+                    doc_type=str(doc.doc_type or ""),
+                    product_group=str(doc.product_group or settings.get("product_group") or ""),
+                    product_document=dict(doc.product_document or {}),
+                    signature_b64=str(doc.signature_base64 or ""),
+                )
+                kiz_circ.mark_events_submitted(
+                    repository,
+                    user_id=owner_id,
+                    source_id=sid,
+                    event_keys=keys,
+                    chz_doc_id=doc_id,
+                    doc_type=str(doc.doc_type or ""),
+                    run_id=payload.run_id,
+                )
+                chz_status = "submitted"
+                try:
+                    info = client.document_info(doc_id)
+                    chz_status = str(
+                        info.get("status")
+                        or info.get("docStatus")
+                        or info.get("state")
+                        or "submitted"
+                    )
+                    kiz_circ.mark_events_accepted(
+                        repository,
+                        user_id=owner_id,
+                        source_id=sid,
+                        event_keys=keys,
+                        chz_doc_id=doc_id,
+                        chz_status=chz_status,
+                    )
+                except Exception:
+                    pass
+                results.append(
+                    {
+                        "ok": True,
+                        "doc_type": doc.doc_type,
+                        "chz_doc_id": doc_id,
+                        "chz_status": chz_status,
+                        "event_count": len(keys),
+                    }
+                )
+                log_lines.append(f"{title} → {doc_id} ({chz_status})")
+            except Exception as exc:
+                kiz_circ.mark_events_error(
+                    repository,
+                    user_id=owner_id,
+                    source_id=sid,
+                    event_keys=keys,
+                    error_text=str(exc),
+                )
+                results.append(
+                    {
+                        "ok": False,
+                        "doc_type": doc.doc_type,
+                        "error": str(exc),
+                        "event_count": len(keys),
+                    }
+                )
+                log_lines.append(f"{title} → ошибка: {exc}")
+        ok_n = sum(1 for r in results if r.get("ok"))
+        return {
+            "ok": ok_n == len(results) and bool(results),
+            "submitted": ok_n,
+            "failed": len(results) - ok_n,
+            "results": results,
+            "log": "\n".join(log_lines),
+        }
 
     @app.post("/api/wb-fbs/sync")
     def sync_wb_fbs(request: Request, source_id: int | None = None) -> dict[str, object]:

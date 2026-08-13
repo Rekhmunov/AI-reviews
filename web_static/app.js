@@ -14453,6 +14453,8 @@ document.addEventListener("DOMContentLoaded", () => {
       if (sourcesTab) sourcesTab.style.display = "none";
       const edoTab = document.getElementById("supplies-settings-tab-edo");
       if (edoTab) edoTab.style.display = "none";
+      const chzTab = document.getElementById("supplies-settings-tab-chz");
+      if (chzTab) chzTab.style.display = "none";
     }
     Promise.all([
       loadSupplySources(),
@@ -15891,14 +15893,15 @@ function _sstSave(key, widths) {
 
 window.showSuppliesSettingsTab = function(tab) {
   const permissions = getPermissions();
-  // Redirect manager (no settings access) away from sources/edo tabs to drivers
-  if ((tab === "sources" || tab === "edo") && !permissions.can_view_settings) tab = "drivers";
+  // Redirect manager (no settings access) away from sources/edo/chz tabs to drivers
+  if ((tab === "sources" || tab === "edo" || tab === "chz") && !permissions.can_view_settings) tab = "drivers";
   document.querySelectorAll("#section-supplies-settings .settings-tab-btn").forEach((b) => b.classList.remove("active"));
   document.getElementById(`supplies-settings-tab-${tab}`)?.classList.add("active");
   document.querySelectorAll("[id^='supplies-settings-pane-']").forEach((p) => { p.classList.add("hidden"); p.style.display = "none"; });
   const pane = document.getElementById(`supplies-settings-pane-${tab}`);
   if (pane) { pane.classList.remove("hidden"); pane.style.display = ""; }
   if (tab === "edo") loadSupplyEdoSettings();
+  if (tab === "chz") loadSupplyChzSettings();
   // Init resizers after pane becomes visible
   requestAnimationFrame(initAllSettingResizers);
 };
@@ -16335,6 +16338,405 @@ window.confirmOzonEdoSend = confirmOzonEdoSend;
 window.openOzonEdoStatusModal = openOzonEdoStatusModal;
 window.closeOzonEdoStatusModal = closeOzonEdoStatusModal;
 window.refreshOzonEdoStatusModal = refreshOzonEdoStatusModal;
+
+// ── Честный знак True API (settings + WB FBS вывод/возврат КИЗ) ──────────
+
+async function _signAttachedCadesBes(dataBytesOrString, thumbprint) {
+  await _ensureCadesPlugin();
+  const thumb = String(thumbprint || "").replace(/\s+/g, "").toUpperCase();
+  const bytes = typeof dataBytesOrString === "string"
+    ? new TextEncoder().encode(dataBytesOrString)
+    : (dataBytesOrString instanceof Uint8Array
+      ? dataBytesOrString
+      : new Uint8Array(dataBytesOrString));
+  const b64 = _bytesToB64(bytes);
+  return cadesplugin.async_spawn(function* () {
+    const store = yield cadesplugin.CreateObjectAsync("CAdESCOM.Store");
+    yield store.Open(
+      cadesplugin.CAPICOM_CURRENT_USER_STORE,
+      cadesplugin.CAPICOM_MY_STORE,
+      cadesplugin.CAPICOM_STORE_OPEN_MAXIMUM_ALLOWED,
+    );
+    const certs = yield store.Certificates;
+    const found = yield certs.Find(cadesplugin.CAPICOM_CERTIFICATE_FIND_SHA1_HASH, thumb);
+    const cnt = yield found.Count;
+    if (!cnt) throw new Error("Сертификат не найден в хранилище");
+    const cert = yield found.Item(1);
+    const signer = yield cadesplugin.CreateObjectAsync("CAdESCOM.CPSigner");
+    yield signer.propset_Certificate(cert);
+    yield signer.propset_CheckCertificate(true);
+    const sd = yield cadesplugin.CreateObjectAsync("CAdESCOM.CadesSignedData");
+    yield sd.propset_ContentEncoding(cadesplugin.CADESCOM_BASE64_TO_BINARY);
+    yield sd.propset_Content(b64);
+    // attached (false) — требование /auth/simpleSignIn True API
+    const sigB64 = yield sd.SignCades(signer, cadesplugin.CADESCOM_CADES_BES, false);
+    try { yield store.Close(); } catch (_) {}
+    return String(sigB64 || "").replace(/\s+/g, "");
+  });
+}
+
+async function _pickCryptoProThumb(preferred) {
+  const want = String(preferred || "").replace(/\s+/g, "").toUpperCase();
+  const certs = await _listCryptoProCerts();
+  const valid = certs.filter((c) => !_certIsExpired(c.validTo));
+  if (!valid.length) {
+    throw new Error("Нет действующих сертификатов УКЭП в хранилище «Личные»");
+  }
+  if (want) {
+    const hit = valid.find((c) => c.thumbprint === want);
+    if (hit) return hit.thumbprint;
+  }
+  if (valid.length === 1) return valid[0].thumbprint;
+  const lines = valid.map((c, i) => {
+    const until = _formatCertValidTo(c.validTo);
+    return `${i + 1}) ${_subjectCn(c.subject)} · …${c.thumbprint.slice(-8)}${until ? ` · до ${until}` : ""}`;
+  });
+  const answer = window.prompt(
+    `Выберите сертификат УКЭП (номер 1–${valid.length}):\n\n${lines.join("\n")}`,
+    "1",
+  );
+  if (answer == null) throw new Error("Подпись отменена");
+  const idx = Math.max(1, Math.min(valid.length, parseInt(String(answer).trim(), 10) || 0)) - 1;
+  if (idx < 0) throw new Error("Некорректный выбор сертификата");
+  return valid[idx].thumbprint;
+}
+
+async function loadSupplyChzSettings() {
+  const res = await fetch("/api/supply-chz-settings", { headers: jsonHeaders() }).catch(() => null);
+  if (!res || !res.ok) return;
+  const s = await res.json().catch(() => ({}));
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ""; };
+  set("chzSettingsApiBase", s.api_base === "demo" ? "demo" : "prod");
+  set("chzSettingsInn", s.participant_inn || "");
+  set("chzSettingsProductGroup", s.product_group || "");
+  set("chzSettingsReturnType", s.return_type || "REMOTE_SALE_RETURN");
+  set("chzSettingsKpp", s.kpp || "");
+  set("chzSettingsFias", s.fias_id || "");
+  set("chzSettingsCertThumb", s.cert_thumbprint || "");
+  const en = document.getElementById("chzSettingsEnabled");
+  if (en) en.checked = !!s.is_enabled;
+}
+
+async function saveSupplyChzSettings() {
+  const info = "chzSettingsInfo";
+  _edoSetInfo(info, "Сохранение…");
+  const body = {
+    is_enabled: !!document.getElementById("chzSettingsEnabled")?.checked,
+    api_base: document.getElementById("chzSettingsApiBase")?.value || "prod",
+    participant_inn: document.getElementById("chzSettingsInn")?.value.trim() || "",
+    product_group: document.getElementById("chzSettingsProductGroup")?.value.trim() || "",
+    return_type: document.getElementById("chzSettingsReturnType")?.value.trim() || "REMOTE_SALE_RETURN",
+    kpp: document.getElementById("chzSettingsKpp")?.value.trim() || "",
+    fias_id: document.getElementById("chzSettingsFias")?.value.trim() || "",
+    cert_thumbprint: document.getElementById("chzSettingsCertThumb")?.value.trim() || "",
+  };
+  const res = await fetch("/api/supply-chz-settings", {
+    method: "PUT", headers: jsonHeaders(), body: JSON.stringify(body),
+  }).catch(() => null);
+  if (!res || !res.ok) {
+    const err = await res?.json().catch(() => ({})) || {};
+    _edoSetInfo(info, err.detail || "Ошибка сохранения", false);
+    return;
+  }
+  _edoSetInfo(info, "Сохранено", true);
+  await loadSupplyChzSettings();
+}
+
+async function _chzObtainToken(preferredThumb) {
+  const challengeRes = await fetch("/api/supply-chz-settings/auth-challenge", {
+    method: "POST", headers: jsonHeaders(),
+  });
+  const challenge = await challengeRes.json().catch(() => ({}));
+  if (!challengeRes.ok) {
+    throw new Error(challenge.detail || "Не удалось получить challenge ЧЗ");
+  }
+  const thumb = await _pickCryptoProThumb(
+    preferredThumb || challenge.cert_thumbprint || "",
+  );
+  const sigB64 = await _signAttachedCadesBes(String(challenge.data || ""), thumb);
+  const completeRes = await fetch("/api/supply-chz-settings/auth-complete", {
+    method: "POST",
+    headers: jsonHeaders(),
+    body: JSON.stringify({
+      uuid: challenge.uuid,
+      signature_base64: sigB64,
+      inn: challenge.inn || "",
+    }),
+  });
+  const complete = await completeRes.json().catch(() => ({}));
+  if (!completeRes.ok) {
+    throw new Error(complete.detail || "Не удалось получить токен ЧЗ");
+  }
+  return {
+    token: String(complete.token || ""),
+    thumbprint: thumb,
+  };
+}
+
+async function testSupplyChzSettings() {
+  const info = "chzSettingsInfo";
+  _edoSetInfo(info, "Запрос challenge и подпись УКЭП…");
+  try {
+    const preferred = document.getElementById("chzSettingsCertThumb")?.value || "";
+    const { token } = await _chzObtainToken(preferred);
+    const short = token ? `${token.slice(0, 12)}…` : "—";
+    _edoSetInfo(info, `Auth OK, токен получен (${short})`, true);
+  } catch (err) {
+    _edoSetInfo(info, err?.message || String(err), false);
+  }
+}
+
+const wbFbsKizCircState = {
+  busy: false,
+  lastLog: "",
+};
+
+function _wbFbsKizCircSourceId() {
+  return wbFbsState?.sourceId ? Number(wbFbsState.sourceId) : null;
+}
+
+function _wbFbsKizCircAppendLog(text) {
+  const el = document.getElementById("wbFbsKizCircLog");
+  if (!el) return;
+  const line = String(text || "").trim();
+  if (!line) return;
+  wbFbsKizCircState.lastLog = wbFbsKizCircState.lastLog
+    ? `${wbFbsKizCircState.lastLog}\n${line}`
+    : line;
+  el.textContent = wbFbsKizCircState.lastLog;
+  el.scrollTop = el.scrollHeight;
+}
+
+function _wbFbsKizCircSetLog(text) {
+  const el = document.getElementById("wbFbsKizCircLog");
+  wbFbsKizCircState.lastLog = String(text || "");
+  if (el) {
+    el.textContent = wbFbsKizCircState.lastLog;
+    el.scrollTop = el.scrollHeight;
+  }
+}
+
+function _wbFbsKizCircStatusLabel(st) {
+  const map = {
+    pending: "ожидает",
+    ready: "готов",
+    submitted: "отправлен",
+    accepted: "принят",
+    error: "ошибка",
+    skipped: "пропуск",
+  };
+  return map[st] || st || "—";
+}
+
+function _wbFbsKizCircOpLabel(op) {
+  if (Number(op) === 1) return "Вывод";
+  if (Number(op) === 2) return "Возврат";
+  return String(op || "—");
+}
+
+function _wbFbsKizCircDefaultDates() {
+  const to = new Date();
+  const from = new Date();
+  from.setDate(from.getDate() - 7);
+  const fmt = (d) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  };
+  const fromEl = document.getElementById("wbFbsKizCircDateFrom");
+  const toEl = document.getElementById("wbFbsKizCircDateTo");
+  if (fromEl && !fromEl.value) fromEl.value = fmt(from);
+  if (toEl && !toEl.value) toEl.value = fmt(to);
+}
+
+async function openWbFbsKizCirculationModal() {
+  const sid = _wbFbsKizCircSourceId();
+  if (!sid) {
+    alert("Выберите источник WB FBS");
+    return;
+  }
+  const modal = document.getElementById("wbFbsKizCirculationModal");
+  if (!modal) return;
+  modal.classList.remove("hidden");
+  _wbFbsKizCircDefaultDates();
+  _wbFbsKizCircSetLog("");
+  await refreshWbFbsKizCirculation();
+}
+
+function closeWbFbsKizCirculationModal() {
+  document.getElementById("wbFbsKizCirculationModal")?.classList.add("hidden");
+}
+
+async function refreshWbFbsKizCirculation() {
+  const sid = _wbFbsKizCircSourceId();
+  if (!sid) return;
+  const meta = document.getElementById("wbFbsKizCircMeta");
+  const countsEl = document.getElementById("wbFbsKizCircCounts");
+  const tbody = document.getElementById("wbFbsKizCircTbody");
+  try {
+    const [ovRes, evRes] = await Promise.all([
+      fetch(`/api/wb-fbs/kiz-circulation?source_id=${sid}`, { headers: jsonHeaders() }),
+      fetch(`/api/wb-fbs/kiz-circulation/events?source_id=${sid}&limit=300`, { headers: jsonHeaders() }),
+    ]);
+    const overview = await ovRes.json().catch(() => ({}));
+    const eventsPayload = await evRes.json().catch(() => ({}));
+    if (!ovRes.ok) throw new Error(overview.detail || "Ошибка overview");
+    if (!evRes.ok) throw new Error(eventsPayload.detail || "Ошибка events");
+
+    const cur = overview.cursor || {};
+    const chz = overview.chz || {};
+    const last = overview.last_run || {};
+    if (meta) {
+      const parts = [
+        chz.is_enabled ? "ЧЗ: вкл" : "ЧЗ: выкл",
+        chz.participant_inn ? `ИНН ${chz.participant_inn}` : "ИНН не задан",
+        cur.last_date_to ? `watermark ${cur.last_date_to}` : "watermark —",
+        last.id ? `последний прогон #${last.id} (${last.status || "—"})` : "прогонов ещё не было",
+      ];
+      meta.textContent = parts.join(" · ");
+    }
+    if (countsEl) {
+      countsEl.textContent = [
+        `к выводу: ${overview.pending_withdraw || 0}`,
+        `к возврату: ${overview.pending_return || 0}`,
+        `всего: ${Object.values(overview.counts || {}).reduce((a, b) => a + Number(b || 0), 0)}`,
+      ].join(" · ");
+    }
+    const items = Array.isArray(eventsPayload.items) ? eventsPayload.items : [];
+    if (!tbody) return;
+    if (!items.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="wb-fbs-kiz-circ-empty">Нет данных — запустите ежедневный вывод</td></tr>';
+      return;
+    }
+    tbody.innerHTML = items.map((ev) => {
+      const op = Number(ev.operation_type || 0);
+      const st = String(ev.status || "");
+      const kiz = String(ev.excise_short || "");
+      const kizShort = kiz.length > 28 ? `${kiz.slice(0, 14)}…${kiz.slice(-10)}` : kiz;
+      const err = ev.error_text || ev.skip_reason || "";
+      return `<tr>
+        <td>${esc(ev.fiscal_dt || "—")}</td>
+        <td class="wb-fbs-kiz-circ-op-${op}">${esc(_wbFbsKizCircOpLabel(op))}</td>
+        <td><code>${esc(ev.srid || ev.rid || "—")}</code></td>
+        <td title="${esc(kiz)}"><code>${esc(kizShort || "—")}</code></td>
+        <td>${esc(ev.fiscal_doc_number || "—")}</td>
+        <td><span class="wb-fbs-kiz-circ-st wb-fbs-kiz-circ-st-${esc(st)}">${esc(_wbFbsKizCircStatusLabel(st))}</span>${err ? `<div class="small" style="color:#b91c1c;margin-top:4px">${esc(err)}</div>` : ""}</td>
+        <td>${esc(ev.chz_doc_id || ev.chz_status || "—")}</td>
+      </tr>`;
+    }).join("");
+  } catch (err) {
+    if (meta) meta.textContent = err?.message || String(err);
+    _wbFbsKizCircAppendLog(`Ошибка обновления: ${err?.message || err}`);
+  }
+}
+
+async function runWbFbsKizCirculationSync() {
+  const sid = _wbFbsKizCircSourceId();
+  if (!sid || wbFbsKizCircState.busy) return;
+  const btn = document.getElementById("wbFbsKizCircSyncBtn");
+  wbFbsKizCircState.busy = true;
+  if (btn) btn.disabled = true;
+  try {
+    _wbFbsKizCircAppendLog("WB: ежедневный вывод…");
+    const body = {
+      source_id: sid,
+      date_from: document.getElementById("wbFbsKizCircDateFrom")?.value || "",
+      date_to: document.getElementById("wbFbsKizCircDateTo")?.value || "",
+    };
+    const res = await fetch("/api/wb-fbs/kiz-circulation/sync", {
+      method: "POST", headers: jsonHeaders(), body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || "Ошибка sync");
+    if (data.log) _wbFbsKizCircAppendLog(data.log);
+    else {
+      _wbFbsKizCircAppendLog(
+        `OK: новых ${data.inserted || 0}, пропуск ${data.skipped || 0}, `
+        + `вывод ${data.withdraw_count || 0}, возврат ${data.return_count || 0}`,
+      );
+    }
+    await refreshWbFbsKizCirculation();
+  } catch (err) {
+    _wbFbsKizCircAppendLog(`Ошибка: ${err?.message || err}`);
+  } finally {
+    wbFbsKizCircState.busy = false;
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function runWbFbsKizCirculationChz() {
+  const sid = _wbFbsKizCircSourceId();
+  if (!sid || wbFbsKizCircState.busy) return;
+  const btn = document.getElementById("wbFbsKizCircChzBtn");
+  wbFbsKizCircState.busy = true;
+  if (btn) btn.disabled = true;
+  try {
+    _wbFbsKizCircAppendLog("ЧЗ: подготовка документов…");
+    const prepRes = await fetch(
+      `/api/wb-fbs/kiz-circulation/chz/prepare?source_id=${sid}`,
+      { method: "POST", headers: jsonHeaders() },
+    );
+    const prep = await prepRes.json().catch(() => ({}));
+    if (!prepRes.ok) throw new Error(prep.detail || "Ошибка prepare");
+    const docs = Array.isArray(prep.documents) ? prep.documents : [];
+    if (!docs.length) {
+      _wbFbsKizCircAppendLog("Нет событий для передачи в ЧЗ");
+      await refreshWbFbsKizCirculation();
+      return;
+    }
+    _wbFbsKizCircAppendLog(
+      `К передаче: ${docs.length} док. `
+      + `(вывод ${prep.counts?.withdraw_events || 0}, возврат ${prep.counts?.return_events || 0})`,
+    );
+    _wbFbsKizCircAppendLog("ЧЗ: авторизация УКЭП…");
+    const preferred = prep.settings?.cert_thumbprint || "";
+    const { token, thumbprint: thumb } = await _chzObtainToken(preferred);
+    _wbFbsKizCircAppendLog("Токен получен, подпись документов…");
+    const signed = [];
+    for (const doc of docs) {
+      const payloadB64 = String(doc.sign_payload_b64 || "");
+      if (!payloadB64) throw new Error(`Нет payload для ${doc.title || doc.doc_type}`);
+      const bytes = _b64ToBytes(payloadB64);
+      _wbFbsKizCircAppendLog(`Подпись: ${doc.title || doc.doc_type}`);
+      const sigB64 = await _signDetachedCadesBes(bytes, thumb);
+      signed.push({
+        doc_type: doc.doc_type,
+        product_group: doc.product_group || "",
+        event_keys: doc.event_keys || [],
+        product_document: doc.product_document || {},
+        signature_base64: sigB64,
+      });
+    }
+    _wbFbsKizCircAppendLog("Отправка в True API…");
+    const subRes = await fetch("/api/wb-fbs/kiz-circulation/chz/submit", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ source_id: sid, token, documents: signed }),
+    });
+    const sub = await subRes.json().catch(() => ({}));
+    if (!subRes.ok) throw new Error(sub.detail || "Ошибка submit");
+    if (sub.log) _wbFbsKizCircAppendLog(sub.log);
+    _wbFbsKizCircAppendLog(
+      `Готово: отправлено ${sub.submitted || 0}, ошибок ${sub.failed || 0}`,
+    );
+    await refreshWbFbsKizCirculation();
+  } catch (err) {
+    _wbFbsKizCircAppendLog(`Ошибка ЧЗ: ${err?.message || err}`);
+  } finally {
+    wbFbsKizCircState.busy = false;
+    if (btn) btn.disabled = false;
+  }
+}
+
+window.loadSupplyChzSettings = loadSupplyChzSettings;
+window.saveSupplyChzSettings = saveSupplyChzSettings;
+window.testSupplyChzSettings = testSupplyChzSettings;
+window.openWbFbsKizCirculationModal = openWbFbsKizCirculationModal;
+window.closeWbFbsKizCirculationModal = closeWbFbsKizCirculationModal;
+window.refreshWbFbsKizCirculation = refreshWbFbsKizCirculation;
+window.runWbFbsKizCirculationSync = runWbFbsKizCirculationSync;
+window.runWbFbsKizCirculationChz = runWbFbsKizCirculationChz;
 
 // -----------------------------------------------------------------------
 // My Salary (operator view)
