@@ -2797,8 +2797,156 @@ _wb_fbs_sync_state: dict[str, object] = {
     "cancel_requested": False,
     "source_id": None,
     "source_ids": [],
+    "pallet_summary": [],
 }
 _wb_fbs_sync_lock = threading.Lock()
+
+
+def _as_positive_int(value: object) -> int | None:
+    if value is None or str(value).strip() == "":
+        return None
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return None
+    return n if n > 0 else None
+
+
+def format_pallets_ru(value: float) -> str:
+    """Format pallet count with up to 2 decimals (comma) + Russian noun."""
+    n = round(float(value or 0.0) + 1e-12, 2)
+    if abs(n - int(n)) < 1e-9:
+        whole = int(n)
+        text = str(whole)
+        abs_n = abs(whole) % 100
+        last = abs_n % 10
+        if 11 <= abs_n <= 14:
+            word = "паллет"
+        elif last == 1:
+            word = "паллета"
+        elif 2 <= last <= 4:
+            word = "паллеты"
+        else:
+            word = "паллет"
+    else:
+        text = f"{n:.2f}".rstrip("0").rstrip(".").replace(".", ",")
+        word = "паллета"
+    return f"{text} {word}"
+
+
+def compute_wb_fbs_pallet_summary(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    sources: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Pallets per FBS source from tabs «Новые» + «На сборке».
+
+    ``pallets = Σ (qty / box_qty / boxes_per_pallet)``, rounded to hundredths.
+    Each assembly order counts as 1 unit. Products/categories without both
+    multiplicities are skipped.
+    """
+    ensure_wb_fbs_tables(repo)
+    if not sources:
+        return []
+
+    products = repo.list_product_photos(user_id=user_id)
+    categories = repo.list_product_categories(user_id=user_id, seed_defaults=True)
+    cat_boxes: dict[str, int] = {}
+    for cat in categories:
+        name = str(cat.get("name") or "").strip()
+        bpp = _as_positive_int(cat.get("boxes_per_pallet"))
+        if name and bpp is not None:
+            cat_boxes[name] = bpp
+
+    # article / nmId / casefold → (box_qty, boxes_per_pallet)
+    product_meta: dict[str, tuple[int, int]] = {}
+    for prod in products:
+        box_qty = _as_positive_int(prod.get("box_qty"))
+        if box_qty is None:
+            continue
+        cat_name = str(prod.get("product_category") or "").strip()
+        bpp = cat_boxes.get(cat_name)
+        if bpp is None:
+            continue
+        meta = (box_qty, bpp)
+        for raw_key in (
+            prod.get("supplier_article"),
+            prod.get("wb_nmid"),
+            prod.get("ozon_sku"),
+            prod.get("yandex_offer_id"),
+        ):
+            key = str(raw_key or "").strip()
+            if not key:
+                continue
+            product_meta[key] = meta
+            product_meta[key.casefold()] = meta
+
+    source_names: dict[int, str] = {}
+    source_ids: list[int] = []
+    for src in sources:
+        try:
+            sid = int(src.get("source_id") if "source_id" in src else src.get("id"))
+        except (TypeError, ValueError):
+            continue
+        source_ids.append(sid)
+        source_names[sid] = str(
+            src.get("name") or f"Источник {sid}"
+        ).strip() or f"Источник {sid}"
+
+    if not source_ids:
+        return []
+
+    placeholders = ", ".join("?" for _ in source_ids)
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                f"""
+                SELECT source_id, article, nm_id, COUNT(*) AS qty
+                FROM wb_fbs_orders
+                WHERE user_id = ?
+                  AND tab IN (?, ?)
+                  AND source_id IN ({placeholders})
+                GROUP BY source_id, article, nm_id
+                """
+            ),
+            tuple([user_id, TAB_NEW, TAB_ASSEMBLY, *source_ids]),
+        ).fetchall()
+
+    totals: dict[int, float] = {sid: 0.0 for sid in source_ids}
+    for row in rows:
+        d = repo._row_to_dict(row)
+        try:
+            sid = int(d.get("source_id"))
+            qty = int(d.get("qty") or 0)
+        except (TypeError, ValueError):
+            continue
+        if sid not in totals or qty <= 0:
+            continue
+        article = str(d.get("article") or "").strip()
+        nm_id = str(d.get("nm_id") or "").strip()
+        meta = None
+        for key in (article, nm_id, article.casefold(), nm_id.casefold()):
+            if key and key in product_meta:
+                meta = product_meta[key]
+                break
+        if not meta:
+            continue
+        box_qty, bpp = meta
+        totals[sid] += float(qty) / float(box_qty) / float(bpp)
+
+    summary: list[dict[str, Any]] = []
+    for sid in source_ids:
+        pallets = round(float(totals.get(sid) or 0.0) + 1e-12, 2)
+        summary.append(
+            {
+                "source_id": sid,
+                "name": source_names.get(sid) or f"Источник {sid}",
+                "pallets": pallets,
+                "pallets_label": format_pallets_ru(pallets),
+            }
+        )
+    return summary
 
 
 def get_sync_state() -> dict[str, object]:
@@ -2869,6 +3017,7 @@ def start_sync_thread(
                 "cancel_requested": False,
                 "source_id": jobs[0]["source_id"],
                 "source_ids": [j["source_id"] for j in jobs],
+                "pallet_summary": [],
             }
         )
 
@@ -2954,11 +3103,25 @@ def start_sync_thread(
                 except Exception:
                     _log.warning("wb_fbs: failed to update wb_fbs_last_synced_at for user %s", user_id)
 
+            pallet_summary: list[dict[str, Any]] = []
+            if synced_sources > 0:
+                try:
+                    pallet_summary = compute_wb_fbs_pallet_summary(
+                        repo, user_id=user_id, sources=jobs
+                    )
+                except Exception:
+                    _log.exception(
+                        "wb_fbs pallet summary failed user=%s", user_id
+                    )
+                    pallet_summary = []
+
             with _wb_fbs_sync_lock:
                 _wb_fbs_sync_state["synced"] = total_orders
+                _wb_fbs_sync_state["pallet_summary"] = pallet_summary
                 if synced_sources == 0 and scope_failures == len(jobs):
                     _wb_fbs_sync_state["errors"] = []
                     _wb_fbs_sync_state["message"] = SCOPE_ERROR_MESSAGE
+                    _wb_fbs_sync_state["pallet_summary"] = []
                 else:
                     _wb_fbs_sync_state["errors"] = all_errors[:8]
                     src_part = f"источников: {synced_sources}/{len(jobs)}"
@@ -2986,6 +3149,7 @@ def start_sync_thread(
                 else:
                     _wb_fbs_sync_state["errors"] = [str(exc)]
                     _wb_fbs_sync_state["message"] = f"Ошибка: {exc}"
+                _wb_fbs_sync_state["pallet_summary"] = []
         finally:
             with _wb_fbs_sync_lock:
                 _wb_fbs_sync_state["in_progress"] = False

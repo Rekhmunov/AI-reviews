@@ -21620,11 +21620,48 @@ function _wbFbsSyncCollectMgtBtn(counts) {
   btn.classList.toggle("hidden", !show);
 }
 
-function _wbFbsSetSyncInfo(text, kind = "") {
+function closeWbFbsSyncInfo() {
+  const info = document.getElementById("wbFbsSyncInfo");
+  if (!info) return;
+  info.hidden = true;
+  info.classList.remove("is-error", "is-ok");
+  const textEl = document.getElementById("wbFbsSyncInfoText");
+  const palletsEl = document.getElementById("wbFbsSyncInfoPallets");
+  if (textEl) textEl.textContent = "";
+  if (palletsEl) {
+    palletsEl.innerHTML = "";
+    palletsEl.hidden = true;
+  }
+}
+window.closeWbFbsSyncInfo = closeWbFbsSyncInfo;
+
+function _wbFbsSetSyncInfo(text, kind = "", palletSummary = null) {
   const info = document.getElementById("wbFbsSyncInfo");
   if (!info) return;
   const msg = String(text || "").trim();
-  info.textContent = msg;
+  const textEl = document.getElementById("wbFbsSyncInfoText");
+  const palletsEl = document.getElementById("wbFbsSyncInfoPallets");
+  if (textEl) textEl.textContent = msg;
+  else info.textContent = msg;
+
+  const rows = Array.isArray(palletSummary) ? palletSummary : [];
+  if (palletsEl) {
+    if (rows.length && (kind === "ok" || /готово/i.test(msg))) {
+      palletsEl.innerHTML = rows.map((row) => {
+        const name = _wbFbsEsc(row?.name || `Источник ${row?.source_id || ""}`);
+        const label = _wbFbsEsc(
+          row?.pallets_label
+          || `${Number(row?.pallets || 0).toFixed(2).replace(".", ",")} паллета`
+        );
+        return `<div class="wb-fbs-sync-info-pallet-row">${name} — ${label}</div>`;
+      }).join("");
+      palletsEl.hidden = false;
+    } else {
+      palletsEl.innerHTML = "";
+      palletsEl.hidden = true;
+    }
+  }
+
   info.hidden = !msg;
   info.classList.toggle("is-error", kind === "error");
   info.classList.toggle("is-ok", kind === "ok");
@@ -26356,10 +26393,15 @@ function _wbFbsPollSync() {
       const text = `${msg}${errs ? " · " + errs : ""}`.trim();
       let kind = "";
       if (!st.in_progress) {
-        if (scopeMsg || (st.errors || []).length || /ошибк/i.test(msg)) kind = "error";
+        if (scopeMsg || /ошибк/i.test(msg) && !/готово/i.test(msg)) kind = "error";
+        else if ((st.errors || []).length && !/готово/i.test(msg)) kind = "error";
         else if (/готово/i.test(msg)) kind = "ok";
+        else if (/остановлено/i.test(msg)) kind = "ok";
       }
-      _wbFbsSetSyncInfo(text, kind);
+      const pallets = (!st.in_progress && Array.isArray(st.pallet_summary))
+        ? st.pallet_summary
+        : null;
+      _wbFbsSetSyncInfo(text, kind, pallets);
       if (!st.in_progress) {
         clearInterval(wbFbsState.pollTimer);
         wbFbsState.pollTimer = null;

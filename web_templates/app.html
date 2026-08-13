@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=203" />
+  <link rel="stylesheet" href="/static/style.css?v=204" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1617,7 +1617,14 @@
                      autocomplete="off" oninput="onWbFbsSearchInput()" />
             </div>
           </div>
-          <div id="wbFbsSyncInfo" class="wb-fbs-sync-info" hidden></div>
+          <div id="wbFbsSyncInfo" class="wb-fbs-sync-info" hidden>
+            <div class="wb-fbs-sync-info-main">
+              <div id="wbFbsSyncInfoText" class="wb-fbs-sync-info-text"></div>
+              <div id="wbFbsSyncInfoPallets" class="wb-fbs-sync-info-pallets" hidden></div>
+            </div>
+            <button type="button" id="wbFbsSyncInfoClose" class="wb-fbs-sync-info-close"
+                    onclick="closeWbFbsSyncInfo()" aria-label="Скрыть" title="Скрыть">✕</button>
+          </div>
         </div>
         <div class="wb-fbs-tabs-row">
           <div class="wb-fbs-tabs" id="wbFbsTabs" role="tablist">
@@ -4854,6 +4861,6 @@
       </div>
     </div>
   </div>
-  <script src="/static/app.js?v=436"></script>
+  <script src="/static/app.js?v=437"></script>
 </body>
 </html>
