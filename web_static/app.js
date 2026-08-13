@@ -26393,10 +26393,10 @@ function _wbFbsPollSync() {
       const text = `${msg}${errs ? " · " + errs : ""}`.trim();
       let kind = "";
       if (!st.in_progress) {
-        if (scopeMsg || /ошибк/i.test(msg) && !/готово/i.test(msg)) kind = "error";
-        else if ((st.errors || []).length && !/готово/i.test(msg)) kind = "error";
-        else if (/готово/i.test(msg)) kind = "ok";
-        else if (/остановлено/i.test(msg)) kind = "ok";
+        // Keep prior coloring: any errors / «с ошибками» → red; clean success → green.
+        // Pallet lines still render for any «Готово…» message (see _wbFbsSetSyncInfo).
+        if (scopeMsg || (st.errors || []).length || /ошибк/i.test(msg)) kind = "error";
+        else if (/готово/i.test(msg) || /остановлено/i.test(msg)) kind = "ok";
       }
       const pallets = (!st.in_progress && Array.isArray(st.pallet_summary))
         ? st.pallet_summary
