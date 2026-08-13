@@ -1750,24 +1750,21 @@
                 <button type="button" class="icon-btn secondary" onclick="closeWbFbsKizCirculationModal()" aria-label="Закрыть">✕</button>
               </div>
               <p class="wb-fbs-kiz-circ-lead">
-                Ежедневный забор операций по маркировке из WB, затем передача в Честный знак:
-                проданные — вывод из оборота, возвраты — возврат в оборот.
-                Один запрос к WB забирает весь выбранный период (до 90 дней).
-                «Ежедневный вывод» сам закроет окно от watermark до сегодня (с overlap).
+                Выберите даты → «Ежедневный вывод» — один запрос к WB за весь выбранный период
+                (без потолка). Затем «Передать в ЧЗ»: продажи — вывод из оборота, возвраты — в оборот.
                 Лимит WB: 10 запросов / 5 часов — не жмите sync подряд.
               </p>
               <div class="wb-fbs-kiz-circ-meta" id="wbFbsKizCircMeta">—</div>
               <div class="wb-fbs-kiz-circ-toolbar">
                 <label class="wb-fbs-kiz-circ-field" for="wbFbsKizCircDateFrom">
-                  <span>С (ручной период)</span>
+                  <span>С</span>
                   <input type="date" id="wbFbsKizCircDateFrom" />
                 </label>
                 <label class="wb-fbs-kiz-circ-field" for="wbFbsKizCircDateTo">
                   <span>По</span>
                   <input type="date" id="wbFbsKizCircDateTo" />
                 </label>
-                <button type="button" id="wbFbsKizCircSyncBtn" onclick="runWbFbsKizCirculationSync(false)">Ежедневный вывод</button>
-                <button type="button" class="secondary" id="wbFbsKizCircSyncRangeBtn" onclick="runWbFbsKizCirculationSync(true)">Синхр. период</button>
+                <button type="button" id="wbFbsKizCircSyncBtn" onclick="runWbFbsKizCirculationSync()">Ежедневный вывод</button>
                 <button type="button" class="secondary" id="wbFbsKizCircChzBtn" onclick="runWbFbsKizCirculationChz()">Передать в ЧЗ</button>
                 <button type="button" class="secondary" onclick="refreshWbFbsKizCirculation()">Обновить</button>
                 <span id="wbFbsKizCircCounts" class="wb-fbs-kiz-circ-counts"></span>
@@ -4804,6 +4801,6 @@
       </div>
     </div>
   </div>
-  <script src="/static/app.js?v=430"></script>
+  <script src="/static/app.js?v=431"></script>
 </body>
 </html>

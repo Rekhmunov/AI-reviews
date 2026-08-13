@@ -34,12 +34,6 @@ logger = logging.getLogger(__name__)
 MSK = ZoneInfo("Europe/Moscow")
 WB_ANALYTICS_API = "https://seller-analytics-api.wildberries.ru"
 
-# One WB request must cover the whole needed window. Soft cap ~90 days (typical
-# WB operational retention); longer ranges are clamped so we never split calls.
-EXCISE_MAX_PERIOD_DAYS = 90
-EXCISE_DEFAULT_LOOKBACK_DAYS = 90
-EXCISE_OVERLAP_DAYS = 2
-
 OP_WITHDRAW = 1
 OP_RETURN = 2
 
@@ -99,63 +93,27 @@ def resolve_excise_period(
     *,
     date_from: str = "",
     date_to: str = "",
-    cursor_last_date_to: str = "",
-    today: str | None = None,
-    max_days: int = EXCISE_MAX_PERIOD_DAYS,
-    default_lookback_days: int = EXCISE_DEFAULT_LOOKBACK_DAYS,
-    overlap_days: int = EXCISE_OVERLAP_DAYS,
 ) -> dict[str, Any]:
-    """Pick a single [date_from, date_to] window for one WB excise-report call.
+    """Exact [date_from, date_to] from the modal — no watermark, no ceiling.
 
-    - Explicit dates: use them (clamp to ``max_days`` ending at date_to).
-    - Daily/watermark: cover the full gap from last watermark (with overlap)
-      up to today, still in one request, clamped to ``max_days``.
-    - First sync: last ``default_lookback_days`` in one request.
+    Raises ValueError if either date is missing/invalid.
     """
-    today_s = _parse_date(today or "", default=_moscow_today())
-    date_to_s = _parse_date(date_to, default=today_s)
-    to_d = date.fromisoformat(date_to_s)
-    max_days = max(1, int(max_days))
-    lookback = max(1, int(default_lookback_days))
-    overlap = max(0, int(overlap_days))
-    clamped = False
-    mode = "manual"
-
-    if str(date_from or "").strip():
-        date_from_s = _parse_date(date_from, default=date_to_s)
-        mode = "manual"
-    elif str(cursor_last_date_to or "").strip():
-        mode = "watermark"
-        try:
-            last = date.fromisoformat(
-                _parse_date(str(cursor_last_date_to), default=date_to_s)
-            )
-        except ValueError:
-            last = to_d - timedelta(days=lookback - 1)
-        date_from_s = (last - timedelta(days=overlap)).isoformat()
-    else:
-        mode = "lookback"
-        date_from_s = (to_d - timedelta(days=lookback - 1)).isoformat()
-
-    from_d = date.fromisoformat(date_from_s)
+    raw_from = str(date_from or "").strip()
+    raw_to = str(date_to or "").strip()
+    if not raw_from or not raw_to:
+        raise ValueError("Укажите даты «С» и «По» в модалке «Вывод КИЗ»")
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw_from):
+        raise ValueError(f"Некорректная дата «С»: {raw_from}")
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw_to):
+        raise ValueError(f"Некорректная дата «По»: {raw_to}")
+    from_d = date.fromisoformat(raw_from)
+    to_d = date.fromisoformat(raw_to)
     if from_d > to_d:
         from_d, to_d = to_d, from_d
-        date_from_s, date_to_s = from_d.isoformat(), to_d.isoformat()
-
-    span = (to_d - from_d).days + 1
-    if span > max_days:
-        from_d = to_d - timedelta(days=max_days - 1)
-        date_from_s = from_d.isoformat()
-        clamped = True
-        span = max_days
-
     return {
-        "date_from": date_from_s,
-        "date_to": date_to_s,
-        "days": span,
-        "clamped": clamped,
-        "mode": mode,
-        "max_days": max_days,
+        "date_from": from_d.isoformat(),
+        "date_to": to_d.isoformat(),
+        "days": (to_d - from_d).days + 1,
     }
 
 
@@ -891,12 +849,7 @@ def sync_excise_report(
 ) -> dict[str, Any]:
     ensure_kiz_circulation_tables(repo)
     repaired = repair_circulation_queue(repo, user_id=user_id, source_id=source_id)
-    cursor = get_cursor(repo, user_id=user_id, source_id=source_id)
-    period = resolve_excise_period(
-        date_from=date_from,
-        date_to=date_to,
-        cursor_last_date_to=str(cursor.get("last_date_to") or ""),
-    )
+    period = resolve_excise_period(date_from=date_from, date_to=date_to)
     date_from_s = str(period["date_from"])
     date_to_s = str(period["date_to"])
 
@@ -904,15 +857,9 @@ def sync_excise_report(
     log: list[str] = []
     _append_log(
         log,
-        f"WB: один запрос за период {date_from_s}…{date_to_s} "
-        f"({period['days']} дн., режим {period['mode']})",
+        f"WB: выгрузка за выбранные даты {date_from_s}…{date_to_s} "
+        f"({period['days']} дн., один запрос)",
     )
-    if period.get("clamped"):
-        _append_log(
-            log,
-            f"период урезан до {period['max_days']} дн. — лимит одного запроса WB; "
-            "при необходимости сдвиньте даты и повторите позже",
-        )
     if repaired.get("returns_fixed"):
         _append_log(log, f"восстановлено возвратов без чека: {repaired['returns_fixed']}")
     if repaired.get("withdraw_skipped"):
@@ -1110,7 +1057,11 @@ def sync_excise_report(
         + (f", ошибок INSERT: {insert_errors}" if insert_errors else "")
         + f", вывод: {withdraw_n}, возврат: {return_n}",
     )
-    _append_log(log, f"watermark → {date_to_s}" + (f" / {last_key[:12]}…" if last_key else ""))
+    _append_log(
+        log,
+        f"период сохранён → {date_to_s}"
+        + (f" / {last_key[:12]}…" if last_key else ""),
+    )
     _finish_run(
         repo,
         run_id=run_id,

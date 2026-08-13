@@ -10106,6 +10106,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 date_from=str(payload.date_from or ""),
                 date_to=str(payload.date_to or ""),
             )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:

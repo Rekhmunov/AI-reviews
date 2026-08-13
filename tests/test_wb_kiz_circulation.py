@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+from datetime import date
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -355,39 +356,22 @@ def test_upsert_rejects_numeric_pg() -> None:
                 )
 
 
-def test_resolve_excise_period_one_request_window() -> None:
-    # First sync: full default lookback in one shot.
-    first = circ.resolve_excise_period(
-        today="2026-08-13", cursor_last_date_to="", date_from="", date_to=""
+def test_resolve_excise_period_uses_exact_dates_no_ceiling() -> None:
+    period = circ.resolve_excise_period(
+        date_from="2025-01-01", date_to="2026-08-13"
     )
-    assert first["date_from"] == "2026-05-16"
-    assert first["date_to"] == "2026-08-13"
-    assert first["days"] == 90
-    assert first["mode"] == "lookback"
-    assert not first["clamped"]
+    assert period["date_from"] == "2025-01-01"
+    assert period["date_to"] == "2026-08-13"
+    assert period["days"] == (date.fromisoformat("2026-08-13") - date.fromisoformat("2025-01-01")).days + 1
 
-    # Watermark gap of 20 days still one request (with overlap).
-    mid = circ.resolve_excise_period(
-        today="2026-08-13",
-        cursor_last_date_to="2026-07-25",
-        date_from="",
-        date_to="",
+    swapped = circ.resolve_excise_period(
+        date_from="2026-08-13", date_to="2026-08-01"
     )
-    assert mid["date_from"] == "2026-07-23"  # 25 - 2 overlap
-    assert mid["date_to"] == "2026-08-13"
-    assert mid["mode"] == "watermark"
-    assert not mid["clamped"]
+    assert swapped["date_from"] == "2026-08-01"
+    assert swapped["date_to"] == "2026-08-13"
 
-    # Huge manual range is clamped to max days ending at date_to.
-    big = circ.resolve_excise_period(
-        date_from="2025-01-01",
-        date_to="2026-08-13",
-        cursor_last_date_to="",
-    )
-    assert big["clamped"]
-    assert big["days"] == circ.EXCISE_MAX_PERIOD_DAYS
-    assert big["date_to"] == "2026-08-13"
-    assert big["date_from"] == "2026-05-16"
+    with pytest.raises(ValueError, match="Укажите даты"):
+        circ.resolve_excise_period(date_from="", date_to="2026-08-13")
 
 
 def test_format_wb_excise_http_error_429() -> None:

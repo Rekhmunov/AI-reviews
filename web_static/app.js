@@ -16534,10 +16534,9 @@ function _wbFbsKizCircOpLabel(op) {
 }
 
 function _wbFbsKizCircDefaultDates() {
-  // Prefill last 90 days for «Синхр. период» (one WB request = full window).
-  // «Ежедневный вывод» ignores these and uses server watermark/lookback.
+  // Soft default: yesterday…today. User always controls the range.
   const to = new Date();
-  const from = new Date(to.getTime() - 89 * 24 * 60 * 60 * 1000);
+  const from = new Date(to.getTime() - 1 * 24 * 60 * 60 * 1000);
   const fmt = (d) => {
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -16592,9 +16591,9 @@ async function refreshWbFbsKizCirculation() {
         chz.is_enabled ? "ЧЗ: вкл" : "ЧЗ: выкл",
         chz.participant_inn ? `ИНН ${chz.participant_inn}` : "ИНН не задан",
         chz.has_wb_analytics_api_key ? "WB Аналитика: ок" : "WB Аналитика: нет токена",
-        cur.last_date_to ? `watermark ${cur.last_date_to}` : "watermark —",
-        last.id ? `последний прогон #${last.id} (${last.status || "—"})` : "прогонов ещё не было",
-      ];
+        cur.last_date_to ? `последняя выгрузка до ${cur.last_date_to}` : "выгрузок ещё не было",
+        last.id ? `прогон #${last.id} (${last.status || "—"})` : "",
+      ].filter(Boolean);
       meta.textContent = parts.join(" · ");
     }
     if (countsEl) {
@@ -16632,32 +16631,23 @@ async function refreshWbFbsKizCirculation() {
   }
 }
 
-async function runWbFbsKizCirculationSync(useDateRange) {
+async function runWbFbsKizCirculationSync() {
   const sid = _wbFbsKizCircSourceId();
   if (!sid || wbFbsKizCircState.busy) return;
-  const btn = document.getElementById(
-    useDateRange ? "wbFbsKizCircSyncRangeBtn" : "wbFbsKizCircSyncBtn",
-  );
   const btnDaily = document.getElementById("wbFbsKizCircSyncBtn");
-  const btnRange = document.getElementById("wbFbsKizCircSyncRangeBtn");
   wbFbsKizCircState.busy = true;
   if (btnDaily) btnDaily.disabled = true;
-  if (btnRange) btnRange.disabled = true;
   try {
     const dateFrom = document.getElementById("wbFbsKizCircDateFrom")?.value || "";
     const dateTo = document.getElementById("wbFbsKizCircDateTo")?.value || "";
-    if (useDateRange && (!dateFrom || !dateTo)) {
-      throw new Error("Укажите даты «С» и «По» для синхронизации периода");
+    if (!dateFrom || !dateTo) {
+      throw new Error("Укажите даты «С» и «По»");
     }
-    _wbFbsKizCircAppendLog(
-      useDateRange
-        ? `WB: синхронизация периода ${dateFrom}…${dateTo}…`
-        : "WB: ежедневный вывод (watermark + overlap)…",
-    );
+    _wbFbsKizCircAppendLog(`WB: выгрузка за ${dateFrom}…${dateTo}…`);
     const body = {
       source_id: sid,
-      date_from: useDateRange ? dateFrom : "",
-      date_to: useDateRange ? dateTo : "",
+      date_from: dateFrom,
+      date_to: dateTo,
     };
     const res = await fetch("/api/wb-fbs/kiz-circulation/sync", {
       method: "POST", headers: jsonHeaders(), body: JSON.stringify(body),
@@ -16690,8 +16680,6 @@ async function runWbFbsKizCirculationSync(useDateRange) {
   } finally {
     wbFbsKizCircState.busy = false;
     if (btnDaily) btnDaily.disabled = false;
-    if (btnRange) btnRange.disabled = false;
-    void btn;
   }
 }
 
