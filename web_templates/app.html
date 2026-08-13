@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=202" />
+  <link rel="stylesheet" href="/static/style.css?v=203" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -822,7 +822,10 @@
           <div class="panel">
             <div class="row row-between" style="margin-bottom:12px">
               <div style="font-weight:600;font-size:15px">Каталог товаров</div>
-              <button type="button" onclick="openAddProductForm()">+ Добавить товар</button>
+              <div class="row" style="gap:8px">
+                <button type="button" class="secondary" onclick="openProductCategoriesModal()">Категории товаров</button>
+                <button type="button" onclick="openAddProductForm()">+ Добавить товар</button>
+              </div>
             </div>
             <!-- Add form (hidden by default) -->
             <div id="productAddForm" class="hidden" style="border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin-bottom:16px;background:#f8fafc">
@@ -841,11 +844,6 @@
                   <span>Категория товара</span>
                   <select id="productFormCategory">
                     <option value="">— Не выбрано —</option>
-                    <option value="Наматрасник непромокаемый (ИП Авдеева, без маркировки)">Наматрасник непромокаемый (ИП Авдеева, без маркировки)</option>
-                    <option value="Наматрасник стеганый (ИП Авдеева, без маркировки)">Наматрасник стеганый (ИП Авдеева, без маркировки)</option>
-                    <option value="Наматрасник стеганый непромокаемый (ВарФабрик, без маркировки)">Наматрасник стеганый непромокаемый (ВарФабрик, без маркировки)</option>
-                    <option value="Наматрасник непромокаемый (ВарФабрик, с маркировкой)">Наматрасник непромокаемый (ВарФабрик, с маркировкой)</option>
-                    <option value="Постельное белье (ВарФабрик, с маркировкой)">Постельное белье (ВарФабрик, с маркировкой)</option>
                   </select>
                 </label>
               </div>
@@ -890,6 +888,40 @@
                 </thead>
                 <tbody id="productsTbody"></tbody>
               </table>
+            </div>
+          </div>
+          <div id="productCategoriesModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+               aria-labelledby="productCategoriesModalTitle"
+               onclick="if(event.target===this)closeProductCategoriesModal()">
+            <div class="modal-card product-categories-modal">
+              <div class="product-categories-modal-header">
+                <h3 id="productCategoriesModalTitle">Категории товаров</h3>
+                <button type="button" class="icon-btn secondary" onclick="closeProductCategoriesModal()" aria-label="Закрыть">✕</button>
+              </div>
+              <p class="product-categories-modal-lead">
+                Список категорий для выбора в карточке товара. Можно добавлять и менять названия;
+                вторым столбцом задаётся кол-во коробов на паллете.
+              </p>
+              <div class="table-wrap product-categories-table-wrap">
+                <table class="product-categories-table" aria-label="Категории товаров">
+                  <thead>
+                    <tr>
+                      <th>Категория товара</th>
+                      <th>Кол-во коробов на паллете</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="productCategoriesTbody"></tbody>
+                </table>
+              </div>
+              <div class="product-categories-modal-actions">
+                <button type="button" class="secondary" onclick="addProductCategoryRow()">+ Добавить категорию</button>
+                <div class="product-categories-modal-actions-right">
+                  <button type="button" class="secondary" onclick="closeProductCategoriesModal()">Отмена</button>
+                  <button type="button" id="productCategoriesSaveBtn" onclick="saveProductCategoriesModal()">Сохранить</button>
+                </div>
+              </div>
+              <div id="productCategoriesModalInfo" class="small product-categories-modal-info"></div>
             </div>
           </div>
         </div>
@@ -4822,6 +4854,6 @@
       </div>
     </div>
   </div>
-  <script src="/static/app.js?v=435"></script>
+  <script src="/static/app.js?v=436"></script>
 </body>
 </html>

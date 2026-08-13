@@ -794,7 +794,7 @@ function showSettingsTab(tab, options = {}) {
     loadRecommendations();
   }
   if (tab === "products") {
-    loadProducts();
+    loadProductCategories().then(() => loadProducts());
   }
   if (tab === "materials") {
     loadMaterials();
@@ -12630,14 +12630,44 @@ function removeRecommendationRow(index) {
 // ── Product photos catalog ────────────────────────────────────────────────────
 
 let _productsCache = [];
+let _productCategoriesCache = [];
 
-const PRODUCT_CATEGORY_OPTIONS = [
-  "Наматрасник непромокаемый (ИП Авдеева, без маркировки)",
-  "Наматрасник стеганый (ИП Авдеева, без маркировки)",
-  "Наматрасник стеганый непромокаемый (ВарФабрик, без маркировки)",
-  "Наматрасник непромокаемый (ВарФабрик, с маркировкой)",
-  "Постельное белье (ВарФабрик, с маркировкой)",
-];
+function _productCategoryNames() {
+  return (_productCategoriesCache || [])
+    .map((c) => String(c?.name || "").trim())
+    .filter(Boolean);
+}
+
+function _fillProductCategorySelect(selectedValue = "") {
+  const categorySel = document.getElementById("productFormCategory");
+  if (!categorySel) return;
+  const selected = String(selectedValue || "").trim();
+  const names = _productCategoryNames();
+  const options = ['<option value="">— Не выбрано —</option>'];
+  for (const name of names) {
+    options.push(`<option value="${esc(name)}">${esc(name)}</option>`);
+  }
+  if (selected && !names.includes(selected)) {
+    options.push(`<option value="${esc(selected)}">${esc(selected)}</option>`);
+  }
+  categorySel.innerHTML = options.join("");
+  categorySel.value = selected;
+}
+
+async function loadProductCategories() {
+  try {
+    const res = await fetch("/api/product-categories");
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || "Ошибка загрузки категорий");
+    _productCategoriesCache = Array.isArray(data.items) ? data.items : [];
+  } catch (_) {
+    _productCategoriesCache = _productCategoriesCache || [];
+  }
+  const current = String(document.getElementById("productFormCategory")?.value || "").trim();
+  _fillProductCategorySelect(current);
+  return _productCategoriesCache;
+}
+window.loadProductCategories = loadProductCategories;
 
 function openAddProductForm(editItem = null) {
   document.getElementById("productAddForm")?.classList.remove("hidden");
@@ -12652,20 +12682,9 @@ function openAddProductForm(editItem = null) {
   document.getElementById("productFormBoxQty").value =
     boxQty === null || boxQty === undefined || boxQty === "" ? "" : String(boxQty);
   const category = String(editItem?.product_category || "").trim();
-  const categorySel = document.getElementById("productFormCategory");
-  if (categorySel) {
-    if (category && !PRODUCT_CATEGORY_OPTIONS.includes(category)) {
-      // Keep legacy/custom value visible if it somehow exists.
-      let opt = Array.from(categorySel.options).find((o) => o.value === category);
-      if (!opt) {
-        opt = document.createElement("option");
-        opt.value = category;
-        opt.textContent = category;
-        categorySel.appendChild(opt);
-      }
-    }
-    categorySel.value = category;
-  }
+  _fillProductCategorySelect(category);
+  // Refresh options from server so modal edits are reflected immediately.
+  loadProductCategories().then(() => _fillProductCategorySelect(category));
   document.getElementById("productFormPhoto").value = "";
   document.getElementById("productFormName").focus();
 }
@@ -12673,6 +12692,135 @@ function openAddProductForm(editItem = null) {
 function closeAddProductForm() {
   document.getElementById("productAddForm")?.classList.add("hidden");
 }
+
+function _productCategoriesModalRowsFromDom() {
+  const tbody = document.getElementById("productCategoriesTbody");
+  if (!tbody) return [];
+  return Array.from(tbody.querySelectorAll("tr")).map((tr) => {
+    const idRaw = String(tr.dataset.id || "").trim();
+    const name = String(tr.querySelector(".pc-name")?.value || "").trim();
+    const boxesRaw = String(tr.querySelector(".pc-boxes")?.value || "").trim();
+    return {
+      id: idRaw ? Number(idRaw) : null,
+      name,
+      boxes_per_pallet: boxesRaw === "" ? null : boxesRaw,
+    };
+  });
+}
+
+function _renderProductCategoriesModalRows(items) {
+  const tbody = document.getElementById("productCategoriesTbody");
+  if (!tbody) return;
+  const rows = Array.isArray(items) && items.length
+    ? items
+    : [{ id: null, name: "", boxes_per_pallet: null }];
+  tbody.innerHTML = rows.map((item, idx) => {
+    const idAttr = item?.id != null && item.id !== "" ? String(item.id) : "";
+    const boxes = item?.boxes_per_pallet;
+    const boxesVal = (boxes === null || boxes === undefined || boxes === "") ? "" : String(boxes);
+    return `<tr data-id="${esc(idAttr)}">
+      <td><input class="pc-name" type="text" value="${esc(item?.name || "")}" placeholder="Название категории" autocomplete="off" /></td>
+      <td><input class="pc-boxes" type="number" min="0" step="1" value="${esc(boxesVal)}" placeholder="Например, 20" autocomplete="off" /></td>
+      <td style="width:56px;text-align:right">
+        <button type="button" class="secondary danger" style="font-size:12px;padding:4px 8px"
+                onclick="removeProductCategoryRow(${idx})" title="Удалить">✕</button>
+      </td>
+    </tr>`;
+  }).join("");
+}
+
+function addProductCategoryRow() {
+  const rows = _productCategoriesModalRowsFromDom();
+  rows.push({ id: null, name: "", boxes_per_pallet: null });
+  _renderProductCategoriesModalRows(rows);
+}
+window.addProductCategoryRow = addProductCategoryRow;
+
+function removeProductCategoryRow(idx) {
+  const rows = _productCategoriesModalRowsFromDom();
+  if (idx < 0 || idx >= rows.length) return;
+  rows.splice(idx, 1);
+  _renderProductCategoriesModalRows(rows);
+}
+window.removeProductCategoryRow = removeProductCategoryRow;
+
+async function openProductCategoriesModal() {
+  const modal = document.getElementById("productCategoriesModal");
+  const info = document.getElementById("productCategoriesModalInfo");
+  if (!modal) return;
+  if (info) info.textContent = "Загрузка…";
+  modal.classList.remove("hidden");
+  await loadProductCategories();
+  _renderProductCategoriesModalRows(_productCategoriesCache);
+  if (info) info.textContent = "";
+}
+window.openProductCategoriesModal = openProductCategoriesModal;
+
+function closeProductCategoriesModal() {
+  document.getElementById("productCategoriesModal")?.classList.add("hidden");
+}
+window.closeProductCategoriesModal = closeProductCategoriesModal;
+
+async function saveProductCategoriesModal() {
+  const info = document.getElementById("productCategoriesModalInfo");
+  const btn = document.getElementById("productCategoriesSaveBtn");
+  const rows = _productCategoriesModalRowsFromDom();
+  const items = [];
+  const seen = new Set();
+  for (const row of rows) {
+    const name = String(row.name || "").trim();
+    if (!name) {
+      if (info) info.textContent = "Укажите название для каждой категории или удалите пустую строку";
+      return;
+    }
+    const key = name.toLowerCase();
+    if (seen.has(key)) {
+      if (info) info.textContent = `Дублируется категория: ${name}`;
+      return;
+    }
+    seen.add(key);
+    let boxes = null;
+    if (row.boxes_per_pallet !== null && String(row.boxes_per_pallet).trim() !== "") {
+      if (!/^\d+$/.test(String(row.boxes_per_pallet).trim())) {
+        if (info) info.textContent = "Кол-во коробов на паллете должно быть целым числом";
+        return;
+      }
+      boxes = Number(row.boxes_per_pallet);
+    }
+    items.push({
+      id: Number.isFinite(row.id) ? row.id : null,
+      name,
+      boxes_per_pallet: boxes,
+    });
+  }
+  if (btn) btn.disabled = true;
+  if (info) info.textContent = "Сохранение…";
+  try {
+    const res = await fetch("/api/product-categories", {
+      method: "PUT",
+      headers: withCsrfHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ items }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const detail = data.detail;
+      throw new Error(
+        typeof detail === "string"
+          ? detail
+          : (Array.isArray(detail) ? (detail[0]?.msg || "Ошибка") : "Ошибка сохранения")
+      );
+    }
+    _productCategoriesCache = Array.isArray(data.items) ? data.items : items;
+    _fillProductCategorySelect(String(document.getElementById("productFormCategory")?.value || "").trim());
+    await loadProducts();
+    closeProductCategoriesModal();
+  } catch (e) {
+    if (info) info.textContent = e.message || "Ошибка сохранения";
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+window.saveProductCategoriesModal = saveProductCategoriesModal;
 
 // ── Products table column resizer ────────────────────────────────────────
 const PRODUCTS_COL_WIDTHS_KEY = "products_col_widths_v3";
@@ -12799,7 +12947,7 @@ async function saveProduct() {
     if (info) info.textContent = "Кратность в коробе должна быть целым числом";
     return;
   }
-  if (productCategory && !PRODUCT_CATEGORY_OPTIONS.includes(productCategory)) {
+  if (productCategory && !_productCategoryNames().includes(productCategory)) {
     if (info) info.textContent = "Выберите категорию из списка";
     return;
   }

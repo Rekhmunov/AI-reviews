@@ -524,6 +524,16 @@ class UpsertSupplyChzSettingsRequest(BaseModel):
     wb_analytics_api_key: str | None = None
 
 
+class ProductCategoryItemRequest(BaseModel):
+    id: int | None = None
+    name: str = ""
+    boxes_per_pallet: int | None = None
+
+
+class ProductCategoriesSaveRequest(BaseModel):
+    items: list[ProductCategoryItemRequest] = Field(default_factory=list)
+
+
 class WbKizCirculationSyncRequest(BaseModel):
     source_id: int
     date_from: str = ""
@@ -3381,16 +3391,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         try:
             with repository._connect() as conn:
                 repository._migrate_product_photos(conn)
+                repository._migrate_product_categories(conn)
         except Exception:
             pass
-
-    PRODUCT_CATEGORY_OPTIONS: tuple[str, ...] = (
-        "Наматрасник непромокаемый (ИП Авдеева, без маркировки)",
-        "Наматрасник стеганый (ИП Авдеева, без маркировки)",
-        "Наматрасник стеганый непромокаемый (ВарФабрик, без маркировки)",
-        "Наматрасник непромокаемый (ВарФабрик, с маркировкой)",
-        "Постельное белье (ВарФабрик, с маркировкой)",
-    )
 
     def _parse_product_box_qty(raw: object) -> int | None:
         text = str(raw or "").strip()
@@ -3408,11 +3411,16 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             )
         return value
 
-    def _parse_product_category(raw: object) -> str:
+    def _parse_product_category(raw: object, *, owner_uid: int) -> str:
         value = str(raw or "").strip()
         if not value:
             return ""
-        if value not in PRODUCT_CATEGORY_OPTIONS:
+        allowed = {
+            str(c.get("name") or "").strip()
+            for c in repository.list_product_categories(user_id=owner_uid, seed_defaults=True)
+            if str(c.get("name") or "").strip()
+        }
+        if value not in allowed:
             raise HTTPException(status_code=400, detail="Неизвестная категория товара")
         return value
 
@@ -3471,6 +3479,30 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 ),
             ) from exc
 
+    @app.get("/api/product-categories")
+    def list_product_categories_api(request: Request) -> dict[str, object]:
+        user = _require_settings_access(request)
+        _ensure_product_photos_table()
+        owner_uid = _tenant_owner_id(user)
+        items = repository.list_product_categories(user_id=owner_uid, seed_defaults=True)
+        return {"items": items}
+
+    @app.put("/api/product-categories")
+    def save_product_categories_api(
+        request: Request, payload: ProductCategoriesSaveRequest
+    ) -> dict[str, object]:
+        user = _require_settings_access(request)
+        _ensure_product_photos_table()
+        owner_uid = _tenant_owner_id(user)
+        try:
+            items = repository.save_product_categories(
+                user_id=owner_uid,
+                items=[item.model_dump() for item in (payload.items or [])],
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"ok": True, "items": items}
+
     @app.get("/api/products")
     def _list_products_ensure(request: Request) -> dict[str, object]:
         _ensure_product_photos_table()
@@ -3499,7 +3531,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if photo is not None and str(photo.filename or "").strip():
             photo_path = await _save_product_photo_upload(photo)
         parsed_box_qty = _parse_product_box_qty(box_qty)
-        parsed_category = _parse_product_category(product_category)
+        parsed_category = _parse_product_category(product_category, owner_uid=owner_uid)
         item = repository.add_product_photo(
             user_id=owner_uid, name=name.strip(), supplier_article=supplier_article.strip(),
             wb_nmid=wb_nmid.strip(), ozon_sku=ozon_sku.strip(),
@@ -3529,7 +3561,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if photo is not None and str(photo.filename or "").strip():
             new_photo_path = await _save_product_photo_upload(photo)
         parsed_box_qty = _parse_product_box_qty(box_qty)
-        parsed_category = _parse_product_category(product_category)
+        parsed_category = _parse_product_category(product_category, owner_uid=owner_uid)
         ok = repository.update_product_photo(
             user_id=owner_uid, product_id=product_id, name=name.strip(),
             supplier_article=supplier_article.strip(), wb_nmid=wb_nmid.strip(),
