@@ -16408,19 +16408,28 @@ async function loadSupplyChzSettings() {
   const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ""; };
   set("chzSettingsInn", s.participant_inn || "");
   set("chzSettingsProductGroup", s.product_group || "");
+  set("chzSettingsWbAnalyticsKey", "");
   const en = document.getElementById("chzSettingsEnabled");
   if (en) en.checked = !!s.is_enabled;
+  const prev = document.getElementById("chzSettingsWbAnalyticsKeyPreview");
+  if (prev) {
+    prev.textContent = s.has_wb_analytics_api_key
+      ? `Сохранён: ${s.wb_analytics_api_key_preview || "••••"}`
+      : "Токен не задан — ежедневный вывод КИЗ недоступен";
+  }
 }
 
 async function saveSupplyChzSettings() {
   const info = "chzSettingsInfo";
   _edoSetInfo(info, "Сохранение…");
-  // True API: только ИНН + товарная группа; остальное — дефолты / из юр. лица.
+  // True API: ИНН + товарная группа; WB Analytics — отдельный токен для excise-report.
   const body = {
     is_enabled: !!document.getElementById("chzSettingsEnabled")?.checked,
     participant_inn: document.getElementById("chzSettingsInn")?.value.trim() || "",
     product_group: document.getElementById("chzSettingsProductGroup")?.value.trim() || "",
   };
+  const wbKey = document.getElementById("chzSettingsWbAnalyticsKey")?.value || "";
+  if (wbKey.trim()) body.wb_analytics_api_key = wbKey.trim();
   const res = await fetch("/api/supply-chz-settings", {
     method: "PUT", headers: jsonHeaders(), body: JSON.stringify(body),
   }).catch(() => null);
@@ -16570,6 +16579,7 @@ async function refreshWbFbsKizCirculation() {
       const parts = [
         chz.is_enabled ? "ЧЗ: вкл" : "ЧЗ: выкл",
         chz.participant_inn ? `ИНН ${chz.participant_inn}` : "ИНН не задан",
+        chz.has_wb_analytics_api_key ? "WB Аналитика: ок" : "WB Аналитика: нет токена",
         cur.last_date_to ? `watermark ${cur.last_date_to}` : "watermark —",
         last.id ? `последний прогон #${last.id} (${last.status || "—"})` : "прогонов ещё не было",
       ];

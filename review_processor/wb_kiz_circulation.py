@@ -137,10 +137,19 @@ def ensure_kiz_circulation_tables(repo: ReviewRepository) -> None:
                 fias_id TEXT NOT NULL DEFAULT '',
                 return_type TEXT NOT NULL DEFAULT 'REMOTE_SALE_RETURN',
                 cert_thumbprint TEXT NOT NULL DEFAULT '',
+                wb_analytics_api_key_encrypted TEXT NOT NULL DEFAULT '',
                 updated_at TEXT NOT NULL DEFAULT ''
             )
             """
         )
+        try:
+            conn.execute(
+                "ALTER TABLE supply_chz_settings "
+                "ADD COLUMN IF NOT EXISTS wb_analytics_api_key_encrypted "
+                "TEXT NOT NULL DEFAULT ''"
+            )
+        except Exception:
+            pass
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS wb_kiz_circulation_cursor (
@@ -347,7 +356,31 @@ def repair_circulation_queue(
     return {"returns_fixed": returns_fixed, "withdraw_skipped": withdraw_skipped}
 
 
-def get_chz_settings(repo: ReviewRepository, *, user_id: int) -> dict[str, Any]:
+def _decrypt_wb_analytics_key(row: dict[str, Any] | None) -> str:
+    if not row:
+        return ""
+    enc = str(row.get("wb_analytics_api_key_encrypted") or "").strip()
+    if not enc:
+        return ""
+    return str(decrypt_secret(enc) or "").strip()
+
+
+def get_wb_analytics_api_key(repo: ReviewRepository, *, user_id: int) -> str:
+    """WB token for seller-analytics excise-report (not Marketplace FBS)."""
+    ensure_kiz_circulation_tables(repo)
+    with repo._connect() as conn:
+        row = conn.execute(
+            repo._sql("SELECT wb_analytics_api_key_encrypted FROM supply_chz_settings WHERE user_id = ?"),
+            (user_id,),
+        ).fetchone()
+    if not row:
+        return ""
+    return _decrypt_wb_analytics_key(repo._row_to_dict(row))
+
+
+def get_chz_settings(
+    repo: ReviewRepository, *, user_id: int, include_secrets: bool = False
+) -> dict[str, Any]:
     ensure_kiz_circulation_tables(repo)
     with repo._connect() as conn:
         row = conn.execute(
@@ -355,7 +388,7 @@ def get_chz_settings(repo: ReviewRepository, *, user_id: int) -> dict[str, Any]:
             (user_id,),
         ).fetchone()
     if not row:
-        return {
+        out = {
             "user_id": user_id,
             "is_enabled": False,
             "api_base": "prod",
@@ -366,10 +399,16 @@ def get_chz_settings(repo: ReviewRepository, *, user_id: int) -> dict[str, Any]:
             "fias_id": "",
             "return_type": "REMOTE_SALE_RETURN",
             "cert_thumbprint": "",
+            "has_wb_analytics_api_key": False,
+            "wb_analytics_api_key_preview": "",
         }
+        if include_secrets:
+            out["wb_analytics_api_key"] = ""
+        return out
     d = repo._row_to_dict(row)
     api_base = str(d.get("api_base") or "prod").strip() or "prod"
-    return {
+    wb_key = _decrypt_wb_analytics_key(d)
+    out = {
         "user_id": user_id,
         "is_enabled": bool(d.get("is_enabled")),
         "api_base": api_base if api_base in {"prod", "demo"} else "prod",
@@ -380,8 +419,13 @@ def get_chz_settings(repo: ReviewRepository, *, user_id: int) -> dict[str, Any]:
         "fias_id": str(d.get("fias_id") or ""),
         "return_type": str(d.get("return_type") or "REMOTE_SALE_RETURN"),
         "cert_thumbprint": str(d.get("cert_thumbprint") or ""),
+        "has_wb_analytics_api_key": bool(wb_key),
+        "wb_analytics_api_key_preview": mask_secret(wb_key) if wb_key else "",
         "updated_at": str(d.get("updated_at") or ""),
     }
+    if include_secrets:
+        out["wb_analytics_api_key"] = wb_key
+    return out
 
 
 def upsert_chz_settings(
@@ -396,10 +440,11 @@ def upsert_chz_settings(
     fias_id: str | None = None,
     return_type: str | None = None,
     cert_thumbprint: str | None = None,
+    wb_analytics_api_key: str | None = None,
 ) -> dict[str, Any]:
     """Save minimal connection fields; omitted optional args keep previous values."""
     ensure_kiz_circulation_tables(repo)
-    prev = get_chz_settings(repo, user_id=user_id)
+    prev = get_chz_settings(repo, user_id=user_id, include_secrets=True)
     now = datetime.now(timezone.utc).isoformat()
     if api_base is None:
         base = "demo" if str(prev.get("api_base") or "") == "demo" else "prod"
@@ -423,14 +468,31 @@ def upsert_chz_settings(
         if cert_thumbprint is None
         else str(cert_thumbprint or "").strip()
     )
+    if wb_analytics_api_key is None:
+        wb_enc = ""
+        with repo._connect() as conn:
+            row = conn.execute(
+                repo._sql(
+                    "SELECT wb_analytics_api_key_encrypted FROM supply_chz_settings "
+                    "WHERE user_id = ?"
+                ),
+                (user_id,),
+            ).fetchone()
+            if row:
+                wb_enc = str(repo._row_to_dict(row).get("wb_analytics_api_key_encrypted") or "")
+    else:
+        clean = str(wb_analytics_api_key or "").strip()
+        wb_enc = encrypt_secret(clean) if clean else ""
+        wb_enc = str(wb_enc or "")
     with repo._connect() as conn:
         conn.execute(
             repo._sql(
                 """
                 INSERT INTO supply_chz_settings (
                     user_id, is_enabled, api_base, participant_inn, product_group,
-                    kpp, fias_id, return_type, cert_thumbprint, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    kpp, fias_id, return_type, cert_thumbprint,
+                    wb_analytics_api_key_encrypted, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (user_id) DO UPDATE SET
                     is_enabled = EXCLUDED.is_enabled,
                     api_base = EXCLUDED.api_base,
@@ -440,6 +502,7 @@ def upsert_chz_settings(
                     fias_id = EXCLUDED.fias_id,
                     return_type = EXCLUDED.return_type,
                     cert_thumbprint = EXCLUDED.cert_thumbprint,
+                    wb_analytics_api_key_encrypted = EXCLUDED.wb_analytics_api_key_encrypted,
                     updated_at = EXCLUDED.updated_at
                 """
             ),
@@ -453,6 +516,7 @@ def upsert_chz_settings(
                 fias_s,
                 ret_s,
                 cert_s,
+                wb_enc,
                 now,
             ),
         )
@@ -1594,6 +1658,7 @@ __all__ = [
     "ChzTrueApiError",
     "ensure_kiz_circulation_tables",
     "get_chz_settings",
+    "get_wb_analytics_api_key",
     "upsert_chz_settings",
     "get_cursor",
     "get_overview",

@@ -3126,9 +3126,9 @@
               <div>
                 <h4 class="no-margin">Честный знак</h4>
                 <p class="small" style="margin:8px 0 0;color:#64748b;max-width:640px">
-                  Для вывода/возврата КИЗ после продаж WB FBS. Подключение — через УКЭП
-                  в браузере (постоянного API-ключа нет). КПП и ФИАС для вывода берутся
-                  из юр. лица с тем же ИНН.
+                  Для вывода/возврата КИЗ после продаж WB FBS. Отчёт WB — отдельный токен
+                  категории «Аналитика» (можно только чтение). В ЧЗ — через УКЭП в браузере.
+                  КПП и ФИАС для вывода берутся из юр. лица с тем же ИНН.
                 </p>
               </div>
               <label class="small" style="display:flex;align-items:center;gap:8px;white-space:nowrap">
@@ -3144,6 +3144,11 @@
               <div class="wfg-field">
                 <label class="wfg-label" for="chzSettingsProductGroup">Товарная группа</label>
                 <input id="chzSettingsProductGroup" type="text" placeholder="например lp, shoes, clothes" autocomplete="off" />
+              </div>
+              <div class="wfg-field" style="grid-column:1 / -1">
+                <label class="wfg-label" for="chzSettingsWbAnalyticsKey">Токен WB «Аналитика»</label>
+                <input id="chzSettingsWbAnalyticsKey" type="password" placeholder="Оставьте пустым, чтобы не менять" autocomplete="new-password" />
+                <span id="chzSettingsWbAnalyticsKeyPreview" class="small" style="color:#64748b;margin-top:4px;display:block"></span>
               </div>
             </div>
             <div class="row" style="margin-top:16px;gap:8px;align-items:center">
@@ -4797,6 +4802,6 @@
       </div>
     </div>
   </div>
-  <script src="/static/app.js?v=426"></script>
+  <script src="/static/app.js?v=427"></script>
 </body>
 </html>

@@ -355,6 +355,39 @@ def test_upsert_rejects_numeric_pg() -> None:
                 )
 
 
+def test_wb_analytics_key_encrypt_roundtrip_and_mask() -> None:
+    from review_processor.security import encrypt_secret, mask_secret
+
+    plain = "eyJhbGciOiJFUzI1NiJ9.analytics-test-token"
+    enc = encrypt_secret(plain)
+    assert enc and enc != plain
+    assert circ._decrypt_wb_analytics_key(
+        {"wb_analytics_api_key_encrypted": enc}
+    ) == plain
+    assert circ._decrypt_wb_analytics_key({"wb_analytics_api_key_encrypted": ""}) == ""
+    preview = mask_secret(plain)
+    assert preview
+    assert plain not in preview
+
+
+def test_get_wb_analytics_api_key_reads_encrypted() -> None:
+    from review_processor.security import encrypt_secret
+
+    plain = "wb-analytics-secret"
+    enc = encrypt_secret(plain)
+    row = {"wb_analytics_api_key_encrypted": enc}
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    conn.__exit__.return_value = False
+    conn.execute.return_value.fetchone.return_value = row
+    repo = MagicMock()
+    repo._connect.return_value = conn
+    repo._sql.side_effect = lambda q: q
+    repo._row_to_dict.side_effect = lambda r: r
+    with patch.object(circ, "ensure_kiz_circulation_tables"):
+        assert circ.get_wb_analytics_api_key(repo, user_id=7) == plain
+
+
 def test_parse_inn_kpp_from_requisites() -> None:
     inn, kpp = circ._parse_inn_kpp_from_text("ИНН 7707083893 КПП 770701001")
     assert inn == "7707083893"

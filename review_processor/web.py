@@ -509,7 +509,8 @@ class UpsertSupplyEdoSettingsRequest(BaseModel):
 class UpsertSupplyChzSettingsRequest(BaseModel):
     """Minimal CHZ connection settings. True API has no static API key — only УКЭП.
 
-    Optional fields (api_base, kpp, …) keep previous values when omitted (None).
+    Optional fields (api_base, kpp, wb_analytics_api_key, …) keep previous values
+    when omitted (None). Empty string for wb_analytics_api_key clears the token.
     """
 
     is_enabled: bool = False
@@ -520,6 +521,7 @@ class UpsertSupplyChzSettingsRequest(BaseModel):
     fias_id: str | None = None
     return_type: str | None = None
     cert_thumbprint: str | None = None
+    wb_analytics_api_key: str | None = None
 
 
 class WbKizCirculationSyncRequest(BaseModel):
@@ -9977,6 +9979,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 fias_id=payload.fias_id,
                 return_type=payload.return_type,
                 cert_thumbprint=payload.cert_thumbprint,
+                wb_analytics_api_key=payload.wb_analytics_api_key,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -10082,7 +10085,18 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         sid = int(payload.source_id or 0)
         if sid <= 0:
             raise HTTPException(status_code=400, detail="Укажите source_id")
-        api_key = _wb_fbs_source_key(owner_id, sid)
+        # Validate FBS source exists (events are tied to it), but sync uses a
+        # separate WB Analytics token — not the Marketplace FBS key.
+        _ = _wb_fbs_source_key(owner_id, sid)
+        api_key = kiz_circ.get_wb_analytics_api_key(repository, user_id=owner_id)
+        if not api_key:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Укажите токен WB «Аналитика» (только чтение) в "
+                    "Поставки → Настройки → ЧЗ"
+                ),
+            )
         try:
             return kiz_circ.sync_excise_report(
                 repository,
