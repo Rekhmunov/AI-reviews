@@ -285,6 +285,7 @@ def test_prepare_soft_skips_withdraw_without_kpp_keeps_returns(
     assert out["counts"]["return_events"] == 1
     assert any(d["doc_type"] == "LP_RETURN" for d in out["documents"])
     assert out["warnings"]
+    assert "юр. лица" in out["warnings"][0]
     assert not any(d["doc_type"] == "LK_RECEIPT" for d in out["documents"])
 
 
@@ -327,10 +328,43 @@ def test_prepare_chunks_returns(mock_settings, _repair, mock_list) -> None:
 def test_upsert_rejects_numeric_pg() -> None:
     repo = MagicMock()
     with patch.object(circ, "ensure_kiz_circulation_tables"):
-        with pytest.raises(ValueError, match="не число"):
-            circ.upsert_chz_settings(
-                repo,
-                user_id=1,
-                product_group="8",
-                participant_inn="1",
-            )
+        with patch.object(
+            circ,
+            "get_chz_settings",
+            return_value={
+                "api_base": "prod",
+                "kpp": "",
+                "fias_id": "",
+                "return_type": "REMOTE_SALE_RETURN",
+                "cert_thumbprint": "",
+            },
+        ):
+            with pytest.raises(ValueError, match="не число"):
+                circ.upsert_chz_settings(
+                    repo,
+                    user_id=1,
+                    product_group="8",
+                    participant_inn="1",
+                )
+
+
+def test_parse_inn_kpp_from_requisites() -> None:
+    inn, kpp = circ._parse_inn_kpp_from_text("ИНН 7707083893 КПП 770701001")
+    assert inn == "7707083893"
+    assert kpp == "770701001"
+
+
+def test_resolve_chz_place_from_legal() -> None:
+    repo = MagicMock()
+    repo.list_supply_legal_entities.return_value = [
+        {
+            "requisites": "ИНН 7707083893 / КПП 770701001",
+            "addr_fias": "0c5b2444-70a0-4932-980c-b4dc0d3f02b5",
+            "short_name": "ООО Тест",
+        }
+    ]
+    place = circ.resolve_chz_place_details(
+        repo, user_id=1, participant_inn="7707083893"
+    )
+    assert place["kpp"] == "770701001"
+    assert place["fias_id"] == "0c5b2444-70a0-4932-980c-b4dc0d3f02b5"

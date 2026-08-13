@@ -507,14 +507,19 @@ class UpsertSupplyEdoSettingsRequest(BaseModel):
 
 
 class UpsertSupplyChzSettingsRequest(BaseModel):
+    """Minimal CHZ connection settings. True API has no static API key — only УКЭП.
+
+    Optional fields (api_base, kpp, …) keep previous values when omitted (None).
+    """
+
     is_enabled: bool = False
-    api_base: str = "prod"  # prod | demo
     participant_inn: str = ""
     product_group: str = ""
-    kpp: str = ""
-    fias_id: str = ""
-    return_type: str = "REMOTE_SALE_RETURN"
-    cert_thumbprint: str = ""
+    api_base: str | None = None
+    kpp: str | None = None
+    fias_id: str | None = None
+    return_type: str | None = None
+    cert_thumbprint: str | None = None
 
 
 class WbKizCirculationSyncRequest(BaseModel):
@@ -9965,13 +9970,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 repository,
                 user_id=_supply_owner_id(user),
                 is_enabled=bool(payload.is_enabled),
-                api_base=str(payload.api_base or "prod"),
                 participant_inn=str(payload.participant_inn or ""),
                 product_group=str(payload.product_group or ""),
-                kpp=str(payload.kpp or ""),
-                fias_id=str(payload.fias_id or ""),
-                return_type=str(payload.return_type or "REMOTE_SALE_RETURN"),
-                cert_thumbprint=str(payload.cert_thumbprint or ""),
+                api_base=payload.api_base,
+                kpp=payload.kpp,
+                fias_id=payload.fias_id,
+                return_type=payload.return_type,
+                cert_thumbprint=payload.cert_thumbprint,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

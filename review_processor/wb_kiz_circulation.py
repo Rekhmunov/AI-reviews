@@ -348,23 +348,40 @@ def upsert_chz_settings(
     *,
     user_id: int,
     is_enabled: bool = False,
-    api_base: str = "prod",
     participant_inn: str = "",
     product_group: str = "",
-    kpp: str = "",
-    fias_id: str = "",
-    return_type: str = "REMOTE_SALE_RETURN",
-    cert_thumbprint: str = "",
+    api_base: str | None = None,
+    kpp: str | None = None,
+    fias_id: str | None = None,
+    return_type: str | None = None,
+    cert_thumbprint: str | None = None,
 ) -> dict[str, Any]:
+    """Save minimal connection fields; omitted optional args keep previous values."""
     ensure_kiz_circulation_tables(repo)
+    prev = get_chz_settings(repo, user_id=user_id)
     now = datetime.now(timezone.utc).isoformat()
-    base = "demo" if str(api_base or "").strip().lower() == "demo" else "prod"
+    if api_base is None:
+        base = "demo" if str(prev.get("api_base") or "") == "demo" else "prod"
+    else:
+        base = "demo" if str(api_base or "").strip().lower() == "demo" else "prod"
     pg = str(product_group or "").strip()
     # Reject pure-numeric placeholders that are not True API pg codes.
     if pg.isdigit():
         raise ValueError(
-            "Товарная группа (pg) — код True API (например lp, shoes, clothes), не число"
+            "Товарная группа — код True API (например lp, shoes, clothes), не число"
         )
+    kpp_s = str(prev.get("kpp") or "") if kpp is None else str(kpp or "").strip()
+    fias_s = str(prev.get("fias_id") or "") if fias_id is None else str(fias_id or "").strip()
+    ret_s = (
+        str(prev.get("return_type") or "REMOTE_SALE_RETURN")
+        if return_type is None
+        else (str(return_type or "").strip() or "REMOTE_SALE_RETURN")
+    )
+    cert_s = (
+        str(prev.get("cert_thumbprint") or "")
+        if cert_thumbprint is None
+        else str(cert_thumbprint or "").strip()
+    )
     with repo._connect() as conn:
         conn.execute(
             repo._sql(
@@ -391,14 +408,60 @@ def upsert_chz_settings(
                 base,
                 str(participant_inn or "").strip(),
                 pg,
-                str(kpp or "").strip(),
-                str(fias_id or "").strip(),
-                str(return_type or "REMOTE_SALE_RETURN").strip() or "REMOTE_SALE_RETURN",
-                str(cert_thumbprint or "").strip(),
+                kpp_s,
+                fias_s,
+                ret_s,
+                cert_s,
                 now,
             ),
         )
     return get_chz_settings(repo, user_id=user_id)
+
+
+def _parse_inn_kpp_from_text(text: str) -> tuple[str, str]:
+    raw = str(text or "")
+    inn_m = re.search(r"ИНН\s*[:№]?\s*(\d{10}|\d{12})", raw, flags=re.IGNORECASE)
+    kpp_m = re.search(r"КПП\s*[:№]?\s*(\d{9})", raw, flags=re.IGNORECASE)
+    inn = inn_m.group(1) if inn_m else ""
+    kpp = kpp_m.group(1) if kpp_m else ""
+    if not inn:
+        digits = re.findall(r"\b(\d{10}|\d{12})\b", raw)
+        if digits:
+            inn = digits[0]
+    return inn, kpp
+
+
+def resolve_chz_place_details(
+    repo: ReviewRepository, *, user_id: int, participant_inn: str
+) -> dict[str, str]:
+    """Resolve KPP/FIAS for DISTANCE from legal entities matching participant INN."""
+    inn = re.sub(r"\D", "", str(participant_inn or ""))
+    out = {"kpp": "", "fias_id": ""}
+    if not inn:
+        return out
+    try:
+        entities = repo.list_supply_legal_entities(user_id=user_id)
+    except Exception:
+        return out
+    for le in entities or []:
+        if not isinstance(le, dict):
+            continue
+        req = str(le.get("requisites") or "")
+        le_inn, le_kpp = _parse_inn_kpp_from_text(req)
+        if le_inn and le_inn != inn:
+            continue
+        if not le_inn and inn not in re.sub(r"\D", "", req + str(le.get("short_name") or "")):
+            # No INN in requisites — still allow if only one entity and FIAS present
+            if len(entities) != 1:
+                continue
+        fias = str(le.get("addr_fias") or "").strip()
+        if le_kpp and not out["kpp"]:
+            out["kpp"] = le_kpp
+        if fias and not out["fias_id"]:
+            out["fias_id"] = fias
+        if out["kpp"] and out["fias_id"]:
+            break
+    return out
 
 
 def get_cursor(
@@ -1188,14 +1251,23 @@ def prepare_chz_batches(
 
     kpp = str(settings.get("kpp") or "").strip()
     fias_id = str(settings.get("fias_id") or "").strip()
-    # Soft-skip withdraw if DISTANCE settings incomplete — still process returns.
+    if not kpp or not fias_id:
+        place = resolve_chz_place_details(
+            repo, user_id=user_id, participant_inn=inn
+        )
+        if not kpp:
+            kpp = str(place.get("kpp") or "").strip()
+        if not fias_id:
+            fias_id = str(place.get("fias_id") or "").strip()
+    # Soft-skip withdraw if DISTANCE place incomplete — still process returns.
     if withdraw_groups and (not kpp or not fias_id):
         warnings.append(
-            "Вывод DISTANCE пропущен: укажите КПП и ФИАС ID в Настройки → ЧЗ"
+            "Вывод DISTANCE пропущен: укажите КПП и ФИАС у юр. лица с этим ИНН "
+            "(Поставки → Настройки → Юр. лица)"
         )
         for group in withdraw_groups.values():
             for ev in group:
-                skipped.append({**ev, "skip_reason": "нет КПП/ФИАС в настройках ЧЗ"})
+                skipped.append({**ev, "skip_reason": "нет КПП/ФИАС у юр. лица"})
         withdraw_groups = {}
 
     documents: list[dict[str, Any]] = []

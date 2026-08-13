@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=200" />
+  <link rel="stylesheet" href="/static/style.css?v=201" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -3124,10 +3124,11 @@
           <div class="panel">
             <div class="row row-between" style="margin-bottom:16px">
               <div>
-                <h4 class="no-margin">Честный знак — True API</h4>
+                <h4 class="no-margin">Честный знак</h4>
                 <p class="small" style="margin:8px 0 0;color:#64748b;max-width:640px">
-                  Для вывода/возврата КИЗ после продаж WB FBS. Токен получается по УКЭП
-                  (КриптоПро в браузере) в момент передачи в ЧЗ — постоянного API-ключа нет.
+                  Для вывода/возврата КИЗ после продаж WB FBS. Подключение — через УКЭП
+                  в браузере (постоянного API-ключа нет). КПП и ФИАС для вывода берутся
+                  из юр. лица с тем же ИНН.
                 </p>
               </div>
               <label class="small" style="display:flex;align-items:center;gap:8px;white-space:nowrap">
@@ -3137,40 +3138,17 @@
             </div>
             <div class="worker-form-grid">
               <div class="wfg-field">
-                <label class="wfg-label" for="chzSettingsApiBase">Контур</label>
-                <select id="chzSettingsApiBase">
-                  <option value="prod">Боевой (markirovka.crpt.ru)</option>
-                  <option value="demo">Песочница</option>
-                </select>
-              </div>
-              <div class="wfg-field">
                 <label class="wfg-label" for="chzSettingsInn">ИНН участника</label>
                 <input id="chzSettingsInn" type="text" inputmode="numeric" placeholder="10 или 12 цифр" autocomplete="off" />
               </div>
               <div class="wfg-field">
-                <label class="wfg-label" for="chzSettingsProductGroup">Товарная группа (pg)</label>
+                <label class="wfg-label" for="chzSettingsProductGroup">Товарная группа</label>
                 <input id="chzSettingsProductGroup" type="text" placeholder="например lp, shoes, clothes" autocomplete="off" />
-              </div>
-              <div class="wfg-field">
-                <label class="wfg-label" for="chzSettingsReturnType">Причина возврата в оборот</label>
-                <input id="chzSettingsReturnType" type="text" placeholder="REMOTE_SALE_RETURN" autocomplete="off" />
-              </div>
-              <div class="wfg-field">
-                <label class="wfg-label" for="chzSettingsKpp">КПП (для DISTANCE)</label>
-                <input id="chzSettingsKpp" type="text" placeholder="КПП места деятельности" autocomplete="off" />
-              </div>
-              <div class="wfg-field">
-                <label class="wfg-label" for="chzSettingsFias">ФИАС ID</label>
-                <input id="chzSettingsFias" type="text" placeholder="Идентификатор ФИАС" autocomplete="off" />
-              </div>
-              <div class="wfg-field" style="grid-column:span 2">
-                <label class="wfg-label" for="chzSettingsCertThumb">Отпечаток сертификата УКЭП</label>
-                <input id="chzSettingsCertThumb" type="text" placeholder="AABBCC… — если пусто, выбор при подписи" autocomplete="off" />
               </div>
             </div>
             <div class="row" style="margin-top:16px;gap:8px;align-items:center">
               <button type="button" onclick="saveSupplyChzSettings()">Сохранить</button>
-              <button type="button" class="secondary" onclick="testSupplyChzSettings()">Проверить auth (УКЭП)</button>
+              <button type="button" class="secondary" onclick="testSupplyChzSettings()">Проверить УКЭП</button>
               <span id="chzSettingsInfo" class="small"></span>
             </div>
           </div>
@@ -4819,6 +4797,6 @@
       </div>
     </div>
   </div>
-  <script src="/static/app.js?v=424"></script>
+  <script src="/static/app.js?v=425"></script>
 </body>
 </html>

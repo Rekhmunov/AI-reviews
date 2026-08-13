@@ -16406,13 +16406,8 @@ async function loadSupplyChzSettings() {
   if (!res || !res.ok) return;
   const s = await res.json().catch(() => ({}));
   const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ""; };
-  set("chzSettingsApiBase", s.api_base === "demo" ? "demo" : "prod");
   set("chzSettingsInn", s.participant_inn || "");
   set("chzSettingsProductGroup", s.product_group || "");
-  set("chzSettingsReturnType", s.return_type || "REMOTE_SALE_RETURN");
-  set("chzSettingsKpp", s.kpp || "");
-  set("chzSettingsFias", s.fias_id || "");
-  set("chzSettingsCertThumb", s.cert_thumbprint || "");
   const en = document.getElementById("chzSettingsEnabled");
   if (en) en.checked = !!s.is_enabled;
 }
@@ -16420,15 +16415,11 @@ async function loadSupplyChzSettings() {
 async function saveSupplyChzSettings() {
   const info = "chzSettingsInfo";
   _edoSetInfo(info, "Сохранение…");
+  // True API: только ИНН + товарная группа; остальное — дефолты / из юр. лица.
   const body = {
     is_enabled: !!document.getElementById("chzSettingsEnabled")?.checked,
-    api_base: document.getElementById("chzSettingsApiBase")?.value || "prod",
     participant_inn: document.getElementById("chzSettingsInn")?.value.trim() || "",
     product_group: document.getElementById("chzSettingsProductGroup")?.value.trim() || "",
-    return_type: document.getElementById("chzSettingsReturnType")?.value.trim() || "REMOTE_SALE_RETURN",
-    kpp: document.getElementById("chzSettingsKpp")?.value.trim() || "",
-    fias_id: document.getElementById("chzSettingsFias")?.value.trim() || "",
-    cert_thumbprint: document.getElementById("chzSettingsCertThumb")?.value.trim() || "",
   };
   const res = await fetch("/api/supply-chz-settings", {
     method: "PUT", headers: jsonHeaders(), body: JSON.stringify(body),
@@ -16477,8 +16468,7 @@ async function testSupplyChzSettings() {
   const info = "chzSettingsInfo";
   _edoSetInfo(info, "Запрос challenge и подпись УКЭП…");
   try {
-    const preferred = document.getElementById("chzSettingsCertThumb")?.value || "";
-    const { token } = await _chzObtainToken(preferred);
+    const { token } = await _chzObtainToken("");
     const short = token ? `${token.slice(0, 12)}…` : "—";
     _edoSetInfo(info, `Auth OK, токен получен (${short})`, true);
   } catch (err) {
