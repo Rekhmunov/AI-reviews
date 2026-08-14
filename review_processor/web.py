@@ -10731,13 +10731,19 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     info: dict = {}
                     for _attempt in range(4):
                         info = client.document_info(doc_id)
+                        chz_err = kiz_circ.extract_chz_doc_errors(info)
                         chz_status = (
-                            kiz_circ.extract_chz_doc_status(info) or "submitted"
+                            kiz_circ.extract_chz_doc_status(info) or ""
                         )
+                        if not chz_status and chz_err:
+                            chz_status = "CHECKED_NOT_OK"
+                        elif not chz_status:
+                            chz_status = "submitted"
                         if kiz_circ.classify_chz_doc_status(chz_status) != "submitted":
                             break
                         _time.sleep(1.2)
-                    chz_err = kiz_circ.extract_chz_doc_errors(info)
+                    if not chz_err:
+                        chz_err = kiz_circ.extract_chz_doc_errors(info)
                     local_status = kiz_circ.apply_chz_doc_status(
                         repository,
                         user_id=owner_id,
@@ -10747,8 +10753,19 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                         chz_status=chz_status,
                         error_text=chz_err,
                     )
-                except Exception:
-                    pass
+                    if local_status == "error":
+                        _log.warning(
+                            "CHZ submit doc %s → %s: %s",
+                            doc_id,
+                            chz_status,
+                            (chz_err or chz_status)[:500],
+                        )
+                except Exception as poll_exc:
+                    _log.warning(
+                        "CHZ submit doc %s status poll failed: %s",
+                        doc_id,
+                        poll_exc,
+                    )
             except Exception as exc:
                 log_lines.append(
                     f"{title} → создан в ЧЗ {doc_id}, локальный статус: {exc}"

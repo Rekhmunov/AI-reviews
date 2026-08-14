@@ -4501,6 +4501,19 @@ def reconcile_submitted_with_chz(
                 accepted += 1
             elif final == STATUS_ERROR:
                 failed += 1
+                logger.warning(
+                    "CHZ reconcile doc %s → %s (%s events): %s",
+                    doc_id,
+                    chz_status,
+                    len(keys),
+                    (err or chz_status)[:500],
+                )
+            else:
+                logger.info(
+                    "CHZ reconcile doc %s still in progress: %s",
+                    doc_id,
+                    chz_status or "submitted",
+                )
         except Exception as exc:
             api_errors += 1
             sample = f"{doc_id}: {exc}"
