@@ -446,14 +446,38 @@ def test_attach_order_ids_to_events_via_srid() -> None:
         {"srid": "missing", "rid": ""},
         {"srid": "", "rid": "eAC.abc.0.0"},
     ]
-    with patch("review_processor.wb_fbs.order_ids_by_srids") as lookup:
+    with patch("review_processor.wb_fbs.order_ids_by_srids") as lookup, patch(
+        "review_processor.wb_fbs.load_order_status_map"
+    ) as status_map:
         lookup.return_value = {"eAC.abc.0.0": 3291847561}
+        status_map.return_value = {
+            3291847561: {
+                "supplier_status": "complete",
+                "wb_status": "sold",
+                "cancel_reason_label": "",
+                "order_status_label": "Выкуплен",
+            }
+        }
         circ._attach_order_ids_to_events(
             MagicMock(), user_id=1, source_id=2, events=events
         )
     assert events[0]["order_id"] == 3291847561
+    assert events[0]["order_status_label"] == "Выкуплен"
+    assert events[0]["order_wb_status"] == "sold"
     assert events[1]["order_id"] is None
+    assert events[1]["order_status_label"] == ""
     assert events[2]["order_id"] == 3291847561
+    assert events[2]["order_status_label"] == "Выкуплен"
     called_srids = lookup.call_args.kwargs["srids"]
     assert "eAC.abc.0.0" in called_srids
     assert "missing" in called_srids
+
+
+def test_order_portal_status_label() -> None:
+    from review_processor.wb_fbs import order_portal_status_label
+
+    assert order_portal_status_label(wb_status="sold") == "Выкуплен"
+    assert order_portal_status_label(wb_status="canceled_by_client") == "Клиент отказался"
+    assert order_portal_status_label(supplier_status="confirm") == "На сборке"
+    assert order_portal_status_label(supplier_status="complete") == "В доставке"
+    assert order_portal_status_label(supplier_status="new") == "Новый"

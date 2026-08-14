@@ -200,6 +200,28 @@ def finished_status_label(*, supplier_status: object = "", wb_status: object = "
     return ""
 
 
+def order_portal_status_label(*, supplier_status: object = "", wb_status: object = "") -> str:
+    """Compact Marketplace status for tables (Вывод КИЗ, etc.)."""
+    ss = str(supplier_status or "").strip().lower()
+    ws = str(wb_status or "").strip().lower()
+    if ws == "sold":
+        return "Выкуплен"
+    cancel = cancel_reason_label(supplier_status=ss, wb_status=ws)
+    if cancel:
+        return cancel
+    if _is_cancelled_status(supplier_status=ss, wb_status=ws):
+        return "Отменён"
+    if ss == "complete":
+        return "В доставке"
+    if ss == "confirm":
+        return "На сборке"
+    if ss == "new" or (not ss and not ws):
+        return "Новый"
+    if ss:
+        return ss
+    return ws or ""
+
+
 def default_mgt_supply_name(*, is_b2b: bool, when: datetime | None = None) -> str:
     """Default editable title: ``Поставка от ДД.ММ.ГГГГ`` (+ `` B2B``)."""
     from zoneinfo import ZoneInfo
@@ -1275,7 +1297,7 @@ def load_order_status_map(
     source_id: int,
     order_ids: list[int],
 ) -> dict[int, dict[str, str]]:
-    """Map order_id → supplier_status / wb_status / cancel_reason_label."""
+    """Map order_id → supplier_status / wb_status / cancel_reason_label / order_status_label."""
     ids = []
     for raw in order_ids or []:
         try:
@@ -1311,6 +1333,9 @@ def load_order_status_map(
             "supplier_status": ss,
             "wb_status": ws,
             "cancel_reason_label": cancel_reason_label(
+                supplier_status=ss, wb_status=ws
+            ),
+            "order_status_label": order_portal_status_label(
                 supplier_status=ss, wb_status=ws
             ),
         }

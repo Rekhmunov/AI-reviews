@@ -1182,7 +1182,7 @@ def _attach_order_ids_to_events(
     source_id: int,
     events: list[dict[str, Any]],
 ) -> None:
-    """Attach numeric FBS ``order_id`` (as in supplies) via srid/rid join."""
+    """Attach numeric FBS ``order_id`` + Marketplace status via srid/rid join."""
     if not events:
         return
     from . import wb_fbs as wb_fbs_mod
@@ -1198,11 +1198,38 @@ def _attach_order_ids_to_events(
     by_srid = wb_fbs_mod.order_ids_by_srids(
         repo, user_id=user_id, source_id=source_id, srids=keys
     )
+    order_ids: list[int] = []
     for ev in events:
         srid = str(ev.get("srid") or "").strip()
         rid = str(ev.get("rid") or "").strip()
         oid = by_srid.get(srid) or by_srid.get(rid) or None
-        ev["order_id"] = int(oid) if oid else None
+        if oid:
+            try:
+                oid_i = int(oid)
+            except (TypeError, ValueError):
+                oid_i = 0
+            ev["order_id"] = oid_i if oid_i > 0 else None
+            if oid_i > 0:
+                order_ids.append(oid_i)
+        else:
+            ev["order_id"] = None
+        ev["order_status_label"] = ""
+        ev["order_wb_status"] = ""
+        ev["order_supplier_status"] = ""
+        ev["order_cancel_reason"] = ""
+
+    status_map = wb_fbs_mod.load_order_status_map(
+        repo, user_id=user_id, source_id=source_id, order_ids=order_ids
+    )
+    for ev in events:
+        oid = ev.get("order_id")
+        if not oid:
+            continue
+        st = status_map.get(int(oid)) or {}
+        ev["order_status_label"] = str(st.get("order_status_label") or "").strip()
+        ev["order_wb_status"] = str(st.get("wb_status") or "").strip()
+        ev["order_supplier_status"] = str(st.get("supplier_status") or "").strip()
+        ev["order_cancel_reason"] = str(st.get("cancel_reason_label") or "").strip()
 
 
 def list_events_for_chz(

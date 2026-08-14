@@ -16842,6 +16842,8 @@ function _wbFbsKizCircFilteredItems() {
     if (q) {
       const hay = [
         ev.order_id,
+        ev.order_status_label,
+        ev.order_cancel_reason,
         ev.excise_short,
         ev.srid,
         ev.rid,
@@ -16871,12 +16873,12 @@ function _wbFbsKizCircRenderTable() {
   }
   if (!all.length) {
     tbody.innerHTML =
-      '<tr><td colspan="8" class="wb-fbs-kiz-circ-empty">Нет данных — выберите даты и нажмите «Ежедневный вывод»</td></tr>';
+      '<tr><td colspan="9" class="wb-fbs-kiz-circ-empty">Нет данных — выберите даты и нажмите «Ежедневный вывод»</td></tr>';
     return;
   }
   if (!items.length) {
     tbody.innerHTML =
-      '<tr><td colspan="8" class="wb-fbs-kiz-circ-empty">Нет событий по текущим фильтрам</td></tr>';
+      '<tr><td colspan="9" class="wb-fbs-kiz-circ-empty">Нет событий по текущим фильтрам</td></tr>';
     return;
   }
   tbody.innerHTML = items
@@ -16889,12 +16891,24 @@ function _wbFbsKizCircRenderTable() {
       const orderId = ev.order_id != null && String(ev.order_id).trim() !== ""
         ? String(ev.order_id)
         : "";
+      const orderStatus = String(ev.order_status_label || "").trim();
+      const orderStatusTitle = [
+        orderStatus,
+        ev.order_wb_status ? `wb: ${ev.order_wb_status}` : "",
+        ev.order_supplier_status ? `supplier: ${ev.order_supplier_status}` : "",
+      ].filter(Boolean).join(" · ");
+      const orderStatusCls = _wbFbsKizCircOrderStatusClass(orderStatus, ev);
       const srid = String(ev.srid || ev.rid || "").trim();
       const sridShort = srid.length > 28 ? `${srid.slice(0, 12)}…${srid.slice(-10)}` : srid;
       return `<tr>
         <td>${esc(ev.fiscal_dt || "—")}</td>
         <td class="wb-fbs-kiz-circ-op-${op}">${esc(_wbFbsKizCircOpLabel(op))}</td>
         <td>${orderId ? `<code class="wb-fbs-kiz-circ-order-id">${esc(orderId)}</code>` : "—"}</td>
+        <td>${
+          orderStatus
+            ? `<span class="wb-fbs-kiz-circ-order-st ${orderStatusCls}" title="${esc(orderStatusTitle)}">${esc(orderStatus)}</span>`
+            : "—"
+        }</td>
         <td title="${esc(srid)}"><code class="wb-fbs-kiz-circ-srid">${esc(sridShort || "—")}</code></td>
         <td title="${esc(kiz)}"><code>${esc(kizShort || "—")}</code></td>
         <td>${esc(ev.fiscal_doc_number || "—")}</td>
@@ -16903,6 +16917,27 @@ function _wbFbsKizCircRenderTable() {
       </tr>`;
     })
     .join("");
+}
+
+function _wbFbsKizCircOrderStatusClass(label, ev) {
+  const raw = String(label || "").trim().toLowerCase();
+  const ws = String(ev?.order_wb_status || "").trim().toLowerCase();
+  if (raw === "выкуплен" || ws === "sold") return "is-sold";
+  if (
+    raw === "отменён"
+    || raw === "отменен"
+    || raw.includes("отказ")
+    || raw.includes("отмена")
+    || raw.includes("брак")
+    || raw.includes("перевозчик")
+    || raw.includes("покупатель")
+  ) {
+    return "is-cancel";
+  }
+  if (raw === "в доставке") return "is-delivery";
+  if (raw === "на сборке") return "is-assembly";
+  if (raw === "новый") return "is-new";
+  return "";
 }
 
 function _wbFbsKizCircRenderLog() {
