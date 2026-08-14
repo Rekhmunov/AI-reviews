@@ -17414,6 +17414,14 @@ window.runWbFbsKizCirculationSync = runWbFbsKizCirculationSync;
 window.runWbFbsKizCirculationChz = runWbFbsKizCirculationChz;
 window.toggleWbFbsKizCircRow = toggleWbFbsKizCircRow;
 window.toggleWbFbsKizCircSelectAll = toggleWbFbsKizCircSelectAll;
+// Stubs for old cached HTML that still has toolbar buttons.
+window.selectAllVisibleWbFbsKizCirc = function selectAllVisibleWbFbsKizCirc() {
+  toggleWbFbsKizCircSelectAll(true);
+};
+window.clearWbFbsKizCircSelection = function clearWbFbsKizCircSelection() {
+  wbFbsKizCircState.selectedKeys.clear();
+  _wbFbsKizCircRenderTable();
+};
 
 // -----------------------------------------------------------------------
 // My Salary (operator view)
