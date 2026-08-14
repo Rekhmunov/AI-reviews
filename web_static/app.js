@@ -16744,6 +16744,13 @@ const WB_FBS_KIZ_CIRC_ORDER_WB = [
   "__empty__",
 ];
 
+const WB_FBS_KIZ_CIRC_CIS = [
+  "in_circulation",
+  "withdrawn",
+  "transferred",
+  "__empty__",
+];
+
 const wbFbsKizCircState = {
   busy: false,
   syncRunId: 0,
@@ -16755,6 +16762,7 @@ const wbFbsKizCircState = {
   filters: {
     statuses: [],
     orderWbStatuses: [],
+    cisKinds: [],
     operationType: "",
     onlyChzError: false,
     search: "",
@@ -16771,6 +16779,7 @@ function _wbFbsKizCircDefaultFilters() {
   return {
     statuses: [],
     orderWbStatuses: [],
+    cisKinds: [],
     operationType: "",
     onlyChzError: false,
     search: "",
@@ -16820,6 +16829,12 @@ function _wbFbsKizCircSyncFilterControls() {
     btn.classList.toggle("is-active", orderWbSet.has(st));
     btn.setAttribute("aria-pressed", orderWbSet.has(st) ? "true" : "false");
   });
+  const cisSet = new Set(f.cisKinds || []);
+  document.querySelectorAll("#wbFbsKizCircCisChips .wb-fbs-kiz-circ-chip").forEach((btn) => {
+    const st = btn.getAttribute("data-cis") || "";
+    btn.classList.toggle("is-active", cisSet.has(st));
+    btn.setAttribute("aria-pressed", cisSet.has(st) ? "true" : "false");
+  });
 }
 
 function toggleWbFbsKizCircStatus(status) {
@@ -16846,6 +16861,18 @@ function toggleWbFbsKizCircOrderWb(status) {
   _wbFbsKizCircRenderTable();
 }
 
+function toggleWbFbsKizCircCis(kind) {
+  const st = String(kind || "");
+  if (!WB_FBS_KIZ_CIRC_CIS.includes(st)) return;
+  const f = wbFbsKizCircState.filters;
+  const set = new Set(f.cisKinds || []);
+  if (set.has(st)) set.delete(st);
+  else set.add(st);
+  f.cisKinds = WB_FBS_KIZ_CIRC_CIS.filter((x) => set.has(x));
+  _wbFbsKizCircSyncFilterControls();
+  _wbFbsKizCircRenderTable();
+}
+
 function onWbFbsKizCircFilterChange() {
   _wbFbsKizCircReadFilterControls();
   _wbFbsKizCircSyncFilterControls();
@@ -16863,6 +16890,7 @@ function _wbFbsKizCircFilteredItems() {
   const f = wbFbsKizCircState.filters || _wbFbsKizCircDefaultFilters();
   const statusSet = new Set(f.statuses || []);
   const orderWbSet = new Set(f.orderWbStatuses || []);
+  const cisSet = new Set(f.cisKinds || []);
   const opWanted = f.operationType ? Number(f.operationType) : null;
   const q = String(f.search || "").trim().toLowerCase();
   const fiscalFrom = f.fiscalFrom || "";
@@ -16876,6 +16904,11 @@ function _wbFbsKizCircFilteredItems() {
       const ws = String(ev.order_wb_status || "").trim().toLowerCase();
       const key = ws || "__empty__";
       if (!orderWbSet.has(key)) return false;
+    }
+
+    if (cisSet.size) {
+      const cisKey = _wbFbsKizCircCisFilterKey(ev);
+      if (!cisSet.has(cisKey)) return false;
     }
 
     if (opWanted != null && Number(ev.operation_type || 0) !== opWanted) return false;
@@ -16902,6 +16935,9 @@ function _wbFbsKizCircFilteredItems() {
         ev.chz_doc_id,
         ev.error_text,
         ev.skip_reason,
+        ev.cis_status,
+        ev.cis_status_label,
+        ev.cis_owner_inn,
       ]
         .map((x) => String(x || "").toLowerCase())
         .join(" ");
@@ -16909,6 +16945,33 @@ function _wbFbsKizCircFilteredItems() {
     }
     return true;
   });
+}
+
+/** Filter bucket for «Код в ЧЗ»: matches the badge shown in the table. */
+function _wbFbsKizCircCisFilterKey(ev) {
+  const cisSt = String(ev?.cis_status || "").trim();
+  const cisOwner = String(ev?.cis_owner_inn || "").trim();
+  const oursInn = _wbFbsKizCircParticipantInn();
+  const transferred = !!ev?.cis_transferred
+    || _wbFbsKizCircCisOwnerForeign(cisOwner, oursInn);
+  if (transferred) return "transferred";
+  const label = String(ev?.cis_status_label || "").trim()
+    || _wbFbsKizCircCisLabel(cisSt);
+  if (!cisSt && !label) return "__empty__";
+  if (label === "Передан") return "transferred";
+  const kind = String(ev?.cis_status_kind || "").trim()
+    || _wbFbsKizCircCisKind(cisSt);
+  if (kind === "in_circulation") return "in_circulation";
+  if (kind === "withdrawn") return "withdrawn";
+  // pre / other / unknown without a checked status → empty bucket for filter chips
+  if (!cisSt) return "__empty__";
+  if (kind === "withdrawn") return "withdrawn";
+  if (kind === "in_circulation") return "in_circulation";
+  // Checked but not one of the main chips (нанесён / прочее) → treat as empty? Better map pre to empty no —
+  // Keep only the four chips; non-matching checked rows hidden when any chip active unless we add them.
+  // Map pre/other to in_circulation? No. Hide when filter active unless __empty__ selected incorrectly.
+  // Use withdrawn only for out; for pre/other return kind so they don't match unless we expand chips.
+  return kind === "pre" || kind === "other" ? kind : (cisSt ? "other" : "__empty__");
 }
 
 /** Rows that can still be prepared/submitted to ЧЗ.

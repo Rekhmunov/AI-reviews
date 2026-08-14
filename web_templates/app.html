@@ -1858,6 +1858,15 @@
                     <button type="button" class="wb-fbs-kiz-circ-chip" data-order-wb="__empty__" onclick="toggleWbFbsKizCircOrderWb('__empty__')">Без статуса</button>
                   </div>
                 </div>
+                <div class="wb-fbs-kiz-circ-filter-block">
+                  <span class="wb-fbs-kiz-circ-filter-label">Код в ЧЗ</span>
+                  <div class="wb-fbs-kiz-circ-status-chips" id="wbFbsKizCircCisChips" role="group" aria-label="Статус кода в ЧЗ">
+                    <button type="button" class="wb-fbs-kiz-circ-chip" data-cis="in_circulation" onclick="toggleWbFbsKizCircCis('in_circulation')">В обороте</button>
+                    <button type="button" class="wb-fbs-kiz-circ-chip" data-cis="withdrawn" onclick="toggleWbFbsKizCircCis('withdrawn')">Выведен</button>
+                    <button type="button" class="wb-fbs-kiz-circ-chip" data-cis="transferred" onclick="toggleWbFbsKizCircCis('transferred')">Передан</button>
+                    <button type="button" class="wb-fbs-kiz-circ-chip" data-cis="__empty__" onclick="toggleWbFbsKizCircCis('__empty__')">Не проверен</button>
+                  </div>
+                </div>
                 <div class="wb-fbs-kiz-circ-filter-controls">
                   <label class="wb-fbs-kiz-circ-field" for="wbFbsKizCircOpFilter">
                     <span>Тип операции</span>
