@@ -17122,11 +17122,12 @@ async function runWbFbsKizCirculationChz() {
   const btn = document.getElementById("wbFbsKizCircChzBtn");
   wbFbsKizCircState.busy = true;
   if (btn) btn.disabled = true;
-  const maxRounds = 20;
+  const maxRounds = 100;
   let token = "";
   let thumb = "";
   let totalSubmitted = 0;
   let totalFailed = 0;
+  let stoppedWithMore = false;
   try {
     for (let round = 1; round <= maxRounds; round++) {
       _wbFbsKizCircAppendLog(
@@ -17144,6 +17145,7 @@ async function runWbFbsKizCirculationChz() {
       const docs = Array.isArray(prep.documents) ? prep.documents : [];
       if (!docs.length) {
         if (round === 1) _wbFbsKizCircAppendLog("Нет событий для передачи в ЧЗ");
+        stoppedWithMore = false;
         break;
       }
       _wbFbsKizCircAppendLog(
@@ -17186,15 +17188,26 @@ async function runWbFbsKizCirculationChz() {
       if (sub.log) _wbFbsKizCircAppendLog(sub.log);
       totalSubmitted += Number(sub.submitted || 0);
       totalFailed += Number(sub.failed || 0);
+      stoppedWithMore = Boolean(prep.has_more);
       if (!prep.has_more) break;
       if (Number(sub.failed || 0) > 0 && Number(sub.submitted || 0) === 0) {
         _wbFbsKizCircAppendLog("Остановка: пакет полностью с ошибками");
         break;
       }
+      if (round === maxRounds) {
+        stoppedWithMore = true;
+      }
     }
-    _wbFbsKizCircAppendLog(
-      `Итого: отправлено ${totalSubmitted}, ошибок ${totalFailed}`,
-    );
+    if (stoppedWithMore) {
+      _wbFbsKizCircAppendLog(
+        `Очередь ещё не пуста после ${maxRounds} пакетов. `
+        + `Итого: отправлено ${totalSubmitted}, ошибок ${totalFailed}. Нажмите «Отправить в ЧЗ» снова.`,
+      );
+    } else {
+      _wbFbsKizCircAppendLog(
+        `Итого: отправлено ${totalSubmitted}, ошибок ${totalFailed}`,
+      );
+    }
     await refreshWbFbsKizCirculation();
   } catch (err) {
     _wbFbsKizCircAppendLog(`Ошибка ЧЗ: ${err?.message || err}`);
