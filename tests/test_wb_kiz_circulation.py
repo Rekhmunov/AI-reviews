@@ -1537,6 +1537,69 @@ def test_request_cancel_excise_sync_sets_flag() -> None:
         circ._clear_sync_cancel(99)
 
 
+def test_abandon_orphan_closes_zombie_running_without_live_worker() -> None:
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    conn.__exit__.return_value = False
+    zombie = {
+        "id": 13,
+        "source_id": 13,
+        "created_at": "2026-08-14T10:00:00+00:00",
+        "log_text": "old",
+    }
+    conn.execute.return_value.fetchall.return_value = [zombie]
+    conn.execute.return_value.fetchone.return_value = None
+    repo = MagicMock()
+    repo._connect.return_value = conn
+    repo._sql.side_effect = lambda q: q
+    repo._row_to_dict.side_effect = lambda r: r if isinstance(r, dict) else {}
+    circ._clear_sync_cancel(13)
+    with patch.object(circ, "ensure_kiz_circulation_tables"), patch.object(
+        circ, "_finish_run"
+    ) as finish:
+        closed = circ.abandon_orphan_excise_sync_runs(
+            repo, user_id=1, source_id=13, grace_seconds=0
+        )
+        assert closed == [13]
+        finish.assert_called_once()
+        assert finish.call_args.kwargs["status"] == "cancelled"
+        assert finish.call_args.kwargs["run_id"] == 13
+
+
+def test_create_excise_sync_run_ignores_zombie_running() -> None:
+    """Stuck DB running without live worker must not block a new sync."""
+    circ._clear_sync_cancel(13)
+    with patch.object(circ, "ensure_kiz_circulation_tables"), patch.object(
+        circ,
+        "abandon_orphan_excise_sync_runs",
+        return_value=[13],
+    ), patch.object(circ, "find_active_excise_sync_run", return_value=None), patch.object(
+        circ, "resolve_excise_period", return_value={
+            "date_from": "2026-08-01",
+            "date_to": "2026-08-14",
+            "days": 14,
+        }
+    ):
+        conn = MagicMock()
+        conn.__enter__.return_value = conn
+        conn.__exit__.return_value = False
+        conn.execute.return_value.fetchone.return_value = {"id": 42}
+        repo = MagicMock()
+        repo._connect.return_value = conn
+        repo._sql.side_effect = lambda q: q
+        repo._row_to_dict.side_effect = lambda r: r if isinstance(r, dict) else {}
+        out = circ.create_excise_sync_run(
+            repo,
+            user_id=1,
+            source_id=13,
+            date_from="2026-08-01",
+            date_to="2026-08-14",
+        )
+        assert out["run_id"] == 42
+        assert out["status"] == "running"
+        circ._clear_sync_cancel(42)
+
+
 def test_portal_labels_match_seller_cabinet() -> None:
     from review_processor.wb_fbs import order_portal_status_label
 
