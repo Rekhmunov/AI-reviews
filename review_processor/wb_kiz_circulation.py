@@ -1,13 +1,13 @@
 """WB FBS → Chestny Znak circulation (вывод / возврат КИЗ).
 
-Sync source is WB Analytics ``excise-report`` (all sales schemes with marking).
-FeedPilot keeps only Marketplace **FBS** rows matched by analytics ``srid`` =
-Marketplace ``rid`` (hydrate archive when needed):
-- operation withdraw (1) → only ``wbStatus=sold`` → вывод из оборота;
-- operation return (2) → FBS-linked Analytics return (возврат / отказ на ПВЗ)
-  → ввод в оборот (not pre-delivery cancel).
-FBO and unmatched lines are skipped.
-Does not touch existing KIZ modal / meta/sgtin flow.
+«Ежедневный вывод» for a date range is driven by Marketplace **FBS** assembly
+orders in that period with the statuses that require CHZ action:
+- ``wbStatus=sold`` → вывод (op=1);
+- ``wbStatus=canceled_by_client`` / ``defect`` → ввод (op=2).
+
+КИЗ берётся из Marketplace ``meta.sgtin`` (и при наличии дополняется фискалом
+из WB Analytics ``excise-report`` по mid-token ``srid``↔``rid``).
+FBO / прочие статусы в очередь не пишем.
 """
 
 from __future__ import annotations
@@ -100,6 +100,11 @@ def _check_sync_cancelled(run_id: int | None) -> None:
 
 OP_WITHDRAW = 1
 OP_RETURN = 2
+
+# Marketplace wbStatus → circulation operation for «Ежедневный вывод».
+WB_STATUS_WITHDRAW = frozenset({"sold"})
+WB_STATUS_RETURN = frozenset({"canceled_by_client", "defect"})
+WB_STATUS_CIRCULATION = WB_STATUS_WITHDRAW | WB_STATUS_RETURN
 
 STATUS_PENDING = "pending"
 STATUS_READY = "ready"
@@ -2260,6 +2265,368 @@ def _normalize_row(row: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
+def _msk_day_bounds(date_from: str, date_to: str) -> tuple[datetime, datetime]:
+    """Inclusive Moscow calendar days → timezone-aware datetimes."""
+    d0 = date.fromisoformat(_parse_date(date_from))
+    d1 = date.fromisoformat(_parse_date(date_to))
+    start = datetime(d0.year, d0.month, d0.day, 0, 0, 0, tzinfo=MSK)
+    end = datetime(d1.year, d1.month, d1.day, 23, 59, 59, tzinfo=MSK)
+    return start, end
+
+
+def _sgtin_codes_from_meta_row(row: dict[str, Any]) -> list[str]:
+    """Extract КИЗ list from ``POST /orders/meta`` item."""
+    from . import wb_fbs as wb_fbs_mod
+
+    meta = row.get("meta") if isinstance(row.get("meta"), dict) else {}
+    sgtin_wrap = meta.get("sgtin") if isinstance(meta, dict) else None
+    raw: object = None
+    if isinstance(sgtin_wrap, dict):
+        raw = sgtin_wrap.get("value")
+    elif sgtin_wrap is not None:
+        raw = sgtin_wrap
+    if raw is None:
+        # Some payloads put the current value on metaDetails.
+        for item in row.get("metaDetails") or []:
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("key") or "").strip().lower() != "sgtin":
+                continue
+            raw = item.get("value")
+            break
+    codes: list[str] = []
+    if isinstance(raw, list):
+        for item in raw:
+            c = wb_fbs_mod._kiz_code_clean(item)
+            if c:
+                codes.append(c)
+    else:
+        c = wb_fbs_mod._kiz_code_clean(raw)
+        if c:
+            codes.append(c)
+    # Deduplicate preserving order.
+    out: list[str] = []
+    seen: set[str] = set()
+    for c in codes:
+        if c in seen:
+            continue
+        seen.add(c)
+        out.append(c)
+    return out
+
+
+def _analytics_by_mid(
+    norms: list[dict[str, Any]],
+) -> dict[str, list[dict[str, Any]]]:
+    out: dict[str, list[dict[str, Any]]] = {}
+    for norm in norms:
+        for raw in (norm.get("srid"), norm.get("rid")):
+            mid = _rid_mid_token(raw)
+            if mid:
+                out.setdefault(mid, []).append(norm)
+    return out
+
+
+def _enrich_norm_from_analytics(
+    norm: dict[str, Any], analytics_mids: dict[str, list[dict[str, Any]]]
+) -> dict[str, Any]:
+    """Copy fiscal / price from Analytics when Marketplace row lacks them."""
+    if not analytics_mids:
+        return norm
+    mid = _rid_mid_token(norm.get("srid") or norm.get("rid"))
+    if not mid:
+        return norm
+    op = int(norm.get("operation_type") or 0)
+    siblings = [
+        a
+        for a in analytics_mids.get(mid, [])
+        if int(a.get("operation_type") or 0) == op
+        or not a.get("operation_type")
+    ] or list(analytics_mids.get(mid) or [])
+    if not siblings:
+        return norm
+    # Prefer Analytics row with same CIS, else first with fiscal.
+    cis = str(norm.get("excise_short") or "").strip()
+    pick = None
+    for a in siblings:
+        if cis and str(a.get("excise_short") or "").strip() == cis:
+            pick = a
+            break
+    if pick is None:
+        pick = next(
+            (
+                a
+                for a in siblings
+                if a.get("fiscal_doc_number") and a.get("fiscal_dt")
+            ),
+            siblings[0],
+        )
+    enriched = dict(norm)
+    # Prefer Analytics fiscal receipt when present (Marketplace usually has none).
+    if pick.get("fiscal_doc_number") and pick.get("fiscal_dt"):
+        enriched["fiscal_doc_number"] = pick.get("fiscal_doc_number")
+        enriched["fiscal_dt"] = pick.get("fiscal_dt")
+        if pick.get("fiscal_drive_number"):
+            enriched["fiscal_drive_number"] = pick.get("fiscal_drive_number")
+    for key in (
+        "fiscal_drive_number",
+        "price",
+        "currency_name",
+        "barcode",
+        "nm_id",
+        "country_name",
+    ):
+        if not enriched.get(key) and pick.get(key) not in (None, ""):
+            enriched[key] = pick.get(key)
+    # Rebuild event_key after fiscal attach.
+    enriched["event_key"] = _event_key(
+        srid=str(enriched.get("srid") or ""),
+        excise_short=str(enriched.get("excise_short") or ""),
+        operation_type=int(enriched.get("operation_type") or 0),
+        fiscal_doc_number=str(enriched.get("fiscal_doc_number") or ""),
+        fiscal_dt=str(enriched.get("fiscal_dt") or ""),
+    )
+    return enriched
+
+
+def build_marketplace_period_norms(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    api_key: str,
+    date_from: str,
+    date_to: str,
+    log: list[str] | None = None,
+    cancel_check: Callable[[], None] | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]], dict[str, Any]]:
+    """Marketplace FBS orders in ``[date_from, date_to]`` → circulation norms.
+
+    Returns ``(norms, fbs_index, meta)``.
+    """
+    from . import wb_fbs as wb_fbs_mod
+
+    mkey = str(api_key or "").strip()
+    if not mkey:
+        return [], {}, {"ok": False, "error": "no_marketplace_token"}
+
+    start, end = _msk_day_bounds(date_from, date_to)
+    client = wb_fbs_mod.WbFbsClient(mkey, timeout=60)
+    orders: list[dict[str, Any]] = []
+    next_token: int | None = 0
+    pages = 0
+    while pages < 60:
+        if cancel_check is not None:
+            cancel_check()
+        batch, next_token = client.get_orders_page(
+            limit=1000,
+            next_token=next_token if next_token is not None else 0,
+            date_from=start,
+            date_to=end,
+        )
+        pages += 1
+        if not batch:
+            break
+        orders.extend(batch)
+        if log is not None and pages % 3 == 0:
+            _append_log(log, f"Marketplace заказы: загружено {len(orders)}…")
+        if next_token is None:
+            break
+        time.sleep(0.2)
+
+    if log is not None:
+        _append_log(
+            log,
+            f"Marketplace FBS за период: заказов={len(orders)} (стр. {pages})",
+        )
+
+    ids = sorted(
+        {
+            int(o.get("id") or 0)
+            for o in orders
+            if int(o.get("id") or 0) > 0
+        }
+    )
+    status_map: dict[int, dict[str, Any]] = {}
+    for i in range(0, len(ids), 1000):
+        if cancel_check is not None:
+            cancel_check()
+        chunk = ids[i : i + 1000]
+        for st in client.get_statuses(chunk) or []:
+            try:
+                oid = int(st.get("id") or st.get("orderId") or 0)
+            except (TypeError, ValueError):
+                oid = 0
+            if oid > 0:
+                status_map[oid] = st
+        time.sleep(0.2)
+
+    needed: list[tuple[dict[str, Any], str, str]] = []
+    status_counts: dict[str, int] = {}
+    for order in orders:
+        try:
+            oid = int(order.get("id") or 0)
+        except (TypeError, ValueError):
+            continue
+        if oid <= 0:
+            continue
+        st = status_map.get(oid) or {}
+        ws = str(st.get("wbStatus") or order.get("wbStatus") or "").strip().lower()
+        ss = str(
+            st.get("supplierStatus") or order.get("supplierStatus") or ""
+        ).strip().lower()
+        status_counts[ws or "(empty)"] = status_counts.get(ws or "(empty)", 0) + 1
+        if ws not in WB_STATUS_CIRCULATION:
+            continue
+        needed.append((order, ws, ss))
+        # Keep local FBS row fresh for UI joins.
+        try:
+            wb_fbs_mod.upsert_order(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                order=order,
+                is_archive=ws in WB_STATUS_CIRCULATION,
+                supplier_status=ss,
+                wb_status=ws,
+            )
+        except Exception as exc:
+            logger.debug("upsert period order %s failed: %s", oid, exc)
+
+    if log is not None:
+        _append_log(
+            log,
+            "Marketplace статусы для КИЗ: "
+            f"sold={sum(1 for _, w, _ in needed if w in WB_STATUS_WITHDRAW)}, "
+            f"отказ/дефект={sum(1 for _, w, _ in needed if w in WB_STATUS_RETURN)} "
+            f"(из {len(orders)})",
+        )
+
+    meta_by_id: dict[int, dict[str, Any]] = {}
+    need_ids = [int(o.get("id") or 0) for o, _, _ in needed]
+    for i in range(0, len(need_ids), 100):
+        if cancel_check is not None:
+            cancel_check()
+        chunk = [x for x in need_ids[i : i + 100] if x > 0]
+        if not chunk:
+            continue
+        try:
+            for row in client.get_orders_meta(chunk) or []:
+                try:
+                    oid = int(row.get("id") or 0)
+                except (TypeError, ValueError):
+                    oid = 0
+                if oid > 0:
+                    meta_by_id[oid] = row
+        except Exception as exc:
+            logger.warning("orders meta chunk failed: %s", exc)
+            if log is not None:
+                _append_log(log, f"meta КИЗ: ошибка пакета — {exc}")
+        time.sleep(0.22)
+
+    norms: list[dict[str, Any]] = []
+    fbs_index: dict[str, dict[str, Any]] = {}
+    with_kiz = 0
+    without_kiz = 0
+    for order, ws, ss in needed:
+        try:
+            oid = int(order.get("id") or 0)
+        except (TypeError, ValueError):
+            continue
+        rid = str(order.get("rid") or "").strip()
+        uid = str(order.get("orderUid") or order.get("order_uid") or "").strip()
+        info = {
+            "order_id": oid,
+            "wb_status": ws,
+            "supplier_status": ss,
+        }
+        for key in _rid_match_keys(rid):
+            fbs_index.setdefault(key, info)
+        for key in _rid_match_keys(uid):
+            fbs_index.setdefault(key, info)
+
+        codes = _sgtin_codes_from_meta_row(meta_by_id.get(oid) or {})
+        # Fall back to locally saved КИЗ from сборка.
+        if not codes:
+            try:
+                local_map = wb_fbs_mod.load_order_kiz_map(
+                    repo, user_id=user_id, source_id=source_id, order_ids=[oid]
+                )
+                codes = list((local_map.get(oid) or {}).get("codes") or [])
+            except Exception:
+                codes = []
+        if not codes:
+            without_kiz += 1
+            continue
+        with_kiz += 1
+        op = OP_WITHDRAW if ws in WB_STATUS_WITHDRAW else OP_RETURN
+        try:
+            nm_id = int(order.get("nmId") or order.get("nm_id") or 0) or None
+        except (TypeError, ValueError):
+            nm_id = None
+        skus = order.get("skus") if isinstance(order.get("skus"), list) else []
+        barcode = str(skus[0] if skus else "").strip()
+        created = str(order.get("createdAt") or "").strip()
+        fiscal_dt = ""
+        if created:
+            try:
+                fiscal_dt = (
+                    datetime.fromisoformat(created.replace("Z", "+00:00"))
+                    .astimezone(MSK)
+                    .date()
+                    .isoformat()
+                )
+            except Exception:
+                fiscal_dt = created[:10] if len(created) >= 10 else ""
+        for cis in codes:
+            key = _event_key(
+                srid=rid,
+                excise_short=cis,
+                operation_type=op,
+                fiscal_doc_number="",
+                fiscal_dt=fiscal_dt,
+            )
+            norms.append(
+                {
+                    "event_key": key,
+                    "operation_type": op,
+                    "srid": rid,
+                    "rid": rid,
+                    "nm_id": nm_id,
+                    "barcode": barcode,
+                    "excise_short": cis,
+                    "fiscal_doc_number": "",
+                    "fiscal_dt": fiscal_dt,
+                    "fiscal_drive_number": "",
+                    "price": None,
+                    "currency_name": "",
+                    "country_name": "",
+                    "raw_json": "",
+                    "order_id": oid,
+                    "wb_status": ws,
+                }
+            )
+
+    meta = {
+        "ok": True,
+        "orders": len(orders),
+        "needed": len(needed),
+        "with_kiz": with_kiz,
+        "without_kiz": without_kiz,
+        "norms": len(norms),
+        "status_counts": status_counts,
+        "sold": sum(1 for _, w, _ in needed if w in WB_STATUS_WITHDRAW),
+        "returns": sum(1 for _, w, _ in needed if w in WB_STATUS_RETURN),
+    }
+    if log is not None:
+        _append_log(
+            log,
+            f"Marketplace→очередь: с КИЗ={with_kiz}, без КИЗ={without_kiz}, "
+            f"событий={len(norms)}",
+        )
+    return norms, fbs_index, meta
+
+
 def _initial_status(norm: dict[str, Any]) -> tuple[str, str]:
     """Queue withdraw without fiscal for CHZ via OTHER primary document.
 
@@ -2647,7 +3014,7 @@ def sync_excise_report(
             f"получено {len(rows)} строк из Analytics excise-report",
             fetched=len(rows),
         )
-        norms: list[dict[str, Any]] = []
+        analytics_norms: list[dict[str, Any]] = []
         skipped_bad = 0
         for raw in rows:
             _check_sync_cancelled(run_id)
@@ -2655,35 +3022,79 @@ def sync_excise_report(
             if not norm:
                 skipped_bad += 1
                 continue
-            norms.append(norm)
+            analytics_norms.append(norm)
         _progress(
-            f"нормализовано {len(norms)} строк"
+            f"Analytics нормализовано {len(analytics_norms)}"
             + (f", битых {skipped_bad}" if skipped_bad else ""),
             fetched=len(rows),
         )
         _check_sync_cancelled(run_id)
+
+        mkey = str(marketplace_api_key or "").strip()
+        mp_norms: list[dict[str, Any]] = []
+        fbs_index: dict[str, dict[str, Any]] = {}
+        mp_meta: dict[str, Any] = {"ok": False}
+        if mkey:
+            _progress(
+                "Marketplace FBS за выбранные даты (sold / отказ ПВЗ / дефект)…",
+                fetched=len(rows),
+            )
+            mp_norms, fbs_index, mp_meta = build_marketplace_period_norms(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                api_key=mkey,
+                date_from=date_from_s,
+                date_to=date_to_s,
+                log=log,
+                cancel_check=(
+                    (lambda: _check_sync_cancelled(run_id)) if run_id > 0 else None
+                ),
+            )
+            _flush(fetched=len(rows))
+        else:
+            _progress(
+                "нет Marketplace FBS токена — очередь только из Analytics∩локальных rid",
+                fetched=len(rows),
+            )
+
+        # Enrich Marketplace rows with Analytics fiscal; keep Analytics-only
+        # matches as a fallback for CIS that meta did not return.
+        analytics_mids = _analytics_by_mid(analytics_norms)
+        if mp_norms and analytics_mids:
+            mp_norms = [
+                _enrich_norm_from_analytics(n, analytics_mids) for n in mp_norms
+            ]
+            _progress(
+                f"фискальные поля Analytics наложены на {len(mp_norms)} Marketplace строк",
+                fetched=len(rows),
+            )
+
         _progress(
-            "сопоставление srid↔Marketplace rid (hydrate при необходимости)…",
+            "доп. сопоставление Analytics srid↔Marketplace rid…",
             fetched=len(rows),
         )
-        fbs_index, match_meta = build_excise_fbs_match_index(
+        an_index, match_meta = build_excise_fbs_match_index(
             repo,
             user_id=user_id,
             source_id=source_id,
-            norms=norms,
-            marketplace_api_key=marketplace_api_key,
+            norms=analytics_norms,
+            marketplace_api_key=mkey,
             log=log,
         )
+        for k, v in an_index.items():
+            fbs_index.setdefault(k, v)
         _flush(fetched=len(rows))
         _check_sync_cancelled(run_id)
+
         local_rid_n = len(
             load_local_fbs_order_index(repo, user_id=user_id, source_id=source_id)
         )
-        if not fbs_index:
-            if not match_meta.get("hydrate_ok") and local_rid_n > 0:
+        if not fbs_index and not mp_norms:
+            if not match_meta.get("hydrate_ok") and local_rid_n > 0 and not mkey:
                 msg = (
-                    "не удалось сопоставить отчёт с FBS (hydrate/токен). "
-                    f"Локальных rid={local_rid_n}. Повторите после синка архива WB FBS."
+                    "не удалось сопоставить отчёт с FBS (нет Marketplace токена). "
+                    f"Локальных rid={local_rid_n}."
                 )
                 _append_log(log, f"ОШИБКА: {msg}")
                 _finish_run(
@@ -2705,7 +3116,7 @@ def sync_excise_report(
                     "inserted": 0,
                     "updated": 0,
                     "skipped": len(rows),
-                    "skipped_not_fbs": len(norms),
+                    "skipped_not_fbs": len(analytics_norms),
                     "error": msg,
                     "withdraw_count": 0,
                     "return_count": 0,
@@ -2713,21 +3124,24 @@ def sync_excise_report(
                     "cursor": get_cursor(repo, user_id=user_id, source_id=source_id),
                 }
             _progress(
-                "внимание: 0 совпадений srid↔rid — в очередь ничего не пишем "
-                f"(локальных rid={local_rid_n}; вероятно в отчёте только FBO "
-                "или архив FBS ещё не подтянут).",
+                "внимание: Marketplace не вернул sold/отказ/дефект с КИЗ и "
+                f"Analytics∩FBS пуст (локальных ключей={local_rid_n}).",
                 fetched=len(rows),
             )
-        sold_n = int(match_meta.get("sold_orders") or 0)
+
+        sold_n = int(mp_meta.get("sold") or match_meta.get("sold_orders") or 0)
         _progress(
-            f"фильтр FBS активен: сопоставлено ключей={len(fbs_index)}, "
-            f"sold={sold_n}; "
-            "в БД: sold→вывод, Analytics op=2 (возврат/ПВЗ/дефект)→ввод; FBO не пишем",
+            f"источник очереди: Marketplace за период "
+            f"(sold={mp_meta.get('sold', 0)}, отказ/дефект={mp_meta.get('returns', 0)}, "
+            f"с КИЗ={mp_meta.get('with_kiz', 0)}); "
+            f"Analytics строк={len(analytics_norms)}; "
+            "FBO не пишем",
             fetched=len(rows),
         )
+
         inserted = 0
         updated = 0
-        skipped = skipped_bad
+        skipped = skipped_bad + int(mp_meta.get("without_kiz") or 0)
         skipped_not_fbs = 0
         skipped_not_sold = 0
         skipped_not_return = 0
@@ -2741,8 +3155,16 @@ def sync_excise_report(
             repo, user_id=user_id, source_id=source_id
         )
 
-        candidates: list[dict[str, Any]] = []
-        for norm in norms:
+        # Marketplace-first candidates (already status-filtered).
+        candidates: list[dict[str, Any]] = list(mp_norms)
+        seen_cis_op: set[tuple[int, str]] = set()
+        for norm in candidates:
+            cis = _normalize_cis_for_chz(str(norm.get("excise_short") or ""))
+            if cis:
+                seen_cis_op.add((int(norm.get("operation_type") or 0), cis))
+
+        # Analytics extras that match FBS and are not already covered by meta.
+        for norm in analytics_norms:
             elig = _norm_eligibility_skip(norm, fbs_index)
             if elig:
                 skipped += 1
@@ -2753,10 +3175,20 @@ def sync_excise_report(
                 elif elig == SKIP_NOT_RETURN:
                     skipped_not_return += 1
                 continue
+            cis = _normalize_cis_for_chz(str(norm.get("excise_short") or ""))
+            key = (int(norm.get("operation_type") or 0), cis)
+            if cis and key in seen_cis_op:
+                continue
+            if cis:
+                seen_cis_op.add(key)
             candidates.append(norm)
+
         _progress(
             f"к записи в очередь: {len(candidates)} "
-            f"(пропуск до INSERT: FBO/не FBS {skipped_not_fbs}, не sold {skipped_not_sold})",
+            f"(Marketplace {len(mp_norms)} + Analytics доп. "
+            f"{len(candidates) - len(mp_norms)}; "
+            f"пропуск: без КИЗ {mp_meta.get('without_kiz', 0)}, "
+            f"не FBS {skipped_not_fbs}, не sold {skipped_not_sold})",
             fetched=len(rows),
             skipped=skipped,
         )
