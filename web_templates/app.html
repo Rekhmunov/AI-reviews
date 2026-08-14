@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=207" />
+  <link rel="stylesheet" href="/static/style.css?v=208" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1828,6 +1828,55 @@
                 <button type="button" class="secondary" id="wbFbsKizCircChzBtn" onclick="runWbFbsKizCirculationChz()">Передать в ЧЗ</button>
                 <button type="button" class="secondary" onclick="refreshWbFbsKizCirculation()">Обновить</button>
                 <span id="wbFbsKizCircCounts" class="wb-fbs-kiz-circ-counts"></span>
+              </div>
+              <div class="wb-fbs-kiz-circ-filters" id="wbFbsKizCircFilters">
+                <div class="wb-fbs-kiz-circ-filter-row">
+                  <span class="wb-fbs-kiz-circ-filter-label">Пресеты</span>
+                  <div class="wb-fbs-kiz-circ-presets" role="group" aria-label="Пресеты фильтра">
+                    <button type="button" class="wb-fbs-kiz-circ-preset is-active" data-preset="all" onclick="setWbFbsKizCircPreset('all')">Все</button>
+                    <button type="button" class="wb-fbs-kiz-circ-preset" data-preset="to_submit" onclick="setWbFbsKizCircPreset('to_submit')">К передаче</button>
+                    <button type="button" class="wb-fbs-kiz-circ-preset" data-preset="problems" onclick="setWbFbsKizCircPreset('problems')">Проблемы</button>
+                  </div>
+                </div>
+                <div class="wb-fbs-kiz-circ-filter-row">
+                  <span class="wb-fbs-kiz-circ-filter-label">Статус</span>
+                  <div class="wb-fbs-kiz-circ-status-chips" id="wbFbsKizCircStatusChips" role="group" aria-label="Статусы">
+                    <button type="button" class="wb-fbs-kiz-circ-chip" data-status="pending" onclick="toggleWbFbsKizCircStatus('pending')">ожидает</button>
+                    <button type="button" class="wb-fbs-kiz-circ-chip" data-status="ready" onclick="toggleWbFbsKizCircStatus('ready')">готов</button>
+                    <button type="button" class="wb-fbs-kiz-circ-chip" data-status="submitted" onclick="toggleWbFbsKizCircStatus('submitted')">отправлен</button>
+                    <button type="button" class="wb-fbs-kiz-circ-chip" data-status="accepted" onclick="toggleWbFbsKizCircStatus('accepted')">принят</button>
+                    <button type="button" class="wb-fbs-kiz-circ-chip" data-status="error" onclick="toggleWbFbsKizCircStatus('error')">ошибка</button>
+                    <button type="button" class="wb-fbs-kiz-circ-chip" data-status="skipped" onclick="toggleWbFbsKizCircStatus('skipped')">пропуск</button>
+                  </div>
+                </div>
+                <div class="wb-fbs-kiz-circ-filter-row wb-fbs-kiz-circ-filter-row-controls">
+                  <label class="wb-fbs-kiz-circ-field" for="wbFbsKizCircOpFilter">
+                    <span>Тип операции</span>
+                    <select id="wbFbsKizCircOpFilter" onchange="onWbFbsKizCircFilterChange()">
+                      <option value="">Все</option>
+                      <option value="1">Вывод</option>
+                      <option value="2">Возврат</option>
+                    </select>
+                  </label>
+                  <label class="wb-fbs-kiz-circ-field wb-fbs-kiz-circ-search-field" for="wbFbsKizCircSearch">
+                    <span>Поиск</span>
+                    <input type="search" id="wbFbsKizCircSearch" placeholder="КИЗ, srid, чек…" autocomplete="off" oninput="onWbFbsKizCircFilterChange()" />
+                  </label>
+                  <label class="wb-fbs-kiz-circ-check" for="wbFbsKizCircOnlyError">
+                    <input type="checkbox" id="wbFbsKizCircOnlyError" onchange="onWbFbsKizCircFilterChange()" />
+                    <span>Только с ошибкой ЧЗ</span>
+                  </label>
+                  <label class="wb-fbs-kiz-circ-field" for="wbFbsKizCircFiscalFrom">
+                    <span>Дата чека с</span>
+                    <input type="date" id="wbFbsKizCircFiscalFrom" onchange="onWbFbsKizCircFilterChange()" />
+                  </label>
+                  <label class="wb-fbs-kiz-circ-field" for="wbFbsKizCircFiscalTo">
+                    <span>по</span>
+                    <input type="date" id="wbFbsKizCircFiscalTo" onchange="onWbFbsKizCircFilterChange()" />
+                  </label>
+                  <button type="button" class="secondary" onclick="resetWbFbsKizCircFilters()">Сбросить фильтры</button>
+                  <span id="wbFbsKizCircFilterInfo" class="wb-fbs-kiz-circ-filter-info"></span>
+                </div>
               </div>
             </div>
             <div class="wb-fbs-kiz-circ-body">
@@ -4962,6 +5011,6 @@
       </div>
     </div>
   </div>
-  <script src="/static/app.js?v=446"></script>
+  <script src="/static/app.js?v=447"></script>
 </body>
 </html>
