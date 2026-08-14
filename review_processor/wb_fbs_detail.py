@@ -1957,6 +1957,7 @@ def build_pick_verify_payload(
         local = local_pick.get(oid) or {}
         verified = bool(local.get("verified"))
         pick_barcode = str(local.get("barcode") or "").strip()
+        pick_verified_at = wb._normalize_kiz_saved_at(local.get("verified_at"))
         rows.append(
             {
                 "order_id": oid,
@@ -1973,7 +1974,7 @@ def build_pick_verify_payload(
                 "sticker_number": _sticker_number(part_a, part_b),
                 "pick_verified": verified,
                 "pick_barcode": pick_barcode,
-                "pick_verified_at": local.get("verified_at"),
+                "pick_verified_at": pick_verified_at,
                 "supplier_status": str(o.get("supplier_status") or ""),
                 "wb_status": str(o.get("wb_status") or ""),
                 "cancel_reason_label": str(o.get("cancel_reason_label") or ""),
@@ -2044,6 +2045,8 @@ def save_pick_verify(
         clear = bool(raw.get("clear"))
         verified = bool(raw.get("pick_verified")) and not clear
         barcode = str(raw.get("pick_barcode") or "").strip()
+        expected_verified_at = str(raw.get("expected_verified_at") or "").strip()
+        force_save = bool(raw.get("force"))
         if not verified and not clear:
             # Unchanged empty — skip
             if not barcode:
@@ -2072,13 +2075,15 @@ def save_pick_verify(
                 continue
             barcode = normalized
         try:
-            local_ok = wb.update_order_pick_verify(
+            local_res = wb.update_order_pick_verify(
                 repo,
                 user_id=int(user_id),
                 source_id=int(source_id),
                 order_id=oid,
                 verified=verified,
                 barcode=barcode if verified else "",
+                expected_verified_at=expected_verified_at or None,
+                force=force_save,
             )
         except Exception as exc:
             err_n += 1
@@ -2090,7 +2095,24 @@ def save_pick_verify(
                 }
             )
             continue
-        if not local_ok:
+        if local_res.get("conflict"):
+            err_n += 1
+            results.append(
+                {
+                    "order_id": oid,
+                    "ok": False,
+                    "conflict": True,
+                    "pick_verified": bool(local_res.get("verified")),
+                    "pick_barcode": str(local_res.get("barcode") or ""),
+                    "pick_verified_at": str(local_res.get("verified_at") or ""),
+                    "error": (
+                        "Заказ уже сохранён другим оператором — "
+                        "проверьте ШК и сохраните снова"
+                    ),
+                }
+            )
+            continue
+        if not local_res.get("ok"):
             err_n += 1
             results.append(
                 {
@@ -2105,8 +2127,9 @@ def save_pick_verify(
             {
                 "order_id": oid,
                 "ok": True,
-                "pick_verified": verified,
-                "pick_barcode": barcode if verified else "",
+                "pick_verified": bool(local_res.get("verified")),
+                "pick_barcode": str(local_res.get("barcode") or ""),
+                "pick_verified_at": str(local_res.get("verified_at") or ""),
             }
         )
     return {

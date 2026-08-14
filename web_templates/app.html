@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=209" />
+  <link rel="stylesheet" href="/static/style.css?v=210" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -2341,8 +2341,7 @@
 
         <!-- Проверка ШК (товары без КИЗ) — отдельное окно, не Маркировка -->
         <div id="wbFbsPickVerifyModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
-             aria-labelledby="wbFbsPickVerifyTitle"
-             onclick="if(event.target===this)closeWbFbsPickVerifyModal()">
+             aria-labelledby="wbFbsPickVerifyTitle">
           <div class="modal-card wb-fbs-kiz-modal">
             <div class="wb-fbs-kiz-header">
               <div class="wb-fbs-kiz-header-main">
@@ -2415,8 +2414,7 @@
         </div>
 
         <div id="wbFbsPickScanPrompt" class="modal-overlay hidden" role="dialog" aria-modal="true"
-             aria-labelledby="wbFbsPickScanPromptTitle"
-             onclick="if(event.target===this)cancelWbFbsPickSkuScan()">
+             aria-labelledby="wbFbsPickScanPromptTitle">
           <div class="modal-card wb-fbs-kiz-scan-prompt">
             <h4 id="wbFbsPickScanPromptTitle" class="wb-fbs-kiz-scan-prompt-title">Просканируйте ШК товара</h4>
             <p id="wbFbsPickScanPromptMeta" class="wb-fbs-kiz-scan-prompt-meta">Заказ —</p>
@@ -5008,6 +5006,6 @@
       </div>
     </div>
   </div>
-  <script src="/static/app.js?v=450"></script>
+  <script src="/static/app.js?v=451"></script>
 </body>
 </html>

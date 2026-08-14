@@ -1378,13 +1378,66 @@ def update_order_pick_verify(
     order_id: int,
     verified: bool,
     barcode: str = "",
-) -> bool:
-    """Persist local ШК pick-check for a non-КИЗ order. No WB API calls."""
+    expected_verified_at: str | None = None,
+    force: bool = False,
+) -> dict[str, Any]:
+    """Persist local ШК pick-check for a non-КИЗ order. No WB API calls.
+
+    When ``expected_verified_at`` is set and ``force`` is false, refuses the write
+    if another operator already saved a different pick result (optimistic concurrency).
+
+    Returns ``{ok, conflict, missing, verified_at, verified, barcode}``.
+    """
     ensure_wb_fbs_tables(repo)
     code = str(barcode or "").strip()
     is_ok = bool(verified) and bool(code)
-    saved_at = _utc_now() if is_ok else None
+    saved_at = _utc_now()
+    expected = _normalize_kiz_saved_at(expected_verified_at)
     with repo._connect() as conn:
+        row = conn.execute(
+            repo._sql(
+                """
+                SELECT pick_verified, pick_barcode, pick_verified_at FROM wb_fbs_orders
+                WHERE user_id = ? AND source_id = ? AND order_id = ?
+                """
+            ),
+            (int(user_id), int(source_id), int(order_id)),
+        ).fetchone()
+        if not row:
+            return {
+                "ok": False,
+                "conflict": False,
+                "missing": True,
+                "verified_at": "",
+                "verified": False,
+                "barcode": "",
+            }
+        d = repo._row_to_dict(row)
+        try:
+            cur_verified = bool(d.get("pick_verified")) and bool(
+                str(d.get("pick_barcode") or "").strip()
+            )
+        except Exception:
+            cur_verified = False
+        cur_barcode = str(d.get("pick_barcode") or "").strip() if cur_verified else ""
+        cur_saved = _normalize_kiz_saved_at(d.get("pick_verified_at"))
+        new_verified = is_ok
+        new_barcode = code if is_ok else ""
+        if (
+            not force
+            and expected
+            and cur_saved
+            and expected != cur_saved
+            and (cur_verified != new_verified or cur_barcode != new_barcode)
+        ):
+            return {
+                "ok": False,
+                "conflict": True,
+                "missing": False,
+                "verified_at": cur_saved,
+                "verified": cur_verified,
+                "barcode": cur_barcode,
+            }
         cur = conn.execute(
             repo._sql(
                 """
@@ -1396,8 +1449,8 @@ def update_order_pick_verify(
                 """
             ),
             (
-                is_ok,
-                code if is_ok else "",
+                new_verified,
+                new_barcode,
                 saved_at,
                 int(user_id),
                 int(source_id),
@@ -1408,7 +1461,14 @@ def update_order_pick_verify(
             updated = int(cur.rowcount or 0)
         except Exception:
             updated = 0
-    return updated > 0
+    return {
+        "ok": updated > 0,
+        "conflict": False,
+        "missing": updated <= 0,
+        "verified_at": _normalize_kiz_saved_at(saved_at) if updated > 0 else "",
+        "verified": new_verified if updated > 0 else False,
+        "barcode": new_barcode if updated > 0 else "",
+    }
 
 
 def load_order_pick_map(

@@ -24817,6 +24817,8 @@ const wbFbsPickState = {
   pendingOrderId: null,
   saving: false,
   baselineByOrder: {},
+  /** After optimistic-concurrency conflict, next save for these order_ids is forced. */
+  forceSaveByOrder: {},
 };
 
 function _wbFbsSyncPickVerifyBtn() {
@@ -24898,6 +24900,7 @@ function closeWbFbsPickVerifyModal(opts) {
   wbFbsPickState.errors = {};
   wbFbsPickState.pendingOrderId = null;
   wbFbsPickState.baselineByOrder = {};
+  wbFbsPickState.forceSaveByOrder = {};
   _wbFbsPickResetFilters();
   _wbFbsPickSetInfo("");
   return true;
@@ -24916,6 +24919,7 @@ async function openWbFbsPickVerifyModal() {
   wbFbsPickState.errors = {};
   wbFbsPickState.pendingOrderId = null;
   wbFbsPickState.baselineByOrder = {};
+  wbFbsPickState.forceSaveByOrder = {};
   _wbFbsPickResetFilters();
   _wbFbsPickSetInfo("");
   const tbody = document.getElementById("wbFbsPickTbody");
@@ -25431,9 +25435,18 @@ async function saveWbFbsPickVerifyModal() {
         pick_verified: true,
         pick_barcode: check.barcode,
         barcodes: Array.isArray(r.barcodes) ? r.barcodes : [],
+        expected_verified_at: String(r.pick_verified_at || ""),
+        force: !!(wbFbsPickState.forceSaveByOrder && wbFbsPickState.forceSaveByOrder[oid]),
       });
     } else if (baseVerified) {
-      items.push({ order_id: oid, pick_verified: false, pick_barcode: "", clear: true });
+      items.push({
+        order_id: oid,
+        pick_verified: false,
+        pick_barcode: "",
+        clear: true,
+        expected_verified_at: String(r.pick_verified_at || ""),
+        force: !!(wbFbsPickState.forceSaveByOrder && wbFbsPickState.forceSaveByOrder[oid]),
+      });
     }
   }
   if (Object.keys(wbFbsPickState.errors).length) {
@@ -25463,21 +25476,54 @@ async function saveWbFbsPickVerifyModal() {
     if (!res.ok) throw new Error(data.detail || `Ошибка ${res.status}`);
     let okN = 0;
     let errN = 0;
+    let conflictN = 0;
     for (const row of data.results || []) {
       const oid = Number(row.order_id);
       if (!Number.isFinite(oid)) continue;
+      const local = wbFbsPickState.rows.find((x) => Number(x.order_id) === oid);
+      if (row.conflict) {
+        conflictN += 1;
+        errN += 1;
+        if (local) {
+          const base = wbFbsPickState.baselineByOrder?.[oid] || {};
+          const localChanged =
+            !!local.pick_verified !== !!base.pick_verified
+            || String(local.pick_barcode || "").trim() !== String(base.pick_barcode || "").trim();
+          local.pick_verified_at = String(row.pick_verified_at || local.pick_verified_at || "");
+          if (!localChanged) {
+            local.pick_verified = !!row.pick_verified;
+            local.pick_barcode = String(row.pick_barcode || "").trim();
+            if (!wbFbsPickState.baselineByOrder) wbFbsPickState.baselineByOrder = {};
+            wbFbsPickState.baselineByOrder[oid] = {
+              pick_verified: !!row.pick_verified,
+              pick_barcode: String(row.pick_barcode || "").trim(),
+            };
+            if (wbFbsPickState.forceSaveByOrder) delete wbFbsPickState.forceSaveByOrder[oid];
+          } else if (!wbFbsPickState.forceSaveByOrder) {
+            wbFbsPickState.forceSaveByOrder = { [oid]: true };
+          } else {
+            wbFbsPickState.forceSaveByOrder[oid] = true;
+          }
+        }
+        wbFbsPickState.errors[oid] = String(
+          row.error
+          || "Заказ уже сохранён другим оператором — проверьте ШК и сохраните снова"
+        );
+        continue;
+      }
       if (row.ok) {
         okN += 1;
-        const local = wbFbsPickState.rows.find((x) => Number(x.order_id) === oid);
         if (local) {
           local.pick_verified = !!row.pick_verified;
           local.pick_barcode = String(row.pick_barcode || "").trim();
+          if (row.pick_verified_at) local.pick_verified_at = String(row.pick_verified_at);
         }
         if (!wbFbsPickState.baselineByOrder) wbFbsPickState.baselineByOrder = {};
         wbFbsPickState.baselineByOrder[oid] = {
           pick_verified: !!row.pick_verified,
           pick_barcode: String(row.pick_barcode || "").trim(),
         };
+        if (wbFbsPickState.forceSaveByOrder) delete wbFbsPickState.forceSaveByOrder[oid];
         delete wbFbsPickState.errors[oid];
       } else {
         errN += 1;
@@ -25485,7 +25531,11 @@ async function saveWbFbsPickVerifyModal() {
       }
     }
     renderWbFbsPickVerifyTable();
-    if (errN) {
+    if (conflictN) {
+      _wbFbsPickSetInfo(
+        `Конфликт с другим оператором: ${conflictN}. Проверьте отмеченные заказы и сохраните снова.`
+      );
+    } else if (errN) {
       _wbFbsPickSetInfo(`Сохранено ${okN}, ошибок ${errN}`);
     } else {
       _wbFbsPickSetInfo(`Сохранено: ${okN}. Данные только в FeedPilot (на WB не отправлялись).`);

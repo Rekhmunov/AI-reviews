@@ -8671,9 +8671,11 @@ button.wb-fbs-select-all-link:disabled {
   text-decoration: underline;
 }
 .wb-fbs-supply-detail-modal {
-  /* Cap at 1440px on large screens; never exceed overlay content box. */
+  /* Cap at 1440px on large screens; never exceed overlay content box.
+     Fixed height so Поставка / Маркировка / Проверка ШК match even with few rows. */
   width: min(1440px, 100%);
   max-width: min(1440px, 100%);
+  height: calc(100vh - 40px);
   max-height: calc(100vh - 40px);
   padding: 0;
   display: flex;
@@ -9033,6 +9035,7 @@ button.wb-fbs-sd-portal-btn:focus-visible {
   .wb-fbs-supply-detail-modal {
     width: 100%;
     max-width: 100%;
+    height: calc(100vh - 32px);
     max-height: calc(100vh - 32px);
   }
   .wb-fbs-sd-header { padding: 16px; }
@@ -9066,15 +9069,23 @@ button.wb-fbs-sd-portal-btn:focus-visible {
 
 /* ── WB FBS КИЗ marking modal ── */
 .wb-fbs-kiz-modal {
-  /* Cap at 1440px on large screens; never exceed overlay content box. */
+  /* Cap at 1440px on large screens; never exceed overlay content box.
+     Same footprint as Поставка (height + width) for Маркировка / Проверка ШК. */
   width: min(1440px, 100%);
   max-width: min(1440px, 100%);
+  height: calc(100vh - 40px);
   max-height: calc(100vh - 40px);
   padding: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   box-sizing: border-box;
+}
+.wb-fbs-cancelled-modal,
+.wb-fbs-stickers-cat-modal {
+  /* Compact dialogs — do not stretch to full viewport like Маркировка / Проверка ШК. */
+  height: auto;
+  max-height: calc(100vh - 40px);
 }
 .wb-fbs-cancelled-modal .wb-fbs-kiz-col-product {
   width: auto;
@@ -9578,6 +9589,7 @@ button.wb-fbs-kiz-add:disabled {
   .wb-fbs-kiz-modal {
     width: 100%;
     max-width: 100%;
+    height: calc(100vh - 32px);
     max-height: calc(100vh - 32px);
   }
   .wb-fbs-kiz-header,
