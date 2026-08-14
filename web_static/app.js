@@ -17283,6 +17283,7 @@ async function runWbFbsKizCirculationChz() {
   let totalSubmitted = 0;
   let totalFailed = 0;
   let stoppedWithMore = false;
+  let stoppedAllFailed = false;
   try {
     _wbFbsKizCircAppendLog(`ЧЗ: выбрано позиций ${selectedKeys.length}`);
     for (let round = 1; round <= maxRounds; round++) {
@@ -17370,13 +17371,19 @@ async function runWbFbsKizCirculationChz() {
       if (!stoppedWithMore) break;
       if (Number(sub.failed || 0) > 0 && Number(sub.submitted || 0) === 0) {
         _wbFbsKizCircAppendLog("Остановка: пакет полностью с ошибками");
+        stoppedAllFailed = true;
         break;
       }
       if (round === maxRounds) {
         stoppedWithMore = true;
       }
     }
-    if (stoppedWithMore) {
+    if (stoppedAllFailed) {
+      _wbFbsKizCircAppendLog(
+        `Итого: отправлено ${totalSubmitted}, ошибок ${totalFailed}. `
+        + `Исправьте причину и нажмите «Передать в ЧЗ» снова.`,
+      );
+    } else if (stoppedWithMore) {
       _wbFbsKizCircAppendLog(
         `Очередь ещё не пуста после ${maxRounds} пакетов. `
         + `Итого: отправлено ${totalSubmitted}, ошибок ${totalFailed}. Нажмите «Отправить в ЧЗ» снова.`,

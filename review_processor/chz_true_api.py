@@ -14,6 +14,24 @@ PROD_BASE = "https://markirovka.crpt.ru/api/v3/true-api"
 DEMO_BASE = "https://markirovka.sandbox.crpt.tech/api/v3/true-api"
 
 
+def _parse_true_api_payload(payload: bytes) -> Any:
+    """Parse True API response body.
+
+    ``/lk/documents/create`` often returns a bare document UUID as plain text
+    (not a JSON string). ``json.loads("123e4567-e89b-...")`` then fails with
+    ``Extra data`` because the leading digits are read as a JSON number.
+    """
+    if not payload:
+        return {}
+    text = payload.decode("utf-8", errors="replace").strip()
+    if not text:
+        return {}
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return text
+
+
 class ChzTrueApiError(RuntimeError):
     def __init__(self, message: str, *, status: int | None = None, body: str = "") -> None:
         super().__init__(message)
@@ -75,9 +93,7 @@ class ChzTrueApiClient:
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 payload = resp.read()
-                if not payload:
-                    return {}
-                return json.loads(payload.decode("utf-8"))
+                return _parse_true_api_payload(payload)
         except urllib.error.HTTPError as exc:
             err_body = ""
             try:

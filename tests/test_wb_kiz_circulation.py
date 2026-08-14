@@ -174,6 +174,18 @@ def test_create_document_prefers_signed_b64() -> None:
     assert captured["body"]["product_document"] == signed_b64
 
 
+def test_parse_true_api_bare_uuid_payload() -> None:
+    from review_processor.chz_true_api import _parse_true_api_payload
+
+    # Starts with digits+e — classic json.loads "Extra data" trap
+    bare = "123e4567-e89b-12d3-a456-426614174000"
+    assert _parse_true_api_payload(bare.encode()) == bare
+    assert _parse_true_api_payload(b'"quoted-id"') == "quoted-id"
+    assert _parse_true_api_payload(b'{"id":"x"}') == {"id": "x"}
+    assert _parse_true_api_payload(b"") == {}
+    assert _parse_true_api_payload(b"plain-letter-uuid") == "plain-letter-uuid"
+
+
 def test_classify_chz_doc_status() -> None:
     assert circ.classify_chz_doc_status("CHECKED_OK") == circ.STATUS_ACCEPTED
     assert circ.classify_chz_doc_status("CHECKED_NOT_OK") == circ.STATUS_ERROR
