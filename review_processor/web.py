@@ -10431,9 +10431,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         sid = int(payload.source_id or 0)
         if sid <= 0:
             raise HTTPException(status_code=400, detail="Укажите source_id")
-        # Validate FBS source exists (events are tied to it), but sync uses a
-        # separate WB Analytics token — not the Marketplace FBS key.
-        _ = _wb_fbs_source_key(owner_id, sid)
+        # Validate FBS source exists; Analytics token for report, Marketplace for rid hydrate.
+        marketplace_key = _wb_fbs_source_key(owner_id, sid)
         api_key = kiz_circ.get_wb_analytics_api_key(repository, user_id=owner_id)
         if not api_key:
             raise HTTPException(
@@ -10466,6 +10465,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     date_from=str(payload.date_from or ""),
                     date_to=str(payload.date_to or ""),
                     run_id=run_id,
+                    marketplace_api_key=marketplace_key,
                 )
             except Exception as exc:
                 _log.exception("kiz circulation async sync failed: %s", exc)
