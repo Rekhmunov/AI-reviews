@@ -63,6 +63,9 @@ def _is_no_fiscal_reason(reason: str) -> bool:
 # Oldest-first prepare batch; chunk products so CHZ docs stay within size limits.
 PREPARE_EVENT_LIMIT = 2000
 CHZ_PRODUCTS_PER_DOC = 100
+# Full event rows (UI/history) — ~6 months. Slim sent-CIS registry is kept forever.
+EVENT_RETENTION_DAYS = 180
+PURGE_BATCH_SIZE = 1000
 
 CHZ_STATUS_SUCCESS = frozenset(
     {"ACCEPTED", "CHECKED_OK", "SUCCESS", "OK", "PROCESSED"}
@@ -316,6 +319,30 @@ def ensure_kiz_circulation_tables(repo: ReviewRepository) -> None:
             )
             """
         )
+        # Forever-kept compact anti-dupe + support trail (CIS → chz_doc_id).
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS wb_kiz_sent_cis (
+                user_id BIGINT NOT NULL,
+                source_id BIGINT NOT NULL,
+                operation_type INTEGER NOT NULL DEFAULT 0,
+                excise_short TEXT NOT NULL,
+                anchor TEXT NOT NULL DEFAULT '',
+                chz_doc_id TEXT NOT NULL DEFAULT '',
+                event_key TEXT NOT NULL DEFAULT '',
+                fiscal_doc_number TEXT NOT NULL DEFAULT '',
+                fiscal_dt TEXT NOT NULL DEFAULT '',
+                accepted_at TEXT NOT NULL DEFAULT '',
+                PRIMARY KEY (user_id, source_id, operation_type, excise_short, anchor)
+            )
+            """
+        )
+        conn.execute(
+            repo._sql(
+                "CREATE INDEX IF NOT EXISTS idx_wb_kiz_sent_cis_user_src "
+                "ON wb_kiz_sent_cis(user_id, source_id, accepted_at DESC)"
+            )
+        )
 
 
 def repair_stuck_return_events(
@@ -510,6 +537,310 @@ def repair_legacy_skipped_with_cis(
         return int(getattr(cur, "rowcount", 0) or 0)
 
 
+def _retention_cutoff_iso(*, days: int = EVENT_RETENTION_DAYS) -> str:
+    return (datetime.now(timezone.utc) - timedelta(days=max(1, int(days)))).isoformat()
+
+
+def _cis_anchor(*, srid: str = "", rid: str = "") -> str:
+    return str(srid or "").strip() or str(rid or "").strip()
+
+
+def upsert_sent_cis_rows(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    rows: list[dict[str, Any]],
+    accepted_at: str = "",
+) -> int:
+    """Upsert compact forever registry rows (anti-dupe after event purge)."""
+    if not rows:
+        return 0
+    ensure_kiz_circulation_tables(repo)
+    now = accepted_at or datetime.now(timezone.utc).isoformat()
+    written = 0
+    with repo._connect() as conn:
+        for row in rows:
+            cis = str(row.get("excise_short") or "").strip()
+            op = int(row.get("operation_type") or 0)
+            if not cis or op not in {OP_WITHDRAW, OP_RETURN}:
+                continue
+            anchor = _cis_anchor(
+                srid=str(row.get("srid") or ""),
+                rid=str(row.get("rid") or ""),
+            )
+            conn.execute(
+                repo._sql(
+                    """
+                    INSERT INTO wb_kiz_sent_cis (
+                        user_id, source_id, operation_type, excise_short, anchor,
+                        chz_doc_id, event_key, fiscal_doc_number, fiscal_dt, accepted_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (user_id, source_id, operation_type, excise_short, anchor)
+                    DO UPDATE SET
+                        chz_doc_id = CASE
+                            WHEN EXCLUDED.chz_doc_id <> '' THEN EXCLUDED.chz_doc_id
+                            ELSE wb_kiz_sent_cis.chz_doc_id
+                        END,
+                        event_key = CASE
+                            WHEN EXCLUDED.event_key <> '' THEN EXCLUDED.event_key
+                            ELSE wb_kiz_sent_cis.event_key
+                        END,
+                        fiscal_doc_number = CASE
+                            WHEN EXCLUDED.fiscal_doc_number <> '' THEN EXCLUDED.fiscal_doc_number
+                            ELSE wb_kiz_sent_cis.fiscal_doc_number
+                        END,
+                        fiscal_dt = CASE
+                            WHEN EXCLUDED.fiscal_dt <> '' THEN EXCLUDED.fiscal_dt
+                            ELSE wb_kiz_sent_cis.fiscal_dt
+                        END,
+                        accepted_at = CASE
+                            WHEN wb_kiz_sent_cis.accepted_at = ''
+                              OR EXCLUDED.accepted_at > wb_kiz_sent_cis.accepted_at
+                            THEN EXCLUDED.accepted_at
+                            ELSE wb_kiz_sent_cis.accepted_at
+                        END
+                    """
+                ),
+                (
+                    user_id,
+                    source_id,
+                    op,
+                    cis,
+                    anchor,
+                    str(row.get("chz_doc_id") or "").strip(),
+                    str(row.get("event_key") or "").strip(),
+                    str(row.get("fiscal_doc_number") or "").strip(),
+                    str(row.get("fiscal_dt") or "").strip(),
+                    now,
+                ),
+            )
+            written += 1
+    return written
+
+
+def register_sent_cis_for_event_keys(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    event_keys: list[str],
+    accepted_at: str = "",
+) -> int:
+    keys = [str(k).strip() for k in event_keys if str(k).strip()]
+    if not keys:
+        return 0
+    ensure_kiz_circulation_tables(repo)
+    rows: list[dict[str, Any]] = []
+    with repo._connect() as conn:
+        for chunk in _chunked(keys, 200):
+            ph = ", ".join("?" for _ in chunk)
+            found = conn.execute(
+                repo._sql(
+                    f"""
+                    SELECT srid, rid, excise_short, operation_type, chz_doc_id,
+                           event_key, fiscal_doc_number, fiscal_dt
+                    FROM wb_kiz_circulation_events
+                    WHERE user_id = ? AND source_id = ?
+                      AND event_key IN ({ph})
+                    """
+                ),
+                (user_id, source_id, *chunk),
+            ).fetchall()
+            rows.extend(repo._row_to_dict(r) for r in found)
+    return upsert_sent_cis_rows(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        rows=rows,
+        accepted_at=accepted_at,
+    )
+
+
+def clear_accepted_raw_json(
+    repo: ReviewRepository, *, user_id: int, source_id: int
+) -> int:
+    """Drop bulky WB payload once CHZ accepted — registry keeps the trail."""
+    ensure_kiz_circulation_tables(repo)
+    with repo._connect() as conn:
+        cur = conn.execute(
+            repo._sql(
+                """
+                UPDATE wb_kiz_circulation_events
+                SET raw_json = '{}'
+                WHERE user_id = ? AND source_id = ?
+                  AND status = ?
+                  AND COALESCE(raw_json, '') <> ''
+                  AND raw_json <> '{}'
+                """
+            ),
+            (user_id, source_id, STATUS_ACCEPTED),
+        )
+        return int(getattr(cur, "rowcount", 0) or 0)
+
+
+def purge_old_kiz_circulation_events(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    retention_days: int = EVENT_RETENTION_DAYS,
+) -> int:
+    """Delete terminal event rows older than retention; register accepted first.
+
+    Never touches pending/ready/error/submitted (open queue / in-flight CHZ).
+    """
+    ensure_kiz_circulation_tables(repo)
+    cutoff = _retention_cutoff_iso(days=retention_days)
+    terminal = sorted(_TERMINAL_SKIP_REASONS)
+    skip_ph = ", ".join("?" for _ in terminal)
+    deleted = 0
+    for _ in range(50):
+        with repo._connect() as conn:
+            accepted = conn.execute(
+                repo._sql(
+                    f"""
+                    SELECT id, srid, rid, excise_short, operation_type, chz_doc_id,
+                           event_key, fiscal_doc_number, fiscal_dt
+                    FROM wb_kiz_circulation_events
+                    WHERE user_id = ? AND source_id = ?
+                      AND status = ?
+                      AND updated_at < ?
+                    ORDER BY id ASC
+                    LIMIT ?
+                    """
+                ),
+                (
+                    user_id,
+                    source_id,
+                    STATUS_ACCEPTED,
+                    cutoff,
+                    PURGE_BATCH_SIZE,
+                ),
+            ).fetchall()
+            accepted_rows = [repo._row_to_dict(r) for r in accepted]
+        if accepted_rows:
+            upsert_sent_cis_rows(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                rows=accepted_rows,
+            )
+            ids = [int(r["id"]) for r in accepted_rows if int(r.get("id") or 0) > 0]
+            with repo._connect() as conn:
+                for chunk in _chunked(ids, 200):
+                    ph = ", ".join("?" for _ in chunk)
+                    cur = conn.execute(
+                        repo._sql(
+                            f"""
+                            DELETE FROM wb_kiz_circulation_events
+                            WHERE user_id = ? AND source_id = ?
+                              AND id IN ({ph})
+                            """
+                        ),
+                        (user_id, source_id, *chunk),
+                    )
+                    deleted += int(getattr(cur, "rowcount", 0) or 0)
+
+        with repo._connect() as conn:
+            cur = conn.execute(
+                repo._sql(
+                    f"""
+                    DELETE FROM wb_kiz_circulation_events
+                    WHERE id IN (
+                      SELECT id FROM wb_kiz_circulation_events
+                      WHERE user_id = ? AND source_id = ?
+                        AND status = ?
+                        AND COALESCE(skip_reason, '') IN ({skip_ph})
+                        AND updated_at < ?
+                      ORDER BY id ASC
+                      LIMIT ?
+                    )
+                    """
+                ),
+                (
+                    user_id,
+                    source_id,
+                    STATUS_SKIPPED,
+                    *terminal,
+                    cutoff,
+                    PURGE_BATCH_SIZE,
+                ),
+            )
+            n_skip = int(getattr(cur, "rowcount", 0) or 0)
+            deleted += n_skip
+        if not accepted_rows and n_skip == 0:
+            break
+    return deleted
+
+
+def purge_old_kiz_runs_and_docs(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    retention_days: int = EVENT_RETENTION_DAYS,
+) -> dict[str, int]:
+    ensure_kiz_circulation_tables(repo)
+    cutoff = _retention_cutoff_iso(days=retention_days)
+    with repo._connect() as conn:
+        cur_runs = conn.execute(
+            repo._sql(
+                """
+                DELETE FROM wb_kiz_circulation_runs
+                WHERE user_id = ? AND source_id = ?
+                  AND COALESCE(finished_at, created_at, '') < ?
+                  AND COALESCE(finished_at, created_at, '') <> ''
+                """
+            ),
+            (user_id, source_id, cutoff),
+        )
+        cur_docs = conn.execute(
+            repo._sql(
+                """
+                DELETE FROM wb_kiz_chz_documents
+                WHERE user_id = ? AND source_id = ?
+                  AND COALESCE(created_at, '') < ?
+                  AND COALESCE(created_at, '') <> ''
+                """
+            ),
+            (user_id, source_id, cutoff),
+        )
+    return {
+        "runs": int(getattr(cur_runs, "rowcount", 0) or 0),
+        "docs": int(getattr(cur_docs, "rowcount", 0) or 0),
+    }
+
+
+def maintain_kiz_circulation_storage(
+    repo: ReviewRepository, *, user_id: int, source_id: int
+) -> dict[str, int]:
+    """Clear bulky payloads + purge old terminal history; keep slim sent registry."""
+    cleared = 0
+    purged_events = 0
+    meta = {"runs": 0, "docs": 0}
+    try:
+        cleared = clear_accepted_raw_json(repo, user_id=user_id, source_id=source_id)
+    except Exception as exc:
+        logger.exception("clear_accepted_raw_json failed: %s", exc)
+    try:
+        purged_events = purge_old_kiz_circulation_events(
+            repo, user_id=user_id, source_id=source_id
+        )
+    except Exception as exc:
+        logger.exception("purge_old_kiz_circulation_events failed: %s", exc)
+    try:
+        meta = purge_old_kiz_runs_and_docs(repo, user_id=user_id, source_id=source_id)
+    except Exception as exc:
+        logger.exception("purge_old_kiz_runs_and_docs failed: %s", exc)
+    return {
+        "raw_json_cleared": cleared,
+        "events_purged": purged_events,
+        "runs_purged": int(meta.get("runs") or 0),
+        "docs_purged": int(meta.get("docs") or 0),
+    }
+
+
 def repair_circulation_queue(
     repo: ReviewRepository, *, user_id: int, source_id: int
 ) -> dict[str, int]:
@@ -548,12 +879,28 @@ def repair_circulation_queue(
     except Exception as exc:
         logger.exception("repair_legacy_skipped_with_cis failed: %s", exc)
         legacy_skipped = 0
+    try:
+        storage = maintain_kiz_circulation_storage(
+            repo, user_id=user_id, source_id=source_id
+        )
+    except Exception as exc:
+        logger.exception("maintain_kiz_circulation_storage failed: %s", exc)
+        storage = {
+            "raw_json_cleared": 0,
+            "events_purged": 0,
+            "runs_purged": 0,
+            "docs_purged": 0,
+        }
     return {
         "returns_fixed": returns_fixed,
         "withdraw_skipped": withdraw_from_error,
         "withdraw_requeued": withdraw_requeued,
         "orphan_submitted": orphan_submitted,
         "legacy_skipped": legacy_skipped,
+        "raw_json_cleared": int(storage.get("raw_json_cleared") or 0),
+        "events_purged": int(storage.get("events_purged") or 0),
+        "runs_purged": int(storage.get("runs_purged") or 0),
+        "docs_purged": int(storage.get("docs_purged") or 0),
     }
 
 
@@ -1226,6 +1573,15 @@ def sync_excise_report(
             log,
             f"возвращено из skipped в очередь: {repaired['legacy_skipped']}",
         )
+    if repaired.get("raw_json_cleared") or repaired.get("events_purged"):
+        _append_log(
+            log,
+            "очистка хранения: "
+            f"raw_json={repaired.get('raw_json_cleared') or 0}, "
+            f"событий>{EVENT_RETENTION_DAYS}д={repaired.get('events_purged') or 0}, "
+            f"runs={repaired.get('runs_purged') or 0}, "
+            f"docs={repaired.get('docs_purged') or 0}",
+        )
 
     with repo._connect() as conn:
         row = conn.execute(
@@ -1267,6 +1623,9 @@ def sync_excise_report(
     insert_errors = 0
     last_key = ""
     last_fiscal = ""
+    sent_identities = _load_sent_cis_identities(
+        repo, user_id=user_id, source_id=source_id
+    )
 
     with repo._connect() as conn:
         for raw in rows:
@@ -1288,6 +1647,16 @@ def sync_excise_report(
                     norm=norm,
                 )
                 action, target = _resolve_sync_action(related, norm=norm)
+                if action == "insert":
+                    ident = _cis_identity(
+                        srid=str(norm.get("srid") or ""),
+                        rid=str(norm.get("rid") or ""),
+                        excise_short=str(norm.get("excise_short") or ""),
+                        operation_type=int(norm.get("operation_type") or 0),
+                    )
+                    if ident[1] and ident in sent_identities:
+                        action = "suppress"
+                        target = None
                 if action == "suppress":
                     suppressed += 1
                     skipped += 1
@@ -1707,8 +2076,9 @@ def _load_sent_cis_identities(
 ) -> set[tuple[str, str, int]]:
     """Identities already in CHZ — must not be sent again.
 
-    Counts accepted always; submitted only when ``chz_doc_id`` is present
-    (orphans without doc id are repaired back to pending and must retry).
+    Sources:
+    - live events: accepted, or submitted with ``chz_doc_id``
+    - forever slim registry (survives 6-month event purge)
     """
     ensure_kiz_circulation_tables(repo)
     out: set[tuple[str, str, int]] = set()
@@ -1731,16 +2101,37 @@ def _load_sent_cis_identities(
             ),
             (user_id, source_id, STATUS_ACCEPTED, STATUS_SUBMITTED),
         ).fetchall()
-    for r in rows:
-        d = repo._row_to_dict(r)
-        out.add(
-            _cis_identity(
-                srid=str(d.get("srid") or ""),
-                rid=str(d.get("rid") or ""),
-                excise_short=str(d.get("excise_short") or ""),
-                operation_type=int(d.get("operation_type") or 0),
+        for r in rows:
+            d = repo._row_to_dict(r)
+            out.add(
+                _cis_identity(
+                    srid=str(d.get("srid") or ""),
+                    rid=str(d.get("rid") or ""),
+                    excise_short=str(d.get("excise_short") or ""),
+                    operation_type=int(d.get("operation_type") or 0),
+                )
             )
-        )
+        reg = conn.execute(
+            repo._sql(
+                """
+                SELECT anchor, excise_short, operation_type
+                FROM wb_kiz_sent_cis
+                WHERE user_id = ? AND source_id = ?
+                  AND COALESCE(excise_short, '') <> ''
+                """
+            ),
+            (user_id, source_id),
+        ).fetchall()
+        for r in reg:
+            d = repo._row_to_dict(r)
+            anchor = str(d.get("anchor") or "").strip()
+            out.add(
+                (
+                    anchor,
+                    str(d.get("excise_short") or "").strip(),
+                    int(d.get("operation_type") or 0),
+                )
+            )
     return out
 
 
@@ -2315,6 +2706,26 @@ def apply_chz_doc_status(
                         key,
                     ),
                 )
+            elif final == STATUS_ACCEPTED:
+                conn.execute(
+                    repo._sql(
+                        """
+                        UPDATE wb_kiz_circulation_events
+                        SET status = ?, chz_doc_id = ?, chz_status = ?,
+                            raw_json = '{}', updated_at = ?
+                        WHERE user_id = ? AND source_id = ? AND event_key = ?
+                        """
+                    ),
+                    (
+                        STATUS_ACCEPTED,
+                        str(chz_doc_id or ""),
+                        st or final,
+                        now,
+                        user_id,
+                        source_id,
+                        key,
+                    ),
+                )
             else:
                 conn.execute(
                     repo._sql(
@@ -2334,6 +2745,17 @@ def apply_chz_doc_status(
                         key,
                     ),
                 )
+    if final == STATUS_ACCEPTED and keys:
+        try:
+            register_sent_cis_for_event_keys(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                event_keys=keys,
+                accepted_at=now,
+            )
+        except Exception as exc:
+            logger.exception("register_sent_cis_for_event_keys failed: %s", exc)
     return final
 
 
@@ -2419,6 +2841,8 @@ __all__ = [
     "repair_orphan_submitted_events",
     "repair_legacy_skipped_with_cis",
     "repair_circulation_queue",
+    "maintain_kiz_circulation_storage",
+    "upsert_sent_cis_rows",
     "reconcile_submitted_with_chz",
     "chz_client_from_settings",
     "mask_secret",
