@@ -17283,6 +17283,15 @@ async function runWbFbsKizCirculationSync() {
     if (!dateFrom || !dateTo) {
       throw new Error("Укажите даты «С» и «По»");
     }
+    const days = Math.round(
+      (new Date(`${dateTo}T00:00:00`).getTime() - new Date(`${dateFrom}T00:00:00`).getTime())
+        / 86400000,
+    ) + 1;
+    if (days > 31) {
+      _wbFbsKizCircAppendLog(
+        `Период ${days} дн. — выгрузка пойдёт в фоне. Лучше брать ≤31 день за раз (лимит WB + скорость).`,
+      );
+    }
     _wbFbsKizCircAppendLog(`WB: выгрузка за ${dateFrom}…${dateTo}…`);
     const body = {
       source_id: sid,
@@ -17301,13 +17310,47 @@ async function runWbFbsKizCirculationSync() {
         msg = detail.map((x) => x?.msg || x?.detail || JSON.stringify(x)).join("; ");
       } else if (detail && typeof detail === "object") {
         msg = detail.msg || detail.message || JSON.stringify(detail);
+      } else if (res.status === 504) {
+        msg = "Таймаут шлюза (HTTP 504). Если sync уже запущен на сервере — откройте Лог/Обновить через 1–2 мин, не жмите повторно (лимит WB).";
       } else if (res.status) {
         msg = `Ошибка sync (HTTP ${res.status})`;
       }
       throw new Error(msg);
     }
     if (data.log) _wbFbsKizCircAppendLog(data.log);
-    else {
+
+    const runId = Number(data.run_id || 0);
+    if (data.async && runId > 0) {
+      _wbFbsKizCircAppendLog(`Фоновый прогон #${runId} — жду завершения…`);
+      const startedAt = Date.now();
+      const maxWaitMs = 30 * 60 * 1000;
+      while (Date.now() - startedAt < maxWaitMs) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const runRes = await fetch(`/api/wb-fbs/kiz-circulation/runs/${runId}`, {
+          headers: jsonHeaders(),
+        });
+        const run = await runRes.json().catch(() => ({}));
+        if (!runRes.ok) {
+          throw new Error(run.detail || `Не удалось получить статус прогона #${runId}`);
+        }
+        const st = String(run.status || "");
+        const logText = String(run.log_text || "").trim();
+        if (logText) _wbFbsKizCircSetLog(logText);
+        if (st === "ok") {
+          _wbFbsKizCircAppendLog(
+            `OK: новых ${run.inserted || 0}, пропуск ${run.skipped || 0}, `
+            + `вывод ${run.withdraw_count || 0}, возврат ${run.return_count || 0}`,
+          );
+          break;
+        }
+        if (st === "error") {
+          throw new Error(run.error_text || "Ошибка фоновой выгрузки");
+        }
+      }
+      if (Date.now() - startedAt >= maxWaitMs) {
+        throw new Error("Выгрузка всё ещё идёт дольше 30 мин — откройте Лог позже");
+      }
+    } else {
       _wbFbsKizCircAppendLog(
         `OK: новых ${data.inserted || 0}, обновлено ${data.updated || 0}, `
         + `пропуск ${data.skipped || 0}, вывод ${data.withdraw_count || 0}, `

@@ -10361,22 +10361,48 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 ),
             )
         try:
-            return kiz_circ.sync_excise_report(
+            started = kiz_circ.create_excise_sync_run(
                 repository,
                 user_id=owner_id,
                 source_id=sid,
-                api_key=api_key,
                 date_from=str(payload.date_from or ""),
                 date_to=str(payload.date_to or ""),
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except RuntimeError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except Exception as exc:
-            raise HTTPException(
-                status_code=400, detail=f"Ошибка sync: {exc}"
-            ) from exc
+
+        run_id = int(started.get("run_id") or 0)
+
+        def _worker() -> None:
+            try:
+                kiz_circ.sync_excise_report(
+                    repository,
+                    user_id=owner_id,
+                    source_id=sid,
+                    api_key=api_key,
+                    date_from=str(payload.date_from or ""),
+                    date_to=str(payload.date_to or ""),
+                    run_id=run_id,
+                )
+            except Exception as exc:
+                _log.exception("kiz circulation async sync failed: %s", exc)
+                try:
+                    kiz_circ._finish_run(
+                        repository,
+                        run_id=run_id,
+                        status="error",
+                        log=[str(started.get("log") or ""), f"Ошибка: {exc}"],
+                        error_text=str(exc),
+                    )
+                except Exception:
+                    _log.exception("kiz circulation finish error run failed")
+
+        threading.Thread(
+            target=_worker,
+            name=f"kiz-excise-sync-{owner_id}-{sid}-{run_id}",
+            daemon=True,
+        ).start()
+        return started
 
     @app.get("/api/wb-fbs/kiz-circulation/runs/{run_id}")
     def wb_fbs_kiz_circulation_run(

@@ -1300,3 +1300,39 @@ def test_prepare_skips_return_unless_cancelled(
     reasons = {s["event_key"]: s["skip_reason"] for s in out["skipped"]}
     assert "не отказной" in reasons["ret-sold"]
     assert "не отказной" in reasons["ret-delivery"]
+
+
+def test_related_events_index_lookup() -> None:
+    idx: dict = {}
+    circ._index_related_event(
+        idx,
+        {
+            "id": 1,
+            "event_key": "a",
+            "operation_type": 1,
+            "excise_short": "CIS1",
+            "srid": "s1",
+            "rid": "",
+            "status": "pending",
+            "fiscal_doc_number": "",
+            "fiscal_dt": "",
+        },
+    )
+    found = circ._related_from_index(
+        idx,
+        norm={
+            "operation_type": 1,
+            "excise_short": "CIS1",
+            "srid": "s1",
+            "rid": "",
+        },
+    )
+    assert len(found) == 1
+    assert found[0]["event_key"] == "a"
+    assert (
+        circ._related_from_index(
+            idx,
+            norm={"operation_type": 1, "excise_short": "OTHER", "srid": "s1"},
+        )
+        == []
+    )

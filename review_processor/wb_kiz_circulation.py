@@ -1608,12 +1608,14 @@ def sync_excise_report(
     api_key: str,
     date_from: str = "",
     date_to: str = "",
+    run_id: int | None = None,
 ) -> dict[str, Any]:
     ensure_kiz_circulation_tables(repo)
     repaired = repair_circulation_queue(repo, user_id=user_id, source_id=source_id)
     try:
+        # Throttled — force=True on large syncs caused GC to burn the HTTP budget.
         storage = maintain_kiz_circulation_storage(
-            repo, user_id=user_id, source_id=source_id, force=True
+            repo, user_id=user_id, source_id=source_id, force=False
         )
         repaired.update(storage)
     except Exception as exc:
@@ -1629,6 +1631,12 @@ def sync_excise_report(
         f"WB: выгрузка за выбранные даты {date_from_s}…{date_to_s} "
         f"({period['days']} дн., один запрос)",
     )
+    if int(period["days"] or 0) > 31:
+        _append_log(
+            log,
+            "совет: для периода >31 дня запрос к WB и запись в БД могут быть долгими; "
+            "при HTTP 504 дождитесь окончания на сервере или берите месяц порциями",
+        )
     if repaired.get("returns_fixed"):
         _append_log(log, f"восстановлено возвратов без чека: {repaired['returns_fixed']}")
     if repaired.get("withdraw_skipped"):
@@ -1661,24 +1669,43 @@ def sync_excise_report(
             f"docs={repaired.get('docs_purged') or 0}",
         )
 
-    with repo._connect() as conn:
-        row = conn.execute(
-            repo._sql(
-                """
-                INSERT INTO wb_kiz_circulation_runs (
-                    user_id, source_id, date_from, date_to, stage, status,
-                    created_at, log_text
-                ) VALUES (?, ?, ?, ?, 'wb_sync', 'running', ?, ?)
-                RETURNING id
-                """
-            ),
-            (user_id, source_id, date_from_s, date_to_s, now, ""),
-        ).fetchone()
-        run_id = int(repo._row_to_dict(row).get("id") or 0) if row else 0
+    if run_id and int(run_id) > 0:
+        run_id = int(run_id)
+        with repo._connect() as conn:
+            conn.execute(
+                repo._sql(
+                    """
+                    UPDATE wb_kiz_circulation_runs SET
+                        date_from = ?, date_to = ?, status = 'running',
+                        log_text = ?, error_text = ''
+                    WHERE id = ? AND user_id = ?
+                    """
+                ),
+                (date_from_s, date_to_s, "\n".join(log)[:50000], run_id, user_id),
+            )
+    else:
+        with repo._connect() as conn:
+            row = conn.execute(
+                repo._sql(
+                    """
+                    INSERT INTO wb_kiz_circulation_runs (
+                        user_id, source_id, date_from, date_to, stage, status,
+                        created_at, log_text
+                    ) VALUES (?, ?, ?, ?, 'wb_sync', 'running', ?, ?)
+                    RETURNING id
+                    """
+                ),
+                (user_id, source_id, date_from_s, date_to_s, now, "\n".join(log)[:50000]),
+            ).fetchone()
+            run_id = int(repo._row_to_dict(row).get("id") or 0) if row else 0
 
     try:
+        # Large ranges need a longer WB wait; nginx may still 504 — use async sync.
         rows = fetch_wb_excise_report(
-            api_key=api_key, date_from=date_from_s, date_to=date_to_s
+            api_key=api_key,
+            date_from=date_from_s,
+            date_to=date_to_s,
+            timeout=120,
         )
     except Exception as exc:
         _append_log(log, f"Ошибка WB: {exc}")
@@ -1692,6 +1719,14 @@ def sync_excise_report(
         raise
 
     _append_log(log, f"получено {len(rows)} строк")
+    # Persist progress so UI polling shows WB finished even while DB writes run.
+    _finish_run(
+        repo,
+        run_id=run_id,
+        status="running",
+        log=log,
+        fetched=len(rows),
+    )
     inserted = 0
     updated = 0
     skipped = 0
@@ -1706,24 +1741,23 @@ def sync_excise_report(
     )
 
     with repo._connect() as conn:
-        for raw in rows:
+        related_index = _prefetch_related_events_index(
+            conn, repo, user_id=user_id, source_id=source_id
+        )
+        for i, raw in enumerate(rows, start=1):
             norm = _normalize_row(raw)
             if not norm:
                 skipped += 1
                 continue
+            # Keep raw_json tiny — full payload bloated every INSERT and caused 504s.
+            norm["raw_json"] = ""
             status, skip_reason = _initial_status(norm)
             if int(norm["operation_type"]) == OP_WITHDRAW:
                 withdraw_n += 1
             else:
                 return_n += 1
             try:
-                related = _find_related_events(
-                    conn,
-                    repo,
-                    user_id=user_id,
-                    source_id=source_id,
-                    norm=norm,
-                )
+                related = _related_from_index(related_index, norm=norm)
                 action, target = _resolve_sync_action(related, norm=norm)
                 if action == "insert":
                     ident = _cis_identity(
@@ -1784,7 +1818,6 @@ def sync_excise_report(
                                 WHEN EXCLUDED.fiscal_drive_number <> '' THEN EXCLUDED.fiscal_drive_number
                                 ELSE wb_kiz_circulation_events.fiscal_drive_number
                             END,
-                            raw_json = EXCLUDED.raw_json,
                             updated_at = EXCLUDED.updated_at,
                             status = CASE
                                 WHEN wb_kiz_circulation_events.status IN ('submitted', 'accepted')
@@ -1804,6 +1837,7 @@ def sync_excise_report(
                                 WHEN EXCLUDED.status = 'pending' THEN ''
                                 ELSE wb_kiz_circulation_events.error_text
                             END
+                        RETURNING (xmax = 0) AS was_inserted
                         """
                     ),
                     (
@@ -1830,28 +1864,19 @@ def sync_excise_report(
                         now,
                     ),
                 )
-                rc = int(getattr(cur, "rowcount", 0) or 0)
-                if rc > 0:
-                    # Distinguish insert vs update by comparing created_at/updated_at.
-                    chk = conn.execute(
-                        repo._sql(
-                            "SELECT created_at, updated_at FROM wb_kiz_circulation_events "
-                            "WHERE user_id = ? AND source_id = ? AND event_key = ?"
-                        ),
-                        (user_id, source_id, norm["event_key"]),
-                    ).fetchone()
-                    if chk:
-                        cd = repo._row_to_dict(chk)
-                        if str(cd.get("created_at") or "") == str(cd.get("updated_at") or ""):
-                            inserted += 1
-                        else:
-                            updated += 1
-                    else:
-                        inserted += 1
-                    last_key = norm["event_key"]
-                    last_fiscal = norm["fiscal_dt"] or last_fiscal
+                ret = cur.fetchone()
+                was_inserted = True
+                if ret is not None:
+                    rd = repo._row_to_dict(ret)
+                    was_inserted = bool(rd.get("was_inserted"))
+                if was_inserted:
+                    inserted += 1
                 else:
-                    skipped += 1
+                    updated += 1
+                last_key = norm["event_key"]
+                last_fiscal = norm["fiscal_dt"] or last_fiscal
+                # Keep in-memory related index fresh for later rows in this sync.
+                _index_related_event(related_index, {**norm, "status": status, "id": 0})
             except Exception as exc:
                 insert_errors += 1
                 skipped += 1
@@ -1861,6 +1886,20 @@ def sync_excise_report(
                     exc,
                 )
                 _append_log(log, f"ошибка INSERT {norm.get('event_key', '')[:12]}…: {exc}")
+
+            if i % 500 == 0:
+                _append_log(log, f"запись в БД: {i}/{len(rows)}…")
+                _finish_run(
+                    repo,
+                    run_id=run_id,
+                    status="running",
+                    log=log,
+                    fetched=len(rows),
+                    inserted=inserted,
+                    skipped=skipped,
+                    withdraw_count=withdraw_n,
+                    return_count=return_n,
+                )
 
         conn.execute(
             repo._sql(
@@ -1946,6 +1985,7 @@ def _finish_run(
     if run_id <= 0:
         return
     now = datetime.now(timezone.utc).isoformat()
+    finished_at = None if str(status) == "running" else now
     with repo._connect() as conn:
         conn.execute(
             repo._sql(
@@ -1953,7 +1993,7 @@ def _finish_run(
                 UPDATE wb_kiz_circulation_runs SET
                     status = ?, fetched = ?, inserted = ?, skipped = ?,
                     withdraw_count = ?, return_count = ?, error_text = ?,
-                    log_text = ?, finished_at = ?
+                    log_text = ?, finished_at = COALESCE(?, finished_at)
                 WHERE id = ?
                 """
             ),
@@ -1966,10 +2006,143 @@ def _finish_run(
                 return_count,
                 str(error_text or "")[:2000],
                 "\n".join(log)[:50000],
-                now,
+                finished_at,
                 run_id,
             ),
         )
+
+
+def _prefetch_related_events_index(
+    conn: Any,
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+) -> dict[tuple[int, str, str], list[dict[str, Any]]]:
+    """One-shot load of open events for sync (avoids N+1 SELECTs per row)."""
+    rows = conn.execute(
+        repo._sql(
+            """
+            SELECT id, event_key, status, srid, rid, excise_short, operation_type,
+                   fiscal_doc_number, fiscal_dt, fiscal_drive_number,
+                   price, currency_name, country_name, skip_reason
+            FROM wb_kiz_circulation_events
+            WHERE user_id = ? AND source_id = ?
+              AND status IN ('pending', 'ready', 'error', 'skipped')
+              AND COALESCE(excise_short, '') <> ''
+            """
+        ),
+        (user_id, source_id),
+    ).fetchall()
+    index: dict[tuple[int, str, str], list[dict[str, Any]]] = {}
+    for r in rows:
+        d = repo._row_to_dict(r)
+        _index_related_event(index, d)
+    return index
+
+
+def _index_related_event(
+    index: dict[tuple[int, str, str], list[dict[str, Any]]],
+    ev: dict[str, Any],
+) -> None:
+    op = int(ev.get("operation_type") or 0)
+    excise = str(ev.get("excise_short") or "").strip()
+    if not excise or op not in {OP_WITHDRAW, OP_RETURN}:
+        return
+    anchors = {
+        str(ev.get("srid") or "").strip(),
+        str(ev.get("rid") or "").strip(),
+    }
+    anchors.discard("")
+    if not anchors:
+        anchors = {""}
+    for anchor in anchors:
+        key = (op, excise, anchor)
+        bucket = index.setdefault(key, [])
+        # Prefer keeping real DB rows; skip duplicates by event_key.
+        ek = str(ev.get("event_key") or "")
+        if ek and any(str(x.get("event_key") or "") == ek for x in bucket):
+            continue
+        bucket.append(ev)
+
+
+def _related_from_index(
+    index: dict[tuple[int, str, str], list[dict[str, Any]]],
+    *,
+    norm: dict[str, Any],
+) -> list[dict[str, Any]]:
+    op = int(norm.get("operation_type") or 0)
+    excise = str(norm.get("excise_short") or "").strip()
+    if not excise or op not in {OP_WITHDRAW, OP_RETURN}:
+        return []
+    anchors = {
+        str(norm.get("srid") or "").strip(),
+        str(norm.get("rid") or "").strip(),
+    }
+    anchors.discard("")
+    if not anchors:
+        anchors = {""}
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for anchor in anchors:
+        for ev in index.get((op, excise, anchor), []):
+            ek = str(ev.get("event_key") or "") or str(ev.get("id") or "")
+            if ek in seen:
+                continue
+            seen.add(ek)
+            out.append(ev)
+    return out
+
+
+def create_excise_sync_run(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    date_from: str,
+    date_to: str,
+) -> dict[str, Any]:
+    """Create a running sync row so the UI can poll before WB returns."""
+    ensure_kiz_circulation_tables(repo)
+    period = resolve_excise_period(date_from=date_from, date_to=date_to)
+    date_from_s = str(period["date_from"])
+    date_to_s = str(period["date_to"])
+    now = datetime.now(timezone.utc).isoformat()
+    log = [
+        f"WB: выгрузка за выбранные даты {date_from_s}…{date_to_s} "
+        f"({period['days']} дн., фоновый режим)"
+    ]
+    with repo._connect() as conn:
+        row = conn.execute(
+            repo._sql(
+                """
+                INSERT INTO wb_kiz_circulation_runs (
+                    user_id, source_id, date_from, date_to, stage, status,
+                    created_at, log_text
+                ) VALUES (?, ?, ?, ?, 'wb_sync', 'running', ?, ?)
+                RETURNING id
+                """
+            ),
+            (
+                user_id,
+                source_id,
+                date_from_s,
+                date_to_s,
+                now,
+                "\n".join(log)[:50000],
+            ),
+        ).fetchone()
+        run_id = int(repo._row_to_dict(row).get("id") or 0) if row else 0
+    return {
+        "ok": True,
+        "async": True,
+        "status": "running",
+        "run_id": run_id,
+        "date_from": date_from_s,
+        "date_to": date_to_s,
+        "days": int(period["days"] or 0),
+        "log": "\n".join(log),
+    }
 
 
 def list_events(
@@ -3176,6 +3349,7 @@ __all__ = [
     "list_events",
     "list_events_for_chz",
     "resolve_excise_period",
+    "create_excise_sync_run",
     "sync_excise_report",
     "prepare_chz_batches",
     "mark_events_submitted",
