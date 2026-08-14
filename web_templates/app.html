@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=212" />
+  <link rel="stylesheet" href="/static/style.css?v=213" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1821,6 +1821,7 @@
                 <button type="button" id="wbFbsKizCircSyncBtn" onclick="runWbFbsKizCirculationSync()">Ежедневный вывод</button>
                 <button type="button" class="secondary" id="wbFbsKizCircChzBtn" onclick="runWbFbsKizCirculationChz()">Передать в ЧЗ</button>
                 <button type="button" class="secondary" onclick="refreshWbFbsKizCirculation()">Обновить</button>
+                <button type="button" class="secondary" id="wbFbsKizCircLogBtn" onclick="openWbFbsKizCircLogModal()">Лог</button>
                 <span id="wbFbsKizCircCounts" class="wb-fbs-kiz-circ-counts"></span>
               </div>
               <div class="wb-fbs-kiz-circ-filters" id="wbFbsKizCircFilters">
@@ -1891,11 +1892,19 @@
                   </tbody>
                 </table>
               </div>
-              <div class="wb-fbs-kiz-circ-log-wrap">
-                <div class="wb-fbs-kiz-circ-log-title">Лог</div>
-                <pre id="wbFbsKizCircLog" class="wb-fbs-kiz-circ-log"></pre>
-              </div>
             </div>
+          </div>
+        </div>
+
+        <div id="wbFbsKizCircLogModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="wbFbsKizCircLogTitle"
+             onclick="if(event.target===this)closeWbFbsKizCircLogModal()">
+          <div class="modal-card wb-fbs-kiz-circ-log-modal">
+            <div class="wb-fbs-kiz-circ-log-modal-header">
+              <h4 id="wbFbsKizCircLogTitle" class="wb-fbs-kiz-circ-log-modal-title">Лог — Вывод КИЗ</h4>
+              <button type="button" class="icon-btn secondary" onclick="closeWbFbsKizCircLogModal()" aria-label="Закрыть">✕</button>
+            </div>
+            <pre id="wbFbsKizCircLog" class="wb-fbs-kiz-circ-log" aria-live="polite"></pre>
           </div>
         </div>
 
@@ -4994,6 +5003,6 @@
       </div>
     </div>
   </div>
-  <script src="/static/app.js?v=458"></script>
+  <script src="/static/app.js?v=459"></script>
 </body>
 </html>

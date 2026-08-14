@@ -16905,26 +16905,39 @@ function _wbFbsKizCircRenderTable() {
     .join("");
 }
 
-function _wbFbsKizCircAppendLog(text) {
+function _wbFbsKizCircRenderLog() {
   const el = document.getElementById("wbFbsKizCircLog");
   if (!el) return;
+  const text = String(wbFbsKizCircState.lastLog || "").trim();
+  el.textContent = text || "Лог пуст — записи появятся после «Ежедневный вывод» или «Передать в ЧЗ».";
+  el.classList.toggle("is-empty", !text);
+  el.scrollTop = el.scrollHeight;
+}
+
+function _wbFbsKizCircAppendLog(text) {
   const line = String(text || "").trim();
   if (!line) return;
   wbFbsKizCircState.lastLog = wbFbsKizCircState.lastLog
     ? `${wbFbsKizCircState.lastLog}\n${line}`
     : line;
-  el.textContent = wbFbsKizCircState.lastLog;
-  el.scrollTop = el.scrollHeight;
+  _wbFbsKizCircRenderLog();
 }
 
 function _wbFbsKizCircSetLog(text) {
-  const el = document.getElementById("wbFbsKizCircLog");
   wbFbsKizCircState.lastLog = String(text || "");
-  if (el) {
-    el.textContent = wbFbsKizCircState.lastLog;
-    el.scrollTop = el.scrollHeight;
-  }
+  _wbFbsKizCircRenderLog();
 }
+
+function openWbFbsKizCircLogModal() {
+  _wbFbsKizCircRenderLog();
+  setModalVisibility("wbFbsKizCircLogModal", true);
+}
+window.openWbFbsKizCircLogModal = openWbFbsKizCircLogModal;
+
+function closeWbFbsKizCircLogModal() {
+  setModalVisibility("wbFbsKizCircLogModal", false);
+}
+window.closeWbFbsKizCircLogModal = closeWbFbsKizCircLogModal;
 
 function _wbFbsKizCircStatusLabel(st) {
   const map = {
@@ -16980,6 +16993,7 @@ async function openWbFbsKizCirculationModal() {
 }
 
 function closeWbFbsKizCirculationModal() {
+  closeWbFbsKizCircLogModal();
   document.getElementById("wbFbsKizCirculationModal")?.classList.add("hidden");
 }
 
