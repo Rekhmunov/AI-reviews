@@ -3069,11 +3069,94 @@ def _related_from_index(
     return out
 
 
+def _sync_has_live_worker(run_id: int) -> bool:
+    """True when this process still holds a cancel Event for the run."""
+    rid = int(run_id or 0)
+    if rid <= 0:
+        return False
+    with _SYNC_CANCEL_LOCK:
+        return rid in _SYNC_CANCEL
+
+
+def abandon_orphan_excise_sync_runs(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int | None = None,
+    grace_seconds: int = 20,
+) -> list[int]:
+    """Close DB ``running`` rows with no live worker (restart / hung sync).
+
+    After uvicorn restart in-memory cancel flags are gone, but rows may stay
+    ``running`` forever and block «Ежедневный вывод».
+    """
+    ensure_kiz_circulation_tables(repo)
+    params: list[Any] = [user_id]
+    source_sql = ""
+    if source_id is not None and int(source_id) > 0:
+        source_sql = " AND source_id = ?"
+        params.append(int(source_id))
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                f"""
+                SELECT id, source_id, created_at, log_text
+                FROM wb_kiz_circulation_runs
+                WHERE user_id = ? AND status = 'running'{source_sql}
+                ORDER BY id ASC
+                """
+            ),
+            tuple(params),
+        ).fetchall()
+    abandoned: list[int] = []
+    now = datetime.now(timezone.utc)
+    for raw in rows:
+        row = repo._row_to_dict(raw)
+        rid = int(row.get("id") or 0)
+        if rid <= 0:
+            continue
+        if _sync_has_live_worker(rid):
+            continue
+        created_raw = str(row.get("created_at") or "").strip()
+        age_ok = True
+        if created_raw:
+            try:
+                created = datetime.fromisoformat(created_raw.replace("Z", "+00:00"))
+                if created.tzinfo is None:
+                    created = created.replace(tzinfo=timezone.utc)
+                age_ok = (now - created).total_seconds() >= max(0, int(grace_seconds))
+            except Exception:
+                age_ok = True
+        if not age_ok:
+            # Fresh row: worker may still be attaching the cancel Event.
+            continue
+        log = str(row.get("log_text") or "")
+        line = (
+            f"[{datetime.now(MSK).strftime('%H:%M:%S')}] "
+            "прогон закрыт автоматически: процесс выгрузки уже не работает "
+            "(рестарт сервера или зависание). Можно запускать снова."
+        )
+        if line not in log:
+            log = (log + ("\n" if log else "") + line)[:50000]
+        _finish_run(
+            repo,
+            run_id=rid,
+            status="cancelled",
+            log=log.split("\n") if log else [line],
+            error_text="Прервано (нет активного процесса)",
+        )
+        abandoned.append(rid)
+    return abandoned
+
+
 def find_active_excise_sync_run(
     repo: ReviewRepository, *, user_id: int, source_id: int
 ) -> dict[str, Any] | None:
-    """Return the latest running sync for this source, if any."""
+    """Return the latest live running sync for this source, if any."""
     ensure_kiz_circulation_tables(repo)
+    abandon_orphan_excise_sync_runs(
+        repo, user_id=user_id, source_id=source_id
+    )
     with repo._connect() as conn:
         row = conn.execute(
             repo._sql(
@@ -3087,13 +3170,36 @@ def find_active_excise_sync_run(
             ),
             (user_id, source_id),
         ).fetchone()
-    return repo._row_to_dict(row) if row else None
+    if not row:
+        return None
+    data = repo._row_to_dict(row)
+    rid = int(data.get("id") or 0)
+    # Prefer treating DB-only leftovers as inactive even inside grace window
+    # when this process has never seen the run (typical after deploy restart).
+    if rid > 0 and not _sync_has_live_worker(rid):
+        created_raw = str(data.get("created_at") or "").strip()
+        try:
+            created = datetime.fromisoformat(created_raw.replace("Z", "+00:00"))
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+            # Older than grace → should have been abandoned; force-close.
+            if (datetime.now(timezone.utc) - created).total_seconds() >= 20:
+                abandon_orphan_excise_sync_runs(
+                    repo, user_id=user_id, source_id=source_id, grace_seconds=0
+                )
+                return None
+        except Exception:
+            abandon_orphan_excise_sync_runs(
+                repo, user_id=user_id, source_id=source_id, grace_seconds=0
+            )
+            return None
+    return data
 
 
 def cancel_excise_sync_run(
     repo: ReviewRepository, *, user_id: int, run_id: int
 ) -> dict[str, Any]:
-    """Request stop of a running sync and mark the run as cancelling."""
+    """Request stop of a running sync; immediately close zombie runs."""
     ensure_kiz_circulation_tables(repo)
     rid = int(run_id or 0)
     if rid <= 0:
@@ -3110,35 +3216,58 @@ def cancel_excise_sync_run(
             "already_finished": True,
             "message": f"Прогон уже завершён ({status})",
         }
-    request_cancel_excise_sync(rid)
+    live = _sync_has_live_worker(rid)
     log = str(run.get("log_text") or "")
+    if live:
+        request_cancel_excise_sync(rid)
+        line = (
+            f"[{datetime.now(MSK).strftime('%H:%M:%S')}] "
+            "стоп: запрошена остановка пользователем"
+        )
+        if line not in log:
+            log = (log + ("\n" if log else "") + line)[:50000]
+        with repo._connect() as conn:
+            conn.execute(
+                repo._sql(
+                    """
+                    UPDATE wb_kiz_circulation_runs SET
+                        log_text = ?,
+                        error_text = CASE
+                            WHEN status = 'running' THEN 'Остановка…'
+                            ELSE error_text
+                        END
+                    WHERE id = ? AND user_id = ? AND status = 'running'
+                    """
+                ),
+                (log, rid, user_id),
+            )
+        return {
+            "ok": True,
+            "run_id": rid,
+            "status": "cancelling",
+            "already_finished": False,
+            "message": "Остановка запрошена",
+        }
+
     line = (
         f"[{datetime.now(MSK).strftime('%H:%M:%S')}] "
-        "стоп: запрошена остановка пользователем"
+        "стоп: процесс выгрузки уже не работал — прогон закрыт"
     )
     if line not in log:
         log = (log + ("\n" if log else "") + line)[:50000]
-    with repo._connect() as conn:
-        conn.execute(
-            repo._sql(
-                """
-                UPDATE wb_kiz_circulation_runs SET
-                    log_text = ?,
-                    error_text = CASE
-                        WHEN status = 'running' THEN 'Остановка…'
-                        ELSE error_text
-                    END
-                WHERE id = ? AND user_id = ? AND status = 'running'
-                """
-            ),
-            (log, rid, user_id),
-        )
+    _finish_run(
+        repo,
+        run_id=rid,
+        status="cancelled",
+        log=log.split("\n") if log else [line],
+        error_text="Остановлено (процесс уже не работал)",
+    )
     return {
         "ok": True,
         "run_id": rid,
-        "status": "cancelling",
-        "already_finished": False,
-        "message": "Остановка запрошена",
+        "status": "cancelled",
+        "already_finished": True,
+        "message": "Зависший прогон закрыт — можно запускать снова",
     }
 
 
@@ -3152,13 +3281,21 @@ def create_excise_sync_run(
 ) -> dict[str, Any]:
     """Create a running sync row so the UI can poll before WB returns."""
     ensure_kiz_circulation_tables(repo)
+    abandon_orphan_excise_sync_runs(
+        repo, user_id=user_id, source_id=source_id, grace_seconds=0
+    )
     active = find_active_excise_sync_run(
         repo, user_id=user_id, source_id=source_id
     )
-    if active:
+    if active and _sync_has_live_worker(int(active.get("id") or 0)):
         raise ValueError(
             f"Уже идёт выгрузка #{int(active.get('id') or 0)}. "
             "Дождитесь окончания или нажмите «Стоп»."
+        )
+    if active:
+        # Defensive: DB row without live worker — close and continue.
+        abandon_orphan_excise_sync_runs(
+            repo, user_id=user_id, source_id=source_id, grace_seconds=0
         )
     period = resolve_excise_period(date_from=date_from, date_to=date_to)
     date_from_s = str(period["date_from"])
@@ -4532,6 +4669,7 @@ __all__ = [
     "create_excise_sync_run",
     "find_active_excise_sync_run",
     "cancel_excise_sync_run",
+    "abandon_orphan_excise_sync_runs",
     "request_cancel_excise_sync",
     "SyncCancelled",
     "sync_excise_report",
