@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
-from datetime import date
+from datetime import date, datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -756,3 +756,92 @@ def test_prepare_skips_already_sent_identity(
     assert out["counts"]["documents"] == 0
     assert out["counts"]["skipped"] == 1
     assert out["skipped"][0]["skip_reason"] == "already_sent"
+
+
+def test_retention_cutoff_roughly_six_months() -> None:
+    assert circ.EVENT_RETENTION_DAYS == 180
+    cutoff = circ._retention_cutoff_iso()
+    assert cutoff < datetime.now(timezone.utc).isoformat()
+    # ~6 months ago (± a few days)
+    from datetime import timedelta
+
+    expected = (datetime.now(timezone.utc) - timedelta(days=180)).date()
+    assert cutoff[:10] == expected.isoformat()
+
+
+def test_cis_anchor_prefers_srid() -> None:
+    assert circ._cis_anchor(srid="s1", rid="r1") == "s1"
+    assert circ._cis_anchor(srid="", rid="r1") == "r1"
+
+
+def test_upsert_sent_cis_rows_writes_registry() -> None:
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    conn.__exit__.return_value = False
+    repo = MagicMock()
+    repo._connect.return_value = conn
+    repo._sql.side_effect = lambda q: q
+    with patch.object(circ, "ensure_kiz_circulation_tables"):
+        n = circ.upsert_sent_cis_rows(
+            repo,
+            user_id=1,
+            source_id=2,
+            rows=[
+                {
+                    "excise_short": "CIS1",
+                    "operation_type": 1,
+                    "srid": "s1",
+                    "rid": "",
+                    "chz_doc_id": "doc-9",
+                    "event_key": "ek",
+                    "fiscal_doc_number": "1",
+                    "fiscal_dt": "2026-01-01",
+                }
+            ],
+            accepted_at="2026-08-14T00:00:00+00:00",
+        )
+    assert n == 1
+    assert conn.execute.called
+    sql = conn.execute.call_args.args[0]
+    assert "wb_kiz_sent_cis" in sql
+
+
+def test_load_sent_cis_merges_registry() -> None:
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    conn.__exit__.return_value = False
+    # First execute → events; second → registry
+    ev_rows = [{"srid": "s1", "rid": "", "excise_short": "A", "operation_type": 1}]
+    reg_rows = [{"anchor": "s2", "excise_short": "B", "operation_type": 2}]
+    ev_result = MagicMock()
+    ev_result.fetchall.return_value = ev_rows
+    reg_result = MagicMock()
+    reg_result.fetchall.return_value = reg_rows
+    conn.execute.side_effect = [ev_result, reg_result]
+    repo = MagicMock()
+    repo._connect.return_value = conn
+    repo._sql.side_effect = lambda q: q
+    repo._row_to_dict.side_effect = lambda r: r
+    with patch.object(circ, "ensure_kiz_circulation_tables"):
+        out = circ._load_sent_cis_identities(repo, user_id=1, source_id=2)
+    assert ("s1", "A", 1) in out
+    assert ("s2", "B", 2) in out
+
+
+def test_maintain_storage_calls_purge_helpers() -> None:
+    repo = MagicMock()
+    with patch.object(circ, "clear_accepted_raw_json", return_value=3) as c1, patch.object(
+        circ, "purge_old_kiz_circulation_events", return_value=5
+    ) as c2, patch.object(
+        circ, "purge_old_kiz_runs_and_docs", return_value={"runs": 1, "docs": 2}
+    ) as c3:
+        out = circ.maintain_kiz_circulation_storage(repo, user_id=1, source_id=2)
+    assert out == {
+        "raw_json_cleared": 3,
+        "events_purged": 5,
+        "runs_purged": 1,
+        "docs_purged": 2,
+    }
+    c1.assert_called_once()
+    c2.assert_called_once()
+    c3.assert_called_once()
