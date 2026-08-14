@@ -24583,8 +24583,16 @@ function clearWbFbsPickScanField(inputId) {
 }
 window.clearWbFbsPickScanField = clearWbFbsPickScanField;
 
+/** Same live RU-layout guard as Маркировка (`onWbFbsKizScanInputCheck`). */
+function onWbFbsPickScanInputCheck(event) {
+  onWbFbsKizScanInputCheck(event);
+}
+window.onWbFbsPickScanInputCheck = onWbFbsPickScanInputCheck;
+
 function closeWbFbsPickVerifyModal() {
   cancelWbFbsPickSkuScan();
+  document.removeEventListener("keydown", _wbFbsKizRuLayoutSwallowKeys, true);
+  setModalVisibility("wbFbsKizRuLayoutModal", false);
   setModalVisibility("wbFbsPickScanPrompt", false);
   setModalVisibility("wbFbsPickVerifyModal", false);
   wbFbsPickState.rows = [];
@@ -24928,9 +24936,15 @@ function _wbFbsPickFindBySticker(scan) {
 function onWbFbsPickStickerScanKey(event) {
   if (!event || event.key !== "Enter") return;
   event.preventDefault();
+  if (_wbFbsKizRuLayoutModalOpen()) return;
   const input = event.target;
   const rawTyped = String(input?.value || "").replace(/\s+/g, "").trim();
   if (!rawTyped) return;
+  // Cyrillic first — before sticker↔order match (same as Маркировка).
+  if (_wbFbsKizHasCyrillic(rawTyped)) {
+    _wbFbsKizBlockRuLayout(input);
+    return;
+  }
   const scan = _wbFbsKizNormalizeScan(rawTyped);
   if (!scan) return;
   const found = _wbFbsPickFindBySticker(scan);
@@ -24990,16 +25004,22 @@ window.cancelWbFbsPickSkuScan = cancelWbFbsPickSkuScan;
 function onWbFbsPickSkuScanKey(event) {
   if (!event || event.key !== "Enter") return;
   event.preventDefault();
+  if (_wbFbsKizRuLayoutModalOpen()) return;
   const oid = Number(wbFbsPickState.pendingOrderId);
   const input = event.target;
-  const raw = String(input?.value || "");
-  if (!oid || !String(raw || "").replace(/\s+/g, "")) return;
+  const rawTyped = String(input?.value || "");
+  if (!oid || !String(rawTyped || "").replace(/\s+/g, "")) return;
+  // Cyrillic first — same guard as Маркировка mark-scan.
+  if (_wbFbsKizHasCyrillic(rawTyped)) {
+    _wbFbsKizBlockRuLayout(input);
+    return;
+  }
   const row = wbFbsPickState.rows.find((r) => Number(r.order_id) === oid);
   if (!row) {
     cancelWbFbsPickSkuScan();
     return;
   }
-  const check = _wbFbsPickValidateEanForOrder(raw, row);
+  const check = _wbFbsPickValidateEanForOrder(rawTyped, row);
   if (!check.ok) {
     wbFbsPickState.errors[oid] = check.error || "ШК не подходит";
     _wbFbsPickSetInfo(check.error || "ШК не подходит к товару в заказе");
