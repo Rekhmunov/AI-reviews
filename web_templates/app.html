@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=222" />
+  <link rel="stylesheet" href="/static/style.css?v=223" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1827,6 +1827,7 @@
                   <button type="button" class="secondary" id="wbFbsKizCircSyncStopBtn" onclick="stopWbFbsKizCirculationSync()" disabled title="Остановить текущую выгрузку">Стоп</button>
                   <button type="button" class="secondary" id="wbFbsKizCircChzBtn" onclick="runWbFbsKizCirculationChz()">Передать в ЧЗ</button>
                   <button type="button" class="secondary" id="wbFbsKizCircReconcileBtn" onclick="reconcileWbFbsKizCirculationChz()">Сверить ЧЗ</button>
+                  <button type="button" class="secondary" id="wbFbsKizCircCisStatusBtn" onclick="refreshWbFbsKizCircCisStatus()" title="Статус кода в ЧЗ (в обороте / выведен), не документа">Статус КИЗ</button>
                   <button type="button" class="secondary" onclick="refreshWbFbsKizCirculation()">Обновить</button>
                   <button type="button" class="secondary" id="wbFbsKizCircLogBtn" onclick="openWbFbsKizCircLogModal()">Лог</button>
                 </div>
@@ -1913,13 +1914,14 @@
                       <th>Статус заказа</th>
                       <th>srid</th>
                       <th>КИЗ</th>
+                      <th>Код в ЧЗ</th>
                       <th>Чек</th>
                       <th>Статус</th>
-                      <th>ЧЗ</th>
+                      <th>Документ ЧЗ</th>
                     </tr>
                   </thead>
                   <tbody id="wbFbsKizCircTbody">
-                    <tr><td colspan="10" class="wb-fbs-kiz-circ-empty">Нет данных — выберите даты и нажмите «Ежедневный вывод»</td></tr>
+                    <tr><td colspan="11" class="wb-fbs-kiz-circ-empty">Нет данных — выберите даты и нажмите «Ежедневный вывод»</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -5051,6 +5053,6 @@
       </div>
     </div>
   </div>
-  <script src="/static/app.js?v=485"></script>
+  <script src="/static/app.js?v=486"></script>
 </body>
 </html>

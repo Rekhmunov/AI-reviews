@@ -377,6 +377,19 @@ def ensure_kiz_circulation_tables(repo: ReviewRepository) -> None:
             )
         except Exception:
             pass
+        # Live CIS card from True API /cises/info (not the document status).
+        for col_sql in (
+            "ADD COLUMN IF NOT EXISTS cis_status TEXT NOT NULL DEFAULT ''",
+            "ADD COLUMN IF NOT EXISTS cis_owner_inn TEXT NOT NULL DEFAULT ''",
+            "ADD COLUMN IF NOT EXISTS cis_status_error TEXT NOT NULL DEFAULT ''",
+            "ADD COLUMN IF NOT EXISTS cis_checked_at TEXT NOT NULL DEFAULT ''",
+        ):
+            try:
+                conn.execute(
+                    f"ALTER TABLE wb_kiz_circulation_events {col_sql}"
+                )
+            except Exception:
+                pass
         conn.execute(
             repo._sql(
                 "CREATE INDEX IF NOT EXISTS idx_wb_kiz_circ_events_user_src "
@@ -3980,6 +3993,9 @@ def list_events(
     for r in rows:
         d = repo._row_to_dict(r)
         d.pop("raw_json", None)
+        cis_st = str(d.get("cis_status") or "").strip()
+        d["cis_status_label"] = cis_status_label(cis_st)
+        d["cis_status_kind"] = classify_cis_status(cis_st)
         out.append(d)
     _attach_order_ids_to_events(
         repo,
@@ -4492,6 +4508,295 @@ def reconcile_submitted_with_chz(
         "api_error_samples": api_error_samples,
         "healed": int(healed.get("healed") or 0),
         "events": sum(len(v) for v in by_doc.values()),
+    }
+
+
+# True API CIS status → short RU label for the Вывод КИЗ table.
+_CIS_STATUS_RU: dict[str, str] = {
+    "INTRODUCED": "В обороте",
+    "RETIRED": "Выведен",
+    "WITHDRAWN": "Выведен",
+    "WRITTEN_OFF": "Списан",
+    "APPLIED": "Нанесён",
+    "EMITTED": "Эмитирован",
+    "DISAGGREGATION": "Расформирован",
+    "DISAGGREGATED": "Расформирован",
+    "APPLIED_NOT_PAID": "Нанесён (не оплачен)",
+}
+
+# Buckets for CSS / filters (document status is separate).
+_CIS_STATUS_KIND_IN = frozenset({"INTRODUCED"})
+_CIS_STATUS_KIND_OUT = frozenset({"RETIRED", "WITHDRAWN", "WRITTEN_OFF"})
+_CIS_STATUS_KIND_PRE = frozenset({"EMITTED", "APPLIED", "APPLIED_NOT_PAID"})
+
+# True API /cises/info batch size (docs allow up to ~1000; keep smaller).
+CIS_INFO_CHUNK = 100
+
+
+def cis_status_label(status: str) -> str:
+    raw = str(status or "").strip()
+    if not raw:
+        return ""
+    return _CIS_STATUS_RU.get(raw.upper(), raw)
+
+
+def classify_cis_status(status: str) -> str:
+    """Map True API CIS status → kind: in_circulation / withdrawn / pre / other / unknown."""
+    s = str(status or "").strip().upper()
+    if not s:
+        return "unknown"
+    if s in _CIS_STATUS_KIND_IN:
+        return "in_circulation"
+    if s in _CIS_STATUS_KIND_OUT:
+        return "withdrawn"
+    if s in _CIS_STATUS_KIND_PRE:
+        return "pre"
+    return "other"
+
+
+def parse_cises_info_item(item: dict[str, Any] | None) -> dict[str, str]:
+    """Normalize one ``/cises/info`` row into cis / status / owner_inn / error."""
+    if not isinstance(item, dict):
+        return {"cis": "", "status": "", "owner_inn": "", "error": ""}
+    info = item.get("cisInfo") or item.get("cis_info")
+    if not isinstance(info, dict):
+        info = item if "status" in item or "cis" in item else {}
+    if not isinstance(info, dict):
+        info = {}
+    cis = str(
+        info.get("cis")
+        or info.get("requestedCis")
+        or item.get("cis")
+        or item.get("requestedCis")
+        or ""
+    ).strip()
+    status = str(info.get("status") or item.get("status") or "").strip()
+    owner = str(
+        info.get("ownerInn")
+        or info.get("owner_inn")
+        or info.get("inn")
+        or item.get("ownerInn")
+        or ""
+    ).strip()
+    err = str(
+        item.get("errorMessage")
+        or item.get("error_message")
+        or item.get("error")
+        or info.get("errorMessage")
+        or ""
+    ).strip()
+    return {
+        "cis": cis,
+        "status": status,
+        "owner_inn": owner,
+        "error": err,
+    }
+
+
+def _cis_lookup_keys(raw: str) -> list[str]:
+    """Stable match keys for short WB excise vs full True API CIS."""
+    n = _normalize_cis_for_chz(raw)
+    if not n:
+        return []
+    keys: list[str] = [n]
+    # Drop common crypto tails pasted after GS (AI 91/93 often starts mid-string).
+    for sep in ("\x1d", ";"):
+        if sep in str(raw or ""):
+            head = _normalize_cis_for_chz(str(raw).split(sep, 1)[0])
+            if head and head not in keys:
+                keys.append(head)
+    # Prefix variants: GTIN+serial without crypto (typical WB excise_short length).
+    if len(n) > 25:
+        for cut in (31, 25, 38):
+            if len(n) > cut:
+                frag = n[:cut]
+                if frag not in keys:
+                    keys.append(frag)
+    return keys
+
+
+def _index_cises_info_rows(rows: list[dict[str, Any]]) -> dict[str, dict[str, str]]:
+    indexed: dict[str, dict[str, str]] = {}
+    for item in rows:
+        parsed = parse_cises_info_item(item if isinstance(item, dict) else None)
+        for key in _cis_lookup_keys(parsed.get("cis") or ""):
+            if key and key not in indexed:
+                indexed[key] = parsed
+    return indexed
+
+
+def _match_cis_info(
+    indexed: dict[str, dict[str, str]], excise_short: str
+) -> dict[str, str] | None:
+    keys = _cis_lookup_keys(excise_short)
+    for k in keys:
+        hit = indexed.get(k)
+        if hit:
+            return hit
+    # Prefix fallback when one side is longer (full CIS vs short).
+    for k in keys:
+        for idx_key, parsed in indexed.items():
+            if idx_key.startswith(k) or k.startswith(idx_key):
+                return parsed
+    return None
+
+
+def refresh_cis_statuses(
+    repo: ReviewRepository,
+    client: ChzTrueApiClient,
+    *,
+    user_id: int,
+    source_id: int,
+    event_keys: list[str] | None = None,
+    product_group: str = "",
+    limit: int = 2000,
+) -> dict[str, Any]:
+    """Call True API ``/cises/info`` and store CIS status on circulation events.
+
+    This is the **code** status (в обороте / выведен), not the LK_RECEIPT document
+    status shown in the «ЧЗ» column.
+    """
+    ensure_kiz_circulation_tables(repo)
+    wanted = [
+        str(k).strip()
+        for k in (event_keys or [])
+        if str(k or "").strip()
+    ]
+    lim = max(1, min(int(limit or 2000), 5000))
+    with repo._connect() as conn:
+        if wanted:
+            ph = ", ".join("?" for _ in wanted)
+            rows = conn.execute(
+                repo._sql(
+                    f"""
+                    SELECT id, event_key, excise_short, cis_status, cis_owner_inn,
+                           cis_status_error, cis_checked_at
+                    FROM wb_kiz_circulation_events
+                    WHERE user_id = ? AND source_id = ?
+                      AND event_key IN ({ph})
+                    ORDER BY id ASC
+                    LIMIT ?
+                    """
+                ),
+                (user_id, source_id, *wanted, lim),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                repo._sql(
+                    """
+                    SELECT id, event_key, excise_short, cis_status, cis_owner_inn,
+                           cis_status_error, cis_checked_at
+                    FROM wb_kiz_circulation_events
+                    WHERE user_id = ? AND source_id = ?
+                      AND COALESCE(excise_short, '') <> ''
+                    ORDER BY updated_at DESC NULLS LAST, id DESC
+                    LIMIT ?
+                    """
+                ),
+                (user_id, source_id, lim),
+            ).fetchall()
+    events = [repo._row_to_dict(r) for r in rows]
+    if not events:
+        return {
+            "ok": True,
+            "requested": 0,
+            "updated": 0,
+            "found": 0,
+            "missing": 0,
+            "errors": 0,
+            "chunks": 0,
+        }
+
+    # Unique CIS values for the API (preserve first event per code).
+    codes: list[str] = []
+    seen_codes: set[str] = set()
+    for ev in events:
+        cis = _normalize_cis_for_chz(str(ev.get("excise_short") or ""))
+        if not cis or cis in seen_codes:
+            continue
+        seen_codes.add(cis)
+        codes.append(cis)
+
+    pg = str(product_group or "").strip()
+    if not pg:
+        settings = get_chz_settings(repo, user_id=user_id)
+        pg = str(settings.get("product_group") or "").strip()
+
+    indexed: dict[str, dict[str, str]] = {}
+    api_errors = 0
+    api_error_samples: list[str] = []
+    chunks = 0
+    for part in _chunked(codes, CIS_INFO_CHUNK):
+        chunks += 1
+        try:
+            rows_api = client.cises_info(part, product_group=pg)
+            indexed.update(_index_cises_info_rows(rows_api))
+        except Exception as exc:
+            api_errors += 1
+            sample = str(exc)[:240]
+            if len(api_error_samples) < 3:
+                api_error_samples.append(sample)
+            logger.warning("CHZ cises/info chunk failed: %s", exc)
+
+    now = datetime.now(timezone.utc).isoformat()
+    updated = 0
+    found = 0
+    missing = 0
+    err_n = 0
+    with repo._connect() as conn:
+        for ev in events:
+            key = str(ev.get("event_key") or "").strip()
+            excise = str(ev.get("excise_short") or "").strip()
+            if not key or not excise:
+                continue
+            hit = _match_cis_info(indexed, excise)
+            if hit is None:
+                missing += 1
+                status = ""
+                owner = ""
+                err = "нет в ответе ЧЗ" if not api_errors else "ошибка запроса ЧЗ"
+                err_n += 1
+            else:
+                status = str(hit.get("status") or "").strip()
+                owner = str(hit.get("owner_inn") or "").strip()
+                err = str(hit.get("error") or "").strip()
+                if status:
+                    found += 1
+                if err and not status:
+                    err_n += 1
+            conn.execute(
+                repo._sql(
+                    """
+                    UPDATE wb_kiz_circulation_events
+                    SET cis_status = ?, cis_owner_inn = ?, cis_status_error = ?,
+                        cis_checked_at = ?, updated_at = ?
+                    WHERE user_id = ? AND source_id = ? AND event_key = ?
+                    """
+                ),
+                (
+                    status,
+                    owner,
+                    err[:500],
+                    now,
+                    now,
+                    user_id,
+                    source_id,
+                    key,
+                ),
+            )
+            updated += 1
+
+    return {
+        "ok": True,
+        "requested": len(events),
+        "codes": len(codes),
+        "updated": updated,
+        "found": found,
+        "missing": missing,
+        "errors": err_n,
+        "api_errors": api_errors,
+        "api_error_samples": api_error_samples,
+        "chunks": chunks,
     }
 
 
@@ -5315,6 +5620,10 @@ __all__ = [
     "sync_excise_report",
     "heal_submitted_terminal_statuses",
     "reconcile_submitted_with_chz",
+    "refresh_cis_statuses",
+    "cis_status_label",
+    "classify_cis_status",
+    "parse_cises_info_item",
     "prepare_chz_batches",
     "mark_events_submitted",
     "mark_events_accepted",

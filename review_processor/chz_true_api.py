@@ -241,12 +241,27 @@ class ChzTrueApiClient:
         )
         return data if isinstance(data, dict) else {"raw": data}
 
-    def cises_info(self, codes: list[str]) -> list[dict[str, Any]]:
+    def cises_info(
+        self,
+        codes: list[str],
+        *,
+        product_group: str = "",
+    ) -> list[dict[str, Any]]:
+        """Public CIS card(s): status INTRODUCED / RETIRED / … (needs Bearer token).
+
+        Body is a JSON array of CIS strings (True API). Optional ``pg`` selects
+        the product group when the participant works with several groups.
+        """
         cleaned = [str(c or "").strip() for c in codes if str(c or "").strip()]
         if not cleaned:
             return []
-        # True API accepts list of CIS in body for /cises/info (versions vary).
-        data = self._request("POST", "/cises/info", body=cleaned, auth=True)
+        params: dict[str, object] | None = None
+        pg = str(product_group or "").strip()
+        if pg:
+            params = {"pg": pg}
+        data = self._request(
+            "POST", "/cises/info", params=params, body=cleaned, auth=True
+        )
         if isinstance(data, list):
             return [x for x in data if isinstance(x, dict)]
         if isinstance(data, dict):

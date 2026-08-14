@@ -10928,6 +10928,28 @@ button.wb-fbs-kiz-add:disabled {
 .wb-fbs-kiz-circ-st-accepted { background: #ecfdf5; color: #047857; }
 .wb-fbs-kiz-circ-st-error { background: #fef2f2; color: #b91c1c; }
 .wb-fbs-kiz-circ-st-skipped { background: #f8fafc; color: #64748b; }
+
+.wb-fbs-kiz-circ-cis-st {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+.wb-fbs-kiz-circ-cis-st.is-in_circulation { background: #ecfdf5; color: #047857; }
+.wb-fbs-kiz-circ-cis-st.is-withdrawn { background: #f1f5f9; color: #334155; }
+.wb-fbs-kiz-circ-cis-st.is-pre { background: #fff7ed; color: #c2410c; }
+.wb-fbs-kiz-circ-cis-st.is-other { background: #eff6ff; color: #1d4ed8; }
+.wb-fbs-kiz-circ-cis-st.is-unknown { background: #f8fafc; color: #94a3b8; }
+.wb-fbs-kiz-circ-cis-err {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #b91c1c;
+  max-width: 160px;
+  white-space: normal;
+}
 .wb-fbs-kiz-circ-row-err {
   margin-top: 4px;
   font-size: 13px;

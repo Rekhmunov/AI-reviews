@@ -573,6 +573,12 @@ class WbKizChzReconcileRequest(BaseModel):
     token: str = ""
 
 
+class WbKizChzCisStatusRequest(BaseModel):
+    source_id: int
+    token: str = ""
+    event_keys: list[str] = Field(default_factory=list)
+
+
 class WbKizChzPrepareRequest(BaseModel):
     source_id: int = 0
     event_keys: list[str] = Field(default_factory=list)
@@ -10400,6 +10406,49 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"ok": True, "healed": healed, **recon}
+
+    @app.post("/api/wb-fbs/kiz-circulation/chz/cis-status")
+    def wb_fbs_kiz_circulation_chz_cis_status(
+        request: Request, payload: WbKizChzCisStatusRequest
+    ) -> dict[str, object]:
+        """Refresh True API CIS card status (в обороте / выведен) for table rows."""
+        from . import wb_kiz_circulation as kiz_circ
+
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        _require_wb_fbs_kiz_owner(user)
+        owner_id = _supply_owner_id(user)
+        sid = int(payload.source_id or 0)
+        if sid <= 0:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        _ = _wb_fbs_source_key(owner_id, sid)
+        token = str(payload.token or "").strip()
+        if not token:
+            raise HTTPException(
+                status_code=400,
+                detail="Нужен токен ЧЗ (подпишите УКЭП)",
+            )
+        settings = kiz_circ.get_chz_settings(repository, user_id=owner_id)
+        client = kiz_circ.chz_client_from_settings(settings)
+        client.set_token(token)
+        keys = [
+            str(k).strip()
+            for k in (payload.event_keys or [])
+            if str(k or "").strip()
+        ]
+        try:
+            out = kiz_circ.refresh_cis_statuses(
+                repository,
+                client,
+                user_id=owner_id,
+                source_id=sid,
+                event_keys=keys or None,
+                product_group=str(settings.get("product_group") or ""),
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"ok": True, **out}
 
     @app.post("/api/wb-fbs/kiz-circulation/sync")
     def wb_fbs_kiz_circulation_sync(
