@@ -10570,12 +10570,6 @@ button.wb-fbs-kiz-add:disabled {
   line-height: 1.25;
   color: #0f172a;
 }
-.wb-fbs-kiz-circ-subtitle {
-  margin: 4px 0 0;
-  font-size: 14px;
-  line-height: 1.4;
-  color: #64748b;
-}
 .wb-fbs-kiz-circ-actions {
   display: flex;
   flex-wrap: wrap;
