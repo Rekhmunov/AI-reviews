@@ -16908,50 +16908,35 @@ function _wbFbsKizCircFilteredItems() {
   });
 }
 
-/** Rows that can still be prepared/submitted to ЧЗ. */
+/** Rows that can still be prepared/submitted to ЧЗ.
+
+  Marketplace sold/cancel gates are enforced on the server during prepare —
+  not here. Otherwise rows without hydrated order status become unselectable.
+*/
 function _wbFbsKizCircIsSelectable(ev) {
   const st = String(ev?.status || "").trim();
   if (!st || st === "accepted") return false;
-  let ok = false;
-  if (st === "pending" || st === "ready" || st === "error") ok = true;
-  else if (st === "skipped") {
+  if (st === "pending" || st === "ready" || st === "error") return true;
+  if (st === "skipped") {
     const reason = String(ev?.skip_reason || "");
-    ok = reason === "no_fiscal" || reason.startsWith("no_fiscal:");
-  } else if (st === "submitted") {
+    return reason === "no_fiscal" || reason.startsWith("no_fiscal:");
+  }
+  if (st === "submitted") {
     const docId = String(ev?.chz_doc_id || "").trim();
-    if (!docId) ok = true;
-    else {
-      const chz = String(ev?.chz_status || "").trim().toUpperCase();
-      ok = [
-        "CHECKED_NOT_OK",
-        "REJECTED",
-        "ERROR",
-        "FAILED",
-        "CANCELLED",
-        "CANCELED",
-      ].includes(chz);
-    }
+    if (!docId) return true;
+    const chz = String(ev?.chz_status || "").trim().toUpperCase();
+    return [
+      "CHECKED_NOT_OK",
+      "REJECTED",
+      "ERROR",
+      "FAILED",
+      "CANCELLED",
+      "CANCELED",
+      "NOT_ACCEPTED",
+      "PARSE_ERROR",
+    ].includes(chz);
   }
-  if (!ok) return false;
-  // Вывод (op=1): только выкупленные. Возврат (op=2): только отказные.
-  const op = Number(ev?.operation_type || 0);
-  if (op === 1) {
-    const ws = String(ev?.order_wb_status || "").trim().toLowerCase();
-    if (ws !== "sold") return false;
-  } else if (op === 2) {
-    const ws = String(ev?.order_wb_status || "").trim().toLowerCase();
-    const ss = String(ev?.order_supplier_status || "").trim().toLowerCase();
-    const cancelledWs = [
-      "canceled",
-      "canceled_by_client",
-      "declined_by_client",
-      "defect",
-      "canceled_by_carrier",
-    ].includes(ws);
-    const cancelledSs = ss === "cancel" || ss === "cancel_carrier";
-    if (!cancelledWs && !cancelledSs) return false;
-  }
-  return true;
+  return false;
 }
 
 function _wbFbsKizCircPruneSelection() {
@@ -17043,7 +17028,6 @@ function _wbFbsKizCircRenderTable() {
       const opNum = Number(ev.operation_type || 0);
       const wsLower = String(ev.order_wb_status || "").trim().toLowerCase();
       const ssLower = String(ev.order_supplier_status || "").trim().toLowerCase();
-      const notSoldWithdraw = opNum === 1 && wsLower !== "sold";
       const cancelledReturn = [
         "canceled",
         "canceled_by_client",
@@ -17051,12 +17035,14 @@ function _wbFbsKizCircRenderTable() {
         "defect",
         "canceled_by_carrier",
       ].includes(wsLower) || ssLower === "cancel" || ssLower === "cancel_carrier";
-      const notCancelledReturn = opNum === 2 && !cancelledReturn;
-      const disabledTitle = notSoldWithdraw
-        ? "Вывод только для выкупленных (wbStatus=sold)"
-        : notCancelledReturn
-          ? "Возврат только для отказных / отменённых"
-          : "Уже принято / нельзя передать";
+      let disabledTitle = "Уже принято / нельзя передать";
+      if (!selectable && opNum === 1 && wsLower && wsLower !== "sold") {
+        disabledTitle = "На prepare уйдёт только выкупленный (sold) — сейчас другой статус";
+      } else if (!selectable && opNum === 2 && wsLower && !cancelledReturn) {
+        disabledTitle = "На prepare уйдёт только отказной заказ";
+      } else if (!selectable && String(ev.status || "") === "submitted") {
+        disabledTitle = "Отправлено в ЧЗ — нажмите «Обновить» для сверки статуса";
+      }
       const kiz = String(ev.excise_short || "");
       const kizShort = kiz.length > 28 ? `${kiz.slice(0, 14)}…${kiz.slice(-10)}` : kiz;
       const errRaw = ev.error_text || ev.skip_reason || "";
@@ -17255,6 +17241,12 @@ async function refreshWbFbsKizCirculation() {
     _wbFbsKizCircPruneSelection();
     _wbFbsKizCircReadFilterControls();
     _wbFbsKizCircRenderTable();
+    const healed = Number(eventsPayload.healed || 0);
+    if (healed > 0) {
+      _wbFbsKizCircAppendLog(
+        `Обновлены статусы из ЧЗ (локально): ${healed} — были «отправлен», стали ошибка/принят`,
+      );
+    }
     if (!wbFbsKizCircState.items.length) {
       const total = Object.values(overview.counts || {}).reduce(
         (a, b) => a + Number(b || 0),
@@ -17268,6 +17260,37 @@ async function refreshWbFbsKizCirculation() {
     }
   } catch (err) {
     _wbFbsKizCircAppendLog(`Ошибка обновления: ${err?.message || err}`);
+  }
+}
+
+/** Poll True API for submitted docs (needs УКЭП). */
+async function reconcileWbFbsKizCirculationChz() {
+  const sid = _wbFbsKizCircSourceId();
+  if (!sid || wbFbsKizCircState.busy) return;
+  const btn = document.getElementById("wbFbsKizCircReconcileBtn");
+  wbFbsKizCircState.busy = true;
+  if (btn) btn.disabled = true;
+  try {
+    _wbFbsKizCircAppendLog("Сверка с ЧЗ: авторизация УКЭП…");
+    const auth = await _chzObtainToken("");
+    const res = await fetch("/api/wb-fbs/kiz-circulation/chz/reconcile", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ source_id: sid, token: auth.token }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || "Ошибка сверки ЧЗ");
+    const healedN = Number(data.healed?.healed || data.healed || 0);
+    _wbFbsKizCircAppendLog(
+      `Сверка ЧЗ: док=${data.docs_checked || 0}, принято=${data.accepted || 0}, `
+      + `ошибка=${data.failed || 0}, локально исправлено=${healedN}`,
+    );
+    await refreshWbFbsKizCirculation();
+  } catch (err) {
+    _wbFbsKizCircAppendLog(`Ошибка сверки: ${err?.message || err}`);
+  } finally {
+    wbFbsKizCircState.busy = false;
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -17519,6 +17542,7 @@ window.testSupplyChzSettings = testSupplyChzSettings;
 window.openWbFbsKizCirculationModal = openWbFbsKizCirculationModal;
 window.closeWbFbsKizCirculationModal = closeWbFbsKizCirculationModal;
 window.refreshWbFbsKizCirculation = refreshWbFbsKizCirculation;
+window.reconcileWbFbsKizCirculationChz = reconcileWbFbsKizCirculationChz;
 window.runWbFbsKizCirculationSync = runWbFbsKizCirculationSync;
 window.runWbFbsKizCirculationChz = runWbFbsKizCirculationChz;
 window.toggleWbFbsKizCircRow = toggleWbFbsKizCircRow;

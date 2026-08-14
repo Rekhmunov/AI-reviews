@@ -1834,6 +1834,75 @@ def order_ids_by_srids(
     return out
 
 
+def refresh_order_statuses_light(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    order_ids: list[int],
+    api_key: str,
+) -> int:
+    """Refresh Marketplace wbStatus/supplierStatus for known order ids only.
+
+    Used by Вывод КИЗ list — no archive download, so it stays fast.
+    """
+    ids = sorted({int(x) for x in (order_ids or []) if int(x or 0) > 0})
+    if not ids or not str(api_key or "").strip():
+        return 0
+    client = WbFbsClient(str(api_key).strip())
+    updated = 0
+    for i in range(0, len(ids), 1000):
+        chunk = ids[i : i + 1000]
+        statuses = client.get_statuses(chunk)
+        by_id: dict[int, dict[str, Any]] = {}
+        for st in statuses or []:
+            try:
+                oid = int(st.get("id") or st.get("orderId") or 0)
+            except (TypeError, ValueError):
+                oid = 0
+            if oid > 0:
+                by_id[oid] = st
+        with repo._connect() as conn:
+            for oid in chunk:
+                st = by_id.get(oid) or {}
+                ss = str(st.get("supplierStatus") or "").strip()
+                ws = str(st.get("wbStatus") or "").strip()
+                if not ss and not ws:
+                    continue
+                tab = compute_tab(
+                    supplier_status=ss,
+                    wb_status=ws,
+                    is_archive=False,
+                )
+                conn.execute(
+                    repo._sql(
+                        """
+                        UPDATE wb_fbs_orders
+                        SET supplier_status = CASE WHEN ? <> '' THEN ? ELSE supplier_status END,
+                            wb_status = CASE WHEN ? <> '' THEN ? ELSE wb_status END,
+                            tab = ?,
+                            is_archive = CASE WHEN lower(?) = 'sold' THEN TRUE ELSE is_archive END,
+                            synced_at = ?
+                        WHERE user_id = ? AND source_id = ? AND order_id = ?
+                        """
+                    ),
+                    (
+                        ss,
+                        ss,
+                        ws,
+                        ws,
+                        tab,
+                        ws,
+                        _utc_now(),
+                        user_id,
+                        source_id,
+                        oid,
+                    ),
+                )
+                updated += 1
+    return updated
+
+
 def hydrate_orders_for_kiz_srids(
     repo: ReviewRepository,
     *,
@@ -1927,56 +1996,13 @@ def hydrate_orders_for_kiz_srids(
     linked_ids = sorted({int(v) for v in after.values() if int(v or 0) > 0})
     if linked_ids:
         try:
-            for i in range(0, len(linked_ids), 1000):
-                chunk = linked_ids[i : i + 1000]
-                statuses = client.get_statuses(chunk)
-                by_id = {}
-                for st in statuses or []:
-                    try:
-                        oid = int(st.get("id") or st.get("orderId") or 0)
-                    except (TypeError, ValueError):
-                        oid = 0
-                    if oid > 0:
-                        by_id[oid] = st
-                with repo._connect() as conn:
-                    for oid in chunk:
-                        st = by_id.get(oid) or {}
-                        ss = str(st.get("supplierStatus") or "").strip()
-                        ws = str(st.get("wbStatus") or "").strip()
-                        if not ss and not ws:
-                            continue
-                        # Prefer live Marketplace statuses; do not force archive tab
-                        # for cancellations (they belong in cancelled).
-                        tab = compute_tab(
-                            supplier_status=ss,
-                            wb_status=ws,
-                            is_archive=False,
-                        )
-                        conn.execute(
-                            repo._sql(
-                                """
-                                UPDATE wb_fbs_orders
-                                SET supplier_status = CASE WHEN ? <> '' THEN ? ELSE supplier_status END,
-                                    wb_status = CASE WHEN ? <> '' THEN ? ELSE wb_status END,
-                                    tab = ?,
-                                    is_archive = CASE WHEN lower(?) = 'sold' THEN TRUE ELSE is_archive END,
-                                    synced_at = ?
-                                WHERE user_id = ? AND source_id = ? AND order_id = ?
-                                """
-                            ),
-                            (
-                                ss,
-                                ss,
-                                ws,
-                                ws,
-                                tab,
-                                ws,
-                                _utc_now(),
-                                user_id,
-                                source_id,
-                                oid,
-                            ),
-                        )
+            refresh_order_statuses_light(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                order_ids=linked_ids,
+                api_key=str(api_key).strip(),
+            )
         except Exception as exc:
             _log.warning("kiz hydrate status refresh failed: %s", exc)
 

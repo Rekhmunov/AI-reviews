@@ -1336,3 +1336,22 @@ def test_related_events_index_lookup() -> None:
         )
         == []
     )
+
+
+def test_heal_submitted_terminal_statuses() -> None:
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    conn.__exit__.return_value = False
+    cur_fail = MagicMock()
+    cur_fail.rowcount = 2
+    cur_ok = MagicMock()
+    cur_ok.rowcount = 1
+    conn.execute.side_effect = [cur_fail, cur_ok]
+    repo = MagicMock()
+    repo._connect.return_value = conn
+    repo._sql.side_effect = lambda q: q
+    with patch.object(circ, "ensure_kiz_circulation_tables"):
+        out = circ.heal_submitted_terminal_statuses(repo, user_id=1, source_id=2)
+    assert out["to_error"] == 2
+    assert out["to_accepted"] == 1
+    assert out["healed"] == 3

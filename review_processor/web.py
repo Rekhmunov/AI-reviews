@@ -563,6 +563,11 @@ class WbKizChzSubmitRequest(BaseModel):
     run_id: int | None = None
 
 
+class WbKizChzReconcileRequest(BaseModel):
+    source_id: int
+    token: str = ""
+
+
 class WbKizChzPrepareRequest(BaseModel):
     source_id: int = 0
     event_keys: list[str] = Field(default_factory=list)
@@ -10314,9 +10319,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         owner_id = _supply_owner_id(user)
         if not source_id:
             raise HTTPException(status_code=400, detail="Укажите source_id")
-        # List must stay fast: join local FBS orders only.
-        # Full Marketplace hydrate (archive/sold) runs on CHZ prepare, not on every open.
-        _ = _wb_fbs_source_key(owner_id, int(source_id))
+        # List must stay fast: no archive hydrate. Heal stuck submitted statuses,
+        # join local orders, optionally refresh Marketplace statuses for linked ids.
+        api_key = _wb_fbs_source_key(owner_id, int(source_id))
+        try:
+            healed = kiz_circ.heal_submitted_terminal_statuses(
+                repository, user_id=owner_id, source_id=int(source_id)
+            )
+        except Exception:
+            healed = {"healed": 0}
         try:
             items = kiz_circ.list_events(
                 repository,
@@ -10325,14 +10336,60 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 status=str(status or ""),
                 operation_type=int(operation_type) if operation_type else None,
                 limit=int(limit or 200),
-                api_key="",
+                api_key=api_key,
                 hydrate_orders=False,
+                refresh_statuses=True,
             )
         except Exception as exc:
             raise HTTPException(
                 status_code=400, detail=f"Ошибка списка КИЗ: {exc}"
             ) from exc
-        return {"items": items, "total": len(items)}
+        return {
+            "items": items,
+            "total": len(items),
+            "healed": int((healed or {}).get("healed") or 0),
+        }
+
+    @app.post("/api/wb-fbs/kiz-circulation/chz/reconcile")
+    def wb_fbs_kiz_circulation_chz_reconcile(
+        request: Request, payload: WbKizChzReconcileRequest
+    ) -> dict[str, object]:
+        """Poll CHZ for submitted docs and refresh local statuses."""
+        from . import wb_kiz_circulation as kiz_circ
+
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        _require_wb_fbs_kiz_owner(user)
+        owner_id = _supply_owner_id(user)
+        sid = int(payload.source_id or 0)
+        if sid <= 0:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        _ = _wb_fbs_source_key(owner_id, sid)
+        token = str(payload.token or "").strip()
+        # Always heal local inconsistencies even without a CHZ token.
+        healed = kiz_circ.heal_submitted_terminal_statuses(
+            repository, user_id=owner_id, source_id=sid
+        )
+        if not token:
+            return {
+                "ok": True,
+                "healed": healed,
+                "docs_checked": 0,
+                "accepted": 0,
+                "failed": 0,
+                "token_required": True,
+            }
+        settings = kiz_circ.get_chz_settings(repository, user_id=owner_id)
+        client = kiz_circ.chz_client_from_settings(settings)
+        client.set_token(token)
+        try:
+            recon = kiz_circ.reconcile_submitted_with_chz(
+                repository, client, user_id=owner_id, source_id=sid
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"ok": True, "healed": healed, **recon}
 
     @app.post("/api/wb-fbs/kiz-circulation/sync")
     def wb_fbs_kiz_circulation_sync(

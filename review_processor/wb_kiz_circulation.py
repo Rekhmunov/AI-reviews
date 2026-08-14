@@ -2156,6 +2156,7 @@ def list_events(
     order: str = "desc",
     api_key: str = "",
     hydrate_orders: bool = False,
+    refresh_statuses: bool = False,
 ) -> list[dict[str, Any]]:
     ensure_kiz_circulation_tables(repo)
     lim = max(1, min(int(limit or 200), 5000))
@@ -2193,6 +2194,7 @@ def list_events(
         events=out,
         api_key=api_key,
         hydrate=bool(hydrate_orders and api_key),
+        refresh_statuses=bool(refresh_statuses and api_key),
     )
     return out
 
@@ -2205,6 +2207,7 @@ def _attach_order_ids_to_events(
     events: list[dict[str, Any]],
     api_key: str = "",
     hydrate: bool = False,
+    refresh_statuses: bool = False,
 ) -> None:
     """Attach numeric FBS ``order_id`` + Marketplace status via srid/rid join."""
     if not events:
@@ -2254,6 +2257,20 @@ def _attach_order_ids_to_events(
         ev["order_wb_status"] = ""
         ev["order_supplier_status"] = ""
         ev["order_cancel_reason"] = ""
+
+    # Fast path: refresh Marketplace statuses for already-linked orders only
+    # (no archive download — safe for list/events).
+    if refresh_statuses and api_key and order_ids:
+        try:
+            wb_fbs_mod.refresh_order_statuses_light(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                order_ids=order_ids,
+                api_key=api_key,
+            )
+        except Exception as exc:
+            logger.warning("refresh_order_statuses_light failed: %s", exc)
 
     status_map = wb_fbs_mod.load_order_status_map(
         repo, user_id=user_id, source_id=source_id, order_ids=order_ids
@@ -2584,12 +2601,16 @@ def reconcile_submitted_with_chz(
 ) -> dict[str, int]:
     """Poll CHZ for in-flight submitted docs and update local statuses."""
     ensure_kiz_circulation_tables(repo)
+    # First heal rows where chz_status is already terminal but local status lagged.
+    healed = heal_submitted_terminal_statuses(
+        repo, user_id=user_id, source_id=source_id
+    )
     lim = max(1, min(int(limit or 500), 2000))
     with repo._connect() as conn:
         rows = conn.execute(
             repo._sql(
                 """
-                SELECT event_key, chz_doc_id, chz_status
+                SELECT event_key, chz_doc_id, chz_status, status
                 FROM wb_kiz_circulation_events
                 WHERE user_id = ? AND source_id = ?
                   AND status = ?
@@ -2607,9 +2628,28 @@ def reconcile_submitted_with_chz(
         key = str(d.get("event_key") or "").strip()
         if not doc_id or not key:
             continue
-        # Skip already-classified terminal failures (handled by prepare retry).
         st = str(d.get("chz_status") or "").strip().upper()
-        if st in CHZ_STATUS_FAILED or st in CHZ_STATUS_SUCCESS:
+        # Already know terminal outcome locally — apply without another CHZ call.
+        if st in CHZ_STATUS_FAILED:
+            apply_chz_doc_status(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                event_keys=[key],
+                chz_doc_id=doc_id,
+                chz_status=st,
+                error_text=str(d.get("error_text") or "") or f"ЧЗ: {st}",
+            )
+            continue
+        if st in CHZ_STATUS_SUCCESS:
+            apply_chz_doc_status(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                event_keys=[key],
+                chz_doc_id=doc_id,
+                chz_status=st,
+            )
             continue
         by_doc.setdefault(doc_id, []).append(key)
 
@@ -2645,7 +2685,78 @@ def reconcile_submitted_with_chz(
         "docs_checked": checked,
         "accepted": accepted,
         "failed": failed,
+        "healed": int(healed.get("healed") or 0),
         "events": sum(len(v) for v in by_doc.values()),
+    }
+
+
+def heal_submitted_terminal_statuses(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+) -> dict[str, int]:
+    """Flip submitted → error/accepted when chz_status already terminal.
+
+    Fixes rows stuck on «отправлен» after CHZ already returned CHECKED_NOT_OK
+    (or success) but local status was never updated — e.g. refresh without token.
+    """
+    ensure_kiz_circulation_tables(repo)
+    fail_list = sorted(CHZ_STATUS_FAILED)
+    ok_list = sorted(CHZ_STATUS_SUCCESS)
+    if not fail_list and not ok_list:
+        return {"healed": 0, "to_error": 0, "to_accepted": 0}
+    now = datetime.now(timezone.utc).isoformat()
+    to_error = 0
+    to_accepted = 0
+    with repo._connect() as conn:
+        if fail_list:
+            ph = ", ".join(["?"] * len(fail_list))
+            cur = conn.execute(
+                repo._sql(
+                    f"""
+                    UPDATE wb_kiz_circulation_events
+                    SET status = ?,
+                        error_text = CASE
+                          WHEN COALESCE(error_text, '') = ''
+                            THEN 'ЧЗ: ' || COALESCE(chz_status, 'ERROR')
+                          ELSE error_text
+                        END,
+                        updated_at = ?
+                    WHERE user_id = ? AND source_id = ?
+                      AND status = ?
+                      AND UPPER(COALESCE(chz_status, '')) IN ({ph})
+                    """
+                ),
+                (STATUS_ERROR, now, user_id, source_id, STATUS_SUBMITTED, *fail_list),
+            )
+            to_error = int(getattr(cur, "rowcount", 0) or 0)
+        if ok_list:
+            ph = ", ".join(["?"] * len(ok_list))
+            cur = conn.execute(
+                repo._sql(
+                    f"""
+                    UPDATE wb_kiz_circulation_events
+                    SET status = ?, raw_json = '{{}}', updated_at = ?
+                    WHERE user_id = ? AND source_id = ?
+                      AND status = ?
+                      AND UPPER(COALESCE(chz_status, '')) IN ({ph})
+                    """
+                ),
+                (
+                    STATUS_ACCEPTED,
+                    now,
+                    user_id,
+                    source_id,
+                    STATUS_SUBMITTED,
+                    *ok_list,
+                ),
+            )
+            to_accepted = int(getattr(cur, "rowcount", 0) or 0)
+    return {
+        "healed": to_error + to_accepted,
+        "to_error": to_error,
+        "to_accepted": to_accepted,
     }
 
 
@@ -3351,6 +3462,8 @@ __all__ = [
     "resolve_excise_period",
     "create_excise_sync_run",
     "sync_excise_report",
+    "heal_submitted_terminal_statuses",
+    "reconcile_submitted_with_chz",
     "prepare_chz_batches",
     "mark_events_submitted",
     "mark_events_accepted",
