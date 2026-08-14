@@ -4653,16 +4653,119 @@ def _price_for_chz(ev: dict[str, Any]) -> int | None:
 
 
 def _normalize_cis_for_chz(raw: str) -> str:
-    """Strip GS1 separators / control chars from a Data Matrix CIS string."""
-    s = str(raw or "").strip()
+    """Canonical short CIS (no crypto) for matching / dedup.
+
+    Crypto tails and GS are stripped so the same mark matches whether WB sent
+    a short sgtin or a full Data Matrix string.
+    """
+    unit, _, _, _ = _split_cis_unit_crypto(raw)
+    if unit:
+        return unit
+    s = _clean_cis_raw(raw)
+    s = s.replace(_GS, "")
+    return s.strip()
+
+
+_GS = "\x1d"
+# AI 91 (4-char key) + AI 92 (crypto tail). Lengths vary by product group.
+_CIS_CRYPTO_91_92_RE = re.compile(
+    r"91([0-9A-Za-z+/]{4})(?:\x1d)?92([0-9A-Za-z+/=]{20,120})"
+)
+_CIS_CRYPTO_93_RE = re.compile(r"93([0-9A-Za-z+/=]{4,88})")
+
+
+def _clean_cis_raw(raw: str) -> str:
+    """Remove CSV/quote junk and unify GS separators before parsing."""
+    s = str(raw or "")
     if not s:
         return ""
-    # FNC1 / group separators often appear as \\x1d or are pasted as commas.
-    s = s.replace("\x1d", "").replace("\x1e", "").replace("\x1f", "").replace("\x1c", "")
-    s = s.replace("\u001d", "").replace("\u001e", "")
-    # Keep printable ASCII only (CIS alphabet).
-    s = "".join(ch for ch in s if 32 <= ord(ch) <= 126)
-    return s.strip()
+    # Do not use str.strip() — it treats \\x1d as whitespace.
+    s = s.strip(" \t\r\n")
+    for sep in ("\u001d", "\x1e", "\x1f", "\x1c", "\u001e"):
+        s = s.replace(sep, _GS)
+    # Quotes often appear when codes were pasted through Excel/CSV.
+    s = s.replace('"', "").replace("'", "")
+    # Corrupted GS before crypto: ",i" / comma / semicolon (user error sample).
+    s = re.sub(r"[,;]+(?=91|92|93)", _GS, s)
+    s = re.sub(r"[^\x1d\x21-\x7e]", "", s)
+    # Trailing period after base64 ``=`` (``…Oo=.``) breaks True API length checks.
+    if s.endswith("=."):
+        s = s[:-1]
+    s = s.rstrip(".,;")
+    return s
+
+
+def _split_cis_unit_crypto(raw: str) -> tuple[str, str, str, str]:
+    """Parse CIS → (short_unit, ai91_key, ai92_crypto, ai93).
+
+    ``short_unit`` is ``01``+GTIN14+``21``+serial (no crypto). Empty parts when
+    missing. Tolerates missing GS between unit and ``91``/``92``.
+    """
+    s = _clean_cis_raw(raw)
+    if not s:
+        return "", "", "", ""
+
+    key91 = ""
+    crypto92 = ""
+    crypto93 = ""
+    head = s
+
+    m92 = _CIS_CRYPTO_91_92_RE.search(s)
+    if m92:
+        key91 = m92.group(1)
+        crypto92 = m92.group(2).rstrip(".")
+        head = s[: m92.start()]
+    else:
+        m93 = _CIS_CRYPTO_93_RE.search(s)
+        if m93:
+            crypto93 = m93.group(1).rstrip(".")
+            head = s[: m93.start()]
+
+    head = head.rstrip(_GS + ".,;")
+    # Require classic unit prefix; otherwise keep cleaned head as best-effort.
+    if not (head.startswith("01") and len(head) >= 18 and head[16:18] == "21"):
+        unit = "".join(ch for ch in head if ch != _GS)
+        return unit, key91, crypto92, crypto93
+
+    prefix = head[:18]
+    serial_raw = head[18:]
+    # Serial is alphanumeric; drop trailing junk left after bad separators.
+    serial_m = re.match(r"[0-9A-Za-z]+", serial_raw)
+    serial = serial_m.group(0) if serial_m else ""
+    if not serial:
+        unit = "".join(ch for ch in head if ch != _GS)
+        return unit, key91, crypto92, crypto93
+    return prefix + serial, key91, crypto92, crypto93
+
+
+def _format_cis_for_chz_document(raw: str) -> str:
+    """CIS string for True API document ``products[].cis``.
+
+    Rebuilds a well-formed code with GS before AI 91/92 when the crypto tail is
+    recoverable. Falls back to the short unit code when crypto is missing or
+    corrupted — never sends quotes/commas/trailing dots (ЧЗ: «недопустимое
+    количество символов»).
+    """
+    unit, key91, crypto92, crypto93 = _split_cis_unit_crypto(raw)
+    if not unit:
+        return ""
+    if key91 and crypto92 and 20 <= len(crypto92) <= 88:
+        return f"{unit}{_GS}91{key91}{_GS}92{crypto92}"
+    if crypto93 and 4 <= len(crypto93) <= 88:
+        return f"{unit}{_GS}93{crypto93}"
+    return unit
+
+
+def _chz_product_from_event(ev: dict[str, Any]) -> dict[str, Any] | None:
+    """Build True API product row with sanitized CIS; None if code unusable."""
+    cis = _format_cis_for_chz_document(str(ev.get("excise_short") or ""))
+    if not cis:
+        return None
+    product: dict[str, Any] = {"cis": cis}
+    cost = _price_for_chz(ev)
+    if cost is not None:
+        product["product_cost"] = cost
+    return product
 
 
 def _chunked(items: list[Any], size: int) -> list[list[Any]]:
@@ -4917,15 +5020,20 @@ def prepare_chz_batches(
         )
 
     documents: list[dict[str, Any]] = []
+    bad_cis_n = 0
     for (fiscal_no, fiscal_dt), group in withdraw_groups.items():
         for part_idx, part in enumerate(_chunked(group, CHZ_PRODUCTS_PER_DOC), start=1):
             products = []
+            keys_ok: list[str] = []
             for ev in part:
-                product: dict[str, Any] = {"cis": ev["excise_short"]}
-                cost = _price_for_chz(ev)
-                if cost is not None:
-                    product["product_cost"] = cost
+                product = _chz_product_from_event(ev)
+                if not product:
+                    bad_cis_n += 1
+                    continue
                 products.append(product)
+                keys_ok.append(str(ev.get("event_key") or ""))
+            if not products:
+                continue
             doc_body = build_lk_receipt_document(
                 inn=inn,
                 document_number=fiscal_no,
@@ -4940,7 +5048,7 @@ def prepare_chz_batches(
                     "doc_type": "LK_RECEIPT",
                     "product_group": pg,
                     "title": f"Вывод · чек {fiscal_no} · {fiscal_dt}{suffix}",
-                    "event_keys": [e["event_key"] for e in part],
+                    "event_keys": [k for k in keys_ok if k],
                     "product_document": doc_body,
                     "sign_payload_b64": _b64_json(doc_body),
                 }
@@ -4949,12 +5057,16 @@ def prepare_chz_batches(
     for doc_date, group in withdraw_other_groups.items():
         for part_idx, part in enumerate(_chunked(group, CHZ_PRODUCTS_PER_DOC), start=1):
             products = []
+            keys_ok: list[str] = []
             for ev in part:
-                product: dict[str, Any] = {"cis": ev["excise_short"]}
-                cost = _price_for_chz(ev)
-                if cost is not None:
-                    product["product_cost"] = cost
+                product = _chz_product_from_event(ev)
+                if not product:
+                    bad_cis_n += 1
+                    continue
                 products.append(product)
+                keys_ok.append(str(ev.get("event_key") or ""))
+            if not products:
+                continue
             doc_number = f"WB-NOFISCAL-{doc_date}"
             if len(group) > CHZ_PRODUCTS_PER_DOC:
                 doc_number = f"{doc_number}-{part_idx}"
@@ -4976,7 +5088,7 @@ def prepare_chz_batches(
                     "title": (
                         f"Вывод · без чека (OTHER) · {doc_date}{suffix}"
                     ),
-                    "event_keys": [e["event_key"] for e in part],
+                    "event_keys": [k for k in keys_ok if k],
                     "product_document": doc_body,
                     "sign_payload_b64": _b64_json(doc_body),
                 }
@@ -4987,7 +5099,17 @@ def prepare_chz_batches(
     ):
         if not part:
             continue
-        products = [{"cis": e["excise_short"]} for e in part]
+        products = []
+        keys_ok: list[str] = []
+        for e in part:
+            product = _chz_product_from_event(e)
+            if not product:
+                bad_cis_n += 1
+                continue
+            products.append({"cis": product["cis"]})
+            keys_ok.append(str(e.get("event_key") or ""))
+        if not products:
+            continue
         doc_body = build_lp_return_document(
             inn=inn,
             return_type=str(settings.get("return_type") or "REMOTE_SALE_RETURN"),
@@ -4998,11 +5120,16 @@ def prepare_chz_batches(
             {
                 "doc_type": "LP_RETURN",
                 "product_group": pg,
-                "title": f"Возврат в оборот · {len(part)} КИЗ{suffix}",
-                "event_keys": [e["event_key"] for e in part],
+                "title": f"Возврат в оборот · {len(products)} КИЗ{suffix}",
+                "event_keys": [k for k in keys_ok if k],
                 "product_document": doc_body,
                 "sign_payload_b64": _b64_json(doc_body),
             }
+        )
+
+    if bad_cis_n:
+        warnings.append(
+            f"Пропущено КИЗ с битым кодом (кавычки/хвост): {bad_cis_n}"
         )
 
     doc_cap = max(1, int(CHZ_DOCUMENTS_PER_PREPARE))

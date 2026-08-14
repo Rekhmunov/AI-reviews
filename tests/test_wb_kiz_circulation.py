@@ -440,8 +440,34 @@ def test_price_for_chz_skips_foreign_currency() -> None:
 
 def test_normalize_cis_for_chz_strips_gs() -> None:
     raw = "0104670172421086215yZ2V\x1drHSdGMe"
-    assert circ._normalize_cis_for_chz(raw) == "0104670172421086215yZ2VrHSdGMe"
+    # No AI 91/92 → keep short unit (serial ends at GS).
+    assert circ._normalize_cis_for_chz(raw) == "0104670172421086215yZ2V"
     assert circ._normalize_cis_for_chz("  abc  ") == "abc"
+
+
+def test_format_cis_for_chz_document_repairs_csv_junk() -> None:
+    """User error: quotes/comma before 91 and trailing period → length reject in ЧЗ."""
+    dirty = (
+        '0104670172422458215gQCPfVLRo,i"91EE1192'
+        "Iu6ItDVS0yWEXyXNZUi/O1AvwaZtASBirynzRY4pdOo=."
+    )
+    out = circ._format_cis_for_chz_document(dirty)
+    assert '"' not in out
+    assert "," not in out
+    assert not out.endswith(".")
+    assert out.startswith("0104670172422458215gQCPfVLRo")
+    assert "\x1d91EE11\x1d92" in out
+    assert out.endswith("RY4pdOo=")
+    # Short form for matching ignores crypto.
+    assert circ._normalize_cis_for_chz(dirty) == "0104670172422458215gQCPfVLRo"
+
+
+def test_format_cis_for_chz_document_keeps_clean_gs() -> None:
+    clean = (
+        "0104670172422458215gQCPfVLRo\x1d91EE11\x1d92"
+        "Iu6ItDVS0yWEXyXNZUi/O1AvwaZtASBirynzRY4pdOo="
+    )
+    assert circ._format_cis_for_chz_document(clean) == clean
 
 
 def test_extract_chz_doc_errors() -> None:
