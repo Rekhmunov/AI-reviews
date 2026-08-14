@@ -198,7 +198,7 @@ def test_save_marks_failed_to_update_meta_as_cancelled(
     )
     row = result["results"][0]
     assert row["cancelled"] is True
-    assert row["cancel_reason_label"] == "Клиент отказался"
+    assert row["cancel_reason_label"] == "Отказ на ПВЗ"
     assert "отменен" in row["error"].lower()
     mock_persist.assert_called_once()
     statuses = mock_persist.call_args.kwargs["statuses"]
@@ -212,7 +212,7 @@ def test_save_marks_failed_to_update_meta_as_cancelled(
         9: {
             "supplier_status": "confirm",
             "wb_status": "canceled_by_client",
-            "cancel_reason_label": "Клиент отказался",
+            "cancel_reason_label": "Отказ на ПВЗ",
         }
     },
 )
@@ -244,7 +244,7 @@ def test_save_skips_wb_for_known_cancelled(
         12: {
             "supplier_status": "confirm",
             "wb_status": "canceled_by_client",
-            "cancel_reason_label": "Клиент отказался",
+            "cancel_reason_label": "Отказ на ПВЗ",
         }
     },
 )

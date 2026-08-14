@@ -135,7 +135,7 @@ class LookupOrderByIdTests(unittest.TestCase):
         )
         self.assertTrue(result["found"])
         self.assertEqual(result["tab"], TAB_CANCELLED)
-        self.assertEqual(result["item"]["cancel_reason_label"], "Клиент отказался")
+        self.assertEqual(result["item"]["cancel_reason_label"], "Отказ на ПВЗ")
 
     @patch("review_processor.wb_fbs.WbFbsClient")
     @patch("review_processor.wb_fbs.ensure_wb_fbs_tables")

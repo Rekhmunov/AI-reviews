@@ -23,12 +23,13 @@ def test_canceled_by_client_stays_cancelled():
         )
         == TAB_CANCELLED
     )
-    assert cancel_reason_label(wb_status="canceled_by_client") == "Клиент отказался"
+    assert cancel_reason_label(wb_status="canceled_by_client") == "Отказ на ПВЗ"
     assert finished_status_label(wb_status="canceled_by_client") == ""
 
 
 def test_defect_stays_cancelled():
     assert compute_tab(supplier_status="complete", wb_status="defect", is_archive=False) == TAB_CANCELLED
+    assert cancel_reason_label(wb_status="defect") == "Найдены дефекты"
 
 
 def test_early_declined_stays_cancelled():
