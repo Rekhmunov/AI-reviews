@@ -23187,6 +23187,8 @@ const wbFbsKizState = {
    * save. Used to skip unchanged rows on the next Save.
    */
   baselineByOrder: {},
+  /** After optimistic-concurrency conflict, next save for these order_ids is forced. */
+  forceSaveByOrder: {},
   /** Interval id for live «Сохранение…» status text (UI only). */
   saveProgressTimer: 0,
 };
@@ -23747,6 +23749,7 @@ function closeWbFbsKizModal(opts) {
   wbFbsKizState.ruLayoutFocusId = null;
   wbFbsKizState.ruLayoutOpenedAt = 0;
   wbFbsKizState.baselineByOrder = {};
+  wbFbsKizState.forceSaveByOrder = {};
   _wbFbsKizResetFilters();
   _wbFbsKizSetFiltersReady(false);
   _wbFbsKizSetInfo("");
@@ -23762,6 +23765,7 @@ async function openWbFbsKizModal() {
   wbFbsKizState.errors = {};
   wbFbsKizState.pendingOrderId = null;
   wbFbsKizState.baselineByOrder = {};
+  wbFbsKizState.forceSaveByOrder = {};
   _wbFbsKizResetFilters();
   _wbFbsKizSetFiltersReady(false);
   _wbFbsKizSetInfo("");
@@ -24531,6 +24535,8 @@ async function saveWbFbsKizModal() {
         order_id: oid,
         kiz_codes: [],
         clear: !!(wasBound || hadLocal),
+        expected_saved_at: String(r.kiz_saved_at || ""),
+        force: !!(wbFbsKizState.forceSaveByOrder && wbFbsKizState.forceSaveByOrder[oid]),
       });
       continue;
     }
@@ -24561,6 +24567,8 @@ async function saveWbFbsKizModal() {
       order_id: oid,
       kiz_codes: codes,
       clear: !codes.length && (wasBound || hadLocal),
+      expected_saved_at: String(r.kiz_saved_at || ""),
+      force: !!(wbFbsKizState.forceSaveByOrder && wbFbsKizState.forceSaveByOrder[oid]),
     });
   }
   if (!items.length) {
@@ -24596,9 +24604,37 @@ async function saveWbFbsKizModal() {
     wbFbsKizState.errors = {};
     const cancelledIds = [];
     const otherFailNotes = [];
+    const conflictIds = [];
     for (const r of data.results || []) {
       const oid = Number(r.order_id);
       const row = wbFbsKizState.rows.find((x) => Number(x.order_id) === oid);
+      if (r.conflict) {
+        conflictIds.push(oid);
+        if (row) {
+          const localChanged = !_wbFbsKizBaselineEquals(
+            oid,
+            _wbFbsKizNormalizeCodesList(row.kiz_codes),
+          );
+          row.kiz_saved_at = String(r.kiz_saved_at || row.kiz_saved_at || "");
+          if (!localChanged && Array.isArray(r.kiz_codes)) {
+            row.kiz_codes = r.kiz_codes.length ? r.kiz_codes.slice() : [""];
+            row.kiz_local = true;
+            if (!wbFbsKizState.baselineByOrder) wbFbsKizState.baselineByOrder = {};
+            wbFbsKizState.baselineByOrder[oid] = _wbFbsKizNormalizeCodesList(r.kiz_codes);
+            if (wbFbsKizState.forceSaveByOrder) delete wbFbsKizState.forceSaveByOrder[oid];
+          } else if (!wbFbsKizState.forceSaveByOrder) {
+            wbFbsKizState.forceSaveByOrder = { [oid]: true };
+          } else {
+            wbFbsKizState.forceSaveByOrder[oid] = true;
+          }
+        }
+        wbFbsKizState.errors[oid] = r.error
+          || "Заказ уже сохранён другим оператором — проверьте КИЗ и сохраните снова";
+        otherFailNotes.push(`заказ ${oid}: конфликт с другим оператором`);
+        continue;
+      }
+      if (row && r.kiz_saved_at) row.kiz_saved_at = String(r.kiz_saved_at);
+      if (row && wbFbsKizState.forceSaveByOrder) delete wbFbsKizState.forceSaveByOrder[oid];
       if (row && Array.isArray(r.kiz_codes)) {
         row.kiz_codes = r.kiz_codes.length ? r.kiz_codes.slice() : [""];
         if (r.local_ok) {
