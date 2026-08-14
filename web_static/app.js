@@ -17182,19 +17182,27 @@ async function runWbFbsKizCirculationChz() {
       for (const w of (prep.warnings || [])) {
         _wbFbsKizCircAppendLog(`⚠ ${w}`);
       }
-      const docs = Array.isArray(prep.documents) ? prep.documents : [];
+      const docsAll = Array.isArray(prep.documents) ? prep.documents : [];
+      // Client-side safety cap: even if prepare returns a huge batch, sign/submit
+      // only a small packet — UKЭP + one giant POST caused Failed to fetch.
+      const CLIENT_DOC_CAP = 40;
+      const docsBuilt = docsAll.length;
+      const docs = docsAll.slice(0, CLIENT_DOC_CAP);
+      const truncatedClient = docsBuilt > docs.length;
       if (!docs.length) {
         if (round === 1) _wbFbsKizCircAppendLog("Нет событий для передачи в ЧЗ");
         stoppedWithMore = false;
         break;
       }
-      const built = Number(prep.counts?.documents_built || docs.length);
-      const cap = Number(prep.counts?.documents_cap || docs.length);
+      const built = Number(prep.counts?.documents_built || docsBuilt);
+      const cap = Number(prep.counts?.documents_cap || CLIENT_DOC_CAP);
       _wbFbsKizCircAppendLog(
         `К передаче: ${docs.length} док.`
-        + (built > docs.length ? ` из ${built} (пакет ≤${cap})` : "")
+        + (built > docs.length || truncatedClient
+          ? ` из ${Math.max(built, docsBuilt)} (пакет ≤${cap})`
+          : "")
         + ` (вывод ${prep.counts?.withdraw_events || 0}, возврат ${prep.counts?.return_events || 0})`
-        + (prep.has_more ? " · очередь продолжается" : ""),
+        + (prep.has_more || truncatedClient ? " · очередь продолжается" : ""),
       );
       if (!token) {
         _wbFbsKizCircAppendLog("ЧЗ: авторизация УКЭП…");
@@ -17234,8 +17242,8 @@ async function runWbFbsKizCirculationChz() {
       if (sub.log) _wbFbsKizCircAppendLog(sub.log);
       totalSubmitted += Number(sub.submitted || 0);
       totalFailed += Number(sub.failed || 0);
-      stoppedWithMore = Boolean(prep.has_more);
-      if (!prep.has_more) break;
+      stoppedWithMore = Boolean(prep.has_more) || truncatedClient;
+      if (!stoppedWithMore) break;
       if (Number(sub.failed || 0) > 0 && Number(sub.submitted || 0) === 0) {
         _wbFbsKizCircAppendLog("Остановка: пакет полностью с ошибками");
         break;
