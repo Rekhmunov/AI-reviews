@@ -63,6 +63,9 @@ def _is_no_fiscal_reason(reason: str) -> bool:
 # Oldest-first prepare batch; chunk products so CHZ docs stay within size limits.
 PREPARE_EVENT_LIMIT = 2000
 CHZ_PRODUCTS_PER_DOC = 100
+# UKЭP signs one detached CAdES per document in the browser — keep rounds small.
+# 1110 docs in one prepare made "Отправить в ЧЗ" unusable (hours of signing, no submit).
+CHZ_DOCUMENTS_PER_PREPARE = 40
 # Full event rows (UI/history) — ~6 months. Slim sent-CIS registry is kept forever.
 EVENT_RETENTION_DAYS = 180
 PURGE_BATCH_SIZE = 1000
@@ -2639,9 +2642,26 @@ def prepare_chz_batches(
             }
         )
 
-    withdraw_n = sum(len(g) for g in withdraw_groups.values()) + sum(
-        len(g) for g in withdraw_other_groups.values()
+    doc_cap = max(1, int(CHZ_DOCUMENTS_PER_PREPARE))
+    docs_built = len(documents)
+    truncated_by_docs = docs_built > doc_cap
+    if truncated_by_docs:
+        documents = documents[:doc_cap]
+
+    withdraw_n = sum(
+        1
+        for d in documents
+        if d.get("doc_type") == "LK_RECEIPT"
+        for _ in (d.get("event_keys") or [])
     )
+    return_n = sum(
+        1
+        for d in documents
+        if d.get("doc_type") == "LP_RETURN"
+        for _ in (d.get("event_keys") or [])
+    )
+    hit_event_limit = len(events_raw) >= lim
+    has_more = truncated_by_docs or hit_event_limit
     return {
         "ok": True,
         "settings": {
@@ -2664,13 +2684,15 @@ def prepare_chz_batches(
         ],
         "counts": {
             "documents": len(documents),
+            "documents_built": docs_built,
+            "documents_cap": doc_cap,
             "withdraw_events": withdraw_n,
-            "return_events": len(return_items),
+            "return_events": return_n,
             "skipped": len(skipped),
             "eligible_loaded": len(events_raw),
             "eligible_after_dedupe": len(events),
         },
-        "has_more": len(events_raw) >= lim,
+        "has_more": has_more,
     }
 
 

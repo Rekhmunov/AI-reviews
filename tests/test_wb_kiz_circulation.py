@@ -864,3 +864,60 @@ def test_maintain_storage_throttles_when_recent() -> None:
         out = circ.maintain_kiz_circulation_storage(repo, user_id=1, source_id=2)
     assert out["skipped"] == 1
     clear.assert_not_called()
+
+
+@patch(
+    "review_processor.wb_kiz_circulation._close_deduped_prepare_events",
+    return_value=0,
+)
+@patch(
+    "review_processor.wb_kiz_circulation._load_sent_cis_identities",
+    return_value=set(),
+)
+@patch("review_processor.wb_kiz_circulation.list_events_for_chz")
+@patch(
+    "review_processor.wb_kiz_circulation.repair_circulation_queue",
+    return_value={"returns_fixed": 0, "withdraw_skipped": 0},
+)
+@patch("review_processor.wb_kiz_circulation.get_chz_settings")
+def test_prepare_caps_documents_per_round(
+    mock_settings, _repair, mock_list, _sent, _close, monkeypatch
+) -> None:
+    """UKЭP signs one doc at a time — prepare must not return huge batches."""
+    monkeypatch.setattr(circ, "CHZ_DOCUMENTS_PER_PREPARE", 3)
+    mock_settings.return_value = {
+        "is_enabled": True,
+        "participant_inn": "7707083893",
+        "product_group": "lp",
+        "kpp": "770701001",
+        "fias_id": "fias-1",
+        "return_type": "REMOTE_SALE_RETURN",
+        "cert_thumbprint": "",
+        "api_base": "prod",
+        "api_base_url": PROD_BASE,
+    }
+    mock_list.return_value = [
+        {
+            "event_key": f"k{i}",
+            "operation_type": 1,
+            "excise_short": f"cis-{i}",
+            "fiscal_doc_number": str(100 + i),
+            "fiscal_dt": "2026-08-10",
+            "price": 10,
+            "currency_name": "RUB",
+            "status": "pending",
+        }
+        for i in range(10)
+    ]
+    out = circ.prepare_chz_batches(repo=object(), user_id=1, source_id=2)
+    assert out["counts"]["documents_built"] == 10
+    assert out["counts"]["documents_cap"] == 3
+    assert out["counts"]["documents"] == 3
+    assert out["counts"]["withdraw_events"] == 3
+    assert len(out["documents"]) == 3
+    assert out["has_more"] is True
+    # Oldest-first: first three receipt numbers from the batch.
+    titles = [d["title"] for d in out["documents"]]
+    assert "чек 100" in titles[0]
+    assert "чек 101" in titles[1]
+    assert "чек 102" in titles[2]

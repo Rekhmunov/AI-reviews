@@ -17188,9 +17188,12 @@ async function runWbFbsKizCirculationChz() {
         stoppedWithMore = false;
         break;
       }
+      const built = Number(prep.counts?.documents_built || docs.length);
+      const cap = Number(prep.counts?.documents_cap || docs.length);
       _wbFbsKizCircAppendLog(
-        `К передаче: ${docs.length} док. `
-        + `(вывод ${prep.counts?.withdraw_events || 0}, возврат ${prep.counts?.return_events || 0})`
+        `К передаче: ${docs.length} док.`
+        + (built > docs.length ? ` из ${built} (пакет ≤${cap})` : "")
+        + ` (вывод ${prep.counts?.withdraw_events || 0}, возврат ${prep.counts?.return_events || 0})`
         + (prep.has_more ? " · очередь продолжается" : ""),
       );
       if (!token) {
@@ -17202,11 +17205,14 @@ async function runWbFbsKizCirculationChz() {
         _wbFbsKizCircAppendLog("Токен получен, подпись документов…");
       }
       const signed = [];
-      for (const doc of docs) {
+      for (let di = 0; di < docs.length; di++) {
+        const doc = docs[di];
         const payloadB64 = String(doc.sign_payload_b64 || "");
         if (!payloadB64) throw new Error(`Нет payload для ${doc.title || doc.doc_type}`);
         const bytes = _b64ToBytes(payloadB64);
-        _wbFbsKizCircAppendLog(`Подпись: ${doc.title || doc.doc_type}`);
+        _wbFbsKizCircAppendLog(
+          `Подпись ${di + 1}/${docs.length}: ${doc.title || doc.doc_type}`,
+        );
         const sigB64 = await _signDetachedCadesBes(bytes, thumb);
         signed.push({
           doc_type: doc.doc_type,
@@ -17250,7 +17256,15 @@ async function runWbFbsKizCirculationChz() {
     }
     await refreshWbFbsKizCirculation();
   } catch (err) {
-    _wbFbsKizCircAppendLog(`Ошибка ЧЗ: ${err?.message || err}`);
+    const msg = String(err?.message || err || "");
+    if (/failed to fetch|networkerror|load failed/i.test(msg)) {
+      _wbFbsKizCircAppendLog(
+        "Ошибка ЧЗ: сеть оборвала запрос (часто при слишком большом пакете подписей). "
+        + "Обновите страницу и нажмите «Отправить в ЧЗ» снова — пакеты идут по ~40 документов.",
+      );
+    } else {
+      _wbFbsKizCircAppendLog(`Ошибка ЧЗ: ${msg}`);
+    }
   } finally {
     wbFbsKizCircState.busy = false;
     if (btn) btn.disabled = false;
