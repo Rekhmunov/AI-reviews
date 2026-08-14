@@ -23700,6 +23700,22 @@ function _wbFbsKizValidateMarkForOrder(mark, row) {
   return { ok: true, gtin14 };
 }
 
+/** Find an already-filled КИЗ in the modal (same or another order). */
+function _wbFbsKizFindExistingMark(mark) {
+  const key = _wbFbsKizNormalizeMark(mark);
+  if (!key) return null;
+  for (const row of wbFbsKizState.rows || []) {
+    const codes = Array.isArray(row.kiz_codes) ? row.kiz_codes : [];
+    for (const c of codes) {
+      const n = _wbFbsKizNormalizeMark(c);
+      if (n && n === key) {
+        return { order_id: Number(row.order_id), code: n };
+      }
+    }
+  }
+  return null;
+}
+
 function _wbFbsKizResetFilters() {
   const filled = document.getElementById("wbFbsKizFilterFilled");
   const empty = document.getElementById("wbFbsKizFilterEmpty");
@@ -24366,6 +24382,17 @@ function onWbFbsKizMarkScanKey(event) {
   const check = _wbFbsKizValidateMarkForOrder(mark, row);
   if (!check.ok) {
     _wbFbsKizSetInfo(check.error || "Маркировка не подходит к ШК товара в заказе");
+    if (input) input.select();
+    return;
+  }
+  const dup = _wbFbsKizFindExistingMark(mark);
+  if (dup) {
+    const dupOid = Number(dup.order_id);
+    _wbFbsKizSetInfo(
+      dupOid === oid
+        ? `Этот КИЗ уже просканирован в заказ ${oid} — повторно не добавляем`
+        : `Этот КИЗ уже просканирован в заказ ${dupOid} — в заказ ${oid} не добавляем`
+    );
     if (input) input.select();
     return;
   }
