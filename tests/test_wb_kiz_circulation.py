@@ -196,6 +196,123 @@ def test_classify_chz_doc_status() -> None:
     assert circ.classify_chz_doc_status("SOME_NEW_NOT_OK") == circ.STATUS_ERROR
 
 
+def test_sgtin_codes_from_meta_row() -> None:
+    codes = circ._sgtin_codes_from_meta_row(
+        {
+            "id": 1,
+            "meta": {
+                "sgtin": {
+                    "value": [
+                        "0104670172422632215ABC\u001d91EE12",
+                        "0104670172422632215ABC\u001d91EE12",
+                    ]
+                }
+            },
+        }
+    )
+    assert codes == ["0104670172422632215ABC\u001d91EE12"]
+    assert circ._sgtin_codes_from_meta_row({"meta": {"sgtin": {"value": None}}}) == []
+    assert circ._sgtin_codes_from_meta_row(
+        {"metaDetails": [{"key": "sgtin", "value": "01046X"}]}
+    ) == ["01046X"]
+
+
+def test_enrich_norm_from_analytics_copies_fiscal() -> None:
+    mp = {
+        "operation_type": 1,
+        "srid": "eB1.i9bab981f1d9940e298d74b76b8d1bfab.0.0",
+        "rid": "eB1.i9bab981f1d9940e298d74b76b8d1bfab.0.0",
+        "excise_short": "01046CIS",
+        "fiscal_doc_number": "",
+        "fiscal_dt": "2026-08-11",
+    }
+    an_mids = {
+        "i9bab981f1d9940e298d74b76b8d1bfab": [
+            {
+                "operation_type": 1,
+                "excise_short": "01046CIS",
+                "fiscal_doc_number": "51783",
+                "fiscal_dt": "2026-08-14",
+                "price": 2712.0,
+            }
+        ]
+    }
+    got = circ._enrich_norm_from_analytics(mp, an_mids)
+    assert got["fiscal_doc_number"] == "51783"
+    assert got["fiscal_dt"] == "2026-08-14"
+    assert got["price"] == 2712.0
+
+
+def test_build_marketplace_period_norms_sold_and_pvz() -> None:
+    """Period sync must queue sold→вывод and canceled_by_client→ввод from meta.sgtin."""
+    repo = MagicMock()
+    client = MagicMock()
+    client.get_orders_page.side_effect = [
+        (
+            [
+                {
+                    "id": 5462672780,
+                    "rid": "eB1.i9bab981f1d9940e298d74b76b8d1bfab.0.0",
+                    "orderUid": "i9bab981f1d9940e298d74b76b8d1bfab",
+                    "createdAt": "2026-08-11T03:58:26Z",
+                    "nmId": 1,
+                    "skus": ["467"],
+                },
+                {
+                    "id": 5474932440,
+                    "rid": "eB0.i68a55ca6dc9f74217c98d9df5384d982.0.0",
+                    "orderUid": "i68a55ca6dc9f74217c98d9df5384d982",
+                    "createdAt": "2026-08-12T19:16:58Z",
+                    "nmId": 2,
+                    "skus": ["468"],
+                },
+            ],
+            None,
+        )
+    ]
+    client.get_statuses.return_value = [
+        {"id": 5462672780, "wbStatus": "sold", "supplierStatus": "complete"},
+        {
+            "id": 5474932440,
+            "wbStatus": "canceled_by_client",
+            "supplierStatus": "complete",
+        },
+    ]
+    client.get_orders_meta.return_value = [
+        {
+            "id": 5462672780,
+            "meta": {"sgtin": {"value": ["01046SOLD"]}},
+        },
+        {
+            "id": 5474932440,
+            "meta": {"sgtin": {"value": ["01046PVZ"]}},
+        },
+    ]
+    with patch("review_processor.wb_fbs.WbFbsClient", return_value=client), patch(
+        "review_processor.wb_fbs.upsert_order"
+    ), patch(
+        "review_processor.wb_fbs.load_order_kiz_map", return_value={}
+    ):
+        norms, index, meta = circ.build_marketplace_period_norms(
+            repo,
+            user_id=1,
+            source_id=13,
+            api_key="mp-key",
+            date_from="2026-08-01",
+            date_to="2026-08-14",
+        )
+    assert meta["sold"] == 1
+    assert meta["returns"] == 1
+    assert meta["with_kiz"] == 2
+    assert len(norms) == 2
+    ops = {int(n["operation_type"]): n["excise_short"] for n in norms}
+    assert ops[circ.OP_WITHDRAW] == "01046SOLD"
+    assert ops[circ.OP_RETURN] == "01046PVZ"
+    assert index[circ._rid_fold("eB1.i9bab981f1d9940e298d74b76b8d1bfab.0.0")][
+        "wb_status"
+    ] == "sold"
+
+
 def test_extract_chz_doc_status() -> None:
     assert circ.extract_chz_doc_status({"status": "CHECKED_NOT_OK"}) == "CHECKED_NOT_OK"
     assert circ.extract_chz_doc_status({"docStatus": "CHECKED_OK"}) == "CHECKED_OK"
