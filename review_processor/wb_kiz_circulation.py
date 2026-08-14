@@ -4740,7 +4740,11 @@ def refresh_cis_statuses(
         for k in (event_keys or [])
         if str(k or "").strip()
     ]
+    # Cap one HTTP call; UI batches larger selections.
     lim = max(1, min(int(limit or 2000), 5000))
+    if wanted:
+        wanted = wanted[: min(len(wanted), lim)]
+        lim = max(len(wanted), 1)
     with repo._connect() as conn:
         if wanted:
             ph = ", ".join("?" for _ in wanted)

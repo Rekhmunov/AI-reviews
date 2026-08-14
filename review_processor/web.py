@@ -10445,6 +10445,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 source_id=sid,
                 event_keys=keys or None,
                 product_group=str(settings.get("product_group") or ""),
+                limit=max(len(keys), 1) if keys else 2000,
             )
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

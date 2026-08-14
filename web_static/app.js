@@ -17471,6 +17471,8 @@ async function refreshWbFbsKizCircCisStatus() {
   const btn = document.getElementById("wbFbsKizCircCisStatusBtn");
   wbFbsKizCircState.busy = true;
   if (btn) btn.disabled = true;
+  // Server /cises/info is chunked by 100; keep HTTP payloads moderate.
+  const CIS_STATUS_BATCH = 1000;
   try {
     let keys = Array.from(wbFbsKizCircState.selectedKeys || []);
     if (!keys.length) {
@@ -17481,33 +17483,52 @@ async function refreshWbFbsKizCircCisStatus() {
     if (!keys.length) {
       throw new Error("Нет строк для проверки — загрузите события или выберите строки");
     }
-    if (keys.length > 500) {
-      keys = keys.slice(0, 500);
-      _wbFbsKizCircAppendLog("Статус КИЗ: ограничение 500 кодов за раз");
-    }
+    const batches = Math.max(1, Math.ceil(keys.length / CIS_STATUS_BATCH));
     _wbFbsKizCircAppendLog(
-      `Статус КИЗ: авторизация УКЭП, проверка ${keys.length} строк…`,
+      `Статус КИЗ: авторизация УКЭП, всего ${keys.length} строк`
+        + (batches > 1 ? ` (${batches} пакета)` : "")
+        + "…",
     );
     const auth = await _chzObtainToken("");
-    const res = await fetch("/api/wb-fbs/kiz-circulation/chz/cis-status", {
-      method: "POST",
-      headers: jsonHeaders(),
-      body: JSON.stringify({
-        source_id: sid,
-        token: auth.token,
-        event_keys: keys,
-      }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.detail || "Ошибка статуса КИЗ");
+    let updated = 0;
+    let found = 0;
+    let missing = 0;
+    let apiErrN = 0;
+    const apiSamples = [];
+    for (let i = 0; i < keys.length; i += CIS_STATUS_BATCH) {
+      const part = keys.slice(i, i + CIS_STATUS_BATCH);
+      const bi = Math.floor(i / CIS_STATUS_BATCH) + 1;
+      if (batches > 1) {
+        _wbFbsKizCircAppendLog(
+          `Статус КИЗ: пакет ${bi}/${batches} (${part.length})…`,
+        );
+      }
+      const res = await fetch("/api/wb-fbs/kiz-circulation/chz/cis-status", {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({
+          source_id: sid,
+          token: auth.token,
+          event_keys: part,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || "Ошибка статуса КИЗ");
+      updated += Number(data.updated || 0);
+      found += Number(data.found || 0);
+      missing += Number(data.missing || 0);
+      apiErrN += Number(data.api_errors || 0);
+      if (Array.isArray(data.api_error_samples)) {
+        for (const s of data.api_error_samples) {
+          if (s && apiSamples.length < 3) apiSamples.push(s);
+        }
+      }
+    }
     let line =
-      `Статус КИЗ: обновлено ${data.updated || 0}, найдено ${data.found || 0}, `
-      + `без ответа ${data.missing || 0}`;
-    const apiErrN = Number(data.api_errors || 0);
+      `Статус КИЗ: итог обновлено ${updated}, найдено ${found}, `
+      + `без ответа ${missing}`;
     if (apiErrN) {
-      const samples = Array.isArray(data.api_error_samples)
-        ? data.api_error_samples.filter(Boolean).slice(0, 2).join(" · ")
-        : "";
+      const samples = apiSamples.filter(Boolean).slice(0, 2).join(" · ");
       line += `; сбой API=${apiErrN}${samples ? ` (${samples})` : ""}`;
     }
     _wbFbsKizCircAppendLog(line);
