@@ -21863,6 +21863,10 @@ function _wbFbsSupplyDetailResetSearch() {
 }
 
 function closeWbFbsSupplyDetailModal() {
+  // Nested modals first — abort supply close if operator keeps unsaved edits.
+  if (_wbFbsKizModalIsOpen() && !closeWbFbsKizModal()) return;
+  if (_wbFbsPickModalIsOpen() && !closeWbFbsPickVerifyModal()) return;
+
   wbFbsDetailState.supplyId = "";
   wbFbsDetailState.supply = null;
   wbFbsDetailState.selected.clear();
@@ -21880,7 +21884,6 @@ function closeWbFbsSupplyDetailModal() {
   closeWbFbsCreateTrbxModal();
   closeWbFbsCancelledOrdersModal();
   closeWbFbsStickersByCategoryModal();
-  closeWbFbsPickVerifyModal();
   setModalVisibility("wbFbsSupplyDetailModal", false);
 }
 window.closeWbFbsSupplyDetailModal = closeWbFbsSupplyDetailModal;
@@ -23526,7 +23529,13 @@ function onWbFbsKizFilterEmptyChange() {
 }
 window.onWbFbsKizFilterEmptyChange = onWbFbsKizFilterEmptyChange;
 
-function closeWbFbsKizModal() {
+function closeWbFbsKizModal(opts) {
+  const force = !!(opts && opts.force);
+  if (!force && _wbFbsKizModalIsOpen() && _wbFbsKizHasUnsavedChanges()) {
+    if (!confirm("Есть несохранённые изменения. Закрыть без сохранения?")) {
+      return false;
+    }
+  }
   cancelWbFbsKizMarkScan();
   _wbFbsCloseRowMenus();
   document.removeEventListener("keydown", _wbFbsKizRuLayoutSwallowKeys, true);
@@ -23542,6 +23551,7 @@ function closeWbFbsKizModal() {
   _wbFbsKizResetFilters();
   _wbFbsKizSetFiltersReady(false);
   _wbFbsKizSetInfo("");
+  return true;
 }
 window.closeWbFbsKizModal = closeWbFbsKizModal;
 
@@ -23741,6 +23751,27 @@ function _wbFbsKizBaselineEquals(orderId, codes) {
     if (base[i] !== cur[i]) return false;
   }
   return true;
+}
+
+function _wbFbsKizModalIsOpen() {
+  const modal = document.getElementById("wbFbsKizModal");
+  return !!(modal && !modal.classList.contains("hidden"));
+}
+
+/** True when in-memory / DOM КИЗ codes differ from last load/save baseline. */
+function _wbFbsKizHasUnsavedChanges() {
+  if (!Array.isArray(wbFbsKizState.rows) || !wbFbsKizState.rows.length) return false;
+  if (!wbFbsKizState.baselineByOrder || !Object.keys(wbFbsKizState.baselineByOrder).length) {
+    return false; // still loading — nothing to discard yet
+  }
+  _wbFbsKizCollectFromDom();
+  for (const r of wbFbsKizState.rows) {
+    const oid = Number(r.order_id);
+    if (!Number.isFinite(oid)) continue;
+    if (!Object.prototype.hasOwnProperty.call(wbFbsKizState.baselineByOrder, oid)) continue;
+    if (!_wbFbsKizBaselineEquals(oid, r.kiz_codes)) return true;
+  }
+  return false;
 }
 
 function _wbFbsKizRowMatchesSearch(row, query) {
@@ -24589,7 +24620,13 @@ function onWbFbsPickScanInputCheck(event) {
 }
 window.onWbFbsPickScanInputCheck = onWbFbsPickScanInputCheck;
 
-function closeWbFbsPickVerifyModal() {
+function closeWbFbsPickVerifyModal(opts) {
+  const force = !!(opts && opts.force);
+  if (!force && _wbFbsPickModalIsOpen() && _wbFbsPickHasUnsavedChanges()) {
+    if (!confirm("Есть несохранённые изменения. Закрыть без сохранения?")) {
+      return false;
+    }
+  }
   cancelWbFbsPickSkuScan();
   document.removeEventListener("keydown", _wbFbsKizRuLayoutSwallowKeys, true);
   setModalVisibility("wbFbsKizRuLayoutModal", false);
@@ -24601,6 +24638,7 @@ function closeWbFbsPickVerifyModal() {
   wbFbsPickState.baselineByOrder = {};
   _wbFbsPickResetFilters();
   _wbFbsPickSetInfo("");
+  return true;
 }
 window.closeWbFbsPickVerifyModal = closeWbFbsPickVerifyModal;
 
@@ -24662,6 +24700,31 @@ function _wbFbsPickCaptureBaseline() {
     };
   }
   wbFbsPickState.baselineByOrder = map;
+}
+
+function _wbFbsPickModalIsOpen() {
+  const modal = document.getElementById("wbFbsPickVerifyModal");
+  return !!(modal && !modal.classList.contains("hidden"));
+}
+
+/** True when pick_verified / pick_barcode differ from last load/save baseline. */
+function _wbFbsPickHasUnsavedChanges() {
+  if (!Array.isArray(wbFbsPickState.rows) || !wbFbsPickState.rows.length) return false;
+  if (!wbFbsPickState.baselineByOrder || !Object.keys(wbFbsPickState.baselineByOrder).length) {
+    return false;
+  }
+  for (const r of wbFbsPickState.rows) {
+    const oid = Number(r.order_id);
+    if (!Number.isFinite(oid)) continue;
+    if (!Object.prototype.hasOwnProperty.call(wbFbsPickState.baselineByOrder, oid)) continue;
+    const base = wbFbsPickState.baselineByOrder[oid] || {};
+    const verified = !!r.pick_verified && !!String(r.pick_barcode || "").trim();
+    const barcode = String(r.pick_barcode || "").trim();
+    const baseVerified = !!base.pick_verified && !!String(base.pick_barcode || "").trim();
+    const baseBarcode = String(base.pick_barcode || "").trim();
+    if (verified !== baseVerified || barcode !== baseBarcode) return true;
+  }
+  return false;
 }
 
 function _wbFbsPickStickerHtml(row) {
