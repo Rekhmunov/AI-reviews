@@ -246,6 +246,47 @@ class ChzTrueApiClient:
         )
         return _unwrap_doc_info_payload(data, document_id=doc_id)
 
+    def cises_info(
+        self,
+        codes: list[str],
+        *,
+        product_group: str = "",
+    ) -> list[dict[str, Any]]:
+        """Public CIS card(s): status INTRODUCED / RETIRED / … (needs Bearer token).
+
+        True API: ``POST /cises/info?pg=…`` with a JSON **array** of short CISes
+        (``01``+GTIN+``21``+serial, no brackets), length 18–74. Wrong ``pg`` often
+        yields ``КИ не найден`` even when the code exists in another group.
+        """
+        cleaned = [str(c or "").strip() for c in codes if str(c or "").strip()]
+        if not cleaned:
+            return []
+        params: dict[str, object] | None = None
+        pg = str(product_group or "").strip()
+        if pg:
+            params = {"pg": pg}
+        data = self._request(
+            "POST", "/cises/info", params=params, body=cleaned, auth=True
+        )
+        if isinstance(data, list):
+            return [x for x in data if isinstance(x, dict)]
+        if isinstance(data, dict):
+            # Whole-response auth/contract errors (not per-CIS).
+            err = str(
+                data.get("error_message")
+                or data.get("errorMessage")
+                or data.get("message")
+                or ""
+            ).strip()
+            if err and not (
+                data.get("result") or data.get("cises") or data.get("data")
+            ):
+                raise ChzTrueApiError(err)
+            rows = data.get("result") or data.get("cises") or data.get("data")
+            if isinstance(rows, list):
+                return [x for x in rows if isinstance(x, dict)]
+        return []
+
 
 def _unwrap_doc_info_payload(
     data: Any, *, document_id: str = ""
@@ -298,35 +339,6 @@ def _unwrap_doc_info_payload(
                 return picked
         return data
     return {"raw": data}
-
-    def cises_info(
-        self,
-        codes: list[str],
-        *,
-        product_group: str = "",
-    ) -> list[dict[str, Any]]:
-        """Public CIS card(s): status INTRODUCED / RETIRED / … (needs Bearer token).
-
-        Body is a JSON array of CIS strings (True API). Optional ``pg`` selects
-        the product group when the participant works with several groups.
-        """
-        cleaned = [str(c or "").strip() for c in codes if str(c or "").strip()]
-        if not cleaned:
-            return []
-        params: dict[str, object] | None = None
-        pg = str(product_group or "").strip()
-        if pg:
-            params = {"pg": pg}
-        data = self._request(
-            "POST", "/cises/info", params=params, body=cleaned, auth=True
-        )
-        if isinstance(data, list):
-            return [x for x in data if isinstance(x, dict)]
-        if isinstance(data, dict):
-            rows = data.get("result") or data.get("cises") or data.get("data")
-            if isinstance(rows, list):
-                return [x for x in rows if isinstance(x, dict)]
-        return []
 
 
 def build_lk_receipt_document(

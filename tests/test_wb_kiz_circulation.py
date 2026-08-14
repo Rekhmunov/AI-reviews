@@ -508,6 +508,7 @@ def test_parse_cises_info_item() -> None:
         {
             "cisInfo": {
                 "cis": "0104670172422458215mC3G",
+                "requestedCis": "0104670172422458215mC3G",
                 "status": "INTRODUCED",
                 "ownerInn": "6215034988",
             },
@@ -517,6 +518,44 @@ def test_parse_cises_info_item() -> None:
     assert parsed["status"] == "INTRODUCED"
     assert parsed["owner_inn"] == "6215034988"
     assert parsed["cis"].startswith("010467")
+
+    missing = circ.parse_cises_info_item(
+        {
+            "cisInfo": {"requestedCis": "0104670172422458215mC3G"},
+            "errorMessage": "КИ не найден",
+            "errorCode": "404",
+        }
+    )
+    assert "не найден" in missing["error"]
+    assert missing["error_code"] == "404"
+    assert missing["cis"].endswith("5mC3G")
+
+
+def test_chz_client_has_cises_info_method() -> None:
+    """Regression: cises_info must stay on the client class (not nested dead code)."""
+    assert hasattr(ChzTrueApiClient, "cises_info")
+    client = ChzTrueApiClient()
+    client.set_token("tok")
+    captured: dict = {}
+
+    def fake_request(method, path, *, params=None, body=None, auth=True, base=None):
+        captured.update({"method": method, "path": path, "params": params, "body": body})
+        return [
+            {
+                "cisInfo": {
+                    "requestedCis": body[0],
+                    "cis": body[0],
+                    "status": "INTRODUCED",
+                }
+            }
+        ]
+
+    client._request = fake_request  # type: ignore[method-assign]
+    rows = client.cises_info(["010460000000000021LLLLLLLLLLLLL"], product_group="lp")
+    assert rows[0]["cisInfo"]["status"] == "INTRODUCED"
+    assert captured["path"] == "/cises/info"
+    assert captured["params"] == {"pg": "lp"}
+    assert captured["body"] == ["010460000000000021LLLLLLLLLLLLL"]
 
 
 def test_refresh_cis_statuses_updates_rows() -> None:

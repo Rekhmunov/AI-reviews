@@ -4577,17 +4577,17 @@ def classify_cis_status(status: str) -> str:
 def parse_cises_info_item(item: dict[str, Any] | None) -> dict[str, str]:
     """Normalize one ``/cises/info`` row into cis / status / owner_inn / error."""
     if not isinstance(item, dict):
-        return {"cis": "", "status": "", "owner_inn": "", "error": ""}
+        return {"cis": "", "status": "", "owner_inn": "", "error": "", "error_code": ""}
     info = item.get("cisInfo") or item.get("cis_info")
     if not isinstance(info, dict):
         info = item if "status" in item or "cis" in item else {}
     if not isinstance(info, dict):
         info = {}
     cis = str(
-        info.get("cis")
-        or info.get("requestedCis")
-        or item.get("cis")
+        info.get("requestedCis")
+        or info.get("cis")
         or item.get("requestedCis")
+        or item.get("cis")
         or ""
     ).strip()
     status = str(info.get("status") or item.get("status") or "").strip()
@@ -4605,11 +4605,19 @@ def parse_cises_info_item(item: dict[str, Any] | None) -> dict[str, str]:
         or info.get("errorMessage")
         or ""
     ).strip()
+    err_code = str(
+        item.get("errorCode") or item.get("error_code") or info.get("errorCode") or ""
+    ).strip()
+    if err_code and err and err_code not in err:
+        err = f"{err_code}: {err}"
+    elif err_code and not err:
+        err = err_code
     return {
         "cis": cis,
         "status": status,
         "owner_inn": owner,
         "error": err,
+        "error_code": err_code,
     }
 
 
@@ -4746,11 +4754,59 @@ def refresh_cis_statuses(
     api_errors = 0
     api_error_samples: list[str] = []
     chunks = 0
+
+    def _ingest(rows_api: list[dict[str, Any]], requested: list[str]) -> None:
+        # Prefer positional pairing — True API returns one row per request CIS.
+        for i, item in enumerate(rows_api):
+            parsed = parse_cises_info_item(item if isinstance(item, dict) else None)
+            req = requested[i] if i < len(requested) else ""
+            if not parsed.get("cis") and req:
+                parsed["cis"] = req
+            keys = _cis_lookup_keys(parsed.get("cis") or "")
+            if req:
+                for k in _cis_lookup_keys(req):
+                    if k not in keys:
+                        keys.append(k)
+            for key in keys:
+                if key and key not in indexed:
+                    indexed[key] = parsed
+            if req and req not in indexed:
+                indexed[req] = parsed
+
+    def _fetch_chunk(part: list[str], *, pg_value: str) -> list[dict[str, Any]]:
+        return client.cises_info(part, product_group=pg_value)
+
     for part in _chunked(codes, CIS_INFO_CHUNK):
         chunks += 1
         try:
-            rows_api = client.cises_info(part, product_group=pg)
-            indexed.update(_index_cises_info_rows(rows_api))
+            rows_api = _fetch_chunk(part, pg_value=pg)
+            # Docs: wrong pg → «КИ не найден» even if the code exists elsewhere.
+            not_found_n = 0
+            for item in rows_api:
+                parsed = parse_cises_info_item(item if isinstance(item, dict) else None)
+                err_l = (parsed.get("error") or "").lower()
+                if "не найден" in err_l or parsed.get("error_code") == "404":
+                    not_found_n += 1
+            if (
+                pg
+                and rows_api
+                and not_found_n == len(rows_api)
+                and len(part) == len(rows_api)
+            ):
+                logger.warning(
+                    "CHZ cises/info all not-found with pg=%s — retry without pg "
+                    "(sample %s)",
+                    pg,
+                    part[0][:40],
+                )
+                rows_api = _fetch_chunk(part, pg_value="")
+            _ingest(rows_api, part)
+            logger.info(
+                "CHZ cises/info chunk ok pg=%s codes=%s sample=%s",
+                pg or "(none)",
+                len(part),
+                part[0][:40] if part else "",
+            )
         except Exception as exc:
             api_errors += 1
             sample = str(exc)[:240]
@@ -5054,8 +5110,8 @@ def _split_cis_unit_crypto(raw: str) -> tuple[str, str, str, str]:
 
     prefix = head[:18]
     serial_raw = head[18:]
-    # Serial is alphanumeric; drop trailing junk left after bad separators.
-    serial_m = re.match(r"[0-9A-Za-z]+", serial_raw)
+    # GS1 AI 21 allows more than alnum (e.g. ! / -); stop at GS / junk only.
+    serial_m = re.match(r"[0-9A-Za-z!\"%&'()*+\-./:;<=>?_]+", serial_raw)
     serial = serial_m.group(0) if serial_m else ""
     if not serial:
         unit = "".join(ch for ch in head if ch != _GS)
