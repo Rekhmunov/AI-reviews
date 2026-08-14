@@ -10314,8 +10314,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         owner_id = _supply_owner_id(user)
         if not source_id:
             raise HTTPException(status_code=400, detail="Укажите source_id")
-        # Marketplace FBS key — hydrate sold/archive so order/status are not «—».
-        api_key = _wb_fbs_source_key(owner_id, int(source_id))
+        # List must stay fast: join local FBS orders only.
+        # Full Marketplace hydrate (archive/sold) runs on CHZ prepare, not on every open.
+        _ = _wb_fbs_source_key(owner_id, int(source_id))
         items = kiz_circ.list_events(
             repository,
             user_id=owner_id,
@@ -10323,8 +10324,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             status=str(status or ""),
             operation_type=int(operation_type) if operation_type else None,
             limit=int(limit or 200),
-            api_key=api_key,
-            hydrate_orders=True,
+            api_key="",
+            hydrate_orders=False,
         )
         return {"items": items, "total": len(items)}
 

@@ -17244,6 +17244,17 @@ async function refreshWbFbsKizCirculation() {
     _wbFbsKizCircPruneSelection();
     _wbFbsKizCircReadFilterControls();
     _wbFbsKizCircRenderTable();
+    if (!wbFbsKizCircState.items.length) {
+      const total = Object.values(overview.counts || {}).reduce(
+        (a, b) => a + Number(b || 0),
+        0,
+      );
+      if (total > 0) {
+        _wbFbsKizCircAppendLog(
+          `В БД есть ${total} событий, но список пуст — сбросьте фильтры или нажмите «Обновить».`,
+        );
+      }
+    }
   } catch (err) {
     _wbFbsKizCircAppendLog(`Ошибка обновления: ${err?.message || err}`);
   }
