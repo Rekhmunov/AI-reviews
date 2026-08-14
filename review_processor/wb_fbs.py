@@ -1291,6 +1291,69 @@ def update_order_wb_statuses(
     return updated
 
 
+def load_order_price_map(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    order_ids: list[int],
+) -> dict[int, dict[str, Any]]:
+    """Map order_id → price in rubles (from local ``wb_fbs_orders`` kopecks).
+
+    ``price`` / ``final_price`` are stored in kopecks (see ``resolve_order_price``).
+    """
+    ids: list[int] = []
+    for raw in order_ids or []:
+        try:
+            oid = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if oid != 0:
+            ids.append(oid)
+    if not ids:
+        return {}
+    ensure_wb_fbs_tables(repo)
+    placeholders = ", ".join("?" for _ in ids)
+    out: dict[int, dict[str, Any]] = {}
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                f"""
+                SELECT order_id, price, final_price, currency_code
+                FROM wb_fbs_orders
+                WHERE user_id = ? AND source_id = ? AND order_id IN ({placeholders})
+                """
+            ),
+            tuple([int(user_id), int(source_id), *ids]),
+        ).fetchall()
+    for row in rows:
+        try:
+            oid = int(row["order_id"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        try:
+            final_i = int(row["final_price"] or 0)
+        except (TypeError, ValueError):
+            final_i = 0
+        try:
+            price_i = int(row["price"] or 0)
+        except (TypeError, ValueError):
+            price_i = 0
+        kop = final_i if final_i > 0 else price_i
+        if kop <= 0:
+            continue
+        try:
+            ccy = int(row["currency_code"] or 643)
+        except (TypeError, ValueError):
+            ccy = 643
+        out[oid] = {
+            "price_rub": float(kop) / 100.0,
+            "currency_name": "RUB" if ccy in (0, 643, 810) else "",
+            "currency_code": ccy,
+        }
+    return out
+
+
 def load_order_status_map(
     repo: ReviewRepository,
     *,

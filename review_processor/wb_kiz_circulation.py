@@ -2657,6 +2657,22 @@ def build_marketplace_period_norms(
                 )
             except Exception:
                 fiscal_dt = created[:10] if len(created) >= 10 else ""
+        # Marketplace /orders exposes convertedPrice/price in kopecks — required for
+        # CHZ product_cost on OTHER (no fiscal) withdraws. Analytics may fill later.
+        price_rub: float | None = None
+        currency_name = ""
+        try:
+            from .wb_fbs import resolve_order_price
+
+            amount_kop, ccy = resolve_order_price(order)
+            if amount_kop and int(amount_kop) > 0:
+                price_rub = float(amount_kop) / 100.0
+                # 643 = RUB; empty currency lets _price_for_chz accept the amount.
+                if int(ccy or 0) in (0, 643, 810):
+                    currency_name = "RUB"
+        except Exception:
+            price_rub = None
+            currency_name = ""
         for cis in codes:
             key = _event_key(
                 srid=rid,
@@ -2677,8 +2693,8 @@ def build_marketplace_period_norms(
                     "fiscal_doc_number": "",
                     "fiscal_dt": fiscal_dt,
                     "fiscal_drive_number": "",
-                    "price": None,
-                    "currency_name": "",
+                    "price": price_rub,
+                    "currency_name": currency_name,
                     "country_name": "",
                     "raw_json": "",
                     "order_id": oid,
@@ -4071,8 +4087,9 @@ def _attach_order_ids_to_events(
                 oid_i = int(oid)
             except (TypeError, ValueError):
                 oid_i = 0
-            ev["order_id"] = oid_i if oid_i > 0 else None
-            if oid_i > 0:
+            # WB order ids are normally >0; keep any non-zero id (never treat as missing).
+            ev["order_id"] = oid_i if oid_i != 0 else None
+            if oid_i != 0:
                 order_ids.append(oid_i)
         else:
             ev["order_id"] = None
@@ -4107,6 +4124,37 @@ def _attach_order_ids_to_events(
         ev["order_wb_status"] = str(st.get("wb_status") or "").strip()
         ev["order_supplier_status"] = str(st.get("supplier_status") or "").strip()
         ev["order_cancel_reason"] = str(st.get("cancel_reason_label") or "").strip()
+
+    # Backfill price for OTHER / missing Analytics price from local FBS orders.
+    need_price = [
+        int(ev["order_id"])
+        for ev in events
+        if ev.get("order_id") not in (None, "", 0) and ev.get("price") is None
+    ]
+    if need_price:
+        try:
+            price_map = wb_fbs_mod.load_order_price_map(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                order_ids=need_price,
+            )
+        except Exception as exc:
+            logger.warning("load_order_price_map failed: %s", exc)
+            price_map = {}
+        for ev in events:
+            if ev.get("price") is not None:
+                continue
+            try:
+                oid_i = int(ev.get("order_id") or 0)
+            except (TypeError, ValueError):
+                continue
+            info = price_map.get(oid_i) or {}
+            if info.get("price_rub") is None:
+                continue
+            ev["price"] = info["price_rub"]
+            if not str(ev.get("currency_name") or "").strip():
+                ev["currency_name"] = str(info.get("currency_name") or "RUB")
 
 
 def _event_is_sold_for_chz(ev: dict[str, Any]) -> bool:

@@ -257,6 +257,10 @@ def test_build_marketplace_period_norms_sold_and_pvz() -> None:
                     "createdAt": "2026-08-11T03:58:26Z",
                     "nmId": 1,
                     "skus": ["467"],
+                    "convertedPrice": 219200,
+                    "convertedCurrencyCode": 643,
+                    "price": 219200,
+                    "currencyCode": 643,
                 },
                 {
                     "id": 5474932440,
@@ -265,6 +269,8 @@ def test_build_marketplace_period_norms_sold_and_pvz() -> None:
                     "createdAt": "2026-08-12T19:16:58Z",
                     "nmId": 2,
                     "skus": ["468"],
+                    "convertedPrice": 150050,
+                    "convertedCurrencyCode": 643,
                 },
             ],
             None,
@@ -308,6 +314,10 @@ def test_build_marketplace_period_norms_sold_and_pvz() -> None:
     ops = {int(n["operation_type"]): n["excise_short"] for n in norms}
     assert ops[circ.OP_WITHDRAW] == "01046SOLD"
     assert ops[circ.OP_RETURN] == "01046PVZ"
+    sold = next(n for n in norms if int(n["operation_type"]) == circ.OP_WITHDRAW)
+    assert sold["price"] == 2192.0
+    assert sold["currency_name"] == "RUB"
+    assert circ._price_for_chz(sold) == 219200
     assert index[circ._rid_fold("eB1.i9bab981f1d9940e298d74b76b8d1bfab.0.0")][
         "wb_status"
     ] == "sold"
