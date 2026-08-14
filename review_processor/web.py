@@ -9980,6 +9980,96 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
         return result
 
+    @app.get("/api/wb-fbs/supplies/{supply_id}/pick-verify")
+    def wb_fbs_supply_pick_verify_list(
+        request: Request,
+        supply_id: str,
+        source_id: int,
+    ) -> dict[str, object]:
+        """Orders without КИЗ: local EAN-13 pick-check payload (owner only)."""
+        from . import wb_fbs_detail as wb_detail
+
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        if not _is_wb_fbs_tenant_owner(user):
+            raise HTTPException(
+                status_code=403,
+                detail="Проверка ШК доступна только главному пользователю",
+            )
+        owner_id = _supply_owner_id(user)
+        sid = str(supply_id or "").strip()
+        if not sid or not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
+        api_key = _wb_fbs_source_key(owner_id, int(source_id))
+        try:
+            return wb_detail.build_pick_verify_payload(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                api_key=api_key,
+                supply_id=sid,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.put("/api/wb-fbs/supplies/{supply_id}/pick-verify")
+    async def wb_fbs_supply_pick_verify_save(
+        request: Request,
+        supply_id: str,
+        source_id: int,
+    ) -> dict[str, object]:
+        """Save local ШК pick-check (no Wildberries API). Owner only."""
+        from . import wb_fbs_detail as wb_detail
+
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        if not _is_wb_fbs_tenant_owner(user):
+            raise HTTPException(
+                status_code=403,
+                detail="Проверка ШК доступна только главному пользователю",
+            )
+        owner_id = _supply_owner_id(user)
+        sid = str(supply_id or "").strip()
+        if not sid or not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
+        try:
+            body = await request.json()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Некорректный JSON") from exc
+        items = body.get("items") if isinstance(body, dict) else None
+        if not isinstance(items, list):
+            raise HTTPException(status_code=400, detail="Укажите items[]")
+        api_key = _wb_fbs_source_key(owner_id, int(source_id))
+        try:
+            detail = wb_detail.get_supply_detail(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                api_key=api_key,
+                supply_id=sid,
+            )
+            # Only non-КИЗ orders of this supply.
+            allowed = {
+                int(o["order_id"])
+                for o in (detail.get("orders") or [])
+                if (not o.get("kiz_required")) and o.get("order_id") is not None
+            }
+            return wb_detail.save_pick_verify(
+                repo=repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                items=items,
+                allowed_order_ids=allowed,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @app.get("/api/wb-fbs/orders/{order_id}/sticker-print")
     def wb_fbs_order_sticker_print(
         request: Request,

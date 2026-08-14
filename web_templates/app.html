@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=204" />
+  <link rel="stylesheet" href="/static/style.css?v=205" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -2004,6 +2004,11 @@
                     </svg>
                   </button>
                 </div>
+                <button type="button" class="secondary" id="wbFbsSupplyDetailPickVerifyBtn" hidden
+                        onclick="openWbFbsPickVerifyModal()"
+                        title="Проверка ШК товаров без маркировки (только главный пользователь)">
+                  Проверка ШК
+                </button>
                 <button type="button" class="secondary" id="wbFbsSupplyDetailTrbxBtn"
                         onclick="openWbFbsCreateTrbxModal()" title="Создать грузоместа (короба) для ПВЗ">Грузоместа</button>
                 <button type="button" class="secondary" id="wbFbsSupplyDetailCancelledBtn"
@@ -2284,6 +2289,100 @@
             </p>
             <div class="wb-fbs-kiz-ru-layout-actions">
               <button type="button" id="wbFbsKizRuLayoutOk" onclick="dismissWbFbsKizRuLayoutWarning()">Понятно</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Проверка ШК (товары без КИЗ) — отдельное окно, не Маркировка -->
+        <div id="wbFbsPickVerifyModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="wbFbsPickVerifyTitle"
+             onclick="if(event.target===this)closeWbFbsPickVerifyModal()">
+          <div class="modal-card wb-fbs-kiz-modal">
+            <div class="wb-fbs-kiz-header">
+              <div class="wb-fbs-kiz-header-main">
+                <h3 id="wbFbsPickVerifyTitle" class="wb-fbs-kiz-title">Проверка ШК</h3>
+                <p class="wb-fbs-kiz-sub">
+                  Товары без маркировки КИЗ. Сканируйте стикер заказа, затем штрихкод (EAN-13) на товаре —
+                  сверка только внутри FeedPilot, на Wildberries ничего не отправляется.
+                </p>
+              </div>
+              <div class="wb-fbs-kiz-header-actions">
+                <button type="button" id="wbFbsPickVerifySaveBtn" onclick="saveWbFbsPickVerifyModal()">Сохранить</button>
+                <button type="button" class="icon-btn secondary" onclick="closeWbFbsPickVerifyModal()" aria-label="Закрыть">✕</button>
+              </div>
+            </div>
+            <div class="wb-fbs-kiz-toolbar">
+              <div class="wb-fbs-kiz-filters" id="wbFbsPickVerifyFilters">
+                <label class="wb-fbs-kiz-check" id="wbFbsPickFilterFilledLabel">
+                  <input type="checkbox" id="wbFbsPickFilterFilled" onchange="onWbFbsPickFilterFilledChange()" />
+                  Заполненные
+                </label>
+                <label class="wb-fbs-kiz-check" id="wbFbsPickFilterEmptyLabel">
+                  <input type="checkbox" id="wbFbsPickFilterEmpty" onchange="onWbFbsPickFilterEmptyChange()" />
+                  Незаполненные
+                </label>
+                <label class="wb-fbs-kiz-check" id="wbFbsPickFilterErrorsLabel">
+                  <input type="checkbox" id="wbFbsPickFilterErrors" onchange="renderWbFbsPickVerifyTable()" />
+                  С ошибками
+                </label>
+                <label class="wb-fbs-kiz-check" id="wbFbsPickFilterCancelledLabel">
+                  <input type="checkbox" id="wbFbsPickFilterCancelled" onchange="renderWbFbsPickVerifyTable()" />
+                  Отмененные
+                </label>
+                <input id="wbFbsPickSearchFilter" class="wb-fbs-kiz-search" type="search"
+                       placeholder="🔍 Поиск..." autocomplete="off"
+                       title="Поиск по заказу, стикеру, названию товара и ШК"
+                       oninput="renderWbFbsPickVerifyTable()" />
+              </div>
+              <div class="wb-fbs-kiz-toolbar-actions">
+                <div id="wbFbsPickScanCount" class="wb-fbs-kiz-scan-count" aria-live="polite">Проверено 0 из 0</div>
+              </div>
+            </div>
+            <div class="wb-fbs-kiz-scan-bar">
+              <label class="wb-fbs-kiz-scan-label" for="wbFbsPickStickerScan">Сканирование</label>
+              <div class="wb-fbs-kiz-scan-field">
+                <input id="wbFbsPickStickerScan" class="wb-fbs-kiz-scan-input" type="text" autocomplete="off"
+                       placeholder="Сканируйте QR стикера заказа"
+                       onkeydown="onWbFbsPickStickerScanKey(event)" />
+                <button type="button" class="wb-fbs-kiz-scan-clear" title="Очистить"
+                        aria-label="Очистить поле сканирования"
+                        onclick="clearWbFbsPickScanField('wbFbsPickStickerScan')">✕</button>
+              </div>
+            </div>
+            <div id="wbFbsPickInfo" class="wb-fbs-kiz-info" hidden></div>
+            <div class="wb-fbs-kiz-table-wrap">
+              <table class="wb-fbs-kiz-table">
+                <thead>
+                  <tr>
+                    <th class="wb-fbs-kiz-col-order">Заказ/стикер</th>
+                    <th class="wb-fbs-kiz-col-product">Товар</th>
+                    <th class="wb-fbs-kiz-col-kiz">Проверка ШК</th>
+                  </tr>
+                </thead>
+                <tbody id="wbFbsPickTbody">
+                  <tr><td colspan="3" class="wb-fbs-empty">Загрузка…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div id="wbFbsPickScanPrompt" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="wbFbsPickScanPromptTitle"
+             onclick="if(event.target===this)cancelWbFbsPickSkuScan()">
+          <div class="modal-card wb-fbs-kiz-scan-prompt">
+            <h4 id="wbFbsPickScanPromptTitle" class="wb-fbs-kiz-scan-prompt-title">Просканируйте ШК товара</h4>
+            <p id="wbFbsPickScanPromptMeta" class="wb-fbs-kiz-scan-prompt-meta">Заказ —</p>
+            <div class="wb-fbs-kiz-scan-field">
+              <input id="wbFbsPickSkuScan" class="wb-fbs-kiz-scan-input" type="text" autocomplete="off"
+                     placeholder="Сканируйте EAN-13 с того же изделия"
+                     onkeydown="onWbFbsPickSkuScanKey(event)" />
+              <button type="button" class="wb-fbs-kiz-scan-clear" title="Очистить"
+                      aria-label="Очистить поле ШК"
+                      onclick="clearWbFbsPickScanField('wbFbsPickSkuScan')">✕</button>
+            </div>
+            <div class="row wb-fbs-kiz-scan-prompt-actions">
+              <button type="button" class="secondary" onclick="cancelWbFbsPickSkuScan()">Отмена</button>
             </div>
           </div>
         </div>
@@ -4861,6 +4960,6 @@
       </div>
     </div>
   </div>
-  <script src="/static/app.js?v=439"></script>
+  <script src="/static/app.js?v=440"></script>
 </body>
 </html>
