@@ -16731,6 +16731,8 @@ const wbFbsKizCircState = {
   busy: false,
   lastLog: "",
   items: [],
+  /** @type {Set<string>} */
+  selectedKeys: new Set(),
   filters: {
     preset: "all",
     statuses: [],
@@ -16900,6 +16902,96 @@ function _wbFbsKizCircFilteredItems() {
   });
 }
 
+/** Rows that can still be prepared/submitted to ЧЗ. */
+function _wbFbsKizCircIsSelectable(ev) {
+  const st = String(ev?.status || "").trim();
+  if (!st || st === "accepted") return false;
+  if (st === "pending" || st === "ready" || st === "error") return true;
+  if (st === "skipped") {
+    const reason = String(ev?.skip_reason || "");
+    return reason === "no_fiscal" || reason.startsWith("no_fiscal:");
+  }
+  if (st === "submitted") {
+    const docId = String(ev?.chz_doc_id || "").trim();
+    if (!docId) return true;
+    const chz = String(ev?.chz_status || "").trim().toUpperCase();
+    return [
+      "CHECKED_NOT_OK",
+      "REJECTED",
+      "ERROR",
+      "FAILED",
+      "CANCELLED",
+      "CANCELED",
+    ].includes(chz);
+  }
+  return false;
+}
+
+function _wbFbsKizCircPruneSelection() {
+  const known = new Set(
+    (wbFbsKizCircState.items || [])
+      .map((ev) => String(ev.event_key || "").trim())
+      .filter(Boolean),
+  );
+  const next = new Set();
+  for (const key of wbFbsKizCircState.selectedKeys) {
+    if (known.has(key)) next.add(key);
+  }
+  wbFbsKizCircState.selectedKeys = next;
+}
+
+function _wbFbsKizCircUpdateSelectionInfo() {
+  const el = document.getElementById("wbFbsKizCircSelectedInfo");
+  const n = wbFbsKizCircState.selectedKeys.size;
+  if (el) {
+    el.textContent = n ? `Выбрано: ${n}` : "Выбрано: 0 — отметьте строки";
+  }
+  const visibleSelectable = _wbFbsKizCircFilteredItems().filter(_wbFbsKizCircIsSelectable);
+  const allEl = document.getElementById("wbFbsKizCircSelectAll");
+  if (allEl) {
+    const selectedVisible = visibleSelectable.filter((ev) =>
+      wbFbsKizCircState.selectedKeys.has(String(ev.event_key || "")),
+    );
+    allEl.checked = visibleSelectable.length > 0
+      && selectedVisible.length === visibleSelectable.length;
+    allEl.indeterminate = selectedVisible.length > 0
+      && selectedVisible.length < visibleSelectable.length;
+    allEl.disabled = visibleSelectable.length === 0;
+  }
+}
+
+function toggleWbFbsKizCircRow(eventKey, checked) {
+  const key = String(eventKey || "").trim();
+  if (!key) return;
+  if (checked) wbFbsKizCircState.selectedKeys.add(key);
+  else wbFbsKizCircState.selectedKeys.delete(key);
+  const row = document.querySelector(
+    `tr[data-event-key="${CSS.escape(key)}"]`,
+  );
+  if (row) row.classList.toggle("is-selected", Boolean(checked));
+  _wbFbsKizCircUpdateSelectionInfo();
+}
+
+function toggleWbFbsKizCircSelectAll(checked) {
+  const items = _wbFbsKizCircFilteredItems().filter(_wbFbsKizCircIsSelectable);
+  for (const ev of items) {
+    const key = String(ev.event_key || "").trim();
+    if (!key) continue;
+    if (checked) wbFbsKizCircState.selectedKeys.add(key);
+    else wbFbsKizCircState.selectedKeys.delete(key);
+  }
+  _wbFbsKizCircRenderTable();
+}
+
+function selectAllVisibleWbFbsKizCirc() {
+  toggleWbFbsKizCircSelectAll(true);
+}
+
+function clearWbFbsKizCircSelection() {
+  wbFbsKizCircState.selectedKeys.clear();
+  _wbFbsKizCircRenderTable();
+}
+
 function _wbFbsKizCircRenderTable() {
   const tbody = document.getElementById("wbFbsKizCircTbody");
   const info = document.getElementById("wbFbsKizCircFilterInfo");
@@ -16913,18 +17005,23 @@ function _wbFbsKizCircRenderTable() {
   }
   if (!all.length) {
     tbody.innerHTML =
-      '<tr><td colspan="9" class="wb-fbs-kiz-circ-empty">Нет данных — выберите даты и нажмите «Ежедневный вывод»</td></tr>';
+      '<tr><td colspan="10" class="wb-fbs-kiz-circ-empty">Нет данных — выберите даты и нажмите «Ежедневный вывод»</td></tr>';
+    _wbFbsKizCircUpdateSelectionInfo();
     return;
   }
   if (!items.length) {
     tbody.innerHTML =
-      '<tr><td colspan="9" class="wb-fbs-kiz-circ-empty">Нет событий по текущим фильтрам</td></tr>';
+      '<tr><td colspan="10" class="wb-fbs-kiz-circ-empty">Нет событий по текущим фильтрам</td></tr>';
+    _wbFbsKizCircUpdateSelectionInfo();
     return;
   }
   tbody.innerHTML = items
     .map((ev) => {
       const op = Number(ev.operation_type || 0);
       const st = String(ev.status || "");
+      const key = String(ev.event_key || "").trim();
+      const selectable = _wbFbsKizCircIsSelectable(ev) && Boolean(key);
+      const selected = selectable && wbFbsKizCircState.selectedKeys.has(key);
       const kiz = String(ev.excise_short || "");
       const kizShort = kiz.length > 28 ? `${kiz.slice(0, 14)}…${kiz.slice(-10)}` : kiz;
       const errRaw = ev.error_text || ev.skip_reason || "";
@@ -16943,7 +17040,18 @@ function _wbFbsKizCircRenderTable() {
       const orderStatusCls = _wbFbsKizCircOrderStatusClass(orderStatus, ev);
       const srid = String(ev.srid || ev.rid || "").trim();
       const sridShort = srid.length > 28 ? `${srid.slice(0, 12)}…${srid.slice(-10)}` : srid;
-      return `<tr>
+      const checkCell = selectable
+        ? `<label class="wb-fbs-kiz-circ-row-check">
+            <input type="checkbox" ${selected ? "checked" : ""}
+              data-event-key="${esc(key)}"
+              aria-label="Выбрать для передачи в ЧЗ"
+              onchange="toggleWbFbsKizCircRow(this.dataset.eventKey, this.checked)" />
+          </label>`
+        : `<label class="wb-fbs-kiz-circ-row-check is-disabled" title="Уже принято / нельзя передать">
+            <input type="checkbox" disabled tabindex="-1" />
+          </label>`;
+      return `<tr data-event-key="${esc(key)}" class="${selected ? "is-selected" : ""}">
+        <td class="wb-fbs-kiz-circ-check-col">${checkCell}</td>
         <td>${esc(ev.fiscal_dt || "—")}</td>
         <td class="wb-fbs-kiz-circ-op-${op}">${esc(_wbFbsKizCircOpLabel(op))}</td>
         <td>${orderId ? `<code class="wb-fbs-kiz-circ-order-id">${esc(orderId)}</code>` : "—"}</td>
@@ -16960,6 +17068,7 @@ function _wbFbsKizCircRenderTable() {
       </tr>`;
     })
     .join("");
+  _wbFbsKizCircUpdateSelectionInfo();
 }
 
 function _wbFbsKizCircOrderStatusClass(label, ev) {
@@ -17097,6 +17206,7 @@ async function refreshWbFbsKizCirculation() {
       ].join(" · ");
     }
     wbFbsKizCircState.items = Array.isArray(eventsPayload.items) ? eventsPayload.items : [];
+    _wbFbsKizCircPruneSelection();
     _wbFbsKizCircReadFilterControls();
     _wbFbsKizCircRenderTable();
   } catch (err) {
@@ -17159,6 +17269,11 @@ async function runWbFbsKizCirculationSync() {
 async function runWbFbsKizCirculationChz() {
   const sid = _wbFbsKizCircSourceId();
   if (!sid || wbFbsKizCircState.busy) return;
+  const selectedKeys = [...wbFbsKizCircState.selectedKeys].filter(Boolean);
+  if (!selectedKeys.length) {
+    alert("Отметьте нужные строки чекбоксами (или «Выбрать видимые»), затем нажмите «Передать в ЧЗ».");
+    return;
+  }
   const btn = document.getElementById("wbFbsKizCircChzBtn");
   wbFbsKizCircState.busy = true;
   if (btn) btn.disabled = true;
@@ -17169,13 +17284,18 @@ async function runWbFbsKizCirculationChz() {
   let totalFailed = 0;
   let stoppedWithMore = false;
   try {
+    _wbFbsKizCircAppendLog(`ЧЗ: выбрано позиций ${selectedKeys.length}`);
     for (let round = 1; round <= maxRounds; round++) {
       _wbFbsKizCircAppendLog(
         round === 1 ? "ЧЗ: подготовка документов…" : `ЧЗ: следующий пакет (${round}/${maxRounds})…`,
       );
       const prepRes = await fetch(
         `/api/wb-fbs/kiz-circulation/chz/prepare?source_id=${sid}`,
-        { method: "POST", headers: jsonHeaders() },
+        {
+          method: "POST",
+          headers: jsonHeaders(),
+          body: JSON.stringify({ source_id: sid, event_keys: selectedKeys }),
+        },
       );
       const prep = await prepRes.json().catch(() => ({}));
       if (!prepRes.ok) throw new Error(prep.detail || "Ошибка prepare");
@@ -17288,6 +17408,10 @@ window.closeWbFbsKizCirculationModal = closeWbFbsKizCirculationModal;
 window.refreshWbFbsKizCirculation = refreshWbFbsKizCirculation;
 window.runWbFbsKizCirculationSync = runWbFbsKizCirculationSync;
 window.runWbFbsKizCirculationChz = runWbFbsKizCirculationChz;
+window.toggleWbFbsKizCircRow = toggleWbFbsKizCircRow;
+window.toggleWbFbsKizCircSelectAll = toggleWbFbsKizCircSelectAll;
+window.selectAllVisibleWbFbsKizCirc = selectAllVisibleWbFbsKizCirc;
+window.clearWbFbsKizCircSelection = clearWbFbsKizCircSelection;
 
 // -----------------------------------------------------------------------
 // My Salary (operator view)

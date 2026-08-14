@@ -2078,14 +2078,27 @@ def list_events_for_chz(
     user_id: int,
     source_id: int,
     limit: int = PREPARE_EVENT_LIMIT,
+    event_keys: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Events eligible for CHZ submit: pending + recoverable error + failed submitted.
 
     Includes withdraw-without-fiscal (``no_fiscal``) as pending/skipped-legacy —
     they go out as LK_RECEIPT with primary document OTHER.
+
+    When ``event_keys`` is set, only those keys are considered (still must be eligible).
     """
     ensure_kiz_circulation_tables(repo)
+    key_filter = [
+        str(k).strip()
+        for k in (event_keys or [])
+        if str(k or "").strip()
+    ]
+    # Cap IN-list size; UI selection is practical well below this.
+    if key_filter:
+        key_filter = key_filter[:5000]
     lim = max(1, min(int(limit or PREPARE_EVENT_LIMIT), 5000))
+    if key_filter:
+        lim = min(max(lim, len(key_filter)), 5000)
     fail_list = sorted(CHZ_STATUS_FAILED)
     fail_placeholders = ", ".join(["?"] * len(fail_list)) if fail_list else "NULL"
     params: list[Any] = [
@@ -2097,8 +2110,13 @@ def list_events_for_chz(
         SKIP_NO_FISCAL,
         STATUS_SUBMITTED,
         *fail_list,
-        lim,
     ]
+    key_sql = ""
+    if key_filter:
+        key_placeholders = ", ".join(["?"] * len(key_filter))
+        key_sql = f" AND event_key IN ({key_placeholders}) "
+        params.extend(key_filter)
+    params.append(lim)
     with repo._connect() as conn:
         rows = conn.execute(
             repo._sql(
@@ -2125,6 +2143,7 @@ def list_events_for_chz(
                       AND UPPER(COALESCE(chz_status, '')) IN ({fail_placeholders})
                     )
                   )
+                  {key_sql}
                 ORDER BY
                   CASE WHEN fiscal_dt IS NULL OR fiscal_dt = '' THEN 1 ELSE 0 END,
                   fiscal_dt ASC,
@@ -2457,6 +2476,7 @@ def prepare_chz_batches(
     user_id: int,
     source_id: int,
     limit: int = PREPARE_EVENT_LIMIT,
+    event_keys: list[str] | None = None,
 ) -> dict[str, Any]:
     """Build unsigned CHZ document payloads grouped by operation + receipt."""
     settings = get_chz_settings(repo, user_id=user_id)
@@ -2484,8 +2504,17 @@ def prepare_chz_batches(
     except Exception as exc:
         logger.exception("maintain_kiz_circulation_storage failed: %s", exc)
     lim = max(1, min(int(limit or PREPARE_EVENT_LIMIT), 5000))
+    wanted_keys = [
+        str(k).strip()
+        for k in (event_keys or [])
+        if str(k or "").strip()
+    ] or None
     events_raw = list_events_for_chz(
-        repo, user_id=user_id, source_id=source_id, limit=lim
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        limit=lim,
+        event_keys=wanted_keys,
     )
     sent_identities = _load_sent_cis_identities(
         repo, user_id=user_id, source_id=source_id

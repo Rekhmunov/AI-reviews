@@ -10729,11 +10729,48 @@ button.wb-fbs-kiz-add:disabled {
   min-height: 0;
   overflow: hidden;
 }
-.wb-fbs-kiz-circ-table-wrap {
-  flex: 1 1 auto;
-  min-height: 200px;
-  overflow: auto;
-  background: #fff;
+.wb-fbs-kiz-circ-selected-info {
+  font-size: 13px;
+  color: #0f172a;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.wb-fbs-kiz-circ-check-col {
+  width: 40px;
+  min-width: 40px;
+  text-align: center !important;
+  padding-left: 8px !important;
+  padding-right: 8px !important;
+}
+.wb-fbs-kiz-circ-row-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  min-height: 24px;
+  margin: 0;
+  cursor: pointer;
+}
+.wb-fbs-kiz-circ-row-check input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: #0f766e;
+}
+.wb-fbs-kiz-circ-row-check input:focus-visible {
+  outline: 2px solid #0f766e;
+  outline-offset: 2px;
+}
+.wb-fbs-kiz-circ-row-check.is-disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+.wb-fbs-kiz-circ-row-check.is-disabled input {
+  cursor: not-allowed;
+}
+.wb-fbs-kiz-circ-table tr.is-selected {
+  background: #f0fdfa;
 }
 .wb-fbs-kiz-circ-table {
   width: 100%;

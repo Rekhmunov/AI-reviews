@@ -1819,9 +1819,12 @@
                 </label>
                 <button type="button" id="wbFbsKizCircSyncBtn" onclick="runWbFbsKizCirculationSync()">Ежедневный вывод</button>
                 <button type="button" class="secondary" id="wbFbsKizCircChzBtn" onclick="runWbFbsKizCirculationChz()">Передать в ЧЗ</button>
+                <button type="button" class="secondary" onclick="selectAllVisibleWbFbsKizCirc()">Выбрать видимые</button>
+                <button type="button" class="secondary" onclick="clearWbFbsKizCircSelection()">Снять выбор</button>
                 <button type="button" class="secondary" onclick="refreshWbFbsKizCirculation()">Обновить</button>
                 <button type="button" class="secondary" id="wbFbsKizCircLogBtn" onclick="openWbFbsKizCircLogModal()">Лог</button>
                 <span id="wbFbsKizCircCounts" class="wb-fbs-kiz-circ-counts"></span>
+                <span id="wbFbsKizCircSelectedInfo" class="wb-fbs-kiz-circ-selected-info"></span>
               </div>
               <div class="wb-fbs-kiz-circ-filters" id="wbFbsKizCircFilters">
                 <div class="wb-fbs-kiz-circ-filter-row">
@@ -1876,6 +1879,13 @@
                 <table class="wb-fbs-kiz-circ-table" aria-label="События КИЗ">
                   <thead>
                     <tr>
+                      <th class="wb-fbs-kiz-circ-check-col" scope="col">
+                        <label class="wb-fbs-kiz-circ-row-check" title="Выбрать все видимые к передаче">
+                          <input type="checkbox" id="wbFbsKizCircSelectAll"
+                                 onchange="toggleWbFbsKizCircSelectAll(this.checked)"
+                                 aria-label="Выбрать все видимые" />
+                        </label>
+                      </th>
                       <th>Дата чека</th>
                       <th>Тип</th>
                       <th>Заказ</th>
@@ -1888,7 +1898,7 @@
                     </tr>
                   </thead>
                   <tbody id="wbFbsKizCircTbody">
-                    <tr><td colspan="9" class="wb-fbs-kiz-circ-empty">Нет данных — выберите даты и нажмите «Ежедневный вывод»</td></tr>
+                    <tr><td colspan="10" class="wb-fbs-kiz-circ-empty">Нет данных — выберите даты и нажмите «Ежедневный вывод»</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -5010,6 +5020,6 @@
       </div>
     </div>
   </div>
-  <script src="/static/app.js?v=465"></script>
+  <script src="/static/app.js?v=466"></script>
 </body>
 </html>

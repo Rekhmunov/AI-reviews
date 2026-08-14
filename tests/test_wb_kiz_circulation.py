@@ -921,3 +921,58 @@ def test_prepare_caps_documents_per_round(
     assert "чек 100" in titles[0]
     assert "чек 101" in titles[1]
     assert "чек 102" in titles[2]
+
+
+@patch(
+    "review_processor.wb_kiz_circulation._close_deduped_prepare_events",
+    return_value=0,
+)
+@patch(
+    "review_processor.wb_kiz_circulation._load_sent_cis_identities",
+    return_value=set(),
+)
+@patch("review_processor.wb_kiz_circulation.list_events_for_chz")
+@patch(
+    "review_processor.wb_kiz_circulation.repair_circulation_queue",
+    return_value={"returns_fixed": 0, "withdraw_skipped": 0},
+)
+@patch("review_processor.wb_kiz_circulation.get_chz_settings")
+def test_prepare_passes_event_keys_filter(
+    mock_settings, _repair, mock_list, _sent, _close
+) -> None:
+    mock_settings.return_value = {
+        "is_enabled": True,
+        "participant_inn": "7707083893",
+        "product_group": "lp",
+        "kpp": "770701001",
+        "fias_id": "fias-1",
+        "return_type": "REMOTE_SALE_RETURN",
+        "cert_thumbprint": "",
+        "api_base": "prod",
+        "api_base_url": PROD_BASE,
+    }
+    mock_list.return_value = [
+        {
+            "event_key": "only-me",
+            "operation_type": 1,
+            "excise_short": "cis-x",
+            "fiscal_doc_number": "42",
+            "fiscal_dt": "2026-08-10",
+            "price": 10,
+            "currency_name": "RUB",
+            "status": "pending",
+        }
+    ]
+    out = circ.prepare_chz_batches(
+        repo=object(),
+        user_id=1,
+        source_id=2,
+        event_keys=["only-me", "ignored-not-returned"],
+    )
+    mock_list.assert_called_once()
+    assert mock_list.call_args.kwargs.get("event_keys") == [
+        "only-me",
+        "ignored-not-returned",
+    ]
+    assert out["counts"]["documents"] == 1
+    assert out["documents"][0]["event_keys"] == ["only-me"]

@@ -563,6 +563,11 @@ class WbKizChzSubmitRequest(BaseModel):
     run_id: int | None = None
 
 
+class WbKizChzPrepareRequest(BaseModel):
+    source_id: int = 0
+    event_keys: list[str] = Field(default_factory=list)
+
+
 class OzonEdoSendRequest(BaseModel):
     doc_type: str  # zakaz | etrn
     signature_base64: str
@@ -10382,7 +10387,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.post("/api/wb-fbs/kiz-circulation/chz/prepare")
     def wb_fbs_kiz_circulation_chz_prepare(
-        request: Request, source_id: int
+        request: Request,
+        source_id: int | None = None,
+        payload: WbKizChzPrepareRequest | None = None,
     ) -> dict[str, object]:
         from . import wb_kiz_circulation as kiz_circ
 
@@ -10391,11 +10398,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=403, detail="Нет доступа")
         _require_wb_fbs_kiz_owner(user)
         owner_id = _supply_owner_id(user)
-        if not source_id:
+        body = payload or WbKizChzPrepareRequest()
+        sid = int(source_id or body.source_id or 0)
+        if sid <= 0:
             raise HTTPException(status_code=400, detail="Укажите source_id")
+        keys = [str(k).strip() for k in (body.event_keys or []) if str(k or "").strip()]
         try:
             return kiz_circ.prepare_chz_batches(
-                repository, user_id=owner_id, source_id=int(source_id)
+                repository,
+                user_id=owner_id,
+                source_id=sid,
+                event_keys=keys or None,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
