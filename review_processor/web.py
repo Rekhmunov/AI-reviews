@@ -10329,7 +10329,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except Exception:
             healed = {"healed": 0}
         try:
-            # Keep queue to sold withdraw + cancelled return (FBS only).
+        # Keep queue to sold withdraw + Analytics return (PVZ) on FBS.
             fbs_back = kiz_circ.repair_requeue_fbs_matched_not_fbs(
                 repository, user_id=owner_id, source_id=int(source_id)
             )
