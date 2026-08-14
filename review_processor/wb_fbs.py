@@ -1081,6 +1081,20 @@ def ensure_wb_fbs_tables(repo: ReviewRepository) -> None:
             ADD COLUMN IF NOT EXISTS pick_verified_at TIMESTAMPTZ
             """
         )
+        # Marketplace ``rid`` (= analytics/report ``srid``) for joining to KIZ circulation.
+        conn.execute(
+            """
+            ALTER TABLE wb_fbs_orders
+            ADD COLUMN IF NOT EXISTS rid TEXT NOT NULL DEFAULT ''
+            """
+        )
+        conn.execute(
+            repo._sql(
+                "CREATE INDEX IF NOT EXISTS idx_wb_fbs_orders_user_src_rid "
+                "ON wb_fbs_orders(user_id, source_id, rid) "
+                "WHERE rid <> ''"
+            )
+        )
 
 
 def _kiz_code_clean(value: object) -> str:
@@ -1474,18 +1488,22 @@ def upsert_order(
             repo._sql(
                 """
                 INSERT INTO wb_fbs_orders (
-                    user_id, source_id, order_id, order_uid, article, nm_id, chrt_id, skus_json,
+                    user_id, source_id, order_id, order_uid, rid, article, nm_id, chrt_id, skus_json,
                     price, final_price, currency_code, warehouse_id, office_id, offices_json,
                     cargo_type, delivery_type, supplier_status, wb_status, tab, supply_id,
                     is_archive, is_b2b, comment_text, created_at_wb, raw_json, synced_at
                 ) VALUES (
-                    ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?
                 )
                 ON CONFLICT (user_id, source_id, order_id) DO UPDATE SET
                     order_uid = EXCLUDED.order_uid,
+                    rid = CASE
+                        WHEN EXCLUDED.rid != '' THEN EXCLUDED.rid
+                        ELSE wb_fbs_orders.rid
+                    END,
                     article = EXCLUDED.article,
                     nm_id = EXCLUDED.nm_id,
                     chrt_id = EXCLUDED.chrt_id,
@@ -1534,6 +1552,7 @@ def upsert_order(
                 source_id,
                 order_id,
                 str(order.get("orderUid") or ""),
+                str(order.get("rid") or "").strip(),
                 str(order.get("article") or ""),
                 order.get("nmId"),
                 order.get("chrtId"),
@@ -1559,6 +1578,112 @@ def upsert_order(
                 bool(has_b2b_signal),
             ),
         )
+
+
+def order_ids_by_srids(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    srids: list[str],
+) -> dict[str, int]:
+    """Map analytics ``srid`` (= marketplace order ``rid``) → numeric ``order_id``.
+
+    Falls back to ``raw_json.rid`` / ``order_uid`` when the ``rid`` column is empty
+    (orders synced before the column existed), and backfills ``rid`` when found.
+    """
+    ensure_wb_fbs_tables(repo)
+    keys = sorted({str(s or "").strip() for s in (srids or []) if str(s or "").strip()})
+    if not keys:
+        return {}
+    out: dict[str, int] = {}
+    placeholders = ", ".join("?" for _ in keys)
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                f"""
+                SELECT order_id, rid FROM wb_fbs_orders
+                WHERE user_id = ? AND source_id = ? AND rid IN ({placeholders})
+                """
+            ),
+            (user_id, source_id, *keys),
+        ).fetchall()
+        for r in rows:
+            d = repo._row_to_dict(r)
+            rid = str(d.get("rid") or "").strip()
+            try:
+                oid = int(d.get("order_id") or 0)
+            except (TypeError, ValueError):
+                oid = 0
+            if rid and oid > 0:
+                out[rid] = oid
+
+        missing = [k for k in keys if k not in out]
+        if not missing:
+            return out
+
+        ph = ", ".join("?" for _ in missing)
+        rows2 = conn.execute(
+            repo._sql(
+                f"""
+                SELECT order_id, order_uid, rid, raw_json
+                FROM wb_fbs_orders
+                WHERE user_id = ? AND source_id = ?
+                  AND (
+                    order_uid IN ({ph})
+                    OR (
+                      raw_json IS NOT NULL AND raw_json <> '' AND raw_json <> '{{}}'
+                      AND (raw_json::jsonb->>'rid') IN ({ph})
+                    )
+                  )
+                """
+            ),
+            (user_id, source_id, *missing, *missing),
+        ).fetchall()
+        for r in rows2:
+            d = repo._row_to_dict(r)
+            try:
+                oid = int(d.get("order_id") or 0)
+            except (TypeError, ValueError):
+                oid = 0
+            if oid <= 0:
+                continue
+            rid_col = str(d.get("rid") or "").strip()
+            uid = str(d.get("order_uid") or "").strip()
+            rid_json = ""
+            try:
+                raw = d.get("raw_json") or "{}"
+                payload = json.loads(raw) if isinstance(raw, str) else (raw or {})
+                if isinstance(payload, dict):
+                    rid_json = str(payload.get("rid") or "").strip()
+            except (TypeError, ValueError, json.JSONDecodeError):
+                rid_json = ""
+            match_key = ""
+            if rid_col and rid_col in out:
+                continue
+            if rid_col and rid_col in missing:
+                match_key = rid_col
+            elif rid_json and rid_json in missing:
+                match_key = rid_json
+            elif uid and uid in missing:
+                match_key = uid
+            if not match_key or match_key in out:
+                continue
+            out[match_key] = oid
+            # Backfill rid for faster next lookup when we found it via JSON.
+            if not rid_col and rid_json:
+                conn.execute(
+                    repo._sql(
+                        """
+                        UPDATE wb_fbs_orders
+                        SET rid = ?
+                        WHERE user_id = ? AND source_id = ? AND order_id = ?
+                          AND (rid IS NULL OR rid = '')
+                        """
+                    ),
+                    (rid_json, user_id, source_id, oid),
+                )
+    return out
 
 
 def upsert_supply(
