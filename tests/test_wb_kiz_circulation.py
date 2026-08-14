@@ -637,7 +637,7 @@ def test_order_portal_status_label() -> None:
     from review_processor.wb_fbs import order_portal_status_label
 
     assert order_portal_status_label(wb_status="sold") == "Выкуплен"
-    assert order_portal_status_label(wb_status="canceled_by_client") == "Клиент отказался"
+    assert order_portal_status_label(wb_status="canceled_by_client") == "Отказ на ПВЗ"
     assert order_portal_status_label(supplier_status="confirm") == "На сборке"
     assert order_portal_status_label(supplier_status="complete") == "В доставке"
     assert order_portal_status_label(supplier_status="new") == "Новый"
@@ -1266,7 +1266,7 @@ def test_prepare_skips_return_unless_cancelled(
             if ev.get("event_key") == "ret-ok":
                 ev["order_id"] = 20
                 ev["order_wb_status"] = "canceled_by_client"
-                ev["order_status_label"] = "Клиент отказался"
+                ev["order_status_label"] = "Отказ на ПВЗ"
             elif ev.get("event_key") == "ret-sold":
                 ev["order_id"] = 21
                 ev["order_wb_status"] = "sold"
@@ -1518,3 +1518,28 @@ def test_purge_non_fbs_deletes_batches() -> None:
     sql = conn.execute.call_args_list[1].args[0]
     assert "DELETE FROM wb_kiz_circulation_events" in sql
     assert circ.SKIP_NOT_FBS in conn.execute.call_args_list[1].args[1]
+
+
+def test_request_cancel_excise_sync_sets_flag() -> None:
+    circ._clear_sync_cancel(99)
+    assert not circ._sync_cancel_requested(99)
+    assert circ.request_cancel_excise_sync(99) is True
+    assert circ._sync_cancel_requested(99)
+    # Re-register must keep the cancel flag (race: Стоп before worker starts).
+    circ._register_sync_cancel(99)
+    assert circ._sync_cancel_requested(99)
+    try:
+        circ._check_sync_cancelled(99)
+        raise AssertionError("expected SyncCancelled")
+    except circ.SyncCancelled:
+        pass
+    finally:
+        circ._clear_sync_cancel(99)
+
+
+def test_portal_labels_match_seller_cabinet() -> None:
+    from review_processor.wb_fbs import order_portal_status_label
+
+    assert order_portal_status_label(wb_status="sold") == "Выкуплен"
+    assert order_portal_status_label(wb_status="canceled_by_client") == "Отказ на ПВЗ"
+    assert order_portal_status_label(wb_status="defect") == "Найдены дефекты"

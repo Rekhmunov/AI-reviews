@@ -74,7 +74,7 @@ def test_list_supply_cancelled_orders_finds_canceled_by_client() -> None:
     assert payload["order_count"] == 3
     assert payload["cancelled_count"] == 2
     assert [r["order_id"] for r in payload["rows"]] == [5440959209, 5443002750]
-    assert payload["rows"][0]["cancel_reason_label"] == "Клиент отказался"
+    assert payload["rows"][0]["cancel_reason_label"] == "Отказ на ПВЗ"
     assert payload["rows"][0]["sticker_number"] == "1112222"
     assert payload["rows"][0]["barcodes"] == ["2000000000001"]
     assert payload["rows"][1]["brand"] == "Brand"

@@ -540,6 +540,11 @@ class WbKizCirculationSyncRequest(BaseModel):
     date_to: str = ""
 
 
+class WbKizCirculationSyncCancelRequest(BaseModel):
+    source_id: int = 0
+    run_id: int | None = None
+
+
 class WbKizChzAuthRequest(BaseModel):
     uuid: str
     signature_base64: str
@@ -10319,8 +10324,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         owner_id = _supply_owner_id(user)
         if not source_id:
             raise HTTPException(status_code=400, detail="Укажите source_id")
-        # List must stay fast: no archive hydrate. Heal stuck submitted statuses,
-        # join local orders, optionally refresh Marketplace statuses for linked ids.
+        # List must stay fast: no archive hydrate, no FBO purge (purge runs in sync).
+        # Heal stuck submitted statuses; join/refresh happens inside list_events.
         api_key = _wb_fbs_source_key(owner_id, int(source_id))
         try:
             healed = kiz_circ.heal_submitted_terminal_statuses(
@@ -10328,25 +10333,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             )
         except Exception:
             healed = {"healed": 0}
-        try:
-        # Keep queue to sold withdraw + Analytics return (PVZ) on FBS.
-            fbs_back = kiz_circ.repair_requeue_fbs_matched_not_fbs(
-                repository, user_id=owner_id, source_id=int(source_id)
-            )
-            not_fbs = kiz_circ.repair_skip_non_fbs_events(
-                repository, user_id=owner_id, source_id=int(source_id)
-            )
-            not_fbs_purged = kiz_circ.purge_non_fbs_circulation_events(
-                repository, user_id=owner_id, source_id=int(source_id)
-            )
-            status_skip = kiz_circ.repair_skip_wrong_fbs_status_events(
-                repository, user_id=owner_id, source_id=int(source_id)
-            )
-        except Exception:
-            not_fbs = 0
-            not_fbs_purged = 0
-            fbs_back = 0
-            status_skip = {}
         try:
             items = kiz_circ.list_events(
                 repository,
@@ -10367,13 +10353,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "items": items,
             "total": len(items),
             "healed": int((healed or {}).get("healed") or 0),
-            "not_fbs_skipped": int(not_fbs or 0),
-            "not_fbs_purged": int(not_fbs_purged or 0),
-            "not_sold_skipped": int((status_skip or {}).get("not_sold_skipped") or 0),
-            "not_return_skipped": int(
-                (status_skip or {}).get("not_return_skipped") or 0
-            ),
-            "fbs_requeued": int(fbs_back or 0),
+            "not_fbs_skipped": 0,
+            "not_fbs_purged": 0,
+            "not_sold_skipped": 0,
+            "not_return_skipped": 0,
+            "fbs_requeued": 0,
         }
 
     @app.post("/api/wb-fbs/kiz-circulation/chz/reconcile")
@@ -10457,7 +10441,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
         def _worker() -> None:
             try:
-                kiz_circ.sync_excise_report(
+                result = kiz_circ.sync_excise_report(
                     repository,
                     user_id=owner_id,
                     source_id=sid,
@@ -10467,8 +10451,24 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     run_id=run_id,
                     marketplace_api_key=marketplace_key,
                 )
+                if result.get("cancelled"):
+                    _log.info("kiz circulation sync cancelled run_id=%s", run_id)
             except Exception as exc:
+                if isinstance(exc, kiz_circ.SyncCancelled):
+                    _log.info("kiz circulation sync cancelled run_id=%s", run_id)
+                    return
                 _log.exception("kiz circulation async sync failed: %s", exc)
+                # sync_excise_report already finishes the run with the full log;
+                # do not overwrite progress with the short create-time log.
+                try:
+                    existing = kiz_circ.get_run(
+                        repository, user_id=owner_id, run_id=run_id
+                    )
+                    st = str((existing or {}).get("status") or "")
+                    if st in {"ok", "error", "cancelled"}:
+                        return
+                except Exception:
+                    _log.exception("kiz circulation read run after failure failed")
                 try:
                     kiz_circ._finish_run(
                         repository,
@@ -10486,6 +10486,42 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             daemon=True,
         ).start()
         return started
+
+    @app.post("/api/wb-fbs/kiz-circulation/sync/cancel")
+    def wb_fbs_kiz_circulation_sync_cancel(
+        request: Request, payload: WbKizCirculationSyncCancelRequest
+    ) -> dict[str, object]:
+        """Stop an in-flight «Ежедневный вывод» for this source (or explicit run_id)."""
+        from . import wb_kiz_circulation as kiz_circ
+
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        _require_wb_fbs_kiz_owner(user)
+        owner_id = _supply_owner_id(user)
+        rid = int(payload.run_id or 0)
+        sid = int(payload.source_id or 0)
+        if rid <= 0:
+            if sid <= 0:
+                raise HTTPException(
+                    status_code=400, detail="Укажите source_id или run_id"
+                )
+            active = kiz_circ.find_active_excise_sync_run(
+                repository, user_id=owner_id, source_id=sid
+            )
+            if not active:
+                return {
+                    "ok": True,
+                    "already_finished": True,
+                    "message": "Активной выгрузки нет",
+                }
+            rid = int(active.get("id") or 0)
+        try:
+            return kiz_circ.cancel_excise_sync_run(
+                repository, user_id=owner_id, run_id=rid
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.get("/api/wb-fbs/kiz-circulation/runs/{run_id}")
     def wb_fbs_kiz_circulation_run(

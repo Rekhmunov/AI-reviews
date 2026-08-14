@@ -16,11 +16,12 @@ import hashlib
 import json
 import logging
 import re
+import threading
 import time
 import urllib.error
 import urllib.request
 from datetime import date, datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
@@ -39,6 +40,63 @@ logger = logging.getLogger(__name__)
 
 MSK = ZoneInfo("Europe/Moscow")
 WB_ANALYTICS_API = "https://seller-analytics-api.wildberries.ru"
+
+# In-process cancel flags for async «Ежедневный вывод» (one uvicorn worker).
+_SYNC_CANCEL_LOCK = threading.Lock()
+_SYNC_CANCEL: dict[int, threading.Event] = {}
+
+
+class SyncCancelled(Exception):
+    """User requested stop of an in-flight excise sync."""
+
+
+def _register_sync_cancel(run_id: int) -> threading.Event:
+    """Attach (or reuse) a cancel Event for ``run_id``.
+
+    Critical: never replace a flag that is already set — «Стоп» may race the
+    worker's first ``_register_sync_cancel`` after ``create_excise_sync_run``.
+    """
+    rid = int(run_id)
+    with _SYNC_CANCEL_LOCK:
+        existing = _SYNC_CANCEL.get(rid)
+        if existing is not None:
+            return existing
+        ev = threading.Event()
+        _SYNC_CANCEL[rid] = ev
+        return ev
+
+
+def _clear_sync_cancel(run_id: int) -> None:
+    with _SYNC_CANCEL_LOCK:
+        _SYNC_CANCEL.pop(int(run_id), None)
+
+
+def request_cancel_excise_sync(run_id: int) -> bool:
+    """Signal a running sync to stop. Returns True if a cancel flag was set."""
+    rid = int(run_id or 0)
+    if rid <= 0:
+        return False
+    with _SYNC_CANCEL_LOCK:
+        ev = _SYNC_CANCEL.get(rid)
+        if ev is None:
+            ev = threading.Event()
+            _SYNC_CANCEL[rid] = ev
+        ev.set()
+        return True
+
+
+def _sync_cancel_requested(run_id: int | None) -> bool:
+    rid = int(run_id or 0)
+    if rid <= 0:
+        return False
+    with _SYNC_CANCEL_LOCK:
+        ev = _SYNC_CANCEL.get(rid)
+    return bool(ev is not None and ev.is_set())
+
+
+def _check_sync_cancelled(run_id: int | None) -> None:
+    if _sync_cancel_requested(run_id):
+        raise SyncCancelled("Синхронизация остановлена")
 
 OP_WITHDRAW = 1
 OP_RETURN = 2
@@ -622,8 +680,8 @@ def _norm_eligibility_skip(
     """Empty if row may enter Вывод КИЗ; else ASCII skip code.
 
     - withdraw (1): FBS + wbStatus=sold → вывод из оборота
-    - return (2): FBS match → ввод в оборот (excise op=2 = возврат/отказ на ПВЗ;
-      not pre-delivery cancel — those are not op=2 in the report)
+    - return (2): FBS match → ввод в оборот (excise op=2 = возврат/отказ на ПВЗ /
+      найдены дефекты; not pre-delivery cancel)
     """
     info = _lookup_fbs_order(norm, index)
     if not info:
@@ -860,7 +918,12 @@ def repair_skip_non_fbs_events(
 
 
 def purge_non_fbs_circulation_events(
-    repo: ReviewRepository, *, user_id: int, source_id: int
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    run_id: int | None = None,
+    on_batch: Callable[[int, int], None] | None = None,
 ) -> int:
     """Hard-delete non-FBS (e.g. FBO) rows from the circulation table.
 
@@ -887,6 +950,7 @@ def purge_non_fbs_circulation_events(
     join_sql = _fbs_order_join_sql()
     deleted = 0
     for _ in range(100):
+        _check_sync_cancelled(run_id)
         with repo._connect() as conn:
             cur = conn.execute(
                 repo._sql(
@@ -919,6 +983,11 @@ def purge_non_fbs_circulation_events(
             )
             n = int(getattr(cur, "rowcount", 0) or 0)
         deleted += n
+        if on_batch is not None and n:
+            try:
+                on_batch(n, deleted)
+            except Exception:
+                logger.exception("purge_non_fbs on_batch failed")
         if n < PURGE_BATCH_SIZE:
             break
     return deleted
@@ -1390,69 +1459,118 @@ def maintain_kiz_circulation_storage(
 
 
 def repair_circulation_queue(
-    repo: ReviewRepository, *, user_id: int, source_id: int
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    run_id: int | None = None,
+    on_log: Callable[[str], None] | None = None,
 ) -> dict[str, int]:
+    def _log(msg: str) -> None:
+        if on_log is not None:
+            try:
+                on_log(msg)
+            except Exception:
+                logger.exception("repair_circulation_queue on_log failed")
+
     try:
+        _check_sync_cancelled(run_id)
         returns_fixed = repair_stuck_return_events(
             repo, user_id=user_id, source_id=source_id
         )
+    except SyncCancelled:
+        raise
     except Exception as exc:
         logger.exception("repair_stuck_return_events failed: %s", exc)
         returns_fixed = 0
     try:
+        _check_sync_cancelled(run_id)
         withdraw_from_error = repair_unhealable_withdraw_errors(
             repo, user_id=user_id, source_id=source_id
         )
+    except SyncCancelled:
+        raise
     except Exception as exc:
         logger.exception("repair_unhealable_withdraw_errors failed: %s", exc)
         withdraw_from_error = 0
     try:
+        _check_sync_cancelled(run_id)
         withdraw_requeued = repair_nofiscal_withdraw_to_pending(
             repo, user_id=user_id, source_id=source_id
         )
+    except SyncCancelled:
+        raise
     except Exception as exc:
         logger.exception("repair_nofiscal_withdraw_to_pending failed: %s", exc)
         withdraw_requeued = 0
     try:
+        _check_sync_cancelled(run_id)
         orphan_submitted = repair_orphan_submitted_events(
             repo, user_id=user_id, source_id=source_id
         )
+    except SyncCancelled:
+        raise
     except Exception as exc:
         logger.exception("repair_orphan_submitted_events failed: %s", exc)
         orphan_submitted = 0
     try:
+        _check_sync_cancelled(run_id)
         legacy_skipped = repair_legacy_skipped_with_cis(
             repo, user_id=user_id, source_id=source_id
         )
+    except SyncCancelled:
+        raise
     except Exception as exc:
         logger.exception("repair_legacy_skipped_with_cis failed: %s", exc)
         legacy_skipped = 0
     try:
+        _check_sync_cancelled(run_id)
         fbs_requeued = repair_requeue_fbs_matched_not_fbs(
             repo, user_id=user_id, source_id=source_id
         )
+    except SyncCancelled:
+        raise
     except Exception as exc:
         logger.exception("repair_requeue_fbs_matched_not_fbs failed: %s", exc)
         fbs_requeued = 0
     try:
         # After legacy requeue — drop open rows that are not Marketplace FBS.
+        _check_sync_cancelled(run_id)
         not_fbs_skipped = repair_skip_non_fbs_events(
             repo, user_id=user_id, source_id=source_id
         )
+    except SyncCancelled:
+        raise
     except Exception as exc:
         logger.exception("repair_skip_non_fbs_events failed: %s", exc)
         not_fbs_skipped = 0
     try:
+        _check_sync_cancelled(run_id)
+        _log("очистка не-FBS (FBO) из таблицы…")
+
+        def _purge_progress(batch_n: int, total_n: int) -> None:
+            _check_sync_cancelled(run_id)
+            _log(f"удалено не-FBS: +{batch_n} (всего {total_n})")
+
         not_fbs_purged = purge_non_fbs_circulation_events(
-            repo, user_id=user_id, source_id=source_id
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            run_id=run_id,
+            on_batch=_purge_progress,
         )
+    except SyncCancelled:
+        raise
     except Exception as exc:
         logger.exception("purge_non_fbs_circulation_events failed: %s", exc)
         not_fbs_purged = 0
     try:
+        _check_sync_cancelled(run_id)
         status_skip = repair_skip_wrong_fbs_status_events(
             repo, user_id=user_id, source_id=source_id
         )
+    except SyncCancelled:
+        raise
     except Exception as exc:
         logger.exception("repair_skip_wrong_fbs_status_events failed: %s", exc)
         status_skip = {"not_sold_skipped": 0, "not_return_skipped": 0, "skipped": 0}
@@ -2241,239 +2359,293 @@ def sync_excise_report(
     marketplace_api_key: str = "",
 ) -> dict[str, Any]:
     ensure_kiz_circulation_tables(repo)
-    repaired = repair_circulation_queue(repo, user_id=user_id, source_id=source_id)
-    try:
-        # Throttled — force=True on large syncs caused GC to burn the HTTP budget.
-        storage = maintain_kiz_circulation_storage(
-            repo, user_id=user_id, source_id=source_id, force=False
-        )
-        repaired.update(storage)
-    except Exception as exc:
-        logger.exception("maintain_kiz_circulation_storage failed: %s", exc)
     period = resolve_excise_period(date_from=date_from, date_to=date_to)
     date_from_s = str(period["date_from"])
     date_to_s = str(period["date_to"])
 
     now = datetime.now(timezone.utc).isoformat()
     log: list[str] = []
-    _append_log(
-        log,
-        f"WB: выгрузка за выбранные даты {date_from_s}…{date_to_s} "
-        f"({period['days']} дн., один запрос)",
-    )
-    if int(period["days"] or 0) > 31:
-        _append_log(
-            log,
-            "совет: для периода >31 дня запрос к WB и запись в БД могут быть долгими; "
-            "при HTTP 504 дождитесь окончания на сервере или берите месяц порциями",
-        )
-    if repaired.get("returns_fixed"):
-        _append_log(log, f"восстановлено возвратов без чека: {repaired['returns_fixed']}")
-    if repaired.get("withdraw_skipped"):
-        _append_log(
-            log,
-            f"выводы без чека из error → очередь OTHER: {repaired['withdraw_skipped']}",
-        )
-    if repaired.get("withdraw_requeued"):
-        _append_log(
-            log,
-            f"выводы без чека из skipped → очередь OTHER: {repaired['withdraw_requeued']}",
-        )
-    if repaired.get("orphan_submitted"):
-        _append_log(
-            log,
-            f"восстановлено submitted без chz_doc_id: {repaired['orphan_submitted']}",
-        )
-    if repaired.get("legacy_skipped"):
-        _append_log(
-            log,
-            f"возвращено из skipped в очередь: {repaired['legacy_skipped']}",
-        )
-    if repaired.get("fbs_requeued"):
-        _append_log(
-            log,
-            f"снова в очереди (нашлись в FBS): {repaired['fbs_requeued']}",
-        )
-    if repaired.get("not_fbs_skipped"):
-        _append_log(
-            log,
-            f"убрано из очереди (нет в заказах FBS, вероятно FBO): "
-            f"{repaired['not_fbs_skipped']}",
-        )
-    if repaired.get("not_fbs_purged"):
-        _append_log(
-            log,
-            f"удалено из таблицы (не FBS / FBO): {repaired['not_fbs_purged']}",
-        )
-    if repaired.get("not_sold_skipped"):
-        _append_log(
-            log,
-            f"убрано (вывод только для выкупленных sold): "
-            f"{repaired['not_sold_skipped']}",
-        )
-    if repaired.get("not_return_skipped"):
-        _append_log(
-            log,
-            f"убрано (возврат в оборот только для отказных): "
-            f"{repaired['not_return_skipped']}",
-        )
-    if repaired.get("raw_json_cleared") or repaired.get("events_purged"):
-        _append_log(
-            log,
-            "очистка хранения: "
-            f"raw_json={repaired.get('raw_json_cleared') or 0}, "
-            f"событий>{EVENT_RETENTION_DAYS}д={repaired.get('events_purged') or 0}, "
-            f"runs={repaired.get('runs_purged') or 0}, "
-            f"docs={repaired.get('docs_purged') or 0}",
-        )
+    run_id = int(run_id or 0)
+    if run_id > 0:
+        _register_sync_cancel(run_id)
 
-    if run_id and int(run_id) > 0:
-        run_id = int(run_id)
-        with repo._connect() as conn:
-            conn.execute(
-                repo._sql(
-                    """
-                    UPDATE wb_kiz_circulation_runs SET
-                        date_from = ?, date_to = ?, status = 'running',
-                        log_text = ?, error_text = ''
-                    WHERE id = ? AND user_id = ?
-                    """
-                ),
-                (date_from_s, date_to_s, "\n".join(log)[:50000], run_id, user_id),
-            )
-    else:
-        with repo._connect() as conn:
-            row = conn.execute(
-                repo._sql(
-                    """
-                    INSERT INTO wb_kiz_circulation_runs (
-                        user_id, source_id, date_from, date_to, stage, status,
-                        created_at, log_text
-                    ) VALUES (?, ?, ?, ?, 'wb_sync', 'running', ?, ?)
-                    RETURNING id
-                    """
-                ),
-                (user_id, source_id, date_from_s, date_to_s, now, "\n".join(log)[:50000]),
-            ).fetchone()
-            run_id = int(repo._row_to_dict(row).get("id") or 0) if row else 0
-
-    try:
-        # Large ranges need a longer WB wait; nginx may still 504 — use async sync.
-        rows = fetch_wb_excise_report(
-            api_key=api_key,
-            date_from=date_from_s,
-            date_to=date_to_s,
-            timeout=120,
-        )
-    except Exception as exc:
-        _append_log(log, f"Ошибка WB: {exc}")
+    def _flush(status: str = "running", **counts: Any) -> None:
+        if run_id <= 0:
+            return
         _finish_run(
             repo,
             run_id=run_id,
-            status="error",
+            status=status,
             log=log,
-            error_text=str(exc),
+            fetched=int(counts.get("fetched") or 0),
+            inserted=int(counts.get("inserted") or 0),
+            skipped=int(counts.get("skipped") or 0),
+            withdraw_count=int(counts.get("withdraw_count") or 0),
+            return_count=int(counts.get("return_count") or 0),
+            error_text=str(counts.get("error_text") or ""),
         )
-        raise
 
-    _append_log(log, f"получено {len(rows)} строк из Analytics excise-report")
-    # Normalize first so we can hydrate/match by srid before inserting.
-    norms: list[dict[str, Any]] = []
-    skipped_bad = 0
-    for raw in rows:
-        norm = _normalize_row(raw)
-        if not norm:
-            skipped_bad += 1
-            continue
-        norms.append(norm)
-    fbs_index, match_meta = build_excise_fbs_match_index(
-        repo,
-        user_id=user_id,
-        source_id=source_id,
-        norms=norms,
-        marketplace_api_key=marketplace_api_key,
-        log=log,
-    )
-    local_rid_n = len(
-        load_local_fbs_order_index(repo, user_id=user_id, source_id=source_id)
-    )
-    if not fbs_index:
-        # Do not pretend success-as-FBO-only when hydrate failed or local rids exist.
-        if not match_meta.get("hydrate_ok") and local_rid_n > 0:
-            msg = (
-                "не удалось сопоставить отчёт с FBS (hydrate/токен). "
-                f"Локальных rid={local_rid_n}. Повторите после синка архива WB FBS."
+    def _progress(line: str, **counts: Any) -> None:
+        _append_log(log, line)
+        _flush(**counts)
+
+    try:
+        _progress(
+            f"WB: выгрузка за выбранные даты {date_from_s}…{date_to_s} "
+            f"({period['days']} дн., фоновый режим)"
+        )
+        if int(period["days"] or 0) > 31:
+            _progress(
+                "совет: для периода >31 дня запрос к WB и запись в БД могут быть долгими; "
+                "лучше брать ≤31 день порциями"
             )
-            _append_log(log, f"ОШИБКА: {msg}")
-            _finish_run(
-                repo,
-                run_id=run_id,
-                status="error",
-                log=log,
+
+        _check_sync_cancelled(run_id)
+        _progress("подготовка очереди (FBS-фильтр, очистка FBO)…")
+
+        repaired = repair_circulation_queue(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            run_id=run_id if run_id > 0 else None,
+            on_log=lambda msg: _progress(msg),
+        )
+        try:
+            # Throttled — force=True on large syncs caused GC to burn the HTTP budget.
+            _check_sync_cancelled(run_id)
+            storage = maintain_kiz_circulation_storage(
+                repo, user_id=user_id, source_id=source_id, force=False
+            )
+            repaired.update(storage)
+        except SyncCancelled:
+            raise
+        except Exception as exc:
+            logger.exception("maintain_kiz_circulation_storage failed: %s", exc)
+
+        if repaired.get("returns_fixed"):
+            _progress(f"восстановлено возвратов без чека: {repaired['returns_fixed']}")
+        if repaired.get("withdraw_skipped"):
+            _progress(
+                f"выводы без чека из error → очередь OTHER: {repaired['withdraw_skipped']}"
+            )
+        if repaired.get("withdraw_requeued"):
+            _progress(
+                f"выводы без чека из skipped → очередь OTHER: {repaired['withdraw_requeued']}"
+            )
+        if repaired.get("orphan_submitted"):
+            _progress(
+                f"восстановлено submitted без chz_doc_id: {repaired['orphan_submitted']}"
+            )
+        if repaired.get("legacy_skipped"):
+            _progress(f"возвращено из skipped в очередь: {repaired['legacy_skipped']}")
+        if repaired.get("fbs_requeued"):
+            _progress(f"снова в очереди (нашлись в FBS): {repaired['fbs_requeued']}")
+        if repaired.get("not_fbs_skipped"):
+            _progress(
+                f"убрано из очереди (нет в заказах FBS, вероятно FBO): "
+                f"{repaired['not_fbs_skipped']}"
+            )
+        if repaired.get("not_fbs_purged"):
+            _progress(f"удалено из таблицы (не FBS / FBO): {repaired['not_fbs_purged']}")
+        if repaired.get("not_sold_skipped"):
+            _progress(
+                f"убрано (вывод только для выкупленных sold): "
+                f"{repaired['not_sold_skipped']}"
+            )
+        if repaired.get("not_return_skipped"):
+            _progress(
+                f"убрано (возврат в оборот только для отказных): "
+                f"{repaired['not_return_skipped']}"
+            )
+        if repaired.get("raw_json_cleared") or repaired.get("events_purged"):
+            _progress(
+                "очистка хранения: "
+                f"raw_json={repaired.get('raw_json_cleared') or 0}, "
+                f"событий>{EVENT_RETENTION_DAYS}д={repaired.get('events_purged') or 0}, "
+                f"runs={repaired.get('runs_purged') or 0}, "
+                f"docs={repaired.get('docs_purged') or 0}"
+            )
+
+        if run_id <= 0:
+            with repo._connect() as conn:
+                row = conn.execute(
+                    repo._sql(
+                        """
+                        INSERT INTO wb_kiz_circulation_runs (
+                            user_id, source_id, date_from, date_to, stage, status,
+                            created_at, log_text
+                        ) VALUES (?, ?, ?, ?, 'wb_sync', 'running', ?, ?)
+                        RETURNING id
+                        """
+                    ),
+                    (
+                        user_id,
+                        source_id,
+                        date_from_s,
+                        date_to_s,
+                        now,
+                        "\n".join(log)[:50000],
+                    ),
+                ).fetchone()
+                run_id = int(repo._row_to_dict(row).get("id") or 0) if row else 0
+            if run_id > 0:
+                _register_sync_cancel(run_id)
+        else:
+            with repo._connect() as conn:
+                conn.execute(
+                    repo._sql(
+                        """
+                        UPDATE wb_kiz_circulation_runs SET
+                            date_from = ?, date_to = ?, status = 'running',
+                            log_text = ?, error_text = ''
+                        WHERE id = ? AND user_id = ?
+                        """
+                    ),
+                    (date_from_s, date_to_s, "\n".join(log)[:50000], run_id, user_id),
+                )
+
+        _check_sync_cancelled(run_id)
+        _progress(
+            "запрос к WB Analytics excise-report… "
+            "(стоп применится после ответа WB; лимит 10 запросов / 5 ч)"
+        )
+
+        fetch_holder: dict[str, Any] = {"rows": None, "exc": None}
+
+        def _wb_worker() -> None:
+            try:
+                fetch_holder["rows"] = fetch_wb_excise_report(
+                    api_key=api_key,
+                    date_from=date_from_s,
+                    date_to=date_to_s,
+                    timeout=120,
+                )
+            except Exception as exc:  # noqa: BLE001 — surface to parent thread
+                fetch_holder["exc"] = exc
+
+        wb_thread = threading.Thread(
+            target=_wb_worker, name=f"kiz-wb-fetch-{run_id}", daemon=True
+        )
+        wb_thread.start()
+        last_beat = time.monotonic()
+        while wb_thread.is_alive():
+            if _sync_cancel_requested(run_id):
+                _progress(
+                    "стоп запрошен — жду завершения текущего запроса WB "
+                    "(уже отправленный запрос нельзя отменить)"
+                )
+            wb_thread.join(timeout=5.0)
+            now_m = time.monotonic()
+            if wb_thread.is_alive() and now_m - last_beat >= 15:
+                _progress("ожидание ответа WB Analytics…")
+                last_beat = now_m
+        if fetch_holder["exc"] is not None:
+            # Prefer user cancel over a late WB error if Стоп was pressed mid-fetch.
+            _check_sync_cancelled(run_id)
+            raise fetch_holder["exc"]
+        rows = list(fetch_holder["rows"] or [])
+        _check_sync_cancelled(run_id)
+
+        _progress(
+            f"получено {len(rows)} строк из Analytics excise-report",
+            fetched=len(rows),
+        )
+        norms: list[dict[str, Any]] = []
+        skipped_bad = 0
+        for raw in rows:
+            _check_sync_cancelled(run_id)
+            norm = _normalize_row(raw)
+            if not norm:
+                skipped_bad += 1
+                continue
+            norms.append(norm)
+        _progress(
+            f"нормализовано {len(norms)} строк"
+            + (f", битых {skipped_bad}" if skipped_bad else ""),
+            fetched=len(rows),
+        )
+        _check_sync_cancelled(run_id)
+        _progress(
+            "сопоставление srid↔Marketplace rid (hydrate при необходимости)…",
+            fetched=len(rows),
+        )
+        fbs_index, match_meta = build_excise_fbs_match_index(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            norms=norms,
+            marketplace_api_key=marketplace_api_key,
+            log=log,
+        )
+        _flush(fetched=len(rows))
+        _check_sync_cancelled(run_id)
+        local_rid_n = len(
+            load_local_fbs_order_index(repo, user_id=user_id, source_id=source_id)
+        )
+        if not fbs_index:
+            if not match_meta.get("hydrate_ok") and local_rid_n > 0:
+                msg = (
+                    "не удалось сопоставить отчёт с FBS (hydrate/токен). "
+                    f"Локальных rid={local_rid_n}. Повторите после синка архива WB FBS."
+                )
+                _append_log(log, f"ОШИБКА: {msg}")
+                _finish_run(
+                    repo,
+                    run_id=run_id,
+                    status="error",
+                    log=log,
+                    fetched=len(rows),
+                    inserted=0,
+                    skipped=len(rows),
+                    error_text=msg,
+                )
+                return {
+                    "ok": False,
+                    "run_id": run_id,
+                    "date_from": date_from_s,
+                    "date_to": date_to_s,
+                    "fetched": len(rows),
+                    "inserted": 0,
+                    "updated": 0,
+                    "skipped": len(rows),
+                    "skipped_not_fbs": len(norms),
+                    "error": msg,
+                    "withdraw_count": 0,
+                    "return_count": 0,
+                    "log": "\n".join(log),
+                    "cursor": get_cursor(repo, user_id=user_id, source_id=source_id),
+                }
+            _progress(
+                "внимание: 0 совпадений srid↔rid — в очередь ничего не пишем "
+                f"(локальных rid={local_rid_n}; вероятно в отчёте только FBO "
+                "или архив FBS ещё не подтянут).",
                 fetched=len(rows),
-                inserted=0,
-                skipped=len(rows),
-                error_text=msg,
             )
-            return {
-                "ok": False,
-                "run_id": run_id,
-                "date_from": date_from_s,
-                "date_to": date_to_s,
-                "fetched": len(rows),
-                "inserted": 0,
-                "updated": 0,
-                "skipped": len(rows),
-                "skipped_not_fbs": len(norms),
-                "error": msg,
-                "withdraw_count": 0,
-                "return_count": 0,
-                "log": "\n".join(log),
-                "cursor": get_cursor(repo, user_id=user_id, source_id=source_id),
-            }
-        _append_log(
-            log,
-            "внимание: 0 совпадений srid↔rid — в очередь ничего не пишем "
-            f"(локальных rid={local_rid_n}; вероятно в отчёте только FBO "
-            "или архив FBS ещё не подтянут).",
+        sold_n = int(match_meta.get("sold_orders") or 0)
+        _progress(
+            f"фильтр FBS активен: сопоставлено ключей={len(fbs_index)}, "
+            f"sold={sold_n}; "
+            "в БД: sold→вывод, Analytics op=2 (возврат/ПВЗ/дефект)→ввод; FBO не пишем",
+            fetched=len(rows),
         )
-        # Fall through with empty index: loop will skip everything, counts stay honest.
-    sold_n = int(match_meta.get("sold_orders") or 0)
-    _append_log(
-        log,
-        f"фильтр FBS активен: сопоставлено ключей={len(fbs_index)}, "
-        f"sold={sold_n}; "
-        "в БД: sold→вывод, Analytics op=2 (возврат/ПВЗ)→ввод; FBO не пишем",
-    )
-    # Persist progress so UI polling shows WB finished even while DB writes run.
-    _finish_run(
-        repo,
-        run_id=run_id,
-        status="running",
-        log=log,
-        fetched=len(rows),
-    )
-    inserted = 0
-    updated = 0
-    skipped = skipped_bad
-    skipped_not_fbs = 0
-    skipped_not_sold = 0
-    skipped_not_return = 0
-    suppressed = 0
-    withdraw_n = 0
-    return_n = 0
-    insert_errors = 0
-    last_key = ""
-    last_fiscal = ""
-    sent_identities = _load_sent_cis_identities(
-        repo, user_id=user_id, source_id=source_id
-    )
+        inserted = 0
+        updated = 0
+        skipped = skipped_bad
+        skipped_not_fbs = 0
+        skipped_not_sold = 0
+        skipped_not_return = 0
+        suppressed = 0
+        withdraw_n = 0
+        return_n = 0
+        insert_errors = 0
+        last_key = ""
+        last_fiscal = ""
+        sent_identities = _load_sent_cis_identities(
+            repo, user_id=user_id, source_id=source_id
+        )
 
-    with repo._connect() as conn:
-        related_index = _prefetch_related_events_index(
-            conn, repo, user_id=user_id, source_id=source_id
-        )
-        for i, norm in enumerate(norms, start=1):
+        candidates: list[dict[str, Any]] = []
+        for norm in norms:
             elig = _norm_eligibility_skip(norm, fbs_index)
             if elig:
                 skipped += 1
@@ -2483,258 +2655,289 @@ def sync_excise_report(
                     skipped_not_sold += 1
                 elif elig == SKIP_NOT_RETURN:
                     skipped_not_return += 1
-                if i % 5000 == 0:
+                continue
+            candidates.append(norm)
+        _progress(
+            f"к записи в очередь: {len(candidates)} "
+            f"(пропуск до INSERT: FBO/не FBS {skipped_not_fbs}, не sold {skipped_not_sold})",
+            fetched=len(rows),
+            skipped=skipped,
+        )
+        _check_sync_cancelled(run_id)
+
+        with repo._connect() as conn:
+            related_index = _prefetch_related_events_index(
+                conn, repo, user_id=user_id, source_id=source_id
+            )
+            for i, norm in enumerate(candidates, start=1):
+                if i % 200 == 0:
+                    _check_sync_cancelled(run_id)
+                    time.sleep(0)
+                norm["raw_json"] = ""
+                status, skip_reason = _initial_status(norm)
+                try:
+                    related = _related_from_index(related_index, norm=norm)
+                    action, target = _resolve_sync_action(related, norm=norm)
+                    if action == "insert":
+                        ident = _cis_identity(
+                            srid=str(norm.get("srid") or ""),
+                            rid=str(norm.get("rid") or ""),
+                            excise_short=str(norm.get("excise_short") or ""),
+                            operation_type=int(norm.get("operation_type") or 0),
+                        )
+                        if ident[1] and ident in sent_identities:
+                            action = "suppress"
+                            target = None
+                    if action == "suppress":
+                        suppressed += 1
+                        skipped += 1
+                        continue
+                    if int(norm["operation_type"]) == OP_WITHDRAW:
+                        withdraw_n += 1
+                    else:
+                        return_n += 1
+                    if action == "upgrade" and target:
+                        _upgrade_event_fiscal(
+                            conn, repo, target=target, norm=norm, now=now
+                        )
+                        updated += 1
+                        last_key = str(target.get("event_key") or norm["event_key"])
+                        last_fiscal = (
+                            str(norm.get("fiscal_dt") or target.get("fiscal_dt") or "")
+                            or last_fiscal
+                        )
+                        continue
+
+                    cur = conn.execute(
+                        repo._sql(
+                            """
+                            INSERT INTO wb_kiz_circulation_events (
+                                user_id, source_id, event_key, operation_type, srid, rid,
+                                nm_id, barcode, excise_short, fiscal_doc_number, fiscal_dt,
+                                fiscal_drive_number, price, currency_name, country_name,
+                                status, skip_reason, raw_json, run_id, created_at, updated_at
+                            ) VALUES (
+                                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                            )
+                            ON CONFLICT (user_id, source_id, event_key) DO UPDATE SET
+                                price = COALESCE(EXCLUDED.price, wb_kiz_circulation_events.price),
+                                currency_name = CASE
+                                    WHEN EXCLUDED.currency_name <> '' THEN EXCLUDED.currency_name
+                                    ELSE wb_kiz_circulation_events.currency_name
+                                END,
+                                country_name = CASE
+                                    WHEN EXCLUDED.country_name <> '' THEN EXCLUDED.country_name
+                                    ELSE wb_kiz_circulation_events.country_name
+                                END,
+                                fiscal_doc_number = CASE
+                                    WHEN EXCLUDED.fiscal_doc_number <> '' THEN EXCLUDED.fiscal_doc_number
+                                    ELSE wb_kiz_circulation_events.fiscal_doc_number
+                                END,
+                                fiscal_dt = CASE
+                                    WHEN EXCLUDED.fiscal_dt <> '' THEN EXCLUDED.fiscal_dt
+                                    ELSE wb_kiz_circulation_events.fiscal_dt
+                                END,
+                                fiscal_drive_number = CASE
+                                    WHEN EXCLUDED.fiscal_drive_number <> '' THEN EXCLUDED.fiscal_drive_number
+                                    ELSE wb_kiz_circulation_events.fiscal_drive_number
+                                END,
+                                updated_at = EXCLUDED.updated_at,
+                                status = CASE
+                                    WHEN wb_kiz_circulation_events.status IN ('submitted', 'accepted')
+                                        THEN wb_kiz_circulation_events.status
+                                    WHEN EXCLUDED.status = 'pending' THEN 'pending'
+                                    ELSE wb_kiz_circulation_events.status
+                                END,
+                                skip_reason = CASE
+                                    WHEN wb_kiz_circulation_events.status IN ('submitted', 'accepted')
+                                        THEN wb_kiz_circulation_events.skip_reason
+                                    WHEN EXCLUDED.status = 'pending' THEN EXCLUDED.skip_reason
+                                    ELSE wb_kiz_circulation_events.skip_reason
+                                END,
+                                error_text = CASE
+                                    WHEN wb_kiz_circulation_events.status IN ('submitted', 'accepted')
+                                        THEN wb_kiz_circulation_events.error_text
+                                    WHEN EXCLUDED.status = 'pending' THEN ''
+                                    ELSE wb_kiz_circulation_events.error_text
+                                END
+                            RETURNING (xmax = 0) AS was_inserted
+                            """
+                        ),
+                        (
+                            user_id,
+                            source_id,
+                            norm["event_key"],
+                            int(norm["operation_type"]),
+                            norm["srid"],
+                            norm["rid"],
+                            norm["nm_id"],
+                            norm["barcode"],
+                            norm["excise_short"],
+                            norm["fiscal_doc_number"],
+                            norm["fiscal_dt"],
+                            norm["fiscal_drive_number"],
+                            norm["price"],
+                            norm["currency_name"],
+                            norm["country_name"],
+                            status,
+                            skip_reason,
+                            norm["raw_json"],
+                            run_id,
+                            now,
+                            now,
+                        ),
+                    )
+                    ret = cur.fetchone()
+                    was_inserted = True
+                    if ret is not None:
+                        rd = repo._row_to_dict(ret)
+                        was_inserted = bool(rd.get("was_inserted"))
+                    if was_inserted:
+                        inserted += 1
+                    else:
+                        updated += 1
+                    last_key = norm["event_key"]
+                    last_fiscal = norm["fiscal_dt"] or last_fiscal
+                    _index_related_event(related_index, {**norm, "status": status, "id": 0})
+                except SyncCancelled:
+                    raise
+                except Exception as exc:
+                    insert_errors += 1
+                    skipped += 1
+                    logger.exception(
+                        "wb_kiz_circulation insert failed key=%s: %s",
+                        norm.get("event_key"),
+                        exc,
+                    )
                     _append_log(
-                        log,
-                        f"обработано {i}/{len(norms)}: в очередь {inserted + updated}, "
+                        log, f"ошибка INSERT {norm.get('event_key', '')[:12]}…: {exc}"
+                    )
+
+                if i % 500 == 0 or i == len(candidates):
+                    _progress(
+                        f"запись {i}/{len(candidates)}: в очередь {inserted + updated} "
+                        f"(вывод {withdraw_n}, возврат {return_n}), "
                         f"пропуск {skipped} (FBO/не FBS {skipped_not_fbs}, "
                         f"не sold {skipped_not_sold})",
-                    )
-                    _finish_run(
-                        repo,
-                        run_id=run_id,
-                        status="running",
-                        log=log,
                         fetched=len(rows),
                         inserted=inserted,
                         skipped=skipped,
                         withdraw_count=withdraw_n,
                         return_count=return_n,
                     )
-                continue
-            # Keep raw_json tiny — full payload bloated every INSERT and caused 504s.
-            norm["raw_json"] = ""
-            status, skip_reason = _initial_status(norm)
+
+            _check_sync_cancelled(run_id)
+            conn.execute(
+                repo._sql(
+                    """
+                    INSERT INTO wb_kiz_circulation_cursor (
+                        user_id, source_id, last_date_to, last_event_key, last_fiscal_dt,
+                        last_run_at, last_run_id, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (user_id, source_id) DO UPDATE SET
+                        last_date_to = EXCLUDED.last_date_to,
+                        last_event_key = COALESCE(NULLIF(EXCLUDED.last_event_key, ''), wb_kiz_circulation_cursor.last_event_key),
+                        last_fiscal_dt = COALESCE(NULLIF(EXCLUDED.last_fiscal_dt, ''), wb_kiz_circulation_cursor.last_fiscal_dt),
+                        last_run_at = EXCLUDED.last_run_at,
+                        last_run_id = EXCLUDED.last_run_id,
+                        updated_at = EXCLUDED.updated_at
+                    """
+                ),
+                (
+                    user_id,
+                    source_id,
+                    date_to_s,
+                    last_key,
+                    last_fiscal,
+                    now,
+                    run_id,
+                    now,
+                ),
+            )
+
+        _check_sync_cancelled(run_id)
+        _append_log(
+            log,
+            f"новых: {inserted}, обновлено: {updated}, пропуск: {skipped}"
+            + (
+                f" (не FBS: {skipped_not_fbs}, не sold: {skipped_not_sold})"
+                if (skipped_not_fbs or skipped_not_sold)
+                else ""
+            )
+            + (f", без дублей: {suppressed}" if suppressed else "")
+            + (f", ошибок INSERT: {insert_errors}" if insert_errors else "")
+            + f", вывод sold: {withdraw_n}, возврат ПВЗ: {return_n}",
+        )
+        _append_log(
+            log,
+            f"период сохранён → {date_to_s}"
+            + (f" / {last_key[:12]}…" if last_key else ""),
+        )
+        _finish_run(
+            repo,
+            run_id=run_id,
+            status="ok",
+            log=log,
+            fetched=len(rows),
+            inserted=inserted,
+            skipped=skipped,
+            withdraw_count=withdraw_n,
+            return_count=return_n,
+        )
+        return {
+            "ok": True,
+            "run_id": run_id,
+            "date_from": date_from_s,
+            "date_to": date_to_s,
+            "fetched": len(rows),
+            "inserted": inserted,
+            "updated": updated,
+            "skipped": skipped,
+            "skipped_not_fbs": skipped_not_fbs,
+            "skipped_not_sold": skipped_not_sold,
+            "skipped_not_return": skipped_not_return,
+            "insert_errors": insert_errors,
+            "withdraw_count": withdraw_n,
+            "return_count": return_n,
+            "log": "\n".join(log),
+            "cursor": get_cursor(repo, user_id=user_id, source_id=source_id),
+        }
+    except SyncCancelled as exc:
+        _append_log(log, str(exc) or "Синхронизация остановлена")
+        _finish_run(
+            repo,
+            run_id=run_id,
+            status="cancelled",
+            log=log,
+            error_text="Остановлено пользователем",
+        )
+        return {
+            "ok": False,
+            "cancelled": True,
+            "run_id": run_id,
+            "date_from": date_from_s,
+            "date_to": date_to_s,
+            "log": "\n".join(log),
+            "error": "Остановлено пользователем",
+        }
+    except Exception as exc:
+        # Preserve prior WB-specific finish when already written by callers.
+        if run_id > 0:
+            _append_log(log, f"Ошибка: {exc}")
             try:
-                related = _related_from_index(related_index, norm=norm)
-                action, target = _resolve_sync_action(related, norm=norm)
-                if action == "insert":
-                    ident = _cis_identity(
-                        srid=str(norm.get("srid") or ""),
-                        rid=str(norm.get("rid") or ""),
-                        excise_short=str(norm.get("excise_short") or ""),
-                        operation_type=int(norm.get("operation_type") or 0),
-                    )
-                    if ident[1] and ident in sent_identities:
-                        action = "suppress"
-                        target = None
-                if action == "suppress":
-                    suppressed += 1
-                    skipped += 1
-                    continue
-                if int(norm["operation_type"]) == OP_WITHDRAW:
-                    withdraw_n += 1
-                else:
-                    return_n += 1
-                if action == "upgrade" and target:
-                    _upgrade_event_fiscal(
-                        conn, repo, target=target, norm=norm, now=now
-                    )
-                    updated += 1
-                    last_key = str(target.get("event_key") or norm["event_key"])
-                    last_fiscal = (
-                        str(norm.get("fiscal_dt") or target.get("fiscal_dt") or "")
-                        or last_fiscal
-                    )
-                    continue
-
-                cur = conn.execute(
-                    repo._sql(
-                        """
-                        INSERT INTO wb_kiz_circulation_events (
-                            user_id, source_id, event_key, operation_type, srid, rid,
-                            nm_id, barcode, excise_short, fiscal_doc_number, fiscal_dt,
-                            fiscal_drive_number, price, currency_name, country_name,
-                            status, skip_reason, raw_json, run_id, created_at, updated_at
-                        ) VALUES (
-                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-                        )
-                        ON CONFLICT (user_id, source_id, event_key) DO UPDATE SET
-                            price = COALESCE(EXCLUDED.price, wb_kiz_circulation_events.price),
-                            currency_name = CASE
-                                WHEN EXCLUDED.currency_name <> '' THEN EXCLUDED.currency_name
-                                ELSE wb_kiz_circulation_events.currency_name
-                            END,
-                            country_name = CASE
-                                WHEN EXCLUDED.country_name <> '' THEN EXCLUDED.country_name
-                                ELSE wb_kiz_circulation_events.country_name
-                            END,
-                            fiscal_doc_number = CASE
-                                WHEN EXCLUDED.fiscal_doc_number <> '' THEN EXCLUDED.fiscal_doc_number
-                                ELSE wb_kiz_circulation_events.fiscal_doc_number
-                            END,
-                            fiscal_dt = CASE
-                                WHEN EXCLUDED.fiscal_dt <> '' THEN EXCLUDED.fiscal_dt
-                                ELSE wb_kiz_circulation_events.fiscal_dt
-                            END,
-                            fiscal_drive_number = CASE
-                                WHEN EXCLUDED.fiscal_drive_number <> '' THEN EXCLUDED.fiscal_drive_number
-                                ELSE wb_kiz_circulation_events.fiscal_drive_number
-                            END,
-                            updated_at = EXCLUDED.updated_at,
-                            status = CASE
-                                WHEN wb_kiz_circulation_events.status IN ('submitted', 'accepted')
-                                    THEN wb_kiz_circulation_events.status
-                                WHEN EXCLUDED.status = 'pending' THEN 'pending'
-                                ELSE wb_kiz_circulation_events.status
-                            END,
-                            skip_reason = CASE
-                                WHEN wb_kiz_circulation_events.status IN ('submitted', 'accepted')
-                                    THEN wb_kiz_circulation_events.skip_reason
-                                WHEN EXCLUDED.status = 'pending' THEN EXCLUDED.skip_reason
-                                ELSE wb_kiz_circulation_events.skip_reason
-                            END,
-                            error_text = CASE
-                                WHEN wb_kiz_circulation_events.status IN ('submitted', 'accepted')
-                                    THEN wb_kiz_circulation_events.error_text
-                                WHEN EXCLUDED.status = 'pending' THEN ''
-                                ELSE wb_kiz_circulation_events.error_text
-                            END
-                        RETURNING (xmax = 0) AS was_inserted
-                        """
-                    ),
-                    (
-                        user_id,
-                        source_id,
-                        norm["event_key"],
-                        int(norm["operation_type"]),
-                        norm["srid"],
-                        norm["rid"],
-                        norm["nm_id"],
-                        norm["barcode"],
-                        norm["excise_short"],
-                        norm["fiscal_doc_number"],
-                        norm["fiscal_dt"],
-                        norm["fiscal_drive_number"],
-                        norm["price"],
-                        norm["currency_name"],
-                        norm["country_name"],
-                        status,
-                        skip_reason,
-                        norm["raw_json"],
-                        run_id,
-                        now,
-                        now,
-                    ),
-                )
-                ret = cur.fetchone()
-                was_inserted = True
-                if ret is not None:
-                    rd = repo._row_to_dict(ret)
-                    was_inserted = bool(rd.get("was_inserted"))
-                if was_inserted:
-                    inserted += 1
-                else:
-                    updated += 1
-                last_key = norm["event_key"]
-                last_fiscal = norm["fiscal_dt"] or last_fiscal
-                # Keep in-memory related index fresh for later rows in this sync.
-                _index_related_event(related_index, {**norm, "status": status, "id": 0})
-            except Exception as exc:
-                insert_errors += 1
-                skipped += 1
-                logger.exception(
-                    "wb_kiz_circulation insert failed key=%s: %s",
-                    norm.get("event_key"),
-                    exc,
-                )
-                _append_log(log, f"ошибка INSERT {norm.get('event_key', '')[:12]}…: {exc}")
-
-            if i % 2000 == 0:
-                _append_log(
-                    log,
-                    f"обработано {i}/{len(norms)}: в очередь {inserted + updated} "
-                    f"(вывод {withdraw_n}, возврат {return_n}), "
-                    f"пропуск {skipped} (FBO/не FBS {skipped_not_fbs}, "
-                    f"не sold {skipped_not_sold})",
-                )
                 _finish_run(
                     repo,
                     run_id=run_id,
-                    status="running",
+                    status="error",
                     log=log,
-                    fetched=len(rows),
-                    inserted=inserted,
-                    skipped=skipped,
-                    withdraw_count=withdraw_n,
-                    return_count=return_n,
+                    error_text=str(exc),
                 )
-
-        conn.execute(
-            repo._sql(
-                """
-                INSERT INTO wb_kiz_circulation_cursor (
-                    user_id, source_id, last_date_to, last_event_key, last_fiscal_dt,
-                    last_run_at, last_run_id, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT (user_id, source_id) DO UPDATE SET
-                    last_date_to = EXCLUDED.last_date_to,
-                    last_event_key = COALESCE(NULLIF(EXCLUDED.last_event_key, ''), wb_kiz_circulation_cursor.last_event_key),
-                    last_fiscal_dt = COALESCE(NULLIF(EXCLUDED.last_fiscal_dt, ''), wb_kiz_circulation_cursor.last_fiscal_dt),
-                    last_run_at = EXCLUDED.last_run_at,
-                    last_run_id = EXCLUDED.last_run_id,
-                    updated_at = EXCLUDED.updated_at
-                """
-            ),
-            (
-                user_id,
-                source_id,
-                date_to_s,
-                last_key,
-                last_fiscal,
-                now,
-                run_id,
-                now,
-            ),
-        )
-
-    _append_log(
-        log,
-        f"новых: {inserted}, обновлено: {updated}, пропуск: {skipped}"
-        + (
-            f" (не FBS: {skipped_not_fbs}, не sold: {skipped_not_sold})"
-            if (skipped_not_fbs or skipped_not_sold)
-            else ""
-        )
-        + (f", без дублей: {suppressed}" if suppressed else "")
-        + (f", ошибок INSERT: {insert_errors}" if insert_errors else "")
-        + f", вывод sold: {withdraw_n}, возврат ПВЗ: {return_n}",
-    )
-    _append_log(
-        log,
-        f"период сохранён → {date_to_s}"
-        + (f" / {last_key[:12]}…" if last_key else ""),
-    )
-    _finish_run(
-        repo,
-        run_id=run_id,
-        status="ok",
-        log=log,
-        fetched=len(rows),
-        inserted=inserted,
-        skipped=skipped,
-        withdraw_count=withdraw_n,
-        return_count=return_n,
-    )
-    return {
-        "ok": True,
-        "run_id": run_id,
-        "date_from": date_from_s,
-        "date_to": date_to_s,
-        "fetched": len(rows),
-        "inserted": inserted,
-        "updated": updated,
-        "skipped": skipped,
-        "skipped_not_fbs": skipped_not_fbs,
-        "skipped_not_sold": skipped_not_sold,
-        "skipped_not_return": skipped_not_return,
-        "insert_errors": insert_errors,
-        "withdraw_count": withdraw_n,
-        "return_count": return_n,
-        "log": "\n".join(log),
-        "cursor": get_cursor(repo, user_id=user_id, source_id=source_id),
-    }
-
+            except Exception:
+                logger.exception("finish error run after sync failure failed")
+        raise
+    finally:
+        if run_id > 0:
+            _clear_sync_cancel(run_id)
 
 def _finish_run(
     repo: ReviewRepository,
@@ -2787,9 +2990,13 @@ def _prefetch_related_events_index(
     source_id: int,
 ) -> dict[tuple[int, str, str], list[dict[str, Any]]]:
     """One-shot load of open events for sync (avoids N+1 SELECTs per row)."""
+    # Skip bulk eligibility rejects (FBO / not sold) — they bloat the index after
+    # large Analytics pulls and are never upgrade targets for new FBS rows.
+    elig = sorted(_ELIGIBILITY_SKIP_REASONS)
+    elig_ph = ", ".join("?" for _ in elig)
     rows = conn.execute(
         repo._sql(
-            """
+            f"""
             SELECT id, event_key, status, srid, rid, excise_short, operation_type,
                    fiscal_doc_number, fiscal_dt, fiscal_drive_number,
                    price, currency_name, country_name, skip_reason
@@ -2797,9 +3004,10 @@ def _prefetch_related_events_index(
             WHERE user_id = ? AND source_id = ?
               AND status IN ('pending', 'ready', 'error', 'skipped')
               AND COALESCE(excise_short, '') <> ''
+              AND NOT (status = 'skipped' AND skip_reason IN ({elig_ph}))
             """
         ),
-        (user_id, source_id),
+        (user_id, source_id, *elig),
     ).fetchall()
     index: dict[tuple[int, str, str], list[dict[str, Any]]] = {}
     for r in rows:
@@ -2861,6 +3069,79 @@ def _related_from_index(
     return out
 
 
+def find_active_excise_sync_run(
+    repo: ReviewRepository, *, user_id: int, source_id: int
+) -> dict[str, Any] | None:
+    """Return the latest running sync for this source, if any."""
+    ensure_kiz_circulation_tables(repo)
+    with repo._connect() as conn:
+        row = conn.execute(
+            repo._sql(
+                """
+                SELECT id, status, date_from, date_to, log_text, created_at
+                FROM wb_kiz_circulation_runs
+                WHERE user_id = ? AND source_id = ? AND status = 'running'
+                ORDER BY id DESC
+                LIMIT 1
+                """
+            ),
+            (user_id, source_id),
+        ).fetchone()
+    return repo._row_to_dict(row) if row else None
+
+
+def cancel_excise_sync_run(
+    repo: ReviewRepository, *, user_id: int, run_id: int
+) -> dict[str, Any]:
+    """Request stop of a running sync and mark the run as cancelling."""
+    ensure_kiz_circulation_tables(repo)
+    rid = int(run_id or 0)
+    if rid <= 0:
+        raise ValueError("Укажите run_id")
+    run = get_run(repo, user_id=user_id, run_id=rid)
+    if not run:
+        raise ValueError("Прогон не найден")
+    status = str(run.get("status") or "")
+    if status in {"ok", "error", "cancelled"}:
+        return {
+            "ok": True,
+            "run_id": rid,
+            "status": status,
+            "already_finished": True,
+            "message": f"Прогон уже завершён ({status})",
+        }
+    request_cancel_excise_sync(rid)
+    log = str(run.get("log_text") or "")
+    line = (
+        f"[{datetime.now(MSK).strftime('%H:%M:%S')}] "
+        "стоп: запрошена остановка пользователем"
+    )
+    if line not in log:
+        log = (log + ("\n" if log else "") + line)[:50000]
+    with repo._connect() as conn:
+        conn.execute(
+            repo._sql(
+                """
+                UPDATE wb_kiz_circulation_runs SET
+                    log_text = ?,
+                    error_text = CASE
+                        WHEN status = 'running' THEN 'Остановка…'
+                        ELSE error_text
+                    END
+                WHERE id = ? AND user_id = ? AND status = 'running'
+                """
+            ),
+            (log, rid, user_id),
+        )
+    return {
+        "ok": True,
+        "run_id": rid,
+        "status": "cancelling",
+        "already_finished": False,
+        "message": "Остановка запрошена",
+    }
+
+
 def create_excise_sync_run(
     repo: ReviewRepository,
     *,
@@ -2871,6 +3152,14 @@ def create_excise_sync_run(
 ) -> dict[str, Any]:
     """Create a running sync row so the UI can poll before WB returns."""
     ensure_kiz_circulation_tables(repo)
+    active = find_active_excise_sync_run(
+        repo, user_id=user_id, source_id=source_id
+    )
+    if active:
+        raise ValueError(
+            f"Уже идёт выгрузка #{int(active.get('id') or 0)}. "
+            "Дождитесь окончания или нажмите «Стоп»."
+        )
     period = resolve_excise_period(date_from=date_from, date_to=date_to)
     date_from_s = str(period["date_from"])
     date_to_s = str(period["date_to"])
@@ -2900,6 +3189,8 @@ def create_excise_sync_run(
             ),
         ).fetchone()
         run_id = int(repo._row_to_dict(row).get("id") or 0) if row else 0
+    if run_id > 0:
+        _register_sync_cancel(run_id)
     return {
         "ok": True,
         "async": True,
@@ -4239,6 +4530,10 @@ __all__ = [
     "list_events_for_chz",
     "resolve_excise_period",
     "create_excise_sync_run",
+    "find_active_excise_sync_run",
+    "cancel_excise_sync_run",
+    "request_cancel_excise_sync",
+    "SyncCancelled",
     "sync_excise_report",
     "heal_submitted_terminal_statuses",
     "reconcile_submitted_with_chz",

@@ -16735,6 +16735,7 @@ const WB_FBS_KIZ_CIRC_STATUSES = [
 
 const wbFbsKizCircState = {
   busy: false,
+  syncRunId: 0,
   lastLog: "",
   items: [],
   /** @type {Set<string>} */
@@ -17345,8 +17346,11 @@ async function runWbFbsKizCirculationSync() {
   const sid = _wbFbsKizCircSourceId();
   if (!sid || wbFbsKizCircState.busy) return;
   const btnDaily = document.getElementById("wbFbsKizCircSyncBtn");
+  const btnStop = document.getElementById("wbFbsKizCircSyncStopBtn");
   wbFbsKizCircState.busy = true;
+  wbFbsKizCircState.syncRunId = 0;
   if (btnDaily) btnDaily.disabled = true;
+  if (btnStop) btnStop.disabled = false;
   try {
     const dateFrom = document.getElementById("wbFbsKizCircDateFrom")?.value || "";
     const dateTo = document.getElementById("wbFbsKizCircDateTo")?.value || "";
@@ -17390,6 +17394,7 @@ async function runWbFbsKizCirculationSync() {
     if (data.log) _wbFbsKizCircAppendLog(data.log);
 
     const runId = Number(data.run_id || 0);
+    wbFbsKizCircState.syncRunId = runId;
     if (data.async && runId > 0) {
       _wbFbsKizCircAppendLog(`Фоновый прогон #${runId} — жду завершения…`);
       const startedAt = Date.now();
@@ -17413,6 +17418,10 @@ async function runWbFbsKizCirculationSync() {
           );
           break;
         }
+        if (st === "cancelled") {
+          _wbFbsKizCircAppendLog("Выгрузка остановлена.");
+          break;
+        }
         if (st === "error") {
           throw new Error(run.error_text || "Ошибка фоновой выгрузки");
         }
@@ -17432,7 +17441,33 @@ async function runWbFbsKizCirculationSync() {
     _wbFbsKizCircAppendLog(`Ошибка: ${err?.message || err}`);
   } finally {
     wbFbsKizCircState.busy = false;
+    wbFbsKizCircState.syncRunId = 0;
     if (btnDaily) btnDaily.disabled = false;
+    if (btnStop) btnStop.disabled = true;
+  }
+}
+
+async function stopWbFbsKizCirculationSync() {
+  const sid = _wbFbsKizCircSourceId();
+  const btnStop = document.getElementById("wbFbsKizCircSyncStopBtn");
+  if (btnStop) btnStop.disabled = true;
+  const runId = Number(wbFbsKizCircState.syncRunId || 0);
+  try {
+    _wbFbsKizCircAppendLog("Запрос остановки выгрузки…");
+    const res = await fetch("/api/wb-fbs/kiz-circulation/sync/cancel", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        source_id: sid || 0,
+        run_id: runId || null,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || "Не удалось остановить");
+    _wbFbsKizCircAppendLog(data.message || "Остановка запрошена");
+  } catch (err) {
+    _wbFbsKizCircAppendLog(`Стоп: ${err?.message || err}`);
+    if (btnStop && wbFbsKizCircState.busy) btnStop.disabled = false;
   }
 }
 
@@ -17591,6 +17626,7 @@ window.closeWbFbsKizCirculationModal = closeWbFbsKizCirculationModal;
 window.refreshWbFbsKizCirculation = refreshWbFbsKizCirculation;
 window.reconcileWbFbsKizCirculationChz = reconcileWbFbsKizCirculationChz;
 window.runWbFbsKizCirculationSync = runWbFbsKizCirculationSync;
+window.stopWbFbsKizCirculationSync = stopWbFbsKizCirculationSync;
 window.runWbFbsKizCirculationChz = runWbFbsKizCirculationChz;
 window.toggleWbFbsKizCircRow = toggleWbFbsKizCircRow;
 window.toggleWbFbsKizCircSelectAll = toggleWbFbsKizCircSelectAll;

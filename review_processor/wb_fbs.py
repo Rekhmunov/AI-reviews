@@ -278,9 +278,10 @@ def cancel_reason_label(*, supplier_status: object = "", wb_status: object = "")
     if ws == "declined_by_client":
         return "Покупатель в первый час"
     if ws == "canceled_by_client":
-        return "Клиент отказался"
+        # Seller portal: отказ при получении / на ПВЗ (not pre-assembly cancel).
+        return "Отказ на ПВЗ"
     if ws == "defect":
-        return "Брак"
+        return "Найдены дефекты"
     if ws == "canceled_by_carrier" or ss == "cancel_carrier":
         return "Перевозчик"
     if ws == "canceled" or ss == "cancel":
