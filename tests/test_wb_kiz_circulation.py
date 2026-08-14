@@ -429,6 +429,89 @@ def test_reconcile_submitted_applies_checked_not_ok() -> None:
     assert "выведен" in kwargs["error_text"]
 
 
+def test_cis_status_labels_and_kinds() -> None:
+    assert circ.cis_status_label("INTRODUCED") == "В обороте"
+    assert circ.cis_status_label("RETIRED") == "Выведен"
+    assert circ.cis_status_label("WITHDRAWN") == "Выведен"
+    assert circ.classify_cis_status("INTRODUCED") == "in_circulation"
+    assert circ.classify_cis_status("RETIRED") == "withdrawn"
+    assert circ.classify_cis_status("APPLIED") == "pre"
+    assert circ.classify_cis_status("") == "unknown"
+
+
+def test_parse_cises_info_item() -> None:
+    parsed = circ.parse_cises_info_item(
+        {
+            "cisInfo": {
+                "cis": "0104670172422458215mC3G",
+                "status": "INTRODUCED",
+                "ownerInn": "6215034988",
+            },
+            "errorMessage": "",
+        }
+    )
+    assert parsed["status"] == "INTRODUCED"
+    assert parsed["owner_inn"] == "6215034988"
+    assert parsed["cis"].startswith("010467")
+
+
+def test_refresh_cis_statuses_updates_rows() -> None:
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    conn.__exit__.return_value = False
+    row = {
+        "id": 1,
+        "event_key": "ek-cis-1",
+        "excise_short": "0104670172422458215mC3G",
+        "cis_status": "",
+        "cis_owner_inn": "",
+        "cis_status_error": "",
+        "cis_checked_at": "",
+    }
+    cur = MagicMock()
+    cur.fetchall.return_value = [row]
+    conn.execute.return_value = cur
+    repo = MagicMock()
+    repo._connect.return_value = conn
+    repo._sql.side_effect = lambda q: q
+    repo._row_to_dict.side_effect = lambda r: r if isinstance(r, dict) else {}
+
+    client = MagicMock()
+    client.cises_info.return_value = [
+        {
+            "cisInfo": {
+                "cis": "0104670172422458215mC3GbyHCO2",
+                "status": "RETIRED",
+                "ownerInn": "6215034988",
+            }
+        }
+    ]
+
+    with patch.object(circ, "ensure_kiz_circulation_tables"), patch.object(
+        circ, "get_chz_settings", return_value={"product_group": "lp"}
+    ):
+        out = circ.refresh_cis_statuses(
+            repo,
+            client,
+            user_id=1,
+            source_id=13,
+            event_keys=["ek-cis-1"],
+            product_group="lp",
+        )
+    assert out["updated"] == 1
+    assert out["found"] == 1
+    assert out["missing"] == 0
+    client.cises_info.assert_called_once()
+    assert client.cises_info.call_args.kwargs.get("product_group") == "lp"
+    # UPDATE must persist RETIRED
+    update_calls = [
+        c for c in conn.execute.call_args_list if "UPDATE wb_kiz_circulation_events" in str(c)
+    ]
+    assert update_calls
+    args = update_calls[0].args[1]
+    assert args[0] == "RETIRED"
+    assert args[1] == "6215034988"
+
 
 def test_price_for_chz_skips_foreign_currency() -> None:
     assert circ._price_for_chz({"price": 10, "currency_name": "AMD"}) is None

@@ -17045,13 +17045,13 @@ function _wbFbsKizCircRenderTable() {
   }
   if (!all.length) {
     tbody.innerHTML =
-      '<tr><td colspan="10" class="wb-fbs-kiz-circ-empty">Нет данных — выберите даты и нажмите «Ежедневный вывод»</td></tr>';
+      '<tr><td colspan="11" class="wb-fbs-kiz-circ-empty">Нет данных — выберите даты и нажмите «Ежедневный вывод»</td></tr>';
     _wbFbsKizCircUpdateSelectionInfo();
     return;
   }
   if (!items.length) {
     tbody.innerHTML =
-      '<tr><td colspan="10" class="wb-fbs-kiz-circ-empty">Нет событий по текущим фильтрам</td></tr>';
+      '<tr><td colspan="11" class="wb-fbs-kiz-circ-empty">Нет событий по текущим фильтрам</td></tr>';
     _wbFbsKizCircUpdateSelectionInfo();
     return;
   }
@@ -17105,6 +17105,29 @@ function _wbFbsKizCircRenderTable() {
       const orderStatusCls = _wbFbsKizCircOrderStatusClass(orderStatus, ev);
       const srid = String(ev.srid || ev.rid || "").trim();
       const sridShort = srid.length > 28 ? `${srid.slice(0, 12)}…${srid.slice(-10)}` : srid;
+      const cisSt = String(ev.cis_status || "").trim();
+      const cisKind = String(ev.cis_status_kind || "").trim()
+        || _wbFbsKizCircCisKind(cisSt);
+      const cisLabel = String(ev.cis_status_label || "").trim()
+        || _wbFbsKizCircCisLabel(cisSt)
+        || (cisSt ? cisSt : "");
+      const cisOwner = String(ev.cis_owner_inn || "").trim();
+      const cisErr = String(ev.cis_status_error || "").trim();
+      const cisChecked = String(ev.cis_checked_at || "").trim();
+      const cisTitle = [
+        cisLabel || cisSt || "не проверен",
+        cisSt && cisLabel && cisSt !== cisLabel ? cisSt : "",
+        cisOwner ? `владелец ИНН ${cisOwner}` : "",
+        cisChecked ? `проверено ${cisChecked}` : "",
+        cisErr || "",
+      ].filter(Boolean).join(" · ");
+      const cisCell = cisLabel
+        ? `<span class="wb-fbs-kiz-circ-cis-st is-${esc(cisKind || "other")}" title="${esc(cisTitle)}">${esc(cisLabel)}</span>${
+            cisErr && !cisSt ? `<div class="wb-fbs-kiz-circ-cis-err">${esc(cisErr)}</div>` : ""
+          }`
+        : (cisErr
+          ? `<span class="wb-fbs-kiz-circ-cis-st is-unknown" title="${esc(cisTitle)}">—</span><div class="wb-fbs-kiz-circ-cis-err">${esc(cisErr)}</div>`
+          : `<span class="wb-fbs-kiz-circ-cis-st is-unknown" title="${esc(cisTitle || "Нажмите «Статус КИЗ»")}">—</span>`);
       const checkCell = selectable
         ? `<label class="wb-fbs-kiz-circ-row-check">
             <input type="checkbox" ${selected ? "checked" : ""}
@@ -17127,6 +17150,7 @@ function _wbFbsKizCircRenderTable() {
         }</td>
         <td title="${esc(srid)}"><code class="wb-fbs-kiz-circ-srid">${esc(sridShort || "—")}</code></td>
         <td title="${esc(kiz)}"><code>${esc(kizShort || "—")}</code></td>
+        <td>${cisCell}</td>
         <td>${esc(ev.fiscal_doc_number || "—")}</td>
         <td><span class="wb-fbs-kiz-circ-st wb-fbs-kiz-circ-st-${esc(st)}">${esc(_wbFbsKizCircStatusLabel(st))}</span>${err ? `<div class="wb-fbs-kiz-circ-row-err">${esc(err)}</div>` : ""}</td>
         <td>${esc(ev.chz_doc_id || ev.chz_status || "—")}</td>
@@ -17134,6 +17158,31 @@ function _wbFbsKizCircRenderTable() {
     })
     .join("");
   _wbFbsKizCircUpdateSelectionInfo();
+}
+
+function _wbFbsKizCircCisLabel(status) {
+  const s = String(status || "").trim().toUpperCase();
+  const map = {
+    INTRODUCED: "В обороте",
+    RETIRED: "Выведен",
+    WITHDRAWN: "Выведен",
+    WRITTEN_OFF: "Списан",
+    APPLIED: "Нанесён",
+    EMITTED: "Эмитирован",
+    DISAGGREGATION: "Расформирован",
+    DISAGGREGATED: "Расформирован",
+    APPLIED_NOT_PAID: "Нанесён (не оплачен)",
+  };
+  return map[s] || (s ? String(status) : "");
+}
+
+function _wbFbsKizCircCisKind(status) {
+  const s = String(status || "").trim().toUpperCase();
+  if (!s) return "unknown";
+  if (s === "INTRODUCED") return "in_circulation";
+  if (s === "RETIRED" || s === "WITHDRAWN" || s === "WRITTEN_OFF") return "withdrawn";
+  if (s === "EMITTED" || s === "APPLIED" || s === "APPLIED_NOT_PAID") return "pre";
+  return "other";
 }
 
 function _wbFbsKizCircOrderStatusClass(label, ev) {
@@ -17408,6 +17457,62 @@ async function reconcileWbFbsKizCirculationChz() {
     await refreshWbFbsKizCirculation();
   } catch (err) {
     _wbFbsKizCircAppendLog(`Ошибка сверки: ${err?.message || err}`);
+  } finally {
+    wbFbsKizCircState.busy = false;
+    if (btn) btn.disabled = false;
+  }
+}
+
+/** True API /cises/info — статус самого кода (в обороте / выведен). */
+async function refreshWbFbsKizCircCisStatus() {
+  const sid = _wbFbsKizCircSourceId();
+  if (!sid || wbFbsKizCircState.busy) return;
+  const btn = document.getElementById("wbFbsKizCircCisStatusBtn");
+  wbFbsKizCircState.busy = true;
+  if (btn) btn.disabled = true;
+  try {
+    let keys = Array.from(wbFbsKizCircState.selectedKeys || []);
+    if (!keys.length) {
+      keys = _wbFbsKizCircFilteredItems()
+        .map((ev) => String(ev.event_key || "").trim())
+        .filter(Boolean);
+    }
+    if (!keys.length) {
+      throw new Error("Нет строк для проверки — загрузите события или выберите строки");
+    }
+    if (keys.length > 500) {
+      keys = keys.slice(0, 500);
+      _wbFbsKizCircAppendLog("Статус КИЗ: ограничение 500 кодов за раз");
+    }
+    _wbFbsKizCircAppendLog(
+      `Статус КИЗ: авторизация УКЭП, проверка ${keys.length} строк…`,
+    );
+    const auth = await _chzObtainToken("");
+    const res = await fetch("/api/wb-fbs/kiz-circulation/chz/cis-status", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        source_id: sid,
+        token: auth.token,
+        event_keys: keys,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || "Ошибка статуса КИЗ");
+    let line =
+      `Статус КИЗ: обновлено ${data.updated || 0}, найдено ${data.found || 0}, `
+      + `без ответа ${data.missing || 0}`;
+    const apiErrN = Number(data.api_errors || 0);
+    if (apiErrN) {
+      const samples = Array.isArray(data.api_error_samples)
+        ? data.api_error_samples.filter(Boolean).slice(0, 2).join(" · ")
+        : "";
+      line += `; сбой API=${apiErrN}${samples ? ` (${samples})` : ""}`;
+    }
+    _wbFbsKizCircAppendLog(line);
+    await refreshWbFbsKizCirculation();
+  } catch (err) {
+    _wbFbsKizCircAppendLog(`Ошибка статуса КИЗ: ${err?.message || err}`);
   } finally {
     wbFbsKizCircState.busy = false;
     if (btn) btn.disabled = false;
@@ -17697,6 +17802,7 @@ window.openWbFbsKizCirculationModal = openWbFbsKizCirculationModal;
 window.closeWbFbsKizCirculationModal = closeWbFbsKizCirculationModal;
 window.refreshWbFbsKizCirculation = refreshWbFbsKizCirculation;
 window.reconcileWbFbsKizCirculationChz = reconcileWbFbsKizCirculationChz;
+window.refreshWbFbsKizCircCisStatus = refreshWbFbsKizCircCisStatus;
 window.runWbFbsKizCirculationSync = runWbFbsKizCirculationSync;
 window.stopWbFbsKizCirculationSync = stopWbFbsKizCirculationSync;
 window.runWbFbsKizCirculationChz = runWbFbsKizCirculationChz;
