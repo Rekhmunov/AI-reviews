@@ -1736,116 +1736,180 @@ def order_ids_by_srids(
     source_id: int,
     srids: list[str],
 ) -> dict[str, int]:
-    """Map analytics ``srid`` (= marketplace order ``rid``) → numeric ``order_id``.
+    """Map analytics ``srid`` → Marketplace FBS ``order_id``.
 
-    Matching is **case-insensitive**: WB Analytics often lowercases letters in
-    ``srid`` while Marketplace keeps mixed case in ``rid`` (``ebx`` vs ``ebX``).
-
-    Falls back to ``raw_json.rid`` / ``order_uid`` when the ``rid`` column is empty
-    (orders synced before the column existed), and backfills ``rid`` when found.
+    Matching order:
+    1. full rid/srid case-insensitive;
+    2. mid-token (``SPLIT_PART(...,2)`` / ``orderUid``) — Analytics often uses
+       trailing unit suffix ``.1.0`` while Marketplace keeps ``.0.0`` on the same
+       order (``eI.i0a….1.0`` vs ``eI.i0a….0.0``);
+    3. ``raw_json.rid`` fallback + rid backfill.
     """
     ensure_wb_fbs_tables(repo)
     raw_keys = [str(s or "").strip() for s in (srids or []) if str(s or "").strip()]
     if not raw_keys:
         return {}
-    # fold -> first original key (preserve caller casing in the result map)
-    fold_to_orig: dict[str, str] = {}
-    for k in raw_keys:
-        fold_to_orig.setdefault(k.casefold(), k)
-    folds = sorted(fold_to_orig.keys())
-    out: dict[str, int] = {}
-    placeholders = ", ".join("?" for _ in folds)
-    with repo._connect() as conn:
-        rows = conn.execute(
-            repo._sql(
-                f"""
-                SELECT order_id, rid FROM wb_fbs_orders
-                WHERE user_id = ? AND source_id = ?
-                  AND rid IS NOT NULL AND rid <> ''
-                  AND LOWER(rid) IN ({placeholders})
-                """
-            ),
-            (user_id, source_id, *folds),
-        ).fetchall()
-        for r in rows:
-            d = repo._row_to_dict(r)
-            rid = str(d.get("rid") or "").strip()
-            try:
-                oid = int(d.get("order_id") or 0)
-            except (TypeError, ValueError):
-                oid = 0
-            if not rid or oid <= 0:
-                continue
-            orig = fold_to_orig.get(rid.casefold())
-            if orig:
-                out[orig] = oid
 
-        missing_folds = [f for f in folds if fold_to_orig[f] not in out]
-        if not missing_folds:
+    def _mid(value: str) -> str:
+        bits = str(value or "").split(".")
+        return bits[1].strip().casefold() if len(bits) >= 2 and bits[1].strip() else ""
+
+    # Preserve first original casing for each folded full key / mid key.
+    fold_to_origs: dict[str, list[str]] = {}
+    mid_to_origs: dict[str, list[str]] = {}
+    for k in raw_keys:
+        fold_to_origs.setdefault(k.casefold(), []).append(k)
+        m = _mid(k)
+        if m:
+            mid_to_origs.setdefault(m, []).append(k)
+
+    out: dict[str, int] = {}
+
+    def _assign(orig: str, oid: int) -> None:
+        if orig and oid > 0 and orig not in out:
+            out[orig] = oid
+
+    folds = sorted(fold_to_origs.keys())
+    with repo._connect() as conn:
+        if folds:
+            ph = ", ".join("?" for _ in folds)
+            rows = conn.execute(
+                repo._sql(
+                    f"""
+                    SELECT order_id, rid FROM wb_fbs_orders
+                    WHERE user_id = ? AND source_id = ?
+                      AND rid IS NOT NULL AND rid <> ''
+                      AND LOWER(rid) IN ({ph})
+                    """
+                ),
+                (user_id, source_id, *folds),
+            ).fetchall()
+            for r in rows:
+                d = repo._row_to_dict(r)
+                rid = str(d.get("rid") or "").strip()
+                try:
+                    oid = int(d.get("order_id") or 0)
+                except (TypeError, ValueError):
+                    oid = 0
+                for orig in fold_to_origs.get(rid.casefold(), []):
+                    _assign(orig, oid)
+
+        missing = [k for k in raw_keys if k not in out]
+        if not missing:
             return out
 
-        ph = ", ".join("?" for _ in missing_folds)
-        rows2 = conn.execute(
-            repo._sql(
-                f"""
-                SELECT order_id, order_uid, rid, raw_json
-                FROM wb_fbs_orders
-                WHERE user_id = ? AND source_id = ?
-                  AND (
-                    (order_uid IS NOT NULL AND order_uid <> ''
-                     AND LOWER(order_uid) IN ({ph}))
-                    OR (
-                      raw_json IS NOT NULL AND raw_json <> '' AND raw_json <> '{{}}'
-                      AND LOWER(raw_json::jsonb->>'rid') IN ({ph})
-                    )
-                  )
-                """
-            ),
-            (user_id, source_id, *missing_folds, *missing_folds),
-        ).fetchall()
-        for r in rows2:
-            d = repo._row_to_dict(r)
-            try:
-                oid = int(d.get("order_id") or 0)
-            except (TypeError, ValueError):
-                oid = 0
-            if oid <= 0:
-                continue
-            rid_col = str(d.get("rid") or "").strip()
-            uid = str(d.get("order_uid") or "").strip()
-            rid_json = ""
-            try:
-                raw = d.get("raw_json") or "{}"
-                payload = json.loads(raw) if isinstance(raw, str) else (raw or {})
-                if isinstance(payload, dict):
-                    rid_json = str(payload.get("rid") or "").strip()
-            except (TypeError, ValueError, json.JSONDecodeError):
+        missing_mids = sorted({_mid(k) for k in missing if _mid(k)})
+        if missing_mids:
+            ph = ", ".join("?" for _ in missing_mids)
+            rows2 = conn.execute(
+                repo._sql(
+                    f"""
+                    SELECT order_id, order_uid, rid, raw_json
+                    FROM wb_fbs_orders
+                    WHERE user_id = ? AND source_id = ?
+                      AND (
+                        (order_uid IS NOT NULL AND order_uid <> ''
+                         AND LOWER(order_uid) IN ({ph}))
+                        OR (
+                          rid IS NOT NULL AND rid <> ''
+                          AND LOWER(SPLIT_PART(rid, '.', 2)) IN ({ph})
+                        )
+                        OR (
+                          raw_json IS NOT NULL AND raw_json <> '' AND raw_json <> '{{}}'
+                          AND LOWER(SPLIT_PART(COALESCE(raw_json::jsonb->>'rid', ''), '.', 2))
+                              IN ({ph})
+                        )
+                      )
+                    """
+                ),
+                (user_id, source_id, *missing_mids, *missing_mids, *missing_mids),
+            ).fetchall()
+            for r in rows2:
+                d = repo._row_to_dict(r)
+                try:
+                    oid = int(d.get("order_id") or 0)
+                except (TypeError, ValueError):
+                    oid = 0
+                if oid <= 0:
+                    continue
+                rid_col = str(d.get("rid") or "").strip()
+                uid = str(d.get("order_uid") or "").strip()
                 rid_json = ""
-            match_fold = ""
-            for candidate in (rid_col, rid_json, uid):
-                cf = candidate.casefold()
-                if cf and cf in fold_to_orig and fold_to_orig[cf] not in out:
-                    match_fold = cf
-                    break
-            if not match_fold:
-                continue
-            orig = fold_to_orig[match_fold]
-            out[orig] = oid
-            # Backfill rid for faster next lookup when we found it via JSON.
-            if not rid_col and rid_json:
-                conn.execute(
-                    repo._sql(
-                        """
-                        UPDATE wb_fbs_orders
-                        SET rid = ?
-                        WHERE user_id = ? AND source_id = ? AND order_id = ?
-                          AND (rid IS NULL OR rid = '')
-                        """
-                    ),
-                    (rid_json, user_id, source_id, oid),
-                )
-    return out
+                try:
+                    raw = d.get("raw_json") or "{}"
+                    payload = json.loads(raw) if isinstance(raw, str) else (raw or {})
+                    if isinstance(payload, dict):
+                        rid_json = str(payload.get("rid") or "").strip()
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    rid_json = ""
+                token_candidates = {
+                    uid.casefold(),
+                    _mid(rid_col),
+                    _mid(rid_json),
+                }
+                token_candidates.discard("")
+                for tok in token_candidates:
+                    for orig in mid_to_origs.get(tok, []):
+                        _assign(orig, oid)
+                if not rid_col and rid_json:
+                    conn.execute(
+                        repo._sql(
+                            """
+                            UPDATE wb_fbs_orders
+                            SET rid = ?
+                            WHERE user_id = ? AND source_id = ? AND order_id = ?
+                              AND (rid IS NULL OR rid = '')
+                            """
+                        ),
+                        (rid_json, user_id, source_id, oid),
+                    )
 
+        # Final fallback: full-key match via order_uid / raw rid for leftovers.
+        missing = [k for k in raw_keys if k not in out]
+        if missing:
+            missing_folds = sorted({k.casefold() for k in missing})
+            ph = ", ".join("?" for _ in missing_folds)
+            rows3 = conn.execute(
+                repo._sql(
+                    f"""
+                    SELECT order_id, order_uid, rid, raw_json
+                    FROM wb_fbs_orders
+                    WHERE user_id = ? AND source_id = ?
+                      AND (
+                        (order_uid IS NOT NULL AND order_uid <> ''
+                         AND LOWER(order_uid) IN ({ph}))
+                        OR (
+                          raw_json IS NOT NULL AND raw_json <> '' AND raw_json <> '{{}}'
+                          AND LOWER(raw_json::jsonb->>'rid') IN ({ph})
+                        )
+                      )
+                    """
+                ),
+                (user_id, source_id, *missing_folds, *missing_folds),
+            ).fetchall()
+            for r in rows3:
+                d = repo._row_to_dict(r)
+                try:
+                    oid = int(d.get("order_id") or 0)
+                except (TypeError, ValueError):
+                    oid = 0
+                if oid <= 0:
+                    continue
+                rid_col = str(d.get("rid") or "").strip()
+                uid = str(d.get("order_uid") or "").strip()
+                rid_json = ""
+                try:
+                    raw = d.get("raw_json") or "{}"
+                    payload = json.loads(raw) if isinstance(raw, str) else (raw or {})
+                    if isinstance(payload, dict):
+                        rid_json = str(payload.get("rid") or "").strip()
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    rid_json = ""
+                for candidate in (rid_col, rid_json, uid):
+                    cf = candidate.casefold()
+                    for orig in fold_to_origs.get(cf, []):
+                        _assign(orig, oid)
+    return out
 
 def refresh_order_statuses_light(
     repo: ReviewRepository,
