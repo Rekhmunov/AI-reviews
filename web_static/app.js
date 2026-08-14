@@ -16887,7 +16887,10 @@ function _wbFbsKizCircRenderTable() {
       const st = String(ev.status || "");
       const kiz = String(ev.excise_short || "");
       const kizShort = kiz.length > 28 ? `${kiz.slice(0, 14)}…${kiz.slice(-10)}` : kiz;
-      const err = ev.error_text || ev.skip_reason || "";
+      const errRaw = ev.error_text || ev.skip_reason || "";
+      const err = String(errRaw) === "no_fiscal"
+        ? "без чека → вывод OTHER (Дистанционная продажа)"
+        : errRaw;
       const orderId = ev.order_id != null && String(ev.order_id).trim() !== ""
         ? String(ev.order_id)
         : "";
