@@ -95,13 +95,13 @@ def test_initial_status_return_without_fiscal_is_pending() -> None:
     assert reason == ""
 
 
-def test_initial_status_withdraw_without_fiscal_is_skipped() -> None:
+def test_initial_status_withdraw_without_fiscal_is_pending_other() -> None:
     w = circ._normalize_row(
         {"operation_type_id": 1, "excise_short": "Y", "srid": "s2"}
     )
     assert w is not None
     st, reason = circ._initial_status(w)
-    assert st == circ.STATUS_SKIPPED
+    assert st == circ.STATUS_PENDING
     assert reason == circ.SKIP_NO_FISCAL
 
 
@@ -295,6 +295,68 @@ def test_prepare_soft_skips_withdraw_without_kpp_keeps_returns(
     assert out["warnings"]
     assert "юр. лица" in out["warnings"][0]
     assert not any(d["doc_type"] == "LK_RECEIPT" for d in out["documents"])
+
+
+@patch("review_processor.wb_kiz_circulation.list_events_for_chz")
+@patch(
+    "review_processor.wb_kiz_circulation.repair_circulation_queue",
+    return_value={"returns_fixed": 0, "withdraw_skipped": 0, "withdraw_requeued": 0},
+)
+@patch("review_processor.wb_kiz_circulation.get_chz_settings")
+def test_prepare_nofiscal_withdraw_uses_other_primary_doc(
+    mock_settings, _repair, mock_list
+) -> None:
+    mock_settings.return_value = {
+        "is_enabled": True,
+        "participant_inn": "7707083893",
+        "product_group": "lp",
+        "kpp": "770701001",
+        "fias_id": "fias-1",
+        "return_type": "REMOTE_SALE_RETURN",
+        "cert_thumbprint": "",
+        "api_base": "prod",
+        "api_base_url": PROD_BASE,
+    }
+    mock_list.return_value = [
+        {
+            "event_key": "k-nofiscal",
+            "operation_type": 1,
+            "excise_short": "cis-nofiscal",
+            "fiscal_doc_number": "",
+            "fiscal_dt": "",
+            "skip_reason": "no_fiscal",
+            "status": "pending",
+            "price": 15,
+            "currency_name": "RUB",
+        }
+    ]
+    out = circ.prepare_chz_batches(repo=object(), user_id=1, source_id=2)
+    assert out["counts"]["withdraw_events"] == 1
+    assert out["counts"]["skipped"] == 0
+    withdraw = next(d for d in out["documents"] if d["doc_type"] == "LK_RECEIPT")
+    body = withdraw["product_document"]
+    assert body["action"] == "DISTANCE"
+    assert body["document_type"] == "OTHER"
+    assert body["primary_document_custom_name"] == "Без документа основания"
+    assert body["document_number"].startswith("WB-NOFISCAL-")
+    assert "OTHER" in withdraw["title"] or "без чека" in withdraw["title"].lower()
+
+
+def test_build_lk_receipt_other_includes_custom_name() -> None:
+    from review_processor.chz_true_api import build_lk_receipt_document
+
+    doc = build_lk_receipt_document(
+        inn="7707083893",
+        document_number="WB-1",
+        document_date="2026-08-14",
+        primary_document_type="OTHER",
+        primary_document_custom_name="Без документа основания",
+        products=[{"cis": "X"}],
+        kpp="1",
+        fias_id="f",
+    )
+    assert doc["document_type"] == "OTHER"
+    assert doc["primary_document_custom_name"] == "Без документа основания"
 
 
 @patch("review_processor.wb_kiz_circulation.list_events_for_chz")

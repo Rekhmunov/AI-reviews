@@ -215,20 +215,29 @@ def build_lk_receipt_document(
     document_number: str,
     document_date: str,
     primary_document_type: str = "RECEIPT",
+    primary_document_custom_name: str = "",
     products: list[dict[str, Any]],
     kpp: str = "",
     fias_id: str = "",
 ) -> dict[str, Any]:
-    """Build product_document JSON for withdrawal (LK_RECEIPT)."""
+    """Build product_document JSON for withdrawal (LK_RECEIPT).
+
+    ``primary_document_type``: RECEIPT / SALES_RECEIPT / OTHER (True API).
+    For OTHER, ``primary_document_custom_name`` is required by ЧЗ.
+    """
+    doc_type = str(primary_document_type or "RECEIPT").strip() or "RECEIPT"
     doc: dict[str, Any] = {
         "inn": str(inn or "").strip(),
         "action": str(action or "DISTANCE").strip() or "DISTANCE",
         "action_date": str(document_date or "").strip(),
-        "document_type": str(primary_document_type or "RECEIPT").strip() or "RECEIPT",
+        "document_type": doc_type,
         "document_number": str(document_number or "").strip(),
         "document_date": str(document_date or "").strip(),
         "products": products,
     }
+    custom = str(primary_document_custom_name or "").strip()
+    if doc_type.upper() == "OTHER" and custom:
+        doc["primary_document_custom_name"] = custom
     if kpp:
         doc["kpp"] = str(kpp).strip()
     if fias_id:

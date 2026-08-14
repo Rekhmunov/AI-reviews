@@ -46,6 +46,9 @@ STATUS_SUBMITTED = "submitted"
 
 # ASCII codes only in SQL — Cyrillic in ILIKE caused UnicodeDecodeError on PG.
 SKIP_NO_FISCAL = "no_fiscal"
+# Primary document when WB excise-report has no fiscal receipt (True API OTHER).
+NO_FISCAL_PRIMARY_DOC_TYPE = "OTHER"
+NO_FISCAL_PRIMARY_DOC_NAME = "Без документа основания"
 
 
 def _is_no_fiscal_reason(reason: str) -> bool:
@@ -331,7 +334,7 @@ def repair_stuck_return_events(
 def repair_unhealable_withdraw_errors(
     repo: ReviewRepository, *, user_id: int, source_id: int
 ) -> int:
-    """Move withdraw-without-fiscal from error → skipped (do not block CHZ queue)."""
+    """Move withdraw-without-fiscal from error → pending (OTHER primary doc path)."""
     ensure_kiz_circulation_tables(repo)
     now = datetime.now(timezone.utc).isoformat()
     fixed = 0
@@ -354,11 +357,47 @@ def repair_unhealable_withdraw_errors(
                 repo._sql(
                     """
                     UPDATE wb_kiz_circulation_events
+                    SET status = ?, skip_reason = ?, error_text = '', updated_at = ?
+                    WHERE id = ? AND user_id = ?
+                    """
+                ),
+                (STATUS_PENDING, SKIP_NO_FISCAL, now, int(d["id"]), user_id),
+            )
+            fixed += 1
+    return fixed
+
+
+def repair_nofiscal_withdraw_to_pending(
+    repo: ReviewRepository, *, user_id: int, source_id: int
+) -> int:
+    """Re-queue historical withdraw-without-fiscal from skipped → pending."""
+    ensure_kiz_circulation_tables(repo)
+    now = datetime.now(timezone.utc).isoformat()
+    fixed = 0
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                """
+                SELECT id, skip_reason FROM wb_kiz_circulation_events
+                WHERE user_id = ? AND source_id = ?
+                  AND operation_type = ? AND status = ?
+                """
+            ),
+            (user_id, source_id, OP_WITHDRAW, STATUS_SKIPPED),
+        ).fetchall()
+        for row in rows:
+            d = repo._row_to_dict(row)
+            if not _is_no_fiscal_reason(str(d.get("skip_reason") or "")):
+                continue
+            conn.execute(
+                repo._sql(
+                    """
+                    UPDATE wb_kiz_circulation_events
                     SET status = ?, skip_reason = ?, updated_at = ?
                     WHERE id = ? AND user_id = ?
                     """
                 ),
-                (STATUS_SKIPPED, SKIP_NO_FISCAL, now, int(d["id"]), user_id),
+                (STATUS_PENDING, SKIP_NO_FISCAL, now, int(d["id"]), user_id),
             )
             fixed += 1
     return fixed
@@ -375,13 +414,24 @@ def repair_circulation_queue(
         logger.exception("repair_stuck_return_events failed: %s", exc)
         returns_fixed = 0
     try:
-        withdraw_skipped = repair_unhealable_withdraw_errors(
+        withdraw_from_error = repair_unhealable_withdraw_errors(
             repo, user_id=user_id, source_id=source_id
         )
     except Exception as exc:
         logger.exception("repair_unhealable_withdraw_errors failed: %s", exc)
-        withdraw_skipped = 0
-    return {"returns_fixed": returns_fixed, "withdraw_skipped": withdraw_skipped}
+        withdraw_from_error = 0
+    try:
+        withdraw_requeued = repair_nofiscal_withdraw_to_pending(
+            repo, user_id=user_id, source_id=source_id
+        )
+    except Exception as exc:
+        logger.exception("repair_nofiscal_withdraw_to_pending failed: %s", exc)
+        withdraw_requeued = 0
+    return {
+        "returns_fixed": returns_fixed,
+        "withdraw_skipped": withdraw_from_error,
+        "withdraw_requeued": withdraw_requeued,
+    }
 
 
 def _decrypt_wb_analytics_key(row: dict[str, Any] | None) -> str:
@@ -826,15 +876,15 @@ def _normalize_row(row: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _initial_status(norm: dict[str, Any]) -> tuple[str, str]:
-    """Withdraw needs fiscal for LK_RECEIPT; returns may omit fiscal (WB: «если есть»).
+    """Queue withdraw without fiscal for CHZ via OTHER primary document.
 
-    Missing-fiscal withdraw is ``skipped`` (not ``error``) so it cannot poison
-    the CHZ prepare queue ahead of processable events.
+    Returns may omit fiscal (WB: «если есть»). Keep ``no_fiscal`` reason so
+    prepare uses document_type=OTHER instead of RECEIPT.
     """
     op = int(norm.get("operation_type") or 0)
     has_fiscal = bool(norm.get("fiscal_doc_number") and norm.get("fiscal_dt"))
     if op == OP_WITHDRAW and not has_fiscal:
-        return STATUS_SKIPPED, SKIP_NO_FISCAL
+        return STATUS_PENDING, SKIP_NO_FISCAL
     return STATUS_PENDING, ""
 
 
@@ -865,7 +915,12 @@ def sync_excise_report(
     if repaired.get("withdraw_skipped"):
         _append_log(
             log,
-            f"выводы без чека → skipped (не блокируют очередь): {repaired['withdraw_skipped']}",
+            f"выводы без чека из error → очередь OTHER: {repaired['withdraw_skipped']}",
+        )
+    if repaired.get("withdraw_requeued"):
+        _append_log(
+            log,
+            f"выводы без чека из skipped → очередь OTHER: {repaired['withdraw_requeued']}",
         )
 
     with repo._connect() as conn:
@@ -956,7 +1011,7 @@ def sync_excise_report(
                             skip_reason = CASE
                                 WHEN wb_kiz_circulation_events.status IN ('submitted', 'accepted')
                                     THEN wb_kiz_circulation_events.skip_reason
-                                WHEN EXCLUDED.status = 'pending' THEN ''
+                                WHEN EXCLUDED.status = 'pending' THEN EXCLUDED.skip_reason
                                 ELSE wb_kiz_circulation_events.skip_reason
                             END,
                             error_text = CASE
@@ -1241,14 +1296,23 @@ def list_events_for_chz(
 ) -> list[dict[str, Any]]:
     """Events eligible for CHZ submit: pending + recoverable error + failed submitted.
 
-    Excludes ``skipped`` and unhealable withdraw-without-fiscal errors so they
-    cannot starve the oldest-first queue.
+    Includes withdraw-without-fiscal (``no_fiscal``) as pending/skipped-legacy —
+    they go out as LK_RECEIPT with primary document OTHER.
     """
     ensure_kiz_circulation_tables(repo)
     lim = max(1, min(int(limit or PREPARE_EVENT_LIMIT), 5000))
     fail_list = sorted(CHZ_STATUS_FAILED)
     fail_placeholders = ", ".join(["?"] * len(fail_list)) if fail_list else "NULL"
-    params: list[Any] = [user_id, source_id, SKIP_NO_FISCAL, *fail_list, lim]
+    params: list[Any] = [
+        user_id,
+        source_id,
+        SKIP_NO_FISCAL,
+        STATUS_SKIPPED,
+        OP_WITHDRAW,
+        SKIP_NO_FISCAL,
+        *fail_list,
+        lim,
+    ]
     with repo._connect() as conn:
         rows = conn.execute(
             repo._sql(
@@ -1260,6 +1324,11 @@ def list_events_for_chz(
                     OR (
                       status = 'error'
                       AND NOT (operation_type = 1 AND skip_reason = ?)
+                    )
+                    OR (
+                      status = ?
+                      AND operation_type = ?
+                      AND skip_reason = ?
                     )
                     OR (
                       status = 'submitted'
@@ -1473,9 +1542,12 @@ def prepare_chz_batches(
     )
 
     withdraw_groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    # Withdraw without fiscal → OTHER primary document (DISTANCE), grouped by date.
+    withdraw_other_groups: dict[str, list[dict[str, Any]]] = {}
     return_items: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
     warnings: list[str] = []
+    other_doc_date = _moscow_today()
 
     for ev in events:
         op = int(ev.get("operation_type") or 0)
@@ -1486,10 +1558,12 @@ def prepare_chz_batches(
             skipped.append({**ev, "skip_reason": "пустой КИЗ"})
             continue
         if op == OP_WITHDRAW:
-            if not fiscal_no or not fiscal_dt:
-                skipped.append({**ev, "skip_reason": "нет чека"})
-                continue
-            withdraw_groups.setdefault((fiscal_no, fiscal_dt), []).append(ev)
+            if fiscal_no and fiscal_dt:
+                withdraw_groups.setdefault((fiscal_no, fiscal_dt), []).append(ev)
+            else:
+                # Official True API path: DISTANCE + document_type=OTHER when no receipt.
+                day = fiscal_dt or other_doc_date
+                withdraw_other_groups.setdefault(day, []).append(ev)
         elif op == OP_RETURN:
             return_items.append(ev)
         else:
@@ -1506,7 +1580,7 @@ def prepare_chz_batches(
         if not fias_id:
             fias_id = str(place.get("fias_id") or "").strip()
     # Soft-skip withdraw if DISTANCE place incomplete — still process returns.
-    if withdraw_groups and (not kpp or not fias_id):
+    if (withdraw_groups or withdraw_other_groups) and (not kpp or not fias_id):
         warnings.append(
             "Вывод DISTANCE пропущен: укажите КПП и ФИАС у юр. лица с этим ИНН "
             "(Поставки → Настройки → Юр. лица)"
@@ -1514,7 +1588,11 @@ def prepare_chz_batches(
         for group in withdraw_groups.values():
             for ev in group:
                 skipped.append({**ev, "skip_reason": "нет КПП/ФИАС у юр. лица"})
+        for group in withdraw_other_groups.values():
+            for ev in group:
+                skipped.append({**ev, "skip_reason": "нет КПП/ФИАС у юр. лица"})
         withdraw_groups = {}
+        withdraw_other_groups = {}
 
     documents: list[dict[str, Any]] = []
     for (fiscal_no, fiscal_dt), group in withdraw_groups.items():
@@ -1546,6 +1624,42 @@ def prepare_chz_batches(
                 }
             )
 
+    for doc_date, group in withdraw_other_groups.items():
+        for part_idx, part in enumerate(_chunked(group, CHZ_PRODUCTS_PER_DOC), start=1):
+            products = []
+            for ev in part:
+                product: dict[str, Any] = {"cis": ev["excise_short"]}
+                cost = _price_for_chz(ev)
+                if cost is not None:
+                    product["product_cost"] = cost
+                products.append(product)
+            doc_number = f"WB-NOFISCAL-{doc_date}"
+            if len(group) > CHZ_PRODUCTS_PER_DOC:
+                doc_number = f"{doc_number}-{part_idx}"
+            doc_body = build_lk_receipt_document(
+                inn=inn,
+                document_number=doc_number,
+                document_date=doc_date,
+                primary_document_type=NO_FISCAL_PRIMARY_DOC_TYPE,
+                primary_document_custom_name=NO_FISCAL_PRIMARY_DOC_NAME,
+                products=products,
+                kpp=kpp,
+                fias_id=fias_id,
+            )
+            suffix = f" · часть {part_idx}" if len(group) > CHZ_PRODUCTS_PER_DOC else ""
+            documents.append(
+                {
+                    "doc_type": "LK_RECEIPT",
+                    "product_group": pg,
+                    "title": (
+                        f"Вывод · без чека (OTHER) · {doc_date}{suffix}"
+                    ),
+                    "event_keys": [e["event_key"] for e in part],
+                    "product_document": doc_body,
+                    "sign_payload_b64": _b64_json(doc_body),
+                }
+            )
+
     for part_idx, part in enumerate(
         _chunked(return_items, CHZ_PRODUCTS_PER_DOC), start=1
     ):
@@ -1569,7 +1683,9 @@ def prepare_chz_batches(
             }
         )
 
-    withdraw_n = sum(len(g) for g in withdraw_groups.values())
+    withdraw_n = sum(len(g) for g in withdraw_groups.values()) + sum(
+        len(g) for g in withdraw_other_groups.values()
+    )
     return {
         "ok": True,
         "settings": {
@@ -1815,6 +1931,7 @@ __all__ = [
     "mark_events_error",
     "repair_stuck_return_events",
     "repair_unhealable_withdraw_errors",
+    "repair_nofiscal_withdraw_to_pending",
     "repair_circulation_queue",
     "reconcile_submitted_with_chz",
     "chz_client_from_settings",
