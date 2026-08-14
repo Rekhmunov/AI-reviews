@@ -10728,6 +10728,19 @@ button.wb-fbs-kiz-add:disabled {
 .wb-fbs-pick-status.is-error {
   color: #b91c1c;
 }
+.wb-fbs-pick-status-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.wb-fbs-pick-status-row .wb-fbs-pick-status {
+  flex: 1;
+  min-width: 0;
+}
+.wb-fbs-pick-status-row .wb-fbs-kiz-remove {
+  flex: 0 0 auto;
+  margin-top: 0;
+}
 #wbFbsSupplyDetailPickVerifyBtn[hidden] {
   display: none !important;
 }
