@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=221" />
+  <link rel="stylesheet" href="/static/style.css?v=222" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1846,14 +1846,23 @@
                   </div>
                 </div>
                 <div class="wb-fbs-kiz-circ-filter-block">
-                  <span class="wb-fbs-kiz-circ-filter-label">Статус</span>
-                  <div class="wb-fbs-kiz-circ-status-chips" id="wbFbsKizCircStatusChips" role="group" aria-label="Статусы">
+                  <span class="wb-fbs-kiz-circ-filter-label">Статус ЧЗ</span>
+                  <div class="wb-fbs-kiz-circ-status-chips" id="wbFbsKizCircStatusChips" role="group" aria-label="Статусы ЧЗ">
                     <button type="button" class="wb-fbs-kiz-circ-chip" data-status="pending" onclick="toggleWbFbsKizCircStatus('pending')">ожидает</button>
                     <button type="button" class="wb-fbs-kiz-circ-chip" data-status="ready" onclick="toggleWbFbsKizCircStatus('ready')">готов</button>
                     <button type="button" class="wb-fbs-kiz-circ-chip" data-status="submitted" onclick="toggleWbFbsKizCircStatus('submitted')">отправлен</button>
                     <button type="button" class="wb-fbs-kiz-circ-chip" data-status="accepted" onclick="toggleWbFbsKizCircStatus('accepted')">принят</button>
                     <button type="button" class="wb-fbs-kiz-circ-chip" data-status="error" onclick="toggleWbFbsKizCircStatus('error')">ошибка</button>
                     <button type="button" class="wb-fbs-kiz-circ-chip" data-status="skipped" onclick="toggleWbFbsKizCircStatus('skipped')">пропуск</button>
+                  </div>
+                </div>
+                <div class="wb-fbs-kiz-circ-filter-block">
+                  <span class="wb-fbs-kiz-circ-filter-label">Статус заказа</span>
+                  <div class="wb-fbs-kiz-circ-status-chips" id="wbFbsKizCircOrderStatusChips" role="group" aria-label="Статусы заказа WB">
+                    <button type="button" class="wb-fbs-kiz-circ-chip" data-order-wb="sold" onclick="toggleWbFbsKizCircOrderWb('sold')">Выкуплен</button>
+                    <button type="button" class="wb-fbs-kiz-circ-chip" data-order-wb="canceled_by_client" onclick="toggleWbFbsKizCircOrderWb('canceled_by_client')">Отказ на ПВЗ</button>
+                    <button type="button" class="wb-fbs-kiz-circ-chip" data-order-wb="defect" onclick="toggleWbFbsKizCircOrderWb('defect')">Найдены дефекты</button>
+                    <button type="button" class="wb-fbs-kiz-circ-chip" data-order-wb="__empty__" onclick="toggleWbFbsKizCircOrderWb('__empty__')">Без статуса</button>
                   </div>
                 </div>
                 <div class="wb-fbs-kiz-circ-filter-controls">
@@ -5042,6 +5051,6 @@
       </div>
     </div>
   </div>
-  <script src="/static/app.js?v=481"></script>
+  <script src="/static/app.js?v=482"></script>
 </body>
 </html>
