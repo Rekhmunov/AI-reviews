@@ -648,8 +648,11 @@ def build_excise_fbs_match_index(
     norms: list[dict[str, Any]],
     marketplace_api_key: str = "",
     log: list[str] | None = None,
-) -> dict[str, dict[str, Any]]:
-    """Resolve analytics srid/rid → local FBS order + status (hydrate archive if needed)."""
+) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
+    """Resolve analytics srid/rid → local FBS order + status (hydrate archive if needed).
+
+    Returns ``(index, meta)`` where meta has hydrate_ok / sold_orders / order_count.
+    """
     from . import wb_fbs as wb_fbs_mod
 
     keys: list[str] = []
@@ -665,6 +668,7 @@ def build_excise_fbs_match_index(
         _append_log(log, f"уникальных srid/rid в отчёте: {len(uniq)}")
 
     mkey = str(marketplace_api_key or "").strip()
+    hydrate_ok = True
     if mkey and uniq:
         try:
             hyd = wb_fbs_mod.hydrate_orders_for_kiz_srids(
@@ -674,7 +678,7 @@ def build_excise_fbs_match_index(
                 srids=uniq,
                 api_key=mkey,
                 lookback_days=30,
-                archive_pages=30,
+                archive_pages=40,
             )
             if log is not None:
                 _append_log(
@@ -687,11 +691,19 @@ def build_excise_fbs_match_index(
                     f"без rid={hyd.get('still_missing')}",
                 )
         except Exception as exc:
+            hydrate_ok = False
             logger.warning("hydrate for kiz sync failed: %s", exc)
             if log is not None:
                 _append_log(log, f"hydrate Marketplace не удался: {exc}")
+    elif not mkey:
+        hydrate_ok = False
+        if log is not None:
+            _append_log(
+                log,
+                "нет Marketplace FBS токена — hydrate архива пропущен, "
+                "сопоставление только по уже сохранённым rid",
+            )
 
-    # Chunked lookup — IN lists can be large.
     by_key: dict[str, int] = {}
     chunk = 500
     for i in range(0, len(uniq), chunk):
@@ -719,12 +731,24 @@ def build_excise_fbs_match_index(
             "wb_status": str(st.get("wb_status") or "").strip().lower(),
             "supplier_status": str(st.get("supplier_status") or "").strip().lower(),
         }
+    sold_orders = {
+        int(v["order_id"])
+        for v in out.values()
+        if v.get("wb_status") == "sold" and int(v.get("order_id") or 0) > 0
+    }
+    meta = {
+        "hydrate_ok": hydrate_ok,
+        "order_count": len(order_ids),
+        "sold_orders": len(sold_orders),
+        "key_count": len(out),
+        "report_keys": len(uniq),
+    }
     if log is not None:
-        sold_m = sum(1 for v in out.values() if v.get("wb_status") == "sold")
         _append_log(
             log,
             f"сопоставлено с FBS по rid: ключей={len(out)}, "
-            f"уникальных заказов={len(order_ids)}, из них sold={sold_m}",
+            f"уникальных заказов={len(order_ids)}, sold={len(sold_orders)}"
+            + ("" if hydrate_ok else " (hydrate был с ошибкой/пропущен)"),
         )
         if uniq and not out:
             sample_rep = ", ".join(uniq[:3])
@@ -738,7 +762,7 @@ def build_excise_fbs_match_index(
                 f"пример local rid [{sample_loc}]; "
                 f"локальных rid={len(local)}",
             )
-    return out
+    return out, meta
 
 
 def _fbs_order_join_sql(alias_e: str = "e", alias_o: str = "o") -> str:
@@ -750,6 +774,7 @@ def _fbs_order_join_sql(alias_e: str = "e", alias_o: str = "o") -> str:
             COALESCE({alias_e}.srid, '') <> ''
             AND (
               {alias_o}.rid = {alias_e}.srid
+              OR {alias_o}.order_uid = {alias_e}.srid
               OR (
                 {alias_o}.raw_json IS NOT NULL
                 AND {alias_o}.raw_json <> ''
@@ -762,6 +787,7 @@ def _fbs_order_join_sql(alias_e: str = "e", alias_o: str = "o") -> str:
             COALESCE({alias_e}.rid, '') <> ''
             AND (
               {alias_o}.rid = {alias_e}.rid
+              OR {alias_o}.order_uid = {alias_e}.rid
               OR (
                 {alias_o}.raw_json IS NOT NULL
                 AND {alias_o}.raw_json <> ''
@@ -2360,7 +2386,7 @@ def sync_excise_report(
             skipped_bad += 1
             continue
         norms.append(norm)
-    fbs_index = build_excise_fbs_match_index(
+    fbs_index, match_meta = build_excise_fbs_match_index(
         repo,
         user_id=user_id,
         source_id=source_id,
@@ -2368,52 +2394,56 @@ def sync_excise_report(
         marketplace_api_key=marketplace_api_key,
         log=log,
     )
+    local_rid_n = len(
+        load_local_fbs_order_index(repo, user_id=user_id, source_id=source_id)
+    )
     if not fbs_index:
-        local_rid_n = len(
-            load_local_fbs_order_index(repo, user_id=user_id, source_id=source_id)
-        )
+        # Do not pretend success-as-FBO-only when hydrate failed or local rids exist.
+        if not match_meta.get("hydrate_ok") and local_rid_n > 0:
+            msg = (
+                "не удалось сопоставить отчёт с FBS (hydrate/токен). "
+                f"Локальных rid={local_rid_n}. Повторите после синка архива WB FBS."
+            )
+            _append_log(log, f"ОШИБКА: {msg}")
+            _finish_run(
+                repo,
+                run_id=run_id,
+                status="error",
+                log=log,
+                fetched=len(rows),
+                inserted=0,
+                skipped=len(rows),
+                error_text=msg,
+            )
+            return {
+                "ok": False,
+                "run_id": run_id,
+                "date_from": date_from_s,
+                "date_to": date_to_s,
+                "fetched": len(rows),
+                "inserted": 0,
+                "updated": 0,
+                "skipped": len(rows),
+                "skipped_not_fbs": len(norms),
+                "error": msg,
+                "withdraw_count": 0,
+                "return_count": 0,
+                "log": "\n".join(log),
+                "cursor": get_cursor(repo, user_id=user_id, source_id=source_id),
+            }
         _append_log(
             log,
-            "СТОП: ни одна строка отчёта не сопоставилась с Marketplace FBS rid. "
-            f"Локальных rid={local_rid_n}. "
-            "Проверьте токен FBS / подтяните архив выкупленных, "
-            "либо в отчёте только FBO (их не пишем).",
+            "внимание: 0 совпадений srid↔rid — в очередь ничего не пишем "
+            f"(локальных rid={local_rid_n}; вероятно в отчёте только FBO "
+            "или архив FBS ещё не подтянут).",
         )
-        _finish_run(
-            repo,
-            run_id=run_id,
-            status="ok",
-            log=log,
-            fetched=len(rows),
-            inserted=0,
-            skipped=len(rows),
-            withdraw_count=0,
-            return_count=0,
-        )
-        return {
-            "ok": True,
-            "run_id": run_id,
-            "date_from": date_from_s,
-            "date_to": date_to_s,
-            "fetched": len(rows),
-            "inserted": 0,
-            "updated": 0,
-            "skipped": len(rows),
-            "skipped_not_fbs": len(norms),
-            "skipped_not_sold": 0,
-            "skipped_not_return": 0,
-            "insert_errors": 0,
-            "withdraw_count": 0,
-            "return_count": 0,
-            "log": "\n".join(log),
-            "cursor": get_cursor(repo, user_id=user_id, source_id=source_id),
-        }
-    sold_n = sum(1 for v in fbs_index.values() if str(v.get("wb_status") or "") == "sold")
+        # Fall through with empty index: loop will skip everything, counts stay honest.
+    sold_n = int(match_meta.get("sold_orders") or 0)
     _append_log(
         log,
         f"фильтр FBS активен: сопоставлено ключей={len(fbs_index)}, "
-        f"sold среди них≈{sold_n}; "
-        "в БД: sold→вывод, op=2 (возврат/ПВЗ)→ввод; FBO и отмены до доставки не пишем",
+        f"sold={sold_n}; "
+        "в БД: sold→вывод, Analytics op=2 (возврат/ПВЗ)→ввод; FBO не пишем",
     )
     # Persist progress so UI polling shows WB finished even while DB writes run.
     _finish_run(
@@ -2458,7 +2488,7 @@ def sync_excise_report(
                         log,
                         f"обработано {i}/{len(norms)}: в очередь {inserted + updated}, "
                         f"пропуск {skipped} (FBO/не FBS {skipped_not_fbs}, "
-                        f"не sold {skipped_not_sold}, не отказ {skipped_not_return})",
+                        f"не sold {skipped_not_sold})",
                     )
                     _finish_run(
                         repo,
@@ -2475,10 +2505,6 @@ def sync_excise_report(
             # Keep raw_json tiny — full payload bloated every INSERT and caused 504s.
             norm["raw_json"] = ""
             status, skip_reason = _initial_status(norm)
-            if int(norm["operation_type"]) == OP_WITHDRAW:
-                withdraw_n += 1
-            else:
-                return_n += 1
             try:
                 related = _related_from_index(related_index, norm=norm)
                 action, target = _resolve_sync_action(related, norm=norm)
@@ -2496,6 +2522,10 @@ def sync_excise_report(
                     suppressed += 1
                     skipped += 1
                     continue
+                if int(norm["operation_type"]) == OP_WITHDRAW:
+                    withdraw_n += 1
+                else:
+                    return_n += 1
                 if action == "upgrade" and target:
                     _upgrade_event_fiscal(
                         conn, repo, target=target, norm=norm, now=now
@@ -2662,14 +2692,13 @@ def sync_excise_report(
         log,
         f"новых: {inserted}, обновлено: {updated}, пропуск: {skipped}"
         + (
-            f" (не FBS: {skipped_not_fbs}, не выкуплен: {skipped_not_sold}, "
-            f"не отказ: {skipped_not_return})"
-            if (skipped_not_fbs or skipped_not_sold or skipped_not_return)
+            f" (не FBS: {skipped_not_fbs}, не sold: {skipped_not_sold})"
+            if (skipped_not_fbs or skipped_not_sold)
             else ""
         )
         + (f", без дублей: {suppressed}" if suppressed else "")
         + (f", ошибок INSERT: {insert_errors}" if insert_errors else "")
-        + f", вывод sold: {withdraw_n}, возврат отказных: {return_n}",
+        + f", вывод sold: {withdraw_n}, возврат ПВЗ: {return_n}",
     )
     _append_log(
         log,
