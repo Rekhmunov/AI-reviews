@@ -10567,18 +10567,6 @@ button.wb-fbs-kiz-add:disabled {
   flex: 1 1 auto;
   min-width: 0;
 }
-.wb-fbs-kiz-circ-lead {
-  margin: 0 0 12px;
-  max-width: 720px;
-  font-size: 14px;
-  line-height: 1.45;
-  color: #64748b;
-}
-.wb-fbs-kiz-circ-meta {
-  margin: 0 0 12px;
-  font-size: 13px;
-  color: #475569;
-}
 .wb-fbs-kiz-circ-toolbar {
   display: flex;
   flex-wrap: wrap;

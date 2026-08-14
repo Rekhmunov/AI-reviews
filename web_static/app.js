@@ -16986,7 +16986,6 @@ function closeWbFbsKizCirculationModal() {
 async function refreshWbFbsKizCirculation() {
   const sid = _wbFbsKizCircSourceId();
   if (!sid) return;
-  const meta = document.getElementById("wbFbsKizCircMeta");
   const countsEl = document.getElementById("wbFbsKizCircCounts");
   try {
     const [ovRes, evRes] = await Promise.all([
@@ -16998,19 +16997,6 @@ async function refreshWbFbsKizCirculation() {
     if (!ovRes.ok) throw new Error(overview.detail || "Ошибка overview");
     if (!evRes.ok) throw new Error(eventsPayload.detail || "Ошибка events");
 
-    const cur = overview.cursor || {};
-    const chz = overview.chz || {};
-    const last = overview.last_run || {};
-    if (meta) {
-      const parts = [
-        chz.is_enabled ? "ЧЗ: вкл" : "ЧЗ: выкл",
-        chz.participant_inn ? `ИНН ${chz.participant_inn}` : "ИНН не задан",
-        chz.has_wb_analytics_api_key ? "WB Аналитика: ок" : "WB Аналитика: нет токена",
-        cur.last_date_to ? `последняя выгрузка до ${cur.last_date_to}` : "выгрузок ещё не было",
-        last.id ? `прогон #${last.id} (${last.status || "—"})` : "",
-      ].filter(Boolean);
-      meta.textContent = parts.join(" · ");
-    }
     if (countsEl) {
       countsEl.textContent = [
         `к выводу: ${overview.pending_withdraw || 0}`,
@@ -17022,7 +17008,6 @@ async function refreshWbFbsKizCirculation() {
     _wbFbsKizCircReadFilterControls();
     _wbFbsKizCircRenderTable();
   } catch (err) {
-    if (meta) meta.textContent = err?.message || String(err);
     _wbFbsKizCircAppendLog(`Ошибка обновления: ${err?.message || err}`);
   }
 }
