@@ -16841,6 +16841,7 @@ function _wbFbsKizCircFilteredItems() {
 
     if (q) {
       const hay = [
+        ev.order_id,
         ev.excise_short,
         ev.srid,
         ev.rid,
@@ -16870,12 +16871,12 @@ function _wbFbsKizCircRenderTable() {
   }
   if (!all.length) {
     tbody.innerHTML =
-      '<tr><td colspan="7" class="wb-fbs-kiz-circ-empty">Нет данных — выберите даты и нажмите «Ежедневный вывод»</td></tr>';
+      '<tr><td colspan="8" class="wb-fbs-kiz-circ-empty">Нет данных — выберите даты и нажмите «Ежедневный вывод»</td></tr>';
     return;
   }
   if (!items.length) {
     tbody.innerHTML =
-      '<tr><td colspan="7" class="wb-fbs-kiz-circ-empty">Нет событий по текущим фильтрам</td></tr>';
+      '<tr><td colspan="8" class="wb-fbs-kiz-circ-empty">Нет событий по текущим фильтрам</td></tr>';
     return;
   }
   tbody.innerHTML = items
@@ -16885,10 +16886,16 @@ function _wbFbsKizCircRenderTable() {
       const kiz = String(ev.excise_short || "");
       const kizShort = kiz.length > 28 ? `${kiz.slice(0, 14)}…${kiz.slice(-10)}` : kiz;
       const err = ev.error_text || ev.skip_reason || "";
+      const orderId = ev.order_id != null && String(ev.order_id).trim() !== ""
+        ? String(ev.order_id)
+        : "";
+      const srid = String(ev.srid || ev.rid || "").trim();
+      const sridShort = srid.length > 28 ? `${srid.slice(0, 12)}…${srid.slice(-10)}` : srid;
       return `<tr>
         <td>${esc(ev.fiscal_dt || "—")}</td>
         <td class="wb-fbs-kiz-circ-op-${op}">${esc(_wbFbsKizCircOpLabel(op))}</td>
-        <td><code>${esc(ev.srid || ev.rid || "—")}</code></td>
+        <td>${orderId ? `<code class="wb-fbs-kiz-circ-order-id">${esc(orderId)}</code>` : "—"}</td>
+        <td title="${esc(srid)}"><code class="wb-fbs-kiz-circ-srid">${esc(sridShort || "—")}</code></td>
         <td title="${esc(kiz)}"><code>${esc(kizShort || "—")}</code></td>
         <td>${esc(ev.fiscal_doc_number || "—")}</td>
         <td><span class="wb-fbs-kiz-circ-st wb-fbs-kiz-circ-st-${esc(st)}">${esc(_wbFbsKizCircStatusLabel(st))}</span>${err ? `<div class="small" style="color:#b91c1c;margin-top:4px">${esc(err)}</div>` : ""}</td>

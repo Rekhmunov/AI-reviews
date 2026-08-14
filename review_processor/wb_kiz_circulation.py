@@ -1171,7 +1171,38 @@ def list_events(
         d = repo._row_to_dict(r)
         d.pop("raw_json", None)
         out.append(d)
+    _attach_order_ids_to_events(repo, user_id=user_id, source_id=source_id, events=out)
     return out
+
+
+def _attach_order_ids_to_events(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    events: list[dict[str, Any]],
+) -> None:
+    """Attach numeric FBS ``order_id`` (as in supplies) via srid/rid join."""
+    if not events:
+        return
+    from . import wb_fbs as wb_fbs_mod
+
+    keys: list[str] = []
+    for ev in events:
+        srid = str(ev.get("srid") or "").strip()
+        rid = str(ev.get("rid") or "").strip()
+        if srid:
+            keys.append(srid)
+        if rid and rid != srid:
+            keys.append(rid)
+    by_srid = wb_fbs_mod.order_ids_by_srids(
+        repo, user_id=user_id, source_id=source_id, srids=keys
+    )
+    for ev in events:
+        srid = str(ev.get("srid") or "").strip()
+        rid = str(ev.get("rid") or "").strip()
+        oid = by_srid.get(srid) or by_srid.get(rid) or None
+        ev["order_id"] = int(oid) if oid else None
 
 
 def list_events_for_chz(

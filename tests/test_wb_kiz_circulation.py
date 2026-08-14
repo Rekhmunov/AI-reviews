@@ -438,3 +438,22 @@ def test_resolve_chz_place_from_legal() -> None:
     )
     assert place["kpp"] == "770701001"
     assert place["fias_id"] == "0c5b2444-70a0-4932-980c-b4dc0d3f02b5"
+
+
+def test_attach_order_ids_to_events_via_srid() -> None:
+    events = [
+        {"srid": "eAC.abc.0.0", "rid": ""},
+        {"srid": "missing", "rid": ""},
+        {"srid": "", "rid": "eAC.abc.0.0"},
+    ]
+    with patch("review_processor.wb_fbs.order_ids_by_srids") as lookup:
+        lookup.return_value = {"eAC.abc.0.0": 3291847561}
+        circ._attach_order_ids_to_events(
+            MagicMock(), user_id=1, source_id=2, events=events
+        )
+    assert events[0]["order_id"] == 3291847561
+    assert events[1]["order_id"] is None
+    assert events[2]["order_id"] == 3291847561
+    called_srids = lookup.call_args.kwargs["srids"]
+    assert "eAC.abc.0.0" in called_srids
+    assert "missing" in called_srids

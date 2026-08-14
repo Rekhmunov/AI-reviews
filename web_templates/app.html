@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=208" />
+  <link rel="stylesheet" href="/static/style.css?v=209" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1860,7 +1860,7 @@
                   </label>
                   <label class="wb-fbs-kiz-circ-field wb-fbs-kiz-circ-search-field" for="wbFbsKizCircSearch">
                     <span>Поиск</span>
-                    <input type="search" id="wbFbsKizCircSearch" placeholder="КИЗ, srid, чек…" autocomplete="off" oninput="onWbFbsKizCircFilterChange()" />
+                    <input type="search" id="wbFbsKizCircSearch" placeholder="Заказ, КИЗ, srid, чек…" autocomplete="off" oninput="onWbFbsKizCircFilterChange()" />
                   </label>
                   <label class="wb-fbs-kiz-circ-check" for="wbFbsKizCircOnlyError">
                     <input type="checkbox" id="wbFbsKizCircOnlyError" onchange="onWbFbsKizCircFilterChange()" />
@@ -1886,7 +1886,8 @@
                     <tr>
                       <th>Дата чека</th>
                       <th>Тип</th>
-                      <th>srid / заказ</th>
+                      <th>Заказ</th>
+                      <th>srid</th>
                       <th>КИЗ</th>
                       <th>Чек</th>
                       <th>Статус</th>
@@ -1894,7 +1895,7 @@
                     </tr>
                   </thead>
                   <tbody id="wbFbsKizCircTbody">
-                    <tr><td colspan="7" class="wb-fbs-kiz-circ-empty">Нет данных — выберите даты и нажмите «Ежедневный вывод»</td></tr>
+                    <tr><td colspan="8" class="wb-fbs-kiz-circ-empty">Нет данных — выберите даты и нажмите «Ежедневный вывод»</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -5011,6 +5012,6 @@
       </div>
     </div>
   </div>
-  <script src="/static/app.js?v=447"></script>
+  <script src="/static/app.js?v=448"></script>
 </body>
 </html>
