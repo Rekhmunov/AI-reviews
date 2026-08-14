@@ -51,13 +51,19 @@ class SyncCancelled(Exception):
 
 
 def _register_sync_cancel(run_id: int) -> threading.Event:
-    ev = threading.Event()
+    """Attach (or reuse) a cancel Event for ``run_id``.
+
+    Critical: never replace a flag that is already set — «Стоп» may race the
+    worker's first ``_register_sync_cancel`` after ``create_excise_sync_run``.
+    """
+    rid = int(run_id)
     with _SYNC_CANCEL_LOCK:
-        old = _SYNC_CANCEL.get(int(run_id))
-        if old is not None:
-            old.set()
-        _SYNC_CANCEL[int(run_id)] = ev
-    return ev
+        existing = _SYNC_CANCEL.get(rid)
+        if existing is not None:
+            return existing
+        ev = threading.Event()
+        _SYNC_CANCEL[rid] = ev
+        return ev
 
 
 def _clear_sync_cancel(run_id: int) -> None:
@@ -2534,6 +2540,8 @@ def sync_excise_report(
                 _progress("ожидание ответа WB Analytics…")
                 last_beat = now_m
         if fetch_holder["exc"] is not None:
+            # Prefer user cancel over a late WB error if Стоп was pressed mid-fetch.
+            _check_sync_cancelled(run_id)
             raise fetch_holder["exc"]
         rows = list(fetch_holder["rows"] or [])
         _check_sync_cancelled(run_id)
@@ -2818,6 +2826,7 @@ def sync_excise_report(
                         return_count=return_n,
                     )
 
+            _check_sync_cancelled(run_id)
             conn.execute(
                 repo._sql(
                     """
@@ -2846,6 +2855,7 @@ def sync_excise_report(
                 ),
             )
 
+        _check_sync_cancelled(run_id)
         _append_log(
             log,
             f"новых: {inserted}, обновлено: {updated}, пропуск: {skipped}"

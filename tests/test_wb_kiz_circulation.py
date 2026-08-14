@@ -1525,6 +1525,9 @@ def test_request_cancel_excise_sync_sets_flag() -> None:
     assert not circ._sync_cancel_requested(99)
     assert circ.request_cancel_excise_sync(99) is True
     assert circ._sync_cancel_requested(99)
+    # Re-register must keep the cancel flag (race: Стоп before worker starts).
+    circ._register_sync_cancel(99)
+    assert circ._sync_cancel_requested(99)
     try:
         circ._check_sync_cancelled(99)
         raise AssertionError("expected SyncCancelled")

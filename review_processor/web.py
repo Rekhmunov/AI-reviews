@@ -10458,6 +10458,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     _log.info("kiz circulation sync cancelled run_id=%s", run_id)
                     return
                 _log.exception("kiz circulation async sync failed: %s", exc)
+                # sync_excise_report already finishes the run with the full log;
+                # do not overwrite progress with the short create-time log.
+                try:
+                    existing = kiz_circ.get_run(
+                        repository, user_id=owner_id, run_id=run_id
+                    )
+                    st = str((existing or {}).get("status") or "")
+                    if st in {"ok", "error", "cancelled"}:
+                        return
+                except Exception:
+                    _log.exception("kiz circulation read run after failure failed")
                 try:
                     kiz_circ._finish_run(
                         repository,
