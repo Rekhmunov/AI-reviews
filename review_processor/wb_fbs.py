@@ -1384,6 +1384,50 @@ def load_order_pick_map(
     return out
 
 
+def load_order_barcodes_map(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    order_ids: list[int],
+) -> dict[int, list[str]]:
+    """Map order_id → product ШК list from local ``skus_json`` (trusted source)."""
+    ids = [int(x) for x in order_ids if x is not None]
+    if not ids:
+        return {}
+    ensure_wb_fbs_tables(repo)
+    placeholders = ", ".join("?" for _ in ids)
+    out: dict[int, list[str]] = {}
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                f"""
+                SELECT order_id, skus_json
+                FROM wb_fbs_orders
+                WHERE user_id = ? AND source_id = ? AND order_id IN ({placeholders})
+                """
+            ),
+            tuple([int(user_id), int(source_id), *ids]),
+        ).fetchall()
+    for row in rows:
+        try:
+            oid = int(row["order_id"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        barcodes: list[str] = []
+        try:
+            parsed = json.loads(row["skus_json"] or "[]")
+        except Exception:
+            parsed = []
+        if isinstance(parsed, list):
+            for sku in parsed:
+                text = str(sku or "").strip()
+                if text and text not in barcodes:
+                    barcodes.append(text)
+        out[oid] = barcodes
+    return out
+
+
 def _parse_dt(value: object) -> str | None:
     if value is None:
         return None

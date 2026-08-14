@@ -1988,11 +1988,34 @@ def save_pick_verify(
     items: list[dict[str, Any]],
     allowed_order_ids: set[int] | None = None,
 ) -> dict[str, Any]:
-    """Save local ШК pick-check results. Never calls Wildberries."""
+    """Save local ШК pick-check results. Never calls Wildberries.
+
+    Product barcodes are always loaded from the local order row (``skus_json``).
+    Client-supplied ``barcodes`` are ignored so a forged payload cannot pass.
+    """
     results: list[dict[str, Any]] = []
     ok_n = 0
     err_n = 0
     skipped_n = 0
+
+    candidate_ids: list[int] = []
+    for raw in items:
+        if not isinstance(raw, dict):
+            continue
+        try:
+            oid = int(raw.get("order_id"))
+        except (TypeError, ValueError):
+            continue
+        if oid > 0:
+            candidate_ids.append(oid)
+
+    trusted_skus = wb.load_order_barcodes_map(
+        repo,
+        user_id=int(user_id),
+        source_id=int(source_id),
+        order_ids=candidate_ids,
+    )
+
     for raw in items:
         if not isinstance(raw, dict):
             continue
@@ -2020,19 +2043,26 @@ def save_pick_verify(
                 continue
             verified = False
         if verified:
-            # Validate against current barcodes if provided on the item.
-            barcodes = raw.get("barcodes")
-            if isinstance(barcodes, list):
-                ok, normalized, err = validate_ean_against_order_skus(
-                    barcode, barcodes
+            # Never trust client barcodes — only local skus_json.
+            order_barcodes = trusted_skus.get(oid)
+            if order_barcodes is None:
+                err_n += 1
+                results.append(
+                    {
+                        "order_id": oid,
+                        "ok": False,
+                        "error": "Заказ не найден локально — синхронизируйте FBS и повторите",
+                    }
                 )
-                if not ok:
-                    err_n += 1
-                    results.append(
-                        {"order_id": oid, "ok": False, "error": err}
-                    )
-                    continue
-                barcode = normalized
+                continue
+            ok, normalized, err = validate_ean_against_order_skus(
+                barcode, order_barcodes
+            )
+            if not ok:
+                err_n += 1
+                results.append({"order_id": oid, "ok": False, "error": err})
+                continue
+            barcode = normalized
         try:
             local_ok = wb.update_order_pick_verify(
                 repo,
