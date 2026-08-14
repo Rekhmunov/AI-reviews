@@ -1355,3 +1355,52 @@ def test_heal_submitted_terminal_statuses() -> None:
     assert out["to_error"] == 2
     assert out["to_accepted"] == 1
     assert out["healed"] == 3
+
+
+def test_norm_matches_fbs_by_srid_or_rid() -> None:
+    keys = {"fbs-rid-1", "uid-9"}
+    assert circ._norm_matches_fbs({"srid": "fbs-rid-1", "rid": ""}, keys)
+    assert circ._norm_matches_fbs({"srid": "x", "rid": "uid-9"}, keys)
+    assert not circ._norm_matches_fbs({"srid": "fbo-1", "rid": "fbo-1"}, keys)
+    assert not circ._norm_matches_fbs({"srid": "fbs-rid-1", "rid": ""}, set())
+
+
+def test_repair_skip_non_fbs_noop_without_local_orders() -> None:
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    conn.__exit__.return_value = False
+    count_row = {"n": 0}
+    conn.execute.return_value.fetchone.return_value = count_row
+    repo = MagicMock()
+    repo._connect.return_value = conn
+    repo._sql.side_effect = lambda q: q
+    repo._row_to_dict.side_effect = lambda r: r if isinstance(r, dict) else {"n": 0}
+    with patch.object(circ, "ensure_kiz_circulation_tables"), patch(
+        "review_processor.wb_fbs.ensure_wb_fbs_tables"
+    ):
+        assert circ.repair_skip_non_fbs_events(repo, user_id=1, source_id=2) == 0
+    # Only the COUNT query — no mass UPDATE.
+    assert conn.execute.call_count == 1
+
+
+def test_repair_skip_non_fbs_updates_when_orders_exist() -> None:
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    conn.__exit__.return_value = False
+    count_cur = MagicMock()
+    count_cur.fetchone.return_value = {"n": 5}
+    upd_cur = MagicMock()
+    upd_cur.rowcount = 12
+    conn.execute.side_effect = [count_cur, upd_cur]
+    repo = MagicMock()
+    repo._connect.return_value = conn
+    repo._sql.side_effect = lambda q: q
+    repo._row_to_dict.side_effect = lambda r: r if isinstance(r, dict) else {"n": 5}
+    with patch.object(circ, "ensure_kiz_circulation_tables"), patch(
+        "review_processor.wb_fbs.ensure_wb_fbs_tables"
+    ):
+        assert circ.repair_skip_non_fbs_events(repo, user_id=1, source_id=2) == 12
+    assert conn.execute.call_count == 2
+    sql = conn.execute.call_args_list[1].args[0]
+    assert "wb_fbs_orders" in sql
+    assert circ.SKIP_NOT_FBS in conn.execute.call_args_list[1].args[1]

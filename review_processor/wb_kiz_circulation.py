@@ -1,6 +1,8 @@
 """WB FBS → Chestny Znak circulation (вывод / возврат КИЗ).
 
-New block: daily sync of analytics/excise-report + CHZ document prepare/submit.
+Sync source is WB Analytics ``excise-report`` (all sales schemes with marking).
+FeedPilot keeps **only FBS** rows: match ``srid``/``rid`` to local ``wb_fbs_orders``.
+FBO/DBS lines are skipped (WB withdraws FBO itself; this block is FBS-only).
 Does not touch existing KIZ modal / meta/sgtin flow.
 """
 
@@ -46,6 +48,8 @@ STATUS_SUBMITTED = "submitted"
 
 # ASCII codes only in SQL — Cyrillic in ILIKE caused UnicodeDecodeError on PG.
 SKIP_NO_FISCAL = "no_fiscal"
+# Excise-report row has no matching Marketplace FBS order (likely FBO/other).
+SKIP_NOT_FBS = "not_fbs"
 # Primary document when WB excise-report has no fiscal receipt (True API OTHER).
 NO_FISCAL_PRIMARY_DOC_TYPE = "OTHER"
 NO_FISCAL_PRIMARY_DOC_NAME = "Без документа основания"
@@ -501,15 +505,190 @@ def repair_orphan_submitted_events(
         return int(getattr(cur, "rowcount", 0) or 0)
 
 
-# Skips that must stay closed (dedupe / already sent) — never auto-requeue.
+# Skips that must stay closed (dedupe / already sent / not FBS) — never auto-requeue
+# via repair_legacy_skipped_with_cis. ``not_fbs`` may be reopened by
+# repair_requeue_fbs_matched_not_fbs when a local FBS order appears later.
 _TERMINAL_SKIP_REASONS = frozenset(
     {
         "already_sent",
         "duplicate",
         "duplicate_nofiscal",
         "пустой КИЗ",
+        SKIP_NOT_FBS,
     }
 )
+
+
+def load_local_fbs_rid_keys(
+    repo: ReviewRepository, *, user_id: int, source_id: int
+) -> set[str]:
+    """All Marketplace FBS ``rid`` / ``order_uid`` keys known locally for the source."""
+    from . import wb_fbs as wb_fbs_mod
+
+    wb_fbs_mod.ensure_wb_fbs_tables(repo)
+    keys: set[str] = set()
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                """
+                SELECT rid, order_uid FROM wb_fbs_orders
+                WHERE user_id = ? AND source_id = ?
+                  AND (
+                    COALESCE(rid, '') <> ''
+                    OR COALESCE(order_uid, '') <> ''
+                  )
+                """
+            ),
+            (user_id, source_id),
+        ).fetchall()
+    for r in rows:
+        d = repo._row_to_dict(r)
+        rid = str(d.get("rid") or "").strip()
+        uid = str(d.get("order_uid") or "").strip()
+        if rid:
+            keys.add(rid)
+        if uid:
+            keys.add(uid)
+    return keys
+
+
+def _norm_matches_fbs(norm: dict[str, Any], fbs_keys: set[str]) -> bool:
+    if not fbs_keys:
+        return False
+    srid = str(norm.get("srid") or "").strip()
+    rid = str(norm.get("rid") or "").strip()
+    if srid and srid in fbs_keys:
+        return True
+    if rid and rid in fbs_keys:
+        return True
+    return False
+
+
+def repair_skip_non_fbs_events(
+    repo: ReviewRepository, *, user_id: int, source_id: int
+) -> int:
+    """Mark open queue rows without a local FBS order as skipped ``not_fbs``.
+
+    No-op when the source has zero FBS orders (avoid wiping the queue by mistake).
+    """
+    ensure_kiz_circulation_tables(repo)
+    from . import wb_fbs as wb_fbs_mod
+
+    wb_fbs_mod.ensure_wb_fbs_tables(repo)
+    fbs_n = 0
+    with repo._connect() as conn:
+        row = conn.execute(
+            repo._sql(
+                """
+                SELECT COUNT(*) AS n FROM wb_fbs_orders
+                WHERE user_id = ? AND source_id = ?
+                """
+            ),
+            (user_id, source_id),
+        ).fetchone()
+        if row:
+            fbs_n = int(repo._row_to_dict(row).get("n") or 0)
+    if fbs_n <= 0:
+        return 0
+    now = datetime.now(timezone.utc).isoformat()
+    with repo._connect() as conn:
+        cur = conn.execute(
+            repo._sql(
+                """
+                UPDATE wb_kiz_circulation_events AS e
+                SET status = ?,
+                    skip_reason = ?,
+                    error_text = '',
+                    updated_at = ?
+                WHERE e.user_id = ? AND e.source_id = ?
+                  AND e.status IN (?, ?, ?)
+                  AND NOT EXISTS (
+                    SELECT 1 FROM wb_fbs_orders AS o
+                    WHERE o.user_id = e.user_id
+                      AND o.source_id = e.source_id
+                      AND (
+                        (
+                          COALESCE(e.srid, '') <> ''
+                          AND (o.rid = e.srid OR o.order_uid = e.srid)
+                        )
+                        OR (
+                          COALESCE(e.rid, '') <> ''
+                          AND (o.rid = e.rid OR o.order_uid = e.rid)
+                        )
+                      )
+                  )
+                """
+            ),
+            (
+                STATUS_SKIPPED,
+                SKIP_NOT_FBS,
+                now,
+                user_id,
+                source_id,
+                STATUS_PENDING,
+                STATUS_READY,
+                STATUS_ERROR,
+            ),
+        )
+        return int(getattr(cur, "rowcount", 0) or 0)
+
+
+def repair_requeue_fbs_matched_not_fbs(
+    repo: ReviewRepository, *, user_id: int, source_id: int
+) -> int:
+    """Re-open ``not_fbs`` skips that now match a local Marketplace FBS order."""
+    ensure_kiz_circulation_tables(repo)
+    from . import wb_fbs as wb_fbs_mod
+
+    wb_fbs_mod.ensure_wb_fbs_tables(repo)
+    now = datetime.now(timezone.utc).isoformat()
+    with repo._connect() as conn:
+        cur = conn.execute(
+            repo._sql(
+                """
+                UPDATE wb_kiz_circulation_events AS e
+                SET status = ?,
+                    skip_reason = CASE
+                      WHEN e.operation_type = ?
+                        AND COALESCE(e.fiscal_doc_number, '') = ''
+                        AND COALESCE(e.fiscal_dt, '') = ''
+                      THEN ?
+                      ELSE ''
+                    END,
+                    error_text = '',
+                    updated_at = ?
+                WHERE e.user_id = ? AND e.source_id = ?
+                  AND e.status = ?
+                  AND e.skip_reason = ?
+                  AND EXISTS (
+                    SELECT 1 FROM wb_fbs_orders AS o
+                    WHERE o.user_id = e.user_id
+                      AND o.source_id = e.source_id
+                      AND (
+                        (
+                          COALESCE(e.srid, '') <> ''
+                          AND (o.rid = e.srid OR o.order_uid = e.srid)
+                        )
+                        OR (
+                          COALESCE(e.rid, '') <> ''
+                          AND (o.rid = e.rid OR o.order_uid = e.rid)
+                        )
+                      )
+                  )
+                """
+            ),
+            (
+                STATUS_PENDING,
+                OP_WITHDRAW,
+                SKIP_NO_FISCAL,
+                now,
+                user_id,
+                source_id,
+                STATUS_SKIPPED,
+                SKIP_NOT_FBS,
+            ),
+        )
+        return int(getattr(cur, "rowcount", 0) or 0)
 
 
 def repair_legacy_skipped_with_cis(
@@ -832,12 +1011,29 @@ def repair_circulation_queue(
     except Exception as exc:
         logger.exception("repair_legacy_skipped_with_cis failed: %s", exc)
         legacy_skipped = 0
+    try:
+        fbs_requeued = repair_requeue_fbs_matched_not_fbs(
+            repo, user_id=user_id, source_id=source_id
+        )
+    except Exception as exc:
+        logger.exception("repair_requeue_fbs_matched_not_fbs failed: %s", exc)
+        fbs_requeued = 0
+    try:
+        # After legacy requeue — drop open rows that are not Marketplace FBS.
+        not_fbs_skipped = repair_skip_non_fbs_events(
+            repo, user_id=user_id, source_id=source_id
+        )
+    except Exception as exc:
+        logger.exception("repair_skip_non_fbs_events failed: %s", exc)
+        not_fbs_skipped = 0
     return {
         "returns_fixed": returns_fixed,
         "withdraw_skipped": withdraw_from_error,
         "withdraw_requeued": withdraw_requeued,
         "orphan_submitted": orphan_submitted,
         "legacy_skipped": legacy_skipped,
+        "fbs_requeued": fbs_requeued,
+        "not_fbs_skipped": not_fbs_skipped,
     }
 
 
@@ -1659,6 +1855,17 @@ def sync_excise_report(
             log,
             f"возвращено из skipped в очередь: {repaired['legacy_skipped']}",
         )
+    if repaired.get("fbs_requeued"):
+        _append_log(
+            log,
+            f"снова в очереди (нашлись в FBS): {repaired['fbs_requeued']}",
+        )
+    if repaired.get("not_fbs_skipped"):
+        _append_log(
+            log,
+            f"убрано из очереди (нет в заказах FBS, вероятно FBO): "
+            f"{repaired['not_fbs_skipped']}",
+        )
     if repaired.get("raw_json_cleared") or repaired.get("events_purged"):
         _append_log(
             log,
@@ -1718,7 +1925,20 @@ def sync_excise_report(
         )
         raise
 
-    _append_log(log, f"получено {len(rows)} строк")
+    _append_log(log, f"получено {len(rows)} строк из Analytics excise-report")
+    fbs_keys = load_local_fbs_rid_keys(repo, user_id=user_id, source_id=source_id)
+    if not fbs_keys:
+        _append_log(
+            log,
+            "внимание: в FeedPilot нет заказов FBS по этому источнику — "
+            "новые строки из отчёта не попадут в очередь "
+            "(сначала синхронизируйте WB FBS / архив)",
+        )
+    else:
+        _append_log(
+            log,
+            f"фильтр FBS: локальных rid/uid заказов Marketplace FBS: {len(fbs_keys)}",
+        )
     # Persist progress so UI polling shows WB finished even while DB writes run.
     _finish_run(
         repo,
@@ -1730,6 +1950,7 @@ def sync_excise_report(
     inserted = 0
     updated = 0
     skipped = 0
+    skipped_not_fbs = 0
     suppressed = 0
     withdraw_n = 0
     return_n = 0
@@ -1748,6 +1969,10 @@ def sync_excise_report(
             norm = _normalize_row(raw)
             if not norm:
                 skipped += 1
+                continue
+            if not _norm_matches_fbs(norm, fbs_keys):
+                skipped += 1
+                skipped_not_fbs += 1
                 continue
             # Keep raw_json tiny — full payload bloated every INSERT and caused 504s.
             norm["raw_json"] = ""
@@ -1932,9 +2157,10 @@ def sync_excise_report(
     _append_log(
         log,
         f"новых: {inserted}, обновлено: {updated}, пропуск: {skipped}"
+        + (f" (не FBS: {skipped_not_fbs})" if skipped_not_fbs else "")
         + (f", без дублей: {suppressed}" if suppressed else "")
         + (f", ошибок INSERT: {insert_errors}" if insert_errors else "")
-        + f", вывод: {withdraw_n}, возврат: {return_n}",
+        + f", вывод FBS: {withdraw_n}, возврат FBS: {return_n}",
     )
     _append_log(
         log,
@@ -1961,6 +2187,7 @@ def sync_excise_report(
         "inserted": inserted,
         "updated": updated,
         "skipped": skipped,
+        "skipped_not_fbs": skipped_not_fbs,
         "insert_errors": insert_errors,
         "withdraw_count": withdraw_n,
         "return_count": return_n,
@@ -2165,6 +2392,10 @@ def list_events(
     if status:
         clauses.append("status = ?")
         params.append(str(status))
+    else:
+        # Hide bulk FBO/other analytics skips from the default table.
+        clauses.append("NOT (status = ? AND skip_reason = ?)")
+        params.extend([STATUS_SKIPPED, SKIP_NOT_FBS])
     if operation_type in {OP_WITHDRAW, OP_RETURN}:
         clauses.append("operation_type = ?")
         params.append(int(operation_type))
@@ -2769,10 +3000,10 @@ def get_overview(
         counts = conn.execute(
             repo._sql(
                 """
-                SELECT status, operation_type, COUNT(*) AS cnt
+                SELECT status, operation_type, skip_reason, COUNT(*) AS cnt
                 FROM wb_kiz_circulation_events
                 WHERE user_id = ? AND source_id = ?
-                GROUP BY status, operation_type
+                GROUP BY status, operation_type, skip_reason
                 """
             ),
             (user_id, source_id),
@@ -2787,22 +3018,29 @@ def get_overview(
     by_status: dict[str, int] = {}
     pending_withdraw = 0
     pending_return = 0
+    not_fbs_n = 0
     for r in counts:
         d = repo._row_to_dict(r)
         st = str(d.get("status") or "")
         op = int(d.get("operation_type") or 0)
         cnt = int(d.get("cnt") or 0)
+        reason = str(d.get("skip_reason") or "")
         by_status[st] = by_status.get(st, 0) + cnt
+        if st == STATUS_SKIPPED and reason == SKIP_NOT_FBS:
+            not_fbs_n += cnt
         if st in {STATUS_PENDING, STATUS_READY, STATUS_ERROR} and op == OP_WITHDRAW:
             pending_withdraw += cnt
         if st in {STATUS_PENDING, STATUS_READY, STATUS_ERROR} and op == OP_RETURN:
             pending_return += cnt
     run = repo._row_to_dict(last_run) if last_run else None
+    total_all = sum(by_status.values())
     return {
         "cursor": cursor,
         "counts": by_status,
         "pending_withdraw": pending_withdraw,
         "pending_return": pending_return,
+        "not_fbs_skipped": not_fbs_n,
+        "total_fbs": max(0, total_all - not_fbs_n),
         "last_run": run,
         "chz": get_chz_settings(repo, user_id=user_id),
     }
@@ -3475,7 +3713,10 @@ __all__ = [
     "repair_nofiscal_withdraw_to_pending",
     "repair_orphan_submitted_events",
     "repair_legacy_skipped_with_cis",
+    "repair_skip_non_fbs_events",
+    "repair_requeue_fbs_matched_not_fbs",
     "repair_circulation_queue",
+    "load_local_fbs_rid_keys",
     "maintain_kiz_circulation_storage",
     "upsert_sent_cis_rows",
     "reconcile_submitted_with_chz",
