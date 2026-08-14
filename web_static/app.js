@@ -24877,37 +24877,64 @@ function _wbFbsPickValidateEanForOrder(scan, row) {
   return { ok: true, barcode: normalized };
 }
 
-function _wbFbsPickFindBySticker(scanRaw) {
-  const scan = _wbFbsPickNormalizeScan(scanRaw);
-  if (!scan) return { row: null, matches: [] };
+function _wbFbsPickScanKey(value) {
+  // Same as Маркировка (_wbFbsKizScanKey): scanners may flip letter case.
+  return _wbFbsKizNormalizeScan(value).toLocaleLowerCase("en-US");
+}
+
+function _wbFbsPickFindBySticker(scan) {
+  // Same algorithm as _wbFbsKizFindBySticker, but over non-КИЗ pick rows only.
+  const raw = _wbFbsKizNormalizeScan(scan);
+  if (!raw) return { row: null, ambiguous: false };
+  const rawKey = _wbFbsPickScanKey(raw);
+  // Primary: QR / 1D scan value from WB stickers.barcode (e.g. !uKEtQZVx).
   const byBarcode = [];
   for (const row of wbFbsPickState.rows) {
-    const bc = _wbFbsPickNormalizeScan(row.sticker_barcode);
-    if (bc && bc.toLowerCase() === scan.toLowerCase()) byBarcode.push(row);
+    const bc = _wbFbsKizNormalizeScan(row.sticker_barcode);
+    if (bc && _wbFbsPickScanKey(bc) === rawKey) byBarcode.push(row);
   }
-  if (byBarcode.length === 1) return { row: byBarcode[0], matches: byBarcode };
-  if (byBarcode.length > 1) return { row: null, matches: byBarcode };
+  if (byBarcode.length === 1) return { row: byBarcode[0], ambiguous: false };
+  if (byBarcode.length > 1) {
+    return { row: null, ambiguous: true, matches: byBarcode };
+  }
 
-  const digits = scan.replace(/\D/g, "");
-  const byNumber = [];
+  // Fallback: human-readable partA+partB / partB (portal sticker number).
+  const digits = raw.replace(/\D+/g, "");
+  const matches = [];
   for (const row of wbFbsPickState.rows) {
-    const num = String(row.sticker_number || "").replace(/\D/g, "");
-    const partB = String(row.sticker_part_b || "").replace(/\D/g, "");
-    if (digits && (num === digits || partB === digits)) byNumber.push(row);
+    const full = _wbFbsKizNormalizeScan(row.sticker_number);
+    const partA = _wbFbsKizNormalizeScan(row.sticker_part_a);
+    const partB = _wbFbsKizNormalizeScan(row.sticker_part_b);
+    if (
+      (full && (rawKey === _wbFbsPickScanKey(full) || digits === full.replace(/\D+/g, ""))) ||
+      (partA && partB && digits === `${partA}${partB}`.replace(/\D+/g, "")) ||
+      (partB && (rawKey === _wbFbsPickScanKey(partB) || digits === partB.replace(/\D+/g, "")))
+    ) {
+      matches.push(row);
+    }
   }
-  if (byNumber.length === 1) return { row: byNumber[0], matches: byNumber };
-  if (byNumber.length > 1) return { row: null, matches: byNumber };
-  return { row: null, matches: [] };
+  if (matches.length === 1) return { row: matches[0], ambiguous: false };
+  if (matches.length > 1) {
+    const exact = matches.find((r) => {
+      const full = _wbFbsKizNormalizeScan(r.sticker_number);
+      return _wbFbsPickScanKey(full) === rawKey || full.replace(/\D+/g, "") === digits;
+    });
+    if (exact) return { row: exact, ambiguous: false };
+    return { row: null, ambiguous: true, matches };
+  }
+  return { row: null, ambiguous: false };
 }
 
 function onWbFbsPickStickerScanKey(event) {
   if (!event || event.key !== "Enter") return;
   event.preventDefault();
   const input = event.target;
-  const scan = _wbFbsPickNormalizeScan(input?.value);
+  const rawTyped = String(input?.value || "").replace(/\s+/g, "").trim();
+  if (!rawTyped) return;
+  const scan = _wbFbsKizNormalizeScan(rawTyped);
   if (!scan) return;
   const found = _wbFbsPickFindBySticker(scan);
-  if ((found.matches || []).length > 1) {
+  if (found.ambiguous) {
     const ids = (found.matches || []).map((r) => r.order_id).slice(0, 5).join(", ");
     _wbFbsPickSetInfo(
       `Код стикера совпадает у нескольких заказов (${ids}${
