@@ -1061,6 +1061,26 @@ def ensure_wb_fbs_tables(repo: ReviewRepository) -> None:
             ADD COLUMN IF NOT EXISTS is_b2b BOOLEAN NOT NULL DEFAULT FALSE
             """
         )
+        # Local pick-check for orders WITHOUT КИЗ (EAN-13 vs product ШК).
+        # Never sent to Wildberries — FeedPilot-only verification.
+        conn.execute(
+            """
+            ALTER TABLE wb_fbs_orders
+            ADD COLUMN IF NOT EXISTS pick_verified BOOLEAN NOT NULL DEFAULT FALSE
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE wb_fbs_orders
+            ADD COLUMN IF NOT EXISTS pick_barcode TEXT NOT NULL DEFAULT ''
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE wb_fbs_orders
+            ADD COLUMN IF NOT EXISTS pick_verified_at TIMESTAMPTZ
+            """
+        )
 
 
 def _kiz_code_clean(value: object) -> str:
@@ -1269,6 +1289,97 @@ def load_order_kiz_map(
             "codes": codes,
             "wb_synced": synced,
             "saved_at": saved_at,
+        }
+    return out
+
+
+def update_order_pick_verify(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    order_id: int,
+    verified: bool,
+    barcode: str = "",
+) -> bool:
+    """Persist local ШК pick-check for a non-КИЗ order. No WB API calls."""
+    ensure_wb_fbs_tables(repo)
+    code = str(barcode or "").strip()
+    is_ok = bool(verified) and bool(code)
+    saved_at = _utc_now() if is_ok else None
+    with repo._connect() as conn:
+        cur = conn.execute(
+            repo._sql(
+                """
+                UPDATE wb_fbs_orders
+                SET pick_verified = ?,
+                    pick_barcode = ?,
+                    pick_verified_at = ?
+                WHERE user_id = ? AND source_id = ? AND order_id = ?
+                """
+            ),
+            (
+                is_ok,
+                code if is_ok else "",
+                saved_at,
+                int(user_id),
+                int(source_id),
+                int(order_id),
+            ),
+        )
+        try:
+            updated = int(cur.rowcount or 0)
+        except Exception:
+            updated = 0
+    return updated > 0
+
+
+def load_order_pick_map(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    order_ids: list[int],
+) -> dict[int, dict[str, Any]]:
+    """Map order_id → {verified, barcode, verified_at} from local wb_fbs_orders."""
+    ids = [int(x) for x in order_ids if x is not None]
+    if not ids:
+        return {}
+    ensure_wb_fbs_tables(repo)
+    placeholders = ", ".join("?" for _ in ids)
+    out: dict[int, dict[str, Any]] = {}
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                f"""
+                SELECT order_id, pick_verified, pick_barcode, pick_verified_at
+                FROM wb_fbs_orders
+                WHERE user_id = ? AND source_id = ? AND order_id IN ({placeholders})
+                """
+            ),
+            tuple([int(user_id), int(source_id), *ids]),
+        ).fetchall()
+    for row in rows:
+        try:
+            oid = int(row["order_id"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        try:
+            verified = bool(row["pick_verified"])
+        except (KeyError, IndexError):
+            verified = False
+        try:
+            barcode = str(row["pick_barcode"] or "").strip()
+        except (KeyError, IndexError):
+            barcode = ""
+        try:
+            verified_at = row["pick_verified_at"]
+        except (KeyError, IndexError):
+            verified_at = None
+        out[oid] = {
+            "verified": verified and bool(barcode),
+            "barcode": barcode,
+            "verified_at": verified_at,
         }
     return out
 

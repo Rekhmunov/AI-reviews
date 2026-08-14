@@ -21811,6 +21811,7 @@ const _WB_FBS_DETAIL_ACTION_IDS = [
   "wbFbsSupplyDetailStickersMenuBtn",
   "wbFbsSupplyDetailKizBtn",
   "wbFbsSupplyDetailKizRefreshBtn",
+  "wbFbsSupplyDetailPickVerifyBtn",
   "wbFbsSupplyDetailTrbxBtn",
   "wbFbsSupplyDetailCancelledBtn",
 ];
@@ -21853,6 +21854,7 @@ function _wbFbsSupplyDetailSetActionsReady(ready) {
     _wbFbsClosePickingMenu();
     _wbFbsCloseStickersMenu();
   }
+  _wbFbsSyncPickVerifyBtn();
 }
 
 function _wbFbsSupplyDetailResetSearch() {
@@ -21878,6 +21880,7 @@ function closeWbFbsSupplyDetailModal() {
   closeWbFbsCreateTrbxModal();
   closeWbFbsCancelledOrdersModal();
   closeWbFbsStickersByCategoryModal();
+  closeWbFbsPickVerifyModal();
   setModalVisibility("wbFbsSupplyDetailModal", false);
 }
 window.closeWbFbsSupplyDetailModal = closeWbFbsSupplyDetailModal;
@@ -22287,6 +22290,11 @@ async function openWbFbsSupplyDetailModal(supplyId) {
   _wbFbsKizSplitSetTone("");
   const kizSplitOpen = document.getElementById("wbFbsKizSplit");
   if (kizSplitOpen) kizSplitOpen.hidden = true;
+  const pickBtnOpen = document.getElementById("wbFbsSupplyDetailPickVerifyBtn");
+  if (pickBtnOpen) {
+    pickBtnOpen.hidden = true;
+    pickBtnOpen.style.display = "none";
+  }
   _wbFbsSupplyDetailResetSearch();
   setModalVisibility("wbFbsSupplyDetailModal", true);
   const title = document.getElementById("wbFbsSupplyDetailTitle");
@@ -22374,6 +22382,7 @@ function renderWbFbsSupplyDetail(data) {
     kizSplit.hidden = !needsKiz;
     if (!needsKiz) _wbFbsKizSplitSetTone("");
   }
+  _wbFbsSyncPickVerifyBtn();
   const trbxBtn = document.getElementById("wbFbsSupplyDetailTrbxBtn");
   if (trbxBtn) {
     trbxBtn.hidden = !!supply.done;
@@ -24507,6 +24516,540 @@ function _wbFbsKizRefreshDetailBadges(results) {
   }
 }
 window.saveWbFbsKizModal = saveWbFbsKizModal;
+
+// ── WB FBS: Проверка ШК (товары без КИЗ) — отдельный инструмент, не Маркировка ──
+const wbFbsPickState = {
+  rows: [],
+  errors: {},
+  pendingOrderId: null,
+  saving: false,
+  baselineByOrder: {},
+};
+
+function _wbFbsSyncPickVerifyBtn() {
+  const btn = document.getElementById("wbFbsSupplyDetailPickVerifyBtn");
+  if (!btn) return;
+  // Owner-only (same rule as auto-sync gear). Independent of Маркировка.
+  const can = isTenantOwner() && _wbFbsSupplyDetailActionsReady();
+  btn.hidden = !can;
+  btn.style.display = can ? "" : "none";
+}
+
+function _wbFbsPickSetInfo(text) {
+  const el = document.getElementById("wbFbsPickInfo");
+  if (!el) return;
+  const msg = String(text || "").trim();
+  el.textContent = msg;
+  el.hidden = !msg;
+}
+
+function _wbFbsPickResetFilters() {
+  const filled = document.getElementById("wbFbsPickFilterFilled");
+  const empty = document.getElementById("wbFbsPickFilterEmpty");
+  const errors = document.getElementById("wbFbsPickFilterErrors");
+  const cancelled = document.getElementById("wbFbsPickFilterCancelled");
+  const search = document.getElementById("wbFbsPickSearchFilter");
+  if (filled) filled.checked = false;
+  if (empty) empty.checked = false;
+  if (errors) errors.checked = false;
+  if (cancelled) cancelled.checked = false;
+  if (search) search.value = "";
+}
+
+function onWbFbsPickFilterFilledChange() {
+  const filled = document.getElementById("wbFbsPickFilterFilled");
+  const empty = document.getElementById("wbFbsPickFilterEmpty");
+  if (filled?.checked && empty) empty.checked = false;
+  renderWbFbsPickVerifyTable();
+}
+window.onWbFbsPickFilterFilledChange = onWbFbsPickFilterFilledChange;
+
+function onWbFbsPickFilterEmptyChange() {
+  const filled = document.getElementById("wbFbsPickFilterFilled");
+  const empty = document.getElementById("wbFbsPickFilterEmpty");
+  if (empty?.checked && filled) filled.checked = false;
+  renderWbFbsPickVerifyTable();
+}
+window.onWbFbsPickFilterEmptyChange = onWbFbsPickFilterEmptyChange;
+
+function clearWbFbsPickScanField(inputId) {
+  const el = document.getElementById(String(inputId || ""));
+  if (!el) return;
+  el.value = "";
+  el.focus();
+}
+window.clearWbFbsPickScanField = clearWbFbsPickScanField;
+
+function closeWbFbsPickVerifyModal() {
+  cancelWbFbsPickSkuScan();
+  setModalVisibility("wbFbsPickScanPrompt", false);
+  setModalVisibility("wbFbsPickVerifyModal", false);
+  wbFbsPickState.rows = [];
+  wbFbsPickState.errors = {};
+  wbFbsPickState.pendingOrderId = null;
+  wbFbsPickState.baselineByOrder = {};
+  _wbFbsPickResetFilters();
+  _wbFbsPickSetInfo("");
+}
+window.closeWbFbsPickVerifyModal = closeWbFbsPickVerifyModal;
+
+async function openWbFbsPickVerifyModal() {
+  if (!isTenantOwner()) {
+    alert("Проверка ШК доступна только главному пользователю");
+    return;
+  }
+  const sid = String(wbFbsDetailState.supplyId || "").trim();
+  if (!sid || !wbFbsState.sourceId || !_wbFbsSupplyDetailActionsReady()) return;
+  setModalVisibility("wbFbsPickVerifyModal", true);
+  wbFbsPickState.rows = [];
+  wbFbsPickState.errors = {};
+  wbFbsPickState.pendingOrderId = null;
+  wbFbsPickState.baselineByOrder = {};
+  _wbFbsPickResetFilters();
+  _wbFbsPickSetInfo("");
+  const tbody = document.getElementById("wbFbsPickTbody");
+  if (tbody) tbody.innerHTML = `<tr><td colspan="3" class="wb-fbs-empty">Загрузка…</td></tr>`;
+  const saveBtn = document.getElementById("wbFbsPickVerifySaveBtn");
+  if (saveBtn) saveBtn.disabled = true;
+  try {
+    const params = new URLSearchParams({ source_id: String(wbFbsState.sourceId) });
+    const res = await fetch(
+      `/api/wb-fbs/supplies/${encodeURIComponent(sid)}/pick-verify?${params}`
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || `Ошибка ${res.status}`);
+    wbFbsPickState.rows = Array.isArray(data.rows) ? data.rows.map((r) => ({ ...r })) : [];
+    _wbFbsPickCaptureBaseline();
+    renderWbFbsPickVerifyTable();
+    if (!wbFbsPickState.rows.length) {
+      _wbFbsPickSetInfo("В поставке нет заказов без маркировки КИЗ");
+    }
+    const scan = document.getElementById("wbFbsPickStickerScan");
+    if (scan) {
+      scan.value = "";
+      setTimeout(() => scan.focus(), 50);
+    }
+  } catch (e) {
+    if (tbody) {
+      tbody.innerHTML = `<tr><td colspan="3" class="wb-fbs-empty" style="color:#b91c1c">${_wbFbsEsc(e.message || e)}</td></tr>`;
+    }
+    _wbFbsPickSetInfo(String(e.message || e));
+  } finally {
+    if (saveBtn) saveBtn.disabled = false;
+  }
+}
+window.openWbFbsPickVerifyModal = openWbFbsPickVerifyModal;
+
+function _wbFbsPickCaptureBaseline() {
+  const map = {};
+  for (const r of wbFbsPickState.rows) {
+    const oid = Number(r.order_id);
+    if (!Number.isFinite(oid)) continue;
+    map[oid] = {
+      pick_verified: !!r.pick_verified,
+      pick_barcode: String(r.pick_barcode || "").trim(),
+    };
+  }
+  wbFbsPickState.baselineByOrder = map;
+}
+
+function _wbFbsPickStickerHtml(row) {
+  const partA = String(row?.sticker_part_a || "").trim();
+  const partB = String(row?.sticker_part_b || "").trim();
+  const full = String(row?.sticker_number || "").trim();
+  let head = partA;
+  let tail = partB;
+  if ((!head || !tail) && full) {
+    if (full.length > 4) {
+      head = full.slice(0, -4);
+      tail = full.slice(-4);
+    } else {
+      head = "";
+      tail = full;
+    }
+  }
+  if (!head && !tail) return `<div class="wb-fbs-kiz-sticker">—</div>`;
+  if (!tail) return `<div class="wb-fbs-kiz-sticker">${_wbFbsEsc(head)}</div>`;
+  return `<div class="wb-fbs-kiz-sticker">` +
+    (head ? `<span class="wb-fbs-kiz-sticker-head">${_wbFbsEsc(head)}</span>` : "") +
+    `<span class="wb-fbs-kiz-sticker-tail">${_wbFbsEsc(tail)}</span>` +
+    `</div>`;
+}
+
+function _wbFbsPickUpdateScanCounter() {
+  const el = document.getElementById("wbFbsPickScanCount");
+  if (!el) return;
+  let filled = 0;
+  const total = wbFbsPickState.rows.length;
+  for (const row of wbFbsPickState.rows) {
+    if (row.pick_verified && String(row.pick_barcode || "").trim()) filled += 1;
+  }
+  el.textContent = `Проверено ${filled} из ${total}`;
+}
+
+function _wbFbsPickRowMatchesSearch(row, q) {
+  const needle = String(q || "").trim().toLowerCase();
+  if (!needle) return true;
+  const parts = [
+    row.order_id,
+    row.sticker_number,
+    row.sticker_barcode,
+    row.product_name,
+    row.article,
+    row.brand,
+    row.pick_barcode,
+    ...(Array.isArray(row.barcodes) ? row.barcodes : []),
+  ];
+  return parts.some((p) => String(p || "").toLowerCase().includes(needle));
+}
+
+function _wbFbsPickStatusHtml(row) {
+  const oid = Number(row.order_id);
+  const err = String(wbFbsPickState.errors[oid] || "").trim();
+  if (err) {
+    return `<div class="wb-fbs-pick-status is-error">${_wbFbsEsc(err)}</div>`;
+  }
+  if (row.pick_verified && String(row.pick_barcode || "").trim()) {
+    return `<div class="wb-fbs-pick-status is-ok">✓ ${_wbFbsEsc(row.pick_barcode)}</div>`;
+  }
+  return `<div class="wb-fbs-pick-status is-empty">Не проверено</div>`;
+}
+
+function renderWbFbsPickVerifyTable() {
+  const tbody = document.getElementById("wbFbsPickTbody");
+  if (!tbody) return;
+  const filledOn = !!document.getElementById("wbFbsPickFilterFilled")?.checked;
+  const emptyOn = !!document.getElementById("wbFbsPickFilterEmpty")?.checked;
+  const errorsOn = !!document.getElementById("wbFbsPickFilterErrors")?.checked;
+  const cancelledOn = !!document.getElementById("wbFbsPickFilterCancelled")?.checked;
+  const searchQ = document.getElementById("wbFbsPickSearchFilter")?.value || "";
+  const pending = wbFbsPickState.pendingOrderId;
+  let rows = wbFbsPickState.rows.slice();
+  if (filledOn) rows = rows.filter((r) => !!r.pick_verified && String(r.pick_barcode || "").trim());
+  if (emptyOn) rows = rows.filter((r) => !(r.pick_verified && String(r.pick_barcode || "").trim()));
+  if (errorsOn) {
+    rows = rows.filter((r) => wbFbsPickState.errors[Number(r.order_id)]);
+  }
+  if (cancelledOn) {
+    rows = rows.filter((r) => String(r.cancel_reason_label || "").trim());
+  }
+  rows = rows.filter((r) => _wbFbsPickRowMatchesSearch(r, searchQ));
+  _wbFbsPickUpdateScanCounter();
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="3" class="wb-fbs-empty">${
+      wbFbsPickState.rows.length ? "Нет строк по выбранным фильтрам" : "Нет заказов без КИЗ"
+    }</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = rows.map((r) => {
+    const oid = Number(r.order_id);
+    const photo = r.product_photo
+      ? `<img class="wb-fbs-product-photo" src="${_wbFbsEsc(r.product_photo)}" alt="" width="72" height="72" loading="lazy">`
+      : `<span class="wb-fbs-product-ph" aria-hidden="true"></span>`;
+    const barcodes = Array.isArray(r.barcodes) ? r.barcodes : [];
+    const barcodeHtml = barcodes.length
+      ? `<div class="wb-fbs-barcodes" title="Штрихкод товара">${barcodes.map((b) =>
+          `<div class="wb-fbs-barcode">${_wbFbsEsc(b)}</div>`
+        ).join("")}</div>`
+      : "";
+    const cancel = String(r.cancel_reason_label || "").trim()
+      ? `<span class="wb-fbs-badge cancel">${_wbFbsEsc(r.cancel_reason_label)}</span>`
+      : "";
+    const pendingCls = pending != null && Number(pending) === oid ? " is-pending-scan" : "";
+    return `<tr class="wb-fbs-kiz-row${pendingCls}" data-order-id="${oid}">
+      <td class="wb-fbs-kiz-col-order">
+        <div class="wb-fbs-kiz-order-id">${oid}</div>
+        ${_wbFbsPickStickerHtml(r)}
+        <div class="wb-fbs-kiz-date">${_wbFbsEsc(r.created_date || "—")}</div>
+      </td>
+      <td class="wb-fbs-kiz-col-product">
+        <div class="wb-fbs-kiz-product">
+          ${photo}
+          <div class="wb-fbs-kiz-product-meta">
+            <div class="wb-fbs-kiz-product-name">${_wbFbsEsc(r.product_name || "—")}</div>
+            <div class="wb-fbs-kiz-product-sub">${_wbFbsEsc([r.brand, r.article].filter(Boolean).join(" · ") || "—")}</div>
+            ${barcodeHtml}
+            ${cancel}
+          </div>
+        </div>
+      </td>
+      <td class="wb-fbs-kiz-col-kiz">${_wbFbsPickStatusHtml(r)}</td>
+    </tr>`;
+  }).join("");
+}
+window.renderWbFbsPickVerifyTable = renderWbFbsPickVerifyTable;
+
+function _wbFbsPickNormalizeScan(value) {
+  return _wbFbsFixRuKeyboardLayout(String(value || "").replace(/\s+/g, "")).trim();
+}
+
+function _wbFbsPickOrderSkuSet(row) {
+  const set = new Set();
+  for (const b of row?.barcodes || []) {
+    const raw = String(b || "").trim();
+    if (raw) set.add(raw);
+    const digits = raw.replace(/\D/g, "");
+    if (digits) {
+      set.add(digits);
+      if (digits.length === 14 && digits.startsWith("0")) set.add(digits.slice(1));
+      if (digits.length === 13) set.add(`0${digits}`);
+    }
+  }
+  return set;
+}
+
+function _wbFbsPickValidateEanForOrder(scan, row) {
+  const raw = _wbFbsPickNormalizeScan(scan);
+  const digits = raw.replace(/\D/g, "");
+  if (!digits) {
+    return { ok: false, error: "Отсканируйте штрихкод товара (EAN-13)" };
+  }
+  if (![8, 12, 13, 14].includes(digits.length)) {
+    return {
+      ok: false,
+      error: `Ожидается EAN/GTIN (8–14 цифр), получено ${digits.length}`,
+    };
+  }
+  const orderSkus = _wbFbsPickOrderSkuSet(row);
+  if (!orderSkus.size) {
+    return {
+      ok: false,
+      error: "У заказа нет штрихкодов товара — нельзя сверить ШК",
+    };
+  }
+  const candidates = new Set([digits, raw]);
+  if (digits.length === 14 && digits.startsWith("0")) candidates.add(digits.slice(1));
+  if (digits.length === 13) candidates.add(`0${digits}`);
+  let matched = false;
+  for (const c of candidates) {
+    if (orderSkus.has(c)) {
+      matched = true;
+      break;
+    }
+  }
+  if (!matched) {
+    const shown = digits.length === 14 && digits.startsWith("0") ? digits.slice(1) : digits;
+    const skuList = [...orderSkus].filter((s) => /^\d+$/.test(s)).slice(0, 6).join(", ");
+    return {
+      ok: false,
+      error: `ШК ${shown} не совпадает ни с одним ШК товара в заказе${skuList ? ` (${skuList})` : ""}.`,
+    };
+  }
+  const normalized = digits.length === 14 && digits.startsWith("0") ? digits.slice(1) : digits;
+  return { ok: true, barcode: normalized };
+}
+
+function _wbFbsPickFindBySticker(scanRaw) {
+  const scan = _wbFbsPickNormalizeScan(scanRaw);
+  if (!scan) return { row: null, matches: [] };
+  const byBarcode = [];
+  for (const row of wbFbsPickState.rows) {
+    const bc = _wbFbsPickNormalizeScan(row.sticker_barcode);
+    if (bc && bc.toLowerCase() === scan.toLowerCase()) byBarcode.push(row);
+  }
+  if (byBarcode.length === 1) return { row: byBarcode[0], matches: byBarcode };
+  if (byBarcode.length > 1) return { row: null, matches: byBarcode };
+
+  const digits = scan.replace(/\D/g, "");
+  const byNumber = [];
+  for (const row of wbFbsPickState.rows) {
+    const num = String(row.sticker_number || "").replace(/\D/g, "");
+    const partB = String(row.sticker_part_b || "").replace(/\D/g, "");
+    if (digits && (num === digits || partB === digits)) byNumber.push(row);
+  }
+  if (byNumber.length === 1) return { row: byNumber[0], matches: byNumber };
+  if (byNumber.length > 1) return { row: null, matches: byNumber };
+  return { row: null, matches: [] };
+}
+
+function onWbFbsPickStickerScanKey(event) {
+  if (!event || event.key !== "Enter") return;
+  event.preventDefault();
+  const input = event.target;
+  const scan = _wbFbsPickNormalizeScan(input?.value);
+  if (!scan) return;
+  const found = _wbFbsPickFindBySticker(scan);
+  if ((found.matches || []).length > 1) {
+    const ids = (found.matches || []).map((r) => r.order_id).slice(0, 5).join(", ");
+    _wbFbsPickSetInfo(
+      `Код стикера совпадает у нескольких заказов (${ids}${
+        (found.matches || []).length > 5 ? "…" : ""
+      }). Отсканируйте QR стикера ещё раз.`
+    );
+    if (input) input.select();
+    return;
+  }
+  if (!found.row) {
+    _wbFbsPickSetInfo(
+      `Такого заказа нет среди товаров без КИЗ. Стикер «${scan}» не найден.`
+    );
+    if (input) input.select();
+    return;
+  }
+  _wbFbsPickSetInfo("");
+  if (input) input.value = "";
+  beginWbFbsPickSkuScan(Number(found.row.order_id));
+}
+window.onWbFbsPickStickerScanKey = onWbFbsPickStickerScanKey;
+
+function beginWbFbsPickSkuScan(orderId) {
+  const oid = Number(orderId);
+  const row = wbFbsPickState.rows.find((r) => Number(r.order_id) === oid);
+  if (!row) return;
+  wbFbsPickState.pendingOrderId = oid;
+  renderWbFbsPickVerifyTable();
+  const meta = document.getElementById("wbFbsPickScanPromptMeta");
+  if (meta) {
+    meta.textContent = `Заказ ${oid} · стикер ${row.sticker_number || "—"}`;
+  }
+  setModalVisibility("wbFbsPickScanPrompt", true);
+  const sku = document.getElementById("wbFbsPickSkuScan");
+  if (sku) {
+    sku.value = "";
+    setTimeout(() => sku.focus(), 40);
+  }
+}
+
+function cancelWbFbsPickSkuScan() {
+  setModalVisibility("wbFbsPickScanPrompt", false);
+  wbFbsPickState.pendingOrderId = null;
+  renderWbFbsPickVerifyTable();
+  const sticker = document.getElementById("wbFbsPickStickerScan");
+  if (sticker) setTimeout(() => sticker.focus(), 40);
+}
+window.cancelWbFbsPickSkuScan = cancelWbFbsPickSkuScan;
+
+function onWbFbsPickSkuScanKey(event) {
+  if (!event || event.key !== "Enter") return;
+  event.preventDefault();
+  const oid = Number(wbFbsPickState.pendingOrderId);
+  const input = event.target;
+  const raw = String(input?.value || "");
+  if (!oid || !String(raw || "").replace(/\s+/g, "")) return;
+  const row = wbFbsPickState.rows.find((r) => Number(r.order_id) === oid);
+  if (!row) {
+    cancelWbFbsPickSkuScan();
+    return;
+  }
+  const check = _wbFbsPickValidateEanForOrder(raw, row);
+  if (!check.ok) {
+    wbFbsPickState.errors[oid] = check.error || "ШК не подходит";
+    _wbFbsPickSetInfo(check.error || "ШК не подходит к товару в заказе");
+    if (input) input.select();
+    renderWbFbsPickVerifyTable();
+    return;
+  }
+  row.pick_verified = true;
+  row.pick_barcode = check.barcode;
+  delete wbFbsPickState.errors[oid];
+  setModalVisibility("wbFbsPickScanPrompt", false);
+  wbFbsPickState.pendingOrderId = null;
+  // Keep filled row visible if «Незаполненные» was on.
+  const emptyFilter = document.getElementById("wbFbsPickFilterEmpty");
+  if (emptyFilter?.checked) emptyFilter.checked = false;
+  _wbFbsPickSetInfo(`Заказ ${oid}: ШК ${check.barcode} совпал. Нажмите «Сохранить».`);
+  renderWbFbsPickVerifyTable();
+  const sticker = document.getElementById("wbFbsPickStickerScan");
+  if (sticker) setTimeout(() => sticker.focus(), 40);
+}
+window.onWbFbsPickSkuScanKey = onWbFbsPickSkuScanKey;
+
+async function saveWbFbsPickVerifyModal() {
+  const sid = String(wbFbsDetailState.supplyId || "").trim();
+  if (!sid || !wbFbsState.sourceId || wbFbsPickState.saving) return;
+  if (!isTenantOwner()) {
+    alert("Проверка ШК доступна только главному пользователю");
+    return;
+  }
+  const items = [];
+  wbFbsPickState.errors = {};
+  for (const r of wbFbsPickState.rows) {
+    const oid = Number(r.order_id);
+    if (!Number.isFinite(oid)) continue;
+    const base = wbFbsPickState.baselineByOrder?.[oid] || {};
+    const verified = !!r.pick_verified && !!String(r.pick_barcode || "").trim();
+    const barcode = String(r.pick_barcode || "").trim();
+    const baseVerified = !!base.pick_verified && !!String(base.pick_barcode || "").trim();
+    const baseBarcode = String(base.pick_barcode || "").trim();
+    if (verified === baseVerified && barcode === baseBarcode) continue;
+    if (verified) {
+      const check = _wbFbsPickValidateEanForOrder(barcode, r);
+      if (!check.ok) {
+        wbFbsPickState.errors[oid] = check.error || "ШК не прошёл сверку";
+        continue;
+      }
+      items.push({
+        order_id: oid,
+        pick_verified: true,
+        pick_barcode: check.barcode,
+        barcodes: Array.isArray(r.barcodes) ? r.barcodes : [],
+      });
+    } else if (baseVerified) {
+      items.push({ order_id: oid, pick_verified: false, pick_barcode: "", clear: true });
+    }
+  }
+  if (Object.keys(wbFbsPickState.errors).length) {
+    renderWbFbsPickVerifyTable();
+    _wbFbsPickSetInfo("Исправьте ошибки сверки ШК перед сохранением");
+    return;
+  }
+  if (!items.length) {
+    _wbFbsPickSetInfo("Нет изменений для сохранения");
+    return;
+  }
+  const saveBtn = document.getElementById("wbFbsPickVerifySaveBtn");
+  if (saveBtn) saveBtn.disabled = true;
+  wbFbsPickState.saving = true;
+  _wbFbsPickSetInfo(`Сохранение ${items.length}…`);
+  try {
+    const params = new URLSearchParams({ source_id: String(wbFbsState.sourceId) });
+    const res = await fetch(
+      `/api/wb-fbs/supplies/${encodeURIComponent(sid)}/pick-verify?${params}`,
+      {
+        method: "PUT",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ items }),
+      }
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || `Ошибка ${res.status}`);
+    let okN = 0;
+    let errN = 0;
+    for (const row of data.results || []) {
+      const oid = Number(row.order_id);
+      if (!Number.isFinite(oid)) continue;
+      if (row.ok) {
+        okN += 1;
+        const local = wbFbsPickState.rows.find((x) => Number(x.order_id) === oid);
+        if (local) {
+          local.pick_verified = !!row.pick_verified;
+          local.pick_barcode = String(row.pick_barcode || "").trim();
+        }
+        if (!wbFbsPickState.baselineByOrder) wbFbsPickState.baselineByOrder = {};
+        wbFbsPickState.baselineByOrder[oid] = {
+          pick_verified: !!row.pick_verified,
+          pick_barcode: String(row.pick_barcode || "").trim(),
+        };
+        delete wbFbsPickState.errors[oid];
+      } else {
+        errN += 1;
+        wbFbsPickState.errors[oid] = String(row.error || "Ошибка сохранения");
+      }
+    }
+    renderWbFbsPickVerifyTable();
+    if (errN) {
+      _wbFbsPickSetInfo(`Сохранено ${okN}, ошибок ${errN}`);
+    } else {
+      _wbFbsPickSetInfo(`Сохранено: ${okN}. Данные только в FeedPilot (на WB не отправлялись).`);
+    }
+  } catch (e) {
+    _wbFbsPickSetInfo(String(e.message || e));
+  } finally {
+    wbFbsPickState.saving = false;
+    if (saveBtn) saveBtn.disabled = false;
+  }
+}
+window.saveWbFbsPickVerifyModal = saveWbFbsPickVerifyModal;
 
 function wbFbsPrintOneOrderStickerFromDetail(orderId) {
   _wbFbsCloseRowMenus();

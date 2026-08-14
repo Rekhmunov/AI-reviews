@@ -1815,6 +1815,271 @@ def build_kiz_marking_payload(
     }
 
 
+def _normalize_ean_digits(value: object) -> str:
+    return "".join(ch for ch in str(value or "") if ch.isdigit())
+
+
+def order_sku_digit_set(barcodes: list[object] | None) -> set[str]:
+    """Digit forms of product ШК for EAN comparison (non-КИЗ pick-check)."""
+    out: set[str] = set()
+    for raw in barcodes or []:
+        text = str(raw or "").strip()
+        if text:
+            out.add(text)
+        digits = _normalize_ean_digits(text)
+        if digits:
+            out.add(digits)
+            # GTIN-14 with leading 0 → EAN-13
+            if len(digits) == 14 and digits.startswith("0"):
+                out.add(digits[1:])
+            # EAN-13 → GTIN-14 padded
+            if len(digits) == 13:
+                out.add("0" + digits)
+    return out
+
+
+def validate_ean_against_order_skus(
+    scanned: object, barcodes: list[object] | None
+) -> tuple[bool, str, str]:
+    """Return (ok, normalized_ean, error). Local-only check — not sent to WB."""
+    raw = str(scanned or "").strip()
+    digits = _normalize_ean_digits(raw)
+    if not digits:
+        return False, "", "Отсканируйте штрихкод товара (EAN-13)"
+    if len(digits) not in (8, 12, 13, 14):
+        return False, digits, f"Ожидается EAN/GTIN (8–14 цифр), получено {len(digits)}"
+    sku_set = order_sku_digit_set(barcodes)
+    if not sku_set:
+        return False, digits, "У заказа нет штрихкодов товара — нельзя сверить ШК"
+    candidates = {digits, raw}
+    if len(digits) == 14 and digits.startswith("0"):
+        candidates.add(digits[1:])
+    if len(digits) == 13:
+        candidates.add("0" + digits)
+    if not candidates.intersection(sku_set):
+        shown = digits[1:] if len(digits) == 14 and digits.startswith("0") else digits
+        sku_list = ", ".join(
+            sorted(s for s in sku_set if s.isdigit())[:6]
+        )
+        return (
+            False,
+            digits,
+            f"ШК {shown} не совпадает ни с одним ШК товара в заказе"
+            + (f" ({sku_list})" if sku_list else ""),
+        )
+    # Prefer EAN-13 form when GTIN-14 with leading 0.
+    normalized = digits[1:] if len(digits) == 14 and digits.startswith("0") else digits
+    return True, normalized, ""
+
+
+def build_pick_verify_payload(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    api_key: str,
+    supply_id: str,
+) -> dict[str, Any]:
+    """Rows for «Проверка ШК» modal: orders that do NOT require КИЗ."""
+    detail = get_supply_detail(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        api_key=api_key,
+        supply_id=supply_id,
+    )
+    plain_orders = [
+        o for o in (detail.get("orders") or []) if not o.get("kiz_required")
+    ]
+    order_ids = [
+        int(o["order_id"])
+        for o in plain_orders
+        if o.get("order_id") is not None
+    ]
+    client = wb.WbFbsClient(api_key)
+    stickers = _fetch_stickers_map(
+        client,
+        order_ids,
+        api_key=api_key,
+        sticker_type="svg",
+        keep_files=False,
+    )
+    if order_ids:
+        missing = sum(
+            1
+            for oid in order_ids
+            if not str((stickers.get(oid) or {}).get("partB") or "").strip()
+        )
+        if missing > max(1, len(order_ids) // 2):
+            stickers = _fetch_stickers_map(
+                client,
+                order_ids,
+                api_key=api_key,
+                sticker_type="png",
+                keep_files=False,
+            )
+    nm_ids: list[int] = []
+    for o in plain_orders:
+        try:
+            nm_ids.append(int(o.get("nm_id")))
+        except (TypeError, ValueError):
+            continue
+    card_meta = fetch_card_meta_by_nm(api_key, nm_ids, network=True, max_cards=200)
+    local_pick = wb.load_order_pick_map(
+        repo, user_id=user_id, source_id=source_id, order_ids=order_ids
+    )
+
+    rows: list[dict[str, Any]] = []
+    for o in plain_orders:
+        try:
+            oid = int(o["order_id"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        st = stickers.get(oid) or {}
+        part_a = str(st.get("partA") or "").strip()
+        part_b = str(st.get("partB") or "").strip()
+        sticker_barcode = str(st.get("barcode") or "").strip()
+        try:
+            nm = int(o.get("nm_id"))
+        except (TypeError, ValueError):
+            nm = 0
+        brand = str(
+            (card_meta.get(nm) or {}).get("brand") or o.get("brand") or ""
+        ).strip()
+        local = local_pick.get(oid) or {}
+        verified = bool(local.get("verified"))
+        pick_barcode = str(local.get("barcode") or "").strip()
+        rows.append(
+            {
+                "order_id": oid,
+                "created_date": o.get("created_date") or "—",
+                "product_name": o.get("product_name") or "",
+                "product_photo": o.get("product_photo") or "",
+                "article": o.get("article") or "",
+                "brand": brand,
+                "nm_id": o.get("nm_id"),
+                "barcodes": list(o.get("barcodes") or []),
+                "sticker_barcode": sticker_barcode,
+                "sticker_part_a": part_a,
+                "sticker_part_b": part_b,
+                "sticker_number": _sticker_number(part_a, part_b),
+                "pick_verified": verified,
+                "pick_barcode": pick_barcode,
+                "pick_verified_at": local.get("verified_at"),
+                "supplier_status": str(o.get("supplier_status") or ""),
+                "wb_status": str(o.get("wb_status") or ""),
+                "cancel_reason_label": str(o.get("cancel_reason_label") or ""),
+            }
+        )
+    return {
+        "supply_id": detail.get("supply_id"),
+        "source_id": source_id,
+        "name": detail.get("name") or "",
+        "order_count": len(rows),
+        "rows": rows,
+    }
+
+
+def save_pick_verify(
+    *,
+    repo: ReviewRepository,
+    user_id: int,
+    source_id: int,
+    items: list[dict[str, Any]],
+    allowed_order_ids: set[int] | None = None,
+) -> dict[str, Any]:
+    """Save local ШК pick-check results. Never calls Wildberries."""
+    results: list[dict[str, Any]] = []
+    ok_n = 0
+    err_n = 0
+    skipped_n = 0
+    for raw in items:
+        if not isinstance(raw, dict):
+            continue
+        try:
+            oid = int(raw.get("order_id"))
+        except (TypeError, ValueError):
+            continue
+        if allowed_order_ids is not None and oid not in allowed_order_ids:
+            err_n += 1
+            results.append(
+                {
+                    "order_id": oid,
+                    "ok": False,
+                    "error": "Заказ не входит в эту поставку или требует КИЗ",
+                }
+            )
+            continue
+        clear = bool(raw.get("clear"))
+        verified = bool(raw.get("pick_verified")) and not clear
+        barcode = str(raw.get("pick_barcode") or "").strip()
+        if not verified and not clear:
+            # Unchanged empty — skip
+            if not barcode:
+                skipped_n += 1
+                continue
+            verified = False
+        if verified:
+            # Validate against current barcodes if provided on the item.
+            barcodes = raw.get("barcodes")
+            if isinstance(barcodes, list):
+                ok, normalized, err = validate_ean_against_order_skus(
+                    barcode, barcodes
+                )
+                if not ok:
+                    err_n += 1
+                    results.append(
+                        {"order_id": oid, "ok": False, "error": err}
+                    )
+                    continue
+                barcode = normalized
+        try:
+            local_ok = wb.update_order_pick_verify(
+                repo,
+                user_id=int(user_id),
+                source_id=int(source_id),
+                order_id=oid,
+                verified=verified,
+                barcode=barcode if verified else "",
+            )
+        except Exception as exc:
+            err_n += 1
+            results.append(
+                {
+                    "order_id": oid,
+                    "ok": False,
+                    "error": f"Ошибка сохранения: {exc}",
+                }
+            )
+            continue
+        if not local_ok:
+            err_n += 1
+            results.append(
+                {
+                    "order_id": oid,
+                    "ok": False,
+                    "error": "Заказ не найден локально — синхронизируйте FBS и повторите",
+                }
+            )
+            continue
+        ok_n += 1
+        results.append(
+            {
+                "order_id": oid,
+                "ok": True,
+                "pick_verified": verified,
+                "pick_barcode": barcode if verified else "",
+            }
+        )
+    return {
+        "ok": err_n == 0,
+        "saved": ok_n,
+        "errors": err_n,
+        "skipped": skipped_n,
+        "results": results,
+    }
+
+
 def _is_failed_to_update_meta_error(error: object) -> bool:
     """True for WB 409 FailedToUpdateMeta / not-in-Processing meta rejects."""
     text = str(error or "").lower()
