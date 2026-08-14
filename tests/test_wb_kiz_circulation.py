@@ -513,6 +513,36 @@ def test_cis_status_labels_and_kinds() -> None:
     assert circ.classify_cis_status("") == "unknown"
 
 
+def test_cis_display_foreign_owner_marked_transferred() -> None:
+    """OwnerInn ≠ our INN → gray «Передан» (same kind as выведен)."""
+    label, kind = circ.cis_display_for_row(
+        status="INTRODUCED",
+        owner_inn="7707083893",
+        participant_inn="6215034988",
+    )
+    assert label == "Передан"
+    assert kind == "withdrawn"
+    assert circ.cis_owner_is_foreign(
+        owner_inn="7707083893", participant_inn="6215034988"
+    )
+    # Same owner → keep True API status.
+    label2, kind2 = circ.cis_display_for_row(
+        status="INTRODUCED",
+        owner_inn="6215034988",
+        participant_inn="6215034988",
+    )
+    assert label2 == "В обороте"
+    assert kind2 == "in_circulation"
+    # Missing owner/ours → do not invent «Передан».
+    label3, kind3 = circ.cis_display_for_row(
+        status="RETIRED",
+        owner_inn="",
+        participant_inn="6215034988",
+    )
+    assert label3 == "Выведен"
+    assert kind3 == "withdrawn"
+
+
 def test_parse_cises_info_item() -> None:
     parsed = circ.parse_cises_info_item(
         {

@@ -4008,12 +4008,28 @@ def list_events(
             tuple(params),
         ).fetchall()
     out = []
+    participant_inn = ""
+    try:
+        participant_inn = str(
+            get_chz_settings(repo, user_id=user_id).get("participant_inn") or ""
+        ).strip()
+    except Exception:
+        participant_inn = ""
     for r in rows:
         d = repo._row_to_dict(r)
         d.pop("raw_json", None)
         cis_st = str(d.get("cis_status") or "").strip()
-        d["cis_status_label"] = cis_status_label(cis_st)
-        d["cis_status_kind"] = classify_cis_status(cis_st)
+        owner = str(d.get("cis_owner_inn") or "").strip()
+        label, kind = cis_display_for_row(
+            status=cis_st,
+            owner_inn=owner,
+            participant_inn=participant_inn,
+        )
+        d["cis_status_label"] = label
+        d["cis_status_kind"] = kind
+        d["cis_transferred"] = bool(
+            cis_owner_is_foreign(owner_inn=owner, participant_inn=participant_inn)
+        )
         out.append(d)
     _attach_order_ids_to_events(
         repo,
@@ -4622,6 +4638,33 @@ def classify_cis_status(status: str) -> str:
     if s in _CIS_STATUS_KIND_PRE:
         return "pre"
     return "other"
+
+
+def _normalize_inn(value: object) -> str:
+    return "".join(ch for ch in str(value or "") if ch.isdigit())
+
+
+def cis_owner_is_foreign(*, owner_inn: str = "", participant_inn: str = "") -> bool:
+    """True when CHZ ownerInn is present and differs from our participant INN."""
+    ours = _normalize_inn(participant_inn)
+    owner = _normalize_inn(owner_inn)
+    return bool(ours and owner and owner != ours)
+
+
+def cis_display_for_row(
+    *,
+    status: str = "",
+    owner_inn: str = "",
+    participant_inn: str = "",
+) -> tuple[str, str]:
+    """Label + CSS kind for the «Код в ЧЗ» column.
+
+    If the code belongs to another INN (e.g. already transferred to WB/РВБ),
+    show gray «Передан» with the same kind as «Выведен».
+    """
+    if cis_owner_is_foreign(owner_inn=owner_inn, participant_inn=participant_inn):
+        return "Передан", "withdrawn"
+    return cis_status_label(status), classify_cis_status(status)
 
 
 def parse_cises_info_item(item: dict[str, Any] | None) -> dict[str, str]:
@@ -5981,6 +6024,8 @@ __all__ = [
     "refresh_cis_statuses",
     "cis_status_label",
     "classify_cis_status",
+    "cis_display_for_row",
+    "cis_owner_is_foreign",
     "parse_cises_info_item",
     "prepare_chz_batches",
     "mark_events_submitted",

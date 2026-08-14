@@ -16604,6 +16604,9 @@ async function loadSupplyChzSettings() {
   set("chzSettingsKpp", s.kpp || "");
   set("chzSettingsFias", s.fias_id || "");
   set("chzSettingsWbAnalyticsKey", "");
+  try {
+    wbFbsKizCircState.participantInn = String(s.participant_inn || "").trim();
+  } catch (_) { /* state may be TDZ before init in rare load order */ }
   const en = document.getElementById("chzSettingsEnabled");
   if (en) en.checked = !!s.is_enabled;
   const hasKey = Boolean(s.has_wb_analytics_api_key);
@@ -16746,6 +16749,7 @@ const wbFbsKizCircState = {
   syncRunId: 0,
   lastLog: "",
   items: [],
+  participantInn: "",
   /** @type {Set<string>} */
   selectedKeys: new Set(),
   filters: {
@@ -17107,18 +17111,26 @@ function _wbFbsKizCircRenderTable() {
       const srid = String(ev.srid || ev.rid || "").trim();
       const sridShort = srid.length > 28 ? `${srid.slice(0, 12)}…${srid.slice(-10)}` : srid;
       const cisSt = String(ev.cis_status || "").trim();
-      const cisKind = String(ev.cis_status_kind || "").trim()
-        || _wbFbsKizCircCisKind(cisSt);
-      const cisLabel = String(ev.cis_status_label || "").trim()
-        || _wbFbsKizCircCisLabel(cisSt)
-        || (cisSt ? cisSt : "");
       const cisOwner = String(ev.cis_owner_inn || "").trim();
+      const oursInn = _wbFbsKizCircParticipantInn();
+      const transferred = !!ev.cis_transferred
+        || _wbFbsKizCircCisOwnerForeign(cisOwner, oursInn);
+      let cisKind = String(ev.cis_status_kind || "").trim();
+      let cisLabel = String(ev.cis_status_label || "").trim();
+      if (transferred) {
+        cisLabel = "Передан";
+        cisKind = "withdrawn";
+      } else {
+        cisKind = cisKind || _wbFbsKizCircCisKind(cisSt);
+        cisLabel = cisLabel || _wbFbsKizCircCisLabel(cisSt) || (cisSt ? cisSt : "");
+      }
       const cisErr = String(ev.cis_status_error || "").trim();
       const cisChecked = String(ev.cis_checked_at || "").trim();
       const cisTitle = [
         cisLabel || cisSt || "не проверен",
-        cisSt && cisLabel && cisSt !== cisLabel ? cisSt : "",
+        cisSt && cisLabel && cisSt !== cisLabel && !transferred ? cisSt : "",
         cisOwner ? `владелец ИНН ${cisOwner}` : "",
+        transferred && oursInn ? `наш ИНН ${oursInn}` : "",
         cisChecked ? `проверено ${cisChecked}` : "",
         cisErr || "",
       ].filter(Boolean).join(" · ");
@@ -17184,6 +17196,24 @@ function _wbFbsKizCircCisKind(status) {
   if (s === "RETIRED" || s === "WITHDRAWN" || s === "WRITTEN_OFF") return "withdrawn";
   if (s === "EMITTED" || s === "APPLIED" || s === "APPLIED_NOT_PAID") return "pre";
   return "other";
+}
+
+function _wbFbsKizCircNormInn(value) {
+  return String(value || "").replace(/\D+/g, "");
+}
+
+function _wbFbsKizCircParticipantInn() {
+  return _wbFbsKizCircNormInn(
+    document.getElementById("chzSettingsInn")?.value
+      || wbFbsKizCircState.participantInn
+      || "",
+  );
+}
+
+function _wbFbsKizCircCisOwnerForeign(ownerInn, participantInn) {
+  const owner = _wbFbsKizCircNormInn(ownerInn);
+  const ours = _wbFbsKizCircNormInn(participantInn);
+  return !!(ours && owner && owner !== ours);
 }
 
 function _wbFbsKizCircOrderStatusClass(label, ev) {
@@ -17320,6 +17350,9 @@ async function openWbFbsKizCirculationModal() {
   _wbFbsKizCircDefaultDates();
   _wbFbsKizCircSyncFilterControls();
   _wbFbsKizCircSetLog("");
+  try {
+    await loadSupplyChzSettings();
+  } catch (_) { /* INN optional for table paint; server already enriches */ }
   await refreshWbFbsKizCirculation();
 }
 
