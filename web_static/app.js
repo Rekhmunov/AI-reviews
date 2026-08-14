@@ -17098,7 +17098,7 @@ function _wbFbsKizCircRenderTable() {
         <td title="${esc(srid)}"><code class="wb-fbs-kiz-circ-srid">${esc(sridShort || "—")}</code></td>
         <td title="${esc(kiz)}"><code>${esc(kizShort || "—")}</code></td>
         <td>${esc(ev.fiscal_doc_number || "—")}</td>
-        <td><span class="wb-fbs-kiz-circ-st wb-fbs-kiz-circ-st-${esc(st)}">${esc(_wbFbsKizCircStatusLabel(st))}</span>${err ? `<div class="small" style="color:#b91c1c;margin-top:4px">${esc(err)}</div>` : ""}</td>
+        <td><span class="wb-fbs-kiz-circ-st wb-fbs-kiz-circ-st-${esc(st)}">${esc(_wbFbsKizCircStatusLabel(st))}</span>${err ? `<div class="wb-fbs-kiz-circ-row-err">${esc(err)}</div>` : ""}</td>
         <td>${esc(ev.chz_doc_id || ev.chz_status || "—")}</td>
       </tr>`;
     })
