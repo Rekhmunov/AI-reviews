@@ -12,6 +12,7 @@ import pytest
 from review_processor.chz_true_api import (
     DEMO_BASE,
     PROD_BASE,
+    PROD_BASE_V4,
     ChzTrueApiClient,
     build_lk_receipt_document,
     build_lp_return_document,
@@ -189,8 +190,81 @@ def test_parse_true_api_bare_uuid_payload() -> None:
 def test_classify_chz_doc_status() -> None:
     assert circ.classify_chz_doc_status("CHECKED_OK") == circ.STATUS_ACCEPTED
     assert circ.classify_chz_doc_status("CHECKED_NOT_OK") == circ.STATUS_ERROR
+    assert circ.classify_chz_doc_status("PROCESSING_ERROR") == circ.STATUS_ERROR
     assert circ.classify_chz_doc_status("IN_PROGRESS") == circ.STATUS_SUBMITTED
     assert circ.classify_chz_doc_status("") == circ.STATUS_SUBMITTED
+    assert circ.classify_chz_doc_status("SOME_NEW_NOT_OK") == circ.STATUS_ERROR
+
+
+def test_extract_chz_doc_status() -> None:
+    assert circ.extract_chz_doc_status({"status": "CHECKED_NOT_OK"}) == "CHECKED_NOT_OK"
+    assert circ.extract_chz_doc_status({"docStatus": "CHECKED_OK"}) == "CHECKED_OK"
+    assert (
+        circ.extract_chz_doc_status({"body": {"status": "PROCESSING_ERROR"}})
+        == "PROCESSING_ERROR"
+    )
+    assert circ.extract_chz_doc_status({}) == ""
+    assert circ.extract_chz_doc_status(None) == ""
+
+
+def test_document_info_uses_v4_base() -> None:
+    client = ChzTrueApiClient()
+    client.set_token("tok")
+    captured: dict = {}
+
+    def fake_request(method, path, *, params=None, body=None, auth=True, base=None):
+        captured.update({"method": method, "path": path, "base": base, "auth": auth})
+        return {"status": "CHECKED_NOT_OK"}
+
+    client._request = fake_request  # type: ignore[method-assign]
+    info = client.document_info("8f9a0d25-6ba2-404f-ac82-ef72d0140429")
+    assert info["status"] == "CHECKED_NOT_OK"
+    assert captured["method"] == "GET"
+    assert captured["path"].endswith("/info")
+    assert captured["base"] == PROD_BASE_V4
+    assert client.v4_base() == PROD_BASE_V4
+
+
+def test_reconcile_submitted_applies_checked_not_ok() -> None:
+    """Сверить ЧЗ must flip local «отправлен» when True API returns CHECKED_NOT_OK."""
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    conn.__exit__.return_value = False
+    row = {
+        "event_key": "ek-1",
+        "chz_doc_id": "8f9a0d25-6ba2-404f-ac82-ef72d0140429",
+        "chz_status": "submitted",
+        "status": "submitted",
+        "error_text": "",
+    }
+    cur = MagicMock()
+    cur.fetchall.return_value = [row]
+    conn.execute.return_value = cur
+    repo = MagicMock()
+    repo._connect.return_value = conn
+    repo._sql.side_effect = lambda q: q
+    repo._row_to_dict.side_effect = lambda r: r if isinstance(r, dict) else {}
+
+    client = MagicMock()
+    client.document_info.return_value = {
+        "status": "CHECKED_NOT_OK",
+        "errors": [{"message": "код уже выведен"}],
+    }
+
+    with patch.object(circ, "ensure_kiz_circulation_tables"), patch.object(
+        circ, "heal_submitted_terminal_statuses", return_value={"healed": 0}
+    ), patch.object(circ, "apply_chz_doc_status", return_value=circ.STATUS_ERROR) as apply:
+        out = circ.reconcile_submitted_with_chz(
+            repo, client, user_id=1, source_id=13
+        )
+    assert out["docs_checked"] == 1
+    assert out["failed"] == 1
+    assert out["api_errors"] == 0
+    apply.assert_called_once()
+    kwargs = apply.call_args.kwargs
+    assert kwargs["chz_status"] == "CHECKED_NOT_OK"
+    assert "выведен" in kwargs["error_text"]
+
 
 
 def test_price_for_chz_skips_foreign_currency() -> None:

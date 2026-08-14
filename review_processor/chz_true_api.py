@@ -12,6 +12,9 @@ from urllib.parse import urlencode
 
 PROD_BASE = "https://markirovka.crpt.ru/api/v3/true-api"
 DEMO_BASE = "https://markirovka.sandbox.crpt.tech/api/v3/true-api"
+# Document info (and some newer methods) moved off v3 — v3 returns HTTP 410.
+PROD_BASE_V4 = "https://markirovka.crpt.ru/api/v4/true-api"
+DEMO_BASE_V4 = "https://markirovka.sandbox.crpt.tech/api/v4/true-api"
 
 
 def _parse_true_api_payload(payload: bytes) -> Any:
@@ -56,12 +59,30 @@ class ChzTrueApiClient:
     def set_token(self, token: str) -> None:
         self.token = str(token or "").strip()
 
-    def _url(self, path: str, params: dict[str, object] | None = None) -> str:
+    def v4_base(self) -> str:
+        """True API v4 host for methods retired on v3 (e.g. ``/doc/{id}/info``)."""
+        base = str(self.base or "").strip().rstrip("/")
+        if "/api/v4/true-api" in base:
+            return base
+        if "/api/v3/true-api" in base:
+            return base.replace("/api/v3/true-api", "/api/v4/true-api")
+        if "sandbox" in base or "crpt.tech" in base:
+            return DEMO_BASE_V4
+        return PROD_BASE_V4
+
+    def _url(
+        self,
+        path: str,
+        params: dict[str, object] | None = None,
+        *,
+        base: str | None = None,
+    ) -> str:
+        root = str(base or self.base).rstrip("/")
         p = path if path.startswith("/") else f"/{path}"
         qs = ""
         if params:
             qs = "?" + urlencode({k: v for k, v in params.items() if v is not None})
-        return f"{self.base}{p}{qs}"
+        return f"{root}{p}{qs}"
 
     def _request(
         self,
@@ -71,6 +92,7 @@ class ChzTrueApiClient:
         params: dict[str, object] | None = None,
         body: dict[str, object] | list[object] | None = None,
         auth: bool = True,
+        base: str | None = None,
     ) -> Any:
         headers = {
             "Accept": "application/json",
@@ -85,7 +107,7 @@ class ChzTrueApiClient:
             data = json.dumps(body, ensure_ascii=False).encode("utf-8")
             headers["Content-Type"] = "application/json; charset=utf-8"
         req = urllib.request.Request(
-            self._url(path, params),
+            self._url(path, params, base=base),
             method=method.upper(),
             headers=headers,
             data=data,
@@ -203,10 +225,20 @@ class ChzTrueApiClient:
         raise ChzTrueApiError(f"Не удалось разобрать id документа: {data!r}")
 
     def document_info(self, document_id: str) -> dict[str, Any]:
+        """Fetch document processing status from True API.
+
+        Uses **v4** ``GET /doc/{id}/info`` — v3 returns HTTP 410
+        (``Устаревшее API``), which left Вывод КИЗ rows stuck on «отправлен».
+        """
         doc_id = str(document_id or "").strip()
         if not doc_id:
             raise ChzTrueApiError("Пустой document_id")
-        data = self._request("GET", f"/doc/{doc_id}/info", auth=True)
+        data = self._request(
+            "GET",
+            f"/doc/{doc_id}/info",
+            auth=True,
+            base=self.v4_base(),
+        )
         return data if isinstance(data, dict) else {"raw": data}
 
     def cises_info(self, codes: list[str]) -> list[dict[str, Any]]:

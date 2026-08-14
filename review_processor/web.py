@@ -10662,11 +10662,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     info: dict = {}
                     for _attempt in range(4):
                         info = client.document_info(doc_id)
-                        chz_status = str(
-                            info.get("status")
-                            or info.get("docStatus")
-                            or info.get("state")
-                            or "submitted"
+                        chz_status = (
+                            kiz_circ.extract_chz_doc_status(info) or "submitted"
                         )
                         if kiz_circ.classify_chz_doc_status(chz_status) != "submitted":
                             break

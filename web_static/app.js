@@ -17329,10 +17329,17 @@ async function reconcileWbFbsKizCirculationChz() {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || "Ошибка сверки ЧЗ");
     const healedN = Number(data.healed?.healed || data.healed || 0);
-    _wbFbsKizCircAppendLog(
+    const apiErrN = Number(data.api_errors || 0);
+    let line =
       `Сверка ЧЗ: док=${data.docs_checked || 0}, принято=${data.accepted || 0}, `
-      + `ошибка=${data.failed || 0}, локально исправлено=${healedN}`,
-    );
+      + `ошибка=${data.failed || 0}, локально исправлено=${healedN}`;
+    if (apiErrN) {
+      const samples = Array.isArray(data.api_error_samples)
+        ? data.api_error_samples.filter(Boolean).slice(0, 2).join(" · ")
+        : "";
+      line += `; сбой API=${apiErrN}${samples ? ` (${samples})` : ""}`;
+    }
+    _wbFbsKizCircAppendLog(line);
     await refreshWbFbsKizCirculation();
   } catch (err) {
     _wbFbsKizCircAppendLog(`Ошибка сверки: ${err?.message || err}`);
