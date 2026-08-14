@@ -16733,6 +16733,14 @@ const WB_FBS_KIZ_CIRC_STATUSES = [
   "skipped",
 ];
 
+/** Marketplace wbStatus values used in Вывод КИЗ order-status filter. */
+const WB_FBS_KIZ_CIRC_ORDER_WB = [
+  "sold",
+  "canceled_by_client",
+  "defect",
+  "__empty__",
+];
+
 const wbFbsKizCircState = {
   busy: false,
   syncRunId: 0,
@@ -16743,6 +16751,7 @@ const wbFbsKizCircState = {
   filters: {
     preset: "all",
     statuses: [],
+    orderWbStatuses: [],
     operationType: "",
     onlyChzError: false,
     search: "",
@@ -16759,6 +16768,7 @@ function _wbFbsKizCircDefaultFilters() {
   return {
     preset: "all",
     statuses: [],
+    orderWbStatuses: [],
     operationType: "",
     onlyChzError: false,
     search: "",
@@ -16800,10 +16810,16 @@ function _wbFbsKizCircSyncFilterControls() {
     btn.classList.toggle("is-active", btn.getAttribute("data-preset") === f.preset);
   });
   const statusSet = new Set(f.statuses || []);
-  document.querySelectorAll(".wb-fbs-kiz-circ-chip").forEach((btn) => {
+  document.querySelectorAll("#wbFbsKizCircStatusChips .wb-fbs-kiz-circ-chip").forEach((btn) => {
     const st = btn.getAttribute("data-status") || "";
     btn.classList.toggle("is-active", statusSet.has(st));
     btn.setAttribute("aria-pressed", statusSet.has(st) ? "true" : "false");
+  });
+  const orderWbSet = new Set(f.orderWbStatuses || []);
+  document.querySelectorAll("#wbFbsKizCircOrderStatusChips .wb-fbs-kiz-circ-chip").forEach((btn) => {
+    const st = btn.getAttribute("data-order-wb") || "";
+    btn.classList.toggle("is-active", orderWbSet.has(st));
+    btn.setAttribute("aria-pressed", orderWbSet.has(st) ? "true" : "false");
   });
 }
 
@@ -16851,6 +16867,18 @@ function toggleWbFbsKizCircStatus(status) {
   _wbFbsKizCircRenderTable();
 }
 
+function toggleWbFbsKizCircOrderWb(status) {
+  const st = String(status || "");
+  if (!WB_FBS_KIZ_CIRC_ORDER_WB.includes(st)) return;
+  const f = wbFbsKizCircState.filters;
+  const set = new Set(f.orderWbStatuses || []);
+  if (set.has(st)) set.delete(st);
+  else set.add(st);
+  f.orderWbStatuses = WB_FBS_KIZ_CIRC_ORDER_WB.filter((x) => set.has(x));
+  _wbFbsKizCircSyncFilterControls();
+  _wbFbsKizCircRenderTable();
+}
+
 function onWbFbsKizCircFilterChange() {
   _wbFbsKizCircReadFilterControls();
   wbFbsKizCircState.filters.preset = _wbFbsKizCircInferPreset();
@@ -16868,6 +16896,7 @@ function _wbFbsKizCircFilteredItems() {
   const items = Array.isArray(wbFbsKizCircState.items) ? wbFbsKizCircState.items : [];
   const f = wbFbsKizCircState.filters || _wbFbsKizCircDefaultFilters();
   const statusSet = new Set(f.statuses || []);
+  const orderWbSet = new Set(f.orderWbStatuses || []);
   const opWanted = f.operationType ? Number(f.operationType) : null;
   const q = String(f.search || "").trim().toLowerCase();
   const fiscalFrom = f.fiscalFrom || "";
@@ -16876,6 +16905,12 @@ function _wbFbsKizCircFilteredItems() {
   return items.filter((ev) => {
     const st = String(ev.status || "");
     if (statusSet.size && !statusSet.has(st)) return false;
+
+    if (orderWbSet.size) {
+      const ws = String(ev.order_wb_status || "").trim().toLowerCase();
+      const key = ws || "__empty__";
+      if (!orderWbSet.has(key)) return false;
+    }
 
     if (opWanted != null && Number(ev.operation_type || 0) !== opWanted) return false;
 
@@ -16892,6 +16927,7 @@ function _wbFbsKizCircFilteredItems() {
       const hay = [
         ev.order_id,
         ev.order_status_label,
+        ev.order_wb_status,
         ev.order_cancel_reason,
         ev.excise_short,
         ev.srid,
@@ -17110,8 +17146,11 @@ function _wbFbsKizCircOrderStatusClass(label, ev) {
     || raw.includes("отказ")
     || raw.includes("отмена")
     || raw.includes("брак")
+    || raw.includes("дефект")
     || raw.includes("перевозчик")
     || raw.includes("покупатель")
+    || ws === "canceled_by_client"
+    || ws === "defect"
   ) {
     return "is-cancel";
   }
