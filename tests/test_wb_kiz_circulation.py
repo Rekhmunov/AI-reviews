@@ -313,6 +313,52 @@ def test_build_marketplace_period_norms_sold_and_pvz() -> None:
     ] == "sold"
 
 
+def test_msk_day_windows_chunks_over_30_days() -> None:
+    windows = circ._msk_day_windows("2026-07-01", "2026-08-14", max_days=30)
+    assert len(windows) == 2
+    assert windows[0][0].date().isoformat() == "2026-07-01"
+    assert windows[0][1].date().isoformat() == "2026-07-30"
+    assert windows[1][0].date().isoformat() == "2026-07-31"
+    assert windows[1][1].date().isoformat() == "2026-08-14"
+
+
+def test_build_marketplace_period_norms_chunks_long_range() -> None:
+    """Ranges longer than 30 days must call GET /orders per WB-safe window."""
+    repo = MagicMock()
+    client = MagicMock()
+    client.get_orders_page.side_effect = [
+        ([{"id": 1, "rid": "r1", "createdAt": "2026-07-10T00:00:00Z"}], None),
+        ([{"id": 2, "rid": "r2", "createdAt": "2026-08-10T00:00:00Z"}], None),
+    ]
+    client.get_statuses.return_value = [
+        {"id": 1, "wbStatus": "sold", "supplierStatus": "complete"},
+        {"id": 2, "wbStatus": "sold", "supplierStatus": "complete"},
+    ]
+    client.get_orders_meta.return_value = [
+        {"id": 1, "meta": {"sgtin": {"value": ["010A"]}}},
+        {"id": 2, "meta": {"sgtin": {"value": ["010B"]}}},
+    ]
+    with patch("review_processor.wb_fbs.WbFbsClient", return_value=client), patch(
+        "review_processor.wb_fbs.upsert_order"
+    ), patch(
+        "review_processor.wb_fbs.load_order_kiz_map", return_value={}
+    ):
+        norms, _index, meta = circ.build_marketplace_period_norms(
+            repo,
+            user_id=1,
+            source_id=13,
+            api_key="mp-key",
+            date_from="2026-07-01",
+            date_to="2026-08-14",
+        )
+    assert client.get_orders_page.call_count == 2
+    assert meta["sold"] == 2
+    assert len(norms) == 2
+    # Second window starts after first 30-day chunk.
+    second_call_kwargs = client.get_orders_page.call_args_list[1].kwargs
+    assert second_call_kwargs["date_from"].date().isoformat() == "2026-07-31"
+
+
 def test_extract_chz_doc_status() -> None:
     assert circ.extract_chz_doc_status({"status": "CHECKED_NOT_OK"}) == "CHECKED_NOT_OK"
     assert circ.extract_chz_doc_status({"docStatus": "CHECKED_OK"}) == "CHECKED_OK"

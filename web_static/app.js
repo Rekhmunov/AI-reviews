@@ -17407,9 +17407,9 @@ async function runWbFbsKizCirculationSync() {
       (new Date(`${dateTo}T00:00:00`).getTime() - new Date(`${dateFrom}T00:00:00`).getTime())
         / 86400000,
     ) + 1;
-    if (days > 31) {
+    if (days > 30) {
       _wbFbsKizCircAppendLog(
-        `Период ${days} дн. — выгрузка пойдёт в фоне. Лучше брать ≤31 день за раз (лимит WB + скорость).`,
+        `Период ${days} дн. — Marketplace разобьём на окна ≤30 дн. (лимит WB). Analytics: не жмите повторно (лимит 10 / 5 ч).`,
       );
     }
     _wbFbsKizCircAppendLog(`WB: выгрузка за ${dateFrom}…${dateTo}…`);

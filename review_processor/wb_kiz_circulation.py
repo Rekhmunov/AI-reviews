@@ -2269,9 +2269,40 @@ def _msk_day_bounds(date_from: str, date_to: str) -> tuple[datetime, datetime]:
     """Inclusive Moscow calendar days → timezone-aware datetimes."""
     d0 = date.fromisoformat(_parse_date(date_from))
     d1 = date.fromisoformat(_parse_date(date_to))
+    if d1 < d0:
+        d0, d1 = d1, d0
     start = datetime(d0.year, d0.month, d0.day, 0, 0, 0, tzinfo=MSK)
     end = datetime(d1.year, d1.month, d1.day, 23, 59, 59, tzinfo=MSK)
     return start, end
+
+
+def _msk_day_windows(
+    date_from: str,
+    date_to: str,
+    *,
+    max_days: int = 30,
+) -> list[tuple[datetime, datetime]]:
+    """Split inclusive MSK date range into WB-safe windows (max 30 calendar days).
+
+    ``GET /api/v3/orders`` returns HTTP 400 IncorrectParameter when the span
+    exceeds 30 calendar days.
+    """
+    d0 = date.fromisoformat(_parse_date(date_from))
+    d1 = date.fromisoformat(_parse_date(date_to))
+    if d1 < d0:
+        d0, d1 = d1, d0
+    span = max(1, int(max_days))
+    windows: list[tuple[datetime, datetime]] = []
+    cur = d0
+    while cur <= d1:
+        chunk_end = min(cur + timedelta(days=span - 1), d1)
+        start = datetime(cur.year, cur.month, cur.day, 0, 0, 0, tzinfo=MSK)
+        end = datetime(
+            chunk_end.year, chunk_end.month, chunk_end.day, 23, 59, 59, tzinfo=MSK
+        )
+        windows.append((start, end))
+        cur = chunk_end + timedelta(days=1)
+    return windows
 
 
 def _sgtin_codes_from_meta_row(row: dict[str, Any]) -> list[str]:
@@ -2410,29 +2441,62 @@ def build_marketplace_period_norms(
     if not mkey:
         return [], {}, {"ok": False, "error": "no_marketplace_token"}
 
-    start, end = _msk_day_bounds(date_from, date_to)
+    windows = _msk_day_windows(date_from, date_to, max_days=30)
     client = wb_fbs_mod.WbFbsClient(mkey, timeout=60)
     orders: list[dict[str, Any]] = []
-    next_token: int | None = 0
+    seen_oids: set[int] = set()
     pages = 0
-    while pages < 60:
-        if cancel_check is not None:
-            cancel_check()
-        batch, next_token = client.get_orders_page(
-            limit=1000,
-            next_token=next_token if next_token is not None else 0,
-            date_from=start,
-            date_to=end,
+    if log is not None and len(windows) > 1:
+        _append_log(
+            log,
+            f"Marketplace: период разбит на {len(windows)} окон по ≤30 дн. (лимит WB)",
         )
-        pages += 1
-        if not batch:
-            break
-        orders.extend(batch)
-        if log is not None and pages % 3 == 0:
-            _append_log(log, f"Marketplace заказы: загружено {len(orders)}…")
-        if next_token is None:
-            break
-        time.sleep(0.2)
+    for w_i, (start, end) in enumerate(windows, start=1):
+        next_token: int | None = 0
+        while pages < 120:
+            if cancel_check is not None:
+                cancel_check()
+            try:
+                batch, next_token = client.get_orders_page(
+                    limit=1000,
+                    next_token=next_token if next_token is not None else 0,
+                    date_from=start,
+                    date_to=end,
+                )
+            except RuntimeError as exc:
+                msg = str(exc)
+                if "IncorrectParameter" in msg:
+                    raise RuntimeError(
+                        "WB Marketplace: некорректный период заказов "
+                        f"({start.date()}…{end.date()}). "
+                        "Лимит API — не больше 30 календарных дней за запрос. "
+                        f"Исходная ошибка: {msg}"
+                    ) from exc
+                raise
+            pages += 1
+            if not batch:
+                break
+            for row in batch:
+                try:
+                    oid = int(row.get("id") or 0)
+                except (TypeError, ValueError):
+                    oid = 0
+                if oid > 0:
+                    if oid in seen_oids:
+                        continue
+                    seen_oids.add(oid)
+                orders.append(row)
+            if log is not None and pages % 3 == 0:
+                _append_log(log, f"Marketplace заказы: загружено {len(orders)}…")
+            if next_token is None:
+                break
+            time.sleep(0.2)
+        if log is not None and len(windows) > 1:
+            _append_log(
+                log,
+                f"Marketplace окно {w_i}/{len(windows)} "
+                f"{start.date()}…{end.date()}: накоплено {len(orders)} заказов",
+            )
 
     if log is not None:
         _append_log(
