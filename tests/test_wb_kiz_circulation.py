@@ -1362,7 +1362,7 @@ def test_prepare_skips_withdraw_unless_sold(
     }
 
     def _attach_side_effect(
-        repo, *, user_id, source_id, events, api_key="", hydrate=False
+        repo, *, user_id, source_id, events, api_key="", hydrate=False, refresh_statuses=False
     ):
         for ev in events:
             if ev.get("event_key") == "sold-ok":
@@ -1497,7 +1497,7 @@ def test_prepare_skips_return_unless_cancelled(
     }
 
     def _attach_side_effect(
-        repo, *, user_id, source_id, events, api_key="", hydrate=False
+        repo, *, user_id, source_id, events, api_key="", hydrate=False, refresh_statuses=False
     ):
         for ev in events:
             if ev.get("event_key") == "ret-ok":

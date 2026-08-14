@@ -2010,6 +2010,33 @@ def hydrate_orders_for_kiz_srids(
 
     client = WbFbsClient(str(api_key).strip())
     fetched = 0
+    still_missing = set(missing)
+
+    def _absorb(orders: list[dict[str, Any]], *, is_archive: bool = False) -> None:
+        nonlocal fetched
+        for order in orders:
+            if is_archive:
+                upsert_order(
+                    repo,
+                    user_id=user_id,
+                    source_id=source_id,
+                    order=order,
+                    is_archive=True,
+                    supplier_status=str(order.get("supplierStatus") or ""),
+                    # Do NOT default to "sold" — archive also has cancellations.
+                    wb_status=str(order.get("wbStatus") or ""),
+                )
+            else:
+                upsert_order(repo, user_id=user_id, source_id=source_id, order=order)
+            fetched += 1
+        if still_missing:
+            now = order_ids_by_srids(
+                repo, user_id=user_id, source_id=source_id, srids=list(still_missing)
+            )
+            for k in list(still_missing):
+                if k in now:
+                    still_missing.discard(k)
+
     if missing:
         # 1) Recent open orders window (may include items that just became sold).
         try:
@@ -2017,7 +2044,7 @@ def hydrate_orders_for_kiz_srids(
             date_from = date_to - timedelta(days=max(1, min(int(lookback_days), 30)))
             next_token: int | None = 0
             pages = 0
-            while pages < 15:
+            while pages < 15 and still_missing:
                 orders, next_token = client.get_orders_page(
                     limit=1000,
                     next_token=next_token if next_token is not None else 0,
@@ -2026,9 +2053,7 @@ def hydrate_orders_for_kiz_srids(
                 )
                 if not orders:
                     break
-                for order in orders:
-                    upsert_order(repo, user_id=user_id, source_id=source_id, order=order)
-                    fetched += 1
+                _absorb(orders, is_archive=False)
                 pages += 1
                 if next_token is None:
                     break
@@ -2041,24 +2066,13 @@ def hydrate_orders_for_kiz_srids(
             arch_next: int | None = 0
             pages = 0
             max_pages = max(0, min(int(archive_pages), 30))
-            while pages < max_pages:
+            while pages < max_pages and still_missing:
                 arch_orders, arch_next = client.get_archive_orders(
                     limit=1000, next_token=arch_next
                 )
                 if not arch_orders:
                     break
-                for order in arch_orders:
-                    upsert_order(
-                        repo,
-                        user_id=user_id,
-                        source_id=source_id,
-                        order=order,
-                        is_archive=True,
-                        supplier_status=str(order.get("supplierStatus") or ""),
-                        # Do NOT default to "sold" — archive also has cancellations.
-                        wb_status=str(order.get("wbStatus") or ""),
-                    )
-                    fetched += 1
+                _absorb(arch_orders, is_archive=True)
                 pages += 1
                 if not arch_next:
                     break

@@ -4017,15 +4017,26 @@ def _attach_order_ids_to_events(
         if rid and rid != srid:
             keys.append(rid)
 
+    do_refresh = bool(refresh_statuses)
     if hydrate and api_key and keys:
+        # Prefer light join first; full Marketplace/archive download only for
+        # still-unresolved srids (prepare used to always hydrate → nginx 504).
         try:
-            wb_fbs_mod.hydrate_orders_for_kiz_srids(
-                repo,
-                user_id=user_id,
-                source_id=source_id,
-                srids=keys,
-                api_key=api_key,
+            linked = wb_fbs_mod.order_ids_by_srids(
+                repo, user_id=user_id, source_id=source_id, srids=keys
             )
+            missing = [k for k in keys if k not in linked]
+            if missing:
+                wb_fbs_mod.hydrate_orders_for_kiz_srids(
+                    repo,
+                    user_id=user_id,
+                    source_id=source_id,
+                    srids=missing,
+                    api_key=api_key,
+                )
+            else:
+                # Already linked — refresh wbStatus only (sold / отказ).
+                do_refresh = True
         except Exception as exc:
             logger.warning("hydrate_orders_for_kiz_srids failed: %s", exc)
 
@@ -4054,7 +4065,7 @@ def _attach_order_ids_to_events(
 
     # Fast path: refresh Marketplace statuses for already-linked orders only
     # (no archive download — safe for list/events).
-    if refresh_statuses and api_key and order_ids:
+    if do_refresh and api_key and order_ids:
         try:
             wb_fbs_mod.refresh_order_statuses_light(
                 repo,
@@ -4763,22 +4774,27 @@ def prepare_chz_batches(
             "Товарная группа (pg) — код True API (например lp, shoes), не число"
         )
 
-    queue_repair = repair_circulation_queue(
-        repo, user_id=user_id, source_id=source_id
-    )
-    try:
-        storage = maintain_kiz_circulation_storage(
-            repo, user_id=user_id, source_id=source_id
-        )
-        queue_repair.update(storage)
-    except Exception as exc:
-        logger.exception("maintain_kiz_circulation_storage failed: %s", exc)
-    lim = max(1, min(int(limit or PREPARE_EVENT_LIMIT), 5000))
     wanted_keys = [
         str(k).strip()
         for k in (event_keys or [])
         if str(k or "").strip()
     ] or None
+    queue_repair: dict[str, Any] = {}
+    # Full queue repair + storage GC are expensive on large histories and push
+    # prepare past gateway timeouts. Skip when the client sends an explicit
+    # selection (typical «Передать в ЧЗ» path).
+    if not wanted_keys:
+        queue_repair = repair_circulation_queue(
+            repo, user_id=user_id, source_id=source_id
+        )
+        try:
+            storage = maintain_kiz_circulation_storage(
+                repo, user_id=user_id, source_id=source_id
+            )
+            queue_repair.update(storage)
+        except Exception as exc:
+            logger.exception("maintain_kiz_circulation_storage failed: %s", exc)
+    lim = max(1, min(int(limit or PREPARE_EVENT_LIMIT), 5000))
     events_raw = list_events_for_chz(
         repo,
         user_id=user_id,
@@ -4786,7 +4802,7 @@ def prepare_chz_batches(
         limit=lim,
         event_keys=wanted_keys,
     )
-    # Join Marketplace order + status (hydrate archive/sold when key present).
+    # Join Marketplace order + status. Hydrate only unresolved srids (see attach).
     _attach_order_ids_to_events(
         repo,
         user_id=user_id,
@@ -4794,6 +4810,7 @@ def prepare_chz_batches(
         events=events_raw,
         api_key=api_key,
         hydrate=bool(str(api_key or "").strip()),
+        refresh_statuses=bool(str(api_key or "").strip()),
     )
     sent_identities = _load_sent_cis_identities(
         repo, user_id=user_id, source_id=source_id
