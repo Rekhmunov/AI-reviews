@@ -24529,8 +24529,11 @@ const wbFbsPickState = {
 function _wbFbsSyncPickVerifyBtn() {
   const btn = document.getElementById("wbFbsSupplyDetailPickVerifyBtn");
   if (!btn) return;
-  // Owner-only (same rule as auto-sync gear). Independent of Маркировка.
-  const can = isTenantOwner() && _wbFbsSupplyDetailActionsReady();
+  // Owner-only + only when supply has at least one order without КИЗ.
+  const supply = wbFbsDetailState.supply || {};
+  const orders = Array.isArray(supply.orders) ? supply.orders : [];
+  const hasPlain = orders.some((o) => o && !o.kiz_required);
+  const can = isTenantOwner() && _wbFbsSupplyDetailActionsReady() && hasPlain;
   btn.hidden = !can;
   btn.style.display = can ? "" : "none";
 }

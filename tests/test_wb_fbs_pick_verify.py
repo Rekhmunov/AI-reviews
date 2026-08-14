@@ -42,9 +42,14 @@ class ValidateEanTests(unittest.TestCase):
 
 
 class SavePickVerifyTests(unittest.TestCase):
-    def test_save_verified_local_only(self):
+    def test_save_verified_uses_db_skus_not_client(self):
         repo = MagicMock()
-        with patch("review_processor.wb_fbs_detail.wb.update_order_pick_verify") as upd:
+        with patch(
+            "review_processor.wb_fbs_detail.wb.load_order_barcodes_map",
+            return_value={101: ["4670123456789"]},
+        ), patch(
+            "review_processor.wb_fbs_detail.wb.update_order_pick_verify"
+        ) as upd:
             upd.return_value = True
             result = save_pick_verify(
                 repo=repo,
@@ -55,7 +60,8 @@ class SavePickVerifyTests(unittest.TestCase):
                         "order_id": 101,
                         "pick_verified": True,
                         "pick_barcode": "4670123456789",
-                        "barcodes": ["4670123456789"],
+                        # Forged client barcodes must be ignored.
+                        "barcodes": ["9999999999999"],
                     }
                 ],
                 allowed_order_ids={101},
@@ -68,9 +74,41 @@ class SavePickVerifyTests(unittest.TestCase):
         self.assertTrue(kwargs["verified"])
         self.assertEqual(kwargs["barcode"], "4670123456789")
 
+    def test_rejects_when_scan_mismatches_db_skus(self):
+        repo = MagicMock()
+        with patch(
+            "review_processor.wb_fbs_detail.wb.load_order_barcodes_map",
+            return_value={101: ["4670123456789"]},
+        ), patch(
+            "review_processor.wb_fbs_detail.wb.update_order_pick_verify"
+        ) as upd:
+            result = save_pick_verify(
+                repo=repo,
+                user_id=1,
+                source_id=7,
+                items=[
+                    {
+                        "order_id": 101,
+                        "pick_verified": True,
+                        "pick_barcode": "4600000000000",
+                        "barcodes": ["4600000000000"],  # client lies — ignored
+                    }
+                ],
+                allowed_order_ids={101},
+            )
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["errors"], 1)
+        self.assertIn("не совпадает", result["results"][0]["error"])
+        upd.assert_not_called()
+
     def test_rejects_order_not_allowed(self):
         repo = MagicMock()
-        with patch("review_processor.wb_fbs_detail.wb.update_order_pick_verify") as upd:
+        with patch(
+            "review_processor.wb_fbs_detail.wb.load_order_barcodes_map",
+            return_value={},
+        ), patch(
+            "review_processor.wb_fbs_detail.wb.update_order_pick_verify"
+        ) as upd:
             result = save_pick_verify(
                 repo=repo,
                 user_id=1,
@@ -84,7 +122,12 @@ class SavePickVerifyTests(unittest.TestCase):
 
     def test_clear_resets(self):
         repo = MagicMock()
-        with patch("review_processor.wb_fbs_detail.wb.update_order_pick_verify") as upd:
+        with patch(
+            "review_processor.wb_fbs_detail.wb.load_order_barcodes_map",
+            return_value={101: ["4670123456789"]},
+        ), patch(
+            "review_processor.wb_fbs_detail.wb.update_order_pick_verify"
+        ) as upd:
             upd.return_value = True
             result = save_pick_verify(
                 repo=repo,
