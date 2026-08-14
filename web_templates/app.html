@@ -3347,7 +3347,15 @@
               </div>
               <div class="wfg-field" style="grid-column:1 / -1">
                 <label class="wfg-label" for="chzSettingsWbAnalyticsKey">Токен WB «Аналитика»</label>
-                <input id="chzSettingsWbAnalyticsKey" type="password" placeholder="Оставьте пустым, чтобы не менять" autocomplete="new-password" />
+                <div class="row" style="gap:8px;align-items:flex-start;flex-wrap:wrap">
+                  <input id="chzSettingsWbAnalyticsKey" type="password"
+                         placeholder="Вставьте токен (новый заменит сохранённый)"
+                         autocomplete="new-password" style="flex:1;min-width:220px" />
+                  <button type="button" id="chzSettingsWbAnalyticsKeyClearBtn"
+                          class="secondary small-btn"
+                          style="color:#b91c1c;border-color:#fca5a5;display:none"
+                          onclick="clearSupplyChzWbAnalyticsKey()">Удалить токен</button>
+                </div>
                 <span id="chzSettingsWbAnalyticsKeyPreview" class="small" style="color:#64748b;margin-top:4px;display:block"></span>
               </div>
             </div>
@@ -5002,6 +5010,6 @@
       </div>
     </div>
   </div>
-  <script src="/static/app.js?v=462"></script>
+  <script src="/static/app.js?v=463"></script>
 </body>
 </html>

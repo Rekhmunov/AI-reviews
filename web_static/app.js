@@ -16604,12 +16604,22 @@ async function loadSupplyChzSettings() {
   set("chzSettingsWbAnalyticsKey", "");
   const en = document.getElementById("chzSettingsEnabled");
   if (en) en.checked = !!s.is_enabled;
+  const hasKey = Boolean(s.has_wb_analytics_api_key);
   const prev = document.getElementById("chzSettingsWbAnalyticsKeyPreview");
   if (prev) {
-    prev.textContent = s.has_wb_analytics_api_key
+    prev.textContent = hasKey
       ? `Сохранён: ${s.wb_analytics_api_key_preview || "••••"}`
       : "Токен не задан — ежедневный вывод КИЗ недоступен";
   }
+  const keyInput = document.getElementById("chzSettingsWbAnalyticsKey");
+  if (keyInput) {
+    keyInput.placeholder = hasKey
+      ? "Вставьте новый токен, чтобы заменить сохранённый"
+      : "Вставьте токен WB «Аналитика»";
+    keyInput.dataset.hasSaved = hasKey ? "1" : "0";
+  }
+  const clearBtn = document.getElementById("chzSettingsWbAnalyticsKeyClearBtn");
+  if (clearBtn) clearBtn.style.display = hasKey ? "" : "none";
 }
 
 async function saveSupplyChzSettings() {
@@ -16631,7 +16641,37 @@ async function saveSupplyChzSettings() {
     _edoSetInfo(info, err.detail || "Ошибка сохранения", false);
     return;
   }
-  _edoSetInfo(info, "Сохранено", true);
+  _edoSetInfo(
+    info,
+    wbKey.trim() ? "Сохранено (токен WB Аналитика обновлён)" : "Сохранено",
+    true,
+  );
+  await loadSupplyChzSettings();
+}
+
+async function clearSupplyChzWbAnalyticsKey() {
+  const info = "chzSettingsInfo";
+  if (!confirm("Удалить сохранённый токен WB «Аналитика»? Ежедневный вывод КИЗ станет недоступен, пока не зададите новый.")) {
+    return;
+  }
+  _edoSetInfo(info, "Удаление токена…");
+  const body = {
+    is_enabled: !!document.getElementById("chzSettingsEnabled")?.checked,
+    participant_inn: document.getElementById("chzSettingsInn")?.value.trim() || "",
+    product_group: document.getElementById("chzSettingsProductGroup")?.value.trim() || "",
+    wb_analytics_api_key: "",
+  };
+  const res = await fetch("/api/supply-chz-settings", {
+    method: "PUT", headers: jsonHeaders(), body: JSON.stringify(body),
+  }).catch(() => null);
+  if (!res || !res.ok) {
+    const err = await res?.json().catch(() => ({})) || {};
+    _edoSetInfo(info, err.detail || "Не удалось удалить токен", false);
+    return;
+  }
+  const keyInput = document.getElementById("chzSettingsWbAnalyticsKey");
+  if (keyInput) keyInput.value = "";
+  _edoSetInfo(info, "Токен WB «Аналитика» удалён", true);
   await loadSupplyChzSettings();
 }
 
@@ -17219,6 +17259,7 @@ async function runWbFbsKizCirculationChz() {
 
 window.loadSupplyChzSettings = loadSupplyChzSettings;
 window.saveSupplyChzSettings = saveSupplyChzSettings;
+window.clearSupplyChzWbAnalyticsKey = clearSupplyChzWbAnalyticsKey;
 window.testSupplyChzSettings = testSupplyChzSettings;
 window.openWbFbsKizCirculationModal = openWbFbsKizCirculationModal;
 window.closeWbFbsKizCirculationModal = closeWbFbsKizCirculationModal;
