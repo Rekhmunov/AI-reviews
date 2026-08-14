@@ -23700,6 +23700,22 @@ function _wbFbsKizValidateMarkForOrder(mark, row) {
   return { ok: true, gtin14 };
 }
 
+/** Find an already-filled КИЗ in the modal (same or another order). */
+function _wbFbsKizFindExistingMark(mark) {
+  const key = _wbFbsKizNormalizeMark(mark);
+  if (!key) return null;
+  for (const row of wbFbsKizState.rows || []) {
+    const codes = Array.isArray(row.kiz_codes) ? row.kiz_codes : [];
+    for (const c of codes) {
+      const n = _wbFbsKizNormalizeMark(c);
+      if (n && n === key) {
+        return { order_id: Number(row.order_id), code: n };
+      }
+    }
+  }
+  return null;
+}
+
 function _wbFbsKizResetFilters() {
   const filled = document.getElementById("wbFbsKizFilterFilled");
   const empty = document.getElementById("wbFbsKizFilterEmpty");
