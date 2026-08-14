@@ -9949,19 +9949,35 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="Укажите items[]")
         api_key = _wb_fbs_source_key(owner_id, int(source_id))
         try:
-            # Scope saves to this supply's kiz-required orders only (no sticker re-fetch).
-            detail = wb_detail.get_supply_detail(
-                repository,
-                user_id=owner_id,
-                source_id=int(source_id),
-                api_key=api_key,
-                supply_id=sid,
+            only_local = bool(items) and all(
+                isinstance(it, dict) and bool(it.get("local_only")) for it in items
             )
-            allowed = {
-                int(o["order_id"])
-                for o in (detail.get("orders") or [])
-                if o.get("kiz_required") and o.get("order_id") is not None
-            }
+            if only_local:
+                # Silent autosave after scan: scope from local DB only.
+                # Never call get_supply_detail here — that hits Marketplace + stickers
+                # and would lag / rate-limit operators during rapid scanning.
+                allowed = set(
+                    wb_detail._local_order_ids_for_supply(
+                        repository,
+                        user_id=owner_id,
+                        source_id=int(source_id),
+                        supply_id=sid,
+                    )
+                )
+            else:
+                # Full Save: scope to this supply's kiz-required orders.
+                detail = wb_detail.get_supply_detail(
+                    repository,
+                    user_id=owner_id,
+                    source_id=int(source_id),
+                    api_key=api_key,
+                    supply_id=sid,
+                )
+                allowed = {
+                    int(o["order_id"])
+                    for o in (detail.get("orders") or [])
+                    if o.get("kiz_required") and o.get("order_id") is not None
+                }
             result = wb_detail.save_kiz_marking(
                 api_key=api_key,
                 items=items,
@@ -9976,9 +9992,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         # Local-only autosave does not change WB-facing badges enough to bust cache
         # on every scan (multi-op / supply-detail thrash). Full Save still invalidates.
-        only_local = bool(items) and all(
-            isinstance(it, dict) and bool(it.get("local_only")) for it in items
-        )
         if not only_local:
             wb_detail.invalidate_supply_detail_cache(
                 user_id=owner_id, source_id=int(source_id), supply_id=sid

@@ -24033,7 +24033,20 @@ function _wbFbsKizScheduleLocalAutosave(orderId) {
 }
 
 function _wbFbsKizAwaitLocalAutosaves() {
-  return Promise.resolve(wbFbsKizState.localAutosaveChain || Promise.resolve()).catch(() => {});
+  // Re-check the chain tip: new scans during await extend localAutosaveChain.
+  return (async () => {
+    for (let i = 0; i < 40; i += 1) {
+      const tip = wbFbsKizState.localAutosaveChain || Promise.resolve();
+      try {
+        await tip;
+      } catch (_e) {
+        /* ignore autosave faults — Save/close confirm still cover drafts */
+      }
+      const latest = wbFbsKizState.localAutosaveChain || tip;
+      const inflight = Number(wbFbsKizState.localAutosaveInflight) || 0;
+      if (tip === latest && inflight <= 0) return;
+    }
+  })();
 }
 
 async function _wbFbsKizFlushLocalAutosave(orderId, seq, attempt = 0) {
@@ -24666,8 +24679,15 @@ window.uploadWbFbsKizTemplate = uploadWbFbsKizTemplate;
 async function saveWbFbsKizModal() {
   const sid = String(wbFbsDetailState.supplyId || "").trim();
   if (!sid || !wbFbsState.sourceId || wbFbsKizState.saving) return;
+  const btn = document.getElementById("wbFbsKizSaveBtn");
+  wbFbsKizState.saving = true;
+  if (btn) btn.disabled = true;
   // Let silent local autosaves finish so expected_saved_at / baseline are current.
-  await _wbFbsKizAwaitLocalAutosaves();
+  try {
+    await _wbFbsKizAwaitLocalAutosaves();
+  } catch (_e) {
+    /* continue — Save still pushes current DOM codes */
+  }
   _wbFbsKizCollectFromDom();
   // Save: local DB first, then WB. Modal stays open; retry WB on next Save.
   // Skip rows whose КИЗ list is unchanged vs baseline (unless WB sync pending).
@@ -24732,6 +24752,8 @@ async function saveWbFbsKizModal() {
     });
   }
   if (!items.length) {
+    wbFbsKizState.saving = false;
+    if (btn) btn.disabled = false;
     renderWbFbsKizTable({ skipCollect: true });
     if (gtinErrors) {
       _wbFbsKizSetInfo(
@@ -24744,9 +24766,6 @@ async function saveWbFbsKizModal() {
     }
     return;
   }
-  const btn = document.getElementById("wbFbsKizSaveBtn");
-  wbFbsKizState.saving = true;
-  if (btn) btn.disabled = true;
   _wbFbsKizStartSaveProgress(items.length);
   try {
     const params = new URLSearchParams({ source_id: String(wbFbsState.sourceId) });
