@@ -16944,7 +16944,7 @@ function _wbFbsKizCircUpdateSelectionInfo() {
   const el = document.getElementById("wbFbsKizCircSelectedInfo");
   const n = wbFbsKizCircState.selectedKeys.size;
   if (el) {
-    el.textContent = n ? `Выбрано: ${n}` : "Выбрано: 0 — отметьте строки";
+    el.textContent = n ? `Выбрано: ${n}` : "";
   }
   const visibleSelectable = _wbFbsKizCircFilteredItems().filter(_wbFbsKizCircIsSelectable);
   const allEl = document.getElementById("wbFbsKizCircSelectAll");
@@ -16980,15 +16980,6 @@ function toggleWbFbsKizCircSelectAll(checked) {
     if (checked) wbFbsKizCircState.selectedKeys.add(key);
     else wbFbsKizCircState.selectedKeys.delete(key);
   }
-  _wbFbsKizCircRenderTable();
-}
-
-function selectAllVisibleWbFbsKizCirc() {
-  toggleWbFbsKizCircSelectAll(true);
-}
-
-function clearWbFbsKizCircSelection() {
-  wbFbsKizCircState.selectedKeys.clear();
   _wbFbsKizCircRenderTable();
 }
 
@@ -17270,10 +17261,7 @@ async function runWbFbsKizCirculationChz() {
   const sid = _wbFbsKizCircSourceId();
   if (!sid || wbFbsKizCircState.busy) return;
   const selectedKeys = [...wbFbsKizCircState.selectedKeys].filter(Boolean);
-  if (!selectedKeys.length) {
-    alert("Отметьте нужные строки чекбоксами (или «Выбрать видимые»), затем нажмите «Передать в ЧЗ».");
-    return;
-  }
+  const useSelection = selectedKeys.length > 0;
   const btn = document.getElementById("wbFbsKizCircChzBtn");
   wbFbsKizCircState.busy = true;
   if (btn) btn.disabled = true;
@@ -17285,17 +17273,21 @@ async function runWbFbsKizCirculationChz() {
   let stoppedWithMore = false;
   let stoppedAllFailed = false;
   try {
-    _wbFbsKizCircAppendLog(`ЧЗ: выбрано позиций ${selectedKeys.length}`);
+    if (useSelection) {
+      _wbFbsKizCircAppendLog(`ЧЗ: выбрано позиций ${selectedKeys.length}`);
+    }
     for (let round = 1; round <= maxRounds; round++) {
       _wbFbsKizCircAppendLog(
         round === 1 ? "ЧЗ: подготовка документов…" : `ЧЗ: следующий пакет (${round}/${maxRounds})…`,
       );
+      const prepBody = { source_id: sid };
+      if (useSelection) prepBody.event_keys = selectedKeys;
       const prepRes = await fetch(
         `/api/wb-fbs/kiz-circulation/chz/prepare?source_id=${sid}`,
         {
           method: "POST",
           headers: jsonHeaders(),
-          body: JSON.stringify({ source_id: sid, event_keys: selectedKeys }),
+          body: JSON.stringify(prepBody),
         },
       );
       const prep = await prepRes.json().catch(() => ({}));
@@ -17303,11 +17295,12 @@ async function runWbFbsKizCirculationChz() {
       for (const w of (prep.warnings || [])) {
         _wbFbsKizCircAppendLog(`⚠ ${w}`);
       }
-      const selectedSet = new Set(selectedKeys);
-      const docsAll = (Array.isArray(prep.documents) ? prep.documents : []).filter((d) =>
-        (Array.isArray(d.event_keys) ? d.event_keys : [])
-          .some((k) => selectedSet.has(String(k || ""))),
-      );
+      const selectedSet = useSelection ? new Set(selectedKeys) : null;
+      const docsAll = (Array.isArray(prep.documents) ? prep.documents : []).filter((d) => {
+        if (!selectedSet) return true;
+        return (Array.isArray(d.event_keys) ? d.event_keys : [])
+          .some((k) => selectedSet.has(String(k || "")));
+      });
       // Client-side safety cap: even if prepare returns a huge batch, sign/submit
       // only a small packet — UKЭP + one giant POST caused Failed to fetch.
       const CLIENT_DOC_CAP = 40;
@@ -17421,8 +17414,6 @@ window.runWbFbsKizCirculationSync = runWbFbsKizCirculationSync;
 window.runWbFbsKizCirculationChz = runWbFbsKizCirculationChz;
 window.toggleWbFbsKizCircRow = toggleWbFbsKizCircRow;
 window.toggleWbFbsKizCircSelectAll = toggleWbFbsKizCircSelectAll;
-window.selectAllVisibleWbFbsKizCirc = selectAllVisibleWbFbsKizCirc;
-window.clearWbFbsKizCircSelection = clearWbFbsKizCircSelection;
 
 // -----------------------------------------------------------------------
 // My Salary (operator view)
