@@ -1365,6 +1365,55 @@ def test_norm_matches_fbs_by_srid_or_rid() -> None:
     assert not circ._norm_matches_fbs({"srid": "fbs-rid-1", "rid": ""}, set())
 
 
+def test_norm_eligibility_sold_and_cancelled_only() -> None:
+    index = {
+        "sold-1": {
+            "order_id": 1,
+            "wb_status": "sold",
+            "supplier_status": "complete",
+        },
+        "ship-1": {
+            "order_id": 2,
+            "wb_status": "sorted",
+            "supplier_status": "complete",
+        },
+        "cancel-1": {
+            "order_id": 3,
+            "wb_status": "canceled_by_client",
+            "supplier_status": "cancel",
+        },
+    }
+    assert (
+        circ._norm_eligibility_skip(
+            {"srid": "sold-1", "operation_type": 1}, index
+        )
+        == ""
+    )
+    assert (
+        circ._norm_eligibility_skip(
+            {"srid": "ship-1", "operation_type": 1}, index
+        )
+        == circ.SKIP_NOT_SOLD
+    )
+    assert (
+        circ._norm_eligibility_skip(
+            {"srid": "cancel-1", "operation_type": 2}, index
+        )
+        == ""
+    )
+    assert (
+        circ._norm_eligibility_skip(
+            {"srid": "sold-1", "operation_type": 2}, index
+        )
+        == circ.SKIP_NOT_RETURN
+    )
+    assert (
+        circ._norm_eligibility_skip(
+            {"srid": "missing", "operation_type": 1}, index
+        )
+        == circ.SKIP_NOT_FBS
+    )
+
 def test_repair_skip_non_fbs_noop_without_local_orders() -> None:
     conn = MagicMock()
     conn.__enter__.return_value = conn

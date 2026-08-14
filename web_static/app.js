@@ -17046,11 +17046,16 @@ function _wbFbsKizCircRenderTable() {
       const kiz = String(ev.excise_short || "");
       const kizShort = kiz.length > 28 ? `${kiz.slice(0, 14)}…${kiz.slice(-10)}` : kiz;
       const errRaw = ev.error_text || ev.skip_reason || "";
-      const err = String(errRaw) === "no_fiscal"
+      const errCode = String(errRaw);
+      const err = errCode === "no_fiscal"
         ? "без чека → вывод OTHER (Дистанционная продажа)"
-        : String(errRaw) === "not_fbs"
+        : errCode === "not_fbs"
           ? "не FBS (нет в заказах Marketplace FBS)"
-          : errRaw;
+          : errCode === "not_sold"
+            ? "не выкуплен — вывод только для sold"
+            : errCode === "not_return"
+              ? "не отказной — возврат в оборот только для отменённых"
+              : errRaw;
       const orderId = ev.order_id != null && String(ev.order_id).trim() !== ""
         ? String(ev.order_id)
         : "";
@@ -17237,12 +17242,16 @@ async function refreshWbFbsKizCirculation() {
         ? Number(overview.total_fbs || 0)
         : Object.values(overview.counts || {}).reduce((a, b) => a + Number(b || 0), 0);
       const parts = [
-        `к выводу: ${overview.pending_withdraw || 0}`,
-        `к возврату: ${overview.pending_return || 0}`,
-        `FBS всего: ${fbsTotal}`,
+        `к выводу (выкуплен): ${overview.pending_withdraw || 0}`,
+        `к возврату (отказ): ${overview.pending_return || 0}`,
+        `в очереди FBS: ${fbsTotal}`,
       ];
-      const notFbs = Number(overview.not_fbs_skipped || 0);
-      if (notFbs > 0) parts.push(`не FBS (скрыто): ${notFbs}`);
+      const notFbs = Number(
+        overview.eligibility_skipped != null
+          ? overview.eligibility_skipped
+          : overview.not_fbs_skipped || 0,
+      );
+      if (notFbs > 0) parts.push(`вне очереди: ${notFbs}`);
       countsEl.textContent = parts.join(" · ");
     }
     wbFbsKizCircState.items = Array.isArray(eventsPayload.items) ? eventsPayload.items : [];
@@ -17261,10 +17270,22 @@ async function refreshWbFbsKizCirculation() {
         `Убрано из очереди (не FBS / нет в заказах Marketplace): ${notFbsSkipped}`,
       );
     }
+    const notSoldSkipped = Number(eventsPayload.not_sold_skipped || 0);
+    if (notSoldSkipped > 0) {
+      _wbFbsKizCircAppendLog(
+        `Убрано (вывод только выкупленные sold): ${notSoldSkipped}`,
+      );
+    }
+    const notReturnSkipped = Number(eventsPayload.not_return_skipped || 0);
+    if (notReturnSkipped > 0) {
+      _wbFbsKizCircAppendLog(
+        `Убрано (возврат в оборот только отказные): ${notReturnSkipped}`,
+      );
+    }
     const fbsRequeued = Number(eventsPayload.fbs_requeued || 0);
     if (fbsRequeued > 0) {
       _wbFbsKizCircAppendLog(
-        `Снова в очереди (нашлись в заказах FBS): ${fbsRequeued}`,
+        `Снова в очереди (стали выкуплены / отказные): ${fbsRequeued}`,
       );
     }
     if (!wbFbsKizCircState.items.length) {

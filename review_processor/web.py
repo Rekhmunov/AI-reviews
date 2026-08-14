@@ -10329,16 +10329,20 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except Exception:
             healed = {"healed": 0}
         try:
-            # Keep queue FBS-only: reopen if order appeared, then drop non-FBS.
+            # Keep queue to sold withdraw + cancelled return (FBS only).
             fbs_back = kiz_circ.repair_requeue_fbs_matched_not_fbs(
                 repository, user_id=owner_id, source_id=int(source_id)
             )
             not_fbs = kiz_circ.repair_skip_non_fbs_events(
                 repository, user_id=owner_id, source_id=int(source_id)
             )
+            status_skip = kiz_circ.repair_skip_wrong_fbs_status_events(
+                repository, user_id=owner_id, source_id=int(source_id)
+            )
         except Exception:
             not_fbs = 0
             fbs_back = 0
+            status_skip = {}
         try:
             items = kiz_circ.list_events(
                 repository,
@@ -10360,6 +10364,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "total": len(items),
             "healed": int((healed or {}).get("healed") or 0),
             "not_fbs_skipped": int(not_fbs or 0),
+            "not_sold_skipped": int((status_skip or {}).get("not_sold_skipped") or 0),
+            "not_return_skipped": int(
+                (status_skip or {}).get("not_return_skipped") or 0
+            ),
             "fbs_requeued": int(fbs_back or 0),
         }
 
