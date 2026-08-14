@@ -25025,12 +25025,19 @@ function _wbFbsSyncPickVerifyBtn() {
   btn.style.display = can ? "" : "none";
 }
 
-function _wbFbsPickSetInfo(text) {
+function _wbFbsPickSetInfo(text, ok) {
   const el = document.getElementById("wbFbsPickInfo");
   if (!el) return;
   const msg = String(text || "").trim();
+  if (!msg) {
+    el.hidden = true;
+    el.textContent = "";
+    el.classList.remove("is-ok");
+    return;
+  }
+  el.hidden = false;
   el.textContent = msg;
-  el.hidden = !msg;
+  el.classList.toggle("is-ok", !!ok);
 }
 
 function _wbFbsPickResetFilters() {
@@ -25138,7 +25145,7 @@ async function openWbFbsPickVerifyModal() {
     _wbFbsPickCaptureBaseline();
     renderWbFbsPickVerifyTable();
     if (!wbFbsPickState.rows.length) {
-      _wbFbsPickSetInfo("В поставке нет заказов без маркировки КИЗ");
+      _wbFbsPickSetInfo("В поставке нет заказов без маркировки КИЗ", true);
     }
     const scan = document.getElementById("wbFbsPickStickerScan");
     if (scan) {
@@ -25419,7 +25426,7 @@ function clearWbFbsPickVerify(orderId) {
   if (!_wbFbsPickPatchStatusCell(oid)) {
     renderWbFbsPickVerifyTable();
   }
-  _wbFbsPickSetInfo(`Заказ ${oid}: проверка сброшена.`);
+  _wbFbsPickSetInfo(`Заказ ${oid}: проверка сброшена.`, true);
   _wbFbsPickScheduleLocalAutosave(oid);
 }
 window.clearWbFbsPickVerify = clearWbFbsPickVerify;
@@ -25737,7 +25744,7 @@ function onWbFbsPickSkuScanKey(event) {
   const emptyFilter = document.getElementById("wbFbsPickFilterEmpty");
   const emptyFilterWasOn = !!emptyFilter?.checked;
   if (emptyFilter) emptyFilter.checked = false;
-  _wbFbsPickSetInfo(`Заказ ${oid}: ШК ${check.barcode} совпал.`);
+  _wbFbsPickSetInfo(`Заказ ${oid}: ШК ${check.barcode} совпал.`, true);
   // Full render when filter set changes; otherwise patch one status cell.
   if (emptyFilterWasOn || !_wbFbsPickPatchStatusCell(oid)) {
     renderWbFbsPickVerifyTable();
@@ -25814,10 +25821,10 @@ async function saveWbFbsPickVerifyModal() {
   if (!items.length) {
     wbFbsPickState.saving = false;
     if (saveBtn) saveBtn.disabled = false;
-    _wbFbsPickSetInfo("Нет изменений для сохранения");
+    _wbFbsPickSetInfo("Нет изменений для сохранения", true);
     return;
   }
-  _wbFbsPickSetInfo(`Сохранение ${items.length}…`);
+  _wbFbsPickSetInfo(`Сохранение ${items.length}…`, true);
   try {
     const params = new URLSearchParams({ source_id: String(wbFbsState.sourceId) });
     const res = await fetch(
@@ -25896,7 +25903,10 @@ async function saveWbFbsPickVerifyModal() {
     } else if (errN) {
       _wbFbsPickSetInfo(`Сохранено ${okN}, ошибок ${errN}`);
     } else {
-      _wbFbsPickSetInfo(`Сохранено: ${okN}. Данные только в FeedPilot (на WB не отправлялись).`);
+      _wbFbsPickSetInfo(
+        `Сохранено: ${okN}. Данные только в FeedPilot (на WB не отправлялись).`,
+        true
+      );
     }
   } catch (e) {
     _wbFbsPickSetInfo(String(e.message || e));
