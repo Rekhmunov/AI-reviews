@@ -24067,7 +24067,7 @@ function onWbFbsKizStickerScanKey(event) {
   }
   if (!found.row) {
     _wbFbsKizSetInfo(
-      `Такого заказа нет в этой поставке. Стикер «${scan}» не найден среди заказов с КИЗ.`
+      `Заказ со стикером «${scan}» не найден среди товаров с маркировкой. Возможно, это товар без маркировки.`
     );
     if (input) input.select();
     return;
@@ -24717,14 +24717,37 @@ function _wbFbsPickRowMatchesSearch(row, q) {
 function _wbFbsPickStatusHtml(row) {
   const oid = Number(row.order_id);
   const err = String(wbFbsPickState.errors[oid] || "").trim();
+  const verified = !!row.pick_verified && !!String(row.pick_barcode || "").trim();
+  let body = "";
   if (err) {
-    return `<div class="wb-fbs-pick-status is-error">${_wbFbsEsc(err)}</div>`;
+    body = `<div class="wb-fbs-pick-status is-error">${_wbFbsEsc(err)}</div>`;
+  } else if (verified) {
+    body = `<div class="wb-fbs-pick-status is-ok">✓ ${_wbFbsEsc(row.pick_barcode)}</div>`;
+  } else {
+    body = `<div class="wb-fbs-pick-status is-empty">Не проверено</div>`;
   }
-  if (row.pick_verified && String(row.pick_barcode || "").trim()) {
-    return `<div class="wb-fbs-pick-status is-ok">✓ ${_wbFbsEsc(row.pick_barcode)}</div>`;
-  }
-  return `<div class="wb-fbs-pick-status is-empty">Не проверено</div>`;
+  const showClear = verified || !!err;
+  const clearBtn = showClear
+    ? `<button type="button" class="wb-fbs-kiz-remove" title="Сбросить проверку"
+               aria-label="Сбросить проверку"
+               onclick="clearWbFbsPickVerify(${oid})">×</button>`
+    : "";
+  return `<div class="wb-fbs-pick-status-row">${body}${clearBtn}</div>`;
 }
+
+function clearWbFbsPickVerify(orderId) {
+  const oid = Number(orderId);
+  const row = wbFbsPickState.rows.find((r) => Number(r.order_id) === oid);
+  if (!row || !Number.isFinite(oid)) return;
+  row.pick_verified = false;
+  row.pick_barcode = "";
+  delete wbFbsPickState.errors[oid];
+  if (!_wbFbsPickPatchStatusCell(oid)) {
+    renderWbFbsPickVerifyTable();
+  }
+  _wbFbsPickSetInfo(`Заказ ${oid}: проверка сброшена. Нажмите «Сохранить», чтобы записать.`);
+}
+window.clearWbFbsPickVerify = clearWbFbsPickVerify;
 
 function _wbFbsPickClearPendingHighlight() {
   document.querySelectorAll("#wbFbsPickTbody tr.wb-fbs-kiz-row.is-active").forEach((tr) => {
@@ -24792,30 +24815,30 @@ function renderWbFbsPickVerifyTable() {
     const photo = r.product_photo
       ? `<img class="wb-fbs-product-photo" src="${_wbFbsEsc(r.product_photo)}" alt="" width="56" height="56" loading="lazy">`
       : `<span class="wb-fbs-product-ph" aria-hidden="true"></span>`;
+    const brandArt = [r.brand, r.article ? `Арт. ${r.article}` : ""].filter(Boolean).join(" · ");
     const barcodes = Array.isArray(r.barcodes) ? r.barcodes : [];
     const barcodeHtml = barcodes.length
-      ? `<div class="wb-fbs-barcodes" title="Штрихкод товара">${barcodes.map((b) =>
-          `<div class="wb-fbs-barcode">${_wbFbsEsc(b)}</div>`
+      ? `<div class="wb-fbs-kiz-barcodes" title="Штрихкод товара">${barcodes.map((b) =>
+          `<div class="wb-fbs-kiz-barcode">${_wbFbsEsc(b)}</div>`
         ).join("")}</div>`
       : "";
-    const cancel = String(r.cancel_reason_label || "").trim()
-      ? `<span class="wb-fbs-badge cancel">${_wbFbsEsc(r.cancel_reason_label)}</span>`
-      : "";
+    const cancelBadgeHtml = _wbFbsKizCancelBadgeHtml(r);
     const pendingCls = pending != null && Number(pending) === oid ? " is-active" : "";
+    const stickerHtml = _wbFbsPickStickerHtml(r);
     return `<tr class="wb-fbs-kiz-row${pendingCls}" data-order-id="${oid}">
-      <td class="wb-fbs-kiz-col-order">
-        <div class="wb-fbs-kiz-order-id">${oid}</div>
-        ${_wbFbsPickStickerHtml(r)}
-        <div class="wb-fbs-kiz-date">${_wbFbsEsc(r.created_date || "—")}</div>
+      <td>
+        <div class="wb-fbs-kiz-order-id">${_wbFbsEsc(oid)}</div>
+        <div class="wb-fbs-kiz-order-sticker">${stickerHtml}</div>
+        <div class="wb-fbs-kiz-order-date">от ${_wbFbsEsc(r.created_date || "—")}</div>
       </td>
-      <td class="wb-fbs-kiz-col-product">
-        <div class="wb-fbs-kiz-product">
+      <td>
+        <div class="wb-fbs-product">
           ${photo}
-          <div class="wb-fbs-kiz-product-meta">
-            <div class="wb-fbs-kiz-product-name">${_wbFbsEsc(r.product_name || "—")}</div>
-            <div class="wb-fbs-kiz-product-sub">${_wbFbsEsc([r.brand, r.article].filter(Boolean).join(" · ") || "—")}</div>
+          <div class="wb-fbs-product-text">
+            <div class="wb-fbs-product-name" title="${_wbFbsEsc(r.product_name || r.article || "")}">${_wbFbsEsc(r.product_name || r.article || "—")}</div>
+            <div class="wb-fbs-product-sub">${_wbFbsEsc(brandArt || "—")}</div>
             ${barcodeHtml}
-            ${cancel}
+            ${cancelBadgeHtml}
           </div>
         </div>
       </td>
@@ -24960,7 +24983,7 @@ function onWbFbsPickStickerScanKey(event) {
   }
   if (!found.row) {
     _wbFbsPickSetInfo(
-      `Такого заказа нет среди товаров без КИЗ. Стикер «${scan}» не найден.`
+      `Заказ со стикером «${scan}» не найден среди товаров без маркировки. Возможно, это товар с маркировкой.`
     );
     if (input) input.select();
     return;
