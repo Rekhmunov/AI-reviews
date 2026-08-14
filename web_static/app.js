@@ -17237,6 +17237,8 @@ function _wbFbsKizCircApiError(res, data, fallback) {
   }
   return msg;
 }
+
+function _wbFbsKizCircDefaultDates() {
   // Soft default: yesterday…today. User always controls the range.
   const to = new Date();
   const from = new Date(to.getTime() - 1 * 24 * 60 * 60 * 1000);
