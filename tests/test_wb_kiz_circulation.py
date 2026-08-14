@@ -187,13 +187,23 @@ def test_price_for_chz_skips_foreign_currency() -> None:
     assert circ._price_for_chz({"price": 10, "currency_name": ""}) == 10.0
 
 
+@patch(
+    "review_processor.wb_kiz_circulation._close_deduped_prepare_events",
+    return_value=0,
+)
+@patch(
+    "review_processor.wb_kiz_circulation._load_sent_cis_identities",
+    return_value=set(),
+)
 @patch("review_processor.wb_kiz_circulation.list_events_for_chz")
 @patch(
     "review_processor.wb_kiz_circulation.repair_circulation_queue",
     return_value={"returns_fixed": 0, "withdraw_skipped": 0},
 )
 @patch("review_processor.wb_kiz_circulation.get_chz_settings")
-def test_prepare_groups_by_receipt(mock_settings, _repair, mock_list) -> None:
+def test_prepare_groups_by_receipt(
+    mock_settings, _repair, mock_list, _sent, _close
+) -> None:
     mock_settings.return_value = {
         "is_enabled": True,
         "participant_inn": "7707083893",
@@ -250,6 +260,14 @@ def test_prepare_groups_by_receipt(mock_settings, _repair, mock_list) -> None:
     assert b"10.0" in raw or b'"product_cost":10' in raw  # either is stable if server uses b64
 
 
+@patch(
+    "review_processor.wb_kiz_circulation._close_deduped_prepare_events",
+    return_value=0,
+)
+@patch(
+    "review_processor.wb_kiz_circulation._load_sent_cis_identities",
+    return_value=set(),
+)
 @patch("review_processor.wb_kiz_circulation.list_events_for_chz")
 @patch(
     "review_processor.wb_kiz_circulation.repair_circulation_queue",
@@ -257,7 +275,7 @@ def test_prepare_groups_by_receipt(mock_settings, _repair, mock_list) -> None:
 )
 @patch("review_processor.wb_kiz_circulation.get_chz_settings")
 def test_prepare_soft_skips_withdraw_without_kpp_keeps_returns(
-    mock_settings, _repair, mock_list
+    mock_settings, _repair, mock_list, _sent, _close
 ) -> None:
     mock_settings.return_value = {
         "is_enabled": True,
@@ -297,6 +315,14 @@ def test_prepare_soft_skips_withdraw_without_kpp_keeps_returns(
     assert not any(d["doc_type"] == "LK_RECEIPT" for d in out["documents"])
 
 
+@patch(
+    "review_processor.wb_kiz_circulation._close_deduped_prepare_events",
+    return_value=0,
+)
+@patch(
+    "review_processor.wb_kiz_circulation._load_sent_cis_identities",
+    return_value=set(),
+)
 @patch("review_processor.wb_kiz_circulation.list_events_for_chz")
 @patch(
     "review_processor.wb_kiz_circulation.repair_circulation_queue",
@@ -304,7 +330,7 @@ def test_prepare_soft_skips_withdraw_without_kpp_keeps_returns(
 )
 @patch("review_processor.wb_kiz_circulation.get_chz_settings")
 def test_prepare_nofiscal_withdraw_uses_other_primary_doc(
-    mock_settings, _repair, mock_list
+    mock_settings, _repair, mock_list, _sent, _close
 ) -> None:
     mock_settings.return_value = {
         "is_enabled": True,
@@ -359,13 +385,21 @@ def test_build_lk_receipt_other_includes_custom_name() -> None:
     assert doc["primary_document_custom_name"] == "Без документа основания"
 
 
+@patch(
+    "review_processor.wb_kiz_circulation._close_deduped_prepare_events",
+    return_value=0,
+)
+@patch(
+    "review_processor.wb_kiz_circulation._load_sent_cis_identities",
+    return_value=set(),
+)
 @patch("review_processor.wb_kiz_circulation.list_events_for_chz")
 @patch(
     "review_processor.wb_kiz_circulation.repair_circulation_queue",
     return_value={"returns_fixed": 0, "withdraw_skipped": 0},
 )
 @patch("review_processor.wb_kiz_circulation.get_chz_settings")
-def test_prepare_chunks_returns(mock_settings, _repair, mock_list) -> None:
+def test_prepare_chunks_returns(mock_settings, _repair, mock_list, _sent, _close) -> None:
     mock_settings.return_value = {
         "is_enabled": True,
         "participant_inn": "7707083893",
@@ -543,3 +577,182 @@ def test_order_portal_status_label() -> None:
     assert order_portal_status_label(supplier_status="confirm") == "На сборке"
     assert order_portal_status_label(supplier_status="complete") == "В доставке"
     assert order_portal_status_label(supplier_status="new") == "Новый"
+
+
+def test_cis_identity_ignores_fiscal() -> None:
+    a = circ._cis_identity(
+        srid="s1", rid="", excise_short="CIS", operation_type=1
+    )
+    b = circ._cis_identity(
+        srid="s1", rid="r1", excise_short="CIS", operation_type=1
+    )
+    # rid is ignored when srid is present
+    assert a == b
+    assert a != circ._cis_identity(
+        srid="s2", rid="", excise_short="CIS", operation_type=1
+    )
+
+
+def test_resolve_sync_upgrade_late_fiscal() -> None:
+    nofiscal = {
+        "id": 10,
+        "event_key": "key-nofiscal",
+        "status": circ.STATUS_PENDING,
+        "fiscal_doc_number": "",
+        "fiscal_dt": "",
+        "srid": "s1",
+        "excise_short": "CIS",
+        "operation_type": 1,
+    }
+    incoming = {
+        "event_key": "key-with-fiscal",
+        "fiscal_doc_number": "99",
+        "fiscal_dt": "2026-08-01",
+        "srid": "s1",
+        "excise_short": "CIS",
+        "operation_type": 1,
+    }
+    action, target = circ._resolve_sync_action([nofiscal], norm=incoming)
+    assert action == "upgrade"
+    assert target is nofiscal
+
+
+def test_resolve_sync_suppress_when_already_submitted() -> None:
+    sent = {
+        "id": 11,
+        "event_key": "key-nofiscal",
+        "status": circ.STATUS_SUBMITTED,
+        "fiscal_doc_number": "",
+        "fiscal_dt": "",
+        "chz_doc_id": "doc-1",
+    }
+    incoming = {
+        "event_key": "key-with-fiscal",
+        "fiscal_doc_number": "99",
+        "fiscal_dt": "2026-08-01",
+    }
+    action, target = circ._resolve_sync_action([sent], norm=incoming)
+    assert action == "suppress"
+    assert target is sent
+
+
+def test_resolve_sync_suppress_nofiscal_when_fiscal_open() -> None:
+    fiscal = {
+        "id": 12,
+        "event_key": "key-fiscal",
+        "status": circ.STATUS_PENDING,
+        "fiscal_doc_number": "1",
+        "fiscal_dt": "2026-08-01",
+    }
+    incoming = {
+        "event_key": "key-nofiscal",
+        "fiscal_doc_number": "",
+        "fiscal_dt": "",
+    }
+    action, _ = circ._resolve_sync_action([fiscal], norm=incoming)
+    assert action == "suppress"
+
+
+def test_resolve_sync_upsert_same_key() -> None:
+    row = {
+        "id": 1,
+        "event_key": "same",
+        "status": circ.STATUS_PENDING,
+        "fiscal_doc_number": "1",
+        "fiscal_dt": "2026-08-01",
+    }
+    action, target = circ._resolve_sync_action(
+        [row], norm={"event_key": "same", "fiscal_doc_number": "1", "fiscal_dt": "2026-08-01"}
+    )
+    assert action == "upsert"
+    assert target is row
+
+
+def test_dedupe_events_prefers_fiscal_and_skips_already_sent() -> None:
+    sent = {("s1", "CIS", 1)}
+    nofiscal = {
+        "event_key": "a",
+        "srid": "s1",
+        "rid": "",
+        "excise_short": "CIS",
+        "operation_type": 1,
+        "fiscal_doc_number": "",
+        "fiscal_dt": "",
+    }
+    fiscal = {
+        "event_key": "b",
+        "srid": "s1",
+        "rid": "",
+        "excise_short": "CIS",
+        "operation_type": 1,
+        "fiscal_doc_number": "7",
+        "fiscal_dt": "2026-08-01",
+    }
+    other = {
+        "event_key": "c",
+        "srid": "s1",
+        "rid": "",
+        "excise_short": "CIS",
+        "operation_type": 1,
+        "fiscal_doc_number": "8",
+        "fiscal_dt": "2026-08-02",
+        "status": "pending",
+    }
+    kept, skipped = circ._dedupe_events_for_prepare(
+        [nofiscal, fiscal], sent_identities=set()
+    )
+    assert len(kept) == 1
+    assert kept[0]["event_key"] == "b"
+    assert any(s.get("skip_reason") == "duplicate_nofiscal" for s in skipped)
+
+    kept2, skipped2 = circ._dedupe_events_for_prepare([other], sent_identities=sent)
+    assert kept2 == []
+    assert skipped2[0]["skip_reason"] == "already_sent"
+
+
+@patch(
+    "review_processor.wb_kiz_circulation._close_deduped_prepare_events",
+    return_value=0,
+)
+@patch(
+    "review_processor.wb_kiz_circulation._load_sent_cis_identities",
+)
+@patch("review_processor.wb_kiz_circulation.list_events_for_chz")
+@patch(
+    "review_processor.wb_kiz_circulation.repair_circulation_queue",
+    return_value={"returns_fixed": 0, "withdraw_skipped": 0},
+)
+@patch("review_processor.wb_kiz_circulation.get_chz_settings")
+def test_prepare_skips_already_sent_identity(
+    mock_settings, _repair, mock_list, mock_sent, _close
+) -> None:
+    mock_settings.return_value = {
+        "is_enabled": True,
+        "participant_inn": "7707083893",
+        "product_group": "lp",
+        "kpp": "770701001",
+        "fias_id": "fias-1",
+        "return_type": "REMOTE_SALE_RETURN",
+        "cert_thumbprint": "",
+        "api_base": "prod",
+        "api_base_url": PROD_BASE,
+    }
+    mock_sent.return_value = {("s1", "cis-a", 1)}
+    mock_list.return_value = [
+        {
+            "event_key": "dup",
+            "operation_type": 1,
+            "srid": "s1",
+            "rid": "",
+            "excise_short": "cis-a",
+            "fiscal_doc_number": "11",
+            "fiscal_dt": "2026-08-10",
+            "price": 10,
+            "currency_name": "RUB",
+            "status": "pending",
+        }
+    ]
+    out = circ.prepare_chz_batches(repo=object(), user_id=1, source_id=2)
+    assert out["counts"]["documents"] == 0
+    assert out["counts"]["skipped"] == 1
+    assert out["skipped"][0]["skip_reason"] == "already_sent"

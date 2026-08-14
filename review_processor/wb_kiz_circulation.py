@@ -140,6 +140,29 @@ def _event_key(
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:40]
 
 
+def _cis_identity(
+    *,
+    srid: str = "",
+    rid: str = "",
+    excise_short: str = "",
+    operation_type: int = 0,
+) -> tuple[str, str, int]:
+    """Stable КИЗ identity ignoring fiscal receipt (srid/rid + cis + op)."""
+    srid_s = str(srid or "").strip()
+    rid_s = str(rid or "").strip()
+    anchor = srid_s or rid_s
+    return (anchor, str(excise_short or "").strip(), int(operation_type or 0))
+
+
+def _event_has_fiscal(row: dict[str, Any] | None) -> bool:
+    if not row:
+        return False
+    return bool(
+        str(row.get("fiscal_doc_number") or "").strip()
+        and str(row.get("fiscal_dt") or "").strip()
+    )
+
+
 def _fiscal_doc_str(value: Any) -> str:
     if value is None:
         return ""
@@ -403,6 +426,90 @@ def repair_nofiscal_withdraw_to_pending(
     return fixed
 
 
+def repair_orphan_submitted_events(
+    repo: ReviewRepository, *, user_id: int, source_id: int
+) -> int:
+    """Re-queue submitted rows that never got a CHZ document id (local fault)."""
+    ensure_kiz_circulation_tables(repo)
+    now = datetime.now(timezone.utc).isoformat()
+    with repo._connect() as conn:
+        cur = conn.execute(
+            repo._sql(
+                """
+                UPDATE wb_kiz_circulation_events
+                SET status = ?, chz_status = '', error_text = ?, updated_at = ?
+                WHERE user_id = ? AND source_id = ?
+                  AND status = ?
+                  AND COALESCE(chz_doc_id, '') = ''
+                """
+            ),
+            (
+                STATUS_PENDING,
+                "восстановлено: submitted без chz_doc_id",
+                now,
+                user_id,
+                source_id,
+                STATUS_SUBMITTED,
+            ),
+        )
+        return int(getattr(cur, "rowcount", 0) or 0)
+
+
+# Skips that must stay closed (dedupe / already sent) — never auto-requeue.
+_TERMINAL_SKIP_REASONS = frozenset(
+    {
+        "already_sent",
+        "duplicate",
+        "duplicate_nofiscal",
+        "пустой КИЗ",
+    }
+)
+
+
+def repair_legacy_skipped_with_cis(
+    repo: ReviewRepository, *, user_id: int, source_id: int
+) -> int:
+    """Re-queue legacy skipped rows that still have a CIS (do not lose codes).
+
+    Does not reopen terminal dedupe skips (already_sent / duplicate*).
+    """
+    ensure_kiz_circulation_tables(repo)
+    now = datetime.now(timezone.utc).isoformat()
+    terminal = sorted(_TERMINAL_SKIP_REASONS)
+    ph = ", ".join("?" for _ in terminal)
+    with repo._connect() as conn:
+        cur = conn.execute(
+            repo._sql(
+                f"""
+                UPDATE wb_kiz_circulation_events
+                SET status = ?,
+                    skip_reason = CASE
+                      WHEN operation_type = 1
+                        AND COALESCE(fiscal_doc_number, '') = ''
+                        AND COALESCE(fiscal_dt, '') = ''
+                      THEN ?
+                      ELSE ''
+                    END,
+                    updated_at = ?
+                WHERE user_id = ? AND source_id = ?
+                  AND status = ?
+                  AND COALESCE(excise_short, '') <> ''
+                  AND COALESCE(skip_reason, '') NOT IN ({ph})
+                """
+            ),
+            (
+                STATUS_PENDING,
+                SKIP_NO_FISCAL,
+                now,
+                user_id,
+                source_id,
+                STATUS_SKIPPED,
+                *terminal,
+            ),
+        )
+        return int(getattr(cur, "rowcount", 0) or 0)
+
+
 def repair_circulation_queue(
     repo: ReviewRepository, *, user_id: int, source_id: int
 ) -> dict[str, int]:
@@ -427,10 +534,26 @@ def repair_circulation_queue(
     except Exception as exc:
         logger.exception("repair_nofiscal_withdraw_to_pending failed: %s", exc)
         withdraw_requeued = 0
+    try:
+        orphan_submitted = repair_orphan_submitted_events(
+            repo, user_id=user_id, source_id=source_id
+        )
+    except Exception as exc:
+        logger.exception("repair_orphan_submitted_events failed: %s", exc)
+        orphan_submitted = 0
+    try:
+        legacy_skipped = repair_legacy_skipped_with_cis(
+            repo, user_id=user_id, source_id=source_id
+        )
+    except Exception as exc:
+        logger.exception("repair_legacy_skipped_with_cis failed: %s", exc)
+        legacy_skipped = 0
     return {
         "returns_fixed": returns_fixed,
         "withdraw_skipped": withdraw_from_error,
         "withdraw_requeued": withdraw_requeued,
+        "orphan_submitted": orphan_submitted,
+        "legacy_skipped": legacy_skipped,
     }
 
 
@@ -888,6 +1011,177 @@ def _initial_status(norm: dict[str, Any]) -> tuple[str, str]:
     return STATUS_PENDING, ""
 
 
+def _find_related_events(
+    conn: Any,
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    norm: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Find local events for the same CIS identity (any fiscal variant)."""
+    excise = str(norm.get("excise_short") or "").strip()
+    op = int(norm.get("operation_type") or 0)
+    if not excise or op not in {OP_WITHDRAW, OP_RETURN}:
+        return []
+    srid = str(norm.get("srid") or "").strip()
+    rid = str(norm.get("rid") or "").strip()
+    anchors = sorted({a for a in (srid, rid) if a})
+    if anchors:
+        ph = ", ".join("?" for _ in anchors)
+        rows = conn.execute(
+            repo._sql(
+                f"""
+                SELECT * FROM wb_kiz_circulation_events
+                WHERE user_id = ? AND source_id = ?
+                  AND operation_type = ? AND excise_short = ?
+                  AND (
+                    (COALESCE(srid, '') <> '' AND srid IN ({ph}))
+                    OR (COALESCE(rid, '') <> '' AND rid IN ({ph}))
+                  )
+                """
+            ),
+            (user_id, source_id, op, excise, *anchors, *anchors),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            repo._sql(
+                """
+                SELECT * FROM wb_kiz_circulation_events
+                WHERE user_id = ? AND source_id = ?
+                  AND operation_type = ? AND excise_short = ?
+                  AND COALESCE(srid, '') = '' AND COALESCE(rid, '') = ''
+                """
+            ),
+            (user_id, source_id, op, excise),
+        ).fetchall()
+    return [repo._row_to_dict(r) for r in rows]
+
+
+def _upgrade_event_fiscal(
+    conn: Any,
+    repo: ReviewRepository,
+    *,
+    target: dict[str, Any],
+    norm: dict[str, Any],
+    now: str,
+) -> None:
+    """Attach late fiscal (or refresh) onto an existing open event — keep event_key."""
+    oid = int(target.get("id") or 0)
+    if oid <= 0:
+        return
+    fiscal_no = str(norm.get("fiscal_doc_number") or "").strip() or str(
+        target.get("fiscal_doc_number") or ""
+    ).strip()
+    fiscal_dt = str(norm.get("fiscal_dt") or "").strip() or str(
+        target.get("fiscal_dt") or ""
+    ).strip()
+    drive = str(norm.get("fiscal_drive_number") or "").strip() or str(
+        target.get("fiscal_drive_number") or ""
+    ).strip()
+    has_fiscal = bool(fiscal_no and fiscal_dt)
+    skip = (
+        SKIP_NO_FISCAL
+        if int(norm.get("operation_type") or 0) == OP_WITHDRAW and not has_fiscal
+        else ""
+    )
+    st = str(target.get("status") or "")
+    new_status = (
+        STATUS_PENDING
+        if st in {STATUS_SKIPPED, STATUS_ERROR, STATUS_READY, STATUS_PENDING}
+        else st
+    )
+    conn.execute(
+        repo._sql(
+            """
+            UPDATE wb_kiz_circulation_events
+            SET fiscal_doc_number = ?,
+                fiscal_dt = ?,
+                fiscal_drive_number = ?,
+                price = COALESCE(?, price),
+                currency_name = CASE
+                    WHEN COALESCE(?, '') <> '' THEN ? ELSE currency_name END,
+                country_name = CASE
+                    WHEN COALESCE(?, '') <> '' THEN ? ELSE country_name END,
+                raw_json = ?,
+                status = ?,
+                skip_reason = ?,
+                error_text = CASE WHEN ? = ? THEN '' ELSE error_text END,
+                updated_at = ?
+            WHERE id = ?
+            """
+        ),
+        (
+            fiscal_no,
+            fiscal_dt,
+            drive,
+            norm.get("price"),
+            str(norm.get("currency_name") or ""),
+            str(norm.get("currency_name") or ""),
+            str(norm.get("country_name") or ""),
+            str(norm.get("country_name") or ""),
+            str(norm.get("raw_json") or target.get("raw_json") or ""),
+            new_status,
+            skip,
+            new_status,
+            STATUS_PENDING,
+            now,
+            oid,
+        ),
+    )
+
+
+def _resolve_sync_action(
+    related: list[dict[str, Any]],
+    *,
+    norm: dict[str, Any],
+) -> tuple[str, dict[str, Any] | None]:
+    """Decide insert / upsert / upgrade / suppress for a normalized WB row.
+
+    Returns ``(action, target_row)`` where action is one of:
+    insert | upsert | upgrade | suppress
+    """
+    key = str(norm.get("event_key") or "")
+    same_key = next((r for r in related if str(r.get("event_key") or "") == key), None)
+    if same_key:
+        return "upsert", same_key
+
+    new_has_fiscal = _event_has_fiscal(norm)
+    terminal = [
+        r
+        for r in related
+        if str(r.get("status") or "") in {STATUS_SUBMITTED, STATUS_ACCEPTED}
+    ]
+    if terminal:
+        # Already sent under another fiscal variant — do not create a duplicate.
+        return "suppress", terminal[0]
+
+    open_rows = [
+        r
+        for r in related
+        if str(r.get("status") or "")
+        in {STATUS_PENDING, STATUS_READY, STATUS_ERROR, STATUS_SKIPPED}
+    ]
+    if new_has_fiscal:
+        # Prefer upgrading an open no-fiscal sibling instead of a second event_key.
+        nofiscal_open = [r for r in open_rows if not _event_has_fiscal(r)]
+        if nofiscal_open:
+            return "upgrade", nofiscal_open[0]
+        if open_rows:
+            # Same CIS already queued under another fiscal key — keep one row.
+            return "upgrade", open_rows[0]
+    else:
+        # Incoming no-fiscal while a fiscal open row already exists — keep fiscal one.
+        fiscal_open = [r for r in open_rows if _event_has_fiscal(r)]
+        if fiscal_open:
+            return "suppress", fiscal_open[0]
+        if open_rows:
+            # Another no-fiscal open row with different key (legacy) — upgrade first.
+            return "upgrade", open_rows[0]
+
+    return "insert", None
+
+
 def sync_excise_report(
     repo: ReviewRepository,
     *,
@@ -921,6 +1215,16 @@ def sync_excise_report(
         _append_log(
             log,
             f"выводы без чека из skipped → очередь OTHER: {repaired['withdraw_requeued']}",
+        )
+    if repaired.get("orphan_submitted"):
+        _append_log(
+            log,
+            f"восстановлено submitted без chz_doc_id: {repaired['orphan_submitted']}",
+        )
+    if repaired.get("legacy_skipped"):
+        _append_log(
+            log,
+            f"возвращено из skipped в очередь: {repaired['legacy_skipped']}",
         )
 
     with repo._connect() as conn:
@@ -957,6 +1261,7 @@ def sync_excise_report(
     inserted = 0
     updated = 0
     skipped = 0
+    suppressed = 0
     withdraw_n = 0
     return_n = 0
     insert_errors = 0
@@ -975,6 +1280,30 @@ def sync_excise_report(
             else:
                 return_n += 1
             try:
+                related = _find_related_events(
+                    conn,
+                    repo,
+                    user_id=user_id,
+                    source_id=source_id,
+                    norm=norm,
+                )
+                action, target = _resolve_sync_action(related, norm=norm)
+                if action == "suppress":
+                    suppressed += 1
+                    skipped += 1
+                    continue
+                if action == "upgrade" and target:
+                    _upgrade_event_fiscal(
+                        conn, repo, target=target, norm=norm, now=now
+                    )
+                    updated += 1
+                    last_key = str(target.get("event_key") or norm["event_key"])
+                    last_fiscal = (
+                        str(norm.get("fiscal_dt") or target.get("fiscal_dt") or "")
+                        or last_fiscal
+                    )
+                    continue
+
                 cur = conn.execute(
                     repo._sql(
                         """
@@ -995,6 +1324,14 @@ def sync_excise_report(
                             country_name = CASE
                                 WHEN EXCLUDED.country_name <> '' THEN EXCLUDED.country_name
                                 ELSE wb_kiz_circulation_events.country_name
+                            END,
+                            fiscal_doc_number = CASE
+                                WHEN EXCLUDED.fiscal_doc_number <> '' THEN EXCLUDED.fiscal_doc_number
+                                ELSE wb_kiz_circulation_events.fiscal_doc_number
+                            END,
+                            fiscal_dt = CASE
+                                WHEN EXCLUDED.fiscal_dt <> '' THEN EXCLUDED.fiscal_dt
+                                ELSE wb_kiz_circulation_events.fiscal_dt
                             END,
                             fiscal_drive_number = CASE
                                 WHEN EXCLUDED.fiscal_drive_number <> '' THEN EXCLUDED.fiscal_drive_number
@@ -1109,6 +1446,7 @@ def sync_excise_report(
     _append_log(
         log,
         f"новых: {inserted}, обновлено: {updated}, пропуск: {skipped}"
+        + (f", без дублей: {suppressed}" if suppressed else "")
         + (f", ошибок INSERT: {insert_errors}" if insert_errors else "")
         + f", вывод: {withdraw_n}, возврат: {return_n}",
     )
@@ -1310,6 +1648,7 @@ def list_events_for_chz(
         STATUS_SKIPPED,
         OP_WITHDRAW,
         SKIP_NO_FISCAL,
+        STATUS_SUBMITTED,
         *fail_list,
         lim,
     ]
@@ -1329,6 +1668,10 @@ def list_events_for_chz(
                       status = ?
                       AND operation_type = ?
                       AND skip_reason = ?
+                    )
+                    OR (
+                      status = ?
+                      AND COALESCE(chz_doc_id, '') = ''
                     )
                     OR (
                       status = 'submitted'
@@ -1359,17 +1702,145 @@ def list_events_for_chz(
     return out
 
 
+def _load_sent_cis_identities(
+    repo: ReviewRepository, *, user_id: int, source_id: int
+) -> set[tuple[str, str, int]]:
+    """Identities already in CHZ — must not be sent again.
+
+    Counts accepted always; submitted only when ``chz_doc_id`` is present
+    (orphans without doc id are repaired back to pending and must retry).
+    """
+    ensure_kiz_circulation_tables(repo)
+    out: set[tuple[str, str, int]] = set()
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                """
+                SELECT srid, rid, excise_short, operation_type
+                FROM wb_kiz_circulation_events
+                WHERE user_id = ? AND source_id = ?
+                  AND COALESCE(excise_short, '') <> ''
+                  AND (
+                    status = ?
+                    OR (
+                      status = ?
+                      AND COALESCE(chz_doc_id, '') <> ''
+                    )
+                  )
+                """
+            ),
+            (user_id, source_id, STATUS_ACCEPTED, STATUS_SUBMITTED),
+        ).fetchall()
+    for r in rows:
+        d = repo._row_to_dict(r)
+        out.add(
+            _cis_identity(
+                srid=str(d.get("srid") or ""),
+                rid=str(d.get("rid") or ""),
+                excise_short=str(d.get("excise_short") or ""),
+                operation_type=int(d.get("operation_type") or 0),
+            )
+        )
+    return out
+
+
+def _close_deduped_prepare_events(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    skipped: list[dict[str, Any]],
+) -> int:
+    """Persist prepare-time dedupe skips so the queue does not clog."""
+    by_reason: dict[str, list[str]] = {}
+    for row in skipped:
+        reason = str(row.get("skip_reason") or "").strip()
+        if reason not in _TERMINAL_SKIP_REASONS:
+            continue
+        key = str(row.get("event_key") or "").strip()
+        if not key:
+            continue
+        by_reason.setdefault(reason, []).append(key)
+    if not by_reason:
+        return 0
+    ensure_kiz_circulation_tables(repo)
+    now = datetime.now(timezone.utc).isoformat()
+    closed = 0
+    with repo._connect() as conn:
+        for reason, keys in by_reason.items():
+            uniq = sorted(set(keys))
+            for chunk in _chunked(uniq, 200):
+                ph = ", ".join("?" for _ in chunk)
+                cur = conn.execute(
+                    repo._sql(
+                        f"""
+                        UPDATE wb_kiz_circulation_events
+                        SET status = ?, skip_reason = ?, updated_at = ?
+                        WHERE user_id = ? AND source_id = ?
+                          AND event_key IN ({ph})
+                          AND status NOT IN (?, ?)
+                        """
+                    ),
+                    (
+                        STATUS_SKIPPED,
+                        reason,
+                        now,
+                        user_id,
+                        source_id,
+                        *chunk,
+                        STATUS_SUBMITTED,
+                        STATUS_ACCEPTED,
+                    ),
+                )
+                closed += int(getattr(cur, "rowcount", 0) or 0)
+    return closed
+
+
+def _dedupe_events_for_prepare(
+    events: list[dict[str, Any]],
+    *,
+    sent_identities: set[tuple[str, str, int]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Drop already-sent CIS and collapse fiscal/no-fiscal duplicates in one batch."""
+    kept: dict[tuple[str, str, int], dict[str, Any]] = {}
+    skipped: list[dict[str, Any]] = []
+    for ev in events:
+        ident = _cis_identity(
+            srid=str(ev.get("srid") or ""),
+            rid=str(ev.get("rid") or ""),
+            excise_short=str(ev.get("excise_short") or ""),
+            operation_type=int(ev.get("operation_type") or 0),
+        )
+        if not ident[1]:
+            skipped.append({**ev, "skip_reason": "пустой КИЗ"})
+            continue
+        if ident in sent_identities:
+            skipped.append({**ev, "skip_reason": "already_sent"})
+            continue
+        prev = kept.get(ident)
+        if prev is None:
+            kept[ident] = ev
+            continue
+        # Prefer the variant with fiscal receipt.
+        if _event_has_fiscal(ev) and not _event_has_fiscal(prev):
+            skipped.append({**prev, "skip_reason": "duplicate_nofiscal"})
+            kept[ident] = ev
+        else:
+            skipped.append({**ev, "skip_reason": "duplicate"})
+    return list(kept.values()), skipped
+
+
 def reconcile_submitted_with_chz(
     repo: ReviewRepository,
     client: ChzTrueApiClient,
     *,
     user_id: int,
     source_id: int,
-    limit: int = 100,
+    limit: int = 500,
 ) -> dict[str, int]:
     """Poll CHZ for in-flight submitted docs and update local statuses."""
     ensure_kiz_circulation_tables(repo)
-    lim = max(1, min(int(limit or 100), 500))
+    lim = max(1, min(int(limit or 500), 2000))
     with repo._connect() as conn:
         rows = conn.execute(
             repo._sql(
@@ -1537,15 +2008,27 @@ def prepare_chz_batches(
         repo, user_id=user_id, source_id=source_id
     )
     lim = max(1, min(int(limit or PREPARE_EVENT_LIMIT), 5000))
-    events = list_events_for_chz(
+    events_raw = list_events_for_chz(
         repo, user_id=user_id, source_id=source_id, limit=lim
     )
+    sent_identities = _load_sent_cis_identities(
+        repo, user_id=user_id, source_id=source_id
+    )
+    events, pre_skipped = _dedupe_events_for_prepare(
+        events_raw, sent_identities=sent_identities
+    )
+    try:
+        _close_deduped_prepare_events(
+            repo, user_id=user_id, source_id=source_id, skipped=pre_skipped
+        )
+    except Exception as exc:
+        logger.exception("close deduped prepare events failed: %s", exc)
 
     withdraw_groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
     # Withdraw without fiscal → OTHER primary document (DISTANCE), grouped by date.
     withdraw_other_groups: dict[str, list[dict[str, Any]]] = {}
     return_items: list[dict[str, Any]] = []
-    skipped: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = list(pre_skipped)
     warnings: list[str] = []
     other_doc_date = _moscow_today()
 
@@ -1711,9 +2194,10 @@ def prepare_chz_batches(
             "withdraw_events": withdraw_n,
             "return_events": len(return_items),
             "skipped": len(skipped),
-            "eligible_loaded": len(events),
+            "eligible_loaded": len(events_raw),
+            "eligible_after_dedupe": len(events),
         },
-        "has_more": len(events) >= lim,
+        "has_more": len(events_raw) >= lim,
     }
 
 
@@ -1932,6 +2416,8 @@ __all__ = [
     "repair_stuck_return_events",
     "repair_unhealable_withdraw_errors",
     "repair_nofiscal_withdraw_to_pending",
+    "repair_orphan_submitted_events",
+    "repair_legacy_skipped_with_cis",
     "repair_circulation_queue",
     "reconcile_submitted_with_chz",
     "chz_client_from_settings",
