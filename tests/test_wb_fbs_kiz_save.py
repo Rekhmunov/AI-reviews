@@ -344,3 +344,51 @@ def test_save_conflict_skips_wb_when_another_operator_wrote(
     client.set_order_sgtin.assert_not_called()
     mock_local.assert_called_once()
     assert mock_local.call_args.kwargs["expected_saved_at"] == "2026-08-14T09:00:00+00:00"
+
+
+@patch("review_processor.wb_fbs_detail.time.sleep", return_value=None)
+@patch("review_processor.wb_fbs_detail.wb.update_order_kiz_codes")
+@patch("review_processor.wb_fbs_detail.wb.WbFbsClient")
+def test_local_only_skips_wb(
+    mock_cls: Any, mock_local: Any, _sleep: Any
+) -> None:
+    """Autosave after scan: FeedPilot only, no Wildberries round-trip."""
+    client = _client_mock()
+    mock_cls.return_value = client
+    mock_local.return_value = {
+        "ok": True,
+        "conflict": False,
+        "missing": False,
+        "saved_at": "2026-08-14T11:00:00+00:00",
+        "codes": ["01046701724227242150B"],
+    }
+    result = save_kiz_marking(
+        api_key="k",
+        items=[
+            {
+                "order_id": 7,
+                "kiz_codes": ["01046701724227242150B"],
+                "local_only": True,
+                "expected_saved_at": "",
+            }
+        ],
+        allowed_order_ids={7},
+        repo=MagicMock(),
+        user_id=11,
+        source_id=22,
+    )
+    assert result["ok"] is True
+    assert result["saved"] == 1
+    assert result["saved_local"] == 1
+    row = result["results"][0]
+    assert row["ok"] is True
+    assert row["local_ok"] is True
+    assert row["wb_ok"] is False
+    assert row["wb_skipped"] is True
+    assert row["local_only"] is True
+    assert row["kiz_saved_at"] == "2026-08-14T11:00:00+00:00"
+    client.set_order_sgtin.assert_not_called()
+    client.delete_order_meta.assert_not_called()
+    mock_cls.assert_not_called()
+    mock_local.assert_called_once()
+    assert mock_local.call_args.kwargs["wb_synced"] is False

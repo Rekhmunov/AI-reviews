@@ -2244,13 +2244,22 @@ def save_kiz_marking(
 
     Empty ``kiz_codes`` clears only when ``clear`` is true. Unchanged empty
     rows are skipped.
+
+    Per-item ``local_only: true`` persists to FeedPilot only (no Wildberries call).
+    Used for silent autosave after scan; the modal «Сохранить» still pushes to WB.
     """
-    client = wb.WbFbsClient(api_key)
+    client: wb.WbFbsClient | None = None
     results: list[dict[str, Any]] = []
     ok_n = 0
     err_n = 0
     skipped_n = 0
     local_n = 0
+
+    def _wb_client() -> wb.WbFbsClient:
+        nonlocal client
+        if client is None:
+            client = wb.WbFbsClient(api_key)
+        return client
 
     candidate_ids: list[int] = []
     for raw in items:
@@ -2309,6 +2318,7 @@ def save_kiz_marking(
             seen.add(c)
             uniq.append(c)
         clear = bool(raw.get("clear"))
+        local_only = bool(raw.get("local_only"))
         if not uniq and not clear:
             skipped_n += 1
             continue
@@ -2381,6 +2391,24 @@ def save_kiz_marking(
                 )
                 continue
 
+        # Silent FeedPilot autosave after scan — no Wildberries round-trip.
+        if local_only:
+            ok_n += 1
+            results.append(
+                {
+                    "order_id": oid,
+                    "ok": True,
+                    "local_ok": local_ok,
+                    "wb_ok": False,
+                    "wb_skipped": True,
+                    "local_only": True,
+                    "kiz_codes": uniq,
+                    "kiz_saved_at": local_saved_at,
+                    "error": "",
+                }
+            )
+            continue
+
         known = known_status.get(oid) or {}
         known_label = str(known.get("cancel_reason_label") or "").strip()
         if known_label or wb._is_cancelled_status(
@@ -2431,10 +2459,11 @@ def save_kiz_marking(
         wb_ok = False
         wb_error = ""
         try:
+            wb_api = _wb_client()
             if uniq:
-                client.set_order_sgtin(oid, uniq)
+                wb_api.set_order_sgtin(oid, uniq)
             else:
-                client.delete_order_meta(oid, "sgtin")
+                wb_api.delete_order_meta(oid, "sgtin")
             wb_ok = True
             time.sleep(0.07)
         except Exception as exc:
@@ -2486,13 +2515,14 @@ def save_kiz_marking(
                 }
             )
 
-    _enrich_kiz_save_cancelled(
-        client,
-        results,
-        repo=repo,
-        user_id=user_id,
-        source_id=source_id,
-    )
+    if client is not None:
+        _enrich_kiz_save_cancelled(
+            client,
+            results,
+            repo=repo,
+            user_id=user_id,
+            source_id=source_id,
+        )
     return {
         "ok": err_n == 0,
         "saved": ok_n,

@@ -22063,7 +22063,13 @@ function _wbFbsSupplyDetailResetSearch() {
 
 function closeWbFbsSupplyDetailModal() {
   // Nested modals first — abort supply close if operator keeps unsaved edits.
-  if (_wbFbsKizModalIsOpen() && !closeWbFbsKizModal()) return;
+  // Marking close is async (awaits silent local autosave); chain the rest.
+  if (_wbFbsKizModalIsOpen()) {
+    return Promise.resolve(closeWbFbsKizModal()).then((ok) => {
+      if (!ok) return;
+      return closeWbFbsSupplyDetailModal();
+    });
+  }
   if (_wbFbsPickModalIsOpen() && !closeWbFbsPickVerifyModal()) return;
 
   wbFbsDetailState.supplyId = "";
@@ -23191,6 +23197,13 @@ const wbFbsKizState = {
   forceSaveByOrder: {},
   /** Interval id for live «Сохранение…» status text (UI only). */
   saveProgressTimer: 0,
+  /**
+   * Silent FeedPilot-only autosave after scan/clear.
+   * Serial queue so scans stay snappy; never blocks the scan UI path.
+   */
+  localAutosaveChain: Promise.resolve(),
+  localAutosaveSeqByOrder: {},
+  localAutosaveInflight: 0,
 };
 
 function _wbFbsKizOrdersWord(n) {
@@ -23746,8 +23759,16 @@ function onWbFbsKizFilterEmptyChange() {
 }
 window.onWbFbsKizFilterEmptyChange = onWbFbsKizFilterEmptyChange;
 
-function closeWbFbsKizModal(opts) {
+async function closeWbFbsKizModal(opts) {
   const force = !!(opts && opts.force);
+  // Finish silent local autosaves so reload/reopen keeps scanned codes.
+  if (!force) {
+    try {
+      await _wbFbsKizAwaitLocalAutosaves();
+    } catch (_e) {
+      /* keep going — confirm below if still dirty */
+    }
+  }
   if (!force && _wbFbsKizModalIsOpen() && _wbFbsKizHasUnsavedChanges()) {
     if (!confirm("Есть несохранённые изменения. Закрыть без сохранения?")) {
       return false;
@@ -23766,6 +23787,7 @@ function closeWbFbsKizModal(opts) {
   wbFbsKizState.ruLayoutOpenedAt = 0;
   wbFbsKizState.baselineByOrder = {};
   wbFbsKizState.forceSaveByOrder = {};
+  wbFbsKizState.localAutosaveSeqByOrder = {};
   _wbFbsKizResetFilters();
   _wbFbsKizSetFiltersReady(false);
   _wbFbsKizSetInfo("");
@@ -23782,6 +23804,7 @@ async function openWbFbsKizModal() {
   wbFbsKizState.pendingOrderId = null;
   wbFbsKizState.baselineByOrder = {};
   wbFbsKizState.forceSaveByOrder = {};
+  wbFbsKizState.localAutosaveSeqByOrder = {};
   _wbFbsKizResetFilters();
   _wbFbsKizSetFiltersReady(false);
   _wbFbsKizSetInfo("");
@@ -23991,6 +24014,112 @@ function _wbFbsKizHasUnsavedChanges() {
     if (!_wbFbsKizBaselineEquals(oid, r.kiz_codes)) return true;
   }
   return false;
+}
+
+/**
+ * Queue a silent FeedPilot-only save for one order (no WB, no UI spinner).
+ * Coalesces rapid scans on the same order; never awaits in the scan path.
+ */
+function _wbFbsKizScheduleLocalAutosave(orderId) {
+  const oid = Number(orderId);
+  if (!Number.isFinite(oid) || oid <= 0) return;
+  if (!wbFbsKizState.localAutosaveSeqByOrder) wbFbsKizState.localAutosaveSeqByOrder = {};
+  const seq = (Number(wbFbsKizState.localAutosaveSeqByOrder[oid]) || 0) + 1;
+  wbFbsKizState.localAutosaveSeqByOrder[oid] = seq;
+  const run = () => _wbFbsKizFlushLocalAutosave(oid, seq);
+  wbFbsKizState.localAutosaveChain = (wbFbsKizState.localAutosaveChain || Promise.resolve())
+    .then(run, run)
+    .catch(() => {});
+}
+
+function _wbFbsKizAwaitLocalAutosaves() {
+  return Promise.resolve(wbFbsKizState.localAutosaveChain || Promise.resolve()).catch(() => {});
+}
+
+async function _wbFbsKizFlushLocalAutosave(orderId, seq, attempt = 0) {
+  const oid = Number(orderId);
+  if (!Number.isFinite(oid)) return;
+  // A newer scan for this order supersedes this job.
+  if ((Number(wbFbsKizState.localAutosaveSeqByOrder?.[oid]) || 0) !== seq) return;
+  if (!_wbFbsKizModalIsOpen()) return;
+  const sid = String(wbFbsDetailState.supplyId || "").trim();
+  if (!sid || !wbFbsState.sourceId) return;
+  const row = (wbFbsKizState.rows || []).find((r) => Number(r.order_id) === oid);
+  if (!row) return;
+  const codes = _wbFbsKizNormalizeCodesList(row.kiz_codes);
+  const wasBound = !!row.kiz_bound;
+  const hadLocal = !!row.kiz_local;
+  const clear = !codes.length && (wasBound || hadLocal);
+  if (!codes.length && !clear) return;
+  // Already mirrored in FeedPilot for this baseline — skip.
+  if (_wbFbsKizBaselineEquals(oid, codes)) return;
+
+  const item = {
+    order_id: oid,
+    kiz_codes: codes,
+    clear,
+    local_only: true,
+    expected_saved_at: String(row.kiz_saved_at || ""),
+    force: !!(wbFbsKizState.forceSaveByOrder && wbFbsKizState.forceSaveByOrder[oid]),
+  };
+
+  wbFbsKizState.localAutosaveInflight = (Number(wbFbsKizState.localAutosaveInflight) || 0) + 1;
+  try {
+    const params = new URLSearchParams({ source_id: String(wbFbsState.sourceId) });
+    const res = await fetch(
+      `/api/wb-fbs/supplies/${encodeURIComponent(sid)}/kiz?${params}`,
+      {
+        method: "PUT",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ items: [item] }),
+        keepalive: true,
+      }
+    );
+    // Superseded while in flight — ignore result.
+    if ((Number(wbFbsKizState.localAutosaveSeqByOrder?.[oid]) || 0) !== seq) return;
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || `Ошибка ${res.status}`);
+    const result = (data.results || []).find((r) => Number(r.order_id) === oid) || null;
+    if (!result) return;
+    if (result.conflict) {
+      row.kiz_saved_at = String(result.kiz_saved_at || row.kiz_saved_at || "");
+      if (!wbFbsKizState.forceSaveByOrder) wbFbsKizState.forceSaveByOrder = {};
+      wbFbsKizState.forceSaveByOrder[oid] = true;
+      // Rare — only surface so the operator can reconcile before WB Save.
+      _wbFbsKizSetInfo(
+        result.error
+          || "Заказ уже сохранён другим оператором — проверьте КИЗ и сохраните снова"
+      );
+      return;
+    }
+    if (!result.ok && !result.local_ok) {
+      // Silent retry once for transient local faults.
+      if (attempt < 1) {
+        await new Promise((r) => setTimeout(r, 120));
+        if ((Number(wbFbsKizState.localAutosaveSeqByOrder?.[oid]) || 0) !== seq) return;
+        return _wbFbsKizFlushLocalAutosave(oid, seq, attempt + 1);
+      }
+      return;
+    }
+    if (result.kiz_saved_at) row.kiz_saved_at = String(result.kiz_saved_at);
+    row.kiz_local = true;
+    row.kiz_wb_synced = false;
+    if (!wbFbsKizState.baselineByOrder) wbFbsKizState.baselineByOrder = {};
+    wbFbsKizState.baselineByOrder[oid] = codes.slice();
+    if (wbFbsKizState.forceSaveByOrder) delete wbFbsKizState.forceSaveByOrder[oid];
+  } catch (_e) {
+    // Keep draft in UI; Save / close confirm still cover the edge case.
+    if (attempt < 1) {
+      await new Promise((r) => setTimeout(r, 120));
+      if ((Number(wbFbsKizState.localAutosaveSeqByOrder?.[oid]) || 0) !== seq) return;
+      return _wbFbsKizFlushLocalAutosave(oid, seq, attempt + 1);
+    }
+  } finally {
+    wbFbsKizState.localAutosaveInflight = Math.max(
+      0,
+      (Number(wbFbsKizState.localAutosaveInflight) || 1) - 1
+    );
+  }
 }
 
 function _wbFbsKizRowMatchesSearch(row, query) {
@@ -24238,6 +24367,7 @@ function removeWbFbsKizCode(orderId, idx) {
     if (String(row.kiz_status || "") === "error") row.kiz_status = "empty";
   }
   renderWbFbsKizTable({ skipCollect: true });
+  _wbFbsKizScheduleLocalAutosave(oid);
 }
 window.removeWbFbsKizCode = removeWbFbsKizCode;
 
@@ -24423,9 +24553,10 @@ function onWbFbsKizMarkScanKey(event) {
     renderWbFbsKizTable({ skipCollect: true });
   }
   _wbFbsKizSetInfo(
-    `КИЗ добавлен в строку заказа ${oid}. Нажмите «Сохранить», чтобы записать в WB.`,
+    `КИЗ добавлен в строку заказа ${oid}. Нажмите «Сохранить», чтобы отправить в WB.`,
     true
   );
+  _wbFbsKizScheduleLocalAutosave(oid);
   const rowEl = document.querySelector(`#wbFbsKizTbody tr[data-order-id="${oid}"]`);
   if (rowEl) rowEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
   const sticker = document.getElementById("wbFbsKizStickerScan");
@@ -24535,6 +24666,8 @@ window.uploadWbFbsKizTemplate = uploadWbFbsKizTemplate;
 async function saveWbFbsKizModal() {
   const sid = String(wbFbsDetailState.supplyId || "").trim();
   if (!sid || !wbFbsState.sourceId || wbFbsKizState.saving) return;
+  // Let silent local autosaves finish so expected_saved_at / baseline are current.
+  await _wbFbsKizAwaitLocalAutosaves();
   _wbFbsKizCollectFromDom();
   // Save: local DB first, then WB. Modal stays open; retry WB on next Save.
   // Skip rows whose КИЗ list is unchanged vs baseline (unless WB sync pending).

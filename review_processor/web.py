@@ -9974,10 +9974,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        # Detail cache may still show old kiz_bound badges.
-        wb_detail.invalidate_supply_detail_cache(
-            user_id=owner_id, source_id=int(source_id), supply_id=sid
+        # Local-only autosave does not change WB-facing badges enough to bust cache
+        # on every scan (multi-op / supply-detail thrash). Full Save still invalidates.
+        only_local = bool(items) and all(
+            isinstance(it, dict) and bool(it.get("local_only")) for it in items
         )
+        if not only_local:
+            wb_detail.invalidate_supply_detail_cache(
+                user_id=owner_id, source_id=int(source_id), supply_id=sid
+            )
         return result
 
     @app.get("/api/wb-fbs/supplies/{supply_id}/pick-verify")
