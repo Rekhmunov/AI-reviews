@@ -624,11 +624,29 @@ def test_price_for_chz_skips_foreign_currency() -> None:
     assert circ._price_for_chz({"price": 2192.0, "currency_name": "RUB"}) == 219200
 
 
-def test_normalize_cis_for_chz_strips_gs() -> None:
+def test_normalize_cis_for_chz_joins_spurious_gs_in_serial() -> None:
+    """GS without 91/92/93 is not end of serial (lp stubs like 5yZ2V → 404)."""
     raw = "0104670172421086215yZ2V\x1drHSdGMe"
-    # No AI 91/92 → keep short unit (serial ends at GS).
-    assert circ._normalize_cis_for_chz(raw) == "0104670172421086215yZ2V"
+    assert circ._normalize_cis_for_chz(raw) == "0104670172421086215yZ2VrHSdGMe"
     assert circ._normalize_cis_for_chz("  abc  ") == "abc"
+
+
+def test_normalize_cis_for_chz_stops_gs_before_crypto() -> None:
+    raw = (
+        "0104670172422458215gQCPfVLRo\x1d91EE11\x1d92"
+        "Iu6ItDVS0yWEXyXNZUi/O1AvwaZtASBirynzRY4pdOo="
+    )
+    assert circ._normalize_cis_for_chz(raw) == "0104670172422458215gQCPfVLRo"
+
+
+def test_normalize_cis_keeps_special_serial_chars() -> None:
+    for code in (
+        "010467017242257121506dyC>p-MmQh",
+        "0104678434671088215QMb-McC(aEQq",
+        "0104670172422441215)acfWiao<Def",
+        "0104678434671088215g4+(qDeNY",
+    ):
+        assert circ._normalize_cis_for_chz(code) == code
 
 
 def test_format_cis_for_chz_document_repairs_csv_junk() -> None:

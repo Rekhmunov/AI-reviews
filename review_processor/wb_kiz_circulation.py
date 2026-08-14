@@ -2220,9 +2220,11 @@ def _normalize_row(row: dict[str, Any]) -> dict[str, Any] | None:
         op = 0
     if op not in {OP_WITHDRAW, OP_RETURN}:
         return None
+    # Avoid str.strip(): in CPython ``\\x1d``.isspace() is True and would
+    # eat GS separators at the ends of a full Data Matrix string.
     excise = str(
         row.get("excise_short") or row.get("exciseShort") or row.get("kiz") or ""
-    ).strip()
+    ).strip(" \t\r\n")
     if not excise:
         return None
     srid = str(row.get("srid") or "").strip()
@@ -4801,11 +4803,28 @@ def refresh_cis_statuses(
                 )
                 rows_api = _fetch_chunk(part, pg_value="")
             _ingest(rows_api, part)
+            nf_samples: list[str] = []
+            not_found_n = 0
+            for i, item in enumerate(rows_api):
+                parsed = parse_cises_info_item(
+                    item if isinstance(item, dict) else None
+                )
+                err_l = (parsed.get("error") or "").lower()
+                if "не найден" in err_l or parsed.get("error_code") == "404":
+                    not_found_n += 1
+                    req = part[i] if i < len(part) else ""
+                    if req and len(nf_samples) < 5:
+                        ser = req[18:] if len(req) > 18 else req
+                        nf_samples.append(f"{req[:48]}(ser_len={len(ser)})")
             logger.info(
-                "CHZ cises/info chunk ok pg=%s codes=%s sample=%s",
+                "CHZ cises/info chunk ok pg=%s codes=%s not_found=%s/%s "
+                "sample=%s nf=%s",
                 pg or "(none)",
                 len(part),
-                part[0][:40] if part else "",
+                not_found_n,
+                len(rows_api),
+                part[0][:48] if part else "",
+                nf_samples,
             )
         except Exception as exc:
             api_errors += 1
@@ -5053,6 +5072,11 @@ _CIS_CRYPTO_91_92_RE = re.compile(
     r"91([0-9A-Za-z+/]{4})(?:\x1d)?92([0-9A-Za-z+/=]{20,120})"
 )
 _CIS_CRYPTO_93_RE = re.compile(r"93([0-9A-Za-z+/=]{4,88})")
+# GS1 AI 21 serial alphabet (printable subset used on КМ).
+_CIS_SERIAL_CHARS = frozenset(
+    "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+    "!\"%&'()*+-./:;<=>?_"
+)
 
 
 def _clean_cis_raw(raw: str) -> str:
@@ -5060,7 +5084,7 @@ def _clean_cis_raw(raw: str) -> str:
     s = str(raw or "")
     if not s:
         return ""
-    # Do not use str.strip() — it treats \\x1d as whitespace.
+    # Do not use str.strip() — in Python ``\\x1d``.isspace() is True.
     s = s.strip(" \t\r\n")
     for sep in ("\u001d", "\x1e", "\x1f", "\x1c", "\u001e"):
         s = s.replace(sep, _GS)
@@ -5074,6 +5098,32 @@ def _clean_cis_raw(raw: str) -> str:
         s = s[:-1]
     s = s.rstrip(".,;")
     return s
+
+
+def _take_gs1_ai21_serial(serial_raw: str) -> str:
+    """Read AI 21 serial; GS ends the serial only before crypto AI 91/92/93.
+
+    Scanners sometimes insert ``\\x1d`` in the middle of a light-industry serial
+    (or before a crypto tail without ``91``/``92``). Treating every GS as end of
+    serial produced 5-char stubs like ``5yZ2V`` / ``5mC3G`` → ЧЗ 404.
+    """
+    out: list[str] = []
+    i = 0
+    n = len(serial_raw)
+    while i < n:
+        ch = serial_raw[i]
+        if ch == _GS:
+            nxt = serial_raw[i + 1 : i + 3]
+            if nxt in ("91", "92", "93"):
+                break
+            # Spurious GS — skip and keep reading serial chars after it.
+            i += 1
+            continue
+        if ch not in _CIS_SERIAL_CHARS:
+            break
+        out.append(ch)
+        i += 1
+    return "".join(out)
 
 
 def _split_cis_unit_crypto(raw: str) -> tuple[str, str, str, str]:
@@ -5109,10 +5159,7 @@ def _split_cis_unit_crypto(raw: str) -> tuple[str, str, str, str]:
         return unit, key91, crypto92, crypto93
 
     prefix = head[:18]
-    serial_raw = head[18:]
-    # GS1 AI 21 allows more than alnum (e.g. ! / -); stop at GS / junk only.
-    serial_m = re.match(r"[0-9A-Za-z!\"%&'()*+\-./:;<=>?_]+", serial_raw)
-    serial = serial_m.group(0) if serial_m else ""
+    serial = _take_gs1_ai21_serial(head[18:])
     if not serial:
         unit = "".join(ch for ch in head if ch != _GS)
         return unit, key91, crypto92, crypto93
