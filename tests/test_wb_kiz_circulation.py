@@ -195,8 +195,29 @@ def test_classify_chz_doc_status() -> None:
 
 def test_price_for_chz_skips_foreign_currency() -> None:
     assert circ._price_for_chz({"price": 10, "currency_name": "AMD"}) is None
-    assert circ._price_for_chz({"price": 10, "currency_name": "RUB"}) == 10.0
-    assert circ._price_for_chz({"price": 10, "currency_name": ""}) == 10.0
+    # WB rubles → True API kopecks
+    assert circ._price_for_chz({"price": 10, "currency_name": "RUB"}) == 1000
+    assert circ._price_for_chz({"price": 21.92, "currency_name": ""}) == 2192
+    assert circ._price_for_chz({"price": 2192.0, "currency_name": "RUB"}) == 219200
+
+
+def test_normalize_cis_for_chz_strips_gs() -> None:
+    raw = "0104670172421086215yZ2V\x1drHSdGMe"
+    assert circ._normalize_cis_for_chz(raw) == "0104670172421086215yZ2VrHSdGMe"
+    assert circ._normalize_cis_for_chz("  abc  ") == "abc"
+
+
+def test_extract_chz_doc_errors() -> None:
+    info = {
+        "status": "CHECKED_NOT_OK",
+        "errors": [
+            {"message": "МОД не найдены"},
+            {"code": "12", "description": "Недопустимый статус кода"},
+        ],
+    }
+    text = circ.extract_chz_doc_errors(info)
+    assert "МОД не найдены" in text
+    assert "Недопустимый статус" in text
 
 
 @patch(
@@ -269,7 +290,9 @@ def test_prepare_groups_by_receipt(
     assert withdraw["sign_payload_b64"]
     # Signed payload must keep float encoding stable for whole numbers
     raw = base64.b64decode(withdraw["sign_payload_b64"])
-    assert b"10.0" in raw or b'"product_cost":10' in raw  # either is stable if server uses b64
+    # product_cost is kopecks: 10 RUB → 1000
+    assert b"1000" in raw
+    assert b'"product_cost":1000' in raw or b'"product_cost": 1000' in raw
 
 
 @patch(

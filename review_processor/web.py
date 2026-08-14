@@ -10487,6 +10487,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             # Document already exists in CHZ — never flip back to error on local faults.
             chz_status = "submitted"
             local_status = "submitted"
+            chz_err = ""
             try:
                 kiz_circ.mark_events_submitted(
                     repository,
@@ -10498,13 +10499,21 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     run_id=payload.run_id,
                 )
                 try:
-                    info = client.document_info(doc_id)
-                    chz_status = str(
-                        info.get("status")
-                        or info.get("docStatus")
-                        or info.get("state")
-                        or "submitted"
-                    )
+                    import time as _time
+
+                    info: dict = {}
+                    for _attempt in range(4):
+                        info = client.document_info(doc_id)
+                        chz_status = str(
+                            info.get("status")
+                            or info.get("docStatus")
+                            or info.get("state")
+                            or "submitted"
+                        )
+                        if kiz_circ.classify_chz_doc_status(chz_status) != "submitted":
+                            break
+                        _time.sleep(1.2)
+                    chz_err = kiz_circ.extract_chz_doc_errors(info)
                     local_status = kiz_circ.apply_chz_doc_status(
                         repository,
                         user_id=owner_id,
@@ -10512,6 +10521,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                         event_keys=keys,
                         chz_doc_id=doc_id,
                         chz_status=chz_status,
+                        error_text=chz_err,
                     )
                 except Exception:
                     pass
@@ -10528,10 +10538,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     "chz_status": chz_status,
                     "local_status": local_status,
                     "event_count": len(keys),
+                    "error": chz_err if not ok_doc else "",
                 }
             )
+            suffix = f" · {chz_err}" if (not ok_doc and chz_err) else ""
             log_lines.append(
-                f"{title} → {doc_id} (ЧЗ: {chz_status}, локально: {local_status})"
+                f"{title} → {doc_id} (ЧЗ: {chz_status}, локально: {local_status}){suffix}"
             )
         ok_n = sum(1 for r in results if r.get("ok"))
         return {

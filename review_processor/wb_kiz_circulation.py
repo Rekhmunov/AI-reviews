@@ -2377,6 +2377,7 @@ def reconcile_submitted_with_chz(
                 event_keys=keys,
                 chz_doc_id=doc_id,
                 chz_status=chz_status or "submitted",
+                error_text=extract_chz_doc_errors(info),
             )
             if final == STATUS_ACCEPTED:
                 accepted += 1
@@ -2452,22 +2453,93 @@ def get_run(repo: ReviewRepository, *, user_id: int, run_id: int) -> dict[str, A
     return repo._row_to_dict(row) if row else None
 
 
-def _price_for_chz(ev: dict[str, Any]) -> float | None:
-    """Only RUB (or unknown/empty currency) goes into product_cost."""
+def _price_for_chz(ev: dict[str, Any]) -> int | None:
+    """True API ``product_cost`` is in kopecks (incl. VAT when applicable).
+
+    WB Analytics excise-report ``price`` is in major currency units (rubles).
+    """
     if ev.get("price") is None:
         return None
     cur = str(ev.get("currency_name") or "").strip().upper()
     if cur and cur not in {"RUB", "RUR", "₽", "РУБ"}:
         return None
     try:
-        return float(ev["price"])
+        rub = float(ev["price"])
     except (TypeError, ValueError):
         return None
+    if rub < 0:
+        return None
+    return int(round(rub * 100))
+
+
+def _normalize_cis_for_chz(raw: str) -> str:
+    """Strip GS1 separators / control chars from a Data Matrix CIS string."""
+    s = str(raw or "").strip()
+    if not s:
+        return ""
+    # FNC1 / group separators often appear as \\x1d or are pasted as commas.
+    s = s.replace("\x1d", "").replace("\x1e", "").replace("\x1f", "").replace("\x1c", "")
+    s = s.replace("\u001d", "").replace("\u001e", "")
+    # Keep printable ASCII only (CIS alphabet).
+    s = "".join(ch for ch in s if 32 <= ord(ch) <= 126)
+    return s.strip()
 
 
 def _chunked(items: list[Any], size: int) -> list[list[Any]]:
     n = max(1, int(size))
     return [items[i : i + n] for i in range(0, len(items), n)]
+
+
+def extract_chz_doc_errors(info: dict[str, Any] | None) -> str:
+    """Best-effort human text from True API document_info payload."""
+    if not isinstance(info, dict):
+        return ""
+    chunks: list[str] = []
+    for key in (
+        "errors",
+        "commonErrors",
+        "common_errors",
+        "error_messages",
+        "errorMessages",
+        "rejectionReason",
+        "rejection_reason",
+    ):
+        val = info.get(key)
+        if isinstance(val, list):
+            for item in val:
+                if isinstance(item, dict):
+                    msg = (
+                        item.get("message")
+                        or item.get("error")
+                        or item.get("description")
+                        or item.get("text")
+                        or ""
+                    )
+                    code = item.get("code") or item.get("errorCode") or ""
+                    line = " ".join(str(x) for x in (code, msg) if x).strip()
+                    if line:
+                        chunks.append(line)
+                elif item:
+                    chunks.append(str(item))
+        elif isinstance(val, str) and val.strip():
+            chunks.append(val.strip())
+        elif isinstance(val, dict):
+            msg = val.get("message") or val.get("description") or ""
+            if msg:
+                chunks.append(str(msg))
+    for key in ("description", "error", "error_message", "body"):
+        val = info.get(key)
+        if isinstance(val, str) and val.strip() and val.strip() not in chunks:
+            chunks.append(val.strip())
+    # Deduplicate while preserving order.
+    seen: set[str] = set()
+    out: list[str] = []
+    for c in chunks:
+        if c in seen:
+            continue
+        seen.add(c)
+        out.append(c)
+    return "; ".join(out)[:1800]
 
 
 def prepare_chz_batches(
@@ -2541,10 +2613,11 @@ def prepare_chz_batches(
         op = int(ev.get("operation_type") or 0)
         fiscal_no = str(ev.get("fiscal_doc_number") or "").strip()
         fiscal_dt = str(ev.get("fiscal_dt") or "").strip()
-        cis = str(ev.get("excise_short") or "").strip()
+        cis = _normalize_cis_for_chz(str(ev.get("excise_short") or ""))
         if not cis:
             skipped.append({**ev, "skip_reason": "пустой КИЗ"})
             continue
+        ev = {**ev, "excise_short": cis}
         if op == OP_WITHDRAW:
             if fiscal_no and fiscal_dt:
                 withdraw_groups.setdefault((fiscal_no, fiscal_dt), []).append(ev)
@@ -2567,11 +2640,15 @@ def prepare_chz_batches(
             kpp = str(place.get("kpp") or "").strip()
         if not fias_id:
             fias_id = str(place.get("fias_id") or "").strip()
+    # ИП (12 цифр): КПП в LK_RECEIPT не передаётся.
+    if len(re.sub(r"\D", "", inn)) == 12:
+        kpp = ""
     # Soft-skip withdraw if DISTANCE place incomplete — still process returns.
-    if (withdraw_groups or withdraw_other_groups) and (not kpp or not fias_id):
+    if (withdraw_groups or withdraw_other_groups) and (not fias_id or (len(re.sub(r"\D", "", inn)) == 10 and not kpp)):
         warnings.append(
-            "Вывод DISTANCE пропущен: укажите КПП и ФИАС у юр. лица с этим ИНН "
-            "(Поставки → Настройки → Юр. лица)"
+            "Вывод DISTANCE пропущен: укажите КПП (для ООО) и ФИАС МОД в Настройки → ЧЗ "
+            "— те же, что в профиле Честного знака (вкладка МОД), "
+            "либо у юр. лица с этим ИНН"
         )
         for group in withdraw_groups.values():
             for ev in group:
@@ -2581,6 +2658,16 @@ def prepare_chz_batches(
                 skipped.append({**ev, "skip_reason": "нет КПП/ФИАС у юр. лица"})
         withdraw_groups = {}
         withdraw_other_groups = {}
+    elif withdraw_groups or withdraw_other_groups:
+        mod_parts = [f"ИНН {inn}"]
+        if kpp:
+            mod_parts.append(f"КПП {kpp}")
+        mod_parts.append(f"ФИАС {fias_id}")
+        warnings.append(
+            "МОД в документах: "
+            + ", ".join(mod_parts)
+            + " — должен совпадать с действующим МОД в профиле ЧЗ"
+        )
 
     documents: list[dict[str, Any]] = []
     for (fiscal_no, fiscal_dt), group in withdraw_groups.items():
@@ -2699,6 +2786,8 @@ def prepare_chz_batches(
             "participant_inn": inn,
             "product_group": pg,
             "cert_thumbprint": settings.get("cert_thumbprint") or "",
+            "kpp": kpp,
+            "fias_id": fias_id,
         },
         "documents": documents,
         "warnings": warnings,
@@ -2809,6 +2898,7 @@ def apply_chz_doc_status(
     event_keys: list[str],
     chz_doc_id: str,
     chz_status: str,
+    error_text: str = "",
 ) -> str:
     """Update events from CHZ document_info. Returns final local status class."""
     ensure_kiz_circulation_tables(repo)
@@ -2816,6 +2906,9 @@ def apply_chz_doc_status(
     st = str(chz_status or "").strip()
     final = classify_chz_doc_status(st)
     keys = [str(k) for k in event_keys if str(k).strip()]
+    err = str(error_text or "").strip()
+    if final == STATUS_ERROR and not err:
+        err = f"ЧЗ: {st}"
     with repo._connect() as conn:
         for key in keys:
             if final == STATUS_ERROR:
@@ -2832,7 +2925,7 @@ def apply_chz_doc_status(
                         STATUS_ERROR,
                         str(chz_doc_id or ""),
                         st,
-                        f"ЧЗ: {st}"[:2000],
+                        err[:2000],
                         now,
                         user_id,
                         source_id,

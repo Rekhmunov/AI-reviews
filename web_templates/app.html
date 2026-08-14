@@ -3336,7 +3336,9 @@
                 <p class="small" style="margin:8px 0 0;color:#64748b;max-width:640px">
                   Для вывода/возврата КИЗ после продаж WB FBS. Отчёт WB — отдельный токен
                   категории «Аналитика» (можно только чтение). В ЧЗ — через УКЭП в браузере.
-                  КПП и ФИАС для вывода берутся из юр. лица с тем же ИНН.
+                  КПП и ФИАС должны совпадать с действующим МОД в профиле Честного знака
+                  (иначе документ примут, но обработают с ошибкой). Если поля пустые —
+                  подставляются из юр. лица с тем же ИНН.
                 </p>
               </div>
               <label class="small" style="display:flex;align-items:center;gap:8px;white-space:nowrap">
@@ -3352,6 +3354,14 @@
               <div class="wfg-field">
                 <label class="wfg-label" for="chzSettingsProductGroup">Товарная группа</label>
                 <input id="chzSettingsProductGroup" type="text" placeholder="например lp, shoes, clothes" autocomplete="off" />
+              </div>
+              <div class="wfg-field">
+                <label class="wfg-label" for="chzSettingsKpp">КПП места выбытия (МОД)</label>
+                <input id="chzSettingsKpp" type="text" inputmode="numeric" placeholder="9 цифр для ООО; пусто для ИП" autocomplete="off" maxlength="9" />
+              </div>
+              <div class="wfg-field">
+                <label class="wfg-label" for="chzSettingsFias">ФИАС ID места выбытия (МОД)</label>
+                <input id="chzSettingsFias" type="text" placeholder="UUID из профиля ЧЗ → МОД" autocomplete="off" />
               </div>
               <div class="wfg-field" style="grid-column:1 / -1">
                 <label class="wfg-label" for="chzSettingsWbAnalyticsKey">Токен WB «Аналитика»</label>
@@ -5018,6 +5028,6 @@
       </div>
     </div>
   </div>
-  <script src="/static/app.js?v=468"></script>
+  <script src="/static/app.js?v=469"></script>
 </body>
 </html>

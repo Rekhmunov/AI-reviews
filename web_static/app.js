@@ -16601,6 +16601,8 @@ async function loadSupplyChzSettings() {
   const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ""; };
   set("chzSettingsInn", s.participant_inn || "");
   set("chzSettingsProductGroup", s.product_group || "");
+  set("chzSettingsKpp", s.kpp || "");
+  set("chzSettingsFias", s.fias_id || "");
   set("chzSettingsWbAnalyticsKey", "");
   const en = document.getElementById("chzSettingsEnabled");
   if (en) en.checked = !!s.is_enabled;
@@ -16630,6 +16632,8 @@ async function saveSupplyChzSettings() {
     is_enabled: !!document.getElementById("chzSettingsEnabled")?.checked,
     participant_inn: document.getElementById("chzSettingsInn")?.value.trim() || "",
     product_group: document.getElementById("chzSettingsProductGroup")?.value.trim() || "",
+    kpp: document.getElementById("chzSettingsKpp")?.value.trim() || "",
+    fias_id: document.getElementById("chzSettingsFias")?.value.trim() || "",
   };
   const wbKey = document.getElementById("chzSettingsWbAnalyticsKey")?.value || "";
   if (wbKey.trim()) body.wb_analytics_api_key = wbKey.trim();
@@ -16659,6 +16663,8 @@ async function clearSupplyChzWbAnalyticsKey() {
     is_enabled: !!document.getElementById("chzSettingsEnabled")?.checked,
     participant_inn: document.getElementById("chzSettingsInn")?.value.trim() || "",
     product_group: document.getElementById("chzSettingsProductGroup")?.value.trim() || "",
+    kpp: document.getElementById("chzSettingsKpp")?.value.trim() || "",
+    fias_id: document.getElementById("chzSettingsFias")?.value.trim() || "",
     wb_analytics_api_key: "",
   };
   const res = await fetch("/api/supply-chz-settings", {
