@@ -5086,11 +5086,15 @@ def _clean_cis_raw(raw: str) -> str:
         return ""
     # Do not use str.strip() — in Python ``\\x1d``.isspace() is True.
     s = s.strip(" \t\r\n")
+    # Unwrap only whole-cell CSV quotes. Apostrophe/quote inside AI 21 serial
+    # are valid GS1 characters (e.g. ``…Hi<'bO0P``); stripping them → ЧЗ 404.
+    if len(s) >= 2 and s[0] == s[-1] and s[0] in ("'", '"'):
+        s = s[1:-1].strip(" \t\r\n")
     for sep in ("\u001d", "\x1e", "\x1f", "\x1c", "\u001e"):
         s = s.replace(sep, _GS)
-    # Quotes often appear when codes were pasted through Excel/CSV.
-    s = s.replace('"', "").replace("'", "")
-    # Corrupted GS before crypto: ",i" / comma / semicolon (user error sample).
+    # Quotes glued immediately before crypto AI (Excel: …,i"91EE11…).
+    s = re.sub(r'["\']+(?=91|92|93)', "", s)
+    # Corrupted GS before crypto: comma / semicolon (user error sample).
     s = re.sub(r"[,;]+(?=91|92|93)", _GS, s)
     s = re.sub(r"[^\x1d\x21-\x7e]", "", s)
     # Trailing period after base64 ``=`` (``…Oo=.``) breaks True API length checks.

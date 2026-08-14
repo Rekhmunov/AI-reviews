@@ -649,6 +649,22 @@ def test_normalize_cis_keeps_special_serial_chars() -> None:
         assert circ._normalize_cis_for_chz(code) == code
 
 
+def test_normalize_cis_keeps_apostrophe_and_underscore_in_serial() -> None:
+    """Prod sample: apostrophe was stripped as CSV junk → wrong CIS → 404."""
+    raw = (
+        "0104670172422458215D0j_Hi<'bO0P\x1d91EE11\x1d92"
+        "ToUEc2LJ6s9KGuRutHpM9o7owFpLJ4MRHmCTyauJy3k="
+    )
+    assert (
+        circ._normalize_cis_for_chz(raw)
+        == "0104670172422458215D0j_Hi<'bO0P"
+    )
+    assert "'" in circ._normalize_cis_for_chz(raw)
+    assert "_" in circ._normalize_cis_for_chz(raw)
+    fmt = circ._format_cis_for_chz_document(raw)
+    assert fmt.startswith("0104670172422458215D0j_Hi<'bO0P\x1d91")
+
+
 def test_format_cis_for_chz_document_repairs_csv_junk() -> None:
     """User error: quotes/comma before 91 and trailing period → length reject in ЧЗ."""
     dirty = (
