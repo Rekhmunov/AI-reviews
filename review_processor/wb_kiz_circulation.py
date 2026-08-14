@@ -147,6 +147,7 @@ CHZ_STATUS_SUCCESS = frozenset(
 CHZ_STATUS_FAILED = frozenset(
     {
         "CHECKED_NOT_OK",
+        "PROCESSING_ERROR",
         "REJECTED",
         "ERROR",
         "FAILED",
@@ -3950,23 +3951,20 @@ def reconcile_submitted_with_chz(
     checked = 0
     accepted = 0
     failed = 0
+    api_errors = 0
+    api_error_samples: list[str] = []
     for doc_id, keys in by_doc.items():
         checked += 1
         try:
             info = client.document_info(doc_id)
-            chz_status = str(
-                info.get("status")
-                or info.get("docStatus")
-                or info.get("state")
-                or ""
-            )
+            chz_status = extract_chz_doc_status(info) or "submitted"
             final = apply_chz_doc_status(
                 repo,
                 user_id=user_id,
                 source_id=source_id,
                 event_keys=keys,
                 chz_doc_id=doc_id,
-                chz_status=chz_status or "submitted",
+                chz_status=chz_status,
                 error_text=extract_chz_doc_errors(info),
             )
             if final == STATUS_ACCEPTED:
@@ -3974,11 +3972,17 @@ def reconcile_submitted_with_chz(
             elif final == STATUS_ERROR:
                 failed += 1
         except Exception as exc:
+            api_errors += 1
+            sample = f"{doc_id}: {exc}"
+            if len(api_error_samples) < 3:
+                api_error_samples.append(sample[:240])
             logger.warning("CHZ reconcile doc %s failed: %s", doc_id, exc)
     return {
         "docs_checked": checked,
         "accepted": accepted,
         "failed": failed,
+        "api_errors": api_errors,
+        "api_error_samples": api_error_samples,
         "healed": int(healed.get("healed") or 0),
         "events": sum(len(v) for v in by_doc.values()),
     }
@@ -4157,6 +4161,30 @@ def _normalize_cis_for_chz(raw: str) -> str:
 def _chunked(items: list[Any], size: int) -> list[list[Any]]:
     n = max(1, int(size))
     return [items[i : i + n] for i in range(0, len(items), n)]
+
+
+def extract_chz_doc_status(info: dict[str, Any] | None) -> str:
+    """Best-effort document status string from True API ``/doc/{id}/info``."""
+    if not isinstance(info, dict):
+        return ""
+    for key in (
+        "status",
+        "docStatus",
+        "doc_status",
+        "state",
+        "documentStatus",
+        "document_status",
+    ):
+        val = info.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    body = info.get("body")
+    if isinstance(body, dict):
+        for key in ("status", "docStatus", "state"):
+            val = body.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+    return ""
 
 
 def extract_chz_doc_errors(info: dict[str, Any] | None) -> str:
@@ -4537,6 +4565,9 @@ def classify_chz_doc_status(chz_status: str) -> str:
     if st in CHZ_STATUS_SUCCESS:
         return STATUS_ACCEPTED
     if st in CHZ_STATUS_FAILED:
+        return STATUS_ERROR
+    # Resilient to new CRPT codes: …_NOT_OK / …_ERROR are terminal failures.
+    if "NOT_OK" in st or st.endswith("_ERROR") or st.endswith("_FAILED"):
         return STATUS_ERROR
     return STATUS_SUBMITTED
 
