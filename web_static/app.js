@@ -17223,6 +17223,17 @@ async function refreshWbFbsKizCirculation() {
   const sid = _wbFbsKizCircSourceId();
   if (!sid) return;
   const countsEl = document.getElementById("wbFbsKizCircCounts");
+  const _apiErr = (res, payload, fallback) => {
+    const d = payload?.detail;
+    let msg = "";
+    if (typeof d === "string" && d.trim()) msg = d;
+    else if (Array.isArray(d)) {
+      msg = d.map((x) => x?.msg || x?.detail || JSON.stringify(x)).join("; ");
+    } else if (d && typeof d === "object") {
+      msg = d.msg || d.message || JSON.stringify(d);
+    }
+    return msg || `${fallback} (HTTP ${res.status})`;
+  };
   try {
     const [ovRes, evRes] = await Promise.all([
       fetch(`/api/wb-fbs/kiz-circulation?source_id=${sid}`, { headers: jsonHeaders() }),
@@ -17230,8 +17241,8 @@ async function refreshWbFbsKizCirculation() {
     ]);
     const overview = await ovRes.json().catch(() => ({}));
     const eventsPayload = await evRes.json().catch(() => ({}));
-    if (!ovRes.ok) throw new Error(overview.detail || "Ошибка overview");
-    if (!evRes.ok) throw new Error(eventsPayload.detail || "Ошибка events");
+    if (!ovRes.ok) throw new Error(_apiErr(ovRes, overview, "Ошибка overview"));
+    if (!evRes.ok) throw new Error(_apiErr(evRes, eventsPayload, "Ошибка events"));
 
     if (countsEl) {
       countsEl.textContent = [

@@ -10317,16 +10317,21 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         # List must stay fast: join local FBS orders only.
         # Full Marketplace hydrate (archive/sold) runs on CHZ prepare, not on every open.
         _ = _wb_fbs_source_key(owner_id, int(source_id))
-        items = kiz_circ.list_events(
-            repository,
-            user_id=owner_id,
-            source_id=int(source_id),
-            status=str(status or ""),
-            operation_type=int(operation_type) if operation_type else None,
-            limit=int(limit or 200),
-            api_key="",
-            hydrate_orders=False,
-        )
+        try:
+            items = kiz_circ.list_events(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                status=str(status or ""),
+                operation_type=int(operation_type) if operation_type else None,
+                limit=int(limit or 200),
+                api_key="",
+                hydrate_orders=False,
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=400, detail=f"Ошибка списка КИЗ: {exc}"
+            ) from exc
         return {"items": items, "total": len(items)}
 
     @app.post("/api/wb-fbs/kiz-circulation/sync")
