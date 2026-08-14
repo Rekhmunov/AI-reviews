@@ -10735,6 +10735,11 @@ button.wb-fbs-kiz-add:disabled {
   font-weight: 600;
   white-space: nowrap;
 }
+/* Legacy toolbar buttons removed from markup; hide if old HTML still cached. */
+.wb-fbs-kiz-circ-toolbar button[onclick="selectAllVisibleWbFbsKizCirc()"],
+.wb-fbs-kiz-circ-toolbar button[onclick="clearWbFbsKizCircSelection()"] {
+  display: none !important;
+}
 .wb-fbs-kiz-circ-check-col {
   width: 40px;
   min-width: 40px;
