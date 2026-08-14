@@ -1397,6 +1397,44 @@ def test_rid_match_is_case_insensitive() -> None:
     )
 
 
+def test_rid_match_keys_ignore_unit_suffix() -> None:
+    """Analytics ``.1.0`` and Marketplace ``.0.0`` share mid + stem keys."""
+    keys_a = set(circ._rid_match_keys("eI.i0a39f75abc.1.0"))
+    keys_b = set(circ._rid_match_keys("eI.i0a39f75abc.0.0"))
+    assert "i0a39f75abc" in keys_a & keys_b
+    assert "ei.i0a39f75abc" in keys_a & keys_b
+    assert circ._rid_mid_token("eI.i0a39f75abc.1.0") == "i0a39f75abc"
+    assert circ._rid_stem("eI.i0a39f75abc.1.0") == "ei.i0a39f75abc"
+
+
+def test_lookup_fbs_order_by_mid_when_suffix_differs() -> None:
+    """Sold withdraw must match when only the trailing unit counter differs."""
+    index: dict[str, dict] = {}
+    for key in circ._rid_match_keys("eI.i0a39f75abc.0.0"):
+        index[key] = {
+            "order_id": 5462526777,
+            "wb_status": "sold",
+            "supplier_status": "complete",
+        }
+    hit = circ._lookup_fbs_order(
+        {"srid": "eI.i0a39f75abc.1.0", "rid": "", "operation_type": 1},
+        index,
+    )
+    assert hit is not None
+    assert hit["order_id"] == 5462526777
+    assert (
+        circ._norm_eligibility_skip(
+            {"srid": "eI.i0a39f75abc.1.0", "operation_type": 1},
+            index,
+        )
+        == ""
+    )
+    assert circ._norm_matches_fbs(
+        {"srid": "eI.i0a39f75abc.1.0", "rid": ""},
+        {"eI.i0a39f75abc.0.0"},
+    )
+
+
 def test_order_ids_by_srids_uses_lower_sql() -> None:
     from review_processor import wb_fbs as wb_fbs_mod
 
@@ -1424,6 +1462,42 @@ def test_order_ids_by_srids_uses_lower_sql() -> None:
     assert got["ebx.r1460dd50de9f44e4beb8fb31a92baa92.0.0"] == 5462672780
     sql = conn.execute.call_args_list[0].args[0]
     assert "LOWER(rid)" in sql
+
+
+def test_order_ids_by_srids_matches_mid_when_suffix_differs() -> None:
+    """Full rid miss + mid-token hit: Analytics .1.0 vs Marketplace .0.0."""
+    from review_processor import wb_fbs as wb_fbs_mod
+
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    conn.__exit__.return_value = False
+    empty = MagicMock()
+    empty.fetchall.return_value = []
+    mid_hit = MagicMock()
+    mid_hit.fetchall.return_value = [
+        {
+            "order_id": 5462526777,
+            "order_uid": "i0a39f75abc",
+            "rid": "eI.i0a39f75abc.0.0",
+            "raw_json": "{}",
+        }
+    ]
+    conn.execute.side_effect = [empty, mid_hit]
+    repo = MagicMock()
+    repo._connect.return_value = conn
+    repo._sql.side_effect = lambda q: q
+    repo._row_to_dict.side_effect = lambda r: r if isinstance(r, dict) else {}
+    with patch.object(wb_fbs_mod, "ensure_wb_fbs_tables"):
+        got = wb_fbs_mod.order_ids_by_srids(
+            repo,
+            user_id=1,
+            source_id=2,
+            srids=["eI.i0a39f75abc.1.0"],
+        )
+    assert got["eI.i0a39f75abc.1.0"] == 5462526777
+    mid_sql = conn.execute.call_args_list[1].args[0]
+    assert "SPLIT_PART(rid" in mid_sql
+    assert "order_uid" in mid_sql
 
 
 def test_norm_eligibility_sold_and_cancelled_only() -> None:

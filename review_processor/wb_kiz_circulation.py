@@ -590,12 +590,17 @@ _TERMINAL_SKIP_REASONS = frozenset(
 def load_local_fbs_order_index(
     repo: ReviewRepository, *, user_id: int, source_id: int
 ) -> dict[str, dict[str, Any]]:
-    """Map Marketplace FBS ``rid`` (+ raw_json.rid) → order_id + statuses.
+    """Map Marketplace FBS identity keys → order_id + statuses.
 
-    Keys are casefolded: Analytics ``srid`` and Marketplace ``rid`` can differ
-    only by letter case (``ebx…`` vs ``ebX…``), which broke exact joins.
+    Indexed keys (casefolded):
+    - full ``rid``
+    - rid mid-token (``orderUid``-like segment between dots)
+    - ``prefix.mid`` stem (ignores trailing ``.0.0`` / ``.1.0`` unit suffix)
+    - ``order_uid``
+    - ``raw_json.rid`` variants
 
-    Does **not** index ``order_uid`` alone as a primary key.
+    Analytics ``srid`` often differs from Marketplace ``rid`` only by the trailing
+    unit suffix (``.1.0`` vs ``.0.0``) and/or letter case.
     """
     from . import wb_fbs as wb_fbs_mod
 
@@ -605,7 +610,7 @@ def load_local_fbs_order_index(
         rows = conn.execute(
             repo._sql(
                 """
-                SELECT order_id, rid, wb_status, supplier_status, raw_json
+                SELECT order_id, rid, order_uid, wb_status, supplier_status, raw_json
                 FROM wb_fbs_orders
                 WHERE user_id = ? AND source_id = ?
                 """
@@ -625,19 +630,20 @@ def load_local_fbs_order_index(
             "wb_status": str(d.get("wb_status") or "").strip().lower(),
             "supplier_status": str(d.get("supplier_status") or "").strip().lower(),
         }
-        rid = _rid_fold(str(d.get("rid") or ""))
-        if rid:
-            out[rid] = info
-        rid_json = ""
+        for key in _rid_match_keys(d.get("rid")):
+            out.setdefault(key, info)
+        for key in _rid_match_keys(d.get("order_uid")):
+            out.setdefault(key, info)
         try:
             raw = d.get("raw_json") or "{}"
             payload = json.loads(raw) if isinstance(raw, str) else (raw or {})
             if isinstance(payload, dict):
-                rid_json = _rid_fold(str(payload.get("rid") or ""))
+                for key in _rid_match_keys(payload.get("rid")):
+                    out.setdefault(key, info)
+                for key in _rid_match_keys(payload.get("orderUid") or payload.get("order_uid")):
+                    out.setdefault(key, info)
         except (TypeError, ValueError, json.JSONDecodeError):
-            rid_json = ""
-        if rid_json and rid_json not in out:
-            out[rid_json] = info
+            pass
     return out
 
 
@@ -655,30 +661,69 @@ def _rid_fold(value: object) -> str:
     return str(value or "").strip().casefold()
 
 
+def _rid_mid_token(value: object) -> str:
+    """Middle dotted segment (= Marketplace ``orderUid`` shape).
+
+    ``eI.i0a39f75….1.0`` → ``i0a39f75…``
+    """
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    bits = text.split(".")
+    if len(bits) >= 2 and bits[1].strip():
+        return bits[1].strip().casefold()
+    return ""
+
+
+def _rid_stem(value: object) -> str:
+    """``prefix.mid`` without trailing unit counters (``.0.0`` / ``.1.0``)."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    bits = text.split(".")
+    if len(bits) >= 2 and bits[0].strip() and bits[1].strip():
+        return f"{bits[0].strip()}.{bits[1].strip()}".casefold()
+    return _rid_fold(text)
+
+
+def _rid_match_keys(value: object) -> list[str]:
+    """All join keys derived from a rid/srid/orderUid value."""
+    keys: list[str] = []
+    full = _rid_fold(value)
+    if full:
+        keys.append(full)
+    stem = _rid_stem(value)
+    if stem and stem not in keys:
+        keys.append(stem)
+    mid = _rid_mid_token(value)
+    if mid and mid not in keys:
+        keys.append(mid)
+    return keys
+
+
 def _lookup_fbs_order(
     norm: dict[str, Any], index: dict[str, dict[str, Any]]
 ) -> dict[str, Any] | None:
     if not index:
         return None
-    srid = _rid_fold(norm.get("srid"))
-    rid = _rid_fold(norm.get("rid"))
-    if srid and srid in index:
-        return index[srid]
-    if rid and rid in index:
-        return index[rid]
+    for raw in (norm.get("srid"), norm.get("rid")):
+        for key in _rid_match_keys(raw):
+            hit = index.get(key)
+            if hit:
+                return hit
     return None
 
 
 def _norm_matches_fbs(norm: dict[str, Any], fbs_keys: set[str]) -> bool:
     if not fbs_keys:
         return False
-    folded = {_rid_fold(k) for k in fbs_keys if _rid_fold(k)}
-    srid = _rid_fold(norm.get("srid"))
-    rid = _rid_fold(norm.get("rid"))
-    if srid and srid in folded:
-        return True
-    if rid and rid in folded:
-        return True
+    folded: set[str] = set()
+    for k in fbs_keys:
+        folded.update(_rid_match_keys(k))
+    for raw in (norm.get("srid"), norm.get("rid")):
+        for key in _rid_match_keys(raw):
+            if key in folded:
+                return True
     return False
 
 
@@ -804,6 +849,8 @@ def build_excise_fbs_match_index(
         raw = str(key or "").strip()
         if raw:
             out[raw] = info
+        for mk in _rid_match_keys(key):
+            out[mk] = info
     sold_orders = {
         int(v["order_id"])
         for v in out.values()
@@ -813,7 +860,7 @@ def build_excise_fbs_match_index(
         "hydrate_ok": hydrate_ok,
         "order_count": len(order_ids),
         "sold_orders": len(sold_orders),
-        "key_count": len({_rid_fold(k) for k in out if _rid_fold(k)}),
+        "key_count": len({_rid_fold(k) for k in by_key if _rid_fold(k)}),
         "report_keys": len(uniq),
     }
     if log is not None:
@@ -829,21 +876,26 @@ def build_excise_fbs_match_index(
             local = load_local_fbs_order_index(
                 repo, user_id=user_id, source_id=source_id
             )
-            sample_loc = ", ".join(list(local.keys())[:3]) or "—"
-            fold_rep = {_rid_fold(k) for k in uniq}
+            sample_loc = ", ".join(
+                [k for k in local.keys() if "." in k][:3] or list(local.keys())[:3]
+            ) or "—"
+            fold_rep: set[str] = set()
+            for k in uniq:
+                fold_rep.update(_rid_match_keys(k))
             overlap = len(fold_rep & set(local.keys()))
             _append_log(
                 log,
                 f"диагностика: пример srid из отчёта [{sample_rep}]; "
                 f"пример local rid [{sample_loc}]; "
-                f"локальных rid={len(local)}; "
-                f"пересечение без учёта регистра={overlap}",
+                f"локальных ключей={len(local)}; "
+                f"пересечение (full/mid/stem)={overlap}",
             )
     return out, meta
 
 
 def _fbs_order_join_sql(alias_e: str = "e", alias_o: str = "o") -> str:
-    # Analytics srid and Marketplace rid may differ only by letter case.
+    # Analytics srid vs Marketplace rid: case may differ; trailing .N.M unit
+    # suffix often differs (.1.0 vs .0.0). Join on full / mid / order_uid.
     return f"""
         {alias_o}.user_id = {alias_e}.user_id
         AND {alias_o}.source_id = {alias_e}.source_id
@@ -853,6 +905,18 @@ def _fbs_order_join_sql(alias_e: str = "e", alias_o: str = "o") -> str:
             AND (
               LOWER({alias_o}.rid) = LOWER({alias_e}.srid)
               OR LOWER({alias_o}.order_uid) = LOWER({alias_e}.srid)
+              OR (
+                POSITION('.' IN {alias_e}.srid) > 0
+                AND LOWER(SPLIT_PART({alias_o}.rid, '.', 2))
+                    = LOWER(SPLIT_PART({alias_e}.srid, '.', 2))
+                AND SPLIT_PART({alias_e}.srid, '.', 2) <> ''
+              )
+              OR (
+                POSITION('.' IN {alias_e}.srid) > 0
+                AND LOWER({alias_o}.order_uid)
+                    = LOWER(SPLIT_PART({alias_e}.srid, '.', 2))
+                AND SPLIT_PART({alias_e}.srid, '.', 2) <> ''
+              )
               OR (
                 {alias_o}.raw_json IS NOT NULL
                 AND {alias_o}.raw_json <> ''
@@ -866,6 +930,18 @@ def _fbs_order_join_sql(alias_e: str = "e", alias_o: str = "o") -> str:
             AND (
               LOWER({alias_o}.rid) = LOWER({alias_e}.rid)
               OR LOWER({alias_o}.order_uid) = LOWER({alias_e}.rid)
+              OR (
+                POSITION('.' IN {alias_e}.rid) > 0
+                AND LOWER(SPLIT_PART({alias_o}.rid, '.', 2))
+                    = LOWER(SPLIT_PART({alias_e}.rid, '.', 2))
+                AND SPLIT_PART({alias_e}.rid, '.', 2) <> ''
+              )
+              OR (
+                POSITION('.' IN {alias_e}.rid) > 0
+                AND LOWER({alias_o}.order_uid)
+                    = LOWER(SPLIT_PART({alias_e}.rid, '.', 2))
+                AND SPLIT_PART({alias_e}.rid, '.', 2) <> ''
+              )
               OR (
                 {alias_o}.raw_json IS NOT NULL
                 AND {alias_o}.raw_json <> ''
