@@ -17302,7 +17302,11 @@ async function runWbFbsKizCirculationChz() {
       for (const w of (prep.warnings || [])) {
         _wbFbsKizCircAppendLog(`⚠ ${w}`);
       }
-      const docsAll = Array.isArray(prep.documents) ? prep.documents : [];
+      const selectedSet = new Set(selectedKeys);
+      const docsAll = (Array.isArray(prep.documents) ? prep.documents : []).filter((d) =>
+        (Array.isArray(d.event_keys) ? d.event_keys : [])
+          .some((k) => selectedSet.has(String(k || ""))),
+      );
       // Client-side safety cap: even if prepare returns a huge batch, sign/submit
       // only a small packet — UKЭP + one giant POST caused Failed to fetch.
       const CLIENT_DOC_CAP = 40;
