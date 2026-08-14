@@ -3237,17 +3237,40 @@ def format_pallets_ru(value: float) -> str:
     return f"{text} {word}"
 
 
+def format_boxes_ru(value: float) -> str:
+    """Format box count with up to 2 decimals (comma) + Russian noun."""
+    n = round(float(value or 0.0) + 1e-12, 2)
+    if abs(n - int(n)) < 1e-9:
+        whole = int(n)
+        text = str(whole)
+        abs_n = abs(whole) % 100
+        last = abs_n % 10
+        if 11 <= abs_n <= 14:
+            word = "коробов"
+        elif last == 1:
+            word = "короб"
+        elif 2 <= last <= 4:
+            word = "короба"
+        else:
+            word = "коробов"
+    else:
+        text = f"{n:.2f}".rstrip("0").rstrip(".").replace(".", ",")
+        word = "короба"
+    return f"{text} {word}"
+
+
 def compute_wb_fbs_pallet_summary(
     repo: ReviewRepository,
     *,
     user_id: int,
     sources: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Pallets per FBS source from tabs «Новые» + «На сборке».
+    """Pallets + boxes per FBS source from tabs «Новые» + «На сборке».
 
-    ``pallets = Σ (qty / box_qty / boxes_per_pallet)``, rounded to hundredths.
-    Each assembly order counts as 1 unit. Products/categories without both
-    multiplicities are skipped.
+    ``boxes = Σ (qty / box_qty)``
+    ``pallets = Σ (qty / box_qty / boxes_per_pallet)``
+    Both rounded to hundredths. Products without ``box_qty`` are skipped for
+    both; without category ``boxes_per_pallet`` they still count toward boxes.
     """
     ensure_wb_fbs_tables(repo)
     if not sources:
@@ -3262,16 +3285,14 @@ def compute_wb_fbs_pallet_summary(
         if name and bpp is not None:
             cat_boxes[name] = bpp
 
-    # article / nmId / casefold → (box_qty, boxes_per_pallet)
-    product_meta: dict[str, tuple[int, int]] = {}
+    # article / nmId / casefold → (box_qty, boxes_per_pallet | None)
+    product_meta: dict[str, tuple[int, int | None]] = {}
     for prod in products:
         box_qty = _as_positive_int(prod.get("box_qty"))
         if box_qty is None:
             continue
         cat_name = str(prod.get("product_category") or "").strip()
         bpp = cat_boxes.get(cat_name)
-        if bpp is None:
-            continue
         meta = (box_qty, bpp)
         for raw_key in (
             prod.get("supplier_article"),
@@ -3316,7 +3337,8 @@ def compute_wb_fbs_pallet_summary(
             tuple([user_id, TAB_NEW, TAB_ASSEMBLY, *source_ids]),
         ).fetchall()
 
-    totals: dict[int, float] = {sid: 0.0 for sid in source_ids}
+    totals_pallets: dict[int, float] = {sid: 0.0 for sid in source_ids}
+    totals_boxes: dict[int, float] = {sid: 0.0 for sid in source_ids}
     for row in rows:
         d = repo._row_to_dict(row)
         try:
@@ -3324,7 +3346,7 @@ def compute_wb_fbs_pallet_summary(
             qty = int(d.get("qty") or 0)
         except (TypeError, ValueError):
             continue
-        if sid not in totals or qty <= 0:
+        if sid not in totals_pallets or qty <= 0:
             continue
         article = str(d.get("article") or "").strip()
         nm_id = str(d.get("nm_id") or "").strip()
@@ -3336,17 +3358,25 @@ def compute_wb_fbs_pallet_summary(
         if not meta:
             continue
         box_qty, bpp = meta
-        totals[sid] += float(qty) / float(box_qty) / float(bpp)
+        boxes = float(qty) / float(box_qty)
+        totals_boxes[sid] += boxes
+        if bpp is not None:
+            totals_pallets[sid] += boxes / float(bpp)
 
     summary: list[dict[str, Any]] = []
     for sid in source_ids:
-        pallets = round(float(totals.get(sid) or 0.0) + 1e-12, 2)
+        pallets = round(float(totals_pallets.get(sid) or 0.0) + 1e-12, 2)
+        boxes = round(float(totals_boxes.get(sid) or 0.0) + 1e-12, 2)
+        pallets_label = format_pallets_ru(pallets)
+        boxes_label = format_boxes_ru(boxes)
         summary.append(
             {
                 "source_id": sid,
                 "name": source_names.get(sid) or f"Источник {sid}",
                 "pallets": pallets,
-                "pallets_label": format_pallets_ru(pallets),
+                "boxes": boxes,
+                "boxes_label": boxes_label,
+                "pallets_label": f"{pallets_label} ({boxes_label})",
             }
         )
     return summary
