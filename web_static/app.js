@@ -24369,6 +24369,17 @@ function onWbFbsKizMarkScanKey(event) {
     if (input) input.select();
     return;
   }
+  const dup = _wbFbsKizFindExistingMark(mark);
+  if (dup) {
+    const dupOid = Number(dup.order_id);
+    _wbFbsKizSetInfo(
+      dupOid === oid
+        ? `Этот КИЗ уже просканирован в заказ ${oid} — повторно не добавляем`
+        : `Этот КИЗ уже просканирован в заказ ${dupOid} — в заказ ${oid} не добавляем`
+    );
+    if (input) input.select();
+    return;
+  }
   if (!Array.isArray(row.kiz_codes) || !row.kiz_codes.length) row.kiz_codes = [""];
   let placedIdx = -1;
   for (let i = 0; i < row.kiz_codes.length; i += 1) {
