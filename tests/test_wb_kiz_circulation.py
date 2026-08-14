@@ -665,6 +665,22 @@ def test_normalize_cis_keeps_apostrophe_and_underscore_in_serial() -> None:
     assert fmt.startswith("0104670172422458215D0j_Hi<'bO0P\x1d91")
 
 
+def test_gs1_cset82_serial_alphabet() -> None:
+    """AI 21 must accept full GS1 CSET 82 (comma included; space/# excluded)."""
+    assert "," in circ._GS1_CSET82
+    assert "'" in circ._GS1_CSET82
+    assert '"' in circ._GS1_CSET82
+    assert " " not in circ._GS1_CSET82
+    assert "#" not in circ._GS1_CSET82
+    assert len(circ._GS1_CSET82) == 82
+    # Mid-serial comma is valid and must survive (unlike Excel ``,i"91`` junk).
+    code = "0104670172422458215D0j_Hi,bO0P"
+    assert circ._normalize_cis_for_chz(code) == code
+    assert (
+        circ._normalize_cis_for_chz(code + "\x1d91EE11\x1d92" + ("A" * 44)) == code
+    )
+
+
 def test_format_cis_for_chz_document_repairs_csv_junk() -> None:
     """User error: quotes/comma before 91 and trailing period → length reject in ЧЗ."""
     dirty = (

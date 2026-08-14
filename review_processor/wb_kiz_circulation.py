@@ -5063,53 +5063,69 @@ def _normalize_cis_for_chz(raw: str) -> str:
         return unit
     s = _clean_cis_raw(raw)
     s = s.replace(_GS, "")
-    return s.strip()
+    # ``\\x1d``.isspace() is True in CPython — never use bare str.strip().
+    return s.strip(" \t\r\n")
 
 
 _GS = "\x1d"
-# AI 91 (4-char key) + AI 92 (crypto tail). Lengths vary by product group.
+# AI 91 (4-char key) + AI 92 (crypto tail). Lengths vary by product group
+# (лёгпром/обувь: 91=4, 92=44 или 88; укороченный КМ: AI 93).
 _CIS_CRYPTO_91_92_RE = re.compile(
     r"91([0-9A-Za-z+/]{4})(?:\x1d)?92([0-9A-Za-z+/=]{20,120})"
 )
 _CIS_CRYPTO_93_RE = re.compile(r"93([0-9A-Za-z+/=]{4,88})")
-# GS1 AI 21 serial alphabet (printable subset used on КМ).
-_CIS_SERIAL_CHARS = frozenset(
-    "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-    "!\"%&'()*+-./:;<=>?_"
+# GS1 General Specifications Figure 7.11-1 — AI encodable character set 82.
+# ЧЗ КМ = GS1 DataMatrix; AI 21 (сериал) использует именно CSET 82
+# (см. lint_cset82 / GS1 GenSpecs). Не путать с CSET 39 (# - /).
+# Official string from GS1:
+#   !"%&'()*+,-./0123456789:;<=>?ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz
+_GS1_CSET82 = frozenset(
+    "!\"%&'()*+,-./0123456789:;<=>?"
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ_"
+    "abcdefghijklmnopqrstuvwxyz"
 )
+_CIS_SERIAL_CHARS = _GS1_CSET82
 
 
 def _clean_cis_raw(raw: str) -> str:
-    """Remove CSV/quote junk and unify GS separators before parsing."""
+    """Normalize a scanned/pasted КМ string per CHZ + GS1 rules.
+
+    Keep:
+    - GS (ASCII 29) as the only field separator before AI 91/92/93
+    - all GS1 CSET 82 characters inside AI 21 (incl. ``'`` ``"`` ``,`` ``_``)
+
+    Strip only transport junk that is not part of the KM:
+    - whole-cell CSV wrapping quotes
+    - Excel artifacts glued immediately before crypto AIs (``,i"91…``)
+    - non-printable / non-ASCII (except GS)
+    - trailing ``.`` after base64 ``=`` on crypto
+    """
     s = str(raw or "")
     if not s:
         return ""
     # Do not use str.strip() — in Python ``\\x1d``.isspace() is True.
     s = s.strip(" \t\r\n")
-    # Unwrap only whole-cell CSV quotes. Apostrophe/quote inside AI 21 serial
-    # are valid GS1 characters (e.g. ``…Hi<'bO0P``); stripping them → ЧЗ 404.
     if len(s) >= 2 and s[0] == s[-1] and s[0] in ("'", '"'):
         s = s[1:-1].strip(" \t\r\n")
     for sep in ("\u001d", "\x1e", "\x1f", "\x1c", "\u001e"):
         s = s.replace(sep, _GS)
-    # Quotes glued immediately before crypto AI (Excel: …,i"91EE11…).
+    # CSV/Excel garbage only at the crypto boundary. Comma/semicolon/apostrophe
+    # are valid mid-serial (CSET 82); do not strip them elsewhere.
+    s = re.sub(r'[,;]+[A-Za-z]?["\']*(?=91|92|93)', _GS, s)
     s = re.sub(r'["\']+(?=91|92|93)', "", s)
-    # Corrupted GS before crypto: comma / semicolon (user error sample).
-    s = re.sub(r"[,;]+(?=91|92|93)", _GS, s)
+    # Drop controls/Unicode outside GS + printable ASCII; serial filter is CSET 82.
     s = re.sub(r"[^\x1d\x21-\x7e]", "", s)
-    # Trailing period after base64 ``=`` (``…Oo=.``) breaks True API length checks.
     if s.endswith("=."):
         s = s[:-1]
-    s = s.rstrip(".,;")
     return s
 
 
 def _take_gs1_ai21_serial(serial_raw: str) -> str:
-    """Read AI 21 serial; GS ends the serial only before crypto AI 91/92/93.
+    """Read AI 21 serial (GS1 CSET 82).
 
-    Scanners sometimes insert ``\\x1d`` in the middle of a light-industry serial
-    (or before a crypto tail without ``91``/``92``). Treating every GS as end of
-    serial produced 5-char stubs like ``5yZ2V`` / ``5mC3G`` → ЧЗ 404.
+    Per marking rules the variable-length serial is terminated by GS (ASCII 29)
+    before the next AI (91/92/93). A bare GS without those AIs is treated as a
+    spurious separator (common scanner/CSV artifact), not end of serial.
     """
     out: list[str] = []
     i = 0
@@ -5120,7 +5136,6 @@ def _take_gs1_ai21_serial(serial_raw: str) -> str:
             nxt = serial_raw[i + 1 : i + 3]
             if nxt in ("91", "92", "93"):
                 break
-            # Spurious GS — skip and keep reading serial chars after it.
             i += 1
             continue
         if ch not in _CIS_SERIAL_CHARS:
@@ -5133,8 +5148,8 @@ def _take_gs1_ai21_serial(serial_raw: str) -> str:
 def _split_cis_unit_crypto(raw: str) -> tuple[str, str, str, str]:
     """Parse CIS → (short_unit, ai91_key, ai92_crypto, ai93).
 
-    ``short_unit`` is ``01``+GTIN14+``21``+serial (no crypto). Empty parts when
-    missing. Tolerates missing GS between unit and ``91``/``92``.
+    ``short_unit`` is ``01``+GTIN14+``21``+serial (КИ without crypto). Empty
+    parts when missing. Tolerates missing GS between unit and ``91``/``92``.
     """
     s = _clean_cis_raw(raw)
     if not s:
@@ -5156,7 +5171,7 @@ def _split_cis_unit_crypto(raw: str) -> tuple[str, str, str, str]:
             crypto93 = m93.group(1).rstrip(".")
             head = s[: m93.start()]
 
-    head = head.rstrip(_GS + ".,;")
+    head = head.rstrip(_GS)
     # Require classic unit prefix; otherwise keep cleaned head as best-effort.
     if not (head.startswith("01") and len(head) >= 18 and head[16:18] == "21"):
         unit = "".join(ch for ch in head if ch != _GS)
