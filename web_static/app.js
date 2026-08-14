@@ -24249,7 +24249,9 @@ function renderWbFbsKizTable(opts) {
                  class="wb-fbs-kiz-code-input${err && String(code || "").trim() ? " is-error" : ""}" type="text"
                  data-order-id="${oid}" data-idx="${idx}"
                  autocomplete="off"
-                 oninput="onWbFbsKizCodeInput(${oid}, event)" />
+                 oninput="onWbFbsKizCodeInput(${oid}, event)"
+                 onblur="onWbFbsKizCodeBlur(${oid}, event)"
+                 onkeydown="onWbFbsKizCodeKey(${oid}, event)" />
           <button type="button" class="wb-fbs-kiz-remove" title="${clearTitle}"
                   aria-label="${clearTitle}"
                   onclick="removeWbFbsKizCode(${oid}, ${idx})">×</button>
@@ -24346,6 +24348,32 @@ function onWbFbsKizCodeInput(orderId, event) {
   _wbFbsKizUpdateScanCounter();
 }
 window.onWbFbsKizCodeInput = onWbFbsKizCodeInput;
+
+/** Manual КИЗ entry: silent FeedPilot autosave when leaving the field. */
+function onWbFbsKizCodeBlur(orderId, _event) {
+  const oid = Number(orderId);
+  if (!Number.isFinite(oid) || oid <= 0) return;
+  if (!_wbFbsKizModalIsOpen()) return;
+  _wbFbsKizCollectFromDom();
+  _wbFbsKizScheduleLocalAutosave(oid);
+}
+window.onWbFbsKizCodeBlur = onWbFbsKizCodeBlur;
+
+/** Enter after manual paste/type → save locally and move to sticker scan. */
+function onWbFbsKizCodeKey(orderId, event) {
+  if (!event || event.key !== "Enter") return;
+  event.preventDefault();
+  const oid = Number(orderId);
+  if (!Number.isFinite(oid) || oid <= 0) return;
+  _wbFbsKizCollectFromDom();
+  _wbFbsKizScheduleLocalAutosave(oid);
+  const sticker = document.getElementById("wbFbsKizStickerScan");
+  if (sticker) {
+    sticker.focus();
+    sticker.select?.();
+  }
+}
+window.onWbFbsKizCodeKey = onWbFbsKizCodeKey;
 
 function addWbFbsKizCode(orderId) {
   _wbFbsKizCollectFromDom();
