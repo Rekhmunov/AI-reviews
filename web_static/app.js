@@ -25549,6 +25549,29 @@ function _wbFbsPickOrderSkuSet(row) {
   return set;
 }
 
+/** Equivalence keys for EAN/GTIN (13↔14 with leading 0, etc.). */
+function _wbFbsPickBarcodeKeys(value) {
+  const raw = _wbFbsPickNormalizeScan(value);
+  const digits = raw.replace(/\D/g, "");
+  const set = new Set();
+  if (raw) set.add(raw);
+  if (digits) {
+    set.add(digits);
+    if (digits.length === 14 && digits.startsWith("0")) set.add(digits.slice(1));
+    if (digits.length === 13) set.add(`0${digits}`);
+  }
+  return set;
+}
+
+function _wbFbsPickBarcodesMatch(a, b) {
+  const left = _wbFbsPickBarcodeKeys(a);
+  if (!left.size) return false;
+  for (const k of _wbFbsPickBarcodeKeys(b)) {
+    if (left.has(k)) return true;
+  }
+  return false;
+}
+
 function _wbFbsPickValidateEanForOrder(scan, row) {
   const raw = _wbFbsPickNormalizeScan(scan);
   const digits = raw.replace(/\D/g, "");
@@ -25733,6 +25756,21 @@ function onWbFbsPickSkuScanKey(event) {
     if (!_wbFbsPickPatchStatusCell(oid)) {
       renderWbFbsPickVerifyTable();
     }
+    return;
+  }
+  const existing = String(row.pick_barcode || "").trim();
+  if (row.pick_verified && existing) {
+    // Same as Маркировка: do not silently overwrite an already filled scan.
+    if (_wbFbsPickBarcodesMatch(existing, check.barcode)) {
+      _wbFbsPickSetInfo(
+        `Этот ШК уже просканирован в заказ ${oid} — повторно не добавляем`
+      );
+    } else {
+      _wbFbsPickSetInfo(
+        `Заказ ${oid} уже проверен (ШК ${existing}). Сбросьте проверку (×), чтобы сканировать другой ШК.`
+      );
+    }
+    if (input) input.select();
     return;
   }
   row.pick_verified = true;
