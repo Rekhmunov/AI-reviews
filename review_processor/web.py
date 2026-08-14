@@ -10061,21 +10061,18 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         items = body.get("items") if isinstance(body, dict) else None
         if not isinstance(items, list):
             raise HTTPException(status_code=400, detail="Укажите items[]")
-        api_key = _wb_fbs_source_key(owner_id, int(source_id))
         try:
-            detail = wb_detail.get_supply_detail(
-                repository,
-                user_id=owner_id,
-                source_id=int(source_id),
-                api_key=api_key,
-                supply_id=sid,
+            # Local-only endpoint — never call get_supply_detail here.
+            # That hits Marketplace + stickers and would lag / rate-limit on every
+            # silent autosave scan. Scope from local supply order ids.
+            allowed = set(
+                wb_detail._local_order_ids_for_supply(
+                    repository,
+                    user_id=owner_id,
+                    source_id=int(source_id),
+                    supply_id=sid,
+                )
             )
-            # Only non-КИЗ orders of this supply.
-            allowed = {
-                int(o["order_id"])
-                for o in (detail.get("orders") or [])
-                if (not o.get("kiz_required")) and o.get("order_id") is not None
-            }
             return wb_detail.save_pick_verify(
                 repo=repository,
                 user_id=owner_id,
