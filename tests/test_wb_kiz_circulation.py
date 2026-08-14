@@ -1191,22 +1191,29 @@ def test_return_not_cancelled_reason() -> None:
     assert "нет связи" in circ._return_not_cancelled_reason(
         {"operation_type": 2, "order_id": None}
     )
-    assert "не отказной" in circ._return_not_cancelled_reason(
-        {
-            "operation_type": 2,
-            "order_id": 1,
-            "order_wb_status": "sold",
-            "order_status_label": "Выкуплен",
-        }
+    # Linked FBS order is enough — Analytics op=2 is the return/PVZ signal.
+    assert (
+        circ._return_not_cancelled_reason(
+            {
+                "operation_type": 2,
+                "order_id": 1,
+                "order_wb_status": "sold",
+                "order_status_label": "Выкуплен",
+            }
+        )
+        == ""
     )
-    assert "не отказной" in circ._return_not_cancelled_reason(
-        {
-            "operation_type": 2,
-            "order_id": 1,
-            "order_wb_status": "sorted",
-            "order_supplier_status": "complete",
-            "order_status_label": "В доставке",
-        }
+    assert (
+        circ._return_not_cancelled_reason(
+            {
+                "operation_type": 2,
+                "order_id": 1,
+                "order_wb_status": "sorted",
+                "order_supplier_status": "complete",
+                "order_status_label": "В доставке",
+            }
+        )
+        == ""
     )
     assert (
         circ._return_not_cancelled_reason(
@@ -1294,13 +1301,13 @@ def test_prepare_skips_return_unless_cancelled(
     out = circ.prepare_chz_batches(
         repo=object(), user_id=1, source_id=2, api_key="mp-key"
     )
-    assert out["counts"]["return_events"] == 1
-    assert out["counts"]["return_not_cancelled"] == 2
-    assert out["documents"][0]["event_keys"] == ["ret-ok"]
-    reasons = {s["event_key"]: s["skip_reason"] for s in out["skipped"]}
-    assert "не отказной" in reasons["ret-sold"]
-    assert "не отказной" in reasons["ret-delivery"]
-
+    # All three are FBS-linked Analytics returns — all allowed.
+    assert out["counts"]["return_events"] == 3
+    assert out["counts"]["return_not_cancelled"] == 0
+    all_keys = []
+    for d in out["documents"]:
+        all_keys.extend(d.get("event_keys") or [])
+    assert set(all_keys) == {"ret-ok", "ret-sold", "ret-delivery"}
 
 def test_related_events_index_lookup() -> None:
     idx: dict = {}
@@ -1382,6 +1389,11 @@ def test_norm_eligibility_sold_and_cancelled_only() -> None:
             "wb_status": "canceled_by_client",
             "supplier_status": "cancel",
         },
+        "pvz-1": {
+            "order_id": 4,
+            "wb_status": "sold",
+            "supplier_status": "complete",
+        },
     }
     assert (
         circ._norm_eligibility_skip(
@@ -1395,17 +1407,18 @@ def test_norm_eligibility_sold_and_cancelled_only() -> None:
         )
         == circ.SKIP_NOT_SOLD
     )
+    # Return: any FBS link (Analytics op=2 = PVZ/return), not pre-delivery cancel gate.
     assert (
         circ._norm_eligibility_skip(
-            {"srid": "cancel-1", "operation_type": 2}, index
+            {"srid": "pvz-1", "operation_type": 2}, index
         )
         == ""
     )
     assert (
         circ._norm_eligibility_skip(
-            {"srid": "sold-1", "operation_type": 2}, index
+            {"srid": "ship-1", "operation_type": 2}, index
         )
-        == circ.SKIP_NOT_RETURN
+        == ""
     )
     assert (
         circ._norm_eligibility_skip(
@@ -1414,6 +1427,17 @@ def test_norm_eligibility_sold_and_cancelled_only() -> None:
         == circ.SKIP_NOT_FBS
     )
 
+
+def test_return_prepare_only_needs_fbs_link() -> None:
+    assert (
+        circ._return_not_cancelled_reason(
+            {"operation_type": 2, "order_id": 10, "order_wb_status": "sold"}
+        )
+        == ""
+    )
+    assert "FBS" in circ._return_not_cancelled_reason(
+        {"operation_type": 2, "order_id": None}
+    )
 def test_repair_skip_non_fbs_noop_without_local_orders() -> None:
     conn = MagicMock()
     conn.__enter__.return_value = conn

@@ -17243,7 +17243,7 @@ async function refreshWbFbsKizCirculation() {
         : Object.values(overview.counts || {}).reduce((a, b) => a + Number(b || 0), 0);
       const parts = [
         `к выводу (выкуплен): ${overview.pending_withdraw || 0}`,
-        `к возврату (отказ): ${overview.pending_return || 0}`,
+        `к возврату (ПВЗ/возврат): ${overview.pending_return || 0}`,
         `в очереди FBS: ${fbsTotal}`,
       ];
       const notFbs = Number(
