@@ -25486,9 +25486,11 @@ async function saveWbFbsPickVerifyModal() {
         errN += 1;
         if (local) {
           const base = wbFbsPickState.baselineByOrder?.[oid] || {};
-          const localChanged =
-            !!local.pick_verified !== !!base.pick_verified
-            || String(local.pick_barcode || "").trim() !== String(base.pick_barcode || "").trim();
+          const localVerified = !!local.pick_verified && !!String(local.pick_barcode || "").trim();
+          const localBarcode = String(local.pick_barcode || "").trim();
+          const baseVerified = !!base.pick_verified && !!String(base.pick_barcode || "").trim();
+          const baseBarcode = String(base.pick_barcode || "").trim();
+          const localChanged = localVerified !== baseVerified || localBarcode !== baseBarcode;
           local.pick_verified_at = String(row.pick_verified_at || local.pick_verified_at || "");
           if (!localChanged) {
             local.pick_verified = !!row.pick_verified;
