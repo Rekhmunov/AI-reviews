@@ -17212,7 +17212,31 @@ function _wbFbsKizCircOpLabel(op) {
   return String(op || "—");
 }
 
-function _wbFbsKizCircDefaultDates() {
+function _wbFbsKizCircApiError(res, data, fallback) {
+  const detail = data && data.detail;
+  let msg = "";
+  if (typeof detail === "string" && detail.trim()) msg = detail.trim();
+  else if (Array.isArray(detail)) {
+    msg = detail
+      .map((x) => (x && (x.msg || x.detail)) || (typeof x === "string" ? x : JSON.stringify(x)))
+      .filter(Boolean)
+      .join("; ");
+  } else if (detail && typeof detail === "object") {
+    msg = detail.msg || detail.message || JSON.stringify(detail);
+  }
+  if (!msg) {
+    if (res && res.status === 502) {
+      msg = "Сервер временно недоступен (HTTP 502) — обычно рестарт. Повторите через несколько секунд.";
+    } else if (res && res.status === 504) {
+      msg = "Таймаут шлюза (HTTP 504). Повторите — prepare мог затянуться на сверке статусов WB.";
+    } else if (res && res.status) {
+      msg = `${fallback || "Ошибка"} (HTTP ${res.status})`;
+    } else {
+      msg = fallback || "Ошибка";
+    }
+  }
+  return msg;
+}
   // Soft default: yesterday…today. User always controls the range.
   const to = new Date();
   const from = new Date(to.getTime() - 1 * 24 * 60 * 60 * 1000);
@@ -17551,7 +17575,7 @@ async function runWbFbsKizCirculationChz() {
         },
       );
       const prep = await prepRes.json().catch(() => ({}));
-      if (!prepRes.ok) throw new Error(prep.detail || "Ошибка prepare");
+      if (!prepRes.ok) throw new Error(_wbFbsKizCircApiError(prepRes, prep, "Ошибка prepare"));
       for (const w of (prep.warnings || [])) {
         _wbFbsKizCircAppendLog(`⚠ ${w}`);
       }
@@ -17616,7 +17640,7 @@ async function runWbFbsKizCirculationChz() {
         body: JSON.stringify({ source_id: sid, token, documents: signed }),
       });
       const sub = await subRes.json().catch(() => ({}));
-      if (!subRes.ok) throw new Error(sub.detail || "Ошибка submit");
+      if (!subRes.ok) throw new Error(_wbFbsKizCircApiError(subRes, sub, "Ошибка submit"));
       if (sub.log) _wbFbsKizCircAppendLog(sub.log);
       totalSubmitted += Number(sub.submitted || 0);
       totalFailed += Number(sub.failed || 0);

@@ -10560,8 +10560,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         # Marketplace key required to verify wbStatus=sold before CHZ withdraw.
         api_key = _wb_fbs_source_key(owner_id, sid)
         keys = [str(k).strip() for k in (body.event_keys or []) if str(k or "").strip()]
+        logger.info(
+            "CHZ prepare start user=%s source_id=%s keys=%s",
+            owner_id,
+            sid,
+            len(keys),
+        )
         try:
-            return kiz_circ.prepare_chz_batches(
+            result = kiz_circ.prepare_chz_batches(
                 repository,
                 user_id=owner_id,
                 source_id=sid,
@@ -10570,6 +10576,20 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            logger.exception("CHZ prepare failed user=%s source_id=%s", owner_id, sid)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Ошибка prepare: {exc}",
+            ) from exc
+        docs_n = len(result.get("documents") or []) if isinstance(result, dict) else 0
+        logger.info(
+            "CHZ prepare done user=%s source_id=%s documents=%s",
+            owner_id,
+            sid,
+            docs_n,
+        )
+        return result
 
     @app.post("/api/wb-fbs/kiz-circulation/chz/submit")
     def wb_fbs_kiz_circulation_chz_submit(
