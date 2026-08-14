@@ -10728,11 +10728,6 @@ button.wb-fbs-kiz-add:disabled {
 .wb-fbs-pick-status.is-error {
   color: #b91c1c;
 }
-.wb-fbs-kiz-row.is-pending-scan {
-  outline: 2px solid #2563eb;
-  outline-offset: -2px;
-  background: rgba(37, 99, 235, 0.04);
-}
 #wbFbsSupplyDetailPickVerifyBtn[hidden] {
   display: none !important;
 }

@@ -24718,6 +24718,41 @@ function _wbFbsPickStatusHtml(row) {
   return `<div class="wb-fbs-pick-status is-empty">Не проверено</div>`;
 }
 
+function _wbFbsPickClearPendingHighlight() {
+  document.querySelectorAll("#wbFbsPickTbody tr.wb-fbs-kiz-row.is-active").forEach((tr) => {
+    tr.classList.remove("is-active");
+  });
+}
+
+/** Fast path: highlight pending row without full table re-render (same idea as KIZ). */
+function _wbFbsPickSetPendingHighlight(orderId) {
+  _wbFbsPickClearPendingHighlight();
+  const oid = Number(orderId);
+  if (!Number.isFinite(oid)) return false;
+  const tr = document.querySelector(`#wbFbsPickTbody tr.wb-fbs-kiz-row[data-order-id="${oid}"]`);
+  if (!tr) return false;
+  tr.classList.add("is-active");
+  return true;
+}
+
+/**
+ * Patch one status cell after a successful / failed SKU scan.
+ * Returns false when the row is not in the DOM → caller should full-render.
+ */
+function _wbFbsPickPatchStatusCell(orderId) {
+  const oid = Number(orderId);
+  if (!Number.isFinite(oid)) return false;
+  const tr = document.querySelector(`#wbFbsPickTbody tr.wb-fbs-kiz-row[data-order-id="${oid}"]`);
+  if (!tr) return false;
+  const cell = tr.querySelector(".wb-fbs-kiz-col-kiz");
+  const row = wbFbsPickState.rows.find((r) => Number(r.order_id) === oid);
+  if (!cell || !row) return false;
+  cell.innerHTML = _wbFbsPickStatusHtml(row);
+  _wbFbsPickClearPendingHighlight();
+  _wbFbsPickUpdateScanCounter();
+  return true;
+}
+
 function renderWbFbsPickVerifyTable() {
   const tbody = document.getElementById("wbFbsPickTbody");
   if (!tbody) return;
@@ -24747,7 +24782,7 @@ function renderWbFbsPickVerifyTable() {
   tbody.innerHTML = rows.map((r) => {
     const oid = Number(r.order_id);
     const photo = r.product_photo
-      ? `<img class="wb-fbs-product-photo" src="${_wbFbsEsc(r.product_photo)}" alt="" width="72" height="72" loading="lazy">`
+      ? `<img class="wb-fbs-product-photo" src="${_wbFbsEsc(r.product_photo)}" alt="" width="56" height="56" loading="lazy">`
       : `<span class="wb-fbs-product-ph" aria-hidden="true"></span>`;
     const barcodes = Array.isArray(r.barcodes) ? r.barcodes : [];
     const barcodeHtml = barcodes.length
@@ -24758,7 +24793,7 @@ function renderWbFbsPickVerifyTable() {
     const cancel = String(r.cancel_reason_label || "").trim()
       ? `<span class="wb-fbs-badge cancel">${_wbFbsEsc(r.cancel_reason_label)}</span>`
       : "";
-    const pendingCls = pending != null && Number(pending) === oid ? " is-pending-scan" : "";
+    const pendingCls = pending != null && Number(pending) === oid ? " is-active" : "";
     return `<tr class="wb-fbs-kiz-row${pendingCls}" data-order-id="${oid}">
       <td class="wb-fbs-kiz-col-order">
         <div class="wb-fbs-kiz-order-id">${oid}</div>
@@ -24900,7 +24935,10 @@ function beginWbFbsPickSkuScan(orderId) {
   const row = wbFbsPickState.rows.find((r) => Number(r.order_id) === oid);
   if (!row) return;
   wbFbsPickState.pendingOrderId = oid;
-  renderWbFbsPickVerifyTable();
+  // Fast path: toggle is-active only. Full render if the row is filtered out of DOM.
+  if (!_wbFbsPickSetPendingHighlight(oid)) {
+    renderWbFbsPickVerifyTable();
+  }
   const meta = document.getElementById("wbFbsPickScanPromptMeta");
   if (meta) {
     meta.textContent = `Заказ ${oid} · стикер ${row.sticker_number || "—"}`;
@@ -24916,7 +24954,7 @@ function beginWbFbsPickSkuScan(orderId) {
 function cancelWbFbsPickSkuScan() {
   setModalVisibility("wbFbsPickScanPrompt", false);
   wbFbsPickState.pendingOrderId = null;
-  renderWbFbsPickVerifyTable();
+  _wbFbsPickClearPendingHighlight();
   const sticker = document.getElementById("wbFbsPickStickerScan");
   if (sticker) setTimeout(() => sticker.focus(), 40);
 }
@@ -24939,7 +24977,10 @@ function onWbFbsPickSkuScanKey(event) {
     wbFbsPickState.errors[oid] = check.error || "ШК не подходит";
     _wbFbsPickSetInfo(check.error || "ШК не подходит к товару в заказе");
     if (input) input.select();
-    renderWbFbsPickVerifyTable();
+    // Patch status in-place when possible (errors filter may hide the row).
+    if (!_wbFbsPickPatchStatusCell(oid)) {
+      renderWbFbsPickVerifyTable();
+    }
     return;
   }
   row.pick_verified = true;
@@ -24947,13 +24988,22 @@ function onWbFbsPickSkuScanKey(event) {
   delete wbFbsPickState.errors[oid];
   setModalVisibility("wbFbsPickScanPrompt", false);
   wbFbsPickState.pendingOrderId = null;
-  // Keep filled row visible if «Незаполненные» was on.
+  // Show the filled row even if «Незаполненные» filter was on.
   const emptyFilter = document.getElementById("wbFbsPickFilterEmpty");
-  if (emptyFilter?.checked) emptyFilter.checked = false;
+  const emptyFilterWasOn = !!emptyFilter?.checked;
+  if (emptyFilter) emptyFilter.checked = false;
   _wbFbsPickSetInfo(`Заказ ${oid}: ШК ${check.barcode} совпал. Нажмите «Сохранить».`);
-  renderWbFbsPickVerifyTable();
+  // Full render when filter set changes; otherwise patch one status cell.
+  if (emptyFilterWasOn || !_wbFbsPickPatchStatusCell(oid)) {
+    renderWbFbsPickVerifyTable();
+  }
+  const rowEl = document.querySelector(`#wbFbsPickTbody tr[data-order-id="${oid}"]`);
+  if (rowEl) rowEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
   const sticker = document.getElementById("wbFbsPickStickerScan");
-  if (sticker) setTimeout(() => sticker.focus(), 40);
+  if (sticker) {
+    sticker.value = "";
+    setTimeout(() => sticker.focus(), 40);
+  }
 }
 window.onWbFbsPickSkuScanKey = onWbFbsPickSkuScanKey;
 
