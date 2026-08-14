@@ -368,6 +368,19 @@ def test_extract_chz_doc_status() -> None:
     )
     assert circ.extract_chz_doc_status({}) == ""
     assert circ.extract_chz_doc_status(None) == ""
+    # CRPT returns an array; also tolerate legacy {"raw": [...]} wrapper.
+    assert (
+        circ.extract_chz_doc_status(
+            [{"number": "x", "status": "CHECKED_NOT_OK"}]
+        )
+        == "CHECKED_NOT_OK"
+    )
+    assert (
+        circ.extract_chz_doc_status(
+            {"raw": [{"status": "PARSE_ERROR"}]}
+        )
+        == "PARSE_ERROR"
+    )
 
 
 def test_document_info_uses_v4_base() -> None:
@@ -377,15 +390,66 @@ def test_document_info_uses_v4_base() -> None:
 
     def fake_request(method, path, *, params=None, body=None, auth=True, base=None):
         captured.update({"method": method, "path": path, "base": base, "auth": auth})
-        return {"status": "CHECKED_NOT_OK"}
+        # True API /doc/{id}/info returns a JSON array of document cards.
+        return [
+            {
+                "number": "8f9a0d25-6ba2-404f-ac82-ef72d0140429",
+                "status": "CHECKED_NOT_OK",
+                "errors": ["Недопустимый статус кода"],
+                "commonErrors": [
+                    {
+                        "errorCode": "STATUS",
+                        "errorMessage": "Недопустимый статус кода идентификации",
+                    }
+                ],
+            }
+        ]
 
     client._request = fake_request  # type: ignore[method-assign]
     info = client.document_info("8f9a0d25-6ba2-404f-ac82-ef72d0140429")
     assert info["status"] == "CHECKED_NOT_OK"
+    assert "raw" not in info
     assert captured["method"] == "GET"
     assert captured["path"].endswith("/info")
     assert captured["base"] == PROD_BASE_V4
     assert client.v4_base() == PROD_BASE_V4
+
+
+def test_reconcile_infers_error_from_common_errors_without_status() -> None:
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    conn.__exit__.return_value = False
+    row = {
+        "event_key": "ek-2",
+        "chz_doc_id": "doc-2",
+        "chz_status": "submitted",
+        "status": "submitted",
+        "error_text": "",
+    }
+    cur = MagicMock()
+    cur.fetchall.return_value = [row]
+    conn.execute.return_value = cur
+    repo = MagicMock()
+    repo._connect.return_value = conn
+    repo._sql.side_effect = lambda q: q
+    repo._row_to_dict.side_effect = lambda r: r if isinstance(r, dict) else {}
+
+    client = MagicMock()
+    client.document_info.return_value = {
+        "commonErrors": [
+            {"errorCode": "X", "errorMessage": "Недопустимое количество символов"}
+        ]
+    }
+
+    with patch.object(circ, "ensure_kiz_circulation_tables"), patch.object(
+        circ, "heal_submitted_terminal_statuses", return_value={"healed": 0}
+    ), patch.object(circ, "apply_chz_doc_status", return_value=circ.STATUS_ERROR) as apply:
+        out = circ.reconcile_submitted_with_chz(
+            repo, client, user_id=1, source_id=13
+        )
+    assert out["failed"] == 1
+    assert apply.call_args.kwargs["chz_status"] == "CHECKED_NOT_OK"
+    assert "символов" in apply.call_args.kwargs["error_text"]
 
 
 def test_reconcile_submitted_applies_checked_not_ok() -> None:
@@ -560,10 +624,17 @@ def test_extract_chz_doc_errors() -> None:
             {"message": "МОД не найдены"},
             {"code": "12", "description": "Недопустимый статус кода"},
         ],
+        "commonErrors": [
+            {
+                "errorCode": "STATUS",
+                "errorMessage": "Недопустимый статус кода идентификации",
+            }
+        ],
     }
     text = circ.extract_chz_doc_errors(info)
     assert "МОД не найдены" in text
     assert "Недопустимый статус" in text
+    assert "STATUS" in text
 
 
 @patch(

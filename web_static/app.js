@@ -16964,6 +16964,7 @@ function _wbFbsKizCircIsSelectable(ev) {
     const chz = String(ev?.chz_status || "").trim().toUpperCase();
     return [
       "CHECKED_NOT_OK",
+      "PROCESSING_ERROR",
       "REJECTED",
       "ERROR",
       "FAILED",
