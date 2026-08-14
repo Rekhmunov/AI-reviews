@@ -16933,11 +16933,23 @@ function _wbFbsKizCircIsSelectable(ev) {
     }
   }
   if (!ok) return false;
-  // Вывод (op=1): только выкупленные (Marketplace wbStatus=sold).
+  // Вывод (op=1): только выкупленные. Возврат (op=2): только отказные.
   const op = Number(ev?.operation_type || 0);
   if (op === 1) {
     const ws = String(ev?.order_wb_status || "").trim().toLowerCase();
     if (ws !== "sold") return false;
+  } else if (op === 2) {
+    const ws = String(ev?.order_wb_status || "").trim().toLowerCase();
+    const ss = String(ev?.order_supplier_status || "").trim().toLowerCase();
+    const cancelledWs = [
+      "canceled",
+      "canceled_by_client",
+      "declined_by_client",
+      "defect",
+      "canceled_by_carrier",
+    ].includes(ws);
+    const cancelledSs = ss === "cancel" || ss === "cancel_carrier";
+    if (!cancelledWs && !cancelledSs) return false;
   }
   return true;
 }
@@ -17029,11 +17041,22 @@ function _wbFbsKizCircRenderTable() {
       const selectable = _wbFbsKizCircIsSelectable(ev) && Boolean(key);
       const selected = selectable && wbFbsKizCircState.selectedKeys.has(key);
       const opNum = Number(ev.operation_type || 0);
-      const notSoldWithdraw = opNum === 1
-        && String(ev.order_wb_status || "").trim().toLowerCase() !== "sold";
+      const wsLower = String(ev.order_wb_status || "").trim().toLowerCase();
+      const ssLower = String(ev.order_supplier_status || "").trim().toLowerCase();
+      const notSoldWithdraw = opNum === 1 && wsLower !== "sold";
+      const cancelledReturn = [
+        "canceled",
+        "canceled_by_client",
+        "declined_by_client",
+        "defect",
+        "canceled_by_carrier",
+      ].includes(wsLower) || ssLower === "cancel" || ssLower === "cancel_carrier";
+      const notCancelledReturn = opNum === 2 && !cancelledReturn;
       const disabledTitle = notSoldWithdraw
         ? "Вывод только для выкупленных (wbStatus=sold)"
-        : "Уже принято / нельзя передать";
+        : notCancelledReturn
+          ? "Возврат только для отказных / отменённых"
+          : "Уже принято / нельзя передать";
       const kiz = String(ev.excise_short || "");
       const kizShort = kiz.length > 28 ? `${kiz.slice(0, 14)}…${kiz.slice(-10)}` : kiz;
       const errRaw = ev.error_text || ev.skip_reason || "";

@@ -279,6 +279,9 @@ def test_prepare_groups_by_receipt(
         {
             "event_key": "k3",
             "operation_type": 2,
+            "order_id": 2002,
+            "order_wb_status": "canceled_by_client",
+            "order_supplier_status": "cancel",
             "excise_short": "cis-c",
             "fiscal_doc_number": "",
             "fiscal_dt": "",
@@ -347,6 +350,9 @@ def test_prepare_soft_skips_withdraw_without_kpp_keeps_returns(
         {
             "event_key": "r1",
             "operation_type": 2,
+            "order_id": 2002,
+            "order_wb_status": "canceled_by_client",
+            "order_supplier_status": "cancel",
             "excise_short": "cis-r",
             "fiscal_doc_number": "",
             "fiscal_dt": "",
@@ -470,6 +476,9 @@ def test_prepare_chunks_returns(mock_settings, _repair, mock_list, _attach, _sen
         {
             "event_key": f"r{i}",
             "operation_type": 2,
+            "order_id": 2002,
+            "order_wb_status": "canceled_by_client",
+            "order_supplier_status": "cancel",
             "excise_short": f"cis-{i}",
             "fiscal_doc_number": "",
             "fiscal_dt": "",
@@ -1175,3 +1184,119 @@ def test_prepare_skips_withdraw_unless_sold(
     assert "не выкуплен" in reasons["in-transit"]
     assert "нет связи" in reasons["no-order"]
     assert any("выкуплен" in w for w in out["warnings"])
+
+
+def test_return_not_cancelled_reason() -> None:
+    assert circ._return_not_cancelled_reason({"operation_type": 1}) == ""
+    assert "нет связи" in circ._return_not_cancelled_reason(
+        {"operation_type": 2, "order_id": None}
+    )
+    assert "не отказной" in circ._return_not_cancelled_reason(
+        {
+            "operation_type": 2,
+            "order_id": 1,
+            "order_wb_status": "sold",
+            "order_status_label": "Выкуплен",
+        }
+    )
+    assert "не отказной" in circ._return_not_cancelled_reason(
+        {
+            "operation_type": 2,
+            "order_id": 1,
+            "order_wb_status": "sorted",
+            "order_supplier_status": "complete",
+            "order_status_label": "В доставке",
+        }
+    )
+    assert (
+        circ._return_not_cancelled_reason(
+            {
+                "operation_type": 2,
+                "order_id": 1,
+                "order_wb_status": "canceled_by_client",
+            }
+        )
+        == ""
+    )
+
+
+@patch(
+    "review_processor.wb_kiz_circulation._close_deduped_prepare_events",
+    return_value=0,
+)
+@patch(
+    "review_processor.wb_kiz_circulation._load_sent_cis_identities",
+    return_value=set(),
+)
+@patch(
+    "review_processor.wb_kiz_circulation._attach_order_ids_to_events",
+)
+@patch("review_processor.wb_kiz_circulation.list_events_for_chz")
+@patch(
+    "review_processor.wb_kiz_circulation.repair_circulation_queue",
+    return_value={"returns_fixed": 0, "withdraw_skipped": 0},
+)
+@patch("review_processor.wb_kiz_circulation.get_chz_settings")
+def test_prepare_skips_return_unless_cancelled(
+    mock_settings, _repair, mock_list, _attach, _sent, _close
+) -> None:
+    mock_settings.return_value = {
+        "is_enabled": True,
+        "participant_inn": "7707083893",
+        "product_group": "lp",
+        "kpp": "770701001",
+        "fias_id": "fias-1",
+        "return_type": "REMOTE_SALE_RETURN",
+        "cert_thumbprint": "",
+        "api_base": "prod",
+        "api_base_url": PROD_BASE,
+    }
+
+    def _attach_side_effect(
+        repo, *, user_id, source_id, events, api_key="", hydrate=False
+    ):
+        for ev in events:
+            if ev.get("event_key") == "ret-ok":
+                ev["order_id"] = 20
+                ev["order_wb_status"] = "canceled_by_client"
+                ev["order_status_label"] = "Клиент отказался"
+            elif ev.get("event_key") == "ret-sold":
+                ev["order_id"] = 21
+                ev["order_wb_status"] = "sold"
+                ev["order_status_label"] = "Выкуплен"
+            elif ev.get("event_key") == "ret-delivery":
+                ev["order_id"] = 22
+                ev["order_wb_status"] = "sorted"
+                ev["order_supplier_status"] = "complete"
+                ev["order_status_label"] = "В доставке"
+
+    _attach.side_effect = _attach_side_effect
+    mock_list.return_value = [
+        {
+            "event_key": "ret-ok",
+            "operation_type": 2,
+            "excise_short": "cis-ret",
+            "status": "pending",
+        },
+        {
+            "event_key": "ret-sold",
+            "operation_type": 2,
+            "excise_short": "cis-sold",
+            "status": "pending",
+        },
+        {
+            "event_key": "ret-delivery",
+            "operation_type": 2,
+            "excise_short": "cis-del",
+            "status": "pending",
+        },
+    ]
+    out = circ.prepare_chz_batches(
+        repo=object(), user_id=1, source_id=2, api_key="mp-key"
+    )
+    assert out["counts"]["return_events"] == 1
+    assert out["counts"]["return_not_cancelled"] == 2
+    assert out["documents"][0]["event_keys"] == ["ret-ok"]
+    reasons = {s["event_key"]: s["skip_reason"] for s in out["skipped"]}
+    assert "не отказной" in reasons["ret-sold"]
+    assert "не отказной" in reasons["ret-delivery"]

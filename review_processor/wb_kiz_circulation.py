@@ -2101,6 +2101,18 @@ def _event_is_sold_for_chz(ev: dict[str, Any]) -> bool:
     return str(ev.get("order_wb_status") or "").strip().lower() == "sold"
 
 
+def _event_is_cancelled_for_chz(ev: dict[str, Any]) -> bool:
+    """Return-to-circulation only for отказные / cancelled Marketplace statuses."""
+    from . import wb_fbs as wb_fbs_mod
+
+    return bool(
+        wb_fbs_mod._is_cancelled_status(
+            supplier_status=ev.get("order_supplier_status") or "",
+            wb_status=ev.get("order_wb_status") or "",
+        )
+    )
+
+
 def _withdraw_not_sold_reason(ev: dict[str, Any]) -> str:
     """Empty if withdraw is allowed; otherwise human skip reason (fail closed)."""
     if int(ev.get("operation_type") or 0) != OP_WITHDRAW:
@@ -2120,6 +2132,27 @@ def _withdraw_not_sold_reason(ev: dict[str, Any]) -> str:
         or "неизвестно"
     )
     return f"заказ не выкуплен ({label})"
+
+
+def _return_not_cancelled_reason(ev: dict[str, Any]) -> str:
+    """Empty if return-to-circulation is allowed; otherwise skip reason (fail closed)."""
+    if int(ev.get("operation_type") or 0) != OP_RETURN:
+        return ""
+    oid = ev.get("order_id")
+    try:
+        oid_i = int(oid) if oid is not None else 0
+    except (TypeError, ValueError):
+        oid_i = 0
+    if oid_i <= 0:
+        return "нет связи с заказом FBS"
+    if _event_is_cancelled_for_chz(ev):
+        return ""
+    label = (
+        str(ev.get("order_status_label") or "").strip()
+        or str(ev.get("order_wb_status") or "").strip()
+        or "неизвестно"
+    )
+    return f"заказ не отказной ({label})"
 
 
 def list_events_for_chz(
@@ -2673,6 +2706,7 @@ def prepare_chz_batches(
     warnings: list[str] = []
     other_doc_date = _moscow_today()
     not_sold_n = 0
+    not_cancelled_n = 0
 
     for ev in events:
         op = int(ev.get("operation_type") or 0)
@@ -2696,6 +2730,11 @@ def prepare_chz_batches(
                 day = fiscal_dt or other_doc_date
                 withdraw_other_groups.setdefault(day, []).append(ev)
         elif op == OP_RETURN:
+            not_cancelled = _return_not_cancelled_reason(ev)
+            if not_cancelled:
+                not_cancelled_n += 1
+                skipped.append({**ev, "skip_reason": not_cancelled})
+                continue
             return_items.append(ev)
         else:
             skipped.append({**ev, "skip_reason": "неизвестный тип"})
@@ -2741,7 +2780,13 @@ def prepare_chz_batches(
     if not_sold_n:
         warnings.append(
             f"Пропущено выводов без статуса «выкуплен»: {not_sold_n} "
-            "(в ЧЗ уходят только заказы с wbStatus=sold)"
+            "(в ЧЗ уходят только заказы с wbStatus=sold; "
+            "на сборке / в доставке — нельзя)"
+        )
+    if not_cancelled_n:
+        warnings.append(
+            f"Пропущено возвратов без статуса отказа: {not_cancelled_n} "
+            "(в оборот возвращаются только отказные / отменённые)"
         )
 
     documents: list[dict[str, Any]] = []
@@ -2883,6 +2928,7 @@ def prepare_chz_batches(
             "return_events": return_n,
             "skipped": len(skipped),
             "withdraw_not_sold": not_sold_n,
+            "return_not_cancelled": not_cancelled_n,
             "eligible_loaded": len(events_raw),
             "eligible_after_dedupe": len(events),
         },

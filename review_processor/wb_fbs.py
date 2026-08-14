@@ -1847,7 +1847,10 @@ def hydrate_orders_for_kiz_srids(
     """Pull Marketplace orders (incl. sold/archive) so KIZ can join srid→order_id.
 
     Regular FBS sync skips finished/archive tabs — without this, Вывод КИЗ shows
-    «—» for order/status and cannot verify «выкуплен».
+    «—» for order/status and cannot verify «выкуплен» / «отказ».
+
+    Always refreshes statuses for linked orders (even when srid already known),
+    so stale «на сборке» / wrong archive defaults cannot pass CHZ gates.
     """
     ensure_wb_fbs_tables(repo)
     wanted = sorted({str(s or "").strip() for s in (srids or []) if str(s or "").strip()})
@@ -1858,74 +1861,69 @@ def hydrate_orders_for_kiz_srids(
         repo, user_id=user_id, source_id=source_id, srids=wanted
     )
     missing = [k for k in wanted if k not in before]
-    if not missing:
-        return {
-            "wanted": len(wanted),
-            "found_before": len(before),
-            "found_after": len(before),
-            "fetched": 0,
-        }
 
     client = WbFbsClient(str(api_key).strip())
     fetched = 0
-    # 1) Recent open orders window (may include items that just became sold).
-    try:
-        date_to = datetime.now(UTC)
-        date_from = date_to - timedelta(days=max(1, min(int(lookback_days), 30)))
-        next_token: int | None = 0
-        pages = 0
-        while pages < 15:
-            orders, next_token = client.get_orders_page(
-                limit=1000,
-                next_token=next_token if next_token is not None else 0,
-                date_from=date_from,
-                date_to=date_to,
-            )
-            if not orders:
-                break
-            for order in orders:
-                upsert_order(repo, user_id=user_id, source_id=source_id, order=order)
-                fetched += 1
-            pages += 1
-            if next_token is None:
-                break
-            time.sleep(0.2)
-    except Exception as exc:
-        _log.warning("kiz hydrate orders page failed: %s", exc)
-
-    # 2) Archive / finished (wbStatus often sold) — needed for Вывод КИЗ.
-    try:
-        arch_next: int | None = 0
-        pages = 0
-        max_pages = max(0, min(int(archive_pages), 30))
-        while pages < max_pages:
-            arch_orders, arch_next = client.get_archive_orders(
-                limit=1000, next_token=arch_next
-            )
-            if not arch_orders:
-                break
-            for order in arch_orders:
-                upsert_order(
-                    repo,
-                    user_id=user_id,
-                    source_id=source_id,
-                    order=order,
-                    is_archive=True,
-                    supplier_status=str(order.get("supplierStatus") or ""),
-                    wb_status=str(order.get("wbStatus") or "sold"),
+    if missing:
+        # 1) Recent open orders window (may include items that just became sold).
+        try:
+            date_to = datetime.now(UTC)
+            date_from = date_to - timedelta(days=max(1, min(int(lookback_days), 30)))
+            next_token: int | None = 0
+            pages = 0
+            while pages < 15:
+                orders, next_token = client.get_orders_page(
+                    limit=1000,
+                    next_token=next_token if next_token is not None else 0,
+                    date_from=date_from,
+                    date_to=date_to,
                 )
-                fetched += 1
-            pages += 1
-            if not arch_next:
-                break
-            time.sleep(0.2)
-    except Exception as exc:
-        _log.warning("kiz hydrate archive failed: %s", exc)
+                if not orders:
+                    break
+                for order in orders:
+                    upsert_order(repo, user_id=user_id, source_id=source_id, order=order)
+                    fetched += 1
+                pages += 1
+                if next_token is None:
+                    break
+                time.sleep(0.2)
+        except Exception as exc:
+            _log.warning("kiz hydrate orders page failed: %s", exc)
+
+        # 2) Archive / finished — sold AND cancelled (отказы). Never invent wbStatus.
+        try:
+            arch_next: int | None = 0
+            pages = 0
+            max_pages = max(0, min(int(archive_pages), 30))
+            while pages < max_pages:
+                arch_orders, arch_next = client.get_archive_orders(
+                    limit=1000, next_token=arch_next
+                )
+                if not arch_orders:
+                    break
+                for order in arch_orders:
+                    upsert_order(
+                        repo,
+                        user_id=user_id,
+                        source_id=source_id,
+                        order=order,
+                        is_archive=True,
+                        supplier_status=str(order.get("supplierStatus") or ""),
+                        # Do NOT default to "sold" — archive also has cancellations.
+                        wb_status=str(order.get("wbStatus") or ""),
+                    )
+                    fetched += 1
+                pages += 1
+                if not arch_next:
+                    break
+                time.sleep(0.2)
+        except Exception as exc:
+            _log.warning("kiz hydrate archive failed: %s", exc)
 
     after = order_ids_by_srids(
         repo, user_id=user_id, source_id=source_id, srids=wanted
     )
-    # Refresh statuses for newly linked orders (sold confirmation).
+    # Always refresh statuses for linked orders (sold vs in-delivery vs cancel).
     linked_ids = sorted({int(v) for v in after.values() if int(v or 0) > 0})
     if linked_ids:
         try:
@@ -1947,10 +1945,12 @@ def hydrate_orders_for_kiz_srids(
                         ws = str(st.get("wbStatus") or "").strip()
                         if not ss and not ws:
                             continue
+                        # Prefer live Marketplace statuses; do not force archive tab
+                        # for cancellations (they belong in cancelled).
                         tab = compute_tab(
                             supplier_status=ss,
                             wb_status=ws,
-                            is_archive=ws.lower() == "sold",
+                            is_archive=False,
                         )
                         conn.execute(
                             repo._sql(
