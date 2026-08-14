@@ -229,6 +229,11 @@ class ChzTrueApiClient:
 
         Uses **v4** ``GET /doc/{id}/info`` — v3 returns HTTP 410
         (``Устаревшее API``), which left Вывод КИЗ rows stuck on «отправлен».
+
+        True API returns a **JSON array** of document cards (see CRPT docs
+        example with ``status`` / ``commonErrors``). Older code treated a list
+        as ``{"raw": [...]}`` and never saw ``status``, so reconcile left rows
+        on «отправлен» forever.
         """
         doc_id = str(document_id or "").strip()
         if not doc_id:
@@ -239,7 +244,60 @@ class ChzTrueApiClient:
             auth=True,
             base=self.v4_base(),
         )
-        return data if isinstance(data, dict) else {"raw": data}
+        return _unwrap_doc_info_payload(data, document_id=doc_id)
+
+
+def _unwrap_doc_info_payload(
+    data: Any, *, document_id: str = ""
+) -> dict[str, Any]:
+    """Normalize ``/doc/{id}/info`` payload to a single document dict."""
+    doc_id = str(document_id or "").strip()
+
+    def _pick_from_list(rows: list[Any]) -> dict[str, Any] | None:
+        dicts = [x for x in rows if isinstance(x, dict)]
+        if not dicts:
+            return None
+        if doc_id:
+            for item in dicts:
+                num = str(
+                    item.get("number")
+                    or item.get("id")
+                    or item.get("documentId")
+                    or item.get("document_id")
+                    or ""
+                ).strip()
+                if num == doc_id:
+                    return item
+        return dicts[0]
+
+    if isinstance(data, list):
+        picked = _pick_from_list(data)
+        return picked if picked is not None else {"raw": data}
+    if isinstance(data, dict):
+        # Already a document card.
+        if any(
+            k in data
+            for k in ("status", "docStatus", "commonErrors", "errors", "number", "type")
+        ):
+            return data
+        # Nested wrappers seen in the wild.
+        for key in ("result", "document", "data", "body"):
+            nested = data.get(key)
+            if isinstance(nested, dict) and (
+                "status" in nested or "docStatus" in nested or "number" in nested
+            ):
+                return nested
+            if isinstance(nested, list):
+                picked = _pick_from_list(nested)
+                if picked is not None:
+                    return picked
+        raw = data.get("raw")
+        if isinstance(raw, list):
+            picked = _pick_from_list(raw)
+            if picked is not None:
+                return picked
+        return data
+    return {"raw": data}
 
     def cises_info(
         self,

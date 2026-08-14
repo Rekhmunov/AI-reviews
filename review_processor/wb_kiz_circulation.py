@@ -4480,7 +4480,14 @@ def reconcile_submitted_with_chz(
         checked += 1
         try:
             info = client.document_info(doc_id)
-            chz_status = extract_chz_doc_status(info) or "submitted"
+            err = extract_chz_doc_errors(info)
+            chz_status = extract_chz_doc_status(info) or ""
+            # Array/unwrap misses used to leave status empty → stuck on submitted
+            # even when CHZ already returned commonErrors / CHECKED_NOT_OK.
+            if not chz_status and err:
+                chz_status = "CHECKED_NOT_OK"
+            elif not chz_status:
+                chz_status = "submitted"
             final = apply_chz_doc_status(
                 repo,
                 user_id=user_id,
@@ -4488,7 +4495,7 @@ def reconcile_submitted_with_chz(
                 event_keys=keys,
                 chz_doc_id=doc_id,
                 chz_status=chz_status,
-                error_text=extract_chz_doc_errors(info),
+                error_text=err,
             )
             if final == STATUS_ACCEPTED:
                 accepted += 1
@@ -5080,8 +5087,22 @@ def _chunked(items: list[Any], size: int) -> list[list[Any]]:
 
 def extract_chz_doc_status(info: dict[str, Any] | None) -> str:
     """Best-effort document status string from True API ``/doc/{id}/info``."""
+    if isinstance(info, list):
+        for item in info:
+            if isinstance(item, dict):
+                got = extract_chz_doc_status(item)
+                if got:
+                    return got
+        return ""
     if not isinstance(info, dict):
         return ""
+    # Unwrap accidental {"raw": [ {...} ]} from older clients.
+    if "status" not in info and "docStatus" not in info:
+        raw = info.get("raw")
+        if isinstance(raw, (list, dict)):
+            got = extract_chz_doc_status(raw)  # type: ignore[arg-type]
+            if got:
+                return got
     for key in (
         "status",
         "docStatus",
@@ -5104,8 +5125,21 @@ def extract_chz_doc_status(info: dict[str, Any] | None) -> str:
 
 def extract_chz_doc_errors(info: dict[str, Any] | None) -> str:
     """Best-effort human text from True API document_info payload."""
+    if isinstance(info, list):
+        parts = [
+            extract_chz_doc_errors(item)
+            for item in info
+            if isinstance(item, dict)
+        ]
+        return "; ".join(p for p in parts if p)[:1800]
     if not isinstance(info, dict):
         return ""
+    if "errors" not in info and "commonErrors" not in info:
+        raw = info.get("raw")
+        if isinstance(raw, (list, dict)):
+            got = extract_chz_doc_errors(raw)  # type: ignore[arg-type]
+            if got:
+                return got
     chunks: list[str] = []
     for key in (
         "errors",
@@ -5121,13 +5155,18 @@ def extract_chz_doc_errors(info: dict[str, Any] | None) -> str:
             for item in val:
                 if isinstance(item, dict):
                     msg = (
-                        item.get("message")
+                        item.get("errorMessage")
+                        or item.get("message")
                         or item.get("error")
                         or item.get("description")
                         or item.get("text")
                         or ""
                     )
-                    code = item.get("code") or item.get("errorCode") or ""
+                    code = (
+                        item.get("errorCode")
+                        or item.get("code")
+                        or ""
+                    )
                     line = " ".join(str(x) for x in (code, msg) if x).strip()
                     if line:
                         chunks.append(line)
@@ -5136,7 +5175,12 @@ def extract_chz_doc_errors(info: dict[str, Any] | None) -> str:
         elif isinstance(val, str) and val.strip():
             chunks.append(val.strip())
         elif isinstance(val, dict):
-            msg = val.get("message") or val.get("description") or ""
+            msg = (
+                val.get("errorMessage")
+                or val.get("message")
+                or val.get("description")
+                or ""
+            )
             if msg:
                 chunks.append(str(msg))
     for key in ("description", "error", "error_message", "body"):
