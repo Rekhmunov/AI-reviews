@@ -1681,11 +1681,13 @@ def build_kiz_marking_payload(
     api_key: str,
     supply_id: str,
 ) -> dict[str, Any]:
-    """Rows for «Указать маркировку» modal: only orders that accept sgtin."""
-    # Fresh meta so bound codes match ЛК.
-    invalidate_supply_detail_cache(
-        user_id=user_id, source_id=source_id, supply_id=supply_id
-    )
+    """Rows for «Указать маркировку» modal: only orders that accept sgtin.
+
+    Does **not** bust the supply-detail cache on every open: several operators
+    may work the same supply concurrently, and forced invalidation caused
+    parallel Marketplace/sticker storms (rate limits → empty/error UI).
+    Local ``kiz_*`` is always read fresh from DB below.
+    """
     detail = get_supply_detail(
         repo,
         user_id=user_id,
@@ -1765,6 +1767,11 @@ def build_kiz_marking_payload(
             codes = wb_codes
         else:
             codes = [""]
+        saved_at_raw = local.get("saved_at")
+        if hasattr(saved_at_raw, "isoformat"):
+            kiz_saved_at = saved_at_raw.isoformat()
+        else:
+            kiz_saved_at = str(saved_at_raw or "").strip()
         try:
             nm = int(o.get("nm_id"))
         except (TypeError, ValueError):
@@ -1794,6 +1801,7 @@ def build_kiz_marking_payload(
                 "sticker_part_b": part_b,
                 "sticker_number": _sticker_number(part_a, part_b),
                 "kiz_codes": codes,
+                "kiz_saved_at": kiz_saved_at,
                 "kiz_bound": bool(o.get("kiz_bound")),
                 "kiz_local": bool(has_local_draft),
                 "kiz_wb_synced": bool(local.get("wb_synced"))
@@ -2282,18 +2290,43 @@ def save_kiz_marking(
             skipped_n += 1
             continue
 
+        expected_saved_at = str(raw.get("expected_saved_at") or "").strip()
+        force_save = bool(raw.get("force"))
         local_ok = False
+        local_saved_at = ""
         if repo is not None and user_id is not None and source_id is not None:
             try:
                 # Always persist locally first (even if WB will fail).
-                local_ok = wb.update_order_kiz_codes(
+                local_res = wb.update_order_kiz_codes(
                     repo,
                     user_id=int(user_id),
                     source_id=int(source_id),
                     order_id=oid,
                     kiz_codes=uniq,
                     wb_synced=False,
+                    expected_saved_at=expected_saved_at or None,
+                    force=force_save,
                 )
+                if local_res.get("conflict"):
+                    err_n += 1
+                    results.append(
+                        {
+                            "order_id": oid,
+                            "ok": False,
+                            "local_ok": False,
+                            "wb_ok": False,
+                            "conflict": True,
+                            "kiz_codes": list(local_res.get("codes") or []),
+                            "kiz_saved_at": str(local_res.get("saved_at") or ""),
+                            "error": (
+                                "Заказ уже сохранён другим оператором — "
+                                "проверьте КИЗ и сохраните снова"
+                            ),
+                        }
+                    )
+                    continue
+                local_ok = bool(local_res.get("ok"))
+                local_saved_at = str(local_res.get("saved_at") or "")
                 if local_ok:
                     local_n += 1
                 else:
@@ -2305,6 +2338,7 @@ def save_kiz_marking(
                             "local_ok": False,
                             "wb_ok": False,
                             "kiz_codes": uniq,
+                            "kiz_saved_at": local_saved_at,
                             "error": "Заказ не найден локально — синхронизируйте FBS и повторите",
                         }
                     )
@@ -2346,6 +2380,7 @@ def save_kiz_marking(
                         "supplier_status": str(known.get("supplier_status") or ""),
                         "wb_status": str(known.get("wb_status") or ""),
                         "kiz_codes": [],
+                        "kiz_saved_at": local_saved_at,
                         "error": "",
                         "skipped_empty": True,
                     }
@@ -2364,6 +2399,7 @@ def save_kiz_marking(
                     "supplier_status": str(known.get("supplier_status") or ""),
                     "wb_status": str(known.get("wb_status") or ""),
                     "kiz_codes": uniq,
+                    "kiz_saved_at": local_saved_at,
                     "error": f"Заказ отменен ({label})",
                 }
             )
@@ -2384,14 +2420,17 @@ def save_kiz_marking(
 
         if wb_ok and local_ok and repo is not None and user_id is not None and source_id is not None:
             try:
-                wb.update_order_kiz_codes(
+                synced_res = wb.update_order_kiz_codes(
                     repo,
                     user_id=int(user_id),
                     source_id=int(source_id),
                     order_id=oid,
                     kiz_codes=uniq,
                     wb_synced=True,
+                    force=True,
                 )
+                if synced_res.get("ok"):
+                    local_saved_at = str(synced_res.get("saved_at") or local_saved_at)
             except Exception as local_exc:
                 _log.warning(
                     "local kiz wb_synced flag order %s failed: %s", oid, local_exc
@@ -2406,6 +2445,7 @@ def save_kiz_marking(
                     "local_ok": local_ok,
                     "wb_ok": True,
                     "kiz_codes": uniq,
+                    "kiz_saved_at": local_saved_at,
                     "error": "",
                 }
             )
@@ -2418,6 +2458,7 @@ def save_kiz_marking(
                     "local_ok": local_ok,
                     "wb_ok": False,
                     "kiz_codes": uniq,
+                    "kiz_saved_at": local_saved_at,
                     "error": wb_error or "Ошибка записи в WB",
                 }
             )

@@ -1107,6 +1107,17 @@ def _kiz_code_clean(value: object) -> str:
     return text.strip(" \t\r\n")
 
 
+def _normalize_kiz_saved_at(value: object) -> str:
+    if value is None:
+        return ""
+    if hasattr(value, "isoformat"):
+        try:
+            return str(value.isoformat())
+        except Exception:
+            return str(value)
+    return str(value or "").strip()
+
+
 def update_order_kiz_codes(
     repo: ReviewRepository,
     *,
@@ -1115,16 +1126,62 @@ def update_order_kiz_codes(
     order_id: int,
     kiz_codes: list[str],
     wb_synced: bool = False,
-) -> bool:
+    expected_saved_at: str | None = None,
+    force: bool = False,
+) -> dict[str, Any]:
     """Persist КИЗ codes locally; ``wb_synced`` marks successful WB API push.
 
-    Returns False when no local order row was updated.
+    When ``expected_saved_at`` is set and ``force`` is false, refuses the write
+    if another operator already saved different codes (optimistic concurrency).
+
+    Returns ``{ok, conflict, missing, saved_at, codes}``.
     """
     ensure_wb_fbs_tables(repo)
     codes = [_kiz_code_clean(x) for x in (kiz_codes or []) if _kiz_code_clean(x)]
     payload = json.dumps(codes, ensure_ascii=False)
     saved_at = _utc_now()
+    expected = _normalize_kiz_saved_at(expected_saved_at)
     with repo._connect() as conn:
+        row = conn.execute(
+            repo._sql(
+                """
+                SELECT kiz_codes_json, kiz_saved_at FROM wb_fbs_orders
+                WHERE user_id = ? AND source_id = ? AND order_id = ?
+                """
+            ),
+            (int(user_id), int(source_id), int(order_id)),
+        ).fetchone()
+        if not row:
+            return {
+                "ok": False,
+                "conflict": False,
+                "missing": True,
+                "saved_at": "",
+                "codes": codes,
+            }
+        d = repo._row_to_dict(row)
+        cur_saved = _normalize_kiz_saved_at(d.get("kiz_saved_at"))
+        cur_codes: list[str] = []
+        try:
+            parsed = json.loads(d.get("kiz_codes_json") or "[]")
+            if isinstance(parsed, list):
+                cur_codes = [_kiz_code_clean(x) for x in parsed if _kiz_code_clean(x)]
+        except Exception:
+            cur_codes = []
+        if (
+            not force
+            and expected
+            and cur_saved
+            and expected != cur_saved
+            and cur_codes != codes
+        ):
+            return {
+                "ok": False,
+                "conflict": True,
+                "missing": False,
+                "saved_at": cur_saved,
+                "codes": cur_codes,
+            }
         cur = conn.execute(
             repo._sql(
                 """
@@ -1146,7 +1203,13 @@ def update_order_kiz_codes(
             updated = int(cur.rowcount or 0)
         except Exception:
             updated = 0
-    return updated > 0
+    return {
+        "ok": updated > 0,
+        "conflict": False,
+        "missing": updated <= 0,
+        "saved_at": _normalize_kiz_saved_at(saved_at) if updated > 0 else cur_saved,
+        "codes": codes if updated > 0 else cur_codes,
+    }
 
 
 def update_order_wb_statuses(
