@@ -10314,6 +10314,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         owner_id = _supply_owner_id(user)
         if not source_id:
             raise HTTPException(status_code=400, detail="Укажите source_id")
+        # Marketplace FBS key — hydrate sold/archive so order/status are not «—».
+        api_key = _wb_fbs_source_key(owner_id, int(source_id))
         items = kiz_circ.list_events(
             repository,
             user_id=owner_id,
@@ -10321,6 +10323,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             status=str(status or ""),
             operation_type=int(operation_type) if operation_type else None,
             limit=int(limit or 200),
+            api_key=api_key,
+            hydrate_orders=True,
         )
         return {"items": items, "total": len(items)}
 
@@ -10402,6 +10406,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         sid = int(source_id or body.source_id or 0)
         if sid <= 0:
             raise HTTPException(status_code=400, detail="Укажите source_id")
+        # Marketplace key required to verify wbStatus=sold before CHZ withdraw.
+        api_key = _wb_fbs_source_key(owner_id, sid)
         keys = [str(k).strip() for k in (body.event_keys or []) if str(k or "").strip()]
         try:
             return kiz_circ.prepare_chz_batches(
@@ -10409,6 +10415,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 user_id=owner_id,
                 source_id=sid,
                 event_keys=keys or None,
+                api_key=api_key,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

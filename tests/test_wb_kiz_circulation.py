@@ -228,6 +228,9 @@ def test_extract_chz_doc_errors() -> None:
     "review_processor.wb_kiz_circulation._load_sent_cis_identities",
     return_value=set(),
 )
+@patch(
+    "review_processor.wb_kiz_circulation._attach_order_ids_to_events",
+)
 @patch("review_processor.wb_kiz_circulation.list_events_for_chz")
 @patch(
     "review_processor.wb_kiz_circulation.repair_circulation_queue",
@@ -235,7 +238,7 @@ def test_extract_chz_doc_errors() -> None:
 )
 @patch("review_processor.wb_kiz_circulation.get_chz_settings")
 def test_prepare_groups_by_receipt(
-    mock_settings, _repair, mock_list, _sent, _close
+    mock_settings, _repair, mock_list, _attach, _sent, _close
 ) -> None:
     mock_settings.return_value = {
         "is_enabled": True,
@@ -252,6 +255,8 @@ def test_prepare_groups_by_receipt(
         {
             "event_key": "k1",
             "operation_type": 1,
+            "order_id": 1001,
+            "order_wb_status": "sold",
             "excise_short": "cis-a",
             "fiscal_doc_number": "11",
             "fiscal_dt": "2026-08-10",
@@ -262,6 +267,8 @@ def test_prepare_groups_by_receipt(
         {
             "event_key": "k2",
             "operation_type": 1,
+            "order_id": 1001,
+            "order_wb_status": "sold",
             "excise_short": "cis-b",
             "fiscal_doc_number": "11",
             "fiscal_dt": "2026-08-10",
@@ -303,6 +310,9 @@ def test_prepare_groups_by_receipt(
     "review_processor.wb_kiz_circulation._load_sent_cis_identities",
     return_value=set(),
 )
+@patch(
+    "review_processor.wb_kiz_circulation._attach_order_ids_to_events",
+)
 @patch("review_processor.wb_kiz_circulation.list_events_for_chz")
 @patch(
     "review_processor.wb_kiz_circulation.repair_circulation_queue",
@@ -310,7 +320,7 @@ def test_prepare_groups_by_receipt(
 )
 @patch("review_processor.wb_kiz_circulation.get_chz_settings")
 def test_prepare_soft_skips_withdraw_without_kpp_keeps_returns(
-    mock_settings, _repair, mock_list, _sent, _close
+    mock_settings, _repair, mock_list, _attach, _sent, _close
 ) -> None:
     mock_settings.return_value = {
         "is_enabled": True,
@@ -327,6 +337,8 @@ def test_prepare_soft_skips_withdraw_without_kpp_keeps_returns(
         {
             "event_key": "k1",
             "operation_type": 1,
+            "order_id": 1001,
+            "order_wb_status": "sold",
             "excise_short": "cis-a",
             "fiscal_doc_number": "11",
             "fiscal_dt": "2026-08-10",
@@ -358,6 +370,9 @@ def test_prepare_soft_skips_withdraw_without_kpp_keeps_returns(
     "review_processor.wb_kiz_circulation._load_sent_cis_identities",
     return_value=set(),
 )
+@patch(
+    "review_processor.wb_kiz_circulation._attach_order_ids_to_events",
+)
 @patch("review_processor.wb_kiz_circulation.list_events_for_chz")
 @patch(
     "review_processor.wb_kiz_circulation.repair_circulation_queue",
@@ -365,7 +380,7 @@ def test_prepare_soft_skips_withdraw_without_kpp_keeps_returns(
 )
 @patch("review_processor.wb_kiz_circulation.get_chz_settings")
 def test_prepare_nofiscal_withdraw_uses_other_primary_doc(
-    mock_settings, _repair, mock_list, _sent, _close
+    mock_settings, _repair, mock_list, _attach, _sent, _close
 ) -> None:
     mock_settings.return_value = {
         "is_enabled": True,
@@ -382,6 +397,8 @@ def test_prepare_nofiscal_withdraw_uses_other_primary_doc(
         {
             "event_key": "k-nofiscal",
             "operation_type": 1,
+            "order_id": 1001,
+            "order_wb_status": "sold",
             "excise_short": "cis-nofiscal",
             "fiscal_doc_number": "",
             "fiscal_dt": "",
@@ -428,13 +445,16 @@ def test_build_lk_receipt_other_includes_custom_name() -> None:
     "review_processor.wb_kiz_circulation._load_sent_cis_identities",
     return_value=set(),
 )
+@patch(
+    "review_processor.wb_kiz_circulation._attach_order_ids_to_events",
+)
 @patch("review_processor.wb_kiz_circulation.list_events_for_chz")
 @patch(
     "review_processor.wb_kiz_circulation.repair_circulation_queue",
     return_value={"returns_fixed": 0, "withdraw_skipped": 0},
 )
 @patch("review_processor.wb_kiz_circulation.get_chz_settings")
-def test_prepare_chunks_returns(mock_settings, _repair, mock_list, _sent, _close) -> None:
+def test_prepare_chunks_returns(mock_settings, _repair, mock_list, _attach, _sent, _close) -> None:
     mock_settings.return_value = {
         "is_enabled": True,
         "participant_inn": "7707083893",
@@ -638,6 +658,8 @@ def test_resolve_sync_upgrade_late_fiscal() -> None:
         "srid": "s1",
         "excise_short": "CIS",
         "operation_type": 1,
+        "order_id": 1001,
+        "order_wb_status": "sold",
     }
     incoming = {
         "event_key": "key-with-fiscal",
@@ -646,6 +668,8 @@ def test_resolve_sync_upgrade_late_fiscal() -> None:
         "srid": "s1",
         "excise_short": "CIS",
         "operation_type": 1,
+        "order_id": 1001,
+        "order_wb_status": "sold",
     }
     action, target = circ._resolve_sync_action([nofiscal], norm=incoming)
     assert action == "upgrade"
@@ -711,6 +735,8 @@ def test_dedupe_events_prefers_fiscal_and_skips_already_sent() -> None:
         "rid": "",
         "excise_short": "CIS",
         "operation_type": 1,
+        "order_id": 1001,
+        "order_wb_status": "sold",
         "fiscal_doc_number": "",
         "fiscal_dt": "",
     }
@@ -720,6 +746,8 @@ def test_dedupe_events_prefers_fiscal_and_skips_already_sent() -> None:
         "rid": "",
         "excise_short": "CIS",
         "operation_type": 1,
+        "order_id": 1001,
+        "order_wb_status": "sold",
         "fiscal_doc_number": "7",
         "fiscal_dt": "2026-08-01",
     }
@@ -729,6 +757,8 @@ def test_dedupe_events_prefers_fiscal_and_skips_already_sent() -> None:
         "rid": "",
         "excise_short": "CIS",
         "operation_type": 1,
+        "order_id": 1001,
+        "order_wb_status": "sold",
         "fiscal_doc_number": "8",
         "fiscal_dt": "2026-08-02",
         "status": "pending",
@@ -752,6 +782,9 @@ def test_dedupe_events_prefers_fiscal_and_skips_already_sent() -> None:
 @patch(
     "review_processor.wb_kiz_circulation._load_sent_cis_identities",
 )
+@patch(
+    "review_processor.wb_kiz_circulation._attach_order_ids_to_events",
+)
 @patch("review_processor.wb_kiz_circulation.list_events_for_chz")
 @patch(
     "review_processor.wb_kiz_circulation.repair_circulation_queue",
@@ -759,7 +792,7 @@ def test_dedupe_events_prefers_fiscal_and_skips_already_sent() -> None:
 )
 @patch("review_processor.wb_kiz_circulation.get_chz_settings")
 def test_prepare_skips_already_sent_identity(
-    mock_settings, _repair, mock_list, mock_sent, _close
+    mock_settings, _repair, mock_list, _attach, mock_sent, _close
 ) -> None:
     mock_settings.return_value = {
         "is_enabled": True,
@@ -777,6 +810,8 @@ def test_prepare_skips_already_sent_identity(
         {
             "event_key": "dup",
             "operation_type": 1,
+            "order_id": 1001,
+            "order_wb_status": "sold",
             "srid": "s1",
             "rid": "",
             "excise_short": "cis-a",
@@ -825,6 +860,8 @@ def test_upsert_sent_cis_rows_writes_registry() -> None:
                 {
                     "excise_short": "CIS1",
                     "operation_type": 1,
+                    "order_id": 1001,
+                    "order_wb_status": "sold",
                     "srid": "s1",
                     "rid": "",
                     "chz_doc_id": "doc-9",
@@ -909,6 +946,9 @@ def test_maintain_storage_throttles_when_recent() -> None:
     "review_processor.wb_kiz_circulation._load_sent_cis_identities",
     return_value=set(),
 )
+@patch(
+    "review_processor.wb_kiz_circulation._attach_order_ids_to_events",
+)
 @patch("review_processor.wb_kiz_circulation.list_events_for_chz")
 @patch(
     "review_processor.wb_kiz_circulation.repair_circulation_queue",
@@ -916,7 +956,7 @@ def test_maintain_storage_throttles_when_recent() -> None:
 )
 @patch("review_processor.wb_kiz_circulation.get_chz_settings")
 def test_prepare_caps_documents_per_round(
-    mock_settings, _repair, mock_list, _sent, _close, monkeypatch
+    mock_settings, _repair, mock_list, _attach, _sent, _close, monkeypatch
 ) -> None:
     """UKЭP signs one doc at a time — prepare must not return huge batches."""
     monkeypatch.setattr(circ, "CHZ_DOCUMENTS_PER_PREPARE", 3)
@@ -935,6 +975,8 @@ def test_prepare_caps_documents_per_round(
         {
             "event_key": f"k{i}",
             "operation_type": 1,
+            "order_id": 1001,
+            "order_wb_status": "sold",
             "excise_short": f"cis-{i}",
             "fiscal_doc_number": str(100 + i),
             "fiscal_dt": "2026-08-10",
@@ -966,6 +1008,9 @@ def test_prepare_caps_documents_per_round(
     "review_processor.wb_kiz_circulation._load_sent_cis_identities",
     return_value=set(),
 )
+@patch(
+    "review_processor.wb_kiz_circulation._attach_order_ids_to_events",
+)
 @patch("review_processor.wb_kiz_circulation.list_events_for_chz")
 @patch(
     "review_processor.wb_kiz_circulation.repair_circulation_queue",
@@ -973,7 +1018,7 @@ def test_prepare_caps_documents_per_round(
 )
 @patch("review_processor.wb_kiz_circulation.get_chz_settings")
 def test_prepare_passes_event_keys_filter(
-    mock_settings, _repair, mock_list, _sent, _close
+    mock_settings, _repair, mock_list, _attach, _sent, _close
 ) -> None:
     mock_settings.return_value = {
         "is_enabled": True,
@@ -990,6 +1035,8 @@ def test_prepare_passes_event_keys_filter(
         {
             "event_key": "only-me",
             "operation_type": 1,
+            "order_id": 1001,
+            "order_wb_status": "sold",
             "excise_short": "cis-x",
             "fiscal_doc_number": "42",
             "fiscal_dt": "2026-08-10",
@@ -1011,3 +1058,120 @@ def test_prepare_passes_event_keys_filter(
     ]
     assert out["counts"]["documents"] == 1
     assert out["documents"][0]["event_keys"] == ["only-me"]
+
+
+def test_withdraw_not_sold_reason() -> None:
+    assert circ._withdraw_not_sold_reason({"operation_type": 2}) == ""
+    assert "нет связи" in circ._withdraw_not_sold_reason(
+        {"operation_type": 1, "order_id": None}
+    )
+    assert "не выкуплен" in circ._withdraw_not_sold_reason(
+        {
+            "operation_type": 1,
+            "order_id": 1,
+            "order_wb_status": "waiting",
+            "order_status_label": "В пути",
+        }
+    )
+    assert (
+        circ._withdraw_not_sold_reason(
+            {"operation_type": 1, "order_id": 1, "order_wb_status": "sold"}
+        )
+        == ""
+    )
+    assert circ._event_is_sold_for_chz({"order_wb_status": "Sold"}) is True
+    assert circ._event_is_sold_for_chz({"order_wb_status": "sorted"}) is False
+
+
+@patch(
+    "review_processor.wb_kiz_circulation._close_deduped_prepare_events",
+    return_value=0,
+)
+@patch(
+    "review_processor.wb_kiz_circulation._load_sent_cis_identities",
+    return_value=set(),
+)
+@patch(
+    "review_processor.wb_kiz_circulation._attach_order_ids_to_events",
+)
+@patch("review_processor.wb_kiz_circulation.list_events_for_chz")
+@patch(
+    "review_processor.wb_kiz_circulation.repair_circulation_queue",
+    return_value={"returns_fixed": 0, "withdraw_skipped": 0},
+)
+@patch("review_processor.wb_kiz_circulation.get_chz_settings")
+def test_prepare_skips_withdraw_unless_sold(
+    mock_settings, _repair, mock_list, _attach, _sent, _close
+) -> None:
+    mock_settings.return_value = {
+        "is_enabled": True,
+        "participant_inn": "7707083893",
+        "product_group": "lp",
+        "kpp": "770701001",
+        "fias_id": "fias-1",
+        "return_type": "REMOTE_SALE_RETURN",
+        "cert_thumbprint": "",
+        "api_base": "prod",
+        "api_base_url": PROD_BASE,
+    }
+
+    def _attach_side_effect(
+        repo, *, user_id, source_id, events, api_key="", hydrate=False
+    ):
+        for ev in events:
+            if ev.get("event_key") == "sold-ok":
+                ev["order_id"] = 10
+                ev["order_wb_status"] = "sold"
+                ev["order_status_label"] = "Выкуплен"
+            elif ev.get("event_key") == "in-transit":
+                ev["order_id"] = 11
+                ev["order_wb_status"] = "sorted"
+                ev["order_status_label"] = "В пути"
+            elif ev.get("event_key") == "no-order":
+                ev["order_id"] = None
+                ev["order_wb_status"] = ""
+                ev["order_status_label"] = ""
+
+    _attach.side_effect = _attach_side_effect
+    mock_list.return_value = [
+        {
+            "event_key": "sold-ok",
+            "operation_type": 1,
+            "excise_short": "cis-sold",
+            "fiscal_doc_number": "1",
+            "fiscal_dt": "2026-08-10",
+            "price": 10,
+            "currency_name": "RUB",
+            "status": "pending",
+        },
+        {
+            "event_key": "in-transit",
+            "operation_type": 1,
+            "excise_short": "cis-way",
+            "fiscal_doc_number": "2",
+            "fiscal_dt": "2026-08-10",
+            "price": 10,
+            "currency_name": "RUB",
+            "status": "pending",
+        },
+        {
+            "event_key": "no-order",
+            "operation_type": 1,
+            "excise_short": "cis-miss",
+            "fiscal_doc_number": "3",
+            "fiscal_dt": "2026-08-10",
+            "price": 10,
+            "currency_name": "RUB",
+            "status": "pending",
+        },
+    ]
+    out = circ.prepare_chz_batches(
+        repo=object(), user_id=1, source_id=2, api_key="mp-key"
+    )
+    assert out["counts"]["withdraw_events"] == 1
+    assert out["counts"]["withdraw_not_sold"] == 2
+    assert out["documents"][0]["event_keys"] == ["sold-ok"]
+    reasons = {s["event_key"]: s["skip_reason"] for s in out["skipped"]}
+    assert "не выкуплен" in reasons["in-transit"]
+    assert "нет связи" in reasons["no-order"]
+    assert any("выкуплен" in w for w in out["warnings"])

@@ -1981,6 +1981,8 @@ def list_events(
     operation_type: int | None = None,
     limit: int = 200,
     order: str = "desc",
+    api_key: str = "",
+    hydrate_orders: bool = False,
 ) -> list[dict[str, Any]]:
     ensure_kiz_circulation_tables(repo)
     lim = max(1, min(int(limit or 200), 5000))
@@ -2011,7 +2013,14 @@ def list_events(
         d = repo._row_to_dict(r)
         d.pop("raw_json", None)
         out.append(d)
-    _attach_order_ids_to_events(repo, user_id=user_id, source_id=source_id, events=out)
+    _attach_order_ids_to_events(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        events=out,
+        api_key=api_key,
+        hydrate=bool(hydrate_orders and api_key),
+    )
     return out
 
 
@@ -2021,6 +2030,8 @@ def _attach_order_ids_to_events(
     user_id: int,
     source_id: int,
     events: list[dict[str, Any]],
+    api_key: str = "",
+    hydrate: bool = False,
 ) -> None:
     """Attach numeric FBS ``order_id`` + Marketplace status via srid/rid join."""
     if not events:
@@ -2035,6 +2046,19 @@ def _attach_order_ids_to_events(
             keys.append(srid)
         if rid and rid != srid:
             keys.append(rid)
+
+    if hydrate and api_key and keys:
+        try:
+            wb_fbs_mod.hydrate_orders_for_kiz_srids(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                srids=keys,
+                api_key=api_key,
+            )
+        except Exception as exc:
+            logger.warning("hydrate_orders_for_kiz_srids failed: %s", exc)
+
     by_srid = wb_fbs_mod.order_ids_by_srids(
         repo, user_id=user_id, source_id=source_id, srids=keys
     )
@@ -2070,6 +2094,32 @@ def _attach_order_ids_to_events(
         ev["order_wb_status"] = str(st.get("wb_status") or "").strip()
         ev["order_supplier_status"] = str(st.get("supplier_status") or "").strip()
         ev["order_cancel_reason"] = str(st.get("cancel_reason_label") or "").strip()
+
+
+def _event_is_sold_for_chz(ev: dict[str, Any]) -> bool:
+    """Withdraw to CHZ only when Marketplace wbStatus is sold («выкуплен»)."""
+    return str(ev.get("order_wb_status") or "").strip().lower() == "sold"
+
+
+def _withdraw_not_sold_reason(ev: dict[str, Any]) -> str:
+    """Empty if withdraw is allowed; otherwise human skip reason (fail closed)."""
+    if int(ev.get("operation_type") or 0) != OP_WITHDRAW:
+        return ""
+    oid = ev.get("order_id")
+    try:
+        oid_i = int(oid) if oid is not None else 0
+    except (TypeError, ValueError):
+        oid_i = 0
+    if oid_i <= 0:
+        return "нет связи с заказом FBS"
+    if _event_is_sold_for_chz(ev):
+        return ""
+    label = (
+        str(ev.get("order_status_label") or "").strip()
+        or str(ev.get("order_wb_status") or "").strip()
+        or "неизвестно"
+    )
+    return f"заказ не выкуплен ({label})"
 
 
 def list_events_for_chz(
@@ -2549,8 +2599,13 @@ def prepare_chz_batches(
     source_id: int,
     limit: int = PREPARE_EVENT_LIMIT,
     event_keys: list[str] | None = None,
+    api_key: str = "",
 ) -> dict[str, Any]:
-    """Build unsigned CHZ document payloads grouped by operation + receipt."""
+    """Build unsigned CHZ document payloads grouped by operation + receipt.
+
+    Withdraw (вывод) is allowed only when Marketplace ``wbStatus=sold``.
+    ``api_key`` is the FBS Marketplace token (hydrate sold/archive for srid join).
+    """
     settings = get_chz_settings(repo, user_id=user_id)
     if not settings.get("is_enabled"):
         raise ValueError("ЧЗ выключен в Настройки → ЧЗ")
@@ -2588,6 +2643,15 @@ def prepare_chz_batches(
         limit=lim,
         event_keys=wanted_keys,
     )
+    # Join Marketplace order + status (hydrate archive/sold when key present).
+    _attach_order_ids_to_events(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        events=events_raw,
+        api_key=api_key,
+        hydrate=bool(str(api_key or "").strip()),
+    )
     sent_identities = _load_sent_cis_identities(
         repo, user_id=user_id, source_id=source_id
     )
@@ -2608,6 +2672,7 @@ def prepare_chz_batches(
     skipped: list[dict[str, Any]] = list(pre_skipped)
     warnings: list[str] = []
     other_doc_date = _moscow_today()
+    not_sold_n = 0
 
     for ev in events:
         op = int(ev.get("operation_type") or 0)
@@ -2619,6 +2684,11 @@ def prepare_chz_batches(
             continue
         ev = {**ev, "excise_short": cis}
         if op == OP_WITHDRAW:
+            not_sold = _withdraw_not_sold_reason(ev)
+            if not_sold:
+                not_sold_n += 1
+                skipped.append({**ev, "skip_reason": not_sold})
+                continue
             if fiscal_no and fiscal_dt:
                 withdraw_groups.setdefault((fiscal_no, fiscal_dt), []).append(ev)
             else:
@@ -2667,6 +2737,11 @@ def prepare_chz_batches(
             "МОД в документах: "
             + ", ".join(mod_parts)
             + " — должен совпадать с действующим МОД в профиле ЧЗ"
+        )
+    if not_sold_n:
+        warnings.append(
+            f"Пропущено выводов без статуса «выкуплен»: {not_sold_n} "
+            "(в ЧЗ уходят только заказы с wbStatus=sold)"
         )
 
     documents: list[dict[str, Any]] = []
@@ -2807,6 +2882,7 @@ def prepare_chz_batches(
             "withdraw_events": withdraw_n,
             "return_events": return_n,
             "skipped": len(skipped),
+            "withdraw_not_sold": not_sold_n,
             "eligible_loaded": len(events_raw),
             "eligible_after_dedupe": len(events),
         },

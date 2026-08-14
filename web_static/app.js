@@ -16912,25 +16912,34 @@ function _wbFbsKizCircFilteredItems() {
 function _wbFbsKizCircIsSelectable(ev) {
   const st = String(ev?.status || "").trim();
   if (!st || st === "accepted") return false;
-  if (st === "pending" || st === "ready" || st === "error") return true;
-  if (st === "skipped") {
+  let ok = false;
+  if (st === "pending" || st === "ready" || st === "error") ok = true;
+  else if (st === "skipped") {
     const reason = String(ev?.skip_reason || "");
-    return reason === "no_fiscal" || reason.startsWith("no_fiscal:");
-  }
-  if (st === "submitted") {
+    ok = reason === "no_fiscal" || reason.startsWith("no_fiscal:");
+  } else if (st === "submitted") {
     const docId = String(ev?.chz_doc_id || "").trim();
-    if (!docId) return true;
-    const chz = String(ev?.chz_status || "").trim().toUpperCase();
-    return [
-      "CHECKED_NOT_OK",
-      "REJECTED",
-      "ERROR",
-      "FAILED",
-      "CANCELLED",
-      "CANCELED",
-    ].includes(chz);
+    if (!docId) ok = true;
+    else {
+      const chz = String(ev?.chz_status || "").trim().toUpperCase();
+      ok = [
+        "CHECKED_NOT_OK",
+        "REJECTED",
+        "ERROR",
+        "FAILED",
+        "CANCELLED",
+        "CANCELED",
+      ].includes(chz);
+    }
   }
-  return false;
+  if (!ok) return false;
+  // Вывод (op=1): только выкупленные (Marketplace wbStatus=sold).
+  const op = Number(ev?.operation_type || 0);
+  if (op === 1) {
+    const ws = String(ev?.order_wb_status || "").trim().toLowerCase();
+    if (ws !== "sold") return false;
+  }
+  return true;
 }
 
 function _wbFbsKizCircPruneSelection() {
@@ -17019,6 +17028,12 @@ function _wbFbsKizCircRenderTable() {
       const key = String(ev.event_key || "").trim();
       const selectable = _wbFbsKizCircIsSelectable(ev) && Boolean(key);
       const selected = selectable && wbFbsKizCircState.selectedKeys.has(key);
+      const opNum = Number(ev.operation_type || 0);
+      const notSoldWithdraw = opNum === 1
+        && String(ev.order_wb_status || "").trim().toLowerCase() !== "sold";
+      const disabledTitle = notSoldWithdraw
+        ? "Вывод только для выкупленных (wbStatus=sold)"
+        : "Уже принято / нельзя передать";
       const kiz = String(ev.excise_short || "");
       const kizShort = kiz.length > 28 ? `${kiz.slice(0, 14)}…${kiz.slice(-10)}` : kiz;
       const errRaw = ev.error_text || ev.skip_reason || "";
@@ -17044,7 +17059,7 @@ function _wbFbsKizCircRenderTable() {
               aria-label="Выбрать для передачи в ЧЗ"
               onchange="toggleWbFbsKizCircRow(this.dataset.eventKey, this.checked)" />
           </label>`
-        : `<label class="wb-fbs-kiz-circ-row-check is-disabled" title="Уже принято / нельзя передать">
+        : `<label class="wb-fbs-kiz-circ-row-check is-disabled" title="${esc(disabledTitle)}">
             <input type="checkbox" disabled tabindex="-1" />
           </label>`;
       return `<tr data-event-key="${esc(key)}" class="${selected ? "is-selected" : ""}">
