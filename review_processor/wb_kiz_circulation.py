@@ -592,8 +592,10 @@ def load_local_fbs_order_index(
 ) -> dict[str, dict[str, Any]]:
     """Map Marketplace FBS ``rid`` (+ raw_json.rid) → order_id + statuses.
 
-    Does **not** index ``order_uid``: analytics ``srid`` equals Marketplace ``rid``,
-    not ``orderUid``. Indexing uid caused «8096 keys / 0 matches» false confidence.
+    Keys are casefolded: Analytics ``srid`` and Marketplace ``rid`` can differ
+    only by letter case (``ebx…`` vs ``ebX…``), which broke exact joins.
+
+    Does **not** index ``order_uid`` alone as a primary key.
     """
     from . import wb_fbs as wb_fbs_mod
 
@@ -623,7 +625,7 @@ def load_local_fbs_order_index(
             "wb_status": str(d.get("wb_status") or "").strip().lower(),
             "supplier_status": str(d.get("supplier_status") or "").strip().lower(),
         }
-        rid = str(d.get("rid") or "").strip()
+        rid = _rid_fold(str(d.get("rid") or ""))
         if rid:
             out[rid] = info
         rid_json = ""
@@ -631,7 +633,7 @@ def load_local_fbs_order_index(
             raw = d.get("raw_json") or "{}"
             payload = json.loads(raw) if isinstance(raw, str) else (raw or {})
             if isinstance(payload, dict):
-                rid_json = str(payload.get("rid") or "").strip()
+                rid_json = _rid_fold(str(payload.get("rid") or ""))
         except (TypeError, ValueError, json.JSONDecodeError):
             rid_json = ""
         if rid_json and rid_json not in out:
@@ -648,13 +650,18 @@ def load_local_fbs_rid_keys(
     )
 
 
+def _rid_fold(value: object) -> str:
+    """Casefold rid/srid for joins (WB mixes ``ebX`` / ``ebx``)."""
+    return str(value or "").strip().casefold()
+
+
 def _lookup_fbs_order(
     norm: dict[str, Any], index: dict[str, dict[str, Any]]
 ) -> dict[str, Any] | None:
     if not index:
         return None
-    srid = str(norm.get("srid") or "").strip()
-    rid = str(norm.get("rid") or "").strip()
+    srid = _rid_fold(norm.get("srid"))
+    rid = _rid_fold(norm.get("rid"))
     if srid and srid in index:
         return index[srid]
     if rid and rid in index:
@@ -665,11 +672,12 @@ def _lookup_fbs_order(
 def _norm_matches_fbs(norm: dict[str, Any], fbs_keys: set[str]) -> bool:
     if not fbs_keys:
         return False
-    srid = str(norm.get("srid") or "").strip()
-    rid = str(norm.get("rid") or "").strip()
-    if srid and srid in fbs_keys:
+    folded = {_rid_fold(k) for k in fbs_keys if _rid_fold(k)}
+    srid = _rid_fold(norm.get("srid"))
+    rid = _rid_fold(norm.get("rid"))
+    if srid and srid in folded:
         return True
-    if rid and rid in fbs_keys:
+    if rid and rid in folded:
         return True
     return False
 
@@ -784,11 +792,18 @@ def build_excise_fbs_match_index(
         if oid_i <= 0:
             continue
         st = status_map.get(oid_i) or {}
-        out[key] = {
+        info = {
             "order_id": oid_i,
             "wb_status": str(st.get("wb_status") or "").strip().lower(),
             "supplier_status": str(st.get("supplier_status") or "").strip().lower(),
         }
+        folded = _rid_fold(key)
+        if folded:
+            out[folded] = info
+        # Keep original casing too (defensive for callers not using _lookup).
+        raw = str(key or "").strip()
+        if raw:
+            out[raw] = info
     sold_orders = {
         int(v["order_id"])
         for v in out.values()
@@ -798,32 +813,37 @@ def build_excise_fbs_match_index(
         "hydrate_ok": hydrate_ok,
         "order_count": len(order_ids),
         "sold_orders": len(sold_orders),
-        "key_count": len(out),
+        "key_count": len({_rid_fold(k) for k in out if _rid_fold(k)}),
         "report_keys": len(uniq),
     }
     if log is not None:
         _append_log(
             log,
-            f"сопоставлено с FBS по rid: ключей={len(out)}, "
+            f"сопоставлено с FBS по rid: ключей={meta['key_count']}, "
             f"уникальных заказов={len(order_ids)}, sold={len(sold_orders)}"
             + ("" if hydrate_ok else " (hydrate был с ошибкой/пропущен)"),
         )
-        if uniq and not out:
-            sample_rep = ", ".join(uniq[:3])
+        if uniq and not order_ids:
+            dotted = [k for k in uniq if "." in k]
+            sample_rep = ", ".join((dotted or uniq)[:3])
             local = load_local_fbs_order_index(
                 repo, user_id=user_id, source_id=source_id
             )
             sample_loc = ", ".join(list(local.keys())[:3]) or "—"
+            fold_rep = {_rid_fold(k) for k in uniq}
+            overlap = len(fold_rep & set(local.keys()))
             _append_log(
                 log,
                 f"диагностика: пример srid из отчёта [{sample_rep}]; "
                 f"пример local rid [{sample_loc}]; "
-                f"локальных rid={len(local)}",
+                f"локальных rid={len(local)}; "
+                f"пересечение без учёта регистра={overlap}",
             )
     return out, meta
 
 
 def _fbs_order_join_sql(alias_e: str = "e", alias_o: str = "o") -> str:
+    # Analytics srid and Marketplace rid may differ only by letter case.
     return f"""
         {alias_o}.user_id = {alias_e}.user_id
         AND {alias_o}.source_id = {alias_e}.source_id
@@ -831,26 +851,26 @@ def _fbs_order_join_sql(alias_e: str = "e", alias_o: str = "o") -> str:
           (
             COALESCE({alias_e}.srid, '') <> ''
             AND (
-              {alias_o}.rid = {alias_e}.srid
-              OR {alias_o}.order_uid = {alias_e}.srid
+              LOWER({alias_o}.rid) = LOWER({alias_e}.srid)
+              OR LOWER({alias_o}.order_uid) = LOWER({alias_e}.srid)
               OR (
                 {alias_o}.raw_json IS NOT NULL
                 AND {alias_o}.raw_json <> ''
                 AND {alias_o}.raw_json <> '{{}}'
-                AND ({alias_o}.raw_json::jsonb->>'rid') = {alias_e}.srid
+                AND LOWER({alias_o}.raw_json::jsonb->>'rid') = LOWER({alias_e}.srid)
               )
             )
           )
           OR (
             COALESCE({alias_e}.rid, '') <> ''
             AND (
-              {alias_o}.rid = {alias_e}.rid
-              OR {alias_o}.order_uid = {alias_e}.rid
+              LOWER({alias_o}.rid) = LOWER({alias_e}.rid)
+              OR LOWER({alias_o}.order_uid) = LOWER({alias_e}.rid)
               OR (
                 {alias_o}.raw_json IS NOT NULL
                 AND {alias_o}.raw_json <> ''
                 AND {alias_o}.raw_json <> '{{}}'
-                AND ({alias_o}.raw_json::jsonb->>'rid') = {alias_e}.rid
+                AND LOWER({alias_o}.raw_json::jsonb->>'rid') = LOWER({alias_e}.rid)
               )
             )
           )

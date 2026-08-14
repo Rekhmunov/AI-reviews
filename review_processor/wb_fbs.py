@@ -1738,24 +1738,34 @@ def order_ids_by_srids(
 ) -> dict[str, int]:
     """Map analytics ``srid`` (= marketplace order ``rid``) → numeric ``order_id``.
 
+    Matching is **case-insensitive**: WB Analytics often lowercases letters in
+    ``srid`` while Marketplace keeps mixed case in ``rid`` (``ebx`` vs ``ebX``).
+
     Falls back to ``raw_json.rid`` / ``order_uid`` when the ``rid`` column is empty
     (orders synced before the column existed), and backfills ``rid`` when found.
     """
     ensure_wb_fbs_tables(repo)
-    keys = sorted({str(s or "").strip() for s in (srids or []) if str(s or "").strip()})
-    if not keys:
+    raw_keys = [str(s or "").strip() for s in (srids or []) if str(s or "").strip()]
+    if not raw_keys:
         return {}
+    # fold -> first original key (preserve caller casing in the result map)
+    fold_to_orig: dict[str, str] = {}
+    for k in raw_keys:
+        fold_to_orig.setdefault(k.casefold(), k)
+    folds = sorted(fold_to_orig.keys())
     out: dict[str, int] = {}
-    placeholders = ", ".join("?" for _ in keys)
+    placeholders = ", ".join("?" for _ in folds)
     with repo._connect() as conn:
         rows = conn.execute(
             repo._sql(
                 f"""
                 SELECT order_id, rid FROM wb_fbs_orders
-                WHERE user_id = ? AND source_id = ? AND rid IN ({placeholders})
+                WHERE user_id = ? AND source_id = ?
+                  AND rid IS NOT NULL AND rid <> ''
+                  AND LOWER(rid) IN ({placeholders})
                 """
             ),
-            (user_id, source_id, *keys),
+            (user_id, source_id, *folds),
         ).fetchall()
         for r in rows:
             d = repo._row_to_dict(r)
@@ -1764,14 +1774,17 @@ def order_ids_by_srids(
                 oid = int(d.get("order_id") or 0)
             except (TypeError, ValueError):
                 oid = 0
-            if rid and oid > 0:
-                out[rid] = oid
+            if not rid or oid <= 0:
+                continue
+            orig = fold_to_orig.get(rid.casefold())
+            if orig:
+                out[orig] = oid
 
-        missing = [k for k in keys if k not in out]
-        if not missing:
+        missing_folds = [f for f in folds if fold_to_orig[f] not in out]
+        if not missing_folds:
             return out
 
-        ph = ", ".join("?" for _ in missing)
+        ph = ", ".join("?" for _ in missing_folds)
         rows2 = conn.execute(
             repo._sql(
                 f"""
@@ -1779,15 +1792,16 @@ def order_ids_by_srids(
                 FROM wb_fbs_orders
                 WHERE user_id = ? AND source_id = ?
                   AND (
-                    order_uid IN ({ph})
+                    (order_uid IS NOT NULL AND order_uid <> ''
+                     AND LOWER(order_uid) IN ({ph}))
                     OR (
                       raw_json IS NOT NULL AND raw_json <> '' AND raw_json <> '{{}}'
-                      AND (raw_json::jsonb->>'rid') IN ({ph})
+                      AND LOWER(raw_json::jsonb->>'rid') IN ({ph})
                     )
                   )
                 """
             ),
-            (user_id, source_id, *missing, *missing),
+            (user_id, source_id, *missing_folds, *missing_folds),
         ).fetchall()
         for r in rows2:
             d = repo._row_to_dict(r)
@@ -1807,18 +1821,16 @@ def order_ids_by_srids(
                     rid_json = str(payload.get("rid") or "").strip()
             except (TypeError, ValueError, json.JSONDecodeError):
                 rid_json = ""
-            match_key = ""
-            if rid_col and rid_col in out:
+            match_fold = ""
+            for candidate in (rid_col, rid_json, uid):
+                cf = candidate.casefold()
+                if cf and cf in fold_to_orig and fold_to_orig[cf] not in out:
+                    match_fold = cf
+                    break
+            if not match_fold:
                 continue
-            if rid_col and rid_col in missing:
-                match_key = rid_col
-            elif rid_json and rid_json in missing:
-                match_key = rid_json
-            elif uid and uid in missing:
-                match_key = uid
-            if not match_key or match_key in out:
-                continue
-            out[match_key] = oid
+            orig = fold_to_orig[match_fold]
+            out[orig] = oid
             # Backfill rid for faster next lookup when we found it via JSON.
             if not rid_col and rid_json:
                 conn.execute(

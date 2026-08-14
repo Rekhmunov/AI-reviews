@@ -1372,6 +1372,60 @@ def test_norm_matches_fbs_by_srid_or_rid() -> None:
     assert not circ._norm_matches_fbs({"srid": "fbs-rid-1", "rid": ""}, set())
 
 
+def test_rid_match_is_case_insensitive() -> None:
+    """Analytics often lowercases srid letters; Marketplace keeps ebX vs ebx."""
+    index = {
+        circ._rid_fold("ebX.r1460dd50de9f44e4beb8fb31a92baa92.0.0"): {
+            "order_id": 5462672780,
+            "wb_status": "sold",
+            "supplier_status": "complete",
+        }
+    }
+    assert (
+        circ._norm_eligibility_skip(
+            {
+                "srid": "ebx.r1460dd50de9f44e4beb8fb31a92baa92.0.0",
+                "operation_type": 1,
+            },
+            index,
+        )
+        == ""
+    )
+    assert circ._norm_matches_fbs(
+        {"srid": "EBX.R1460DD50DE9F44E4BEB8FB31A92BAA92.0.0", "rid": ""},
+        {"ebX.r1460dd50de9f44e4beb8fb31a92baa92.0.0"},
+    )
+
+
+def test_order_ids_by_srids_uses_lower_sql() -> None:
+    from review_processor import wb_fbs as wb_fbs_mod
+
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    conn.__exit__.return_value = False
+    row = {
+        "order_id": 5462672780,
+        "rid": "ebX.r1460dd50de9f44e4beb8fb31a92baa92.0.0",
+    }
+    cur = MagicMock()
+    cur.fetchall.return_value = [row]
+    conn.execute.return_value = cur
+    repo = MagicMock()
+    repo._connect.return_value = conn
+    repo._sql.side_effect = lambda q: q
+    repo._row_to_dict.side_effect = lambda r: r if isinstance(r, dict) else {}
+    with patch.object(wb_fbs_mod, "ensure_wb_fbs_tables"):
+        got = wb_fbs_mod.order_ids_by_srids(
+            repo,
+            user_id=1,
+            source_id=2,
+            srids=["ebx.r1460dd50de9f44e4beb8fb31a92baa92.0.0"],
+        )
+    assert got["ebx.r1460dd50de9f44e4beb8fb31a92baa92.0.0"] == 5462672780
+    sql = conn.execute.call_args_list[0].args[0]
+    assert "LOWER(rid)" in sql
+
+
 def test_norm_eligibility_sold_and_cancelled_only() -> None:
     index = {
         "sold-1": {
