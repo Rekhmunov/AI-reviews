@@ -10692,13 +10692,11 @@ button.wb-fbs-kiz-add:disabled {
   font-weight: 600;
   color: #475569;
 }
-.wb-fbs-kiz-circ-presets,
 .wb-fbs-kiz-circ-status-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
-.wb-fbs-kiz-circ-preset,
 .wb-fbs-kiz-circ-chip {
   min-height: 32px;
   padding: 4px 12px;
@@ -10711,21 +10709,17 @@ button.wb-fbs-kiz-add:disabled {
   line-height: 1.2;
   cursor: pointer;
 }
-.wb-fbs-kiz-circ-preset:hover,
 .wb-fbs-kiz-circ-chip:hover {
   border-color: #94a3b8;
   background: #f1f5f9;
 }
-.wb-fbs-kiz-circ-preset:active,
 .wb-fbs-kiz-circ-chip:active {
   background: #e2e8f0;
 }
-.wb-fbs-kiz-circ-preset:focus-visible,
 .wb-fbs-kiz-circ-chip:focus-visible {
   outline: 2px solid #93c5fd;
   outline-offset: 1px;
 }
-.wb-fbs-kiz-circ-preset.is-active,
 .wb-fbs-kiz-circ-chip.is-active {
   border-color: #0f766e;
   background: #ccfbf1;

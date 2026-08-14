@@ -16753,7 +16753,6 @@ const wbFbsKizCircState = {
   /** @type {Set<string>} */
   selectedKeys: new Set(),
   filters: {
-    preset: "all",
     statuses: [],
     orderWbStatuses: [],
     operationType: "",
@@ -16770,7 +16769,6 @@ function _wbFbsKizCircSourceId() {
 
 function _wbFbsKizCircDefaultFilters() {
   return {
-    preset: "all",
     statuses: [],
     orderWbStatuses: [],
     operationType: "",
@@ -16810,9 +16808,6 @@ function _wbFbsKizCircSyncFilterControls() {
   if (fromEl) fromEl.value = f.fiscalFrom || "";
   if (toEl) toEl.value = f.fiscalTo || "";
 
-  document.querySelectorAll(".wb-fbs-kiz-circ-preset").forEach((btn) => {
-    btn.classList.toggle("is-active", btn.getAttribute("data-preset") === f.preset);
-  });
   const statusSet = new Set(f.statuses || []);
   document.querySelectorAll("#wbFbsKizCircStatusChips .wb-fbs-kiz-circ-chip").forEach((btn) => {
     const st = btn.getAttribute("data-status") || "";
@@ -16827,37 +16822,6 @@ function _wbFbsKizCircSyncFilterControls() {
   });
 }
 
-function _wbFbsKizCircInferPreset() {
-  const f = wbFbsKizCircState.filters;
-  const statuses = [...(f.statuses || [])].sort().join(",");
-  if (!statuses && !f.onlyChzError) return "all";
-  if (statuses === "pending,ready" && !f.onlyChzError) return "to_submit";
-  if (statuses === "error" || (f.onlyChzError && (!statuses || statuses === "error"))) {
-    return "problems";
-  }
-  return "custom";
-}
-
-function setWbFbsKizCircPreset(preset) {
-  const key = String(preset || "all");
-  const f = wbFbsKizCircState.filters;
-  if (key === "to_submit") {
-    f.preset = "to_submit";
-    f.statuses = ["pending", "ready"];
-    f.onlyChzError = false;
-  } else if (key === "problems") {
-    f.preset = "problems";
-    f.statuses = ["error"];
-    f.onlyChzError = false;
-  } else {
-    f.preset = "all";
-    f.statuses = [];
-    f.onlyChzError = false;
-  }
-  _wbFbsKizCircSyncFilterControls();
-  _wbFbsKizCircRenderTable();
-}
-
 function toggleWbFbsKizCircStatus(status) {
   const st = String(status || "");
   if (!WB_FBS_KIZ_CIRC_STATUSES.includes(st)) return;
@@ -16866,7 +16830,6 @@ function toggleWbFbsKizCircStatus(status) {
   if (set.has(st)) set.delete(st);
   else set.add(st);
   f.statuses = WB_FBS_KIZ_CIRC_STATUSES.filter((x) => set.has(x));
-  f.preset = _wbFbsKizCircInferPreset();
   _wbFbsKizCircSyncFilterControls();
   _wbFbsKizCircRenderTable();
 }
@@ -16885,7 +16848,6 @@ function toggleWbFbsKizCircOrderWb(status) {
 
 function onWbFbsKizCircFilterChange() {
   _wbFbsKizCircReadFilterControls();
-  wbFbsKizCircState.filters.preset = _wbFbsKizCircInferPreset();
   _wbFbsKizCircSyncFilterControls();
   _wbFbsKizCircRenderTable();
 }
