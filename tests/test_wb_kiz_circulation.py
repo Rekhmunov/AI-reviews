@@ -1355,3 +1355,142 @@ def test_heal_submitted_terminal_statuses() -> None:
     assert out["to_error"] == 2
     assert out["to_accepted"] == 1
     assert out["healed"] == 3
+
+
+def test_norm_matches_fbs_by_srid_or_rid() -> None:
+    keys = {"fbs-rid-1", "uid-9"}
+    assert circ._norm_matches_fbs({"srid": "fbs-rid-1", "rid": ""}, keys)
+    assert circ._norm_matches_fbs({"srid": "x", "rid": "uid-9"}, keys)
+    assert not circ._norm_matches_fbs({"srid": "fbo-1", "rid": "fbo-1"}, keys)
+    assert not circ._norm_matches_fbs({"srid": "fbs-rid-1", "rid": ""}, set())
+
+
+def test_norm_eligibility_sold_and_cancelled_only() -> None:
+    index = {
+        "sold-1": {
+            "order_id": 1,
+            "wb_status": "sold",
+            "supplier_status": "complete",
+        },
+        "ship-1": {
+            "order_id": 2,
+            "wb_status": "sorted",
+            "supplier_status": "complete",
+        },
+        "cancel-1": {
+            "order_id": 3,
+            "wb_status": "canceled_by_client",
+            "supplier_status": "cancel",
+        },
+    }
+    assert (
+        circ._norm_eligibility_skip(
+            {"srid": "sold-1", "operation_type": 1}, index
+        )
+        == ""
+    )
+    assert (
+        circ._norm_eligibility_skip(
+            {"srid": "ship-1", "operation_type": 1}, index
+        )
+        == circ.SKIP_NOT_SOLD
+    )
+    assert (
+        circ._norm_eligibility_skip(
+            {"srid": "cancel-1", "operation_type": 2}, index
+        )
+        == ""
+    )
+    assert (
+        circ._norm_eligibility_skip(
+            {"srid": "sold-1", "operation_type": 2}, index
+        )
+        == circ.SKIP_NOT_RETURN
+    )
+    assert (
+        circ._norm_eligibility_skip(
+            {"srid": "missing", "operation_type": 1}, index
+        )
+        == circ.SKIP_NOT_FBS
+    )
+
+def test_repair_skip_non_fbs_noop_without_local_orders() -> None:
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    conn.__exit__.return_value = False
+    count_row = {"n": 0}
+    conn.execute.return_value.fetchone.return_value = count_row
+    repo = MagicMock()
+    repo._connect.return_value = conn
+    repo._sql.side_effect = lambda q: q
+    repo._row_to_dict.side_effect = lambda r: r if isinstance(r, dict) else {"n": 0}
+    with patch.object(circ, "ensure_kiz_circulation_tables"), patch(
+        "review_processor.wb_fbs.ensure_wb_fbs_tables"
+    ):
+        assert circ.repair_skip_non_fbs_events(repo, user_id=1, source_id=2) == 0
+    # Only the COUNT query — no mass UPDATE.
+    assert conn.execute.call_count == 1
+
+
+def test_repair_skip_non_fbs_updates_when_orders_exist() -> None:
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    conn.__exit__.return_value = False
+    count_cur = MagicMock()
+    count_cur.fetchone.return_value = {"n": 5}
+    upd_cur = MagicMock()
+    upd_cur.rowcount = 12
+    conn.execute.side_effect = [count_cur, upd_cur]
+    repo = MagicMock()
+    repo._connect.return_value = conn
+    repo._sql.side_effect = lambda q: q
+    repo._row_to_dict.side_effect = lambda r: r if isinstance(r, dict) else {"n": 5}
+    with patch.object(circ, "ensure_kiz_circulation_tables"), patch(
+        "review_processor.wb_fbs.ensure_wb_fbs_tables"
+    ):
+        assert circ.repair_skip_non_fbs_events(repo, user_id=1, source_id=2) == 12
+    assert conn.execute.call_count == 2
+    sql = conn.execute.call_args_list[1].args[0]
+    assert "wb_fbs_orders" in sql
+    assert circ.SKIP_NOT_FBS in conn.execute.call_args_list[1].args[1]
+
+def test_purge_non_fbs_noop_without_local_orders() -> None:
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    conn.__exit__.return_value = False
+    conn.execute.return_value.fetchone.return_value = {"n": 0}
+    repo = MagicMock()
+    repo._connect.return_value = conn
+    repo._sql.side_effect = lambda q: q
+    repo._row_to_dict.side_effect = lambda r: r if isinstance(r, dict) else {"n": 0}
+    with patch.object(circ, "ensure_kiz_circulation_tables"), patch(
+        "review_processor.wb_fbs.ensure_wb_fbs_tables"
+    ):
+        assert circ.purge_non_fbs_circulation_events(repo, user_id=1, source_id=2) == 0
+    assert conn.execute.call_count == 1
+
+
+def test_purge_non_fbs_deletes_batches() -> None:
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    conn.__exit__.return_value = False
+    count_cur = MagicMock()
+    count_cur.fetchone.return_value = {"n": 10}
+    del1 = MagicMock()
+    del1.rowcount = circ.PURGE_BATCH_SIZE
+    del2 = MagicMock()
+    del2.rowcount = 3
+    conn.execute.side_effect = [count_cur, del1, del2]
+    repo = MagicMock()
+    repo._connect.return_value = conn
+    repo._sql.side_effect = lambda q: q
+    repo._row_to_dict.side_effect = lambda r: r if isinstance(r, dict) else {"n": 10}
+    with patch.object(circ, "ensure_kiz_circulation_tables"), patch(
+        "review_processor.wb_fbs.ensure_wb_fbs_tables"
+    ):
+        assert circ.purge_non_fbs_circulation_events(repo, user_id=1, source_id=2) == (
+            circ.PURGE_BATCH_SIZE + 3
+        )
+    sql = conn.execute.call_args_list[1].args[0]
+    assert "DELETE FROM wb_kiz_circulation_events" in sql
+    assert circ.SKIP_NOT_FBS in conn.execute.call_args_list[1].args[1]
