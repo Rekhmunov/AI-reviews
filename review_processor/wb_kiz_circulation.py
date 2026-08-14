@@ -2239,16 +2239,59 @@ def sync_excise_report(
     if not fbs_index:
         _append_log(
             log,
-            "внимание: в FeedPilot нет заказов FBS по этому источнику — "
-            "новые строки из отчёта не попадут в очередь "
-            "(сначала синхронизируйте WB FBS / архив выкупленных и отказных)",
+            "СТОП: в FeedPilot нет заказов FBS по этому источнику — "
+            "в таблицу ничего не пишем (сначала синхронизируйте WB FBS / архив "
+            "выкупленных и отказных). Отчёт WB содержит все схемы, в т.ч. FBO.",
         )
-    else:
         _append_log(
             log,
-            f"фильтр FBS: локальных rid/uid: {len(fbs_index)}; "
-            "в очередь только выкупленные (вывод) и отказные (возврат в оборот)",
+            f"пропуск всех {len(rows)} строк отчёта (фильтр FBS sold/отказ активен)",
         )
+        _finish_run(
+            repo,
+            run_id=run_id,
+            status="ok",
+            log=log,
+            fetched=len(rows),
+            inserted=0,
+            skipped=len(rows),
+            withdraw_count=0,
+            return_count=0,
+        )
+        return {
+            "ok": True,
+            "run_id": run_id,
+            "date_from": date_from_s,
+            "date_to": date_to_s,
+            "fetched": len(rows),
+            "inserted": 0,
+            "updated": 0,
+            "skipped": len(rows),
+            "skipped_not_fbs": len(rows),
+            "skipped_not_sold": 0,
+            "skipped_not_return": 0,
+            "insert_errors": 0,
+            "withdraw_count": 0,
+            "return_count": 0,
+            "log": "\n".join(log),
+            "cursor": get_cursor(repo, user_id=user_id, source_id=source_id),
+        }
+    sold_n = sum(1 for v in fbs_index.values() if str(v.get("wb_status") or "") == "sold")
+    cancel_n = 0
+    from . import wb_fbs as wb_fbs_mod
+
+    for v in fbs_index.values():
+        if wb_fbs_mod._is_cancelled_status(
+            supplier_status=v.get("supplier_status") or "",
+            wb_status=v.get("wb_status") or "",
+        ):
+            cancel_n += 1
+    _append_log(
+        log,
+        f"фильтр FBS активен: rid/uid={len(fbs_index)}, "
+        f"выкупленных(sold)≈{sold_n}, отказных≈{cancel_n}; "
+        "в БД только sold→вывод и отказ→возврат (FBO не пишем)",
+    )
     # Persist progress so UI polling shows WB finished even while DB writes run.
     _finish_run(
         repo,
@@ -2291,6 +2334,24 @@ def sync_excise_report(
                     skipped_not_sold += 1
                 elif elig == SKIP_NOT_RETURN:
                     skipped_not_return += 1
+                if i % 5000 == 0:
+                    _append_log(
+                        log,
+                        f"обработано {i}/{len(rows)}: в очередь {inserted + updated}, "
+                        f"пропуск {skipped} (FBO/не FBS {skipped_not_fbs}, "
+                        f"не sold {skipped_not_sold}, не отказ {skipped_not_return})",
+                    )
+                    _finish_run(
+                        repo,
+                        run_id=run_id,
+                        status="running",
+                        log=log,
+                        fetched=len(rows),
+                        inserted=inserted,
+                        skipped=skipped,
+                        withdraw_count=withdraw_n,
+                        return_count=return_n,
+                    )
                 continue
             # Keep raw_json tiny — full payload bloated every INSERT and caused 504s.
             norm["raw_json"] = ""
@@ -2430,8 +2491,14 @@ def sync_excise_report(
                 )
                 _append_log(log, f"ошибка INSERT {norm.get('event_key', '')[:12]}…: {exc}")
 
-            if i % 500 == 0:
-                _append_log(log, f"запись в БД: {i}/{len(rows)}…")
+            if i % 2000 == 0:
+                _append_log(
+                    log,
+                    f"обработано {i}/{len(rows)}: в очередь {inserted + updated} "
+                    f"(вывод {withdraw_n}, возврат {return_n}), "
+                    f"пропуск {skipped} (FBO/не FBS {skipped_not_fbs}, "
+                    f"не sold {skipped_not_sold}, не отказ {skipped_not_return})",
+                )
                 _finish_run(
                     repo,
                     run_id=run_id,
