@@ -4141,7 +4141,8 @@ def _attach_order_ids_to_events(
         ev["order_supplier_status"] = str(st.get("supplier_status") or "").strip()
         ev["order_cancel_reason"] = str(st.get("cancel_reason_label") or "").strip()
 
-    # Backfill price for OTHER / missing Analytics price from local FBS orders.
+    # Backfill price for OTHER / missing Analytics price from local FBS orders
+    # (and Marketplace API when columns/raw_json still empty).
     need_price = [
         int(ev["order_id"])
         for ev in events
@@ -4149,15 +4150,25 @@ def _attach_order_ids_to_events(
     ]
     if need_price:
         try:
-            price_map = wb_fbs_mod.load_order_price_map(
-                repo,
-                user_id=user_id,
-                source_id=source_id,
-                order_ids=need_price,
-            )
+            if str(api_key or "").strip():
+                price_map = wb_fbs_mod.fill_missing_order_prices(
+                    repo,
+                    user_id=user_id,
+                    source_id=source_id,
+                    order_ids=need_price,
+                    api_key=api_key,
+                )
+            else:
+                price_map = wb_fbs_mod.load_order_price_map(
+                    repo,
+                    user_id=user_id,
+                    source_id=source_id,
+                    order_ids=need_price,
+                )
         except Exception as exc:
-            logger.warning("load_order_price_map failed: %s", exc)
+            logger.warning("order price backfill failed: %s", exc)
             price_map = {}
+        filled_keys: list[tuple[str, float, str]] = []
         for ev in events:
             if ev.get("price") is not None:
                 continue
@@ -4171,6 +4182,25 @@ def _attach_order_ids_to_events(
             ev["price"] = info["price_rub"]
             if not str(ev.get("currency_name") or "").strip():
                 ev["currency_name"] = str(info.get("currency_name") or "RUB")
+            ek = str(ev.get("event_key") or "").strip()
+            if ek:
+                filled_keys.append(
+                    (
+                        ek,
+                        float(ev["price"]),
+                        str(ev.get("currency_name") or "RUB"),
+                    )
+                )
+        if filled_keys:
+            try:
+                _persist_event_prices(
+                    repo,
+                    user_id=user_id,
+                    source_id=source_id,
+                    filled=filled_keys,
+                )
+            except Exception as exc:
+                logger.warning("persist event prices failed: %s", exc)
 
 
 def _event_is_sold_for_chz(ev: dict[str, Any]) -> bool:
@@ -5128,6 +5158,52 @@ def get_run(repo: ReviewRepository, *, user_id: int, run_id: int) -> dict[str, A
     return repo._row_to_dict(row) if row else None
 
 
+def _persist_event_prices(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    filled: list[tuple[str, float, str]],
+) -> int:
+    """Write backfilled prices onto circulation events (only when still NULL)."""
+    if not filled:
+        return 0
+    ensure_kiz_circulation_tables(repo)
+    now = datetime.now(timezone.utc).isoformat()
+    n = 0
+    with repo._connect() as conn:
+        for event_key, price_rub, currency_name in filled:
+            cur = conn.execute(
+                repo._sql(
+                    """
+                    UPDATE wb_kiz_circulation_events
+                    SET price = ?,
+                        currency_name = CASE
+                            WHEN COALESCE(?, '') <> '' THEN ?
+                            ELSE currency_name
+                        END,
+                        updated_at = ?
+                    WHERE user_id = ? AND source_id = ? AND event_key = ?
+                      AND price IS NULL
+                    """
+                ),
+                (
+                    float(price_rub),
+                    str(currency_name or ""),
+                    str(currency_name or ""),
+                    now,
+                    int(user_id),
+                    int(source_id),
+                    str(event_key),
+                ),
+            )
+            try:
+                n += int(cur.rowcount or 0)
+            except Exception:
+                n += 1
+    return n
+
+
 def _price_for_chz(ev: dict[str, Any]) -> int | None:
     """True API ``product_cost`` is in kopecks (incl. VAT when applicable).
 
@@ -5135,14 +5211,15 @@ def _price_for_chz(ev: dict[str, Any]) -> int | None:
     """
     if ev.get("price") is None:
         return None
-    cur = str(ev.get("currency_name") or "").strip().upper()
-    if cur and cur not in {"RUB", "RUR", "₽", "РУБ"}:
+    cur = str(ev.get("currency_name") or "").strip().upper().replace(".", "")
+    rub_aliases = {"RUB", "RUR", "₽", "РУБ", "РУБЛЬ", "РУБЛИ", "643", "810"}
+    if cur and cur not in rub_aliases:
         return None
     try:
         rub = float(ev["price"])
     except (TypeError, ValueError):
         return None
-    if rub < 0:
+    if rub <= 0:
         return None
     return int(round(rub * 100))
 
@@ -5633,6 +5710,7 @@ def prepare_chz_batches(
                 }
             )
 
+    no_price_n = 0
     for doc_date, group in withdraw_other_groups.items():
         for part_idx, part in enumerate(_chunked(group, CHZ_PRODUCTS_PER_DOC), start=1):
             products = []
@@ -5641,6 +5719,16 @@ def prepare_chz_batches(
                 product = _chz_product_from_event(ev)
                 if not product:
                     bad_cis_n += 1
+                    continue
+                # True API OTHER requires product_cost («Цена за единицу»).
+                if product.get("product_cost") is None:
+                    no_price_n += 1
+                    skipped.append(
+                        {
+                            **ev,
+                            "skip_reason": "нет цены за единицу (product_cost)",
+                        }
+                    )
                     continue
                 products.append(product)
                 keys_ok.append(str(ev.get("event_key") or ""))
@@ -5672,7 +5760,12 @@ def prepare_chz_batches(
                     "sign_payload_b64": _b64_json(doc_body),
                 }
             )
-
+    if no_price_n:
+        warnings.append(
+            f"Пропущено выводов без цены за единицу: {no_price_n} "
+            "(ЧЗ OTHER требует product_cost; пересинхронизируйте заказы FBS "
+            "или проверьте convertedPrice в Marketplace)"
+        )
     for part_idx, part in enumerate(
         _chunked(return_items, CHZ_PRODUCTS_PER_DOC), start=1
     ):

@@ -1291,6 +1291,22 @@ def update_order_wb_statuses(
     return updated
 
 
+def _price_info_from_kop(kop: int, ccy: int) -> dict[str, Any] | None:
+    if int(kop or 0) <= 0:
+        return None
+    code = int(ccy or 643)
+    return {
+        "price_rub": float(kop) / 100.0,
+        "currency_name": "RUB" if code in (0, 643, 810) else "",
+        "currency_code": code,
+    }
+
+
+def _price_info_from_order_payload(order: dict[str, Any]) -> dict[str, Any] | None:
+    amount_kop, ccy = resolve_order_price(order)
+    return _price_info_from_kop(int(amount_kop or 0), int(ccy or 643))
+
+
 def load_order_price_map(
     repo: ReviewRepository,
     *,
@@ -1301,6 +1317,7 @@ def load_order_price_map(
     """Map order_id → price in rubles (from local ``wb_fbs_orders`` kopecks).
 
     ``price`` / ``final_price`` are stored in kopecks (see ``resolve_order_price``).
+    Falls back to ``raw_json`` when columns are zero (legacy / incomplete upserts).
     """
     ids: list[int] = []
     for raw in order_ids or []:
@@ -1319,7 +1336,7 @@ def load_order_price_map(
         rows = conn.execute(
             repo._sql(
                 f"""
-                SELECT order_id, price, final_price, currency_code
+                SELECT order_id, price, final_price, currency_code, raw_json
                 FROM wb_fbs_orders
                 WHERE user_id = ? AND source_id = ? AND order_id IN ({placeholders})
                 """
@@ -1339,19 +1356,120 @@ def load_order_price_map(
             price_i = int(row["price"] or 0)
         except (TypeError, ValueError):
             price_i = 0
-        kop = final_i if final_i > 0 else price_i
-        if kop <= 0:
-            continue
         try:
             ccy = int(row["currency_code"] or 643)
         except (TypeError, ValueError):
             ccy = 643
-        out[oid] = {
-            "price_rub": float(kop) / 100.0,
-            "currency_name": "RUB" if ccy in (0, 643, 810) else "",
-            "currency_code": ccy,
-        }
+        kop = final_i if final_i > 0 else price_i
+        info = _price_info_from_kop(kop, ccy)
+        if info is None:
+            raw = row["raw_json"] if "raw_json" in row.keys() else None
+            if isinstance(raw, str) and raw.strip():
+                try:
+                    payload = json.loads(raw)
+                except Exception:
+                    payload = None
+                if isinstance(payload, dict):
+                    info = _price_info_from_order_payload(payload)
+        if info is None:
+            continue
+        out[oid] = info
     return out
+
+
+def fill_missing_order_prices(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    order_ids: list[int],
+    api_key: str,
+    lookback_days: int = 30,
+    max_order_pages: int = 40,
+    max_archive_pages: int = 8,
+) -> dict[int, dict[str, Any]]:
+    """Ensure local FBS prices for ``order_ids``; pull from Marketplace if missing.
+
+    Used by CHZ prepare for OTHER (no fiscal) withdraws that need ``product_cost``.
+    """
+    ids = sorted({int(x) for x in (order_ids or []) if int(x or 0) != 0})
+    price_map = load_order_price_map(
+        repo, user_id=user_id, source_id=source_id, order_ids=ids
+    )
+    missing = [oid for oid in ids if oid not in price_map]
+    key = str(api_key or "").strip()
+    if not missing or not key:
+        return price_map
+
+    client = WbFbsClient(key)
+    needed = set(missing)
+    date_to = datetime.now(UTC)
+    date_from = date_to - timedelta(days=max(1, min(int(lookback_days), 30)))
+
+    def _absorb(orders: list[dict[str, Any]], *, is_archive: bool = False) -> None:
+        for order in orders:
+            if not isinstance(order, dict) or order.get("id") is None:
+                continue
+            try:
+                oid = int(order["id"])
+            except (TypeError, ValueError):
+                continue
+            if oid not in needed:
+                continue
+            upsert_order(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                order=order,
+                is_archive=is_archive,
+                supplier_status=str(order.get("supplierStatus") or ""),
+                wb_status=str(order.get("wbStatus") or ""),
+            )
+            if _price_info_from_order_payload(order) is not None:
+                needed.discard(oid)
+
+    try:
+        next_token: int | None = 0
+        pages = 0
+        while pages < max(1, min(int(max_order_pages), 40)) and needed:
+            orders, next_token = client.get_orders_page(
+                limit=1000,
+                next_token=next_token if next_token is not None else 0,
+                date_from=date_from,
+                date_to=date_to,
+            )
+            if not orders:
+                break
+            _absorb(orders, is_archive=False)
+            pages += 1
+            if next_token is None:
+                break
+            time.sleep(0.2)
+    except Exception as exc:
+        _log.warning("fill_missing_order_prices orders scan failed: %s", exc)
+
+    if needed:
+        try:
+            arch_next: int | None = 0
+            pages = 0
+            max_pages = max(0, min(int(max_archive_pages), 30))
+            while pages < max_pages and needed:
+                arch_orders, arch_next = client.get_archive_orders(
+                    limit=1000, next_token=arch_next
+                )
+                if not arch_orders:
+                    break
+                _absorb(arch_orders, is_archive=True)
+                pages += 1
+                if not arch_next:
+                    break
+                time.sleep(0.2)
+        except Exception as exc:
+            _log.warning("fill_missing_order_prices archive scan failed: %s", exc)
+
+    return load_order_price_map(
+        repo, user_id=user_id, source_id=source_id, order_ids=ids
+    )
 
 
 def load_order_status_map(

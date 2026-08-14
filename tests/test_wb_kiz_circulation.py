@@ -662,6 +662,9 @@ def test_price_for_chz_skips_foreign_currency() -> None:
     assert circ._price_for_chz({"price": 10, "currency_name": "RUB"}) == 1000
     assert circ._price_for_chz({"price": 21.92, "currency_name": ""}) == 2192
     assert circ._price_for_chz({"price": 2192.0, "currency_name": "RUB"}) == 219200
+    assert circ._price_for_chz({"price": 3146, "currency_name": "643"}) == 314600
+    assert circ._price_for_chz({"price": 0, "currency_name": "RUB"}) is None
+    assert circ._price_for_chz({"price": None, "currency_name": "RUB"}) is None
 
 
 def test_normalize_cis_for_chz_joins_spurious_gs_in_serial() -> None:
@@ -970,6 +973,59 @@ def test_prepare_nofiscal_withdraw_uses_other_primary_doc(
     assert body["primary_document_custom_name"] == "Без документа основания"
     assert body["document_number"].startswith("WB-NOFISCAL-")
     assert "OTHER" in withdraw["title"] or "без чека" in withdraw["title"].lower()
+    assert body["products"][0]["product_cost"] == 1500
+
+
+@patch(
+    "review_processor.wb_kiz_circulation._close_deduped_prepare_events",
+    return_value=0,
+)
+@patch(
+    "review_processor.wb_kiz_circulation._load_sent_cis_identities",
+    return_value=set(),
+)
+@patch(
+    "review_processor.wb_kiz_circulation._attach_order_ids_to_events",
+)
+@patch("review_processor.wb_kiz_circulation.list_events_for_chz")
+@patch(
+    "review_processor.wb_kiz_circulation.repair_circulation_queue",
+    return_value={"returns_fixed": 0, "withdraw_skipped": 0, "withdraw_requeued": 0},
+)
+@patch("review_processor.wb_kiz_circulation.get_chz_settings")
+def test_prepare_nofiscal_skips_without_product_cost(
+    mock_settings, _repair, mock_list, _attach, _sent, _close
+) -> None:
+    mock_settings.return_value = {
+        "is_enabled": True,
+        "participant_inn": "7707083893",
+        "product_group": "lp",
+        "kpp": "770701001",
+        "fias_id": "fias-1",
+        "return_type": "REMOTE_SALE_RETURN",
+        "cert_thumbprint": "",
+        "api_base": "prod",
+        "api_base_url": PROD_BASE,
+    }
+    mock_list.return_value = [
+        {
+            "event_key": "k-nofiscal-noprice",
+            "operation_type": 1,
+            "order_id": 5461937159,
+            "order_wb_status": "sold",
+            "excise_short": "cis-nofiscal",
+            "fiscal_doc_number": "",
+            "fiscal_dt": "",
+            "skip_reason": "no_fiscal",
+            "status": "pending",
+            "price": None,
+            "currency_name": "",
+        }
+    ]
+    out = circ.prepare_chz_batches(repo=object(), user_id=1, source_id=2)
+    assert out["counts"]["documents"] == 0
+    assert out["counts"]["skipped"] == 1
+    assert any("цены" in str(w).lower() for w in (out.get("warnings") or []))
 
 
 def test_build_lk_receipt_other_includes_custom_name() -> None:
@@ -1154,7 +1210,9 @@ def test_attach_order_ids_to_events_via_srid() -> None:
     ]
     with patch("review_processor.wb_fbs.order_ids_by_srids") as lookup, patch(
         "review_processor.wb_fbs.load_order_status_map"
-    ) as status_map:
+    ) as status_map, patch(
+        "review_processor.wb_fbs.load_order_price_map", return_value={}
+    ):
         lookup.return_value = {"eAC.abc.0.0": 3291847561}
         status_map.return_value = {
             3291847561: {
@@ -1177,6 +1235,36 @@ def test_attach_order_ids_to_events_via_srid() -> None:
     called_srids = lookup.call_args.kwargs["srids"]
     assert "eAC.abc.0.0" in called_srids
     assert "missing" in called_srids
+
+
+def test_attach_backfills_price_from_order_map() -> None:
+    events = [
+        {
+            "event_key": "ek-1",
+            "srid": "rid-1",
+            "rid": "rid-1",
+            "price": None,
+            "currency_name": "",
+        }
+    ]
+    with patch("review_processor.wb_fbs.order_ids_by_srids") as lookup, patch(
+        "review_processor.wb_fbs.load_order_status_map", return_value={}
+    ), patch(
+        "review_processor.wb_fbs.load_order_price_map"
+    ) as price_map, patch(
+        "review_processor.wb_kiz_circulation._persist_event_prices", return_value=1
+    ) as persist:
+        lookup.return_value = {"rid-1": 5461937159}
+        price_map.return_value = {
+            5461937159: {"price_rub": 3146.0, "currency_name": "RUB", "currency_code": 643}
+        }
+        circ._attach_order_ids_to_events(
+            MagicMock(), user_id=1, source_id=13, events=events
+        )
+    assert events[0]["order_id"] == 5461937159
+    assert events[0]["price"] == 3146.0
+    assert events[0]["currency_name"] == "RUB"
+    persist.assert_called_once()
 
 
 def test_order_portal_status_label() -> None:
