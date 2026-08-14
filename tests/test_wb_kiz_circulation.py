@@ -834,14 +834,33 @@ def test_maintain_storage_calls_purge_helpers() -> None:
         circ, "purge_old_kiz_circulation_events", return_value=5
     ) as c2, patch.object(
         circ, "purge_old_kiz_runs_and_docs", return_value={"runs": 1, "docs": 2}
-    ) as c3:
-        out = circ.maintain_kiz_circulation_storage(repo, user_id=1, source_id=2)
+    ) as c3, patch.object(
+        circ, "_mark_storage_maintained"
+    ) as c4, patch.object(
+        circ, "get_cursor", return_value={"last_storage_at": ""}
+    ):
+        out = circ.maintain_kiz_circulation_storage(
+            repo, user_id=1, source_id=2, force=True
+        )
     assert out == {
         "raw_json_cleared": 3,
         "events_purged": 5,
         "runs_purged": 1,
         "docs_purged": 2,
+        "skipped": 0,
     }
     c1.assert_called_once()
     c2.assert_called_once()
     c3.assert_called_once()
+    c4.assert_called_once()
+
+
+def test_maintain_storage_throttles_when_recent() -> None:
+    repo = MagicMock()
+    recent = datetime.now(timezone.utc).isoformat()
+    with patch.object(
+        circ, "get_cursor", return_value={"last_storage_at": recent}
+    ), patch.object(circ, "clear_accepted_raw_json") as clear:
+        out = circ.maintain_kiz_circulation_storage(repo, user_id=1, source_id=2)
+    assert out["skipped"] == 1
+    clear.assert_not_called()

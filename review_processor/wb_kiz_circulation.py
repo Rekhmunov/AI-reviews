@@ -66,6 +66,8 @@ CHZ_PRODUCTS_PER_DOC = 100
 # Full event rows (UI/history) — ~6 months. Slim sent-CIS registry is kept forever.
 EVENT_RETENTION_DAYS = 180
 PURGE_BATCH_SIZE = 1000
+# Storage GC is not free — skip if ran recently (prepare can loop many rounds).
+STORAGE_MAINTAIN_MIN_INTERVAL_HOURS = 12
 
 CHZ_STATUS_SUCCESS = frozenset(
     {"ACCEPTED", "CHECKED_OK", "SUCCESS", "OK", "PROCESSED"}
@@ -217,11 +219,19 @@ def ensure_kiz_circulation_tables(repo: ReviewRepository) -> None:
                 last_fiscal_dt TEXT NOT NULL DEFAULT '',
                 last_run_at TEXT NOT NULL DEFAULT '',
                 last_run_id BIGINT,
+                last_storage_at TEXT NOT NULL DEFAULT '',
                 updated_at TEXT NOT NULL DEFAULT '',
                 PRIMARY KEY (user_id, source_id)
             )
             """
         )
+        try:
+            conn.execute(
+                "ALTER TABLE wb_kiz_circulation_cursor "
+                "ADD COLUMN IF NOT EXISTS last_storage_at TEXT NOT NULL DEFAULT ''"
+            )
+        except Exception:
+            pass
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS wb_kiz_circulation_runs (
@@ -299,6 +309,12 @@ def ensure_kiz_circulation_tables(repo: ReviewRepository) -> None:
             repo._sql(
                 "CREATE INDEX IF NOT EXISTS idx_wb_kiz_circ_events_status "
                 "ON wb_kiz_circulation_events(user_id, source_id, status, operation_type)"
+            )
+        )
+        conn.execute(
+            repo._sql(
+                "CREATE INDEX IF NOT EXISTS idx_wb_kiz_circ_events_purge "
+                "ON wb_kiz_circulation_events(user_id, source_id, status, updated_at)"
             )
         )
         conn.execute(
@@ -662,21 +678,164 @@ def clear_accepted_raw_json(
 ) -> int:
     """Drop bulky WB payload once CHZ accepted — registry keeps the trail."""
     ensure_kiz_circulation_tables(repo)
+    cleared = 0
+    for _ in range(20):
+        with repo._connect() as conn:
+            cur = conn.execute(
+                repo._sql(
+                    """
+                    UPDATE wb_kiz_circulation_events
+                    SET raw_json = '{}'
+                    WHERE id IN (
+                      SELECT id FROM wb_kiz_circulation_events
+                      WHERE user_id = ? AND source_id = ?
+                        AND status = ?
+                        AND COALESCE(raw_json, '') <> ''
+                        AND raw_json <> '{}'
+                      ORDER BY id ASC
+                      LIMIT ?
+                    )
+                    """
+                ),
+                (user_id, source_id, STATUS_ACCEPTED, PURGE_BATCH_SIZE),
+            )
+            n = int(getattr(cur, "rowcount", 0) or 0)
+        cleared += n
+        if n < PURGE_BATCH_SIZE:
+            break
+    return cleared
+
+
+def _mark_storage_maintained(
+    repo: ReviewRepository, *, user_id: int, source_id: int, when: str = ""
+) -> None:
+    ensure_kiz_circulation_tables(repo)
+    now = when or datetime.now(timezone.utc).isoformat()
     with repo._connect() as conn:
-        cur = conn.execute(
+        conn.execute(
             repo._sql(
                 """
-                UPDATE wb_kiz_circulation_events
-                SET raw_json = '{}'
-                WHERE user_id = ? AND source_id = ?
-                  AND status = ?
-                  AND COALESCE(raw_json, '') <> ''
-                  AND raw_json <> '{}'
+                INSERT INTO wb_kiz_circulation_cursor (
+                    user_id, source_id, last_storage_at, updated_at
+                ) VALUES (?, ?, ?, ?)
+                ON CONFLICT (user_id, source_id) DO UPDATE SET
+                    last_storage_at = EXCLUDED.last_storage_at,
+                    updated_at = EXCLUDED.updated_at
                 """
             ),
-            (user_id, source_id, STATUS_ACCEPTED),
+            (user_id, source_id, now, now),
         )
-        return int(getattr(cur, "rowcount", 0) or 0)
+
+
+def maintain_kiz_circulation_storage(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    force: bool = False,
+    min_interval_hours: int = STORAGE_MAINTAIN_MIN_INTERVAL_HOURS,
+) -> dict[str, int]:
+    """Clear bulky payloads + purge old terminal history; keep slim sent registry.
+
+    Throttled by default so CHZ prepare multi-round loops do not re-scan the table.
+    """
+    empty = {
+        "raw_json_cleared": 0,
+        "events_purged": 0,
+        "runs_purged": 0,
+        "docs_purged": 0,
+        "skipped": 0,
+    }
+    if not force and min_interval_hours > 0:
+        try:
+            cur = get_cursor(repo, user_id=user_id, source_id=source_id)
+            last = str(cur.get("last_storage_at") or "").strip()
+            if last:
+                threshold = (
+                    datetime.now(timezone.utc)
+                    - timedelta(hours=max(1, int(min_interval_hours)))
+                ).isoformat()
+                if last >= threshold:
+                    empty["skipped"] = 1
+                    return empty
+        except Exception as exc:
+            logger.exception("storage maintain throttle check failed: %s", exc)
+
+    cleared = 0
+    purged_events = 0
+    meta = {"runs": 0, "docs": 0}
+    try:
+        cleared = clear_accepted_raw_json(repo, user_id=user_id, source_id=source_id)
+    except Exception as exc:
+        logger.exception("clear_accepted_raw_json failed: %s", exc)
+    try:
+        purged_events = purge_old_kiz_circulation_events(
+            repo, user_id=user_id, source_id=source_id
+        )
+    except Exception as exc:
+        logger.exception("purge_old_kiz_circulation_events failed: %s", exc)
+    try:
+        meta = purge_old_kiz_runs_and_docs(repo, user_id=user_id, source_id=source_id)
+    except Exception as exc:
+        logger.exception("purge_old_kiz_runs_and_docs failed: %s", exc)
+    try:
+        _mark_storage_maintained(repo, user_id=user_id, source_id=source_id)
+    except Exception as exc:
+        logger.exception("mark storage maintained failed: %s", exc)
+    return {
+        "raw_json_cleared": cleared,
+        "events_purged": purged_events,
+        "runs_purged": int(meta.get("runs") or 0),
+        "docs_purged": int(meta.get("docs") or 0),
+        "skipped": 0,
+    }
+
+
+def repair_circulation_queue(
+    repo: ReviewRepository, *, user_id: int, source_id: int
+) -> dict[str, int]:
+    try:
+        returns_fixed = repair_stuck_return_events(
+            repo, user_id=user_id, source_id=source_id
+        )
+    except Exception as exc:
+        logger.exception("repair_stuck_return_events failed: %s", exc)
+        returns_fixed = 0
+    try:
+        withdraw_from_error = repair_unhealable_withdraw_errors(
+            repo, user_id=user_id, source_id=source_id
+        )
+    except Exception as exc:
+        logger.exception("repair_unhealable_withdraw_errors failed: %s", exc)
+        withdraw_from_error = 0
+    try:
+        withdraw_requeued = repair_nofiscal_withdraw_to_pending(
+            repo, user_id=user_id, source_id=source_id
+        )
+    except Exception as exc:
+        logger.exception("repair_nofiscal_withdraw_to_pending failed: %s", exc)
+        withdraw_requeued = 0
+    try:
+        orphan_submitted = repair_orphan_submitted_events(
+            repo, user_id=user_id, source_id=source_id
+        )
+    except Exception as exc:
+        logger.exception("repair_orphan_submitted_events failed: %s", exc)
+        orphan_submitted = 0
+    try:
+        legacy_skipped = repair_legacy_skipped_with_cis(
+            repo, user_id=user_id, source_id=source_id
+        )
+    except Exception as exc:
+        logger.exception("repair_legacy_skipped_with_cis failed: %s", exc)
+        legacy_skipped = 0
+    return {
+        "returns_fixed": returns_fixed,
+        "withdraw_skipped": withdraw_from_error,
+        "withdraw_requeued": withdraw_requeued,
+        "orphan_submitted": orphan_submitted,
+        "legacy_skipped": legacy_skipped,
+    }
 
 
 def purge_old_kiz_circulation_events(
@@ -809,98 +968,6 @@ def purge_old_kiz_runs_and_docs(
     return {
         "runs": int(getattr(cur_runs, "rowcount", 0) or 0),
         "docs": int(getattr(cur_docs, "rowcount", 0) or 0),
-    }
-
-
-def maintain_kiz_circulation_storage(
-    repo: ReviewRepository, *, user_id: int, source_id: int
-) -> dict[str, int]:
-    """Clear bulky payloads + purge old terminal history; keep slim sent registry."""
-    cleared = 0
-    purged_events = 0
-    meta = {"runs": 0, "docs": 0}
-    try:
-        cleared = clear_accepted_raw_json(repo, user_id=user_id, source_id=source_id)
-    except Exception as exc:
-        logger.exception("clear_accepted_raw_json failed: %s", exc)
-    try:
-        purged_events = purge_old_kiz_circulation_events(
-            repo, user_id=user_id, source_id=source_id
-        )
-    except Exception as exc:
-        logger.exception("purge_old_kiz_circulation_events failed: %s", exc)
-    try:
-        meta = purge_old_kiz_runs_and_docs(repo, user_id=user_id, source_id=source_id)
-    except Exception as exc:
-        logger.exception("purge_old_kiz_runs_and_docs failed: %s", exc)
-    return {
-        "raw_json_cleared": cleared,
-        "events_purged": purged_events,
-        "runs_purged": int(meta.get("runs") or 0),
-        "docs_purged": int(meta.get("docs") or 0),
-    }
-
-
-def repair_circulation_queue(
-    repo: ReviewRepository, *, user_id: int, source_id: int
-) -> dict[str, int]:
-    try:
-        returns_fixed = repair_stuck_return_events(
-            repo, user_id=user_id, source_id=source_id
-        )
-    except Exception as exc:
-        logger.exception("repair_stuck_return_events failed: %s", exc)
-        returns_fixed = 0
-    try:
-        withdraw_from_error = repair_unhealable_withdraw_errors(
-            repo, user_id=user_id, source_id=source_id
-        )
-    except Exception as exc:
-        logger.exception("repair_unhealable_withdraw_errors failed: %s", exc)
-        withdraw_from_error = 0
-    try:
-        withdraw_requeued = repair_nofiscal_withdraw_to_pending(
-            repo, user_id=user_id, source_id=source_id
-        )
-    except Exception as exc:
-        logger.exception("repair_nofiscal_withdraw_to_pending failed: %s", exc)
-        withdraw_requeued = 0
-    try:
-        orphan_submitted = repair_orphan_submitted_events(
-            repo, user_id=user_id, source_id=source_id
-        )
-    except Exception as exc:
-        logger.exception("repair_orphan_submitted_events failed: %s", exc)
-        orphan_submitted = 0
-    try:
-        legacy_skipped = repair_legacy_skipped_with_cis(
-            repo, user_id=user_id, source_id=source_id
-        )
-    except Exception as exc:
-        logger.exception("repair_legacy_skipped_with_cis failed: %s", exc)
-        legacy_skipped = 0
-    try:
-        storage = maintain_kiz_circulation_storage(
-            repo, user_id=user_id, source_id=source_id
-        )
-    except Exception as exc:
-        logger.exception("maintain_kiz_circulation_storage failed: %s", exc)
-        storage = {
-            "raw_json_cleared": 0,
-            "events_purged": 0,
-            "runs_purged": 0,
-            "docs_purged": 0,
-        }
-    return {
-        "returns_fixed": returns_fixed,
-        "withdraw_skipped": withdraw_from_error,
-        "withdraw_requeued": withdraw_requeued,
-        "orphan_submitted": orphan_submitted,
-        "legacy_skipped": legacy_skipped,
-        "raw_json_cleared": int(storage.get("raw_json_cleared") or 0),
-        "events_purged": int(storage.get("events_purged") or 0),
-        "runs_purged": int(storage.get("runs_purged") or 0),
-        "docs_purged": int(storage.get("docs_purged") or 0),
     }
 
 
@@ -1137,6 +1204,7 @@ def get_cursor(
             "last_fiscal_dt": "",
             "last_run_at": "",
             "last_run_id": None,
+            "last_storage_at": "",
         }
     return repo._row_to_dict(row)
 
@@ -1540,6 +1608,13 @@ def sync_excise_report(
 ) -> dict[str, Any]:
     ensure_kiz_circulation_tables(repo)
     repaired = repair_circulation_queue(repo, user_id=user_id, source_id=source_id)
+    try:
+        storage = maintain_kiz_circulation_storage(
+            repo, user_id=user_id, source_id=source_id, force=True
+        )
+        repaired.update(storage)
+    except Exception as exc:
+        logger.exception("maintain_kiz_circulation_storage failed: %s", exc)
     period = resolve_excise_period(date_from=date_from, date_to=date_to)
     date_from_s = str(period["date_from"])
     date_to_s = str(period["date_to"])
@@ -2398,6 +2473,13 @@ def prepare_chz_batches(
     queue_repair = repair_circulation_queue(
         repo, user_id=user_id, source_id=source_id
     )
+    try:
+        storage = maintain_kiz_circulation_storage(
+            repo, user_id=user_id, source_id=source_id
+        )
+        queue_repair.update(storage)
+    except Exception as exc:
+        logger.exception("maintain_kiz_circulation_storage failed: %s", exc)
     lim = max(1, min(int(limit or PREPARE_EVENT_LIMIT), 5000))
     events_raw = list_events_for_chz(
         repo, user_id=user_id, source_id=source_id, limit=lim
