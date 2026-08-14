@@ -10336,11 +10336,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             not_fbs = kiz_circ.repair_skip_non_fbs_events(
                 repository, user_id=owner_id, source_id=int(source_id)
             )
+            not_fbs_purged = kiz_circ.purge_non_fbs_circulation_events(
+                repository, user_id=owner_id, source_id=int(source_id)
+            )
             status_skip = kiz_circ.repair_skip_wrong_fbs_status_events(
                 repository, user_id=owner_id, source_id=int(source_id)
             )
         except Exception:
             not_fbs = 0
+            not_fbs_purged = 0
             fbs_back = 0
             status_skip = {}
         try:
@@ -10364,6 +10368,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "total": len(items),
             "healed": int((healed or {}).get("healed") or 0),
             "not_fbs_skipped": int(not_fbs or 0),
+            "not_fbs_purged": int(not_fbs_purged or 0),
             "not_sold_skipped": int((status_skip or {}).get("not_sold_skipped") or 0),
             "not_return_skipped": int(
                 (status_skip or {}).get("not_return_skipped") or 0

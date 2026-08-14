@@ -707,6 +707,71 @@ def repair_skip_non_fbs_events(
         return int(getattr(cur, "rowcount", 0) or 0)
 
 
+def purge_non_fbs_circulation_events(
+    repo: ReviewRepository, *, user_id: int, source_id: int
+) -> int:
+    """Hard-delete non-FBS (e.g. FBO) rows from the circulation table.
+
+    Keeps ``submitted`` / ``accepted`` (CHZ audit). Requires at least one local
+    FBS order so an empty Marketplace table cannot wipe the queue.
+    """
+    ensure_kiz_circulation_tables(repo)
+    from . import wb_fbs as wb_fbs_mod
+
+    wb_fbs_mod.ensure_wb_fbs_tables(repo)
+    with repo._connect() as conn:
+        row = conn.execute(
+            repo._sql(
+                """
+                SELECT COUNT(*) AS n FROM wb_fbs_orders
+                WHERE user_id = ? AND source_id = ?
+                """
+            ),
+            (user_id, source_id),
+        ).fetchone()
+        fbs_n = int(repo._row_to_dict(row).get("n") or 0) if row else 0
+    if fbs_n <= 0:
+        return 0
+    join_sql = _fbs_order_join_sql()
+    deleted = 0
+    for _ in range(100):
+        with repo._connect() as conn:
+            cur = conn.execute(
+                repo._sql(
+                    f"""
+                    DELETE FROM wb_kiz_circulation_events
+                    WHERE id IN (
+                      SELECT e.id FROM wb_kiz_circulation_events AS e
+                      WHERE e.user_id = ? AND e.source_id = ?
+                        AND e.status NOT IN (?, ?)
+                        AND (
+                          e.skip_reason = ?
+                          OR NOT EXISTS (
+                            SELECT 1 FROM wb_fbs_orders AS o
+                            WHERE {join_sql}
+                          )
+                        )
+                      ORDER BY e.id ASC
+                      LIMIT ?
+                    )
+                    """
+                ),
+                (
+                    user_id,
+                    source_id,
+                    STATUS_SUBMITTED,
+                    STATUS_ACCEPTED,
+                    SKIP_NOT_FBS,
+                    PURGE_BATCH_SIZE,
+                ),
+            )
+            n = int(getattr(cur, "rowcount", 0) or 0)
+        deleted += n
+        if n < PURGE_BATCH_SIZE:
+            break
+    return deleted
+
+
 def repair_skip_wrong_fbs_status_events(
     repo: ReviewRepository, *, user_id: int, source_id: int
 ) -> dict[str, int]:
@@ -1237,6 +1302,13 @@ def repair_circulation_queue(
         logger.exception("repair_skip_non_fbs_events failed: %s", exc)
         not_fbs_skipped = 0
     try:
+        not_fbs_purged = purge_non_fbs_circulation_events(
+            repo, user_id=user_id, source_id=source_id
+        )
+    except Exception as exc:
+        logger.exception("purge_non_fbs_circulation_events failed: %s", exc)
+        not_fbs_purged = 0
+    try:
         status_skip = repair_skip_wrong_fbs_status_events(
             repo, user_id=user_id, source_id=source_id
         )
@@ -1251,6 +1323,7 @@ def repair_circulation_queue(
         "legacy_skipped": legacy_skipped,
         "fbs_requeued": fbs_requeued,
         "not_fbs_skipped": not_fbs_skipped,
+        "not_fbs_purged": not_fbs_purged,
         "not_sold_skipped": int(status_skip.get("not_sold_skipped") or 0),
         "not_return_skipped": int(status_skip.get("not_return_skipped") or 0),
     }
@@ -2084,6 +2157,11 @@ def sync_excise_report(
             log,
             f"убрано из очереди (нет в заказах FBS, вероятно FBO): "
             f"{repaired['not_fbs_skipped']}",
+        )
+    if repaired.get("not_fbs_purged"):
+        _append_log(
+            log,
+            f"удалено из таблицы (не FBS / FBO): {repaired['not_fbs_purged']}",
         )
     if repaired.get("not_sold_skipped"):
         _append_log(
@@ -3964,6 +4042,7 @@ __all__ = [
     "repair_orphan_submitted_events",
     "repair_legacy_skipped_with_cis",
     "repair_skip_non_fbs_events",
+    "purge_non_fbs_circulation_events",
     "repair_skip_wrong_fbs_status_events",
     "repair_requeue_fbs_matched_not_fbs",
     "repair_requeue_eligible_fbs_events",

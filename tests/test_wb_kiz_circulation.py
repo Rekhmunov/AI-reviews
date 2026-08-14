@@ -1453,3 +1453,44 @@ def test_repair_skip_non_fbs_updates_when_orders_exist() -> None:
     sql = conn.execute.call_args_list[1].args[0]
     assert "wb_fbs_orders" in sql
     assert circ.SKIP_NOT_FBS in conn.execute.call_args_list[1].args[1]
+
+def test_purge_non_fbs_noop_without_local_orders() -> None:
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    conn.__exit__.return_value = False
+    conn.execute.return_value.fetchone.return_value = {"n": 0}
+    repo = MagicMock()
+    repo._connect.return_value = conn
+    repo._sql.side_effect = lambda q: q
+    repo._row_to_dict.side_effect = lambda r: r if isinstance(r, dict) else {"n": 0}
+    with patch.object(circ, "ensure_kiz_circulation_tables"), patch(
+        "review_processor.wb_fbs.ensure_wb_fbs_tables"
+    ):
+        assert circ.purge_non_fbs_circulation_events(repo, user_id=1, source_id=2) == 0
+    assert conn.execute.call_count == 1
+
+
+def test_purge_non_fbs_deletes_batches() -> None:
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    conn.__exit__.return_value = False
+    count_cur = MagicMock()
+    count_cur.fetchone.return_value = {"n": 10}
+    del1 = MagicMock()
+    del1.rowcount = circ.PURGE_BATCH_SIZE
+    del2 = MagicMock()
+    del2.rowcount = 3
+    conn.execute.side_effect = [count_cur, del1, del2]
+    repo = MagicMock()
+    repo._connect.return_value = conn
+    repo._sql.side_effect = lambda q: q
+    repo._row_to_dict.side_effect = lambda r: r if isinstance(r, dict) else {"n": 10}
+    with patch.object(circ, "ensure_kiz_circulation_tables"), patch(
+        "review_processor.wb_fbs.ensure_wb_fbs_tables"
+    ):
+        assert circ.purge_non_fbs_circulation_events(repo, user_id=1, source_id=2) == (
+            circ.PURGE_BATCH_SIZE + 3
+        )
+    sql = conn.execute.call_args_list[1].args[0]
+    assert "DELETE FROM wb_kiz_circulation_events" in sql
+    assert circ.SKIP_NOT_FBS in conn.execute.call_args_list[1].args[1]

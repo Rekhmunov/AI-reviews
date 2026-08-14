@@ -17270,6 +17270,12 @@ async function refreshWbFbsKizCirculation() {
         `Убрано из очереди (не FBS / нет в заказах Marketplace): ${notFbsSkipped}`,
       );
     }
+    const notFbsPurged = Number(eventsPayload.not_fbs_purged || 0);
+    if (notFbsPurged > 0) {
+      _wbFbsKizCircAppendLog(
+        `Удалено из таблицы (FBO / не FBS): ${notFbsPurged}`,
+      );
+    }
     const notSoldSkipped = Number(eventsPayload.not_sold_skipped || 0);
     if (notSoldSkipped > 0) {
       _wbFbsKizCircAppendLog(
