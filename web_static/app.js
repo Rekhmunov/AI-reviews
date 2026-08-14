@@ -16952,26 +16952,18 @@ function _wbFbsKizCircCisFilterKey(ev) {
   const cisSt = String(ev?.cis_status || "").trim();
   const cisOwner = String(ev?.cis_owner_inn || "").trim();
   const oursInn = _wbFbsKizCircParticipantInn();
+  const label = String(ev?.cis_status_label || "").trim();
   const transferred = !!ev?.cis_transferred
+    || label === "Передан"
     || _wbFbsKizCircCisOwnerForeign(cisOwner, oursInn);
   if (transferred) return "transferred";
-  const label = String(ev?.cis_status_label || "").trim()
-    || _wbFbsKizCircCisLabel(cisSt);
   if (!cisSt && !label) return "__empty__";
-  if (label === "Передан") return "transferred";
   const kind = String(ev?.cis_status_kind || "").trim()
     || _wbFbsKizCircCisKind(cisSt);
   if (kind === "in_circulation") return "in_circulation";
   if (kind === "withdrawn") return "withdrawn";
-  // pre / other / unknown without a checked status → empty bucket for filter chips
-  if (!cisSt) return "__empty__";
-  if (kind === "withdrawn") return "withdrawn";
-  if (kind === "in_circulation") return "in_circulation";
-  // Checked but not one of the main chips (нанесён / прочее) → treat as empty? Better map pre to empty no —
-  // Keep only the four chips; non-matching checked rows hidden when any chip active unless we add them.
-  // Map pre/other to in_circulation? No. Hide when filter active unless __empty__ selected incorrectly.
-  // Use withdrawn only for out; for pre/other return kind so they don't match unless we expand chips.
-  return kind === "pre" || kind === "other" ? kind : (cisSt ? "other" : "__empty__");
+  // Rare pre/other: visible only when CIS filter chips are all off.
+  return kind || "other";
 }
 
 /** Rows that can still be prepared/submitted to ЧЗ.
