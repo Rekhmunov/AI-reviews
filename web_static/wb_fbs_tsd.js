@@ -16,9 +16,26 @@
     banner: null,
     search: "",
     loadSeq: 0,
+    forceSaveByOrder: {},
   };
 
   const LS_SOURCE = "wb_fbs_tsd_source_id";
+
+  // Wedge scanners type as keyboard; RU layout turns Latin sticker barcodes into Cyrillic.
+  const RU_LAYOUT_TO_EN = {
+    й: "q", ц: "w", у: "e", к: "r", е: "t", н: "y", г: "u", ш: "i",
+    щ: "o", з: "p", х: "[", ъ: "]",
+    ф: "a", ы: "s", в: "d", а: "f", п: "g", р: "h", о: "j", л: "k",
+    д: "l", ж: ";", э: "'",
+    я: "z", ч: "x", с: "c", м: "v", и: "b", т: "n", ь: "m", б: ",",
+    ю: ".", ё: "`",
+    Й: "Q", Ц: "W", У: "E", К: "R", Е: "T", Н: "Y", Г: "U", Ш: "I",
+    Щ: "O", З: "P", Х: "{", Ъ: "}",
+    Ф: "A", Ы: "S", В: "D", А: "F", П: "G", Р: "H", О: "J", Л: "K",
+    Д: "L", Ж: ":", Э: '"',
+    Я: "Z", Ч: "X", С: "C", М: "V", И: "B", Т: "N", Ь: "M", Б: "<",
+    Ю: ">", Ё: "~",
+  };
 
   function esc(v) {
     return String(v || "")
@@ -134,8 +151,20 @@
     return /[А-Яа-яЁё]/.test(String(s || ""));
   }
 
+  function fixRuKeyboardLayout(value) {
+    const text = String(value || "");
+    if (!/[а-яёА-ЯЁ]/.test(text)) return text;
+    let out = "";
+    for (const ch of text) {
+      out += Object.prototype.hasOwnProperty.call(RU_LAYOUT_TO_EN, ch)
+        ? RU_LAYOUT_TO_EN[ch]
+        : ch;
+    }
+    return out;
+  }
+
   function scanKey(s) {
-    return normalizeScan(s).toLowerCase();
+    return normalizeScan(s).toLocaleLowerCase("en-US");
   }
 
   function digitsOnly(s) {
@@ -143,20 +172,40 @@
   }
 
   function findBySticker(rows, raw) {
+    // Parity with desktop: primary sticker_barcode (QR/1D), then partA+partB / number.
     const scan = normalizeScan(raw);
     if (!scan) return { row: null, ambiguous: false };
-    const key = scanKey(scan);
-    const dig = digitsOnly(scan);
-    const matches = (rows || []).filter((r) => {
-      const full = normalizeScan(r.sticker_number || r.sticker || "");
-      if (!full) return false;
-      if (scanKey(full) === key) return true;
-      const fd = digitsOnly(full);
-      return dig && fd && (fd === dig || fd.endsWith(dig) || dig.endsWith(fd));
-    });
+    const rawKey = scanKey(scan);
+    const byBarcode = [];
+    for (const row of rows || []) {
+      const bc = normalizeScan(row.sticker_barcode);
+      if (bc && scanKey(bc) === rawKey) byBarcode.push(row);
+    }
+    if (byBarcode.length === 1) return { row: byBarcode[0], ambiguous: false };
+    if (byBarcode.length > 1) {
+      return { row: null, ambiguous: true, matches: byBarcode };
+    }
+
+    const digits = digitsOnly(scan);
+    const matches = [];
+    for (const row of rows || []) {
+      const full = normalizeScan(row.sticker_number || row.sticker || "");
+      const partA = normalizeScan(row.sticker_part_a);
+      const partB = normalizeScan(row.sticker_part_b);
+      if (
+        (full && (rawKey === scanKey(full) || (digits && digits === digitsOnly(full)))) ||
+        (partA && partB && digits && digits === digitsOnly(`${partA}${partB}`)) ||
+        (partB && (rawKey === scanKey(partB) || (digits && digits === digitsOnly(partB))))
+      ) {
+        matches.push(row);
+      }
+    }
     if (matches.length === 1) return { row: matches[0], ambiguous: false };
     if (matches.length > 1) {
-      const exact = matches.find((r) => scanKey(r.sticker_number) === key);
+      const exact = matches.find((r) => {
+        const full = normalizeScan(r.sticker_number);
+        return scanKey(full) === rawKey || digitsOnly(full) === digits;
+      });
       if (exact) return { row: exact, ambiguous: false };
       return { row: null, ambiguous: true, matches };
     }
@@ -174,37 +223,44 @@
 
   function gtinFromMark(mark) {
     const s = normalizeScan(mark);
-    // AI 01 + GTIN-14
-    const m = s.match(/^01(\d{14})/);
+    const m = s.match(/01(\d{14})/);
     return m ? m[1] : "";
   }
 
-  function barcodeCandidates(row) {
-    const list = [];
+  function orderSkuSet(row) {
+    const set = new Set();
     const barcodes = Array.isArray(row.barcodes) ? row.barcodes : [];
     const skus = Array.isArray(row.skus) ? row.skus : [];
     for (const x of barcodes.concat(skus)) {
-      const d = digitsOnly(x);
-      if (d) list.push(d);
+      const raw = String(x || "").trim();
+      if (raw) set.add(raw);
+      const d = digitsOnly(raw);
+      if (d) set.add(d);
     }
-    return list;
+    return set;
   }
 
   function markMatchesOrder(mark, row) {
     const gtin = gtinFromMark(mark);
     if (!gtin) {
-      // Accept full CIS without strict GTIN if order has no barcodes to compare.
-      if (!barcodeCandidates(row).length && normalizeScan(mark).length >= 20) return { ok: true };
-      return { ok: false, error: "Не похоже на КИЗ (ожидается код маркировки)" };
+      return {
+        ok: false,
+        error: "Не удалось выделить GTIN из кода маркировки (ожидается префикс 01 и 14 цифр).",
+      };
     }
-    const cands = barcodeCandidates(row);
-    if (!cands.length) return { ok: true };
-    const gtinTrim = gtin.replace(/^0+/, "") || gtin;
-    const ok = cands.some((b) => {
-      const bb = b.replace(/^0+/, "") || b;
-      return b === gtin || bb === gtinTrim || gtin.endsWith(b) || b.endsWith(gtinTrim);
-    });
-    if (!ok) return { ok: false, error: "КИЗ не совпадает со штрихкодом товара в заказе" };
+    const candidates = [gtin];
+    if (gtin.startsWith("0")) candidates.push(gtin.slice(1));
+    const orderSkus = orderSkuSet(row);
+    if (!orderSkus.size) {
+      return {
+        ok: false,
+        error: "У заказа нет штрихкодов товара — нельзя сверить GTIN маркировки.",
+      };
+    }
+    if (!candidates.some((c) => orderSkus.has(c))) {
+      const shown = gtin.startsWith("0") ? gtin.slice(1) : gtin;
+      return { ok: false, error: `GTIN ${shown} не совпадает ни с одним ШК товара в заказе` };
+    }
     return { ok: true };
   }
 
@@ -213,9 +269,13 @@
     if (!(dig.length === 8 || dig.length === 12 || dig.length === 13 || dig.length === 14)) {
       return { ok: false, error: "Ожидается штрихкод EAN (8/13 цифр)" };
     }
-    const cands = barcodeCandidates(row);
-    if (!cands.length) return { ok: true };
-    const ok = cands.some((b) => b === dig || b.endsWith(dig) || dig.endsWith(b));
+    const orderSkus = orderSkuSet(row);
+    if (!orderSkus.size) {
+      return { ok: false, error: "У заказа нет штрихкодов товара — нельзя сверить ШК" };
+    }
+    const ok =
+      orderSkus.has(dig) ||
+      [...orderSkus].some((b) => digitsOnly(b) === dig || String(b).endsWith(dig) || dig.endsWith(digitsOnly(b)));
     if (!ok) return { ok: false, error: "ШК не подходит к товару в заказе" };
     return { ok: true };
   }
@@ -293,10 +353,11 @@
 
   async function saveKizLocal(row) {
     const params = new URLSearchParams({ source_id: String(state.sourceId) });
+    const oid = Number(row.order_id);
     const codes = (Array.isArray(row.kiz_codes) ? row.kiz_codes : [])
       .map((c) => String(c || "").trim())
       .filter(Boolean);
-    await api(
+    const data = await api(
       `/api/wb-fbs/tsd/supplies/${encodeURIComponent(state.route.supplyId)}/kiz?${params}`,
       {
         method: "PUT",
@@ -304,22 +365,41 @@
         body: JSON.stringify({
           items: [
             {
-              order_id: Number(row.order_id),
+              order_id: oid,
               kiz_codes: codes,
               clear: !codes.length,
               local_only: true,
               expected_saved_at: String(row.kiz_saved_at || ""),
+              force: !!state.forceSaveByOrder[oid],
             },
           ],
         }),
         keepalive: true,
       }
     );
+    const result = (data.results || []).find((r) => Number(r.order_id) === oid) || null;
+    if (!result) throw new Error("Сервер не вернул результат сохранения КИЗ");
+    if (result.conflict) {
+      row.kiz_saved_at = String(result.kiz_saved_at || row.kiz_saved_at || "");
+      if (Array.isArray(result.kiz_codes)) row.kiz_codes = result.kiz_codes.slice();
+      state.forceSaveByOrder[oid] = true;
+      throw new Error(
+        result.error ||
+          "Заказ уже сохранён другим оператором — проверьте КИЗ и повторите"
+      );
+    }
+    if (!result.ok && !result.local_ok) {
+      throw new Error(result.error || "Не удалось сохранить КИЗ локально");
+    }
+    if (result.kiz_saved_at) row.kiz_saved_at = String(result.kiz_saved_at);
+    delete state.forceSaveByOrder[oid];
+    return result;
   }
 
   async function savePickLocal(row) {
     const params = new URLSearchParams({ source_id: String(state.sourceId) });
-    await api(
+    const oid = Number(row.order_id);
+    const data = await api(
       `/api/wb-fbs/tsd/supplies/${encodeURIComponent(state.route.supplyId)}/pick-verify?${params}`,
       {
         method: "PUT",
@@ -327,16 +407,36 @@
         body: JSON.stringify({
           items: [
             {
-              order_id: Number(row.order_id),
+              order_id: oid,
               pick_verified: !!row.pick_verified,
               pick_barcode: String(row.pick_barcode || "").trim(),
               local_only: true,
+              expected_verified_at: String(row.pick_verified_at || ""),
+              force: !!state.forceSaveByOrder[`pick:${oid}`],
             },
           ],
         }),
         keepalive: true,
       }
     );
+    const result = (data.results || []).find((r) => Number(r.order_id) === oid) || null;
+    if (!result) throw new Error("Сервер не вернул результат сохранения ШК");
+    if (result.conflict) {
+      row.pick_verified_at = String(result.pick_verified_at || row.pick_verified_at || "");
+      row.pick_verified = !!result.pick_verified;
+      row.pick_barcode = String(result.pick_barcode || row.pick_barcode || "");
+      state.forceSaveByOrder[`pick:${oid}`] = true;
+      throw new Error(
+        result.error ||
+          "Заказ уже сохранён другим оператором — проверьте ШК и повторите"
+      );
+    }
+    if (!result.ok) {
+      throw new Error(result.error || "Не удалось сохранить проверку ШК");
+    }
+    if (result.pick_verified_at) row.pick_verified_at = String(result.pick_verified_at);
+    delete state.forceSaveByOrder[`pick:${oid}`];
+    return result;
   }
 
   function renderDenied() {
@@ -452,8 +552,10 @@
 
     const kiz = s.kiz || { done: 0, total: 0 };
     const pick = s.pick || { done: 0, total: 0 };
-    const kizDisabled = !kiz.total;
-    const pickDisabled = !pick.total;
+    const kizError = String(s.kiz_error || "").trim();
+    const pickError = String(s.pick_error || "").trim();
+    const kizDisabled = !kiz.total && !kizError;
+    const pickDisabled = !pick.total && !pickError;
 
     main.innerHTML = `
       <h1 class="tsd-hub-name">${esc(s.name || sid)}</h1>
@@ -462,16 +564,37 @@
         <div>${esc(ordersBoxesText(s))}</div>
         <div>Склад: <strong>${esc(s.warehouse_label || "—")}</strong></div>
       </div>
+      ${
+        kizError || pickError
+          ? `<div class="tsd-banner is-err">${esc(
+              [kizError && `КИЗ: ${kizError}`, pickError && `ШК: ${pickError}`]
+                .filter(Boolean)
+                .join(" · ")
+            )}</div>`
+          : ""
+      }
       <div class="tsd-tiles">
         <button type="button" class="tsd-tile" id="tsdTileKiz" ${kizDisabled ? "disabled" : ""}>
           <span class="tsd-tile-kicker">Маркировка</span>
           <span class="tsd-tile-title">КИЗ</span>
-          <span class="tsd-tile-prog">${kizDisabled ? "Нет заказов с КИЗ" : `${kiz.done} / ${kiz.total}`}</span>
+          <span class="tsd-tile-prog">${
+            kizError
+              ? "Ошибка загрузки"
+              : kizDisabled
+                ? "Нет заказов с КИЗ"
+                : `${kiz.done} / ${kiz.total}`
+          }</span>
         </button>
         <button type="button" class="tsd-tile" id="tsdTilePick" ${pickDisabled ? "disabled" : ""}>
           <span class="tsd-tile-kicker">Проверка</span>
           <span class="tsd-tile-title">ШК</span>
-          <span class="tsd-tile-prog">${pickDisabled ? "Нет заказов без КИЗ" : `${pick.done} / ${pick.total}`}</span>
+          <span class="tsd-tile-prog">${
+            pickError
+              ? "Ошибка загрузки"
+              : pickDisabled
+                ? "Нет заказов без КИЗ"
+                : `${pick.done} / ${pick.total}`
+          }</span>
         </button>
       </div>`;
 
@@ -584,10 +707,19 @@
           onScanEnter(input);
         }
       });
+      // Do not remount on Cyrillic mid-scan — only banner hint; Enter applies layout map.
       input.addEventListener("input", () => {
         if (hasCyrillic(input.value)) {
-          setBanner("Русская раскладка — переключите на EN", "warn");
-          renderScan();
+          const el = document.querySelector(".tsd-banner");
+          if (!el) {
+            const shell = document.querySelector(".tsd-scan-shell");
+            if (shell) {
+              const ban = document.createElement("div");
+              ban.className = "tsd-banner is-warn";
+              ban.textContent = "Русская раскладка — переключите на EN (или сканируйте ещё раз)";
+              shell.insertBefore(ban, shell.children[1] || null);
+            }
+          }
         }
       });
     }
@@ -604,14 +736,19 @@
 
   async function onScanEnter(input) {
     const mode = state.route.mode;
-    const raw = String(input.value || "");
+    let raw = String(input.value || "");
     if (!normalizeScan(raw)) return;
     if (hasCyrillic(raw)) {
-      setBanner("Русская раскладка — переключите на EN", "warn");
-      beep(false);
-      input.select();
-      renderScan();
-      return;
+      const mapped = fixRuKeyboardLayout(raw);
+      if (hasCyrillic(mapped)) {
+        setBanner("Русская раскладка — переключите на EN", "warn");
+        beep(false);
+        input.value = "";
+        input.focus();
+        return;
+      }
+      raw = mapped;
+      input.value = mapped;
     }
 
     if (state.step === "sticker" || !state.pendingOrderId) {
@@ -665,6 +802,7 @@
           return;
         }
         const dup = state.kizRows.find((r) =>
+          Number(r.order_id) !== Number(row.order_id) &&
           (Array.isArray(r.kiz_codes) ? r.kiz_codes : []).some(
             (c) => normalizeScan(c) === mark
           )

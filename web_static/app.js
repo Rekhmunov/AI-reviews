@@ -559,7 +559,7 @@ function canViewSection(section) {
   if (section === "salary")         return permissions.can_view_salary || isTenantOwner();
   if (section === "salary-settings") return isTenantOwner() || permissions.can_view_salary_settings;
   if (section === "supplies-wb")  return permissions.can_view_wb_supplies || (permissions.can_view_supplies && isTenantOwner());
-  if (section === "supplies-wb-fbs") return permissions.can_view_wb_fbs_supplies || permissions.can_view_wb_fbs_tsd || (permissions.can_view_supplies && isTenantOwner());
+  if (section === "supplies-wb-fbs") return permissions.can_view_wb_fbs_supplies || (permissions.can_view_supplies && isTenantOwner());
   if (section === "supplies-ozon") return permissions.can_view_ozon_supplies || (permissions.can_view_supplies && isTenantOwner());
   if (section === "supplies-poa") return permissions.can_view_supplies;
   if (section === "supplies-certificates") return permissions.can_view_supplies;
@@ -14444,7 +14444,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const navWb = document.getElementById("nav-supplies-wb");
     if (navWb) navWb.style.display = "none";
   }
-  if (!permissions.can_view_wb_fbs_supplies && !permissions.can_view_wb_fbs_tsd && !isTenantOwner()) {
+  if (!permissions.can_view_wb_fbs_supplies && !isTenantOwner()) {
     document.getElementById("section-supplies-wb-fbs")?.classList.add("hidden");
     const navFbs = document.getElementById("nav-supplies-wb-fbs");
     if (navFbs) navFbs.style.display = "none";

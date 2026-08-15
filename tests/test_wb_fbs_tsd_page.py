@@ -62,6 +62,19 @@ def test_web_py_has_tsd_routes_and_builder() -> None:
 def test_tsd_js_uses_dedicated_api_prefix() -> None:
     js = (STATIC / "wb_fbs_tsd.js").read_text(encoding="utf-8")
     assert "/api/wb-fbs/tsd/" in js
-    # Must not call desktop-only owner pick-verify endpoints
-    assert "/api/wb-fbs/supplies/" not in js or js.count("/api/wb-fbs/tsd/") > 0
     assert "local_only: true" in js
+    assert "sticker_barcode" in js
+    assert "sticker_part_a" in js
+    assert "expected_saved_at" in js
+    assert "expected_verified_at" in js
+    assert "forceSaveByOrder" in js
+    assert "RU_LAYOUT_TO_EN" in js
+    assert "fixRuKeyboardLayout" in js
+
+
+def test_web_py_tsd_kiz_forces_local_only() -> None:
+    src = WEB_PY.read_text(encoding="utf-8")
+    # TSD KIZ save must force local_only (no WB push for warehouse role).
+    assert 'row["local_only"] = True' in src or "row['local_only'] = True" in src
+    assert 'base["kiz_error"]' in src or 'base["kiz_error"] =' in src
+    assert "nav-wb-fbs-tsd" in src

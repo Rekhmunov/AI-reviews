@@ -9421,14 +9421,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not sid:
             raise HTTPException(status_code=400, detail="Укажите supply_id")
         api_key = _wb_fbs_source_key(owner_id, int(source_id))
-        # Reuse assembly list row for header fields when possible.
+        # Prefer exact supply_id match (search is ILIKE and can paginate away).
         assembly = wb_fbs_mod.list_assembly_supplies(
             repository,
             user_id=owner_id,
             source_id=int(source_id),
             search=sid,
             page=1,
-            page_size=50,
+            page_size=200,
         )
         supply_row = next(
             (
@@ -9438,6 +9438,26 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             ),
             None,
         )
+        if supply_row is None:
+            # Fallback: scan first page of assembly without search filter.
+            assembly_all = wb_fbs_mod.list_assembly_supplies(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                search=None,
+                page=1,
+                page_size=200,
+            )
+            supply_row = next(
+                (
+                    x
+                    for x in (assembly_all.get("items") or [])
+                    if str(x.get("supply_id") or "") == sid
+                ),
+                None,
+            )
+        kiz_error = ""
+        pick_error = ""
         try:
             kiz_payload = wb_detail.build_kiz_marking_payload(
                 repository,
@@ -9449,6 +9469,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except Exception as exc:
             _log.warning("tsd kiz summary failed: %s", exc)
             kiz_payload = {"rows": []}
+            kiz_error = str(exc) or "Не удалось загрузить маркировку"
         try:
             pick_payload = wb_detail.build_pick_verify_payload(
                 repository,
@@ -9460,6 +9481,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except Exception as exc:
             _log.warning("tsd pick summary failed: %s", exc)
             pick_payload = {"rows": []}
+            pick_error = str(exc) or "Не удалось загрузить проверку ШК"
         kiz_rows = kiz_payload.get("rows") if isinstance(kiz_payload, dict) else []
         pick_rows = pick_payload.get("rows") if isinstance(pick_payload, dict) else []
         if not isinstance(kiz_rows, list):
@@ -9489,6 +9511,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         base.setdefault("source_id", int(source_id))
         base["kiz"] = {"total": kiz_total, "done": kiz_done}
         base["pick"] = {"total": pick_total, "done": pick_done}
+        if kiz_error:
+            base["kiz_error"] = kiz_error
+        if pick_error:
+            base["pick_error"] = pick_error
         return base
 
     @app.get("/api/wb-fbs/tsd/supplies/{supply_id}/kiz")
@@ -9547,33 +9573,27 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         items = body.get("items") if isinstance(body, dict) else None
         if not isinstance(items, list):
             raise HTTPException(status_code=400, detail="Укажите items[]")
+        # ТСД never pushes sgtin to WB — warehouse operators only write local drafts.
+        normalized_items: list[dict[str, object]] = []
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            row = dict(it)
+            row["local_only"] = True
+            normalized_items.append(row)
+        items = normalized_items
+        if not items:
+            raise HTTPException(status_code=400, detail="Укажите items[]")
         api_key = _wb_fbs_source_key(owner_id, int(source_id))
         try:
-            only_local = bool(items) and all(
-                isinstance(it, dict) and bool(it.get("local_only")) for it in items
-            )
-            if only_local:
-                allowed = set(
-                    wb_detail._local_order_ids_for_supply(
-                        repository,
-                        user_id=owner_id,
-                        source_id=int(source_id),
-                        supply_id=sid,
-                    )
-                )
-            else:
-                detail = wb_detail.get_supply_detail(
+            allowed = set(
+                wb_detail._local_order_ids_for_supply(
                     repository,
                     user_id=owner_id,
                     source_id=int(source_id),
-                    api_key=api_key,
                     supply_id=sid,
                 )
-                allowed = {
-                    int(o["order_id"])
-                    for o in (detail.get("orders") or [])
-                    if o.get("kiz_required") and o.get("order_id") is not None
-                }
+            )
             result = wb_detail.save_kiz_marking(
                 api_key=api_key,
                 items=items,
@@ -9586,10 +9606,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        if not only_local:
-            wb_detail.invalidate_supply_detail_cache(
-                user_id=owner_id, source_id=int(source_id), supply_id=sid
-            )
         return result
 
     @app.get("/api/wb-fbs/tsd/supplies/{supply_id}/pick-verify")
@@ -16188,7 +16204,13 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
     _wb_link = ('<a id="nav-supplies-wb" class="nav-item" href="#" onclick="showSection(\'supplies-wb\')"><span class="nav-item-icon">▦</span> ВБ</a>'
                 if can_view_wb_supplies else "")
     _wb_fbs_link = ('<a id="nav-supplies-wb-fbs" class="nav-item" href="#" onclick="showSection(\'supplies-wb-fbs\')"><span class="nav-item-icon">▣</span> ВБ ФБС</a>'
-                    if (can_view_wb_fbs_supplies or can_view_wb_fbs_tsd) else "")
+                    if can_view_wb_fbs_supplies else "")
+    # Managers with only ТСД (no desktop ВБ ФБС) get a direct link — avoid broken FBS section.
+    _tsd_link = (
+        '<a id="nav-wb-fbs-tsd" class="nav-item" href="/wb-fbs/tsd"><span class="nav-item-icon">▣</span> ТСД</a>'
+        if (can_view_wb_fbs_tsd and not can_view_wb_fbs_supplies)
+        else ""
+    )
     _ozon_link = ('<a id="nav-supplies-ozon" class="nav-item" href="#" onclick="showSection(\'supplies-ozon\')"><span class="nav-item-icon">◉</span> ОЗОН</a>'
                   if can_view_ozon_supplies else "")
     _poa_link = ('<a id="nav-supplies-poa" class="nav-item" href="#" onclick="showSection(\'supplies-poa\')"><span class="nav-item-icon">☐</span> Доверенности</a>'
@@ -16196,8 +16218,8 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
     _certs_link = ('<a id="nav-supplies-certificates" class="nav-item" href="#" onclick="showSection(\'supplies-certificates\')"><span class="nav-item-icon">✦</span> Сертификаты</a>'
                    if can_view_supply_certs else "")
     nav_supplies_wb = (
-        (_wb_link + _wb_fbs_link + _ozon_link + _stock_link + _poa_link + _certs_link)
-        if can_view_supplies or can_supply_stock
+        (_wb_link + _wb_fbs_link + _tsd_link + _ozon_link + _stock_link + _poa_link + _certs_link)
+        if can_view_supplies or can_supply_stock or can_view_wb_fbs_tsd
         else ""
     )
     nav_supplies_settings = (
