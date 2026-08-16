@@ -18080,19 +18080,58 @@ async function runWbFbsKizCirculationSync() {
 
     const runId = Number(data.run_id || 0);
     wbFbsKizCircState.syncRunId = runId;
+    if (data.already_running && runId > 0) {
+      _wbFbsKizCircAppendLog(
+        `Выгрузка #${runId} уже идёт — продолжаю ждать в этом окне…`,
+      );
+    }
     if (data.async && runId > 0) {
-      _wbFbsKizCircAppendLog(`Фоновый прогон #${runId} — жду завершения…`);
+      if (!data.already_running) {
+        _wbFbsKizCircAppendLog(`Фоновый прогон #${runId} — жду завершения…`);
+      }
       const startedAt = Date.now();
       const maxWaitMs = 30 * 60 * 1000;
+      let pollFails = 0;
       while (Date.now() - startedAt < maxWaitMs) {
         await new Promise((r) => setTimeout(r, 2000));
-        const runRes = await fetch(`/api/wb-fbs/kiz-circulation/runs/${runId}`, {
-          headers: jsonHeaders(),
-        });
-        const run = await runRes.json().catch(() => ({}));
-        if (!runRes.ok) {
-          throw new Error(run.detail || `Не удалось получить статус прогона #${runId}`);
+        let runRes;
+        let run = {};
+        try {
+          runRes = await fetch(`/api/wb-fbs/kiz-circulation/runs/${runId}`, {
+            headers: jsonHeaders(),
+          });
+          run = await runRes.json().catch(() => ({}));
+        } catch (pollErr) {
+          pollFails += 1;
+          if (pollFails >= 8) {
+            throw new Error(
+              `Нет связи со статусом прогона #${runId} (${pollFails} сбоев). `
+                + "Выгрузка на сервере может продолжаться — нажмите «Обновить» или «Стоп».",
+            );
+          }
+          _wbFbsKizCircAppendLog(
+            `Нет ответа по прогону #${runId} (${pollFails}/8) — повторяю…`,
+          );
+          continue;
         }
+        if (!runRes.ok) {
+          pollFails += 1;
+          const detail = typeof run.detail === "string" ? run.detail.trim() : "";
+          if (pollFails >= 8) {
+            throw new Error(
+              detail ||
+                `Не удалось получить статус прогона #${runId} (${pollFails} сбоев). `
+                  + "Выгрузка на сервере может продолжаться — нажмите «Обновить» или «Стоп».",
+            );
+          }
+          _wbFbsKizCircAppendLog(
+            `Статус прогона #${runId} временно недоступен (${pollFails}/8)`
+              + (detail ? `: ${detail}` : "")
+              + " — повторяю…",
+          );
+          continue;
+        }
+        pollFails = 0;
         const st = String(run.status || "");
         const logText = String(run.log_text || "").trim();
         if (logText) _wbFbsKizCircSetLog(logText);

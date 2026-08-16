@@ -3912,10 +3912,23 @@ def create_excise_sync_run(
         repo, user_id=user_id, source_id=source_id
     )
     if active and _sync_has_live_worker(int(active.get("id") or 0)):
-        raise ValueError(
-            f"Уже идёт выгрузка #{int(active.get('id') or 0)}. "
-            "Дождитесь окончания или нажмите «Стоп»."
-        )
+        # Re-attach instead of hard-failing: UI can keep polling the live run.
+        rid = int(active.get("id") or 0)
+        period = resolve_excise_period(date_from=date_from, date_to=date_to)
+        return {
+            "ok": True,
+            "async": True,
+            "status": "running",
+            "run_id": rid,
+            "already_running": True,
+            "date_from": str(period["date_from"]),
+            "date_to": str(period["date_to"]),
+            "days": int(period["days"] or 0),
+            "log": str(active.get("log_text") or "").strip()
+            or (
+                f"WB: выгрузка #{rid} уже идёт — подключаюсь к логу…"
+            ),
+        }
     if active:
         # Defensive: DB row without live worker — close and continue.
         abandon_orphan_excise_sync_runs(
