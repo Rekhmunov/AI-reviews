@@ -13387,7 +13387,7 @@ function _sbProductCardHtml(row) {
     codes.push(ozonSku);
   }
   const photo = photoUrl
-    ? `<img class="wb-fbs-product-photo" src="${esc(photoUrl)}" alt="" width="144" height="144" loading="lazy" onerror="this.style.display='none'">`
+    ? `<img class="wb-fbs-product-photo" src="${esc(photoUrl)}" alt="" width="88" height="88" loading="lazy" onerror="this.style.display='none'">`
     : `<span class="wb-fbs-product-ph" aria-hidden="true"></span>`;
   const sub = article
     ? `<div class="wb-fbs-product-sub">Арт. ${esc(article)}</div>`

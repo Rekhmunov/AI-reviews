@@ -10433,18 +10433,25 @@ button.wb-fbs-kiz-add:disabled {
 .supply-balances-table .sb-col-name .wb-fbs-product {
   max-width: 100%;
   gap: 12px;
+  align-items: center;
 }
 /* Densify product thumbs only in Остатки (keep FBS tables at 144px). */
 .supply-balances-table .sb-col-name .wb-fbs-product-photo,
 .supply-balances-table .sb-col-name .wb-fbs-product img,
 .supply-balances-table .sb-col-name .wb-fbs-product-ph {
-  width: 72px !important;
-  height: 72px !important;
-  max-width: 72px !important;
-  max-height: 72px !important;
-  min-width: 72px;
-  min-height: 72px;
-  flex: 0 0 72px;
+  width: 88px !important;
+  height: 88px !important;
+  max-width: 88px !important;
+  max-height: 88px !important;
+  min-width: 88px;
+  min-height: 88px;
+  flex: 0 0 88px;
+  border: 0;
+  border-radius: 8px;
+  background: #f1f5f9;
+  object-fit: cover;
+  object-position: center;
+  overflow: hidden;
 }
 /* Арт. / ШК — тот же размер, что у названия, но не жирный (только Остатки) */
 .supply-balances-table .sb-col-name .wb-fbs-product-sub,
@@ -10889,18 +10896,21 @@ button.wb-fbs-kiz-add:disabled {
     padding: 10px 12px;
   }
   .supply-balances-table .sb-col-name .wb-fbs-product {
-    gap: 8px;
+    gap: 10px;
+    align-items: center;
   }
   .supply-balances-table .sb-col-name .wb-fbs-product-photo,
   .supply-balances-table .sb-col-name .wb-fbs-product img,
   .supply-balances-table .sb-col-name .wb-fbs-product-ph {
-    width: 56px !important;
-    height: 56px !important;
-    max-width: 56px !important;
-    max-height: 56px !important;
-    min-width: 56px;
-    min-height: 56px;
-    flex: 0 0 56px;
+    width: 72px !important;
+    height: 72px !important;
+    max-width: 72px !important;
+    max-height: 72px !important;
+    min-width: 72px;
+    min-height: 72px;
+    flex: 0 0 72px;
+    border: 0;
+    border-radius: 8px;
   }
   .supply-balances-table .sb-col-name .wb-fbs-product-name {
     font-size: 15px;
