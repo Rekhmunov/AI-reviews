@@ -10397,6 +10397,111 @@ button.wb-fbs-kiz-add:disabled {
   font-variant-numeric: tabular-nums;
   font-weight: 600;
 }
+.supply-balances-table .sb-qty-ro.is-below-min,
+.supply-balances-table .sb-qty-ro.is-negative {
+  color: #b91c1c;
+}
+.supply-balances-table .sb-min-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #94a3b8;
+  line-height: 1.2;
+}
+.supply-balances-table .sb-min-hint.is-below {
+  color: #b91c1c;
+}
+.supply-balances-table .sb-journal-open {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  border-radius: 8px;
+}
+.supply-balances-table .sb-journal-open:hover {
+  background: rgba(37, 99, 235, 0.04);
+}
+.supply-balances-table .sb-journal-open:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+}
+.supply-balances-table .sb-journal-open:active {
+  background: rgba(37, 99, 235, 0.08);
+}
+#section-supplies-balances #supplyBalancesBelowMinBtn.is-active {
+  border-color: #fca5a5;
+  background: #fef2f2;
+  color: #b91c1c;
+}
+.sb-movements-modal {
+  width: min(720px, 100%);
+  max-width: min(720px, 100%);
+}
+.sb-movements-body {
+  padding: 0;
+  overflow: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  background: #fff;
+}
+.sb-movements-list {
+  padding: 0 0 8px;
+}
+.sb-movements-row {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  padding: 12px 24px;
+  border-bottom: 1px solid #f1f5f9;
+}
+.sb-movements-row:last-child {
+  border-bottom: none;
+}
+.sb-movements-date {
+  font-size: 15px;
+  font-weight: 600;
+  color: #334155;
+  font-variant-numeric: tabular-nums;
+  padding-top: 2px;
+}
+.sb-movements-kind {
+  font-size: 16px;
+  font-weight: 500;
+  color: #0f172a;
+}
+.sb-movements-meta {
+  margin-top: 4px;
+  font-size: 14px;
+  color: #64748b;
+  line-height: 1.35;
+  word-break: break-word;
+}
+.sb-movements-qty {
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  padding-top: 2px;
+}
+.sb-movements-qty span {
+  font-size: 13px;
+  font-weight: 500;
+  color: #64748b;
+}
+.sb-movements-qty.is-pos {
+  color: #047857;
+}
+.sb-movements-qty.is-neg {
+  color: #b91c1c;
+}
 .supply-balances-table .sb-unit {
   color: #64748b;
   font-size: 14px;
@@ -10440,8 +10545,8 @@ button.wb-fbs-kiz-add:disabled {
 }
 
 .sb-vis-modal {
-  width: min(720px, 100%);
-  max-width: min(720px, 100%);
+  width: min(820px, 100%);
+  max-width: min(820px, 100%);
 }
 .sb-vis-body {
   padding: 0;
@@ -10545,6 +10650,39 @@ button.wb-fbs-kiz-add:disabled {
   color: #94a3b8;
   background: #f8fafc;
   font-weight: 500;
+}
+.sb-vis-min {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  flex: 0 0 auto;
+  min-width: 88px;
+}
+.sb-vis-min > span {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  line-height: 1;
+}
+.sb-vis-min input {
+  width: 88px;
+  min-height: 36px;
+  padding: 4px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #0f172a;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+.sb-vis-min input:focus {
+  outline: 2px solid #93c5fd;
+  outline-offset: 1px;
+  border-color: #60a5fa;
+}
+.sb-vis-min input::placeholder {
+  color: #cbd5e1;
 }
 .sb-vis-group-title {
   margin: 0;

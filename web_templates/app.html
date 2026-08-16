@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=225" />
+  <link rel="stylesheet" href="/static/style.css?v=226" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -2724,6 +2724,9 @@
                      autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
                      style="width:140px" oninput="onSupplyBalancesSearchInput()" />
               <span id="supplyBalancesFilterCount" class="small supplies-filter-count" hidden></span>
+              <button type="button" class="secondary" id="supplyBalancesBelowMinBtn"
+                      onclick="toggleSupplyBalancesBelowMin()" aria-pressed="false"
+                      title="Показать только позиции ниже минимума">Ниже минимума</button>
               <button type="button" class="secondary icon-btn" onclick="openSupplyBalancesVisibilityModal()" title="Вывод в таблице" aria-label="Вывод в таблице">👁</button>
               <button type="button" class="secondary" id="supplyBalancesHistoryBtn"
                       onclick="toggleSupplyBalancesHistory()" aria-pressed="false"
@@ -4907,7 +4910,7 @@
           <h3 id="supplyBalancesVisibilityTitle" class="sb-sheet-title">Вывод в таблице</h3>
           <button type="button" class="icon-btn secondary" onclick="closeSupplyBalancesVisibilityModal()" aria-label="Закрыть">✕</button>
         </div>
-        <p class="sb-sheet-lead">Выберите, какие позиции показывать в таблице. Перетащите строку, чтобы изменить порядок во вкладке Остатки. По умолчанию включены все.</p>
+        <p class="sb-sheet-lead">Выберите, какие позиции показывать в таблице. Задайте мин. остаток при необходимости. Перетащите строку, чтобы изменить порядок во вкладке Остатки. По умолчанию включены все.</p>
         <div class="sb-sheet-toolbar">
           <input type="search" id="supplyBalancesVisibilitySearch" class="sb-sheet-search" placeholder="Поиск..."
                  autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
@@ -5060,6 +5063,26 @@
       </div>
     </div>
   </div>
-  <script src="/static/app.js?v=490"></script>
+  <!-- Supply stock: item movement journal -->
+  <div id="supplyStockMovementsModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+       aria-labelledby="supplyStockMovementsTitle">
+    <div class="modal-card sb-sheet-modal sb-movements-modal">
+      <div class="sb-sheet-header">
+        <div class="sb-sheet-title-row">
+          <h3 id="supplyStockMovementsTitle" class="sb-sheet-title">Журнал движений</h3>
+          <button type="button" class="icon-btn secondary" onclick="closeSupplyStockMovementsModal()" aria-label="Закрыть">✕</button>
+        </div>
+        <p id="supplyStockMovementsLead" class="sb-sheet-lead">Загрузка…</p>
+      </div>
+      <div class="sb-movements-body">
+        <div id="supplyStockMovementsList" class="sb-movements-list"></div>
+      </div>
+      <div class="sb-sheet-footer">
+        <button type="button" class="secondary" onclick="closeSupplyStockMovementsModal()">Закрыть</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js?v=491"></script>
 </body>
 </html>

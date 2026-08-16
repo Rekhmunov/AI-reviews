@@ -13107,6 +13107,7 @@ const supplyBalancesState = {
   search: "",
   // Default: one date column (as_of / today). Opt-in loads all movement dates.
   showHistory: false,
+  filterBelowMin: false,
 };
 
 const SB_COL_WIDTHS_KEY = "supply_balances_col_widths_v2";
@@ -13205,6 +13206,27 @@ function _sbUpdateHistoryBtn() {
     : "Показать колонки по датам движений";
 }
 
+function _sbUpdateBelowMinBtn() {
+  const btn = document.getElementById("supplyBalancesBelowMinBtn");
+  if (!btn) return;
+  const on = !!supplyBalancesState.filterBelowMin;
+  const belowCount = (supplyBalancesState.rows || []).filter((r) => r.below_min).length;
+  btn.textContent = belowCount > 0 ? `Ниже минимума · ${belowCount}` : "Ниже минимума";
+  btn.setAttribute("aria-pressed", on ? "true" : "false");
+  btn.classList.toggle("is-active", on);
+  btn.disabled = belowCount === 0 && !on;
+  btn.title = on
+    ? "Показать все позиции"
+    : "Показать только позиции ниже минимума";
+}
+
+function toggleSupplyBalancesBelowMin() {
+  supplyBalancesState.filterBelowMin = !supplyBalancesState.filterBelowMin;
+  _sbUpdateBelowMinBtn();
+  applySupplyBalancesSearchFilter();
+}
+window.toggleSupplyBalancesBelowMin = toggleSupplyBalancesBelowMin;
+
 async function toggleSupplyBalancesHistory() {
   supplyBalancesState.showHistory = !supplyBalancesState.showHistory;
   _sbUpdateHistoryBtn();
@@ -13269,12 +13291,15 @@ async function loadSupplyBalancesData() {
     }
     _sbUpdateTodayBadge();
     _sbUpdateHistoryBtn();
+    _sbUpdateBelowMinBtn();
     renderSupplyBalancesTable();
     if (supplyBalancesState.rows.length) {
       const asOfLabel = _sbFormatDateLabel(supplyBalancesState.asOf);
       const histNote = supplyBalancesState.showHistory ? " · история дат" : "";
+      const belowCount = supplyBalancesState.rows.filter((r) => r.below_min).length;
+      const belowNote = belowCount ? ` · ниже минимума: ${belowCount}` : "";
       _sbSetStatus(
-        `Позиций: ${supplyBalancesState.rows.length}. Остаток на ${asOfLabel} (только просмотр)${histNote}`
+        `Позиций: ${supplyBalancesState.rows.length}. Остаток на ${asOfLabel} (только просмотр)${histNote}${belowNote}`
       );
     } else {
       _sbSetStatus("Нет видимых материалов и товаров. Добавьте их в Настройки или включите в «Вывод в таблице».");
@@ -13323,9 +13348,15 @@ function _sbProductCardHtml(row) {
 
 function _sbRenderItemRow(row, dates, asOf) {
   const type = String(row.item_type || "");
+  const itemId = Number(row.item_id || 0);
   const unit = esc(row.unit || "шт");
   const values = row.values || {};
   const typeLabel = type === "material" ? "Материал" : "Товар";
+  const belowMin = !!row.below_min;
+  const minQty = row.min_qty;
+  const minLabel = (minQty !== null && minQty !== undefined && minQty !== "")
+    ? `мин. ${_sbQtyText(minQty)}`
+    : "";
   const searchParts = [
     row.name,
     row.unit,
@@ -13339,20 +13370,38 @@ function _sbRenderItemRow(row, dates, asOf) {
   const cells = dates.map((d) => {
     const raw = values[d];
     const isAsOf = d === asOf;
+    const qtyClass = [
+      "sb-qty-ro",
+      isAsOf && belowMin ? "is-below-min" : "",
+      isAsOf && raw !== null && raw !== undefined && Number(raw) < 0 ? "is-negative" : "",
+    ].filter(Boolean).join(" ");
+    const minHint = isAsOf && minLabel
+      ? `<span class="sb-min-hint${belowMin ? " is-below" : ""}">${esc(minLabel)}</span>`
+      : "";
     return `<td class="${isAsOf ? "sb-col-today" : "sb-col-date"}">
       <div class="sb-qty-wrap">
-        <span class="sb-qty-ro">${esc(_sbQtyText(raw))}</span>
+        <span class="${qtyClass}">${esc(_sbQtyText(raw))}</span>
         <span class="sb-unit">${unit}</span>
       </div>
+      ${minHint}
     </td>`;
   }).join("");
   const nameCell = type === "product"
     ? _sbProductCardHtml(row)
     : `<span class="sb-name-text">${esc(row.name || "")}</span>
       <span class="sb-name-meta">${typeLabel}</span>`;
-  return `<tr class="sb-item-row${type === "product" ? " sb-item-row--product" : ""}" data-sb-type="${esc(type)}" data-sb-search="${esc(searchBlob)}">
+  const rowClass = [
+    "sb-item-row",
+    type === "product" ? "sb-item-row--product" : "",
+    belowMin ? "sb-item-row--below-min" : "",
+  ].filter(Boolean).join(" ");
+  return `<tr class="${rowClass}" data-sb-type="${esc(type)}" data-sb-id="${itemId}"
+    data-sb-below-min="${belowMin ? "1" : "0"}" data-sb-search="${esc(searchBlob)}">
     <td class="sb-col-name">
-      ${nameCell}
+      <button type="button" class="sb-journal-open" title="Журнал движений"
+        onclick="openSupplyStockMovementsModal('${esc(type)}', ${itemId})">
+        ${nameCell}
+      </button>
     </td>
     ${cells}
   </tr>`;
@@ -13374,11 +13423,14 @@ function applySupplyBalancesSearchFilter() {
   const countEl = document.getElementById("supplyBalancesFilterCount");
   if (!tbody) return;
   const q = _sbNormalizeSearch(supplyBalancesState.search);
+  const belowOnly = !!supplyBalancesState.filterBelowMin;
   const itemRows = Array.from(tbody.querySelectorAll("tr.sb-item-row"));
   let visible = 0;
   itemRows.forEach((tr) => {
     const hay = _sbNormalizeSearch(tr.getAttribute("data-sb-search") || "");
-    const show = !q || hay.includes(q);
+    const matchQ = !q || hay.includes(q);
+    const matchBelow = !belowOnly || tr.getAttribute("data-sb-below-min") === "1";
+    const show = matchQ && matchBelow;
     tr.classList.toggle("hidden", !show);
     tr.hidden = !show;
     if (show) visible += 1;
@@ -13399,20 +13451,28 @@ function applySupplyBalancesSearchFilter() {
   });
   // Empty-filter placeholder
   let emptyTr = tbody.querySelector("tr.sb-search-empty");
-  if (q && itemRows.length && visible === 0) {
+  const filterActive = !!(q || belowOnly);
+  if (filterActive && itemRows.length && visible === 0) {
     if (!emptyTr) {
       const colCount = 1 + (supplyBalancesState.dates?.length || 0);
       emptyTr = document.createElement("tr");
       emptyTr.className = "sb-search-empty";
       emptyTr.innerHTML = `<td class="sb-empty-cell" colspan="${colCount}">Ничего не найдено</td>`;
       tbody.appendChild(emptyTr);
+    } else {
+      const cell = emptyTr.querySelector("td");
+      if (cell) {
+        cell.textContent = belowOnly && !q
+          ? "Нет позиций ниже минимума"
+          : "Ничего не найдено";
+      }
     }
     emptyTr.hidden = false;
   } else if (emptyTr) {
     emptyTr.hidden = true;
   }
   if (countEl) {
-    if (q && itemRows.length) {
+    if (filterActive && itemRows.length) {
       countEl.hidden = false;
       countEl.textContent = `${visible} из ${itemRows.length}`;
     } else {
@@ -13420,6 +13480,7 @@ function applySupplyBalancesSearchFilter() {
       countEl.textContent = "";
     }
   }
+  _sbUpdateBelowMinBtn();
 }
 
 function renderSupplyBalancesTable() {
@@ -14145,6 +14206,10 @@ function renderSupplyBalancesVisibilityList() {
         row.ozon_sku,
         ...(Array.isArray(row.barcodes) ? row.barcodes : []),
       ].map((x) => String(x || "")).filter(Boolean).join(" ");
+      const minRaw = row.min_qty;
+      const minVal = (minRaw === null || minRaw === undefined || minRaw === "")
+        ? ""
+        : String(minRaw);
       const dragAttrs = searchActive
         ? `draggable="false" class="sb-vis-row sb-vis-row-no-drag"`
         : `draggable="true" class="sb-vis-row"`;
@@ -14155,6 +14220,13 @@ function renderSupplyBalancesVisibilityList() {
           <div class="sb-vis-name">${esc(row.name || "")}</div>
           <div class="sb-vis-sub">${esc(row.unit || "шт")} · ${typeLabel}</div>
         </div>
+        <label class="sb-vis-min" title="Минимальный остаток">
+          <span>Мин.</span>
+          <input type="number" min="0" step="any" inputmode="decimal"
+            data-vis-min-input="${esc(key)}" value="${esc(minVal)}" placeholder="—"
+            oninput="onSupplyBalanceMinQtyInput('${esc(row.item_type)}', ${Number(row.item_id)}, this.value)"
+            onclick="event.stopPropagation()" onmousedown="event.stopPropagation()" />
+        </label>
         <button type="button" class="sb-vis-eye ${on ? "" : "is-off"}" title="${on ? "Скрыть" : "Показать"}"
           onclick="toggleSupplyBalanceVisibility('${esc(row.item_type)}', ${Number(row.item_id)})">${on ? "Вкл" : "Выкл"}</button>
       </div>`;
@@ -14177,8 +14249,8 @@ function _initSupplyBalancesVisibilityDnD(list) {
       e.preventDefault();
       return;
     }
-    // Don't start drag from the eye toggle button.
-    if (e.target.closest(".sb-vis-eye")) {
+    // Don't start drag from the eye toggle button or min-qty input.
+    if (e.target.closest(".sb-vis-eye") || e.target.closest(".sb-vis-min")) {
       e.preventDefault();
       return;
     }
@@ -14351,8 +14423,43 @@ function toggleSupplyBalanceVisibility(itemType, itemId) {
 }
 window.toggleSupplyBalanceVisibility = toggleSupplyBalanceVisibility;
 
+function onSupplyBalanceMinQtyInput(itemType, itemId, raw) {
+  const row = supplyBalancesState.visibilityItems.find(
+    (x) => x.item_type === itemType && Number(x.item_id) === Number(itemId)
+  );
+  if (!row) return;
+  const s = String(raw ?? "").trim();
+  if (!s) {
+    row.min_qty = null;
+    return;
+  }
+  const n = Number(s);
+  row.min_qty = Number.isFinite(n) && n >= 0 ? n : null;
+}
+window.onSupplyBalanceMinQtyInput = onSupplyBalanceMinQtyInput;
+
+function _sbSyncVisibilityMinFromDom() {
+  const list = document.getElementById("supplyBalancesVisibilityList");
+  if (!list) return;
+  list.querySelectorAll("[data-vis-min-input]").forEach((input) => {
+    const key = String(input.getAttribute("data-vis-min-input") || "");
+    const row = (supplyBalancesState.visibilityItems || []).find(
+      (x) => `${x.item_type}:${x.item_id}` === key
+    );
+    if (!row) return;
+    const s = String(input.value || "").trim();
+    if (!s) {
+      row.min_qty = null;
+      return;
+    }
+    const n = Number(s);
+    row.min_qty = Number.isFinite(n) && n >= 0 ? n : null;
+  });
+}
+
 async function saveSupplyBalancesVisibility() {
   _syncSupplyBalancesVisibilityOrderFromDom();
+  _sbSyncVisibilityMinFromDom();
   const items = [];
   ["material", "product"].forEach((type) => {
     const group = (supplyBalancesState.visibilityItems || []).filter(
@@ -14364,6 +14471,9 @@ async function saveSupplyBalancesVisibility() {
         item_id: Number(x.item_id),
         visible: x.visible !== false,
         sort_order: idx,
+        min_qty: (x.min_qty === null || x.min_qty === undefined || x.min_qty === "")
+          ? null
+          : Number(x.min_qty),
       });
     });
   });
@@ -14382,6 +14492,74 @@ async function saveSupplyBalancesVisibility() {
   }
 }
 window.saveSupplyBalancesVisibility = saveSupplyBalancesVisibility;
+
+async function openSupplyStockMovementsModal(itemType, itemId) {
+  const itype = String(itemType || "").trim().toLowerCase();
+  const iid = Number(itemId || 0);
+  if (!itype || !iid) return;
+  const list = document.getElementById("supplyStockMovementsList");
+  const lead = document.getElementById("supplyStockMovementsLead");
+  const title = document.getElementById("supplyStockMovementsTitle");
+  setModalVisibility("supplyStockMovementsModal", true);
+  if (title) title.textContent = "Журнал движений";
+  if (lead) lead.textContent = "Загрузка…";
+  if (list) list.innerHTML = `<div class="sb-doc-empty">Загрузка…</div>`;
+  try {
+    const pid = Number(supplyBalancesState.productionId || 0);
+    const params = new URLSearchParams({
+      item_type: itype,
+      item_id: String(iid),
+      limit: "100",
+    });
+    if (pid) params.set("production_id", String(pid));
+    const res = await fetch(`/api/supply-balances/movements?${params.toString()}`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || "Ошибка загрузки");
+    const name = String(data.name || "");
+    const unit = String(data.unit || "шт");
+    const balText = _sbQtyText(data.balance);
+    if (title) title.textContent = name || "Журнал движений";
+    if (lead) {
+      lead.textContent = `Текущий остаток: ${balText} ${unit}. Показаны последние движения.`;
+    }
+    const items = Array.isArray(data.items) ? data.items : [];
+    if (!items.length) {
+      if (list) list.innerHTML = `<div class="sb-doc-empty">Движений пока нет</div>`;
+      return;
+    }
+    if (list) {
+      list.innerHTML = items.map((m) => {
+        const qty = Number(m.qty);
+        const qtyClass = Number.isFinite(qty) && qty < 0 ? "is-neg" : "is-pos";
+        const qtyText = Number.isFinite(qty)
+          ? (qty > 0 ? `+${_sbQtyText(qty)}` : _sbQtyText(qty))
+          : "—";
+        const who = String(m.created_by_name || "").trim();
+        const comment = String(m.comment || "").trim();
+        const meta = [who, comment].filter(Boolean).join(" · ");
+        return `<div class="sb-movements-row">
+          <div class="sb-movements-date">${esc(_sbFormatDateLabel(m.movement_date))}</div>
+          <div class="sb-movements-main">
+            <div class="sb-movements-kind">${esc(m.kind_label || m.kind || "Движение")}</div>
+            ${meta ? `<div class="sb-movements-meta">${esc(meta)}</div>` : ""}
+          </div>
+          <div class="sb-movements-qty ${qtyClass}">${esc(qtyText)} <span>${esc(unit)}</span></div>
+        </div>`;
+      }).join("");
+    }
+  } catch (e) {
+    if (lead) lead.textContent = "";
+    if (list) {
+      list.innerHTML = `<div class="sb-doc-empty" style="color:#b91c1c">${esc(String(e.message || e))}</div>`;
+    }
+  }
+}
+window.openSupplyStockMovementsModal = openSupplyStockMovementsModal;
+
+function closeSupplyStockMovementsModal() {
+  setModalVisibility("supplyStockMovementsModal", false);
+}
+window.closeSupplyStockMovementsModal = closeSupplyStockMovementsModal;
 
 async function loadRecommendations() {
   const res = await fetch("/api/recommendations");

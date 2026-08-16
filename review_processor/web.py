@@ -15136,6 +15136,33 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             )
             for v in vis_rows
         }
+        min_map: dict[tuple[str, int], float | None] = {
+            (str(v.get("item_type") or ""), int(v.get("item_id") or 0)): (
+                repository._parse_supply_balance_min_qty(v.get("min_qty"))
+            )
+            for v in vis_rows
+        }
+
+        def _stock_balance_num(raw: object) -> float:
+            if raw is None or raw == "":
+                return 0.0
+            try:
+                val = float(raw)  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                return 0.0
+            if val != val:  # NaN
+                return 0.0
+            return val
+
+        def _row_min_fields(
+            item_type: str, item_id: int, balance: object
+        ) -> dict[str, object]:
+            min_qty = min_map.get((item_type, item_id))
+            below = (
+                min_qty is not None and _stock_balance_num(balance) < float(min_qty)
+            )
+            return {"min_qty": min_qty, "below_min": below}
+
         materials = repository.list_feedback_materials(user_id=owner_id)
         products = repository.list_product_photos(user_id=owner_id)
         fbs_barcodes = repository.get_wb_fbs_barcodes_by_product_id(user_id=owner_id)
@@ -15151,17 +15178,18 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                 d: bal_by_date[d].get(("material", mid))
                 for d in dates
             }
-            material_rows.append(
-                {
-                    "item_type": "material",
-                    "item_id": mid,
-                    "name": str(m.get("name") or ""),
-                    "unit": str(m.get("unit") or "шт"),
-                    "values": values,
-                    "balance": bal_by_date[as_of_date].get(("material", mid)),
-                    "sort_order": sort_map.get(("material", mid), 10**9),
-                }
-            )
+            balance = bal_by_date[as_of_date].get(("material", mid))
+            row: dict[str, object] = {
+                "item_type": "material",
+                "item_id": mid,
+                "name": str(m.get("name") or ""),
+                "unit": str(m.get("unit") or "шт"),
+                "values": values,
+                "balance": balance,
+                "sort_order": sort_map.get(("material", mid), 10**9),
+            }
+            row.update(_row_min_fields("material", mid, balance))
+            material_rows.append(row)
         for p in products:
             pid_item = int(p.get("id") or 0)
             if pid_item <= 0:
@@ -15184,26 +15212,27 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                     barcodes.append(text)
             if ozon_sku and ozon_sku != article and ozon_sku not in barcodes:
                 barcodes.append(ozon_sku)
-            product_rows.append(
-                {
-                    "item_type": "product",
-                    "item_id": pid_item,
-                    "name": str(p.get("name") or ""),
-                    "unit": "шт",
-                    "supplier_article": article,
-                    "wb_nmid": wb_nmid,
-                    "ozon_sku": ozon_sku,
-                    "photo_url": (
-                        f"/api/products/photo/{pid_item}"
-                        if p.get("photo_path")
-                        else None
-                    ),
-                    "barcodes": barcodes,
-                    "values": values,
-                    "balance": bal_by_date[as_of_date].get(("product", pid_item)),
-                    "sort_order": sort_map.get(("product", pid_item), 10**9),
-                }
-            )
+            balance = bal_by_date[as_of_date].get(("product", pid_item))
+            row = {
+                "item_type": "product",
+                "item_id": pid_item,
+                "name": str(p.get("name") or ""),
+                "unit": "шт",
+                "supplier_article": article,
+                "wb_nmid": wb_nmid,
+                "ozon_sku": ozon_sku,
+                "photo_url": (
+                    f"/api/products/photo/{pid_item}"
+                    if p.get("photo_path")
+                    else None
+                ),
+                "barcodes": barcodes,
+                "values": values,
+                "balance": balance,
+                "sort_order": sort_map.get(("product", pid_item), 10**9),
+            }
+            row.update(_row_min_fields("product", pid_item, balance))
+            product_rows.append(row)
         material_rows.sort(
             key=lambda r: repository.supply_balance_item_sort_key(
                 item_type="material",
@@ -15406,6 +15435,12 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             )
             for v in vis_rows
         }
+        min_map = {
+            (str(v.get("item_type") or ""), int(v.get("item_id") or 0)): (
+                repository._parse_supply_balance_min_qty(v.get("min_qty"))
+            )
+            for v in vis_rows
+        }
         materials = repository.list_feedback_materials(user_id=owner_id)
         products = repository.list_product_photos(user_id=owner_id)
         items: list[dict[str, object]] = []
@@ -15423,6 +15458,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                     "unit": str(m.get("unit") or "шт"),
                     "visible": vis_map.get(("material", mid), True),
                     "sort_order": sort_map.get(("material", mid), 10**9),
+                    "min_qty": min_map.get(("material", mid)),
                 }
             )
         for p in products:
@@ -15449,6 +15485,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                     "barcodes": [x for x in (article, ozon_sku) if x],
                     "visible": vis_map.get(("product", pid_item), True),
                     "sort_order": sort_map.get(("product", pid_item), 10**9),
+                    "min_qty": min_map.get(("product", pid_item)),
                 }
             )
         material_items.sort(
@@ -15488,6 +15525,146 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             user_id=owner_id, items=list(payload.items or [])
         )
         return {"ok": True, "saved": saved}
+
+    @app.get("/api/supply-balances/movements")
+    def get_supply_balance_movements(
+        request: Request,
+        production_id: int = 0,
+        item_type: str = "",
+        item_id: int = 0,
+        limit: int = 100,
+    ) -> dict[str, object]:
+        """Read-only ledger journal for one Остатки row."""
+        user = _require_user(request)
+        if not _can_view_supply_stock(user):
+            raise HTTPException(status_code=403, detail="Нет доступа к остаткам")
+        owner_id = _supply_owner_id(user)
+        itype = str(item_type or "").strip().lower()
+        if itype not in {"material", "product"}:
+            raise HTTPException(status_code=400, detail="Некорректный тип позиции")
+        try:
+            iid = int(item_id or 0)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="Некорректный id позиции") from exc
+        if iid <= 0:
+            raise HTTPException(status_code=400, detail="Некорректный id позиции")
+        prods = _stock_productions_for_user(user)
+        if not prods:
+            raise HTTPException(
+                status_code=400,
+                detail="Добавьте производство в Поставки → Настройки → Производства",
+            )
+        prod_ids = {int(p["id"]) for p in prods}
+        pid = int(production_id or 0)
+        if pid <= 0 or pid not in prod_ids:
+            pid = int(prods[0]["id"])
+        try:
+            lim = int(limit or 100)
+        except (TypeError, ValueError):
+            lim = 100
+        lim = max(1, min(lim, 200))
+        name = ""
+        unit = "шт"
+        if itype == "material":
+            for m in repository.list_feedback_materials(user_id=owner_id):
+                if int(m.get("id") or 0) == iid:
+                    name = str(m.get("name") or "")
+                    unit = str(m.get("unit") or "шт")
+                    break
+        else:
+            for p in repository.list_product_photos(user_id=owner_id):
+                if int(p.get("id") or 0) == iid:
+                    name = str(p.get("name") or "")
+                    break
+        if not name:
+            raise HTTPException(status_code=404, detail="Позиция не найдена")
+        bal_map = repository.sum_supply_stock_balances(
+            user_id=owner_id, production_id=pid, as_of=_moscow_today()
+        )
+        balance = bal_map.get((itype, iid))
+        rows = repository.list_supply_stock_movements_for_item(
+            user_id=owner_id,
+            production_id=pid,
+            item_type=itype,
+            item_id=iid,
+            limit=lim,
+        )
+        kind_labels = {
+            "opening": "Начальный остаток",
+            "receipt": "Приход",
+            "fbs_ship": "Списание FBS",
+            "adjustment": "Корректировка",
+            "fbs_reverse": "Возврат FBS",
+        }
+        creator_ids = {
+            int(r["created_by"])
+            for r in rows
+            if r.get("created_by") not in (None, "")
+        }
+        creator_names: dict[int, str] = {}
+        for uid in creator_ids:
+            u = repository.get_user_by_id(uid)
+            if not u:
+                continue
+            label = str(u.get("full_name") or "").strip() or str(u.get("email") or "").strip()
+            if label:
+                creator_names[uid] = label
+
+        def _fbs_order_ref(source_type: str, source_id: str) -> str:
+            st = str(source_type or "")
+            sid = str(source_id or "").strip()
+            if not sid:
+                return ""
+            if st not in {"wb_fbs_order", "wb_fbs_order_reverse"} and not sid[:1].isdigit():
+                return ""
+            # source_id forms: "123", "123:s:1", "123:r:1"
+            head = sid.split(":", 1)[0].strip()
+            if head.isdigit():
+                return f"Заказ #{head}"
+            return ""
+
+        items: list[dict[str, object]] = []
+        for r in rows:
+            kind = str(r.get("kind") or "")
+            created_by = r.get("created_by")
+            try:
+                created_by_i = int(created_by) if created_by not in (None, "") else None
+            except (TypeError, ValueError):
+                created_by_i = None
+            source_type = str(r.get("source_type") or "")
+            source_id = str(r.get("source_id") or "")
+            order_ref = _fbs_order_ref(source_type, source_id)
+            comment = str(r.get("comment") or "").strip()
+            if order_ref and order_ref not in comment:
+                comment = f"{comment} · {order_ref}".strip(" ·") if comment else order_ref
+            items.append(
+                {
+                    "id": int(r.get("id") or 0),
+                    "movement_date": str(r.get("movement_date") or ""),
+                    "kind": kind,
+                    "kind_label": kind_labels.get(kind, kind or "Движение"),
+                    "qty": r.get("qty"),
+                    "comment": comment,
+                    "source_type": source_type,
+                    "source_id": source_id,
+                    "created_at": str(r.get("created_at") or ""),
+                    "created_by": created_by_i,
+                    "created_by_name": (
+                        creator_names.get(created_by_i)
+                        if created_by_i is not None
+                        else ("Система" if kind.startswith("fbs_") else "")
+                    ),
+                }
+            )
+        return {
+            "production_id": pid,
+            "item_type": itype,
+            "item_id": iid,
+            "name": name,
+            "unit": unit,
+            "balance": balance,
+            "items": items,
+        }
 
     @app.get("/api/supply-contractors")
     def list_supply_contractors(request: Request) -> list[dict[str, object]]:

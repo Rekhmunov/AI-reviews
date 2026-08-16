@@ -11832,6 +11832,11 @@ class ReviewRepository:
             "ALTER TABLE supply_balance_visibility "
             "ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0"
         )
+        # Optional reorder threshold for Остатки (NULL = not set).
+        conn.execute(
+            "ALTER TABLE supply_balance_visibility "
+            "ADD COLUMN IF NOT EXISTS min_qty DOUBLE PRECISION"
+        )
         # Append-only stock ledger (Поставки → Остатки). Balance = SUM(qty).
         conn.execute(
             """
@@ -12111,12 +12116,27 @@ class ReviewRepository:
                 saved += 1
         return saved
 
+    @staticmethod
+    def _parse_supply_balance_min_qty(raw: object) -> float | None:
+        """Empty / null → no threshold; otherwise non-negative float."""
+        if raw is None:
+            return None
+        if isinstance(raw, str) and not str(raw).strip():
+            return None
+        try:
+            val = float(raw)
+        except (TypeError, ValueError):
+            return None
+        if val < 0 or val != val:  # NaN
+            return None
+        return val
+
     def list_supply_balance_visibility(self, *, user_id: int) -> list[dict[str, Any]]:
         with self._connect() as conn:
             self._ensure_supply_balances_tables(conn)
             rows = conn.execute(
                 self._sql(
-                    "SELECT item_type, item_id, visible, sort_order "
+                    "SELECT item_type, item_id, visible, sort_order, min_qty "
                     "FROM supply_balance_visibility WHERE user_id = ?"
                 ),
                 (user_id,),
@@ -12129,6 +12149,7 @@ class ReviewRepository:
             except (TypeError, ValueError):
                 d["sort_order"] = 0
             d["visible"] = bool(d.get("visible", True))
+            d["min_qty"] = self._parse_supply_balance_min_qty(d.get("min_qty"))
             out.append(d)
         return out
 
@@ -12153,14 +12174,16 @@ class ReviewRepository:
                     sort_order = int(item.get("sort_order") or 0)
                 except (TypeError, ValueError):
                     sort_order = 0
+                min_qty = self._parse_supply_balance_min_qty(item.get("min_qty"))
                 conn.execute(
                     self._sql(
                         "INSERT INTO supply_balance_visibility "
-                        "(user_id, item_type, item_id, visible, sort_order) "
-                        "VALUES (?, ?, ?, ?, ?) "
+                        "(user_id, item_type, item_id, visible, sort_order, min_qty) "
+                        "VALUES (?, ?, ?, ?, ?, ?) "
                         "ON CONFLICT (user_id, item_type, item_id) "
                         "DO UPDATE SET visible = EXCLUDED.visible, "
-                        "sort_order = EXCLUDED.sort_order"
+                        "sort_order = EXCLUDED.sort_order, "
+                        "min_qty = EXCLUDED.min_qty"
                     ),
                     (
                         user_id,
@@ -12168,6 +12191,7 @@ class ReviewRepository:
                         item_id,
                         self._bool_db(visible),
                         sort_order,
+                        min_qty,
                     ),
                 )
                 saved += 1
@@ -12343,6 +12367,72 @@ class ReviewRepository:
             comment="Импорт из прежних остатков",
             created_by=created_by,
         )
+
+    def list_supply_stock_movements_for_item(
+        self,
+        *,
+        user_id: int,
+        production_id: int,
+        item_type: str,
+        item_id: int,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Recent ledger rows for one catalog item (newest first)."""
+        itype = str(item_type or "").strip().lower()
+        if itype not in {"material", "product"}:
+            return []
+        try:
+            iid = int(item_id or 0)
+            pid = int(production_id or 0)
+            lim = int(limit or 0)
+        except (TypeError, ValueError):
+            return []
+        if iid <= 0 or pid <= 0:
+            return []
+        lim = max(1, min(lim, 200))
+        with self._connect() as conn:
+            self._ensure_supply_balances_tables(conn)
+            rows = conn.execute(
+                self._sql(
+                    "SELECT id, item_type, item_id, qty, movement_date, kind, "
+                    "source_type, source_id, comment, created_at, created_by "
+                    "FROM supply_stock_movements "
+                    "WHERE user_id = ? AND production_id = ? "
+                    "AND item_type = ? AND item_id = ? "
+                    "ORDER BY movement_date DESC, id DESC "
+                    "LIMIT ?"
+                ),
+                (user_id, pid, itype, iid, lim),
+            ).fetchall()
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            d = self._row_to_dict(r)
+            try:
+                d["id"] = int(d.get("id") or 0)
+            except (TypeError, ValueError):
+                d["id"] = 0
+            try:
+                d["item_id"] = int(d.get("item_id") or 0)
+            except (TypeError, ValueError):
+                d["item_id"] = 0
+            try:
+                d["qty"] = float(d.get("qty"))
+            except (TypeError, ValueError):
+                continue
+            try:
+                created_by = d.get("created_by")
+                d["created_by"] = int(created_by) if created_by not in (None, "") else None
+            except (TypeError, ValueError):
+                d["created_by"] = None
+            d["item_type"] = str(d.get("item_type") or itype)
+            d["movement_date"] = str(d.get("movement_date") or "")
+            d["kind"] = str(d.get("kind") or "")
+            d["source_type"] = str(d.get("source_type") or "")
+            d["source_id"] = str(d.get("source_id") or "")
+            d["comment"] = str(d.get("comment") or "")
+            d["created_at"] = str(d.get("created_at") or "")
+            out.append(d)
+        return out
 
     def list_supply_stock_movement_dates(
         self, *, user_id: int, production_id: int, as_of: str | None = None
