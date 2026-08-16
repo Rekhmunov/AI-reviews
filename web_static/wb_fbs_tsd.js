@@ -17,6 +17,8 @@
     search: "",
     loadSeq: 0,
     forceSaveByOrder: {},
+    sessionScannedIds: [],
+    saving: false,
     loadUi: {
       token: 0,
       hintTimer: null,
@@ -555,6 +557,236 @@
     return result;
   }
 
+  /** Explicit «Сохранить»: local + push КИЗ to Wildberries (like desktop modal). */
+  async function saveKizPushAll() {
+    if (state.saving) return;
+    const rows = state.kizRows || [];
+    const items = [];
+    for (const row of rows) {
+      const oid = Number(row.order_id);
+      if (!Number.isFinite(oid)) continue;
+      const codes = (Array.isArray(row.kiz_codes) ? row.kiz_codes : [])
+        .map((c) => String(c || "").trim())
+        .filter(Boolean);
+      if (!codes.length) continue;
+      items.push({
+        order_id: oid,
+        kiz_codes: codes,
+        clear: false,
+        expected_saved_at: String(row.kiz_saved_at || ""),
+        force: !!state.forceSaveByOrder[oid],
+      });
+    }
+    if (!items.length) {
+      setBanner("Нет КИЗ для отправки в WB", "warn");
+      renderScan();
+      return;
+    }
+    state.saving = true;
+    setBanner(`Сохранение ${items.length} в WB…`, "info");
+    renderScan();
+    try {
+      const params = new URLSearchParams({ source_id: String(state.sourceId) });
+      const data = await api(
+        `/api/wb-fbs/tsd/supplies/${encodeURIComponent(state.route.supplyId)}/kiz?${params}`,
+        {
+          method: "PUT",
+          headers: jsonHeaders(),
+          body: JSON.stringify({ items }),
+        }
+      );
+      let okN = 0;
+      let errN = 0;
+      let conflictN = 0;
+      for (const r of data.results || []) {
+        const oid = Number(r.order_id);
+        const row = rows.find((x) => Number(x.order_id) === oid);
+        if (!row) continue;
+        if (r.conflict) {
+          conflictN += 1;
+          row.kiz_saved_at = String(r.kiz_saved_at || row.kiz_saved_at || "");
+          if (Array.isArray(r.kiz_codes)) row.kiz_codes = r.kiz_codes.slice();
+          state.forceSaveByOrder[oid] = true;
+          continue;
+        }
+        if (r.kiz_saved_at) row.kiz_saved_at = String(r.kiz_saved_at);
+        if (r.kiz_wb_synced != null) row.kiz_wb_synced = !!r.kiz_wb_synced;
+        if (r.ok || r.wb_ok) {
+          okN += 1;
+          delete state.forceSaveByOrder[oid];
+        } else if (r.local_ok) {
+          errN += 1;
+        } else {
+          errN += 1;
+        }
+      }
+      if (conflictN) {
+        setBanner(
+          `Конфликт у ${conflictN} заказ(ов) — проверьте и сохраните ещё раз`,
+          "err"
+        );
+      } else if (errN && okN) {
+        setBanner(`Отправлено ${okN}, ошибок ${errN} — повторите «Сохранить»`, "warn");
+      } else if (errN) {
+        setBanner(`Не удалось отправить в WB (${errN})`, "err");
+      } else {
+        setBanner(`Сохранено в WB: ${okN}`, "ok");
+      }
+    } catch (e) {
+      setBanner(e.message || String(e), "err");
+    } finally {
+      state.saving = false;
+      renderScan();
+    }
+  }
+
+  /** Explicit «Сохранить» for pick: local-only batch (like desktop modal). */
+  async function savePickLocalAll() {
+    if (state.saving) return;
+    const rows = state.pickRows || [];
+    const items = [];
+    for (const row of rows) {
+      const oid = Number(row.order_id);
+      if (!Number.isFinite(oid)) continue;
+      if (!rowPickFilled(row)) continue;
+      items.push({
+        order_id: oid,
+        pick_verified: true,
+        pick_barcode: String(row.pick_barcode || "").trim(),
+        expected_verified_at: String(row.pick_verified_at || ""),
+        force: !!state.forceSaveByOrder[`pick:${oid}`],
+      });
+    }
+    if (!items.length) {
+      setBanner("Нет подтверждённых ШК для сохранения", "warn");
+      renderScan();
+      return;
+    }
+    state.saving = true;
+    setBanner(`Сохранение ${items.length}…`, "info");
+    renderScan();
+    try {
+      const params = new URLSearchParams({ source_id: String(state.sourceId) });
+      const data = await api(
+        `/api/wb-fbs/tsd/supplies/${encodeURIComponent(state.route.supplyId)}/pick-verify?${params}`,
+        {
+          method: "PUT",
+          headers: jsonHeaders(),
+          body: JSON.stringify({ items }),
+        }
+      );
+      let okN = 0;
+      let errN = 0;
+      let conflictN = 0;
+      for (const r of data.results || []) {
+        const oid = Number(r.order_id);
+        const row = rows.find((x) => Number(x.order_id) === oid);
+        if (!row) continue;
+        if (r.conflict) {
+          conflictN += 1;
+          row.pick_verified_at = String(r.pick_verified_at || row.pick_verified_at || "");
+          state.forceSaveByOrder[`pick:${oid}`] = true;
+          continue;
+        }
+        if (r.ok) {
+          okN += 1;
+          if (r.pick_verified_at) row.pick_verified_at = String(r.pick_verified_at);
+          delete state.forceSaveByOrder[`pick:${oid}`];
+        } else {
+          errN += 1;
+        }
+      }
+      if (conflictN) {
+        setBanner(`Конфликт у ${conflictN} заказ(ов)`, "err");
+      } else if (errN) {
+        setBanner(`Сохранено ${okN}, ошибок ${errN}`, "warn");
+      } else {
+        setBanner(`Сохранено локально: ${okN}`, "ok");
+      }
+    } catch (e) {
+      setBanner(e.message || String(e), "err");
+    } finally {
+      state.saving = false;
+      renderScan();
+    }
+  }
+
+  function noteSessionScanned(orderId) {
+    const oid = Number(orderId);
+    if (!Number.isFinite(oid) || oid <= 0) return;
+    state.sessionScannedIds = (state.sessionScannedIds || []).filter(
+      (x) => Number(x) !== oid
+    );
+    state.sessionScannedIds.push(oid);
+  }
+
+  function orderedScannedRows(mode) {
+    const rows = mode === "kiz" ? state.kizRows : state.pickRows;
+    const fn = mode === "kiz" ? rowKizFilled : rowPickFilled;
+    const filled = (rows || []).filter(fn);
+    const byId = new Map(filled.map((r) => [Number(r.order_id), r]));
+    const out = [];
+    const seen = new Set();
+    for (let i = (state.sessionScannedIds || []).length - 1; i >= 0; i -= 1) {
+      const id = Number(state.sessionScannedIds[i]);
+      const row = byId.get(id);
+      if (row && !seen.has(id)) {
+        out.push(row);
+        seen.add(id);
+      }
+    }
+    for (const row of filled) {
+      const id = Number(row.order_id);
+      if (!seen.has(id)) {
+        out.push(row);
+        seen.add(id);
+      }
+    }
+    return out;
+  }
+
+  function renderScannedListHtml(mode) {
+    const scanned = orderedScannedRows(mode);
+    if (!scanned.length) {
+      return `
+        <section class="tsd-scanned" aria-label="Просканированные заказы">
+          <h2 class="tsd-scanned-title">Просканировано</h2>
+          <div class="tsd-scanned-empty">Пока пусто — сканируйте стикер и ${
+            mode === "kiz" ? "КИЗ" : "ШК"
+          }</div>
+        </section>`;
+    }
+    const items = scanned
+      .map((r) => {
+        const photo = r.product_photo
+          ? `<img src="${esc(r.product_photo)}" alt="" width="48" height="48" />`
+          : `<span class="tsd-scanned-ph" aria-hidden="true"></span>`;
+        const detail =
+          mode === "kiz"
+            ? (Array.isArray(r.kiz_codes) ? r.kiz_codes : [])
+                .map((c) => String(c || "").trim())
+                .filter(Boolean)
+                .map((c) => (c.length > 28 ? `${c.slice(0, 14)}…${c.slice(-8)}` : c))
+                .join(" · ") || "КИЗ"
+            : String(r.pick_barcode || "ШК");
+        return `
+          <div class="tsd-scanned-item">
+            ${photo}
+            <div class="tsd-scanned-text">
+              <div class="tsd-scanned-order">Заказ ${esc(r.order_id)} · ${esc(r.sticker_number || "—")}</div>
+              <div class="tsd-scanned-name">${esc(r.product_name || r.article || "—")}</div>
+              <div class="tsd-scanned-meta">${esc(detail)}</div>
+            </div>
+          </div>`;
+      })
+      .join("");
+    return `
+      <section class="tsd-scanned" aria-label="Просканированные заказы">
+        <h2 class="tsd-scanned-title">Просканировано · ${scanned.length}</h2>
+        <div class="tsd-scanned-list">${items}</div>
+      </section>`;
+  }
+
   function syncSourceSelectVisibility() {
     const sel = document.getElementById("tsdSourceSelect");
     if (!sel) return;
@@ -811,6 +1043,9 @@
         </div>`;
     }
 
+    const saveLabel = "Сохранить";
+    const saveDisabled = state.saving || !orderedScannedRows(mode).length;
+
     main.innerHTML = `
       <div class="tsd-scan-shell">
         <div class="tsd-stats">
@@ -823,6 +1058,18 @@
             : ""
         }
         ${body}
+        <div class="tsd-scan-footer">
+          <button type="button" class="tsd-btn tsd-btn-primary tsd-btn-block" id="tsdSaveBtn"
+            ${saveDisabled ? "disabled" : ""}>${esc(
+              state.saving ? "Сохранение…" : saveLabel
+            )}</button>
+          <p class="tsd-save-hint">${
+            mode === "kiz"
+              ? "Скан пишет КИЗ локально. «Сохранить» отправляет коды на Wildberries."
+              : "Скан пишет ШК локально. «Сохранить» фиксирует проверку в системе."
+          }</p>
+        </div>
+        ${renderScannedListHtml(mode)}
       </div>`;
 
     const input = document.getElementById("tsdScanInput");
@@ -857,6 +1104,13 @@
         state.step = "sticker";
         setBanner(null);
         renderScan();
+      });
+    }
+    const saveBtn = document.getElementById("tsdSaveBtn");
+    if (saveBtn) {
+      saveBtn.addEventListener("click", () => {
+        if (mode === "kiz") saveKizPushAll();
+        else savePickLocalAll();
       });
     }
   }
@@ -952,6 +1206,7 @@
         }
         if (!placed) row.kiz_codes.push(mark);
         await saveKizLocal(row);
+        noteSessionScanned(row.order_id);
         setBanner(`КИЗ записан · заказ ${row.order_id}`, "ok");
       } else {
         const check = eanMatchesOrder(raw, row);
@@ -965,6 +1220,7 @@
         row.pick_verified = true;
         row.pick_barcode = digitsOnly(raw);
         await savePickLocal(row);
+        noteSessionScanned(row.order_id);
         setBanner(`ШК подтверждён · заказ ${row.order_id}`, "ok");
       }
       beep(true);
@@ -1072,6 +1328,9 @@
       }
 
       if (state.route.view === "scan") {
+        state.pendingOrderId = null;
+        state.step = "sticker";
+        state.sessionScannedIds = [];
         if (state.route.mode === "kiz") {
           const stopRotate = startLoadingRotate(
             [

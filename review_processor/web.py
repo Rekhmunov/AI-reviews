@@ -9524,7 +9524,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         supply_id: str,
         source_id: int,
     ) -> dict[str, object]:
-        """KIZ local autosave for ТСД (same store as desktop; TSD permission)."""
+        """KIZ save for ТСД: scan autosave is local_only; «Сохранить» pushes to WB."""
         from . import wb_fbs_detail as wb_detail
 
         user = _require_user(request)
@@ -9543,19 +9543,24 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         items = body.get("items") if isinstance(body, dict) else None
         if not isinstance(items, list):
             raise HTTPException(status_code=400, detail="Укажите items[]")
-        # ТСД never pushes sgtin to WB — warehouse operators only write local drafts.
+        # Preserve client local_only for scan autosave. Explicit Save omits it → WB.
         normalized_items: list[dict[str, object]] = []
         for it in items:
             if not isinstance(it, dict):
                 continue
             row = dict(it)
-            row["local_only"] = True
+            row["local_only"] = bool(row.get("local_only"))
             normalized_items.append(row)
         items = normalized_items
         if not items:
             raise HTTPException(status_code=400, detail="Укажите items[]")
+        only_local = bool(items) and all(
+            isinstance(it, dict) and bool(it.get("local_only")) for it in items
+        )
         api_key = _wb_fbs_source_key(owner_id, int(source_id))
         try:
+            # Scope to this supply's local orders (same as TSD autosave).
+            # Avoid get_supply_detail here — stickers/Content would slow «Сохранить».
             allowed = set(
                 wb_detail._local_order_ids_for_supply(
                     repository,
@@ -9576,6 +9581,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if not only_local:
+            wb_detail.invalidate_supply_detail_cache(
+                user_id=owner_id, source_id=int(source_id), supply_id=sid
+            )
         return result
 
     @app.get("/api/wb-fbs/tsd/supplies/{supply_id}/pick-verify")

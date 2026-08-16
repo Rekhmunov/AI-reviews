@@ -73,6 +73,11 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     assert "fixRuKeyboardLayout" in js
     assert "syncSourceSelectVisibility" in js
     assert 'state.route.view === "list"' in js
+    assert "Сохранить" in js
+    assert "saveKizPushAll" in js
+    assert "savePickLocalAll" in js
+    assert "noteSessionScanned" in js
+    assert "renderScannedListHtml" in js
 
 
 def test_web_py_tsd_summary_matches_scan_without_full_payloads() -> None:
@@ -89,9 +94,15 @@ def test_web_py_tsd_summary_matches_scan_without_full_payloads() -> None:
     assert "build_tsd_hub_progress_from_local" not in body
 
 
-def test_web_py_tsd_kiz_forces_local_only() -> None:
+def test_web_py_tsd_kiz_save_supports_local_and_wb() -> None:
     src = WEB_PY.read_text(encoding="utf-8")
-    # TSD KIZ save must force local_only (no WB push for warehouse role).
-    assert 'row["local_only"] = True' in src or "row['local_only'] = True" in src
+    start = src.find("async def wb_fbs_tsd_kiz_save(")
+    end = src.find("def wb_fbs_tsd_pick_verify_list(")
+    assert start > 0 and end > start
+    body = src[start:end]
+    # Autosave keeps local_only from client; explicit Save can push to WB.
+    assert 'row["local_only"] = bool(row.get("local_only"))' in body
+    assert "only_local" in body
+    assert "invalidate_supply_detail_cache" in body
     assert "nav-wb-fbs-tsd" in src
     assert "build_tsd_hub_progress" in src
