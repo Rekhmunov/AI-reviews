@@ -801,12 +801,23 @@ html, body {
   color: var(--tsd-muted);
 }
 
+.tsd-sticker-tail {
+  font-weight: 700;
+  color: var(--tsd-ink);
+}
+
 .tsd-scanned-name {
   margin-top: 2px;
   font-size: 15px;
   font-weight: 600;
   color: var(--tsd-ink);
   word-break: break-word;
+}
+
+.tsd-scanned-label {
+  flex: 0 0 auto;
+  font-weight: 700;
+  color: var(--tsd-ink);
 }
 
 .tsd-scanned-barcodes {
@@ -822,6 +833,34 @@ html, body {
   font-size: 13px;
   color: var(--tsd-muted);
   word-break: break-all;
+}
+
+.tsd-scanned-kizs {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.tsd-scanned-kiz-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--tsd-muted);
+}
+
+.tsd-scanned-kiz-val {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--tsd-ink);
+  font-weight: 500;
+  word-break: break-all;
+  overflow-wrap: anywhere;
 }
 
 .tsd-scanned-clear {
