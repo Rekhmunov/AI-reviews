@@ -9487,6 +9487,38 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         }
         return base
 
+    @app.get("/api/wb-fbs/tsd/supplies/{supply_id}/kiz/status")
+    def wb_fbs_tsd_kiz_status(
+        request: Request,
+        supply_id: str,
+        source_id: int,
+    ) -> dict[str, object]:
+        """Live КИЗ check for ТСД hub refresh (same rules as desktop Маркировка)."""
+        from . import wb_fbs_detail as wb_detail
+
+        user = _require_user(request)
+        _require_wb_fbs_tsd(user)
+        allowed = _wb_fbs_tsd_allowed_source_ids(user)
+        if allowed is not None and str(int(source_id)) not in allowed:
+            raise HTTPException(status_code=403, detail="Нет доступа к источнику")
+        owner_id = _supply_owner_id(user)
+        sid = str(supply_id or "").strip()
+        if not sid or not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
+        api_key = _wb_fbs_source_key(owner_id, int(source_id))
+        try:
+            return wb_detail.check_supply_kiz_status(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                api_key=api_key,
+                supply_id=sid,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @app.get("/api/wb-fbs/tsd/supplies/{supply_id}/kiz")
     def wb_fbs_tsd_kiz_list(
         request: Request,

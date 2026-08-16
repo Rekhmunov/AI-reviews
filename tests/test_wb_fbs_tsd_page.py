@@ -101,8 +101,20 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     assert "Готовим сканирование…" not in js
     assert "Готово к сканированию" not in js
     assert "opts._retry" in js or "_retry: true" in js
+    assert "pendingKizClear" in js
+    assert "hasPendingKizPush" in js
+    assert "clear: !codes.length" in js
+    assert "refreshHubKizStatus" in js
+    assert "/kiz/status" in js
+    assert "tsdKizRefreshBtn" in js
+    assert "setKizHubTone" in js
+    assert "tsdFilterBtn" in js
+    assert "applyOrderFilters" in js
+    assert "Заполненные" in (TEMPLATES / "wb_fbs_tsd.html").read_text(encoding="utf-8")
     html = (TEMPLATES / "wb_fbs_tsd.html").read_text(encoding="utf-8")
     assert 'id="tsdSearchBtn"' in html
+    assert 'id="tsdFilterBtn"' in html
+    assert 'id="tsdFilterErrors"' in html
     assert 'id="tsdOrderSearch"' in html
     assert 'id="tsdScrollTop"' in html
     assert "openOrderSearch" in js
@@ -118,6 +130,13 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     assert "normalizeKizCodesList" in js
     assert "\\u2194" in js
     assert "\\u001D" in js
+
+
+def test_web_py_has_tsd_kiz_status_route() -> None:
+    src = WEB_PY.read_text(encoding="utf-8")
+    assert "/api/wb-fbs/tsd/supplies/{supply_id}/kiz/status" in src
+    assert "def wb_fbs_tsd_kiz_status(" in src
+    assert "check_supply_kiz_status" in src
 
 
 def test_web_py_tsd_summary_matches_scan_without_full_payloads() -> None:

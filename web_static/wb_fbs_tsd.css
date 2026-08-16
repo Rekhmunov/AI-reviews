@@ -123,8 +123,70 @@ html, body {
   outline-offset: 2px;
 }
 
+.tsd-icon-btn.is-active {
+  border-color: #5eead4;
+  background: #ccfbf1;
+  color: var(--tsd-accent);
+}
+
 .tsd-icon-btn[hidden] {
   display: none !important;
+}
+
+.tsd-filter-wrap {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.tsd-filter-wrap[hidden] {
+  display: none !important;
+}
+
+.tsd-filter-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  min-width: 200px;
+  padding: 8px;
+  border-radius: 12px;
+  border: 1px solid var(--tsd-line);
+  background: var(--tsd-surface);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  display: grid;
+  gap: 4px;
+}
+
+.tsd-filter-menu[hidden] {
+  display: none !important;
+}
+
+.tsd-filter-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--tsd-ink);
+  cursor: pointer;
+}
+
+.tsd-filter-item:hover {
+  background: #f8fafc;
+}
+
+.tsd-filter-item[hidden] {
+  display: none !important;
+}
+
+.tsd-filter-item input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--tsd-accent);
+  flex: 0 0 auto;
 }
 
 .tsd-search-panel {
@@ -534,6 +596,118 @@ html, body {
 .tsd-tiles {
   display: grid;
   gap: 12px;
+}
+
+.tsd-tile-split {
+  display: flex;
+  align-items: stretch;
+  border-radius: var(--tsd-radius);
+  overflow: hidden;
+  border: 1px solid var(--tsd-line);
+  background: var(--tsd-surface);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.tsd-tile-split > .tsd-tile-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+.tsd-tile-refresh {
+  flex: 0 0 56px;
+  width: 56px;
+  margin: 0;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-left: 1px solid var(--tsd-line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--tsd-ink);
+  cursor: pointer;
+}
+
+.tsd-tile-refresh:hover:not(:disabled) {
+  background: #f8fafc;
+}
+
+.tsd-tile-refresh:active:not(:disabled) {
+  background: #e2e8f0;
+}
+
+.tsd-tile-refresh:focus-visible {
+  outline: 2px solid var(--tsd-accent);
+  outline-offset: -2px;
+}
+
+.tsd-tile-refresh:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.tsd-tile-refresh-ico {
+  display: block;
+  width: 20px;
+  height: 20px;
+}
+
+.tsd-tile-refresh.is-spinning .tsd-tile-refresh-ico {
+  animation: tsd-kiz-spin 0.8s linear infinite;
+  transform-origin: center center;
+}
+
+@keyframes tsd-kiz-spin {
+  to { transform: rotate(360deg); }
+}
+
+.tsd-tile-split.is-ok {
+  border-color: #86efac;
+  background: #dcfce7;
+}
+
+.tsd-tile-split.is-ok .tsd-tile-main,
+.tsd-tile-split.is-ok .tsd-tile-refresh {
+  color: #166534;
+}
+
+.tsd-tile-split.is-ok .tsd-tile-prog {
+  color: #15803d;
+}
+
+.tsd-tile-split.is-ok .tsd-tile-refresh {
+  border-left-color: #86efac;
+}
+
+.tsd-tile-split.is-ok .tsd-tile-refresh:hover:not(:disabled) {
+  background: #bbf7d0;
+}
+
+.tsd-tile-split.is-error {
+  border-color: #fca5a5;
+  background: #fee2e2;
+}
+
+.tsd-tile-split.is-error .tsd-tile-main,
+.tsd-tile-split.is-error .tsd-tile-refresh {
+  color: #991b1b;
+}
+
+.tsd-tile-split.is-error .tsd-tile-prog {
+  color: #b91c1c;
+}
+
+.tsd-tile-split.is-error .tsd-tile-refresh {
+  border-left-color: #fca5a5;
+}
+
+.tsd-tile-split.is-error .tsd-tile-refresh:hover:not(:disabled) {
+  background: #fecaca;
 }
 
 .tsd-tile {

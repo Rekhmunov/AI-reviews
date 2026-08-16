@@ -17,6 +17,17 @@
     search: "",
     orderSearch: "",
     searchOpen: false,
+    filterOpen: false,
+    filters: {
+      filled: false,
+      empty: false,
+      errors: false,
+      cancelled: false,
+    },
+    rowErrors: {},
+    pendingKizClear: {},
+    kizHubTone: "",
+    kizStatusRefreshing: false,
     loadSeq: 0,
     forceSaveByOrder: {},
     sessionScannedIds: [],
@@ -495,6 +506,8 @@
       `/api/wb-fbs/tsd/supplies/${encodeURIComponent(supplyId)}/kiz?${params}`
     );
     state.kizRows = Array.isArray(data.rows) ? data.rows.map((r) => ({ ...r })) : [];
+    state.pendingKizClear = {};
+    state.rowErrors = {};
   }
 
   async function loadPick(supplyId) {
@@ -608,12 +621,15 @@
       const oid = Number(row.order_id);
       if (!Number.isFinite(oid)) continue;
       const codes = normalizeKizCodesList(row.kiz_codes);
-      if (!codes.length) continue;
-      row.kiz_codes = codes.slice();
+      const wasBound = !!row.kiz_bound;
+      const hadLocal = !!row.kiz_local;
+      const pendingClear = !!state.pendingKizClear[oid];
+      if (!codes.length && !wasBound && !hadLocal && !pendingClear) continue;
+      if (codes.length) row.kiz_codes = codes.slice();
       items.push({
         order_id: oid,
         kiz_codes: codes,
-        clear: false,
+        clear: !codes.length && (wasBound || hadLocal || pendingClear),
         expected_saved_at: String(row.kiz_saved_at || ""),
         force: !!state.forceSaveByOrder[oid],
       });
@@ -655,10 +671,33 @@
         if (r.ok || r.wb_ok) {
           okN += 1;
           delete state.forceSaveByOrder[oid];
+          delete state.rowErrors[oid];
+          const pushedCodes = normalizeKizCodesList(
+            Array.isArray(r.kiz_codes) ? r.kiz_codes : row.kiz_codes
+          );
+          if (!pushedCodes.length) {
+            delete state.pendingKizClear[oid];
+            row.kiz_bound = false;
+            row.kiz_local = false;
+            row.kiz_wb_synced = true;
+            row.kiz_status = "empty";
+            row.kiz_codes = [""];
+            state.sessionScannedIds = (state.sessionScannedIds || []).filter(
+              (x) => Number(x) !== oid
+            );
+          } else {
+            delete state.pendingKizClear[oid];
+            row.kiz_bound = true;
+            row.kiz_local = true;
+            row.kiz_codes = pushedCodes.slice();
+            if (row.kiz_status === "empty") row.kiz_status = "pending";
+          }
         } else if (r.local_ok) {
           errN += 1;
+          if (r.error) state.rowErrors[oid] = String(r.error);
         } else {
           errN += 1;
+          if (r.error) state.rowErrors[oid] = String(r.error);
         }
       }
       if (conflictN) {
@@ -761,9 +800,33 @@
     state.sessionScannedIds.push(oid);
   }
 
+  function rowNeedsKizWbClear(row) {
+    const oid = Number(row && row.order_id);
+    if (!Number.isFinite(oid)) return false;
+    if (rowKizFilled(row)) return false;
+    return !!(
+      state.pendingKizClear[oid] ||
+      row.kiz_bound ||
+      row.kiz_local
+    );
+  }
+
+  function hasPendingKizPush() {
+    return (state.kizRows || []).some((row) => {
+      const oid = Number(row.order_id);
+      if (!Number.isFinite(oid)) return false;
+      const codes = normalizeKizCodesList(row.kiz_codes);
+      if (codes.length) return true;
+      return rowNeedsKizWbClear(row);
+    });
+  }
+
   function orderedScannedRows(mode) {
     const rows = mode === "kiz" ? state.kizRows : state.pickRows;
-    const fn = mode === "kiz" ? rowKizFilled : rowPickFilled;
+    const fn =
+      mode === "kiz"
+        ? (r) => rowKizFilled(r) || rowNeedsKizWbClear(r)
+        : rowPickFilled;
     const filled = (rows || []).filter(fn);
     const byId = new Map(filled.map((r) => [Number(r.order_id), r]));
     const out = [];
@@ -928,11 +991,28 @@
     const row = (state.kizRows || []).find((r) => Number(r.order_id) === oid);
     if (!row) return;
     if (!Array.isArray(row.kiz_codes)) row.kiz_codes = [""];
+    const hadCodes = rowKizFilled(row);
+    const wasBound = !!row.kiz_bound;
+    const hadLocal = !!row.kiz_local || hadCodes;
     state.clearing = true;
     try {
       row.kiz_codes = [""];
+      if (wasBound || hadLocal) {
+        state.pendingKizClear[oid] = true;
+        // Keep flags until WB clear succeeds — mirrors desktop wasBound/hadLocal.
+        row.kiz_bound = wasBound;
+        row.kiz_local = hadLocal;
+      }
+      noteSessionScanned(oid);
       await saveKizLocal(row);
-      setBanner(`КИЗ очищен · заказ ${oid}`, "ok");
+      if (state.rowErrors[oid]) delete state.rowErrors[oid];
+      if (String(row.kiz_status || "") === "error") row.kiz_status = "empty";
+      setBanner(
+        wasBound || hadLocal
+          ? `КИЗ очищен · заказ ${oid} — нажмите «Сохранить», чтобы очистить на WB`
+          : `КИЗ очищен · заказ ${oid}`,
+        "ok"
+      );
     } catch (e) {
       setBanner(e.message || String(e), "err");
     } finally {
@@ -954,22 +1034,91 @@
     const btn = document.getElementById("tsdSearchBtn");
     const panel = document.getElementById("tsdSearchPanel");
     const input = document.getElementById("tsdOrderSearch");
+    const filterWrap = document.getElementById("tsdFilterWrap");
+    const filterBtn = document.getElementById("tsdFilterBtn");
+    const filterMenu = document.getElementById("tsdFilterMenu");
+    const errorsLabel = document.getElementById("tsdFilterErrorsLabel");
     const onScan = !!boot.can_view_wb_fbs_tsd && state.route.view === "scan";
+    const mode = state.route.mode;
     if (btn) {
       btn.hidden = !onScan;
       btn.setAttribute("aria-expanded", state.searchOpen && onScan ? "true" : "false");
+      btn.classList.toggle("is-active", !!(state.searchOpen && onScan));
     }
+    if (filterWrap) filterWrap.hidden = !onScan;
     if (!onScan) {
       state.searchOpen = false;
+      state.filterOpen = false;
       state.orderSearch = "";
+      state.filters = { filled: false, empty: false, errors: false, cancelled: false };
       if (panel) panel.hidden = true;
       if (input) input.value = "";
+      if (filterMenu) filterMenu.hidden = true;
+      if (filterBtn) filterBtn.setAttribute("aria-expanded", "false");
+      syncFilterInputsFromState();
       return;
     }
     if (panel) panel.hidden = !state.searchOpen;
     if (input && state.searchOpen && String(input.value || "") !== String(state.orderSearch || "")) {
       input.value = state.orderSearch || "";
     }
+    if (errorsLabel) errorsLabel.hidden = mode !== "kiz";
+    if (mode !== "kiz" && state.filters.errors) state.filters.errors = false;
+    if (filterBtn) {
+      filterBtn.setAttribute("aria-expanded", state.filterOpen ? "true" : "false");
+      filterBtn.classList.toggle("is-active", state.filterOpen || hasActiveFilters());
+    }
+    if (filterMenu) filterMenu.hidden = !state.filterOpen;
+    syncFilterInputsFromState();
+  }
+
+  function syncFilterInputsFromState() {
+    const filled = document.getElementById("tsdFilterFilled");
+    const empty = document.getElementById("tsdFilterEmpty");
+    const errors = document.getElementById("tsdFilterErrors");
+    const cancelled = document.getElementById("tsdFilterCancelled");
+    if (filled) filled.checked = !!state.filters.filled;
+    if (empty) empty.checked = !!state.filters.empty;
+    if (errors) errors.checked = !!state.filters.errors;
+    if (cancelled) cancelled.checked = !!state.filters.cancelled;
+  }
+
+  function hasActiveFilters() {
+    const f = state.filters || {};
+    return !!(f.filled || f.empty || f.errors || f.cancelled);
+  }
+
+  function rowHasKizError(row) {
+    const oid = Number(row && row.order_id);
+    if (oid && state.rowErrors[oid]) return true;
+    return String(row && row.kiz_status || "") === "error";
+  }
+
+  function rowIsCancelled(row) {
+    return !!String(row && row.cancel_reason_label || "").trim();
+  }
+
+  function applyOrderFilters(rows, mode) {
+    let out = Array.isArray(rows) ? rows.slice() : [];
+    const f = state.filters || {};
+    if (f.filled) {
+      out = out.filter((r) => (mode === "kiz" ? rowKizFilled(r) : rowPickFilled(r)));
+    }
+    if (f.empty) {
+      out = out.filter((r) => (mode === "kiz" ? !rowKizFilled(r) : !rowPickFilled(r)));
+    }
+    if (f.errors && mode === "kiz") {
+      out = out.filter((r) => rowHasKizError(r));
+    }
+    if (f.cancelled) {
+      out = out.filter((r) => rowIsCancelled(r));
+    }
+    return out;
+  }
+
+  function resetScanFilters() {
+    state.filterOpen = false;
+    state.filters = { filled: false, empty: false, errors: false, cancelled: false };
   }
 
   function openOrderSearch() {
@@ -993,6 +1142,35 @@
     const input = document.getElementById("tsdOrderSearch");
     if (input) input.value = "";
     if (state.route.view === "scan") renderScan();
+  }
+
+  function closeFilterMenu() {
+    if (!state.filterOpen) return;
+    state.filterOpen = false;
+    syncSearchChrome();
+  }
+
+  function toggleFilterMenu() {
+    if (state.route.view !== "scan") return;
+    state.filterOpen = !state.filterOpen;
+    syncSearchChrome();
+  }
+
+  function onFilterChange(kind) {
+    const filled = document.getElementById("tsdFilterFilled");
+    const empty = document.getElementById("tsdFilterEmpty");
+    const errors = document.getElementById("tsdFilterErrors");
+    const cancelled = document.getElementById("tsdFilterCancelled");
+    if (kind === "filled" && filled?.checked && empty) empty.checked = false;
+    if (kind === "empty" && empty?.checked && filled) filled.checked = false;
+    state.filters = {
+      filled: !!filled?.checked,
+      empty: !!empty?.checked,
+      errors: state.route.mode === "kiz" ? !!errors?.checked : false,
+      cancelled: !!cancelled?.checked,
+    };
+    syncSearchChrome();
+    if (state.route.view === "scan") renderScan({ keepSearchFocus: true });
   }
 
   function orderSearchHaystack(row) {
@@ -1039,22 +1217,32 @@
   }
 
   function renderSearchResultsHtml(mode) {
-    if (!state.searchOpen) return "";
     const q = String(state.orderSearch || "").trim();
+    const filtersOn = hasActiveFilters();
+    if (!state.searchOpen && !filtersOn) return "";
     const rows = mode === "kiz" ? state.kizRows : state.pickRows;
-    if (!q) {
+    let matched = rows || [];
+    if (q) matched = filterOrdersBySearch(matched, q);
+    matched = applyOrderFilters(matched, mode);
+    const title = q
+      ? `Найдено · ${matched.length}`
+      : filtersOn
+        ? `Фильтр · ${matched.length}`
+        : "Поиск";
+    if (!q && !filtersOn) {
       return `
         <section class="tsd-search-results" aria-label="Поиск заказов">
           <h2 class="tsd-search-results-title">Поиск</h2>
           <div class="tsd-search-empty">Введите или отсканируйте стикер, номер заказа, ШК, артикул или название</div>
         </section>`;
     }
-    const matched = filterOrdersBySearch(rows, q);
     if (!matched.length) {
       return `
         <section class="tsd-search-results" aria-label="Поиск заказов">
-          <h2 class="tsd-search-results-title">Найдено 0</h2>
-          <div class="tsd-search-empty">Ничего не найдено</div>
+          <h2 class="tsd-search-results-title">${esc(title)}</h2>
+          <div class="tsd-search-empty">${
+            filtersOn && !q ? "Нет заказов по выбранным фильтрам" : "Ничего не найдено"
+          }</div>
         </section>`;
     }
     const items = matched
@@ -1064,6 +1252,8 @@
           ? `<img src="${esc(r.product_photo)}" alt="" width="48" height="48" />`
           : `<span class="tsd-scanned-ph" aria-hidden="true"></span>`;
         const barcodes = orderBarcodesLabel(r);
+        const cancel = rowIsCancelled(r) ? " · Отменён" : "";
+        const err = mode === "kiz" && rowHasKizError(r) ? " · Ошибка" : "";
         const status =
           mode === "kiz"
             ? rowKizFilled(r)
@@ -1084,14 +1274,14 @@
                   ? `<div class="tsd-scanned-barcodes">${esc(barcodes)}</div>`
                   : ""
               }
-              <div class="tsd-scanned-meta">${esc(status)}</div>
+              <div class="tsd-scanned-meta">${esc(status + cancel + err)}</div>
             </div>
           </button>`;
       })
       .join("");
     return `
       <section class="tsd-search-results" aria-label="Поиск заказов">
-        <h2 class="tsd-search-results-title">Найдено · ${matched.length}${
+        <h2 class="tsd-search-results-title">${esc(title)}${
           matched.length > 80 ? " (показаны 80)" : ""
         }</h2>
         <div class="tsd-search-list" id="tsdSearchList">${items}</div>
@@ -1325,6 +1515,58 @@
     });
   }
 
+  function setKizHubTone(tone) {
+    const t = String(tone || "").trim().toLowerCase();
+    state.kizHubTone = t === "ok" || t === "error" ? t : "";
+    const split = document.getElementById("tsdKizSplit");
+    if (!split) return;
+    split.classList.remove("is-ok", "is-error");
+    if (state.kizHubTone === "ok") split.classList.add("is-ok");
+    else if (state.kizHubTone === "error") split.classList.add("is-error");
+  }
+
+  async function refreshHubKizStatus(event) {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    const sid = String(state.route.supplyId || (state.supply && state.supply.supply_id) || "").trim();
+    if (!sid || !state.sourceId || state.kizStatusRefreshing) return;
+    const refreshBtn = document.getElementById("tsdKizRefreshBtn");
+    const kizBtn = document.getElementById("tsdTileKiz");
+    state.kizStatusRefreshing = true;
+    if (refreshBtn) {
+      refreshBtn.disabled = true;
+      refreshBtn.classList.add("is-spinning");
+    }
+    if (kizBtn) kizBtn.disabled = true;
+    try {
+      const params = new URLSearchParams({ source_id: String(state.sourceId) });
+      const data = await api(
+        `/api/wb-fbs/tsd/supplies/${encodeURIComponent(sid)}/kiz/status?${params}`
+      );
+      if (String(state.route.supplyId || "") !== sid || state.route.view !== "hub") return;
+      setKizHubTone(data.status);
+    } catch (e) {
+      if (String(state.route.supplyId || "") === sid && state.route.view === "hub") {
+        toast(e.message || String(e));
+      }
+    } finally {
+      state.kizStatusRefreshing = false;
+      if (refreshBtn) {
+        refreshBtn.disabled = false;
+        refreshBtn.classList.remove("is-spinning");
+      }
+      if (kizBtn) {
+        const s = state.supply || {};
+        const kiz = s.kiz || { total: 0 };
+        const kizError = String(s.kiz_error || "").trim();
+        const kizDisabled = !kiz.total && !kizError;
+        kizBtn.disabled = kizDisabled || state.kizStatusRefreshing;
+      }
+    }
+  }
+
   function renderHub() {
     const s = state.supply || {};
     const sid = String(s.supply_id || state.route.supplyId || "");
@@ -1341,6 +1583,7 @@
       back.href = "#/";
       back.onclick = (ev) => {
         ev.preventDefault();
+        state.kizHubTone = "";
         navigate("#/");
       };
       back.textContent = "←";
@@ -1371,16 +1614,35 @@
           : ""
       }
       <div class="tsd-tiles">
-        <button type="button" class="tsd-tile" id="tsdTileKiz" ${kizDisabled ? "disabled" : ""}>
-          <span class="tsd-tile-title">Товары с маркировкой</span>
-          <span class="tsd-tile-prog">${
-            kizError
-              ? "Ошибка загрузки"
-              : kizDisabled
-                ? "Нет заказов"
-                : `${kiz.done} / ${kiz.total}`
-          }</span>
-        </button>
+        <div class="tsd-tile-split" id="tsdKizSplit">
+          <button type="button" class="tsd-tile tsd-tile-main" id="tsdTileKiz" ${
+            kizDisabled ? "disabled" : ""
+          }>
+            <span class="tsd-tile-title">Товары с маркировкой</span>
+            <span class="tsd-tile-prog">${
+              kizError
+                ? "Ошибка загрузки"
+                : kizDisabled
+                  ? "Нет заказов"
+                  : `${kiz.done} / ${kiz.total}`
+            }</span>
+          </button>
+          <button type="button" class="tsd-tile-refresh" id="tsdKizRefreshBtn"
+            ${kizDisabled ? "disabled" : ""}
+            aria-label="Проверить статусы КИЗ на Wildberries"
+            title="Проверить статусы КИЗ на ВБ">
+            <svg class="tsd-tile-refresh-ico" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M3 3v5h5"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M16 16h5v5"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </div>
         <button type="button" class="tsd-tile" id="tsdTilePick" ${pickDisabled ? "disabled" : ""}>
           <span class="tsd-tile-title">Товары без маркировки</span>
           <span class="tsd-tile-prog">${
@@ -1393,13 +1655,19 @@
         </button>
       </div>`;
 
+    setKizHubTone(state.kizHubTone);
+
     const kizBtn = document.getElementById("tsdTileKiz");
     const pickBtn = document.getElementById("tsdTilePick");
+    const refreshBtn = document.getElementById("tsdKizRefreshBtn");
     if (kizBtn && !kizDisabled) {
       kizBtn.addEventListener("click", () => navigate(`#/s/${sid}/kiz`));
     }
     if (pickBtn && !pickDisabled) {
       pickBtn.addEventListener("click", () => navigate(`#/s/${sid}/pick`));
+    }
+    if (refreshBtn && !kizDisabled) {
+      refreshBtn.addEventListener("click", (ev) => refreshHubKizStatus(ev));
     }
   }
 
@@ -1437,6 +1705,7 @@
         state.step = "sticker";
         state.searchOpen = false;
         state.orderSearch = "";
+        resetScanFilters();
         setBanner(null);
         navigate(`#/s/${sid}`);
       };
@@ -1509,7 +1778,10 @@
     }
 
     const saveLabel = "Сохранить";
-    const saveDisabled = state.saving || state.clearing || !orderedScannedRows(mode).length;
+    const saveDisabled =
+      state.saving ||
+      state.clearing ||
+      (mode === "kiz" ? !hasPendingKizPush() : !orderedScannedRows(mode).length);
 
     main.innerHTML = `
       <div class="tsd-scan-shell">
@@ -1681,11 +1953,14 @@
         const check = markMatchesOrder(mark, row);
         if (!check.ok) {
           setBanner(check.error || "КИЗ не подходит", "err");
+          state.rowErrors[Number(row.order_id)] = check.error || "КИЗ не подходит";
           beep(false);
           input.select();
           renderScan();
           return;
         }
+        delete state.rowErrors[Number(row.order_id)];
+        delete state.pendingKizClear[Number(row.order_id)];
         const ownDup = (Array.isArray(row.kiz_codes) ? row.kiz_codes : []).some(
           (c) => normalizeKizMark(c) === mark
         );
@@ -1720,6 +1995,7 @@
         }
         if (!placed) row.kiz_codes.push(mark);
         await saveKizLocal(row);
+        row.kiz_local = true;
         noteSessionScanned(row.order_id);
         const kizN = filledKizEntries(row).length;
         setBanner(
@@ -1851,6 +2127,7 @@
         state.sessionScannedIds = [];
         state.searchOpen = false;
         state.orderSearch = "";
+        resetScanFilters();
         if (state.route.mode === "kiz") {
           await loadKiz(state.route.supplyId);
         } else {
@@ -1910,6 +2187,36 @@
         else openOrderSearch();
       });
     }
+    const filterBtn = document.getElementById("tsdFilterBtn");
+    if (filterBtn) {
+      filterBtn.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        toggleFilterMenu();
+      });
+    }
+    const filterFilled = document.getElementById("tsdFilterFilled");
+    const filterEmpty = document.getElementById("tsdFilterEmpty");
+    const filterErrors = document.getElementById("tsdFilterErrors");
+    const filterCancelled = document.getElementById("tsdFilterCancelled");
+    if (filterFilled) {
+      filterFilled.addEventListener("change", () => onFilterChange("filled"));
+    }
+    if (filterEmpty) {
+      filterEmpty.addEventListener("change", () => onFilterChange("empty"));
+    }
+    if (filterErrors) {
+      filterErrors.addEventListener("change", () => onFilterChange("errors"));
+    }
+    if (filterCancelled) {
+      filterCancelled.addEventListener("change", () => onFilterChange("cancelled"));
+    }
+    document.addEventListener("click", (ev) => {
+      if (!state.filterOpen) return;
+      const wrap = document.getElementById("tsdFilterWrap");
+      if (wrap && wrap.contains(ev.target)) return;
+      closeFilterMenu();
+    });
     const searchClose = document.getElementById("tsdSearchClose");
     if (searchClose) {
       searchClose.addEventListener("click", () => closeOrderSearch());

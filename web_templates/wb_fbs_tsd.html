@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/wb_fbs_tsd.css?v=12" />
+  <link rel="stylesheet" href="/static/wb_fbs_tsd.css?v=13" />
 </head>
 <body class="tsd-body">
   <div id="tsdApp" class="tsd-app">
@@ -23,6 +23,32 @@
             <path d="M16.5 16.5L21 21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
           </svg>
         </button>
+        <div class="tsd-filter-wrap" id="tsdFilterWrap" hidden>
+          <button type="button" class="tsd-icon-btn" id="tsdFilterBtn"
+            aria-label="Фильтры заказов" title="Фильтры" aria-haspopup="true" aria-expanded="false">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M4 6h16M7 12h10M10 18h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </button>
+          <div class="tsd-filter-menu" id="tsdFilterMenu" hidden role="menu">
+            <label class="tsd-filter-item" id="tsdFilterFilledLabel">
+              <input type="checkbox" id="tsdFilterFilled" />
+              <span>Заполненные</span>
+            </label>
+            <label class="tsd-filter-item" id="tsdFilterEmptyLabel">
+              <input type="checkbox" id="tsdFilterEmpty" />
+              <span>Незаполненные</span>
+            </label>
+            <label class="tsd-filter-item" id="tsdFilterErrorsLabel" hidden>
+              <input type="checkbox" id="tsdFilterErrors" />
+              <span>С ошибками</span>
+            </label>
+            <label class="tsd-filter-item" id="tsdFilterCancelledLabel">
+              <input type="checkbox" id="tsdFilterCancelled" />
+              <span>Отмененные</span>
+            </label>
+          </div>
+        </div>
         <select id="tsdSourceSelect" class="tsd-source" title="Кабинет"></select>
       </div>
       <div class="tsd-search-panel" id="tsdSearchPanel" hidden>
@@ -54,6 +80,6 @@
       email: "{{SAFE_EMAIL}}"
     };
   </script>
-  <script src="/static/wb_fbs_tsd.js?v=19"></script>
+  <script src="/static/wb_fbs_tsd.js?v=20"></script>
 </body>
 </html>
