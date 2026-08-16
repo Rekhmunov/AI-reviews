@@ -770,6 +770,22 @@
       .filter((x) => x.code);
   }
 
+  function orderBarcodesLabel(row) {
+    const seen = new Set();
+    const out = [];
+    const lists = [row && row.barcodes, row && row.skus];
+    for (const list of lists) {
+      if (!Array.isArray(list)) continue;
+      for (const raw of list) {
+        const b = String(raw || "").trim();
+        if (!b || seen.has(b)) continue;
+        seen.add(b);
+        out.push(b);
+      }
+    }
+    return out.join(", ");
+  }
+
   function renderScannedListHtml(mode) {
     const scanned = orderedScannedRows(mode);
     if (!scanned.length) {
@@ -787,23 +803,18 @@
           ? `<img src="${esc(r.product_photo)}" alt="" width="48" height="48" />`
           : `<span class="tsd-scanned-ph" aria-hidden="true"></span>`;
         const oid = esc(String(r.order_id));
+        const barcodes = orderBarcodesLabel(r);
+        const barcodesHtml = barcodes
+          ? `<div class="tsd-scanned-barcodes">${esc(barcodes)}</div>`
+          : "";
         let detailHtml;
         let clearBtn = "";
         if (mode === "kiz") {
           const entries = filledKizEntries(r);
-          detailHtml = entries.length
-            ? `<div class="tsd-scanned-kizs">${entries
-                .map(
-                  (e) => `
-              <div class="tsd-scanned-kiz-row">
-                <span class="tsd-scanned-kiz-code">${esc(shortKizDisplay(e.code))}</span>
-                <button type="button" class="tsd-scanned-clear tsd-scanned-clear-sm"
-                  data-action="clear-kiz-code" data-order-id="${oid}" data-idx="${e.idx}"
-                  aria-label="Удалить КИЗ" title="Удалить КИЗ">×</button>
-              </div>`
-                )
-                .join("")}</div>`
-            : `<div class="tsd-scanned-meta">КИЗ</div>`;
+          const codesLabel = entries
+            .map((e) => shortKizDisplay(e.code))
+            .join(" · ");
+          detailHtml = `<div class="tsd-scanned-meta">${esc(codesLabel || "КИЗ")}</div>`;
           clearBtn = `
             <button type="button" class="tsd-scanned-clear"
               data-action="clear-kiz-all" data-order-id="${oid}"
@@ -819,6 +830,7 @@
             <div class="tsd-scanned-text">
               <div class="tsd-scanned-order">Заказ ${oid} · ${esc(r.sticker_number || "—")}</div>
               <div class="tsd-scanned-name">${esc(r.product_name || r.article || "—")}</div>
+              ${barcodesHtml}
               ${detailHtml}
             </div>
             ${clearBtn}
@@ -832,7 +844,7 @@
       </section>`;
   }
 
-  async function clearKizCodes(orderId, removeIdx) {
+  async function clearKizCodes(orderId) {
     if (state.saving || state.clearing) return;
     const oid = Number(orderId);
     const row = (state.kizRows || []).find((r) => Number(r.order_id) === oid);
@@ -840,22 +852,9 @@
     if (!Array.isArray(row.kiz_codes)) row.kiz_codes = [""];
     state.clearing = true;
     try {
-      if (removeIdx == null || !Number.isFinite(Number(removeIdx))) {
-        row.kiz_codes = [""];
-      } else {
-        const idx = Number(removeIdx);
-        if (row.kiz_codes.length <= 1) {
-          row.kiz_codes = [""];
-        } else {
-          row.kiz_codes.splice(idx, 1);
-          if (!row.kiz_codes.length) row.kiz_codes = [""];
-        }
-      }
+      row.kiz_codes = [""];
       await saveKizLocal(row);
-      setBanner(
-        rowKizFilled(row) ? `КИЗ удалён · заказ ${oid}` : `КИЗ очищен · заказ ${oid}`,
-        "ok"
-      );
+      setBanner(`КИЗ очищен · заказ ${oid}`, "ok");
     } catch (e) {
       setBanner(e.message || String(e), "err");
     } finally {
@@ -1114,6 +1113,10 @@
         mode === "kiz" && existingKizN
           ? `<p class="tsd-scan-subhint">У заказа уже ${existingKizN} КИЗ — новый код добавится к заказу</p>`
           : "";
+      const pendingBarcodes = orderBarcodesLabel(pending);
+      const pendingBarcodesHtml = pendingBarcodes
+        ? `<div class="tsd-product-barcodes">${esc(pendingBarcodes)}</div>`
+        : "";
       body = `
         <div class="tsd-scan-card">
           <div class="tsd-scan-step">Шаг 2</div>
@@ -1124,6 +1127,7 @@
           <div class="tsd-product">${photo}<div>
             <div class="tsd-product-name">${esc(pending.product_name || pending.article || "—")}</div>
             <div class="tsd-product-sub">${esc([pending.brand, pending.article].filter(Boolean).join(" · "))}</div>
+            ${pendingBarcodesHtml}
           </div></div>
           <div class="tsd-scan-actions">
             <button type="button" class="tsd-btn tsd-btn-ghost tsd-btn-block" id="tsdCancelStep">Отмена шага</button>
@@ -1207,10 +1211,7 @@
         const oid = btn.getAttribute("data-order-id");
         if (action === "clear-kiz-all") {
           ev.preventDefault();
-          clearKizCodes(oid, null);
-        } else if (action === "clear-kiz-code") {
-          ev.preventDefault();
-          clearKizCodes(oid, btn.getAttribute("data-idx"));
+          clearKizCodes(oid);
         }
       });
     }

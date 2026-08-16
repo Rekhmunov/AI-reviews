@@ -80,7 +80,10 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     assert "renderScannedListHtml" in js
     assert "clearKizCodes" in js
     assert 'data-action="clear-kiz-all"' in js
-    assert 'data-action="clear-kiz-code"' in js
+    assert 'data-action="clear-kiz-code"' not in js
+    assert "orderBarcodesLabel" in js
+    assert "tsd-scanned-barcodes" in js
+    assert "tsd-product-barcodes" in js
     assert "Скан пишет КИЗ локально" not in js
     assert "Скан пишет ШК локально" not in js
     assert "Для 2-го КИЗ снова сканируйте стикер" in js
