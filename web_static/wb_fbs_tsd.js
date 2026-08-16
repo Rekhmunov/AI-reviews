@@ -575,24 +575,22 @@
       }
       <div class="tsd-tiles">
         <button type="button" class="tsd-tile" id="tsdTileKiz" ${kizDisabled ? "disabled" : ""}>
-          <span class="tsd-tile-kicker">Маркировка</span>
-          <span class="tsd-tile-title">КИЗ</span>
+          <span class="tsd-tile-title">Товары с маркировкой</span>
           <span class="tsd-tile-prog">${
             kizError
               ? "Ошибка загрузки"
               : kizDisabled
-                ? "Нет заказов с КИЗ"
+                ? "Нет заказов"
                 : `${kiz.done} / ${kiz.total}`
           }</span>
         </button>
         <button type="button" class="tsd-tile" id="tsdTilePick" ${pickDisabled ? "disabled" : ""}>
-          <span class="tsd-tile-kicker">Проверка</span>
-          <span class="tsd-tile-title">ШК</span>
+          <span class="tsd-tile-title">Товары без маркировки</span>
           <span class="tsd-tile-prog">${
             pickError
               ? "Ошибка загрузки"
               : pickDisabled
-                ? "Нет заказов без КИЗ"
+                ? "Нет заказов"
                 : `${pick.done} / ${pick.total}`
           }</span>
         </button>
