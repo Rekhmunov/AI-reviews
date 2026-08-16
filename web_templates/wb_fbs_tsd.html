@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/wb_fbs_tsd.css?v=8" />
+  <link rel="stylesheet" href="/static/wb_fbs_tsd.css?v=9" />
 </head>
 <body class="tsd-body">
   <div id="tsdApp" class="tsd-app">
@@ -16,7 +16,21 @@
       <div class="tsd-top-row">
         <a class="tsd-back" id="tsdBackBtn" href="/app" hidden>←</a>
         <div class="tsd-top-title" id="tsdTitle">ТСД · На сборке</div>
+        <button type="button" class="tsd-icon-btn" id="tsdSearchBtn" hidden
+          aria-label="Поиск заказов" title="Поиск">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="2"/>
+            <path d="M16.5 16.5L21 21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </button>
         <select id="tsdSourceSelect" class="tsd-source" title="Кабинет"></select>
+      </div>
+      <div class="tsd-search-panel" id="tsdSearchPanel" hidden>
+        <input class="tsd-search-input" id="tsdOrderSearch" type="search"
+          placeholder="Стикер, заказ, ШК, артикул, название…"
+          autocomplete="off" enterkeyhint="search" />
+        <button type="button" class="tsd-icon-btn tsd-search-close" id="tsdSearchClose"
+          aria-label="Закрыть поиск" title="Закрыть">×</button>
       </div>
       <div class="tsd-progress" id="tsdProgressBar" hidden>
         <div class="tsd-progress-fill" id="tsdProgressFill"></div>
@@ -26,6 +40,9 @@
     <main class="tsd-main" id="tsdMain">
       <div class="tsd-loading">Загрузка…</div>
     </main>
+
+    <button type="button" class="tsd-scroll-top" id="tsdScrollTop" hidden
+      aria-label="К полю сканирования" title="Наверх">↑</button>
 
     <div class="tsd-toast" id="tsdToast" hidden role="status"></div>
   </div>
@@ -37,6 +54,6 @@
       email: "{{SAFE_EMAIL}}"
     };
   </script>
-  <script src="/static/wb_fbs_tsd.js?v=13"></script>
+  <script src="/static/wb_fbs_tsd.js?v=14"></script>
 </body>
 </html>

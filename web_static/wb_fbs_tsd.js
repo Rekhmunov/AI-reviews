@@ -15,6 +15,8 @@
     step: "sticker", // sticker | mark | sku
     banner: null,
     search: "",
+    orderSearch: "",
+    searchOpen: false,
     loadSeq: 0,
     forceSaveByOrder: {},
     sessionScannedIds: [],
@@ -872,9 +874,242 @@
     sel.setAttribute("aria-hidden", show ? "false" : "true");
   }
 
+  function syncSearchChrome() {
+    const btn = document.getElementById("tsdSearchBtn");
+    const panel = document.getElementById("tsdSearchPanel");
+    const input = document.getElementById("tsdOrderSearch");
+    const onScan = !!boot.can_view_wb_fbs_tsd && state.route.view === "scan";
+    if (btn) {
+      btn.hidden = !onScan;
+      btn.setAttribute("aria-expanded", state.searchOpen && onScan ? "true" : "false");
+    }
+    if (!onScan) {
+      state.searchOpen = false;
+      state.orderSearch = "";
+      if (panel) panel.hidden = true;
+      if (input) input.value = "";
+      return;
+    }
+    if (panel) panel.hidden = !state.searchOpen;
+    if (input && state.searchOpen && String(input.value || "") !== String(state.orderSearch || "")) {
+      input.value = state.orderSearch || "";
+    }
+  }
+
+  function openOrderSearch() {
+    if (state.route.view !== "scan") return;
+    state.searchOpen = true;
+    syncSearchChrome();
+    const input = document.getElementById("tsdOrderSearch");
+    if (input) {
+      setTimeout(() => {
+        input.focus();
+        input.select();
+      }, 40);
+    }
+    renderScan({ keepSearchFocus: true });
+  }
+
+  function closeOrderSearch() {
+    state.searchOpen = false;
+    state.orderSearch = "";
+    syncSearchChrome();
+    const input = document.getElementById("tsdOrderSearch");
+    if (input) input.value = "";
+    if (state.route.view === "scan") renderScan();
+  }
+
+  function orderSearchHaystack(row) {
+    const parts = [
+      row.order_id,
+      row.sticker_number,
+      row.sticker_barcode,
+      row.sticker_part_a,
+      row.sticker_part_b,
+      row.product_name,
+      row.article,
+      row.brand,
+      row.pick_barcode,
+      row.nm_id,
+    ];
+    const barcodes = Array.isArray(row.barcodes) ? row.barcodes : [];
+    const skus = Array.isArray(row.skus) ? row.skus : [];
+    const kiz = Array.isArray(row.kiz_codes) ? row.kiz_codes : [];
+    for (const x of barcodes.concat(skus).concat(kiz)) parts.push(x);
+    return parts
+      .map((x) => String(x || "").trim().toLocaleLowerCase("ru-RU"))
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  function filterOrdersBySearch(rows, query) {
+    let q = String(query || "").trim();
+    if (!q) return Array.isArray(rows) ? rows.slice() : [];
+    if (hasCyrillic(q)) {
+      const mapped = fixRuKeyboardLayout(q);
+      if (!hasCyrillic(mapped)) q = mapped;
+    }
+    const needle = q.toLocaleLowerCase("ru-RU");
+    const digits = digitsOnly(q);
+    return (rows || []).filter((row) => {
+      const hay = orderSearchHaystack(row);
+      if (hay.includes(needle)) return true;
+      if (digits && digits.length >= 3) {
+        if (String(row.order_id || "").includes(digits)) return true;
+        if (hay.replace(/\D+/g, "").includes(digits)) return true;
+      }
+      return false;
+    });
+  }
+
+  function renderSearchResultsHtml(mode) {
+    if (!state.searchOpen) return "";
+    const q = String(state.orderSearch || "").trim();
+    const rows = mode === "kiz" ? state.kizRows : state.pickRows;
+    if (!q) {
+      return `
+        <section class="tsd-search-results" aria-label="Поиск заказов">
+          <h2 class="tsd-search-results-title">Поиск</h2>
+          <div class="tsd-search-empty">Введите или отсканируйте стикер, номер заказа, ШК, артикул или название</div>
+        </section>`;
+    }
+    const matched = filterOrdersBySearch(rows, q);
+    if (!matched.length) {
+      return `
+        <section class="tsd-search-results" aria-label="Поиск заказов">
+          <h2 class="tsd-search-results-title">Найдено 0</h2>
+          <div class="tsd-search-empty">Ничего не найдено</div>
+        </section>`;
+    }
+    const items = matched
+      .slice(0, 80)
+      .map((r) => {
+        const photo = r.product_photo
+          ? `<img src="${esc(r.product_photo)}" alt="" width="48" height="48" />`
+          : `<span class="tsd-scanned-ph" aria-hidden="true"></span>`;
+        const barcodes = orderBarcodesLabel(r);
+        const status =
+          mode === "kiz"
+            ? rowKizFilled(r)
+              ? "КИЗ есть"
+              : "Нет КИЗ"
+            : rowPickFilled(r)
+              ? "ШК проверен"
+              : "Не проверен";
+        return `
+          <button type="button" class="tsd-search-item" data-action="pick-search-order"
+            data-order-id="${esc(String(r.order_id))}">
+            ${photo}
+            <div class="tsd-scanned-text">
+              <div class="tsd-scanned-order">Заказ ${esc(r.order_id)} · ${esc(r.sticker_number || "—")}</div>
+              <div class="tsd-scanned-name">${esc(r.product_name || r.article || "—")}</div>
+              ${
+                barcodes
+                  ? `<div class="tsd-scanned-barcodes">${esc(barcodes)}</div>`
+                  : ""
+              }
+              <div class="tsd-scanned-meta">${esc(status)}</div>
+            </div>
+          </button>`;
+      })
+      .join("");
+    return `
+      <section class="tsd-search-results" aria-label="Поиск заказов">
+        <h2 class="tsd-search-results-title">Найдено · ${matched.length}${
+          matched.length > 80 ? " (показаны 80)" : ""
+        }</h2>
+        <div class="tsd-search-list" id="tsdSearchList">${items}</div>
+      </section>`;
+  }
+
+  function refreshSearchResultsOnly() {
+    if (state.route.view !== "scan") return;
+    const mode = state.route.mode;
+    const shell = document.querySelector(".tsd-scan-shell");
+    if (!shell) {
+      renderScan({ keepSearchFocus: true });
+      return;
+    }
+    const html = renderSearchResultsHtml(mode).trim();
+    const current = shell.querySelector(".tsd-search-results");
+    if (!html) {
+      if (current) current.remove();
+      return;
+    }
+    const wrap = document.createElement("div");
+    wrap.innerHTML = html;
+    const next = wrap.firstElementChild;
+    if (!next) return;
+    if (current) current.replaceWith(next);
+    else {
+      const banner = shell.querySelector(".tsd-banner");
+      const stats = shell.querySelector(".tsd-stats");
+      const after = banner || stats;
+      if (after && after.nextSibling) shell.insertBefore(next, after.nextSibling);
+      else shell.insertBefore(next, shell.firstChild);
+    }
+    const searchList = document.getElementById("tsdSearchList");
+    if (searchList) {
+      searchList.addEventListener("click", (ev) => {
+        const btn = ev.target && ev.target.closest
+          ? ev.target.closest("[data-action='pick-search-order']")
+          : null;
+        if (!btn) return;
+        ev.preventDefault();
+        selectOrderFromSearch(btn.getAttribute("data-order-id"));
+      });
+    }
+  }
+
+  function selectOrderFromSearch(orderId) {
+    const mode = state.route.mode;
+    const rows = mode === "kiz" ? state.kizRows : state.pickRows;
+    const row = (rows || []).find((r) => Number(r.order_id) === Number(orderId));
+    if (!row) {
+      setBanner("Заказ не найден", "err");
+      return;
+    }
+    state.pendingOrderId = Number(row.order_id);
+    state.step = mode === "kiz" ? "mark" : "sku";
+    state.searchOpen = false;
+    state.orderSearch = "";
+    syncSearchChrome();
+    const input = document.getElementById("tsdOrderSearch");
+    if (input) input.value = "";
+    setBanner(null);
+    beep(true);
+    renderScan();
+    scrollToScanInput();
+  }
+
+  function scrollToScanInput() {
+    const target =
+      document.getElementById("tsdScanInput") ||
+      document.querySelector(".tsd-scan-card") ||
+      document.getElementById("tsdMain");
+    if (!target) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+    const top = Math.max(0, target.getBoundingClientRect().top + window.scrollY - 72);
+    window.scrollTo({ top, behavior: "smooth" });
+    const input = document.getElementById("tsdScanInput");
+    if (input) setTimeout(() => input.focus(), 280);
+  }
+
+  function syncScrollTopFab() {
+    const fab = document.getElementById("tsdScrollTop");
+    if (!fab) return;
+    const onScan = state.route.view === "scan";
+    const show = onScan && window.scrollY > 160;
+    fab.hidden = !show;
+  }
+
   function renderDenied() {
     const main = document.getElementById("tsdMain");
     syncSourceSelectVisibility();
+    syncSearchChrome();
+    syncScrollTopFab();
     const back = document.getElementById("tsdBackBtn");
     if (back) {
       back.hidden = false;
@@ -896,6 +1131,8 @@
     const title = document.getElementById("tsdTitle");
     const prog = document.getElementById("tsdProgressBar");
     syncSourceSelectVisibility();
+    syncSearchChrome();
+    syncScrollTopFab();
     if (prog) prog.hidden = true;
     if (back) {
       back.hidden = false;
@@ -974,6 +1211,8 @@
     const title = document.getElementById("tsdTitle");
     const prog = document.getElementById("tsdProgressBar");
     syncSourceSelectVisibility();
+    syncSearchChrome();
+    syncScrollTopFab();
     if (prog) prog.hidden = true;
     if (back) {
       back.hidden = false;
@@ -1058,13 +1297,15 @@
     fill.style.width = total ? `${Math.round((100 * done) / total)}%` : "0%";
   }
 
-  function renderScan() {
+  function renderScan(opts) {
+    const keepSearchFocus = !!(opts && opts.keepSearchFocus);
     const mode = state.route.mode;
     const sid = state.route.supplyId;
     const main = document.getElementById("tsdMain");
     const back = document.getElementById("tsdBackBtn");
     const title = document.getElementById("tsdTitle");
     syncSourceSelectVisibility();
+    syncSearchChrome();
     if (back) {
       back.hidden = false;
       back.href = `#/s/${sid}`;
@@ -1072,6 +1313,8 @@
         ev.preventDefault();
         state.pendingOrderId = null;
         state.step = "sticker";
+        state.searchOpen = false;
+        state.orderSearch = "";
         setBanner(null);
         navigate(`#/s/${sid}`);
       };
@@ -1092,7 +1335,7 @@
       body = `<div class="tsd-empty">Нет заказов в этом режиме</div>`;
     } else if (step === "sticker" || !pending) {
       body = `
-        <div class="tsd-scan-card">
+        <div class="tsd-scan-card" id="tsdScanCard">
           <div class="tsd-scan-step">Шаг 1</div>
           <p class="tsd-scan-prompt">Сканируйте стикер заказа</p>
           <input class="tsd-scan-input" id="tsdScanInput" type="text" autocomplete="off" inputmode="none" />
@@ -1118,7 +1361,7 @@
         ? `<div class="tsd-product-barcodes">${esc(pendingBarcodes)}</div>`
         : "";
       body = `
-        <div class="tsd-scan-card">
+        <div class="tsd-scan-card" id="tsdScanCard">
           <div class="tsd-scan-step">Шаг 2</div>
           <p class="tsd-scan-prompt">${prompt}</p>
           ${multiHint}
@@ -1149,6 +1392,7 @@
             ? `<div class="tsd-banner is-${esc(banner.kind)}">${esc(banner.text)}</div>`
             : ""
         }
+        ${renderSearchResultsHtml(mode)}
         ${body}
         <div class="tsd-scan-footer">
           <button type="button" class="tsd-btn tsd-btn-primary tsd-btn-block" id="tsdSaveBtn"
@@ -1160,8 +1404,10 @@
       </div>`;
 
     const input = document.getElementById("tsdScanInput");
-    if (input) {
+    if (input && !keepSearchFocus && !state.searchOpen) {
       setTimeout(() => input.focus(), 40);
+    }
+    if (input) {
       input.addEventListener("keydown", (ev) => {
         if (ev.key === "Enter") {
           ev.preventDefault();
@@ -1215,6 +1461,18 @@
         }
       });
     }
+    const searchList = document.getElementById("tsdSearchList");
+    if (searchList) {
+      searchList.addEventListener("click", (ev) => {
+        const btn = ev.target && ev.target.closest
+          ? ev.target.closest("[data-action='pick-search-order']")
+          : null;
+        if (!btn) return;
+        ev.preventDefault();
+        selectOrderFromSearch(btn.getAttribute("data-order-id"));
+      });
+    }
+    syncScrollTopFab();
   }
 
   async function onScanEnter(input) {
@@ -1447,6 +1705,8 @@
         state.pendingOrderId = null;
         state.step = "sticker";
         state.sessionScannedIds = [];
+        state.searchOpen = false;
+        state.orderSearch = "";
         if (state.route.mode === "kiz") {
           await loadKiz(state.route.supplyId);
         } else {
@@ -1499,6 +1759,41 @@
         }
       });
     }
+    const searchBtn = document.getElementById("tsdSearchBtn");
+    if (searchBtn) {
+      searchBtn.addEventListener("click", () => {
+        if (state.searchOpen) closeOrderSearch();
+        else openOrderSearch();
+      });
+    }
+    const searchClose = document.getElementById("tsdSearchClose");
+    if (searchClose) {
+      searchClose.addEventListener("click", () => closeOrderSearch());
+    }
+    const orderSearch = document.getElementById("tsdOrderSearch");
+    if (orderSearch) {
+      orderSearch.addEventListener("input", () => {
+        state.orderSearch = String(orderSearch.value || "");
+        refreshSearchResultsOnly();
+      });
+      orderSearch.addEventListener("keydown", (ev) => {
+        if (ev.key === "Escape") {
+          ev.preventDefault();
+          closeOrderSearch();
+        }
+      });
+    }
+    const scrollTop = document.getElementById("tsdScrollTop");
+    if (scrollTop) {
+      scrollTop.addEventListener("click", () => scrollToScanInput());
+    }
+    window.addEventListener(
+      "scroll",
+      () => {
+        syncScrollTopFab();
+      },
+      { passive: true }
+    );
     window.addEventListener("hashchange", onRoute);
   }
 
