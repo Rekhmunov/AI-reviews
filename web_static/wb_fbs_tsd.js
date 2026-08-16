@@ -1023,7 +1023,7 @@
     const needsWbClear =
       wasBound || (hadLocal && row.kiz_wb_synced === false) || !!state.pendingKizClear[oid];
 
-    // Already empty (КИЗ «—»): dismiss from «Просканировано». Keep pending for Save if WB still needs clear.
+    // Already empty (КИЗ «—»): just dismiss from «Просканировано».
     if (!hadCodes) {
       removeSessionScanned(oid);
       if (needsWbClear) {
@@ -1045,19 +1045,22 @@
     state.clearing = true;
     try {
       row.kiz_codes = [""];
-      if (wasBound || hadLocal) {
+      if (wasBound || hadLocal || needsWbClear) {
         state.pendingKizClear[oid] = true;
         // Keep flags until WB clear succeeds — mirrors desktop wasBound/hadLocal.
         row.kiz_bound = wasBound;
         row.kiz_local = hadLocal;
+      } else {
+        delete state.pendingKizClear[oid];
       }
-      noteSessionScanned(oid);
+      // Remove from «Просканировано» immediately — do not leave a «—» ghost row.
+      removeSessionScanned(oid);
       await saveKizLocal(row);
       if (state.rowErrors[oid]) delete state.rowErrors[oid];
       if (String(row.kiz_status || "") === "error") row.kiz_status = "empty";
       setBanner(
-        wasBound || hadLocal
-          ? `КИЗ очищен · заказ ${oid} — нажмите «Сохранить», чтобы очистить на WB`
+        state.pendingKizClear[oid]
+          ? `КИЗ очищен · заказ ${oid} убран из списка — нажмите «Сохранить», чтобы очистить на WB`
           : `КИЗ очищен · заказ ${oid}`,
         "ok"
       );
