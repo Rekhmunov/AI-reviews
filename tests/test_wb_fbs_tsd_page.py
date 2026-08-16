@@ -110,6 +110,8 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     assert "pick-search-order" in js
     assert "orderSearch" in js
     assert "applyOrderSearchEnter" in js
+    assert 'id="tsdScanClear"' in js
+    assert "tsd-scan-clear" in js
 
 
 def test_web_py_tsd_summary_matches_scan_without_full_payloads() -> None:
