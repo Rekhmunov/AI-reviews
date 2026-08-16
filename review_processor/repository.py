@@ -11823,9 +11823,14 @@ class ReviewRepository:
                 item_type TEXT NOT NULL,
                 item_id BIGINT NOT NULL,
                 visible BOOLEAN NOT NULL DEFAULT TRUE,
+                sort_order INTEGER NOT NULL DEFAULT 0,
                 UNIQUE(user_id, item_type, item_id)
             )
             """
+        )
+        conn.execute(
+            "ALTER TABLE supply_balance_visibility "
+            "ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0"
         )
         # Append-only stock ledger (Поставки → Остатки). Balance = SUM(qty).
         conn.execute(
@@ -12111,12 +12116,21 @@ class ReviewRepository:
             self._ensure_supply_balances_tables(conn)
             rows = conn.execute(
                 self._sql(
-                    "SELECT item_type, item_id, visible FROM supply_balance_visibility "
-                    "WHERE user_id = ?"
+                    "SELECT item_type, item_id, visible, sort_order "
+                    "FROM supply_balance_visibility WHERE user_id = ?"
                 ),
                 (user_id,),
             ).fetchall()
-        return [self._row_to_dict(r) for r in rows]
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            d = self._row_to_dict(r)
+            try:
+                d["sort_order"] = int(d.get("sort_order") or 0)
+            except (TypeError, ValueError):
+                d["sort_order"] = 0
+            d["visible"] = bool(d.get("visible", True))
+            out.append(d)
+        return out
 
     def set_supply_balance_visibility(
         self, *, user_id: int, items: list[dict[str, Any]]
@@ -12135,18 +12149,45 @@ class ReviewRepository:
                 if item_id <= 0:
                     continue
                 visible = bool(item.get("visible", True))
+                try:
+                    sort_order = int(item.get("sort_order") or 0)
+                except (TypeError, ValueError):
+                    sort_order = 0
                 conn.execute(
                     self._sql(
                         "INSERT INTO supply_balance_visibility "
-                        "(user_id, item_type, item_id, visible) "
-                        "VALUES (?, ?, ?, ?) "
+                        "(user_id, item_type, item_id, visible, sort_order) "
+                        "VALUES (?, ?, ?, ?, ?) "
                         "ON CONFLICT (user_id, item_type, item_id) "
-                        "DO UPDATE SET visible = EXCLUDED.visible"
+                        "DO UPDATE SET visible = EXCLUDED.visible, "
+                        "sort_order = EXCLUDED.sort_order"
                     ),
-                    (user_id, item_type, item_id, self._bool_db(visible)),
+                    (
+                        user_id,
+                        item_type,
+                        item_id,
+                        self._bool_db(visible),
+                        sort_order,
+                    ),
                 )
                 saved += 1
         return saved
+
+    @staticmethod
+    def supply_balance_item_sort_key(
+        *,
+        item_type: str,
+        item_id: int,
+        name: str,
+        sort_map: dict[tuple[str, int], int],
+    ) -> tuple:
+        """Sort key for Остатки rows: explicit sort_order, then name, then id."""
+        key = (str(item_type or "").strip().lower(), int(item_id or 0))
+        if key in sort_map:
+            order = int(sort_map[key])
+        else:
+            order = 10**9
+        return (order, str(name or "").casefold(), key[1])
 
     # ── Stock ledger (movements) ─────────────────────────────────────────────
 

@@ -4897,15 +4897,14 @@
   <script src="/static/cadesplugin_api.js"></script>
   <!-- Supply balances visibility modal -->
   <div id="supplyBalancesVisibilityModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
-       aria-labelledby="supplyBalancesVisibilityTitle"
-       onclick="if(event.target===this)closeSupplyBalancesVisibilityModal()">
+       aria-labelledby="supplyBalancesVisibilityTitle">
     <div class="modal-card sb-sheet-modal sb-vis-modal">
       <div class="sb-sheet-header">
         <div class="sb-sheet-title-row">
           <h3 id="supplyBalancesVisibilityTitle" class="sb-sheet-title">Вывод в таблице</h3>
           <button type="button" class="icon-btn secondary" onclick="closeSupplyBalancesVisibilityModal()" aria-label="Закрыть">✕</button>
         </div>
-        <p class="sb-sheet-lead">Выберите, какие позиции показывать в таблице. По умолчанию включены все.</p>
+        <p class="sb-sheet-lead">Выберите, какие позиции показывать в таблице. Перетащите строку, чтобы изменить порядок во вкладке Остатки. По умолчанию включены все.</p>
         <div class="sb-sheet-toolbar">
           <input type="search" id="supplyBalancesVisibilitySearch" class="sb-sheet-search" placeholder="Поиск..."
                  autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
@@ -4925,8 +4924,7 @@
 
   <!-- Supply stock: add to warehouse -->
   <div id="supplyStockReceiptModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
-       aria-labelledby="supplyStockReceiptTitle"
-       onclick="if(event.target===this)closeSupplyStockReceiptModal()">
+       aria-labelledby="supplyStockReceiptTitle">
     <div class="modal-card sb-sheet-modal sb-doc-modal sb-adj-modal">
       <div class="sb-sheet-header">
         <div class="sb-sheet-title-row">
@@ -4978,8 +4976,7 @@
 
   <!-- Supply stock: opening / adjustment -->
   <div id="supplyStockAdjustmentModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
-       aria-labelledby="supplyStockAdjTitle"
-       onclick="if(event.target===this)closeSupplyStockAdjustmentModal()">
+       aria-labelledby="supplyStockAdjTitle">
     <div class="modal-card sb-sheet-modal sb-doc-modal sb-adj-modal">
       <div class="sb-sheet-header">
         <div class="sb-sheet-title-row">
@@ -5038,8 +5035,7 @@
 
   <!-- Supply stock: form balances on date -->
   <div id="supplyStockAsOfModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
-       aria-labelledby="supplyStockAsOfTitle"
-       onclick="if(event.target===this)closeSupplyStockAsOfModal()">
+       aria-labelledby="supplyStockAsOfTitle">
     <div class="modal-card sb-sheet-modal sb-asof-modal">
       <div class="sb-sheet-header">
         <div class="sb-sheet-title-row">
@@ -5061,6 +5057,6 @@
       </div>
     </div>
   </div>
-  <script src="/static/app.js?v=487"></script>
+  <script src="/static/app.js?v=488"></script>
 </body>
 </html>

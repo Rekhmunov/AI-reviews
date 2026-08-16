@@ -14096,9 +14096,12 @@ function renderSupplyBalancesVisibilityList() {
   if (!list) return;
   const materials = supplyBalancesState.visibilityItems.filter((x) => x.item_type === "material");
   const products = supplyBalancesState.visibilityItems.filter((x) => x.item_type === "product");
-  const renderGroup = (title, rows) => {
+  const searchActive = !!_sbNormalizeSearch(
+    document.getElementById("supplyBalancesVisibilitySearch")?.value || ""
+  );
+  const renderGroup = (title, rows, type) => {
     if (!rows.length) return "";
-    return `<div class="sb-vis-group-title">${esc(title)}</div>` + rows.map((row) => {
+    return `<div class="sb-vis-group-title" data-vis-group="${esc(type)}">${esc(title)}</div>` + rows.map((row) => {
       const key = `${row.item_type}:${row.item_id}`;
       const on = row.visible !== false;
       const typeLabel = row.item_type === "material" ? "Материал" : "Товар";
@@ -14111,7 +14114,12 @@ function renderSupplyBalancesVisibilityList() {
         row.ozon_sku,
         ...(Array.isArray(row.barcodes) ? row.barcodes : []),
       ].map((x) => String(x || "")).filter(Boolean).join(" ");
-      return `<div class="sb-vis-row" data-vis-key="${esc(key)}" data-sb-search="${esc(searchBlob)}">
+      const dragAttrs = searchActive
+        ? `draggable="false" class="sb-vis-row sb-vis-row-no-drag"`
+        : `draggable="true" class="sb-vis-row"`;
+      return `<div ${dragAttrs} data-vis-key="${esc(key)}" data-vis-type="${esc(row.item_type)}"
+        data-vis-id="${Number(row.item_id)}" data-sb-search="${esc(searchBlob)}">
+        <span class="sb-vis-handle" title="Перетащить" aria-hidden="true">⋮⋮</span>
         <div class="sb-vis-meta">
           <div class="sb-vis-name">${esc(row.name || "")}</div>
           <div class="sb-vis-sub">${esc(row.unit || "шт")} · ${typeLabel}</div>
@@ -14121,13 +14129,121 @@ function renderSupplyBalancesVisibilityList() {
       </div>`;
     }).join("");
   };
-  const html = renderGroup("Материалы", materials) + renderGroup("Товары", products);
+  const html = renderGroup("Материалы", materials, "material") + renderGroup("Товары", products, "product");
   list.innerHTML = html || `<div class="sb-doc-empty">Нет материалов и товаров в справочниках</div>`;
   applySupplyBalancesVisibilitySearch();
+  _initSupplyBalancesVisibilityDnD(list);
+}
+
+let _sbVisDragging = null;
+
+function _initSupplyBalancesVisibilityDnD(list) {
+  if (!list || list.dataset.sbVisDndBound === "1") return;
+  list.dataset.sbVisDndBound = "1";
+  list.addEventListener("dragstart", (e) => {
+    const row = e.target.closest(".sb-vis-row");
+    if (!row || row.draggable === false || row.classList.contains("sb-vis-row-no-drag")) {
+      e.preventDefault();
+      return;
+    }
+    // Don't start drag from the eye toggle button.
+    if (e.target.closest(".sb-vis-eye")) {
+      e.preventDefault();
+      return;
+    }
+    const searchQ = _sbNormalizeSearch(
+      document.getElementById("supplyBalancesVisibilitySearch")?.value || ""
+    );
+    if (searchQ) {
+      e.preventDefault();
+      return;
+    }
+    _sbVisDragging = row;
+    row.classList.add("is-dragging");
+    try {
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", row.getAttribute("data-vis-key") || "");
+    } catch (_err) {
+      /* ignore */
+    }
+  });
+  list.addEventListener("dragend", () => {
+    if (_sbVisDragging) _sbVisDragging.classList.remove("is-dragging");
+    list.querySelectorAll(".sb-vis-row.dnd-over").forEach((r) => r.classList.remove("dnd-over"));
+    _sbVisDragging = null;
+  });
+  list.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    if (!_sbVisDragging) return;
+    const over = e.target.closest(".sb-vis-row");
+    list.querySelectorAll(".sb-vis-row.dnd-over").forEach((r) => r.classList.remove("dnd-over"));
+    if (
+      over &&
+      over !== _sbVisDragging &&
+      over.getAttribute("data-vis-type") === _sbVisDragging.getAttribute("data-vis-type")
+    ) {
+      over.classList.add("dnd-over");
+    }
+  });
+  list.addEventListener("drop", (e) => {
+    e.preventDefault();
+    const over = e.target.closest(".sb-vis-row");
+    if (!over || !_sbVisDragging || over === _sbVisDragging) return;
+    const type = _sbVisDragging.getAttribute("data-vis-type");
+    if (over.getAttribute("data-vis-type") !== type) return;
+    const rows = Array.from(list.querySelectorAll(`.sb-vis-row[data-vis-type="${type}"]`));
+    const fromIdx = rows.indexOf(_sbVisDragging);
+    const toIdx = rows.indexOf(over);
+    if (fromIdx < 0 || toIdx < 0) return;
+    if (fromIdx < toIdx) over.after(_sbVisDragging);
+    else over.before(_sbVisDragging);
+    over.classList.remove("dnd-over");
+    _syncSupplyBalancesVisibilityOrderFromDom();
+  });
+}
+
+function _syncSupplyBalancesVisibilityOrderFromDom() {
+  const list = document.getElementById("supplyBalancesVisibilityList");
+  if (!list) return;
+  const byKey = new Map(
+    (supplyBalancesState.visibilityItems || []).map((x) => [
+      `${x.item_type}:${x.item_id}`,
+      x,
+    ])
+  );
+  const ordered = [];
+  ["material", "product"].forEach((type) => {
+    const rows = Array.from(list.querySelectorAll(`.sb-vis-row[data-vis-type="${type}"]`));
+    rows.forEach((el, idx) => {
+      const key = el.getAttribute("data-vis-key") || "";
+      const item = byKey.get(key);
+      if (!item) return;
+      item.sort_order = idx;
+      ordered.push(item);
+      byKey.delete(key);
+    });
+  });
+  // Keep any leftover items (should not happen) at the end.
+  byKey.forEach((item) => ordered.push(item));
+  supplyBalancesState.visibilityItems = ordered;
 }
 
 function onSupplyBalancesVisibilitySearch() {
   applySupplyBalancesVisibilitySearch();
+  const list = document.getElementById("supplyBalancesVisibilityList");
+  if (!list) return;
+  const q = _sbNormalizeSearch(
+    document.getElementById("supplyBalancesVisibilitySearch")?.value || ""
+  );
+  list.querySelectorAll(".sb-vis-row").forEach((row) => {
+    if (q) {
+      row.draggable = false;
+      row.classList.add("sb-vis-row-no-drag");
+    } else {
+      row.draggable = true;
+      row.classList.remove("sb-vis-row-no-drag");
+    }
+  });
 }
 window.onSupplyBalancesVisibilitySearch = onSupplyBalancesVisibilitySearch;
 
@@ -14188,16 +14304,38 @@ function toggleSupplyBalanceVisibility(itemType, itemId) {
   );
   if (!row) return;
   row.visible = !(row.visible !== false);
-  renderSupplyBalancesVisibilityList();
+  // Update button in place to keep DnD order / scroll position.
+  const list = document.getElementById("supplyBalancesVisibilityList");
+  const el = list?.querySelector(
+    `.sb-vis-row[data-vis-key="${itemType}:${Number(itemId)}"] .sb-vis-eye`
+  );
+  if (el) {
+    const on = row.visible !== false;
+    el.classList.toggle("is-off", !on);
+    el.title = on ? "Скрыть" : "Показать";
+    el.textContent = on ? "Вкл" : "Выкл";
+  } else {
+    renderSupplyBalancesVisibilityList();
+  }
 }
 window.toggleSupplyBalanceVisibility = toggleSupplyBalanceVisibility;
 
 async function saveSupplyBalancesVisibility() {
-  const items = supplyBalancesState.visibilityItems.map((x) => ({
-    item_type: x.item_type,
-    item_id: Number(x.item_id),
-    visible: x.visible !== false,
-  }));
+  _syncSupplyBalancesVisibilityOrderFromDom();
+  const items = [];
+  ["material", "product"].forEach((type) => {
+    const group = (supplyBalancesState.visibilityItems || []).filter(
+      (x) => x.item_type === type
+    );
+    group.forEach((x, idx) => {
+      items.push({
+        item_type: x.item_type,
+        item_id: Number(x.item_id),
+        visible: x.visible !== false,
+        sort_order: idx,
+      });
+    });
+  });
   try {
     const res = await fetch("/api/supply-balances/visibility", {
       method: "PUT",
