@@ -104,6 +104,8 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     assert "pendingKizClear" in js
     assert "hasPendingKizPush" in js
     assert "rowNeedsKizWbClear" in js
+    assert "removeSessionScanned" in js
+    assert "убран из списка" in js or "убран из просканированных" in js
     assert "kizHubToneSupplyId" in js
     assert "clear: true" in js
     assert "refreshHubKizStatus" in js

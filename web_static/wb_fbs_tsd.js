@@ -828,11 +828,28 @@
     });
   }
 
+  function removeSessionScanned(orderId) {
+    const oid = Number(orderId);
+    if (!Number.isFinite(oid)) return;
+    state.sessionScannedIds = (state.sessionScannedIds || []).filter(
+      (x) => Number(x) !== oid
+    );
+  }
+
   function orderedScannedRows(mode) {
     const rows = mode === "kiz" ? state.kizRows : state.pickRows;
+    // KIZ: show filled codes, or empty only after this-session clear (pending + session).
+    // Do NOT pull in stale empty local drafts (КИЗ «—») just because kiz_local/kiz_bound.
     const fn =
       mode === "kiz"
-        ? (r) => rowKizFilled(r) || rowNeedsKizWbClear(r)
+        ? (r) => {
+            if (rowKizFilled(r)) return true;
+            const oid = Number(r.order_id);
+            return (
+              !!state.pendingKizClear[oid] &&
+              (state.sessionScannedIds || []).some((x) => Number(x) === oid)
+            );
+          }
         : rowPickFilled;
     const filled = (rows || []).filter(fn);
     const byId = new Map(filled.map((r) => [Number(r.order_id), r]));
@@ -1001,6 +1018,28 @@
     const hadCodes = rowKizFilled(row);
     const wasBound = !!row.kiz_bound;
     const hadLocal = !!row.kiz_local || hadCodes;
+    const needsWbClear =
+      wasBound || (hadLocal && row.kiz_wb_synced === false) || !!state.pendingKizClear[oid];
+
+    // Already empty (КИЗ «—»): dismiss from «Просканировано». Keep pending for Save if WB still needs clear.
+    if (!hadCodes) {
+      removeSessionScanned(oid);
+      if (needsWbClear) {
+        state.pendingKizClear[oid] = true;
+        row.kiz_bound = wasBound || !!row.kiz_bound;
+        row.kiz_local = hadLocal || !!row.kiz_local;
+        setBanner(
+          `Заказ ${oid} убран из списка — нажмите «Сохранить», чтобы очистить КИЗ на WB`,
+          "ok"
+        );
+      } else {
+        delete state.pendingKizClear[oid];
+        setBanner(`Заказ ${oid} убран из просканированных`, "ok");
+      }
+      renderScan();
+      return;
+    }
+
     state.clearing = true;
     try {
       row.kiz_codes = [""];
