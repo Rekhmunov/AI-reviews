@@ -762,8 +762,37 @@
 
   function shortKizDisplay(code) {
     const c = String(code || "").trim();
-    if (c.length > 28) return `${c.slice(0, 14)}…${c.slice(-8)}`;
+    // Keep most of the mark visible on a full TSD row before ellipsis.
+    if (c.length > 56) return `${c.slice(0, 40)}…${c.slice(-12)}`;
     return c;
+  }
+
+  function formatBoldLastDigits(text, n) {
+    const s = String(text || "").trim();
+    const count = Math.max(1, Number(n) || 4);
+    if (!s || s === "—") return esc(s || "—");
+    let seen = 0;
+    let cut = -1;
+    for (let i = s.length - 1; i >= 0; i -= 1) {
+      if (/\d/.test(s[i])) {
+        seen += 1;
+        if (seen === count) {
+          cut = i;
+          break;
+        }
+      }
+    }
+    if (cut < 0) {
+      if (s.length <= count) {
+        return `<strong class="tsd-sticker-tail">${esc(s)}</strong>`;
+      }
+      return `${esc(s.slice(0, -count))}<strong class="tsd-sticker-tail">${esc(
+        s.slice(-count)
+      )}</strong>`;
+    }
+    return `${esc(s.slice(0, cut))}<strong class="tsd-sticker-tail">${esc(
+      s.slice(cut)
+    )}</strong>`;
   }
 
   function filledKizEntries(row) {
@@ -805,32 +834,46 @@
           ? `<img src="${esc(r.product_photo)}" alt="" width="48" height="48" />`
           : `<span class="tsd-scanned-ph" aria-hidden="true"></span>`;
         const oid = esc(String(r.order_id));
+        const stickerHtml = formatBoldLastDigits(r.sticker_number || "—", 4);
         const barcodes = orderBarcodesLabel(r);
         const barcodesHtml = barcodes
-          ? `<div class="tsd-scanned-barcodes">${esc(barcodes)}</div>`
+          ? `<div class="tsd-scanned-barcodes"><span class="tsd-scanned-label">ШК:</span> ${esc(
+              barcodes
+            )}</div>`
           : "";
         let detailHtml;
         let clearBtn = "";
         if (mode === "kiz") {
           const entries = filledKizEntries(r);
-          const codesLabel = entries
-            .map((e) => shortKizDisplay(e.code))
-            .join(" · ");
-          detailHtml = `<div class="tsd-scanned-meta">${esc(codesLabel || "КИЗ")}</div>`;
+          detailHtml = entries.length
+            ? `<div class="tsd-scanned-kizs">${entries
+                .map(
+                  (e) => `
+              <div class="tsd-scanned-kiz-line">
+                <span class="tsd-scanned-label">КИЗ:</span>
+                <span class="tsd-scanned-kiz-val">${esc(shortKizDisplay(e.code))}</span>
+              </div>`
+                )
+                .join("")}</div>`
+            : `<div class="tsd-scanned-kiz-line"><span class="tsd-scanned-label">КИЗ:</span> —</div>`;
           clearBtn = `
             <button type="button" class="tsd-scanned-clear"
               data-action="clear-kiz-all" data-order-id="${oid}"
               aria-label="Очистить КИЗ" title="Очистить КИЗ">×</button>`;
         } else {
-          detailHtml = `<div class="tsd-scanned-meta">${esc(
-            String(r.pick_barcode || "ШК")
-          )}</div>`;
+          const verified = String(r.pick_barcode || "").trim();
+          detailHtml =
+            !barcodes && verified
+              ? `<div class="tsd-scanned-barcodes"><span class="tsd-scanned-label">ШК:</span> ${esc(
+                  verified
+                )}</div>`
+              : "";
         }
         return `
           <div class="tsd-scanned-item">
             ${photo}
             <div class="tsd-scanned-text">
-              <div class="tsd-scanned-order">Заказ ${oid} · ${esc(r.sticker_number || "—")}</div>
+              <div class="tsd-scanned-order">Заказ ${oid} · ${stickerHtml}</div>
               <div class="tsd-scanned-name">${esc(r.product_name || r.article || "—")}</div>
               ${barcodesHtml}
               ${detailHtml}
