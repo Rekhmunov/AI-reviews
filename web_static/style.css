@@ -9752,11 +9752,20 @@ button.wb-fbs-kiz-add:disabled {
   gap: 4px;
   min-width: 0;
 }
+.sb-search-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
 .sb-search-label {
   font-size: 12px;
   font-weight: 600;
   color: #64748b;
   line-height: 1;
+}
+.sb-btn-short {
+  display: none;
 }
 .sb-toolbar-filters,
 .sb-toolbar-primary {
@@ -9772,6 +9781,7 @@ button.wb-fbs-kiz-add:disabled {
 #section-supplies-balances #supplyBalancesSearchFilter {
   min-height: 40px;
   width: 100%;
+  flex: 1 1 auto;
   padding: 0 12px;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
@@ -9783,10 +9793,34 @@ button.wb-fbs-kiz-add:disabled {
   font-size: 15px;
   min-height: 40px;
   padding: 8px 12px;
+  border-radius: 8px;
 }
-#section-supplies-balances .sb-toolbar-grid button.icon-btn {
-  min-width: 40px;
-  padding: 8px;
+#section-supplies-balances .sb-toolbar-grid button:hover:not(:disabled) {
+  border-color: #94a3b8;
+}
+#section-supplies-balances .sb-toolbar-grid button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+#section-supplies-balances .sb-toolbar-grid button:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 1px;
+}
+#section-supplies-balances .sb-toolbar-grid button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+#section-supplies-balances #supplyBalancesReceiptBtn {
+  background: #0f172a;
+  border-color: #0f172a;
+  color: #fff;
+  font-weight: 600;
+}
+#section-supplies-balances #supplyBalancesReceiptBtn:hover:not(:disabled) {
+  background: #1e293b;
+  border-color: #1e293b;
+}
+#section-supplies-balances #supplyBalancesReceiptBtn:active:not(:disabled) {
+  background: #020617;
 }
 #section-supplies-balances #supplyBalancesSearchFilter:focus {
   outline: 2px solid #93c5fd;
@@ -9797,6 +9831,7 @@ button.wb-fbs-kiz-add:disabled {
   color: #64748b;
   white-space: nowrap;
   font-size: 14px;
+  flex: 0 0 auto;
 }
 .sb-toolbar-left {
   display: flex;
@@ -10283,10 +10318,12 @@ button.wb-fbs-kiz-add:disabled {
 .sb-table-panel {
   padding: 0;
   overflow: hidden;
+  border: 1px solid #e2e8f0;
 }
 .supply-balances-table-wrap {
   overflow: auto;
-  max-height: calc(100vh - 240px);
+  max-height: calc(100vh - 260px);
+  -webkit-overflow-scrolling: touch;
 }
 .supply-balances-table {
   width: max-content;
@@ -10777,28 +10814,44 @@ button.wb-fbs-kiz-add:disabled {
 
 @media (max-width: 1100px) {
   .sb-toolbar-grid {
-    grid-template-columns: minmax(180px, 1fr) auto;
+    grid-template-columns: minmax(180px, 1fr);
   }
+  .sb-toolbar-filters,
   .sb-toolbar-primary {
-    grid-column: 1 / -1;
     justify-content: flex-start;
   }
 }
 
 @media (max-width: 720px) {
+  #section-supplies-balances {
+    gap: 8px;
+  }
   .sb-page-head {
     align-items: flex-start;
-    margin-bottom: 12px;
+    margin-bottom: 8px;
   }
   .sb-page-badges {
     width: 100%;
   }
+  .sb-today-badge,
+  .sb-asof-badge {
+    min-height: 28px;
+    font-size: 13px;
+    padding: 4px 10px;
+  }
   .sb-toolbar {
     padding: 12px;
+    margin-bottom: 8px;
   }
   .sb-toolbar-grid {
     grid-template-columns: 1fr;
     gap: 12px;
+  }
+  .sb-btn-full {
+    display: none;
+  }
+  .sb-btn-short {
+    display: inline;
   }
   .sb-toolbar-filters,
   .sb-toolbar-primary {
@@ -10807,21 +10860,28 @@ button.wb-fbs-kiz-add:disabled {
     gap: 8px;
     width: 100%;
   }
-  .sb-toolbar-filters .icon-btn {
-    width: 100%;
-  }
   #section-supplies-balances .sb-toolbar-grid button {
     width: 100%;
     min-height: 44px;
     justify-content: center;
+    padding: 8px 10px;
+    font-size: 14px;
   }
   #section-supplies-balances #supplyBalancesReceiptBtn {
     grid-column: 1 / -1;
   }
+  .sb-status {
+    margin-top: 10px;
+    padding-top: 10px;
+    font-size: 13px;
+  }
   .sb-production-field { width: 100%; }
   .sb-production-select { flex: 1; max-width: none; }
+  .sb-table-panel {
+    border-radius: 12px;
+  }
   .supply-balances-table-wrap {
-    max-height: calc(100dvh - 320px);
+    max-height: calc(100dvh - 340px);
     -webkit-overflow-scrolling: touch;
   }
   .supply-balances-table th,
@@ -10856,30 +10916,54 @@ button.wb-fbs-kiz-add:disabled {
     font-size: 11px;
   }
   .supply-balances-table .sb-resize-handle {
-    width: 12px;
+    display: none;
+  }
+  .supply-balances-table tbody tr:hover td,
+  .supply-balances-table tbody tr:hover td.sb-col-name,
+  .supply-balances-table tbody tr:hover td.sb-col-today {
+    background: inherit;
+  }
+  .supply-balances-table td.sb-col-today {
+    background: #f8fbff;
   }
 
   /* Full-screen sheet modals for Остатки on phones */
-  .modal-overlay:has(> .sb-sheet-modal) {
+  #supplyBalancesVisibilityModal,
+  #supplyStockReceiptModal,
+  #supplyStockAdjustmentModal,
+  #supplyStockAsOfModal,
+  #supplyStockMovementsModal {
     padding: 0;
     align-items: stretch;
     justify-content: stretch;
   }
-  .modal-overlay > .sb-sheet-modal {
+  #supplyBalancesVisibilityModal > .sb-sheet-modal,
+  #supplyStockReceiptModal > .sb-sheet-modal,
+  #supplyStockAdjustmentModal > .sb-sheet-modal,
+  #supplyStockAsOfModal > .sb-sheet-modal,
+  #supplyStockMovementsModal > .sb-sheet-modal,
+  .modal-overlay:has(> .sb-sheet-modal) > .sb-sheet-modal {
     width: 100% !important;
     max-width: 100% !important;
     max-height: 100dvh;
     height: 100dvh;
     border-radius: 0;
   }
+  .modal-overlay:has(> .sb-sheet-modal) {
+    padding: 0;
+    align-items: stretch;
+    justify-content: stretch;
+  }
   .sb-sheet-header {
     padding: 16px;
+    padding-top: max(16px, env(safe-area-inset-top));
   }
   .sb-sheet-title {
     font-size: 20px;
   }
   .sb-sheet-footer {
     padding: 12px 16px;
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
     gap: 8px;
   }
   .sb-sheet-footer button {
