@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=228" />
+  <link rel="stylesheet" href="/static/style.css?v=229" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -2723,20 +2723,33 @@
           <div class="sb-toolbar-grid">
             <div class="sb-toolbar-search">
               <label class="sb-search-label" for="supplyBalancesSearchFilter">Поиск</label>
-              <input id="supplyBalancesSearchFilter" type="search" placeholder="Название, артикул, ШК…"
-                     autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
-                     oninput="onSupplyBalancesSearchInput()" />
-              <span id="supplyBalancesFilterCount" class="small supplies-filter-count" hidden></span>
+              <div class="sb-search-row">
+                <input id="supplyBalancesSearchFilter" type="search" placeholder="Название, артикул, ШК…"
+                       autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+                       oninput="onSupplyBalancesSearchInput()" />
+                <span id="supplyBalancesFilterCount" class="small supplies-filter-count" hidden></span>
+              </div>
             </div>
             <div class="sb-toolbar-filters" role="group" aria-label="Фильтры остатков">
               <button type="button" class="secondary" id="supplyBalancesBelowMinBtn"
                       onclick="toggleSupplyBalancesBelowMin()" aria-pressed="false"
-                      title="Показать только позиции ниже минимума">Ниже минимума</button>
-              <button type="button" class="secondary icon-btn" onclick="openSupplyBalancesVisibilityModal()" title="Вывод в таблице" aria-label="Вывод в таблице">👁</button>
+                      title="Показать только позиции ниже минимума">
+                <span class="sb-btn-full">Ниже минимума</span>
+                <span class="sb-btn-short" aria-hidden="true">Ниже мин.</span>
+              </button>
+              <button type="button" class="secondary" onclick="openSupplyBalancesVisibilityModal()"
+                      title="Вывод в таблице" aria-label="Вывод в таблице">Вывод</button>
               <button type="button" class="secondary" id="supplyBalancesHistoryBtn"
                       onclick="toggleSupplyBalancesHistory()" aria-pressed="false"
-                      title="Показать колонки по датам движений">История дат</button>
-              <button type="button" class="secondary" onclick="openSupplyStockAsOfModal()">Сформировать на дату</button>
+                      title="Показать колонки по датам движений">
+                <span class="sb-btn-full">История дат</span>
+                <span class="sb-btn-short" aria-hidden="true">История</span>
+              </button>
+              <button type="button" class="secondary" onclick="openSupplyStockAsOfModal()"
+                      title="Сформировать остатки на дату">
+                <span class="sb-btn-full">Сформировать на дату</span>
+                <span class="sb-btn-short" aria-hidden="true">На дату</span>
+              </button>
             </div>
             <div class="sb-toolbar-primary" role="group" aria-label="Действия со складом">
               <button type="button" class="secondary" onclick="openSupplyStockAdjustmentModal()">Корректировка</button>
@@ -5090,6 +5103,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=493"></script>
+  <script src="/static/app.js?v=494"></script>
 </body>
 </html>

@@ -13223,11 +13223,30 @@ function _sbUpdateTodayBadge() {
   }
 }
 
+function _sbSetDualBtnLabel(btn, fullText, shortText) {
+  if (!btn) return;
+  const full = String(fullText || "");
+  const short = String(shortText || full);
+  let fullEl = btn.querySelector(".sb-btn-full");
+  let shortEl = btn.querySelector(".sb-btn-short");
+  if (!fullEl || !shortEl) {
+    btn.innerHTML = `<span class="sb-btn-full"></span><span class="sb-btn-short" aria-hidden="true"></span>`;
+    fullEl = btn.querySelector(".sb-btn-full");
+    shortEl = btn.querySelector(".sb-btn-short");
+  }
+  if (fullEl) fullEl.textContent = full;
+  if (shortEl) shortEl.textContent = short;
+}
+
 function _sbUpdateHistoryBtn() {
   const btn = document.getElementById("supplyBalancesHistoryBtn");
   if (!btn) return;
   const on = !!supplyBalancesState.showHistory;
-  btn.textContent = on ? "Скрыть историю" : "История дат";
+  _sbSetDualBtnLabel(
+    btn,
+    on ? "Скрыть историю" : "История дат",
+    on ? "Скрыть" : "История"
+  );
   btn.setAttribute("aria-pressed", on ? "true" : "false");
   btn.classList.toggle("is-active", on);
   btn.title = on
@@ -13240,7 +13259,9 @@ function _sbUpdateBelowMinBtn() {
   if (!btn) return;
   const on = !!supplyBalancesState.filterBelowMin;
   const belowCount = (supplyBalancesState.rows || []).filter((r) => r.below_min).length;
-  btn.textContent = belowCount > 0 ? `Ниже минимума · ${belowCount}` : "Ниже минимума";
+  const full = belowCount > 0 ? `Ниже минимума · ${belowCount}` : "Ниже минимума";
+  const short = belowCount > 0 ? `Ниже мин. · ${belowCount}` : "Ниже мин.";
+  _sbSetDualBtnLabel(btn, full, short);
   btn.setAttribute("aria-pressed", on ? "true" : "false");
   btn.classList.toggle("is-active", on);
   btn.disabled = belowCount === 0 && !on;
@@ -13298,6 +13319,17 @@ async function loadSupplyBalancesSection() {
   }
 }
 window.loadSupplyBalancesSection = loadSupplyBalancesSection;
+
+let _sbViewportResizeTimer = null;
+window.addEventListener("resize", () => {
+  clearTimeout(_sbViewportResizeTimer);
+  _sbViewportResizeTimer = setTimeout(() => {
+    const section = document.getElementById("section-supplies-balances");
+    if (!section || section.classList.contains("hidden")) return;
+    if (!Array.isArray(supplyBalancesState.rows) || !supplyBalancesState.rows.length) return;
+    renderSupplyBalancesTable();
+  }, 180);
+});
 
 async function loadSupplyBalancesData() {
   const pid = Number(supplyBalancesState.productionId || 0);
