@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f172a" />
+  <title>ТСД · ВБ ФБС</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/wb_fbs_tsd.css?v=2" />
+</head>
+<body class="tsd-body">
+  <div id="tsdApp" class="tsd-app">
+    <header class="tsd-top">
+      <div class="tsd-top-row">
+        <a class="tsd-back" id="tsdBackBtn" href="/app" hidden>←</a>
+        <div class="tsd-top-title" id="tsdTitle">ТСД · На сборке</div>
+        <select id="tsdSourceSelect" class="tsd-source" title="Кабинет"></select>
+      </div>
+      <div class="tsd-progress" id="tsdProgressBar" hidden>
+        <div class="tsd-progress-fill" id="tsdProgressFill"></div>
+      </div>
+    </header>
+
+    <main class="tsd-main" id="tsdMain">
+      <div class="tsd-loading">Загрузка…</div>
+    </main>
+
+    <div class="tsd-toast" id="tsdToast" hidden role="status"></div>
+  </div>
+
+  <script>
+    window.TSD_BOOT = {
+      can_view_wb_fbs_tsd: {{CAN_VIEW_WB_FBS_TSD}},
+      is_tenant_owner: {{IS_TENANT_OWNER}},
+      email: "{{SAFE_EMAIL}}"
+    };
+  </script>
+  <script src="/static/wb_fbs_tsd.js?v=2"></script>
+</body>
+</html>

@@ -1286,7 +1286,15 @@ class ReviewRepository:
             except Exception:
                 sources = {}
             if any(
-                (isinstance(v, dict) and (v.get("wb") or v.get("wb_fbs") or v.get("ozon")))
+                (
+                    isinstance(v, dict)
+                    and (
+                        v.get("wb")
+                        or v.get("wb_fbs")
+                        or v.get("wb_fbs_tsd")
+                        or v.get("ozon")
+                    )
+                )
                 for v in sources.values()
             ):
                 continue  # has at least one source permission → legitimate

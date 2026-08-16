@@ -752,7 +752,7 @@ class ManagerSuppliesAccessRequest(BaseModel):
     can_supply_planning: bool = False
     can_supply_stock: bool = False
     stock_productions: list[str] = Field(default_factory=list)
-    supply_sources: dict = {}  # {source_id: {"wb": bool, "wb_fbs": bool, "ozon": bool}}
+    supply_sources: dict = {}  # {source_id: {"wb": bool, "wb_fbs": bool, "wb_fbs_tsd": bool, "ozon": bool}}
 
 
 class FeedbackMaterialRequest(BaseModel):
@@ -2166,6 +2166,18 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if user is None:
             return RedirectResponse("/login", status_code=302)
         return HTMLResponse(build_app_html(user, repository=repository))
+
+    @app.get("/wb-fbs/tsd", response_class=HTMLResponse)
+    @app.get("/wb-fbs/tsd/{path:path}", response_class=HTMLResponse)
+    def wb_fbs_tsd_page(request: Request, path: str = "") -> HTMLResponse:
+        """Lightweight TSD page for WB FBS assembly (warehouse handheld)."""
+        del path  # hash routing client-side
+        user = _get_current_user(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=302)
+        response = HTMLResponse(build_wb_fbs_tsd_html(user, repository=repository))
+        _ensure_csrf_cookie(response, request)
+        return response
 
     @app.get("/admin", response_class=HTMLResponse)
     def admin_page(request: Request) -> HTMLResponse:
@@ -4524,6 +4536,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             can_view_any_supply = (
                 any(v.get("wb") for v in _sp_sources.values())
                 or any(v.get("wb_fbs") for v in _sp_sources.values())
+                or any(v.get("wb_fbs_tsd") for v in _sp_sources.values())
                 or any(v.get("ozon") for v in _sp_sources.values())
                 or bool(_supply_perms.get("can_supply_poa"))
                 or bool(_supply_perms.get("can_supply_settings"))
@@ -5737,7 +5750,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 or payload.can_supply_planning
                 or payload.can_supply_stock
                 or any(
-                    (v.get("wb") or v.get("wb_fbs") or v.get("ozon"))
+                    (
+                        v.get("wb")
+                        or v.get("wb_fbs")
+                        or v.get("wb_fbs_tsd")
+                        or v.get("ozon")
+                    )
                     for v in sources.values()
                     if isinstance(v, dict)
                 )
@@ -8347,6 +8365,37 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             if isinstance(v, dict)
         )
 
+    def _can_view_wb_fbs_tsd(user: dict[str, object]) -> bool:
+        """True if user may open ТСД page for WB FBS assembly (owner or wb_fbs_tsd)."""
+        role = str(user.get("role") or ROLE_USER)
+        if role in ROLE_CAN_ACCESS_SETTINGS:
+            return True
+        if not bool(user.get("can_supplies")):
+            return False
+        perms = repository.get_manager_supply_permissions(manager_user_id=int(user["id"]))
+        sources = perms.get("sources") or {}
+        return any(
+            bool(v.get("wb_fbs_tsd"))
+            for v in sources.values()
+            if isinstance(v, dict)
+        )
+
+    def _require_wb_fbs_tsd(user: dict[str, object]) -> None:
+        if not _can_view_wb_fbs_tsd(user):
+            raise HTTPException(status_code=403, detail="Нет доступа к ТСД")
+
+    def _wb_fbs_tsd_allowed_source_ids(user: dict[str, object]) -> set[str] | None:
+        """None = all sources (owner/settings). Else set of allowed source id strings."""
+        role = str(user.get("role") or ROLE_USER)
+        if role in ROLE_CAN_ACCESS_SETTINGS:
+            return None
+        perms = repository.get_manager_supply_permissions(manager_user_id=int(user["id"]))
+        return {
+            str(sid)
+            for sid, sv in (perms.get("sources") or {}).items()
+            if isinstance(sv, dict) and sv.get("wb_fbs_tsd")
+        }
+
     def _is_wb_fbs_tenant_owner(user: dict[str, object]) -> bool:
         """Главный пользователь кабинета (или супер-админ)."""
         if _is_super_admin(user):
@@ -9307,6 +9356,333 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             }
             sources = [s for s in sources if str(s.get("id")) in allowed]
         return sources
+
+    @app.get("/api/wb-fbs/tsd/sources")
+    def list_wb_fbs_tsd_sources(request: Request) -> list[dict[str, object]]:
+        """WB FBS sources allowed for ТСД (warehouse page)."""
+        user = _require_user(request)
+        _require_wb_fbs_tsd(user)
+        owner_id = _supply_owner_id(user)
+        repository._ensure_supply_tables()
+        sources = [
+            s
+            for s in repository.list_supply_sources(user_id=owner_id)
+            if (s.get("marketplace") or "wb").lower() == "wb"
+            and s.get("is_enabled")
+            and wb_fbs_mod.is_fbs_source_name(s.get("name"))
+        ]
+        allowed = _wb_fbs_tsd_allowed_source_ids(user)
+        if allowed is not None:
+            sources = [s for s in sources if str(s.get("id")) in allowed]
+        return sources
+
+    @app.get("/api/wb-fbs/tsd/supplies")
+    def list_wb_fbs_tsd_supplies(
+        request: Request,
+        source_id: int | None = None,
+        search: str | None = None,
+        page: int = 1,
+        page_size: int = 100,
+    ) -> dict[str, object]:
+        """Assembly supplies for ТСД list."""
+        user = _require_user(request)
+        _require_wb_fbs_tsd(user)
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        allowed = _wb_fbs_tsd_allowed_source_ids(user)
+        if allowed is not None and str(int(source_id)) not in allowed:
+            raise HTTPException(status_code=403, detail="Нет доступа к источнику")
+        owner_id = _supply_owner_id(user)
+        return wb_fbs_mod.list_assembly_supplies(
+            repository,
+            user_id=owner_id,
+            source_id=int(source_id),
+            search=search or None,
+            page=page,
+            page_size=page_size,
+        )
+
+    @app.get("/api/wb-fbs/tsd/supplies/{supply_id}/summary")
+    def wb_fbs_tsd_supply_summary(
+        request: Request,
+        supply_id: str,
+        source_id: int,
+    ) -> dict[str, object]:
+        """Hub card: name/QR/orders/warehouse + KIZ/pick progress."""
+        from . import wb_fbs_detail as wb_detail
+
+        user = _require_user(request)
+        _require_wb_fbs_tsd(user)
+        allowed = _wb_fbs_tsd_allowed_source_ids(user)
+        if allowed is not None and str(int(source_id)) not in allowed:
+            raise HTTPException(status_code=403, detail="Нет доступа к источнику")
+        owner_id = _supply_owner_id(user)
+        sid = str(supply_id or "").strip()
+        if not sid:
+            raise HTTPException(status_code=400, detail="Укажите supply_id")
+        api_key = _wb_fbs_source_key(owner_id, int(source_id))
+        # Prefer exact supply_id match (search is ILIKE and can paginate away).
+        assembly = wb_fbs_mod.list_assembly_supplies(
+            repository,
+            user_id=owner_id,
+            source_id=int(source_id),
+            search=sid,
+            page=1,
+            page_size=200,
+        )
+        supply_row = next(
+            (
+                x
+                for x in (assembly.get("items") or [])
+                if str(x.get("supply_id") or "") == sid
+            ),
+            None,
+        )
+        if supply_row is None:
+            # Fallback: scan first page of assembly without search filter.
+            assembly_all = wb_fbs_mod.list_assembly_supplies(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                search=None,
+                page=1,
+                page_size=200,
+            )
+            supply_row = next(
+                (
+                    x
+                    for x in (assembly_all.get("items") or [])
+                    if str(x.get("supply_id") or "") == sid
+                ),
+                None,
+            )
+        kiz_error = ""
+        pick_error = ""
+        try:
+            kiz_payload = wb_detail.build_kiz_marking_payload(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                api_key=api_key,
+                supply_id=sid,
+            )
+        except Exception as exc:
+            _log.warning("tsd kiz summary failed: %s", exc)
+            kiz_payload = {"rows": []}
+            kiz_error = str(exc) or "Не удалось загрузить маркировку"
+        try:
+            pick_payload = wb_detail.build_pick_verify_payload(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                api_key=api_key,
+                supply_id=sid,
+            )
+        except Exception as exc:
+            _log.warning("tsd pick summary failed: %s", exc)
+            pick_payload = {"rows": []}
+            pick_error = str(exc) or "Не удалось загрузить проверку ШК"
+        kiz_rows = kiz_payload.get("rows") if isinstance(kiz_payload, dict) else []
+        pick_rows = pick_payload.get("rows") if isinstance(pick_payload, dict) else []
+        if not isinstance(kiz_rows, list):
+            kiz_rows = []
+        if not isinstance(pick_rows, list):
+            pick_rows = []
+
+        def _kiz_done(r: dict) -> bool:
+            codes = r.get("kiz_codes") if isinstance(r, dict) else None
+            if not isinstance(codes, list):
+                return False
+            return any(str(c or "").strip() for c in codes)
+
+        def _pick_done(r: dict) -> bool:
+            return bool(
+                isinstance(r, dict)
+                and r.get("pick_verified")
+                and str(r.get("pick_barcode") or "").strip()
+            )
+
+        kiz_total = len(kiz_rows)
+        kiz_done = sum(1 for r in kiz_rows if _kiz_done(r))
+        pick_total = len(pick_rows)
+        pick_done = sum(1 for r in pick_rows if _pick_done(r))
+        base = dict(supply_row or {})
+        base.setdefault("supply_id", sid)
+        base.setdefault("source_id", int(source_id))
+        base["kiz"] = {"total": kiz_total, "done": kiz_done}
+        base["pick"] = {"total": pick_total, "done": pick_done}
+        if kiz_error:
+            base["kiz_error"] = kiz_error
+        if pick_error:
+            base["pick_error"] = pick_error
+        return base
+
+    @app.get("/api/wb-fbs/tsd/supplies/{supply_id}/kiz")
+    def wb_fbs_tsd_kiz_list(
+        request: Request,
+        supply_id: str,
+        source_id: int,
+    ) -> dict[str, object]:
+        from . import wb_fbs_detail as wb_detail
+
+        user = _require_user(request)
+        _require_wb_fbs_tsd(user)
+        allowed = _wb_fbs_tsd_allowed_source_ids(user)
+        if allowed is not None and str(int(source_id)) not in allowed:
+            raise HTTPException(status_code=403, detail="Нет доступа к источнику")
+        owner_id = _supply_owner_id(user)
+        sid = str(supply_id or "").strip()
+        if not sid:
+            raise HTTPException(status_code=400, detail="Укажите supply_id")
+        api_key = _wb_fbs_source_key(owner_id, int(source_id))
+        try:
+            return wb_detail.build_kiz_marking_payload(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                api_key=api_key,
+                supply_id=sid,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.put("/api/wb-fbs/tsd/supplies/{supply_id}/kiz")
+    async def wb_fbs_tsd_kiz_save(
+        request: Request,
+        supply_id: str,
+        source_id: int,
+    ) -> dict[str, object]:
+        """KIZ local autosave for ТСД (same store as desktop; TSD permission)."""
+        from . import wb_fbs_detail as wb_detail
+
+        user = _require_user(request)
+        _require_wb_fbs_tsd(user)
+        allowed_sources = _wb_fbs_tsd_allowed_source_ids(user)
+        if allowed_sources is not None and str(int(source_id)) not in allowed_sources:
+            raise HTTPException(status_code=403, detail="Нет доступа к источнику")
+        owner_id = _supply_owner_id(user)
+        sid = str(supply_id or "").strip()
+        if not sid:
+            raise HTTPException(status_code=400, detail="Укажите supply_id")
+        try:
+            body = await request.json()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Некорректный JSON") from exc
+        items = body.get("items") if isinstance(body, dict) else None
+        if not isinstance(items, list):
+            raise HTTPException(status_code=400, detail="Укажите items[]")
+        # ТСД never pushes sgtin to WB — warehouse operators only write local drafts.
+        normalized_items: list[dict[str, object]] = []
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            row = dict(it)
+            row["local_only"] = True
+            normalized_items.append(row)
+        items = normalized_items
+        if not items:
+            raise HTTPException(status_code=400, detail="Укажите items[]")
+        api_key = _wb_fbs_source_key(owner_id, int(source_id))
+        try:
+            allowed = set(
+                wb_detail._local_order_ids_for_supply(
+                    repository,
+                    user_id=owner_id,
+                    source_id=int(source_id),
+                    supply_id=sid,
+                )
+            )
+            result = wb_detail.save_kiz_marking(
+                api_key=api_key,
+                items=items,
+                allowed_order_ids=allowed,
+                repo=repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return result
+
+    @app.get("/api/wb-fbs/tsd/supplies/{supply_id}/pick-verify")
+    def wb_fbs_tsd_pick_verify_list(
+        request: Request,
+        supply_id: str,
+        source_id: int,
+    ) -> dict[str, object]:
+        from . import wb_fbs_detail as wb_detail
+
+        user = _require_user(request)
+        _require_wb_fbs_tsd(user)
+        allowed = _wb_fbs_tsd_allowed_source_ids(user)
+        if allowed is not None and str(int(source_id)) not in allowed:
+            raise HTTPException(status_code=403, detail="Нет доступа к источнику")
+        owner_id = _supply_owner_id(user)
+        sid = str(supply_id or "").strip()
+        if not sid:
+            raise HTTPException(status_code=400, detail="Укажите supply_id")
+        api_key = _wb_fbs_source_key(owner_id, int(source_id))
+        try:
+            return wb_detail.build_pick_verify_payload(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                api_key=api_key,
+                supply_id=sid,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.put("/api/wb-fbs/tsd/supplies/{supply_id}/pick-verify")
+    async def wb_fbs_tsd_pick_verify_save(
+        request: Request,
+        supply_id: str,
+        source_id: int,
+    ) -> dict[str, object]:
+        from . import wb_fbs_detail as wb_detail
+
+        user = _require_user(request)
+        _require_wb_fbs_tsd(user)
+        allowed_sources = _wb_fbs_tsd_allowed_source_ids(user)
+        if allowed_sources is not None and str(int(source_id)) not in allowed_sources:
+            raise HTTPException(status_code=403, detail="Нет доступа к источнику")
+        owner_id = _supply_owner_id(user)
+        sid = str(supply_id or "").strip()
+        if not sid:
+            raise HTTPException(status_code=400, detail="Укажите supply_id")
+        try:
+            body = await request.json()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Некорректный JSON") from exc
+        items = body.get("items") if isinstance(body, dict) else None
+        if not isinstance(items, list):
+            raise HTTPException(status_code=400, detail="Укажите items[]")
+        try:
+            allowed = set(
+                wb_detail._local_order_ids_for_supply(
+                    repository,
+                    user_id=owner_id,
+                    source_id=int(source_id),
+                    supply_id=sid,
+                )
+            )
+            return wb_detail.save_pick_verify(
+                repo=repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                items=items,
+                allowed_order_ids=allowed,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.get("/api/wb-fbs/orders")
     def list_wb_fbs_orders(
@@ -15658,6 +16034,36 @@ def build_register_html(error: str | None = None) -> str:
     return _render_template("register.html", {"ERROR_HTML": error_html})
 
 
+def build_wb_fbs_tsd_html(user: dict[str, object], repository=None) -> str:
+    """Standalone ТСД page HTML (warehouse handheld). Isolated from app.html/app.js."""
+    safe_email = escape(str(user["email"]))
+    role = str(user.get("role") or ROLE_USER)
+    user_id = int(user.get("id") or 0)
+    owner_user_id = int(user.get("owner_user_id") or user_id or 0)
+    is_tenant_owner = (
+        role in ROLE_CAN_ACCESS_SETTINGS
+        and user_id > 0
+        and owner_user_id == user_id
+    )
+    can_view = role in ROLE_CAN_ACCESS_SETTINGS
+    if not can_view and bool(user.get("can_supplies")) and repository is not None:
+        perms = repository.get_manager_supply_permissions(manager_user_id=user_id)
+        sources = perms.get("sources") or {}
+        can_view = any(
+            bool(v.get("wb_fbs_tsd"))
+            for v in sources.values()
+            if isinstance(v, dict)
+        )
+    return _render_template(
+        "wb_fbs_tsd.html",
+        {
+            "SAFE_EMAIL": safe_email,
+            "CAN_VIEW_WB_FBS_TSD": "true" if can_view else "false",
+            "IS_TENANT_OWNER": "true" if is_tenant_owner else "false",
+        },
+    )
+
+
 def build_app_html(user: dict[str, object], repository=None) -> str:
     safe_email = escape(str(user["email"]))
     role = str(user.get("role") or ROLE_USER)
@@ -15696,6 +16102,10 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
         role in ROLE_CAN_ACCESS_SETTINGS
         or any(v.get("wb_fbs") for v in _sp_sources.values() if isinstance(v, dict))
     )
+    can_view_wb_fbs_tsd = (
+        role in ROLE_CAN_ACCESS_SETTINGS
+        or any(v.get("wb_fbs_tsd") for v in _sp_sources.values() if isinstance(v, dict))
+    )
     can_view_ozon_supplies = (
         role in ROLE_CAN_ACCESS_SETTINGS
         or any(v.get("ozon") for v in _sp_sources.values() if isinstance(v, dict))
@@ -15728,6 +16138,7 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
     can_view_any_supply = (
         can_view_wb_supplies
         or can_view_wb_fbs_supplies
+        or can_view_wb_fbs_tsd
         or can_view_ozon_supplies
         or can_view_supply_poa
         or can_view_supply_settings
@@ -15794,6 +16205,12 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
                 if can_view_wb_supplies else "")
     _wb_fbs_link = ('<a id="nav-supplies-wb-fbs" class="nav-item" href="#" onclick="showSection(\'supplies-wb-fbs\')"><span class="nav-item-icon">▣</span> ВБ ФБС</a>'
                     if can_view_wb_fbs_supplies else "")
+    # Managers with only ТСД (no desktop ВБ ФБС) get a direct link — avoid broken FBS section.
+    _tsd_link = (
+        '<a id="nav-wb-fbs-tsd" class="nav-item" href="/wb-fbs/tsd"><span class="nav-item-icon">▣</span> ТСД</a>'
+        if (can_view_wb_fbs_tsd and not can_view_wb_fbs_supplies)
+        else ""
+    )
     _ozon_link = ('<a id="nav-supplies-ozon" class="nav-item" href="#" onclick="showSection(\'supplies-ozon\')"><span class="nav-item-icon">◉</span> ОЗОН</a>'
                   if can_view_ozon_supplies else "")
     _poa_link = ('<a id="nav-supplies-poa" class="nav-item" href="#" onclick="showSection(\'supplies-poa\')"><span class="nav-item-icon">☐</span> Доверенности</a>'
@@ -15801,8 +16218,8 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
     _certs_link = ('<a id="nav-supplies-certificates" class="nav-item" href="#" onclick="showSection(\'supplies-certificates\')"><span class="nav-item-icon">✦</span> Сертификаты</a>'
                    if can_view_supply_certs else "")
     nav_supplies_wb = (
-        (_wb_link + _wb_fbs_link + _ozon_link + _stock_link + _poa_link + _certs_link)
-        if can_view_supplies or can_supply_stock
+        (_wb_link + _wb_fbs_link + _tsd_link + _ozon_link + _stock_link + _poa_link + _certs_link)
+        if can_view_supplies or can_supply_stock or can_view_wb_fbs_tsd
         else ""
     )
     nav_supplies_settings = (
@@ -15831,6 +16248,7 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
             "CAN_VIEW_SUPPLIES": "true" if can_view_supplies else "false",
             "CAN_VIEW_WB_SUPPLIES": "true" if can_view_wb_supplies else "false",
             "CAN_VIEW_WB_FBS_SUPPLIES": "true" if can_view_wb_fbs_supplies else "false",
+            "CAN_VIEW_WB_FBS_TSD": "true" if can_view_wb_fbs_tsd else "false",
             "CAN_VIEW_OZON_SUPPLIES": "true" if can_view_ozon_supplies else "false",
             "CAN_VIEW_FEEDBACK": "true" if can_view_feedback else "false",
             "CAN_VIEW_REVIEWS": "true" if can_view_reviews else "false",

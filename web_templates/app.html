@@ -1609,6 +1609,10 @@
                       onclick="openWbFbsKizCirculationModal()" title="Вывод и возврат КИЗ в Честный знак">
                 Вывод КИЗ
               </button>
+              <button type="button" id="wbFbsTsdBtn" class="secondary"
+                      onclick="window.location.href='/wb-fbs/tsd'" title="ТСД — сборка на складе">
+                ТСД
+              </button>
             </div>
             <div class="wb-fbs-toolbar-right">
               <input id="wbFbsSearchFilter" class="wb-fbs-search" type="search"
@@ -4164,19 +4168,21 @@
             <p class="perm-section-hint">Отметьте доступ к источникам и разделам.</p>
             <table id="managerSupplyPermissionsTable" class="perm-table">
               <colgroup>
-                <col style="width:22%">
+                <col style="width:20%">
+                <col style="width:9%">
                 <col style="width:10%">
-                <col style="width:12%">
-                <col style="width:10%">
+                <col style="width:9%">
+                <col style="width:9%">
+                <col style="width:14%">
                 <col style="width:15%">
-                <col style="width:16%">
-                <col style="width:15%">
+                <col style="width:14%">
               </colgroup>
               <thead>
                 <tr>
                   <th>Кабинет</th>
                   <th>ВБ</th>
                   <th>ВБ ФБС</th>
+                  <th>ТСД</th>
                   <th>ОЗОН</th>
                   <th id="managerSupplySettingsHeader">Настройки</th>
                   <th id="managerSupplyPoaHeader">Доверенности</th>
@@ -4834,6 +4840,7 @@
       can_view_any_supply: {{CAN_VIEW_ANY_SUPPLY}},
       can_view_wb_supplies: {{CAN_VIEW_WB_SUPPLIES}},
       can_view_wb_fbs_supplies: {{CAN_VIEW_WB_FBS_SUPPLIES}},
+      can_view_wb_fbs_tsd: {{CAN_VIEW_WB_FBS_TSD}},
       can_view_ozon_supplies: {{CAN_VIEW_OZON_SUPPLIES}},
       can_view_feedback: {{CAN_VIEW_FEEDBACK}},
       can_view_reviews: {{CAN_VIEW_REVIEWS}},
