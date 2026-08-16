@@ -273,6 +273,30 @@
     return String(raw || "").replace(/\s+/g, "").trim();
   }
 
+  /** Parity with desktop `_wbFbsKizNormalizeMark` (WB push / Save). */
+  function normalizeKizMark(value) {
+    // Scanners often emit ↔ instead of GS (\\u001D). Do not use \\s strip —
+    // it must not destroy GS separators in Honest Sign / sgtin payloads.
+    return fixRuKeyboardLayout(
+      String(value || "")
+        .replace(/\u2194/g, "\u001D")
+        .replace(/\r?\n/g, "")
+    ).trim();
+  }
+
+  /** Parity with desktop `_wbFbsKizNormalizeCodesList`. */
+  function normalizeKizCodesList(codes) {
+    const seen = new Set();
+    const out = [];
+    for (const c of Array.isArray(codes) ? codes : []) {
+      const n = normalizeKizMark(c);
+      if (!n || seen.has(n)) continue;
+      seen.add(n);
+      out.push(n);
+    }
+    return out;
+  }
+
   function hasCyrillic(s) {
     return /[А-Яа-яЁё]/.test(String(s || ""));
   }
@@ -348,9 +372,13 @@
   }
 
   function gtinFromMark(mark) {
-    const s = normalizeScan(mark);
-    const m = s.match(/01(\d{14})/);
-    return m ? m[1] : "";
+    // Parity with desktop `_wbFbsKizExtractGtin14`.
+    const raw = normalizeKizMark(mark);
+    if (!raw) return "";
+    const m = raw.match(/^01(\d{14})/);
+    if (m) return m[1];
+    const m2 = raw.match(/(?:^|[\u001D])01(\d{14})/);
+    return m2 ? m2[1] : "";
   }
 
   function orderSkuSet(row) {
@@ -480,9 +508,8 @@
   async function saveKizLocal(row, opts) {
     const params = new URLSearchParams({ source_id: String(state.sourceId) });
     const oid = Number(row.order_id);
-    const codes = (Array.isArray(row.kiz_codes) ? row.kiz_codes : [])
-      .map((c) => String(c || "").trim())
-      .filter(Boolean);
+    const codes = normalizeKizCodesList(row.kiz_codes);
+    row.kiz_codes = codes.length ? codes.slice() : [""];
     const retrying = !!(opts && opts._retry);
     const data = await api(
       `/api/wb-fbs/tsd/supplies/${encodeURIComponent(state.route.supplyId)}/kiz?${params}`,
@@ -580,10 +607,9 @@
     for (const row of rows) {
       const oid = Number(row.order_id);
       if (!Number.isFinite(oid)) continue;
-      const codes = (Array.isArray(row.kiz_codes) ? row.kiz_codes : [])
-        .map((c) => String(c || "").trim())
-        .filter(Boolean);
+      const codes = normalizeKizCodesList(row.kiz_codes);
       if (!codes.length) continue;
+      row.kiz_codes = codes.slice();
       items.push({
         order_id: oid,
         kiz_codes: codes,
@@ -1644,7 +1670,7 @@
 
     try {
       if (mode === "kiz") {
-        const mark = normalizeScan(raw);
+        const mark = normalizeKizMark(raw);
         const check = markMatchesOrder(mark, row);
         if (!check.ok) {
           setBanner(check.error || "КИЗ не подходит", "err");
@@ -1654,7 +1680,7 @@
           return;
         }
         const ownDup = (Array.isArray(row.kiz_codes) ? row.kiz_codes : []).some(
-          (c) => normalizeScan(c) === mark
+          (c) => normalizeKizMark(c) === mark
         );
         if (ownDup) {
           setBanner("Этот КИЗ уже в этом заказе", "err");
@@ -1666,7 +1692,7 @@
         const dup = state.kizRows.find((r) =>
           Number(r.order_id) !== Number(row.order_id) &&
           (Array.isArray(r.kiz_codes) ? r.kiz_codes : []).some(
-            (c) => normalizeScan(c) === mark
+            (c) => normalizeKizMark(c) === mark
           )
         );
         if (dup) {

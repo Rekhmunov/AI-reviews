@@ -112,6 +112,10 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     assert "applyOrderSearchEnter" in js
     assert 'id="tsdScanClear"' in js
     assert "tsd-scan-clear" in js
+    assert "normalizeKizMark" in js
+    assert "normalizeKizCodesList" in js
+    assert "\\u2194" in js
+    assert "\\u001D" in js
 
 
 def test_web_py_tsd_summary_matches_scan_without_full_payloads() -> None:
