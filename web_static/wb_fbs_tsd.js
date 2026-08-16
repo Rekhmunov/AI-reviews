@@ -19,6 +19,7 @@
     forceSaveByOrder: {},
     sessionScannedIds: [],
     saving: false,
+    clearing: false,
     loadUi: {
       token: 0,
       hintTimer: null,
@@ -745,6 +746,18 @@
     return out;
   }
 
+  function shortKizDisplay(code) {
+    const c = String(code || "").trim();
+    if (c.length > 28) return `${c.slice(0, 14)}…${c.slice(-8)}`;
+    return c;
+  }
+
+  function filledKizEntries(row) {
+    return (Array.isArray(row.kiz_codes) ? row.kiz_codes : [])
+      .map((c, idx) => ({ code: String(c || "").trim(), idx }))
+      .filter((x) => x.code);
+  }
+
   function renderScannedListHtml(mode) {
     const scanned = orderedScannedRows(mode);
     if (!scanned.length) {
@@ -761,30 +774,82 @@
         const photo = r.product_photo
           ? `<img src="${esc(r.product_photo)}" alt="" width="48" height="48" />`
           : `<span class="tsd-scanned-ph" aria-hidden="true"></span>`;
-        const detail =
-          mode === "kiz"
-            ? (Array.isArray(r.kiz_codes) ? r.kiz_codes : [])
-                .map((c) => String(c || "").trim())
-                .filter(Boolean)
-                .map((c) => (c.length > 28 ? `${c.slice(0, 14)}…${c.slice(-8)}` : c))
-                .join(" · ") || "КИЗ"
-            : String(r.pick_barcode || "ШК");
+        const oid = esc(String(r.order_id));
+        let detailHtml;
+        let clearBtn = "";
+        if (mode === "kiz") {
+          const entries = filledKizEntries(r);
+          detailHtml = entries.length
+            ? `<div class="tsd-scanned-kizs">${entries
+                .map(
+                  (e) => `
+              <div class="tsd-scanned-kiz-row">
+                <span class="tsd-scanned-kiz-code">${esc(shortKizDisplay(e.code))}</span>
+                <button type="button" class="tsd-scanned-clear tsd-scanned-clear-sm"
+                  data-action="clear-kiz-code" data-order-id="${oid}" data-idx="${e.idx}"
+                  aria-label="Удалить КИЗ" title="Удалить КИЗ">×</button>
+              </div>`
+                )
+                .join("")}</div>`
+            : `<div class="tsd-scanned-meta">КИЗ</div>`;
+          clearBtn = `
+            <button type="button" class="tsd-scanned-clear"
+              data-action="clear-kiz-all" data-order-id="${oid}"
+              aria-label="Очистить КИЗ" title="Очистить КИЗ">×</button>`;
+        } else {
+          detailHtml = `<div class="tsd-scanned-meta">${esc(
+            String(r.pick_barcode || "ШК")
+          )}</div>`;
+        }
         return `
           <div class="tsd-scanned-item">
             ${photo}
             <div class="tsd-scanned-text">
-              <div class="tsd-scanned-order">Заказ ${esc(r.order_id)} · ${esc(r.sticker_number || "—")}</div>
+              <div class="tsd-scanned-order">Заказ ${oid} · ${esc(r.sticker_number || "—")}</div>
               <div class="tsd-scanned-name">${esc(r.product_name || r.article || "—")}</div>
-              <div class="tsd-scanned-meta">${esc(detail)}</div>
+              ${detailHtml}
             </div>
+            ${clearBtn}
           </div>`;
       })
       .join("");
     return `
       <section class="tsd-scanned" aria-label="Просканированные заказы">
         <h2 class="tsd-scanned-title">Просканировано · ${scanned.length}</h2>
-        <div class="tsd-scanned-list">${items}</div>
+        <div class="tsd-scanned-list" id="tsdScannedList">${items}</div>
       </section>`;
+  }
+
+  async function clearKizCodes(orderId, removeIdx) {
+    if (state.saving || state.clearing) return;
+    const oid = Number(orderId);
+    const row = (state.kizRows || []).find((r) => Number(r.order_id) === oid);
+    if (!row) return;
+    if (!Array.isArray(row.kiz_codes)) row.kiz_codes = [""];
+    state.clearing = true;
+    try {
+      if (removeIdx == null || !Number.isFinite(Number(removeIdx))) {
+        row.kiz_codes = [""];
+      } else {
+        const idx = Number(removeIdx);
+        if (row.kiz_codes.length <= 1) {
+          row.kiz_codes = [""];
+        } else {
+          row.kiz_codes.splice(idx, 1);
+          if (!row.kiz_codes.length) row.kiz_codes = [""];
+        }
+      }
+      await saveKizLocal(row);
+      setBanner(
+        rowKizFilled(row) ? `КИЗ удалён · заказ ${oid}` : `КИЗ очищен · заказ ${oid}`,
+        "ok"
+      );
+    } catch (e) {
+      setBanner(e.message || String(e), "err");
+    } finally {
+      state.clearing = false;
+      renderScan();
+    }
   }
 
   function syncSourceSelectVisibility() {
@@ -1025,12 +1090,23 @@
       const photo = pending.product_photo
         ? `<img src="${esc(pending.product_photo)}" alt="" width="64" height="64" />`
         : "";
+      const existingKizN =
+        mode === "kiz" ? filledKizEntries(pending).length : 0;
       const prompt =
-        mode === "kiz" ? "Сканируйте КИЗ" : "Сканируйте штрихкод товара";
+        mode === "kiz"
+          ? existingKizN
+            ? `Сканируйте КИЗ ${existingKizN + 1}`
+            : "Сканируйте КИЗ"
+          : "Сканируйте штрихкод товара";
+      const multiHint =
+        mode === "kiz" && existingKizN
+          ? `<p class="tsd-scan-subhint">У заказа уже ${existingKizN} КИЗ — новый код добавится к заказу</p>`
+          : "";
       body = `
         <div class="tsd-scan-card">
           <div class="tsd-scan-step">Шаг 2</div>
           <p class="tsd-scan-prompt">${prompt}</p>
+          ${multiHint}
           <div class="tsd-scan-context">Заказ ${esc(pending.order_id)} · стикер ${esc(pending.sticker_number || "—")}</div>
           <input class="tsd-scan-input" id="tsdScanInput" type="text" autocomplete="off" inputmode="none" />
           <div class="tsd-product">${photo}<div>
@@ -1044,7 +1120,7 @@
     }
 
     const saveLabel = "Сохранить";
-    const saveDisabled = state.saving || !orderedScannedRows(mode).length;
+    const saveDisabled = state.saving || state.clearing || !orderedScannedRows(mode).length;
 
     main.innerHTML = `
       <div class="tsd-scan-shell">
@@ -1063,11 +1139,11 @@
             ${saveDisabled ? "disabled" : ""}>${esc(
               state.saving ? "Сохранение…" : saveLabel
             )}</button>
-          <p class="tsd-save-hint">${
+          ${
             mode === "kiz"
-              ? "Скан пишет КИЗ локально. «Сохранить» отправляет коды на Wildberries."
-              : "Скан пишет ШК локально. «Сохранить» фиксирует проверку в системе."
-          }</p>
+              ? ""
+              : `<p class="tsd-save-hint">Скан пишет ШК локально. «Сохранить» фиксирует проверку в системе.</p>`
+          }
         </div>
         ${renderScannedListHtml(mode)}
       </div>`;
@@ -1111,6 +1187,24 @@
       saveBtn.addEventListener("click", () => {
         if (mode === "kiz") saveKizPushAll();
         else savePickLocalAll();
+      });
+    }
+    const scannedList = document.getElementById("tsdScannedList");
+    if (scannedList && mode === "kiz") {
+      scannedList.addEventListener("click", (ev) => {
+        const btn = ev.target && ev.target.closest
+          ? ev.target.closest("[data-action]")
+          : null;
+        if (!btn) return;
+        const action = btn.getAttribute("data-action");
+        const oid = btn.getAttribute("data-order-id");
+        if (action === "clear-kiz-all") {
+          ev.preventDefault();
+          clearKizCodes(oid, null);
+        } else if (action === "clear-kiz-code") {
+          ev.preventDefault();
+          clearKizCodes(oid, btn.getAttribute("data-idx"));
+        }
       });
     }
   }
@@ -1182,6 +1276,16 @@
           renderScan();
           return;
         }
+        const ownDup = (Array.isArray(row.kiz_codes) ? row.kiz_codes : []).some(
+          (c) => normalizeScan(c) === mark
+        );
+        if (ownDup) {
+          setBanner("Этот КИЗ уже в этом заказе", "err");
+          beep(false);
+          input.select();
+          renderScan();
+          return;
+        }
         const dup = state.kizRows.find((r) =>
           Number(r.order_id) !== Number(row.order_id) &&
           (Array.isArray(r.kiz_codes) ? r.kiz_codes : []).some(
@@ -1207,7 +1311,13 @@
         if (!placed) row.kiz_codes.push(mark);
         await saveKizLocal(row);
         noteSessionScanned(row.order_id);
-        setBanner(`КИЗ записан · заказ ${row.order_id}`, "ok");
+        const kizN = filledKizEntries(row).length;
+        setBanner(
+          kizN <= 1
+            ? `КИЗ записан · заказ ${row.order_id}. Для 2-го КИЗ снова сканируйте стикер`
+            : `КИЗ ${kizN} записан · заказ ${row.order_id}`,
+          "ok"
+        );
       } else {
         const check = eanMatchesOrder(raw, row);
         if (!check.ok) {

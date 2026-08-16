@@ -78,6 +78,12 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     assert "savePickLocalAll" in js
     assert "noteSessionScanned" in js
     assert "renderScannedListHtml" in js
+    assert "clearKizCodes" in js
+    assert 'data-action="clear-kiz-all"' in js
+    assert 'data-action="clear-kiz-code"' in js
+    assert "Скан пишет КИЗ локально" not in js
+    assert "Для 2-го КИЗ снова сканируйте стикер" in js
+    assert "Этот КИЗ уже в этом заказе" in js
 
 
 def test_web_py_tsd_summary_matches_scan_without_full_payloads() -> None:
