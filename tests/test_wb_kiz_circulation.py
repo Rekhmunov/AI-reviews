@@ -2362,6 +2362,47 @@ def test_create_excise_sync_run_ignores_zombie_running() -> None:
         circ._clear_sync_cancel(42)
 
 
+def test_create_excise_sync_run_reattaches_live_worker() -> None:
+    """Second click while sync is live should reattach, not 400."""
+    circ._register_sync_cancel(28)
+    try:
+        with patch.object(circ, "ensure_kiz_circulation_tables"), patch.object(
+            circ, "abandon_orphan_excise_sync_runs", return_value=[]
+        ), patch.object(
+            circ,
+            "find_active_excise_sync_run",
+            return_value={
+                "id": 28,
+                "status": "running",
+                "log_text": "[21:55:44] WB: выгрузка…",
+            },
+        ), patch.object(
+            circ,
+            "resolve_excise_period",
+            return_value={
+                "date_from": "2026-08-10",
+                "date_to": "2026-08-16",
+                "days": 7,
+            },
+        ):
+            repo = MagicMock()
+            out = circ.create_excise_sync_run(
+                repo,
+                user_id=1,
+                source_id=13,
+                date_from="2026-08-10",
+                date_to="2026-08-16",
+            )
+        assert out["run_id"] == 28
+        assert out["already_running"] is True
+        assert out["async"] is True
+        assert "выгрузка" in str(out.get("log") or "").lower() or "21:55" in str(
+            out.get("log") or ""
+        )
+    finally:
+        circ._clear_sync_cancel(28)
+
+
 def test_portal_labels_match_seller_cabinet() -> None:
     from review_processor.wb_fbs import order_portal_status_label
 
