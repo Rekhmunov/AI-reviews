@@ -10345,6 +10345,20 @@ button.wb-fbs-kiz-add:disabled {
 .supply-balances-table .sb-col-name .wb-fbs-product {
   max-width: 100%;
 }
+/* Арт. / ШК — тот же шрифт, что у названия товара (только Остатки) */
+.supply-balances-table .sb-col-name .wb-fbs-product-sub,
+.supply-balances-table .sb-col-name .wb-fbs-barcode {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: #0f172a;
+  letter-spacing: normal;
+}
+.supply-balances-table .sb-col-name .wb-fbs-product-sub {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .supply-balances-table .sb-qty-wrap {
   display: inline-flex;
   align-items: center;
