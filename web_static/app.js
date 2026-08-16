@@ -13258,25 +13258,27 @@ async function loadSupplyBalancesData() {
 function _sbProductCardHtml(row) {
   const name = String(row.name || "");
   const article = String(row.supplier_article || "").trim();
-  const nmId = String(row.wb_nmid || "").trim();
   const photoUrl = String(row.photo_url || "").trim();
   const barcodes = Array.isArray(row.barcodes)
     ? row.barcodes.map((b) => String(b || "").trim()).filter(Boolean)
     : [];
-  const codes = barcodes.length
-    ? barcodes
-    : [article, String(row.ozon_sku || "").trim()].filter(Boolean);
+  // Like supplies: Арт. on its own line; ШК chips below (do not repeat article).
+  const codes = [];
+  for (const b of barcodes) {
+    if (b && b !== article && !codes.includes(b)) codes.push(b);
+  }
+  const ozonSku = String(row.ozon_sku || "").trim();
+  if (ozonSku && ozonSku !== article && !codes.includes(ozonSku)) {
+    codes.push(ozonSku);
+  }
   const photo = photoUrl
     ? `<img class="wb-fbs-product-photo" src="${esc(photoUrl)}" alt="" width="144" height="144" loading="lazy" onerror="this.style.display='none'">`
     : `<span class="wb-fbs-product-ph" aria-hidden="true"></span>`;
-  const subParts = [];
-  if (article) subParts.push(`Арт. ${article}`);
-  if (nmId) subParts.push(`nmId ${nmId}`);
-  const sub = subParts.length
-    ? `<div class="wb-fbs-product-sub">${esc(subParts.join(" · "))}</div>`
+  const sub = article
+    ? `<div class="wb-fbs-product-sub">Арт. ${esc(article)}</div>`
     : "";
   const barcodeHtml = codes.length
-    ? `<div class="wb-fbs-barcodes" title="Штрихкод / артикул">${codes.map((b) =>
+    ? `<div class="wb-fbs-barcodes" title="Штрихкод товара">${codes.map((b) =>
         `<div class="wb-fbs-barcode">${esc(b)}</div>`
       ).join("")}</div>`
     : "";

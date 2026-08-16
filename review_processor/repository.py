@@ -12214,6 +12214,67 @@ class ReviewRepository:
                 result[key.casefold()] = pid
         return result
 
+    def get_wb_fbs_barcodes_by_product_id(
+        self, *, user_id: int
+    ) -> dict[int, list[str]]:
+        """Collect product ШК from local FBS orders, keyed by product_photos.id.
+
+        Matches order ``article`` / ``nm_id`` to catalog supplier_article / wb_nmid.
+        Used by Остатки product cards (same ШК source as поставки).
+        """
+        id_map = self.get_product_id_by_article_map(user_id=user_id)
+        if not id_map:
+            return {}
+        out: dict[int, list[str]] = {}
+        try:
+            with self._connect() as conn:
+                # wb_fbs_orders may be absent before first FBS sync.
+                rows = conn.execute(
+                    self._sql(
+                        """
+                        SELECT article, nm_id, skus_json
+                        FROM wb_fbs_orders
+                        WHERE user_id = ?
+                          AND COALESCE(skus_json, '') NOT IN ('', '[]', 'null')
+                        """
+                    ),
+                    (user_id,),
+                ).fetchall()
+        except Exception:
+            return {}
+        for row in rows:
+            d = self._row_to_dict(row)
+            try:
+                parsed = json.loads(d.get("skus_json") or "[]")
+            except Exception:
+                parsed = []
+            if not isinstance(parsed, list) or not parsed:
+                continue
+            barcodes: list[str] = []
+            for sku in parsed:
+                text = str(sku or "").strip()
+                if text and text not in barcodes:
+                    barcodes.append(text)
+            if not barcodes:
+                continue
+            keys = [
+                str(d.get("article") or "").strip(),
+                str(d.get("nm_id") or "").strip(),
+            ]
+            product_ids: set[int] = set()
+            for key in keys:
+                if not key:
+                    continue
+                pid = id_map.get(key) or id_map.get(key.casefold())
+                if pid:
+                    product_ids.add(int(pid))
+            for pid in product_ids:
+                bucket = out.setdefault(pid, [])
+                for b in barcodes:
+                    if b not in bucket:
+                        bucket.append(b)
+        return out
+
     def count_supply_stock_movements(
         self, *, user_id: int, production_id: int
     ) -> int:
