@@ -75,16 +75,18 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     assert 'state.route.view === "list"' in js
 
 
-def test_web_py_tsd_summary_is_local_only() -> None:
+def test_web_py_tsd_summary_matches_scan_without_full_payloads() -> None:
     src = WEB_PY.read_text(encoding="utf-8")
     # Isolate the TSD summary handler body between its decorator and next TSD kiz route.
     start = src.find("def wb_fbs_tsd_supply_summary(")
     end = src.find("def wb_fbs_tsd_kiz_list(")
     assert start > 0 and end > start
     body = src[start:end]
-    assert "build_tsd_hub_progress_from_local" in body
+    assert "build_tsd_hub_progress" in body
     assert "wb_detail.build_kiz_marking_payload" not in body
     assert "wb_detail.build_pick_verify_payload" not in body
+    # Must not regress to raw_json-only local counter.
+    assert "build_tsd_hub_progress_from_local" not in body
 
 
 def test_web_py_tsd_kiz_forces_local_only() -> None:
@@ -92,4 +94,4 @@ def test_web_py_tsd_kiz_forces_local_only() -> None:
     # TSD KIZ save must force local_only (no WB push for warehouse role).
     assert 'row["local_only"] = True' in src or "row['local_only'] = True" in src
     assert "nav-wb-fbs-tsd" in src
-    assert "build_tsd_hub_progress_from_local" in src
+    assert "build_tsd_hub_progress" in src

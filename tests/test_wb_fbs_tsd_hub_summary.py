@@ -1,94 +1,130 @@
-"""TSD hub summary must stay local/DB-only (no WB payload builders)."""
+"""TSD hub progress must match KIZ/pick scan classification (without stickers)."""
 
 from __future__ import annotations
 
-import json
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
-from review_processor.wb_fbs_detail import build_tsd_hub_progress_from_local
-
-
-def _row(
-    *,
-    order_id: int,
-    raw: dict,
-    kiz_codes: list[str] | None = None,
-    pick_verified: bool = False,
-    pick_barcode: str = "",
-) -> dict:
-    return {
-        "order_id": order_id,
-        "raw_json": json.dumps(raw),
-        "kiz_codes_json": json.dumps(kiz_codes or []),
-        "pick_verified": pick_verified,
-        "pick_barcode": pick_barcode,
-    }
+from review_processor.wb_fbs_detail import build_tsd_hub_progress
 
 
-class TsdHubProgressLocalTests(unittest.TestCase):
-    def test_splits_kiz_and_pick_from_raw_meta(self) -> None:
+class TsdHubProgressParityTests(unittest.TestCase):
+    def test_splits_by_live_meta_not_raw_json(self) -> None:
+        """Live meta is authoritative — raw_json alone must not decide tiles."""
         repo = MagicMock()
-        conn = MagicMock()
-        conn.__enter__.return_value = conn
-        conn.__exit__.return_value = False
-        repo._connect.return_value = conn
-        repo._sql.side_effect = lambda s: s
-        conn.execute.return_value.fetchall.return_value = [
-            _row(
-                order_id=1,
-                raw={"requiredMeta": ["sgtin"]},
-                kiz_codes=["010460000000000021XXXX"],
-            ),
-            _row(
-                order_id=2,
-                raw={"requiredMeta": ["sgtin"]},
-                kiz_codes=[],
-            ),
-            _row(
-                order_id=3,
-                raw={"requiredMeta": []},
-                pick_verified=True,
-                pick_barcode="4670123456789",
-            ),
-            _row(
-                order_id=4,
-                raw={},
-                pick_verified=False,
-                pick_barcode="",
-            ),
+        orders = [
+            {
+                "order_id": 1,
+                "raw_json": "{}",  # no requiredMeta locally
+                "pick_verified": False,
+                "pick_barcode": "",
+            },
+            {
+                "order_id": 2,
+                "raw_json": '{"requiredMeta":["sgtin"]}',  # stale raw
+                "pick_verified": False,
+                "pick_barcode": "",
+            },
+            {
+                "order_id": 3,
+                "raw_json": "{}",
+                "pick_verified": True,
+                "pick_barcode": "4670123456789",
+            },
         ]
-
-        out = build_tsd_hub_progress_from_local(
-            repo, user_id=10, source_id=7, supply_id="WB-1"
-        )
-        self.assertEqual(out["kiz"], {"total": 2, "done": 1})
+        kiz_map = {
+            # Live says order 1 needs KIZ even though raw is empty.
+            1: {
+                "kiz_required": True,
+                "kiz_codes": ["01046LOCAL"],
+                "kiz_status": "pending",
+            },
+            # Live says order 2 does NOT need KIZ despite stale raw sgtin.
+            2: {
+                "kiz_required": False,
+                "kiz_codes": [],
+                "kiz_status": "empty",
+            },
+            3: {
+                "kiz_required": False,
+                "kiz_codes": [],
+                "kiz_status": "empty",
+            },
+        }
+        with patch(
+            "review_processor.wb_fbs_detail._tsd_hub_resolve_order_ids",
+            return_value=[1, 2, 3],
+        ), patch(
+            "review_processor.wb_fbs_detail._tsd_hub_load_order_rows",
+            return_value=orders,
+        ), patch(
+            "review_processor.wb_fbs_detail._fetch_kiz_map",
+            return_value=kiz_map,
+        ), patch(
+            "review_processor.wb_fbs_detail.wb.load_order_kiz_map",
+            return_value={1: {"codes": ["01046LOCAL"], "saved_at": "t1"}},
+        ), patch(
+            "review_processor.wb_fbs_detail.wb.WbFbsClient"
+        ):
+            out = build_tsd_hub_progress(
+                repo,
+                user_id=10,
+                source_id=7,
+                api_key="key",
+                supply_id="WB-1",
+            )
+        self.assertEqual(out["kiz"], {"total": 1, "done": 1})
         self.assertEqual(out["pick"], {"total": 2, "done": 1})
-        self.assertEqual(out["order_count"], 4)
+        self.assertEqual(out["order_count"], 3)
 
-    def test_optional_meta_sgtin_counts_as_kiz(self) -> None:
+    def test_kiz_done_prefers_local_draft_over_wb_codes(self) -> None:
         repo = MagicMock()
-        conn = MagicMock()
-        conn.__enter__.return_value = conn
-        conn.__exit__.return_value = False
-        repo._connect.return_value = conn
-        repo._sql.side_effect = lambda s: s
-        conn.execute.return_value.fetchall.return_value = [
-            _row(order_id=9, raw={"optionalMeta": ["sgtin"]}),
+        orders = [
+            {
+                "order_id": 5,
+                "raw_json": "{}",
+                "pick_verified": False,
+                "pick_barcode": "",
+            }
         ]
-        out = build_tsd_hub_progress_from_local(
-            repo, user_id=1, source_id=1, supply_id="S"
-        )
-        self.assertEqual(out["kiz"]["total"], 1)
-        self.assertEqual(out["pick"]["total"], 0)
+        kiz_map = {
+            5: {
+                "kiz_required": True,
+                "kiz_codes": ["01046WB"],
+                "kiz_status": "ok",
+            }
+        }
+        with patch(
+            "review_processor.wb_fbs_detail._tsd_hub_resolve_order_ids",
+            return_value=[5],
+        ), patch(
+            "review_processor.wb_fbs_detail._tsd_hub_load_order_rows",
+            return_value=orders,
+        ), patch(
+            "review_processor.wb_fbs_detail._fetch_kiz_map",
+            return_value=kiz_map,
+        ), patch(
+            # Local clear draft → not done (same as scan row with [""]).
+            "review_processor.wb_fbs_detail.wb.load_order_kiz_map",
+            return_value={5: {"codes": [], "saved_at": "t-clear"}},
+        ), patch(
+            "review_processor.wb_fbs_detail.wb.WbFbsClient"
+        ):
+            out = build_tsd_hub_progress(
+                repo,
+                user_id=1,
+                source_id=1,
+                api_key="key",
+                supply_id="S",
+            )
+        self.assertEqual(out["kiz"], {"total": 1, "done": 0})
 
     def test_empty_supply_id(self) -> None:
         repo = MagicMock()
-        out = build_tsd_hub_progress_from_local(
-            repo, user_id=1, source_id=1, supply_id="  "
+        out = build_tsd_hub_progress(
+            repo, user_id=1, source_id=1, api_key="k", supply_id="  "
         )
         self.assertEqual(out["order_count"], 0)
-        repo._connect.assert_not_called()
 
 
 if __name__ == "__main__":

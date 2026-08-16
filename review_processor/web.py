@@ -9420,8 +9420,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         sid = str(supply_id or "").strip()
         if not sid:
             raise HTTPException(status_code=400, detail="Укажите supply_id")
-        # Validate FBS source exists; hub itself is DB-only (no WB API key use).
-        _wb_fbs_source_key(owner_id, int(source_id))
+        api_key = _wb_fbs_source_key(owner_id, int(source_id))
         # Prefer exact supply_id match (search is ILIKE and can paginate away).
         assembly = wb_fbs_mod.list_assembly_supplies(
             repository,
@@ -9457,14 +9456,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 ),
                 None,
             )
-        # Hub needs only metadata + progress counters. Do NOT call
-        # build_kiz_marking_payload / build_pick_verify_payload here — those
-        # hit WB Marketplace + Content and made opening a supply ~30s.
-        # Full payloads load when the operator opens KIZ / pick scan modes.
-        progress = wb_detail.build_tsd_hub_progress_from_local(
+        # Hub counters must match KIZ/pick scan tiles. Use the same order set +
+        # live orders/meta classification as the builders, but skip stickers /
+        # Content (those load only when opening a scan mode).
+        progress = wb_detail.build_tsd_hub_progress(
             repository,
             user_id=owner_id,
             source_id=int(source_id),
+            api_key=api_key,
             supply_id=sid,
         )
         kiz = progress.get("kiz") if isinstance(progress, dict) else None
@@ -9476,8 +9475,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         base = dict(supply_row or {})
         base.setdefault("supply_id", sid)
         base.setdefault("source_id", int(source_id))
-        if not base.get("order_count"):
-            base["order_count"] = int(progress.get("order_count") or 0)
+        # Align «N заказов» with tile totals (same partition as scan modes).
+        base["order_count"] = int(progress.get("order_count") or 0)
         base["kiz"] = {
             "total": int(kiz.get("total") or 0),
             "done": int(kiz.get("done") or 0),
