@@ -13105,6 +13105,8 @@ const supplyBalancesState = {
   catalogItems: [],
   visibilityItems: [],
   search: "",
+  // Default: one date column (as_of / today). Opt-in loads all movement dates.
+  showHistory: false,
 };
 
 const SB_COL_WIDTHS_KEY = "supply_balances_col_widths_v2";
@@ -13192,6 +13194,24 @@ function _sbUpdateTodayBadge() {
   }
 }
 
+function _sbUpdateHistoryBtn() {
+  const btn = document.getElementById("supplyBalancesHistoryBtn");
+  if (!btn) return;
+  const on = !!supplyBalancesState.showHistory;
+  btn.textContent = on ? "Скрыть историю" : "История дат";
+  btn.setAttribute("aria-pressed", on ? "true" : "false");
+  btn.title = on
+    ? "Скрыть колонки прошлых дат"
+    : "Показать колонки по датам движений";
+}
+
+async function toggleSupplyBalancesHistory() {
+  supplyBalancesState.showHistory = !supplyBalancesState.showHistory;
+  _sbUpdateHistoryBtn();
+  await loadSupplyBalancesData();
+}
+window.toggleSupplyBalancesHistory = toggleSupplyBalancesHistory;
+
 async function loadSupplyBalancesSection() {
   try {
     const metaRes = await fetch("/api/supply-balances/meta");
@@ -13203,6 +13223,7 @@ async function loadSupplyBalancesSection() {
       supplyBalancesState.asOf = supplyBalancesState.today;
     }
     _sbUpdateTodayBadge();
+    _sbUpdateHistoryBtn();
     // Single-warehouse mode: first production under the hood (no picker).
     if (!supplyBalancesState.productions.length) {
       supplyBalancesState.productionId = null;
@@ -13234,6 +13255,7 @@ async function loadSupplyBalancesData() {
     const asOf = String(supplyBalancesState.asOf || supplyBalancesState.today || "").trim();
     const params = new URLSearchParams({ production_id: String(pid) });
     if (asOf) params.set("as_of", asOf);
+    if (supplyBalancesState.showHistory) params.set("history", "1");
     const res = await fetch(`/api/supply-balances?${params.toString()}`);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || "Ошибка загрузки");
@@ -13242,11 +13264,18 @@ async function loadSupplyBalancesData() {
     supplyBalancesState.dates = Array.isArray(data.dates) ? data.dates : [supplyBalancesState.asOf];
     supplyBalancesState.rows = Array.isArray(data.rows) ? data.rows : [];
     supplyBalancesState.productionId = Number(data.production_id || pid);
+    if (typeof data.history === "boolean") {
+      supplyBalancesState.showHistory = data.history;
+    }
     _sbUpdateTodayBadge();
+    _sbUpdateHistoryBtn();
     renderSupplyBalancesTable();
     if (supplyBalancesState.rows.length) {
       const asOfLabel = _sbFormatDateLabel(supplyBalancesState.asOf);
-      _sbSetStatus(`Позиций: ${supplyBalancesState.rows.length}. Остаток на ${asOfLabel} (только просмотр)`);
+      const histNote = supplyBalancesState.showHistory ? " · история дат" : "";
+      _sbSetStatus(
+        `Позиций: ${supplyBalancesState.rows.length}. Остаток на ${asOfLabel} (только просмотр)${histNote}`
+      );
     } else {
       _sbSetStatus("Нет видимых материалов и товаров. Добавьте их в Настройки или включите в «Вывод в таблице».");
     }

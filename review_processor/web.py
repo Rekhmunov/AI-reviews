@@ -15062,20 +15062,27 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         request: Request,
         production_id: int = 0,
         as_of: str = "",
+        history: int = 0,
     ) -> dict[str, object]:
-        """Read-only ledger snapshot. ``as_of`` = Moscow date (default today)."""
+        """Read-only ledger snapshot. ``as_of`` = Moscow date (default today).
+
+        By default returns a single date column (``as_of``). Pass ``history=1``
+        to include all movement dates ≤ ``as_of`` as extra columns.
+        """
         user = _require_user(request)
         if not _can_view_supply_stock(user):
             raise HTTPException(status_code=403, detail="Нет доступа к остаткам")
         owner_id = _supply_owner_id(user)
         productions = _stock_productions_for_user(user)
         today = _moscow_today()
+        include_history = int(history or 0) != 0
         if not productions:
             return {
                 "today": today,
                 "as_of": today,
                 "production_id": None,
                 "dates": [today],
+                "history": include_history,
                 "rows": [],
                 "productions": [],
                 "can_edit": False,
@@ -15099,12 +15106,16 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             )
         except Exception:
             pass
-        move_dates = repository.list_supply_stock_movement_dates(
-            user_id=owner_id, production_id=pid, as_of=as_of_date
-        )
-        dates = [d for d in move_dates if d <= as_of_date]
-        if as_of_date not in dates:
-            dates = dates + [as_of_date]
+        if include_history:
+            move_dates = repository.list_supply_stock_movement_dates(
+                user_id=owner_id, production_id=pid, as_of=as_of_date
+            )
+            dates = [d for d in move_dates if d <= as_of_date]
+            if as_of_date not in dates:
+                dates = dates + [as_of_date]
+        else:
+            # Default UX: one column for the current slice (today or as_of).
+            dates = [as_of_date]
         # Precompute cumulative balances for each column date.
         bal_by_date: dict[str, dict[tuple[str, int], float]] = {
             d: repository.sum_supply_stock_balances(
@@ -15215,6 +15226,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             "as_of": as_of_date,
             "production_id": pid,
             "dates": dates,
+            "history": include_history,
             "rows": rows,
             "productions": productions,
             "can_edit": False,
