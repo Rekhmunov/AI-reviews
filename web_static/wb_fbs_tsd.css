@@ -103,6 +103,9 @@ html, body {
   font-weight: 500;
   color: var(--tsd-ink);
 }
+.tsd-source[hidden] {
+  display: none !important;
+}
 
 .tsd-progress {
   height: 4px;

@@ -71,6 +71,8 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     assert "forceSaveByOrder" in js
     assert "RU_LAYOUT_TO_EN" in js
     assert "fixRuKeyboardLayout" in js
+    assert "syncSourceSelectVisibility" in js
+    assert 'state.route.view === "list"' in js
 
 
 def test_web_py_tsd_summary_is_local_only() -> None:

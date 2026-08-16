@@ -555,8 +555,18 @@
     return result;
   }
 
+  function syncSourceSelectVisibility() {
+    const sel = document.getElementById("tsdSourceSelect");
+    if (!sel) return;
+    // Source picker only on the assembly supplies list — not inside a supply / scan.
+    const show = !!boot.can_view_wb_fbs_tsd && state.route.view === "list";
+    sel.hidden = !show;
+    sel.setAttribute("aria-hidden", show ? "false" : "true");
+  }
+
   function renderDenied() {
     const main = document.getElementById("tsdMain");
+    syncSourceSelectVisibility();
     const back = document.getElementById("tsdBackBtn");
     if (back) {
       back.hidden = false;
@@ -577,6 +587,7 @@
     const back = document.getElementById("tsdBackBtn");
     const title = document.getElementById("tsdTitle");
     const prog = document.getElementById("tsdProgressBar");
+    syncSourceSelectVisibility();
     if (prog) prog.hidden = true;
     if (back) {
       back.hidden = false;
@@ -654,6 +665,7 @@
     const back = document.getElementById("tsdBackBtn");
     const title = document.getElementById("tsdTitle");
     const prog = document.getElementById("tsdProgressBar");
+    syncSourceSelectVisibility();
     if (prog) prog.hidden = true;
     if (back) {
       back.hidden = false;
@@ -744,6 +756,7 @@
     const main = document.getElementById("tsdMain");
     const back = document.getElementById("tsdBackBtn");
     const title = document.getElementById("tsdTitle");
+    syncSourceSelectVisibility();
     if (back) {
       back.hidden = false;
       back.href = `#/s/${sid}`;
@@ -971,6 +984,7 @@
       return;
     }
     state.route = parseHash();
+    syncSourceSelectVisibility();
     const seq = ++state.loadSeq;
     stopLoadingUi();
 
