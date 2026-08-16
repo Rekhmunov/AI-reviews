@@ -261,15 +261,20 @@ html, body {
 }
 
 .tsd-tile-title {
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 700;
   letter-spacing: -0.02em;
+  line-height: 1.25;
 }
 
 .tsd-tile-prog {
-  font-size: 15px;
-  font-weight: 600;
+  margin-top: auto;
+  font-size: 28px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
   color: var(--tsd-accent);
+  line-height: 1.1;
 }
 
 .tsd-scan-shell {
