@@ -809,12 +809,19 @@ html, body {
 
 .tsd-scanned-item {
   display: flex;
-  gap: 12px;
-  align-items: flex-start;
+  flex-direction: column;
+  gap: 8px;
   padding: 12px;
   border-radius: 14px;
   border: 1px solid var(--tsd-line);
   background: var(--tsd-surface);
+}
+
+.tsd-scanned-top {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  min-width: 0;
 }
 
 .tsd-scanned-item img,
@@ -824,7 +831,7 @@ html, body {
   border-radius: 10px;
   object-fit: cover;
   background: var(--tsd-bg);
-  flex: 0 0 auto;
+  flex: 0 0 48px;
 }
 
 .tsd-scanned-ph {
@@ -839,6 +846,7 @@ html, body {
 .tsd-scanned-order {
   font-size: 13px;
   font-weight: 600;
+  line-height: 1.35;
   color: var(--tsd-muted);
 }
 
@@ -848,11 +856,21 @@ html, body {
 }
 
 .tsd-scanned-name {
-  margin-top: 2px;
+  margin-top: 4px;
   font-size: 15px;
   font-weight: 600;
+  line-height: 1.35;
   color: var(--tsd-ink);
   word-break: break-word;
+}
+
+.tsd-scanned-details {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding-top: 4px;
+  border-top: 1px solid var(--tsd-line);
 }
 
 .tsd-scanned-label {
@@ -861,47 +879,39 @@ html, body {
   color: var(--tsd-ink);
 }
 
-.tsd-scanned-barcodes {
-  margin-top: 4px;
-  font-size: 13px;
-  line-height: 1.35;
-  color: var(--tsd-muted);
-  word-break: break-all;
-}
-
-.tsd-scanned-meta {
-  margin-top: 4px;
-  font-size: 13px;
-  color: var(--tsd-muted);
-  word-break: break-all;
-}
-
-.tsd-scanned-kizs {
-  margin-top: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  width: 100%;
-}
-
-.tsd-scanned-kiz-line {
+.tsd-scanned-kv,
+.tsd-scanned-kizs .tsd-scanned-kv {
   display: flex;
   align-items: flex-start;
-  gap: 6px;
-  width: 100%;
+  gap: 8px;
   min-width: 0;
+  width: 100%;
   font-size: 13px;
-  line-height: 1.35;
+  line-height: 1.4;
   color: var(--tsd-muted);
 }
 
-.tsd-scanned-kiz-val {
+.tsd-scanned-kv-val {
   flex: 1 1 auto;
   min-width: 0;
   color: var(--tsd-ink);
   font-weight: 500;
-  word-break: break-all;
+  word-break: break-word;
   overflow-wrap: anywhere;
+}
+
+.tsd-scanned-kizs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+.tsd-scanned-meta {
+  font-size: 13px;
+  color: var(--tsd-muted);
+  word-break: break-word;
 }
 
 .tsd-scanned-clear {
