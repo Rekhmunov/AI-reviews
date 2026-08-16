@@ -9718,21 +9718,60 @@ button.wb-fbs-kiz-add:disabled {
 
 /* ── Supply balances (Остатки) ───────────────────────────────────────────── */
 #section-supplies-balances .section-title {
-  margin: 0 0 12px;
+  margin: 0;
+  font-size: 22px;
 }
-.sb-toolbar {
-  margin-bottom: 12px;
-}
-.sb-toolbar-left {
+.sb-page-head {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 12px;
+  flex-wrap: wrap;
+  margin: 0 0 12px;
+}
+.sb-page-badges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   flex-wrap: wrap;
   min-width: 0;
 }
+.sb-toolbar {
+  margin-bottom: 12px;
+  padding: 16px;
+}
+.sb-toolbar-grid {
+  display: grid;
+  grid-template-columns: minmax(200px, 280px) minmax(0, 1fr) auto;
+  gap: 12px 16px;
+  align-items: end;
+}
+.sb-toolbar-search {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.sb-search-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  line-height: 1;
+}
+.sb-toolbar-filters,
+.sb-toolbar-primary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.sb-toolbar-primary {
+  justify-content: flex-end;
+}
 #section-supplies-balances #supplyBalancesSearchFilter {
   min-height: 40px;
-  width: 160px;
+  width: 100%;
   padding: 0 12px;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
@@ -9740,9 +9779,14 @@ button.wb-fbs-kiz-add:disabled {
   font-size: 16px;
   color: #0f172a;
 }
-#section-supplies-balances .supplies-actions button {
+#section-supplies-balances .sb-toolbar-grid button {
   font-size: 15px;
   min-height: 40px;
+  padding: 8px 12px;
+}
+#section-supplies-balances .sb-toolbar-grid button.icon-btn {
+  min-width: 40px;
+  padding: 8px;
 }
 #section-supplies-balances #supplyBalancesSearchFilter:focus {
   outline: 2px solid #93c5fd;
@@ -9752,10 +9796,14 @@ button.wb-fbs-kiz-add:disabled {
 #section-supplies-balances .supplies-filter-count {
   color: #64748b;
   white-space: nowrap;
-  font-size: 15px;
+  font-size: 14px;
 }
-#section-supplies-balances .section-title {
-  font-size: 22px;
+.sb-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 .sb-production-field {
   display: flex;
@@ -9800,7 +9848,7 @@ button.wb-fbs-kiz-add:disabled {
   background: #eff6ff;
   border: 1px solid #bfdbfe;
   color: #1d4ed8;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
   white-space: nowrap;
 }
@@ -10221,9 +10269,12 @@ button.wb-fbs-kiz-add:disabled {
   color: #b91c1c;
 }
 .sb-status {
-  margin-top: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #eef2f7;
   min-height: 20px;
-  font-size: 15px;
+  font-size: 14px;
+  line-height: 1.4;
   color: #64748b;
 }
 .sb-status.is-ok { color: #047857; }
@@ -10344,6 +10395,19 @@ button.wb-fbs-kiz-add:disabled {
 }
 .supply-balances-table .sb-col-name .wb-fbs-product {
   max-width: 100%;
+  gap: 12px;
+}
+/* Densify product thumbs only in Остатки (keep FBS tables at 144px). */
+.supply-balances-table .sb-col-name .wb-fbs-product-photo,
+.supply-balances-table .sb-col-name .wb-fbs-product img,
+.supply-balances-table .sb-col-name .wb-fbs-product-ph {
+  width: 72px !important;
+  height: 72px !important;
+  max-width: 72px !important;
+  max-height: 72px !important;
+  min-width: 72px;
+  min-height: 72px;
+  flex: 0 0 72px;
 }
 /* Арт. / ШК — тот же размер, что у названия, но не жирный (только Остатки) */
 .supply-balances-table .sb-col-name .wb-fbs-product-sub,
@@ -10434,6 +10498,12 @@ button.wb-fbs-kiz-add:disabled {
 }
 .supply-balances-table .sb-journal-open:active {
   background: rgba(37, 99, 235, 0.08);
+}
+#section-supplies-balances #supplyBalancesBelowMinBtn.is-active,
+#section-supplies-balances #supplyBalancesHistoryBtn.is-active {
+  border-color: #99f6e4;
+  background: #f0fdfa;
+  color: #0f766e;
 }
 #section-supplies-balances #supplyBalancesBelowMinBtn.is-active {
   border-color: #fca5a5;
@@ -10705,13 +10775,170 @@ button.wb-fbs-kiz-add:disabled {
   padding: 24px;
 }
 
+@media (max-width: 1100px) {
+  .sb-toolbar-grid {
+    grid-template-columns: minmax(180px, 1fr) auto;
+  }
+  .sb-toolbar-primary {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+}
+
 @media (max-width: 720px) {
-  .sb-toolbar-left { width: 100%; }
+  .sb-page-head {
+    align-items: flex-start;
+    margin-bottom: 12px;
+  }
+  .sb-page-badges {
+    width: 100%;
+  }
+  .sb-toolbar {
+    padding: 12px;
+  }
+  .sb-toolbar-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .sb-toolbar-filters,
+  .sb-toolbar-primary {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    width: 100%;
+  }
+  .sb-toolbar-filters .icon-btn {
+    width: 100%;
+  }
+  #section-supplies-balances .sb-toolbar-grid button {
+    width: 100%;
+    min-height: 44px;
+    justify-content: center;
+  }
+  #section-supplies-balances #supplyBalancesReceiptBtn {
+    grid-column: 1 / -1;
+  }
   .sb-production-field { width: 100%; }
   .sb-production-select { flex: 1; max-width: none; }
-  .supply-balances-table-wrap { max-height: calc(100vh - 280px); }
+  .supply-balances-table-wrap {
+    max-height: calc(100dvh - 320px);
+    -webkit-overflow-scrolling: touch;
+  }
   .supply-balances-table th,
-  .supply-balances-table td { padding: 10px 12px; }
+  .supply-balances-table td {
+    padding: 10px 12px;
+  }
+  .supply-balances-table .sb-col-name .wb-fbs-product {
+    gap: 8px;
+  }
+  .supply-balances-table .sb-col-name .wb-fbs-product-photo,
+  .supply-balances-table .sb-col-name .wb-fbs-product img,
+  .supply-balances-table .sb-col-name .wb-fbs-product-ph {
+    width: 56px !important;
+    height: 56px !important;
+    max-width: 56px !important;
+    max-height: 56px !important;
+    min-width: 56px;
+    min-height: 56px;
+    flex: 0 0 56px;
+  }
+  .supply-balances-table .sb-col-name .wb-fbs-product-name {
+    font-size: 15px;
+  }
+  .supply-balances-table .sb-col-name .wb-fbs-product-sub,
+  .supply-balances-table .sb-col-name .wb-fbs-barcode {
+    font-size: 14px;
+  }
+  .supply-balances-table .sb-qty-ro {
+    font-size: 15px;
+  }
+  .supply-balances-table .sb-min-hint {
+    font-size: 11px;
+  }
+  .supply-balances-table .sb-resize-handle {
+    width: 12px;
+  }
+
+  /* Full-screen sheet modals for Остатки on phones */
+  .modal-overlay:has(> .sb-sheet-modal) {
+    padding: 0;
+    align-items: stretch;
+    justify-content: stretch;
+  }
+  .modal-overlay > .sb-sheet-modal {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: 100dvh;
+    height: 100dvh;
+    border-radius: 0;
+  }
+  .sb-sheet-header {
+    padding: 16px;
+  }
+  .sb-sheet-title {
+    font-size: 20px;
+  }
+  .sb-sheet-footer {
+    padding: 12px 16px;
+    gap: 8px;
+  }
+  .sb-sheet-footer button {
+    flex: 1 1 auto;
+    min-height: 44px;
+  }
+  .sb-vis-row {
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    padding: 12px 16px;
+    cursor: default;
+  }
+  .sb-vis-meta {
+    flex: 1 1 calc(100% - 40px);
+  }
+  .sb-vis-min {
+    order: 3;
+    flex: 1 1 100%;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+  }
+  .sb-vis-min input {
+    width: 96px;
+    min-height: 40px;
+  }
+  .sb-vis-eye {
+    min-height: 40px;
+    min-width: 64px;
+  }
+  .sb-movements-row {
+    grid-template-columns: 64px minmax(0, 1fr);
+    gap: 8px 12px;
+    padding: 12px 16px;
+  }
+  .sb-movements-qty {
+    grid-column: 2;
+    justify-self: start;
+  }
+  .sb-doc-fields-search-end {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .sb-sheet-search-end {
+    margin-left: 0;
+    width: 100%;
+  }
+  .sb-adj-modal .sb-sheet-search-end .sb-sheet-search {
+    width: 100%;
+    max-width: none;
+    flex: 1 1 auto;
+  }
+  .sb-bulk-bar {
+    gap: 8px;
+  }
+  .sb-bulk-bar button.secondary {
+    flex: 1 1 calc(50% - 8px);
+    min-height: 40px;
+  }
 }
 
 /* ── WB FBS → ЧЗ: вывод / возврат КИЗ ── */

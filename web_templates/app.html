@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=227" />
+  <link rel="stylesheet" href="/static/style.css?v=228" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -2712,18 +2712,23 @@
 
       <!-- ── Планирование поставок ── -->
       <section id="section-supplies-balances" class="hidden">
-        <h3 class="section-title">Остатки</h3>
+        <div class="sb-page-head">
+          <h3 class="section-title">Остатки</h3>
+          <div class="sb-toolbar-left sb-page-badges">
+            <span id="supplyBalancesTodayBadge" class="sb-today-badge hidden"></span>
+            <span id="supplyBalancesAsOfBadge" class="sb-asof-badge hidden"></span>
+          </div>
+        </div>
         <div class="panel supplies-toolbar-panel sb-toolbar">
-          <div class="supplies-top-controls">
-            <div class="sb-toolbar-left">
-              <span id="supplyBalancesTodayBadge" class="sb-today-badge hidden"></span>
-              <span id="supplyBalancesAsOfBadge" class="sb-asof-badge hidden"></span>
-            </div>
-            <div class="supplies-actions">
-              <input id="supplyBalancesSearchFilter" type="search" placeholder="🔍 Поиск..."
+          <div class="sb-toolbar-grid">
+            <div class="sb-toolbar-search">
+              <label class="sb-search-label" for="supplyBalancesSearchFilter">Поиск</label>
+              <input id="supplyBalancesSearchFilter" type="search" placeholder="Название, артикул, ШК…"
                      autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
-                     style="width:140px" oninput="onSupplyBalancesSearchInput()" />
+                     oninput="onSupplyBalancesSearchInput()" />
               <span id="supplyBalancesFilterCount" class="small supplies-filter-count" hidden></span>
+            </div>
+            <div class="sb-toolbar-filters" role="group" aria-label="Фильтры остатков">
               <button type="button" class="secondary" id="supplyBalancesBelowMinBtn"
                       onclick="toggleSupplyBalancesBelowMin()" aria-pressed="false"
                       title="Показать только позиции ниже минимума">Ниже минимума</button>
@@ -2732,6 +2737,8 @@
                       onclick="toggleSupplyBalancesHistory()" aria-pressed="false"
                       title="Показать колонки по датам движений">История дат</button>
               <button type="button" class="secondary" onclick="openSupplyStockAsOfModal()">Сформировать на дату</button>
+            </div>
+            <div class="sb-toolbar-primary" role="group" aria-label="Действия со складом">
               <button type="button" class="secondary" onclick="openSupplyStockAdjustmentModal()">Корректировка</button>
               <button type="button" id="supplyBalancesReceiptBtn" onclick="openSupplyStockReceiptModal()">Добавить на склад</button>
             </div>
@@ -5083,6 +5090,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=492"></script>
+  <script src="/static/app.js?v=493"></script>
 </body>
 </html>

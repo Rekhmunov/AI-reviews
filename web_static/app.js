@@ -13116,6 +13116,34 @@ const SB_DATE_COL_DEFAULT = 120;
 const SB_NAME_COL_MIN = 260;
 const SB_DATE_COL_MIN = 88;
 
+function _sbIsCompactViewport() {
+  try {
+    return window.matchMedia("(max-width: 720px)").matches;
+  } catch (_) {
+    return Number(window.innerWidth || 0) > 0 && Number(window.innerWidth) <= 720;
+  }
+}
+
+function _sbClampNameColWidth(width) {
+  const n = Number(width);
+  const compact = _sbIsCompactViewport();
+  const min = compact ? 148 : SB_NAME_COL_MIN;
+  const max = compact
+    ? Math.max(min, Math.min(220, Math.floor((window.innerWidth || 375) * 0.58)))
+    : 720;
+  if (!Number.isFinite(n)) return compact ? Math.min(200, max) : SB_NAME_COL_DEFAULT;
+  return Math.max(min, Math.min(max, n));
+}
+
+function _sbClampDateColWidth(width) {
+  const n = Number(width);
+  const compact = _sbIsCompactViewport();
+  const min = compact ? 72 : SB_DATE_COL_MIN;
+  const max = compact ? 112 : 280;
+  if (!Number.isFinite(n)) return compact ? 88 : SB_DATE_COL_DEFAULT;
+  return Math.max(min, Math.min(max, n));
+}
+
 function _sbFormatDateLabel(iso) {
   const s = String(iso || "").trim();
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
@@ -13201,6 +13229,7 @@ function _sbUpdateHistoryBtn() {
   const on = !!supplyBalancesState.showHistory;
   btn.textContent = on ? "Скрыть историю" : "История дат";
   btn.setAttribute("aria-pressed", on ? "true" : "false");
+  btn.classList.toggle("is-active", on);
   btn.title = on
     ? "Скрыть колонки прошлых дат"
     : "Показать колонки по датам движений";
@@ -13494,8 +13523,8 @@ function renderSupplyBalancesTable() {
   const asOf = String(supplyBalancesState.asOf || supplyBalancesState.today || "");
   const today = String(supplyBalancesState.today || "");
   const widths = _sbLoadColWidths();
-  const nameW = widths.name;
-  const dateWidths = dates.map((d) => _sbDateColWidth(widths, d));
+  const nameW = _sbClampNameColWidth(widths.name);
+  const dateWidths = dates.map((d) => _sbClampDateColWidth(_sbDateColWidth(widths, d)));
   const totalW = nameW + dateWidths.reduce((a, b) => a + b, 0);
 
   colgroup.innerHTML = [
@@ -13586,9 +13615,13 @@ function initSupplyBalancesColumnResizer() {
 
     function onMove(ev) {
       if (!colEl) return;
-      const minW = kind === "name" ? SB_NAME_COL_MIN : SB_DATE_COL_MIN;
-      const newW = Math.max(minW, Math.round(startW + (ev.clientX - startX)));
-      colEl.style.width = `${newW}px`;
+      const minW = kind === "name"
+        ? (_sbIsCompactViewport() ? 148 : SB_NAME_COL_MIN)
+        : (_sbIsCompactViewport() ? 72 : SB_DATE_COL_MIN);
+      const raw = Math.round(startW + (ev.clientX - startX));
+      const newW = kind === "name" ? _sbClampNameColWidth(raw) : _sbClampDateColWidth(raw);
+      const width = Math.max(minW, newW);
+      colEl.style.width = `${width}px`;
       const cols = Array.from(document.querySelectorAll("#supplyBalancesColgroup col"));
       const total = cols.reduce((sum, col) => sum + (parseFloat(col.style.width) || 0), 0);
       table.style.width = `${total}px`;
@@ -13603,10 +13636,10 @@ function initSupplyBalancesColumnResizer() {
       handle.classList.remove("is-dragging");
       if (!colEl) return;
       const store = _sbLoadColWidths();
-      const width = Math.max(
-        kind === "name" ? SB_NAME_COL_MIN : SB_DATE_COL_MIN,
-        Math.round(parseFloat(colEl.style.width) || 0)
-      );
+      const parsed = Math.round(parseFloat(colEl.style.width) || 0);
+      const width = kind === "name"
+        ? _sbClampNameColWidth(parsed)
+        : _sbClampDateColWidth(parsed);
       if (kind === "name") {
         store.name = width;
       } else if (dateKey) {
