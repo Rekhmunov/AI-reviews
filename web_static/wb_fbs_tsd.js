@@ -863,9 +863,10 @@
         const stickerHtml = formatBoldLastDigits(r.sticker_number || "—", 4);
         const barcodes = orderBarcodesLabel(r);
         const barcodesHtml = barcodes
-          ? `<div class="tsd-scanned-barcodes"><span class="tsd-scanned-label">ШК:</span> ${esc(
-              barcodes
-            )}</div>`
+          ? `<div class="tsd-scanned-kv">
+              <span class="tsd-scanned-label">ШК:</span>
+              <span class="tsd-scanned-kv-val">${esc(barcodes)}</span>
+            </div>`
           : "";
         let detailHtml;
         let clearBtn = "";
@@ -875,13 +876,13 @@
             ? `<div class="tsd-scanned-kizs">${entries
                 .map(
                   (e) => `
-              <div class="tsd-scanned-kiz-line">
+              <div class="tsd-scanned-kv">
                 <span class="tsd-scanned-label">КИЗ:</span>
-                <span class="tsd-scanned-kiz-val">${esc(shortKizDisplay(e.code))}</span>
+                <span class="tsd-scanned-kv-val">${esc(shortKizDisplay(e.code))}</span>
               </div>`
                 )
                 .join("")}</div>`
-            : `<div class="tsd-scanned-kiz-line"><span class="tsd-scanned-label">КИЗ:</span> —</div>`;
+            : `<div class="tsd-scanned-kv"><span class="tsd-scanned-label">КИЗ:</span><span class="tsd-scanned-kv-val">—</span></div>`;
           clearBtn = `
             <button type="button" class="tsd-scanned-clear"
               data-action="clear-kiz-all" data-order-id="${oid}"
@@ -890,21 +891,27 @@
           const verified = String(r.pick_barcode || "").trim();
           detailHtml =
             !barcodes && verified
-              ? `<div class="tsd-scanned-barcodes"><span class="tsd-scanned-label">ШК:</span> ${esc(
-                  verified
-                )}</div>`
+              ? `<div class="tsd-scanned-kv">
+                  <span class="tsd-scanned-label">ШК:</span>
+                  <span class="tsd-scanned-kv-val">${esc(verified)}</span>
+                </div>`
               : "";
         }
         return `
           <div class="tsd-scanned-item">
-            ${photo}
-            <div class="tsd-scanned-text">
-              <div class="tsd-scanned-order">Заказ ${oid} · ${stickerHtml}</div>
-              <div class="tsd-scanned-name">${esc(r.product_name || r.article || "—")}</div>
-              ${barcodesHtml}
-              ${detailHtml}
+            <div class="tsd-scanned-top">
+              ${photo}
+              <div class="tsd-scanned-text">
+                <div class="tsd-scanned-order">Заказ ${oid} · ${stickerHtml}</div>
+                <div class="tsd-scanned-name">${esc(r.product_name || r.article || "—")}</div>
+              </div>
+              ${clearBtn}
             </div>
-            ${clearBtn}
+            ${
+              barcodesHtml || detailHtml
+                ? `<div class="tsd-scanned-details">${barcodesHtml}${detailHtml}</div>`
+                : ""
+            }
           </div>`;
       })
       .join("");
