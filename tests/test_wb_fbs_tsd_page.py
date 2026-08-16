@@ -85,6 +85,11 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     assert "Скан пишет ШК локально" not in js
     assert "Для 2-го КИЗ снова сканируйте стикер" in js
     assert "Этот КИЗ уже в этом заказе" in js
+    assert "simple: true" in js
+    assert 'title: "Товары с маркировкой"' in js
+    assert 'title: "Товары без маркировки"' in js
+    assert "Готовим сканирование…" not in js
+    assert "Готово к сканированию" not in js
 
 
 def test_web_py_tsd_summary_matches_scan_without_full_payloads() -> None:
