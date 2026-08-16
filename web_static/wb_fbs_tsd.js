@@ -17,6 +17,13 @@
     search: "",
     loadSeq: 0,
     forceSaveByOrder: {},
+    loadUi: {
+      token: 0,
+      hintTimer: null,
+      elapsedTimer: null,
+      rotateTimer: null,
+      startedAt: 0,
+    },
   };
 
   const LS_SOURCE = "wb_fbs_tsd_source_id";
@@ -117,6 +124,109 @@
     toast._t = setTimeout(() => {
       el.hidden = true;
     }, 2400);
+  }
+
+  function stopLoadingUi() {
+    const ui = state.loadUi;
+    if (ui.hintTimer) clearTimeout(ui.hintTimer);
+    if (ui.elapsedTimer) clearInterval(ui.elapsedTimer);
+    if (ui.rotateTimer) clearInterval(ui.rotateTimer);
+    ui.hintTimer = null;
+    ui.elapsedTimer = null;
+    ui.rotateTimer = null;
+    ui.token += 1;
+  }
+
+  function supplyNameHint(supplyId) {
+    const sid = String(supplyId || "");
+    if (state.supply && String(state.supply.supply_id || "") === sid) {
+      const n = String(state.supply.name || "").trim();
+      if (n) return n;
+    }
+    const fromList = (state.supplies || []).find((s) => String(s.supply_id || "") === sid);
+    if (fromList) {
+      const n = String(fromList.name || "").trim();
+      if (n) return n;
+    }
+    return sid || "поставку";
+  }
+
+  function setLoadingStatus(text, stageIdx) {
+    const statusEl = document.getElementById("tsdLoadStatus");
+    if (statusEl) statusEl.textContent = String(text || "");
+    if (stageIdx === undefined || stageIdx === null) return;
+    const stages = document.querySelectorAll("#tsdLoadStages .tsd-load-stage");
+    stages.forEach((el, i) => {
+      el.classList.toggle("is-done", i < stageIdx);
+      el.classList.toggle("is-active", i === stageIdx);
+      el.classList.toggle("is-todo", i > stageIdx);
+    });
+  }
+
+  function showLoadingScreen(opts) {
+    stopLoadingUi();
+    const token = state.loadUi.token;
+    const title = String((opts && opts.title) || "Загрузка");
+    const status = String((opts && opts.status) || "Подождите…");
+    const stages = Array.isArray(opts && opts.stages) ? opts.stages : [];
+    const main = document.getElementById("tsdMain");
+    if (!main) return token;
+    const stagesHtml = stages.length
+      ? `<ol class="tsd-load-stages" id="tsdLoadStages" aria-hidden="true">
+          ${stages
+            .map(
+              (label, i) =>
+                `<li class="tsd-load-stage ${i === 0 ? "is-active" : "is-todo"}">${esc(label)}</li>`
+            )
+            .join("")}
+        </ol>`
+      : "";
+    main.innerHTML = `
+      <div class="tsd-loading-screen" role="status" aria-live="polite">
+        <div class="tsd-load-spinner" aria-hidden="true"></div>
+        <div class="tsd-load-title">${esc(title)}</div>
+        <div class="tsd-load-status" id="tsdLoadStatus">${esc(status)}</div>
+        ${stagesHtml}
+        <div class="tsd-load-elapsed" id="tsdLoadElapsed" hidden></div>
+        <div class="tsd-load-hint" id="tsdLoadHint" hidden>Ещё загружаем, не уходите</div>
+      </div>`;
+    state.loadUi.startedAt = Date.now();
+    state.loadUi.hintTimer = setTimeout(() => {
+      if (token !== state.loadUi.token) return;
+      const hint = document.getElementById("tsdLoadHint");
+      if (hint) hint.hidden = false;
+    }, 9000);
+    state.loadUi.elapsedTimer = setInterval(() => {
+      if (token !== state.loadUi.token) return;
+      const el = document.getElementById("tsdLoadElapsed");
+      if (!el) return;
+      const sec = Math.floor((Date.now() - state.loadUi.startedAt) / 1000);
+      if (sec < 3) return;
+      el.hidden = false;
+      el.textContent = `Уже ${sec} сек`;
+    }, 1000);
+    return token;
+  }
+
+  function startLoadingRotate(steps, intervalMs) {
+    const list = Array.isArray(steps) ? steps.filter(Boolean) : [];
+    if (!list.length) return () => {};
+    let idx = 0;
+    const first = list[0];
+    setLoadingStatus(first.status || first, first.stage);
+    if (list.length === 1) return () => {};
+    const ms = Math.max(1200, Number(intervalMs) || 2200);
+    state.loadUi.rotateTimer = setInterval(() => {
+      idx = (idx + 1) % list.length;
+      const step = list[idx];
+      setLoadingStatus(step.status || step, step.stage);
+    }, ms);
+    return () => {
+      if (state.loadUi.rotateTimer) {
+        clearInterval(state.loadUi.rotateTimer);
+        state.loadUi.rotateTimer = null;
+      }
+    };
   }
 
   function setBanner(text, kind) {
@@ -856,24 +966,38 @@
     }
     state.route = parseHash();
     const seq = ++state.loadSeq;
-    const main = document.getElementById("tsdMain");
-    main.innerHTML = `<div class="tsd-loading">Загрузка…</div>`;
+    stopLoadingUi();
     try {
-      if (!state.sources.length) await loadSources();
-      if (seq !== state.loadSeq) return;
+      if (!state.sources.length) {
+        showLoadingScreen({
+          title: "Подготовка ТСД",
+          status: "Загружаем кабинеты…",
+          stages: ["Кабинеты", "Поставки"],
+        });
+        await loadSources();
+        if (seq !== state.loadSeq) return;
+      }
 
       if (state.route.view === "list") {
         state.pendingOrderId = null;
         state.step = "sticker";
         state.banner = null;
+        showLoadingScreen({
+          title: "Поставки на сборке",
+          status: "Загружаем список поставок…",
+          stages: ["Список поставок"],
+        });
         await loadSupplies();
         if (seq !== state.loadSeq) return;
+        stopLoadingUi();
         renderList();
         return;
       }
 
       if (!state.sourceId) {
-        main.innerHTML = `<div class="tsd-empty">Выберите кабинет</div>`;
+        stopLoadingUi();
+        const main = document.getElementById("tsdMain");
+        if (main) main.innerHTML = `<div class="tsd-empty">Выберите кабинет</div>`;
         return;
       }
 
@@ -881,22 +1005,82 @@
         state.pendingOrderId = null;
         state.step = "sticker";
         state.banner = null;
-        await loadSummary(state.route.supplyId);
+        const sid = state.route.supplyId;
+        const name = supplyNameHint(sid);
+        showLoadingScreen({
+          title: `Открываем ${name}`,
+          status: "Ищем поставку…",
+          stages: ["Открытие", "С маркировкой", "Без маркировки"],
+        });
+        const stopRotate = startLoadingRotate(
+          [
+            { status: "Ищем поставку…", stage: 0 },
+            { status: "Считаем товары с маркировкой…", stage: 1 },
+            { status: "Считаем товары без маркировки…", stage: 2 },
+          ],
+          2200
+        );
+        try {
+          await loadSummary(sid);
+        } finally {
+          stopRotate();
+        }
         if (seq !== state.loadSeq) return;
+        stopLoadingUi();
         renderHub();
         return;
       }
 
       if (state.route.view === "scan") {
-        if (state.route.mode === "kiz") await loadKiz(state.route.supplyId);
-        else await loadPick(state.route.supplyId);
+        if (state.route.mode === "kiz") {
+          showLoadingScreen({
+            title: "Товары с маркировкой",
+            status: "Загружаем заказы с КИЗ…",
+            stages: ["Заказы", "Готово к сканированию"],
+          });
+          const stopRotate = startLoadingRotate(
+            [
+              { status: "Загружаем заказы с КИЗ…", stage: 0 },
+              { status: "Готовим сканирование…", stage: 1 },
+            ],
+            2400
+          );
+          try {
+            await loadKiz(state.route.supplyId);
+          } finally {
+            stopRotate();
+          }
+        } else {
+          showLoadingScreen({
+            title: "Товары без маркировки",
+            status: "Загружаем заказы для проверки ШК…",
+            stages: ["Заказы", "Готово к сканированию"],
+          });
+          const stopRotate = startLoadingRotate(
+            [
+              { status: "Загружаем заказы для проверки ШК…", stage: 0 },
+              { status: "Готовим сканирование…", stage: 1 },
+            ],
+            2400
+          );
+          try {
+            await loadPick(state.route.supplyId);
+          } finally {
+            stopRotate();
+          }
+        }
         if (seq !== state.loadSeq) return;
+        stopLoadingUi();
         if (!state.step) state.step = "sticker";
         renderScan();
       }
     } catch (e) {
       if (seq !== state.loadSeq) return;
-      main.innerHTML = `<div class="tsd-empty" style="color:#b91c1c">${esc(e.message || e)}</div>`;
+      stopLoadingUi();
+      const main = document.getElementById("tsdMain");
+      if (main) {
+        main.innerHTML = `<div class="tsd-empty" style="color:#b91c1c">${esc(e.message || e)}</div>`;
+      }
     }
   }
 
@@ -908,11 +1092,26 @@
         if (state.sourceId) localStorage.setItem(LS_SOURCE, String(state.sourceId));
         if (state.route.view !== "list") navigate("#/");
         else {
+          const seq = ++state.loadSeq;
           try {
+            showLoadingScreen({
+              title: "Поставки на сборке",
+              status: "Обновляем список для кабинета…",
+              stages: ["Список поставок"],
+            });
             await loadSupplies();
+            if (seq !== state.loadSeq) return;
+            stopLoadingUi();
             renderList();
           } catch (e) {
+            if (seq !== state.loadSeq) return;
+            stopLoadingUi();
             toast(e.message || e);
+            try {
+              renderList();
+            } catch (_err) {
+              /* ignore */
+            }
           }
         }
       });
