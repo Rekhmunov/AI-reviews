@@ -14514,7 +14514,15 @@ async function openSupplyStockMovementsModal(itemType, itemId) {
     if (pid) params.set("production_id", String(pid));
     const res = await fetch(`/api/supply-balances/movements?${params.toString()}`);
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.detail || "Ошибка загрузки");
+    if (!res.ok) {
+      const detail = data.detail;
+      const msg = typeof detail === "string"
+        ? detail
+        : (Array.isArray(detail)
+          ? detail.map((x) => (x && (x.msg || x.detail)) || x).join("; ")
+          : "Ошибка загрузки");
+      throw new Error(msg || "Ошибка загрузки");
+    }
     const name = String(data.name || "");
     const unit = String(data.unit || "шт");
     const balText = _sbQtyText(data.balance);
@@ -14530,7 +14538,9 @@ async function openSupplyStockMovementsModal(itemType, itemId) {
     if (list) {
       list.innerHTML = items.map((m) => {
         const qty = Number(m.qty);
-        const qtyClass = Number.isFinite(qty) && qty < 0 ? "is-neg" : "is-pos";
+        const qtyClass = !Number.isFinite(qty)
+          ? ""
+          : (qty < 0 ? "is-neg" : (qty > 0 ? "is-pos" : "is-zero"));
         const qtyText = Number.isFinite(qty)
           ? (qty > 0 ? `+${_sbQtyText(qty)}` : _sbQtyText(qty))
           : "—";
@@ -14549,8 +14559,14 @@ async function openSupplyStockMovementsModal(itemType, itemId) {
     }
   } catch (e) {
     if (lead) lead.textContent = "";
+    const rawDetail = e && e.message !== undefined ? e.message : e;
+    const errText = typeof rawDetail === "string"
+      ? rawDetail
+      : (rawDetail && typeof rawDetail === "object" && rawDetail.detail
+        ? String(rawDetail.detail)
+        : "Ошибка загрузки");
     if (list) {
-      list.innerHTML = `<div class="sb-doc-empty" style="color:#b91c1c">${esc(String(e.message || e))}</div>`;
+      list.innerHTML = `<div class="sb-doc-empty" style="color:#b91c1c">${esc(errText)}</div>`;
     }
   }
 }
