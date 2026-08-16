@@ -10318,7 +10318,14 @@ button.wb-fbs-kiz-add:disabled {
 .sb-table-panel {
   padding: 0;
   overflow: hidden;
-  border: 1px solid #e2e8f0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  backdrop-filter: none;
+}
+.sb-table-panel::before {
+  display: none;
 }
 .supply-balances-table-wrap {
   overflow: auto;
@@ -10376,7 +10383,7 @@ button.wb-fbs-kiz-add:disabled {
   left: 0;
   z-index: 3;
   background: #fff;
-  box-shadow: 1px 0 0 #e2e8f0;
+  box-shadow: none;
 }
 .supply-balances-table th.sb-col-name {
   z-index: 4;
@@ -10526,22 +10533,25 @@ button.wb-fbs-kiz-add:disabled {
   margin: 0;
   padding: 0;
   border: 0;
+  border-radius: 0;
   background: transparent;
+  box-shadow: none;
   text-align: left;
   cursor: pointer;
   color: inherit;
   font: inherit;
-  border-radius: 8px;
 }
 .supply-balances-table .sb-journal-open:hover {
-  background: rgba(37, 99, 235, 0.04);
+  background: transparent;
+  color: #1d4ed8;
 }
 .supply-balances-table .sb-journal-open:focus-visible {
   outline: 2px solid #93c5fd;
   outline-offset: 2px;
 }
 .supply-balances-table .sb-journal-open:active {
-  background: rgba(37, 99, 235, 0.08);
+  background: transparent;
+  color: #1e40af;
 }
 #section-supplies-balances #supplyBalancesBelowMinBtn.is-active,
 #section-supplies-balances #supplyBalancesHistoryBtn.is-active {
@@ -10637,7 +10647,7 @@ button.wb-fbs-kiz-add:disabled {
 }
 .supply-balances-table .sb-group-row td.sb-col-name {
   background: #f1f5f9;
-  box-shadow: 1px 0 0 #e2e8f0;
+  box-shadow: none;
 }
 .supply-balances-table .sb-empty-cell {
   text-align: center;
@@ -10885,7 +10895,9 @@ button.wb-fbs-kiz-add:disabled {
   .sb-production-field { width: 100%; }
   .sb-production-select { flex: 1; max-width: none; }
   .sb-table-panel {
-    border-radius: 12px;
+    border-radius: 0;
+    border: 0;
+    box-shadow: none;
   }
   .supply-balances-table-wrap {
     max-height: calc(100dvh - 340px);
