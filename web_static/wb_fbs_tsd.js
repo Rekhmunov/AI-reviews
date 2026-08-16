@@ -211,12 +211,18 @@
   function startLoadingRotate(steps, intervalMs) {
     const list = Array.isArray(steps) ? steps.filter(Boolean) : [];
     if (!list.length) return () => {};
+    const token = state.loadUi.token;
     let idx = 0;
     const first = list[0];
     setLoadingStatus(first.status || first, first.stage);
     if (list.length === 1) return () => {};
     const ms = Math.max(1200, Number(intervalMs) || 2200);
     state.loadUi.rotateTimer = setInterval(() => {
+      if (token !== state.loadUi.token) {
+        clearInterval(state.loadUi.rotateTimer);
+        state.loadUi.rotateTimer = null;
+        return;
+      }
       idx = (idx + 1) % list.length;
       const step = list[idx];
       setLoadingStatus(step.status || step, step.stage);
@@ -967,26 +973,53 @@
     state.route = parseHash();
     const seq = ++state.loadSeq;
     stopLoadingUi();
+
+    // Show destination loader immediately so the previous screen never lingers.
+    if (state.route.view === "hub") {
+      showLoadingScreen({
+        title: `Открываем ${supplyNameHint(state.route.supplyId)}`,
+        status: "Ищем поставку…",
+        stages: ["Открытие", "С маркировкой", "Без маркировки"],
+      });
+    } else if (state.route.view === "scan") {
+      if (state.route.mode === "kiz") {
+        showLoadingScreen({
+          title: "Товары с маркировкой",
+          status: "Загружаем заказы с КИЗ…",
+          stages: ["Заказы", "Готово к сканированию"],
+        });
+      } else {
+        showLoadingScreen({
+          title: "Товары без маркировки",
+          status: "Загружаем заказы для проверки ШК…",
+          stages: ["Заказы", "Готово к сканированию"],
+        });
+      }
+    } else {
+      showLoadingScreen({
+        title: "Поставки на сборке",
+        status: "Загружаем список поставок…",
+        stages: ["Список поставок"],
+      });
+    }
+
     try {
       if (!state.sources.length) {
-        showLoadingScreen({
-          title: "Подготовка ТСД",
-          status: "Загружаем кабинеты…",
-          stages: ["Кабинеты", "Поставки"],
-        });
+        setLoadingStatus("Загружаем кабинеты…", 0);
         await loadSources();
         if (seq !== state.loadSeq) return;
+        if (state.route.view === "list") {
+          setLoadingStatus("Загружаем список поставок…", 0);
+        } else if (state.route.view === "hub") {
+          setLoadingStatus("Ищем поставку…", 0);
+        }
       }
 
       if (state.route.view === "list") {
         state.pendingOrderId = null;
         state.step = "sticker";
         state.banner = null;
-        showLoadingScreen({
-          title: "Поставки на сборке",
-          status: "Загружаем список поставок…",
-          stages: ["Список поставок"],
-        });
+        setLoadingStatus("Загружаем список поставок…", 0);
         await loadSupplies();
         if (seq !== state.loadSeq) return;
         stopLoadingUi();
@@ -1006,12 +1039,6 @@
         state.step = "sticker";
         state.banner = null;
         const sid = state.route.supplyId;
-        const name = supplyNameHint(sid);
-        showLoadingScreen({
-          title: `Открываем ${name}`,
-          status: "Ищем поставку…",
-          stages: ["Открытие", "С маркировкой", "Без маркировки"],
-        });
         const stopRotate = startLoadingRotate(
           [
             { status: "Ищем поставку…", stage: 0 },
@@ -1033,11 +1060,6 @@
 
       if (state.route.view === "scan") {
         if (state.route.mode === "kiz") {
-          showLoadingScreen({
-            title: "Товары с маркировкой",
-            status: "Загружаем заказы с КИЗ…",
-            stages: ["Заказы", "Готово к сканированию"],
-          });
           const stopRotate = startLoadingRotate(
             [
               { status: "Загружаем заказы с КИЗ…", stage: 0 },
@@ -1051,11 +1073,6 @@
             stopRotate();
           }
         } else {
-          showLoadingScreen({
-            title: "Товары без маркировки",
-            status: "Загружаем заказы для проверки ШК…",
-            stages: ["Заказы", "Готово к сканированию"],
-          });
           const stopRotate = startLoadingRotate(
             [
               { status: "Загружаем заказы для проверки ШК…", stage: 0 },
