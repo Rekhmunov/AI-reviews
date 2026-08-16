@@ -15565,18 +15565,21 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         lim = max(1, min(lim, 200))
         name = ""
         unit = "шт"
+        found = False
         if itype == "material":
             for m in repository.list_feedback_materials(user_id=owner_id):
                 if int(m.get("id") or 0) == iid:
-                    name = str(m.get("name") or "")
+                    name = str(m.get("name") or "").strip() or f"Материал #{iid}"
                     unit = str(m.get("unit") or "шт")
+                    found = True
                     break
         else:
             for p in repository.list_product_photos(user_id=owner_id):
                 if int(p.get("id") or 0) == iid:
-                    name = str(p.get("name") or "")
+                    name = str(p.get("name") or "").strip() or f"Товар #{iid}"
+                    found = True
                     break
-        if not name:
+        if not found:
             raise HTTPException(status_code=404, detail="Позиция не найдена")
         bal_map = repository.sum_supply_stock_balances(
             user_id=owner_id, production_id=pid, as_of=_moscow_today()

@@ -10502,6 +10502,9 @@ button.wb-fbs-kiz-add:disabled {
 .sb-movements-qty.is-neg {
   color: #b91c1c;
 }
+.sb-movements-qty.is-zero {
+  color: #334155;
+}
 .supply-balances-table .sb-unit {
   color: #64748b;
   font-size: 14px;
