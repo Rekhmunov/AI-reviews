@@ -211,12 +211,18 @@
   function startLoadingRotate(steps, intervalMs) {
     const list = Array.isArray(steps) ? steps.filter(Boolean) : [];
     if (!list.length) return () => {};
+    const token = state.loadUi.token;
     let idx = 0;
     const first = list[0];
     setLoadingStatus(first.status || first, first.stage);
     if (list.length === 1) return () => {};
     const ms = Math.max(1200, Number(intervalMs) || 2200);
     state.loadUi.rotateTimer = setInterval(() => {
+      if (token !== state.loadUi.token) {
+        clearInterval(state.loadUi.rotateTimer);
+        state.loadUi.rotateTimer = null;
+        return;
+      }
       idx = (idx + 1) % list.length;
       const step = list[idx];
       setLoadingStatus(step.status || step, step.stage);
