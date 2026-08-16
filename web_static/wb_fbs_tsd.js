@@ -1082,6 +1082,52 @@
     scrollToScanInput();
   }
 
+  function applyOrderSearchEnter() {
+    if (state.route.view !== "scan" || !state.searchOpen) return;
+    const mode = state.route.mode;
+    const rows = mode === "kiz" ? state.kizRows : state.pickRows;
+    let raw = String(state.orderSearch || "").trim();
+    if (!raw) return;
+    if (hasCyrillic(raw)) {
+      const mapped = fixRuKeyboardLayout(raw);
+      if (hasCyrillic(mapped)) {
+        setBanner("Русская раскладка — переключите на EN", "warn");
+        beep(false);
+        return;
+      }
+      raw = mapped;
+      state.orderSearch = mapped;
+      const input = document.getElementById("tsdOrderSearch");
+      if (input) input.value = mapped;
+    }
+    const found = findBySticker(rows, raw);
+    if (found.ambiguous) {
+      setBanner("Стикер совпал у нескольких заказов — уточните поиск", "err");
+      beep(false);
+      refreshSearchResultsOnly();
+      return;
+    }
+    if (found.row) {
+      selectOrderFromSearch(found.row.order_id);
+      return;
+    }
+    const matched = filterOrdersBySearch(rows, raw);
+    if (matched.length === 1) {
+      selectOrderFromSearch(matched[0].order_id);
+      return;
+    }
+    if (!matched.length) {
+      setBanner("Ничего не найдено", "err");
+      beep(false);
+      refreshSearchResultsOnly();
+      return;
+    }
+    // Several matches — keep the list for a tap.
+    setBanner(`Найдено ${matched.length} — выберите заказ`, "info");
+    beep(true);
+    refreshSearchResultsOnly();
+  }
+
   function scrollToScanInput() {
     const target =
       document.getElementById("tsdScanInput") ||
@@ -1780,6 +1826,11 @@
         if (ev.key === "Escape") {
           ev.preventDefault();
           closeOrderSearch();
+          return;
+        }
+        if (ev.key === "Enter") {
+          ev.preventDefault();
+          applyOrderSearchEnter();
         }
       });
     }
