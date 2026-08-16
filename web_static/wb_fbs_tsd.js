@@ -475,12 +475,13 @@
     state.pickRows = Array.isArray(data.rows) ? data.rows.map((r) => ({ ...r })) : [];
   }
 
-  async function saveKizLocal(row) {
+  async function saveKizLocal(row, opts) {
     const params = new URLSearchParams({ source_id: String(state.sourceId) });
     const oid = Number(row.order_id);
     const codes = (Array.isArray(row.kiz_codes) ? row.kiz_codes : [])
       .map((c) => String(c || "").trim())
       .filter(Boolean);
+    const retrying = !!(opts && opts._retry);
     const data = await api(
       `/api/wb-fbs/tsd/supplies/${encodeURIComponent(state.route.supplyId)}/kiz?${params}`,
       {
@@ -494,7 +495,7 @@
               clear: !codes.length,
               local_only: true,
               expected_saved_at: String(row.kiz_saved_at || ""),
-              force: !!state.forceSaveByOrder[oid],
+              force: !!state.forceSaveByOrder[oid] || retrying,
             },
           ],
         }),
@@ -505,8 +506,10 @@
     if (!result) throw new Error("Сервер не вернул результат сохранения КИЗ");
     if (result.conflict) {
       row.kiz_saved_at = String(result.kiz_saved_at || row.kiz_saved_at || "");
-      if (Array.isArray(result.kiz_codes)) row.kiz_codes = result.kiz_codes.slice();
       state.forceSaveByOrder[oid] = true;
+      // Keep scanned codes and retry once — same operator / timezone false conflicts.
+      row.kiz_codes = codes.length ? codes.slice() : [""];
+      if (!retrying) return saveKizLocal(row, { _retry: true });
       throw new Error(
         result.error ||
           "Заказ уже сохранён другим оператором — проверьте КИЗ и повторите"
@@ -520,9 +523,12 @@
     return result;
   }
 
-  async function savePickLocal(row) {
+  async function savePickLocal(row, opts) {
     const params = new URLSearchParams({ source_id: String(state.sourceId) });
     const oid = Number(row.order_id);
+    const retrying = !!(opts && opts._retry);
+    const intendedVerified = !!row.pick_verified;
+    const intendedBarcode = String(row.pick_barcode || "").trim();
     const data = await api(
       `/api/wb-fbs/tsd/supplies/${encodeURIComponent(state.route.supplyId)}/pick-verify?${params}`,
       {
@@ -532,11 +538,11 @@
           items: [
             {
               order_id: oid,
-              pick_verified: !!row.pick_verified,
-              pick_barcode: String(row.pick_barcode || "").trim(),
+              pick_verified: intendedVerified,
+              pick_barcode: intendedBarcode,
               local_only: true,
               expected_verified_at: String(row.pick_verified_at || ""),
-              force: !!state.forceSaveByOrder[`pick:${oid}`],
+              force: !!state.forceSaveByOrder[`pick:${oid}`] || retrying,
             },
           ],
         }),
@@ -547,9 +553,10 @@
     if (!result) throw new Error("Сервер не вернул результат сохранения ШК");
     if (result.conflict) {
       row.pick_verified_at = String(result.pick_verified_at || row.pick_verified_at || "");
-      row.pick_verified = !!result.pick_verified;
-      row.pick_barcode = String(result.pick_barcode || row.pick_barcode || "");
       state.forceSaveByOrder[`pick:${oid}`] = true;
+      row.pick_verified = intendedVerified;
+      row.pick_barcode = intendedBarcode;
+      if (!retrying) return savePickLocal(row, { _retry: true });
       throw new Error(
         result.error ||
           "Заказ уже сохранён другим оператором — проверьте ШК и повторите"

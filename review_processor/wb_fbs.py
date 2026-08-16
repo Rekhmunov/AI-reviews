@@ -1131,14 +1131,30 @@ def _kiz_code_clean(value: object) -> str:
 
 
 def _normalize_kiz_saved_at(value: object) -> str:
+    """Canonical UTC timestamp token for optimistic concurrency compares.
+
+    PostgreSQL ``TIMESTAMPTZ`` round-trips often change the string form
+    (e.g. ``+00:00`` written, ``+03:00`` / MSK read back). Comparing raw
+    strings then falsely reports «another operator» for the same writer.
+    """
     if value is None:
         return ""
-    if hasattr(value, "isoformat"):
+    dt: datetime | None
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        text = str(value or "").strip()
+        if not text:
+            return ""
         try:
-            return str(value.isoformat())
+            dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
         except Exception:
-            return str(value)
-    return str(value or "").strip()
+            return text
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    else:
+        dt = dt.astimezone(UTC)
+    return dt.isoformat()
 
 
 def update_order_kiz_codes(
@@ -1162,7 +1178,7 @@ def update_order_kiz_codes(
     ensure_wb_fbs_tables(repo)
     codes = [_kiz_code_clean(x) for x in (kiz_codes or []) if _kiz_code_clean(x)]
     payload = json.dumps(codes, ensure_ascii=False)
-    saved_at = _utc_now()
+    saved_at = datetime.now(UTC)
     expected = _normalize_kiz_saved_at(expected_saved_at)
     with repo._connect() as conn:
         row = conn.execute(
@@ -1198,6 +1214,12 @@ def update_order_kiz_codes(
             and expected != cur_saved
             and cur_codes != codes
         ):
+            _log.info(
+                "kiz save conflict order_id=%s expected=%r current=%r",
+                order_id,
+                expected,
+                cur_saved,
+            )
             return {
                 "ok": False,
                 "conflict": True,
@@ -1598,7 +1620,7 @@ def update_order_pick_verify(
     ensure_wb_fbs_tables(repo)
     code = str(barcode or "").strip()
     is_ok = bool(verified) and bool(code)
-    saved_at = _utc_now()
+    saved_at = datetime.now(UTC)
     expected = _normalize_kiz_saved_at(expected_verified_at)
     with repo._connect() as conn:
         row = conn.execute(
@@ -1637,6 +1659,12 @@ def update_order_pick_verify(
             and expected != cur_saved
             and (cur_verified != new_verified or cur_barcode != new_barcode)
         ):
+            _log.info(
+                "pick-verify conflict order_id=%s expected=%r current=%r",
+                order_id,
+                expected,
+                cur_saved,
+            )
             return {
                 "ok": False,
                 "conflict": True,

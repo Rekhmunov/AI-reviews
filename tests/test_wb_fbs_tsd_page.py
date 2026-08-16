@@ -90,6 +90,7 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     assert 'title: "Товары без маркировки"' in js
     assert "Готовим сканирование…" not in js
     assert "Готово к сканированию" not in js
+    assert "opts._retry" in js or "_retry: true" in js
 
 
 def test_web_py_tsd_summary_matches_scan_without_full_payloads() -> None:
