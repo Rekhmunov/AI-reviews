@@ -105,8 +105,12 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     assert "hasPendingKizPush" in js
     assert "rowNeedsKizWbClear" in js
     assert "removeSessionScanned" in js
-    assert "убран из списка" in js or "убран из просканированных" in js
+    assert "убран из списка" in js
     assert "kizHubToneSupplyId" in js
+    # First × on a filled KIZ must dismiss the row (not leave «—» via noteSessionScanned).
+    clear_body = js.split("async function clearKizCodes", 1)[1].split("function syncSourceSelectVisibility", 1)[0]
+    assert "removeSessionScanned(oid)" in clear_body
+    assert "noteSessionScanned(oid)" not in clear_body
     assert "clear: true" in js
     assert "refreshHubKizStatus" in js
     assert "/kiz/status" in js
