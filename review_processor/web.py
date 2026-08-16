@@ -15127,6 +15127,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         }
         materials = repository.list_feedback_materials(user_id=owner_id)
         products = repository.list_product_photos(user_id=owner_id)
+        fbs_barcodes = repository.get_wb_fbs_barcodes_by_product_id(user_id=owner_id)
         material_rows: list[dict[str, object]] = []
         product_rows: list[dict[str, object]] = []
         for m in materials:
@@ -15163,8 +15164,15 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             article = str(p.get("supplier_article") or "").strip()
             wb_nmid = str(p.get("wb_nmid") or "").strip()
             ozon_sku = str(p.get("ozon_sku") or "").strip()
-            # Catalog has no separate barcode field — show seller article as ШК.
-            barcodes = [x for x in (article, ozon_sku) if x]
+            # ШК as in поставки: from FBS order skus; ozon_sku as extra if present.
+            # Do not put seller article into barcodes — it is shown as «Арт.» separately.
+            barcodes: list[str] = []
+            for b in fbs_barcodes.get(pid_item) or []:
+                text = str(b or "").strip()
+                if text and text != article and text not in barcodes:
+                    barcodes.append(text)
+            if ozon_sku and ozon_sku != article and ozon_sku not in barcodes:
+                barcodes.append(ozon_sku)
             product_rows.append(
                 {
                     "item_type": "product",
