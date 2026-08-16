@@ -1041,11 +1041,10 @@
         const sid = state.route.supplyId;
         const stopRotate = startLoadingRotate(
           [
-            { status: "Ищем поставку…", stage: 0 },
-            { status: "Считаем товары с маркировкой…", stage: 1 },
-            { status: "Считаем товары без маркировки…", stage: 2 },
+            { status: "Открываем поставку…", stage: 0 },
+            { status: "Считаем прогресс…", stage: 1 },
           ],
-          2200
+          1800
         );
         try {
           await loadSummary(sid);

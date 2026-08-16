@@ -1135,6 +1135,89 @@ def _kiz_required_from_raw(raw: dict[str, Any]) -> bool:
     return False
 
 
+def build_tsd_hub_progress_from_local(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+) -> dict[str, Any]:
+    """TSD hub KIZ/pick counters from local DB only (no WB Marketplace/Content).
+
+    Used only by ``GET /api/wb-fbs/tsd/supplies/{id}/summary``. Classification
+    mirrors ``_fetch_kiz_map`` fallback: ``sgtin`` in order ``raw_json``
+    requiredMeta/optionalMeta. Done counts use local drafts
+    (``kiz_codes_json`` / ``pick_verified`` + ``pick_barcode``).
+
+    Exact row lists for scanning still come from ``build_kiz_marking_payload`` /
+    ``build_pick_verify_payload`` when the operator opens a mode.
+    """
+    sid = str(supply_id or "").strip()
+    if not sid:
+        return {
+            "kiz": {"total": 0, "done": 0},
+            "pick": {"total": 0, "done": 0},
+            "order_count": 0,
+        }
+    wb.ensure_wb_fbs_tables(repo)
+    kiz_total = 0
+    kiz_done = 0
+    pick_total = 0
+    pick_done = 0
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                """
+                SELECT order_id, raw_json, kiz_codes_json, pick_verified, pick_barcode
+                FROM wb_fbs_orders
+                WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                """
+            ),
+            (int(user_id), int(source_id), sid),
+        ).fetchall()
+    for row in rows:
+        raw: dict[str, Any] = {}
+        try:
+            parsed = json.loads(row["raw_json"] or "{}")
+            if isinstance(parsed, dict):
+                raw = parsed
+        except Exception:
+            raw = {}
+        required = _kiz_required_from_raw(raw)
+        if required:
+            kiz_total += 1
+            codes: list[str] = []
+            try:
+                parsed_codes = json.loads(row["kiz_codes_json"] or "[]")
+                if isinstance(parsed_codes, list):
+                    codes = [
+                        wb._kiz_code_clean(x)
+                        for x in parsed_codes
+                        if wb._kiz_code_clean(x)
+                    ]
+            except Exception:
+                codes = []
+            if codes:
+                kiz_done += 1
+        else:
+            pick_total += 1
+            try:
+                verified = bool(row["pick_verified"])
+            except (KeyError, IndexError, TypeError):
+                verified = False
+            try:
+                barcode = str(row["pick_barcode"] or "").strip()
+            except (KeyError, IndexError, TypeError):
+                barcode = ""
+            if verified and barcode:
+                pick_done += 1
+    return {
+        "kiz": {"total": kiz_total, "done": kiz_done},
+        "pick": {"total": pick_total, "done": pick_done},
+        "order_count": kiz_total + pick_total,
+    }
+
+
 def _fetch_kiz_map(
     client: wb.WbFbsClient,
     orders: list[dict[str, Any]],

@@ -55,6 +55,7 @@ def test_web_py_has_tsd_routes_and_builder() -> None:
     assert "/api/wb-fbs/tsd/sources" in src
     assert "/api/wb-fbs/tsd/supplies/{supply_id}/kiz" in src
     assert "/api/wb-fbs/tsd/supplies/{supply_id}/pick-verify" in src
+    assert "/api/wb-fbs/tsd/supplies/{supply_id}/summary" in src
     assert "def _can_view_wb_fbs_tsd" in src
     assert re.search(r'CAN_VIEW_WB_FBS_TSD["\']:\s*"true" if can_view_wb_fbs_tsd', src)
 
@@ -72,9 +73,21 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     assert "fixRuKeyboardLayout" in js
 
 
+def test_web_py_tsd_summary_is_local_only() -> None:
+    src = WEB_PY.read_text(encoding="utf-8")
+    # Isolate the TSD summary handler body between its decorator and next TSD kiz route.
+    start = src.find("def wb_fbs_tsd_supply_summary(")
+    end = src.find("def wb_fbs_tsd_kiz_list(")
+    assert start > 0 and end > start
+    body = src[start:end]
+    assert "build_tsd_hub_progress_from_local" in body
+    assert "wb_detail.build_kiz_marking_payload" not in body
+    assert "wb_detail.build_pick_verify_payload" not in body
+
+
 def test_web_py_tsd_kiz_forces_local_only() -> None:
     src = WEB_PY.read_text(encoding="utf-8")
     # TSD KIZ save must force local_only (no WB push for warehouse role).
     assert 'row["local_only"] = True' in src or "row['local_only'] = True" in src
-    assert 'base["kiz_error"]' in src or 'base["kiz_error"] =' in src
     assert "nav-wb-fbs-tsd" in src
+    assert "build_tsd_hub_progress_from_local" in src

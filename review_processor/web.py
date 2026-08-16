@@ -9408,7 +9408,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         supply_id: str,
         source_id: int,
     ) -> dict[str, object]:
-        """Hub card: name/QR/orders/warehouse + KIZ/pick progress."""
+        """Hub card: name/QR/orders/warehouse + KIZ/pick progress (local DB)."""
         from . import wb_fbs_detail as wb_detail
 
         user = _require_user(request)
@@ -9420,7 +9420,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         sid = str(supply_id or "").strip()
         if not sid:
             raise HTTPException(status_code=400, detail="Укажите supply_id")
-        api_key = _wb_fbs_source_key(owner_id, int(source_id))
+        # Validate FBS source exists; hub itself is DB-only (no WB API key use).
+        _wb_fbs_source_key(owner_id, int(source_id))
         # Prefer exact supply_id match (search is ILIKE and can paginate away).
         assembly = wb_fbs_mod.list_assembly_supplies(
             repository,
@@ -9456,65 +9457,35 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 ),
                 None,
             )
-        kiz_error = ""
-        pick_error = ""
-        try:
-            kiz_payload = wb_detail.build_kiz_marking_payload(
-                repository,
-                user_id=owner_id,
-                source_id=int(source_id),
-                api_key=api_key,
-                supply_id=sid,
-            )
-        except Exception as exc:
-            _log.warning("tsd kiz summary failed: %s", exc)
-            kiz_payload = {"rows": []}
-            kiz_error = str(exc) or "Не удалось загрузить маркировку"
-        try:
-            pick_payload = wb_detail.build_pick_verify_payload(
-                repository,
-                user_id=owner_id,
-                source_id=int(source_id),
-                api_key=api_key,
-                supply_id=sid,
-            )
-        except Exception as exc:
-            _log.warning("tsd pick summary failed: %s", exc)
-            pick_payload = {"rows": []}
-            pick_error = str(exc) or "Не удалось загрузить проверку ШК"
-        kiz_rows = kiz_payload.get("rows") if isinstance(kiz_payload, dict) else []
-        pick_rows = pick_payload.get("rows") if isinstance(pick_payload, dict) else []
-        if not isinstance(kiz_rows, list):
-            kiz_rows = []
-        if not isinstance(pick_rows, list):
-            pick_rows = []
-
-        def _kiz_done(r: dict) -> bool:
-            codes = r.get("kiz_codes") if isinstance(r, dict) else None
-            if not isinstance(codes, list):
-                return False
-            return any(str(c or "").strip() for c in codes)
-
-        def _pick_done(r: dict) -> bool:
-            return bool(
-                isinstance(r, dict)
-                and r.get("pick_verified")
-                and str(r.get("pick_barcode") or "").strip()
-            )
-
-        kiz_total = len(kiz_rows)
-        kiz_done = sum(1 for r in kiz_rows if _kiz_done(r))
-        pick_total = len(pick_rows)
-        pick_done = sum(1 for r in pick_rows if _pick_done(r))
+        # Hub needs only metadata + progress counters. Do NOT call
+        # build_kiz_marking_payload / build_pick_verify_payload here — those
+        # hit WB Marketplace + Content and made opening a supply ~30s.
+        # Full payloads load when the operator opens KIZ / pick scan modes.
+        progress = wb_detail.build_tsd_hub_progress_from_local(
+            repository,
+            user_id=owner_id,
+            source_id=int(source_id),
+            supply_id=sid,
+        )
+        kiz = progress.get("kiz") if isinstance(progress, dict) else None
+        pick = progress.get("pick") if isinstance(progress, dict) else None
+        if not isinstance(kiz, dict):
+            kiz = {"total": 0, "done": 0}
+        if not isinstance(pick, dict):
+            pick = {"total": 0, "done": 0}
         base = dict(supply_row or {})
         base.setdefault("supply_id", sid)
         base.setdefault("source_id", int(source_id))
-        base["kiz"] = {"total": kiz_total, "done": kiz_done}
-        base["pick"] = {"total": pick_total, "done": pick_done}
-        if kiz_error:
-            base["kiz_error"] = kiz_error
-        if pick_error:
-            base["pick_error"] = pick_error
+        if not base.get("order_count"):
+            base["order_count"] = int(progress.get("order_count") or 0)
+        base["kiz"] = {
+            "total": int(kiz.get("total") or 0),
+            "done": int(kiz.get("done") or 0),
+        }
+        base["pick"] = {
+            "total": int(pick.get("total") or 0),
+            "done": int(pick.get("done") or 0),
+        }
         return base
 
     @app.get("/api/wb-fbs/tsd/supplies/{supply_id}/kiz")
