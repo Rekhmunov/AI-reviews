@@ -1139,11 +1139,6 @@
             ${saveDisabled ? "disabled" : ""}>${esc(
               state.saving ? "Сохранение…" : saveLabel
             )}</button>
-          ${
-            mode === "kiz"
-              ? ""
-              : `<p class="tsd-save-hint">Скан пишет ШК локально. «Сохранить» фиксирует проверку в системе.</p>`
-          }
         </div>
         ${renderScannedListHtml(mode)}
       </div>`;

@@ -82,6 +82,7 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     assert 'data-action="clear-kiz-all"' in js
     assert 'data-action="clear-kiz-code"' in js
     assert "Скан пишет КИЗ локально" not in js
+    assert "Скан пишет ШК локально" not in js
     assert "Для 2-го КИЗ снова сканируйте стикер" in js
     assert "Этот КИЗ уже в этом заказе" in js
 
