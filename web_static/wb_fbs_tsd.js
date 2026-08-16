@@ -170,8 +170,9 @@
     stopLoadingUi();
     const token = state.loadUi.token;
     const title = String((opts && opts.title) || "Загрузка");
-    const status = String((opts && opts.status) || "Подождите…");
-    const stages = Array.isArray(opts && opts.stages) ? opts.stages : [];
+    const simple = !!(opts && opts.simple);
+    const status = simple ? "" : String((opts && opts.status) || "Подождите…");
+    const stages = simple ? [] : Array.isArray(opts && opts.stages) ? opts.stages : [];
     const main = document.getElementById("tsdMain");
     if (!main) return token;
     const stagesHtml = stages.length
@@ -184,15 +185,19 @@
             .join("")}
         </ol>`
       : "";
-    main.innerHTML = `
-      <div class="tsd-loading-screen" role="status" aria-live="polite">
-        <div class="tsd-load-spinner" aria-hidden="true"></div>
-        <div class="tsd-load-title">${esc(title)}</div>
-        <div class="tsd-load-status" id="tsdLoadStatus">${esc(status)}</div>
+    const detailsHtml = simple
+      ? ""
+      : `<div class="tsd-load-status" id="tsdLoadStatus">${esc(status)}</div>
         ${stagesHtml}
         <div class="tsd-load-elapsed" id="tsdLoadElapsed" hidden></div>
-        <div class="tsd-load-hint" id="tsdLoadHint" hidden>Ещё загружаем, не уходите</div>
+        <div class="tsd-load-hint" id="tsdLoadHint" hidden>Ещё загружаем, не уходите</div>`;
+    main.innerHTML = `
+      <div class="tsd-loading-screen${simple ? " is-simple" : ""}" role="status" aria-live="polite">
+        <div class="tsd-load-spinner" aria-hidden="true"></div>
+        <div class="tsd-load-title">${esc(title)}</div>
+        ${detailsHtml}
       </div>`;
+    if (simple) return token;
     state.loadUi.startedAt = Date.now();
     state.loadUi.hintTimer = setTimeout(() => {
       if (token !== state.loadUi.token) return;
@@ -1360,14 +1365,12 @@
       if (state.route.mode === "kiz") {
         showLoadingScreen({
           title: "Товары с маркировкой",
-          status: "Загружаем заказы с КИЗ…",
-          stages: ["Заказы", "Готово к сканированию"],
+          simple: true,
         });
       } else {
         showLoadingScreen({
           title: "Товары без маркировки",
-          status: "Загружаем заказы для проверки ШК…",
-          stages: ["Заказы", "Готово к сканированию"],
+          simple: true,
         });
       }
     } else {
@@ -1437,31 +1440,9 @@
         state.step = "sticker";
         state.sessionScannedIds = [];
         if (state.route.mode === "kiz") {
-          const stopRotate = startLoadingRotate(
-            [
-              { status: "Загружаем заказы с КИЗ…", stage: 0 },
-              { status: "Готовим сканирование…", stage: 1 },
-            ],
-            2400
-          );
-          try {
-            await loadKiz(state.route.supplyId);
-          } finally {
-            stopRotate();
-          }
+          await loadKiz(state.route.supplyId);
         } else {
-          const stopRotate = startLoadingRotate(
-            [
-              { status: "Загружаем заказы для проверки ШК…", stage: 0 },
-              { status: "Готовим сканирование…", stage: 1 },
-            ],
-            2400
-          );
-          try {
-            await loadPick(state.route.supplyId);
-          } finally {
-            stopRotate();
-          }
+          await loadPick(state.route.supplyId);
         }
         if (seq !== state.loadSeq) return;
         stopLoadingUi();
