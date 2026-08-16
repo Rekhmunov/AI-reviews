@@ -2725,6 +2725,9 @@
                      style="width:140px" oninput="onSupplyBalancesSearchInput()" />
               <span id="supplyBalancesFilterCount" class="small supplies-filter-count" hidden></span>
               <button type="button" class="secondary icon-btn" onclick="openSupplyBalancesVisibilityModal()" title="Вывод в таблице" aria-label="Вывод в таблице">👁</button>
+              <button type="button" class="secondary" id="supplyBalancesHistoryBtn"
+                      onclick="toggleSupplyBalancesHistory()" aria-pressed="false"
+                      title="Показать колонки по датам движений">История дат</button>
               <button type="button" class="secondary" onclick="openSupplyStockAsOfModal()">Сформировать на дату</button>
               <button type="button" class="secondary" onclick="openSupplyStockAdjustmentModal()">Корректировка</button>
               <button type="button" id="supplyBalancesReceiptBtn" onclick="openSupplyStockReceiptModal()">Добавить на склад</button>
@@ -5057,6 +5060,6 @@
       </div>
     </div>
   </div>
-  <script src="/static/app.js?v=489"></script>
+  <script src="/static/app.js?v=490"></script>
 </body>
 </html>
