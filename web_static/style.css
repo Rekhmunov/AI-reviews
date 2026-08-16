@@ -10345,11 +10345,11 @@ button.wb-fbs-kiz-add:disabled {
 .supply-balances-table .sb-col-name .wb-fbs-product {
   max-width: 100%;
 }
-/* Арт. / ШК — тот же шрифт, что у названия товара (только Остатки) */
+/* Арт. / ШК — тот же размер, что у названия, но не жирный (только Остатки) */
 .supply-balances-table .sb-col-name .wb-fbs-product-sub,
 .supply-balances-table .sb-col-name .wb-fbs-barcode {
   font-size: 16px;
-  font-weight: 600;
+  font-weight: 400;
   line-height: 1.35;
   color: #0f172a;
   letter-spacing: normal;
