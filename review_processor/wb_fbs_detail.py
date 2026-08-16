@@ -1973,10 +1973,7 @@ def build_kiz_marking_payload(
         else:
             codes = [""]
         saved_at_raw = local.get("saved_at")
-        if hasattr(saved_at_raw, "isoformat"):
-            kiz_saved_at = saved_at_raw.isoformat()
-        else:
-            kiz_saved_at = str(saved_at_raw or "").strip()
+        kiz_saved_at = wb._normalize_kiz_saved_at(saved_at_raw)
         try:
             nm = int(o.get("nm_id"))
         except (TypeError, ValueError):
