@@ -1427,7 +1427,11 @@
         <div class="tsd-scan-card" id="tsdScanCard">
           <div class="tsd-scan-step">Шаг 1</div>
           <p class="tsd-scan-prompt">Сканируйте стикер заказа</p>
-          <input class="tsd-scan-input" id="tsdScanInput" type="text" autocomplete="off" inputmode="none" />
+          <div class="tsd-scan-field">
+            <input class="tsd-scan-input" id="tsdScanInput" type="text" autocomplete="off" inputmode="none" />
+            <button type="button" class="tsd-scan-clear" id="tsdScanClear" hidden
+              aria-label="Очистить поле" title="Очистить">×</button>
+          </div>
         </div>`;
     } else {
       const photo = pending.product_photo
@@ -1455,7 +1459,11 @@
           <p class="tsd-scan-prompt">${prompt}</p>
           ${multiHint}
           <div class="tsd-scan-context">Заказ ${esc(pending.order_id)} · стикер ${esc(pending.sticker_number || "—")}</div>
-          <input class="tsd-scan-input" id="tsdScanInput" type="text" autocomplete="off" inputmode="none" />
+          <div class="tsd-scan-field">
+            <input class="tsd-scan-input" id="tsdScanInput" type="text" autocomplete="off" inputmode="none" />
+            <button type="button" class="tsd-scan-clear" id="tsdScanClear" hidden
+              aria-label="Очистить поле" title="Очистить">×</button>
+          </div>
           <div class="tsd-product">${photo}<div>
             <div class="tsd-product-name">${esc(pending.product_name || pending.article || "—")}</div>
             <div class="tsd-product-sub">${esc([pending.brand, pending.article].filter(Boolean).join(" · "))}</div>
@@ -1493,10 +1501,16 @@
       </div>`;
 
     const input = document.getElementById("tsdScanInput");
+    const clearBtn = document.getElementById("tsdScanClear");
+    const syncScanClearBtn = () => {
+      if (!clearBtn || !input) return;
+      clearBtn.hidden = !String(input.value || "").length;
+    };
     if (input && !keepSearchFocus && !state.searchOpen) {
       setTimeout(() => input.focus(), 40);
     }
     if (input) {
+      syncScanClearBtn();
       input.addEventListener("keydown", (ev) => {
         if (ev.key === "Enter") {
           ev.preventDefault();
@@ -1505,6 +1519,7 @@
       });
       // Do not remount on Cyrillic mid-scan — only banner hint; Enter applies layout map.
       input.addEventListener("input", () => {
+        syncScanClearBtn();
         if (hasCyrillic(input.value)) {
           const el = document.querySelector(".tsd-banner");
           if (!el) {
@@ -1517,6 +1532,13 @@
             }
           }
         }
+      });
+    }
+    if (clearBtn && input) {
+      clearBtn.addEventListener("click", () => {
+        input.value = "";
+        syncScanClearBtn();
+        input.focus();
       });
     }
     const cancel = document.getElementById("tsdCancelStep");
