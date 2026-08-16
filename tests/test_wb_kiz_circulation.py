@@ -130,6 +130,11 @@ def test_build_lk_receipt_and_return() -> None:
         products=[{"cis": "01046"}],
     )
     assert ret["return_type"] == "REMOTE_SALE_RETURN"
+    assert ret["trade_participant_inn"] == "7707083893"
+    assert "inn" not in ret
+    assert ret["paid"] is False
+    assert ret["products_list"] == [{"ki": "01046"}]
+    assert "products" not in ret
 
 
 def test_chz_client_base_urls() -> None:
@@ -911,7 +916,13 @@ def test_prepare_soft_skips_withdraw_without_kpp_keeps_returns(
     out = circ.prepare_chz_batches(repo=object(), user_id=1, source_id=2)
     assert out["counts"]["withdraw_events"] == 0
     assert out["counts"]["return_events"] == 1
-    assert any(d["doc_type"] == "LP_RETURN" for d in out["documents"])
+    returns = [d for d in out["documents"] if d["doc_type"] == "LP_RETURN"]
+    assert len(returns) == 1
+    body = returns[0]["product_document"]
+    assert body["trade_participant_inn"] == "7707083893"
+    assert body["products_list"] == [{"ki": "cis-r"}]
+    assert body["paid"] is False
+    assert "inn" not in body
     assert out["warnings"]
     assert "юр. лица" in out["warnings"][0]
     assert not any(d["doc_type"] == "LK_RECEIPT" for d in out["documents"])

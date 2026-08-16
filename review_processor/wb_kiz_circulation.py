@@ -5791,14 +5791,18 @@ def prepare_chz_batches(
             if not product:
                 bad_cis_n += 1
                 continue
-            products.append({"cis": product["cis"]})
+            # True API LP_RETURN uses products_list[].ki (cis alias accepted
+            # inside build_lp_return_document).
+            products.append({"ki": product["cis"]})
             keys_ok.append(str(e.get("event_key") or ""))
         if not products:
             continue
+        # Analytics op=2 = отказ/возврат на ПВЗ → unpaid remote return.
         doc_body = build_lp_return_document(
             inn=inn,
             return_type=str(settings.get("return_type") or "REMOTE_SALE_RETURN"),
             products=products,
+            paid=False,
         )
         suffix = f" · часть {part_idx}" if len(return_items) > CHZ_PRODUCTS_PER_DOC else ""
         documents.append(

@@ -383,10 +383,39 @@ def build_lp_return_document(
     inn: str,
     return_type: str = "REMOTE_SALE_RETURN",
     products: list[dict[str, Any]],
+    paid: bool | None = None,
 ) -> dict[str, Any]:
-    """Build product_document JSON for return to circulation (LP_RETURN)."""
-    return {
-        "inn": str(inn or "").strip(),
-        "return_type": str(return_type or "REMOTE_SALE_RETURN").strip(),
-        "products": products,
+    """Build product_document JSON for return to circulation (LP_RETURN).
+
+    True API schema (MANUAL): ``trade_participant_inn``, ``return_type``,
+    ``products_list`` with ``ki`` — not the LK_RECEIPT-style ``inn`` /
+    ``products`` / ``cis`` fields. Missing ``trade_participant_inn`` yields
+    ``LP_RETURN_ERROR 01: Не заполнено поле "ИНН участника оборота"``.
+    """
+    ret_type = str(return_type or "REMOTE_SALE_RETURN").strip() or "REMOTE_SALE_RETURN"
+    products_list: list[dict[str, Any]] = []
+    for raw in products or []:
+        if not isinstance(raw, dict):
+            continue
+        ki = str(
+            raw.get("ki") or raw.get("cis") or raw.get("uit_code") or ""
+        ).strip()
+        if not ki:
+            continue
+        item: dict[str, Any] = {"ki": ki}
+        if "paid" in raw and raw.get("paid") is not None:
+            item["paid"] = bool(raw.get("paid"))
+        products_list.append(item)
+    doc: dict[str, Any] = {
+        "trade_participant_inn": str(inn or "").strip(),
+        "return_type": ret_type,
+        "products_list": products_list,
     }
+    # REMOTE_SALE_RETURN requires ``paid`` at document or product level.
+    # PVZ refusal / unpaid remote return → false; paid buyer return needs true
+    # (+ primary document fields — caller must supply those separately).
+    if paid is not None:
+        doc["paid"] = bool(paid)
+    elif ret_type == "REMOTE_SALE_RETURN":
+        doc["paid"] = False
+    return doc
