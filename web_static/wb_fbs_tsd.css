@@ -129,6 +129,10 @@ html, body {
   color: var(--tsd-accent);
 }
 
+.tsd-icon-btn[hidden] {
+  display: none !important;
+}
+
 .tsd-filter-wrap {
   position: relative;
   flex: 0 0 auto;
