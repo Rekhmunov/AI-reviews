@@ -120,6 +120,11 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     assert 'id="tsdOrderSearch"' in html
     assert 'id="tsdScrollTop"' in html
     assert "openOrderSearch" in js
+    assert "openHeaderSearch" in js
+    assert "applyListSearchFromHeader" in js
+    assert 'id="tsdSearch"' not in js
+    assert "Поиск поставки…" in js
+    assert 'view === "list"' in js or "view === \"list\"" in js
     assert "filterOrdersBySearch" in js
     assert "scrollToScanInput" in js
     assert "syncScrollTopFab" in js

@@ -505,24 +505,6 @@ html, body {
   }
 }
 
-.tsd-search {
-  width: 100%;
-  height: var(--tsd-tap);
-  border-radius: 14px;
-  border: 1px solid var(--tsd-line);
-  background: var(--tsd-surface);
-  padding: 0 16px;
-  font: inherit;
-  font-size: 16px;
-  margin-bottom: 12px;
-}
-
-.tsd-search:focus {
-  outline: 2px solid var(--tsd-accent);
-  outline-offset: 1px;
-  border-color: var(--tsd-accent);
-}
-
 .tsd-list {
   display: flex;
   flex-direction: column;
