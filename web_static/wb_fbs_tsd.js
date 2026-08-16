@@ -1045,38 +1045,79 @@
     const filterBtn = document.getElementById("tsdFilterBtn");
     const filterMenu = document.getElementById("tsdFilterMenu");
     const errorsLabel = document.getElementById("tsdFilterErrorsLabel");
-    const onScan = !!boot.can_view_wb_fbs_tsd && state.route.view === "scan";
+    const view = state.route.view;
+    const onList = !!boot.can_view_wb_fbs_tsd && view === "list";
+    const onScan = !!boot.can_view_wb_fbs_tsd && view === "scan";
+    const searchOk = onList || onScan;
     const mode = state.route.mode;
+
     if (btn) {
-      btn.hidden = !onScan;
-      btn.setAttribute("aria-expanded", state.searchOpen && onScan ? "true" : "false");
-      btn.classList.toggle("is-active", !!(state.searchOpen && onScan));
+      btn.hidden = !searchOk;
+      btn.setAttribute("aria-expanded", state.searchOpen && searchOk ? "true" : "false");
+      btn.classList.toggle("is-active", !!(state.searchOpen && searchOk));
+      btn.setAttribute(
+        "aria-label",
+        onList ? "Поиск поставок" : "Поиск заказов"
+      );
+      btn.title = onList ? "Поиск поставок" : "Поиск";
     }
     if (filterWrap) filterWrap.hidden = !onScan;
-    if (!onScan) {
+
+    if (!searchOk) {
       state.searchOpen = false;
+      if (panel) panel.hidden = true;
+    } else if (panel) {
+      panel.hidden = !state.searchOpen;
+    }
+
+    if (!onScan) {
       state.filterOpen = false;
       state.orderSearch = "";
       state.filters = { filled: false, empty: false, errors: false, cancelled: false };
-      if (panel) panel.hidden = true;
-      if (input) input.value = "";
       if (filterMenu) filterMenu.hidden = true;
-      if (filterBtn) filterBtn.setAttribute("aria-expanded", "false");
+      if (filterBtn) {
+        filterBtn.setAttribute("aria-expanded", "false");
+        filterBtn.classList.remove("is-active");
+      }
       syncFilterInputsFromState();
-      return;
     }
-    if (panel) panel.hidden = !state.searchOpen;
-    if (input && state.searchOpen && String(input.value || "") !== String(state.orderSearch || "")) {
-      input.value = state.orderSearch || "";
+
+    if (!onList) {
+      state.search = "";
     }
-    if (errorsLabel) errorsLabel.hidden = mode !== "kiz";
-    if (mode !== "kiz" && state.filters.errors) state.filters.errors = false;
-    if (filterBtn) {
-      filterBtn.setAttribute("aria-expanded", state.filterOpen ? "true" : "false");
-      filterBtn.classList.toggle("is-active", state.filterOpen || hasActiveFilters());
+
+    if (input) {
+      if (onList) {
+        input.placeholder = "Поиск поставки…";
+        if (state.searchOpen) {
+          const want = state.search || "";
+          if (String(input.value || "") !== want) input.value = want;
+        } else {
+          input.value = "";
+        }
+      } else if (onScan) {
+        input.placeholder = "Стикер, заказ, ШК, артикул, название…";
+        if (state.searchOpen) {
+          const want = state.orderSearch || "";
+          if (String(input.value || "") !== want) input.value = want;
+        } else {
+          input.value = "";
+        }
+      } else {
+        input.value = "";
+      }
     }
-    if (filterMenu) filterMenu.hidden = !state.filterOpen;
-    syncFilterInputsFromState();
+
+    if (onScan) {
+      if (errorsLabel) errorsLabel.hidden = mode !== "kiz";
+      if (mode !== "kiz" && state.filters.errors) state.filters.errors = false;
+      if (filterBtn) {
+        filterBtn.setAttribute("aria-expanded", state.filterOpen ? "true" : "false");
+        filterBtn.classList.toggle("is-active", state.filterOpen || hasActiveFilters());
+      }
+      if (filterMenu) filterMenu.hidden = !state.filterOpen;
+      syncFilterInputsFromState();
+    }
   }
 
   function syncFilterInputsFromState() {
@@ -1098,11 +1139,11 @@
   function rowHasKizError(row) {
     const oid = Number(row && row.order_id);
     if (oid && state.rowErrors[oid]) return true;
-    return String(row && row.kiz_status || "") === "error";
+    return String((row && row.kiz_status) || "") === "error";
   }
 
   function rowIsCancelled(row) {
-    return !!String(row && row.cancel_reason_label || "").trim();
+    return !!String((row && row.cancel_reason_label) || "").trim();
   }
 
   function applyOrderFilters(rows, mode) {
@@ -1128,8 +1169,9 @@
     state.filters = { filled: false, empty: false, errors: false, cancelled: false };
   }
 
-  function openOrderSearch() {
-    if (state.route.view !== "scan") return;
+  function openHeaderSearch() {
+    const view = state.route.view;
+    if (view !== "list" && view !== "scan") return;
     state.searchOpen = true;
     syncSearchChrome();
     const input = document.getElementById("tsdOrderSearch");
@@ -1139,16 +1181,36 @@
         input.select();
       }, 40);
     }
-    renderScan({ keepSearchFocus: true });
+    if (view === "scan") renderScan({ keepSearchFocus: true });
   }
 
-  function closeOrderSearch() {
+  function closeHeaderSearch() {
+    const view = state.route.view;
+    const hadListSearch = view === "list" && !!String(state.search || "").trim();
     state.searchOpen = false;
-    state.orderSearch = "";
+    if (view === "list") state.search = "";
+    if (view === "scan") state.orderSearch = "";
     syncSearchChrome();
     const input = document.getElementById("tsdOrderSearch");
     if (input) input.value = "";
-    if (state.route.view === "scan") renderScan();
+    if (view === "scan") {
+      renderScan();
+      return;
+    }
+    if (view === "list" && hadListSearch) {
+      loadSupplies()
+        .then(() => renderList())
+        .catch((e) => toast(e.message || e));
+    }
+  }
+
+  // Back-compat aliases used by older call sites / tests.
+  function openOrderSearch() {
+    openHeaderSearch();
+  }
+
+  function closeOrderSearch() {
+    closeHeaderSearch();
   }
 
   function closeFilterMenu() {
@@ -1466,14 +1528,12 @@
       return;
     }
     if (!state.supplies.length) {
-      main.innerHTML = `
-        <input class="tsd-search" id="tsdSearch" type="search" placeholder="Поиск поставки…" value="${esc(state.search)}" />
-        <div class="tsd-empty">Нет поставок на сборке</div>`;
-      wireSearch();
+      main.innerHTML = `<div class="tsd-empty">${
+        state.search ? "Ничего не найдено" : "Нет поставок на сборке"
+      }</div>`;
       return;
     }
     main.innerHTML = `
-      <input class="tsd-search" id="tsdSearch" type="search" placeholder="Поиск поставки…" value="${esc(state.search)}" />
       <div class="tsd-list">
         ${state.supplies
           .map((s) => {
@@ -1490,7 +1550,6 @@
           })
           .join("")}
       </div>`;
-    wireSearch();
     main.querySelectorAll("[data-open-supply]").forEach((btn) => {
       btn.addEventListener("click", () => {
         navigate(`#/s/${btn.getAttribute("data-open-supply")}`);
@@ -1498,28 +1557,23 @@
     });
   }
 
-  function wireSearch() {
-    const input = document.getElementById("tsdSearch");
-    if (!input) return;
-    let t = null;
-    input.addEventListener("input", () => {
-      clearTimeout(t);
-      t = setTimeout(async () => {
-        state.search = String(input.value || "").trim();
-        try {
-          await loadSupplies();
-          renderList();
-          const again = document.getElementById("tsdSearch");
-          if (again) {
-            again.focus();
-            const v = again.value;
-            again.setSelectionRange(v.length, v.length);
-          }
-        } catch (e) {
-          toast(e.message || e);
-        }
-      }, 280);
-    });
+  let listSearchTimer = null;
+
+  async function applyListSearchFromHeader() {
+    if (state.route.view !== "list") return;
+    try {
+      await loadSupplies();
+      if (state.route.view !== "list") return;
+      renderList();
+      const input = document.getElementById("tsdOrderSearch");
+      if (input && state.searchOpen) {
+        input.focus();
+        const v = input.value;
+        input.setSelectionRange(v.length, v.length);
+      }
+    } catch (e) {
+      toast(e.message || e);
+    }
   }
 
   function setKizHubTone(tone) {
@@ -2196,8 +2250,8 @@
     const searchBtn = document.getElementById("tsdSearchBtn");
     if (searchBtn) {
       searchBtn.addEventListener("click", () => {
-        if (state.searchOpen) closeOrderSearch();
-        else openOrderSearch();
+        if (state.searchOpen) closeHeaderSearch();
+        else openHeaderSearch();
       });
     }
     const filterBtn = document.getElementById("tsdFilterBtn");
@@ -2232,22 +2286,34 @@
     });
     const searchClose = document.getElementById("tsdSearchClose");
     if (searchClose) {
-      searchClose.addEventListener("click", () => closeOrderSearch());
+      searchClose.addEventListener("click", () => closeHeaderSearch());
     }
     const orderSearch = document.getElementById("tsdOrderSearch");
     if (orderSearch) {
       orderSearch.addEventListener("input", () => {
+        if (state.route.view === "list") {
+          state.search = String(orderSearch.value || "").trim();
+          clearTimeout(listSearchTimer);
+          listSearchTimer = setTimeout(() => applyListSearchFromHeader(), 280);
+          return;
+        }
         state.orderSearch = String(orderSearch.value || "");
         refreshSearchResultsOnly();
       });
       orderSearch.addEventListener("keydown", (ev) => {
         if (ev.key === "Escape") {
           ev.preventDefault();
-          closeOrderSearch();
+          closeHeaderSearch();
           return;
         }
         if (ev.key === "Enter") {
           ev.preventDefault();
+          if (state.route.view === "list") {
+            clearTimeout(listSearchTimer);
+            state.search = String(orderSearch.value || "").trim();
+            applyListSearchFromHeader();
+            return;
+          }
           applyOrderSearchEnter();
         }
       });
