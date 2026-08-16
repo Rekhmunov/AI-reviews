@@ -364,3 +364,15 @@ def test_settle_open_wb_fbs_orders_inserts_unique() -> None:
     )
     assert n == 2
     assert any("supply_stock_fbs_settled" in s and "INSERT" in s for s in executed)
+
+
+def test_parse_supply_balance_min_qty() -> None:
+    parse = ReviewRepository._parse_supply_balance_min_qty
+    assert parse(None) is None
+    assert parse("") is None
+    assert parse("  ") is None
+    assert parse("abc") is None
+    assert parse(-1) is None
+    assert parse(0) == 0.0
+    assert parse("12.5") == 12.5
+    assert parse(3) == 3.0
