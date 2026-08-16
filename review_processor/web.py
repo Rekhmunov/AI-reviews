@@ -14743,9 +14743,16 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             )
             for v in vis_rows
         }
+        sort_map = {
+            (str(v.get("item_type") or ""), int(v.get("item_id") or 0)): int(
+                v.get("sort_order") or 0
+            )
+            for v in vis_rows
+        }
         materials = repository.list_feedback_materials(user_id=owner_id)
         products = repository.list_product_photos(user_id=owner_id)
-        rows: list[dict[str, object]] = []
+        material_rows: list[dict[str, object]] = []
+        product_rows: list[dict[str, object]] = []
         for m in materials:
             mid = int(m.get("id") or 0)
             if mid <= 0:
@@ -14756,7 +14763,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                 d: bal_by_date[d].get(("material", mid))
                 for d in dates
             }
-            rows.append(
+            material_rows.append(
                 {
                     "item_type": "material",
                     "item_id": mid,
@@ -14764,6 +14771,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                     "unit": str(m.get("unit") or "шт"),
                     "values": values,
                     "balance": bal_by_date[as_of_date].get(("material", mid)),
+                    "sort_order": sort_map.get(("material", mid), 10**9),
                 }
             )
         for p in products:
@@ -14781,7 +14789,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             ozon_sku = str(p.get("ozon_sku") or "").strip()
             # Catalog has no separate barcode field — show seller article as ШК.
             barcodes = [x for x in (article, ozon_sku) if x]
-            rows.append(
+            product_rows.append(
                 {
                     "item_type": "product",
                     "item_id": pid_item,
@@ -14798,8 +14806,26 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                     "barcodes": barcodes,
                     "values": values,
                     "balance": bal_by_date[as_of_date].get(("product", pid_item)),
+                    "sort_order": sort_map.get(("product", pid_item), 10**9),
                 }
             )
+        material_rows.sort(
+            key=lambda r: repository.supply_balance_item_sort_key(
+                item_type="material",
+                item_id=int(r["item_id"]),
+                name=str(r.get("name") or ""),
+                sort_map=sort_map,
+            )
+        )
+        product_rows.sort(
+            key=lambda r: repository.supply_balance_item_sort_key(
+                item_type="product",
+                item_id=int(r["item_id"]),
+                name=str(r.get("name") or ""),
+                sort_map=sort_map,
+            )
+        )
+        rows = material_rows + product_rows
         return {
             "today": today,
             "as_of": as_of_date,
@@ -14978,20 +15004,29 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             )
             for v in vis_rows
         }
+        sort_map = {
+            (str(v.get("item_type") or ""), int(v.get("item_id") or 0)): int(
+                v.get("sort_order") or 0
+            )
+            for v in vis_rows
+        }
         materials = repository.list_feedback_materials(user_id=owner_id)
         products = repository.list_product_photos(user_id=owner_id)
         items: list[dict[str, object]] = []
+        material_items: list[dict[str, object]] = []
+        product_items: list[dict[str, object]] = []
         for m in materials:
             mid = int(m.get("id") or 0)
             if mid <= 0:
                 continue
-            items.append(
+            material_items.append(
                 {
                     "item_type": "material",
                     "item_id": mid,
                     "name": str(m.get("name") or ""),
                     "unit": str(m.get("unit") or "шт"),
                     "visible": vis_map.get(("material", mid), True),
+                    "sort_order": sort_map.get(("material", mid), 10**9),
                 }
             )
         for p in products:
@@ -15001,7 +15036,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             article = str(p.get("supplier_article") or "").strip()
             wb_nmid = str(p.get("wb_nmid") or "").strip()
             ozon_sku = str(p.get("ozon_sku") or "").strip()
-            items.append(
+            product_items.append(
                 {
                     "item_type": "product",
                     "item_id": pid_item,
@@ -15017,8 +15052,31 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                     ),
                     "barcodes": [x for x in (article, ozon_sku) if x],
                     "visible": vis_map.get(("product", pid_item), True),
+                    "sort_order": sort_map.get(("product", pid_item), 10**9),
                 }
             )
+        material_items.sort(
+            key=lambda r: repository.supply_balance_item_sort_key(
+                item_type="material",
+                item_id=int(r["item_id"]),
+                name=str(r.get("name") or ""),
+                sort_map=sort_map,
+            )
+        )
+        product_items.sort(
+            key=lambda r: repository.supply_balance_item_sort_key(
+                item_type="product",
+                item_id=int(r["item_id"]),
+                name=str(r.get("name") or ""),
+                sort_map=sort_map,
+            )
+        )
+        # Normalize sequential sort_order for the editor (materials then products).
+        for idx, row in enumerate(material_items):
+            row["sort_order"] = idx
+        for idx, row in enumerate(product_items):
+            row["sort_order"] = idx
+        items = material_items + product_items
         return {"items": items}
 
     @app.put("/api/supply-balances/visibility")
