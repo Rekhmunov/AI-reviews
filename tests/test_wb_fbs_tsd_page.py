@@ -124,6 +124,10 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     assert "openOrderSearch" in js
     assert "openHeaderSearch" in js
     assert "applyListSearchFromHeader" in js
+    assert "renderBrowseSheetHtml" in js
+    assert "tsdBrowseSheet" in js
+    assert "BROWSE_PAGE_SIZE" in js
+    assert "Показать ещё" in js
     assert 'id="tsdSearch"' not in js
     assert "Поиск поставки…" in js
     assert 'view === "list"' in js or "view === \"list\"" in js
