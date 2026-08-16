@@ -103,7 +103,9 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     assert "opts._retry" in js or "_retry: true" in js
     assert "pendingKizClear" in js
     assert "hasPendingKizPush" in js
-    assert "clear: !codes.length" in js
+    assert "rowNeedsKizWbClear" in js
+    assert "kizHubToneSupplyId" in js
+    assert "clear: true" in js
     assert "refreshHubKizStatus" in js
     assert "/kiz/status" in js
     assert "tsdKizRefreshBtn" in js

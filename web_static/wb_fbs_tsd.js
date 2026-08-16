@@ -27,6 +27,7 @@
     rowErrors: {},
     pendingKizClear: {},
     kizHubTone: "",
+    kizHubToneSupplyId: "",
     kizStatusRefreshing: false,
     loadSeq: 0,
     forceSaveByOrder: {},
@@ -621,15 +622,22 @@
       const oid = Number(row.order_id);
       if (!Number.isFinite(oid)) continue;
       const codes = normalizeKizCodesList(row.kiz_codes);
-      const wasBound = !!row.kiz_bound;
-      const hadLocal = !!row.kiz_local;
-      const pendingClear = !!state.pendingKizClear[oid];
-      if (!codes.length && !wasBound && !hadLocal && !pendingClear) continue;
-      if (codes.length) row.kiz_codes = codes.slice();
+      if (!codes.length) {
+        if (!rowNeedsKizWbClear(row)) continue;
+        items.push({
+          order_id: oid,
+          kiz_codes: [],
+          clear: true,
+          expected_saved_at: String(row.kiz_saved_at || ""),
+          force: !!state.forceSaveByOrder[oid],
+        });
+        continue;
+      }
+      row.kiz_codes = codes.slice();
       items.push({
         order_id: oid,
         kiz_codes: codes,
-        clear: !codes.length && (wasBound || hadLocal || pendingClear),
+        clear: false,
         expected_saved_at: String(row.kiz_saved_at || ""),
         force: !!state.forceSaveByOrder[oid],
       });
@@ -804,20 +812,19 @@
     const oid = Number(row && row.order_id);
     if (!Number.isFinite(oid)) return false;
     if (rowKizFilled(row)) return false;
-    return !!(
-      state.pendingKizClear[oid] ||
-      row.kiz_bound ||
-      row.kiz_local
-    );
+    if (state.pendingKizClear[oid]) return true;
+    // WB still has a mark, or local empty draft is not synced yet.
+    if (row.kiz_bound) return true;
+    if (row.kiz_local && row.kiz_wb_synced === false) return true;
+    return false;
   }
 
   function hasPendingKizPush() {
     return (state.kizRows || []).some((row) => {
       const oid = Number(row.order_id);
       if (!Number.isFinite(oid)) return false;
-      const codes = normalizeKizCodesList(row.kiz_codes);
-      if (codes.length) return true;
-      return rowNeedsKizWbClear(row);
+      if (rowNeedsKizWbClear(row)) return true;
+      return rowKizFilled(row);
     });
   }
 
@@ -1546,6 +1553,7 @@
         `/api/wb-fbs/tsd/supplies/${encodeURIComponent(sid)}/kiz/status?${params}`
       );
       if (String(state.route.supplyId || "") !== sid || state.route.view !== "hub") return;
+      state.kizHubToneSupplyId = sid;
       setKizHubTone(data.status);
     } catch (e) {
       if (String(state.route.supplyId || "") === sid && state.route.view === "hub") {
@@ -1584,6 +1592,7 @@
       back.onclick = (ev) => {
         ev.preventDefault();
         state.kizHubTone = "";
+        state.kizHubToneSupplyId = "";
         navigate("#/");
       };
       back.textContent = "←";
@@ -2103,6 +2112,10 @@
         state.step = "sticker";
         state.banner = null;
         const sid = state.route.supplyId;
+        if (String(state.kizHubToneSupplyId || "") !== String(sid || "")) {
+          state.kizHubTone = "";
+          state.kizHubToneSupplyId = String(sid || "");
+        }
         const stopRotate = startLoadingRotate(
           [
             { status: "Открываем поставку…", stage: 0 },
