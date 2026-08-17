@@ -1156,6 +1156,11 @@
       }
     }
 
+    // Full-screen browse sheet has its own search field — hide header search panel.
+    if (panel && onScan && state.searchOpen && shouldShowBrowseSheet()) {
+      panel.hidden = true;
+    }
+
     if (onScan) {
       if (errorsLabel) errorsLabel.hidden = mode !== "kiz";
       if (mode !== "kiz" && state.filters.errors) state.filters.errors = false;
@@ -1165,6 +1170,12 @@
       }
       if (filterMenu) filterMenu.hidden = !state.filterOpen;
       syncFilterInputsFromState();
+    }
+
+    const app = document.getElementById("tsdApp");
+    if (app) {
+      app.classList.toggle("is-filter-menu-open", !!(onScan && state.filterOpen));
+      app.classList.toggle("is-browse-open", !!(onScan && shouldShowBrowseSheet()));
     }
   }
 
@@ -1299,7 +1310,7 @@
         }`;
     }
     return `
-      <div class="tsd-browse-sheet" id="tsdBrowseSheet" role="dialog" aria-label="${esc(title)}">
+      <div class="tsd-browse-sheet" id="tsdBrowseSheet" role="dialog" aria-modal="true" aria-label="${esc(title)}">
         <div class="tsd-browse-head">
           <div class="tsd-browse-head-text">
             <div class="tsd-browse-title">${esc(title)}</div>
@@ -1312,19 +1323,30 @@
                 : ""
             }
             <button type="button" class="tsd-btn tsd-btn-secondary tsd-browse-scan" id="tsdBrowseToScan">К скану</button>
+            <button type="button" class="tsd-icon-btn tsd-browse-close" id="tsdBrowseClose"
+              aria-label="Закрыть" title="Закрыть">×</button>
           </div>
         </div>
+        ${
+          state.searchOpen
+            ? `<div class="tsd-browse-search">
+                <input class="tsd-search-input" id="tsdBrowseSearchInput" type="search"
+                  placeholder="Стикер, заказ, ШК, артикул, название…"
+                  autocomplete="off" enterkeyhint="search"
+                  value="${esc(String(state.orderSearch || ""))}" />
+              </div>`
+            : ""
+        }
         <div class="tsd-browse-body">${body}</div>
       </div>`;
   }
 
   function syncBrowseSheetPosition() {
     const sheet = document.getElementById("tsdBrowseSheet");
-    const top = document.querySelector(".tsd-top");
-    if (!sheet || !top) return;
-    // Pin to header bottom (not height) and overlap 1px to kill hairline of hub/scan bg.
-    const y = Math.round(top.getBoundingClientRect().bottom);
-    sheet.style.top = `${Math.max(0, y - 1)}px`;
+    if (!sheet) return;
+    // Full-viewport overlay — flush to the top edge over «Маркировка».
+    sheet.style.top = "0px";
+    sheet.style.bottom = "0px";
   }
 
   function scheduleBrowseSheetPositionSync() {
@@ -1335,23 +1357,30 @@
     });
   }
 
+  function dismissBrowseSheetToScan() {
+    closeBrowseSheet();
+    state.filterOpen = false;
+    if (state.searchOpen) {
+      state.searchOpen = false;
+      state.orderSearch = "";
+      const input = document.getElementById("tsdOrderSearch");
+      if (input) input.value = "";
+    }
+    syncSearchChrome();
+    renderScan();
+  }
+
   function wireBrowseSheet() {
     const sheet = document.getElementById("tsdBrowseSheet");
     if (!sheet) return;
     scheduleBrowseSheetPositionSync();
     const toScan = document.getElementById("tsdBrowseToScan");
     if (toScan) {
-      toScan.addEventListener("click", () => {
-        closeBrowseSheet();
-        if (state.searchOpen) {
-          state.searchOpen = false;
-          state.orderSearch = "";
-          const input = document.getElementById("tsdOrderSearch");
-          if (input) input.value = "";
-        }
-        syncSearchChrome();
-        renderScan();
-      });
+      toScan.addEventListener("click", () => dismissBrowseSheetToScan());
+    }
+    const closeBtn = document.getElementById("tsdBrowseClose");
+    if (closeBtn) {
+      closeBtn.addEventListener("click", () => dismissBrowseSheetToScan());
     }
     const reset = document.getElementById("tsdBrowseReset");
     if (reset) {
@@ -1383,6 +1412,37 @@
         ev.preventDefault();
         selectOrderFromSearch(btn.getAttribute("data-order-id"));
       });
+    }
+    const browseSearch = document.getElementById("tsdBrowseSearchInput");
+    if (browseSearch) {
+      browseSearch.addEventListener("input", () => {
+        state.orderSearch = String(browseSearch.value || "");
+        const headerInput = document.getElementById("tsdOrderSearch");
+        if (headerInput && String(headerInput.value || "") !== state.orderSearch) {
+          headerInput.value = state.orderSearch;
+        }
+        refreshSearchResultsOnly();
+      });
+      browseSearch.addEventListener("keydown", (ev) => {
+        if (ev.key === "Escape") {
+          ev.preventDefault();
+          dismissBrowseSheetToScan();
+          return;
+        }
+        if (ev.key === "Enter") {
+          ev.preventDefault();
+          applyOrderSearchEnter();
+        }
+      });
+      if (state.searchOpen) {
+        setTimeout(() => {
+          const el = document.getElementById("tsdBrowseSearchInput");
+          if (el) {
+            el.focus();
+            el.select();
+          }
+        }, 40);
+      }
     }
   }
 
@@ -1437,12 +1497,14 @@
     state.searchOpen = true;
     if (view === "scan") openBrowseSheet();
     syncSearchChrome();
-    const input = document.getElementById("tsdOrderSearch");
-    if (input) {
-      setTimeout(() => {
-        input.focus();
-        input.select();
-      }, 40);
+    if (view === "list") {
+      const input = document.getElementById("tsdOrderSearch");
+      if (input) {
+        setTimeout(() => {
+          input.focus();
+          input.select();
+        }, 40);
+      }
     }
     if (view === "scan") {
       renderScan({ keepSearchFocus: true });

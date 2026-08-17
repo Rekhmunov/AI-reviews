@@ -57,6 +57,11 @@ html, body {
   padding-top: max(12px, env(safe-area-inset-top));
 }
 
+/* While the filter dropdown is open, keep header above the full-screen sheet */
+.tsd-app.is-filter-menu-open .tsd-top {
+  z-index: 70;
+}
+
 .tsd-top-row {
   display: flex;
   align-items: center;
@@ -932,12 +937,12 @@ html, body {
   left: 50%;
   transform: translateX(-50%);
   width: min(560px, 100%);
+  top: 0;
   bottom: 0;
-  /* Below .tsd-top (40); flush under header via JS top */
-  z-index: 28;
+  /* Full-screen overlay above .tsd-top — covers «Маркировка» flush to the edge */
+  z-index: 60;
   display: flex;
   flex-direction: column;
-  /* Opaque surface — no gray hub strip peeking through gaps */
   background: var(--tsd-surface);
   border-top: none;
   box-shadow: none;
@@ -950,6 +955,7 @@ html, body {
   justify-content: space-between;
   gap: 12px;
   padding: 12px 16px;
+  padding-top: max(12px, env(safe-area-inset-top));
   background: var(--tsd-surface);
   border-bottom: 1px solid var(--tsd-line);
 }
@@ -960,7 +966,7 @@ html, body {
 }
 
 .tsd-browse-title {
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 700;
   letter-spacing: -0.02em;
 }
@@ -984,6 +990,25 @@ html, body {
   padding: 0 12px;
   font-size: 14px;
   white-space: nowrap;
+}
+
+.tsd-browse-close {
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.tsd-browse-search {
+  flex: 0 0 auto;
+  padding: 0 16px 12px;
+  background: var(--tsd-surface);
+  border-bottom: 1px solid var(--tsd-line);
+}
+
+.tsd-browse-search .tsd-search-input {
+  width: 100%;
 }
 
 .tsd-browse-body {
