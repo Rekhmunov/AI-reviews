@@ -1676,7 +1676,7 @@
       back.onclick = null;
       back.textContent = "←";
     }
-    title.textContent = "ТСД · На сборке";
+    title.textContent = "ТСД";
 
     if (!state.sources.length) {
       main.innerHTML = `<div class="tsd-empty">Нет доступных кабинетов ВБ ФБС для ТСД</div>`;

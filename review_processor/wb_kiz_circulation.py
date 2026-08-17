@@ -2339,6 +2339,44 @@ def format_wb_excise_http_error(
     return RuntimeError(f"WB excise-report HTTP {code}")
 
 
+def _analytics_fetch_is_soft_failure(exc: BaseException) -> bool:
+    """True when Analytics outage can fall back to Marketplace-only queue.
+
+    Auth / 429 must stay hard failures (wrong token or quota). Timeouts and
+    gateway 5xx are soft when Marketplace FBS can still build the queue.
+    """
+    msg = str(exc or "").lower()
+    if any(
+        token in msg
+        for token in (
+            "429",
+            "rate limit",
+            "слишком много",
+            "401",
+            "403",
+            "unauthorized",
+            "forbidden",
+            "авториз",
+        )
+    ):
+        return False
+    if any(
+        token in msg
+        for token in (
+            "504",
+            "502",
+            "503",
+            "500",
+            "timeout",
+            "timed out",
+            "stream timeout",
+            "сеть",
+        )
+    ):
+        return True
+    return False
+
+
 def fetch_wb_excise_report(
     *,
     api_key: str,
@@ -3318,14 +3356,27 @@ def sync_excise_report(
             if fetch_holder["exc"] is not None:
                 # Prefer user cancel over a late WB error if Стоп was pressed mid-fetch.
                 _check_sync_cancelled(run_id)
-                raise fetch_holder["exc"]
-            rows = list(fetch_holder["rows"] or [])
+                analytics_exc = fetch_holder["exc"]
+                mkey_soft = str(marketplace_api_key or "").strip()
+                if mkey_soft and _analytics_fetch_is_soft_failure(analytics_exc):
+                    _progress(
+                        "Analytics недоступен "
+                        f"({analytics_exc}) — продолжаю только Marketplace FBS "
+                        "(sold / отказ / дефект с КИЗ); фискальные поля "
+                        "из Analytics не подтянутся"
+                    )
+                    rows = []
+                else:
+                    raise analytics_exc
+            else:
+                rows = list(fetch_holder["rows"] or [])
             _check_sync_cancelled(run_id)
 
-            _progress(
-                f"получено {len(rows)} строк из Analytics excise-report",
-                fetched=len(rows),
-            )
+            if rows or fetch_holder["exc"] is None:
+                _progress(
+                    f"получено {len(rows)} строк из Analytics excise-report",
+                    fetched=len(rows),
+                )
         else:
             _progress(
                 "Analytics токен не задан — очередь только из Marketplace FBS "

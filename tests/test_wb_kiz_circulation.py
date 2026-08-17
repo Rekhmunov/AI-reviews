@@ -113,6 +113,24 @@ def test_is_no_fiscal_reason_accepts_legacy_russian() -> None:
     assert not circ._is_no_fiscal_reason("other")
 
 
+def test_analytics_fetch_is_soft_failure() -> None:
+    assert circ._analytics_fetch_is_soft_failure(
+        RuntimeError("WB excise-report HTTP 504: stream timeout")
+    )
+    assert circ._analytics_fetch_is_soft_failure(
+        RuntimeError("WB excise-report сеть: timed out")
+    )
+    assert circ._analytics_fetch_is_soft_failure(
+        RuntimeError("WB excise-report HTTP 502: Bad Gateway")
+    )
+    assert not circ._analytics_fetch_is_soft_failure(
+        RuntimeError("WB Analytics: слишком много запросов (HTTP 429)")
+    )
+    assert not circ._analytics_fetch_is_soft_failure(
+        RuntimeError("WB excise-report HTTP 401")
+    )
+
+
 def test_build_lk_receipt_and_return() -> None:
     receipt = build_lk_receipt_document(
         inn="7707083893",
