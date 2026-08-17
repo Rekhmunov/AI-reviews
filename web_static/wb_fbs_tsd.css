@@ -80,6 +80,11 @@ html, body {
   border-bottom: none;
 }
 
+/* The 4px progress track (--tsd-line) reads as a leftover gray strip above Готово/Осталось */
+.tsd-app.is-scan .tsd-progress {
+  display: none !important;
+}
+
 /* While the filter dropdown is open, keep header above the full-screen sheet */
 .tsd-app.is-filter-menu-open .tsd-top {
   z-index: 70;
