@@ -75,6 +75,11 @@ html, body {
   padding-top: max(12px, env(safe-area-inset-top));
 }
 
+/* Scan screens are one surface — no divider line from the previous page chrome */
+.tsd-app.is-scan .tsd-top {
+  border-bottom: none;
+}
+
 /* While the filter dropdown is open, keep header above the full-screen sheet */
 .tsd-app.is-filter-menu-open .tsd-top {
   z-index: 70;
