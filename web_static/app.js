@@ -17502,8 +17502,12 @@ function _wbFbsKizCircRenderTable() {
       : "";
   }
   if (!all.length) {
+    const notFbs = Number(wbFbsKizCircState.eligibilitySkipped || 0);
+    const emptyHint = notFbs > 0
+      ? `В очереди пусто (вне очереди: ${notFbs} — FBO / не sold). Данные сохранены; смените фильтр или дождитесь FBS.`
+      : "Нет данных в очереди — выберите даты и нажмите «Ежедневный вывод»";
     tbody.innerHTML =
-      '<tr><td colspan="11" class="wb-fbs-kiz-circ-empty">Нет данных — выберите даты и нажмите «Ежедневный вывод»</td></tr>';
+      `<tr><td colspan="11" class="wb-fbs-kiz-circ-empty">${emptyHint}</td></tr>`;
     _wbFbsKizCircUpdateSelectionInfo();
     return;
   }
@@ -17853,6 +17857,7 @@ async function refreshWbFbsKizCirculation() {
           ? overview.eligibility_skipped
           : overview.not_fbs_skipped || 0,
       );
+      wbFbsKizCircState.eligibilitySkipped = notFbs;
       if (notFbs > 0) parts.push(`вне очереди: ${notFbs}`);
       countsEl.textContent = parts.join(" · ");
     }
@@ -18246,6 +18251,13 @@ async function runWbFbsKizCirculationChz() {
       const docs = docsAll.slice(0, CLIENT_DOC_CAP);
       const truncatedClient = docsBuilt > docs.length;
       if (!docs.length) {
+        if (prep.has_more) {
+          _wbFbsKizCircAppendLog(
+            "Голова очереди пропущена (sticky) — продолжаю следующий пакет…",
+          );
+          stoppedWithMore = true;
+          continue;
+        }
         if (round === 1) _wbFbsKizCircAppendLog("Нет событий для передачи в ЧЗ");
         stoppedWithMore = false;
         break;

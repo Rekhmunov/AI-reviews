@@ -10852,15 +10852,16 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         sid = int(payload.source_id or 0)
         if sid <= 0:
             raise HTTPException(status_code=400, detail="Укажите source_id")
-        # Validate FBS source exists; Analytics token for report, Marketplace for rid hydrate.
+        # Validate FBS source exists. Analytics enriches fiscal; Marketplace alone
+        # is enough for Ежедневный вывод (sold / отказ / дефект with КИЗ).
         marketplace_key = _wb_fbs_source_key(owner_id, sid)
         api_key = kiz_circ.get_wb_analytics_api_key(repository, user_id=owner_id)
-        if not api_key:
+        if not api_key and not marketplace_key:
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    "Укажите токен WB «Аналитика» (только чтение) в "
-                    "Поставки → Настройки → ЧЗ"
+                    "Нужен токен WB Marketplace FBS и/или «Аналитика» "
+                    "(Поставки → источник / Настройки → ЧЗ)"
                 ),
             )
         try:

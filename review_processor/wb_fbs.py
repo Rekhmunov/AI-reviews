@@ -2288,7 +2288,9 @@ def hydrate_orders_for_kiz_srids(
         # 1) Recent open orders window (may include items that just became sold).
         try:
             date_to = datetime.now(UTC)
-            date_from = date_to - timedelta(days=max(1, min(int(lookback_days), 30)))
+            date_from = date_to - timedelta(
+                days=max(1, min(int(lookback_days), 90))
+            )
             next_token: int | None = 0
             pages = 0
             while pages < 15 and still_missing:

@@ -124,11 +124,17 @@ SKIP_NOT_RETURN = "not_return"  # return-to-circulation only when cancelled/от
 SKIP_EMPTY_CIS = "пустой КИЗ"
 SKIP_BAD_CIS = "bad_cis"
 SKIP_NO_PRODUCT_COST = "нет цены за единицу (product_cost)"
+SKIP_NO_PLACE = "нет КПП/ФИАС у юр. лица"
+SKIP_STALE_SUBMITTED = "stale_submitted"
 # Primary document when WB excise-report has no fiscal receipt (True API OTHER).
 NO_FISCAL_PRIMARY_DOC_TYPE = "OTHER"
 NO_FISCAL_PRIMARY_DOC_NAME = "Без документа основания"
 # Extra list→build rounds when sticky closes free slots under the 2000 head.
 PREPARE_QUEUE_DRAIN_PASSES = 3
+# Submitted with chz_doc_id but no terminal CHZ status for too long → sticky skip.
+STALE_SUBMITTED_DAYS = 7
+# Hydrate open-orders window for Analytics↔FBS match (archive pages cover sold).
+KIZ_HYDRATE_LOOKBACK_MAX_DAYS = 90
 
 
 def _is_no_fiscal_reason(reason: str) -> bool:
@@ -239,11 +245,41 @@ def _cis_identity(
     excise_short: str = "",
     operation_type: int = 0,
 ) -> tuple[str, str, int]:
-    """Stable КИЗ identity ignoring fiscal receipt (srid/rid + cis + op)."""
+    """Stable КИЗ identity ignoring fiscal receipt (srid/rid + cis + op).
+
+    Primary anchor prefers ``srid`` then ``rid`` (raw). For matching across
+    Marketplace/Analytics suffix variants use ``_cis_identity_keys``.
+    """
     srid_s = str(srid or "").strip()
     rid_s = str(rid or "").strip()
     anchor = srid_s or rid_s
     return (anchor, str(excise_short or "").strip(), int(operation_type or 0))
+
+
+def _cis_identity_keys(
+    *,
+    srid: str = "",
+    rid: str = "",
+    excise_short: str = "",
+    operation_type: int = 0,
+) -> set[tuple[str, str, int]]:
+    """All fold-aware identity keys for one CIS (anti-dupe / related match)."""
+    cis = str(excise_short or "").strip()
+    op = int(operation_type or 0)
+    if not cis:
+        return set()
+    keys: set[tuple[str, str, int]] = set()
+    for raw in (srid, rid):
+        for anchor in _rid_match_keys(raw):
+            keys.add((anchor, cis, op))
+    primary = _cis_identity(
+        srid=srid, rid=rid, excise_short=cis, operation_type=op
+    )
+    if primary[0]:
+        keys.add(primary)
+    elif not keys:
+        keys.add(("", cis, op))
+    return keys
 
 
 def _event_has_fiscal(row: dict[str, Any] | None) -> bool:
@@ -598,6 +634,54 @@ def repair_orphan_submitted_events(
         return int(getattr(cur, "rowcount", 0) or 0)
 
 
+def repair_stale_submitted_events(
+    repo: ReviewRepository, *, user_id: int, source_id: int
+) -> int:
+    """Sticky-close in-flight submitted docs stuck without a terminal CHZ status.
+
+    Does not auto-resubmit (risk of double send). Operator reconciles in CHZ UI.
+    """
+    ensure_kiz_circulation_tables(repo)
+    now = datetime.now(timezone.utc).isoformat()
+    cutoff = (
+        datetime.now(timezone.utc) - timedelta(days=max(1, int(STALE_SUBMITTED_DAYS)))
+    ).isoformat()
+    terminal = sorted(CHZ_STATUS_SUCCESS | CHZ_STATUS_FAILED)
+    ph = ", ".join("?" for _ in terminal) if terminal else "NULL"
+    with repo._connect() as conn:
+        cur = conn.execute(
+            repo._sql(
+                f"""
+                UPDATE wb_kiz_circulation_events
+                SET status = ?,
+                    skip_reason = ?,
+                    error_text = ?,
+                    updated_at = ?
+                WHERE user_id = ? AND source_id = ?
+                  AND status = ?
+                  AND COALESCE(chz_doc_id, '') <> ''
+                  AND updated_at < ?
+                  AND UPPER(COALESCE(chz_status, '')) NOT IN ({ph})
+                """
+            ),
+            (
+                STATUS_SKIPPED,
+                SKIP_STALE_SUBMITTED,
+                (
+                    f"завис submitted без финального статуса ЧЗ "
+                    f">(>{STALE_SUBMITTED_DAYS}д) — сверьте документ в ЛК ЧЗ"
+                ),
+                now,
+                user_id,
+                source_id,
+                STATUS_SUBMITTED,
+                cutoff,
+                *terminal,
+            ),
+        )
+        return int(getattr(cur, "rowcount", 0) or 0)
+
+
 # Skips that must stay closed (dedupe / already sent / eligibility) — never
 # auto-requeue via repair_legacy_skipped_with_cis. Eligibility skips may reopen
 # when local FBS status catches up (sold / cancelled).
@@ -612,6 +696,8 @@ _TERMINAL_SKIP_REASONS = frozenset(
         SKIP_EMPTY_CIS,
         SKIP_BAD_CIS,
         SKIP_NO_PRODUCT_COST,
+        SKIP_NO_PLACE,
+        SKIP_STALE_SUBMITTED,
         *_ELIGIBILITY_SKIP_REASONS,
     }
 )
@@ -818,7 +904,7 @@ def build_excise_fbs_match_index(
                 source_id=source_id,
                 srids=uniq,
                 api_key=mkey,
-                lookback_days=30,
+                lookback_days=KIZ_HYDRATE_LOOKBACK_MAX_DAYS,
                 archive_pages=40,
             )
             if log is not None:
@@ -1172,7 +1258,7 @@ def repair_skip_wrong_fbs_status_events(
             ),
         )
         not_sold = int(getattr(cur_w, "rowcount", 0) or 0)
-        # Re-open legacy not_return skips that already have an FBS link.
+        # Re-open legacy not_return only for Marketplace отказ/дефект.
         cur_r = conn.execute(
             repo._sql(
                 f"""
@@ -1188,6 +1274,7 @@ def repair_skip_wrong_fbs_status_events(
                   AND EXISTS (
                     SELECT 1 FROM wb_fbs_orders AS o
                     WHERE {join_sql}
+                      AND LOWER(COALESCE(o.wb_status, '')) IN (?, ?)
                   )
                 """
             ),
@@ -1199,6 +1286,8 @@ def repair_skip_wrong_fbs_status_events(
                 OP_RETURN,
                 STATUS_SKIPPED,
                 SKIP_NOT_RETURN,
+                "canceled_by_client",
+                "defect",
             ),
         )
         return_reopened = int(getattr(cur_r, "rowcount", 0) or 0)
@@ -1273,7 +1362,8 @@ def repair_requeue_eligible_fbs_events(
             ),
         )
         withdraw_n = int(getattr(cur_w, "rowcount", 0) or 0)
-        cur_r = conn.execute(
+        # Analytics op=2 + any FBS link → reopen not_fbs (PVZ/return trust).
+        cur_r_fbs = conn.execute(
             repo._sql(
                 f"""
                 UPDATE wb_kiz_circulation_events AS e
@@ -1284,7 +1374,7 @@ def repair_requeue_eligible_fbs_events(
                 WHERE e.user_id = ? AND e.source_id = ?
                   AND e.operation_type = ?
                   AND e.status = ?
-                  AND e.skip_reason IN (?, ?)
+                  AND e.skip_reason = ?
                   AND EXISTS (
                     SELECT 1 FROM wb_fbs_orders AS o
                     WHERE {join_sql}
@@ -1299,10 +1389,43 @@ def repair_requeue_eligible_fbs_events(
                 OP_RETURN,
                 STATUS_SKIPPED,
                 SKIP_NOT_FBS,
-                SKIP_NOT_RETURN,
             ),
         )
-        return_n = int(getattr(cur_r, "rowcount", 0) or 0)
+        # Legacy not_return only when Marketplace status is отказ/дефект.
+        cur_r_status = conn.execute(
+            repo._sql(
+                f"""
+                UPDATE wb_kiz_circulation_events AS e
+                SET status = ?,
+                    skip_reason = '',
+                    error_text = '',
+                    updated_at = ?
+                WHERE e.user_id = ? AND e.source_id = ?
+                  AND e.operation_type = ?
+                  AND e.status = ?
+                  AND e.skip_reason = ?
+                  AND EXISTS (
+                    SELECT 1 FROM wb_fbs_orders AS o
+                    WHERE {join_sql}
+                      AND LOWER(COALESCE(o.wb_status, '')) IN (?, ?)
+                  )
+                """
+            ),
+            (
+                STATUS_PENDING,
+                now,
+                user_id,
+                source_id,
+                OP_RETURN,
+                STATUS_SKIPPED,
+                SKIP_NOT_RETURN,
+                "canceled_by_client",
+                "defect",
+            ),
+        )
+        return_n = int(getattr(cur_r_fbs, "rowcount", 0) or 0) + int(
+            getattr(cur_r_status, "rowcount", 0) or 0
+        )
     return {
         "withdraw_requeued": withdraw_n,
         "return_requeued": return_n,
@@ -1422,57 +1545,67 @@ def upsert_sent_cis_rows(
             op = int(row.get("operation_type") or 0)
             if not cis or op not in {OP_WITHDRAW, OP_RETURN}:
                 continue
-            anchor = _cis_anchor(
+            anchors = _cis_identity_keys(
                 srid=str(row.get("srid") or ""),
                 rid=str(row.get("rid") or ""),
+                excise_short=cis,
+                operation_type=op,
             )
-            conn.execute(
-                repo._sql(
-                    """
-                    INSERT INTO wb_kiz_sent_cis (
-                        user_id, source_id, operation_type, excise_short, anchor,
-                        chz_doc_id, event_key, fiscal_doc_number, fiscal_dt, accepted_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT (user_id, source_id, operation_type, excise_short, anchor)
-                    DO UPDATE SET
-                        chz_doc_id = CASE
-                            WHEN EXCLUDED.chz_doc_id <> '' THEN EXCLUDED.chz_doc_id
-                            ELSE wb_kiz_sent_cis.chz_doc_id
-                        END,
-                        event_key = CASE
-                            WHEN EXCLUDED.event_key <> '' THEN EXCLUDED.event_key
-                            ELSE wb_kiz_sent_cis.event_key
-                        END,
-                        fiscal_doc_number = CASE
-                            WHEN EXCLUDED.fiscal_doc_number <> '' THEN EXCLUDED.fiscal_doc_number
-                            ELSE wb_kiz_sent_cis.fiscal_doc_number
-                        END,
-                        fiscal_dt = CASE
-                            WHEN EXCLUDED.fiscal_dt <> '' THEN EXCLUDED.fiscal_dt
-                            ELSE wb_kiz_sent_cis.fiscal_dt
-                        END,
-                        accepted_at = CASE
-                            WHEN wb_kiz_sent_cis.accepted_at = ''
-                              OR EXCLUDED.accepted_at > wb_kiz_sent_cis.accepted_at
-                            THEN EXCLUDED.accepted_at
-                            ELSE wb_kiz_sent_cis.accepted_at
-                        END
-                    """
-                ),
-                (
-                    user_id,
-                    source_id,
-                    op,
-                    cis,
-                    anchor,
-                    str(row.get("chz_doc_id") or "").strip(),
-                    str(row.get("event_key") or "").strip(),
-                    str(row.get("fiscal_doc_number") or "").strip(),
-                    str(row.get("fiscal_dt") or "").strip(),
-                    now,
-                ),
-            )
-            written += 1
+            # Persist every fold key so later Analytics/Marketplace variants match.
+            anchor_values = sorted({a for a, _, _ in anchors if a}) or [
+                _cis_anchor(
+                    srid=str(row.get("srid") or ""),
+                    rid=str(row.get("rid") or ""),
+                )
+            ]
+            for anchor in anchor_values:
+                conn.execute(
+                    repo._sql(
+                        """
+                        INSERT INTO wb_kiz_sent_cis (
+                            user_id, source_id, operation_type, excise_short, anchor,
+                            chz_doc_id, event_key, fiscal_doc_number, fiscal_dt, accepted_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT (user_id, source_id, operation_type, excise_short, anchor)
+                        DO UPDATE SET
+                            chz_doc_id = CASE
+                                WHEN EXCLUDED.chz_doc_id <> '' THEN EXCLUDED.chz_doc_id
+                                ELSE wb_kiz_sent_cis.chz_doc_id
+                            END,
+                            event_key = CASE
+                                WHEN EXCLUDED.event_key <> '' THEN EXCLUDED.event_key
+                                ELSE wb_kiz_sent_cis.event_key
+                            END,
+                            fiscal_doc_number = CASE
+                                WHEN EXCLUDED.fiscal_doc_number <> '' THEN EXCLUDED.fiscal_doc_number
+                                ELSE wb_kiz_sent_cis.fiscal_doc_number
+                            END,
+                            fiscal_dt = CASE
+                                WHEN EXCLUDED.fiscal_dt <> '' THEN EXCLUDED.fiscal_dt
+                                ELSE wb_kiz_sent_cis.fiscal_dt
+                            END,
+                            accepted_at = CASE
+                                WHEN wb_kiz_sent_cis.accepted_at = ''
+                                  OR EXCLUDED.accepted_at > wb_kiz_sent_cis.accepted_at
+                                THEN EXCLUDED.accepted_at
+                                ELSE wb_kiz_sent_cis.accepted_at
+                            END
+                        """
+                    ),
+                    (
+                        user_id,
+                        source_id,
+                        op,
+                        cis,
+                        anchor,
+                        str(row.get("chz_doc_id") or "").strip(),
+                        str(row.get("event_key") or "").strip(),
+                        str(row.get("fiscal_doc_number") or "").strip(),
+                        str(row.get("fiscal_dt") or "").strip(),
+                        now,
+                    ),
+                )
+                written += 1
     return written
 
 
@@ -1689,6 +1822,16 @@ def repair_circulation_queue(
         orphan_submitted = 0
     try:
         _check_sync_cancelled(run_id)
+        stale_submitted = repair_stale_submitted_events(
+            repo, user_id=user_id, source_id=source_id
+        )
+    except SyncCancelled:
+        raise
+    except Exception as exc:
+        logger.exception("repair_stale_submitted_events failed: %s", exc)
+        stale_submitted = 0
+    try:
+        _check_sync_cancelled(run_id)
         legacy_skipped = repair_legacy_skipped_with_cis(
             repo, user_id=user_id, source_id=source_id
         )
@@ -1763,6 +1906,7 @@ def repair_circulation_queue(
         "withdraw_skipped": withdraw_from_error,
         "withdraw_requeued": withdraw_requeued,
         "orphan_submitted": orphan_submitted,
+        "stale_submitted": stale_submitted,
         "legacy_skipped": legacy_skipped,
         "fbs_requeued": fbs_requeued,
         "price_requeued": price_requeued,
@@ -3134,51 +3278,59 @@ def sync_excise_report(
                 )
 
         _check_sync_cancelled(run_id)
-        _progress(
-            "запрос к WB Analytics excise-report… "
-            "(стоп применится после ответа WB; лимит 10 запросов / 5 ч)"
-        )
+        api_key_s = str(api_key or "").strip()
+        rows: list[Any] = []
+        if api_key_s:
+            _progress(
+                "запрос к WB Analytics excise-report… "
+                "(стоп применится после ответа WB; лимит 10 запросов / 5 ч)"
+            )
 
-        fetch_holder: dict[str, Any] = {"rows": None, "exc": None}
+            fetch_holder: dict[str, Any] = {"rows": None, "exc": None}
 
-        def _wb_worker() -> None:
-            try:
-                fetch_holder["rows"] = fetch_wb_excise_report(
-                    api_key=api_key,
-                    date_from=date_from_s,
-                    date_to=date_to_s,
-                    timeout=120,
-                )
-            except Exception as exc:  # noqa: BLE001 — surface to parent thread
-                fetch_holder["exc"] = exc
+            def _wb_worker() -> None:
+                try:
+                    fetch_holder["rows"] = fetch_wb_excise_report(
+                        api_key=api_key_s,
+                        date_from=date_from_s,
+                        date_to=date_to_s,
+                        timeout=120,
+                    )
+                except Exception as exc:  # noqa: BLE001 — surface to parent thread
+                    fetch_holder["exc"] = exc
 
-        wb_thread = threading.Thread(
-            target=_wb_worker, name=f"kiz-wb-fetch-{run_id}", daemon=True
-        )
-        wb_thread.start()
-        last_beat = time.monotonic()
-        while wb_thread.is_alive():
-            if _sync_cancel_requested(run_id):
-                _progress(
-                    "стоп запрошен — жду завершения текущего запроса WB "
-                    "(уже отправленный запрос нельзя отменить)"
-                )
-            wb_thread.join(timeout=5.0)
-            now_m = time.monotonic()
-            if wb_thread.is_alive() and now_m - last_beat >= 15:
-                _progress("ожидание ответа WB Analytics…")
-                last_beat = now_m
-        if fetch_holder["exc"] is not None:
-            # Prefer user cancel over a late WB error if Стоп was pressed mid-fetch.
+            wb_thread = threading.Thread(
+                target=_wb_worker, name=f"kiz-wb-fetch-{run_id}", daemon=True
+            )
+            wb_thread.start()
+            last_beat = time.monotonic()
+            while wb_thread.is_alive():
+                if _sync_cancel_requested(run_id):
+                    _progress(
+                        "стоп запрошен — жду завершения текущего запроса WB "
+                        "(уже отправленный запрос нельзя отменить)"
+                    )
+                wb_thread.join(timeout=5.0)
+                now_m = time.monotonic()
+                if wb_thread.is_alive() and now_m - last_beat >= 15:
+                    _progress("ожидание ответа WB Analytics…")
+                    last_beat = now_m
+            if fetch_holder["exc"] is not None:
+                # Prefer user cancel over a late WB error if Стоп was pressed mid-fetch.
+                _check_sync_cancelled(run_id)
+                raise fetch_holder["exc"]
+            rows = list(fetch_holder["rows"] or [])
             _check_sync_cancelled(run_id)
-            raise fetch_holder["exc"]
-        rows = list(fetch_holder["rows"] or [])
-        _check_sync_cancelled(run_id)
 
-        _progress(
-            f"получено {len(rows)} строк из Analytics excise-report",
-            fetched=len(rows),
-        )
+            _progress(
+                f"получено {len(rows)} строк из Analytics excise-report",
+                fetched=len(rows),
+            )
+        else:
+            _progress(
+                "Analytics токен не задан — очередь только из Marketplace FBS "
+                "(sold / отказ / дефект с КИЗ)"
+            )
         analytics_norms: list[dict[str, Any]] = []
         skipped_bad = 0
         for raw in rows:
@@ -3377,13 +3529,13 @@ def sync_excise_report(
                     related = _related_from_index(related_index, norm=norm)
                     action, target = _resolve_sync_action(related, norm=norm)
                     if action == "insert":
-                        ident = _cis_identity(
+                        idents = _cis_identity_keys(
                             srid=str(norm.get("srid") or ""),
                             rid=str(norm.get("rid") or ""),
                             excise_short=str(norm.get("excise_short") or ""),
                             operation_type=int(norm.get("operation_type") or 0),
                         )
-                        if ident[1] and ident in sent_identities:
+                        if idents and (idents & sent_identities):
                             action = "suppress"
                             target = None
                     if action == "suppress":
@@ -3789,11 +3941,12 @@ def _index_related_event(
     excise = str(ev.get("excise_short") or "").strip()
     if not excise or op not in {OP_WITHDRAW, OP_RETURN}:
         return
-    anchors = {
-        str(ev.get("srid") or "").strip(),
-        str(ev.get("rid") or "").strip(),
-    }
-    anchors.discard("")
+    anchors: set[str] = set()
+    for raw in (ev.get("srid"), ev.get("rid")):
+        anchors.update(_rid_match_keys(raw))
+        raw_s = str(raw or "").strip()
+        if raw_s:
+            anchors.add(raw_s)
     if not anchors:
         anchors = {""}
     for anchor in anchors:
@@ -3815,11 +3968,12 @@ def _related_from_index(
     excise = str(norm.get("excise_short") or "").strip()
     if not excise or op not in {OP_WITHDRAW, OP_RETURN}:
         return []
-    anchors = {
-        str(norm.get("srid") or "").strip(),
-        str(norm.get("rid") or "").strip(),
-    }
-    anchors.discard("")
+    anchors: set[str] = set()
+    for raw in (norm.get("srid"), norm.get("rid")):
+        anchors.update(_rid_match_keys(raw))
+        raw_s = str(raw or "").strip()
+        if raw_s:
+            anchors.add(raw_s)
     if not anchors:
         anchors = {""}
     out: list[dict[str, Any]] = []
@@ -4375,7 +4529,7 @@ def _event_is_cancelled_for_chz(ev: dict[str, Any]) -> bool:
 
 
 def _withdraw_not_sold_reason(ev: dict[str, Any]) -> str:
-    """Empty if withdraw is allowed; otherwise human skip reason (fail closed)."""
+    """Empty if withdraw is allowed; otherwise sticky skip code (fail closed)."""
     if int(ev.get("operation_type") or 0) != OP_WITHDRAW:
         return ""
     oid = ev.get("order_id")
@@ -4384,15 +4538,10 @@ def _withdraw_not_sold_reason(ev: dict[str, Any]) -> str:
     except (TypeError, ValueError):
         oid_i = 0
     if oid_i <= 0:
-        return "нет связи с заказом FBS"
+        return SKIP_NOT_FBS
     if _event_is_sold_for_chz(ev):
         return ""
-    label = (
-        str(ev.get("order_status_label") or "").strip()
-        or str(ev.get("order_wb_status") or "").strip()
-        or "неизвестно"
-    )
-    return f"заказ не выкуплен ({label})"
+    return SKIP_NOT_SOLD
 
 
 def _return_not_cancelled_reason(ev: dict[str, Any]) -> str:
@@ -4409,7 +4558,7 @@ def _return_not_cancelled_reason(ev: dict[str, Any]) -> str:
     except (TypeError, ValueError):
         oid_i = 0
     if oid_i <= 0:
-        return "нет связи с заказом FBS"
+        return SKIP_NOT_FBS
     return ""
 
 
@@ -4518,6 +4667,9 @@ def _load_sent_cis_identities(
     Sources:
     - live events: accepted, or submitted with ``chz_doc_id``
     - forever slim registry (survives 6-month event purge)
+
+    Keys are fold-expanded (mid-token / stem) so Marketplace ``.0.0`` and
+    Analytics ``.1.0`` variants of the same order match.
     """
     ensure_kiz_circulation_tables(repo)
     out: set[tuple[str, str, int]] = set()
@@ -4542,13 +4694,11 @@ def _load_sent_cis_identities(
         ).fetchall()
         for r in rows:
             d = repo._row_to_dict(r)
-            out.add(
-                _cis_identity(
-                    srid=str(d.get("srid") or ""),
-                    rid=str(d.get("rid") or ""),
-                    excise_short=str(d.get("excise_short") or ""),
-                    operation_type=int(d.get("operation_type") or 0),
-                )
+            out |= _cis_identity_keys(
+                srid=str(d.get("srid") or ""),
+                rid=str(d.get("rid") or ""),
+                excise_short=str(d.get("excise_short") or ""),
+                operation_type=int(d.get("operation_type") or 0),
             )
         reg = conn.execute(
             repo._sql(
@@ -4563,14 +4713,17 @@ def _load_sent_cis_identities(
         ).fetchall()
         for r in reg:
             d = repo._row_to_dict(r)
+            cis = str(d.get("excise_short") or "").strip()
+            op = int(d.get("operation_type") or 0)
             anchor = str(d.get("anchor") or "").strip()
-            out.add(
-                (
-                    anchor,
-                    str(d.get("excise_short") or "").strip(),
-                    int(d.get("operation_type") or 0),
-                )
-            )
+            if not cis:
+                continue
+            if anchor:
+                out.add((anchor, cis, op))
+                for fold in _rid_match_keys(anchor):
+                    out.add((fold, cis, op))
+            else:
+                out.add(("", cis, op))
     return out
 
 
@@ -4665,32 +4818,41 @@ def _dedupe_events_for_prepare(
     sent_identities: set[tuple[str, str, int]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Drop already-sent CIS and collapse fiscal/no-fiscal duplicates in one batch."""
-    kept: dict[tuple[str, str, int], dict[str, Any]] = {}
+    kept: list[dict[str, Any]] = []
+    kept_keys: list[set[tuple[str, str, int]]] = []
     skipped: list[dict[str, Any]] = []
     for ev in events:
-        ident = _cis_identity(
+        keys = _cis_identity_keys(
             srid=str(ev.get("srid") or ""),
             rid=str(ev.get("rid") or ""),
             excise_short=str(ev.get("excise_short") or ""),
             operation_type=int(ev.get("operation_type") or 0),
         )
-        if not ident[1]:
+        if not any(k[1] for k in keys):
             skipped.append({**ev, "skip_reason": SKIP_EMPTY_CIS})
             continue
-        if ident in sent_identities:
+        if keys & sent_identities:
             skipped.append({**ev, "skip_reason": "already_sent"})
             continue
-        prev = kept.get(ident)
-        if prev is None:
-            kept[ident] = ev
+        match_i: int | None = None
+        for i, prev_keys in enumerate(kept_keys):
+            if keys & prev_keys:
+                match_i = i
+                break
+        if match_i is None:
+            kept.append(ev)
+            kept_keys.append(keys)
             continue
+        prev = kept[match_i]
         # Prefer the variant with fiscal receipt.
         if _event_has_fiscal(ev) and not _event_has_fiscal(prev):
             skipped.append({**prev, "skip_reason": "duplicate_nofiscal"})
-            kept[ident] = ev
+            kept[match_i] = ev
+            kept_keys[match_i] = keys | prev_keys
         else:
             skipped.append({**ev, "skip_reason": "duplicate"})
-    return list(kept.values()), skipped
+            kept_keys[match_i] = keys | prev_keys
+    return kept, skipped
 
 
 def reconcile_submitted_with_chz(
@@ -5761,6 +5923,7 @@ def prepare_chz_batches(
     eligible_loaded = 0
     eligible_after_dedupe = 0
     docs_built_total = 0
+    sticky_closed_total = 0
     hit_event_limit = False
     kpp = str(settings.get("kpp") or "").strip()
     fias_id = str(settings.get("fias_id") or "").strip()
@@ -5846,7 +6009,10 @@ def prepare_chz_batches(
                 not_sold = _withdraw_not_sold_reason(ev)
                 if not_sold:
                     pass_not_sold += 1
-                    skipped.append({**ev, "skip_reason": not_sold})
+                    row = {**ev, "skip_reason": not_sold}
+                    skipped.append(row)
+                    if not_sold in _TERMINAL_SKIP_REASONS:
+                        pass_skipped.append(row)
                     continue
                 if fiscal_no and fiscal_dt:
                     withdraw_groups.setdefault((fiscal_no, fiscal_dt), []).append(ev)
@@ -5857,7 +6023,10 @@ def prepare_chz_batches(
                 not_cancelled = _return_not_cancelled_reason(ev)
                 if not_cancelled:
                     pass_not_cancelled += 1
-                    skipped.append({**ev, "skip_reason": not_cancelled})
+                    row = {**ev, "skip_reason": not_cancelled}
+                    skipped.append(row)
+                    if not_cancelled in _TERMINAL_SKIP_REASONS:
+                        pass_skipped.append(row)
                     continue
                 return_items.append(ev)
             else:
@@ -5878,10 +6047,14 @@ def prepare_chz_batches(
                 place_warned = True
             for group in withdraw_groups.values():
                 for ev in group:
-                    skipped.append({**ev, "skip_reason": "нет КПП/ФИАС у юр. лица"})
+                    row = {**ev, "skip_reason": SKIP_NO_PLACE}
+                    skipped.append(row)
+                    pass_skipped.append(row)
             for group in withdraw_other_groups.values():
                 for ev in group:
-                    skipped.append({**ev, "skip_reason": "нет КПП/ФИАС у юр. лица"})
+                    row = {**ev, "skip_reason": SKIP_NO_PLACE}
+                    skipped.append(row)
+                    pass_skipped.append(row)
             withdraw_groups = {}
             withdraw_other_groups = {}
         elif (withdraw_groups or withdraw_other_groups) and not mod_warned:
@@ -6047,6 +6220,7 @@ def prepare_chz_batches(
             )
         except Exception as exc:
             logger.exception("close prepare sticky skips failed: %s", exc)
+        sticky_closed_total += sticky_closed
 
         # Further drain only when sticky closes freed the oldest head.
         if sticky_closed <= 0:
@@ -6092,7 +6266,11 @@ def prepare_chz_batches(
         if d.get("doc_type") == "LP_RETURN"
         for _ in (d.get("event_keys") or [])
     )
-    has_more = truncated_by_docs or hit_event_limit
+    has_more = (
+        truncated_by_docs
+        or hit_event_limit
+        or (not documents and sticky_closed_total > 0)
+    )
     return {
         "ok": True,
         "settings": {
@@ -6399,6 +6577,7 @@ __all__ = [
     "repair_unhealable_withdraw_errors",
     "repair_nofiscal_withdraw_to_pending",
     "repair_orphan_submitted_events",
+    "repair_stale_submitted_events",
     "repair_legacy_skipped_with_cis",
     "repair_skip_non_fbs_events",
     "purge_non_fbs_circulation_events",

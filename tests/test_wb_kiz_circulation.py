@@ -1716,17 +1716,17 @@ def test_prepare_passes_event_keys_filter(
 
 def test_withdraw_not_sold_reason() -> None:
     assert circ._withdraw_not_sold_reason({"operation_type": 2}) == ""
-    assert "нет связи" in circ._withdraw_not_sold_reason(
+    assert circ._withdraw_not_sold_reason(
         {"operation_type": 1, "order_id": None}
-    )
-    assert "не выкуплен" in circ._withdraw_not_sold_reason(
+    ) == circ.SKIP_NOT_FBS
+    assert circ._withdraw_not_sold_reason(
         {
             "operation_type": 1,
             "order_id": 1,
             "order_wb_status": "waiting",
             "order_status_label": "В пути",
         }
-    )
+    ) == circ.SKIP_NOT_SOLD
     assert (
         circ._withdraw_not_sold_reason(
             {"operation_type": 1, "order_id": 1, "order_wb_status": "sold"}
@@ -1735,6 +1735,92 @@ def test_withdraw_not_sold_reason() -> None:
     )
     assert circ._event_is_sold_for_chz({"order_wb_status": "Sold"}) is True
     assert circ._event_is_sold_for_chz({"order_wb_status": "sorted"}) is False
+
+
+def test_cis_identity_keys_match_suffix_variants() -> None:
+    a = circ._cis_identity_keys(
+        srid="ord.MIDTOKEN.1.0", rid="", excise_short="CIS", operation_type=1
+    )
+    b = circ._cis_identity_keys(
+        srid="", rid="ord.MIDTOKEN.0.0", excise_short="CIS", operation_type=1
+    )
+    assert a & b
+
+
+def test_related_index_matches_rid_suffix_variants() -> None:
+    idx: dict = {}
+    circ._index_related_event(
+        idx,
+        {
+            "id": 1,
+            "event_key": "nofiscal",
+            "operation_type": 1,
+            "excise_short": "CIS1",
+            "srid": "aa.BBCC.1.0",
+            "rid": "",
+            "status": "pending",
+            "fiscal_doc_number": "",
+            "fiscal_dt": "",
+        },
+    )
+    found = circ._related_from_index(
+        idx,
+        norm={
+            "operation_type": 1,
+            "excise_short": "CIS1",
+            "srid": "",
+            "rid": "aa.BBCC.0.0",
+        },
+    )
+    assert len(found) == 1
+    assert found[0]["event_key"] == "nofiscal"
+
+
+def test_dedupe_prepare_matches_fold_variants() -> None:
+    kept, skipped = circ._dedupe_events_for_prepare(
+        [
+            {
+                "event_key": "a",
+                "srid": "x.Y.1.0",
+                "rid": "",
+                "excise_short": "CIS",
+                "operation_type": 1,
+                "fiscal_doc_number": "",
+                "fiscal_dt": "",
+            },
+            {
+                "event_key": "b",
+                "srid": "",
+                "rid": "x.Y.0.0",
+                "excise_short": "CIS",
+                "operation_type": 1,
+                "fiscal_doc_number": "9",
+                "fiscal_dt": "2026-08-01",
+            },
+        ],
+        sent_identities=set(),
+    )
+    assert len(kept) == 1
+    assert kept[0]["event_key"] == "b"
+    assert skipped[0]["skip_reason"] == "duplicate_nofiscal"
+
+
+def test_repair_stale_submitted_events() -> None:
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    conn.__exit__.return_value = False
+    cur = MagicMock()
+    cur.rowcount = 2
+    conn.execute.return_value = cur
+    repo = MagicMock()
+    repo._connect.return_value = conn
+    repo._sql.side_effect = lambda q: q
+    with patch.object(circ, "ensure_kiz_circulation_tables"):
+        assert circ.repair_stale_submitted_events(repo, user_id=1, source_id=2) == 2
+    sql = conn.execute.call_args.args[0]
+    assert circ.SKIP_STALE_SUBMITTED in conn.execute.call_args.args[1]
+    assert "updated_at < ?" in sql
+    assert "chz_doc_id" in sql
 
 
 @patch(
@@ -1826,16 +1912,16 @@ def test_prepare_skips_withdraw_unless_sold(
     assert out["counts"]["withdraw_not_sold"] == 2
     assert out["documents"][0]["event_keys"] == ["sold-ok"]
     reasons = {s["event_key"]: s["skip_reason"] for s in out["skipped"]}
-    assert "не выкуплен" in reasons["in-transit"]
-    assert "нет связи" in reasons["no-order"]
+    assert reasons["in-transit"] == circ.SKIP_NOT_SOLD
+    assert reasons["no-order"] == circ.SKIP_NOT_FBS
     assert any("выкуплен" in w for w in out["warnings"])
 
 
 def test_return_not_cancelled_reason() -> None:
     assert circ._return_not_cancelled_reason({"operation_type": 1}) == ""
-    assert "нет связи" in circ._return_not_cancelled_reason(
+    assert circ._return_not_cancelled_reason(
         {"operation_type": 2, "order_id": None}
-    )
+    ) == circ.SKIP_NOT_FBS
     # Linked FBS order is enough — Analytics op=2 is the return/PVZ signal.
     assert (
         circ._return_not_cancelled_reason(
@@ -2208,9 +2294,9 @@ def test_return_prepare_only_needs_fbs_link() -> None:
         )
         == ""
     )
-    assert "FBS" in circ._return_not_cancelled_reason(
+    assert circ._return_not_cancelled_reason(
         {"operation_type": 2, "order_id": None}
-    )
+    ) == circ.SKIP_NOT_FBS
 def test_repair_skip_non_fbs_noop_without_local_orders() -> None:
     conn = MagicMock()
     conn.__enter__.return_value = conn
