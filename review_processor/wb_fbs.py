@@ -25,6 +25,9 @@ _MSK = ZoneInfo("Europe/Moscow")
 _log = logging.getLogger(__name__)
 
 WB_FBS_API = "https://marketplace-api.wildberries.ru"
+# WB Marketplace: max trbxIds per /trbx/stickers (and /trbx DELETE) request.
+TRBX_STICKERS_PER_REQUEST = 100
+TRBX_DELETE_PER_REQUEST = 100
 
 # UI tab <- supplierStatus / wbStatus / archive flag
 TAB_NEW = "new"
@@ -630,18 +633,25 @@ class WbFbsClient:
         return [str(x).strip() for x in ids if str(x or "").strip()]
 
     def delete_supply_boxes(self, supply_id: str, box_ids: list[str]) -> None:
-        """Remove cargo places: ``DELETE /api/v3/supplies/{id}/trbx`` + ``trbxIds``."""
+        """Remove cargo places: ``DELETE /api/v3/supplies/{id}/trbx`` + ``trbxIds``.
+
+        Chunks by ``TRBX_DELETE_PER_REQUEST`` (WB accepts ≤100 ids per call).
+        """
         sid = str(supply_id or "").strip()
         if not sid:
             raise ValueError("Не указан ID поставки")
         ids = [str(x).strip() for x in (box_ids or []) if str(x or "").strip()]
         if not ids:
             raise ValueError("Укажите ID грузомест для удаления")
-        self._request(
-            "DELETE",
-            f"/api/v3/supplies/{sid}/trbx",
-            body={"trbxIds": ids[:100]},
-        )
+        chunk = max(1, int(TRBX_DELETE_PER_REQUEST))
+        for i in range(0, len(ids), chunk):
+            if i:
+                time.sleep(0.21)
+            self._request(
+                "DELETE",
+                f"/api/v3/supplies/{sid}/trbx",
+                body={"trbxIds": ids[i : i + chunk]},
+            )
 
     def get_box_stickers(
         self,
@@ -650,13 +660,25 @@ class WbFbsClient:
         *,
         sticker_type: str = "png",
     ) -> list[dict[str, Any]]:
+        """Fetch QR stickers for cargo places.
+
+        WB Marketplace accepts at most ``TRBX_STICKERS_PER_REQUEST`` (100)
+        ``trbxIds`` per call — callers must chunk larger lists.
+        """
         if not box_ids:
             return []
+        ids = [str(x).strip() for x in box_ids if str(x or "").strip()]
+        if not ids:
+            return []
+        if len(ids) > TRBX_STICKERS_PER_REQUEST:
+            raise ValueError(
+                f"Не больше {TRBX_STICKERS_PER_REQUEST} грузомест за один запрос стикеров"
+            )
         data = self._request(
             "POST",
             f"/api/v3/supplies/{supply_id}/trbx/stickers",
             params={"type": sticker_type},
-            body={"trbxIds": box_ids},
+            body={"trbxIds": ids},
         )
         stickers = data.get("stickers") if isinstance(data, dict) else None
         return list(stickers or []) if isinstance(stickers, list) else []
@@ -764,7 +786,12 @@ def create_supply_trbx(
     if fetch_stickers:
         try:
             time.sleep(0.21)
-            stickers = client.get_box_stickers(sid, created_ids[:100], sticker_type=stype)
+            stickers = fetch_trbx_stickers(
+                api_key=api_key,
+                supply_id=sid,
+                box_ids=created_ids,
+                sticker_type=stype,
+            )
             if not stickers:
                 stickers_error = (
                     "Грузоместа созданы, но WB не вернул стикеры "
@@ -949,7 +976,10 @@ def fetch_trbx_stickers(
     box_ids: list[str] | None = None,
     sticker_type: str = "png",
 ) -> list[dict[str, Any]]:
-    """Fetch trbx stickers from WB for given ids (or all boxes on the supply)."""
+    """Fetch trbx stickers from WB for given ids (or all boxes on the supply).
+
+    Chunks requests by ``TRBX_STICKERS_PER_REQUEST`` (WB hard limit 100).
+    """
     sid = str(supply_id or "").strip()
     if not sid:
         raise ValueError("Не указан ID поставки")
@@ -972,8 +1002,16 @@ def fetch_trbx_stickers(
                 ids.append(bid)
     if not ids:
         raise ValueError("Грузоместа не найдены")
+    stickers: list[dict[str, Any]] = []
+    chunk = max(1, int(TRBX_STICKERS_PER_REQUEST))
     try:
-        stickers = client.get_box_stickers(sid, ids[:100], sticker_type=stype)
+        for i in range(0, len(ids), chunk):
+            if i:
+                time.sleep(0.21)
+            part = client.get_box_stickers(
+                sid, ids[i : i + chunk], sticker_type=stype
+            )
+            stickers.extend(part)
     except Exception as exc:
         raise RuntimeError(str(exc)) from exc
     if not stickers:

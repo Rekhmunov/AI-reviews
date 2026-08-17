@@ -57,6 +57,40 @@ def test_render_trbx_stickers_html():
         render_trbx_stickers_html(supply_id="WB-GI-1", stickers=[])
 
 
+def test_fetch_trbx_stickers_chunks_over_100(monkeypatch):
+    """WB allows ≤100 trbxIds per stickers request — we must chunk."""
+    from review_processor import wb_fbs as mod
+
+    calls: list[list[str]] = []
+
+    class FakeClient:
+        def __init__(self, _key):
+            pass
+
+        def get_supply_boxes(self, _sid):
+            return [{"id": f"WB-TRBX-{i}"} for i in range(1, 132)]
+
+        def get_box_stickers(self, _sid, box_ids, *, sticker_type="png"):
+            ids = list(box_ids)
+            assert len(ids) <= mod.TRBX_STICKERS_PER_REQUEST
+            calls.append(ids)
+            return [{"trbxId": bid, "file": "aGVsbG8="} for bid in ids]
+
+    monkeypatch.setattr(mod, "WbFbsClient", FakeClient)
+    monkeypatch.setattr(mod.time, "sleep", lambda _s: None)
+    stickers = mod.fetch_trbx_stickers(api_key="k", supply_id="WB-GI-1")
+    assert len(stickers) == 131
+    assert len(calls) == 2
+    assert len(calls[0]) == 100
+    assert len(calls[1]) == 31
+
+
+def test_get_box_stickers_rejects_over_limit():
+    client = WbFbsClient("dummy-key")
+    with pytest.raises(ValueError, match="Не больше 100"):
+        client.get_box_stickers("WB-GI-1", [f"id-{i}" for i in range(101)])
+
+
 def test_list_supply_trbx_skips_stub_upsert(monkeypatch):
     """Failed get_supply must not wipe local name/done via stub upsert."""
     from review_processor import wb_fbs as mod

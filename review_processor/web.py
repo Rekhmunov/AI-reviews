@@ -11519,7 +11519,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not box_ids:
             raise HTTPException(status_code=404, detail="Короба не найдены")
         try:
-            stickers = client.get_box_stickers(supply_id, box_ids[:100], sticker_type=sticker_type)
+            stickers = wb_fbs_mod.fetch_trbx_stickers(
+                api_key=str(src_full["api_key"]),
+                supply_id=supply_id,
+                box_ids=box_ids,
+                sticker_type=sticker_type,
+            )
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return JSONResponse({"stickers": stickers, "box_ids": box_ids})
