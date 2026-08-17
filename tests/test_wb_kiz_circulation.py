@@ -130,6 +130,11 @@ def test_build_lk_receipt_and_return() -> None:
         products=[{"cis": "01046"}],
     )
     assert ret["return_type"] == "REMOTE_SALE_RETURN"
+    assert ret["trade_participant_inn"] == "7707083893"
+    assert "inn" not in ret
+    assert ret["paid"] is False
+    assert ret["products_list"] == [{"ki": "01046"}]
+    assert "products" not in ret
 
 
 def test_chz_client_base_urls() -> None:
@@ -911,7 +916,13 @@ def test_prepare_soft_skips_withdraw_without_kpp_keeps_returns(
     out = circ.prepare_chz_batches(repo=object(), user_id=1, source_id=2)
     assert out["counts"]["withdraw_events"] == 0
     assert out["counts"]["return_events"] == 1
-    assert any(d["doc_type"] == "LP_RETURN" for d in out["documents"])
+    returns = [d for d in out["documents"] if d["doc_type"] == "LP_RETURN"]
+    assert len(returns) == 1
+    body = returns[0]["product_document"]
+    assert body["trade_participant_inn"] == "7707083893"
+    assert body["products_list"] == [{"ki": "cis-r"}]
+    assert body["paid"] is False
+    assert "inn" not in body
     assert out["warnings"]
     assert "юр. лица" in out["warnings"][0]
     assert not any(d["doc_type"] == "LK_RECEIPT" for d in out["documents"])
@@ -2279,7 +2290,47 @@ def test_purge_non_fbs_deletes_batches() -> None:
         )
     sql = conn.execute.call_args_list[1].args[0]
     assert "DELETE FROM wb_kiz_circulation_events" in sql
-    assert circ.SKIP_NOT_FBS in conn.execute.call_args_list[1].args[1]
+    # Only confirmed skipped+not_fbs without FBS match — never open pending via NOT EXISTS alone.
+    assert "e.status = ?" in sql or "status = ?" in sql
+    assert "NOT IN" not in sql.split("DELETE FROM wb_kiz_circulation_events")[1][:500]
+    params = conn.execute.call_args_list[1].args[1]
+    assert circ.STATUS_SKIPPED in params
+    assert circ.SKIP_NOT_FBS in params
+
+
+def test_repair_requeue_skipped_with_product_cost() -> None:
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    conn.__exit__.return_value = False
+    cur = MagicMock()
+    cur.rowcount = 4
+    conn.execute.return_value = cur
+    repo = MagicMock()
+    repo._connect.return_value = conn
+    repo._sql.side_effect = lambda q: q
+    with patch.object(circ, "ensure_kiz_circulation_tables"):
+        assert (
+            circ.repair_requeue_skipped_with_product_cost(repo, user_id=1, source_id=2)
+            == 4
+        )
+    sql = conn.execute.call_args.args[0]
+    assert "price IS NOT NULL" in sql
+    assert circ.SKIP_NO_PRODUCT_COST in conn.execute.call_args.args[1]
+
+
+def test_preclose_empty_cis_events() -> None:
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    conn.__exit__.return_value = False
+    cur = MagicMock()
+    cur.rowcount = 7
+    conn.execute.return_value = cur
+    repo = MagicMock()
+    repo._connect.return_value = conn
+    repo._sql.side_effect = lambda q: q
+    with patch.object(circ, "ensure_kiz_circulation_tables"):
+        assert circ.preclose_empty_cis_events(repo, user_id=1, source_id=2) == 7
+    assert circ.SKIP_EMPTY_CIS in conn.execute.call_args.args[1]
 
 
 def test_request_cancel_excise_sync_sets_flag() -> None:

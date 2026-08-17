@@ -120,9 +120,15 @@ SKIP_NOT_FBS = "not_fbs"
 # FBS order exists but wrong lifecycle for this operation.
 SKIP_NOT_SOLD = "not_sold"  # withdraw only when wbStatus=sold
 SKIP_NOT_RETURN = "not_return"  # return-to-circulation only when cancelled/отказ
+# Prepare sticky closes — persist so oldest-first queue cannot HOL-block.
+SKIP_EMPTY_CIS = "пустой КИЗ"
+SKIP_BAD_CIS = "bad_cis"
+SKIP_NO_PRODUCT_COST = "нет цены за единицу (product_cost)"
 # Primary document when WB excise-report has no fiscal receipt (True API OTHER).
 NO_FISCAL_PRIMARY_DOC_TYPE = "OTHER"
 NO_FISCAL_PRIMARY_DOC_NAME = "Без документа основания"
+# Extra list→build rounds when sticky closes free slots under the 2000 head.
+PREPARE_QUEUE_DRAIN_PASSES = 3
 
 
 def _is_no_fiscal_reason(reason: str) -> bool:
@@ -600,7 +606,9 @@ _TERMINAL_SKIP_REASONS = frozenset(
         "already_sent",
         "duplicate",
         "duplicate_nofiscal",
-        "пустой КИЗ",
+        SKIP_EMPTY_CIS,
+        SKIP_BAD_CIS,
+        SKIP_NO_PRODUCT_COST,
         *_ELIGIBILITY_SKIP_REASONS,
     }
 )
@@ -1040,10 +1048,13 @@ def purge_non_fbs_circulation_events(
     run_id: int | None = None,
     on_batch: Callable[[int, int], None] | None = None,
 ) -> int:
-    """Hard-delete non-FBS (e.g. FBO) rows from the circulation table.
+    """Hard-delete confirmed non-FBS (e.g. FBO) skips from the circulation table.
 
-    Keeps ``submitted`` / ``accepted`` (CHZ audit). Requires at least one local
-    FBS order so an empty Marketplace table cannot wipe the queue.
+    Only removes rows already marked ``skipped`` + ``not_fbs`` that still have
+    no local FBS match. Never deletes open ``pending`` / ``ready`` / ``error``
+    via a bare ``NOT EXISTS`` — an incomplete Marketplace sync must not wipe the
+    queue. Keeps ``submitted`` / ``accepted`` (CHZ audit). Requires at least one
+    local FBS order so an empty Marketplace table cannot wipe anything.
     """
     ensure_kiz_circulation_tables(repo)
     from . import wb_fbs as wb_fbs_mod
@@ -1074,13 +1085,11 @@ def purge_non_fbs_circulation_events(
                     WHERE id IN (
                       SELECT e.id FROM wb_kiz_circulation_events AS e
                       WHERE e.user_id = ? AND e.source_id = ?
-                        AND e.status NOT IN (?, ?)
-                        AND (
-                          e.skip_reason = ?
-                          OR NOT EXISTS (
-                            SELECT 1 FROM wb_fbs_orders AS o
-                            WHERE {join_sql}
-                          )
+                        AND e.status = ?
+                        AND e.skip_reason = ?
+                        AND NOT EXISTS (
+                          SELECT 1 FROM wb_fbs_orders AS o
+                          WHERE {join_sql}
                         )
                       ORDER BY e.id ASC
                       LIMIT ?
@@ -1090,8 +1099,7 @@ def purge_non_fbs_circulation_events(
                 (
                     user_id,
                     source_id,
-                    STATUS_SUBMITTED,
-                    STATUS_ACCEPTED,
+                    STATUS_SKIPPED,
                     SKIP_NOT_FBS,
                     PURGE_BATCH_SIZE,
                 ),
@@ -1289,6 +1297,46 @@ def repair_requeue_eligible_fbs_events(
         "return_requeued": return_n,
         "requeued": withdraw_n + return_n,
     }
+
+
+def repair_requeue_skipped_with_product_cost(
+    repo: ReviewRepository, *, user_id: int, source_id: int
+) -> int:
+    """Re-open prepare sticky no-price skips after price was backfilled."""
+    ensure_kiz_circulation_tables(repo)
+    now = datetime.now(timezone.utc).isoformat()
+    with repo._connect() as conn:
+        cur = conn.execute(
+            repo._sql(
+                """
+                UPDATE wb_kiz_circulation_events
+                SET status = ?,
+                    skip_reason = CASE
+                      WHEN operation_type = 1
+                        AND COALESCE(fiscal_doc_number, '') = ''
+                        AND COALESCE(fiscal_dt, '') = ''
+                      THEN ?
+                      ELSE ''
+                    END,
+                    error_text = '',
+                    updated_at = ?
+                WHERE user_id = ? AND source_id = ?
+                  AND status = ?
+                  AND skip_reason = ?
+                  AND price IS NOT NULL
+                """
+            ),
+            (
+                STATUS_PENDING,
+                SKIP_NO_FISCAL,
+                now,
+                user_id,
+                source_id,
+                STATUS_SKIPPED,
+                SKIP_NO_PRODUCT_COST,
+            ),
+        )
+        return int(getattr(cur, "rowcount", 0) or 0)
 
 
 def repair_legacy_skipped_with_cis(
@@ -1649,6 +1697,16 @@ def repair_circulation_queue(
         logger.exception("repair_requeue_fbs_matched_not_fbs failed: %s", exc)
         fbs_requeued = 0
     try:
+        _check_sync_cancelled(run_id)
+        price_requeued = repair_requeue_skipped_with_product_cost(
+            repo, user_id=user_id, source_id=source_id
+        )
+    except SyncCancelled:
+        raise
+    except Exception as exc:
+        logger.exception("repair_requeue_skipped_with_product_cost failed: %s", exc)
+        price_requeued = 0
+    try:
         # After legacy requeue — drop open rows that are not Marketplace FBS.
         _check_sync_cancelled(run_id)
         not_fbs_skipped = repair_skip_non_fbs_events(
@@ -1696,6 +1754,7 @@ def repair_circulation_queue(
         "orphan_submitted": orphan_submitted,
         "legacy_skipped": legacy_skipped,
         "fbs_requeued": fbs_requeued,
+        "price_requeued": price_requeued,
         "not_fbs_skipped": not_fbs_skipped,
         "not_fbs_purged": not_fbs_purged,
         "not_sold_skipped": int(status_skip.get("not_sold_skipped") or 0),
@@ -3259,6 +3318,9 @@ def sync_excise_report(
                 seen_cis_op.add((int(norm.get("operation_type") or 0), cis))
 
         # Analytics extras that match FBS and are not already covered by meta.
+        # Ineligible rows are still persisted as skipped so repair_requeue_* can
+        # reopen them when local FBS / status catches up (no silent discard).
+        elig_skipped_norms: list[tuple[dict[str, Any], str]] = []
         for norm in analytics_norms:
             elig = _norm_eligibility_skip(norm, fbs_index)
             if elig:
@@ -3269,6 +3331,7 @@ def sync_excise_report(
                     skipped_not_sold += 1
                 elif elig == SKIP_NOT_RETURN:
                     skipped_not_return += 1
+                elig_skipped_norms.append((norm, elig))
                 continue
             cis = _normalize_cis_for_chz(str(norm.get("excise_short") or ""))
             key = (int(norm.get("operation_type") or 0), cis)
@@ -3449,6 +3512,73 @@ def sync_excise_report(
                         withdraw_count=withdraw_n,
                         return_count=return_n,
                     )
+
+            # Persist Analytics eligibility skips (not_fbs / not_sold / …).
+            # ON CONFLICT DO NOTHING — never clobber an existing open/sent row.
+            elig_persisted = 0
+            for j, (norm, elig) in enumerate(elig_skipped_norms, start=1):
+                if j % 200 == 0:
+                    _check_sync_cancelled(run_id)
+                    time.sleep(0)
+                try:
+                    cur = conn.execute(
+                        repo._sql(
+                            """
+                            INSERT INTO wb_kiz_circulation_events (
+                                user_id, source_id, event_key, operation_type, srid, rid,
+                                nm_id, barcode, excise_short, fiscal_doc_number, fiscal_dt,
+                                fiscal_drive_number, price, currency_name, country_name,
+                                status, skip_reason, raw_json, run_id, created_at, updated_at
+                            ) VALUES (
+                                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                            )
+                            ON CONFLICT (user_id, source_id, event_key) DO NOTHING
+                            RETURNING (xmax = 0) AS was_inserted
+                            """
+                        ),
+                        (
+                            user_id,
+                            source_id,
+                            norm["event_key"],
+                            int(norm["operation_type"]),
+                            norm["srid"],
+                            norm["rid"],
+                            norm["nm_id"],
+                            norm["barcode"],
+                            norm["excise_short"],
+                            norm["fiscal_doc_number"],
+                            norm["fiscal_dt"],
+                            norm["fiscal_drive_number"],
+                            norm["price"],
+                            norm["currency_name"],
+                            norm["country_name"],
+                            STATUS_SKIPPED,
+                            elig,
+                            "",
+                            run_id,
+                            now,
+                            now,
+                        ),
+                    )
+                    ret = cur.fetchone()
+                    if ret is not None:
+                        rd = repo._row_to_dict(ret)
+                        if bool(rd.get("was_inserted")):
+                            elig_persisted += 1
+                except SyncCancelled:
+                    raise
+                except Exception as exc:
+                    insert_errors += 1
+                    logger.exception(
+                        "wb_kiz_circulation elig-skip insert failed key=%s: %s",
+                        norm.get("event_key"),
+                        exc,
+                    )
+            if elig_persisted:
+                _append_log(
+                    log,
+                    f"сохранено пропусков eligibility (not_fbs/not_sold): {elig_persisted}",
+                )
 
             _check_sync_cancelled(run_id)
             conn.execute(
@@ -4323,6 +4453,7 @@ def list_events_for_chz(
                 f"""
                 SELECT * FROM wb_kiz_circulation_events
                 WHERE user_id = ? AND source_id = ?
+                  AND COALESCE(excise_short, '') <> ''
                   AND (
                     status IN ('pending', 'ready')
                     OR (
@@ -4439,7 +4570,7 @@ def _close_deduped_prepare_events(
     source_id: int,
     skipped: list[dict[str, Any]],
 ) -> int:
-    """Persist prepare-time dedupe skips so the queue does not clog."""
+    """Persist terminal prepare skips so the oldest-first queue does not clog."""
     by_reason: dict[str, list[str]] = {}
     for row in skipped:
         reason = str(row.get("skip_reason") or "").strip()
@@ -4484,6 +4615,39 @@ def _close_deduped_prepare_events(
     return closed
 
 
+def preclose_empty_cis_events(
+    repo: ReviewRepository, *, user_id: int, source_id: int
+) -> int:
+    """Sticky-close open rows with empty CIS so they cannot HOL-block prepare."""
+    ensure_kiz_circulation_tables(repo)
+    now = datetime.now(timezone.utc).isoformat()
+    with repo._connect() as conn:
+        cur = conn.execute(
+            repo._sql(
+                """
+                UPDATE wb_kiz_circulation_events
+                SET status = ?,
+                    skip_reason = ?,
+                    updated_at = ?
+                WHERE user_id = ? AND source_id = ?
+                  AND status IN (?, ?, ?)
+                  AND COALESCE(excise_short, '') = ''
+                """
+            ),
+            (
+                STATUS_SKIPPED,
+                SKIP_EMPTY_CIS,
+                now,
+                user_id,
+                source_id,
+                STATUS_PENDING,
+                STATUS_READY,
+                STATUS_ERROR,
+            ),
+        )
+        return int(getattr(cur, "rowcount", 0) or 0)
+
+
 def _dedupe_events_for_prepare(
     events: list[dict[str, Any]],
     *,
@@ -4500,7 +4664,7 @@ def _dedupe_events_for_prepare(
             operation_type=int(ev.get("operation_type") or 0),
         )
         if not ident[1]:
-            skipped.append({**ev, "skip_reason": "пустой КИЗ"})
+            skipped.append({**ev, "skip_reason": SKIP_EMPTY_CIS})
             continue
         if ident in sent_identities:
             skipped.append({**ev, "skip_reason": "already_sent"})
@@ -5566,78 +5730,27 @@ def prepare_chz_batches(
             queue_repair.update(storage)
         except Exception as exc:
             logger.exception("maintain_kiz_circulation_storage failed: %s", exc)
+        try:
+            empty_closed = preclose_empty_cis_events(
+                repo, user_id=user_id, source_id=source_id
+            )
+            if empty_closed:
+                queue_repair["empty_cis_closed"] = empty_closed
+        except Exception as exc:
+            logger.exception("preclose_empty_cis_events failed: %s", exc)
     lim = max(1, min(int(limit or PREPARE_EVENT_LIMIT), 5000))
-    events_raw = list_events_for_chz(
-        repo,
-        user_id=user_id,
-        source_id=source_id,
-        limit=lim,
-        event_keys=wanted_keys,
-    )
-    # Join Marketplace order + status. Hydrate only unresolved srids (see attach).
-    _attach_order_ids_to_events(
-        repo,
-        user_id=user_id,
-        source_id=source_id,
-        events=events_raw,
-        api_key=api_key,
-        hydrate=bool(str(api_key or "").strip()),
-        refresh_statuses=bool(str(api_key or "").strip()),
-    )
-    sent_identities = _load_sent_cis_identities(
-        repo, user_id=user_id, source_id=source_id
-    )
-    events, pre_skipped = _dedupe_events_for_prepare(
-        events_raw, sent_identities=sent_identities
-    )
-    try:
-        _close_deduped_prepare_events(
-            repo, user_id=user_id, source_id=source_id, skipped=pre_skipped
-        )
-    except Exception as exc:
-        logger.exception("close deduped prepare events failed: %s", exc)
 
-    withdraw_groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
-    # Withdraw without fiscal → OTHER primary document (DISTANCE), grouped by date.
-    withdraw_other_groups: dict[str, list[dict[str, Any]]] = {}
-    return_items: list[dict[str, Any]] = []
-    skipped: list[dict[str, Any]] = list(pre_skipped)
+    documents: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
     warnings: list[str] = []
-    other_doc_date = _moscow_today()
     not_sold_n = 0
     not_cancelled_n = 0
-
-    for ev in events:
-        op = int(ev.get("operation_type") or 0)
-        fiscal_no = str(ev.get("fiscal_doc_number") or "").strip()
-        fiscal_dt = str(ev.get("fiscal_dt") or "").strip()
-        cis = _normalize_cis_for_chz(str(ev.get("excise_short") or ""))
-        if not cis:
-            skipped.append({**ev, "skip_reason": "пустой КИЗ"})
-            continue
-        ev = {**ev, "excise_short": cis}
-        if op == OP_WITHDRAW:
-            not_sold = _withdraw_not_sold_reason(ev)
-            if not_sold:
-                not_sold_n += 1
-                skipped.append({**ev, "skip_reason": not_sold})
-                continue
-            if fiscal_no and fiscal_dt:
-                withdraw_groups.setdefault((fiscal_no, fiscal_dt), []).append(ev)
-            else:
-                # Official True API path: DISTANCE + document_type=OTHER when no receipt.
-                day = fiscal_dt or other_doc_date
-                withdraw_other_groups.setdefault(day, []).append(ev)
-        elif op == OP_RETURN:
-            not_cancelled = _return_not_cancelled_reason(ev)
-            if not_cancelled:
-                not_cancelled_n += 1
-                skipped.append({**ev, "skip_reason": not_cancelled})
-                continue
-            return_items.append(ev)
-        else:
-            skipped.append({**ev, "skip_reason": "неизвестный тип"})
-
+    bad_cis_n = 0
+    no_price_n = 0
+    eligible_loaded = 0
+    eligible_after_dedupe = 0
+    docs_built_total = 0
+    hit_event_limit = False
     kpp = str(settings.get("kpp") or "").strip()
     fias_id = str(settings.get("fias_id") or "").strip()
     if not kpp or not fias_id:
@@ -5651,31 +5764,285 @@ def prepare_chz_batches(
     # ИП (12 цифр): КПП в LK_RECEIPT не передаётся.
     if len(re.sub(r"\D", "", inn)) == 12:
         kpp = ""
-    # Soft-skip withdraw if DISTANCE place incomplete — still process returns.
-    if (withdraw_groups or withdraw_other_groups) and (not fias_id or (len(re.sub(r"\D", "", inn)) == 10 and not kpp)):
-        warnings.append(
-            "Вывод DISTANCE пропущен: укажите КПП (для ООО) и ФИАС МОД в Настройки → ЧЗ "
-            "— те же, что в профиле Честного знака (вкладка МОД), "
-            "либо у юр. лица с этим ИНН"
+
+    doc_cap = max(1, int(CHZ_DOCUMENTS_PER_PREPARE))
+    drain_passes = max(1, int(PREPARE_QUEUE_DRAIN_PASSES))
+    if wanted_keys:
+        drain_passes = 1
+    sent_identities = _load_sent_cis_identities(
+        repo, user_id=user_id, source_id=source_id
+    )
+    other_doc_date = _moscow_today()
+    used_event_keys: set[str] = set()
+    place_warned = False
+    mod_warned = False
+
+    for _drain in range(drain_passes):
+        if len(documents) >= doc_cap:
+            break
+        events_raw = list_events_for_chz(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            limit=lim,
+            event_keys=wanted_keys,
         )
-        for group in withdraw_groups.values():
-            for ev in group:
-                skipped.append({**ev, "skip_reason": "нет КПП/ФИАС у юр. лица"})
-        for group in withdraw_other_groups.values():
-            for ev in group:
-                skipped.append({**ev, "skip_reason": "нет КПП/ФИАС у юр. лица"})
-        withdraw_groups = {}
-        withdraw_other_groups = {}
-    elif withdraw_groups or withdraw_other_groups:
-        mod_parts = [f"ИНН {inn}"]
-        if kpp:
-            mod_parts.append(f"КПП {kpp}")
-        mod_parts.append(f"ФИАС {fias_id}")
-        warnings.append(
-            "МОД в документах: "
-            + ", ".join(mod_parts)
-            + " — должен совпадать с действующим МОД в профиле ЧЗ"
+        if used_event_keys:
+            events_raw = [
+                e
+                for e in events_raw
+                if str(e.get("event_key") or "") not in used_event_keys
+            ]
+        if not events_raw:
+            break
+        eligible_loaded += len(events_raw)
+        hit_event_limit = hit_event_limit or (len(events_raw) >= lim and not wanted_keys)
+        # Join Marketplace order + status. Hydrate only unresolved srids (see attach).
+        _attach_order_ids_to_events(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            events=events_raw,
+            api_key=api_key,
+            hydrate=bool(str(api_key or "").strip()),
+            refresh_statuses=bool(str(api_key or "").strip()),
         )
+        events, pre_skipped = _dedupe_events_for_prepare(
+            events_raw, sent_identities=sent_identities
+        )
+        eligible_after_dedupe += len(events)
+        skipped.extend(pre_skipped)
+        pass_skipped: list[dict[str, Any]] = list(pre_skipped)
+
+        withdraw_groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        withdraw_other_groups: dict[str, list[dict[str, Any]]] = {}
+        return_items: list[dict[str, Any]] = []
+        pass_not_sold = 0
+        pass_not_cancelled = 0
+
+        for ev in events:
+            op = int(ev.get("operation_type") or 0)
+            fiscal_no = str(ev.get("fiscal_doc_number") or "").strip()
+            fiscal_dt = str(ev.get("fiscal_dt") or "").strip()
+            cis = _normalize_cis_for_chz(str(ev.get("excise_short") or ""))
+            if not cis:
+                row = {**ev, "skip_reason": SKIP_EMPTY_CIS}
+                skipped.append(row)
+                pass_skipped.append(row)
+                continue
+            ev = {**ev, "excise_short": cis}
+            if op == OP_WITHDRAW:
+                not_sold = _withdraw_not_sold_reason(ev)
+                if not_sold:
+                    pass_not_sold += 1
+                    skipped.append({**ev, "skip_reason": not_sold})
+                    continue
+                if fiscal_no and fiscal_dt:
+                    withdraw_groups.setdefault((fiscal_no, fiscal_dt), []).append(ev)
+                else:
+                    day = fiscal_dt or other_doc_date
+                    withdraw_other_groups.setdefault(day, []).append(ev)
+            elif op == OP_RETURN:
+                not_cancelled = _return_not_cancelled_reason(ev)
+                if not_cancelled:
+                    pass_not_cancelled += 1
+                    skipped.append({**ev, "skip_reason": not_cancelled})
+                    continue
+                return_items.append(ev)
+            else:
+                skipped.append({**ev, "skip_reason": "неизвестный тип"})
+
+        not_sold_n += pass_not_sold
+        not_cancelled_n += pass_not_cancelled
+
+        if (withdraw_groups or withdraw_other_groups) and (
+            not fias_id or (len(re.sub(r"\D", "", inn)) == 10 and not kpp)
+        ):
+            if not place_warned:
+                warnings.append(
+                    "Вывод DISTANCE пропущен: укажите КПП (для ООО) и ФИАС МОД в Настройки → ЧЗ "
+                    "— те же, что в профиле Честного знака (вкладка МОД), "
+                    "либо у юр. лица с этим ИНН"
+                )
+                place_warned = True
+            for group in withdraw_groups.values():
+                for ev in group:
+                    skipped.append({**ev, "skip_reason": "нет КПП/ФИАС у юр. лица"})
+            for group in withdraw_other_groups.values():
+                for ev in group:
+                    skipped.append({**ev, "skip_reason": "нет КПП/ФИАС у юр. лица"})
+            withdraw_groups = {}
+            withdraw_other_groups = {}
+        elif (withdraw_groups or withdraw_other_groups) and not mod_warned:
+            mod_parts = [f"ИНН {inn}"]
+            if kpp:
+                mod_parts.append(f"КПП {kpp}")
+            mod_parts.append(f"ФИАС {fias_id}")
+            warnings.append(
+                "МОД в документах: "
+                + ", ".join(mod_parts)
+                + " — должен совпадать с действующим МОД в профиле ЧЗ"
+            )
+            mod_warned = True
+
+        pass_docs: list[dict[str, Any]] = []
+        for (fiscal_no, fiscal_dt), group in withdraw_groups.items():
+            for part_idx, part in enumerate(
+                _chunked(group, CHZ_PRODUCTS_PER_DOC), start=1
+            ):
+                products = []
+                keys_ok: list[str] = []
+                for ev in part:
+                    product = _chz_product_from_event(ev)
+                    if not product:
+                        bad_cis_n += 1
+                        row = {**ev, "skip_reason": SKIP_BAD_CIS}
+                        skipped.append(row)
+                        pass_skipped.append(row)
+                        continue
+                    products.append(product)
+                    keys_ok.append(str(ev.get("event_key") or ""))
+                if not products:
+                    continue
+                doc_body = build_lk_receipt_document(
+                    inn=inn,
+                    document_number=fiscal_no,
+                    document_date=fiscal_dt,
+                    products=products,
+                    kpp=kpp,
+                    fias_id=fias_id,
+                )
+                suffix = (
+                    f" · часть {part_idx}" if len(group) > CHZ_PRODUCTS_PER_DOC else ""
+                )
+                pass_docs.append(
+                    {
+                        "doc_type": "LK_RECEIPT",
+                        "product_group": pg,
+                        "title": f"Вывод · чек {fiscal_no} · {fiscal_dt}{suffix}",
+                        "event_keys": [k for k in keys_ok if k],
+                        "product_document": doc_body,
+                        "sign_payload_b64": _b64_json(doc_body),
+                    }
+                )
+
+        for doc_date, group in withdraw_other_groups.items():
+            for part_idx, part in enumerate(
+                _chunked(group, CHZ_PRODUCTS_PER_DOC), start=1
+            ):
+                products = []
+                keys_ok: list[str] = []
+                for ev in part:
+                    product = _chz_product_from_event(ev)
+                    if not product:
+                        bad_cis_n += 1
+                        row = {**ev, "skip_reason": SKIP_BAD_CIS}
+                        skipped.append(row)
+                        pass_skipped.append(row)
+                        continue
+                    if product.get("product_cost") is None:
+                        no_price_n += 1
+                        row = {**ev, "skip_reason": SKIP_NO_PRODUCT_COST}
+                        skipped.append(row)
+                        pass_skipped.append(row)
+                        continue
+                    products.append(product)
+                    keys_ok.append(str(ev.get("event_key") or ""))
+                if not products:
+                    continue
+                doc_number = f"WB-NOFISCAL-{doc_date}"
+                if len(group) > CHZ_PRODUCTS_PER_DOC:
+                    doc_number = f"{doc_number}-{part_idx}"
+                doc_body = build_lk_receipt_document(
+                    inn=inn,
+                    document_number=doc_number,
+                    document_date=doc_date,
+                    primary_document_type=NO_FISCAL_PRIMARY_DOC_TYPE,
+                    primary_document_custom_name=NO_FISCAL_PRIMARY_DOC_NAME,
+                    products=products,
+                    kpp=kpp,
+                    fias_id=fias_id,
+                )
+                suffix = (
+                    f" · часть {part_idx}" if len(group) > CHZ_PRODUCTS_PER_DOC else ""
+                )
+                pass_docs.append(
+                    {
+                        "doc_type": "LK_RECEIPT",
+                        "product_group": pg,
+                        "title": (
+                            f"Вывод · без чека (OTHER) · {doc_date}{suffix}"
+                        ),
+                        "event_keys": [k for k in keys_ok if k],
+                        "product_document": doc_body,
+                        "sign_payload_b64": _b64_json(doc_body),
+                    }
+                )
+
+        for part_idx, part in enumerate(
+            _chunked(return_items, CHZ_PRODUCTS_PER_DOC), start=1
+        ):
+            if not part:
+                continue
+            products = []
+            keys_ok: list[str] = []
+            for e in part:
+                product = _chz_product_from_event(e)
+                if not product:
+                    bad_cis_n += 1
+                    row = {**e, "skip_reason": SKIP_BAD_CIS}
+                    skipped.append(row)
+                    pass_skipped.append(row)
+                    continue
+                products.append({"ki": product["cis"]})
+                keys_ok.append(str(e.get("event_key") or ""))
+            if not products:
+                continue
+            doc_body = build_lp_return_document(
+                inn=inn,
+                return_type=str(settings.get("return_type") or "REMOTE_SALE_RETURN"),
+                products=products,
+                paid=False,
+            )
+            suffix = (
+                f" · часть {part_idx}"
+                if len(return_items) > CHZ_PRODUCTS_PER_DOC
+                else ""
+            )
+            pass_docs.append(
+                {
+                    "doc_type": "LP_RETURN",
+                    "product_group": pg,
+                    "title": f"Возврат в оборот · {len(products)} КИЗ{suffix}",
+                    "event_keys": [k for k in keys_ok if k],
+                    "product_document": doc_body,
+                    "sign_payload_b64": _b64_json(doc_body),
+                }
+            )
+
+        room = doc_cap - len(documents)
+        accepted = pass_docs[: max(0, room)]
+        for d in accepted:
+            for k in d.get("event_keys") or []:
+                if k:
+                    used_event_keys.add(str(k))
+        documents.extend(accepted)
+        docs_built_total += len(pass_docs)
+
+        sticky_closed = 0
+        try:
+            sticky_closed = _close_deduped_prepare_events(
+                repo, user_id=user_id, source_id=source_id, skipped=pass_skipped
+            )
+        except Exception as exc:
+            logger.exception("close prepare sticky skips failed: %s", exc)
+
+        # Further drain only when sticky closes freed the oldest head.
+        if sticky_closed <= 0:
+            break
+        if len(documents) >= doc_cap:
+            break
+
     if not_sold_n:
         warnings.append(
             f"Пропущено выводов без статуса «выкуплен»: {not_sold_n} "
@@ -5687,140 +6054,19 @@ def prepare_chz_batches(
             f"Пропущено возвратов без статуса отказа: {not_cancelled_n} "
             "(в оборот возвращаются только отказные / отменённые)"
         )
-
-    documents: list[dict[str, Any]] = []
-    bad_cis_n = 0
-    for (fiscal_no, fiscal_dt), group in withdraw_groups.items():
-        for part_idx, part in enumerate(_chunked(group, CHZ_PRODUCTS_PER_DOC), start=1):
-            products = []
-            keys_ok: list[str] = []
-            for ev in part:
-                product = _chz_product_from_event(ev)
-                if not product:
-                    bad_cis_n += 1
-                    continue
-                products.append(product)
-                keys_ok.append(str(ev.get("event_key") or ""))
-            if not products:
-                continue
-            doc_body = build_lk_receipt_document(
-                inn=inn,
-                document_number=fiscal_no,
-                document_date=fiscal_dt,
-                products=products,
-                kpp=kpp,
-                fias_id=fias_id,
-            )
-            suffix = f" · часть {part_idx}" if len(group) > CHZ_PRODUCTS_PER_DOC else ""
-            documents.append(
-                {
-                    "doc_type": "LK_RECEIPT",
-                    "product_group": pg,
-                    "title": f"Вывод · чек {fiscal_no} · {fiscal_dt}{suffix}",
-                    "event_keys": [k for k in keys_ok if k],
-                    "product_document": doc_body,
-                    "sign_payload_b64": _b64_json(doc_body),
-                }
-            )
-
-    no_price_n = 0
-    for doc_date, group in withdraw_other_groups.items():
-        for part_idx, part in enumerate(_chunked(group, CHZ_PRODUCTS_PER_DOC), start=1):
-            products = []
-            keys_ok: list[str] = []
-            for ev in part:
-                product = _chz_product_from_event(ev)
-                if not product:
-                    bad_cis_n += 1
-                    continue
-                # True API OTHER requires product_cost («Цена за единицу»).
-                if product.get("product_cost") is None:
-                    no_price_n += 1
-                    skipped.append(
-                        {
-                            **ev,
-                            "skip_reason": "нет цены за единицу (product_cost)",
-                        }
-                    )
-                    continue
-                products.append(product)
-                keys_ok.append(str(ev.get("event_key") or ""))
-            if not products:
-                continue
-            doc_number = f"WB-NOFISCAL-{doc_date}"
-            if len(group) > CHZ_PRODUCTS_PER_DOC:
-                doc_number = f"{doc_number}-{part_idx}"
-            doc_body = build_lk_receipt_document(
-                inn=inn,
-                document_number=doc_number,
-                document_date=doc_date,
-                primary_document_type=NO_FISCAL_PRIMARY_DOC_TYPE,
-                primary_document_custom_name=NO_FISCAL_PRIMARY_DOC_NAME,
-                products=products,
-                kpp=kpp,
-                fias_id=fias_id,
-            )
-            suffix = f" · часть {part_idx}" if len(group) > CHZ_PRODUCTS_PER_DOC else ""
-            documents.append(
-                {
-                    "doc_type": "LK_RECEIPT",
-                    "product_group": pg,
-                    "title": (
-                        f"Вывод · без чека (OTHER) · {doc_date}{suffix}"
-                    ),
-                    "event_keys": [k for k in keys_ok if k],
-                    "product_document": doc_body,
-                    "sign_payload_b64": _b64_json(doc_body),
-                }
-            )
     if no_price_n:
         warnings.append(
             f"Пропущено выводов без цены за единицу: {no_price_n} "
             "(ЧЗ OTHER требует product_cost; пересинхронизируйте заказы FBS "
             "или проверьте convertedPrice в Marketplace)"
         )
-    for part_idx, part in enumerate(
-        _chunked(return_items, CHZ_PRODUCTS_PER_DOC), start=1
-    ):
-        if not part:
-            continue
-        products = []
-        keys_ok: list[str] = []
-        for e in part:
-            product = _chz_product_from_event(e)
-            if not product:
-                bad_cis_n += 1
-                continue
-            products.append({"cis": product["cis"]})
-            keys_ok.append(str(e.get("event_key") or ""))
-        if not products:
-            continue
-        doc_body = build_lp_return_document(
-            inn=inn,
-            return_type=str(settings.get("return_type") or "REMOTE_SALE_RETURN"),
-            products=products,
-        )
-        suffix = f" · часть {part_idx}" if len(return_items) > CHZ_PRODUCTS_PER_DOC else ""
-        documents.append(
-            {
-                "doc_type": "LP_RETURN",
-                "product_group": pg,
-                "title": f"Возврат в оборот · {len(products)} КИЗ{suffix}",
-                "event_keys": [k for k in keys_ok if k],
-                "product_document": doc_body,
-                "sign_payload_b64": _b64_json(doc_body),
-            }
-        )
-
     if bad_cis_n:
         warnings.append(
             f"Пропущено КИЗ с битым кодом (кавычки/хвост): {bad_cis_n}"
         )
 
-    doc_cap = max(1, int(CHZ_DOCUMENTS_PER_PREPARE))
-    docs_built = len(documents)
-    truncated_by_docs = docs_built > doc_cap
-    if truncated_by_docs:
+    truncated_by_docs = docs_built_total > doc_cap
+    if len(documents) > doc_cap:
         documents = documents[:doc_cap]
 
     withdraw_n = sum(
@@ -5835,7 +6081,6 @@ def prepare_chz_batches(
         if d.get("doc_type") == "LP_RETURN"
         for _ in (d.get("event_keys") or [])
     )
-    hit_event_limit = len(events_raw) >= lim
     has_more = truncated_by_docs or hit_event_limit
     return {
         "ok": True,
@@ -5861,15 +6106,15 @@ def prepare_chz_batches(
         ],
         "counts": {
             "documents": len(documents),
-            "documents_built": docs_built,
+            "documents_built": docs_built_total,
             "documents_cap": doc_cap,
             "withdraw_events": withdraw_n,
             "return_events": return_n,
             "skipped": len(skipped),
             "withdraw_not_sold": not_sold_n,
             "return_not_cancelled": not_cancelled_n,
-            "eligible_loaded": len(events_raw),
-            "eligible_after_dedupe": len(events),
+            "eligible_loaded": eligible_loaded,
+            "eligible_after_dedupe": eligible_after_dedupe,
         },
         "has_more": has_more,
     }
@@ -6149,6 +6394,8 @@ __all__ = [
     "repair_skip_wrong_fbs_status_events",
     "repair_requeue_fbs_matched_not_fbs",
     "repair_requeue_eligible_fbs_events",
+    "repair_requeue_skipped_with_product_cost",
+    "preclose_empty_cis_events",
     "repair_circulation_queue",
     "load_local_fbs_rid_keys",
     "load_local_fbs_order_index",
