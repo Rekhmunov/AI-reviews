@@ -2037,7 +2037,7 @@
       };
       back.textContent = "←";
     }
-    title.textContent = mode === "kiz" ? "Маркировка" : "Проверка ШК";
+    title.textContent = mode === "kiz" ? "С маркировкой" : "Без маркировки";
     updateProgressBar(mode);
 
     const rows = mode === "kiz" ? state.kizRows : state.pickRows;
@@ -2385,7 +2385,7 @@
       const titleEl = document.getElementById("tsdTitle");
       if (titleEl) {
         titleEl.textContent =
-          state.route.mode === "kiz" ? "Маркировка" : "Проверка ШК";
+          state.route.mode === "kiz" ? "С маркировкой" : "Без маркировки";
       }
       const backEl = document.getElementById("tsdBackBtn");
       if (backEl) {
