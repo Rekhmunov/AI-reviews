@@ -1107,6 +1107,9 @@
     }
     if (filterWrap) filterWrap.hidden = !onScan;
 
+    const closeBtn = document.getElementById("tsdCloseBtn");
+    if (closeBtn) closeBtn.hidden = !onScan;
+
     if (!searchOk) {
       state.searchOpen = false;
       if (panel) panel.hidden = true;
@@ -1174,6 +1177,7 @@
 
     const app = document.getElementById("tsdApp");
     if (app) {
+      app.classList.toggle("is-scan", onScan);
       app.classList.toggle("is-filter-menu-open", !!(onScan && state.filterOpen));
       app.classList.toggle("is-browse-open", !!(onScan && shouldShowBrowseSheet()));
     }
@@ -1322,7 +1326,6 @@
                 ? `<button type="button" class="tsd-btn tsd-btn-ghost tsd-browse-reset" id="tsdBrowseReset">Сбросить</button>`
                 : ""
             }
-            <button type="button" class="tsd-btn tsd-btn-secondary tsd-browse-scan" id="tsdBrowseToScan">К скану</button>
             <button type="button" class="tsd-icon-btn tsd-browse-close" id="tsdBrowseClose"
               aria-label="Закрыть" title="Закрыть">×</button>
           </div>
@@ -1374,10 +1377,6 @@
     const sheet = document.getElementById("tsdBrowseSheet");
     if (!sheet) return;
     scheduleBrowseSheetPositionSync();
-    const toScan = document.getElementById("tsdBrowseToScan");
-    if (toScan) {
-      toScan.addEventListener("click", () => dismissBrowseSheetToScan());
-    }
     const closeBtn = document.getElementById("tsdBrowseClose");
     if (closeBtn) {
       closeBtn.addEventListener("click", () => dismissBrowseSheetToScan());
@@ -1551,10 +1550,10 @@
 
   function toggleFilterMenu() {
     if (state.route.view !== "scan") return;
-    // If filters already active and sheet closed — reopen results, don't only toggle menu.
+    // If filters already active and sheet closed — reopen results (not the dropdown).
     if (hasActiveFilters() && !state.browseOpen && !state.filterOpen) {
       openBrowseSheet();
-      state.filterOpen = true;
+      state.filterOpen = false;
       syncSearchChrome();
       renderScan({ keepSearchFocus: true });
       scheduleBrowseSheetPositionSync();
@@ -1578,8 +1577,13 @@
       errors: state.route.mode === "kiz" ? !!errors?.checked : false,
       cancelled: !!cancelled?.checked,
     };
-    if (hasActiveFilters()) openBrowseSheet();
-    else if (!state.searchOpen) closeBrowseSheet();
+    if (hasActiveFilters()) {
+      openBrowseSheet();
+      // Close dropdown so the full-screen filter sheet is not trapped under the header.
+      state.filterOpen = false;
+    } else if (!state.searchOpen) {
+      closeBrowseSheet();
+    }
     syncSearchChrome();
     if (state.route.view === "scan") {
       renderScan({ keepSearchFocus: true });
@@ -1986,6 +1990,46 @@
     fill.style.width = total ? `${Math.round((100 * done) / total)}%` : "0%";
   }
 
+  function hasUnsavedScanWork(mode) {
+    const m = mode || state.route.mode;
+    // Mid-scan step (sticker matched, waiting for КИЗ/ШК).
+    if (state.pendingOrderId) return true;
+    const session = state.sessionScannedIds || [];
+    if (!session.length) {
+      if (m === "kiz" && Object.keys(state.pendingKizClear || {}).length) return true;
+      return false;
+    }
+    const sessionSet = new Set(session.map((x) => Number(x)));
+    if (m === "kiz") {
+      return (state.kizRows || []).some((row) => {
+        const oid = Number(row.order_id);
+        if (!sessionSet.has(oid)) return false;
+        return rowNeedsKizWbClear(row) || rowKizFilled(row);
+      });
+    }
+    return (state.pickRows || []).some(
+      (row) => sessionSet.has(Number(row.order_id)) && rowPickFilled(row)
+    );
+  }
+
+  function leaveScanScreen() {
+    if (state.route.view !== "scan") return;
+    const sid = state.route.supplyId;
+    if (hasUnsavedScanWork(state.route.mode)) {
+      if (!confirm("Есть несохранённые изменения. Закрыть без сохранения?")) {
+        return;
+      }
+    }
+    state.pendingOrderId = null;
+    state.step = "sticker";
+    state.searchOpen = false;
+    state.orderSearch = "";
+    state.sessionScannedIds = [];
+    resetScanFilters();
+    setBanner(null);
+    navigate(`#/s/${sid}`);
+  }
+
   function renderScan(opts) {
     const keepSearchFocus = !!(opts && opts.keepSearchFocus);
     const mode = state.route.mode;
@@ -2000,13 +2044,7 @@
       back.href = `#/s/${sid}`;
       back.onclick = (ev) => {
         ev.preventDefault();
-        state.pendingOrderId = null;
-        state.step = "sticker";
-        state.searchOpen = false;
-        state.orderSearch = "";
-        resetScanFilters();
-        setBanner(null);
-        navigate(`#/s/${sid}`);
+        leaveScanScreen();
       };
       back.textContent = "←";
     }
@@ -2352,6 +2390,24 @@
         stages: ["Открытие", "С маркировкой", "Без маркировки"],
       });
     } else if (state.route.view === "scan") {
+      // Switch chrome immediately so the hub title/strip never lingers under load.
+      syncSourceSelectVisibility();
+      syncSearchChrome();
+      const titleEl = document.getElementById("tsdTitle");
+      if (titleEl) {
+        titleEl.textContent =
+          state.route.mode === "kiz" ? "Маркировка" : "Проверка ШК";
+      }
+      const backEl = document.getElementById("tsdBackBtn");
+      if (backEl) {
+        backEl.hidden = false;
+        backEl.href = `#/s/${state.route.supplyId}`;
+        backEl.textContent = "←";
+        backEl.onclick = (ev) => {
+          ev.preventDefault();
+          leaveScanScreen();
+        };
+      }
       if (state.route.mode === "kiz") {
         showLoadingScreen({
           title: "Товары с маркировкой",
@@ -2493,6 +2549,13 @@
       searchBtn.addEventListener("click", () => {
         if (state.searchOpen) closeHeaderSearch();
         else openHeaderSearch();
+      });
+    }
+    const closeBtn = document.getElementById("tsdCloseBtn");
+    if (closeBtn) {
+      closeBtn.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        leaveScanScreen();
       });
     }
     const filterBtn = document.getElementById("tsdFilterBtn");
