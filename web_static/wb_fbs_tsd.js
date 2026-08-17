@@ -1274,7 +1274,9 @@
             : `<span class="tsd-scanned-ph" aria-hidden="true"></span>`;
           const barcodes = orderBarcodesLabel(r);
           const stickerHtml = formatBoldLastDigits(r.sticker_number || "—", 4);
-          const cancel = rowIsCancelled(r) ? " · Отменён" : "";
+          const cancelHtml = rowIsCancelled(r)
+            ? ` · <span class="tsd-meta-cancelled">Отменён</span>`
+            : "";
           const err = mode === "kiz" && rowHasKizError(r) ? " · Ошибка" : "";
           const status =
             mode === "kiz"
@@ -1296,7 +1298,7 @@
                     ? `<div class="tsd-scanned-barcodes">${esc(barcodes)}</div>`
                     : ""
                 }
-                <div class="tsd-scanned-meta">${esc(status + cancel + err)}</div>
+                <div class="tsd-scanned-meta">${esc(status)}${cancelHtml}${esc(err)}</div>
               </div>
             </button>`;
         })
@@ -1321,11 +1323,6 @@
             ${sub ? `<div class="tsd-browse-sub">${esc(sub)}</div>` : ""}
           </div>
           <div class="tsd-browse-actions">
-            ${
-              filtersOn
-                ? `<button type="button" class="tsd-btn tsd-btn-ghost tsd-browse-reset" id="tsdBrowseReset">Сбросить</button>`
-                : ""
-            }
             <button type="button" class="tsd-icon-btn tsd-browse-close" id="tsdBrowseClose"
               aria-label="Закрыть" title="Закрыть">×</button>
           </div>
@@ -1361,8 +1358,10 @@
   }
 
   function dismissBrowseSheetToScan() {
-    closeBrowseSheet();
+    // × replaces «Сбросить» — clear filters and close the overlay.
+    state.filters = { filled: false, empty: false, errors: false, cancelled: false };
     state.filterOpen = false;
+    closeBrowseSheet();
     if (state.searchOpen) {
       state.searchOpen = false;
       state.orderSearch = "";
@@ -1380,18 +1379,6 @@
     const closeBtn = document.getElementById("tsdBrowseClose");
     if (closeBtn) {
       closeBtn.addEventListener("click", () => dismissBrowseSheetToScan());
-    }
-    const reset = document.getElementById("tsdBrowseReset");
-    if (reset) {
-      reset.addEventListener("click", () => {
-        clearScanFiltersAndBrowse();
-        if (!state.searchOpen) {
-          renderScan();
-          return;
-        }
-        openBrowseSheet();
-        renderScan({ keepSearchFocus: true });
-      });
     }
     const more = document.getElementById("tsdBrowseMore");
     if (more) {

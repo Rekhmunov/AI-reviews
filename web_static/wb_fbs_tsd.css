@@ -1214,6 +1214,11 @@ html, body {
   word-break: break-word;
 }
 
+.tsd-meta-cancelled {
+  color: var(--tsd-err);
+  font-weight: 600;
+}
+
 .tsd-scanned-clear {
   flex: 0 0 44px;
   width: 44px;
