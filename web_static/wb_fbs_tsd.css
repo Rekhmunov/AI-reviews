@@ -994,6 +994,7 @@ html, body {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  background: var(--tsd-bg);
 }
 
 .tsd-browse-end {
