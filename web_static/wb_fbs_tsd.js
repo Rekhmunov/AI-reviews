@@ -1497,12 +1497,14 @@
     state.searchOpen = true;
     if (view === "scan") openBrowseSheet();
     syncSearchChrome();
-    const input = document.getElementById("tsdOrderSearch");
-    if (input) {
-      setTimeout(() => {
-        input.focus();
-        input.select();
-      }, 40);
+    if (view === "list") {
+      const input = document.getElementById("tsdOrderSearch");
+      if (input) {
+        setTimeout(() => {
+          input.focus();
+          input.select();
+        }, 40);
+      }
     }
     if (view === "scan") {
       renderScan({ keepSearchFocus: true });
