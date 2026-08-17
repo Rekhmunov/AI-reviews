@@ -23339,7 +23339,11 @@ function wbFbsTrbxAmountChanged() {
     // Keep empty for 0 so "0" stays a placeholder, not a typed value.
     input.value = n > 0 ? String(n) : "";
   }
-  const canCreate = max >= 1 && !wbFbsDetailState.trbxBusy && !wbFbsDetailState.trbxLoading;
+  const closed = !!(wbFbsDetailState.supply || {}).done;
+  const canCreate = !closed
+    && max >= 1
+    && !wbFbsDetailState.trbxBusy
+    && !wbFbsDetailState.trbxLoading;
   _wbFbsTrbxSetCreateEnabled(canCreate);
   if (btn) btn.disabled = n < 1 || !canCreate;
 }
@@ -23479,10 +23483,7 @@ function openWbFbsCreateTrbxModal() {
   const sid = String(wbFbsDetailState.supplyId || "").trim();
   if (!sid || !wbFbsState.sourceId || !_wbFbsSupplyDetailActionsReady()) return;
   const supply = wbFbsDetailState.supply || {};
-  if (supply.done) {
-    alert("Поставка уже закрыта — грузоместа добавить нельзя");
-    return;
-  }
+  const closed = !!supply.done;
   const modal = document.getElementById("wbFbsCreateTrbxModal");
   if (!modal) return;
   wbFbsDetailState.trbxBoxes = [];
@@ -23494,12 +23495,21 @@ function openWbFbsCreateTrbxModal() {
     input.max = String(_wbFbsTrbxMaxAmount());
   }
   _wbFbsRenderTrbxBoxesList([]);
-  _wbFbsCreateTrbxSetInfo("Загружаем грузоместа с портала…");
+  if (closed) {
+    _wbFbsCreateTrbxSetInfo(
+      "Поставка уже закрыта — создать грузоместа нельзя. Можно распечатать QR существующих.",
+      "error",
+    );
+  } else {
+    _wbFbsCreateTrbxSetInfo("Загружаем грузоместа с портала…");
+  }
   wbFbsTrbxAmountChanged();
+  // Disable create controls on closed supplies (print/delete still available when boxes load).
+  if (closed) _wbFbsTrbxSetCreateEnabled(false);
   modal.classList.remove("hidden");
   modal.style.display = "flex";
   modal.setAttribute("aria-hidden", "false");
-  loadWbFbsTrbxBoxes().catch(() => {});
+  loadWbFbsTrbxBoxes({ keepInfo: closed }).catch(() => {});
 }
 window.openWbFbsCreateTrbxModal = openWbFbsCreateTrbxModal;
 
@@ -23786,7 +23796,16 @@ function renderWbFbsSupplyDetail(data) {
   _wbFbsSyncPickVerifyBtn();
   const trbxBtn = document.getElementById("wbFbsSupplyDetailTrbxBtn");
   if (trbxBtn) {
-    trbxBtn.hidden = !!supply.done;
+    // Always show: owner needs print/create even when WB already has boxes.
+    // Hiding on done made the button disappear for the main account while
+    // employees (fewer toolbar buttons) still saw it — and blocked print.
+    trbxBtn.hidden = false;
+    trbxBtn.style.display = "";
+    trbxBtn.style.visibility = "visible";
+    const closed = !!supply.done;
+    trbxBtn.title = closed
+      ? "Грузоместа: просмотр и печать QR (поставка уже закрыта — создать нельзя)"
+      : "Создать грузоместа (короба) для ПВЗ";
   }
   if (!tbody) return;
   if (!allOrders.length) {
