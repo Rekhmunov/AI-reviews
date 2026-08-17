@@ -49,7 +49,8 @@ html, body {
 .tsd-top {
   position: sticky;
   top: 0;
-  z-index: 20;
+  /* Above browse sheet so filter/search chrome and dropdowns stay visible */
+  z-index: 40;
   background: var(--tsd-surface);
   border-bottom: 1px solid var(--tsd-line);
   padding: 12px var(--tsd-pad) 0;
@@ -144,9 +145,10 @@ html, body {
 
 .tsd-filter-menu {
   position: absolute;
-  top: calc(100% + 8px);
+  /* Sit below the header row / progress, over the browse sheet */
+  top: calc(100% + 20px);
   right: 0;
-  z-index: 30;
+  z-index: 50;
   min-width: 200px;
   padding: 8px;
   border-radius: 12px;
@@ -931,12 +933,14 @@ html, body {
   transform: translateX(-50%);
   width: min(560px, 100%);
   bottom: 0;
+  /* Below .tsd-top (40); flush under header via JS top */
   z-index: 28;
   display: flex;
   flex-direction: column;
-  background: var(--tsd-bg);
-  border-top: 1px solid var(--tsd-line);
-  box-shadow: 0 -8px 24px rgba(15, 23, 42, 0.08);
+  /* Opaque surface — no gray hub strip peeking through gaps */
+  background: var(--tsd-surface);
+  border-top: none;
+  box-shadow: none;
 }
 
 .tsd-browse-head {
@@ -990,6 +994,7 @@ html, body {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  background: var(--tsd-bg);
 }
 
 .tsd-browse-end {
