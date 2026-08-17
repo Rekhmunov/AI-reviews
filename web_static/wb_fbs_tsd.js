@@ -1258,6 +1258,7 @@
             ? `<img src="${esc(r.product_photo)}" alt="" width="48" height="48" />`
             : `<span class="tsd-scanned-ph" aria-hidden="true"></span>`;
           const barcodes = orderBarcodesLabel(r);
+          const stickerHtml = formatBoldLastDigits(r.sticker_number || "—", 4);
           const cancel = rowIsCancelled(r) ? " · Отменён" : "";
           const err = mode === "kiz" && rowHasKizError(r) ? " · Ошибка" : "";
           const status =
@@ -1273,7 +1274,7 @@
               data-order-id="${esc(String(r.order_id))}">
               ${photo}
               <div class="tsd-scanned-text">
-                <div class="tsd-scanned-order">Заказ ${esc(r.order_id)} · ${esc(r.sticker_number || "—")}</div>
+                <div class="tsd-scanned-order">Заказ ${esc(r.order_id)} · ${stickerHtml}</div>
                 <div class="tsd-scanned-name">${esc(r.product_name || r.article || "—")}</div>
                 ${
                   barcodes
@@ -1321,13 +1322,23 @@
     const sheet = document.getElementById("tsdBrowseSheet");
     const top = document.querySelector(".tsd-top");
     if (!sheet || !top) return;
-    sheet.style.top = `${Math.ceil(top.getBoundingClientRect().height)}px`;
+    // Pin to header bottom (not height) and overlap 1px to kill hairline of hub/scan bg.
+    const y = Math.round(top.getBoundingClientRect().bottom);
+    sheet.style.top = `${Math.max(0, y - 1)}px`;
+  }
+
+  function scheduleBrowseSheetPositionSync() {
+    syncBrowseSheetPosition();
+    requestAnimationFrame(() => {
+      syncBrowseSheetPosition();
+      requestAnimationFrame(syncBrowseSheetPosition);
+    });
   }
 
   function wireBrowseSheet() {
     const sheet = document.getElementById("tsdBrowseSheet");
     if (!sheet) return;
-    syncBrowseSheetPosition();
+    scheduleBrowseSheetPositionSync();
     const toScan = document.getElementById("tsdBrowseToScan");
     if (toScan) {
       toScan.addEventListener("click", () => {
@@ -1433,7 +1444,10 @@
         input.select();
       }, 40);
     }
-    if (view === "scan") renderScan({ keepSearchFocus: true });
+    if (view === "scan") {
+      renderScan({ keepSearchFocus: true });
+      scheduleBrowseSheetPositionSync();
+    }
   }
 
   function closeHeaderSearch() {
@@ -1481,10 +1495,12 @@
       state.filterOpen = true;
       syncSearchChrome();
       renderScan({ keepSearchFocus: true });
+      scheduleBrowseSheetPositionSync();
       return;
     }
     state.filterOpen = !state.filterOpen;
     syncSearchChrome();
+    scheduleBrowseSheetPositionSync();
   }
 
   function onFilterChange(kind) {
@@ -1503,7 +1519,10 @@
     if (hasActiveFilters()) openBrowseSheet();
     else if (!state.searchOpen) closeBrowseSheet();
     syncSearchChrome();
-    if (state.route.view === "scan") renderScan({ keepSearchFocus: true });
+    if (state.route.view === "scan") {
+      renderScan({ keepSearchFocus: true });
+      scheduleBrowseSheetPositionSync();
+    }
   }
 
   function orderSearchHaystack(row) {
@@ -2486,9 +2505,18 @@
       "scroll",
       () => {
         syncScrollTopFab();
+        if (document.getElementById("tsdBrowseSheet")) syncBrowseSheetPosition();
       },
       { passive: true }
     );
+    window.addEventListener("resize", () => {
+      if (document.getElementById("tsdBrowseSheet")) scheduleBrowseSheetPositionSync();
+    });
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", () => {
+        if (document.getElementById("tsdBrowseSheet")) scheduleBrowseSheetPositionSync();
+      });
+    }
     window.addEventListener("hashchange", onRoute);
   }
 
