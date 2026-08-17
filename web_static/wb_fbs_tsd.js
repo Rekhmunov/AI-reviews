@@ -1986,7 +1986,9 @@
     const rows = mode === "kiz" ? state.kizRows : state.pickRows;
     const fn = mode === "kiz" ? rowKizFilled : rowPickFilled;
     const { total, done } = countProgress(rows, fn);
-    prog.hidden = total <= 0;
+    // Keep hidden: the 4px --tsd-line track looked like a leftover divider above
+    // Готово/Осталось. Progress is already shown in .tsd-stats.
+    prog.hidden = true;
     fill.style.width = total ? `${Math.round((100 * done) / total)}%` : "0%";
   }
 
