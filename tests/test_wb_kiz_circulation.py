@@ -2292,6 +2292,7 @@ def test_purge_non_fbs_deletes_batches() -> None:
     assert "DELETE FROM wb_kiz_circulation_events" in sql
     # Only confirmed skipped+not_fbs without FBS match — never open pending via NOT EXISTS alone.
     assert "e.status = ?" in sql or "status = ?" in sql
+    assert "updated_at < ?" in sql
     assert "NOT IN" not in sql.split("DELETE FROM wb_kiz_circulation_events")[1][:500]
     params = conn.execute.call_args_list[1].args[1]
     assert circ.STATUS_SKIPPED in params

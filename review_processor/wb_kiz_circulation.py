@@ -149,6 +149,9 @@ CHZ_DOCUMENTS_PER_PREPARE = 40
 # Full event rows (UI/history) — ~6 months. Slim sent-CIS registry is kept forever.
 EVENT_RETENTION_DAYS = 180
 PURGE_BATCH_SIZE = 1000
+# Keep soft-skipped not_fbs for a while so late FBS hydrate can requeue them.
+# Immediate delete after sync persist would defeat repair_requeue_*.
+NOT_FBS_PURGE_MIN_AGE_DAYS = 14
 # Storage GC is not free — skip if ran recently (prepare can loop many rounds).
 STORAGE_MAINTAIN_MIN_INTERVAL_HOURS = 12
 
@@ -1051,10 +1054,13 @@ def purge_non_fbs_circulation_events(
     """Hard-delete confirmed non-FBS (e.g. FBO) skips from the circulation table.
 
     Only removes rows already marked ``skipped`` + ``not_fbs`` that still have
-    no local FBS match. Never deletes open ``pending`` / ``ready`` / ``error``
-    via a bare ``NOT EXISTS`` — an incomplete Marketplace sync must not wipe the
-    queue. Keeps ``submitted`` / ``accepted`` (CHZ audit). Requires at least one
-    local FBS order so an empty Marketplace table cannot wipe anything.
+    no local FBS match and are older than ``NOT_FBS_PURGE_MIN_AGE_DAYS``.
+    Never deletes open ``pending`` / ``ready`` / ``error`` via a bare
+    ``NOT EXISTS`` — an incomplete Marketplace sync must not wipe the queue.
+    Age gate preserves freshly persisted eligibility skips so
+    ``repair_requeue_*`` can reopen them after a late FBS hydrate.
+    Keeps ``submitted`` / ``accepted`` (CHZ audit). Requires at least one local
+    FBS order so an empty Marketplace table cannot wipe anything.
     """
     ensure_kiz_circulation_tables(repo)
     from . import wb_fbs as wb_fbs_mod
@@ -1074,6 +1080,9 @@ def purge_non_fbs_circulation_events(
     if fbs_n <= 0:
         return 0
     join_sql = _fbs_order_join_sql()
+    cutoff = (
+        datetime.now(timezone.utc) - timedelta(days=max(1, int(NOT_FBS_PURGE_MIN_AGE_DAYS)))
+    ).isoformat()
     deleted = 0
     for _ in range(100):
         _check_sync_cancelled(run_id)
@@ -1087,6 +1096,7 @@ def purge_non_fbs_circulation_events(
                       WHERE e.user_id = ? AND e.source_id = ?
                         AND e.status = ?
                         AND e.skip_reason = ?
+                        AND e.updated_at < ?
                         AND NOT EXISTS (
                           SELECT 1 FROM wb_fbs_orders AS o
                           WHERE {join_sql}
@@ -1101,6 +1111,7 @@ def purge_non_fbs_circulation_events(
                     source_id,
                     STATUS_SKIPPED,
                     SKIP_NOT_FBS,
+                    cutoff,
                     PURGE_BATCH_SIZE,
                 ),
             )
