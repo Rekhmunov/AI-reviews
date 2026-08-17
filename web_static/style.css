@@ -8687,6 +8687,10 @@ button.wb-fbs-select-all-link:disabled {
   padding: 20px 24px 16px;
   border-bottom: 1px solid #e2e8f0;
   background: #fff;
+  /* Owner sees extra actions (Маркировка + Проверка ШК); never let the flex
+     body crush this header — otherwise «Грузоместа» wraps off-screen under
+     overflow:hidden on .wb-fbs-supply-detail-modal. */
+  flex: 0 0 auto;
 }
 .wb-fbs-sd-title-row {
   display: flex;
@@ -8794,6 +8798,7 @@ button.wb-fbs-select-all-link:disabled {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  flex: 0 0 auto;
 }
 .wb-fbs-sd-actions .secondary {
   min-height: 40px;

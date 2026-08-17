@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=231" />
+  <link rel="stylesheet" href="/static/style.css?v=232" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -2071,6 +2071,8 @@
                             onclick="openWbFbsStickersByCategoryModal()">Печать по категориям</button>
                   </div>
                 </div>
+                <button type="button" class="secondary" id="wbFbsSupplyDetailTrbxBtn"
+                        onclick="openWbFbsCreateTrbxModal()" title="Создать грузоместа (короба) для ПВЗ">Грузоместа</button>
                 <div class="wb-fbs-kiz-split" id="wbFbsKizSplit" hidden>
                   <button type="button" class="secondary" id="wbFbsSupplyDetailKizBtn"
                           onclick="openWbFbsKizModal()" title="Указать маркировку">Маркировка</button>
@@ -2096,8 +2098,6 @@
                         title="Проверка ШК товаров без маркировки (только главный пользователь)">
                   Проверка ШК
                 </button>
-                <button type="button" class="secondary" id="wbFbsSupplyDetailTrbxBtn"
-                        onclick="openWbFbsCreateTrbxModal()" title="Создать грузоместа (короба) для ПВЗ">Грузоместа</button>
                 <button type="button" class="secondary" id="wbFbsSupplyDetailCancelledBtn"
                         onclick="openWbFbsCancelledOrdersModal()"
                         title="Проверить отмененные заказы в поставке">Отмененные заказы</button>
