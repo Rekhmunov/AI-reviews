@@ -9193,6 +9193,15 @@ button.wb-fbs-sd-portal-btn:focus-visible {
   outline: none;
   border-color: #cbd5e1;
 }
+.wb-fbs-kiz-scan-input.is-wait-rows,
+.wb-fbs-kiz-scan-input.is-wait-rows:focus {
+  opacity: 0.5;
+  cursor: not-allowed;
+  color: #64748b;
+  background: #f8fafc;
+  outline: none;
+  border-color: #cbd5e1;
+}
 .wb-fbs-kiz-toolbar-actions {
   display: flex;
   flex-wrap: wrap;

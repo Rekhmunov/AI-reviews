@@ -24473,7 +24473,7 @@ function _wbFbsKizStopSaveProgress() {
 
 /**
  * Disable KIZ toolbar filters until rows are loaded.
- * Search uses readonly (not disabled) so the hover tooltip still works.
+ * Search / sticker scan use readonly (not disabled) so the hover tooltip still works.
  */
 function _wbFbsKizSetFiltersReady(ready) {
   wbFbsKizState.rowsReady = !!ready;
@@ -24491,6 +24491,7 @@ function _wbFbsKizSetFiltersReady(ready) {
   const cancelledLabel = document.getElementById("wbFbsKizFilterCancelledLabel")
     || (cancelled && cancelled.closest("label"));
   const search = document.getElementById("wbFbsKizSearchFilter");
+  const sticker = document.getElementById("wbFbsKizStickerScan");
 
   const setLabelWait = (label, on) => {
     if (!label) return;
@@ -24511,6 +24512,34 @@ function _wbFbsKizSetFiltersReady(ready) {
     }
   };
 
+  const setInputWait = (input, on) => {
+    if (!input) return;
+    if (on) {
+      if (input.dataset.waitTitleSaved === undefined) {
+        input.dataset.waitTitleSaved = input.getAttribute("title") || "";
+      }
+      input.readOnly = true;
+      input.setAttribute("aria-disabled", "true");
+      input.classList.add("is-wait-rows");
+      input.setAttribute("title", tip);
+      input.tabIndex = -1;
+      if (document.activeElement === input) {
+        try { input.blur(); } catch (_) {}
+      }
+    } else {
+      input.readOnly = false;
+      input.removeAttribute("aria-disabled");
+      input.classList.remove("is-wait-rows");
+      input.removeAttribute("tabindex");
+      const saved = input.dataset.waitTitleSaved;
+      if (saved !== undefined) {
+        if (saved) input.setAttribute("title", saved);
+        else input.removeAttribute("title");
+        delete input.dataset.waitTitleSaved;
+      }
+    }
+  };
+
   if (filled) filled.disabled = !ready;
   if (empty) empty.disabled = !ready;
   if (errors) errors.disabled = !ready;
@@ -24519,33 +24548,8 @@ function _wbFbsKizSetFiltersReady(ready) {
   setLabelWait(emptyLabel, !ready);
   setLabelWait(errorsLabel, !ready);
   setLabelWait(cancelledLabel, !ready);
-
-  if (search) {
-    if (!ready) {
-      if (search.dataset.waitTitleSaved === undefined) {
-        search.dataset.waitTitleSaved = search.getAttribute("title") || "";
-      }
-      search.readOnly = true;
-      search.setAttribute("aria-disabled", "true");
-      search.classList.add("is-wait-rows");
-      search.setAttribute("title", tip);
-      search.tabIndex = -1;
-      if (document.activeElement === search) {
-        try { search.blur(); } catch (_) {}
-      }
-    } else {
-      search.readOnly = false;
-      search.removeAttribute("aria-disabled");
-      search.classList.remove("is-wait-rows");
-      search.removeAttribute("tabindex");
-      const saved = search.dataset.waitTitleSaved;
-      if (saved !== undefined) {
-        if (saved) search.setAttribute("title", saved);
-        else search.removeAttribute("title");
-        delete search.dataset.waitTitleSaved;
-      }
-    }
-  }
+  setInputWait(search, !ready);
+  setInputWait(sticker, !ready);
 }
 
 function _wbFbsKizSplitSetTone(tone) {
@@ -24846,7 +24850,7 @@ function _wbFbsKizRuLayoutModalOpen() {
 
 function clearWbFbsKizScanField(inputId) {
   const el = document.getElementById(String(inputId || ""));
-  if (!el) return;
+  if (!el || el.readOnly || el.disabled) return;
   el.value = "";
   el.focus();
 }
@@ -25044,6 +25048,9 @@ async function openWbFbsKizModal() {
   if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">Загрузка…</td></tr>`;
   const saveBtn = document.getElementById("wbFbsKizSaveBtn");
   if (saveBtn) saveBtn.disabled = true;
+  const scan = document.getElementById("wbFbsKizStickerScan");
+  if (scan) scan.value = "";
+  let loadOk = false;
   try {
     const params = new URLSearchParams({ source_id: String(wbFbsState.sourceId) });
     const res = await fetch(`/api/wb-fbs/supplies/${encodeURIComponent(sid)}/kiz?${params}`);
@@ -25058,11 +25065,7 @@ async function openWbFbsKizModal() {
     if (!wbFbsKizState.rows.length) {
       _wbFbsKizSetInfo("В поставке нет заказов, требующих маркировки КИЗ");
     }
-    const scan = document.getElementById("wbFbsKizStickerScan");
-    if (scan) {
-      scan.value = "";
-      setTimeout(() => scan.focus(), 50);
-    }
+    loadOk = true;
   } catch (e) {
     if (tbody) {
       tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty" style="color:#b91c1c">${_wbFbsEsc(e.message || e)}</td></tr>`;
@@ -25070,10 +25073,15 @@ async function openWbFbsKizModal() {
     _wbFbsKizSetInfo(String(e.message || e));
   } finally {
     if (saveBtn) saveBtn.disabled = false;
-    // Unlock filters after load attempt (success or error).
+    // Unlock filters + sticker after load attempt (success or error).
     if (document.getElementById("wbFbsKizModal")
       && !document.getElementById("wbFbsKizModal").classList.contains("hidden")) {
       _wbFbsKizSetFiltersReady(true);
+      if (loadOk && scan) {
+        setTimeout(() => {
+          try { scan.focus(); } catch (_) {}
+        }, 50);
+      }
     }
   }
 }
@@ -25697,6 +25705,7 @@ function onWbFbsKizStickerScanKey(event) {
   event.preventDefault();
   if (_wbFbsKizRuLayoutModalOpen()) return;
   const input = event.target;
+  if (input && (input.readOnly || input.disabled || !wbFbsKizState.rowsReady)) return;
   const rawTyped = String(input?.value || "").replace(/\s+/g, "").trim();
   if (!rawTyped) return;
   // Cyrillic first — before sticker↔order match and further checks.
