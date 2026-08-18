@@ -26237,6 +26237,7 @@ const wbFbsPickState = {
   errors: {},
   pendingOrderId: null,
   saving: false,
+  rowsReady: false,
   baselineByOrder: {},
   /** After optimistic-concurrency conflict, next save for these order_ids is forced. */
   forceSaveByOrder: {},
@@ -26289,6 +26290,87 @@ function _wbFbsPickResetFilters() {
   if (search) search.value = "";
 }
 
+/**
+ * Disable pick-verify filters + sticker scan until rows are loaded.
+ * Same wait UX as Маркировка (`_wbFbsKizSetFiltersReady`).
+ */
+function _wbFbsPickSetFiltersReady(ready) {
+  wbFbsPickState.rowsReady = !!ready;
+  const tip = "Дождитесь загрузки заказов";
+  const filled = document.getElementById("wbFbsPickFilterFilled");
+  const empty = document.getElementById("wbFbsPickFilterEmpty");
+  const errors = document.getElementById("wbFbsPickFilterErrors");
+  const cancelled = document.getElementById("wbFbsPickFilterCancelled");
+  const filledLabel = document.getElementById("wbFbsPickFilterFilledLabel")
+    || (filled && filled.closest("label"));
+  const emptyLabel = document.getElementById("wbFbsPickFilterEmptyLabel")
+    || (empty && empty.closest("label"));
+  const errorsLabel = document.getElementById("wbFbsPickFilterErrorsLabel")
+    || (errors && errors.closest("label"));
+  const cancelledLabel = document.getElementById("wbFbsPickFilterCancelledLabel")
+    || (cancelled && cancelled.closest("label"));
+  const search = document.getElementById("wbFbsPickSearchFilter");
+  const sticker = document.getElementById("wbFbsPickStickerScan");
+
+  const setLabelWait = (label, on) => {
+    if (!label) return;
+    if (on) {
+      if (label.dataset.waitTitleSaved === undefined) {
+        label.dataset.waitTitleSaved = label.getAttribute("title") || "";
+      }
+      label.classList.add("is-wait-rows");
+      label.setAttribute("title", tip);
+    } else {
+      label.classList.remove("is-wait-rows");
+      const saved = label.dataset.waitTitleSaved;
+      if (saved !== undefined) {
+        if (saved) label.setAttribute("title", saved);
+        else label.removeAttribute("title");
+        delete label.dataset.waitTitleSaved;
+      }
+    }
+  };
+
+  const setInputWait = (input, on) => {
+    if (!input) return;
+    if (on) {
+      if (input.dataset.waitTitleSaved === undefined) {
+        input.dataset.waitTitleSaved = input.getAttribute("title") || "";
+      }
+      input.readOnly = true;
+      input.setAttribute("aria-disabled", "true");
+      input.classList.add("is-wait-rows");
+      input.setAttribute("title", tip);
+      input.tabIndex = -1;
+      if (document.activeElement === input) {
+        try { input.blur(); } catch (_) {}
+      }
+    } else {
+      input.readOnly = false;
+      input.removeAttribute("aria-disabled");
+      input.classList.remove("is-wait-rows");
+      input.removeAttribute("tabindex");
+      const saved = input.dataset.waitTitleSaved;
+      if (saved !== undefined) {
+        if (saved) input.setAttribute("title", saved);
+        else input.removeAttribute("title");
+        delete input.dataset.waitTitleSaved;
+      }
+    }
+  };
+
+  if (filled) filled.disabled = !ready;
+  if (empty) empty.disabled = !ready;
+  if (errors) errors.disabled = !ready;
+  if (cancelled) cancelled.disabled = !ready;
+  setLabelWait(filledLabel, !ready);
+  setLabelWait(emptyLabel, !ready);
+  setLabelWait(errorsLabel, !ready);
+  setLabelWait(cancelledLabel, !ready);
+  setInputWait(search, !ready);
+  setInputWait(sticker, !ready);
+}
+
 function onWbFbsPickFilterFilledChange() {
   const filled = document.getElementById("wbFbsPickFilterFilled");
   const empty = document.getElementById("wbFbsPickFilterEmpty");
@@ -26307,7 +26389,7 @@ window.onWbFbsPickFilterEmptyChange = onWbFbsPickFilterEmptyChange;
 
 function clearWbFbsPickScanField(inputId) {
   const el = document.getElementById(String(inputId || ""));
-  if (!el) return;
+  if (!el || el.readOnly || el.disabled) return;
   el.value = "";
   el.focus();
 }
@@ -26345,6 +26427,7 @@ async function closeWbFbsPickVerifyModal(opts) {
   wbFbsPickState.forceSaveByOrder = {};
   wbFbsPickState.localAutosaveSeqByOrder = {};
   _wbFbsPickResetFilters();
+  _wbFbsPickSetFiltersReady(false);
   _wbFbsPickSetInfo("");
   return true;
 }
@@ -26365,11 +26448,15 @@ async function openWbFbsPickVerifyModal() {
   wbFbsPickState.forceSaveByOrder = {};
   wbFbsPickState.localAutosaveSeqByOrder = {};
   _wbFbsPickResetFilters();
+  _wbFbsPickSetFiltersReady(false);
   _wbFbsPickSetInfo("");
   const tbody = document.getElementById("wbFbsPickTbody");
   if (tbody) tbody.innerHTML = `<tr><td colspan="3" class="wb-fbs-empty">Загрузка…</td></tr>`;
   const saveBtn = document.getElementById("wbFbsPickVerifySaveBtn");
   if (saveBtn) saveBtn.disabled = true;
+  const scan = document.getElementById("wbFbsPickStickerScan");
+  if (scan) scan.value = "";
+  let loadOk = false;
   try {
     const params = new URLSearchParams({ source_id: String(wbFbsState.sourceId) });
     const res = await fetch(
@@ -26383,11 +26470,7 @@ async function openWbFbsPickVerifyModal() {
     if (!wbFbsPickState.rows.length) {
       _wbFbsPickSetInfo("В поставке нет заказов без маркировки КИЗ", true);
     }
-    const scan = document.getElementById("wbFbsPickStickerScan");
-    if (scan) {
-      scan.value = "";
-      setTimeout(() => scan.focus(), 50);
-    }
+    loadOk = true;
   } catch (e) {
     if (tbody) {
       tbody.innerHTML = `<tr><td colspan="3" class="wb-fbs-empty" style="color:#b91c1c">${_wbFbsEsc(e.message || e)}</td></tr>`;
@@ -26395,6 +26478,15 @@ async function openWbFbsPickVerifyModal() {
     _wbFbsPickSetInfo(String(e.message || e));
   } finally {
     if (saveBtn) saveBtn.disabled = false;
+    if (document.getElementById("wbFbsPickVerifyModal")
+      && !document.getElementById("wbFbsPickVerifyModal").classList.contains("hidden")) {
+      _wbFbsPickSetFiltersReady(true);
+      if (loadOk && scan) {
+        setTimeout(() => {
+          try { scan.focus(); } catch (_) {}
+        }, 50);
+      }
+    }
   }
 }
 window.openWbFbsPickVerifyModal = openWbFbsPickVerifyModal;
@@ -26902,6 +26994,7 @@ function onWbFbsPickStickerScanKey(event) {
   event.preventDefault();
   if (_wbFbsKizRuLayoutModalOpen()) return;
   const input = event.target;
+  if (input && (input.readOnly || input.disabled || !wbFbsPickState.rowsReady)) return;
   const rawTyped = String(input?.value || "").replace(/\s+/g, "").trim();
   if (!rawTyped) return;
   // Cyrillic first — before sticker↔order match (same as Маркировка).
