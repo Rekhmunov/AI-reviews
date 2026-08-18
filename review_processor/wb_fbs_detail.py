@@ -1941,6 +1941,7 @@ def build_kiz_marking_payload(
     local_kiz = wb.load_order_kiz_map(
         repo, user_id=user_id, source_id=source_id, order_ids=order_ids
     )
+    skip_gtin_map = repo.get_product_skip_kiz_gtin_check_map(user_id=user_id)
 
     rows: list[dict[str, Any]] = []
     for o in required_orders:
@@ -1988,6 +1989,14 @@ def build_kiz_marking_payload(
             and (has_local_draft or o.get("kiz_bound"))
         ):
             kiz_status = "pending"
+        article = str(o.get("article") or "").strip()
+        nm_key = str(o.get("nm_id") or "").strip()
+        skip_gtin = bool(
+            skip_gtin_map.get(article)
+            or skip_gtin_map.get(article.casefold())
+            or skip_gtin_map.get(nm_key)
+            or (nm_key and skip_gtin_map.get(nm_key.casefold()))
+        )
         rows.append(
             {
                 "order_id": oid,
@@ -2014,6 +2023,7 @@ def build_kiz_marking_payload(
                 "supplier_status": str(o.get("supplier_status") or ""),
                 "wb_status": str(o.get("wb_status") or ""),
                 "cancel_reason_label": str(o.get("cancel_reason_label") or ""),
+                "skip_kiz_gtin_check": skip_gtin,
             }
         )
     return {

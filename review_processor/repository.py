@@ -7394,6 +7394,7 @@ class ReviewRepository:
                 yandex_offer_id TEXT NOT NULL DEFAULT '',
                 box_qty INTEGER,
                 product_category TEXT NOT NULL DEFAULT '',
+                skip_kiz_gtin_check INTEGER NOT NULL DEFAULT 0,
                 photo_path TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -7412,6 +7413,9 @@ class ReviewRepository:
         conn.execute(
             "ALTER TABLE product_photos ADD COLUMN IF NOT EXISTS product_category TEXT NOT NULL DEFAULT ''"
         )
+        conn.execute(
+            "ALTER TABLE product_photos ADD COLUMN IF NOT EXISTS skip_kiz_gtin_check INTEGER NOT NULL DEFAULT 0"
+        )
 
     def list_product_photos(self, *, user_id: int) -> list[dict[str, Any]]:
         with self._connect() as conn:
@@ -7419,7 +7423,12 @@ class ReviewRepository:
                 self._sql("SELECT * FROM product_photos WHERE user_id = ? ORDER BY name ASC"),
                 (user_id,),
             ).fetchall()
-        return [self._row_to_dict(r) for r in rows]
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            d = self._row_to_dict(r)
+            d["skip_kiz_gtin_check"] = bool(int(d.get("skip_kiz_gtin_check") or 0))
+            out.append(d)
+        return out
 
     def add_product_photo(
         self, *, user_id: int, name: str, supplier_article: str,
@@ -7427,6 +7436,7 @@ class ReviewRepository:
         yandex_offer_id: str = "",
         box_qty: int | None = None,
         product_category: str = "",
+        skip_kiz_gtin_check: bool = False,
     ) -> dict[str, Any]:
         now = _utc_now()
         with self._connect() as conn:
@@ -7435,9 +7445,9 @@ class ReviewRepository:
                 self._sql("""
                 INSERT INTO product_photos (
                     user_id, name, supplier_article, wb_nmid, ozon_sku, yandex_offer_id,
-                    box_qty, product_category, photo_path, created_at, updated_at
+                    box_qty, product_category, skip_kiz_gtin_check, photo_path, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """),
                 (
                     user_id,
@@ -7448,13 +7458,17 @@ class ReviewRepository:
                     yandex_offer_id.strip(),
                     box_qty,
                     str(product_category or "").strip(),
+                    1 if skip_kiz_gtin_check else 0,
                     photo_path,
                     now,
                     now,
                 ),
             )
             row = conn.execute(self._sql("SELECT * FROM product_photos WHERE id = ?"), (product_id,)).fetchone()
-        return self._row_to_dict(row) if row else {}
+        d = self._row_to_dict(row) if row else {}
+        if d:
+            d["skip_kiz_gtin_check"] = bool(int(d.get("skip_kiz_gtin_check") or 0))
+        return d
 
     def update_product_photo(
         self, *, user_id: int, product_id: int, name: str, supplier_article: str,
@@ -7462,6 +7476,7 @@ class ReviewRepository:
         yandex_offer_id: str = "",
         box_qty: int | None = None,
         product_category: str = "",
+        skip_kiz_gtin_check: bool = False,
     ) -> bool:
         now = _utc_now()
         sets = [
@@ -7472,6 +7487,7 @@ class ReviewRepository:
             "yandex_offer_id=?",
             "box_qty=?",
             "product_category=?",
+            "skip_kiz_gtin_check=?",
             "updated_at=?",
         ]
         params: list[Any] = [
@@ -7482,6 +7498,7 @@ class ReviewRepository:
             yandex_offer_id.strip(),
             box_qty,
             str(product_category or "").strip(),
+            1 if skip_kiz_gtin_check else 0,
             now,
         ]
         if photo_path is not None:
@@ -7578,6 +7595,21 @@ class ReviewRepository:
                 val = str(r.get(field) or "").strip()
                 if val:
                     result[val] = url
+        return result
+
+    def get_product_skip_kiz_gtin_check_map(self, *, user_id: int) -> dict[str, bool]:
+        """Keys: supplier_article / wb_nmid (+ casefold) → skip GTIN↔ШК check in Маркировка."""
+        rows = self.list_product_photos(user_id=user_id)
+        result: dict[str, bool] = {}
+        for r in rows:
+            if not bool(r.get("skip_kiz_gtin_check")):
+                continue
+            for field in ("supplier_article", "wb_nmid"):
+                key = str(r.get(field) or "").strip()
+                if not key:
+                    continue
+                result[key] = True
+                result[key.casefold()] = True
         return result
 
     def _migrate_manually_closed_at(self, conn) -> None:
