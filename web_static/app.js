@@ -12689,6 +12689,8 @@ function openAddProductForm(editItem = null) {
   _fillProductCategorySelect(category);
   // Refresh options from server so modal edits are reflected immediately.
   loadProductCategories().then(() => _fillProductCategorySelect(category));
+  const skipGtin = document.getElementById("productFormSkipKizGtinCheck");
+  if (skipGtin) skipGtin.checked = !!editItem?.skip_kiz_gtin_check;
   document.getElementById("productFormPhoto").value = "";
   document.getElementById("productFormName").focus();
 }
@@ -12944,6 +12946,7 @@ async function saveProduct() {
   const yandexOfferId = String(document.getElementById("productFormYandexOfferId")?.value || "").trim();
   const boxQty = String(document.getElementById("productFormBoxQty")?.value || "").trim();
   const productCategory = String(document.getElementById("productFormCategory")?.value || "").trim();
+  const skipKizGtinCheck = !!document.getElementById("productFormSkipKizGtinCheck")?.checked;
   const photoFile = document.getElementById("productFormPhoto")?.files?.[0];
   const info = document.getElementById("productFormInfo");
   if (!name) { if (info) info.textContent = "Введите наименование"; return; }
@@ -12963,6 +12966,7 @@ async function saveProduct() {
   fd.append("yandex_offer_id", yandexOfferId);
   fd.append("box_qty", boxQty);
   fd.append("product_category", productCategory);
+  fd.append("skip_kiz_gtin_check", skipKizGtinCheck ? "1" : "0");
   if (photoFile) fd.append("photo", photoFile);
   try {
     const url = editId ? `/api/products/${editId}` : "/api/products";
@@ -24917,6 +24921,10 @@ function _wbFbsKizValidateMarkForOrder(mark, row) {
       ok: false,
       error: "Не удалось выделить GTIN из кода маркировки (ожидается префикс 01 и 14 цифр).",
     };
+  }
+  // Product catalog flag: skip GTIN↔ШК match only (still require a parseable GTIN).
+  if (row && row.skip_kiz_gtin_check) {
+    return { ok: true, gtin14 };
   }
   const candidates = _wbFbsKizGtinToProductSkus(gtin14);
   const orderSkus = _wbFbsKizOrderSkuSet(row);

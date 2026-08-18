@@ -416,6 +416,10 @@
         error: "Не удалось выделить GTIN из кода маркировки (ожидается префикс 01 и 14 цифр).",
       };
     }
+    // Product catalog flag: skip GTIN↔ШК match only (still require a parseable GTIN).
+    if (row && row.skip_kiz_gtin_check) {
+      return { ok: true };
+    }
     const candidates = [gtin];
     if (gtin.startsWith("0")) candidates.push(gtin.slice(1));
     const orderSkus = orderSkuSet(row);
