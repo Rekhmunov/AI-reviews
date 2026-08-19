@@ -3,17 +3,19 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
     QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMenu,
     QMessageBox,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
+    QToolButton,
     QVBoxLayout,
     QWidget,
     QAbstractItemView,
@@ -25,6 +27,7 @@ from PyQt5.QtWidgets import (
 from app.db import Database
 from app.services import SourceService
 from app.services.orders import OrdersService
+from app.ui.format_helpers import ago_label, make_badge, make_photo_label
 from app.ui.layout_utils import FlowLayout
 from app.wb.sync import sync_source
 
@@ -268,6 +271,11 @@ class FbsPage(QWidget):
         self.sel_label = QLabel("Выбрано 0 заказов")
         self.sel_label.setObjectName("selectedLabel")
         top_sel.addWidget(self.sel_label)
+        self.btn_select_page = QPushButton("Выбрать все на странице")
+        self.btn_select_page.setObjectName("linkBtn")
+        self.btn_select_page.clicked.connect(self.select_page)
+        self.btn_select_page.hide()
+        top_sel.addWidget(self.btn_select_page)
         self.btn_select_all_matching = QPushButton("Выбрать все подходящие")
         self.btn_select_all_matching.setObjectName("linkBtn")
         self.btn_select_all_matching.clicked.connect(self.select_all_matching)
@@ -294,6 +302,12 @@ class FbsPage(QWidget):
         self.btn_print_stickers = QPushButton("Стикеры товаров")
         self.btn_print_stickers.setObjectName("secondary")
         self.btn_print_stickers.clicked.connect(self.print_stickers)
+        self.btn_supply_sticker = QPushButton("Стикер поставки")
+        self.btn_supply_sticker.setObjectName("secondary")
+        self.btn_supply_sticker.clicked.connect(self.print_supply_sticker)
+        self.btn_box_stickers = QPushButton("Стикеры коробов")
+        self.btn_box_stickers.setObjectName("secondary")
+        self.btn_box_stickers.clicked.connect(self.print_box_stickers)
         self.btn_supply_qr = QPushButton("Напечатать QR-код поставки")
         self.btn_supply_qr.setObjectName("secondary")
         self.btn_supply_qr.clicked.connect(self.print_supply_qr)
@@ -302,6 +316,8 @@ class FbsPage(QWidget):
         bottom.addWidget(self.btn_add_supply)
         bottom.addWidget(self.btn_open_supply)
         bottom.addWidget(self.btn_print_stickers)
+        bottom.addWidget(self.btn_supply_sticker)
+        bottom.addWidget(self.btn_box_stickers)
         bottom.addWidget(self.btn_supply_qr)
         bottom_outer.addLayout(bottom)
         root.addWidget(self.bottom_bar)
@@ -334,7 +350,15 @@ class FbsPage(QWidget):
         pager.addWidget(self.next_btn)
         root.addLayout(pager)
 
-        self._search_timer_ticks = 0
+        # Web parity: live search waits 400ms after the last keystroke before
+        # re-querying (Enter still searches immediately via returnPressed).
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(400)
+        self._search_timer.timeout.connect(self.run_search)
+
+        self.table.itemSelectionChanged.connect(self.update_bottom_visibility)
+
         self.reload_sources()
 
     def _set_tab(self, key: str) -> None:
@@ -410,29 +434,52 @@ class FbsPage(QWidget):
         self.reload_table()
 
     def _on_search_debounce(self, _text: str) -> None:
-        pass
+        """Web parity: debounce 400ms, then rerun the same search as Enter."""
+        self._select_all_matching = False
+        self._search_timer.start()
 
     def update_bottom_visibility(self) -> None:
         is_new = self._tab == "new"
         is_asm = self._tab == "assembly"
         is_del = self._tab == "delivery"
+        sid = self._selected_supply_id() if (is_asm or is_del) else None
+        has_new_sel = bool(self._selected_order_ids) or self._select_all_matching
+
         self.collect_mgt_btn.setVisible(is_new)
-        self.btn_new_supply.setVisible(is_new)
-        self.btn_add_supply.setVisible(is_new)
-        self.btn_open_supply.setVisible(is_asm or is_del)
-        self.btn_print_stickers.setVisible(is_asm or is_new)
-        self.btn_supply_qr.setVisible(is_del)
+        self.btn_select_page.setVisible(is_new)
         self.btn_select_all_matching.setVisible(is_new)
         self.btn_clear_sel.setVisible(is_new and bool(self._selected_order_ids))
 
-        # Bottom bar always visible for tab actions
-        self.bottom_bar.setVisible(True)
-        if is_new and not self._selected_order_ids and not self._select_all_matching:
-            self.btn_new_supply.setEnabled(False)
-            self.btn_add_supply.setEnabled(False)
+        self.btn_new_supply.setVisible(is_new)
+        self.btn_add_supply.setVisible(is_new)
+        self.btn_open_supply.setVisible(bool(sid) and (is_asm or is_del))
+        self.btn_print_stickers.setVisible(
+            (is_new and has_new_sel) or (is_asm and bool(sid))
+        )
+        self.btn_supply_sticker.setVisible(is_asm and bool(sid))
+        self.btn_box_stickers.setVisible(is_asm and bool(sid))
+        self.btn_supply_qr.setVisible(is_del and bool(sid))
+
+        # Web parity: bottom bar hides entirely with no selection on the
+        # "new" tab; on assembly/delivery it hides until a supply row is
+        # picked (pagination below stays visible regardless).
+        if is_new:
+            visible = has_new_sel
+        elif is_asm or is_del:
+            visible = bool(sid)
+        else:
+            visible = False
+        self.bottom_bar.setVisible(visible)
+
+        if is_new:
+            self.btn_new_supply.setEnabled(has_new_sel)
+            self.btn_add_supply.setEnabled(has_new_sel)
         else:
             self.btn_new_supply.setEnabled(True)
             self.btn_add_supply.setEnabled(True)
+
+        if (is_asm or is_del) and sid:
+            self.sel_label.setText("Поставка {}".format(sid))
 
     def _update_tab_labels(self, counts: Dict[str, int]) -> None:
         mapping = (
@@ -506,17 +553,30 @@ class FbsPage(QWidget):
         self.page_label.setText("{}/{} · {}".format(self._page + 1, pages, total))
         self.update_bottom_visibility()
 
+    @staticmethod
+    def _bold_label(text: str, wrap: bool = False) -> QLabel:
+        lab = QLabel(text)
+        if wrap:
+            lab.setWordWrap(True)
+        f = lab.font()
+        f.setBold(True)
+        lab.setFont(f)
+        return lab
+
     def _fill_orders_table(self, rows: List[Dict[str, Any]]) -> None:
+        """Rich rows mirror web: photo / bold order+age / product+badges."""
         try:
             self.table.itemChanged.disconnect(self._on_check_change)
         except Exception:
             pass
-        cols = ["", "Заказ", "Товар", "Артикул", "Склад", "Тип", "Цена", "B2B", "ШК"]
+        cols = ["", "Фото", "Заказ", "Товар", "Склад", "Цена", "ШК"]
         self.table.blockSignals(True)
         self.table.clear()
         self.table.setColumnCount(len(cols))
         self.table.setHorizontalHeaderLabels(cols)
         self.table.setRowCount(len(rows))
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.verticalHeader().setDefaultSectionSize(88)
         for r, row in enumerate(rows):
             oid = int(row["order_id"])
             chk = QTableWidgetItem()
@@ -526,16 +586,53 @@ class FbsPage(QWidget):
             )
             chk.setData(Qt.UserRole, oid)
             self.table.setItem(r, 0, chk)
-            order_item = QTableWidgetItem(str(oid))
-            order_item.setFont(order_item.font())
-            f = order_item.font()
-            f.setBold(True)
-            order_item.setFont(f)
-            self.table.setItem(r, 1, order_item)
-            self.table.setItem(
-                r, 2, QTableWidgetItem(str(row.get("product_name") or ""))
-            )
-            self.table.setItem(r, 3, QTableWidgetItem(str(row.get("article") or "")))
+
+            photo_wrap = QWidget()
+            photo_lay = QVBoxLayout(photo_wrap)
+            photo_lay.setContentsMargins(8, 8, 8, 8)
+            photo_lay.setAlignment(Qt.AlignCenter)
+            photo_lay.addWidget(make_photo_label(row.get("product_photo"), 72))
+            self.table.setCellWidget(r, 1, photo_wrap)
+
+            order_widget = QWidget()
+            order_lay = QVBoxLayout(order_widget)
+            order_lay.setContentsMargins(10, 10, 10, 10)
+            order_lay.setSpacing(4)
+            order_lay.addWidget(self._bold_label(str(oid)))
+            ago = ago_label(row.get("created_at_wb"))
+            if ago:
+                order_lay.addWidget(make_badge(ago, "time"))
+            order_lay.addStretch(1)
+            self.table.setCellWidget(r, 2, order_widget)
+
+            prod_widget = QWidget()
+            prod_lay = QVBoxLayout(prod_widget)
+            prod_lay.setContentsMargins(10, 10, 10, 10)
+            prod_lay.setSpacing(4)
+            article = str(row.get("article") or "")
+            name = str(row.get("product_name") or article or "—")
+            prod_lay.addWidget(self._bold_label(name, wrap=True))
+            if article and row.get("product_name"):
+                sub = QLabel("Арт. {}".format(article))
+                sub.setObjectName("hint")
+                prod_lay.addWidget(sub)
+            badge_pairs = []
+            cargo = row.get("cargo_label")
+            if cargo:
+                badge_pairs.append((cargo, "cargo"))
+            if row.get("is_b2b"):
+                badge_pairs.append(("B2B", ""))
+            if badge_pairs:
+                badges_row = QHBoxLayout()
+                badges_row.setContentsMargins(0, 0, 0, 0)
+                badges_row.setSpacing(4)
+                for text, kind in badge_pairs:
+                    badges_row.addWidget(make_badge(text, kind))
+                badges_row.addStretch(1)
+                prod_lay.addLayout(badges_row)
+            prod_lay.addStretch(1)
+            self.table.setCellWidget(r, 3, prod_widget)
+
             self.table.setItem(
                 r,
                 4,
@@ -544,21 +641,16 @@ class FbsPage(QWidget):
                 ),
             )
             self.table.setItem(
-                r, 5, QTableWidgetItem(str(row.get("cargo_label") or ""))
-            )
-            self.table.setItem(
-                r, 6, QTableWidgetItem(str(row.get("price_label") or ""))
-            )
-            self.table.setItem(
-                r, 7, QTableWidgetItem("да" if row.get("is_b2b") else "")
+                r, 5, QTableWidgetItem(str(row.get("price_label") or ""))
             )
             skus = row.get("skus") or []
             self.table.setItem(
-                r, 8, QTableWidgetItem(", ".join(str(s) for s in skus[:3]))
+                r, 6, QTableWidgetItem(", ".join(str(s) for s in skus[:3]))
             )
         self.table.blockSignals(False)
         self.table.itemChanged.connect(self._on_check_change)
         self.table.setColumnWidth(0, 40)
+        self.table.setColumnWidth(1, 92)
 
     def _on_check_change(self, item: QTableWidgetItem) -> None:
         if item.column() != 0:
@@ -577,16 +669,39 @@ class FbsPage(QWidget):
         )
         self.update_bottom_visibility()
 
+    def _supply_row_menu(self, sid: str) -> QMenu:
+        """⋮ menu: web parity for delivery (QR) + preferred assembly actions."""
+        menu = QMenu(self)
+        if self._tab == "delivery":
+            menu.addAction(
+                "Напечатать QR-код поставки", lambda s=sid: self._supply_qr_for(s)
+            )
+        elif self._tab == "assembly":
+            menu.addAction(
+                "Стикеры товаров", lambda s=sid: self._print_stickers_for(s)
+            )
+            menu.addAction(
+                "Стикер поставки", lambda s=sid: self._supply_qr_for(s)
+            )
+            menu.addAction(
+                "Стикеры коробов", lambda s=sid: self._box_stickers_for(s)
+            )
+        return menu
+
     def _fill_supplies_table(self, rows: List[Dict[str, Any]]) -> None:
         try:
             self.table.itemChanged.disconnect(self._on_check_change)
         except Exception:
             pass
-        cols = ["Поставка", "Название", "Заказов", "Коробов", "Тип", "Статус", "B2B"]
+        cols = ["Поставка", "Название", "Заказов", "Коробов", "Тип", "Статус", "B2B", ""]
+        self.table.blockSignals(True)
         self.table.clear()
         self.table.setColumnCount(len(cols))
         self.table.setHorizontalHeaderLabels(cols)
         self.table.setRowCount(len(rows))
+        self.table.horizontalHeader().setStretchLastSection(False)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.table.verticalHeader().setDefaultSectionSize(44)
         for r, row in enumerate(rows):
             sid = str(row.get("supply_id") or "")
             item0 = QTableWidgetItem(sid)
@@ -595,7 +710,21 @@ class FbsPage(QWidget):
             f.setBold(True)
             item0.setFont(f)
             self.table.setItem(r, 0, item0)
-            self.table.setItem(r, 1, QTableWidgetItem(str(row.get("name") or "")))
+
+            name_widget = QWidget()
+            name_lay = QVBoxLayout(name_widget)
+            name_lay.setContentsMargins(10, 8, 10, 8)
+            name_lay.setSpacing(4)
+            name_lay.addWidget(self._bold_label(str(row.get("name") or ""), wrap=True))
+            if row.get("pickup_allowed"):
+                pvz_row = QHBoxLayout()
+                pvz_row.setContentsMargins(0, 0, 0, 0)
+                pvz_row.setSpacing(4)
+                pvz_row.addWidget(make_badge("Можно в ПВЗ", "pvz"))
+                pvz_row.addStretch(1)
+                name_lay.addLayout(pvz_row)
+            self.table.setCellWidget(r, 1, name_widget)
+
             self.table.setItem(
                 r, 2, QTableWidgetItem(str(row.get("order_count") or 0))
             )
@@ -611,6 +740,22 @@ class FbsPage(QWidget):
             self.table.setItem(
                 r, 6, QTableWidgetItem("да" if row.get("is_b2b") else "")
             )
+
+            actions_cell = QWidget()
+            actions_lay = QHBoxLayout(actions_cell)
+            actions_lay.setContentsMargins(4, 4, 4, 4)
+            actions_btn = QToolButton()
+            actions_btn.setObjectName("iconBtn")
+            actions_btn.setText("⋮")
+            actions_btn.setToolTip("Действия")
+            actions_btn.setPopupMode(QToolButton.InstantPopup)
+            actions_btn.setMenu(self._supply_row_menu(sid))
+            actions_lay.addWidget(actions_btn)
+            actions_lay.addStretch(1)
+            self.table.setCellWidget(r, 7, actions_cell)
+        self.table.blockSignals(False)
+        self.table.setColumnWidth(0, 120)
+        self.table.setColumnWidth(7, 56)
 
     def prev_page(self) -> None:
         if self._page > 0:
@@ -707,6 +852,19 @@ class FbsPage(QWidget):
         )
         self._selected_order_ids = set(ids)
         self._select_all_matching = True
+        self.reload_table()
+
+    def select_page(self) -> None:
+        """Web parity: header checkbox equivalent — check every visible row."""
+        if self._tab != "new":
+            return
+        for r in range(self.table.rowCount()):
+            item = self.table.item(r, 0)
+            if not item:
+                continue
+            oid = item.data(Qt.UserRole)
+            if oid is not None:
+                self._selected_order_ids.add(int(oid))
         self.reload_table()
 
     def run_search(self) -> None:
@@ -807,8 +965,69 @@ class FbsPage(QWidget):
         if self._tab in ("assembly", "delivery"):
             self.open_selected_supply()
 
-    def print_stickers(self) -> None:
+    def _print_stickers_for(self, sid: str) -> None:
+        """Product stickers for one supply, used by row menu and bottom bar."""
         from app.services.print_docs import print_supply_stickers
+
+        src = self.current_source()
+        if not src or not sid:
+            return
+        try:
+            print_supply_stickers(
+                self.db, self.orders, int(src["id"]), str(src["api_key"]), sid
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "Стикеры товаров", str(exc))
+
+    def _supply_qr_for(self, sid: str) -> None:
+        """Supply QR/sticker, used by row menu and bottom bar."""
+        from app.ui.dialogs_extra import show_supply_qr
+
+        src = self.current_source()
+        if not src or not sid:
+            return
+        try:
+            show_supply_qr(str(src["api_key"]), sid, self)
+        except Exception as exc:
+            QMessageBox.critical(
+                self,
+                "Стикер поставки",
+                "{}\n\nQR доступен после передачи поставки в доставку на портале WB.".format(
+                    exc
+                ),
+            )
+
+    def _box_stickers_for(self, sid: str) -> None:
+        """Box (TRBX) stickers for one supply, used by row menu and bottom bar."""
+        from app.services.trbx_stickers import TrbxService
+        from app.ui.dialogs_extra import show_png_list
+
+        src = self.current_source()
+        if not src or not sid:
+            return
+        trbx = TrbxService(self.db)
+        try:
+            boxes = trbx.refresh(int(src["id"]), str(src["api_key"]), sid)
+        except Exception:
+            boxes = trbx.list_boxes(int(src["id"]), sid)
+        ids = []
+        for b in boxes:
+            if isinstance(b, dict):
+                bid = str(b.get("id") or b.get("trbxId") or "").strip()
+            else:
+                bid = str(b or "").strip()
+            if bid:
+                ids.append(bid)
+        if not ids:
+            QMessageBox.information(self, "Стикеры коробов", "Нет грузомест")
+            return
+        try:
+            pngs = trbx.stickers_png(str(src["api_key"]), sid, ids)
+            show_png_list(pngs, "Стикеры коробов · {}".format(sid), self)
+        except Exception as exc:
+            QMessageBox.critical(self, "Стикеры коробов", str(exc))
+
+    def print_stickers(self) -> None:
         from app.ui.dialogs_extra import show_order_stickers
 
         src = self.current_source()
@@ -817,14 +1036,9 @@ class FbsPage(QWidget):
         if self._tab in ("assembly", "delivery"):
             sid = self._selected_supply_id()
             if not sid:
-                QMessageBox.information(self, "Стикеры", "Выберите поставку")
+                QMessageBox.information(self, "Стикеры товаров", "Выберите поставку")
                 return
-            try:
-                print_supply_stickers(
-                    self.db, self.orders, int(src["id"]), str(src["api_key"]), sid
-                )
-            except Exception as exc:
-                QMessageBox.critical(self, "Стикеры", str(exc))
+            self._print_stickers_for(sid)
             return
         ids = sorted(self._selected_order_ids)
         if not ids:
@@ -835,21 +1049,23 @@ class FbsPage(QWidget):
         except Exception as exc:
             QMessageBox.critical(self, "Стикеры", str(exc))
 
-    def print_supply_qr(self) -> None:
-        from app.ui.dialogs_extra import show_supply_qr
-
-        src = self.current_source()
+    def print_supply_sticker(self) -> None:
         sid = self._selected_supply_id()
-        if not src or not sid:
+        if not sid:
+            QMessageBox.information(self, "Стикер поставки", "Выберите поставку")
+            return
+        self._supply_qr_for(sid)
+
+    def print_box_stickers(self) -> None:
+        sid = self._selected_supply_id()
+        if not sid:
+            QMessageBox.information(self, "Стикеры коробов", "Выберите поставку")
+            return
+        self._box_stickers_for(sid)
+
+    def print_supply_qr(self) -> None:
+        sid = self._selected_supply_id()
+        if not sid:
             QMessageBox.information(self, "QR", "Выберите поставку")
             return
-        try:
-            show_supply_qr(str(src["api_key"]), sid, self)
-        except Exception as exc:
-            QMessageBox.critical(
-                self,
-                "QR поставки",
-                "{}\n\nQR доступен после передачи поставки в доставку на портале WB.".format(
-                    exc
-                ),
-            )
+        self._supply_qr_for(sid)
