@@ -217,6 +217,68 @@ QToolButton#secondary {
     border: 1px solid rgba(147, 197, 253, 0.7);
     background: #ffffff;
 }
+QToolButton#dangerToolBtn {
+    color: #b91c1c;
+    border: 1px solid #fca5a5;
+    background: #ffffff;
+    border-radius: 8px;
+    min-width: 28px;
+    max-width: 32px;
+    min-height: 28px;
+    max-height: 32px;
+    padding: 0;
+    font-size: 13px;
+    font-weight: 700;
+}
+QToolButton#dangerToolBtn:hover {
+    background: #fef2f2;
+    border-color: #f87171;
+}
+QToolButton#dangerToolBtn:pressed {
+    background: #fee2e2;
+}
+QToolButton#dangerToolBtn:focus {
+    border-color: #ef4444;
+}
+QToolButton#dangerToolBtn:disabled {
+    color: #fca5a5;
+    border-color: #fecaca;
+    background: #ffffff;
+}
+QPushButton#filterChip {
+    color: #1e40af;
+    border: 1px solid rgba(147, 197, 253, 0.7);
+    background: #ffffff;
+    border-radius: 999px;
+    padding: 6px 14px;
+    min-height: 32px;
+    font-size: 13px;
+    font-weight: 600;
+}
+QPushButton#filterChip:hover {
+    background: #eff6ff;
+    border-color: rgba(59, 130, 246, 0.72);
+}
+QPushButton#filterChip:pressed {
+    background: #dbeafe;
+}
+QPushButton#filterChip:checked {
+    color: #ffffff;
+    background: #2563eb;
+    border-color: #2563eb;
+}
+QPushButton#filterChip:checked:hover {
+    background: #1d4ed8;
+    border-color: #1d4ed8;
+}
+QPushButton#filterChip:focus {
+    border-color: #2563eb;
+}
+QPushButton#filterChip:disabled {
+    color: #94a3b8;
+    border-color: #e2e8f0;
+    background: #f8fafc;
+}
 QDialogButtonBox {
     button-layout: 0;
 }
