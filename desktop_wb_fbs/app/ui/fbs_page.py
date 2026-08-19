@@ -105,15 +105,8 @@ class FbsPage(QWidget):
         )
         self.stop_btn.clicked.connect(self.stop_sync)
         self.stop_btn.setEnabled(False)
-        self.auto_btn = QPushButton("Автоматика")
-        self.auto_btn.setProperty("class", "secondary")
-        self.auto_btn.setStyleSheet(
-            "background:#fff;color:#1e293b;border:1px solid #cbd5e1;"
-        )
-        self.auto_btn.clicked.connect(self.open_auto_settings)
         toolbar.addWidget(self.sync_btn)
         toolbar.addWidget(self.stop_btn)
-        toolbar.addWidget(self.auto_btn)
         toolbar.addStretch(1)
         self.search = QLineEdit()
         self.search.setPlaceholderText("Поиск: заказ, артикул, поставка…")
@@ -383,7 +376,8 @@ class FbsPage(QWidget):
             return
         if self._worker and self._worker.isRunning():
             return
-        lookback = int(self.db.get_setting("sync_lookback_days", "3") or 3)
+        # Fixed lookback (как ручной sync в вебе по умолчанию); без шестерёнки/автоматики.
+        lookback = 3
         self.sync_info.setText("Синхронизация…")
         self.sync_info.show()
         self.sync_btn.setEnabled(False)
@@ -429,12 +423,6 @@ class FbsPage(QWidget):
         self.stop_btn.setEnabled(False)
         self.sync_info.setText("Ошибка: {}".format(err))
         QMessageBox.critical(self, "Синхронизация", err)
-
-    def open_auto_settings(self) -> None:
-        from app.ui.dialogs_extra import AutoSyncDialog
-
-        dlg = AutoSyncDialog(self.db, self)
-        dlg.exec_()
 
     def collect_mgt(self) -> None:
         from app.ui.dialogs_extra import CollectMgtDialog
@@ -500,17 +488,25 @@ class FbsPage(QWidget):
             self.open_selected_supply()
 
     def print_stickers(self) -> None:
+        from app.services.print_docs import print_supply_stickers
         from app.ui.dialogs_extra import show_order_stickers
 
         src = self.current_source()
         if not src:
             return
-        ids = sorted(self._selected_order_ids)
-        if self._tab != "new":
+        if self._tab in ("assembly", "delivery"):
             sid = self._selected_supply_id()
-            if sid:
-                orders = self.orders.orders_in_supply(int(src["id"]), sid)
-                ids = [int(o["order_id"]) for o in orders]
+            if not sid:
+                QMessageBox.information(self, "Стикеры", "Выберите поставку")
+                return
+            try:
+                print_supply_stickers(
+                    self.db, self.orders, int(src["id"]), str(src["api_key"]), sid
+                )
+            except Exception as exc:
+                QMessageBox.critical(self, "Стикеры", str(exc))
+            return
+        ids = sorted(self._selected_order_ids)
         if not ids:
             QMessageBox.information(self, "Стикеры", "Нет заказов для печати")
             return

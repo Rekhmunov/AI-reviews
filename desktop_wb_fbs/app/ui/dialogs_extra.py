@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from collections import defaultdict
 from typing import Any, Dict, List, Optional
 
 from PyQt5.QtCore import Qt
@@ -10,17 +9,13 @@ from PyQt5.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
-    QFormLayout,
-    QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
     QScrollArea,
-    QSpinBox,
     QVBoxLayout,
     QWidget,
-    QCheckBox,
 )
 
 from app.db import Database
@@ -74,77 +69,6 @@ def show_supply_qr(
     show_png_list([png], "QR поставки {}".format(supply_id), parent)
 
 
-class AutoSyncDialog(QDialog):
-    def __init__(self, db: Database, parent: Optional[QWidget] = None) -> None:
-        super(AutoSyncDialog, self).__init__(parent)
-        self.db = db
-        self.setWindowTitle("Автоматика WB FBS")
-        form = QFormLayout(self)
-        self.lookback = QSpinBox()
-        self.lookback.setRange(1, 30)
-        self.lookback.setValue(int(db.get_setting("sync_lookback_days", "3") or 3))
-        self.auto_sync = QCheckBox("Автосинхронизация")
-        self.auto_sync.setChecked(db.get_setting("auto_sync_enabled") == "1")
-        self.sync_interval = QSpinBox()
-        self.sync_interval.setRange(15, 24 * 60)
-        self.sync_interval.setValue(
-            int(db.get_setting("auto_sync_interval_minutes", "60") or 60)
-        )
-        self.sync_from = QLineEdit(db.get_setting("auto_sync_active_from", "09:00"))
-        self.sync_to = QLineEdit(db.get_setting("auto_sync_active_to", "21:00"))
-        self.auto_mgt = QCheckBox("Автосбор МГТ")
-        self.auto_mgt.setChecked(db.get_setting("auto_collect_mgt_enabled") == "1")
-        self.mgt_interval = QSpinBox()
-        self.mgt_interval.setRange(15, 24 * 60)
-        self.mgt_interval.setValue(
-            int(db.get_setting("auto_collect_mgt_interval_minutes", "60") or 60)
-        )
-        self.mgt_from = QLineEdit(db.get_setting("auto_collect_mgt_active_from", "09:00"))
-        self.mgt_to = QLineEdit(db.get_setting("auto_collect_mgt_active_to", "21:00"))
-        form.addRow("Глубина sync (дней)", self.lookback)
-        form.addRow(self.auto_sync)
-        form.addRow("Интервал sync (мин)", self.sync_interval)
-        form.addRow("Окно MSK с", self.sync_from)
-        form.addRow("Окно MSK по", self.sync_to)
-        form.addRow(self.auto_mgt)
-        form.addRow("Интервал МГТ (мин)", self.mgt_interval)
-        form.addRow("МГТ MSK с", self.mgt_from)
-        form.addRow("МГТ MSK по", self.mgt_to)
-        note = QLabel(
-            "Планировщик автоматики в этой версии сохраняет настройки; "
-            "фоновый таймер можно включить в следующих итерациях."
-        )
-        note.setWordWrap(True)
-        note.setStyleSheet("color:#64748b;")
-        form.addRow(note)
-        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(self.save)
-        buttons.rejected.connect(self.reject)
-        form.addRow(buttons)
-
-    def save(self) -> None:
-        self.db.set_setting("sync_lookback_days", str(self.lookback.value()))
-        self.db.set_setting(
-            "auto_sync_enabled", "1" if self.auto_sync.isChecked() else "0"
-        )
-        self.db.set_setting(
-            "auto_sync_interval_minutes", str(self.sync_interval.value())
-        )
-        self.db.set_setting("auto_sync_active_from", self.sync_from.text().strip())
-        self.db.set_setting("auto_sync_active_to", self.sync_to.text().strip())
-        self.db.set_setting(
-            "auto_collect_mgt_enabled", "1" if self.auto_mgt.isChecked() else "0"
-        )
-        self.db.set_setting(
-            "auto_collect_mgt_interval_minutes", str(self.mgt_interval.value())
-        )
-        self.db.set_setting(
-            "auto_collect_mgt_active_from", self.mgt_from.text().strip()
-        )
-        self.db.set_setting("auto_collect_mgt_active_to", self.mgt_to.text().strip())
-        self.accept()
-
-
 class CollectMgtDialog(QDialog):
     def __init__(
         self,
@@ -154,74 +78,144 @@ class CollectMgtDialog(QDialog):
         parent: Optional[QWidget] = None,
     ) -> None:
         super(CollectMgtDialog, self).__init__(parent)
+        from app.services.collect_mgt import CollectMgtService
+
         self.db = db
         self.orders = orders
         self.source = source
+        self.svc = CollectMgtService(db, orders)
         self.setWindowTitle("Собрать все МГТ")
-        self.resize(520, 400)
+        self.resize(640, 480)
         root = QVBoxLayout(self)
-        self.lead = QLabel("Группы МГТ-заказов (склад × B2B):")
+        self.lead = QLabel("")
+        self.lead.setWordWrap(True)
         root.addWidget(self.lead)
-        self.body = QLabel("")
-        self.body.setWordWrap(True)
-        root.addWidget(self.body)
+
+        self.scroll = QWidget()
+        self.form = QVBoxLayout(self.scroll)
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setWidget(self.scroll)
+        root.addWidget(scroll_area, 1)
+
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.button(QDialogButtonBox.Ok).setText("Собрать")
         buttons.accepted.connect(self.do_collect)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
-        self.groups = self._plan()
-        lines = []
-        for g in self.groups:
-            lines.append(
-                "· склад {} · {} · заказов {}".format(
-                    g["warehouse_id"],
-                    "B2B" if g["is_b2b"] else "retail",
-                    len(g["order_ids"]),
+        self._ok_btn = buttons.button(QDialogButtonBox.Ok)
+        self._group_widgets = []  # type: List[Dict[str, Any]]
+        self._load()
+
+    def _load(self) -> None:
+        preview = self.svc.preview(int(self.source["id"]))
+        groups = list(preview.get("groups") or [])
+        self.lead.setText(
+            "МГТ в «Новых»: {} · групп: {}".format(
+                preview.get("mgt_count", 0), len(groups)
+            )
+        )
+        # clear form
+        while self.form.count():
+            item = self.form.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+        self._group_widgets = []
+        if not groups:
+            self.form.addWidget(QLabel("Нет МГТ-заказов для сбора"))
+            if self._ok_btn:
+                self._ok_btn.setEnabled(False)
+            return
+        for g in groups:
+            box = QWidget()
+            lay = QVBoxLayout(box)
+            lay.setContentsMargins(0, 8, 0, 8)
+            title = QLabel(
+                "<b>{}</b> — {} зак. · режим: {}".format(
+                    g.get("label") or "",
+                    g.get("order_count") or 0,
+                    {
+                        "create": "новая поставка",
+                        "add_one": "добавить в существующую",
+                        "choose": "выберите поставку",
+                    }.get(str(g.get("mode")), str(g.get("mode"))),
                 )
             )
-        self.body.setText("\n".join(lines) if lines else "Нет МГТ в «Новых»")
-        if not lines:
-            buttons.button(QDialogButtonBox.Ok).setEnabled(False)
-
-    def _plan(self) -> List[Dict[str, Any]]:
-        rows = self.orders.new_mgt_orders(int(self.source["id"]))
-        buckets = defaultdict(list)  # type: Dict[Any, List[int]]
-        meta = {}  # type: Dict[Any, Dict[str, Any]]
-        for r in rows:
-            key = (r.get("warehouse_id"), bool(int(r.get("is_b2b") or 0)))
-            buckets[key].append(int(r["order_id"]))
-            meta[key] = {
-                "warehouse_id": r.get("warehouse_id"),
-                "is_b2b": bool(int(r.get("is_b2b") or 0)),
-                "cargo_type": 1,
-            }
-        out = []
-        for key, oids in buckets.items():
-            m = meta[key]
-            out.append(
-                {
-                    "warehouse_id": m["warehouse_id"],
-                    "is_b2b": m["is_b2b"],
-                    "cargo_type": 1,
-                    "order_ids": oids,
-                    "name": default_mgt_supply_name(is_b2b=m["is_b2b"]),
-                }
+            title.setTextFormat(Qt.RichText)
+            lay.addWidget(title)
+            name_edit = QLineEdit(str(g.get("suggested_name") or ""))
+            combo = QComboBox()
+            combo.addItem("— создать новую —", "")
+            for s in g.get("compatible_supplies") or []:
+                combo.addItem(
+                    "{} · {} зак.{}".format(
+                        s.get("name") or s.get("supply_id"),
+                        s.get("orders_count") or 0,
+                        " (пустая)" if s.get("is_empty") else "",
+                    ),
+                    str(s.get("supply_id") or ""),
+                )
+            mode = str(g.get("mode") or "create")
+            if mode == "create":
+                lay.addWidget(QLabel("Название новой поставки"))
+                lay.addWidget(name_edit)
+                combo.hide()
+            elif mode == "add_one":
+                name_edit.hide()
+                default = str(g.get("default_supply_id") or "")
+                idx = combo.findData(default)
+                if idx >= 0:
+                    combo.setCurrentIndex(idx)
+                lay.addWidget(QLabel("Поставка"))
+                lay.addWidget(combo)
+            else:
+                lay.addWidget(QLabel("Название (если создать новую)"))
+                lay.addWidget(name_edit)
+                lay.addWidget(QLabel("Или выбрать существующую"))
+                lay.addWidget(combo)
+            self.form.addWidget(box)
+            self._group_widgets.append(
+                {"group": g, "name_edit": name_edit, "combo": combo}
             )
-        return out
+        self.form.addStretch(1)
 
     def do_collect(self) -> None:
-        try:
-            for g in self.groups:
-                self.orders.create_supply_from_orders(
-                    int(self.source["id"]),
-                    str(self.source["api_key"]),
-                    g["order_ids"],
-                    g["name"],
-                )
-            QMessageBox.information(
-                self, "МГТ", "Создано поставок: {}".format(len(self.groups))
+        decisions = []
+        for item in self._group_widgets:
+            g = item["group"]
+            sid = str(item["combo"].currentData() or "").strip()
+            name = item["name_edit"].text().strip()
+            mode = str(g.get("mode") or "create")
+            if mode == "choose":
+                mode = "add" if sid else "create"
+            elif mode == "add_one":
+                mode = "add_one"
+            else:
+                mode = "create"
+            decisions.append(
+                {
+                    "group_key": g.get("group_key"),
+                    "mode": mode,
+                    "supply_id": sid or g.get("default_supply_id") or "",
+                    "name": name or g.get("suggested_name") or "",
+                }
             )
+        try:
+            result = self.svc.execute(
+                int(self.source["id"]),
+                str(self.source["api_key"]),
+                decisions,
+            )
+            msg = "Создано: {}, добавлено в существующие: {}".format(
+                result.get("created", 0), result.get("added", 0)
+            )
+            errs = result.get("errors") or []
+            if errs:
+                msg += "\n\nОшибки:\n" + "\n".join(str(e) for e in errs[:5])
+                QMessageBox.warning(self, "МГТ", msg)
+            else:
+                QMessageBox.information(self, "МГТ", msg)
             self.accept()
         except Exception as exc:
             QMessageBox.critical(self, "МГТ", str(exc))

@@ -1,12 +1,10 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-import tempfile
-from pathlib import Path
+from functools import partial
 from typing import Any, Dict, List, Optional
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -20,7 +18,6 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
     QAbstractItemView,
-    QInputDialog,
 )
 
 from app.db import Database
@@ -64,7 +61,8 @@ class SupplyDetailDialog(QDialog):
 
         actions = QHBoxLayout()
         for text, slot, secondary in (
-            ("Лист подбора", self.picking_list, True),
+            ("Лист подбора", partial(self.picking_list, "summary"), True),
+            ("Расширенный лист подбора", partial(self.picking_list, "extended"), True),
             ("Стикеры", self.print_stickers, False),
             ("Маркировка", self.open_kiz, False),
             ("Проверка ШК", self.open_pick, False),
@@ -128,46 +126,33 @@ class SupplyDetailDialog(QDialog):
                 i, 5, QTableWidgetItem("да" if r.get("pick_verified") else "—")
             )
 
-    def picking_list(self) -> None:
-        rows = self.orders.orders_in_supply(self.source_id, self.supply_id)
-        lines = [
-            "<h2>Лист подбора · {}</h2>".format(self.supply_id),
-            "<table border=1 cellpadding=6 cellspacing=0>",
-            "<tr><th>Заказ</th><th>Артикул</th><th>ШК</th><th>Цена</th></tr>",
-        ]
-        for r in rows:
-            skus = ", ".join(str(s) for s in (r.get("skus") or []))
-            lines.append(
-                "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>".format(
-                    r.get("order_id"),
-                    r.get("article") or "",
-                    skus,
-                    r.get("price_label") or "",
-                )
-            )
-        lines.append("</table>")
-        html = "\n".join(lines)
-        path = Path(tempfile.gettempdir()) / "feedpilot_picking_{}.html".format(
-            self.supply_id
-        )
-        path.write_text(html, encoding="utf-8")
-        try:
-            from PyQt5.QtGui import QDesktopServices
-            from PyQt5.QtCore import QUrl
+    def picking_list(self, variant: str = "summary") -> None:
+        from app.services.print_docs import print_picking_list
 
-            QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
-        except Exception:
-            QMessageBox.information(self, "Лист подбора", "Сохранено: {}".format(path))
+        try:
+            path = print_picking_list(
+                self.db,
+                self.orders,
+                self.source_id,
+                self.api_key,
+                self.supply_id,
+                variant=variant,
+            )
+            self.meta.setText(self.meta.text() + " · открыт {}".format(path.name))
+        except Exception as exc:
+            QMessageBox.critical(self, "Лист подбора", str(exc))
 
     def print_stickers(self) -> None:
-        from app.ui.dialogs_extra import show_order_stickers
+        from app.services.print_docs import print_supply_stickers
 
-        rows = self.orders.orders_in_supply(self.source_id, self.supply_id)
-        ids = [int(r["order_id"]) for r in rows]
-        if not ids:
-            return
         try:
-            show_order_stickers(self.api_key, ids, self)
+            print_supply_stickers(
+                self.db,
+                self.orders,
+                self.source_id,
+                self.api_key,
+                self.supply_id,
+            )
         except Exception as exc:
             QMessageBox.critical(self, "Стикеры", str(exc))
 

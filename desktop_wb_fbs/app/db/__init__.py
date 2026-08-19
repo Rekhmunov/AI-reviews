@@ -124,23 +124,6 @@ class Database:
     def init_schema(self) -> None:
         with self.connect() as conn:
             conn.executescript(SCHEMA_SQL)
-            # Default automation settings
-            defaults = {
-                "sync_lookback_days": "3",
-                "auto_sync_enabled": "0",
-                "auto_sync_interval_minutes": "60",
-                "auto_sync_active_from": "09:00",
-                "auto_sync_active_to": "21:00",
-                "auto_collect_mgt_enabled": "0",
-                "auto_collect_mgt_interval_minutes": "60",
-                "auto_collect_mgt_active_from": "09:00",
-                "auto_collect_mgt_active_to": "21:00",
-            }
-            for key, value in defaults.items():
-                conn.execute(
-                    "INSERT OR IGNORE INTO app_settings(key, value) VALUES (?, ?)",
-                    (key, value),
-                )
             conn.commit()
 
     @contextmanager
