@@ -71,6 +71,16 @@ class TrbxService:
         client.delete_supply_boxes(supply_id, ids)
         self.refresh(source_id, api_key, supply_id)
 
+    def delete_one(
+        self, source_id: int, api_key: str, supply_id: str, box_id: str
+    ) -> None:
+        bid = str(box_id or "").strip()
+        if not bid:
+            raise ValueError("Укажите ID грузоместа")
+        client = WbFbsClient(api_key)
+        client.delete_supply_boxes(supply_id, [bid])
+        self.refresh(source_id, api_key, supply_id)
+
     def stickers_png(
         self, api_key: str, supply_id: str, box_ids: Optional[List[str]] = None
     ) -> List[bytes]:

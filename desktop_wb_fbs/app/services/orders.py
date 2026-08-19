@@ -33,22 +33,34 @@ class OrdersService:
         self.db = db
         self._product_title_cache = None  # type: ignore
 
-    def _product_maps(self) -> Tuple[Dict[str, str], Dict[str, str]]:
+    def _product_maps(self) -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]]:
         by_art = {}  # type: Dict[str, str]
         by_nm = {}  # type: Dict[str, str]
+        photo_by = {}  # type: Dict[str, str]
         for p in ProductService(self.db).list_all():
             name = str(p.get("name") or "").strip()
-            if not name:
-                continue
+            photo = str(p.get("photo_path") or "").strip()
             art = str(p.get("supplier_article") or "").strip().lower()
             nm = str(p.get("wb_nmid") or "").strip()
-            if art:
-                by_art[art] = name
-            if nm:
-                by_nm[nm] = name
-        return by_art, by_nm
+            if name:
+                if art:
+                    by_art[art] = name
+                if nm:
+                    by_nm[nm] = name
+            if photo:
+                if art:
+                    photo_by[art] = photo
+                if nm:
+                    photo_by[nm] = photo
+        return by_art, by_nm, photo_by
 
-    def _enrich_order(self, it: Dict[str, Any], by_art: Dict[str, str], by_nm: Dict[str, str]) -> Dict[str, Any]:
+    def _enrich_order(
+        self,
+        it: Dict[str, Any],
+        by_art: Dict[str, str],
+        by_nm: Dict[str, str],
+        photo_by: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
         it["cargo_label"] = cargo_type_label(it.get("cargo_type"))
         it["price_label"] = format_price_rub(
             it.get("final_price"), it.get("currency_code")
@@ -59,6 +71,8 @@ class OrdersService:
         art = str(it.get("article") or "").strip().lower()
         nm = str(it.get("nm_id") or "").strip()
         it["product_name"] = by_art.get(art) or by_nm.get(nm) or ""
+        photos = photo_by or {}
+        it["product_photo"] = photos.get(art) or photos.get(nm) or ""
         return it
 
     def tab_counts(self, source_id: int) -> Dict[str, int]:
@@ -146,8 +160,10 @@ class OrdersService:
                 ),
                 params + [limit, offset],
             ).fetchall()
-        by_art, by_nm = self._product_maps()
-        items = [self._enrich_order(dict(r), by_art, by_nm) for r in rows]
+        by_art, by_nm, photo_by = self._product_maps()
+        items = [
+            self._enrich_order(dict(r), by_art, by_nm, photo_by) for r in rows
+        ]
         return items, int(total["c"] if total else 0)
 
     def list_supplies(
@@ -194,6 +210,18 @@ class OrdersService:
             )
             it["is_b2b"] = bool(int(it.get("is_b2b") or 0))
             it["done"] = bool(int(it.get("done") or 0))
+            raw = {}
+            try:
+                raw = json.loads(it.get("raw_json") or "{}")
+            except Exception:
+                raw = {}
+            if isinstance(raw, dict):
+                it["pickup_allowed"] = bool(
+                    raw.get("isPickupPointShipmentAllowed")
+                    or raw.get("pickup_allowed")
+                )
+            else:
+                it["pickup_allowed"] = False
         return items, int(total["c"] if total else 0)
 
     def get_supply(self, source_id: int, supply_id: str) -> Optional[Dict[str, Any]]:
@@ -271,8 +299,10 @@ class OrdersService:
                 """,
                 (source_id, supply_id),
             ).fetchall()
-        by_art, by_nm = self._product_maps()
-        items = [self._enrich_order(dict(r), by_art, by_nm) for r in rows]
+        by_art, by_nm, photo_by = self._product_maps()
+        items = [
+            self._enrich_order(dict(r), by_art, by_nm, photo_by) for r in rows
+        ]
         for it in items:
             it["kiz_codes"] = parse_json_list(it.get("kiz_codes_json"))
             it["pick_verified"] = bool(int(it.get("pick_verified") or 0))
