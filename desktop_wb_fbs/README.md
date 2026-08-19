@@ -35,6 +35,10 @@ python -m pip install -r requirements.txt
 python run.py
 ```
 
+На Windows можно просто дважды кликнуть:
+- **`FeedPilot FBS.vbs`** — без чёрного окна (удобно каждый день)
+- **`FeedPilot FBS.bat`** — с консолью (если нужна ошибка на экране)
+
 Данные: `%APPDATA%/FeedPilotFBS/` (Windows) или `~/.local/share/FeedPilotFBS/` (Linux).
 
 ## Структура
