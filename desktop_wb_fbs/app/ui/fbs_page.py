@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtWidgets import (
     QComboBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -13,12 +14,12 @@ from PyQt5.QtWidgets import (
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
-    QTabWidget,
     QVBoxLayout,
     QWidget,
     QAbstractItemView,
     QHeaderView,
     QSpinBox,
+    QButtonGroup,
 )
 
 from app.db import Database
@@ -111,6 +112,8 @@ class SyncWorker(QThread):
 
 
 class FbsPage(QWidget):
+    """Layout mirrors web `#section-supplies-wb-fbs` (title → toolbar → tabs → table → bottom bar)."""
+
     def __init__(
         self, db: Database, sources: SourceService, orders: OrdersService
     ) -> None:
@@ -127,129 +130,231 @@ class FbsPage(QWidget):
         self._last_total = 0
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(16, 16, 16, 16)
+        root.setContentsMargins(24, 20, 24, 16)
         root.setSpacing(12)
 
+        # Title row: section title + source select (web .wb-fbs-title-row)
         title_row = QHBoxLayout()
+        title_row.setSpacing(12)
         title = QLabel("Поставки — ВБ ФБС")
-        title.setStyleSheet("font-size: 20px; font-weight: 600;")
+        title.setObjectName("sectionTitle")
         title_row.addWidget(title)
         title_row.addStretch(1)
         self.source_combo = QComboBox()
-        self.source_combo.setMinimumWidth(220)
+        self.source_combo.setMinimumWidth(180)
+        self.source_combo.setMaximumWidth(280)
+        self.source_combo.setToolTip("Источник")
         self.source_combo.currentIndexChanged.connect(self.on_source_change)
-        title_row.addWidget(QLabel("Источник"))
         title_row.addWidget(self.source_combo)
         root.addLayout(title_row)
 
-        toolbar = QHBoxLayout()
+        # Toolbar panel (web .wb-fbs-toolbar)
+        toolbar_panel = QFrame()
+        toolbar_panel.setObjectName("toolbarPanel")
+        tb = QVBoxLayout(toolbar_panel)
+        tb.setContentsMargins(16, 12, 16, 12)
+        tb.setSpacing(8)
+
+        top_controls = QHBoxLayout()
+        top_controls.setSpacing(8)
         self.sync_btn = QPushButton("Синхронизировать")
         self.sync_btn.clicked.connect(self.start_sync)
-        self.stop_btn = QPushButton("Стоп")
-        self.stop_btn.setProperty("class", "danger")
-        self.stop_btn.setStyleSheet(
-            "background:#fff;color:#b91c1c;border:1px solid #fca5a5;"
-        )
+        self.stop_btn = QPushButton("🛑")
+        self.stop_btn.setObjectName("iconBtn")
+        self.stop_btn.setToolTip("Остановить синхронизацию")
         self.stop_btn.clicked.connect(self.stop_sync)
         self.stop_btn.setEnabled(False)
-        toolbar.addWidget(self.sync_btn)
-        toolbar.addWidget(self.stop_btn)
-        toolbar.addStretch(1)
+        self.stop_btn.setVisible(False)
+        top_controls.addWidget(self.sync_btn)
+        top_controls.addWidget(self.stop_btn)
+        top_controls.addStretch(1)
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Поиск: заказ, артикул, поставка…")
+        self.search.setPlaceholderText("Поиск по заказу, артикулу, ШК…")
         self.search.setClearButtonEnabled(True)
-        self.search.setMinimumWidth(260)
+        self.search.setMinimumWidth(220)
+        self.search.setMaximumWidth(320)
+        self.search.setToolTip(
+            "Номер заказа: если нет во вкладках, сервис запросит его в WB API"
+        )
         self.search.returnPressed.connect(self.run_search)
         self.search.textChanged.connect(self._on_search_debounce)
-        toolbar.addWidget(self.search)
-        root.addLayout(toolbar)
+        top_controls.addWidget(self.search)
+        tb.addLayout(top_controls)
 
+        # Sync info (web .wb-fbs-sync-info) — text + pallets + close
+        self.sync_info_frame = QFrame()
+        self.sync_info_frame.setObjectName("syncInfo")
+        self.sync_info_frame.setProperty("state", "")
+        sif = QHBoxLayout(self.sync_info_frame)
+        sif.setContentsMargins(16, 12, 12, 12)
+        sif.setSpacing(12)
+        sync_main = QVBoxLayout()
+        sync_main.setSpacing(8)
         self.sync_info = QLabel("")
+        self.sync_info.setObjectName("syncInfoText")
         self.sync_info.setWordWrap(True)
-        self.sync_info.setStyleSheet(
-            "background:#eff6ff;border:1px solid #bfdbfe;padding:8px;border-radius:4px;"
-        )
-        self.sync_info.hide()
-        root.addWidget(self.sync_info)
         self.pallet_info = QLabel("")
+        self.pallet_info.setObjectName("syncPallets")
         self.pallet_info.setWordWrap(True)
-        self.pallet_info.setStyleSheet(
-            "background:#f8fafc;border:1px solid #e2e8f0;padding:8px;border-radius:4px;color:#334155;"
-        )
         self.pallet_info.hide()
-        root.addWidget(self.pallet_info)
+        sync_main.addWidget(self.sync_info)
+        sync_main.addWidget(self.pallet_info)
+        sif.addLayout(sync_main, 1)
+        self.sync_info_close = QPushButton("✕")
+        self.sync_info_close.setObjectName("iconBtn")
+        self.sync_info_close.setToolTip("Скрыть")
+        self.sync_info_close.clicked.connect(self._close_sync_info)
+        sif.addWidget(self.sync_info_close, 0, Qt.AlignTop)
+        self.sync_info_frame.hide()
+        tb.addWidget(self.sync_info_frame)
+        root.addWidget(toolbar_panel)
 
-        tabs_row = QHBoxLayout()
-        self.tabs = QTabWidget()
-        self.tabs.addTab(QWidget(), "Новые")
-        self.tabs.addTab(QWidget(), "На сборке")
-        self.tabs.addTab(QWidget(), "В доставке")
-        self.tabs.currentChanged.connect(self.on_tab_change)
-        # Use custom count labels via tab text updates
-        tabs_row.addWidget(self.tabs, 1)
-        self.collect_mgt_btn = QPushButton("Собрать все МГТ")
+        # Tabs row + collect MGT (web .wb-fbs-tabs-row)
+        tabs_frame = QFrame()
+        tabs_frame.setObjectName("tabsRow")
+        tabs_row = QHBoxLayout(tabs_frame)
+        tabs_row.setContentsMargins(0, 0, 4, 0)
+        tabs_row.setSpacing(12)
+
+        self._tab_group = QButtonGroup(self)
+        self._tab_group.setExclusive(True)
+        self.tab_btns = {}  # type: Dict[str, QPushButton]
+        for key, label in (
+            ("new", "Новые"),
+            ("assembly", "На сборке"),
+            ("delivery", "В доставке"),
+        ):
+            btn = QPushButton("{}  0".format(label))
+            btn.setObjectName("tabBtn")
+            btn.setCheckable(True)
+            btn.setCursor(Qt.PointingHandCursor)
+            self._tab_group.addButton(btn)
+            self.tab_btns[key] = btn
+            tabs_row.addWidget(btn)
+            btn.clicked.connect(lambda _=False, k=key: self._set_tab(k))
+        self.tab_btns["new"].setChecked(True)
+        tabs_row.addStretch(1)
+
+        self.collect_mgt_btn = QPushButton("Собрать все МГТ-заказы")
+        self.collect_mgt_btn.setObjectName("mgtBtn")
+        self.collect_mgt_btn.setToolTip("Собрать все МГТ-заказы текущего кабинета")
         self.collect_mgt_btn.clicked.connect(self.collect_mgt)
         tabs_row.addWidget(self.collect_mgt_btn)
-        root.addLayout(tabs_row)
+        root.addWidget(tabs_frame)
 
+        # Table
         self.table = QTableWidget(0, 0)
+        self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setShowGrid(False)
         self.table.doubleClicked.connect(self.on_row_double_click)
         root.addWidget(self.table, 1)
 
-        bottom = QHBoxLayout()
-        self.sel_label = QLabel("Выбрано: 0")
+        # Bottom selection bar (web .wb-fbs-bottom-bar)
+        self.bottom_bar = QFrame()
+        self.bottom_bar.setObjectName("bottomBar")
+        bottom = QHBoxLayout(self.bottom_bar)
+        bottom.setContentsMargins(16, 12, 16, 12)
+        bottom.setSpacing(12)
+
+        self.sel_label = QLabel("Выбрано 0 заказов")
+        self.sel_label.setObjectName("selectedLabel")
         bottom.addWidget(self.sel_label)
+
         self.btn_select_all_matching = QPushButton("Выбрать все подходящие")
-        self.btn_select_all_matching.setStyleSheet(
-            "background:#fff;color:#1e293b;border:1px solid #cbd5e1;"
-        )
+        self.btn_select_all_matching.setObjectName("linkBtn")
         self.btn_select_all_matching.clicked.connect(self.select_all_matching)
         self.btn_select_all_matching.hide()
         bottom.addWidget(self.btn_select_all_matching)
-        self.btn_new_supply = QPushButton("Новая поставка")
+        bottom.addStretch(1)
+
+        self.btn_new_supply = QPushButton("+  Новая поставка")
+        self.btn_new_supply.setObjectName("bottomPrimary")
         self.btn_new_supply.clicked.connect(self.create_supply)
         self.btn_add_supply = QPushButton("Добавить к существующей")
-        self.btn_add_supply.setStyleSheet(
-            "background:#fff;color:#1e293b;border:1px solid #cbd5e1;"
-        )
+        self.btn_add_supply.setObjectName("secondary")
         self.btn_add_supply.clicked.connect(self.add_to_supply)
         self.btn_open_supply = QPushButton("Открыть поставку")
+        self.btn_open_supply.setObjectName("secondary")
         self.btn_open_supply.clicked.connect(self.open_selected_supply)
-        self.btn_print_stickers = QPushButton("Стикеры")
+        self.btn_print_stickers = QPushButton("Стикеры товаров")
+        self.btn_print_stickers.setObjectName("secondary")
         self.btn_print_stickers.clicked.connect(self.print_stickers)
-        self.btn_supply_qr = QPushButton("QR поставки")
+        self.btn_supply_qr = QPushButton("Напечатать QR-код поставки")
+        self.btn_supply_qr.setObjectName("secondary")
         self.btn_supply_qr.clicked.connect(self.print_supply_qr)
+        self.btn_clear_sel = QPushButton("✕")
+        self.btn_clear_sel.setObjectName("iconBtn")
+        self.btn_clear_sel.setToolTip("Сбросить выбор")
+        self.btn_clear_sel.clicked.connect(self._clear_selection)
+
         bottom.addWidget(self.btn_new_supply)
         bottom.addWidget(self.btn_add_supply)
         bottom.addWidget(self.btn_open_supply)
         bottom.addWidget(self.btn_print_stickers)
         bottom.addWidget(self.btn_supply_qr)
-        bottom.addStretch(1)
-        bottom.addWidget(QLabel("На стр."))
+        bottom.addWidget(self.btn_clear_sel)
+        root.addWidget(self.bottom_bar)
+
+        # Pagination (quiet row under bar — web has infinite scroll; we keep pages)
+        pager = QHBoxLayout()
+        pager.setSpacing(8)
+        pager.addStretch(1)
+        pager_hint = QLabel("На стр.")
+        pager_hint.setObjectName("hint")
+        pager.addWidget(pager_hint)
         self.page_size = QSpinBox()
         self.page_size.setRange(30, 100)
         self.page_size.setSingleStep(10)
         self.page_size.setValue(50)
         self.page_size.valueChanged.connect(self.reload_table)
-        bottom.addWidget(self.page_size)
+        pager.addWidget(self.page_size)
         self.prev_btn = QPushButton("←")
+        self.prev_btn.setObjectName("secondary")
         self.prev_btn.setFixedWidth(40)
         self.prev_btn.clicked.connect(self.prev_page)
         self.next_btn = QPushButton("→")
+        self.next_btn.setObjectName("secondary")
         self.next_btn.setFixedWidth(40)
         self.next_btn.clicked.connect(self.next_page)
         self.page_label = QLabel("1")
-        bottom.addWidget(self.prev_btn)
-        bottom.addWidget(self.page_label)
-        bottom.addWidget(self.next_btn)
-        root.addLayout(bottom)
+        self.page_label.setObjectName("hint")
+        pager.addWidget(self.prev_btn)
+        pager.addWidget(self.page_label)
+        pager.addWidget(self.next_btn)
+        root.addLayout(pager)
 
         self._search_timer_ticks = 0
         self.reload_sources()
+
+    def _set_tab(self, key: str) -> None:
+        if key == self._tab and self.tab_btns[key].isChecked():
+            self.on_tab_change(key)
+            return
+        self.on_tab_change(key)
+
+    def _close_sync_info(self) -> None:
+        self.sync_info_frame.hide()
+        self.pallet_info.hide()
+
+    def _set_sync_state(self, state: str) -> None:
+        self.sync_info_frame.setProperty("state", state or "")
+        self.sync_info_frame.style().unpolish(self.sync_info_frame)
+        self.sync_info_frame.style().polish(self.sync_info_frame)
+
+    def _show_sync_info(self, text: str, state: str = "") -> None:
+        self.sync_info.setText(text)
+        self._set_sync_state(state)
+        self.sync_info_frame.show()
+
+    def _clear_selection(self) -> None:
+        self._selected_order_ids.clear()
+        self._select_all_matching = False
+        self.reload_table()
 
     def current_source(self) -> Optional[Dict[str, Any]]:
         idx = self.source_combo.currentIndex()
@@ -269,11 +374,12 @@ class FbsPage(QWidget):
             self.source_combo.addItem(str(s.get("name") or ""), s)
         self.source_combo.blockSignals(False)
         if self.source_combo.count() == 0:
-            self.sync_info.setText(
+            self._show_sync_info(
                 "Нет источников FBS. Откройте Настройки → Источники "
-                "и добавьте кабинет с «ФБС» в названии и ключом Marketplace."
+                "и добавьте кабинет с «ФБС» в названии и ключом Marketplace.",
+                "error",
             )
-            self.sync_info.show()
+            self.pallet_info.hide()
             self.table.setRowCount(0)
             return
         if current_id is not None:
@@ -288,8 +394,10 @@ class FbsPage(QWidget):
         self._page = 0
         self.reload_table()
 
-    def on_tab_change(self, index: int) -> None:
-        self._tab = {0: "new", 1: "assembly", 2: "delivery"}.get(index, "new")
+    def on_tab_change(self, key: str) -> None:
+        self._tab = key
+        for k, btn in self.tab_btns.items():
+            btn.setChecked(k == key)
         self._page = 0
         self._selected_order_ids.clear()
         self._select_all_matching = False
@@ -309,6 +417,25 @@ class FbsPage(QWidget):
         self.btn_print_stickers.setVisible(is_asm or is_new)
         self.btn_supply_qr.setVisible(is_del)
         self.btn_select_all_matching.setVisible(is_new)
+        self.btn_clear_sel.setVisible(is_new and bool(self._selected_order_ids))
+
+        # Bottom bar always visible for tab actions
+        self.bottom_bar.setVisible(True)
+        if is_new and not self._selected_order_ids and not self._select_all_matching:
+            self.btn_new_supply.setEnabled(False)
+            self.btn_add_supply.setEnabled(False)
+        else:
+            self.btn_new_supply.setEnabled(True)
+            self.btn_add_supply.setEnabled(True)
+
+    def _update_tab_labels(self, counts: Dict[str, int]) -> None:
+        mapping = (
+            ("new", "Новые", counts.get("new", 0)),
+            ("assembly", "На сборке", counts.get("assembly", 0)),
+            ("delivery", "В доставке", counts.get("delivery", 0)),
+        )
+        for key, label, n in mapping:
+            self.tab_btns[key].setText("{}  {}".format(label, n))
 
     def reload_table(self) -> None:
         self.update_bottom_visibility()
@@ -317,9 +444,7 @@ class FbsPage(QWidget):
             return
         sid = int(src["id"])
         counts = self.orders.tab_counts(sid)
-        self.tabs.setTabText(0, "Новые ({})".format(counts.get("new", 0)))
-        self.tabs.setTabText(1, "На сборке ({})".format(counts.get("assembly", 0)))
-        self.tabs.setTabText(2, "В доставке ({})".format(counts.get("delivery", 0)))
+        self._update_tab_labels(counts)
 
         limit = int(self.page_size.value())
         offset = self._page * limit
@@ -337,7 +462,9 @@ class FbsPage(QWidget):
                 and total > page_count
                 and not self._select_all_matching
             )
-            self.btn_select_all_matching.setEnabled(can_all or self._select_all_matching)
+            self.btn_select_all_matching.setEnabled(
+                can_all or self._select_all_matching
+            )
             if self._select_all_matching:
                 self.btn_select_all_matching.setText(
                     "Выбраны все {} · сбросить".format(total)
@@ -346,24 +473,32 @@ class FbsPage(QWidget):
                 self.btn_select_all_matching.setText(
                     "Выбрать все подходящие ({})".format(total)
                 )
+            n_sel = len(self._selected_order_ids)
+            self.sel_label.setText(
+                "Выбрано {} {}".format(
+                    n_sel, "заказ" if n_sel == 1 else "заказов"
+                )
+            )
         elif self._tab == "assembly":
             rows, total = self.orders.list_supplies(
                 sid, done=False, search=search, limit=limit, offset=offset
             )
             self._last_total = total
             self._fill_supplies_table(rows)
+            self.sel_label.setText("Поставки на сборке")
         else:
             rows, total = self.orders.list_supplies(
                 sid, done=True, search=search, limit=limit, offset=offset
             )
             self._last_total = total
             self._fill_supplies_table(rows)
+            self.sel_label.setText("Поставки в доставке")
 
         pages = max(1, (total + limit - 1) // limit)
         if self._page >= pages:
             self._page = pages - 1
         self.page_label.setText("{}/{} · {}".format(self._page + 1, pages, total))
-        self.sel_label.setText("Выбрано: {}".format(len(self._selected_order_ids)))
+        self.update_bottom_visibility()
 
     def _fill_orders_table(self, rows: List[Dict[str, Any]]) -> None:
         try:
@@ -385,16 +520,29 @@ class FbsPage(QWidget):
             )
             chk.setData(Qt.UserRole, oid)
             self.table.setItem(r, 0, chk)
-            self.table.setItem(r, 1, QTableWidgetItem(str(oid)))
+            order_item = QTableWidgetItem(str(oid))
+            order_item.setFont(order_item.font())
+            f = order_item.font()
+            f.setBold(True)
+            order_item.setFont(f)
+            self.table.setItem(r, 1, order_item)
             self.table.setItem(
                 r, 2, QTableWidgetItem(str(row.get("product_name") or ""))
             )
             self.table.setItem(r, 3, QTableWidgetItem(str(row.get("article") or "")))
             self.table.setItem(
-                r, 4, QTableWidgetItem(str(row.get("warehouse_label") or row.get("warehouse_id") or ""))
+                r,
+                4,
+                QTableWidgetItem(
+                    str(row.get("warehouse_label") or row.get("warehouse_id") or "")
+                ),
             )
-            self.table.setItem(r, 5, QTableWidgetItem(str(row.get("cargo_label") or "")))
-            self.table.setItem(r, 6, QTableWidgetItem(str(row.get("price_label") or "")))
+            self.table.setItem(
+                r, 5, QTableWidgetItem(str(row.get("cargo_label") or ""))
+            )
+            self.table.setItem(
+                r, 6, QTableWidgetItem(str(row.get("price_label") or ""))
+            )
             self.table.setItem(
                 r, 7, QTableWidgetItem("да" if row.get("is_b2b") else "")
             )
@@ -404,6 +552,7 @@ class FbsPage(QWidget):
             )
         self.table.blockSignals(False)
         self.table.itemChanged.connect(self._on_check_change)
+        self.table.setColumnWidth(0, 40)
 
     def _on_check_change(self, item: QTableWidgetItem) -> None:
         if item.column() != 0:
@@ -415,7 +564,12 @@ class FbsPage(QWidget):
             self._selected_order_ids.add(int(oid))
         else:
             self._selected_order_ids.discard(int(oid))
-        self.sel_label.setText("Выбрано: {}".format(len(self._selected_order_ids)))
+            self._select_all_matching = False
+        n_sel = len(self._selected_order_ids)
+        self.sel_label.setText(
+            "Выбрано {} {}".format(n_sel, "заказ" if n_sel == 1 else "заказов")
+        )
+        self.update_bottom_visibility()
 
     def _fill_supplies_table(self, rows: List[Dict[str, Any]]) -> None:
         try:
@@ -431,11 +585,20 @@ class FbsPage(QWidget):
             sid = str(row.get("supply_id") or "")
             item0 = QTableWidgetItem(sid)
             item0.setData(Qt.UserRole, sid)
+            f = item0.font()
+            f.setBold(True)
+            item0.setFont(f)
             self.table.setItem(r, 0, item0)
             self.table.setItem(r, 1, QTableWidgetItem(str(row.get("name") or "")))
-            self.table.setItem(r, 2, QTableWidgetItem(str(row.get("order_count") or 0)))
-            self.table.setItem(r, 3, QTableWidgetItem(str(row.get("boxes_count") or 0)))
-            self.table.setItem(r, 4, QTableWidgetItem(str(row.get("cargo_label") or "")))
+            self.table.setItem(
+                r, 2, QTableWidgetItem(str(row.get("order_count") or 0))
+            )
+            self.table.setItem(
+                r, 3, QTableWidgetItem(str(row.get("boxes_count") or 0))
+            )
+            self.table.setItem(
+                r, 4, QTableWidgetItem(str(row.get("cargo_label") or ""))
+            )
             self.table.setItem(
                 r, 5, QTableWidgetItem(str(row.get("status_label") or ""))
             )
@@ -460,13 +623,13 @@ class FbsPage(QWidget):
         if self._worker and self._worker.isRunning():
             return
         lookback = 3
-        self.sync_info.setText(
-            "Синхронизация {} источник(ов)…".format(len(all_sources))
+        self._show_sync_info(
+            "Синхронизация {} источник(ов)…".format(len(all_sources)), ""
         )
-        self.sync_info.show()
         self.pallet_info.hide()
         self.sync_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
+        self.stop_btn.setVisible(True)
         self._worker = SyncWorker(self.db, all_sources, lookback, self)
         self._worker.progress.connect(self._on_sync_progress)
         self._worker.finished_ok.connect(self._on_sync_done)
@@ -478,12 +641,12 @@ class FbsPage(QWidget):
             self._worker.request_stop()
 
     def _on_sync_progress(self, msg: str, n: int) -> None:
-        self.sync_info.setText("{} · заказов: {}".format(msg, n))
-        self.sync_info.show()
+        self._show_sync_info("{} · заказов: {}".format(msg, n), "")
 
     def _on_sync_done(self, result: dict) -> None:
         self.sync_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
+        self.stop_btn.setVisible(False)
         for src in self.sources.list_fbs_enabled():
             try:
                 self.sources.touch_synced(int(src["id"]))
@@ -499,9 +662,11 @@ class FbsPage(QWidget):
             msg += " (остановлено)"
         if err:
             msg += " · ошибки: " + "; ".join(str(e) for e in err[:3])
+        state = "error" if (err or result.get("scope_error")) else "ok"
         if result.get("scope_error") and result.get("message"):
             msg = str(result.get("message"))
-        self.sync_info.setText(msg)
+            state = "error"
+        self._show_sync_info(msg, state)
         pallets = result.get("pallet_summary") or []
         if pallets:
             lines = []
@@ -509,7 +674,7 @@ class FbsPage(QWidget):
                 lines.append(
                     "{}: {}".format(p.get("name") or "", p.get("pallets_label") or "")
                 )
-            self.pallet_info.setText("Паллеты (Новые + На сборке):\n" + "\n".join(lines))
+            self.pallet_info.setText("\n".join(lines))
             self.pallet_info.show()
         else:
             self.pallet_info.hide()
@@ -518,7 +683,8 @@ class FbsPage(QWidget):
     def _on_sync_fail(self, err: str) -> None:
         self.sync_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
-        self.sync_info.setText("Ошибка: {}".format(err))
+        self.stop_btn.setVisible(False)
+        self._show_sync_info("Ошибка: {}".format(err), "error")
         QMessageBox.critical(self, "Синхронизация", err)
 
     def select_all_matching(self) -> None:
@@ -557,24 +723,19 @@ class FbsPage(QWidget):
             if result.get("found"):
                 tab = str(result.get("tab") or "")
                 src_kind = result.get("source") or ""
-                self.sync_info.setText(
+                self._show_sync_info(
                     "Найден заказ {} ({}, вкладка «{}»)".format(
                         q,
                         "локально" if src_kind == "local" else "через WB",
                         tab or "—",
-                    )
+                    ),
+                    "ok",
                 )
-                self.sync_info.show()
-                # Switch to operational tab if possible
-                tab_idx = {"new": 0, "assembly": 1, "delivery": 2}.get(tab)
-                if tab_idx is not None and tab in ("new", "assembly", "delivery"):
-                    self.tabs.blockSignals(True)
-                    self.tabs.setCurrentIndex(tab_idx)
-                    self._tab = tab
-                    self.tabs.blockSignals(False)
+                if tab in self.tab_btns:
+                    self.on_tab_change(tab)
+                    return
             elif result.get("message"):
-                self.sync_info.setText(str(result.get("message")))
-                self.sync_info.show()
+                self._show_sync_info(str(result.get("message")), "")
         self.reload_table()
 
     def collect_mgt(self) -> None:

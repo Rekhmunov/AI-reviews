@@ -47,17 +47,17 @@ class SettingsPage(QWidget):
         self.categories = categories
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setContentsMargins(24, 20, 24, 16)
+        layout.setSpacing(12)
         title = QLabel("Настройки")
-        title.setStyleSheet("font-size: 20px; font-weight: 600;")
+        title.setObjectName("sectionTitle")
         layout.addWidget(title)
         hint = QLabel(
             "Нужны для работы ВБ ФБС: источники (токен Marketplace), товары "
             "(фото, короба, пропуск GTIN), категории (коробов на палете)."
         )
         hint.setWordWrap(True)
-        hint.setProperty("class", "hint")
-        hint.setStyleSheet("color:#64748b;")
+        hint.setObjectName("hint")
         layout.addWidget(hint)
 
         tabs = QTabWidget()
@@ -74,10 +74,10 @@ class SettingsPage(QWidget):
         add = QPushButton("Добавить")
         add.clicked.connect(self.add_source)
         edit = QPushButton("Изменить")
-        edit.setStyleSheet("background:#fff;color:#1e293b;border:1px solid #cbd5e1;")
+        edit.setObjectName("secondary")
         edit.clicked.connect(self.edit_source)
         delete = QPushButton("Удалить")
-        delete.setStyleSheet("background:#fff;color:#b91c1c;border:1px solid #fca5a5;")
+        delete.setObjectName("danger")
         delete.clicked.connect(self.delete_source)
         bar.addWidget(add)
         bar.addWidget(edit)
@@ -97,7 +97,7 @@ class SettingsPage(QWidget):
             "(и Контент для названий товаров)."
         )
         note.setWordWrap(True)
-        note.setStyleSheet("color:#64748b;")
+        note.setObjectName("hint")
         v.addWidget(note)
         self.reload_sources_table()
         return w
@@ -178,10 +178,10 @@ class SettingsPage(QWidget):
         add = QPushButton("Добавить")
         add.clicked.connect(self.add_product)
         edit = QPushButton("Изменить")
-        edit.setStyleSheet("background:#fff;color:#1e293b;border:1px solid #cbd5e1;")
+        edit.setObjectName("secondary")
         edit.clicked.connect(self.edit_product)
         delete = QPushButton("Удалить")
-        delete.setStyleSheet("background:#fff;color:#b91c1c;border:1px solid #fca5a5;")
+        delete.setObjectName("danger")
         delete.clicked.connect(self.delete_product)
         bar.addWidget(add)
         bar.addWidget(edit)
@@ -299,7 +299,7 @@ class SettingsPage(QWidget):
         note = QLabel(
             "Используется для оценки палет после синхронизации и печати стикеров по категориям."
         )
-        note.setStyleSheet("color:#64748b;")
+        note.setObjectName("hint")
         v.addWidget(note)
         self.reload_categories_table()
         return w
@@ -410,7 +410,7 @@ class ProductEditDialog(QDialog):
         self.skip_chk = QCheckBox("Без проверки GTIN маркировки (не сверять с ШК)")
         self.skip_chk.setChecked(bool(p.get("skip_kiz_gtin_check")))
         photo_btn = QPushButton("Выбрать фото…")
-        photo_btn.setStyleSheet("background:#fff;color:#1e293b;border:1px solid #cbd5e1;")
+        photo_btn.setObjectName("secondary")
         photo_btn.clicked.connect(self._pick_photo)
         self.photo_label = QLabel(str(p.get("photo_path") or "—"))
         form.addRow("Название", self.name_edit)

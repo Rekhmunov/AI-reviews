@@ -77,7 +77,7 @@ class KizDialog(QDialog):
         save = QPushButton("Сохранить в WB")
         save.clicked.connect(self.save_current)
         save_all = QPushButton("Сохранить все локальные → WB")
-        save_all.setStyleSheet("background:#fff;color:#1e293b;border:1px solid #cbd5e1;")
+        save_all.setObjectName("secondary")
         save_all.clicked.connect(self.save_all)
         bar.addWidget(save)
         bar.addWidget(save_all)

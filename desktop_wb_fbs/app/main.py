@@ -36,44 +36,43 @@ class MainWindow(QMainWindow):
         self.orders = OrdersService(db)
 
         self.setWindowTitle("{} — Поставки ВБ ФБС".format(APP_NAME))
-        self.resize(1200, 760)
+        self.resize(1280, 800)
         self.setMinimumSize(960, 600)
 
         root = QWidget()
         self.setCentralWidget(root)
-        layout = QHBoxLayout(root)
+        layout = QVBoxLayout(root)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        nav = QFrame()
-        nav.setObjectName("navPanel")
-        nav_l = QVBoxLayout(nav)
-        nav_l.setContentsMargins(0, 0, 0, 0)
-        nav_l.setSpacing(0)
+        top = QFrame()
+        top.setObjectName("topBar")
+        top_l = QHBoxLayout(top)
+        top_l.setContentsMargins(20, 0, 20, 0)
+        top_l.setSpacing(16)
+
+        brand_col = QVBoxLayout()
+        brand_col.setSpacing(0)
+        brand_col.setContentsMargins(0, 8, 0, 8)
         brand = QLabel(APP_NAME)
         brand.setObjectName("brandTitle")
         sub = QLabel("Локально · WB API · v{}".format(__version__))
         sub.setObjectName("brandSub")
-        nav_l.addWidget(brand)
-        nav_l.addWidget(sub)
+        brand_col.addWidget(brand)
+        brand_col.addWidget(sub)
+        top_l.addLayout(brand_col)
+        top_l.addSpacing(12)
 
-        self.btn_fbs = QPushButton("Поставки ВБ ФБС")
+        self.btn_fbs = QPushButton("Поставки — ВБ ФБС")
         self.btn_fbs.setCheckable(True)
-        self.btn_fbs.setProperty("class", "navBtn")
         self.btn_fbs.setObjectName("navBtn")
-        self.btn_fbs.setStyleSheet(
-            "QPushButton { text-align: left; padding: 12px 16px; border: none;"
-            " background: transparent; color: #cbd5e1; }"
-            "QPushButton:checked { background: #1d4ed8; color: white; }"
-            "QPushButton:hover { background: #1e293b; color: white; }"
-        )
         self.btn_settings = QPushButton("Настройки")
         self.btn_settings.setCheckable(True)
-        self.btn_settings.setStyleSheet(self.btn_fbs.styleSheet())
-        nav_l.addWidget(self.btn_fbs)
-        nav_l.addWidget(self.btn_settings)
-        nav_l.addStretch(1)
-        layout.addWidget(nav)
+        self.btn_settings.setObjectName("navBtn")
+        top_l.addWidget(self.btn_fbs)
+        top_l.addWidget(self.btn_settings)
+        top_l.addStretch(1)
+        layout.addWidget(top)
 
         self.stack = QStackedWidget()
         self.fbs_page = FbsPage(db, self.sources, self.orders)
@@ -99,7 +98,6 @@ class MainWindow(QMainWindow):
 
 
 def run() -> int:
-    # High-DPI friendly on Win10+, harmless on Win7
     try:
         QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
         QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)

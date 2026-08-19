@@ -84,10 +84,16 @@ class CollectMgtDialog(QDialog):
         self.orders = orders
         self.source = source
         self.svc = CollectMgtService(db, orders)
-        self.setWindowTitle("Собрать все МГТ")
-        self.resize(640, 480)
+        self.setWindowTitle("Собрать все МГТ-заказы")
+        self.resize(720, 520)
         root = QVBoxLayout(self)
+        root.setContentsMargins(24, 24, 24, 24)
+        root.setSpacing(16)
+        title = QLabel("Собрать все МГТ-заказы")
+        title.setObjectName("sectionTitle")
+        root.addWidget(title)
         self.lead = QLabel("")
+        self.lead.setObjectName("hint")
         self.lead.setWordWrap(True)
         root.addWidget(self.lead)
 
@@ -99,11 +105,16 @@ class CollectMgtDialog(QDialog):
         root.addWidget(scroll_area, 1)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.button(QDialogButtonBox.Ok).setText("Собрать")
+        ok = buttons.button(QDialogButtonBox.Ok)
+        ok.setText("Собрать")
+        ok.setObjectName("mgtBtn")
+        cancel = buttons.button(QDialogButtonBox.Cancel)
+        cancel.setText("Отмена")
+        cancel.setObjectName("secondary")
         buttons.accepted.connect(self.do_collect)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
-        self._ok_btn = buttons.button(QDialogButtonBox.Ok)
+        self._ok_btn = ok
         self._group_widgets = []  # type: List[Dict[str, Any]]
         self._load()
 

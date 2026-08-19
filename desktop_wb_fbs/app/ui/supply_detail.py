@@ -8,13 +8,17 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QDialog,
     QDialogButtonBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QMessageBox,
+    QMenu,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
+    QToolButton,
     QVBoxLayout,
     QWidget,
     QAbstractItemView,
@@ -49,61 +53,138 @@ class SupplyDetailDialog(QDialog):
         self.pick = PickVerifyService(db)
 
         self.setWindowTitle("Поставка {}".format(supply_id))
-        self.resize(960, 640)
+        self.resize(1100, 720)
 
         root = QVBoxLayout(self)
-        self.header = QLabel("")
-        self.header.setStyleSheet("font-size: 16px; font-weight: 600;")
-        root.addWidget(self.header)
-        self.meta = QLabel("")
-        self.meta.setStyleSheet("color:#64748b;")
-        root.addWidget(self.meta)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
-        actions = QHBoxLayout()
-        for text, slot, secondary in (
-            ("Лист подбора", partial(self.picking_list, "summary"), True),
-            ("Расширенный лист подбора", partial(self.picking_list, "extended"), True),
-            ("Стикеры", self.print_stickers, False),
-            ("Стикеры по категориям", self.stickers_by_category, True),
-            ("Маркировка", self.open_kiz, False),
-            ("Обновить статусы КИЗ", self.refresh_kiz_status, True),
-            ("Проверка ШК", self.open_pick, False),
-            ("Грузоместа", self.manage_trbx, True),
-            ("Отменённые заказы", self.show_cancelled, True),
-            ("QR поставки", self.print_qr, True),
-            ("Портал ВБ", self.open_portal, True),
+        # Header block mirrors web .wb-fbs-sd-header
+        header = QFrame()
+        header.setObjectName("sdHeader")
+        hv = QVBoxLayout(header)
+        hv.setContentsMargins(24, 20, 24, 16)
+        hv.setSpacing(12)
+
+        title_row = QHBoxLayout()
+        self.header = QLabel("")
+        self.header.setObjectName("sdTitle")
+        title_row.addWidget(self.header, 1)
+        close_x = QPushButton("✕")
+        close_x.setObjectName("iconBtn")
+        close_x.setToolTip("Закрыть")
+        close_x.clicked.connect(self.accept)
+        title_row.addWidget(close_x, 0, Qt.AlignTop)
+        hv.addLayout(title_row)
+
+        self.warehouse = QLabel("")
+        self.warehouse.setObjectName("sdMeta")
+        hv.addWidget(self.warehouse)
+
+        self.meta_chips = QHBoxLayout()
+        self.meta_chips.setSpacing(8)
+        hv.addLayout(self.meta_chips)
+        # Keep legacy meta label for picking_list status append
+        self.meta = QLabel("")
+        self.meta.setObjectName("sdMeta")
+        self.meta.setWordWrap(True)
+        hv.addWidget(self.meta)
+
+        actions_scroll = QScrollArea()
+        actions_scroll.setWidgetResizable(True)
+        actions_scroll.setFrameShape(QFrame.NoFrame)
+        actions_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        actions_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        actions_scroll.setFixedHeight(52)
+        actions_wrap = QWidget()
+        actions = QHBoxLayout(actions_wrap)
+        actions.setContentsMargins(0, 0, 0, 0)
+        actions.setSpacing(8)
+
+        def _sec(btn):
+            btn.setObjectName("secondary")
+            return btn
+
+        # Picking split (web .wb-fbs-picking-split)
+        pick_btn = _sec(QPushButton("Лист подбора"))
+        pick_btn.clicked.connect(partial(self.picking_list, "summary"))
+        pick_caret = QToolButton()
+        pick_caret.setObjectName("secondary")
+        pick_caret.setText("▾")
+        pick_caret.setPopupMode(QToolButton.InstantPopup)
+        pick_menu = QMenu(pick_caret)
+        pick_menu.addAction(
+            "Расширенный лист подбора", partial(self.picking_list, "extended")
+        )
+        pick_caret.setMenu(pick_menu)
+        actions.addWidget(pick_btn)
+        actions.addWidget(pick_caret)
+
+        st_btn = _sec(QPushButton("Стикеры"))
+        st_btn.clicked.connect(self.print_stickers)
+        st_caret = QToolButton()
+        st_caret.setObjectName("secondary")
+        st_caret.setText("▾")
+        st_caret.setPopupMode(QToolButton.InstantPopup)
+        st_menu = QMenu(st_caret)
+        st_menu.addAction("Печать по категориям", self.stickers_by_category)
+        st_caret.setMenu(st_menu)
+        actions.addWidget(st_btn)
+        actions.addWidget(st_caret)
+
+        kiz_btn = _sec(QPushButton("Маркировка"))
+        kiz_btn.clicked.connect(self.open_kiz)
+        actions.addWidget(kiz_btn)
+        kiz_ref = _sec(QPushButton("↻"))
+        kiz_ref.setFixedWidth(40)
+        kiz_ref.setToolTip("Проверить статусы КИЗ на ВБ")
+        kiz_ref.clicked.connect(self.refresh_kiz_status)
+        actions.addWidget(kiz_ref)
+
+        for text, slot in (
+            ("Проверка ШК", self.open_pick),
+            ("Грузоместа", self.manage_trbx),
+            ("Отменённые заказы", self.show_cancelled),
+            ("QR поставки", self.print_qr),
+            ("Портал ВБ", self.open_portal),
         ):
-            btn = QPushButton(text)
-            if secondary:
-                btn.setStyleSheet(
-                    "background:#fff;color:#1e293b;border:1px solid #cbd5e1;"
-                )
+            btn = _sec(QPushButton(text))
             btn.clicked.connect(slot)
             actions.addWidget(btn)
         actions.addStretch(1)
-        # Wrap actions in a scroll-friendly row via nested layout if needed
-        actions_wrap = QWidget()
-        actions_wrap.setLayout(actions)
-        root.addWidget(actions_wrap)
+        actions_scroll.setWidget(actions_wrap)
+        hv.addWidget(actions_scroll)
+        root.addWidget(header)
 
+        body = QVBoxLayout()
+        body.setContentsMargins(24, 16, 24, 20)
+        body.setSpacing(12)
         self.table = QTableWidget(0, 6)
+        self.table.setAlternatingRowColors(True)
         self.table.setHorizontalHeaderLabels(
             ["Заказ", "Артикул", "Тип", "Цена", "КИЗ", "Проверка"]
         )
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.horizontalHeader().setStretchLastSection(True)
-        root.addWidget(self.table, 1)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.Close)
-        buttons.rejected.connect(self.reject)
-        buttons.accepted.connect(self.accept)
-        close_btn = buttons.button(QDialogButtonBox.Close)
-        if close_btn:
-            close_btn.clicked.connect(self.accept)
-        root.addWidget(buttons)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setShowGrid(False)
+        body.addWidget(self.table, 1)
+        root.addLayout(body, 1)
 
         self.reload()
+
+    def _clear_chips(self) -> None:
+        while self.meta_chips.count():
+            item = self.meta_chips.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+
+    def _add_chip(self, text: str) -> None:
+        lab = QLabel(text)
+        lab.setObjectName("sdChip")
+        self.meta_chips.addWidget(lab)
 
     def reload(self) -> None:
         supply = self.orders.get_supply(self.source_id, self.supply_id)
@@ -111,21 +192,31 @@ class SupplyDetailDialog(QDialog):
             QMessageBox.warning(self, "Поставка", "Не найдена локально")
             return
         self.header.setText(str(supply.get("name") or self.supply_id))
-        self.meta.setText(
-            "ID {} · {} · заказов {} · коробов {} · {}".format(
-                self.supply_id,
-                cargo_type_label(supply.get("cargo_type")) or "—",
-                len(supply.get("order_ids") or []),
-                len(supply.get("boxes") or []),
-                supply_status_label(done=supply.get("done"), scan_dt=supply.get("scan_dt")),
-            )
+        self._clear_chips()
+        self._add_chip(cargo_type_label(supply.get("cargo_type")) or "—")
+        self._add_chip("заказов {}".format(len(supply.get("order_ids") or [])))
+        self._add_chip("коробов {}".format(len(supply.get("boxes") or [])))
+        self._add_chip(
+            supply_status_label(done=supply.get("done"), scan_dt=supply.get("scan_dt"))
         )
+        self.meta.setText("ID {}".format(self.supply_id))
         rows = self.orders.orders_in_supply(
             self.source_id, self.supply_id, api_key=self.api_key
         )
+        if rows:
+            wh = str(
+                rows[0].get("warehouse_label") or rows[0].get("warehouse_id") or ""
+            )
+            self.warehouse.setText(wh or "—")
+        else:
+            self.warehouse.setText("—")
         self.table.setRowCount(len(rows))
         for i, r in enumerate(rows):
-            self.table.setItem(i, 0, QTableWidgetItem(str(r.get("order_id"))))
+            oid_item = QTableWidgetItem(str(r.get("order_id")))
+            f = oid_item.font()
+            f.setBold(True)
+            oid_item.setFont(f)
+            self.table.setItem(i, 0, oid_item)
             name = str(r.get("product_name") or r.get("article") or "")
             self.table.setItem(i, 1, QTableWidgetItem(name))
             self.table.setItem(i, 2, QTableWidgetItem(str(r.get("cargo_label") or "")))
@@ -346,10 +437,10 @@ class TrbxDialog(QDialog):
         create = QPushButton("Создать")
         create.clicked.connect(self.create_boxes)
         refresh = QPushButton("Обновить")
-        refresh.setStyleSheet("background:#fff;color:#1e293b;border:1px solid #cbd5e1;")
+        refresh.setObjectName("secondary")
         refresh.clicked.connect(self.reload)
         delete = QPushButton("Удалить все")
-        delete.setStyleSheet("background:#fff;color:#b91c1c;border:1px solid #fca5a5;")
+        delete.setObjectName("danger")
         delete.clicked.connect(self.delete_all)
         stickers = QPushButton("Стикеры коробов")
         stickers.clicked.connect(self.print_stickers)
