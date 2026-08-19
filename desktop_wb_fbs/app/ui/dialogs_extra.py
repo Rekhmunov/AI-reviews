@@ -29,21 +29,33 @@ def show_png_list(
 ) -> None:
     dlg = QDialog(parent)
     dlg.setWindowTitle(title)
-    dlg.resize(520, 640)
+    # Near-square preview — not a tall strip
+    dlg.resize(560, 640)
+    dlg.setMinimumSize(440, 480)
     root = QVBoxLayout(dlg)
+    root.setContentsMargins(24, 20, 24, 20)
+    root.setSpacing(12)
+    heading = QLabel(title)
+    heading.setObjectName("dialogTitle")
+    heading.setWordWrap(True)
+    root.addWidget(heading)
     scroll = QScrollArea()
     scroll.setWidgetResizable(True)
+    scroll.setFrameShape(0)  # QFrame.NoFrame
     wrap = QWidget()
     lay = QVBoxLayout(wrap)
+    lay.setContentsMargins(0, 0, 8, 0)
+    lay.setSpacing(16)
     for raw in pngs:
         lab = QLabel()
+        lab.setAlignment(Qt.AlignCenter)
         pix = QPixmap()
         pix.loadFromData(raw)
-        lab.setPixmap(pix.scaledToWidth(400, Qt.SmoothTransformation))
+        lab.setPixmap(pix.scaledToWidth(420, Qt.SmoothTransformation))
         lay.addWidget(lab)
     lay.addStretch(1)
     scroll.setWidget(wrap)
-    root.addWidget(scroll)
+    root.addWidget(scroll, 1)
     buttons = QDialogButtonBox(QDialogButtonBox.Close)
     buttons.rejected.connect(dlg.reject)
     root.addWidget(buttons)
@@ -85,12 +97,13 @@ class CollectMgtDialog(QDialog):
         self.source = source
         self.svc = CollectMgtService(db, orders)
         self.setWindowTitle("Собрать все МГТ-заказы")
-        self.resize(720, 520)
+        self.resize(720, 560)
+        self.setMinimumSize(560, 440)
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 24, 24, 24)
         root.setSpacing(16)
         title = QLabel("Собрать все МГТ-заказы")
-        title.setObjectName("sectionTitle")
+        title.setObjectName("dialogTitle")
         root.addWidget(title)
         self.lead = QLabel("")
         self.lead.setObjectName("hint")
@@ -249,8 +262,19 @@ class SelectionSupplyDialog(QDialog):
         self.setWindowTitle(
             "Новая поставка" if mode == "create" else "Добавить к поставке"
         )
+        self.resize(520, 400)
+        self.setMinimumSize(440, 320)
         root = QVBoxLayout(self)
-        root.addWidget(QLabel("Заказов: {}".format(len(order_ids))))
+        root.setContentsMargins(24, 24, 24, 24)
+        root.setSpacing(16)
+        title = QLabel(
+            "Новая поставка" if mode == "create" else "Добавить к существующей"
+        )
+        title.setObjectName("dialogTitle")
+        root.addWidget(title)
+        count = QLabel("Заказов: {}".format(len(order_ids)))
+        count.setObjectName("hint")
+        root.addWidget(count)
 
         # Load order traits
         sid = int(source["id"])
@@ -276,7 +300,9 @@ class SelectionSupplyDialog(QDialog):
         if len(whs) > 1:
             errors.append("Нельзя смешивать склады")
         self.err = QLabel("\n".join(errors))
-        self.err.setStyleSheet("color:#b91c1c;")
+        self.err.setObjectName("hint")
+        self.err.setStyleSheet("color:#b91c1c; font-size: 15px;")
+        self.err.setWordWrap(True)
         root.addWidget(self.err)
 
         self.name_edit = QLineEdit(
@@ -284,10 +310,14 @@ class SelectionSupplyDialog(QDialog):
         )
         self.supply_combo = QComboBox()
         if mode == "create":
-            root.addWidget(QLabel("Название поставки"))
+            name_lab = QLabel("Название поставки")
+            name_lab.setObjectName("fieldLabel")
+            root.addWidget(name_lab)
             root.addWidget(self.name_edit)
         else:
-            root.addWidget(QLabel("Открытая совместимая поставка"))
+            name_lab = QLabel("Открытая совместимая поставка")
+            name_lab.setObjectName("fieldLabel")
+            root.addWidget(name_lab)
             root.addWidget(self.supply_combo)
             cargo = next(iter(cargos), 0)
             is_b2b = bool(next(iter(b2bs), False))
@@ -299,13 +329,17 @@ class SelectionSupplyDialog(QDialog):
                 )
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        ok = buttons.button(QDialogButtonBox.Ok)
+        ok.setText("Создать" if mode == "create" else "Добавить")
+        buttons.button(QDialogButtonBox.Cancel).setObjectName("secondary")
         buttons.accepted.connect(self.do_ok)
         buttons.rejected.connect(self.reject)
         if errors:
-            buttons.button(QDialogButtonBox.Ok).setEnabled(False)
+            ok.setEnabled(False)
         if mode == "add" and self.supply_combo.count() == 0:
-            buttons.button(QDialogButtonBox.Ok).setEnabled(False)
+            ok.setEnabled(False)
             self.err.setText((self.err.text() + "\nНет совместимых открытых поставок").strip())
+        root.addStretch(1)
         root.addWidget(buttons)
 
     def do_ok(self) -> None:

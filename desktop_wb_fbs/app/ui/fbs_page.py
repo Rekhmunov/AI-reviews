@@ -25,6 +25,7 @@ from PyQt5.QtWidgets import (
 from app.db import Database
 from app.services import SourceService
 from app.services.orders import OrdersService
+from app.ui.layout_utils import FlowLayout
 from app.wb.sync import sync_source
 
 
@@ -131,7 +132,7 @@ class FbsPage(QWidget):
 
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 20, 24, 16)
-        root.setSpacing(12)
+        root.setSpacing(16)
 
         # Title row: section title + source select (web .wb-fbs-title-row)
         title_row = QHBoxLayout()
@@ -152,8 +153,8 @@ class FbsPage(QWidget):
         toolbar_panel = QFrame()
         toolbar_panel.setObjectName("toolbarPanel")
         tb = QVBoxLayout(toolbar_panel)
-        tb.setContentsMargins(16, 12, 16, 12)
-        tb.setSpacing(8)
+        tb.setContentsMargins(16, 16, 16, 16)
+        tb.setSpacing(12)
 
         top_controls = QHBoxLayout()
         top_controls.setSpacing(8)
@@ -171,8 +172,8 @@ class FbsPage(QWidget):
         self.search = QLineEdit()
         self.search.setPlaceholderText("Поиск по заказу, артикулу, ШК…")
         self.search.setClearButtonEnabled(True)
-        self.search.setMinimumWidth(220)
-        self.search.setMaximumWidth(320)
+        self.search.setMinimumWidth(260)
+        self.search.setMaximumWidth(360)
         self.search.setToolTip(
             "Номер заказа: если нет во вкладках, сервис запросит его в WB API"
         )
@@ -250,28 +251,37 @@ class FbsPage(QWidget):
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(44)
         self.table.setShowGrid(False)
         self.table.doubleClicked.connect(self.on_row_double_click)
         root.addWidget(self.table, 1)
 
-        # Bottom selection bar (web .wb-fbs-bottom-bar)
+        # Bottom selection bar — wrapping actions so buttons stay readable
         self.bottom_bar = QFrame()
         self.bottom_bar.setObjectName("bottomBar")
-        bottom = QHBoxLayout(self.bottom_bar)
-        bottom.setContentsMargins(16, 12, 16, 12)
-        bottom.setSpacing(12)
+        bottom_outer = QVBoxLayout(self.bottom_bar)
+        bottom_outer.setContentsMargins(16, 12, 16, 12)
+        bottom_outer.setSpacing(8)
 
+        top_sel = QHBoxLayout()
+        top_sel.setSpacing(12)
         self.sel_label = QLabel("Выбрано 0 заказов")
         self.sel_label.setObjectName("selectedLabel")
-        bottom.addWidget(self.sel_label)
-
+        top_sel.addWidget(self.sel_label)
         self.btn_select_all_matching = QPushButton("Выбрать все подходящие")
         self.btn_select_all_matching.setObjectName("linkBtn")
         self.btn_select_all_matching.clicked.connect(self.select_all_matching)
         self.btn_select_all_matching.hide()
-        bottom.addWidget(self.btn_select_all_matching)
-        bottom.addStretch(1)
+        top_sel.addWidget(self.btn_select_all_matching)
+        top_sel.addStretch(1)
+        self.btn_clear_sel = QPushButton("✕")
+        self.btn_clear_sel.setObjectName("iconBtn")
+        self.btn_clear_sel.setToolTip("Сбросить выбор")
+        self.btn_clear_sel.clicked.connect(self._clear_selection)
+        top_sel.addWidget(self.btn_clear_sel)
+        bottom_outer.addLayout(top_sel)
 
+        bottom = FlowLayout(h_spacing=8, v_spacing=8)
         self.btn_new_supply = QPushButton("+  Новая поставка")
         self.btn_new_supply.setObjectName("bottomPrimary")
         self.btn_new_supply.clicked.connect(self.create_supply)
@@ -287,17 +297,13 @@ class FbsPage(QWidget):
         self.btn_supply_qr = QPushButton("Напечатать QR-код поставки")
         self.btn_supply_qr.setObjectName("secondary")
         self.btn_supply_qr.clicked.connect(self.print_supply_qr)
-        self.btn_clear_sel = QPushButton("✕")
-        self.btn_clear_sel.setObjectName("iconBtn")
-        self.btn_clear_sel.setToolTip("Сбросить выбор")
-        self.btn_clear_sel.clicked.connect(self._clear_selection)
 
         bottom.addWidget(self.btn_new_supply)
         bottom.addWidget(self.btn_add_supply)
         bottom.addWidget(self.btn_open_supply)
         bottom.addWidget(self.btn_print_stickers)
         bottom.addWidget(self.btn_supply_qr)
-        bottom.addWidget(self.btn_clear_sel)
+        bottom_outer.addLayout(bottom)
         root.addWidget(self.bottom_bar)
 
         # Pagination (quiet row under bar — web has infinite scroll; we keep pages)

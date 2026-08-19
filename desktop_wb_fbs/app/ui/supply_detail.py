@@ -14,7 +14,6 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QMenu,
     QPushButton,
-    QScrollArea,
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
@@ -28,6 +27,7 @@ from app.db import Database
 from app.services.kiz_pick import KizService, PickVerifyService
 from app.services.orders import OrdersService
 from app.services.trbx_stickers import StickersService, TrbxService
+from app.ui.layout_utils import FlowLayout
 from app.wb import cargo_type_label, supply_status_label
 
 
@@ -53,7 +53,9 @@ class SupplyDetailDialog(QDialog):
         self.pick = PickVerifyService(db)
 
         self.setWindowTitle("Поставка {}".format(supply_id))
-        self.resize(1100, 720)
+        # Natural landscape card (~16:10), not ultra-wide or short
+        self.resize(1040, 720)
+        self.setMinimumSize(880, 600)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -67,8 +69,10 @@ class SupplyDetailDialog(QDialog):
         hv.setSpacing(12)
 
         title_row = QHBoxLayout()
+        title_row.setSpacing(12)
         self.header = QLabel("")
         self.header.setObjectName("sdTitle")
+        self.header.setWordWrap(True)
         title_row.addWidget(self.header, 1)
         close_x = QPushButton("✕")
         close_x.setObjectName("iconBtn")
@@ -81,8 +85,7 @@ class SupplyDetailDialog(QDialog):
         self.warehouse.setObjectName("sdMeta")
         hv.addWidget(self.warehouse)
 
-        self.meta_chips = QHBoxLayout()
-        self.meta_chips.setSpacing(8)
+        self.meta_chips = FlowLayout(h_spacing=8, v_spacing=8)
         hv.addLayout(self.meta_chips)
         # Keep legacy meta label for picking_list status append
         self.meta = QLabel("")
@@ -90,22 +93,13 @@ class SupplyDetailDialog(QDialog):
         self.meta.setWordWrap(True)
         hv.addWidget(self.meta)
 
-        actions_scroll = QScrollArea()
-        actions_scroll.setWidgetResizable(True)
-        actions_scroll.setFrameShape(QFrame.NoFrame)
-        actions_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        actions_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        actions_scroll.setFixedHeight(52)
-        actions_wrap = QWidget()
-        actions = QHBoxLayout(actions_wrap)
-        actions.setContentsMargins(0, 0, 0, 0)
-        actions.setSpacing(8)
+        # Wrapping action row — no horizontal squeeze / fixed-height scroll
+        actions = FlowLayout(h_spacing=8, v_spacing=8)
 
         def _sec(btn):
             btn.setObjectName("secondary")
             return btn
 
-        # Picking split (web .wb-fbs-picking-split)
         pick_btn = _sec(QPushButton("Лист подбора"))
         pick_btn.clicked.connect(partial(self.picking_list, "summary"))
         pick_caret = QToolButton()
@@ -136,7 +130,7 @@ class SupplyDetailDialog(QDialog):
         kiz_btn.clicked.connect(self.open_kiz)
         actions.addWidget(kiz_btn)
         kiz_ref = _sec(QPushButton("↻"))
-        kiz_ref.setFixedWidth(40)
+        kiz_ref.setMinimumWidth(40)
         kiz_ref.setToolTip("Проверить статусы КИЗ на ВБ")
         kiz_ref.clicked.connect(self.refresh_kiz_status)
         actions.addWidget(kiz_ref)
@@ -151,9 +145,7 @@ class SupplyDetailDialog(QDialog):
             btn = _sec(QPushButton(text))
             btn.clicked.connect(slot)
             actions.addWidget(btn)
-        actions.addStretch(1)
-        actions_scroll.setWidget(actions_wrap)
-        hv.addWidget(actions_scroll)
+        hv.addLayout(actions)
         root.addWidget(header)
 
         body = QVBoxLayout()
@@ -168,6 +160,7 @@ class SupplyDetailDialog(QDialog):
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(44)
         self.table.setShowGrid(False)
         body.addWidget(self.table, 1)
         root.addLayout(body, 1)
@@ -177,6 +170,8 @@ class SupplyDetailDialog(QDialog):
     def _clear_chips(self) -> None:
         while self.meta_chips.count():
             item = self.meta_chips.takeAt(0)
+            if item is None:
+                break
             w = item.widget()
             if w:
                 w.deleteLater()
@@ -184,6 +179,7 @@ class SupplyDetailDialog(QDialog):
     def _add_chip(self, text: str) -> None:
         lab = QLabel(text)
         lab.setObjectName("sdChip")
+        lab.setMargin(0)
         self.meta_chips.addWidget(lab)
 
     def reload(self) -> None:
@@ -288,14 +284,23 @@ class SupplyDetailDialog(QDialog):
         rows = data.get("rows") or []
         dlg = QDialog(self)
         dlg.setWindowTitle("Отменённые заказы · {}".format(self.supply_id))
-        dlg.resize(640, 420)
+        dlg.resize(720, 520)
+        dlg.setMinimumSize(560, 400)
         lay = QVBoxLayout(dlg)
-        lay.addWidget(
-            QLabel("Найдено отменённых в поставке: {}".format(len(rows)))
-        )
+        lay.setContentsMargins(24, 20, 24, 20)
+        lay.setSpacing(12)
+        title = QLabel("Отменённые заказы")
+        title.setObjectName("dialogTitle")
+        lay.addWidget(title)
+        lead = QLabel("Найдено отменённых в поставке: {}".format(len(rows)))
+        lead.setObjectName("hint")
+        lay.addWidget(lead)
         table = QTableWidget(len(rows), 3)
+        table.setAlternatingRowColors(True)
         table.setHorizontalHeaderLabels(["Заказ", "Артикул", "Причина"])
         table.horizontalHeader().setStretchLastSection(True)
+        table.verticalHeader().setVisible(False)
+        table.verticalHeader().setDefaultSectionSize(40)
         for i, r in enumerate(rows):
             table.setItem(i, 0, QTableWidgetItem(str(r.get("order_id"))))
             table.setItem(i, 1, QTableWidgetItem(str(r.get("article") or "")))
@@ -325,11 +330,23 @@ class SupplyDetailDialog(QDialog):
             return
         dlg = QDialog(self)
         dlg.setWindowTitle("Стикеры по категориям")
-        dlg.resize(560, 480)
+        dlg.resize(680, 560)
+        dlg.setMinimumSize(560, 440)
         lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(24, 20, 24, 20)
+        lay.setSpacing(12)
+        title = QLabel("Печать по категориям")
+        title.setObjectName("dialogTitle")
+        lay.addWidget(title)
+        hint = QLabel("Отметьте группы товаров для печати стикеров.")
+        hint.setObjectName("hint")
+        lay.addWidget(hint)
         table = QTableWidget(len(groups), 4)
+        table.setAlternatingRowColors(True)
         table.setHorizontalHeaderLabels(["", "Категория", "Товар", "Шт"])
         table.horizontalHeader().setStretchLastSection(True)
+        table.verticalHeader().setVisible(False)
+        table.verticalHeader().setDefaultSectionSize(40)
         for i, g in enumerate(groups):
             chk = QTableWidgetItem()
             chk.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
@@ -348,6 +365,7 @@ class SupplyDetailDialog(QDialog):
         lay.addWidget(table, 1)
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.button(QDialogButtonBox.Ok).setText("Печать выбранных")
+        buttons.button(QDialogButtonBox.Cancel).setObjectName("secondary")
         buttons.accepted.connect(dlg.accept)
         buttons.rejected.connect(dlg.reject)
         lay.addWidget(buttons)
@@ -428,12 +446,19 @@ class TrbxDialog(QDialog):
         self.api_key = api_key
         self.supply_id = supply_id
         self.setWindowTitle("Грузоместа (TRBX)")
-        self.resize(480, 400)
+        self.resize(640, 520)
+        self.setMinimumSize(520, 420)
         root = QVBoxLayout(self)
-        bar = QHBoxLayout()
+        root.setContentsMargins(24, 20, 24, 20)
+        root.setSpacing(16)
+        title = QLabel("Грузоместа")
+        title.setObjectName("dialogTitle")
+        root.addWidget(title)
+        bar = FlowLayout(h_spacing=8, v_spacing=8)
         self.amount = QSpinBox()
         self.amount.setRange(1, 100)
         self.amount.setValue(1)
+        self.amount.setMinimumWidth(72)
         create = QPushButton("Создать")
         create.clicked.connect(self.create_boxes)
         refresh = QPushButton("Обновить")
@@ -443,8 +468,11 @@ class TrbxDialog(QDialog):
         delete.setObjectName("danger")
         delete.clicked.connect(self.delete_all)
         stickers = QPushButton("Стикеры коробов")
+        stickers.setObjectName("secondary")
         stickers.clicked.connect(self.print_stickers)
-        bar.addWidget(QLabel("Кол-во"))
+        qty_lab = QLabel("Кол-во")
+        qty_lab.setObjectName("fieldLabel")
+        bar.addWidget(qty_lab)
         bar.addWidget(self.amount)
         bar.addWidget(create)
         bar.addWidget(refresh)
@@ -452,8 +480,11 @@ class TrbxDialog(QDialog):
         bar.addWidget(stickers)
         root.addLayout(bar)
         self.list = QTableWidget(0, 1)
+        self.list.setAlternatingRowColors(True)
         self.list.setHorizontalHeaderLabels(["ID грузоместа"])
         self.list.horizontalHeader().setStretchLastSection(True)
+        self.list.verticalHeader().setVisible(False)
+        self.list.verticalHeader().setDefaultSectionSize(40)
         root.addWidget(self.list, 1)
         close = QDialogButtonBox(QDialogButtonBox.Close)
         close.rejected.connect(self.reject)

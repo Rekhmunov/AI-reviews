@@ -346,10 +346,15 @@ class SourceEditDialog(QDialog):
     def __init__(self, parent: Optional[QWidget] = None, src: Optional[Dict] = None) -> None:
         super(SourceEditDialog, self).__init__(parent)
         self.setWindowTitle("Источник WB FBS")
+        self.resize(480, 320)
+        self.setMinimumSize(420, 280)
         self.name = ""
         self.api_key = ""
         self.enabled = True
         form = QFormLayout(self)
+        form.setContentsMargins(24, 24, 24, 24)
+        form.setHorizontalSpacing(16)
+        form.setVerticalSpacing(16)
         self.name_edit = QLineEdit(str((src or {}).get("name") or "Кабинет ФБС"))
         self.key_edit = QLineEdit()
         self.key_edit.setEchoMode(QLineEdit.Password)
@@ -364,6 +369,7 @@ class SourceEditDialog(QDialog):
         form.addRow("API-ключ", self.key_edit)
         form.addRow("", self.enabled_chk)
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.button(QDialogButtonBox.Cancel).setObjectName("secondary")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         form.addRow(buttons)
@@ -387,8 +393,13 @@ class ProductEditDialog(QDialog):
     ) -> None:
         super(ProductEditDialog, self).__init__(parent)
         self.setWindowTitle("Товар")
+        self.resize(560, 480)
+        self.setMinimumSize(480, 400)
         self.photo_path = None  # type: Optional[str]
         form = QFormLayout(self)
+        form.setContentsMargins(24, 24, 24, 24)
+        form.setHorizontalSpacing(16)
+        form.setVerticalSpacing(12)
         p = product or {}
         self.name_edit = QLineEdit(str(p.get("name") or ""))
         self.article_edit = QLineEdit(str(p.get("supplier_article") or ""))
@@ -421,6 +432,7 @@ class ProductEditDialog(QDialog):
         form.addRow("", self.skip_chk)
         form.addRow(photo_btn, self.photo_label)
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.button(QDialogButtonBox.Cancel).setObjectName("secondary")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         form.addRow(buttons)
